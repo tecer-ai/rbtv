@@ -15,7 +15,7 @@ async function run(lines) {
   try {
     registerLaunchAgentJob(ctx);
     const now = new Date();
-    enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: now });
+    enqueueLaunchAgent(ctx, { runAt: now });
     lines.push('enqueued one due launch-agent job (silent worker)');
 
     let r = await ctx.ticker.tick(now);

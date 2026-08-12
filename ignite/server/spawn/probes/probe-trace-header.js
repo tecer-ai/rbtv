@@ -61,7 +61,7 @@ function fixture(over) {
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntracegoal,2026-08-06,,one-shot,active\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,tracer\n');
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: tracer\n---\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: tracer\nharness: bash\nmodel: trace-probe\n---\n');
 
   const dataRoot = path.join(root, 'data');
   fs.mkdirSync(dataRoot, { recursive: true });
@@ -70,13 +70,15 @@ function fixture(over) {
     auth: { senders_file: path.join(root, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
     default_workdir_root: ws,
-    profiles: {
+    'launch-specs': {
+      bash: {
       'trace-probe': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+        exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'trace-probe'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: ws,
         caps: { memory_max: '64M', runtime_max: '1h' },
         ...(over || {}),
+      },
       },
     },
   };
@@ -174,7 +176,7 @@ capture('probe-trace-header', async (lines) => {
       profile, workdir: f.seatDir,
     });
     try {
-      await f.mgr.spawn(row.exec_id, profile, 'headless', null, f.seatDir, 'probe');
+      await f.mgr.spawn(row.exec_id, 'headless', null, f.seatDir, 'probe');
       return { threw: false, execId: row.exec_id };
     } catch (err) {
       return { threw: true, execId: row.exec_id, code: err.code, message: err.message };
@@ -283,14 +285,14 @@ capture('probe-trace-header', async (lines) => {
         tmuxFixture(['new-session', '-d', '-s', ROOM, '-n', 'idle', 'sleep', '120']);
         roomUp = true;
         const row = f.store.recordExecutionStart({
-          jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'trace-probe' }),
+          jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({}),
           enqueuedBy: 'probe', sessionMode: 'headed', firedTick: 1, firedAt: new Date(),
           profile: 'trace-probe', workdir: f.seatDir,
         });
         const pre = fs.existsSync(f.sessionsCsv);
         let threw = null;
         try {
-          await f.mgr.spawnSeat(row.exec_id, 'trace-probe', { room: ROOM, seatName: 'tracer', seatDir: f.seatDir, enqueuedBy: 'probe' });
+          await f.mgr.spawnSeat(row.exec_id, { room: ROOM, seatName: 'tracer', seatDir: f.seatDir, enqueuedBy: 'probe' });
         } catch (err) { threw = err.code || err.message; }
         const v = assertOneDaemonRow(f, { execId: row.exec_id });
         const one = v.t && v.t.data[0];
@@ -310,13 +312,13 @@ capture('probe-trace-header', async (lines) => {
     {
       const f = make({ headed: { tui: { argv: ['sleep', '90'] } } });
       const row = f.store.recordExecutionStart({
-        jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'trace-probe' }),
+        jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({}),
         enqueuedBy: 'probe', sessionMode: 'headed', firedTick: 1, firedAt: new Date(),
         profile: 'trace-probe', workdir: f.seatDir,
       });
       let threw = null;
       try {
-        await f.mgr.spawnSeat(row.exec_id, 'trace-probe', { room: `${ROOM}-absent`, seatName: 'tracer', seatDir: f.seatDir, enqueuedBy: 'probe' });
+        await f.mgr.spawnSeat(row.exec_id, { room: `${ROOM}-absent`, seatName: 'tracer', seatDir: f.seatDir, enqueuedBy: 'probe' });
       } catch (err) { threw = err.code || err.message; }
       const t = rows(f.sessionsCsv);
       leg('T6', 'FAILURE ARM AT THE SEAT DOOR — a seat spawn into a room that does not exist leaves NO row and NO trace file',

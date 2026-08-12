@@ -26,7 +26,9 @@ function writeCfg(tmp, name, profiles) {
     bind: { host: '127.0.0.1', port: 7431 },
     spawn: { data_root: path.join(tmp, 'data') },
     default_workdir_root: path.join(tmp, 'default'),
-    profiles,
+    // 7.787: the malformed entries under test pin no model, so they are `jobs:` — the name-keyed
+    // block. Both blocks share ONE validator, so this exercises the same schema path it always did.
+    jobs: profiles,
   };
   const p = path.join(tmp, `${name}.yaml`);
   fs.writeFileSync(p, yaml.dump(cfg));
@@ -98,31 +100,44 @@ capture('probe-carriage-vocab', async (lines) => {
     const shippedStripped = path.join(tmp, 'shipped-stripped.yaml');
     fs.writeFileSync(shippedStripped, yaml.dump(raw));
     const cfg = loadConfig(shippedStripped);
-    const names = Object.keys(cfg.profiles);
-    // ── r-seats-only-architecture (2) — ONE PROFILE PER HARNESS+MODEL, EXEC LANE ONLY. The
+    // 7.787: the shipped roster is TWO blocks now — 13 (harness, model)-keyed launch specs plus
+    // the one name-keyed `jobs:` stand-in (`test-sleep`, D52). Both are swept, because the leg's
+    // subject is the CARRIAGE every shipped entry declares, and a `jobs:` entry launches through
+    // the same composer.
+    const specNames = Object.keys(cfg.launchSpecs);
+    const jobNames = Object.keys(cfg.jobs);
+    const all = [...specNames.map((n) => [n, cfg.launchSpecs[n]]), ...jobNames.map((n) => [n, cfg.jobs[n]])];
+    // ── r-seats-only-architecture (2) — ONE SPEC PER HARNESS+MODEL, EXEC LANE ONLY. The
     // 7.86 command lane (`command: { caged, portable }`) RETIRED with the daemon's sub-agent
-    // dispatch lane; the shipped roster is the owner-ruled 14 (2026-08-06): claude fable/opus/
-    // sonnet/haiku, codex-gpt-5-5, kimi, opencode glm-5-2/deepseek-flash/deepseek-pro/fugu/
-    // fugu-ultra/gemini-flash/gemini-pro, plus test-sleep (D52). The lane filter is kept so a
-    // command-lane profile REAPPEARING is caught by the equality below, never TypeError'd.
-    const execLane = names.filter((n) => cfg.profiles[n].exec);
-    const commandLane = names.filter((n) => !cfg.profiles[n].exec);
-    const carriages = execLane.map((n) => `${n}=${cfg.profiles[n].exec.prompt}`);
-    lines.push(`(6) shipped config loads cleanly: ${names.length} profiles = ${execLane.length} exec-lane [${carriages.join(', ')}] + ${commandLane.length} command-lane [${commandLane.join(', ')}]`);
-    // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. This leg exists to notice a profile appearing in
+    // dispatch lane; the shipped roster is the owner-ruled 13 casts (2026-08-06): claude fable/
+    // opus/sonnet/haiku, codex gpt-5.5, kimi, opencode glm-5.2/deepseek-flash/deepseek-pro/fugu/
+    // fugu-ultra/gemini-flash/gemini-pro, plus test-sleep (D52) in `jobs:`. The lane filter is kept
+    // so a command-lane entry REAPPEARING is caught by the equality below, never TypeError'd.
+    const execLane = all.filter(([, p]) => p.exec).map(([n]) => n);
+    const commandLane = all.filter(([, p]) => !p.exec).map(([n]) => n);
+    const byName = Object.fromEntries(all);
+    const carriages = execLane.map((n) => `${n}=${byName[n].exec.prompt}`);
+    lines.push(`(6) shipped config loads cleanly: ${all.length} entries (${specNames.length} launch-specs + ${jobNames.length} jobs) = ${execLane.length} exec-lane [${carriages.join(', ')}] + ${commandLane.length} command-lane [${commandLane.join(', ')}]`);
+    // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. This leg exists to notice an entry appearing in
     // (or vanishing from) the shipped config; a floor would stop noticing exactly that.
-    if (execLane.length !== 14) throw new Error(`(6) expected the 14 exec-lane shipped profiles, found ${execLane.length}: ${execLane.join(', ')}`);
-    // Zero command-lane profiles is a POSITIVE assertion, not an omission: the command lane
-    // retired with the daemon's sub-agent lane, and one reappearing must fire this leg.
-    if (commandLane.length !== 0) throw new Error(`(6) expected 0 command-lane shipped profiles (lane retired, r-seats-only-architecture (4)), found ${commandLane.length}: ${commandLane.join(', ')}`);
-    // UNWEAKENED, and applied to the exec lane exactly as before: `stdin` is the only headless
-    // carriage, and a shipped profile declares no headed carriage.
-    for (const n of execLane) {
-      if (cfg.profiles[n].exec.prompt !== 'stdin') throw new Error(`(6) shipped profile ${n} does not declare prompt: stdin`);
-      const headedCarriage = cfg.profiles[n].headed?.tui?.prompt;
-      if (headedCarriage !== undefined && headedCarriage !== null) throw new Error(`(6) shipped profile ${n} declares a headed carriage: ${headedCarriage}`);
+    if (execLane.length !== 14) throw new Error(`(6) expected the 14 exec-lane shipped entries, found ${execLane.length}: ${execLane.join(', ')}`);
+    // ⚠ AND THE SPLIT ITSELF IS ASSERTED (7.787): 13 castable pairs and exactly one name-keyed job.
+    // Without this, a job row silently migrating back into `launch-specs:` — the ambiguity
+    // `#d-abolish-profile-names` sub-ruling 1 removed — would keep the total at 14 and go unseen.
+    if (specNames.length !== 13 || jobNames.length !== 1) {
+      throw new Error(`(6) expected 13 launch-specs + 1 job, found ${specNames.length} + ${jobNames.length}`);
     }
-    lines.push(`RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the ${execLane.length} shipped exec-lane stdin profiles load cleanly, and the command lane is asserted EMPTY (retired with the sub-agent lane).`);
+    // Zero command-lane entries is a POSITIVE assertion, not an omission: the command lane
+    // retired with the daemon's sub-agent lane, and one reappearing must fire this leg.
+    if (commandLane.length !== 0) throw new Error(`(6) expected 0 command-lane shipped entries (lane retired, r-seats-only-architecture (4)), found ${commandLane.length}: ${commandLane.join(', ')}`);
+    // UNWEAKENED, and applied to the exec lane exactly as before: `stdin` is the only headless
+    // carriage, and a shipped entry declares no headed carriage.
+    for (const n of execLane) {
+      if (byName[n].exec.prompt !== 'stdin') throw new Error(`(6) shipped entry ${n} does not declare prompt: stdin`);
+      const headedCarriage = byName[n].headed?.tui?.prompt;
+      if (headedCarriage !== undefined && headedCarriage !== null) throw new Error(`(6) shipped entry ${n} declares a headed carriage: ${headedCarriage}`);
+    }
+    lines.push(`RESULT: file/argv-last/argv (and the {prompt} slot) all fail config load LOUDLY; the ${execLane.length} shipped exec-lane stdin entries load cleanly, and the command lane is asserted EMPTY (retired with the sub-agent lane).`);
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* fine */ }
   }

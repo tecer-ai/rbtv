@@ -50,8 +50,8 @@ function fixture() {
     fs.writeFileSync(path.join(rd, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,mine\n');
     fs.writeFileSync(path.join(rd, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
   }
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\n');
-  fs.writeFileSync(path.join(closedSeatDir, 'seat.md'), '---\nseat: mine\n---\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\nharness: bash\nmodel: seat-probe\n---\n');
+  fs.writeFileSync(path.join(closedSeatDir, 'seat.md'), '---\nseat: mine\nharness: bash\nmodel: seat-probe\n---\n');
 
   const dataRoot = path.join(root, 'data');
   fs.mkdirSync(dataRoot, { recursive: true });
@@ -61,11 +61,12 @@ function fixture() {
     auth: { senders_file: path.join(root, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'systemd', kill_grace_seconds: 2 },
     default_workdir_root: root,
-    profiles: {
+    'launch-specs': {
+      bash: {
       'seat-probe': {
-        exec: { argv: ['bash', '-c', 'sleep 3600'], prompt: 'stdin' },
+        exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'seat-probe'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
-        headed: { tui: { argv: ['bash', '-c', 'sleep 3600'] } },
+        headed: { tui: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'seat-probe'] } },
         workdir_root: goalsDir,
         caps: { memory_max: '64M', runtime_max: '1h' },
         sandbox: {
@@ -78,6 +79,7 @@ function fixture() {
             'tmpfs:{goalDir}/seats', 'bind:{seatDir}', 'ro-bind:{seatDir}/seat.md',
           ],
         },
+      },
       },
     },
   };
@@ -142,7 +144,7 @@ capture('probe-seat-launch-gate', async (lines) => {
   const refuse = async (seatDir, seatName) => {
     const row = fire(f);
     try {
-      await f.mgr.spawnSeat(row.exec_id, 'seat-probe', { room: 'probe-room', seatName, seatDir });
+      await f.mgr.spawnSeat(row.exec_id, { room: 'probe-room', seatName, seatDir });
       return { threw: false };
     } catch (err) {
       const after = f.store.getExecution(row.exec_id);
@@ -157,8 +159,15 @@ capture('probe-seat-launch-gate', async (lines) => {
       const r = await refuse(dir, 'mine');
       const after = worldAfter(f, f.seatDir);
       const nothingHappened = JSON.stringify(before) === JSON.stringify(after);
+      // ⚠ THE EXPECTED CODE CHANGED AT 7.787, AND IT IS NOW THE ACCURATE ONE. These legs hand the
+      // door a path that is NOT A SEAT FOLDER; they asserted `E_WORKDIR_ESCAPE` only because the
+      // containment gate happened to run first, which described the fault by accident. With no
+      // caller-named profile there is no spec to escape FROM until a seat declares one, so the
+      // door answers what is actually wrong: no `seat.md`, therefore not a materialized seat.
+      // `E_WORKDIR_ESCAPE` keeps its own coverage in `probe-workdir-gate`, whose escape legs now
+      // hand it a real seat folder outside the spec's root.
       leg(`P1[${label}]`, 'refused, and NOTHING was created (absence-proven, not message-proven)',
-        r.threw && r.code === 'E_WORKDIR_ESCAPE' && nothingHappened && r.status !== 'running',
+        r.threw && r.code === 'E_NOT_A_SEAT_FOLDER' && nothingHappened && r.status !== 'running',
         `code=${r.code} store-status=${r.status} world-unchanged=${nothingHappened} (sessions dirs ${after.sessionDirs.length}, csv rows ${after.csvRows}, logs ${after.units.length})`);
     }
 
@@ -187,7 +196,7 @@ capture('probe-seat-launch-gate', async (lines) => {
     // ── P9-launch — THE GATE MUST ALSO PASS THE LEGITIMATE CASE. Without this leg every bar above
     // is satisfied by a spawnSeat that refuses unconditionally.
     const row = fire(f);
-    const dry = await f.mgr.spawnSeat(row.exec_id, 'seat-probe', { room: 'probe-room', seatName: 'mine', seatDir: f.seatDir, dryRun: true });
+    const dry = await f.mgr.spawnSeat(row.exec_id, { room: 'probe-room', seatName: 'mine', seatDir: f.seatDir, dryRun: true });
     const argv = (dry.wrappedArgv || []).join(' ');
     const chdirOk = argv.includes(`--chdir ${f.seatDir}`);
     const cageOk = Array.isArray(dry.seatCage) && dry.seatCage.length > 0;
@@ -206,7 +215,7 @@ capture('probe-seat-launch-gate', async (lines) => {
     // name ('mine') fails on pre-fix code and passes on post-fix code. A leg that only checked
     // "composed without throwing" would read green on both.
     const rowP = fire(f);
-    const prod = await f.mgr.spawnSeat(rowP.exec_id, 'seat-probe', { room: 'probe-room', seatDir: f.seatDir, dryRun: true });
+    const prod = await f.mgr.spawnSeat(rowP.exec_id, { room: 'probe-room', seatDir: f.seatDir, dryRun: true });
     const prodArgv = (prod.tmuxArgv || []).join(' ');
     const windowIsSeat = / -n mine( |$)/.test(prodArgv);
     const windowNotProfile = !/ -n seat-probe( |$)/.test(prodArgv);

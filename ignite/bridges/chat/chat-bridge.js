@@ -482,8 +482,8 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // and execution continues into the unchanged forward path below, so this block can only ever
     // ADD a fast answer, never remove a slow one.
     //
-    // The profile and the workdir come from the forward path's OWN resolvers, so a warm turn
-    // runs the same profile at the same seat the cold turn would have.
+    // The workdir comes from the forward path's OWN resolver, so a warm turn runs at the same seat
+    // the cold turn would have — and since 7.787 the seat is the ONLY thing that decides what runs.
     // ⚑ `isAdmitted`, NEVER `check` — `check` has a SIDE EFFECT on its refusing branch (it
     // records a pairing request and increments its count, allowlist.js), and the forward path
     // below calls it for real. Asking `check` here too would double-count every refused
@@ -503,7 +503,6 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         chatThreadId: chatMsg.chatThreadId,
         text: chatMsg.text,
         route,
-        profile: forwardPath.profileFor(route),
         workdir: home && home.ok ? home.workdir : null,
       });
       if (warm.answered) {

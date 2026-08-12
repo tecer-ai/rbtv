@@ -3,7 +3,7 @@
 // `ignite add-job` — wraps the `enqueue-job` intent (gateway-cli-spec.md § CLI
 // Surface). Thin wrapper only: this file builds a payload and hands it to the
 // gateway client; it never touches the store, the spawn machinery, or the
-// job/profile catalogue directly.
+// job catalogue directly.
 
 const { CliUsageError } = require('../lib/errors');
 const { takeValue, takeFlag, takeRepeated } = require('../lib/args');
@@ -13,7 +13,7 @@ const HELP = `ignite add-job --fn <function> [--arg k=v ...] [--args-json '<json
                 --trigger scheduled|periodic
                 scheduled: --at <ISO-8601 UTC datetime> [--repeat <5-field cron>]
                 periodic:  --every <seconds>  (first fire defaults to now)
-                [--profile <name>] [--session-mode headless|headed] [--dry-run]
+                [--session-mode headless|headed] [--dry-run]
 
   Enqueues a job (the server core dry-run-validates before writing). Prints
   the new queue id on success. --dry-run: validate-only, nothing enqueued.`;
@@ -53,16 +53,12 @@ function build(argv) {
 
   const args = buildArgsObject(argv);
 
-  // Sugar: --profile is CLI-level convenience for args.profile — the wire
-  // envelope has no top-level "profile" field (gateway/parse.js's ENQUEUE_KEYS);
-  // a launch-agent job reads its named profile OFF the args object
-  // (server/heart/heart-store.js `parsedArgs.profile`). DEC-1 R3: still a
-  // NAME only, never raw flags.
-  const profile = takeValue(argv, '--profile');
-  if (profile !== undefined) {
-    if ('profile' in args) throw new CliUsageError('--profile conflicts with an explicit profile= in --arg/--args-json — set it once');
-    args.profile = profile;
-  }
+  // ⚠ `--profile` IS GONE (7.787, `#d-abolish-profile-names`). It was CLI sugar for `args.profile`
+  // on a `launch-agent` row, and that argument no longer exists: `launch-agent`'s REQUIRED_ARGS is
+  // empty and the daemon derives the cast from the seat's own descriptor at spawn time. A caller
+  // that still passes `profile=` through `--arg`/`--args-json` gets the store's ordinary
+  // `E_BAD_ARGS: unknown argument: profile` — refused by the schema rather than by a special case
+  // here, which is the right place for it.
 
   const trigger = takeValue(argv, '--trigger');
   if (trigger !== 'scheduled' && trigger !== 'periodic') {

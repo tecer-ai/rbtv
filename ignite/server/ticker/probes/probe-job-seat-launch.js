@@ -49,7 +49,7 @@ function makeSeatTree(wsRoot, { goal, seat, materialize = true, executing = true
 
   const seatDir = path.join(runDir, 'seats', seat);
   fs.mkdirSync(seatDir, { recursive: true });
-  if (materialize) fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
+  if (materialize) fs.writeFileSync(path.join(seatDir, 'seat.md'), `---\nseat: ${seat}\nharness: bash\nmodel: seat-profile\n---\n`);
   return seatDir;
 }
 
@@ -58,7 +58,7 @@ function registerHomed(ctx, { jobId, goalName, seatName }) {
     jobId,
     actionType: 'launch-agent',
     function: 'launch-agent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { prompt: 'string', workdir: 'string' } }),
+    argsSchema: JSON.stringify({ required: {}, optional: { prompt: 'string', workdir: 'string' } }),
     goalName,
     seatName,
   });
@@ -67,7 +67,7 @@ function registerHomed(ctx, { jobId, goalName, seatName }) {
 function enqueue(ctx, jobId, runAt) {
   return ctx.store.enqueue({
     jobId,
-    args: JSON.stringify({ profile: 'seat-profile' }),
+    args: JSON.stringify({}),
     sessionMode: 'headless',
     triggerKind: 'scheduled',
     runAt: runAt.toISOString().replace(/\.\d{3}Z$/, 'Z'),
@@ -84,8 +84,11 @@ async function run(lines) {
   // The seat tree must live inside the profile's `workdir_root` or the containment gate refuses
   // it (E_WORKDIR_ESCAPE) — the same boundary every spawn crosses, REUSED here, never relaxed.
   const ctx = setup({}, {
+    // 7.787: `setup`'s extras land in the fixture's `launch-specs.bash` block, so the argv must
+    // pin the model its key names (`profiles.js#validateSpecKey`). The `bash -c` shim really runs
+    // `sleep 3600`, unchanged.
     'seat-profile': {
-      exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+      exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'seat-profile'], prompt: 'stdin' },
       session_ref: { source: 'cwd-implicit' },
       workdir_root: '/tmp',
       caps: { memory_max: '64M', runtime_max: '1h' },
@@ -147,7 +150,7 @@ async function run(lines) {
     // branch). What stays a refusal is a descriptor that DISAGREES with its folder — so that is
     // the unresolvable case this scenario stages.
     const ghostDir = makeSeatTree(wsRoot, { goal: 'broken-goal', seat: 'ghost-seat', materialize: false });
-    fs.writeFileSync(path.join(ghostDir, 'seat.md'), '---\nseat: somebody-else\n---\n');
+    fs.writeFileSync(path.join(ghostDir, 'seat.md'), '---\nseat: somebody-else\nharness: bash\nmodel: seat-profile\n---\n');
     registerHomed(ctx, { jobId: 'broken-job', goalName: 'broken-goal', seatName: 'ghost-seat' });
     enqueue(ctx, 'broken-job', new Date(Date.now() - 1000));
 
@@ -170,7 +173,7 @@ async function run(lines) {
       jobId: 'unhomed-job',
       actionType: 'launch-agent',
       function: 'launch-agent',
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { prompt: 'string', workdir: 'string' } }),
+      argsSchema: JSON.stringify({ required: {}, optional: { prompt: 'string', workdir: 'string' } }),
     });
     enqueue(ctx, 'unhomed-job', new Date(Date.now() - 1000));
 

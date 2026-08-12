@@ -89,11 +89,11 @@ ignite register-job my-job --action-type launch-agent --dry-run
 
 # Enqueue a scheduled job
 IGNITE_GATEWAY_ADDR=127.0.0.1:7431 IGNITE_SENDER_TOKEN=$TOKEN \
-  ignite add-job --fn my-job --profile my-profile \
+  ignite add-job --fn my-job \
     --trigger scheduled --at 2026-08-01T00:00:00Z
 
 # Enqueue a periodic job (first fire defaults to now) and read it back as JSON
-ignite --json add-job --fn my-job --profile my-profile --trigger periodic --every 3600 | jq .
+ignite --json add-job --fn my-job --trigger periodic --every 3600 | jq .
 
 # Tail the last 50 lines of an execution's log
 ignite inspect logs 42 --tail 50

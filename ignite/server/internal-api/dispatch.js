@@ -179,7 +179,11 @@ const REGISTER_ALLOWED_KEYS = new Set([
 // core re-validates raw shape without importing the gateway. `session_ref` is deliberately ABSENT
 // — a sender naming the session to resume could resume someone else's conversation, so the core
 // derives it from `exec_id` through the store instead.
-const LIVE_FEED_KEYS = new Set(['conversation', 'prompt', 'workdir', 'profile', 'exec_id', 'start']);
+// ⚠ `profile` LEFT THIS SET AT 7.787 (`#d-abolish-profile-names`): a sender naming what a seat
+// runs on is precisely the variable the abolition deletes. The warm leg resolves the seat's own
+// cast off `workdir` like every other lane; an uncast seat is an ineligible reason, then a refusal
+// on the cold path. A payload still carrying the key is now an ordinary unknown-field rejection.
+const LIVE_FEED_KEYS = new Set(['conversation', 'prompt', 'workdir', 'exec_id', 'start']);
 
 // The deregister-job payload's field set (task 7.364) — the id, plus `purge` for the reclaim
 // arm. No `dry_run`: every refusal either arm can raise (unknown id; still enabled; pending
@@ -291,7 +295,7 @@ const STORE_TO_WIRE = new Map([
   ['E_JOB_PURGE_REFUSED', VALIDATION_FAILED],
   ['E_JOB_DISABLED', VALIDATION_FAILED],
   ['E_BAD_ARGS', VALIDATION_FAILED],
-  ['E_UNKNOWN_PROFILE', VALIDATION_FAILED],
+  ['E_UNKNOWN_LAUNCH_SPEC', VALIDATION_FAILED],
   ['E_UNKNOWN_TOOL', VALIDATION_FAILED],
   ['E_UNKNOWN_WORKFLOW', VALIDATION_FAILED],
   ['E_BAD_MESSAGE', VALIDATION_FAILED],
@@ -343,7 +347,6 @@ const NOT_WIRE_REACHABLE = new Map([
   ['E_CONFIG_LOAD', 'config-load failure at boot; the daemon never comes up to serve a request'],
   ['E_MISSING_KEY', 'missing required config key at boot/config-load; never raised in a handler'],
   ['E_UNKNOWN_SLOT', 'unknown template slot at profile config-load; never raised in a handler'],
-  ['E_DUPLICATE_PROFILE', 'duplicate profile name at config-load; never raised in a handler'],
   ['E_SYSTEMD_NOT_AVAILABLE', 'carrier availability check at boot; never raised in a handler'],
   ['E_ORPHAN_RESCAN_FAILED', 'boot orphan rescan only (spawn.orphanRescan); dispatch never calls it'],
   ['E_MIGRATION_FAILED', 'heart-store schema migration at store OPEN (G-135); the store is constructed before any listener exists, so the daemon refuses to start and no request path is reachable'],
@@ -359,7 +362,7 @@ const NOT_WIRE_REACHABLE = new Map([
   // E_HEADED_PROMPT_CARRIAGE and E_HEADED_STDIN_CARRIAGE sat in this class until task 7.29:
   // every one was raised inside server/pty/, and all five left with the module.)
   ['E_FS_SANDBOX_UNAVAILABLE', 'ticker-spawn-path only (bwrap sandbox resolve); spawn is never wire-triggered'],
-  ['E_PROFILE_HALVES_UNSUPPORTED', 'ticker-spawn-path only (the G-144 profile-shape guard, raised by spawn AND spawnSeat immediately after the profile lookup); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry, dispatch never calls spawnManager.spawn/spawnSeat, and the only route to spawnSeat is server/index.js spawnManagerWithPty.spawn, which is the ticker dispatch phase'],
+  ['E_SPEC_HALVES_UNSUPPORTED', 'ticker-spawn-path only (the G-144 profile-shape guard, raised by spawn AND spawnSeat immediately after the profile lookup); spawn is never wire-triggered — spawn-via-named-profile is D70-dropped on entry, dispatch never calls spawnManager.spawn/spawnSeat, and the only route to spawnSeat is server/index.js spawnManagerWithPty.spawn, which is the ticker dispatch phase'],
   // Task 7.75 / r-seats-only-architecture (3) — the DISPATCH DOOR's two raise sites, both inside
   // spawn() (no workdir at all, and a resolved workdir that is no seat folder). Same ticker-only
   // ground as the two rows above, measured not inherited: spawn()'s ONLY caller is the decorated
@@ -1232,7 +1235,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
     const out = await liveSessions.feed({
       conversationId: payload.conversation,
-      profileName: payload.profile,
       workdir: payload.workdir || null,
       prompt: payload.prompt,
       sessionRef,

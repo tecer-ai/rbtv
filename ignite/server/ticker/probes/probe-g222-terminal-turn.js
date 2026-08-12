@@ -40,7 +40,7 @@ function killUnit(unitName) {
 
 // One live agent turn, spawned through the production path and then killed under the daemon.
 async function spawnAndKill(ctx, lines, label) {
-  enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
+  enqueueLaunchAgent(ctx, { runAt: new Date() });
   const r = await ctx.ticker.tick(new Date());
   lines.push(`[${label}] dispatch tick ${r.tick}`);
   const rows = ctx.store.dump().jobs_log;

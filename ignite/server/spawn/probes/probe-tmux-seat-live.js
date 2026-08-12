@@ -94,16 +94,18 @@ capture('probe-tmux-seat-live', async (lines) => {
   fs.writeFileSync(path.join(workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\na4goal,2026-07-27,,one-shot,active\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,a4seat\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: a4seat\n---\nprobe seat\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: a4seat\nharness: bash\nmodel: a4-seat\n---\nprobe seat\n');
 
   const cfg = {
     bind: { host: '127.0.0.1', port: 7431 },
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'systemd', kill_grace_seconds: 2 },
     default_workdir_root: workRoot,
-    profiles: {
+    // 7.787: keyed by (harness, model) — the seat's cast selects it. `bash` is argv[0]'s basename,
+    // and the `--model` pin makes the argv agree with the key (`profiles.js#validateSpecKey`).
+    'launch-specs': { bash: {
       'a4-seat': {
-        exec: { argv: ['/bin/bash', '-c', SEAT_SCRIPT], prompt: 'stdin' },
+        exec: { argv: ['/bin/bash', '-c', SEAT_SCRIPT, '--model', 'a4-seat'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         headed: { tui: { argv: ['/bin/bash', '-c', SEAT_SCRIPT] } },
         workdir_root: workRoot,
@@ -111,7 +113,7 @@ capture('probe-tmux-seat-live', async (lines) => {
         caps: { memory_max: MEM, cpu_quota: '50%', tasks_max: 64 },
         sandbox: { ProtectSystem: 'strict', ReadWritePaths: ['{workdir}'], PrivateTmp: true, NoNewPrivileges: true },
       },
-    },
+    } },
   };
   const cfgPath = path.join(tmp, 'spawn.yaml');
   fs.writeFileSync(cfgPath, yaml.dump(cfg));
@@ -135,12 +137,12 @@ capture('probe-tmux-seat-live', async (lines) => {
     lines.push(`throwaway room created: ${ROOM} on isolated socket ${ROOM_TMPDIR} (never the default server)`);
 
     const row = store.recordExecutionStart({
-      jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'a4-seat' }),
+      jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({}),
       enqueuedBy: 'probe', sessionMode: 'headed', firedTick: 1, firedAt: new Date(), profile: 'a4-seat', workdir: seatDir,
     });
 
     // ── THE LIVE SPAWN, through the daemon's own spawnSeat ────────────────────────────────
-    const res = await mgr.spawnSeat(row.exec_id, 'a4-seat', { room: ROOM, seatName: 'a4seat', seatDir, enqueuedBy: 'probe' });
+    const res = await mgr.spawnSeat(row.exec_id, { room: ROOM, seatName: 'a4seat', seatDir, enqueuedBy: 'probe' });
     assert(res.paneId, 'live spawn returned a pane id');
     lines.push(`live seat spawned: pane ${res.paneId} pid ${res.panePid} unit ${res.unitName}`);
     assert(res.pidStarttime !== null && res.pidStarttime !== undefined, 'identity recorded as (pid, starttime), not pid alone');

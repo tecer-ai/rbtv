@@ -144,16 +144,21 @@ const CONTAINMENT = {
 // ⚠ ITS `headed.tui` IS THE CHECK-OUT SCRIPT, not `true`: the subprocess arms (B1e, B1g) drive a
 // REAL `rbtv run` and cannot inject a carriage, so the profile's own command is the only place the
 // occupant's check-out can be stood in for. See CHECKOUT_JS above for why an edge needs one.
-cfg.profiles['probe-fg'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). Each argv gains a `--model`
+// pin so it agrees with its key (`profiles.js#validateSpecKey` refuses a disagreement at LOAD);
+// what each one RUNS is unchanged. `probe-fg-claude` keeps `claude` as argv[0] because that is
+// exactly what makes `harnessOf` classify it — it is never executed.
+cfg['launch-specs'] = { bash: {}, claude: {} };
+cfg['launch-specs'].bash['probe-fg'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-fg'], prompt: 'stdin' },
   headed: { tui: { argv: ['node', CHECKOUT_JS] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
 };
 // Same, but the foreground seat blocks long enough to be killed while it holds the run.
-cfg.profiles['probe-fg-slow'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+cfg['launch-specs'].bash['probe-fg-slow'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-fg-slow'], prompt: 'stdin' },
   headed: { tui: { argv: ['sleep', '20.7'] } },   // the fractional second makes the pkill exact
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
@@ -161,8 +166,8 @@ cfg.profiles['probe-fg-slow'] = {
 };
 // Holds the foreground seat long enough for a SECOND runner to try the same goal, then checks out
 // so runner A's own run can finish (B1g's last arm).
-cfg.profiles['probe-fg-hold'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+cfg['launch-specs'].bash['probe-fg-hold'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-fg-hold'], prompt: 'stdin' },
   headed: { tui: { argv: ['sh', '-c', `sleep 6; exec node ${CHECKOUT_JS}`] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
@@ -171,16 +176,16 @@ cfg.profiles['probe-fg-hold'] = {
 // A CLAUDE-harness profile, used ONLY through an injected carriage: `harnessOf` reads
 // `exec.argv[0]`, so this is what makes the descriptor injection reachable. Nothing in this probe
 // ever executes it.
-cfg.profiles['probe-fg-claude'] = {
-  exec: { argv: ['claude', '-p'], prompt: 'stdin' },
+cfg['launch-specs'].claude['probe-fg-claude'] = {
+  exec: { argv: ['claude', '-p', '--model', 'probe-fg-claude'], prompt: 'stdin' },
   headed: { tui: { argv: ['claude'] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
 };
 // The control for B1d: a profile that can carry a headless child and NOT a human.
-cfg.profiles['probe-fg-headless-only'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+cfg['launch-specs'].bash['probe-fg-headless-only'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-fg-headless-only'], prompt: 'stdin' },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
@@ -206,10 +211,20 @@ function makeGoal(name, { executionMode = 'interactive', humanInteractive = ['al
   ].join('\n'));
   for (const s of ['alpha', 'bravo']) {
     fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'),
-      `---\nseat: ${s}\n${humanInteractive.includes(s) ? 'human-interactive: yes\nfallback: block-and-queue\n' : ''}---\n\nbody\n`);
+      `---\nseat: ${s}\nharness: bash\nmodel: probe-fg\n${humanInteractive.includes(s) ? 'human-interactive: yes\nfallback: block-and-queue\n' : ''}---\n\nbody\n`);
   }
   fs.writeFileSync(path.join(dir, 'execution-mode'), `${executionMode}\n`);
   return dir;
+}
+
+// Re-cast an already-materialized seat descriptor onto another of this fixture's launch specs.
+// Since `#d-abolish-profile-names` the descriptor is the ONLY thing that decides what a seat runs,
+// so this is how an arm selects a spec — there is no parameter left to pass one on.
+function recast(seatDir, model, harness = 'bash') {
+  const md = path.join(seatDir, 'seat.md');
+  fs.writeFileSync(md, fs.readFileSync(md, 'utf8')
+    .replace(/^harness: .*$/m, `harness: ${harness}`)
+    .replace(/^model: .*$/m, `model: ${model}`));
 }
 
 // B1j's fixture: N held seats with NO dependencies between them, so they are ALL ready in the SAME
@@ -223,7 +238,7 @@ function makeWaveGoal(name, seats) {
     fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
     rows.push(`tf-wave,${s},,claude,claude-opus-5,medium,50,m1`);
     fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'),
-      `---\nseat: ${s}\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n`);
+      `---\nseat: ${s}\nharness: bash\nmodel: probe-fg\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n`);
   }
   rows.push('');
   fs.writeFileSync(path.join(dir, 'taskforce.csv'), rows.join('\n'));
@@ -296,7 +311,7 @@ async function main() {
   // policy, and this is the structural bar under it. Both calls run against the SAME store, the
   // held one first, so the control proves the seat was enqueueable all along.
   const barGoal = makeGoal('fg-goal-bar');
-  const barStore = openHeartStore({ dbPath: path.join(barGoal, 'heart.db'), profiles: spawnConfig.profiles });
+  const barStore = openHeartStore({ dbPath: path.join(barGoal, 'heart.db') });
   const barRows = attached.seedTaskforce(barStore, barGoal, { profile: 'probe-fg' });
   // ⚠ COORD'S ANSWER IS HANDED IN, off the REAL fixture on disk — not a hand-typed map. Without it
   // `enqueueEligible` promotes nothing (the store may decline, never promote, § D1) and BOTH arms
@@ -364,10 +379,10 @@ async function main() {
     (() => {
       const quoted = makeGoal('fg-goal-quoted', { humanInteractive: [] });
       fs.writeFileSync(path.join(quoted, 'seats', 'alpha', 'seat.md'),
-        '---\nseat: alpha\nhuman-interactive: "yes"\n---\n\nbody\n');
+        '---\nseat: alpha\nharness: bash\nmodel: probe-fg\nhuman-interactive: "yes"\n---\n\nbody\n');
       fs.mkdirSync(path.join(quoted, 'seats', 'bravo'), { recursive: true });
       fs.writeFileSync(path.join(quoted, 'seats', 'bravo', 'seat.md'),
-        '---\nseat: bravo\nhuman-interactive: yes # ratified 2026-08-09\n---\n\nbody\n');
+        '---\nseat: bravo\nharness: bash\nmodel: probe-fg\nhuman-interactive: yes # ratified 2026-08-09\n---\n\nbody\n');
       const held = attached.heldSeatPredicate(quoted);
       return held('alpha') === true && held('bravo') === true
         && ferry.seatIsHumanInteractive(quoted, 'alpha') === true
@@ -385,19 +400,21 @@ async function main() {
 
   check('B1c the foreground argv IS the profile\'s headed.tui argv (not a filtered `exec:`)',
     heldCalls[0].argv.join(' ') === `node ${CHECKOUT_JS}`
-      && spawnConfig.profiles['probe-fg'].exec.argv.join(' ') === 'sleep 1',
+      && spawnConfig.launchSpecs['bash/probe-fg'].exec.argv.join(' ') === 'bash -c exec sleep 1 --model probe-fg',
     `argv=${JSON.stringify(heldCalls[0].argv)}`);
 
   const claudeGoal = makeGoal('fg-goal-claude');
   const claudeStore = openHeartStore({ dbPath: path.join(claudeGoal, 'heart.db') });
-  attached.seedTaskforce(claudeStore, claudeGoal, { profile: 'probe-fg-claude' });
+  attached.seedTaskforce(claudeStore, claudeGoal, {});
+  // The cast selects the spec (7.787) — both seats onto the claude-harness one, because this
+  // block's subject is the claude descriptor flag.
+  for (const s of ['alpha', 'bravo']) recast(path.join(claudeGoal, 'seats', s), 'probe-fg-claude', 'claude');
   let claudeArgv = null;
   attached.runForegroundSeat({
     heartStore: claudeStore,
     seat: 'alpha',
     goalFolder: claudeGoal,
-    profileName: 'probe-fg-claude',
-    profile: spawnConfig.profiles['probe-fg-claude'],
+    launchSpecs: spawnConfig.launchSpecs,
     tick: 1,
     now: new Date(),
     spawnForeground: (argv) => { claudeArgv = argv; return { status: 0 }; },
@@ -408,33 +425,40 @@ async function main() {
     JSON.stringify(claudeArgv));
   // …and the CONDITION is the file, not the harness alone: an absent descriptor must not put a
   // flag on the line that makes claude run nothing at all (measured, 2.1.224).
-  fs.unlinkSync(seatMd);
+  //
+  // ⚠ THE NO-FILE CASE IS NO LONGER A FLAGLESS LAUNCH — IT IS A REFUSAL (7.787). The descriptor is
+  // now the ONLY place a launch spec can be resolved from, so a seat with no `seat.md` cannot
+  // launch at all and never reaches argv composition. The old failure mode (claude launched with a
+  // flag pointing at nothing) is structurally unreachable, and this arm asserts THAT rather than
+  // an argv that can no longer be produced. The flag's presence-when-the-file-exists half is
+  // asserted above and is unchanged.
   let noDescArgv = null;
   attached.runForegroundSeat({
     heartStore: claudeStore,
     seat: 'bravo',
     goalFolder: claudeGoal,
-    profileName: 'probe-fg-claude',
-    profile: spawnConfig.profiles['probe-fg-claude'],
+    launchSpecs: spawnConfig.launchSpecs,
     tick: 1,
     now: new Date(),
     spawnForeground: (argv) => { noDescArgv = argv; return { status: 0 }; },
   });
   fs.unlinkSync(path.join(claudeGoal, 'seats', 'bravo', 'seat.md'));
-  let noFileArgv = null;
-  attached.runForegroundSeat({
-    heartStore: claudeStore,
-    seat: 'bravo',
-    goalFolder: claudeGoal,
-    profileName: 'probe-fg-claude',
-    profile: spawnConfig.profiles['probe-fg-claude'],
-    tick: 1,
-    now: new Date(),
-    spawnForeground: (argv) => { noFileArgv = argv; return { status: 0 }; },
-  });
-  check('B1c NO descriptor on disk ⇒ NO flag on the line (the flag would make claude run nothing)',
-    noFileArgv.join(' ') === 'claude' && /append-system-prompt-file/.test(noDescArgv.join(' ')),
-    `withFile=${JSON.stringify(noDescArgv)} withoutFile=${JSON.stringify(noFileArgv)}`);
+  let noFileRefusal = null;
+  try {
+    attached.runForegroundSeat({
+      heartStore: claudeStore,
+      seat: 'bravo',
+      goalFolder: claudeGoal,
+      launchSpecs: spawnConfig.launchSpecs,
+      tick: 1,
+      now: new Date(),
+      spawnForeground: (argv) => { noFileRefusal = `LAUNCHED ${argv.join(' ')}`; return { status: 0 }; },
+    });
+  } catch (err) { noFileRefusal = err.code; }
+  check('B1c NO descriptor on disk ⇒ the launch is REFUSED (it can no longer reach argv at all), '
+      + 'while a descriptor that IS there still carries the flag',
+    noFileRefusal === 'E_UNCAST_SEAT' && /append-system-prompt-file/.test(noDescArgv.join(' ')),
+    `withFile=${JSON.stringify(noDescArgv)} withoutFile=${noFileRefusal}`);
   claudeStore.close();
 
   // ── B1d · a profile that cannot carry a human REFUSES ───────────────────────────────────────
@@ -443,23 +467,27 @@ async function main() {
 
   const refuseGoal = makeGoal('fg-goal-refuse');
   const refuseStore = openHeartStore({ dbPath: path.join(refuseGoal, 'heart.db') });
-  attached.seedTaskforce(refuseStore, refuseGoal, { profile: 'probe-fg-headless-only' });
+  // ⚠ THE CAST IS IN THE DESCRIPTOR NOW (7.787): `runForegroundSeat` reads the seat, not a
+  // parameter, so which spec each arm exercises is decided by re-casting its seat.md. `alpha` gets
+  // the headless-only spec (B1d's subject), `bravo` keeps the headed one (B1d's positive control).
+  attached.seedTaskforce(refuseStore, refuseGoal, {});
+  recast(path.join(refuseGoal, 'seats', 'alpha'), 'probe-fg-headless-only');
   let refusal = null;
   try {
     attached.runForegroundSeat({
       heartStore: refuseStore, seat: 'alpha', goalFolder: refuseGoal,
-      profileName: 'probe-fg-headless-only', profile: spawnConfig.profiles['probe-fg-headless-only'],
+      launchSpecs: spawnConfig.launchSpecs,
       tick: 1, now: new Date(), spawnForeground: () => ({ status: 0 }),
     });
   } catch (err) { refusal = err.message; }
   check('B1d it refuses, naming the seat, the profile and the headed block',
-    Boolean(refusal) && /alpha/.test(refusal) && /probe-fg-headless-only/.test(refusal) && /headed\.tui/.test(refusal),
+    Boolean(refusal) && /alpha/.test(refusal) && /bash\/probe-fg-headless-only/.test(refusal) && /headed\.tui/.test(refusal),
     String(refusal).split('\n')[0]);
   let controlThrew = null;
   try {
     attached.runForegroundSeat({
       heartStore: refuseStore, seat: 'bravo', goalFolder: refuseGoal,
-      profileName: 'probe-fg', profile: spawnConfig.profiles['probe-fg'],
+      launchSpecs: spawnConfig.launchSpecs,
       tick: 1, now: new Date(), spawnForeground: () => ({ status: 0 }),
     });
   } catch (err) { controlThrew = err.message; }
@@ -479,7 +507,7 @@ async function main() {
   // measure a race between it and the re-run instead of a resume. (That is also the honest shape of
   // the event being simulated — closing a terminal signals the whole foreground group.)
   const victim = spawnProc(RBTV_BIN,
-    ['run', killGoal, '--profile', 'probe-fg-slow', '--config', configPath, '--tick-ms', '300'],
+    ['run', killGoal, '--config', configPath, '--tick-ms', '300'],
     { stdio: 'ignore', detached: true });
 
   let midRow = null;
@@ -518,7 +546,7 @@ async function main() {
     return { status: res.status, json, stdout: res.stdout || '', stderr: res.stderr || '' };
   };
 
-  const afterKill = runCli(['run', killGoal, '--profile', 'probe-fg', '--config', configPath, '--max-ticks', '3', '--json']);
+  const afterKill = runCli(['run', killGoal, '--config', configPath, '--max-ticks', '3', '--json']);
   check('B1e the re-run RECONCILES the interrupted row instead of inheriting a ghost',
     afterKill.json && afterKill.json.reconciled.includes(attached.jobIdFor('alpha')),
     afterKill.json ? JSON.stringify(afterKill.json.reconciled) : afterKill.stderr.split('\n')[0]);
@@ -532,7 +560,7 @@ async function main() {
     afterKillRows.length === 1 && afterKillRows[0].status === 'failed',
     afterKillRows.map((r) => r.status).join());
 
-  const granted = runCli(['run', killGoal, '--profile', 'probe-fg', '--config', configPath,
+  const granted = runCli(['run', killGoal, '--config', configPath,
     '--relaunch', 'alpha', '--tick-ms', '300', '--max-ticks', '40', '--json']);
   check('B1e an EXPLICIT --relaunch runs the seat again, and the run then completes',
     granted.status === 0 && granted.json && granted.json.outcome === 'complete'
@@ -556,7 +584,7 @@ async function main() {
 
   const holdGoal = makeGoal('fg-goal-hold');
   const holder = spawnProc(RBTV_BIN,
-    ['run', holdGoal, '--profile', 'probe-fg-hold', '--config', configPath, '--tick-ms', '300', '--json'],
+    ['run', holdGoal, '--config', configPath, '--tick-ms', '300', '--json'],
     { stdio: 'ignore', detached: true });
   const holderExit = awaitExit(holder);
 
@@ -573,7 +601,7 @@ async function main() {
     holderRow ? `${holderRow.status}` : 'A never reached the carrier');
 
   const intruder = spawnSync(RBTV_BIN,
-    ['run', holdGoal, '--profile', 'probe-fg', '--config', configPath, '--max-ticks', '1', '--json'],
+    ['run', holdGoal, '--config', configPath, '--max-ticks', '1', '--json'],
     { encoding: 'utf8', timeout: 60000 });
   check('B1g runner B REFUSES, loudly, naming the live runner\'s pid — it does not reconcile',
     intruder.status === 1 && /another attached run is live on this goal \(pid \d+\)/.test(intruder.stderr || ''),
@@ -609,11 +637,11 @@ async function main() {
 
   // The silent-overwrite half: a foreign writer ends our row while the human works.
   const overwriteGoal = makeGoal('fg-goal-overwrite');
-  const owStore = openHeartStore({ dbPath: path.join(overwriteGoal, 'heart.db'), profiles: spawnConfig.profiles });
+  const owStore = openHeartStore({ dbPath: path.join(overwriteGoal, 'heart.db') });
   attached.seedTaskforce(owStore, overwriteGoal, { profile: 'probe-fg' });
   const owResult = attached.runForegroundSeat({
     heartStore: owStore, seat: 'alpha', goalFolder: overwriteGoal,
-    profileName: 'probe-fg', profile: spawnConfig.profiles['probe-fg'],
+    launchSpecs: spawnConfig.launchSpecs,
     tick: 1, now: new Date(),
     // Stands in for the other writer: the row is ended `failed` WHILE the session runs.
     spawnForeground: () => {
@@ -660,9 +688,9 @@ async function main() {
 
   // The reconciliation is SCOPED to the foreground marker: a detached row left non-terminal is the
   // ticker's crash sweep's business, and ending it here would race that sweep.
-  const scopeStore = openHeartStore({ dbPath: path.join(tmp, 'scope.db'), profiles: spawnConfig.profiles });
-  scopeStore.registerJob({ jobId: 'seat-fg', actionType: 'launch-agent', function: 'x', argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }), description: 'x', createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-10T00:00:00Z' });
-  scopeStore.registerJob({ jobId: 'seat-detached', actionType: 'launch-agent', function: 'x', argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }), description: 'x', createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-10T00:00:00Z' });
+  const scopeStore = openHeartStore({ dbPath: path.join(tmp, 'scope.db') });
+  scopeStore.registerJob({ jobId: 'seat-fg', actionType: 'launch-agent', function: 'x', argsSchema: JSON.stringify({ required: {}, optional: {} }), description: 'x', createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-10T00:00:00Z' });
+  scopeStore.registerJob({ jobId: 'seat-detached', actionType: 'launch-agent', function: 'x', argsSchema: JSON.stringify({ required: {}, optional: {} }), description: 'x', createdAt: '2026-08-10T00:00:00Z', updatedAt: '2026-08-10T00:00:00Z' });
   for (const [jobId, by] of [['seat-fg', attached.FOREGROUND_ENQUEUER], ['seat-detached', 'attached-execution']]) {
     scopeStore.recordExecutionStart({
       jobId, actionType: 'launch-agent', args: '{}', enqueuedBy: by,
@@ -798,7 +826,7 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
   say('');
   say('B1i — the shipped headed.tui blocks pin the profile\'s model (S-21)');
 
-  const shipped = loadConfig(COMMITTED_CONFIG).profiles;
+  const shipped = loadConfig(COMMITTED_CONFIG).launchSpecs;
   const headedProfiles = Object.entries(shipped).filter(([, p]) => p.headed && p.headed.tui);
   const MODEL_FLAGS = ['--model', '-m'];
   const unpinned = headedProfiles.filter(([, p]) => {
@@ -818,12 +846,13 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
   // …and the pin survives COMPOSITION, on the real carrier path with a SHIPPED profile — the argv a
   // foreground seat would actually receive, not the config line it came from.
   const pinGoal = makeGoal('fg-goal-model-pin');
-  const pinStore = openHeartStore({ dbPath: path.join(pinGoal, 'heart.db'), profiles: shipped });
-  attached.seedTaskforce(pinStore, pinGoal, { profile: 'claude-fable' });
+  const pinStore = openHeartStore({ dbPath: path.join(pinGoal, 'heart.db') });
+  attached.seedTaskforce(pinStore, pinGoal, {});
+  recast(path.join(pinGoal, 'seats', 'alpha'), 'claude-fable-5', 'claude');
   let pinArgv = null;
   attached.runForegroundSeat({
     heartStore: pinStore, seat: 'alpha', goalFolder: pinGoal,
-    profileName: 'claude-fable', profile: shipped['claude-fable'],
+    launchSpecs: shipped,
     tick: 1, now: new Date(),
     spawnForeground: (argv) => { pinArgv = argv; return { status: 0 }; },
   });

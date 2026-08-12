@@ -106,7 +106,7 @@ async function main() {
     jobId: 'launch-worker',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1,
   });
 
@@ -146,7 +146,7 @@ async function main() {
 
   const now = new Date();
   const runAt = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const args = JSON.stringify({ profile: 'test-sleep' });
+  const args = JSON.stringify({});
 
   // `socket` is threaded through both helpers (task 7.389): passing one makes the caller hold a
   // proven seat, omitting it leaves the caller exactly as unproven as every pre-7.389 arm below.

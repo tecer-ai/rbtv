@@ -6,10 +6,9 @@ const yaml = require('js-yaml');
 const {
   SpawnError,
   E_CONFIG_LOAD,
-  E_DUPLICATE_PROFILE,
   E_UNKNOWN_SLOT,
   E_MISSING_KEY,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,
   E_NO_PORTABLE_HALF,
@@ -17,6 +16,10 @@ const {
   E_RAW_FLAG,
 } = require('./errors');
 const { detectHostCapability, CAGED, PORTABLE } = require('./host');
+// The key builder and the key/argv agreement guard's derivation. `catalog.js` requires only
+// `./errors`, so this import creates no cycle — and the join between a (harness, model) and its
+// key must be spelled in ONE module, which is that one.
+const { bindingOf, specKey } = require('./catalog');
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
 // The shared launch-profile resolver (task 7.42; registry decisions.md#d-profile-source-unification).
@@ -39,7 +42,7 @@ const { detectHostCapability, CAGED, PORTABLE } = require('./host');
 // accepted as a synonym), one global caps block (`caps:` / `caps_default`, rare per-profile
 // overrides only by ruling), and the CLOSED `toolsets` enum.
 const KNOWN_TOP_KEYS = new Set([
-  'bind', 'auth', 'spawn', 'profiles', 'default_workdir_root',
+  'bind', 'auth', 'spawn', 'launch-specs', 'jobs', 'default_workdir_root',
   'cage', 'caps', 'sandbox_default', 'caps_default', 'toolsets',
 ]);
 
@@ -68,7 +71,7 @@ const DAEMON_ONLY_ROOT_KEYS = new Set(['ticker', 'tools', 'workflows', 'network'
 // (exec/resume/caps/sandbox)") and that nothing had yet declared. Same shape and same validator as
 // `exec` — argv + carriage — and OPTIONAL: a profile without one simply never resumes
 // (r-chat-chain-resumes-session's declared fallback).
-const KNOWN_PROFILE_KEYS = new Set([
+const KNOWN_SPEC_KEYS = new Set([
   'exec', 'resume', 'session_ref', 'headed', 'workdir_root', 'caps', 'sandbox', 'env', 'command', 'effort',
   'toolset_ceiling',
 ]);
@@ -196,39 +199,39 @@ function detectUnknownSlots(value, prefix, filePath) {
   }
 }
 
-function validateSessionRef(sessionRef, profileName, filePath) {
-  assertObject(sessionRef, `profiles.${profileName}.session_ref`, filePath);
+function validateSessionRef(sessionRef, label, filePath) {
+  assertObject(sessionRef, `${label}.session_ref`, filePath);
   if (!sessionRef.source || !KNOWN_SESSION_REF_SOURCES.has(sessionRef.source)) {
-    throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.session_ref.source must be one of ${Array.from(KNOWN_SESSION_REF_SOURCES).join(', ')}`, { file: filePath, key: `profiles.${profileName}.session_ref.source` });
+    throw new SpawnError(E_CONFIG_LOAD, `${label}.session_ref.source must be one of ${Array.from(KNOWN_SESSION_REF_SOURCES).join(', ')}`, { file: filePath, key: `${label}.session_ref.source` });
   }
   if (sessionRef.source === 'stdout-json' && !sessionRef.field) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${profileName}.session_ref.field is required for source stdout-json`, { file: filePath, key: `profiles.${profileName}.session_ref.field` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.session_ref.field is required for source stdout-json`, { file: filePath, key: `${label}.session_ref.field` });
   }
   if (sessionRef.source === 'stdout-json-event' && (!sessionRef.event || !sessionRef.field)) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${profileName}.session_ref.event and field are required for source stdout-json-event`, { file: filePath, key: `profiles.${profileName}.session_ref` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.session_ref.event and field are required for source stdout-json-event`, { file: filePath, key: `${label}.session_ref` });
   }
 }
 
-function validateExec(block, profileName, filePath, blockName = 'exec') {
-  assertObject(block, `profiles.${profileName}.${blockName}`, filePath);
-  checkUnknownKeys(block, KNOWN_EXEC_KEYS, `profiles.${profileName}.${blockName}`, filePath);
-  assertArrayOfStrings(block.argv, `profiles.${profileName}.${blockName}.argv`, filePath);
+function validateExec(block, label, filePath, blockName = 'exec') {
+  assertObject(block, `${label}.${blockName}`, filePath);
+  checkUnknownKeys(block, KNOWN_EXEC_KEYS, `${label}.${blockName}`, filePath);
+  assertArrayOfStrings(block.argv, `${label}.${blockName}.argv`, filePath);
   if (!block.prompt || !KNOWN_PROMPT_VALUES.has(block.prompt)) {
-    throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.${blockName}.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)`, { file: filePath, key: `profiles.${profileName}.${blockName}.prompt` });
+    throw new SpawnError(E_CONFIG_LOAD, `${label}.${blockName}.prompt must be stdin — the ONLY headless carriage (file and argv-last REMOVED, batch-08 item 4: caller free text never becomes argv)`, { file: filePath, key: `${label}.${blockName}.prompt` });
   }
   for (let i = 0; i < block.argv.length; i++) {
-    detectUnknownSlots(block.argv[i], `profiles.${profileName}.${blockName}.argv[${i}]`, filePath);
+    detectUnknownSlots(block.argv[i], `${label}.${blockName}.argv[${i}]`, filePath);
   }
 }
 
-function validateCaps(caps, profileName, filePath) {
-  assertObject(caps, `profiles.${profileName}.caps`, filePath);
-  checkUnknownKeys(caps, KNOWN_CAPS_KEYS, `profiles.${profileName}.caps`, filePath);
+function validateCaps(caps, label, filePath) {
+  assertObject(caps, `${label}.caps`, filePath);
+  checkUnknownKeys(caps, KNOWN_CAPS_KEYS, `${label}.caps`, filePath);
   for (const key of KNOWN_CAPS_KEYS) {
     if (caps[key] !== undefined) {
       const ok = (typeof caps[key] === 'string' && caps[key].length > 0) || Number.isInteger(caps[key]);
       if (!ok) {
-        throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.caps.${key} must be a non-empty string or integer`, { file: filePath, key: `profiles.${profileName}.caps.${key}` });
+        throw new SpawnError(E_CONFIG_LOAD, `${label}.caps.${key} must be a non-empty string or integer`, { file: filePath, key: `${label}.caps.${key}` });
       }
     }
   }
@@ -258,13 +261,13 @@ function validateToolsets(toolsets, filePath) {
   return names;
 }
 
-function validateSandbox(sandbox, profileName, filePath, seatBindValidator) {
-  assertObject(sandbox, `profiles.${profileName}.sandbox`, filePath);
-  checkUnknownKeys(sandbox, KNOWN_SANDBOX_KEYS, `profiles.${profileName}.sandbox`, filePath);
+function validateSandbox(sandbox, label, filePath, seatBindValidator) {
+  assertObject(sandbox, `${label}.sandbox`, filePath);
+  checkUnknownKeys(sandbox, KNOWN_SANDBOX_KEYS, `${label}.sandbox`, filePath);
   if (sandbox.ReadWritePaths !== undefined) {
     const arr = Array.isArray(sandbox.ReadWritePaths) ? sandbox.ReadWritePaths : [sandbox.ReadWritePaths];
     for (let i = 0; i < arr.length; i++) {
-      detectUnknownSlots(arr[i], `profiles.${profileName}.sandbox.ReadWritePaths[${i}]`, filePath);
+      detectUnknownSlots(arr[i], `${label}.sandbox.ReadWritePaths[${i}]`, filePath);
     }
   }
   // 7.11 — SeatBinds carries its OWN slot vocabulary ({seatDir}/{goalDir}/{runDir}/{grant:FIELD}),
@@ -281,29 +284,29 @@ function validateSandbox(sandbox, profileName, filePath, seatBindValidator) {
     if (typeof seatBindValidator !== 'function') {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.sandbox.SeatBinds is declared but this consumer supplied no ` +
+        `${label}.sandbox.SeatBinds is declared but this consumer supplied no ` +
         `SeatBinds validator — refusing rather than accepting an unvalidated bind template`,
-        { file: filePath, key: `profiles.${profileName}.sandbox.SeatBinds` },
+        { file: filePath, key: `${label}.sandbox.SeatBinds` },
       );
     }
-    seatBindValidator(sandbox.SeatBinds, profileName, filePath);
+    seatBindValidator(sandbox.SeatBinds, label, filePath);
   }
 }
 
-function validateEnv(env, profileName, filePath) {
-  assertObject(env, `profiles.${profileName}.env`, filePath);
-  checkUnknownKeys(env, KNOWN_ENV_KEYS, `profiles.${profileName}.env`, filePath);
-  if (env.file !== undefined) assertString(env.file, `profiles.${profileName}.env.file`, filePath);
+function validateEnv(env, label, filePath) {
+  assertObject(env, `${label}.env`, filePath);
+  checkUnknownKeys(env, KNOWN_ENV_KEYS, `${label}.env`, filePath);
+  if (env.file !== undefined) assertString(env.file, `${label}.env.file`, filePath);
 }
 
-function validateHeaded(headed, profileName, filePath) {
-  assertObject(headed, `profiles.${profileName}.headed`, filePath);
-  checkUnknownKeys(headed, KNOWN_HEADED_KEYS, `profiles.${profileName}.headed`, filePath);
+function validateHeaded(headed, label, filePath) {
+  assertObject(headed, `${label}.headed`, filePath);
+  checkUnknownKeys(headed, KNOWN_HEADED_KEYS, `${label}.headed`, filePath);
   if (!headed.tui || typeof headed.tui !== 'object') {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${profileName}.headed.tui must be an object`, { file: filePath, key: `profiles.${profileName}.headed.tui` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.headed.tui must be an object`, { file: filePath, key: `${label}.headed.tui` });
   }
-  checkUnknownKeys(headed.tui, KNOWN_TUI_KEYS, `profiles.${profileName}.headed.tui`, filePath);
-  assertArrayOfStrings(headed.tui.argv, `profiles.${profileName}.headed.tui.argv`, filePath);
+  checkUnknownKeys(headed.tui, KNOWN_TUI_KEYS, `${label}.headed.tui`, filePath);
+  assertArrayOfStrings(headed.tui.argv, `${label}.headed.tui.argv`, filePath);
 
   // ── Headed prompt carriage — the profile-LOAD gate (ADDITIVE; Design 3, OQ-F RULED D83) ──
   // The `headed.tui.prompt` key is OPTIONAL: a profile declaring none is VALID and means
@@ -314,18 +317,18 @@ function validateHeaded(headed, profileName, filePath) {
     if (carriage === 'stdin') {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed ` +
+        `${label}.headed.tui.prompt: stdin is STRUCTURALLY ABSENT from the headed ` +
         `carriage vocabulary (stdin IS the terminal slave; write-then-close would type-then-hang-up the ` +
         `session) — declaring it is a config-LOAD failure, not a runtime value (known: file|keystroke)`,
-        { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
+        { file: filePath, key: `${label}.headed.tui.prompt`, carriage },
       );
     }
     if (!KNOWN_HEADED_CARRIAGES.has(carriage)) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.headed.tui.prompt must be one of file|keystroke (argv REMOVED, ` +
+        `${label}.headed.tui.prompt must be one of file|keystroke (argv REMOVED, ` +
         `batch-08 item 4: caller free text never becomes argv)`,
-        { file: filePath, key: `profiles.${profileName}.headed.tui.prompt`, carriage },
+        { file: filePath, key: `${label}.headed.tui.prompt`, carriage },
       );
     }
   }
@@ -334,7 +337,7 @@ function validateHeaded(headed, profileName, filePath) {
   // carriage only) was retired with that carriage — a `{prompt}` slot in headed.tui.argv is now
   // an E_UNKNOWN_SLOT config-load failure regardless of what the profile declares.
   for (let i = 0; i < headed.tui.argv.length; i++) {
-    detectUnknownSlots(headed.tui.argv[i], `profiles.${profileName}.headed.tui.argv[${i}]`, filePath);
+    detectUnknownSlots(headed.tui.argv[i], `${label}.headed.tui.argv[${i}]`, filePath);
   }
 
   // Consistency, declared-but-absent direction: a carriage whose slot is missing would compose
@@ -343,8 +346,8 @@ function validateHeaded(headed, profileName, filePath) {
   if (carriage === 'file' && !headed.tui.argv.some((el) => el.includes('{prompt_file}'))) {
     throw new SpawnError(
       E_CONFIG_LOAD,
-      `profiles.${profileName}.headed.tui.prompt: file declared but headed.tui.argv carries no {prompt_file} slot`,
-      { file: filePath, key: `profiles.${profileName}.headed.tui.argv`, carriage },
+      `${label}.headed.tui.prompt: file declared but headed.tui.argv carries no {prompt_file} slot`,
+      { file: filePath, key: `${label}.headed.tui.argv`, carriage },
     );
   }
 
@@ -359,10 +362,10 @@ function validateHeaded(headed, profileName, filePath) {
       || !Number.isInteger(ks.timeout_ms)) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.headed.tui.keystroke: keystroke carriage MUST declare a readiness ` +
+        `${label}.headed.tui.keystroke: keystroke carriage MUST declare a readiness ` +
         `marker (non-empty string, matched vs the RENDERED screen) and an integer timeout_ms ` +
         `(expiry → prompt-injection-timeout failure)`,
-        { file: filePath, key: `profiles.${profileName}.headed.tui.keystroke`, carriage },
+        { file: filePath, key: `${label}.headed.tui.keystroke`, carriage },
       );
     }
   }
@@ -372,18 +375,18 @@ function validateHeaded(headed, profileName, filePath) {
 // One shared core (slots, carriage, session_ref, caps) with up to TWO command halves. A profile
 // declares `exec:` (single-shape, every host) OR `command: {caged:, portable:}` — never both,
 // because two sources for one argv is the drift this whole task exists to remove.
-function validateCommandHalves(command, profileName, filePath) {
-  assertObject(command, `profiles.${profileName}.command`, filePath);
-  checkUnknownKeys(command, KNOWN_COMMAND_HALVES, `profiles.${profileName}.command`, filePath);
+function validateCommandHalves(command, label, filePath) {
+  assertObject(command, `${label}.command`, filePath);
+  checkUnknownKeys(command, KNOWN_COMMAND_HALVES, `${label}.command`, filePath);
   if (Object.keys(command).length === 0) {
     throw new SpawnError(
       E_CONFIG_LOAD,
-      `profiles.${profileName}.command declares no half — declare caged, portable, or both`,
-      { file: filePath, key: `profiles.${profileName}.command` },
+      `${label}.command declares no half — declare caged, portable, or both`,
+      { file: filePath, key: `${label}.command` },
     );
   }
   for (const half of Object.keys(command)) {
-    validateExec(command[half], profileName, filePath, `command.${half}`);
+    validateExec(command[half], label, filePath, `command.${half}`);
   }
 }
 
@@ -392,9 +395,9 @@ function validateCommandHalves(command, profileName, filePath) {
 // vocabulary, translated by the profile's OWN table. A harness with no such dial declares
 // `inert: true`, which is STATED rather than silently dropped: an inert profile handed an effort
 // level accepts it and emits no argv for it, and says so in the resolution result.
-function validateEffort(effort, profileName, filePath) {
-  assertObject(effort, `profiles.${profileName}.effort`, filePath);
-  checkUnknownKeys(effort, KNOWN_EFFORT_KEYS, `profiles.${profileName}.effort`, filePath);
+function validateEffort(effort, label, filePath) {
+  assertObject(effort, `${label}.effort`, filePath);
+  checkUnknownKeys(effort, KNOWN_EFFORT_KEYS, `${label}.effort`, filePath);
 
   if (effort.inert === true) {
     // An inert table declares nothing else — a dialect or argv beside `inert` would be a
@@ -403,20 +406,20 @@ function validateEffort(effort, profileName, filePath) {
       if (effort[key] !== undefined) {
         throw new SpawnError(
           E_CONFIG_LOAD,
-          `profiles.${profileName}.effort declares inert: true AND ${key} — an inert dial has no translation`,
-          { file: filePath, key: `profiles.${profileName}.effort.${key}` },
+          `${label}.effort declares inert: true AND ${key} — an inert dial has no translation`,
+          { file: filePath, key: `${label}.effort.${key}` },
         );
       }
     }
     return;
   }
   if (effort.inert !== undefined && effort.inert !== false) {
-    throw new SpawnError(E_CONFIG_LOAD, `profiles.${profileName}.effort.inert must be a boolean`, { file: filePath, key: `profiles.${profileName}.effort.inert` });
+    throw new SpawnError(E_CONFIG_LOAD, `${label}.effort.inert must be a boolean`, { file: filePath, key: `${label}.effort.inert` });
   }
 
-  assertString(effort.dialect, `profiles.${profileName}.effort.dialect`, filePath);
-  assertArrayOfStrings(effort.rungs, `profiles.${profileName}.effort.rungs`, filePath);
-  assertArrayOfStrings(effort.argv, `profiles.${profileName}.effort.argv`, filePath);
+  assertString(effort.dialect, `${label}.effort.dialect`, filePath);
+  assertArrayOfStrings(effort.rungs, `${label}.effort.rungs`, filePath);
+  assertArrayOfStrings(effort.argv, `${label}.effort.argv`, filePath);
 
   // An EMPTY ladder would declare a dial with no reachable setting — which is what `inert: true`
   // means, and the two must not be spellable as the same thing: an empty `rungs:` would refuse
@@ -424,18 +427,18 @@ function validateEffort(effort, profileName, filePath) {
   if (effort.rungs.length === 0) {
     throw new SpawnError(
       E_CONFIG_LOAD,
-      `profiles.${profileName}.effort.rungs is empty — a dial with no rungs is an INERT dial and ` +
+      `${label}.effort.rungs is empty — a dial with no rungs is an INERT dial and ` +
       `must declare itself one ('effort: { inert: true }'), never an empty ladder`,
-      { file: filePath, key: `profiles.${profileName}.effort.rungs` },
+      { file: filePath, key: `${label}.effort.rungs` },
     );
   }
   for (let i = 0; i < effort.rungs.length; i++) {
     if (effort.rungs[i].length === 0) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${profileName}.effort.rungs[${i}] is empty — rung ${i + 1} would compose the ` +
+        `${label}.effort.rungs[${i}] is empty — rung ${i + 1} would compose the ` +
         `harness's flag with no value`,
-        { file: filePath, key: `profiles.${profileName}.effort.rungs` },
+        { file: filePath, key: `${label}.effort.rungs` },
       );
     }
   }
@@ -444,8 +447,8 @@ function validateEffort(effort, profileName, filePath) {
   if (!effort.argv.some((el) => el.includes('{effort}'))) {
     throw new SpawnError(
       E_CONFIG_LOAD,
-      `profiles.${profileName}.effort.argv carries no {effort} slot — the level would be dropped silently`,
-      { file: filePath, key: `profiles.${profileName}.effort.argv` },
+      `${label}.effort.argv carries no {effort} slot — the level would be dropped silently`,
+      { file: filePath, key: `${label}.effort.argv` },
     );
   }
 }
@@ -463,23 +466,23 @@ function validateEffort(effort, profileName, filePath) {
 // Returns { argv, applied, inert }. `applied` carries the rung, the harness's dialect name, the
 // literal it composed and the ladder's size — a consumer logs what actually happened rather than
 // what it asked for.
-function resolveEffort(profile, rung, profileName) {
+function resolveEffort(profile, rung, label) {
   if (rung === null || rung === undefined) return { argv: [], applied: null, inert: false };
   if (!Number.isInteger(rung) || rung < 1) {
     throw new SpawnError(
       E_UNKNOWN_EFFORT,
       `effort must be an INTEGER RUNG >= 1 (rung 1 = lowest reasoning, rung N = highest), got: ` +
       `${JSON.stringify(rung)}`,
-      { profile: profileName, effort: rung },
+      { profile: label, effort: rung },
     );
   }
   if (!profile.effort) {
     throw new SpawnError(
       E_UNKNOWN_EFFORT,
-      `profile ${profileName} declares no effort table — it cannot translate a rung. A harness ` +
+      `profile ${label} declares no effort table — it cannot translate a rung. A harness ` +
       `with no such dial must declare 'effort: { inert: true }' so the slot is STATED inert ` +
       `rather than silently dropped.`,
-      { profile: profileName, effort: rung },
+      { profile: label, effort: rung },
     );
   }
   if (profile.effort.inert === true) {
@@ -492,9 +495,9 @@ function resolveEffort(profile, rung, profileName) {
   if (rung > rungs.length) {
     throw new SpawnError(
       E_UNKNOWN_EFFORT,
-      `effort rung ${rung} is outside profile ${profileName}'s range 1..${rungs.length} ` +
+      `effort rung ${rung} is outside profile ${label}'s range 1..${rungs.length} ` +
       `(${rungs.map((r, i) => `${i + 1}=${r}`).join(', ')})`,
-      { profile: profileName, effort: rung, min: 1, max: rungs.length, rungs: rungs.slice() },
+      { profile: label, effort: rung, min: 1, max: rungs.length, rungs: rungs.slice() },
     );
   }
   const value = rungs[rung - 1];
@@ -507,9 +510,35 @@ function resolveEffort(profile, rung, profileName) {
   return { argv, applied: { rung, of: rungs.length, dialect: profile.effort.dialect, value }, inert: false };
 }
 
-function validateProfile(profile, name, filePath, seatBindValidator, toolsetNames = null) {
-  assertObject(profile, `profiles.${name}`, filePath);
-  checkUnknownKeys(profile, KNOWN_PROFILE_KEYS, `profiles.${name}`, filePath);
+// ── THE KEY/ARGV AGREEMENT GUARD (owner ruling `#d-abolish-profile-names`, 2026-08-12) ─────────
+//
+// Under `profiles:` the pair a row RAN was DERIVED from its argv, so key and reality could not
+// disagree — the key was arbitrary and meant nothing. Under `launch-specs:` the KEY is the
+// authority every lookup goes through, which opens exactly one new failure: a spec filed under
+// `claude/claude-opus-5` whose argv says `--model claude-haiku-4-5`. That is the silent-wrong-model
+// launch this whole line of work exists to kill, so the old derivation law survives HERE, as a
+// LOAD-TIME GUARD rather than a lookup. Refused at boot, where a human is reading output.
+//
+// Only `exec:`-shaped specs are checked. A `command: {caged:, portable:}` spec has two argvs and
+// no single pin to compare; the daemon spawn path refuses those anyway (G-144,
+// `E_SPEC_HALVES_UNSUPPORTED`), so the gap is not reachable from a launch.
+function validateSpecKey(spec, harness, model, label, filePath) {
+  const ran = bindingOf(spec);
+  if (!ran) return;                              // no `exec:` half — nothing to compare against
+  if (ran.harness === harness && ran.model === model) return;
+  throw new SpawnError(
+    E_CONFIG_LOAD,
+    `${label} is filed under harness '${harness}' model '${model}' but its exec.argv runs `
+    + `harness '${ran.harness}' model '${ran.model || '(no --model/-m pin)'}'. The KEY is what every `
+    + 'seat cast resolves through, so a key that disagrees with the command line is a launch that '
+    + 'runs a model nobody asked for while every record says otherwise. Fix the key or the argv.',
+    { file: filePath, key: label, keyed: { harness, model }, runs: ran },
+  );
+}
+
+function validateSpec(profile, label, filePath, seatBindValidator, toolsetNames = null) {
+  assertObject(profile, `${label}`, filePath);
+  checkUnknownKeys(profile, KNOWN_SPEC_KEYS, `${label}`, filePath);
 
   // r-seats-only-architecture (2): the per-profile toolset CEILING — the widest tier a dispatch
   // of this profile may ask for. Must name a tier of the closed enum, and (when the install
@@ -518,16 +547,16 @@ function validateProfile(profile, name, filePath, seatBindValidator, toolsetName
     if (!TOOLSET_ORDER.includes(profile.toolset_ceiling)) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${name}.toolset_ceiling must be one of ${TOOLSET_ORDER.join('|')}, got: ${profile.toolset_ceiling}`,
-        { file: filePath, key: `profiles.${name}.toolset_ceiling` },
+        `${label}.toolset_ceiling must be one of ${TOOLSET_ORDER.join('|')}, got: ${profile.toolset_ceiling}`,
+        { file: filePath, key: `${label}.toolset_ceiling` },
       );
     }
     if (toolsetNames && !toolsetNames.includes(profile.toolset_ceiling)) {
       throw new SpawnError(
         E_CONFIG_LOAD,
-        `profiles.${name}.toolset_ceiling names "${profile.toolset_ceiling}", which the toolsets block does not declare ` +
+        `${label}.toolset_ceiling names "${profile.toolset_ceiling}", which the toolsets block does not declare ` +
         `(declared: ${toolsetNames.join(', ')})`,
-        { file: filePath, key: `profiles.${name}.toolset_ceiling` },
+        { file: filePath, key: `${label}.toolset_ceiling` },
       );
     }
   }
@@ -537,53 +566,53 @@ function validateProfile(profile, name, filePath, seatBindValidator, toolsetName
   if (hasExec && hasHalves) {
     throw new SpawnError(
       E_CONFIG_LOAD,
-      `profiles.${name} declares BOTH exec and command — one profile, one argv source`,
-      { file: filePath, key: `profiles.${name}.command` },
+      `${label} declares BOTH exec and command — one profile, one argv source`,
+      { file: filePath, key: `${label}.command` },
     );
   }
   if (!hasExec && !hasHalves) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${name}.exec is required`, { file: filePath, key: `profiles.${name}.exec` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.exec is required`, { file: filePath, key: `${label}.exec` });
   }
-  if (hasExec) validateExec(profile.exec, name, filePath);
-  else validateCommandHalves(profile.command, name, filePath);
+  if (hasExec) validateExec(profile.exec, label, filePath);
+  else validateCommandHalves(profile.command, label, filePath);
 
   // The resume template: same block shape as `exec`, validated by the same function (one
   // definition of what a command block is). A resume argv with no `{session_ref}` slot would
   // resume nothing in particular, so it is refused rather than launched.
   if (profile.resume !== undefined) {
-    validateExec(profile.resume, name, filePath, 'resume');
+    validateExec(profile.resume, label, filePath, 'resume');
     if (!JSON.stringify(profile.resume.argv).includes('{session_ref}')) {
       throw new SpawnError(
         E_MISSING_KEY,
-        `profiles.${name}.resume.argv carries no {session_ref} slot — it would resume no particular session`,
-        { file: filePath, key: `profiles.${name}.resume.argv` },
+        `${label}.resume.argv carries no {session_ref} slot — it would resume no particular session`,
+        { file: filePath, key: `${label}.resume.argv` },
       );
     }
   }
 
-  if (profile.effort !== undefined) validateEffort(profile.effort, name, filePath);
+  if (profile.effort !== undefined) validateEffort(profile.effort, label, filePath);
 
   if (!profile.session_ref) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${name}.session_ref is required`, { file: filePath, key: `profiles.${name}.session_ref` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.session_ref is required`, { file: filePath, key: `${label}.session_ref` });
   }
-  validateSessionRef(profile.session_ref, name, filePath);
+  validateSessionRef(profile.session_ref, label, filePath);
 
   if (profile.headed) {
-    validateHeaded(profile.headed, name, filePath);
+    validateHeaded(profile.headed, label, filePath);
   }
 
   if (!profile.workdir_root) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${name}.workdir_root is required`, { file: filePath, key: `profiles.${name}.workdir_root` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.workdir_root is required`, { file: filePath, key: `${label}.workdir_root` });
   }
-  assertString(profile.workdir_root, `profiles.${name}.workdir_root`, filePath);
+  assertString(profile.workdir_root, `${label}.workdir_root`, filePath);
 
   if (!profile.caps) {
-    throw new SpawnError(E_MISSING_KEY, `profiles.${name}.caps is required`, { file: filePath, key: `profiles.${name}.caps` });
+    throw new SpawnError(E_MISSING_KEY, `${label}.caps is required`, { file: filePath, key: `${label}.caps` });
   }
-  validateCaps(profile.caps, name, filePath);
+  validateCaps(profile.caps, label, filePath);
 
-  if (profile.sandbox) validateSandbox(profile.sandbox, name, filePath, seatBindValidator);
-  if (profile.env) validateEnv(profile.env, name, filePath);
+  if (profile.sandbox) validateSandbox(profile.sandbox, label, filePath, seatBindValidator);
+  if (profile.env) validateEnv(profile.env, label, filePath);
 }
 
 function validateSpawnBlock(spawn, filePath) {
@@ -648,41 +677,80 @@ function loadConfig(filePath, opts = {}) {
   }
   assertString(parsed.default_workdir_root, 'default_workdir_root', filePath);
 
-  if (!parsed.profiles || typeof parsed.profiles !== 'object' || Array.isArray(parsed.profiles)) {
-    throw new SpawnError(E_MISSING_KEY, 'profiles must be a mapping', { file: filePath, key: 'profiles' });
+  // ── THE TWO MECHANICS BLOCKS (owner ruling `#d-abolish-profile-names`, 2026-08-12) ─────────
+  //
+  // `profiles:` — one flat map keyed by an arbitrary NAME — is abolished. What replaces it is two
+  // blocks split by ONE test: does this entry have a (harness, model) identity?
+  //
+  //   `launch-specs:`  YES. Nested `harness: { model: { …mechanics… } }` and keyed by the PAIR, so
+  //                    a seat's cast addresses its mechanics directly and no name sits in between.
+  //   `jobs:`          NO. Deterministic launches that pin no model (`test-sleep`'s `sleep 60`) —
+  //                    sub-ruling 1: "a job's name IS its identity", so these stay name-keyed.
+  //
+  // Both are flattened into ONE-LEVEL maps here (`launchSpecs` keyed `harness/model` by
+  // `catalog.js#specKey`, `jobs` keyed by name) so every daemon-side lookup is a single own-property
+  // test rather than a two-level walk.
+  //
+  // ⚠ BOTH BLOCKS ARE OPTIONAL, AND THAT IS DELIBERATE. Requiring `launch-specs:` was considered
+  // and dropped: "this config can cast nothing" is not detectable as a defect at LOAD — a config
+  // used to assert a load-shape, or one that carries only job stand-ins, legitimately has none —
+  // and the condition it would guard is caught at the right door anyway, far more loudly.
+  // `specForSeatCast` refuses every launch with `E_UNMAPPED_BINDING` and prints
+  // `castable: (none — the config declares no launch-specs: block)`. A load-time copy of that
+  // would only fire earlier on configs that were never going to launch anything.
+  for (const key of ['launch-specs', 'jobs']) {
+    const block = parsed[key];
+    if (block !== undefined && (block === null || typeof block !== 'object' || Array.isArray(block))) {
+      throw new SpawnError(E_CONFIG_LOAD, `${key} must be a mapping`, { file: filePath, key });
+    }
   }
 
-  // ── r-seats-only-architecture (1)/(2): merge the SHARED blocks into every profile ──────────
+  // ── r-seats-only-architecture (1)/(2): merge the SHARED blocks into every entry ────────────
   //
-  // `cage:` (the one seat-cage template, SeatBinds included — merged as each profile's sandbox)
-  // and the top-level `caps:` (the one global caps block) are declared ONCE; each profile
-  // receives them here, with the profile's OWN keys winning — the "rare per-profile overrides
+  // `cage:` (the one seat-cage template, SeatBinds included — merged as each entry's sandbox)
+  // and the top-level `caps:` (the one global caps block) are declared ONCE; each entry
+  // receives them here, with the entry's OWN keys winning — the "rare per-entry overrides
   // only by ruling" seam. `sandbox_default`/`caps_default` are accepted synonyms so the resolver
-  // does not break on a spelling. Merged BEFORE per-profile validation so the merged shape is
-  // what gets validated (caps is a required key, and under the shared block a profile
+  // does not break on a spelling. Merged BEFORE per-entry validation so the merged shape is
+  // what gets validated (caps is a required key, and under the shared block an entry
   // legitimately declares none of its own). A config with the blocks already expanded per
-  // profile via YAML anchors needs no merge and passes through this loop unchanged.
+  // entry via YAML anchors needs no merge and passes through this loop unchanged.
   const toolsetNames = parsed.toolsets !== undefined ? validateToolsets(parsed.toolsets, filePath) : null;
   const capsDefault = parsed.caps ?? parsed.caps_default ?? null;
   const sandboxDefault = parsed.cage ?? parsed.sandbox_default ?? null;
   if (capsDefault !== null) assertObject(capsDefault, 'caps_default', filePath);
   if (sandboxDefault !== null) assertObject(sandboxDefault, 'sandbox_default', filePath);
-  if (capsDefault || sandboxDefault) {
-    for (const name of Object.keys(parsed.profiles)) {
-      const p = parsed.profiles[name];
-      if (p === null || typeof p !== 'object' || Array.isArray(p)) continue; // validateProfile refuses it below
-      if (capsDefault) p.caps = { ...capsDefault, ...(p.caps || {}) };
-      if (sandboxDefault) p.sandbox = { ...sandboxDefault, ...(p.sandbox || {}) };
+
+  // Flatten + validate. The label a refusal prints is the entry's FULL config path
+  // (`launch-specs.claude.claude-fable-5`, `jobs.test-sleep`) — an operator has to be able to open
+  // the file at the line the message names, and under a nested block the leaf key alone is not
+  // enough to find it.
+  const applyDefaults = (entry) => {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return entry; // validateSpec refuses it
+    if (capsDefault) entry.caps = { ...capsDefault, ...(entry.caps || {}) };
+    if (sandboxDefault) entry.sandbox = { ...sandboxDefault, ...(entry.sandbox || {}) };
+    return entry;
+  };
+
+  const launchSpecs = {};
+  for (const harness of Object.keys(parsed['launch-specs'] || {})) {
+    const models = parsed['launch-specs'][harness];
+    assertObject(models, `launch-specs.${harness}`, filePath);
+    for (const model of Object.keys(models)) {
+      const label = `launch-specs.${harness}.${model}`;
+      const spec = applyDefaults(models[model]);
+      validateSpec(spec, label, filePath, seatBindValidator, toolsetNames);
+      validateSpecKey(spec, harness, model, label, filePath);
+      launchSpecs[specKey(harness, model)] = spec;
     }
   }
 
-  const seen = new Set();
-  for (const name of Object.keys(parsed.profiles)) {
-    if (seen.has(name)) {
-      throw new SpawnError(E_DUPLICATE_PROFILE, `duplicate profile: ${name}`, { file: filePath, key: `profiles.${name}` });
-    }
-    seen.add(name);
-    validateProfile(parsed.profiles[name], name, filePath, seatBindValidator, toolsetNames);
+  const jobs = {};
+  for (const name of Object.keys(parsed.jobs || {})) {
+    const label = `jobs.${name}`;
+    const spec = applyDefaults(parsed.jobs[name]);
+    validateSpec(spec, label, filePath, seatBindValidator, toolsetNames);
+    jobs[name] = spec;
   }
 
   const config = {
@@ -694,7 +762,13 @@ function loadConfig(filePath, opts = {}) {
       kill_grace_seconds: parsed.spawn?.kill_grace_seconds ?? 10,
     },
     default_workdir_root: parsed.default_workdir_root,
-    profiles: parsed.profiles,
+    // THE (harness, model) -> mechanics table, flattened. `catalog.js#specKey` builds the key and
+    // `catalog.js#catalogOf` reads it back apart — one spelling of the join, in one module.
+    launchSpecs,
+    // The name-keyed deterministic stand-ins. Deliberately NOT merged into `launchSpecs`: they
+    // carry no (harness, model), so a seat can never cast to one, which is exactly the ambiguity
+    // the split removes.
+    jobs,
     // r-seats-only-architecture (2): the declared toolsets block, RAW (a mapping may attach
     // per-harness tier definitions its consumers read); null when the config predates the
     // block. The vocabulary is validated above; the ORDER is TOOLSET_ORDER's, exported.
@@ -810,9 +884,15 @@ function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath,
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-// resolveProfile — THE shared policy point (task 7.42 criterion 3)
+// resolveLaunchSpec — THE shared policy point (task 7.42 criterion 3; re-keyed at 7.787)
 //
-// A caller supplies: the profile NAME, an abstract effort level, and values for DECLARED SLOTS.
+// ⚠ THE SECOND ARGUMENT IS NO LONGER A NAME. It is the (harness, model) a seat is CAST as — the
+// only address a launch spec has since `#d-abolish-profile-names`. `{ job: '<name>' }` addresses
+// the name-keyed `jobs:` block instead, which is the one place a name still identifies mechanics
+// (sub-ruling 1: a job's name IS its identity). Nothing else may select a spec, and no caller
+// anywhere in ignite supplies either form for an AGENT launch — the daemon reads the seat.
+//
+// A caller supplies: that address, an effort rung, and values for DECLARED SLOTS.
 // It supplies NO argv, NO flags, and NO half. Three bounds, each enforced rather than documented:
 //
 //   1. UNDECLARED SLOT KEYS ARE REFUSED (E_RAW_FLAG). A caller cannot smuggle `--dangerously-x`
@@ -828,16 +908,19 @@ function resolveWorkdir(profile, requestedWorkdir, defaultWorkdirRoot, filePath,
 // text is a losing game. The real guarantee is structural: there is no code path that pushes a
 // caller-supplied string onto argv as its own element.
 // ═════════════════════════════════════════════════════════════════════════════════════════════
-function resolveProfile(config, name, opts = {}) {
+function resolveLaunchSpec(config, address, opts = {}) {
   const { effort = null, slots = {}, hostCapability = null, toolset = null } = opts;
 
-  if (!config || !config.profiles || !Object.prototype.hasOwnProperty.call(config.profiles, name)) {
-    throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${name}`, {
-      profile: name,
-      known: config && config.profiles ? Object.keys(config.profiles) : [],
+  const isJob = Boolean(address && address.job);
+  const table = (isJob ? (config && config.jobs) : (config && config.launchSpecs)) || {};
+  const name = isJob ? String(address.job) : specKey(address && address.harness, address && address.model);
+  if (!Object.hasOwn(table, name)) {
+    throw new SpawnError(E_UNKNOWN_LAUNCH_SPEC, `no launch spec for ${isJob ? `job ${name}` : `harness+model ${name}`}`, {
+      spec: name,
+      known: Object.keys(table),
     });
   }
-  const profile = config.profiles[name];
+  const profile = table[name];
 
   // ── half selection ────────────────────────────────────────────────────────────────────────
   // `hostCapability` exists ONLY so a single resolution pass can reuse one detection; it is NOT
@@ -984,7 +1067,7 @@ function resolveProfile(config, name, opts = {}) {
 
 module.exports = {
   loadConfig,
-  resolveProfile,
+  resolveLaunchSpec,
   resolveTemplateSlots,
   resolveWorkdir,
   resolveWorkspaceRoot,

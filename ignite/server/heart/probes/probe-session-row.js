@@ -42,7 +42,7 @@ try {
     jobId: 'launch-agent',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1,
   });
 
@@ -50,7 +50,7 @@ try {
   const rowStart = store.recordExecutionStart({
     jobId: 'launch-agent',
     actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     enqueuedBy: 'owner',
     sessionMode: 'headless',
     firedTick: 1,

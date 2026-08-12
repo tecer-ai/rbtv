@@ -80,27 +80,30 @@ async function main() {
   ].join('\n'), { mode: 0o600 });
   fs.chmodSync(sendersFile, 0o600);
 
-  // The server core's PINNED config knows exactly ONE profile. `ghost-profile` below
-  // is therefore semantically invalid while being perfectly well-SHAPED.
+  // ⚠ THE VEHICLE MOVED FROM `profile` TO `tool` AT 7.787, AND THE CLAIM IS UNCHANGED. This arm's
+  // subject is DEC-3 defence in depth — a payload that PARSES at the gateway (which holds no
+  // server config) and is REFUSED by the core, which does. Its vehicle was an unknown launch
+  // PROFILE; `#d-abolish-profile-names` deleted that argument, so `fire-tool`'s `tool` — the same
+  // catalogue lookup, one branch over in `heart-store.js#enqueue` — carries it now.
   const store = openHeartStore({
     dbPath: tmpDb,
-    profiles: { 'test-sleep': { headed: false } },
+    tools: { 'real-tool': { exec: { argv: ['/bin/true'] } } },
     // A named workflow the store can re-validate against, exactly as it re-validates a named
     // profile above. (The `start-workflow` dry-run arms that used it retired with §6.)
     workflows: { planning: { argv: ['/usr/bin/python3'] } },
   });
   store.registerJob({
-    jobId: 'launch-worker',
-    actionType: 'launch-agent',
-    function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    jobId: 'fire-worker',
+    actionType: 'fire-tool',
+    function: 'fireTool',
+    argsSchema: JSON.stringify({ required: { tool: 'string' }, optional: {} }),
     enabled: 1,
   });
 
   const secret = crypto.randomBytes(32).toString('hex');
   const api = createInternalApi({
     heartStore: store,
-    spawnManager: { config: { profiles: { 'test-sleep': { headed: false } } } },
+    spawnManager: { config: {} },
     secret,
   });
   const gw = createGateway({ dispatch: api.dispatch, internalSecret: secret, sendersFilePath: sendersFile });
@@ -108,10 +111,10 @@ async function main() {
   const runAt = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
   // `dryRun` omitted → the field is ABSENT from the payload (proves the default write
   // path is truly opt-out, not merely `dry_run: false`); when supplied it is a boolean.
-  const addJob = (profile, dryRun) => {
+  const addJob = (tool, dryRun) => {
     const payload = {
-      job_id: 'launch-worker',
-      args: JSON.stringify({ profile }),
+      job_id: 'fire-worker',
+      args: JSON.stringify({ tool }),
       trigger_kind: 'scheduled',
       run_at: runAt,
       session_mode: 'headless',
@@ -123,7 +126,7 @@ async function main() {
   // --- 0. SEED a KNOWN count on disk: one real enqueue → the queue holds exactly 1 row.
   // Every dry-run assertion below is measured against THIS seeded count (D72's mutation-
   // backed proof: seed, dry-run, re-count = same).
-  let r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('test-sleep'), source: '127.0.0.1' });
+  let r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('real-tool'), source: '127.0.0.1' });
   check('SEED: a normal enqueue lands one row (establishes a known count)',
     r.body.ok === true && Number.isInteger(r.body.result.jobId),
     `ok=${r.body.ok} jobId=${r.body.result && r.body.result.jobId}`);
@@ -132,7 +135,7 @@ async function main() {
   const seededCount = seeded.length;
 
   // --- 1. VALID dry_run → verdict, and NOTHING written (count UNCHANGED on disk).
-  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('test-sleep', true), source: '127.0.0.1' });
+  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('real-tool', true), source: '127.0.0.1' });
   check('a VALID dry_run is ACCEPTED past the gateway',
     r.body.ok === true, `ok=${r.body.ok} error=${JSON.stringify(r.body.error)}`);
   check('the result is the verdict { dry_run: true, valid: true } (NOT a jobId)',
@@ -145,13 +148,13 @@ async function main() {
     `disk queue rows=${after.length} (seeded=${seededCount})`);
 
   // --- 2. INVALID dry_run → the SAME typed VALIDATION_FAILED (check named), still nothing written.
-  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('ghost-profile', true), source: '127.0.0.1' });
-  check('an INVALID dry_run (unknown profile) is REFUSED', r.body.ok === false, `ok=${r.body.ok}`);
+  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('ghost-tool', true), source: '127.0.0.1' });
+  check('an INVALID dry_run (unknown tool) is REFUSED', r.body.ok === false, `ok=${r.body.ok}`);
   check('the refusal is typed VALIDATION_FAILED (identical to the non-dry_run failure path)',
     r.body.error && r.body.error.code === 'VALIDATION_FAILED',
     `code=${r.body.error && r.body.error.code}`);
-  check('the typed error NAMES the failing check (E_UNKNOWN_PROFILE — the core re-validated)',
-    r.body.error && r.body.error.details && r.body.error.details.check === 'E_UNKNOWN_PROFILE',
+  check('the typed error NAMES the failing check (E_UNKNOWN_TOOL — the core re-validated)',
+    r.body.error && r.body.error.details && r.body.error.details.check === 'E_UNKNOWN_TOOL',
     `details=${JSON.stringify(r.body.error && r.body.error.details)}`);
   check('the invalid-dry_run refusal maps to the CLI exit-4 class (HTTP 400)', r.status === 400, `status=${r.status}`);
   after = readBackQueue();
@@ -162,7 +165,7 @@ async function main() {
   // --- 3. NARROW-GRANT REGRESSION GUARD (D73): a NORMAL enqueue (no dry_run) STILL INSERTS (+1).
   // This is the proof that reopening the certified store left the DEFAULT write path intact —
   // by MUTATION on disk, not inspection. A store that had lost its insert would fail HERE.
-  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('test-sleep'), source: '127.0.0.1' });
+  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('real-tool'), source: '127.0.0.1' });
   check('MUTATION: a NORMAL enqueue (no dry_run) is ACCEPTED and mints a jobId',
     r.body.ok === true && Number.isInteger(r.body.result.jobId),
     `ok=${r.body.ok} jobId=${r.body.result && r.body.result.jobId}`);
@@ -172,7 +175,7 @@ async function main() {
     `disk queue rows=${after.length} (seeded=${seededCount}) newId=${r.body.result && r.body.result.jobId}`);
 
   // --- 4. `dry_run: false` explicitly ALSO inserts (opt-in is by truthiness, not presence).
-  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('test-sleep', false), source: '127.0.0.1' });
+  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('real-tool', false), source: '127.0.0.1' });
   check('an explicit dry_run:false STILL INSERTS (the mode is opt-in by TRUE, not by presence)',
     r.body.ok === true && Number.isInteger(r.body.result.jobId),
     `ok=${r.body.ok} jobId=${r.body.result && r.body.result.jobId}`);
@@ -184,7 +187,7 @@ async function main() {
   // --- 5. A non-boolean dry_run is refused at SHAPE-CHECK (gateway), never reaching the core.
   const badShape = await gw.handleRequest({
     credential: AGENT_TOKEN,
-    body: { intent: 'enqueue-job', payload: { ...addJob('test-sleep').payload, dry_run: 'yes' } },
+    body: { intent: 'enqueue-job', payload: { ...addJob('real-tool').payload, dry_run: 'yes' } },
     source: '127.0.0.1',
   });
   check('a non-boolean dry_run is REFUSED (shape-check) — a bad shape can never flip the write path',

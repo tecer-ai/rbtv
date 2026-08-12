@@ -17,7 +17,7 @@
 // resolveProfile() is the root-cause shape and is deliberately a later task (7.43/7.54 unbuilt).
 //
 // ⚠ THE ASSERTION IS THE NAMED CODE, NEVER "it did not crash." Exit 1 is the PRE-fix evidence;
-// after the fix the expectation INVERTS to naming E_PROFILE_HALVES_UNSUPPORTED. "Did not crash"
+// after the fix the expectation INVERTS to naming E_SPEC_HALVES_UNSUPPORTED. "Did not crash"
 // is also satisfied by a probe that never reached the line — G-121's shape.
 //
 // ⚠ THE SHIPPED CONFIG IS NEVER WRITTEN. The fixture IS the failure mode: a half-shaped profile
@@ -38,7 +38,7 @@ const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
 const SHIPPED_CONFIG = path.join(__dirname, '..', '..', '..', 'config', 'spawn-profiles.yaml');
-const EXPECTED_CODE = 'E_PROFILE_HALVES_UNSUPPORTED';
+const EXPECTED_CODE = 'E_SPEC_HALVES_UNSUPPORTED';
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -63,7 +63,10 @@ function halfShapedProfile(workRoot) {
 
 function execShapedProfile(workRoot) {
   return {
-    exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+    // `bash -c` shim so the argv genuinely pins the model its key names — `validateSpecKey`
+    // refuses a disagreement at LOAD. It still really runs `sleep 3600`, and leg (2) never
+    // reaches the launch anyway (it lands on the containment refusal by design).
+    exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'exec-only'], prompt: 'stdin' },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: workRoot,
     caps: { memory_max: '64M', runtime_max: '1h' },
@@ -95,15 +98,30 @@ capture('probe-profile-halves-refusal', async (lines) => {
     fs.mkdirSync(dataRoot, { recursive: true });
     fs.mkdirSync(seatish, { recursive: true });
     fs.mkdirSync(escapeDir, { recursive: true });
+    // ⚠ THE FIXTURES ARE CAST SEATS NOW (7.787): a dispatch resolves its spec from the seat
+    // descriptor, so which of the two shapes a leg exercises is decided HERE, in the frontmatter,
+    // not by a name on the call. `escapeDir` carries the EXEC-shaped cast so control leg (2) still
+    // gets PAST the halves guard and lands on the later containment refusal.
+    const castSeatMd = (dir, model) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'seat.md'),
+        `---\nseat: ${path.basename(dir)}\nharness: bash\nmodel: ${model}\n---\n`);
+      return dir;
+    };
+    castSeatMd(seatish, 'halves-only');
+    castSeatMd(escapeDir, 'exec-only');
 
     const cfg = {
       bind: { host: '127.0.0.1', port: 7431 },
       spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
       default_workdir_root: workRoot,
-      profiles: {
+      // 7.787: both fixtures are keyed by (harness, model) — the seat's cast is what selects one.
+      // `bash` for both, because the half shape's argv leads with `bash` and the key must agree
+      // with it (`profiles.js#validateSpecKey`).
+      'launch-specs': { bash: {
         'halves-only': halfShapedProfile(workRoot),
         'exec-only': execShapedProfile(workRoot),
-      },
+      } },
     };
     const cfgPath = path.join(tmp, 'spawn.yaml');
     fs.writeFileSync(cfgPath, yaml.dump(cfg));
@@ -111,7 +129,7 @@ capture('probe-profile-halves-refusal', async (lines) => {
     // ── (1) CONTROL — the half shape LOADS. This is the premise the whole defect rests on: if
     // config load refused it, there would be nothing downstream to crash. Asserted, not assumed.
     const loaded = loadConfig(cfgPath);
-    const p = loaded.profiles['halves-only'];
+    const p = loaded.launchSpecs['bash/halves-only'];
     if ('exec' in p) throw new Error('(1) fixture is not half-shaped — it declares exec');
     if (!('command' in p)) throw new Error('(1) fixture lost its command halves through load');
     lines.push(`(1) CONTROL: the ruled half shape PASSES config load — 'exec' in profile = false, halves = [${Object.keys(p.command).join(', ')}]`);
@@ -129,7 +147,7 @@ capture('probe-profile-halves-refusal', async (lines) => {
     // real, and the probe leaked a live `sleep 3600` under bwrap on every run — a probe with a
     // side effect on the box it is measuring. Getting past the guard is the whole claim; running
     // the worker is not part of it.
-    const execErr = await throwsFrom(() => mgr.spawn('probe-halves-control', 'exec-only', 'headless', null, escapeDir, 'probe'));
+    const execErr = await throwsFrom(() => mgr.spawn('probe-halves-control', 'headless', null, escapeDir, 'probe'));
     if (!execErr) throw new Error('(2) CONTROL did not refuse at all — it may have SPAWNED; the fixture must land on a later refusal, never launch a worker');
     if (execErr.code === EXPECTED_CODE) {
       throw new Error('(2) the guard REFUSED an exec-shaped profile — it refuses everything, so legs (3)/(4) prove nothing');
@@ -140,7 +158,7 @@ capture('probe-profile-halves-refusal', async (lines) => {
     lines.push(`(2) CONTROL: exec-shaped profile passes the guard and lands on the LATER ${execErr.code} — the guard discriminates, and nothing was spawned`);
 
     // ── (3) spawn() — the headless/ticker door (composeArgv, spawn.js:160).
-    const spawnErr = await throwsFrom(() => mgr.spawn('probe-halves-spawn', 'halves-only', 'headless', null, seatish, 'probe'));
+    const spawnErr = await throwsFrom(() => mgr.spawn('probe-halves-spawn', 'headless', null, seatish, 'probe'));
     if (!spawnErr) throw new Error('(3) spawn() with a half-shaped profile did not throw at all');
     if (spawnErr instanceof TypeError || spawnErr.name === 'TypeError') {
       throw new Error(`(3) spawn() crashed with an UNTYPED TypeError (the G-144 defect, unfixed): ${spawnErr.message}`);
@@ -167,7 +185,7 @@ capture('probe-profile-halves-refusal', async (lines) => {
     // `TypeError: Cannot read properties of undefined (reading 'argv')`. Leg (3) is the leg that
     // reaches a real crash site; this leg proves the guard's PLACEMENT, which is what makes :487
     // unreachable with a half-shaped profile.
-    const seatErr = await throwsFrom(() => mgr.spawnSeat('probe-halves-seat', 'halves-only', { room: 'probe-room', seatName: 'probe-seat', seatDir: seatish, enqueuedBy: 'probe' }));
+    const seatErr = await throwsFrom(() => mgr.spawnSeat('probe-halves-seat', { room: 'probe-room', seatName: 'probe-seat', seatDir: seatish, enqueuedBy: 'probe' }));
     if (!seatErr) throw new Error('(4) spawnSeat() with a half-shaped profile did not throw at all');
     if (seatErr instanceof TypeError || seatErr.name === 'TypeError') {
       throw new Error(`(4) spawnSeat() crashed with an UNTYPED TypeError (the G-144 defect, unfixed): ${seatErr.message}`);
@@ -179,7 +197,9 @@ capture('probe-profile-halves-refusal', async (lines) => {
 
     // ── (5) The refusal must be a SpawnError carrying structured details, not a bare Error with
     // a code bolted on — that is what makes it classifiable at the dispatch boundary at all.
-    if (!seatErr.details || seatErr.details.profile !== 'halves-only') {
+    // 7.787: the offender is named by its LAUNCH-SPEC KEY (`<harness>/<model>`) — the only
+    // identity a spec has since `#d-abolish-profile-names`.
+    if (!seatErr.details || seatErr.details.profile !== 'bash/halves-only') {
       throw new Error(`(5) the refusal carries no details.profile naming the offender: ${JSON.stringify(seatErr.details)}`);
     }
     if (!Array.isArray(seatErr.details.halves) || seatErr.details.halves.length === 0) {

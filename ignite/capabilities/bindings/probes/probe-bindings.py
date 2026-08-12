@@ -48,6 +48,10 @@ throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is rea
      while certifying the exact defect this closes. That floor is proven to FIRE by handing the
      same predicate a claude-only cell set. One `node` call covers the whole matrix — a scheduled
      probe cannot afford a process per cell.
+  9. `set-many` IS ALL-OR-NOTHING — N seats cast in one call land as one, and a batch with one bad
+     seat leaves the sheet BYTE-IDENTICAL while naming every offending seat's own reason. Its
+     mutant collapses the validate-then-write two-pass into write-as-you-go: the batch still
+     refuses, so the discriminating observation is that the sheet MOVED.
 """
 
 import atexit
@@ -139,27 +143,33 @@ with tempfile.TemporaryDirectory() as td:
           "model ids the shipped profiles pin (no aliases, owner ruling 2026-08-10)",
           ("claude", "claude-fable-5") in pairs and ("claude", "claude-opus-5") in pairs,
           f"{len(base)} rows")
-    check("test-sleep is REPORTED not-castable with a stated reason, not dropped — its `exec:` argv "
-          "is `sleep`, a harness no launch door speaks",
-          any(r["profile"] == "test-sleep" and not r["castable"] and r["not-castable-because"]
-              for r in base))
+    check("test-sleep is ABSENT from the catalog — 7.787 moved every model-less deterministic "
+          "stand-in into the `jobs:` block, which `catalog` never reads. It used to be REPORTED "
+          "not-castable from inside `profiles:`; a seat can no longer name it at all, which is "
+          "sub-ruling 1 made structural rather than reported",
+          not any(r["spec"] == "test-sleep" or r["harness"] == "sleep" for r in base))
     check("kimi is CASTABLE — it was reported not-castable only because `coord.py#HARNESSES` did "
           "not carry it, so `validate_seat` refused `unknown harness` before its fully authored "
           "profile was ever reached. This row moves with that predicate, which is the whole reason "
           "the catalog is gated on it rather than on a list kept here",
-          any(r["profile"] == "kimi" and r["castable"] for r in base))
+          any(r["harness"] == "kimi" and r["castable"] for r in base))
     vs = mod._coord_validate_seat()
     bad = [f"{r['harness']}/{r['model']}" for r in base if r["castable"]
-           and vs({"agent": r["profile"], "harness": r["harness"], "model": r["model"]})]
+           and vs({"agent": r["spec"], "harness": r["harness"], "model": r["model"]})]
     check("every castable pair passes coord.py#validate_seat — the predicate materialize's F6 gate "
           "imports", not bad, f"offenders: {bad}")
 
-    # THE DERIVATION ARM: re-pin a model in the copy; the catalog must move with it.
+    # THE DERIVATION ARM, RE-POINTED AT THE KEY (7.787). It used to re-pin a model in an `exec:`
+    # argv, because the pair was DERIVED from argv. `launch-specs:` is keyed by the pair, so the
+    # equivalent mutation is the KEY — and it must move BOTH the argv and the key together, or
+    # `profiles.js#validateSpecKey` refuses the config on the daemon side. Re-keying alone is the
+    # honest test of "read, not remembered".
     text = copy.read_text(encoding="utf-8")
-    copy.write_text(text.replace('"--model", "claude-opus-5"', '"--model", "probe-only-model"'),
+    copy.write_text(text.replace("    claude-opus-5:", "    probe-only-model:")
+                        .replace('"--model", "claude-opus-5"', '"--model", "probe-only-model"'),
                     encoding="utf-8")
     moved = {(r["harness"], r["model"]) for r in mod.catalog(copy)}
-    check("re-pinning a profile's --model in the copy MOVES the catalog — it is read, not "
+    check("re-keying a spec in the copy MOVES the catalog — the pairs are READ off the keys, not "
           "remembered",
           ("claude", "probe-only-model") in moved and ("claude", "claude-opus-5") not in moved)
     copy.write_text(text, encoding="utf-8")
@@ -234,7 +244,7 @@ with tempfile.TemporaryDirectory() as td:
     no_dial = td / "no-dial-profiles.yaml"
     no_dial.write_text(LIVE_PROFILES.read_text(encoding="utf-8")
                        .replace("    effort: { inert: true }\n", "", 1), encoding="utf-8")
-    if mod.profile_effort("claude-haiku", no_dial) is not None:
+    if mod.spec_effort("claude", "claude-haiku-4-5", no_dial) is not None:
         inoperative.append("the no-effort-table fixture still declares a dial — its arm scores nothing")
 
     before = sha(sheet)
@@ -322,11 +332,12 @@ MUTANTS = [
     # ladder by one and the out-of-range rung 6 becomes acceptable, which is the same discrimination
     # the old mutant proved against the old source.
     # Retargeted AGAIN 2026-08-11 (same day): the reader is no longer the `_profile_rungs` text
-    # scrape — it is `profile_effort`, a `yaml.safe_load` parse shared with the master-profile
+    # scrape — it is `spec_effort` (`profile_effort` until 7.787 re-keyed it), a `yaml.safe_load`
+    # parse shared with the master-profile
     # capability. The anchor moved with it; the arm and its discrimination are unchanged. ⚠ AN
     # ANCHOR THAT ROTS DOES NOT GO QUIET: it reported INOPERATIVE + FAIL here the moment the line
     # left the source, which is how this retarget was found rather than assumed.
-    ("the profile ladder reader's length",
+    ("the launch-spec ladder reader's length",
      "    return [str(r) for r in rungs] if isinstance(rungs, list) and rungs else None",
      '    return [str(r) for r in rungs] + ["probe-only-rung"] if isinstance(rungs, list) and rungs else None',
      lambda m, mani, croot: m.set_seat(mani, "plan-planner", "claude", "claude-opus-5", 6,
@@ -436,12 +447,12 @@ _DOOR_A = r"""
 const cfgmod = require(process.argv[1]);
 const cfg = cfgmod.loadConfig(process.argv[2]);
 const out = [];
-for (const [name, p] of Object.entries(cfg.profiles || {})) {
+for (const [key, p] of Object.entries(cfg.launchSpecs || {})) {
   const eff = p && p.effort;
   if (!eff || eff.inert === true || !Array.isArray(eff.rungs)) continue;
   for (let r = 1; r <= eff.rungs.length; r += 1) {
-    const res = cfgmod.resolveEffort(p, r, name);
-    out.push({ profile: name, rung: r, word: eff.rungs[r - 1], argv: res.argv,
+    const res = cfgmod.resolveEffort(p, r, key);
+    out.push({ spec: key, rung: r, word: eff.rungs[r - 1], argv: res.argv,
                dialect: (res.applied || {}).dialect });
   }
 }
@@ -461,13 +472,16 @@ if _r.returncode != 0:
     cells = []
 else:
     _castable = mod.castable(LIVE_PROFILES)                    # {(harness, model): row}
-    _by_profile = {row["profile"]: (h, m) for (h, m), row in _castable.items()}
-    # A cell is (harness, model, rung word, door-A argv, dialect). Profiles with a ladder this
-    # workspace cannot CAST are skipped: a pair `harness_command` would refuse is not a
-    # disagreement between the doors, it is a pair with no second door.
-    cells = [(_by_profile[c["profile"]][0], _by_profile[c["profile"]][1],
+    # 7.787: door A now keys its cells by the LAUNCH-SPEC KEY (`<harness>/<model>`), which IS the
+    # pair — so the two sides join on the pair directly and the `profile NAME -> pair` map this
+    # arm used to build has no subject.
+    _by_spec = {f"{h}/{m}": (h, m) for (h, m) in _castable}
+    # A cell is (harness, model, rung word, door-A argv, dialect). Specs this workspace cannot CAST
+    # are skipped: a pair `harness_command` would refuse is not a disagreement between the doors,
+    # it is a pair with no second door.
+    cells = [(_by_spec[c["spec"]][0], _by_spec[c["spec"]][1],
               c["word"], [str(a) for a in c["argv"]], c["dialect"])
-             for c in json.loads(_r.stdout) if c["profile"] in _by_profile]
+             for c in json.loads(_r.stdout) if c["spec"] in _by_spec]
 
 
 def _coverage(cs):
@@ -516,6 +530,116 @@ else:
           "green above is a floor that was cleared, not one that cannot fail",
           bool(_one) and not (len(_h1) > 1 and len(_d1) > 1),
           f"{len(_one)} claude cells · harnesses {sorted(_h1)} · dialects {sorted(_d1)}")
+
+# ────────────────────────────────────────────────────────────────────────────────── check 9
+#
+# `set-many` — the batch cast, ALL-OR-NOTHING. The property under test is not "N seats land"; it is
+# that a batch carrying ONE bad seat lands NOTHING, because the failure mode this verb exists to
+# prevent is a half-cast taskforce nobody notices until materialize refuses it at goal-creation
+# time. So the refusal arm asserts the sheet's sha256 is unchanged, and 9c proves that assertion
+# discriminates by moving the validation pass's `dry_run=True` to the caller's value — the one-line
+# mutation that turns two passes into write-as-you-go and half-applies the batch.
+print("check 9 — set-many casts N seats in one call, and refuses the WHOLE batch on one bad seat")
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    croot = td / "bindings"
+    sheet = Path(mod.scaffold(LIVE_MANIFEST, croot)["bindings"])
+    seats = mod.manifest_seats(LIVE_MANIFEST)
+    good = td / "good.json"
+    # The SHEET'S OWN `{"seats": {…}}` wrapper, deliberately — it is what an author copying out of
+    # `inspect` or out of the file itself will hand the verb, and unwrapping it is a code path.
+    good.write_text(json.dumps({"seats": {
+        seats[0]: {"harness": "claude", "model": "claude-opus-5", "effort": 4},
+        seats[1]: {"harness": "claude", "model": "claude-fable-5", "effort": 1},
+        seats[2]: {"harness": "claude", "model": "claude-haiku-4-5"}}}), encoding="utf-8")
+    r = mod.set_many(LIVE_MANIFEST, good, config_root=croot, profiles_path=LIVE_PROFILES)
+    stored = json.loads(sheet.read_text())["seats"]
+    check("three seats cast in ONE call, each stored as its native effort STRING — read back from "
+          "the FILE, with the sheet's own {\"seats\": …} wrapper accepted as input",
+          stored[seats[0]]["effort"] == "xhigh" and stored[seats[1]]["effort"] == "low"
+          and stored[seats[2]]["effort"] == "inert"
+          and stored[seats[1]]["model"] == "claude-fable-5" and r["casts"] == 3,
+          json.dumps({s: stored[s].get("effort") for s in seats[:3]}))
+    check("...and every OTHER manifest seat is untouched and still reported uncast",
+          set(r["uncast"]) == set(seats[3:])
+          and all(stored[s]["harness"] is None for s in seats[3:]),
+          f"{len(r['uncast'])} of {len(seats)}")
+
+    bad = td / "bad.json"
+    bad.write_text(json.dumps({
+        seats[3]: {"harness": "claude", "model": "claude-opus-5", "effort": 4},   # valid
+        "plan-nonesuch": {"harness": "claude", "model": "claude-opus-5", "effort": 4},
+        seats[4]: {"harness": "claude", "model": "probe-only-model", "effort": 4},
+        seats[5]: {"harness": "claude", "model": "claude-opus-5", "effort": 9}}), encoding="utf-8")
+    before = sha(sheet)
+    refused, msg = refuses(lambda: mod.set_many(LIVE_MANIFEST, bad, config_root=croot,
+                                                profiles_path=LIVE_PROFILES), _mod=mod)
+    check("one batch, three bad seats: REFUSED WHOLE — the valid seat beside them is NOT written "
+          "and the sheet is byte-identical",
+          refused and sha(sheet) == before
+          and json.loads(sheet.read_text())["seats"][seats[3]]["harness"] is None,
+          msg[:150])
+    check("...and the refusal names EVERY offending seat with its own reason, so the author fixes "
+          "the document once instead of one refusal per run",
+          all(s in msg for s in ("plan-nonesuch", seats[4], seats[5]))
+          and "not a seat" in msg and "not a castable pair" in msg and "outside 1.." in msg,
+          f"{msg.count(chr(183))} per-seat reasons")
+
+    # Shape refusals land BEFORE any seat is validated — a malformed document has no per-seat
+    # reasons to give, and "seat `harnes` is missing harness" is the refusal that wastes the
+    # author's next ten minutes.
+    for label, payload in (("a rung WORD where the 1-based number belongs",
+                            {seats[3]: {"harness": "claude", "model": "claude-opus-5",
+                                        "effort": "xhigh"}}),
+                           ("a misspelled key", {seats[3]: {"harnes": "claude",
+                                                            "model": "claude-opus-5"}})):
+        shape = td / "shape.json"
+        shape.write_text(json.dumps(payload), encoding="utf-8")
+        refused, msg = refuses(lambda: mod.set_many(LIVE_MANIFEST, shape, config_root=croot,
+                                                    profiles_path=LIVE_PROFILES), _mod=mod)
+        check(f"{label}: refused on SHAPE, sheet byte-identical",
+              refused and sha(sheet) == before, msg[:130])
+
+    # `set-many` before `scaffold`: every seat refuses for the SAME reason, and the refusal groups
+    # them rather than printing that paragraph once per seat — the batch's likeliest first mistake.
+    refused, msg = refuses(lambda: mod.set_many(LIVE_MANIFEST, good, config_root=td / "empty",
+                                                profiles_path=LIVE_PROFILES), _mod=mod)
+    check("`set-many` before `scaffold`: refused, and the one shared reason is stated ONCE with its "
+          "seats grouped, not repeated per seat",
+          refused and msg.count("does not exist") == 1 and msg.count(" · ") == 1,
+          msg.splitlines()[-1][:150] if refused else msg[:80])
+
+    # 9c — THE MUTANT. The validation pass runs `set_seat(..., dry_run=True)`; hand it the caller's
+    # `dry_run` instead and the two passes collapse into write-as-you-go. The batch still REFUSES
+    # (the bad seats are still bad), so "did it refuse?" cannot score this — the discriminating
+    # observation is that the sheet MOVED, which is exactly what the arm above asserts it does not.
+    needle = ("                     config_root=config_root, profiles_path=profiles_path, "
+              "dry_run=True)")
+    src9 = TOOL.read_text(encoding="utf-8")
+    if src9.count(needle) != 1:
+        inoperative.append("the set-many all-or-nothing mutation target is not uniquely locatable")
+        check("mutant — the all-or-nothing guard", False, "mutation target not uniquely locatable")
+    else:
+        mpath = td / "capabilities" / "bindings" / "tool" / "mutant_batch.py"
+        mpath.parent.mkdir(parents=True, exist_ok=True)
+        mpath.write_text(src9.replace(needle, needle.replace("dry_run=True)", "dry_run=dry_run)")),
+                         encoding="utf-8")
+        mut = load(mpath, "bindings_mutant_batch")
+        mut.TEAM_KIT, mut.DEFAULT_PROFILES = mod.TEAM_KIT, mod.DEFAULT_PROFILES
+        mcroot = td / "mut-bindings"
+        msheet = Path(mut.scaffold(LIVE_MANIFEST, mcroot)["bindings"])
+        mbefore = sha(msheet)
+        mrefused, _ = refuses(lambda: mut.set_many(LIVE_MANIFEST, bad, config_root=mcroot,
+                                                   profiles_path=LIVE_PROFILES), _mod=mut)
+        half = sha(msheet) != mbefore
+        if not half:
+            inoperative.append("the all-or-nothing mutant did not half-apply — its arm scores "
+                               "nothing")
+        check("mutant — validate-then-write collapsed to write-as-you-go: the SAME bad batch now "
+              "half-applies (sheet moved), so the byte-identical arm above is a check and not a "
+              "sentence",
+              half and mrefused,
+              f"refused={mrefused}, sheet moved={half}")
 
 verdict = ("INOPERATIVE" if inoperative else ("FAIL" if failures else "PASS"))
 print(f"probe-bindings: {verdict} — "

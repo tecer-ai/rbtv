@@ -17,7 +17,7 @@ async function run(lines) {
   try {
     registerLaunchAgentJob(ctx);
     const now = new Date();
-    enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: now });
+    enqueueLaunchAgent(ctx, { runAt: now });
 
     lines.push('enqueued one due launch-agent job with slot_max_repeats=2');
 
@@ -83,7 +83,7 @@ async function run(lines) {
     lines.push('PASS: no ticker notes on the seat thread (D39)');
 
     // A fresh owner enqueue opens a NEW chain (root, parent NULL).
-    enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
+    enqueueLaunchAgent(ctx, { runAt: new Date() });
     r = await ctx.ticker.tick(new Date());
     lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
     const spawnAction = r.actions.find(a => a.phase === 'dispatch' && a.action === 'spawn');

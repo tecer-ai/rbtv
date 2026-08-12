@@ -1,5 +1,11 @@
 'use strict';
 
+// ⚠ STALE PRE-7.787 SMOKE SCRIPT — NOT in the probe-suite enumerator, and NOT brought
+// forward by `#d-abolish-profile-names`. Its `spawn()` call was re-arited with that change
+// (the `profileName` operand is gone) but its CONFIG fixture still uses the retired flat
+// `profiles:` map, and it names profiles the shipped config no longer carries — it was
+// already unrunnable before 7.787 for that second reason. Fix both together, or delete it.
+
 // p3-5-kernel-write.js — the DETERMINISTIC kernel-level write test (D58(3)/(5), harness-free).
 // A trivial `bash` worker, launched through the daemon's OWN spawn path via the null-workdir
 // (default/ticker) branch, attempts to create a file in FOUR places and reports each result to its
@@ -114,7 +120,7 @@ async function main() {
       enqueuedBy: 'p3-5-kw', sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
       profile: 'kernel-write', workdir: null,
     });
-    row = await mgr.spawn(fired.exec_id, 'kernel-write', 'headless', null, null, 'p3-5-kw');
+    row = await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-5-kw');
     log(`spawned: unit=${row.unit_name} carrier=${row.carrier} sessionDir=${portable(row.workdir)}`);
     check('worker ran under systemd (kernel sandbox in force)', row.carrier === 'systemd');
 

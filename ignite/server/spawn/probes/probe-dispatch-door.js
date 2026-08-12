@@ -52,7 +52,7 @@ function fixture() {
   // The header task 7.37 settled — written BY COLUMN NAME by the writer under test, so a schema
   // this probe invented from the writer's side would prove nothing. This is the real one.
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\nharness: bash\nmodel: door-probe\n---\n');
 
   const dataRoot = path.join(root, 'data');
   fs.mkdirSync(dataRoot, { recursive: true });
@@ -62,14 +62,16 @@ function fixture() {
     auth: { senders_file: path.join(root, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
     default_workdir_root: ws,
-    profiles: {
+    'launch-specs': {
+      bash: {
       // A REAL process (`sleep`), not a dry run: the at-dispatch row carries the launched pid, and
       // a composition-only check could not see whether the row was written at all.
       'door-probe': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+        exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'door-probe'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: ws,
         caps: { memory_max: '64M', runtime_max: '1h' },
+      },
       },
     },
   };
@@ -86,7 +88,7 @@ function fixture() {
 let tick = 1;
 function fire(f, workdir) {
   return f.store.recordExecutionStart({
-    jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ profile: 'door-probe', workdir }),
+    jobId: 'launch-agent', actionType: 'launch-agent', args: JSON.stringify({ workdir }),
     enqueuedBy: 'probe', sessionMode: 'headless', firedTick: tick++, firedAt: new Date(), profile: 'door-probe', workdir,
   });
 }
@@ -124,7 +126,7 @@ capture('probe-dispatch-door', async (lines) => {
   const dispatch = async (workdir) => {
     const row = fire(f, workdir);
     try {
-      const fresh = await f.mgr.spawn(row.exec_id, 'door-probe', 'headless', null, workdir, 'probe');
+      const fresh = await f.mgr.spawn(row.exec_id, 'headless', null, workdir, 'probe');
       spawned.push(row.exec_id);
       return { threw: false, execId: row.exec_id, row: fresh };
     } catch (err) {

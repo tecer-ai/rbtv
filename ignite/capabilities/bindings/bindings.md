@@ -71,6 +71,38 @@ trigger, and no restart. A seat runs this tool itself.
 | `inspect <workflow.csv>` | Every manifest seat: id, the seat-definition file it resolves to, its staffing hints (advisory), and its current casting — plus which seats remain uncast. |
 | `scaffold <workflow.csv>` | Creates the sheet at the canonical path with every manifest seat present and casting values null; lane constants prefilled. **Create-only** — it refuses over an existing sheet rather than silently re-casting a taskforce that may already have run. |
 | `set <workflow.csv> <seat> <harness> <model> <effort-number>` | Casts one seat. |
+| `set-many <workflow.csv> <casts.json>` | Casts **N seats of one workflow in one validated call**, ALL-OR-NOTHING. |
+
+## `set-many` — casting a whole workflow in one call
+
+```bash
+rbtv-bindings inspect  <workflow.csv>            # what the seats are, and which are uncast
+#   … the owner decides the casting — this CLI never invents one …
+rbtv-bindings set-many <workflow.csv> casts.json # one call, refused whole or applied whole
+```
+
+```json
+{ "plan-binder":  { "harness": "claude", "model": "claude-opus-5",    "effort": 4 },
+  "plan-planner": { "harness": "claude", "model": "claude-haiku-4-5" } }
+```
+
+One entry per seat, carrying exactly the three things `set` takes — and `effort` is the **1-based
+rung NUMBER**, never its word, because the file is what stores the word. The sheet's own
+`{"seats": {…}}` wrapper is accepted as input too, so a document copied out of `inspect` or out of
+the file itself works unchanged. A pair with no dial omits `effort`.
+
+⚠ **ALL-OR-NOTHING, and the validation is `set` itself.** Every seat is run through
+`set_seat(… dry_run=True)` — the same path, the same `catalog` gate, the same manifest-membership
+check — and the file is opened only if ALL of them pass. One bad seat and the sheet is left
+byte-identical, with **every** offending seat's own reason in the refusal, so the author fixes the
+document once instead of discovering the seats one refusal per run. The failure this prevents is a
+half-cast taskforce: through the one-seat verb, an agent that gets seat 7 wrong has already written
+seats 1–6, and nothing notices until materialize refuses the batch at goal-creation time.
+
+There is no second validator and no second writer here — the destination stays derived from the
+workflow path (no path argument), and `set-many` refuses over an absent sheet exactly as `set` does
+(`scaffold` first). It exists for the channel master's casting flow: **inspect → discuss with the
+owner → one batch `set-many`**. The CLI validates; the owner decides.
 
 ## ⚠ `set` has TWO halves, and a STANDING seat calls only the second
 
@@ -104,7 +136,7 @@ sheets on this deployment still carry escaped dashes from earlier writes.
 against — one derivation, two consumers, so the answer an agent reads and the answer that refuses it
 can never disagree. It is composed from exactly two measured sources:
 
-1. **Which harness+model pairs exist** — `profiles:` in `ignite/config/spawn-profiles.yaml`, which
+1. **Which harness+model pairs exist** — `launch-specs:` in `ignite/config/spawn-profiles.yaml` (the block is KEYED by the pair since `#d-abolish-profile-names`, so the pairs are READ, never derived), which
    `r-seats-only-architecture` makes *"ONE PROFILE PER HARNESS+MODEL … nothing else is identity"*.
    That IS the workspace's spawnable set. The harness is the profile's `argv[0]`; the model is the
    literal its `exec` argv PINS.
@@ -197,11 +229,15 @@ documentation, while this file is machine-owned end to end.
 ## Probe
 
 `probes/probe-bindings.py` — hermetic (tempfile copies only; the live bindings tree is never
-touched). Seven checks: the catalog moves when the profiles copy is re-pinned; every offered pair
+touched). Nine checks: the catalog moves when the profiles copy is re-pinned; every offered pair
 survives `validate_seat`; the effort number indexes the native ladder while the file stores the
 string; six refusal shapes each leave the sheet byte-identical; the code derivation refuses a mixed
 manifest and any code that is not exactly four ASCII letters; **four mutants** (each WIDENING one guard — a deletion crashes, and a crash reads like a
-refusal) prove those arms discriminate; and `materialize-seats.py --dry-run` plans clean over the
-artifact this tool writes, with the one-seat-uncast twin refusing.
+refusal) prove those arms discriminate; `materialize-seats.py --dry-run` plans clean over the
+artifact this tool writes, with the one-seat-uncast twin refusing; both launch doors spell every
+rung of every castable ladder identically; and `set-many` casts three seats in one call while a
+batch carrying bad seats leaves the sheet byte-identical — proven discriminating by a mutant that
+collapses its validate-then-write two-pass into write-as-you-go (the batch still refuses, so the
+scoring observation is that the sheet MOVED).
 
 Run it through the enumerator: `node deploy/probe-suite.js --only probe-bindings`.

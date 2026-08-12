@@ -12,10 +12,9 @@
 const {
   SpawnError,
   E_CONFIG_LOAD,
-  E_DUPLICATE_PROFILE,
   E_UNKNOWN_SLOT,
   E_MISSING_KEY,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,
@@ -36,7 +35,7 @@ const E_HEADED_NOT_CAPABLE = 'E_HEADED_NOT_CAPABLE';
 // resolveProfile(). Before this code existed the same condition read `profile.exec.argv` off
 // `undefined` and took the spawn path down with an untyped TypeError — on a config the daemon
 // had loaded cleanly, so config validation was no backstop.
-const E_PROFILE_HALVES_UNSUPPORTED = 'E_PROFILE_HALVES_UNSUPPORTED';
+const E_SPEC_HALVES_UNSUPPORTED = 'E_SPEC_HALVES_UNSUPPORTED';
 const E_UNKNOWN_REQUEST_KEY = 'E_UNKNOWN_REQUEST_KEY';
 const E_SESSION_NOT_FOUND = 'E_SESSION_NOT_FOUND';
 const E_CARRIER_FAILED = 'E_CARRIER_FAILED';
@@ -110,13 +109,12 @@ module.exports = {
   E_PEER_UNRESOLVED,
   E_PEER_AMBIGUOUS,
   E_CONFIG_LOAD,
-  E_DUPLICATE_PROFILE,
   E_UNKNOWN_SLOT,
   E_MISSING_KEY,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_UNKNOWN_MODE,
   E_HEADED_NOT_CAPABLE,
-  E_PROFILE_HALVES_UNSUPPORTED,
+  E_SPEC_HALVES_UNSUPPORTED,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,

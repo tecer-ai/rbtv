@@ -84,8 +84,6 @@ function makeBridge({ liveReply = null } = {}) {
     gatewayAddr: '127.0.0.1:0',
     bridgeToken: 'stub',
     sessionJobId: 'chat-launch',
-    sessionProfile: 'fallback-profile',
-    masterProfile: 'master-profile',
     sendMessageJobId: 'send-message',
     workdir: '/configured/master/workdir',
     workspaceRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'p7-2-warm-')),

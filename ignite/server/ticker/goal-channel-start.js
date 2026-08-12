@@ -57,6 +57,7 @@ const ENSURE = 'ensure';
 const SKIP = 'skip';
 
 const REASONS = {
+  NO_SUBJECT: 'no-subject',                               // neither a job nor a goal name was given
   NOT_A_RUN_START: 'not-a-run-start',                     // the ordinary case: most rows are not
   NON_INTERACTIVE: 'non-interactive',                     // the ruled negative arm
   WORKSPACE_UNRESOLVABLE: 'workspace-root-unresolvable',  // no goal folder locatable ⇒ no kind
@@ -81,10 +82,28 @@ function skip(reason, extra = {}) {
   return { action: SKIP, reason, goal: null, goalDir: null, kind: null, argv: null, ...extra };
 }
 
-function decide({ job, resolveRoot, readKind = goalKind, igniteSrc = IGNITE_SRC, nodeBin = process.execPath }) {
-  if (!isRunStart(job)) return skip(REASONS.NOT_A_RUN_START);
+// ⚠ TWO ENTRY POINTS, ONE DECISION (task 7.789). A goal reaches its run start on TWO lanes and
+// only one of them was ever wired here. The QUEUE lane arrives as a `job` and is gated by
+// `isRunStart` — unchanged, byte for byte. The DAEMON lane has no such row: `engine/lane-watch.js`
+// adopts a goal off its `execution-lane` marker and calls `engine.seedGoal` directly, so there is
+// no catalogue row to ask `isRunStart` about, and a daemon-lane goal was measured getting NO
+// channel at all (`forge-reference-seat-id-naming`, 2026-08-11: zero `goal-channel-cli` lines
+// across its whole seeding).
+//
+// So the second entry names the GOAL and skips the row gate — because the CALLER is the gate
+// there: lane-watch calls this exactly once, on the pass that first adopts the goal, which IS that
+// goal's daemon-lane run start. What must NOT be duplicated is everything BELOW this line — which
+// kind gets a channel, where the goal folder is, what the invocation is — and it is not: both
+// entries fall into the same body. A second copy of that rule is how one lane creates channels the
+// other would have skipped.
+//
+// A call carrying neither is a SKIP, never a throw: this file's whole contract is that it cannot
+// abandon its caller's pass.
+function decide({ job = null, goal: named = null, resolveRoot, readKind = goalKind, igniteSrc = IGNITE_SRC, nodeBin = process.execPath }) {
+  if (!job && !named) return skip(REASONS.NO_SUBJECT);
+  if (job && !isRunStart(job)) return skip(REASONS.NOT_A_RUN_START);
 
-  const goal = job.goal_name;
+  const goal = job ? job.goal_name : named;
   const workspaceRoot = typeof resolveRoot === 'function' ? resolveRoot() : resolveRoot;
   if (!workspaceRoot) return skip(REASONS.WORKSPACE_UNRESOLVABLE, { goal });
 
@@ -111,7 +130,7 @@ function channelEnsureDecision(input) {
   try {
     return decide(input || {});
   } catch (err) {
-    const goal = (input && input.job && input.job.goal_name) || null;
+    const goal = (input && ((input.job && input.job.goal_name) || input.goal)) || null;
     return skip(`${REASONS.DECISION_ERROR}: ${err && err.message}`, { goal });
   }
 }

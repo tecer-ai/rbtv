@@ -136,7 +136,7 @@ function scriptedForwarder(state) {
         // dispatch.js) and is what selects the harness normalization — the reply leg reads it
         // from the response it already makes, so no inspect surface is widened. Defaulted here
         // to the claude profile because every pre-contract leg below scripts a stream-json log.
-        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude-opus' } };
+        return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5' } };
       }
       if (target === 'logs') {
         if (state.failLogs > 0) {
@@ -450,7 +450,7 @@ async function main() {
     // The harness is resolved from `inspect status`.profile — the response the driver already
     // makes. Each arm scripts a REAL log shape: claude stream-json (every leg above), codex
     // `--json` events, and plain text with the ANSI escapes opencode writes into a file.
-    state.status.set(40, { live: false, status: 'done', profile: 'codex-gpt-5-5' });
+    state.status.set(40, { live: false, status: 'done', profile: 'codex/gpt-5.5' });
     state.logs.set(40, codexLog('codex answered *here*'));
     state.recentTicks.push({ tick: 10, actions: [{ action: 'spawn', execId: 40, queueId: QUEUE }] });
     await leg().tick();
@@ -458,7 +458,7 @@ async function main() {
       sent.length === 9 && lastText() === 'codex answered *here*',
       { sentCount: sent.length, text: lastText() });
 
-    state.status.set(41, { live: false, status: 'done', profile: 'opencode-glm-5-2' });
+    state.status.set(41, { live: false, status: 'done', profile: 'opencode/zai-coding-plan/glm-5.2' });
     state.logs.set(41, plainLog('opencode answered *here*'));
     state.recentTicks.push({ tick: 11, actions: [{ action: 'spawn', execId: 41, queueId: QUEUE }] });
     await leg().tick();
@@ -466,11 +466,11 @@ async function main() {
       sent.length === 10 && lastText() === 'opencode answered *here*',
       { sentCount: sent.length, text: lastText() });
 
-    state.status.set(42, { live: false, status: 'done', profile: 'kimi' });
+    state.status.set(42, { live: false, status: 'done', profile: 'kimi/kimi-code/kimi-for-coding' });
     state.logs.set(42, [FENCE_OPEN, 'kimi answered *here*', FENCE_CLOSE]);
     state.recentTicks.push({ tick: 12, actions: [{ action: 'spawn', execId: 42, queueId: QUEUE }] });
     await leg().tick();
-    record('n3:a BARE profile name (kimi — no harness-model suffix) resolves the plain-text arm',
+    record('n3:an unrecognized harness segment (kimi) resolves the plain-text arm',
       sent.length === 11 && lastText() === 'kimi answered *here*',
       { sentCount: sent.length, text: lastText() });
 
@@ -479,7 +479,7 @@ async function main() {
     // `---` rule (toMrkdwn drops the line) and a 3-blank-line run (toMrkdwn collapses it). If any
     // conversion pass survived on the conformant path, the delivered text could not be byte-equal.
     const VERBATIM = '*lead line*\n\n---\n\n\n_tail line_';
-    state.status.set(43, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(43, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(43, [resultLine(VERBATIM)]);
     state.recentTicks.push({ tick: 13, actions: [{ action: 'spawn', execId: 43, queueId: QUEUE }] });
     await leg().tick();
@@ -493,7 +493,7 @@ async function main() {
     // rides the forward path's own follow-up leg (`corrective: true`), so it is a `note` on the
     // conversation's chain thread and never an `answer`.
     const fwdBeforeP = state.forwarded.length;
-    state.status.set(44, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(44, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(44, [resultLine('# Heading\n**bold**')]);
     state.recentTicks.push({ tick: 14, actions: [{ action: 'spawn', execId: 44, queueId: QUEUE }] });
     await leg().tick();
@@ -516,7 +516,7 @@ async function main() {
     // this leg spends the second, and the THIRD non-conformant turn is delivered best-effort
     // rather than revived a third time.
     const fwdBeforeQ = state.forwarded.length;
-    state.status.set(45, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(45, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(45, [bareResultLine('no fence at all here')]);
     state.recentTicks.push({ tick: 15, actions: [{ action: 'spawn', execId: 45, queueId: QUEUE }] });
     await leg().tick();
@@ -528,7 +528,7 @@ async function main() {
 
     const fwdBeforeQ3 = state.forwarded.length;
     const BEST = 'still no fence, and **markdown** to boot';
-    state.status.set(46, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(46, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(46, [bareResultLine(BEST)]);
     state.recentTicks.push({ tick: 16, actions: [{ action: 'spawn', execId: 46, queueId: QUEUE }] });
     await leg().tick();
@@ -544,7 +544,7 @@ async function main() {
     // Best-effort never swallows the honest empty case: a textless log still delivers the fixed
     // fallback, and is never revived (there is nothing to correct).
     const fwdBeforeQ4 = state.forwarded.length;
-    state.status.set(47, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(47, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(47, [JSON.stringify({ type: 'system', subtype: 'init' })]);
     state.recentTicks.push({ tick: 17, actions: [{ action: 'spawn', execId: 47, queueId: QUEUE }] });
     await leg().tick();
@@ -558,7 +558,7 @@ async function main() {
     // the never-delivered disarm rung can no longer match once `delivered` is non-empty. This leg
     // replays it: a non-conformant turn spends a revive (q2 reset the budget), then the spawn-wait
     // window blows with nothing spawned. The conversation must DISARM and the owner must be told.
-    state.status.set(48, { live: false, status: 'done', profile: 'claude-opus' });
+    state.status.set(48, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
     state.logs.set(48, [bareResultLine('one more fenceless answer')]);
     state.recentTicks.push({ tick: 18, actions: [{ action: 'spawn', execId: 48, queueId: QUEUE }] });
     await leg().tick();
@@ -584,7 +584,7 @@ async function main() {
     const armedS = await waitFor(() => Boolean(pend()));
     const sentBeforeS = sent.length;
     state.recentTicks.push({ tick: 19, actions: [{ action: 'spawn', execId: 50, queueId: QUEUE, compact: true }] });
-    state.status.set(50, { live: true, status: 'running', profile: 'claude-opus' });
+    state.status.set(50, { live: true, status: 'running', profile: 'claude/claude-opus-5' });
     await leg().tick();
     record('s1:a compact:true spawn on the conversation is CAPTURED and flagged (it used to be skipped entirely)',
       armedS && Boolean(pend()) && pend().watching.has(50) && pend().watching.get(50).compact === true,
@@ -592,7 +592,7 @@ async function main() {
 
     // Its output is the chain's MEMORY, never a reply — so even a perfectly conformant fenced body
     // in a compaction log must not reach Slack.
-    state.status.set(50, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.status.set(50, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
     state.logs.set(50, [resultLine('a compaction summary that must never reach the owner')]);
     await leg().tick();
     record('s2:the compaction turn is retired WITHOUT delivering — even a conformant fenced body stays out of Slack',
@@ -636,7 +636,7 @@ async function main() {
     await waitFor(() => Boolean(pend()));
     pend().turnStartedAt = nowMs() - 40000; // 40 s end-to-end, past the 30 s default threshold
     state.recentTicks.push({ tick: 20, actions: [{ action: 'spawn', execId: 51, queueId: QUEUE }] });
-    state.status.set(51, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.status.set(51, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
     state.logs.set(51, [resultLine('the slow answer')]);
     await leg().tick();
     const slowLine = bridgeLines().pop();
@@ -649,7 +649,7 @@ async function main() {
     await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a fast one', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001200', event_ts: '1700000000.001200', client_msg_id: 'reply-leg-m12' });
     await waitFor(() => Boolean(pend()));
     state.recentTicks.push({ tick: 21, actions: [{ action: 'spawn', execId: 52, queueId: QUEUE }] });
-    state.status.set(52, { live: false, status: 'failed', profile: 'claude-opus' });
+    state.status.set(52, { live: false, status: 'failed', profile: 'claude/claude-opus-5' });
     state.logs.set(52, [resultLine('the fast answer')]);
     await leg().tick();
     const fastLine = bridgeLines().pop();

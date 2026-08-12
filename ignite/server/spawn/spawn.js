@@ -5,10 +5,10 @@ const path = require('node:path');
 const { spawn: childSpawn, execFileSync } = require('node:child_process');
 const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, resolveEffort } = require('./config');
-// The (harness, model) -> profile-name catalog, from the ONE shared resolver (task 7.54). Reached
+// The (harness, model) -> launch-spec table, from the ONE shared resolver (tasks 7.54 / 7.787). Reached
 // through `server/spawn/config.js`'s own upstream — this module already depends on that adapter,
 // so nothing new crosses the daemon boundary.
-const { castProfileFor, bindingOf, effortRungFor } = require('../../launch-profiles/catalog');
+const { specForSeatCast, bindingOf, effortRungFor, E_UNCAST_SEAT } = require('../../launch-profiles/catalog');
 const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCagedSettings } = require('./harness-config');
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
@@ -34,10 +34,10 @@ const {
 } = require('./carrier');
 const {
   SpawnError,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_UNKNOWN_MODE,
   E_HEADED_NOT_CAPABLE,
-  E_PROFILE_HALVES_UNSUPPORTED,
+  E_SPEC_HALVES_UNSUPPORTED,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,
@@ -118,8 +118,11 @@ function runTmux(tmuxArgv) {
   });
 }
 
+// 7.787: `profile` is GONE from the request vocabulary. A gateway caller cannot name what a seat
+// runs on — the seat's own cast does, read at the door below — so the key is not merely ignored,
+// it is an unknown key and refused as one.
 function validateRequestKeys(req) {
-  const known = new Set(['profile', 'session_mode', 'prompt', 'workdir']);
+  const known = new Set(['session_mode', 'prompt', 'workdir']);
   for (const key of Object.keys(req)) {
     if (!known.has(key)) {
       throw new SpawnError(E_UNKNOWN_REQUEST_KEY, `unknown request key: ${key}`, { key });
@@ -210,7 +213,7 @@ function requireExecShape(profile, profileName) {
   if (profile.exec) return;
   const halves = profile.command ? Object.keys(profile.command) : [];
   throw new SpawnError(
-    E_PROFILE_HALVES_UNSUPPORTED,
+    E_SPEC_HALVES_UNSUPPORTED,
     `profile ${profileName} declares command halves (${halves.join(', ') || 'none'}) and no exec block — ` +
     `the daemon spawn path resolves \`exec:\` only and does not select a half (that is the shared ` +
     `launch-profile resolver's job, wired at tasks 7.43/7.54). REFUSING rather than spawning a ` +
@@ -230,6 +233,32 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resume
   const block = isHeaded ? profile.headed.tui : (resumeRef ? profile.resume : profile.exec);
   const promptCarriage = block.prompt;
 
+  // Resolved here because BOTH carriages below need it: claude's system-prompt flag, and the
+  // first-message composition every other harness rides.
+  const descriptor = workdir ? path.join(workdir, 'seat.md') : null;
+  const hasDescriptor = Boolean(descriptor && fs.existsSync(descriptor));
+
+  // ⚑ UNIFORM DESCRIPTOR CARRIAGE — the non-claude half (owner ruling
+  // `d-uniform-descriptor-carriage`, core-build decisions.md, 2026-08-12). Only claude has a true
+  // system-prompt flag (measured 2026-08-07: codex/opencode offer none); what every harness's
+  // headless spec DOES have is `prompt: stdin` — so the descriptor rides the FIRST MESSAGE:
+  // seat.md body + separator + the wake payload, composed at this one choke point. Carriage
+  // measured 2026-08-12 on this box (codex 0.144.5 `exec -` stdin · opencode 1.17.18 `run` ·
+  // kimi 1.48.0 `-p` — each relayed a token prompt verbatim; kimi returned empty once on a
+  // first attempt, retry clean). FRESH launches only: a resume continues a chain whose first
+  // message already carried the descriptor — and only claude declares a `resume:` template at
+  // all (a resume asked of any other spec is refused above this door), so the non-claude arm
+  // can never double-send. Headed launches compose no prompt (D86) — a headed seat is driven by
+  // its folder guidance files, whose conditional read-seat.md clause is the materializer's half
+  // of this same ruling.
+  let effectivePrompt = prompt;
+  if (!isHeaded && !resumeRef && hasDescriptor && harnessOf(profile) !== 'claude') {
+    const seatText = fs.readFileSync(descriptor, 'utf8');
+    effectivePrompt = `${seatText}\n\n---\n\nThe descriptor above is this seat's binding instruction set for this whole `
+      + `sitting — it rides this first message because your harness carries no system prompt. `
+      + `Do not re-read seat.md; you have just read it. The message that fired this sitting follows:\n\n${prompt ?? ''}`;
+  }
+
   let stdinFile = null;
   if (promptCarriage === 'stdin') {
     // stdin carriage: the prompt rides a file the CARRIER connects as the worker's stdin
@@ -237,7 +266,7 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resume
     // the "server writes the prompt, then closes stdin" contract. The path never appears in argv
     // (no {prompt_file} slot), and bwrap needs no bind: fd 0 is opened before the wrap execs.
     // Headed blocks can never reach here — config.js rejects `headed.tui.prompt: stdin` at load.
-    stdinFile = ensurePromptFile(dataRoot, sessionId, prompt);
+    stdinFile = ensurePromptFile(dataRoot, sessionId, effectivePrompt);
   }
   // The former `file` and `argv-last` branches are DELETED (task 7.23): task 7.14 (batch-08
   // item 4 half A) narrowed the loadable headless vocabulary to `stdin` only
@@ -267,11 +296,11 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resume
   // RUNS NOTHING (measured, 2.1.224). Unconditional, this flag would kill every spawn at a seat
   // that has no descriptor yet — which includes every seat between scaffold and materialize.
   //
-  // Claude-only because the flag is claude's. Another harness gains this when someone MEASURES
-  // its equivalent; guessing one would put unverified launch knowledge back in this file, which
-  // is what `injection-ladder/` exists to prevent.
-  const descriptor = workdir ? path.join(workdir, 'seat.md') : null;
-  if (descriptor && harnessOf(profile) === 'claude' && fs.existsSync(descriptor)) {
+  // This flag stays claude-only because only claude HAS one — the other harnesses' measured
+  // equivalent is the first-message composition at the top of this function
+  // (`d-uniform-descriptor-carriage`), which is why `descriptor`/`hasDescriptor` are resolved
+  // once up there and consumed by both carriages.
+  if (hasDescriptor && harnessOf(profile) === 'claude') {
     argv.push('--append-system-prompt-file', descriptor);
   }
 
@@ -464,7 +493,7 @@ function seatDeclaresValue(seatDir, key) {
 // ── THE SEAT'S CAST → THE PROFILE THAT RUNS IT — the READ half only (task 7.54 · D19 · D27) ─────
 //
 // Reads what the seat declares and hands it to the ONE shared resolver. The resolution law, the
-// refusals and the reasoning all live in `launch-profiles/catalog.js#castProfileFor`; this side
+// refusals and the reasoning all live in `launch-profiles/catalog.js#specForSeatCast`; this side
 // owns only the seat.md read, because that reader (`seatDeclaresValue`) is a spawn concern and
 // lives here.
 //
@@ -472,12 +501,12 @@ function seatDeclaresValue(seatDir, key) {
 // special case anywhere in `server/spawn/`" and greps this tree for profile-name literals — the
 // standing DEC-1 rule that profile knowledge has exactly one home. The resolution logic lived here
 // until owner ruling D27 (2026-08-11) moved it out; keep it out, comments included.
-function profileForSeatCast(profiles, seatDir, profileName, log) {
+function launchSpecForSeat(launchSpecs, seatDir, log) {
   const binding = {
     harness: seatDeclaresValue(seatDir, 'harness'),
     model: seatDeclaresValue(seatDir, 'model'),
   };
-  return castProfileFor(profiles, binding, profileName, log, seatDir ? path.basename(seatDir) : null);
+  return specForSeatCast(launchSpecs, binding, log, seatDir ? path.basename(seatDir) : null);
 }
 
 
@@ -1123,34 +1152,62 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // `effort` is DAEMON-INTERNAL in the same sense `resumeRef` is: the ticker reads it off the queue
   // row's args (the catalogue job whose schema admits it) and passes it here; no gateway caller
   // supplies it directly, so it stays out of validateRequestKeys below.
-  async function spawn(execId, profileName, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null, effort = null) {
+  async function spawn(execId, sessionMode = 'headless', prompt = null, workdir = null, enqueuedBy = 'unknown', resumeRef = null, effort = null) {
     // Strict request-key validation for object-style callers (gateway path).
-    validateRequestKeys({ profile: profileName, session_mode: sessionMode, prompt, workdir });
+    validateRequestKeys({ session_mode: sessionMode, prompt, workdir });
 
     rejectFlagInjection(workdir, 'workdir');
 
-    // ── THE SEAT'S CAST WINS (task 7.54 · D19) ───────────────────────────────────────────────
-    // Resolved FIRST, so every gate below — unknown-profile, exec shape, resume template, headed
-    // capability, workdir root — runs against the profile that will ACTUALLY launch rather than
-    // the one the caller asked for. Doing it after those gates would validate one profile and
-    // spawn another, which is the same class of lie in a new place.
+    // ── THE SEAT'S CAST IS THE ONLY ANSWER (task 7.54 · D19 · `#d-abolish-profile-names`) ─────
+    // Resolved FIRST, so every gate below — exec shape, resume template, headed capability,
+    // workdir root — runs against the spec that will ACTUALLY launch. There is no longer a second
+    // candidate: 7.787 deleted the caller's `profileName` parameter outright, so a seat that
+    // declares no cast REFUSES here (`E_UNCAST_SEAT`) instead of running whatever a transport
+    // happened to name.
     //
-    // ponytail: reads the cast off the RAW `workdir`, before `resolveWorkdir` normalizes it. Every
-    // daemon caller passes an absolute seat folder already (the ticker composes it, the chat
-    // bridge passes `resolveGoalSeat().seatDir`), and `composeArgv` reads `seat.md` off this same
-    // value a few lines later. Ceiling: a RELATIVE workdir resolves no descriptor, so its cast is
-    // not honoured — it falls back to the caller's profile exactly as before. Upgrade path if a
-    // relative-workdir caller ever appears: resolve the workdir first and re-run the gates.
-    profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
-
-    // An OWN-property test, never a bare lookup: `config.profiles` is a plain object parsed from
-    // YAML, so a request naming an INHERITED key (`constructor`, `toString`, `valueOf`) passes a
-    // truthiness guard and hands the next line a FUNCTION where a profile object belongs. Same
-    // shape the C5 sweep applied to ticker.js and heart-store.js's catalogue lookups (task 7.542).
-    if (!Object.hasOwn(config.profiles || {}, profileName)) {
-      throw new SpawnError(E_UNKNOWN_PROFILE, `unknown launch profile: ${profileName}`, { profile: profileName });
+    // ⚠ THE WORKDIR MUST BE THE SEAT FOLDER, AND SINCE 7.787 THAT IS LOAD-BEARING RATHER THAN
+    // convenient: it is the only address the cast has. A relative workdir resolves no descriptor,
+    // so it now REFUSES rather than silently falling back — which is the correct direction and is
+    // why the seatless-dispatch refusal below is reached by every caller that has no home.
+    if (workdir === undefined || workdir === null) {
+      throw new SpawnError(
+        E_SEATLESS_GOAL_DISPATCH,
+        'REFUSING SEATLESS DISPATCH: this launch names no home — MISSING FIELD: workdir (a canonical '
+        + 'seat folder <ws>/.rbtv/goals/<goal>/seats/<seat>/, resolved from the job row\'s '
+        + 'goal_name/seat_name or the dispatch args). Since `#d-abolish-profile-names` the seat '
+        + 'folder is also the ONLY place a launch spec can be resolved from, so a homeless dispatch '
+        + 'has nothing to run as. The flat .rbtv/sessions/<exec-id>/ launch branch is RETIRED '
+        + '(r-seats-only-architecture: every daemon-spawned agent is a seat).',
+        { missingField: 'workdir', sessionMode },
+      );
     }
-    const profile = config.profiles[profileName];
+    // ⚠ AND THE SEATLESS REFUSAL STILL OUTRANKS THE UNCAST ONE, on purpose. A workdir that is not
+    // a seat folder AT ALL has no descriptor, so the cast resolution below would refuse it
+    // `E_UNCAST_SEAT` — true, and the wrong thing to tell an operator: it sends him to cast a seat
+    // that does not exist, when the real fault is a dispatch that named no seat (task 7.75's door,
+    // which names the MISSING FIELD). So an uncast refusal is re-examined: if the path is not
+    // seat-SHAPED, the seatless refusal is what is raised. Checked on the RAW workdir only in this
+    // fallback arm, never as a pre-gate — a path that resolves into a seat folder through a symlink
+    // must not be refused early, and the post-`resolveWorkdir` seat check below is the authority.
+    let specKeyResolved;
+    let profile;
+    try {
+      ({ key: specKeyResolved, spec: profile } = launchSpecForSeat(config.launchSpecs || {}, workdir, log));
+    } catch (err) {
+      if (err.code === E_UNCAST_SEAT && !parseSeatPath(workdir) && !parseServiceSeatPath(workdir)) {
+        throw new SpawnError(
+          E_SEATLESS_GOAL_DISPATCH,
+          `REFUSING SEATLESS DISPATCH: ${workdir} is not a canonical seat folder `
+          + '(<ws>/.rbtv/goals/<goal>/seats/<seat>/). MISSING FIELD: seat — the dispatch-time record '
+          + 'is the ONLY authority for session->seat attribution (G-31), so a session with no seat '
+          + 'to record could never be attributed at all. Supply a seat-folder workdir, or home the '
+          + 'job at a (goal, seat) pair.',
+          { workdir, missingField: 'seat', sessionMode },
+        );
+      }
+      throw err;
+    }
+    const profileName = specKeyResolved;   // what the RECORD calls this launch — see jobs_log.profile
     requireExecShape(profile, profileName); // G-144 — door 1 (composeArgv's `profile.exec`)
 
     // The seat's declared `effort:`, read here because this is the first line at which the
@@ -1171,7 +1228,24 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       throw new SpawnError(E_UNKNOWN_MODE, `invalid session_mode: ${sessionMode}`, { sessionMode });
     }
     if (sessionMode === 'headed' && !profile.headed) {
-      throw new SpawnError(E_HEADED_NOT_CAPABLE, `profile ${profileName} is not headed-capable`, { profile: profileName, sessionMode });
+      throw new SpawnError(E_HEADED_NOT_CAPABLE, `launch spec ${profileName} is not headed-capable`, { profile: profileName, sessionMode });
+    }
+    // ── THE HEADED PROMPT-CARRIAGE GATE, MOVED HERE FROM THE QUEUE (7.787) ───────────────────
+    // It stood in `heart-store.js#enqueue` and read `config.profiles[args.profile]` — the caller's
+    // named profile, which ruling D19 had already stopped being what launches. So it validated one
+    // spec and spawned another. It now runs against the SEAT'S spec, at the door that composes the
+    // argv. Same rule (session-surface-spec Design 3 + Behavior #9, OQ-F ruled D83): a prompt
+    // supplied for a headed session whose spec declares no `headed.tui.prompt` carriage is
+    // REJECTED BY DEFAULT — never silently dropped, which would start a session the caller
+    // believes was briefed.
+    if (sessionMode === 'headed' && prompt !== undefined && prompt !== null && prompt !== ''
+        && !profile.headed.tui?.prompt) {
+      throw new SpawnError(
+        E_UNKNOWN_MODE,
+        `launch spec ${profileName}: a prompt was supplied for a headed session but the spec `
+        + 'declares NO headed.tui.prompt carriage — rejected by default (spec Design 3, Behavior #9)',
+        { profile: profileName, sessionMode, carriage: null },
+      );
     }
 
     // NO prompt flag-injection guard: the carriage collapse (batch-08 item 4 half A — headless
@@ -1182,23 +1256,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // argv/unit properties.
 
     // ── r-seats-only-architecture (3) · NO HOME, NO SPAWN ────────────────────────────────────
-    //
-    // A launch with NO workdir used to fall through to resolveWorkdir's default branch, which
-    // MATERIALIZED the flat `.rbtv/sessions/<exec-id>/` launch dir. That branch is RETIRED for
-    // every daemon spawn: "a dispatch with no home is a refusal, not a flat dir". Refused HERE,
-    // before resolveWorkdir, because the default branch's side effect is the very dir this
-    // ruling removes — a refusal after it would leave the flat dir on disk anyway.
-    if (workdir === undefined || workdir === null) {
-      throw new SpawnError(
-        E_SEATLESS_GOAL_DISPATCH,
-        `REFUSING SEATLESS DISPATCH: launch of profile ${profileName} names no home — ` +
-        'MISSING FIELD: workdir (a canonical seat folder ' +
-        '<ws>/.rbtv/goals/<goal>/seats/<seat>/, resolved from the job row\'s ' +
-        'goal_name/seat_name or the dispatch args). The flat .rbtv/sessions/<exec-id>/ launch ' +
-        'branch is RETIRED (r-seats-only-architecture: every daemon-spawned agent is a seat).',
-        { profile: profileName, missingField: 'workdir', sessionMode },
-      );
-    }
+    // The refusal moved to the TOP of this function at 7.787: the seat folder is now also the only
+    // address a launch spec has, so a homeless dispatch has to be refused before the cast is even
+    // asked for. Nothing about the rule changed — "a dispatch with no home is a refusal, not a
+    // flat dir", still raised before `resolveWorkdir`'s default branch can materialize one.
 
     const resolvedWorkdir = resolveWorkdir(profile, workdir, config.default_workdir_root, configPath, { execId, workspaceRoot });
 
@@ -1410,24 +1471,34 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   // `dryRun: true` composes and returns WITHOUT creating a pane or writing a store row. It exists
   // because composition is the half that is checkable off a live room — the probe uses it, and so
   // does any caller that wants to see the exact argv before it runs.
-  async function spawnSeat(execId, profileName, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined, effort = null } = {}) {
-    // The seat's cast wins here too (D19), and for the same reason it does on the headless door:
-    // the two doors are the daemon's whole launch surface, and a seat that ran its cast headless
-    // but the caller's profile in a pane would be one seat wearing two models. Resolved BEFORE the
-    // gates below so they validate what actually launches. `seatDir` is this door's explicit
-    // argument, so there is no relative-path ceiling here.
-    profileName = profileForSeatCast(config.profiles || {}, seatDir, profileName, log);
-
-    // An own-property test, for the reason given at the request-validation door above (task
-    // 7.542): a bare lookup admits every inherited key of `Object.prototype` as a profile name.
-    if (!Object.hasOwn(config.profiles || {}, profileName)) {
-      throw new SpawnError(E_UNKNOWN_PROFILE, `unknown profile: ${profileName}`, { profile: profileName });
-    }
-    const profile = config.profiles[profileName];
-    requireExecShape(profile, profileName); // G-144 — door 2 (the `profile.exec.argv` read below)
+  async function spawnSeat(execId, { room, seatName, seatDir, dryRun = false, enqueuedBy = 'unknown', readLease = undefined, effort = null } = {}) {
     if (!seatDir) {
-      throw new SpawnError(E_BAD_REQUEST, 'seat spawn requires seatDir — the seat descriptor folder supplies role/briefing/workdir (R7)', { profile: profileName });
+      throw new SpawnError(E_BAD_REQUEST, 'seat spawn requires seatDir — the seat descriptor folder supplies role/briefing/workdir (R7), and since `#d-abolish-profile-names` it is also the only address a launch spec has', {});
     }
+    // The seat's cast is the answer here too (D19 · 7.787), and for the same reason it is on the
+    // headless door: the two doors are the daemon's whole launch surface, and a seat that ran its
+    // cast headless but somebody else's spec in a pane would be one seat wearing two models.
+    // Resolved BEFORE the gates below so they validate what actually launches.
+    // ⚠ "NOT A SEAT" OUTRANKS "NOT CAST", same reason as the headless door. A dir with no
+    // `seat.md` at all is not an uncast seat — it is not a seat, which is this door's own
+    // `E_NOT_A_SEAT_FOLDER`, and it names the fix the operator actually has (materialize it, or
+    // pass a real seat folder) instead of sending him to cast something that does not exist.
+    let profileName;
+    let profile;
+    try {
+      ({ key: profileName, spec: profile } = launchSpecForSeat(config.launchSpecs || {}, seatDir, log));
+    } catch (err) {
+      if (err.code === E_UNCAST_SEAT && !fs.existsSync(path.join(seatDir, 'seat.md'))) {
+        throw new SpawnError(
+          E_NOT_A_SEAT_FOLDER,
+          `${seatDir} carries no seat.md — it is not a materialized seat, so it declares no cast `
+          + 'and there is nothing to launch. Materialize the seat, or pass a real seat folder.',
+          { workdir: seatDir, seat: seatName || null, missingField: 'seat.md' },
+        );
+      }
+      throw err;
+    }
+    requireExecShape(profile, profileName); // G-144 — door 2 (the `profile.exec.argv` read below)
 
     // The seat's declared `effort:`, same law and same precedence as the headless door (see
     // seatEffortRung above). `seatDir` is this door's explicit argument, so no relative-path
@@ -1834,6 +1905,15 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 
   return {
     config,
+    // 7.787 — "which launch spec will this seat run?", asked of the SAME resolver `spawn()` uses.
+    // The ticker's chain decision needs it ("does this spec declare a resume template?") and used
+    // to read `config.profiles[args.profile]`, the argument `#d-abolish-profile-names` deletes.
+    // Returns null on an uncast or unmappable seat: the caller's only use is a resumable-or-not
+    // test whose other arm (a fresh transcript spawn) is the safe answer, and the real refusal
+    // fires inside `spawn()` moments later where it lands on the execution's own row.
+    specForSeat(seatDir) {
+      try { return launchSpecForSeat(config.launchSpecs || {}, seatDir, log).spec; } catch { return null; }
+    },
     spawn,
     spawnSeat,
     status,
@@ -1865,7 +1945,7 @@ module.exports = {
   // the half of the D19 fix that reads a REAL descriptor, and a probe that stubs the descriptor
   // read would prove the catalog and not the fix.
   seatDeclaresValue,
-  profileForSeatCast,
+  launchSpecForSeat,
   // Exported for `engine/cage-admission.js` (§ D5): the pre-enqueue admission gate must reason
   // about the SAME `goal-writes` grant this spawner will compose, so it calls the one declaration
   // reader rather than parsing seat.md a second time.

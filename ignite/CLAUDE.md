@@ -33,18 +33,21 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   `milestones.csv`, absent everywhere = 2. It writes the two files `coord.py`'s
   `resolve_retry_threshold` reads, which is the enforcing authority; `coordinate fail-status` is
   where a seat READS the resolved bar, so no prompt ever types a number.
-  `lane` is the DAEMON'S PICKUP BUTTON: one word
-  in `<goal>/execution-lane` that the daemon's watch pass reads before every tick,
-  `d-daemon-lane-button`. The last four grow a LIVE goal's seat roster (issue `S-33`): `pause`
+  `lane` is the DAEMON'S PICKUP BUTTON: **one word — and since `#d-abolish-profile-names` that is
+  literal** — in `<goal>/execution-lane` that the daemon's watch pass reads before every tick,
+  `d-daemon-lane-button`. The retired second token named a fallback launch profile; a marker still
+  carrying one does not parse as `daemon`, so it reads `console` (fail-closed) and BOTH readers say
+  so loudly. `--set daemon` REFUSES a goal with any uncast seat, naming them. The last four grow a LIVE goal's seat roster (issue `S-33`): `pause`
   stashes the lane assignment behind a `paused ` prefix BOTH lane readers already resolve to
   `console` (so no reader changed) and `resume` returns it byte-for-byte; `dag` is the read-only
   one-shot graph view; `add-seat` gates, mints through `team-kit/materialize-seats.py`, then
   splices the seat into the after-graph in ONE atomic registry write. ⚠ **Pausing bounds SEEDING,
   not execution** — it stops the daemon starting anything new for the goal, never a session already
   running. Contract: `capabilities/goals-tree/tool/README.md`.
-- **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>
-  [--profile <name>]` — the FALLBACK for seats that declare no harness+model cast, required only
-  when the goal has one; entry point `capabilities/attached-execution/tool/rbtv-execution`, reached by
+- **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>`
+  — ⚠ `--profile` is GONE since `#d-abolish-profile-names` (2026-08-12): a seat runs the launch
+  spec its own CAST resolves, and an UNCAST seat is a NAMED refusal at this door; entry point
+  `capabilities/attached-execution/tool/rbtv-execution`, reached by
   delegation from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner ruling
   `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO attachments —
   the SAME engine (`ignite/engine/`) the daemon runs, attached to the calling terminal instead of a
@@ -78,9 +81,11 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 - **`bindings/`** — the CASTING SHEET surface (owner-ruled 2026-08-10): which harness, model and
   effort each seat of a workflow runs on. A workflow is the program, a taskforce is its running
   instance, and the bindings file is what casts one into the other —
-  `team-kit/materialize-seats.py --bindings` is its ONE consumer. Four verbs: `catalog` (every
-  spawnable harness+model with each effort dial NUMBERED), `inspect`, `scaffold` (create-only) and
-  `set`. ⚠ **NOT a two-part capability, and that is measured**: the bindings tree is in the channel
+  `team-kit/materialize-seats.py --bindings` is its ONE consumer. Five verbs: `catalog` (every
+  spawnable harness+model with each effort dial NUMBERED), `inspect`, `scaffold` (create-only),
+  `set` (one seat) and `set-many` (N seats of one workflow from a JSON file, ALL-OR-NOTHING —
+  every seat validated through `set`'s own path before the file is opened, so a batch with one bad
+  seat leaves the sheet byte-identical and reports every seat's reason). ⚠ **NOT a two-part capability, and that is measured**: the bindings tree is in the channel
   master's `rw-paths` and NOTHING boot-reads it, so every write is a plain direct file write — no
   staged inbox, no daemon fire, no restart. Its two siblings above are split for the opposite
   reason, not by house style. ⚠ **`catalog` is the validator, not a display**: derived from
@@ -103,10 +108,13 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 All but the watchdog are documented for the `rbtv` CLI's delegation table in `modules/ignite.md`
 § Capabilities, which also carries the watchdog.
 
-## launch-profiles/ — the ONE shared launch-profile resolver
+## launch-profiles/ — the ONE shared launch-spec resolver
 
 `ignite/launch-profiles/` holds the shared resolver every launch goes through (task 7.42; registry
-`decisions.md#d-profile-source-unification`, CMP-6 § Interface (1)). It owns profile resolution,
+`decisions.md#d-profile-source-unification`, CMP-6 § Interface (1)). ⚠ The FOLDER keeps its name;
+the TERM it was named for does not — `launch spec` succeeds `launch profile`
+(`#d-abolition-terminology`), and a folder rename is a cascade with no behavioural gain. It owns
+launch-spec resolution,
 slot validation, the carriage vocabulary, the workdir guard, caged/portable half selection, the
 effort translation slot, and the pinned-flag pre-flight.
 
@@ -117,9 +125,11 @@ LIBRARY, not a capability: `capabilities/` above is for standalone operator surf
 delegates to, which this is not. The other two ruled consumers — the attached dispatch capability
 (7.43) and the orchestration conductor's CLI-worker dispatch (7.54) — are **not built**; shipping
 with one live consumer is 7.42's scope. ⚠ **7.54's CATALOG half IS built** (ruling D19, 2026-08-11):
-`catalog.js` maps a seat's declared `(harness, model)` to the profile NAME that runs it, and
-`server/spawn/spawn.js#profileForSeatCast` applies it at the single point every launch passes
-through — so a seat runs what its `seat.md` casts it as on every lane. The conductor-dispatch half
+`catalog.js` resolves a seat's declared `(harness, model)` to the launch spec that runs it, and
+`server/spawn/spawn.js#launchSpecForSeat` applies it at the single point every launch passes
+through — so a seat runs what its `seat.md` casts it as on every lane. Since
+`#d-abolish-profile-names` (2026-08-12) that is the ONLY resolution: `launch-specs:` is keyed by
+the pair, NO caller may select a spec, and an uncast seat REFUSES (`E_UNCAST_SEAT`). The conductor-dispatch half
 of 7.54 remains unbuilt, as does 7.43.
 
 Contract, the caller bounds, and the disclosed residuals: `launch-profiles/README.md`.
@@ -256,17 +266,18 @@ Canonical vocabulary for every spec, task, dispatch, review, and code file of th
 | job | A deterministic command (function + arguments), dry-run-validated at queue time; NO LLM in the path. | Registry `concepts/job.md`; `jobs` catalogue table |
 | queue | The control-plane store of PENDING jobs only; the server core is its sole writer. | Registry `concepts/queue.md`; `queue` table |
 | execution | One fired run of a job. One `jobs_log` row = one execution = one session record (D16 folded model). | Heart-store spec (D16); `jobs_log` |
-| session | A running executor process started by the server core via a named launch profile; watchable live, survives disconnects, controllable at turn boundaries, killable at any time (D7 operational definition; complements registry `concepts/session.md`, Session = Executor + Trigger). Runs exactly ONE turn, ends on its own report. | decisions.md D7; every spec |
+| session | A running executor process started by the server core on the launch spec its seat is CAST to; watchable live, survives disconnects, controllable at turn boundaries, killable at any time (D7 operational definition; complements registry `concepts/session.md`, Session = Executor + Trigger). Runs exactly ONE turn, ends on its own report. | decisions.md D7; every spec |
 | worker | The spawned executor process a session runs (informal; the registry concept is `executor` = agent \| tool). Names the transient units: `rbtv-worker-<session-id>`. | Spawn spec; VPS notes §4 |
 | seat-slot | The persistent work slot a chain of one-turn sessions occupies; the slot persists, sessions are cattle. v1 carries it implicitly as a turn chain (no slot table). | CMP-11; ticker spec § slot substrate |
 | turn chain | Successive executions sharing ONE chain-stable thread, each linked to its predecessor via `jobs_log.parent_exec_id` (NULL = the chain's first execution) — ratified D24 Q3a. | Ticker spec; heart-store DDL |
 | thread | The message-thread id a whole chain shares: `exec-<exec_id of the chain's FIRST execution>`, carried UNCHANGED across recycles (chain-stable, D24 Q3a). | `messages.thread`; ticker spec |
 | tick | One pass of the ticker engine's fixed 7-phase loop (default cadence 10 s). | Registry CMP-11; `ticks` table; ticker spec |
 | ticker engine | THE one runtime engine that makes the queue launch due jobs — deliberately singular; "heartbeat" is RETIRED and never names the engine. | Registry `concepts/ticker-engine.md`; ticker spec |
-| launch profile | A named, config-pinned command-template set (exec/resume/caps/sandbox); the ONLY unit a caller can select, by NAME — callers never inject flags (DEC-1 R3). | Spawn spec Design 1; server config `profiles:` |
+| launch spec | A config-pinned command-template set (exec/resume/caps/sandbox/effort ladder), keyed by **(harness, model)** in `launch-specs:`. NO caller anywhere selects one: a seat's CAST resolves it at spawn time, and callers never inject flags (DEC-1 R3). Successor to the RETIRED term "launch profile" (owner ruling `#d-abolition-terminology`, 2026-08-12). | Spawn spec Design 1; server config `launch-specs:` |
+| cast | The assignment of one executor (harness · model · effort) to one seat. A bindings sheet is composed of casts, and a cast is what resolves a launch spec. NOUN only — never a verb (`PRIN-7`/`PRIN-10`). | `.rbtv/config/modules/{module}/{component}/bindings/{code}.json`; `capabilities/bindings/` |
 | sender | An authenticated identity (`kind: owner \| agent \| bridge`) presenting a per-sender token at the gateway; the resolved sender-id rides every forwarded request and lands in the audit columns. | D15; gateway spec; `messages.sender` |
 | `enqueued_by` | CANONICAL column/argument name for "the authenticated sender who caused this run" — owner-ruled, 2026-07-14, decisions.md D26 (unifies the store columns' name across the store, spawn, and session-row surfaces; no synonym alias). | D26; `queue.enqueued_by`, `jobs_log.enqueued_by`; spawn spec `spawn()` signature |
 | completion | The typed message that ends a turn, carrying status `done` \| `blocked` \| `failed` (report-failed is a completion with failed status — never a sixth type). | Registry CMP-8; `messages` table; ticker spec |
 | `session-killed` | The audit record `kill-session` appends after a kill succeeds — attribution only (WHO killed WHICH session WHEN), never a payload. The one record kind this module still WRITES to a session's audit file. ⚠ A READER of that file may still meet three retired kinds on disk — `keys-accepted`, `screen-read`, `screen-read-summary` — written before task 7.29 retired the two pty intents; no code writes them now, and any tool that parses the file must still understand them. | Per-session audit file; `server/internal-api/keys-audit.js`, `server/internal-api/dispatch.js`; `probe-keys-audit.js` |
 
-Retired words — MUST NOT be used for this module: `heartbeat` (the engine is the ticker engine), `spawning` (use `launching`), `orphaned-dead` (use `failed` + discovery data), `requested_by` (use `enqueued_by` — owner-ruled 2026-07-14, decisions.md D26). RETIRED SURFACES (task 7.29, the words stay legible for history but name nothing live): `send-to-session`, `capture-session-screen`, the `ignite send`/`ignite screen` wrappers, the web terminal and its ttyd surface, the in-unit dtach holder, the pty bridge — a headed session is a tmux pane and SSH is the human trust boundary.
+Retired words — MUST NOT be used for this module: `heartbeat` (the engine is the ticker engine), `spawning` (use `launching`), `orphaned-dead` (use `failed` + discovery data), `requested_by` (use `enqueued_by` — owner-ruled 2026-07-14, decisions.md D26), **`launch profile`** (use `launch spec` — owner-ruled 2026-08-12, `#d-abolition-terminology`; the NAME layer that term implied is abolished outright by `#d-abolish-profile-names`, so the word now names nothing that exists). RETIRED SURFACES (task 7.29, the words stay legible for history but name nothing live): `send-to-session`, `capture-session-screen`, the `ignite send`/`ignite screen` wrappers, the web terminal and its ttyd surface, the in-unit dtach holder, the pty bridge — a headed session is a tmux pane and SSH is the human trust boundary.

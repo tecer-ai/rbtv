@@ -46,10 +46,10 @@ function check(name, ok, detail) {
 }
 
 const PROFILES = { default: { headed: false } };
-const SCHEMA = JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } });
+const SCHEMA = JSON.stringify({ required: {}, optional: { workdir: 'string' } });
 
 function seatArgs(workdir) {
-  return JSON.stringify({ profile: 'default', workdir });
+  return JSON.stringify({ workdir });
 }
 
 function freshStore(open, dbPath) {
@@ -135,11 +135,11 @@ async function main() {
   // ── 6. the OTHER key arm · a catalogue-HOMED job keys on the goal/seat pointer, not args ────
   store.registerJob({
     jobId: 'homed-launch', actionType: 'launch-agent', function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1, goalName: 'g', seatName: 'gamma',
   });
   const homedArgs = {
-    jobId: 'homed-launch', args: JSON.stringify({ profile: 'default' }), sessionMode: 'headless',
+    jobId: 'homed-launch', args: JSON.stringify({}), sessionMode: 'headless',
     triggerKind: 'scheduled', runAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     enqueuedBy: 'probe',
   };
@@ -168,7 +168,7 @@ async function main() {
   });
   const SEAT_D = '/ws/.rbtv/goals/g/runs/run-1/seats/delta';
   const wirePayload = {
-    job_id: 'seat-launch', args: { profile: 'default', workdir: SEAT_D },
+    job_id: 'seat-launch', args: { workdir: SEAT_D },
     trigger_kind: 'scheduled', run_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   };
   const wire1 = await api.dispatch(envelope(wirePayload));

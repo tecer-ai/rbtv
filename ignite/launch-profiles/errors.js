@@ -25,10 +25,13 @@ class SpawnError extends Error {
 
 // ── Codes the profile surface raises (moved verbatim from server/spawn/errors.js) ────────────
 const E_CONFIG_LOAD = 'E_CONFIG_LOAD';
-const E_DUPLICATE_PROFILE = 'E_DUPLICATE_PROFILE';
 const E_UNKNOWN_SLOT = 'E_UNKNOWN_SLOT';
 const E_MISSING_KEY = 'E_MISSING_KEY';
-const E_UNKNOWN_PROFILE = 'E_UNKNOWN_PROFILE';
+// 7.787: was `E_UNKNOWN_PROFILE`. It no longer means "no row with that name" — there are no
+// names — but "this config carries no launch spec for that (harness, model), or no job by that
+// name". `E_DUPLICATE_PROFILE` retired in the same change: `launch-specs:` is a nested map, so two
+// rows claiming one pair is structurally unspellable rather than a refusal to write.
+const E_UNKNOWN_LAUNCH_SPEC = 'E_UNKNOWN_LAUNCH_SPEC';
 const E_FLAG_INJECTION = 'E_FLAG_INJECTION';
 const E_WORKDIR_ESCAPE = 'E_WORKDIR_ESCAPE';
 const E_WORKDIR_MISSING = 'E_WORKDIR_MISSING';
@@ -56,10 +59,9 @@ const E_PREFLIGHT_UNAVAILABLE = 'E_PREFLIGHT_UNAVAILABLE';
 module.exports = {
   SpawnError,
   E_CONFIG_LOAD,
-  E_DUPLICATE_PROFILE,
   E_UNKNOWN_SLOT,
   E_MISSING_KEY,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_FLAG_INJECTION,
   E_WORKDIR_ESCAPE,
   E_WORKDIR_MISSING,

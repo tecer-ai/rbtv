@@ -67,7 +67,10 @@ async function main() {
 
     // A validated launch-agent job reached the gateway → queue, enqueued_by the bridge sender.
     pass = Boolean(row) && row.job_id === 'chat-launch' && row.enqueued_by === daemon.bridgeSenderId
-      && JSON.parse(row.args).profile === 'worker';
+      // 7.787: the row carries NO `profile` — `#d-abolish-profile-names` removed the last field
+      // through which a transport could name execution. Asserted as an ABSENCE, because a key
+      // quietly coming back is exactly what nothing else would notice.
+      && !('profile' in JSON.parse(row.args));
     cap.log({ step: 'enqueue result', pass });
 
     // ── Redelivery leg (D108(C) at-least-once guard) ──────────────────────────

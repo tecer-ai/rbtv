@@ -84,7 +84,7 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
 
    ```
    rbtv-goal lane <goal>                        # which lane is running this right now
-   rbtv-goal lane <goal> --set daemon --profile <name>   # …or console, which takes no --profile
+   rbtv-goal lane <goal> --set daemon           # …or console. ONE WORD — no second token
    ```
 
    The lane marker is written at scaffold time from the request's REQUIRED `execution-lane`, so a
@@ -293,19 +293,13 @@ reasons: `P5`/`V8` in `validate` (the requester's pre-flight, which performs no 
 any write (the acting path, whose callers may skip `validate`). Both read the one constant
 `EXECUTION_LANES`.
 
-### §1.9 · `launch-profile` — optional, a name from `profiles:`
+### §1.9 · `launch-profile` — **DELETED** (`#d-abolish-profile-names`, 2026-08-12)
 
-The FALLBACK launch profile for seats that declare no harness+model cast of their own, meaningful
-only on the `daemon` lane. Forwarded as `goal_cli.py scaffold --profile` when present.
-
-⚠ **It contributes ZERO members, and not for `due-date`'s reason.** Its constraint is real and
-resolved — the name must exist in the shared config's `profiles:` — but that constraint has exactly
-ONE home already: `goal_cli.py#check_lane_profile`, which BOTH lane doors (`lane --set` and
-`scaffold --lane`) call, and which also owns the "`--profile` is meaningless with `console`"
-refusal. A member here would be a second copy of the profile roster to keep in step with the config,
-which is the drift §6.0's one-member-per-clause rule exists to make visible, not to cause. The
-refusal still reaches the requester: it fails the `create-goal` step and the failed step's stderr
-rides the settle record.
+It named the FALLBACK launch profile for seats declaring no cast of their own. The fallback is
+abolished, `rbtv-goal scaffold` has no `--profile` flag left to forward it to, and what a seat runs
+is its CAST in the workflow's bindings sheet — not a goal-creation input. The field is REMOVED from
+`OPTIONAL_FIELDS` rather than accepted-and-ignored: a value silently dropped would leave the
+requester believing it had chosen something.
 
 ### The reject-set decision — `V7` is minted, and why
 

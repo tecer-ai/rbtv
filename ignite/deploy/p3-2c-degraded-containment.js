@@ -1,5 +1,11 @@
 'use strict';
 
+// ⚠ STALE PRE-7.787 SMOKE SCRIPT — NOT in the probe-suite enumerator, and NOT brought
+// forward by `#d-abolish-profile-names`. Its `spawn()` call was re-arited with that change
+// (the `profileName` operand is gone) but its CONFIG fixture still uses the retired flat
+// `profiles:` map, and it names profiles the shipped config no longer carries — it was
+// already unrunnable before 7.787 for that second reason. Fix both together, or delete it.
+
 // p3-2c-degraded-containment.js — re-runnable proof that a DEGRADED user manager still
 // resolves the systemd carrier and keeps worker containment intact.
 //
@@ -130,7 +136,7 @@ async function main() {
       firedTick: 1, firedAt: new Date(), profile: profileName, workdir: null,
     });
 
-    row = await mgr.spawn(fired.exec_id, profileName, 'headless', null, null, 'p3-2c-degraded-containment');
+    row = await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-2c-degraded-containment');
     log(`spawned via createSpawnManager().spawn(): carrier=${row.carrier} unit=${row.unit_name} workdir=${portable(row.workdir)}`);
 
     if (row.carrier !== 'systemd') {

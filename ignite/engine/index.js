@@ -44,8 +44,10 @@ const { seedGoal } = require('./seeding');
 //                   `<goal-folder>/heart.db` and NEVER the daemon's. One candidate writer each, by
 //                   construction — the `E_SECOND_WRITER` throw inside the store is an in-PROCESS
 //                   guard and was never able to see across processes.
-//   profiles/tools/workflows/tickIntervalMs   the store's catalogue + snooze conversion inputs.
-//   spawnConfigPath the launch-profile config the fire path resolves NAMED profiles from.
+//   tools/workflows/tickIntervalMs   the store's catalogue + snooze conversion inputs.
+//   spawnConfigPath the launch-spec config. Since 7.787 nothing RESOLVES a name through it — the
+//                   fire path resolves each seat's own (harness, model) cast against its
+//                   `launch-specs:` block, and its `jobs:` block is name-keyed but seat-unreachable.
 //   decorateSpawnManager  an OPTIONAL `(spawnManager, heartStore) => spawnManager` wrapper applied
 //                   before the ticker is built. It exists for the daemon's headed fork, which
 //                   must sit between the two — an attachment-specific decoration, not engine
@@ -53,7 +55,6 @@ const { seedGoal } = require('./seeding');
 //                   composition, when the caller does not yet hold the return value.
 function createEngine({
   dbPath,
-  profiles = {},
   tools = {},
   workflows = {},
   tickIntervalMs,
@@ -77,7 +78,7 @@ function createEngine({
     throw new Error('createEngine requires spawnConfigPath — the launch-profile config the fire path resolves against');
   }
 
-  const heartStore = openHeartStore({ dbPath, profiles, tools, workflows, tickIntervalMs });
+  const heartStore = openHeartStore({ dbPath, tools, workflows, tickIntervalMs });
 
   const bareSpawnManager = createSpawnManager({
     heartStore,
@@ -95,6 +96,10 @@ function createEngine({
   // spawn manager loads, and the spawn manager is built FROM the store. One assignment beats
   // loading that config twice or reordering the composition root.
   heartStore.config.workdirRoot = spawnManager.config.default_workdir_root || null;
+  // 7.787, same seam and the same reason: `engine/seeding.js` needs each seat's own cage template
+  // (`launch-specs.<harness>.<model>.sandbox.SeatBinds`) to run the pre-enqueue cage-admission test,
+  // and it holds only the store. Assigned here rather than loaded a second time.
+  heartStore.config.launchSpecs = spawnManager.config.launchSpecs || {};
 
   // Ruling `d-0811-workdir-symlink-boot-resolve` — resolve the goals root ONCE, HERE, from the same
   // boot-read trusted value the line above threads. This is the seam because it is the one place
@@ -156,9 +161,9 @@ function createEngine({
     // the goal's execution record says is finished — whichever lane finished it. The attached lane
     // does its own seeding inline (it also carries held seats in the terminal, which this does not);
     // this is the entry a SHARED store uses, and it is what the daemon lane never had.
-    seedGoal: ({ goalFolder, goal, profile, isHeld = null }) => {
+    seedGoal: ({ goalFolder, goal, isHeld = null }) => {
       publishToRecord(heartStore, { logger });
-      return seedGoal({ heartStore, goalFolder, goal, profile, isHeld, logger });
+      return seedGoal({ heartStore, goalFolder, goal, isHeld, logger });
     },
 
     // Idempotent: an attached run closes on its own exit path AND on a signal, and the second

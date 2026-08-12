@@ -57,7 +57,7 @@ function check(name, pass, detail) {
 
 // `launch-agent` requires `profile` in args_schema.required (the S-2(a) register-time
 // gate), or the registration below is refused before this probe reaches its subject.
-const SCHEMA = '{"required":{"profile":"string"}}';
+const SCHEMA = '{"required":{}}';
 
 // The row for a given job id out of `inspect jobs --json`, so every state assertion is a
 // FIELD read rather than a substring match on rendered text.
@@ -141,8 +141,7 @@ async function main() {
 
     // 5. The stop is REAL: a disabled definition cannot be scheduled.
     r = await runCli([
-      'add-job', '--fn', 'throwaway-deregister', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
+      'add-job', '--fn', 'throwaway-deregister',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
     ], ownerEnv);
     out('--- add-job on a deregistered job ---', 'EXIT=' + r.code, 'STDERR=' + r.stderr.trim());
     check('a DEREGISTERED definition can no longer be enqueued (E_JOB_DISABLED)',

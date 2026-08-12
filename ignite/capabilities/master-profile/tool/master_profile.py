@@ -16,7 +16,7 @@ The knob is now the channel master's own CASTING SHEET —
 `effort` triple of its one seat. The master is cast exactly like every other seat; what makes it
 special is only that it is the seat allowed to re-cast ITSELF. `materialize-seats.py --repass`
 re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
-(`launch-profiles/catalog.js#castProfileFor`, read fresh per message), so the change lands on the
+(`launch-profiles/catalog.js#specForSeatCast`, read fresh per message), so the change lands on the
 owner's next word.
 
 The AGENT-FACING unit is still a spawn-profile NAME from `profiles:` in
@@ -195,7 +195,7 @@ REFUSED_DIR = "refused"
 #
 # ⚠ THE 2026-08-12 RETARGET MADE THE OTHER THREE THE SAME KIND OF FACT. Once this tool's target
 # became a CASTING SHEET, `bindings` was no longer a library it borrowed a reader from — it is the
-# capability that OWNS the file. So the name→cast resolution (`profile_row`), the castable set
+# capability that OWNS the file. So the pair→row resolution (`spec_row`), the castable set
 # (`catalog`) and the write itself (`cast_seat`) all come from there too. What this file still owns
 # is the TRANSPORT — staging, the fire, the bus report, the re-render — which is the half `bindings`
 # has no reason to know about.
@@ -210,9 +210,9 @@ if _BINDINGS_TOOL not in sys.path:
     sys.path.insert(0, _BINDINGS_TOOL)
 from bindings import (                                    # noqa: E402
     Refusal,
-    profile_effort as effort_ladder,
+    spec_effort as effort_ladder,
     catalog as bindings_catalog,
-    profile_row,
+    spec_row,
     cast_seat,
 )
 
@@ -226,43 +226,46 @@ from bindings import (                                    # noqa: E402
 # one refusal type.
 
 
-def known_profiles(profiles_path=DEFAULT_PROFILES):
-    """The names this tool will accept — the CASTABLE profiles, read live off the catalog.
+def known_pairs(profiles_path=DEFAULT_PROFILES):
+    """The `harness/model` pairs this tool will accept — the CASTABLE set, read live off the catalog.
+
+    ⚠ IT USED TO BE `known_profiles()`, A LIST OF NAMES (`#d-abolish-profile-names`, 2026-08-12).
+    The capability KEEPS ITS OWN NAME (`#d-master-profile-keeps-its-name`) — only its CALLER
+    CONTRACT changes: the master asks for a harness and a model, which is what its bindings sheet
+    stores and what the daemon resolves at spawn. There is no name layer left to offer.
 
     ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, kimi, the
-    opencode set), and a list frozen in this file would refuse a profile that exists or admit one
-    that was removed — the second being the failure that reaches the spawn.
-
-    ⚠ AND NOT THE `profiles:` KEY SET EITHER, WHICH IS THE WIDER AND WRONG LIST. This was a line
-    scan of that section until 2026-08-12, which admitted every declared name — including ones no
-    seat can be cast as (`test-sleep`: `coord.py#validate_seat` rejects its harness) and ones that
-    spawn nothing (no `exec:` half). Against the bridge config that only ever cost a spawn; against
-    a casting sheet it would write a cast `materialize-seats.py`'s F6 gate refuses, which is a
-    refusal at goal-creation for the whole batch. The catalog is the ONE derivation both this tool
-    and `rbtv-bindings` enforce, so the names offered here are exactly the names accepted.
+    opencode set), and a list frozen in this file would refuse a pair that exists or admit one that
+    was removed — the second being the failure that reaches the spawn. The catalog is the ONE
+    derivation both this tool and `rbtv-bindings` enforce, so the pairs offered here are exactly the
+    pairs accepted.
     """
-    return sorted(r["profile"] for r in bindings_catalog(profiles_path) if r["castable"])
+    return sorted(f'{r["harness"]}/{r["model"]}'
+                  for r in bindings_catalog(profiles_path) if r["castable"])
 
 
-def validate(name, profiles_path=DEFAULT_PROFILES):
-    """Resolve a profile NAME to the catalog row that IS its cast. The ONE resolver, called by both
-    halves. The client so a typo refuses in the sitting that made it; the daemon because a
+def validate(harness, model, profiles_path=DEFAULT_PROFILES):
+    """Resolve a (harness, model) to the catalog row that IS its cast. The ONE resolver, called by
+    both halves. The client so a typo refuses in the sitting that made it; the daemon because a
     client-side check is not a check (the staged payload is written by the requester and can be
     edited between staging and the fire)."""
-    if not isinstance(name, str) or not name.strip():
-        raise Refusal(f"{KEY} must be a non-empty string, got {name!r}")
-    row = profile_row(name, profiles_path)
+    for label, value in (("harness", harness), ("model", model)):
+        if not isinstance(value, str) or not value.strip():
+            raise Refusal(f"{label} must be a non-empty string, got {value!r}")
+    row = spec_row(harness, model, profiles_path)
     if row is not None and row["castable"]:
         return row
-    known = known_profiles(profiles_path)
+    known = known_pairs(profiles_path)
     if row is not None:
-        raise Refusal(f"`{name}` is a declared spawn profile but is NOT castable: "
+        raise Refusal(f"`{harness}/{model}` is a declared launch spec but is NOT castable: "
                       f"{row['not-castable-because']}. A seat may only be cast as a pair "
                       f"`coord.py#validate_seat` accepts — the same predicate materialize's F6 gate "
-                      f"runs over the whole batch. Castable names: {', '.join(known)}.")
-    raise Refusal(f"`{name}` is not a castable spawn profile. The live castable set is: "
-                  f"{', '.join(known)}. Refused HERE because an unknown name does not fail when the "
-                  f"sheet is written — it fails at the spawn, one owner message later.")
+                      f"runs over the whole batch. Castable pairs: {', '.join(known)}.")
+    raise Refusal(f"`{harness}/{model}` is not a castable pair. The live castable set is: "
+                  f"{', '.join(known)}. The model must be the literal the launch spec is FILED "
+                  f"UNDER, verbatim (`claude-fable-5`, never `fable`). Refused HERE because an "
+                  f"unknown pair does not fail when the sheet is written — it fails at the spawn, "
+                  f"one owner message later.")
 
 
 # ⚠ THERE IS NO `validate_effort` IN THIS FILE ANY MORE, AND ITS ABSENCE IS THE POINT.
@@ -283,11 +286,12 @@ def validate(name, profiles_path=DEFAULT_PROFILES):
 
 
 def ladders(profiles_path=DEFAULT_PROFILES):
-    """Every profile with what may be asked of it — what `show` prints so nobody has to guess N."""
+    """Every castable pair with what may be asked of it — what `show` prints so nobody guesses N."""
     out = {}
-    for name in known_profiles(profiles_path):
-        ladder = effort_ladder(name, profiles_path)
-        out[name] = ("no effort block — omit the rung" if ladder is None
+    for pair in known_pairs(profiles_path):
+        harness, model = pair.split("/", 1)
+        ladder = effort_ladder(harness, model, profiles_path)
+        out[pair] = ("no effort block — omit the rung" if ladder is None
                      else "inert (accepts any rung, applies none — G-270)" if ladder == []
                      else f"1..{len(ladder)} ({', '.join(f'{i + 1}={v}' for i, v in enumerate(ladder))})")
     return out
@@ -328,9 +332,10 @@ def read_value(bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, profiles_path=DEFAU
     """The cast in force, reported in BOTH vocabularies. Pure read — safe from inside the cage.
 
     The sheet stores `harness`/`model`/`effort` — the harness's own strings, which is what
-    `materialize-seats.py` renders and what a launch door reads. The requester speaks in profile
-    NAMES and RUNG NUMBERS. Both are returned, mapped through the same catalog `validate` resolves
-    against, so `show` can print what is in force in the words `request` will accept back.
+    `materialize-seats.py` renders and what a launch door reads. The requester speaks in the same
+    harness+model and in RUNG NUMBERS (`#d-abolish-profile-names`: there is no name layer left).
+    `pair` and `rung` are mapped through the same catalog `validate` resolves against, so `show`
+    prints what is in force in the words `request` will accept back.
 
     An UNRECOGNISED cast is reported, never refused: a sheet hand-edited to a pair no profile
     declares is exactly the state a reader most needs to see spelled out, and refusing to read it
@@ -346,20 +351,20 @@ def read_value(bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, profiles_path=DEFAU
     harness, model, effort = entry.get("harness"), entry.get("model"), entry.get("effort")
     row = next((r for r in bindings_catalog(profiles_path)
                 if r["harness"] == harness and r["model"] == model), None)
-    profile = row["profile"] if row else None
+    pair = row["spec"] if row else None
     ladder = list(row["effort-levels"]) if row else []
     rung = ladder.index(effort) + 1 if effort in ladder else None
 
-    if profile is None:
-        where = (f"{bindings} — seat `{seat}`. ⚠ its cast `{harness}/{model}` matches NO profile in "
-                 f"{profiles_path}, so the next spawn of this seat REFUSES "
-                 f"(`catalog.js#E_UNCAST_SEAT`). Request a castable name to repair it.")
+    if pair is None:
+        where = (f"{bindings} — seat `{seat}`. ⚠ its cast `{harness}/{model}` matches NO launch spec "
+                 f"in {profiles_path}, so the next spawn of this seat REFUSES "
+                 f"(`catalog.js#E_UNMAPPED_BINDING`). Request a castable pair to repair it.")
     else:
         where = (f"{bindings} — the `harness`/`model`/`effort` of seat `{seat}`, rendered into "
                  f"{seat}'s `seat.md` by `materialize-seats.py --repass` and resolved at every "
-                 f"launch door by `launch-profiles/catalog.js#castProfileFor`. Read per launch, "
+                 f"launch door by `launch-profiles/catalog.js#specForSeatCast`. Read per launch, "
                  f"never boot-cached: a change lands on the owner's next message.")
-    return {"profile": profile, "harness": harness, "model": model, "effort": effort,
+    return {"pair": pair, "harness": harness, "model": model, "effort": effort,
             "rung": rung, "bindings": str(bindings), "seat": seat, "where": where}
 
 
@@ -464,22 +469,22 @@ def _report_body(record, repass):
             effort_line = (f"effort: rung {rung} = `{after.get('effort')}` on "
                            f"`{record['requested']}`'s ladder ({record.get('effort-ladder')})")
         was = record.get("before") or {}
-        return (f"*master cast changed* — `{was.get('profile')}` → `{record['requested']}` "
-                f"({after.get('harness')}/{after.get('model')})\n"
+        return (f"*master cast changed* — `{was.get('pair')}` → `{record['requested']}`\n"
                 f"{effort_line}\n"
                 f"apply: {line}\n"
                 f"scope: takes effect on your NEXT message — the live session is reaped when its "
-                f"conversation names a different profile, and nothing is restarted")
-    return (f"*master cast change REFUSED* — still `{(record.get('before') or {}).get('profile')}`\n"
+                f"seat resolves to a different launch spec, and nothing is restarted")
+    return (f"*master cast change REFUSED* — still `{(record.get('before') or {}).get('pair')}`\n"
             f"why: {str(record.get('stated-refusal'))[:600]}\n"
             f"apply: none — nothing changed")
 
 
 # ─────────────────────────────────────────────────────────────────────────── the client half
 
-def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID, dry_run=False,
-            chat_thread=None, effort=None, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT):
-    row = validate(name, profiles_path)
+def request(inbox, harness, model, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_ID,
+            dry_run=False, chat_thread=None, effort=None, bindings=DEFAULT_BINDINGS,
+            seat=DEFAULT_SEAT):
+    row = validate(harness, model, profiles_path)
     # THE FULL WRITE, WITH THE WRITE TURNED OFF. Not a lighter client-side approximation of the
     # daemon's check — literally the same call `apply` makes, `dry_run=True`. A rung the sheet would
     # refuse therefore refuses HERE, in the sitting that typed it, instead of at a fire the owner is
@@ -492,7 +497,7 @@ def request(inbox, name, ignite_bin, profiles_path=DEFAULT_PROFILES, job_id=JOB_
         raise Refusal(f"{inbox} is a symlink — refusing to stage through one")
     inbox.mkdir(parents=True, exist_ok=True)
     staged = inbox / f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}.json"
-    payload = {"master-profile": name}
+    payload = {"harness": row["harness"], "model": row["model"]}
     if effort is not None:
         payload["effort"] = effort
     if chat_thread:
@@ -553,19 +558,26 @@ def _repass(package, seat, catalog_root, bindings):
     """Re-render the seat's descriptor from the sheet. Delegated to `materialize-seats.py`
     (PRIN-11) — the ONE renderer of a seat.md, the same one goal creation runs.
 
-    ⚠ THIS IS WHY THERE IS A DAEMON HALF AT ALL. `--repass` writes `<package>/seat.md`, and a
+    ⚠ THIS IS WHY THERE IS A DAEMON HALF AT ALL. The re-render writes `<package>/seat.md`, and a
     seat's own cage refuses every `rw-paths` grant overlapping `.rbtv/goals/` (`spawn.js` — a seat
     may not rewrite its own identity surface). The requesting sitting can author the cast and
     cannot make it take; this side makes it take.
 
-    `--root` marks the materialized row a DAG root, as the seat already is. On a `--repass` of an
+    ⚠ `--refresh`, NOT plain `--repass` (task 7.796, owner-ruled 2026-08-12, executing
+    `d-uniform-descriptor-carriage`): a refresh IS a repass — same descriptor render — plus the
+    seat-folder surfaces: the exposure loaders for the card's `exposes:` (behind
+    check_refresh_drops' nothing-is-lost gate) and the guidance pair. Plain `--repass` here is how
+    the master's five declared skill exposures sat unmaterialized while every re-cast "succeeded":
+    the descriptor moved, the folder never did.
+
+    `--root` marks the materialized row a DAG root, as the seat already is. On a re-render of an
     existing standing seat no taskforce row is appended (measured: `taskforce_rows_appended: 0`) —
     the flag is required because an omitted insertion point never defaults to root, not because
     anything is being inserted.
     """
     cmd = [sys.executable, str(MATERIALIZE), "--package", str(package), "--seat", str(seat),
            "--catalog-root", str(catalog_root), "--bindings", str(bindings),
-           "--repass", "--root", "--json"]
+           "--refresh", "--root", "--json"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     return {"rc": r.returncode, "cmd": " ".join(cmd),
             "descriptor": str(Path(package) / "seat.md"),
@@ -589,18 +601,22 @@ def apply(inbox, bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, catalog_root=DEFA
         record = {"request-file": str(src), "before": before}
         try:
             payload = json.loads(src.read_text(encoding="utf-8"))
-            if (not isinstance(payload, dict) or "master-profile" not in payload
-                    or not set(payload) <= {"master-profile", "chat-thread", "effort"}):
-                raise Refusal(f"the payload must be {{\"master-profile\": \"<name>\"}} with an "
+            if (not isinstance(payload, dict) or not {"harness", "model"} <= set(payload)
+                    or not set(payload) <= {"harness", "model", "chat-thread", "effort"}):
+                raise Refusal(f"the payload must be {{\"harness\": \"<harness>\", "
+                              f"\"model\": \"<model>\"}} with an "
                               f"optional \"effort\": <rung> and an optional "
                               f"\"chat-thread\": \"<channel>:<ts>\"; "
-                              f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}")
+                              f"got keys {sorted(payload) if isinstance(payload, dict) else type(payload).__name__}. "
+                              f"(The retired `master-profile: <name>` key was abolished by "
+                              f"`#d-abolish-profile-names` — a staged request written before "
+                              f"2026-08-12 refuses here rather than resolving a name that no longer exists.)")
             # READ BEFORE THE VALUE IS VALIDATED, so a REFUSED request still knows where to report
             # itself. A malformed token refuses the request instead of being reported into nowhere.
             if payload.get("chat-thread") is not None:
                 record["chat-thread"] = validate_chat_thread(payload["chat-thread"])
-            row = validate(payload["master-profile"], profiles_path)
-            name = row["profile"]
+            row = validate(payload["harness"], payload["model"], profiles_path)
+            name = row["spec"]
             record["requested"] = name
             rung = payload.get("effort")
             ladder = row["effort-levels"]
@@ -678,25 +694,33 @@ def main(argv=None):
                            help="which seat of that sheet is the master (default: %(default)s)")
     prof_opt = argparse.ArgumentParser(add_help=False)
     prof_opt.add_argument("--profiles", default=str(DEFAULT_PROFILES),
-                          help="the spawn-profiles document a requested name is validated against")
+                          help="the spawn-profiles document a requested pair is validated against")
     sub = p.add_subparsers(dest="verb", required=True)
 
     s = sub.add_parser("show", parents=[sheet_opt, prof_opt],
                        help="print the cast in force, where it comes from, and the "
-                            "names that may be requested")
+                            "harness+model pairs that may be requested")
     s.add_argument("--json", action="store_true")
 
     q = sub.add_parser("request", parents=[sheet_opt, prof_opt],
                        help="[the seat's verb] stage a change and enqueue the daemon "
                             "job that applies it")
-    q.add_argument("profile")
+    # ⚠ HARNESS AND MODEL, NOT A PROFILE NAME (`#d-abolish-profile-names`, 2026-08-12). The
+    # capability keeps its name (`#d-master-profile-keeps-its-name`); this is the contract change.
+    # Positional and in this order because that is the order every other casting surface uses
+    # (`rbtv-bindings set <workflow> <seat> <harness> <model> [effort]`) — one word order for one
+    # act, so nobody has to remember two.
+    q.add_argument("harness", help="the harness this workspace launches (e.g. `claude`, `codex`, "
+                                   "`opencode`) — `show` prints every castable pair")
+    q.add_argument("model", help="the model literal the launch spec is FILED UNDER, verbatim "
+                                 "(`claude-fable-5`, never `fable`) — never rewritten here")
     q.add_argument("--effort", type=int, default=None,
-                   help="the reasoning RUNG for the NEW profile: an integer 1..N in that profile's "
-                        "own ladder, 1 = lowest reasoning. `show` prints every profile's N. REQUIRED "
-                        "when the profile HAS a dial and refused when it has none — the sheet stores "
+                   help="the reasoning RUNG for the NEW pair: an integer 1..N in that pair's "
+                        "own ladder, 1 = lowest reasoning. `show` prints every pair's N. REQUIRED "
+                        "when the pair HAS a dial and refused when it has none — the sheet stores "
                         "the harness's own level string, and materialize refuses a dialled seat with "
-                        "no effort. Omitting it on a dial-less profile clears any rung currently set, "
-                        "because a rung is only meaningful against the profile it was chosen "
+                        "no effort. Omitting it on a dial-less pair clears any rung currently set, "
+                        "because a rung is only meaningful against the pair it was chosen "
                         "for. " + EFFORT_GUIDANCE)
     q.add_argument("--inbox", required=True)
     q.add_argument("--ignite-bin", default="ignite")
@@ -719,20 +743,20 @@ def main(argv=None):
     try:
         if args.verb == "show":
             v = read_value(args.bindings, args.seat, args.profiles)
-            v["available"] = known_profiles(args.profiles)
+            v["available"] = known_pairs(args.profiles)
             v["effort-ladders"] = ladders(args.profiles)
             v["effort-guidance"] = EFFORT_GUIDANCE
             if args.json:
                 print(json.dumps(v, indent=2))
             else:
                 print(f"cast:   {v['harness']}/{v['model']}"
-                      f"  (profile `{v['profile'] or 'UNKNOWN — matches no declared profile'}`)")
+                      + ("" if v["pair"] else "   ⚠ UNKNOWN — matches no declared launch spec"))
                 effort = f"{v['effort']} (rung {v['rung']})" if v["rung"] else (
                     v["effort"] or "none (harness default)")
                 print(f"effort: {effort}"
-                      f"   [{v['effort-ladders'].get(v['profile'], 'no ladder — unknown profile')}]")
+                      f"   [{v['effort-ladders'].get(v['pair'], 'no ladder — unknown pair')}]")
                 print(f"from: {v['where']}")
-                print("available (profile — effort rungs you may ask for):")
+                print("available (harness/model — effort rungs you may ask for):")
                 for n in v["available"]:
                     print(f"  {n}: {v['effort-ladders'][n]}")
                 print(textwrap.fill(EFFORT_GUIDANCE, 96, subsequent_indent="  "))
@@ -740,7 +764,7 @@ def main(argv=None):
                       "restarted, so requesting a change no longer ends your chat session")
             return 0
         if args.verb == "request":
-            out = request(_anchor_inbox(args.inbox), args.profile, args.ignite_bin, profiles_path=args.profiles,
+            out = request(_anchor_inbox(args.inbox), args.harness, args.model, args.ignite_bin, profiles_path=args.profiles,
                           dry_run=args.dry_run, chat_thread=args.chat_thread, effort=args.effort,
                           bindings=args.bindings, seat=args.seat)
             print(json.dumps(out, indent=2))

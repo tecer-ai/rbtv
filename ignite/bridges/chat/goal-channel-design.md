@@ -53,6 +53,23 @@ unchanged: the daemon composes an argv and never touches a token. Requires the s
 carrier — the credential reaches the child only as `EnvironmentFile=`, which the setsid
 carrier cannot set.
 
+**⚠ TWO CALLERS SINCE 2026-08-12 (task 7.789), ONE DECISION.** A goal reaches its run start on
+either lane, and C3 wired only the QUEUED one — so a DAEMON-LANE goal got no channel at all.
+Measured on `forge-reference-seat-id-naming`: journalctl over its whole 2026-08-11 seeding carries
+zero `goal-channel-cli` lines, and `bus-ferry.js` gates owner messaging behind an existing channel,
+so its seats' to-owner messages had nowhere to land. The second caller is
+`engine/lane-watch.js#runLaneWatch`, on the pass that first ADOPTS a goal off its `execution-lane`
+marker; it reaches the performer as `engine.ticker.ensureGoalChannel` and passes `{ goal }` where
+the queue lane passes `{ job }`. `channelEnsureDecision` owns the difference in ONE branch — the
+`isRunStart` row gate applies to the job entry only, because on the daemon lane the CALLER is the
+gate — and everything below it (which kind gets a channel, where the goal folder is, what the
+invocation is) is shared, not copied.
+
+Re-entry is free at the bridge, but not on the way there: a fork per cadence is ~8,600 transient
+units a day per goal, so the daemon-lane caller memoizes per goal folder for the daemon's lifetime
+(`lane-watch.js#ensureGoalChannelOnce`). A failed ensure is memoized too — see the `ponytail:` note
+at that function for the reasoning and the upgrade path.
+
 > **History (the pre-C3 degrade, superseded).** When this file was authored the
 > goal-registration hook did not exist: under the pre-ruled degrade (`milestone-dag.md` §1 /
 > this seat's briefing, Branch B3) the settled answer shipped as the CALLABLE surface

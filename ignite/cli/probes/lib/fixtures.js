@@ -203,7 +203,6 @@ async function stopDaemon(d) {
 function seedCatalogue(ws, { withExecution = false, withLogLines = null } = {}) {
   const store = openHeartStore({
     dbPath: path.join(ws.dataRoot, 'heart.db'),
-    profiles: { 'test-sleep': { headed: false } },
   });
   try {
     // ⚑ Registration became CREATE-ONLY at task 7.12 (`acc661d`): re-registering an id now
@@ -220,7 +219,7 @@ function seedCatalogue(ws, { withExecution = false, withLogLines = null } = {}) 
         jobId: 'probe-cli-sleep',
         actionType: 'launch-agent',
         function: 'spawnLaunchAgent',
-        argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+        argsSchema: JSON.stringify({ required: {}, optional: {} }),
       });
     } catch (err) {
       if (!err || err.code !== 'E_JOB_EXISTS') throw err;
@@ -232,12 +231,11 @@ function seedCatalogue(ws, { withExecution = false, withLogLines = null } = {}) 
       const row = store.recordExecutionStart({
         jobId: 'probe-cli-sleep',
         actionType: 'launch-agent',
-        args: JSON.stringify({ profile: 'test-sleep' }),
+        args: JSON.stringify({}),
         enqueuedBy: 'probe-owner',
         firedTick: 0,
         firedAt: new Date(),
-        profile: 'test-sleep',
-      });
+        });
       execId = row.exec_id;
 
       if (Array.isArray(withLogLines)) {

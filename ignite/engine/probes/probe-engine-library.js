@@ -99,10 +99,20 @@ const SEATS = ['alpha', 'bravo', 'charlie'];
 // `seat.md` is written by the SHIPPED materializer, not by a literal here: it is the same call the
 // ticker makes for a job-born seat, so the fixture's descriptor cannot drift from the real one.
 const { parseSeatPath, materializeSeatFolder } = require(path.join(IGNITE_SRC, 'server', 'seat-identity', 'seat-folder.js'));
-function makeGoalFolder(dir) {
+// ⚠ AND THE DESCRIPTOR IS CAST (7.787). `materializeSeatFolder` writes the minimal job-born shape,
+// which declares no harness+model — and since `#d-abolish-profile-names` an UNCAST seat is a NAMED
+// refusal at every door, so a fixture left that way measures the refusal instead of its subject.
+// The cast is appended to the frontmatter the materializer wrote, which is exactly where
+// `materialize-seats.py --repass` puts it on a real seat. `castSeats: false` keeps the ONE goal
+// that means to be uncast (C5b's negative twin) uncast.
+function makeGoalFolder(dir, { castSeats = true } = {}) {
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
   for (const s of SEATS) {
     materializeSeatFolder(parseSeatPath(path.join(dir, 'seats', s)), { jobId: 'probe-engine-library fixture' });
+    if (!castSeats) continue;
+    const md = path.join(dir, 'seats', s, 'seat.md');
+    fs.writeFileSync(md, fs.readFileSync(md, 'utf8')
+      .replace(/^---\n/, '---\nharness: bash\nmodel: probe-seat\n'));
   }
 }
 makeGoalFolder(goalFolder);
@@ -122,7 +132,12 @@ fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), [
 // work a "seat" does is `sleep`.
 const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
 const cfg = yaml.load(fs.readFileSync(COMMITTED_CONFIG, 'utf8'));
-const committedProfileNames = Object.keys(cfg.profiles);
+// 7.787: the committed roster is `launch-specs:`' (harness, model) KEYS, flattened to
+// `<harness>/<model>` by the loader. Collected as pairs here so the C1 check below asks the loader
+// for exactly what the document declares — a harness-name-only list would pass on a config that
+// lost every model under it.
+const committedSpecKeys = Object.entries(cfg['launch-specs'] || {})
+  .flatMap(([h, models]) => Object.keys(models || {}).map((m) => `${h}/${m}`));
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
 cfg.default_workdir_root = path.join(tmp, 'work');
 fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
@@ -130,8 +145,15 @@ fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
 // the shared validator accepts (caller free text never becomes argv, batch-08 item 4). The one
 // difference is `workdir_root`, which must cover a SEAT folder: seats live under `.rbtv/goals`,
 // which is exactly where the committed `claude-seat` profile points its own root.
-cfg.profiles['probe-seat'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+// the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+// LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+// ⚠ MERGED, NOT REPLACED — the committed specs stay, because C1 below asserts they all load
+// through the daemon's own config module. Assigning a fresh object here wiped the roster and made
+// that check assert over nothing.
+cfg['launch-specs'] = { ...(cfg['launch-specs'] || {}), bash: { ...((cfg['launch-specs'] || {}).bash || {}) } };
+cfg['launch-specs'].bash['probe-seat'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-seat'], prompt: 'stdin' },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   // Declared because the shared validator REQUIRES them of every profile — a profile that
@@ -145,15 +167,11 @@ cfg.profiles['probe-seat'] = {
     NoNewPrivileges: true,
   },
 };
-// The CAST twin of `probe-seat`: identical in every way except that its argv PINS a model, which
-// is what makes it reachable through the (harness, model) -> profile catalog. `probe-seat` pins
-// none on purpose (a seat with no cast falls back to it under D3(a)); a seat can therefore never
-// be CAST to it, and C5's fully-cast arm needs a profile a seat CAN be cast to. `sleep` will
-// reject the argv if it ever runs — irrelevant, that arm asserts the DOOR, never a launch.
-cfg.profiles['probe-seat-cast'] = {
-  ...cfg.profiles['probe-seat'],
-  exec: { argv: ['sleep', '--model', 'probe-cast-model', '1'], prompt: 'stdin' },
-};
+// ⚠ THE TWIN IS GONE AT 7.787, AND ITS REASON WENT WITH IT. `probe-seat-cast` existed because
+// `probe-seat` pinned no model and therefore could not be CAST to — a seat with no cast fell back
+// to it under D3(a), and C5's fully-cast arm needed something a seat COULD be cast to. Both halves
+// are abolished: every spec is keyed by its (harness, model), so `probe-seat` is castable by
+// construction, and there is no fallback for the other case to exercise.
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
@@ -219,9 +237,10 @@ async function main() {
   const { createEngine } = require(path.join(IGNITE_SRC, 'engine'));
   const { loadConfig } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'config'));
   const spawnConfig = loadConfig(configPath);
-  check('C1 the committed profiles (14-profile roster) load through the daemon\'s own config module',
-    committedProfileNames.every((n) => spawnConfig.profiles[n]),
-    `pinned + named: ${committedProfileNames.join(', ')}`);
+  check('C1 every committed launch spec loads through the daemon\'s own config module, keyed by '
+    + 'its (harness, model) pair',
+    committedSpecKeys.length > 0 && committedSpecKeys.every((k) => spawnConfig.launchSpecs[k]),
+    `pinned + keyed: ${committedSpecKeys.join(', ')}`);
 
   const noDb = attempt(() => createEngine({ spawnConfigPath: configPath }));
   check('C1 createEngine REFUSES without a dbPath (it never guesses which store it owns)',
@@ -364,14 +383,14 @@ async function main() {
   // decided by a timer. (C3c's own race is the same family and is fixed separately by 7.629.)
   inspect.registerJob({
     jobId: 'probe-live-pin', actionType: 'launch-agent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     function: 'a turn pinned live for the exit predicate', description: 'C3 pin',
     createdAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
     updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   });
   const pinned = inspect.recordExecutionStart({
     jobId: 'probe-live-pin', actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'probe-seat' }), enqueuedBy: 'probe',
+    args: JSON.stringify({}), enqueuedBy: 'probe',
     sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
   });
   const midRun = attached.evaluateExit(inspect, rows);
@@ -588,7 +607,7 @@ async function main() {
   // measure a real advance instead of a coin flip between the two outcome words.
   makeGoalFolder(cliDir);
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(cliDir, 'taskforce.csv'));
-  const cliRes = runCli(['run', cliDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
+  const cliRes = runCli(['run', cliDir, '--config', configPath, '--max-ticks', '1', '--json']);
   let cliJson = null;
   try { cliJson = JSON.parse(cliRes.stdout); } catch { /* reported by the check below */ }
   check('C5 a REAL `rbtv run` advances the run and emits a machine-readable result',
@@ -598,21 +617,26 @@ async function main() {
     fs.existsSync(path.join(cliDir, 'heart.db')),
     path.join(cliDir, 'heart.db'));
 
-  // ── C5b · `--profile` IS DEMANDED ONLY WHERE A SEAT WOULD READ IT (narrowing of D19) ────────
+  // ── C5b · AN UNCAST SEAT IS A NAMED REFUSAL (`#d-abolish-profile-names` sub-ruling 3) ───────
   //
-  // ⚠ THIS REPLACES an arm that asserted the refusal was UNCONDITIONAL — `runCli(['run', tmp])`
-  // with no profile, exit 1. That arm went red with the narrowing, and its intent survives here
-  // in both directions, which the single arm could not measure: an unconditional refusal and a
-  // conditional one look identical from the refusing side alone.
+  // ⚠ THE SUBJECT SURVIVED TWO RULINGS AND THIS IS THE THIRD SHAPE. It first asserted that
+  // `--profile` was demanded UNCONDITIONALLY; the D19 narrowing made it conditional on a seat
+  // that would read it; 7.787 removed the flag and the fallback entirely, so the condition is now
+  // the refusal itself. The two-goal pairing is what carries the intent through all three: a
+  // one-sided arm cannot tell "refuses everything" from "refuses the right thing".
   //
   // The two goals differ in ONE byte-level fact and nothing else: whether their `seat.md` files
   // declare a cast. `cli-goal`'s seats are the ones `materializeSeatFolder` writes — descriptor,
-  // no `harness:`/`model:` — so a launch of them WOULD read the caller's profile, and the verb
-  // must still demand one AND name them. `cast-goal`'s seats are the same folders with a cast
-  // appended, so no launch of them can ever read it, and the verb must not ask.
-  const noProfile = runCli(['run', cliDir, '--config', configPath, '--max-ticks', '1']);
-  check('C5b `rbtv run` with no --profile on a goal whose seats declare NO cast REFUSES, and NAMES them',
-    noProfile.status === 1 && /--profile/.test(noProfile.stderr)
+  // no `harness:`/`model:` — so they are UNCAST and the verb must refuse, naming them.
+  // `cast-goal`'s seats are the same folders with a cast appended, so the run proceeds.
+  // C5b's UNCAST twin gets its OWN FRESH goal — `cliDir` has already been advanced by C5 above,
+  // so its store carries rows and the run would be held by those before the cast gate is reached.
+  const uncastDir = path.join(workspace, '.rbtv', 'goals', 'uncast-goal');
+  makeGoalFolder(uncastDir, { castSeats: false });
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(uncastDir, 'taskforce.csv'));
+  const noProfile = runCli(['run', uncastDir, '--config', configPath, '--max-ticks', '1']);
+  check('C5b `rbtv run` on a goal whose seats declare NO cast REFUSES, and NAMES them',
+    noProfile.status === 1 && /no harness\+model cast/.test(noProfile.stderr)
       && SEATS.every((s) => noProfile.stderr.includes(s)),
     `exit ${noProfile.status}: ${noProfile.stderr.split('\n')[0].slice(0, 160)}`);
 
@@ -624,11 +648,11 @@ async function main() {
     // Into the FRONTMATTER, where `spawn.js#seatDeclaresValue` reads it — appending to the body
     // would leave the seats uncast and the arm would pass for the wrong reason.
     fs.writeFileSync(md, fs.readFileSync(md, 'utf8')
-      .replace(/^---\n/, '---\nharness: sleep\nmodel: probe-cast-model\n'));
+      .replace(/^---\n/, '---\nharness: bash\nmodel: probe-seat\n'));
   }
   const castRes = runCli(['run', castDir, '--config', configPath, '--max-ticks', '1']);
-  check('C5b …and on a FULLY CAST goal it never asks — the run proceeds and opens the store',
-    !/--profile/.test(castRes.stderr) && fs.existsSync(path.join(castDir, 'heart.db')),
+  check('C5b …and a FULLY CAST goal is not refused — the run proceeds and opens the store',
+    !/no harness\+model cast/.test(castRes.stderr) && fs.existsSync(path.join(castDir, 'heart.db')),
     `exit ${castRes.status}: ${(castRes.stderr.split('\n').find((l) => /profile/.test(l)) || 'no profile line').slice(0, 160)}`);
 
   // ── C3c · KILLED MID-RUN, then re-run — criterion 3's literal words ────────────────────────
@@ -651,7 +675,7 @@ async function main() {
   // so what this section used to measure as "a resume" was a SECOND RUNNER starting on a goal the
   // first still held. Found by console-run B1's run lock, which refused it out loud.
   const victim = spawnProc(RBTV_BIN,
-    ['run', killDir, '--profile', 'probe-seat', '--config', configPath, '--tick-ms', '500'],
+    ['run', killDir, '--config', configPath, '--tick-ms', '500'],
     { stdio: 'ignore', detached: true });
 
   // Wait until the run has actually STARTED something — killing before the first tick would prove
@@ -694,7 +718,7 @@ async function main() {
     killedCleanly && firedBeforeKill > 0 && tickBeforeKill >= 1,
     `${firedBeforeKill} execution row(s) and last committed tick ${tickBeforeKill} when SIGKILL landed`);
 
-  const afterKill = runCli(['run', killDir, '--profile', 'probe-seat', '--config', configPath, '--max-ticks', '1', '--json']);
+  const afterKill = runCli(['run', killDir, '--config', configPath, '--max-ticks', '1', '--json']);
   let resumeJson = null;
   try { resumeJson = JSON.parse(afterKill.stdout); } catch { /* reported below */ }
   check('C3c re-running the verb after the kill RESUMES — it does not restart at tick 1',
@@ -714,10 +738,33 @@ async function main() {
     Object.values(counts).every((n) => n === 1) && Object.keys(counts).length > 0,
     Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ') || 'nothing fired');
 
-  const cliUnknownProfile = runCli(['run', cliDir, '--profile', 'not-a-real-profile', '--config', configPath]);
-  check('C5 an unknown profile NAME is refused by the verb, not composed into a launch',
-    cliUnknownProfile.status === 1 && /unknown launch profile/.test(cliUnknownProfile.stderr),
-    `exit ${cliUnknownProfile.status}`);
+  // ⚠ THE ARM THAT STOOD HERE IS UNSPELLABLE (7.787): it passed `--profile <not-in-the-config>`
+  // and required "unknown launch profile". `#d-abolish-profile-names` deleted the flag, so the
+  // typo it guarded cannot be typed. What replaces it is the same class of refusal one surface
+  // down — a seat cast to a pair NO launch spec carries — planted here so the verb is still
+  // proven to refuse rather than compose a launch out of something it cannot resolve.
+  const ghostDir = path.join(workspace, '.rbtv', 'goals', 'ghost-cast-goal');
+  makeGoalFolder(ghostDir);
+  fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(ghostDir, 'taskforce.csv'));
+  for (const s of SEATS) {
+    const md = path.join(ghostDir, 'seats', s, 'seat.md');
+    fs.writeFileSync(md, fs.readFileSync(md, 'utf8').replace(/^model: .*$/m, 'model: no-such-model-9'));
+  }
+  const cliUnknownCast = runCli(['run', ghostDir, '--config', configPath, '--max-ticks', '1']);
+  // ⚠ THE CLAIM IS ABSENCE OF A LAUNCH, ASSERTED ON THE RECORD — not on message text. A refusal
+  // that printed the right words while still starting a session would be the defect; a refusal
+  // whose wording moves would redden a text match for nothing. So the arm reads the goal's own
+  // execution record: NO seat finished, and the run did not report success.
+  const ghostRecord = (() => {
+    const f = path.join(ghostDir, 'executions.csv');
+    if (!fs.existsSync(f)) return [];
+    return fs.readFileSync(f, 'utf8').trim().split('\n').slice(1).filter(Boolean);
+  })();
+  const ghostDone = ghostRecord.filter((r) => /,done,|,done$/.test(r));
+  check('C5 a cast NO launch spec carries is refused, and NOTHING of that goal ran — the verb never '
+    + 'composes a launch out of a pair it cannot resolve',
+    cliUnknownCast.status !== 0 && ghostDone.length === 0,
+    `exit ${cliUnknownCast.status} · record rows=${ghostRecord.length} done=${ghostDone.length}`);
 
   // ── verdict ────────────────────────────────────────────────────────────────────────────────
   say('');

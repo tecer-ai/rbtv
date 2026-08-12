@@ -29,14 +29,14 @@ capture('probe-orphan-rescan', async (lines) => {
   const cleanup = [];
   try {
     // --- Case (a): a live worker whose row is 'running' -> REATTACHED (status intact) ---
-    const firedA = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
-    const rowA = await ctx.mgr.spawn(firedA.exec_id, 'test-sleep', 'headless', null, ctx.seatDir, 'probe');
+    const firedA = fire(ctx, { cast: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
+    const rowA = await ctx.mgr.spawn(firedA.exec_id, 'headless', null, ctx.seatDir, 'probe');
     cleanup.push(() => ctx.mgr.kill(rowA.exec_id).catch(() => {}));
     lines.push(`case-a live: exec_id=${rowA.exec_id} unit=${rowA.unit_name} status=${rowA.status} is-active=${isActive(rowA.unit_name)}`);
 
     // --- Case (b): a 'running' row whose unit is dead -> marked FAILED, surfaced as data ---
-    const firedB = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
-    const rowB = await ctx.mgr.spawn(firedB.exec_id, 'test-sleep', 'headless', null, ctx.seatDir, 'probe');
+    const firedB = fire(ctx, { cast: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
+    const rowB = await ctx.mgr.spawn(firedB.exec_id, 'headless', null, ctx.seatDir, 'probe');
     // Kill the unit OUT OF BAND (not via mgr.kill) so the row stays 'running' — a true orphan.
     try { execFileSync('systemctl', ['--user', 'kill', '--signal=SIGKILL', rowB.unit_name], { stdio: 'ignore' }); } catch {}
     const bDead = await waitInactive(rowB.unit_name);

@@ -168,14 +168,26 @@ function extractCodexText(lines) {
 // enough to make an exactly-conformant reply read as non-conformant.
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 
-// LOG → THE TEXT THE AGENT WROTE, per harness. The harness is the profile name's leading token:
-// profiles are one-per-harness+model and named for it (`claude-opus`, `codex-gpt-5-5`,
-// `opencode-glm-5-2`, bare `kimi` — config/spawn-profiles.yaml § profiles).
+// LOG → THE TEXT THE AGENT WROTE, per harness. The harness is the LAUNCH-SPEC KEY's first
+// segment: `jobs_log.profile` records the key of the spec that actually launched — `harness/model`
+// (`claude/claude-opus-5`, `codex/gpt-5.5`, `opencode/zai-coding-plan/glm-5.2`) — written by
+// `spawn.js` from the RESOLVED value, never from a request.
+//
+// ⚠ THE SEPARATOR IS `/` SINCE 7.787 AND THE OLD SPLIT WAS FRAGILE. This read `split('-')[0]` off
+// a profile NAME, which worked only because every name happened to lead with its harness; a name
+// like `worker` or `fast-opus` would have picked the wrong arm silently. The key's first `/`
+// segment IS the harness by construction (`catalog.js#specKey`), so the parse is now structural.
+// A model literal may itself contain `/` (`zai-coding-plan/glm-5.2`) — which is exactly why the
+// FIRST segment is taken and not the last.
+//
+// ⚠ HISTORICAL ROWS CARRY THE OLD NAME. `jobs_log` was not migrated (nothing in it is re-read as
+// a launch instruction — it is an audit column), so a row written before 2026-08-12 holds e.g.
+// `claude-opus`. That form has no `/`, so the first segment is the whole string and the arm falls
+// through to plain text — the same honest default an unrecognized harness gets. This leg only ever
+// reads executions it is CURRENTLY watching, so it never meets one in practice.
 //
 // `jobs_log.profile` is nullable, but never null on an exec THIS leg watches: the leg watches
-// ticker SPAWN actions only, and a launch-agent job cannot be enqueued without naming a profile
-// (DEC-1 R3, enforced in forward-path.js#forwardSessionCreate). So the arm is selected, never
-// guessed at.
+// ticker SPAWN actions only, and every spawn resolves a spec before it records anything.
 //
 // ⚑ THE DEFAULT ARM IS PLAIN TEXT, AND THAT IS THE HONEST DEFAULT, not a guess: a harness that
 // emits no structured events writes its answer as text, so an unrecognized profile degrades to
@@ -183,7 +195,7 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // a claude or codex log with no message event holds JSON, and dumping JSON into the owner's thread
 // is the thing D110 step 4 forbids. For those two, no message event means no text.
 function normalizeLog(lines, profile) {
-  const harness = String(profile || '').split('-')[0];
+  const harness = String(profile || '').split('/')[0];
   if (harness === 'claude') return extractReplyText(lines);
   if (harness === 'codex') return extractCodexText(lines);
   const text = lines.join('\n').replace(ANSI, '');

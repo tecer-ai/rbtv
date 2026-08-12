@@ -32,7 +32,7 @@ try {
     jobId: 'launch-worker',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1,
   });
 
@@ -40,7 +40,7 @@ try {
   const runAt = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
   const row = store.enqueue({
     jobId: 'launch-worker',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     sessionMode: 'headless',
     triggerKind: 'scheduled',
     runAt,

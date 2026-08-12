@@ -68,8 +68,12 @@ const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'config', 'spawn-pro
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
 cfg.default_workdir_root = path.join(tmp, 'work');
 fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
-cfg.profiles['probe-relaunch'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+// the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+// LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+cfg['launch-specs'] = { bash: {} };
+cfg['launch-specs'].bash['probe-relaunch'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-relaunch'], prompt: 'stdin' },
   headed: { tui: { argv: ['true'] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
@@ -91,7 +95,7 @@ function makeGoal(name) {
   fs.mkdirSync(path.join(goalFolder, 'seats', SEAT), { recursive: true });
   fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), `taskforce-id,seat,after\ntf-g,${SEAT},\n`);
-  fs.writeFileSync(path.join(goalFolder, 'seats', SEAT, 'seat.md'), `---\nseat: ${SEAT}\n---\n\nbody\n`);
+  fs.writeFileSync(path.join(goalFolder, 'seats', SEAT, 'seat.md'), `---\nseat: ${SEAT}\nharness: bash\nmodel: probe-relaunch\n---\n\nbody\n`);
   return goalFolder;
 }
 
@@ -104,7 +108,7 @@ function synthTerminalAttempt(store, goalFolder, { jobId, outcome, storeStatus }
     jobId,
     actionType: 'launch-agent',
     function: `attached-execution seat ${SEAT}`,
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string', prompt: 'string' } }),
+    argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string', prompt: 'string' } }),
     description: `seat ${SEAT}`,
     createdAt: isoNow(),
     updatedAt: isoNow(),
@@ -135,7 +139,7 @@ function daemonPass(goalFolder, goal) {
   // `{goalFolder, goal, profile, isHeld}` and passes ITS OWN logger down — a logger handed to the
   // call is silently dropped, and an arm reading that empty array would be measuring nothing.
   const engine = createEngine({
-    dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     logger: (m) => logs.push(m),
   });
   let pickup;
@@ -148,7 +152,7 @@ function daemonPass(goalFolder, goal) {
 }
 
 function withDaemonStore(fn) {
-  const store = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+  const store = openHeartStore({ dbPath: daemonStorePath });
   try { return fn(store); } finally { store.close(); }
 }
 
@@ -229,7 +233,7 @@ async function main() {
   const job4 = seeding.jobIdFor(SEAT);            // attached lane: `seat-<name>`, no goal namespace
   const consoleStorePath = path.join(g4, 'heart.db');
   {
-    const store = openHeartStore({ dbPath: consoleStorePath, profiles: cfg.profiles });
+    const store = openHeartStore({ dbPath: consoleStorePath });
     try { synthTerminalAttempt(store, g4, { jobId: job4, outcome: 'failed', storeStatus: 'failed' }); }
     finally { store.close(); }
   }
@@ -237,7 +241,7 @@ async function main() {
     const out = await attached.executeAttached({
       goalFolder: g4, profile: PROFILE, spawnConfigPath: configPath, tickIntervalMs: 200, maxTicks: 1,
     });
-    const store = openHeartStore({ dbPath: consoleStorePath, profiles: cfg.profiles });
+    const store = openHeartStore({ dbPath: consoleStorePath });
     try { return { out, rows: jobRows(store, job4).length }; } finally { store.close(); }
   };
   const consoleControl = await runConsole();
@@ -290,7 +294,7 @@ async function main() {
     // caller's, the boot prompt is per-launch).
     const { ready, rows: readyRows } = seeding.readySeats(g6);
     const rows = seeding.readTaskforce(g6);
-    const store = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const store = openHeartStore({ dbPath: daemonStorePath });
     const view = seeding.recordView(store, g6);
     const savedPath = process.env.PATH;
     let enqueued;
@@ -351,7 +355,7 @@ async function main() {
   }
   const cli = require('node:child_process').spawnSync(process.execPath,
     [path.join(IGNITE_SRC, 'capabilities', 'attached-execution', 'tool', 'rbtv-execution'),
-      g8, '--profile', PROFILE, '--config', configPath, '--max-ticks', '1', '--tick-ms', '200'],
+      g8, '--config', configPath, '--max-ticks', '1', '--tick-ms', '200'],
     { encoding: 'utf8' });
   const cliOut = String(cli.stdout || '');
   check('LEG 8 the run reports BLOCKED (the verdict a cross-lane failed seat produces)',
@@ -366,7 +370,7 @@ async function main() {
   for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(g8b, 'seats', s), { recursive: true });
   fs.mkdirSync(path.join(g8b, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(g8b, 'taskforce.csv'), 'taskforce-id,seat,after\ntf-g,alpha,\ntf-g,bravo,alpha\n');
-  for (const s of ['alpha', 'bravo']) fs.writeFileSync(path.join(g8b, 'seats', s, 'seat.md'), `---\nseat: ${s}\n---\n\nbody\n`);
+  for (const s of ['alpha', 'bravo']) fs.writeFileSync(path.join(g8b, 'seats', s, 'seat.md'), `---\nseat: ${s}\nharness: bash\nmodel: probe-relaunch\n---\n\nbody\n`);
   {
     const sb = nextSession();
     record.openExecution({ goalFolder: g8b, seat: 'alpha', sessionId: sb, lane: 'daemon', startedAt: isoNow() });

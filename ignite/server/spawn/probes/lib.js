@@ -29,7 +29,7 @@ function setup() {
   const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\nharness: bash\nmodel: test-sleep\n---\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
 
   const cfg = {
@@ -37,40 +37,49 @@ function setup() {
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
     default_workdir_root: defaultWorkdir,
-    profiles: {
-      'test-sleep': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
-      'test-headed': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        headed: { tui: { argv: ['sleep', '3600'] } },
-        // An effort ladder, so the SEAT door's rung composition is exercisable (probe-tmux-seat
-        // leg 9b). Inert for every caller that passes no rung — resolveEffort composes nothing on
-        // a null — so no existing leg's argv changes.
-        effort: { dialect: 'probe', rungs: ['0.1', '0.2'], argv: ['-t', '{effort}'] },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
-      'test-forker': {
-        exec: { argv: ['bash', '-c', 'sleep 3600 & sleep 3600 & wait'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
-      // (the former test-argvlast fixture is gone WITH its carriage: `argv-last` was removed
-      // from the vocabulary — batch-08 item 4 half A — and now fails config load, proven by
-      // probe-carriage-vocab.js.)
-      // Exits 0 immediately: exit-marker + accepted-prompt legs need a worker
-      // that finishes on its own (no kill, no lingering unit).
-      'test-quick': {
-        exec: { argv: ['true'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
+    // ── THE FIXTURE'S LAUNCH SPECS, KEYED BY (harness, model) — 7.787 ────────────────────────
+    // `profiles: { 'test-sleep': … }` went with the name layer (`#d-abolish-profile-names`); a
+    // seat's CAST selects one now, so `seatWith(cast)` below writes the pair into seat.md.
+    // ⚠ `bash -c … --model <name>` rather than a bare `sleep`: `profiles.js#validateSpecKey`
+    // refuses at config LOAD when a spec's argv disagrees with its key, and a fixture must satisfy
+    // that honestly. `bash -c 'exec sleep 3600' --model test-sleep` REALLY runs `sleep 3600` (the
+    // trailing words land in `$0`/`$1`, unread) while genuinely pinning a checkable model.
+    'launch-specs': {
+      bash: {
+        'test-sleep': {
+          exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'test-sleep'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        'test-headed': {
+          exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'test-headed'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          headed: { tui: { argv: ['sleep', '3600'] } },
+          // An effort ladder, so the SEAT door's rung composition is exercisable (probe-tmux-seat
+          // leg 9b). Inert for every caller that passes no rung — resolveEffort composes nothing
+          // on a null — so no existing leg's argv changes.
+          effort: { dialect: 'probe', rungs: ['0.1', '0.2'], argv: ['-t', '{effort}'] },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        'test-forker': {
+          exec: { argv: ['bash', '-c', 'sleep 3600 & sleep 3600 & wait', '--model', 'test-forker'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        // (the former test-argvlast fixture is gone WITH its carriage: `argv-last` was removed
+        // from the vocabulary — batch-08 item 4 half A — and now fails config load, proven by
+        // probe-carriage-vocab.js.)
+        // Exits 0 immediately: exit-marker + accepted-prompt legs need a worker
+        // that finishes on its own (no kill, no lingering unit).
+        'test-quick': {
+          exec: { argv: ['bash', '-c', 'exec true', '--model', 'test-quick'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
       },
     },
   };
@@ -80,6 +89,7 @@ function setup() {
   const dbPath = path.join(tmp, 'heart.db');
   const store = openHeartStore({ dbPath });
   const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
+  store.config.launchSpecs = mgr.config.launchSpecs;   // the composition root's own assignment
   return { tmp, dataRoot, workRoot, defaultWorkdir, escapedir, seatDir, runDir, cfgPath, store, mgr, dbPath };
 }
 
@@ -98,7 +108,7 @@ function reapWorkerUnit(sessionId) {
 }
 
 // 7.544 — GUARANTEED UNIT TEARDOWN. `--collect` garbage-collects a transient unit only when it
-// EXITS, and this fixture's `test-sleep`/`test-headed`/`test-forker` profiles run `sleep 3600`: a
+// EXITS, and this fixture's `test-sleep`/`test-headed`/`test-forker` specs run `sleep 3600`: a
 // probe that spawned one and then killed it only on its happy path left a live `rbtv-worker-*`
 // behind for an hour on every assertion failure or crash, and one that never killed it leaked on
 // EVERY run. A leaked unit is indistinguishable from a live one, so anything counting workers to
@@ -130,8 +140,14 @@ function now() {
 
 let tickCounter = 1;
 
-function fire(ctx, { profile, sessionMode = 'headless', workdir = null, enqueuedBy = 'probe' }) {
-  const args = JSON.stringify({ profile, workdir });
+// ⚠ NO `profile` ARGUMENT (7.787). A launch carries nothing profile-shaped; what a spawn runs is
+// the CAST in the seat descriptor at `workdir`. So `cast` here is not a request that travels with
+// the row — it is this fixture WRITING that descriptor, which is where a real seat's cast comes
+// from too (`materialize-seats.py`). It names a MODEL of the fixture's `bash` launch specs.
+function fire(ctx, { cast = 'test-sleep', sessionMode = 'headless', workdir = null, enqueuedBy = 'probe' }) {
+  if (workdir === null) workdir = ctx.seatDir;
+  if (workdir) castSeat(workdir, cast);
+  const args = JSON.stringify({ workdir });
   const row = ctx.store.recordExecutionStart({
     jobId: 'launch-agent',
     actionType: 'launch-agent',
@@ -140,10 +156,21 @@ function fire(ctx, { profile, sessionMode = 'headless', workdir = null, enqueued
     sessionMode,
     firedTick: tickCounter++,
     firedAt: new Date(),
-    profile,
     workdir,
   });
   return row;
+}
+
+// CAST AN EXISTING SEAT FOLDER — rewrite its `seat.md` frontmatter to name one of the fixture's
+// launch specs. This is the ONLY way a probe selects what a spawn runs since
+// `#d-abolish-profile-names`, and it is the same surface production uses: a descriptor written by
+// `materialize-seats.py` from the workflow's bindings sheet.
+function castSeat(seatDir, model, harness = 'bash') {
+  const seat = path.basename(seatDir);
+  fs.mkdirSync(seatDir, { recursive: true });
+  fs.writeFileSync(path.join(seatDir, 'seat.md'),
+    `---\nseat: ${seat}\nharness: ${harness}\nmodel: ${model}\n---\n`);
+  return seatDir;
 }
 
 function writeOut(name, lines) {
@@ -186,4 +213,4 @@ function capture(name, fn) {
     });
 }
 
-module.exports = { setup, teardown, now, writeOut, capture, fire, reapWorkerUnit };
+module.exports = { setup, teardown, now, writeOut, capture, fire, reapWorkerUnit, castSeat };

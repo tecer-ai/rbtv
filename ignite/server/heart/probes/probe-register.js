@@ -68,7 +68,7 @@ try {
     jobId: 'launch-worker',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { prompt: 'string' } }),
+    argsSchema: JSON.stringify({ required: {}, optional: { prompt: 'string' } }),
     description: 'the probe job',
   });
   const afterFirst = readBackJobs();
@@ -145,7 +145,7 @@ try {
     jobId: 'x5',
     actionType: 'launch-agent',
     function: 'f',
-    argsSchema: JSON.stringify({ requried: { profile: 'string' } }),
+    argsSchema: JSON.stringify({ requried: {} }),
   }));
   check('a TYPO\'d top-level schema key is refused (would otherwise burn the id forever)',
     typoKey !== null && typoKey.code === E_BAD_ARGS && typoKey.details.key === 'requried',
@@ -217,7 +217,7 @@ try {
   // The duplicate check runs INSIDE the dry-run — the whole point of validating first.
   const dryDup = refusal(() => store.registerJob({
     jobId: 'launch-worker', actionType: 'launch-agent', function: 'f', dryRun: true,
-    argsSchema: JSON.stringify({ required: { profile: 'string' } }),
+    argsSchema: JSON.stringify({ required: {} }),
   }));
   check('dry-run reports a duplicate as E_JOB_EXISTS',
     dryDup !== null && dryDup.code === E_JOB_EXISTS,
@@ -227,7 +227,7 @@ try {
   //        queue's foreign key demands: no catalogue row, no queue row).
   const row = store.enqueue({
     jobId: 'launch-worker',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     triggerKind: 'scheduled',
     runAt: new Date(Date.now() + 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     enqueuedBy: 'probe-register',
@@ -243,11 +243,11 @@ try {
   const raw = new DatabaseSync(tmpDb);
   raw.prepare(`INSERT INTO jobs (job_id, action_type, function, args_schema, description, enabled, created_at, updated_at)
                VALUES ('legacy-lazy', 'launch-agent', 'f', ?, NULL, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
-    .run(JSON.stringify({ required: { profile: 'string' }, optional: { extra: 'strnig' } }));
+    .run(JSON.stringify({ required: {}, optional: { extra: 'strnig' } }));
   raw.close();
   const lazy = refusal(() => store.enqueue({
     jobId: 'legacy-lazy',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     triggerKind: 'scheduled',
     runAt: new Date(Date.now() + 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     enqueuedBy: 'probe-register',

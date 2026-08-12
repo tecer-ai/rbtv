@@ -59,13 +59,17 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-defect-fix-'));
 const store = new HeartStore({
   dbPath: path.join(dir, 'heart.db'),
   tools: { 'real-tool': { argv: ['/bin/true'] } },
-  profiles: { 'real-profile': { workdir_root: dir } },
 });
 
 // ── S-2(a) ───────────────────────────────────────────────────────────────────────────────
+// ⚠ `launch-agent` LEFT THIS SET AT 7.787, AND ITS ABSENCE IS ASSERTED BELOW RATHER THAN
+// IMPLIED. The guard refuses a schema its action type can NEVER satisfy — and since
+// `#d-abolish-profile-names` emptied `launch-agent`'s REQUIRED_ARGS, an empty schema is one it
+// satisfies perfectly. Leaving the row here would assert the abolition had not happened; deleting
+// it silently would leave the reader unable to tell a ruled removal from a dropped case. So it
+// moves to its own paired arm underneath, where the ACCEPTANCE is the assertion.
 const CASES = [
   ['fire-tool', 'tool'],
-  ['launch-agent', 'profile'],
   ['start-workflow', 'workflow'],
 ];
 for (const [actionType, needed] of CASES) {
@@ -78,6 +82,19 @@ for (const [actionType, needed] of CASES) {
     `${r.code || 'registered'} ${r.message || ''}`);
   check(`S-2(a): ...and no row landed for ${actionType} — a refusal that wrote would be worse than ` +
         `the defect`, store.getJob(`empty-${actionType}`) === null);
+}
+{
+  // THE PAIRED ARM (7.787): `launch-agent` REQUIRES NOTHING, so the same guard must ADMIT the same
+  // empty schema. This is what keeps the guard from reading as "refuses every default schema" —
+  // and it fails loudly the day a required argument is re-introduced to `launch-agent` without
+  // this file being told.
+  const r = attempt(() => store.registerJob({
+    jobId: 'empty-launch-agent', actionType: 'launch-agent', function: 'launch-agent',
+  }));
+  check('S-2(a): a launch-agent job with the DEFAULT empty args_schema is ACCEPTED — it requires no '
+      + 'argument since `#d-abolish-profile-names` emptied its REQUIRED_ARGS, so it can fire',
+    r.ok, `${r.code || 'registered'} ${r.message || ''}`);
+  check('S-2(a): ...and the row landed', store.getJob('empty-launch-agent') !== null);
 }
 
 const good = attempt(() => store.registerJob({

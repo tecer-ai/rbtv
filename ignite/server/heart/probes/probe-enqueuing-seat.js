@@ -68,7 +68,7 @@ function execRow(execId) {
 }
 
 const RUN_AT = '2026-01-01T00:00:00Z';
-const ARGS = JSON.stringify({ profile: 'test-sleep' });
+const ARGS = JSON.stringify({});
 
 try {
   out('COMMAND: node ' + path.relative(process.cwd(), __filename));
@@ -79,7 +79,7 @@ try {
     jobId: 'launch-worker',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1,
   });
 

@@ -65,8 +65,9 @@ async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 //
 // Stands up heart store + internal API + gateway on 127.0.0.1:<ephemeral>. Seeds a
 // launch-agent catalogue job ('chat-launch') and a send-message catalogue job
-// ('send-message'), plus a 'worker' launch profile so launch-agent enqueues
-// re-validate. Writes a temp senders.yaml (mode 0600) with a fake kind:bridge row.
+// ('send-message'). ⚠ NO LAUNCH PROFILE IS SEEDED (7.787): `launch-agent` carries nothing
+// profile-shaped, so there is nothing for an enqueue to re-validate against. Writes a temp
+// senders.yaml (mode 0600) with a fake kind:bridge row.
 async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessions = null } = {}) {
   const dir = tmpDir('daemon');
   const workspaceRoot = path.join(dir, 'workspace'); // store lives at <root>/.rbtv/heart/heart.db
@@ -87,7 +88,6 @@ async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessi
 
   const store = openHeartStore({
     runtimeStateRoot: workspaceRoot,
-    profiles: { worker: { exec: ['/bin/true'] } }, // a named launch profile so launch-agent re-validates
     tools: {},
     workflows: {},
   });
@@ -97,7 +97,7 @@ async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessi
     jobId: 'chat-launch',
     actionType: 'launch-agent',
     function: 'launch-worker',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { prompt: 'string', workdir: 'string' } }),
+    argsSchema: JSON.stringify({ required: {}, optional: { prompt: 'string', workdir: 'string' } }),
     description: 'session-creating job the chat bridge names for a first message',
     enabled: 1,
   });
@@ -140,14 +140,17 @@ function seedRunningExecution(store, { enqueuedBy = 'bridge-probe' } = {}) {
   const exec = store.recordExecutionStart({
     jobId: 'chat-launch',
     actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'worker', prompt: 'hi' }),
+    args: JSON.stringify({ prompt: 'hi' }),
     enqueuedBy,
     sessionMode: 'headless',
     firedTick: 1,
     firedAt: new Date(),
     sessionId: 'sess-probe',
     pid: 999999,
-    profile: 'worker',
+    // `jobs_log.profile` is the RESOLVED launch-spec key since 7.787 — `<harness>/<model>` — and
+    // it is written from the spawn, never from a request. The fixture writes one because
+    // `reply-leg.js#normalizeLog` reads its first `/` segment to pick a harness arm.
+    profile: 'claude/claude-opus-5',
     workdir: null,
   });
   store.updateExecutionStatus(exec.exec_id, { status: 'running' });

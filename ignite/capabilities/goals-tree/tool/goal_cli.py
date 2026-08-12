@@ -5,12 +5,12 @@ The verbs over the CMP-4 goals tree — LOCAL file operations, with ONE stated
 exception (they work with the daemon down, which is why they live on the rbtv
 side and never on ignite):
 
-    rbtv-goal scaffold <goal-name> --contract FILE|- --lane daemon [--profile NAME] | --lane console
+    rbtv-goal scaffold <goal-name> --contract FILE|- --lane daemon | --lane console
                                    [--type T] [--kind K] [--due DATE] [--dry-run]
     rbtv-goal reindex
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
-    rbtv-goal lane <goal-name> [--set daemon [--profile NAME] | --set console]
+    rbtv-goal lane <goal-name> [--set daemon | --set console]
     rbtv-goal pause <goal-name>            # stash the lane assignment (issue S-33)
     rbtv-goal resume <goal-name>           # …and hand it back, byte for byte
     rbtv-goal relaunch <goal-name> --seat X # authorize ONE more attempt at a seat that failed
@@ -95,20 +95,21 @@ GOAL_KIND_DEFAULT = "interactive"
 # ⚠ ABSENT MEANS `console`. The daemon adopts ONLY goals explicitly assigned to it — the reader's
 # whole argument is in lane-watch.js's header, and this writer must not disagree with it.
 #
-# ⚠ A `daemon` assignment MAY CARRY A LAUNCH PROFILE as a second token, and `--set daemon` refuses
-# without one ONLY WHEN A SEAT WOULD ACTUALLY READ IT (narrowing of ruling D19, 2026-08-12).
-# Seeding needs a NAMED profile from the one shared config (DEC-1 § Shared profile source — this
-# lane never derives one from thin air), but since D19 a seat that declares a harness+model cast in
-# its `seat.md` launches on the profile THAT maps to, whatever this token says: the catalog
-# (`launch-profiles/catalog.js`) is applied at the one launch point every lane shares. So on a
-# fully cast goal the token was a value the operator typed and no launch ever read — measured on
-# the live 17-seat planning goal, 17 cast and 0 uncast.
+# ⚠ THE MARKER IS ONE WORD — `daemon` or `console` (owner ruling `#d-abolish-profile-names`
+# sub-ruling 3, 2026-08-12). It used to admit an optional SECOND token naming a fallback launch
+# profile, which existed because `launch-agent` structurally required a `profile` argument. That
+# requirement is deleted, so the token has nothing to fill and a marker that could name what a seat
+# runs on is a marker that could contradict the seat's own cast.
 #
-# The refusal is now the narrow one and it NAMES the seats that forced it (`_uncast_seats`, which
-# asks the launch's own reader rather than parsing anything here). Handing a goal to the daemon
-# without saying what its UNCAST seats run on is still not a thing that can work, so that case is
-# still refused at the door rather than warned about at 03:00 in a journal — `lane-watch.js`'s
-# no-profile branch is that 03:00 journal line, and it is the fallback, not the gate.
+# What replaces the old `--profile` demand is the ruling itself: `--set daemon` REFUSES a goal with
+# any uncast seat, and NAMES them (`_uncast_seats`, which asks the launch's own reader rather than
+# parsing anything here). "Any workflow reaching a taskforce MUST be cast first; an uncast seat is
+# a NAMED refusal at materialize/lane time." Refused at the door where the operator is standing
+# rather than at 03:00 in a daemon journal.
+#
+# ⚠ A MARKER STILL CARRYING TWO TOKENS is a LEGACY marker: it does not parse as `daemon`, so both
+# readers resolve it to `console` (fail-closed) and `lane-watch.js` shouts the one-line fix once.
+# `rbtv-goal lane <goal> --set daemon` rewrites it.
 LANE_FILE = "execution-lane"
 LANES = ("daemon", "console")
 
@@ -592,7 +593,6 @@ def cmd_scaffold(args) -> int:
     # placed any later trades a refusal for a half-built goal that then refuses re-creation as
     # already existing.
     lane = getattr(args, "lane", None)
-    lane_profile = getattr(args, "profile", None)
     if lane not in LANES:
         raise Refusal(
             "this goal needs a lane: pass `--lane daemon` if the daemon runs it unattended, or "
@@ -604,7 +604,6 @@ def cmd_scaffold(args) -> int:
     # yet (`materialize-seats` runs later, as its own act), so `uncastSeats` on a fresh goal can
     # only say "unknown". Cast coverage keeps its one home — `lane-watch.js` skips an uncast goal
     # at seeding time with a named warning.
-    check_lane_profile(lane, lane_profile, "--lane")
 
     goal_dir = root / name
     if goal_dir.exists():
@@ -673,7 +672,7 @@ def cmd_scaffold(args) -> int:
     (goal_dir / EXECUTION_MODE_FILE).write_text(mode + "\n", encoding="utf-8", newline="\n")
     # The lane marker, through the SAME composer and the SAME writer `lane --set` uses — one
     # grammar, one tmp+rename, so a goal born daemon and a goal moved to daemon are byte-identical.
-    write_lane_raw(goal_dir, lane_text(lane, lane_profile))
+    write_lane_raw(goal_dir, lane_text(lane))
     # 7.136 / d-0811lp-milestones-flow-writes: `lint` requires milestones.csv on EVERY goal, and
     # until now its only writer was the selftest — so every goal born through the creation flow
     # failed its own lint gate. Header-only: a goal is born with no milestones, and the spine is
@@ -701,23 +700,30 @@ def cmd_scaffold(args) -> int:
 # ---------------------------------------------------------------- lane
 
 
-def read_lane(goal_dir: Path) -> tuple[str, str | None]:
-    """(lane, profile) — the SAME grammar `engine/lane-watch.js#readLane` reads with.
+def read_lane(goal_dir: Path) -> tuple[str, bool]:
+    """(lane, legacy) — the SAME grammar `engine/lane-watch.js#readLane` reads with.
 
-    Trimmed, case-insensitive, and everything that is not `daemon` is `console`:
-    a missing file, an unreadable one and a junk word are ONE answer. Two
-    languages read this file (this CLI writes and shows it; the daemon's watch
-    pass acts on it) and the grammar is four lines, so it is stated twice and
-    cross-checked by probe-daemon-lane-watch.js rather than bridged.
+    ⚠ ONE WORD, WHOLE (`#d-abolish-profile-names` sub-ruling 3, 2026-08-12). The whole trimmed text
+    must BE the lane word. Trimmed, case-insensitive, and everything else is `console`: a missing
+    file, an unreadable one and a junk word are ONE answer.
+
+    `legacy` is True for a marker whose FIRST token is `daemon` but which carries more — the retired
+    `daemon <profile-name>` grammar. It resolves `console` like any other unparseable marker
+    (fail-closed), and is reported separately so a caller can say WHY a goal that was handed to the
+    daemon is not being picked up, instead of showing it as one somebody parked deliberately.
+
+    Two languages read this file (this CLI writes and shows it; the daemon's watch pass acts on it)
+    and the grammar is four lines, so it is stated twice and cross-checked by
+    probe-daemon-lane-watch.js rather than bridged. THE TWO CHANGE TOGETHER, ALWAYS (DEC-1).
     """
     try:
         raw = (goal_dir / LANE_FILE).read_text(encoding="utf-8")
     except OSError:
-        return "console", None
-    parts = raw.strip().split()
-    if not parts or parts[0].lower() != "daemon":
-        return "console", None
-    return "daemon", (parts[1] if len(parts) > 1 else None)
+        return "console", False
+    text = raw.strip()
+    if text.lower() == "daemon":
+        return "daemon", False
+    return "console", text.split()[:1] == ["daemon"] if text else False
 
 
 def read_lane_raw(goal_dir: Path) -> str:
@@ -738,40 +744,11 @@ def lane_is_paused(raw: str) -> bool:
     return bool(LANE_PAUSED_RE.match(raw))
 
 
-def lane_text(target: str, profile: str | None) -> str:
+def lane_text(target: str) -> str:
     """THE ONE composer of the marker's grammar — `lane --set` and `scaffold --lane` both write
-    through it, because a second speller of `daemon <profile>` is drift `readLane` would misparse
-    in silence. A `daemon` marker with NO second token is the fully-cast case: both readers
-    already answer `profile: null` for it, so the grammar did not have to change."""
-    if target == "daemon":
-        return f"daemon {profile}\n" if profile else "daemon\n"
-    return "console\n"
-
-
-def check_lane_profile(lane: str, profile: str | None, flag: str) -> None:
-    """The two `--profile` refusals BOTH lane doors share — one home, two callers (`--set` for
-    `lane`, `--lane` for `scaffold`). `flag` is the caller's own spelling, so the operator is told
-    about the flag he typed.
-
-    ⚠ COVERAGE — "does any seat still need this fallback" — is NOT asked here. It is answerable
-    only where seats exist, which is `cmd_lane`'s uncast gate below; at scaffold time none do.
-    """
-    if lane == "console" and profile:
-        raise Refusal(
-            f"--profile is meaningless with {flag} console: the console lane takes its profile "
-            "from the `rbtv run --profile` you type, not from this file."
-        )
-    # `and profile` since the narrowing: a name that was not given is not a name that is wrong.
-    # Without it this validated `None` against `profiles:` and refused a fully cast goal with
-    # "--profile None: not a launch profile" — measured, not imagined.
-    if lane == "daemon" and profile:
-        known = _spawn_profile_names()
-        if profile not in known:
-            raise Refusal(
-                f"--profile {profile}: not a launch profile in the shared config. "
-                f"Known: {', '.join(known) or '(none configured)'}. Profiles are PINNED and "
-                "NAMED there; this verb never composes or guesses one."
-            )
+    through it, because a second speller of the marker is drift `readLane` would misparse in
+    silence. ONE WORD since `#d-abolish-profile-names`: there is nothing else a marker may say."""
+    return "daemon\n" if target == "daemon" else "console\n"
 
 
 def write_lane_raw(goal_dir: Path, text: str) -> None:
@@ -831,14 +808,15 @@ def cmd_resume(args) -> int:
             "that is not there would rewrite an assignment nobody paused. Use `lane --set` to "
             "assign a lane.", "not-paused")
     write_lane_raw(goal_dir, LANE_PAUSED_RE.sub("", raw, count=1))
-    lane, profile = read_lane(goal_dir)
+    lane, legacy = read_lane(goal_dir)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "goal": name, "paused": False,
-                          "lane": lane, "profile": profile,
+                          "lane": lane, "legacy_marker": legacy,
                           "file": str(goal_dir / LANE_FILE)}, indent=2))
     else:
         print(f"{name}: RESUMED — lane assignment restored to {lane.upper()}"
-              + (f", profile {profile}" if profile else "")
+              + (" ⚠ (the restored marker uses the RETIRED two-token grammar and therefore reads "
+                 "CONSOLE — re-run `lane --set daemon` to repair it)" if legacy else "")
               + f" ({goal_dir / LANE_FILE})")
     return 0
 
@@ -1130,37 +1108,21 @@ def cmd_retry_threshold(args) -> int:
     return 0
 
 
-# THE ONE CONFIG, read — never a second interpretation of it (DEC-1 § Shared profile source).
-# All this does is take the KEYS of `profiles:`; the schema, the effort table and the argv
-# composition stay `launch-profiles/profiles.js`'s business and are not re-implemented here.
-#
-# ⚠ WHY THE NAME IS VALIDATED AT ALL, rather than merely required. A `--profile` typo used to be
-# accepted: the marker was written, the daemon adopted the goal on its next tick, and the seeding
-# succeeded — `enqueue`'s args_schema only asks that `profile` be a STRING, so a nonsense name
-# passes it. The goal was then permanently unrunnable while the daemon re-read it every cadence,
-# and the operator's only signal was a spawn failure per seat. A name the shared config does not
-# carry is refused HERE, where the person who typed it is still watching.
-def _spawn_profile_names() -> list[str]:
-    ignite_src = Path(__file__).resolve().parents[3]
-    cfg_path = Path(os.environ.get("RBTV_IGNITE_CONFIG_PATH")
-                    or ignite_src / "config" / "spawn-profiles.yaml")
-    try:
-        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise Refusal(
-            f"cannot read the shared launch-profile config at {cfg_path} ({exc}), so a profile "
-            "name cannot be checked. Set RBTV_IGNITE_CONFIG_PATH if it lives elsewhere."
-        ) from exc
-    return sorted((raw.get("profiles") or {}).keys())
+# ⚠ `_spawn_profile_names()` IS DELETED (`#d-abolish-profile-names`, 2026-08-12). It took the KEYS
+# of `profiles:` so `--profile NAME` could be validated against them. Both the flag and the flat
+# name-keyed section are gone; the castable set now has ONE derivation — `launch-specs:`' keys, read
+# by `capabilities/bindings/tool/bindings.py#catalog` and by `launch-profiles/catalog.js#catalogOf`
+# — and this file asks neither, because it no longer has a name to check. DEC-1's no-second-reader
+# rule is satisfied by having no reader here at all.
 
 
 class _CastUnknown(RuntimeError):
-    """The goal's seats could not be inspected, so "does any seat need a fallback profile" is
+    """The goal's seats could not be inspected, so "is every seat cast" is
     UNKNOWN — which is never the same answer as `no`. Its own type because the door refuses
     differently for it than for a measured `some`."""
 
 
-# ── WHICH SEATS WOULD ACTUALLY READ `--profile` — ASKED, NEVER RE-DERIVED ─────────────────────
+# ── WHICH SEATS ARE NOT CAST — ASKED, NEVER RE-DERIVED ────────────────────────────────────────
 #
 # ⚠ THE ANSWER IS NOT COMPUTED HERE, AND NOT COMPUTED IN PYTHON AT ALL. `engine/seeding.js`
 # exports `uncastSeats`, which reads what the LAUNCH reads through the launch's own reader
@@ -1168,7 +1130,7 @@ class _CastUnknown(RuntimeError):
 # predicate (`launch-profiles/catalog.js#declaresBinding`). One home, two callers: the daemon's
 # watch pass asks the same function, so what this door accepts and what that pass seeds cannot
 # disagree. A python re-implementation would be a second reader of the same fact — the drift
-# DEC-1 § Shared profile source forbids, and the precedent is `probe-bindings.py`'s "one `node`
+# DEC-1 § Shared launch-spec source forbids, and the precedent is `probe-bindings.py`'s "one `node`
 # call covers the whole matrix — never a python re-implementation".
 #
 # ⚠ AND IT IS `seat.md`, NOT `taskforce.csv`, THOUGH BOTH CARRY harness/model/effort. The launch
@@ -1234,41 +1196,39 @@ def cmd_lane(args) -> int:
                 f"`rbtv-goal resume {name}` first, then set the lane.", "lane-paused")
         if target not in LANES:
             raise Refusal(f"--set {target}: must be one of {', '.join(LANES)}")
-        profile = getattr(args, "profile", None)
-        if target == "daemon" and not profile:
+        if target == "daemon":
+            # ⚠ EVERY SEAT MUST BE CAST (`#d-abolish-profile-names` sub-ruling 3). This used to
+            # demand `--profile <name>` here and only for goals that had an uncast seat; the flag
+            # is gone and the uncast seat is now the refusal itself. There is nothing left to
+            # launch such a seat ON, so handing the goal to the daemon would queue rows whose only
+            # possible outcome is `E_UNCAST_SEAT` at spawn — refused here, where the operator is
+            # standing, rather than at 03:00 in a journal.
+            #
             # ⚠ THE UNMATERIALIZED GOAL IS RULED, NOT FALLEN INTO. A lane may legitimately be
             # assigned BEFORE `materialize` — `lane-watch.js` treats "assigned, no taskforce.csv
-            # yet" as normal and quiet — and at that moment NO seat exists to inspect. The
-            # requirement therefore STANDS for that goal: the whole value of this refusal is
-            # naming the seats that force it, and with no seats there is no name to give, only a
-            # guess. Lifting it on a guess moves the failure from this terminal, where the operator
-            # is standing, to a daemon journal line at 03:00 — which is precisely what the marker's
-            # header rules against. It also changes nothing for anybody: `--profile` was
-            # unconditional until today, so every existing caller already passes one.
+            # yet" as normal and quiet — and at that moment NO seat exists to inspect. UNKNOWN is
+            # not `none`, so it is its own refusal, naming materialize as the way out.
             try:
                 uncast = _uncast_seats(goal_dir)
             except _CastUnknown as exc:
                 raise Refusal(
-                    f"--set daemon needs --profile <name> here: this goal's seats cannot be read, "
-                    f"so whether ANY of them needs a fallback profile is unknown — which is not the "
-                    f"same as 'none' ({exc}). If the goal is simply not materialized yet, run "
-                    f"`rbtv-goal materialize {name}` and re-run this WITHOUT --profile; otherwise "
-                    "name one now. Names come from `profiles:` in ignite/config/spawn-profiles.yaml.",
+                    f"--set daemon: this goal's seats cannot be read, so whether ANY of them is "
+                    f"uncast is unknown — which is not the same as 'none' ({exc}). If the goal is "
+                    f"simply not materialized yet, run `rbtv-goal materialize {name}` and re-run "
+                    f"this.",
                     "lane-cast-unknown") from exc
             if uncast:
                 raise Refusal(
-                    f"--set daemon needs --profile <name> for this goal: {len(uncast)} seat(s) "
-                    f"declare no harness+model cast in their seat.md, so the daemon has nothing to "
-                    f"launch them on and the name you pass is what THEY fall back to — "
-                    f"{', '.join(uncast)}. Cast them (`rbtv-bindings set`, then re-materialize) and "
-                    "this flag stops being required; every other seat runs the profile its own cast "
-                    "maps to either way (ruling D19). Names come from `profiles:` in "
-                    "ignite/config/spawn-profiles.yaml.",
+                    f"--set daemon REFUSED: {len(uncast)} seat(s) declare no harness+model cast in "
+                    f"their seat.md — {', '.join(uncast)}. Bindings are the ONE source of truth for "
+                    f"what a seat runs (`#d-abolish-profile-names`), and there is no fallback left "
+                    f"to launch an uncast seat on. Cast them with `rbtv-bindings set "
+                    f"<workflow.csv> <seat> <harness> <model> [effort]`, re-materialize, then set "
+                    f"the lane.",
                     "lane-uncast-seats")
-        check_lane_profile(target, profile, "--set")
-        write_lane_raw(goal_dir, lane_text(target, profile))
+        write_lane_raw(goal_dir, lane_text(target))
 
-    lane, profile = read_lane(goal_dir)
+    lane, legacy = read_lane(goal_dir)
     present = (goal_dir / LANE_FILE).exists()
     raw = read_lane_raw(goal_dir)
     paused = lane_is_paused(raw)
@@ -1276,7 +1236,7 @@ def cmd_lane(args) -> int:
     if args.json:
         print(json.dumps({
             "ok": True, "goal": name, "file": str(goal_dir / LANE_FILE),
-            "assigned": present, "lane": lane, "profile": profile,
+            "assigned": present, "lane": lane, "legacy_marker": legacy,
             "paused": paused, "paused_from": paused_from,
         }, indent=2))
     else:
@@ -1287,11 +1247,14 @@ def cmd_lane(args) -> int:
             # daemon assignment was thrown away.
             print(f"{name}: PAUSED — stashed lane assignment {paused_from!r}; nothing new is "
                   f"seeded until `rbtv-goal resume {name}` ({where})")
-        if lane == "daemon" and profile:
-            print(f"{name}: DAEMON lane, fallback profile {profile} — the daemon's watch pass picks it up ({where})")
+        if legacy:
+            print(f"{name}: ⚠ LEGACY MARKER — {raw.strip()!r} uses the RETIRED `daemon <profile>` "
+                  f"grammar (`#d-abolish-profile-names` made the marker ONE WORD), so it does NOT "
+                  f"parse as daemon and this goal reads CONSOLE. Repair: `rbtv-goal lane {name} "
+                  f"--set daemon` ({where})")
         elif lane == "daemon":
-            print(f"{name}: DAEMON lane, no fallback profile — every seat runs the profile its own "
-                  f"cast maps to; the daemon's watch pass picks it up ({where})")
+            print(f"{name}: DAEMON lane — every seat runs its own cast; the daemon's watch pass "
+                  f"picks it up ({where})")
         elif present:
             print(f"{name}: CONSOLE lane — run it with `rbtv run {goal_dir}` ({where})")
         else:
@@ -4786,24 +4749,24 @@ def cmd_selftest(args) -> int:
             except Refusal as exc:
                 return getattr(exc, "code", None)
 
-        # BYTE-EXACT ROUND TRIP is the whole promise: `daemon <profile>` must come back
-        # identical, or a resume silently changes which profile the daemon seeds with.
-        original = "daemon claude-sonnet\n"
+        # BYTE-EXACT ROUND TRIP is the whole promise: whatever the marker said must come back
+        # identical, or a resume silently changes which lane the goal is on.
+        original = "daemon\n"
         (live / LANE_FILE).write_text(original, encoding="utf-8", newline="")
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_pause(_ns())
         check("pause stashes the marker behind `paused `",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
+              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon\n",
               repr((live / LANE_FILE).read_text(encoding="utf-8")))
         check("a paused marker reads as CONSOLE to the unchanged lane reader",
-              read_lane(live) == ("console", None), str(read_lane(live)))
+              read_lane(live) == ("console", False), str(read_lane(live)))
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_pause(_ns())
         check("pause is IDEMPOTENT — a second pause does not double the prefix",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
+              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon\n",
               repr((live / LANE_FILE).read_text(encoding="utf-8")))
         check("`lane --set` REFUSES while paused (the stash is protected)",
-              _code(cmd_lane, _ns(set="console", profile=None)) == "lane-paused")
+              _code(cmd_lane, _ns(set="console")) == "lane-paused")
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_resume(_ns())
         check("resume round-trips the marker BYTE-EXACTLY",
@@ -4955,7 +4918,7 @@ def cmd_selftest(args) -> int:
               _code(cmd_add_seat, _add(seat="absent")) == "bindings-missing-seat")
         # daemon-complex-cell: --before c carries `a,b` (multi-member) and the STASHED lane is
         # `daemon`. Refused on the real run; the flag is the deliberate acceptance.
-        (live / LANE_FILE).write_text("paused daemon claude-sonnet\n", encoding="utf-8",
+        (live / LANE_FILE).write_text("paused daemon\n", encoding="utf-8",
                                       newline="")
         check("a multi-member cell + a stashed DAEMON lane refuses `daemon-complex-cell`",
               _code(cmd_add_seat, _add(before="c", after="a,b")) == "daemon-complex-cell")
@@ -5163,10 +5126,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="which lane runs this goal — `daemon` (the daemon runs it unattended) or "
                         "`console` (you run it when you type `rbtv run`). REQUIRED: a goal born "
                         "without a lane is silently a console goal")
-    p.add_argument("--profile", default=None,
-                   help="with --lane daemon: the FALLBACK launch profile, BY NAME, for seats that "
-                        "declare no harness+model cast (from `profiles:` in the one shared "
-                        "config). Only the NAME is checked here — no seat exists yet to need it")
     p.add_argument("--due", default=None)
     p.add_argument("--contract", required=True,
                    help="FILE, or - for stdin: the goal-radius contract prose")
@@ -5187,10 +5146,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", default=None, choices=list(LANES),
                    help="assign the goal to a lane. Flipping it MID-GOAL is supported and is the "
                         "point: the execution record makes the other lane skip what this one finished")
-    p.add_argument("--profile", default=None,
-                   help="with --set daemon: the FALLBACK launch profile, BY NAME, for seats that "
-                        "declare no harness+model cast (from `profiles:` in the one shared config). "
-                        "Required only when this goal HAS such a seat — the refusal names them")
     p.set_defaults(func=cmd_lane)
 
     # The PAUSE pair (issue S-33). `pause` stashes the lane assignment behind a `paused ` prefix

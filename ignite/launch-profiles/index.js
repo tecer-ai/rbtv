@@ -19,7 +19,7 @@
 
 const {
   loadConfig,
-  resolveProfile,
+  resolveLaunchSpec,
   resolveTemplateSlots,
   resolveWorkdir,
   resolveWorkspaceRoot,
@@ -33,16 +33,17 @@ const {
   bindingOf,
   catalogOf,
   declaresBinding,
-  profileForBinding,
+  specForSeatCast,
+  specKey,
   E_UNMAPPED_BINDING,
-  E_AMBIGUOUS_BINDING,
+  E_UNCAST_SEAT,
 } = require('./catalog');
 const errors = require('./errors');
 
 module.exports = {
   // load + resolve
   loadConfig,
-  resolveProfile,
+  resolveLaunchSpec,
   resolveTemplateSlots,
   resolveWorkdir,
   resolveWorkspaceRoot,
@@ -56,18 +57,20 @@ module.exports = {
   preflightPinnedFlags,
   pinnedFlagsOf,
   readHelp,
-  // the (harness, model) -> profile-name catalog (task 7.54; owner ruling D19). ONE derivation,
-  // shared with `capabilities/bindings/tool/bindings.py#catalog` — see catalog.js's header.
+  // the (harness, model) -> launch-spec table (task 7.54; owner rulings D19 and
+  // `#d-abolish-profile-names`). The pair is the KEY of `launch-specs:`, read — not derived — on
+  // both sides; `capabilities/bindings/tool/bindings.py#catalog` reads the same keys.
   bindingOf,
   catalogOf,
   declaresBinding,
-  profileForBinding,
+  specForSeatCast,
+  specKey,
   E_UNMAPPED_BINDING,
-  E_AMBIGUOUS_BINDING,
+  E_UNCAST_SEAT,
   // vocabulary
   CLOSED_SLOTS,
   // the effort ladder's ONE interpreter — shared with server/spawn/spawn.js (2026-08-11,
-  // d-0811lp-effort-lane-build-now), which composes exec/resume/headed blocks resolveProfile
+  // d-0811lp-effort-lane-build-now), which composes exec/resume/headed blocks resolveLaunchSpec
   // has no path for and must not own a second copy of the table.
   resolveEffort,
   // errors — re-exported so a consumer never reaches into server/spawn/errors.js

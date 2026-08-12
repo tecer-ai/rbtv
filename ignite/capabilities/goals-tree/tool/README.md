@@ -5,13 +5,13 @@ grammar is owner-ruled (`r-763-grammar-ruled` — all four decision items at the
 defaults) and is **implemented here, not re-derived**.
 
 ```
-rbtv-goal scaffold <goal-name> --contract FILE|-  --lane daemon|console [--profile NAME]
+rbtv-goal scaffold <goal-name> --contract FILE|-  --lane daemon|console
                                                   [--type T] [--kind K] [--due DATE]
                                                   [--execution-mode interactive|autonomous] [--dry-run]
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
-rbtv-goal lane <goal-name> [--set daemon [--profile NAME] | --set console]
+rbtv-goal lane <goal-name> [--set daemon | --set console]
 rbtv-goal pause <goal-name>
 rbtv-goal resume <goal-name>
 rbtv-goal dag <goal-name>
@@ -86,7 +86,7 @@ stand-in pattern, no contract change at fold-in.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), `execution-lane` (one word — WHICH LANE runs it, from the REQUIRED `--lane`; task 7.777, and `--profile` rides it for the daemon lane), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
+| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), `execution-lane` (one word — WHICH LANE runs it, from the REQUIRED `--lane`; task 7.777 — ONE WORD, no second token since `#d-abolish-profile-names`), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -102,7 +102,7 @@ stand-in pattern, no contract change at fold-in.
 ```
 rbtv-goal lane <goal>                                   # which lane runs this right now?
 rbtv-goal lane <goal> --set daemon                      # every seat declares its own cast
-rbtv-goal lane <goal> --set daemon --profile claude-sonnet   # …a fallback for the uncast ones
+rbtv-goal lane <goal> --set daemon                           # …REFUSED if any seat is uncast
 rbtv-goal lane <goal> --set console
 ```
 
@@ -116,24 +116,13 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   ⚠ **A goal scaffolded since 7.777 is never absent**: `scaffold --lane` is REQUIRED, so the
   marker is written at birth and this reader's absence arm covers only goals older than that (or
   a `pause`, which stashes the assignment behind a prefix both readers resolve to `console`).
-- **`--set daemon` REQUIRES `--profile` ONLY WHEN A SEAT WOULD READ IT** (narrowing of ruling D19,
-  2026-08-12). Since D19 a seat whose `seat.md` declares a harness+model cast launches on the
-  profile that cast maps to, whatever this token says — so on a fully cast goal the flag was a
-  value the operator typed and no launch ever read (measured on a live 17-seat goal: 17 cast,
-  0 uncast). The question is asked of `engine/seeding.js#uncastSeats` — the ONE predicate, shared
-  with the daemon's own watch pass, reading `seat.md` (the surface the launch reads, not
-  `taskforce.csv`) through the catalog's own `declaresBinding` — and the refusal NAMES the seats
-  that forced it (`lane-uncast-seats`). A goal whose seats cannot be read yet keeps the requirement
-  (`lane-cast-unknown`): a lane may legitimately be assigned BEFORE `materialize`, and "I cannot
-  tell" is not "nobody needs it". A `daemon` marker with no second token is normal and both readers
-  already resolved it.
-- **A NAME THAT IS GIVEN IS VALIDATED** against `profiles:` in the one
-  shared launch-profile config (`config/spawn-profiles.yaml`, or `RBTV_IGNITE_CONFIG_PATH`); the
-  refusal prints the valid set. Only the KEYS are read here — the profile schema stays
-  `launch-profiles/profiles.js`'s, never re-interpreted. The name is carried as a second token in
-  the file (`daemon claude-sonnet`). Presence alone was not enough: `enqueue` only asks that
-  `profile` be a STRING, so a typo used to pass every gate and surface as a spawn failure per seat,
-  long after whoever typed it stopped watching.
+- **`--set daemon` REFUSES A GOAL WITH ANY UNCAST SEAT, AND NAMES THEM** (`#d-abolish-profile-names`
+  sub-ruling 3, 2026-08-12). This door once demanded `--profile <name>` as the fallback such a seat
+  would launch on; the flag and the fallback are both gone, so an uncast seat has nothing to run as
+  and handing the goal to the daemon would queue rows whose only possible outcome is
+  `E_UNCAST_SEAT` at spawn, hours later. The predicate is `engine/seeding.js#uncastSeats` — the
+  same one `rbtv run` and the daemon's own lane watch ask — so no two doors can disagree.
+  An UNMATERIALIZED goal is its own refusal (`lane-cast-unknown`): "unknown" is not "none".
 - **The marker is written temp + rename**, like the execution record beside it: a truncate-then-write
   leaves a window where the file reads EMPTY, which the daemon's reader resolves as `console`.
 - **FLIPPING IT MID-GOAL IS THE POINT.** The daemon lets go on its very next pass and the other lane

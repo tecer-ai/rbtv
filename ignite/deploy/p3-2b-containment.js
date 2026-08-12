@@ -1,5 +1,11 @@
 'use strict';
 
+// ⚠ STALE PRE-7.787 SMOKE SCRIPT — NOT in the probe-suite enumerator, and NOT brought
+// forward by `#d-abolish-profile-names`. Its `spawn()` call was re-arited with that change
+// (the `profileName` operand is gone) but its CONFIG fixture still uses the retired flat
+// `profiles:` map, and it names profiles the shipped config no longer carries — it was
+// already unrunnable before 7.787 for that second reason. Fix both together, or delete it.
+
 // p3-2b-containment.js — re-runnable proof that a worker spawned through the daemon's OWN
 // spawn path lands in a `systemd-run --user` transient unit CARRYING ITS PROFILE'S CAPS.
 //
@@ -195,7 +201,7 @@ async function proveProfile(profileName, realCfg) {
     });
 
     // The daemon's OWN spawn path — not a hand-rolled systemd-run.
-    row = await mgr.spawn(fired.exec_id, profileName, 'headless', null, null, 'p3-2b-containment');
+    row = await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-2b-containment');
     log(`spawned via createSpawnManager().spawn(): carrier=${row.carrier} unit=${row.unit_name} pid=${row.pid} status=${row.status}`);
 
     if (row.carrier !== 'systemd') throw new Error(`carrier resolved to ${row.carrier}, not systemd — containment absent`);
@@ -339,7 +345,7 @@ async function proveNullBranchExactness(profileName, realCfg) {
       firedTick: 1, firedAt: new Date(), profile: profileName, workdir: null,
     });
     // NO workdir supplied — the DEFAULT branch, the one the ticker uses and D56 left unguarded.
-    row = await mgr.spawn(fired.exec_id, profileName, 'headless', null, null, 'p3-2b-nullbranch');
+    row = await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-2b-nullbranch');
     log(`spawned (null workdir): carrier=${row.carrier} unit=${row.unit_name} workdir=${portable(row.workdir)}`);
 
     const expectedSessionDir = fs.realpathSync(path.join(sessionsRoot, String(fired.exec_id)));

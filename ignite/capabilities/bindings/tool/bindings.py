@@ -39,21 +39,22 @@ THE VALIDATION SOURCE, AND WHY IT IS THIS ONE
 against — one derivation, two consumers, so the printed answer and the enforced answer can never
 disagree. It is composed from exactly two measured sources, and nothing else:
 
-  1. WHICH harness+model pairs exist — `ignite/config/spawn-profiles.yaml` `profiles:`, which
-     r-seats-only-architecture makes "ONE PROFILE PER HARNESS+MODEL … nothing else is identity".
-     That IS this workspace's spawnable set; a roster frozen in this file would admit a model the
-     box cannot spawn or refuse one it can. The harness is the profile's argv[0]; the model is the
-     literal its `exec` argv PINS (`--model` / `-m`).
-     ⚠ THE MODEL VOCABULARY IS THE PROFILE'S PIN, VERBATIM — `claude-fable-5` for `claude-fable`,
-     `claude-opus-5` for `claude-opus`: every profile pins a FULL model id (owner ruling
-     2026-08-10, which eliminated the earlier alias/full-id asymmetry in the config itself). The
-     claude binary honours both an alias and a full model id (`claude --help`: "an alias … or a
-     model's full name"), so BOTH forms would run; but only the pinned literal joins a bindings row
-     back to a profile row, and inventing the other form here would be a second mapping of the same
-     fact — the drift DEC-1 § Shared profile source exists to forbid. A caller passing an alias is
-     REFUSED with the catalog's models printed, never silently rewritten.
+  1. WHICH harness+model pairs exist — `ignite/config/spawn-profiles.yaml` `launch-specs:`, which
+     `#d-abolish-profile-names` KEYS BY THE PAIR ITSELF (2026-08-12) — `launch-specs: { <harness>:
+     { <model>: … } }` — so the pairs are READ, not derived. That IS this workspace's spawnable
+     set; a roster frozen in this file would admit a model the box cannot spawn or refuse one it
+     can. The old derivation (harness = argv[0], model = the token after `--model`/`-m`) survives
+     only as a config-LOAD guard on the daemon side (`profiles.js#validateSpecKey`), proving each
+     spec's argv agrees with its key.
+     ⚠ THE MODEL VOCABULARY IS THE SPEC'S KEY, VERBATIM — `claude-fable-5`, never `fable` (owner
+     ruling 2026-08-10, which eliminated the earlier alias/full-id asymmetry in the config itself).
+     The claude binary honours both an alias and a full model id (`claude --help`: "an alias … or a
+     model's full name"), so BOTH forms would run; but only the keyed literal joins a bindings row
+     back to a launch spec, and inventing the other form here would be a second mapping of the same
+     fact — the drift DEC-1 § Shared launch-spec source exists to forbid. A caller passing an alias
+     is REFUSED with the catalog's models printed, never silently rewritten.
 
-  2. WHETHER a pair has an effort dial — the profile's own `effort:` block. `effort: { inert: true }`
+  2. WHETHER a pair has an effort dial — the spec's own `effort:` block. `effort: { inert: true }`
      is a MEASUREMENT under G-270 ("a harness whose dial does not exist says so"), so an inert
      profile has NO dial — and a rung on it is ACCEPTED and stored as the word `inert`, never
      refused (owner ruling `d-effort-refuses-only-where-a-dial-exists`: refuse only where a dial
@@ -63,8 +64,8 @@ disagree. It is composed from exactly two measured sources, and nothing else:
      standing seat, so the channel master's own sheet had to be hand-written. A profile declaring
      no `effort:` block AT ALL still refuses a rung: there, nothing downstream could translate one.
 
-  …and the LEVELS of a dial that exists come from THE PROFILE'S OWN `effort.rungs` list — the one
-  copy, read straight off `spawn-profiles.yaml` (`profile_effort` below, which is ALSO the
+  …and the LEVELS of a dial that exists come from THE SPEC'S OWN `effort.rungs` list — the one
+  copy, read straight off `spawn-profiles.yaml` (`spec_effort` below, which is ALSO the
   master-profile capability's `effort_ladder`: one function, imported, not two that agree). A
   bindings value is passed to the harness LITERALLY (`coord.py#harness_command`), and the rung
   NUMBER indexes that list.
@@ -93,6 +94,9 @@ THE VERBS
                                            cast one seat; the NUMBER is a 1-based index into that
                                            harness's native ladder and the FILE stores the native
                                            STRING — the number is input abstraction only
+  set-many <workflow.csv> <casts.json>     cast N seats of ONE workflow in one validated call —
+                                           ALL-OR-NOTHING: every seat is validated through the same
+                                           `set` path first and the file is opened only if all pass
 
 ⚠ A FULL json.load/json.dump ROUND TRIP IS CORRECT HERE and is deliberately unlike this capability's
 siblings, which line-edit. Those edit `spawn-profiles.yaml`, a hand-authored document whose comments
@@ -144,8 +148,8 @@ TEAM_KIT = _IGNITE / "team-kit"
 # are the same index into the same list.
 
 
-def profile_effort(profile, profiles_path=DEFAULT_PROFILES):
-    """This profile's ordered rungs. `[]` means an INERT dial; `None` means NO dial at all.
+def spec_effort(harness, model, profiles_path=DEFAULT_PROFILES):
+    """This (harness, model)'s ordered rungs. `[]` means an INERT dial; `None` means NO dial at all.
 
     THE ONE PYTHON READER OF THE LADDER. `master_profile.effort_ladder` IS this function, imported —
     not a second implementation that agrees. It had been one, and the two DID NOT agree on identical
@@ -171,10 +175,10 @@ def profile_effort(profile, profiles_path=DEFAULT_PROFILES):
     it deterministically is what keeps line order from ever mattering again.
     """
     doc = yaml.safe_load(Path(profiles_path).read_text(encoding="utf-8")) or {}
-    block = (doc.get("profiles") or {}).get(profile)
+    block = ((doc.get("launch-specs") or {}).get(harness) or {}).get(model)
     effort = block.get("effort") if isinstance(block, dict) else None
     if not isinstance(effort, dict):
-        return None                                 # no profile, or a profile with no dial
+        return None                                 # no such spec, or a spec with no dial
     if effort.get("inert") is True:
         return []
     rungs = effort.get("rungs")
@@ -299,50 +303,36 @@ def bindings_path(wf, config_root=None):
 
 # ─────────────────────────────────────────────────────────────────────── the catalog
 
-def _profile_blocks(profiles_path):
-    """The `profiles:` section as {name: [block lines]}.
+def _launch_specs(profiles_path):
+    """The `launch-specs:` block as {(harness, model): spec}.
 
-    ponytail: a line scan, not a YAML parse — it needs the block's LINES (`_exec_argv` reads the
-    `argv:` list positionally off them), which a parse discards. The EFFORT question left this scan
-    for `profile_effort`'s parser precisely because a scan answered it wrongly; this one is kept
-    deliberately, not by inertia. Ceiling: a profile declared at a non-standard indent or with a
-    quoted key is invisible. Upgrade path: PyYAML, now imported by this module anyway."""
-    lines = Path(profiles_path).read_text(encoding="utf-8").splitlines()
-    at = next((i for i, ln in enumerate(lines) if ln.rstrip() == "profiles:"), None)
-    if at is None:
-        raise Refusal(f"{profiles_path} declares no root key `profiles:` — refusing to validate "
-                      f"against a set this file does not carry")
-    blocks, current = {}, None
-    for ln in lines[at + 1:]:
-        if ln.strip() and not ln.startswith(" ") and not ln.lstrip().startswith("#"):
-            break                                   # the next root key ends the section
-        m = re.match(r"^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$", ln)
-        if m:
-            current = m.group(1)
-            blocks[current] = []
-        elif current is not None:
-            blocks[current].append(ln)
-    if not blocks:
-        raise Refusal(f"the `profiles:` section of {profiles_path} declares no profiles — refusing "
+    ⚠ THE KEYS ARE THE ANSWER — THERE IS NO DERIVATION LEFT HERE (owner ruling
+    `#d-abolish-profile-names`, 2026-08-12). This used to be a LINE SCAN of a flat `profiles:` map
+    plus `_exec_argv`, which re-derived each row's pair from its argv (`harness = basename(argv[0])`,
+    `model = the token after --model/-m`) under a law spelled identically in
+    `launch-profiles/catalog.js`. Re-keying the document by the pair deleted that law from both
+    sides: the config STATES the pair, and the JS twin reads the same keys. What remains of the old
+    derivation is a single LOAD-TIME GUARD on the daemon side (`profiles.js#validateSpecKey`),
+    proving a spec's argv agrees with the key it is filed under — so this reader can trust the key
+    without re-deriving it, and no drift between the two sides is expressible any more.
+
+    A plain `yaml.safe_load`, and the old `ponytail:` line-scan ceiling (a non-standard indent or a
+    quoted key was invisible) goes with it."""
+    doc = yaml.safe_load(Path(profiles_path).read_text(encoding="utf-8")) or {}
+    specs = doc.get("launch-specs")
+    if not isinstance(specs, dict) or not specs:
+        raise Refusal(f"{profiles_path} declares no root key `launch-specs:` — refusing to validate "
+                      f"against a set this file does not carry. (It was `profiles:` before "
+                      f"2026-08-12; `#d-abolish-profile-names` re-keyed it by (harness, model).)")
+    out = {}
+    for harness, models in specs.items():
+        if not isinstance(models, dict):
+            continue
+        for model, spec in models.items():
+            out[(str(harness), str(model))] = spec
+    if not out:
+        raise Refusal(f"the `launch-specs:` section of {profiles_path} declares no spec — refusing "
                       f"to validate against an empty set, which would refuse EVERY casting")
-    return blocks
-
-
-_QUOTED = re.compile(r'"([^"]*)"')
-
-
-def _exec_argv(block):
-    """The profile's `exec:` argv tokens. The list opens after `argv:` and closes on the first `]`."""
-    out, collecting = [], False
-    for ln in block:
-        if not collecting:
-            if re.match(r"^\s*argv:", ln):
-                collecting = True
-            else:
-                continue
-        out.extend(_QUOTED.findall(ln))
-        if "]" in ln:
-            break
     return out
 
 
@@ -353,22 +343,13 @@ def catalog(profiles_path=DEFAULT_PROFILES):
     the surface that refuses it are the same object."""
     validate_seat = _coord_validate_seat()
     rows = []
-    for name, block in _profile_blocks(profiles_path).items():
-        argv = _exec_argv(block)
-        if not argv:
-            continue                                # a profile with no exec: half spawns nothing
-        harness = Path(argv[0]).name
-        model = ""
-        for flag in ("--model", "-m"):
-            if flag in argv[:-1]:
-                model = argv[argv.index(flag) + 1]
-                break
+    for (harness, model), spec in _launch_specs(profiles_path).items():
         # ONE call answers both questions. The second `inert` regex that used to live here was a
-        # third opinion on the same bytes, disagreeing with `profile_effort` by construction: it
+        # third opinion on the same bytes, disagreeing with `spec_effort` by construction: it
         # could report a dial INERT while the levels beside it listed five rungs.
-        levels = profile_effort(name, profiles_path)
-        reason = validate_seat({"agent": name, "harness": harness, "model": model})
-        rows.append({"profile": name, "harness": harness, "model": model,
+        levels = spec_effort(harness, model, profiles_path)
+        reason = validate_seat({"agent": f"{harness}/{model}", "harness": harness, "model": model})
+        rows.append({"spec": f"{harness}/{model}", "harness": harness, "model": model,
                      # `effort-levels` collapses the reader's three-way answer to a list, so the
                      # INERT case (`[]`) and the no-table-at-all case (`None`) read alike on it.
                      # They are not alike: a rung is ACCEPTED on the first and refused on the
@@ -377,9 +358,9 @@ def catalog(profiles_path=DEFAULT_PROFILES):
                      "effort-levels": list(levels or []), "effort-inert": levels == [],
                      "castable": not reason,
                      "not-castable-because": reason or None,
-                     "effort-dial": "inert (the profile declares `effort: { inert: true }` — G-270: "
+                     "effort-dial": "inert (the spec declares `effort: { inert: true }` — G-270: "
                                     "a harness whose dial does not exist says so)" if levels == []
-                                    else ("none — this profile declares no effort ladder"
+                                    else ("none — this spec declares no effort ladder"
                                           if levels is None else None)})
     return rows
 
@@ -389,11 +370,15 @@ def castable(profiles_path=DEFAULT_PROFILES):
     return {(r["harness"], r["model"]): r for r in catalog(profiles_path) if r["castable"]}
 
 
-def profile_row(name, profiles_path=DEFAULT_PROFILES):
-    """The catalog row a profile NAME resolves to, or None. The same rows `catalog` prints and
-    `set` enforces — keyed by name, because a caller holding a profile name (the channel master's
-    knob) needs the harness+model it stands for, and one profile IS one harness+model pair."""
-    return next((r for r in catalog(profiles_path) if r["profile"] == name), None)
+def spec_row(harness, model, profiles_path=DEFAULT_PROFILES):
+    """The catalog row a (harness, model) resolves to, or None.
+
+    ⚠ IT REPLACES `profile_row(name)` (`#d-abolish-profile-names`, 2026-08-12). That function
+    existed for ONE caller — the channel master's self-service knob, which held a profile NAME and
+    needed the harness+model it stood for. The knob now takes harness and model directly, so the
+    name-to-pair resolution it performed has no subject."""
+    return next((r for r in catalog(profiles_path)
+                 if r["harness"] == harness and r["model"] == model), None)
 
 
 def _coord_validate_seat():
@@ -570,8 +555,8 @@ def cast_seat(path, seat, harness, model, effort_number,
                if same else
                f"No profile declares harness `{harness}`. Castable harnesses: "
                f"{', '.join(sorted({h for h, _ in known}))}. ")
-            + f"The set comes from `profiles:` in {profiles_path} — the model is the literal each "
-              f"profile's exec argv PINS, and this tool never rewrites one spelling into another. "
+            + f"The set comes from `launch-specs:` in {profiles_path} — the model is the literal each "
+              f"launch spec is FILED UNDER, and this tool never rewrites one spelling into another. "
               f"Run `catalog` to see every pair with its effort numbers.")
 
     levels = row["effort-levels"]
@@ -633,20 +618,112 @@ def cast_seat(path, seat, harness, model, effort_number,
             "uncast": uncast}
 
 
+def read_casts(casts_json):
+    """The batch input: {seat-id: {harness, model, effort?}} — or the SHEET's own `{"seats": {…}}`
+    wrapper, which is what an author copying out of `inspect` or the file itself will hand you.
+
+    Shape errors refuse HERE, before any seat is validated, because a malformed document has no
+    per-seat reasons to give and printing "seat `seats` is not a seat" instead of "you handed me the
+    wrapper" is the refusal that wastes the author's next ten minutes."""
+    p = Path(casts_json)
+    if not p.is_file():
+        raise Refusal(f"{p} is not a file — `set-many` takes a JSON document of casts, one entry "
+                      f"per seat: {{\"plan-binder\": {{\"harness\": \"claude\", \"model\": "
+                      f"\"claude-opus-5\", \"effort\": 4}}, …}}")
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Refusal(f"{p} is not valid JSON — {exc}")
+    if isinstance(doc, dict) and isinstance(doc.get("seats"), dict):
+        doc = doc["seats"]                              # the sheet's own shape, unwrapped
+    if not isinstance(doc, dict) or not doc:
+        raise Refusal(f"{p} must carry a non-empty object mapping seat-id → "
+                      f"{{harness, model, effort}}; got {type(doc).__name__}")
+    casts = {}
+    for seat, spec in doc.items():
+        if not isinstance(spec, dict):
+            raise Refusal(f"{p}: seat `{seat}` maps to {type(spec).__name__}, not an object of "
+                          f"{{harness, model, effort}}")
+        missing = [k for k in ("harness", "model") if not spec.get(k)]
+        unknown = sorted(set(spec) - set(CASTING_KEYS))
+        if missing or unknown:
+            raise Refusal(f"{p}: seat `{seat}` "
+                          + (f"is missing {', '.join(missing)}. " if missing else "")
+                          + (f"carries unknown key(s) {', '.join(unknown)}. " if unknown else "")
+                          + f"An entry carries exactly harness, model and (where the pair has a "
+                            f"dial) effort — the same three `set` takes.")
+        effort = spec.get("effort")
+        if effort is not None and not isinstance(effort, int):
+            raise Refusal(f"{p}: seat `{seat}` gives effort {effort!r} — the effort is the 1-based "
+                          f"NUMBER of a rung on that pair's ladder (see `catalog`), not its word. "
+                          f"The FILE stores the word; the input is the number.")
+        casts[seat] = (spec["harness"], spec["model"], effort)
+    return casts
+
+
+def set_many(workflow_csv, casts_json, config_root=None, profiles_path=DEFAULT_PROFILES,
+             dry_run=False):
+    """Cast N seats of ONE workflow in one call. ALL-OR-NOTHING, and refused WHOLE.
+
+    ⚠ THE VALIDATION IS `set_seat` ITSELF, run `--dry-run` over every seat before any of them is
+    written — not a second predicate that agrees with it. A batch verb whose accept/refuse rule was
+    written twice would be the exact drift `catalog` exists to prevent one level down: the whole
+    point of this capability is that what an agent is told it may cast and what is enforced are one
+    object.
+
+    The two passes are what "no half-applied cast" means: a batch with one bad seat leaves the sheet
+    byte-identical and returns EVERY seat's reason, so the author fixes the document once instead of
+    discovering the seats one refusal at a time. It exists because casting a whole workflow through
+    the one-seat verb is N calls the caller must sequence, and an agent that gets seat 7 wrong has
+    already half-cast a taskforce.
+
+    ponytail: N dry-run passes then N real ones, each re-deriving the catalog off spawn-profiles.
+    Ceiling: O(seats × profiles) YAML parses — milliseconds at this size. Upgrade path: hoist
+    `castable()` if a workflow ever has hundreds of seats.
+    """
+    casts = read_casts(casts_json)
+    refusals = {}
+    for seat, (harness, model, effort) in casts.items():
+        try:
+            set_seat(workflow_csv, seat, harness, model, effort,
+                     config_root=config_root, profiles_path=profiles_path, dry_run=True)
+        except Refusal as exc:
+            refusals[seat] = str(exc)
+    if refusals:
+        # Grouped by REASON, not listed per seat: `set-many` before `scaffold` refuses every seat
+        # for the same paragraph, and N copies of it buries the one sentence the author needs.
+        by_reason = {}
+        for seat, why in refusals.items():
+            by_reason.setdefault(why, []).append(seat)
+        raise Refusal(
+            f"{len(refusals)} of {len(casts)} seat(s) in {casts_json} could not be cast, so NONE "
+            f"were written — the sheet is untouched. Fix the document and run once more:\n"
+            + "\n".join(f"  · {', '.join(seats)}: {why}" for why, seats in by_reason.items()))
+    applied = [set_seat(workflow_csv, seat, harness, model, effort,
+                        config_root=config_root, profiles_path=profiles_path, dry_run=dry_run)
+               for seat, (harness, model, effort) in casts.items()]
+    return {"ok": True, "action": "set-many" if not dry_run else "dry-run",
+            "bindings": applied[-1]["bindings"], "casts": len(applied),
+            "seats": {r["seat"]: r["after"] for r in applied},
+            # …minus this batch's own seats: under --dry-run nothing was written, so the last call's
+            # list still names every seat this batch just cast.
+            "uncast": [s for s in applied[-1]["uncast"] if s not in casts]}
+
+
 # ─────────────────────────────────────────────────────────────────────── cli
 
 def _print_catalog(rows):
-    print("harness+model this workspace can cast — from `profiles:` in spawn-profiles.yaml, "
+    print("harness+model this workspace can cast — from `launch-specs:` in spawn-profiles.yaml, "
           "gated by coord.py#validate_seat\n")
     w = max(len(f"{r['harness']}/{r['model']}") for r in rows)
     for r in sorted(rows, key=lambda r: (not r["castable"], r["harness"], r["model"])):
         pair = f"{r['harness']}/{r['model']}".ljust(w)
         if not r["castable"]:
-            print(f"  --  {pair}  NOT CASTABLE — {r['not-castable-because']}  [{r['profile']}]")
+            print(f"  --  {pair}  NOT CASTABLE — {r['not-castable-because']}")
             continue
         dial = ("  ".join(f"{i}={lv}" for i, lv in enumerate(r["effort-levels"], 1))
                 if r["effort-levels"] else f"no effort dial — {r['effort-dial']}")
-        print(f"  ok  {pair}  {dial}   [{r['profile']}]")
+        print(f"  ok  {pair}  {dial}")
     print("\nthe effort NUMBER is the index; the file stores the harness's own level string")
 
 
@@ -693,6 +770,13 @@ def main(argv=None):
                         "harness+model with no dial")
     t.add_argument("--dry-run", action="store_true")
 
+    m = sub.add_parser("set-many", parents=[root, prof],
+                       help="cast N seats of one workflow from a JSON file, all-or-nothing")
+    m.add_argument("workflow")
+    m.add_argument("casts", help='JSON: {"<seat>": {"harness": …, "model": …, "effort": <number>}, '
+                                 '…} — the sheet\'s own {"seats": {…}} wrapper is accepted too')
+    m.add_argument("--dry-run", action="store_true")
+
     args = p.parse_args(argv)
     try:
         if args.verb == "catalog":
@@ -725,6 +809,10 @@ def main(argv=None):
             return 0
         if args.verb == "scaffold":
             print(json.dumps(scaffold(args.workflow, args.config_root, args.dry_run), indent=2))
+            return 0
+        if args.verb == "set-many":
+            print(json.dumps(set_many(args.workflow, args.casts, config_root=args.config_root,
+                                      profiles_path=args.profiles, dry_run=args.dry_run), indent=2))
             return 0
         out = set_seat(args.workflow, args.seat, args.harness, args.model, args.effort,
                        config_root=args.config_root, profiles_path=args.profiles,

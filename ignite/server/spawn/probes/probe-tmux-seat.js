@@ -138,7 +138,7 @@ capture('probe-tmux-seat', async (lines) => {
     fs.writeFileSync(path.join(ctx.workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\nprobegoal,2026-07-27,,one-shot,active\n');
     fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,probe-seat\n');
     fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime,started,ended\n');
-    fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\nbriefing\n');
+    fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\nharness: bash\nmodel: test-headed\n---\nbriefing\n');
 
     const roomTmpdir = path.join(os.tmpdir(), `e2a-ts-${process.pid}`);
     fs.mkdirSync(roomTmpdir, { recursive: true, mode: 0o700 });
@@ -159,8 +159,8 @@ capture('probe-tmux-seat', async (lines) => {
     };
     execFileSync('tmux', ['new-session', '-d', '-s', 'probegoal', 'sleep', '600'], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    const row = fire(ctx, { profile: 'test-headed', sessionMode: 'headed' });
-    const res = await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', {
+    const row = fire(ctx, { cast: 'test-headed', sessionMode: 'headed' });
+    const res = await ctx.mgr.spawnSeat(row.exec_id, {
       room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true,
     });
     assert(res.dryRun === true, 'leg9: dryRun returns without launching');
@@ -175,7 +175,7 @@ capture('probe-tmux-seat', async (lines) => {
     // the ladder, so a HEADED seat ran the harness default no matter what its cast asked for —
     // silently, which is exactly what G-270 forbids. Same one interpreter (`resolveEffort`), so
     // the assertion is the profile's OWN rung literal, never a spelling this probe knows.
-    const dryEffort = await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', {
+    const dryEffort = await ctx.mgr.spawnSeat(row.exec_id, {
       room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true, effort: 2,
     });
     const inner = dryEffort.wrappedArgv;
@@ -185,7 +185,7 @@ capture('probe-tmux-seat', async (lines) => {
     // …and a rung outside the ladder is REFUSED here exactly as it is headless — never clamped.
     let outOfRange = null;
     try {
-      await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', { room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true, effort: 9 });
+      await ctx.mgr.spawnSeat(row.exec_id, { room: 'probegoal', seatName: 'probe-seat', seatDir, dryRun: true, effort: 9 });
     } catch (e) { outOfRange = e; }
     assert(outOfRange && outOfRange.code === 'E_UNKNOWN_EFFORT',
       `leg9b: rung 9 on a 2-rung ladder must refuse E_UNKNOWN_EFFORT (got ${outOfRange && outOfRange.code})`);
@@ -199,16 +199,24 @@ capture('probe-tmux-seat', async (lines) => {
     // The workdir gate is REUSED, not relaxed: a seat folder outside the profile's workdir_root
     // is refused. This is the boundary `r-711-write-bounds` will redesign at task 7.11 — a need
     // to SURFACE, never one to widen here.
+    // ⚠ A REAL, CAST SEAT FOLDER outside the root (7.787), not a bare directory. Containment is a
+    // property of A SPEC's `workdir_root`, and since `#d-abolish-profile-names` a dispatch gets its
+    // spec from the seat descriptor — so a dir with no `seat.md` is refused for not being a seat at
+    // all (`E_NOT_A_SEAT_FOLDER`) before containment can speak. Handing the gate a genuine seat is
+    // what actually exercises it; the other refusal keeps its own leg in probe-seat-launch-gate.
+    const outsideSeat = path.join(ctx.escapedir, '.rbtv', 'goals', 'g', 'seats', 'escapee');
+    fs.mkdirSync(outsideSeat, { recursive: true });
+    fs.writeFileSync(path.join(outsideSeat, 'seat.md'), '---\nseat: escapee\nharness: bash\nmodel: test-headed\n---\n');
     let escaped = null;
     try {
-      await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', { room: 'probe-room', seatName: 's', seatDir: ctx.escapedir, dryRun: true });
+      await ctx.mgr.spawnSeat(row.exec_id, { room: 'probe-room', seatName: 's', seatDir: outsideSeat, dryRun: true });
     } catch (e) { escaped = e; }
     assert(escaped && escaped.code === 'E_WORKDIR_ESCAPE', `leg11: seat folder outside workdir_root refuses (got ${escaped && escaped.code})`);
     lines.push('leg11 containment: a seat folder outside the profile workdir_root is refused with E_WORKDIR_ESCAPE — gate reused, not relaxed');
 
     let noSeat = null;
     try {
-      await ctx.mgr.spawnSeat(row.exec_id, 'test-headed', { room: 'probe-room', seatName: 's', dryRun: true });
+      await ctx.mgr.spawnSeat(row.exec_id, { room: 'probe-room', seatName: 's', dryRun: true });
     } catch (e) { noSeat = e; }
     assert(noSeat && noSeat.code === 'E_BAD_REQUEST', 'leg12: a seat spawn without a seat descriptor folder is refused');
     lines.push('leg12 R7 guard: no seat descriptor folder -> E_BAD_REQUEST, never a profile-supplied fallback');

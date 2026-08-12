@@ -91,7 +91,7 @@ function refusal(fn) {
 }
 
 // `launch-agent` requires `profile` in args_schema.required (the S-2(a) register-time gate).
-const SCHEMA = JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } });
+const SCHEMA = JSON.stringify({ required: {}, optional: { workdir: 'string' } });
 
 function registerSeatJob(store, jobId) {
   return store.registerJob({
@@ -125,7 +125,7 @@ try {
   registerSeatJob(store, 'seat-goal-queued');
   store.enqueue({
     jobId: 'seat-goal-queued',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     triggerKind: 'scheduled',
     runAt: futureIso(),
     enqueuedBy: 'probe-deregister-purge',
@@ -152,7 +152,7 @@ try {
   const liveExec = store.recordExecutionStart({
     jobId: 'seat-goal-live',
     actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'default' }),
+    args: JSON.stringify({}),
     enqueuedBy: 'probe-deregister-purge',
     sessionMode: 'headless',
     firedTick: 1,

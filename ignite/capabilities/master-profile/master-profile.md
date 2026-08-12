@@ -1,5 +1,8 @@
 # master-profile — the channel master choosing its own harness and model
 
+> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `config/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
+
+
 Issue **C-1** (owner-ruled 2026-08-10). Twin of `goal-launch-delay`: same ruling, same two-part
 transport, different file, different validator, different last act.
 
@@ -26,14 +29,14 @@ which is the same kind of file `rbtv-bindings` writes for every workflow seat. P
 `d-master-is-cast-like-any-other-seat` the SEAT governs and this CLI's job is to **re-cast the
 seat** — never to pass a per-dispatch override on the wire. `materialize-seats.py --repass`
 re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
-(`launch-profiles/catalog.js#castProfileFor`, `readFileSync` per launch, never boot-cached).
+(`launch-profiles/catalog.js#specForSeatCast`, `readFileSync` per launch, never boot-cached).
 
-The AGENT-FACING unit is still a spawn-profile NAME from `profiles:` in `config/spawn-profiles.yaml`
+⚠ **THE AGENT-FACING UNIT IS `harness` + `model`, NOT A NAME** (`#d-abolish-profile-names`, 2026-08-12 — `request <harness> <model> [--effort N]`). The capability KEEPS ITS OWN NAME (`#d-master-profile-keeps-its-name`); only its caller contract changed. The sentence that stood here — "the agent-facing unit is still a spawn-profile NAME from `profiles:` in `config/spawn-profiles.yaml`"
 — one profile IS one harness+model pair (`r-seats-only-architecture`), so a name is a complete cast
 and the requester keeps one vocabulary. `show` prints the askable set rather than this document
 restating it, because a roster written into a document goes stale silently.
 
-⚠ **THE NAMES OFFERED ARE THE CASTABLE ONES, WHICH IS NARROWER THAN `profiles:`.** The old
+⚠ **THE PAIRS OFFERED ARE THE CASTABLE ONES, WHICH IS NARROWER THAN `launch-specs:`.** The old
 validator accepted every declared key; the sheet must hold a pair `coord.py#validate_seat` accepts,
 because that is the predicate `materialize-seats.py`'s F6 gate runs over the whole batch. `test-sleep`
 is the sharp case — a declared profile that is not castable, and the old validator waved it through.
@@ -130,7 +133,7 @@ that divergence is deliberate.
 | Verb | What it does | Who runs it |
 |---|---|---|
 | `show [--json]` | the cast in force in BOTH vocabularies (harness/model/effort AND the profile name + rung it maps to), the sheet it came from, and **every castable profile with the rungs it admits** | anyone, including a caged seat |
-| `request <profile> [--effort N] --inbox D [--chat-thread C:TS]` | validate the name against the live roster **and the rung against that profile's ladder** → stage `{"master-profile": …, "effort": N}` (plus the thread id when given) → `ignite add-job` | **the seat** |
+| `request <harness> <model> [--effort N] --inbox D [--chat-thread C:TS]` | validate the PAIR against the live castable set **and the rung against that pair's ladder** → stage `{"harness": …, "model": …, "effort": N}` (plus the thread id when given) → `ignite add-job` | **the seat** |
 | `apply --inbox D --bindings F --seat S --catalog-root R --profiles P [--no-repass]` | drain, re-validate, write the **harness/model/effort triple**, record the outcome, **report into the requester's chat thread**, `--repass` the seat's descriptor LAST | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
@@ -184,7 +187,7 @@ A casting sheet is not boot-read by anything:
 | Link | What makes the switch land |
 |---|---|
 | `server/spawn/spawn.js` | reads `seat.md` per launch (`readFileSync`), never cached |
-| `launch-profiles/catalog.js#castProfileFor` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
+| `launch-profiles/catalog.js#specForSeatCast` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
 | `server/spawn/live-sessions.js` | re-resolves the cast on EVERY owner message and REAPS a warm session whose conversation now names a different profile (§ *REAP ON A PROFILE SWITCH*) |
 
 So the ordering is **write (atomic `os.replace` via `bindings._write`) → outcome record on disk →

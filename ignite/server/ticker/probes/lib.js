@@ -12,7 +12,7 @@ const { createTicker } = require('../ticker');
 // the same drift as a second rule.
 const { reapWorkerUnit } = require('../../spawn/probes/lib');
 
-function setup(configOverrides = {}, extraProfiles = {}) {
+function setup(configOverrides = {}, extraProfiles = {}, extraHarnesses = null) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-1-probe-'));
   const dataRoot = path.join(tmp, 'data');
   const workRoot = path.join(tmp, 'work');
@@ -28,7 +28,7 @@ function setup(configOverrides = {}, extraProfiles = {}) {
   const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
-  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\n---\n');
+  fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\nharness: bash\nmodel: test-sleep\n---\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
 
   const cfg = {
@@ -36,26 +36,46 @@ function setup(configOverrides = {}, extraProfiles = {}) {
     auth: { senders_file: path.join(tmp, 'senders.yaml') },
     spawn: { data_root: dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
     default_workdir_root: defaultWorkdir,
-    profiles: {
-      'test-sleep': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
+    // ── THE FIXTURE'S LAUNCH SPECS, KEYED BY (harness, model) — 7.787 ────────────────────────
+    //
+    // `profiles: { 'test-sleep': … }` is gone with the name layer (`#d-abolish-profile-names`).
+    // These three are keyed by a pair like every real spec, and a SEAT'S CAST is what selects one
+    // — `nextSeatHome(ctx, cast)` writes `harness:`/`model:` into the seat descriptor, which is the
+    // only address a launch has now.
+    //
+    // ⚠ WHY `bash -c … --model <name>` RATHER THAN A BARE `sleep`. `profiles.js#validateSpecKey`
+    // refuses at config LOAD when a spec's argv disagrees with the key it is filed under — that
+    // guard is what makes the key trustworthy as an authority. A fixture must therefore satisfy it
+    // honestly: `bash -c 'exec sleep 3600' --model test-sleep` REALLY runs `sleep 3600` (the two
+    // trailing words land in `$0`/`$1`, which the script never reads) while genuinely pinning a
+    // model the key can be checked against. Faking the guard off for fixtures would leave the one
+    // check that makes the whole re-keying safe untested against the config shape probes use.
+    'launch-specs': {
+      bash: {
+        'test-sleep': {
+          exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'test-sleep'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        'test-silent': {
+          exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'test-silent'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        'test-writer': {
+          exec: { argv: ['bash', '-c', 'while true; do sleep 1; echo ping >> "$RANDOM"; done', '--model', 'test-writer'], prompt: 'stdin' },
+          session_ref: { source: 'cwd-implicit' },
+          workdir_root: workRoot,
+          caps: { memory_max: '64M', runtime_max: '1h' },
+        },
+        ...(typeof extraProfiles === 'function' ? extraProfiles({ workRoot, dataRoot, defaultWorkdir }) : extraProfiles),
       },
-      'test-silent': {
-        exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
-      'test-writer': {
-        exec: { argv: ['bash', '-c', 'while true; do sleep 1; echo ping >> "$RANDOM"; done'], prompt: 'stdin' },
-        session_ref: { source: 'cwd-implicit' },
-        workdir_root: workRoot,
-        caps: { memory_max: '64M', runtime_max: '1h' },
-      },
-      ...(typeof extraProfiles === 'function' ? extraProfiles({ workRoot, dataRoot, defaultWorkdir }) : extraProfiles),
+      // A probe whose fixture must be classified as a DIFFERENT harness files its extras here
+      // instead — `harnessOf` reads `basename(exec.argv[0])`, so the key and the argv have to
+      // agree (`profiles.js#validateSpecKey` enforces exactly that at LOAD).
+      ...(typeof extraHarnesses === 'function' ? extraHarnesses({ workRoot, dataRoot, defaultWorkdir }) : (extraHarnesses || {})),
     },
   };
   const cfgPath = path.join(tmp, 'ignite.yaml');
@@ -64,8 +84,11 @@ function setup(configOverrides = {}, extraProfiles = {}) {
   const dbPath = path.join(tmp, 'heart.db');
   const feedPath = path.join(tmp, 'feed.jsonl');
   const logPath = path.join(tmp, 'ticker.log');
-  const store = openHeartStore({ dbPath, profiles: cfg.profiles, tools: {}, workflows: {} });
+  const store = openHeartStore({ dbPath, tools: {}, workflows: {} });
   const mgr = createSpawnManager({ heartStore: store, configPath: cfgPath, logger: null, userManager: true });
+  // The composition root's own assignment (engine/index.js): seeding and any per-seat cage read
+  // reach the launch specs through the store.
+  store.config.launchSpecs = mgr.config.launchSpecs;
   const ticker = createTicker({
     heartStore: store,
     spawnManager: mgr,
@@ -111,8 +134,10 @@ function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
     jobId,
     actionType: 'launch-agent',
     function: 'launch-agent',
+    // 7.787 — `required` is EMPTY: `launch-agent` carries nothing profile-shaped, and the daemon
+    // derives the cast from the seat's own descriptor at spawn.
     argsSchema: JSON.stringify({
-      required: { profile: 'string' },
+      required: {},
       optional: { prompt: 'string', workdir: 'string' },
     }),
   });
@@ -121,17 +146,26 @@ function registerLaunchAgentJob(ctx, jobId = 'launch-agent') {
 // The next never-yet-used seat home under the fixture's run, materialized to the minimal valid
 // shape (folder + seat.md) the launch door demands. Counter lives on ctx, so seats stay distinct
 // across every enqueue of one scenario and reset with the fixture.
-function nextSeatHome(ctx) {
+// ⚠ THE DESCRIPTOR CARRIES THE CAST (7.787). A seat with no `harness:`/`model:` is UNCAST and
+// every launch door refuses it (`E_UNCAST_SEAT`) — there is no caller-named profile left to fall
+// back to — so the fixture's seats declare one, exactly as a materialized seat does.
+const DEFAULT_CAST = { harness: 'bash', model: 'test-sleep' };
+
+function nextSeatHome(ctx, cast = DEFAULT_CAST) {
   ctx._seatSeq = (ctx._seatSeq || 0) + 1;
   const seat = `probe-seat-${ctx._seatSeq}`;
   const dir = path.join(ctx.runDir, 'seats', seat);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'seat.md'), `---\nseat: ${seat}\n---\n`);
+  fs.writeFileSync(path.join(dir, 'seat.md'),
+    `---\nseat: ${seat}\nharness: ${cast.harness}\nmodel: ${cast.model}\n---\n`);
   return dir;
 }
 
-function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, prompt = null, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
-  const args = { profile };
+// `cast` selects WHICH of the fixture's launch specs the seat this call homes at is cast to. It
+// replaces the old `profile` NAME argument (7.787): the queue row carries no such value any more,
+// so what a launch runs is decided where it is now decided everywhere — in the seat's descriptor.
+function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', cast = DEFAULT_CAST, prompt = null, workdir = null, runAt, triggerKind = 'scheduled', intervalSeconds = null, maxFires = null, enqueuedBy = 'probe' }) {
+  const args = {};
   if (prompt !== null && prompt !== undefined) args.prompt = prompt;
   // Default the home to a canonical seat folder (r-seats-only-architecture: an unhomed launch is
   // a refusal, and these probes test ticker mechanics, not the door — the door has its own
@@ -145,7 +179,7 @@ function enqueueLaunchAgent(ctx, { jobId = 'launch-agent', profile, prompt = nul
   // ACROSS seats. A probe that means to re-launch ONE seat passes `workdir` explicitly and gets
   // the door's real behaviour.
   if (workdir !== null && workdir !== undefined) args.workdir = workdir;
-  else if (ctx.seatDir) args.workdir = nextSeatHome(ctx);
+  else if (ctx.seatDir) args.workdir = nextSeatHome(ctx, cast);
   return ctx.store.enqueue({
     jobId,
     args: JSON.stringify(args),
@@ -205,4 +239,4 @@ function capture(name, fn) {
     });
 }
 
-module.exports = { setup, teardown, now, registerLaunchAgentJob, enqueueLaunchAgent, sleep, writeOut, capture };
+module.exports = { setup, teardown, now, registerLaunchAgentJob, enqueueLaunchAgent, nextSeatHome, DEFAULT_CAST, sleep, writeOut, capture };

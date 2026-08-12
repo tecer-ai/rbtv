@@ -21,25 +21,22 @@
 // and "assigned to nobody" are deliberately not distinguished: neither is the daemon's business, and
 // a third state would be a state nothing reads.
 //
-// ⚠ THE FILE CARRIES AN OPTIONAL SECOND TOKEN — THE FALLBACK LAUNCH PROFILE. Seeding needs a
-// NAMED profile from the one shared config (`DEC-1` § Shared profile source: this lane never
-// composes one), because `launch-agent` structurally requires a `profile` argument. But WHICH name
-// stopped mattering for a cast seat at ruling D19: task 7.54's catalog is BUILT
-// (`launch-profiles/catalog.js`) and applied at the single launch point every lane shares
-// (`server/spawn/spawn.js#profileForSeatCast`), so a seat that declares a cast in its `seat.md`
-// runs THAT, whichever profile this token names.
+// ⚠ THE FILE IS ONE WORD. `daemon` or `console`, and nothing else — owner ruling
+// `#d-abolish-profile-names` sub-ruling 3, 2026-08-12. It used to carry an optional SECOND token
+// naming a fallback launch profile, which existed for exactly one reason: `launch-agent`
+// structurally required a `profile` argument. That requirement is gone (`engine/seeding.js`
+// § seedTaskforce), so the token has nothing left to fill, and a marker that can name what a seat
+// runs on is a marker that can contradict the seat's own cast.
 //
-// ⚠ SO THE TOKEN IS OPTIONAL SINCE 2026-08-12, AND THE MARKER'S GRAMMAR DID NOT CHANGE TO SAY SO
-// — `readLane` already returned `profile: null` for a bare `daemon`. What changed is what this
-// pass DOES with that: it asks `seeding.js#uncastSeats` which seats would actually consult a
-// fallback, and when the answer is NONE it derives one from the goal's own casts
-// (`fallbackProfileFor`) and seeds. The demand used to be unconditional at both CLI doors, which
-// on a fully cast goal made the operator type a value no launch ever reads — measured on the live
-// 17-seat planning goal: 17 cast, 0 uncast.
+// ⚠ A TWO-TOKEN MARKER IS A LEGACY MARKER AND READS `console`, LOUDLY. Fail-closed is the rule
+// here (see the ⚠ above), so a marker this grammar cannot parse must not be adopted — but a goal
+// silently demoted to the console is precisely the "quietly stopped" failure this pass exists to
+// avoid, so `readLane` reports `legacy: true` and the loop shouts the one-line fix once.
 //
-// A bare `daemon` marker on a goal that DOES carry an uncast seat is still not seeded, for exactly
-// the reason it never was: nothing can say what that seat runs on. It warns, and the warning now
-// NAMES the seats that forced it rather than restating a rule.
+// A `daemon` marker on a goal that carries an UNCAST seat is not seeded, and that refusal is now
+// the ruling rather than a shortage: "any workflow reaching a taskforce MUST be cast first; an
+// uncast seat is a NAMED refusal at materialize/lane time — never a fallback." The warning names
+// the seats and the command that casts them.
 //
 // WHAT THIS PASS IS NOT: a second seeding implementation. It decides WHICH goals, and calls
 // `engine.seedGoal` for each — the one seam (PRIN-11).
@@ -51,10 +48,10 @@ const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('./attached-executi
 // `heldSeatPredicate` reads both gates from. A second parser of that frontmatter is a lane that
 // disagrees with the ferry about what a seat declared (7.626 criterion 2).
 const { seatFallback } = require('../bridges/chat/bus-ferry');
-// WHO NEEDS THE MARKER'S FALLBACK TOKEN, and what a fully cast goal supplies instead. The one home
-// of that answer — `rbtv run` and `rbtv-goal lane` ask the same two functions, so this pass and
-// the CLI that writes the marker can never disagree about which goals need a profile named.
-const { uncastSeats, fallbackProfileFor } = require('./seeding');
+// WHICH SEATS ARE NOT CAST — the ONE predicate every door refuses on. `rbtv run` and
+// `rbtv-goal lane` ask the same function, so this pass and the CLI that writes the marker can
+// never disagree about which goals may be assigned to the daemon.
+const { uncastSeats } = require('./seeding');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -62,25 +59,32 @@ const CONSOLE = 'console';
 
 // The lane assignment, read with the same tolerance `execution-mode` is read with: trimmed,
 // case-insensitive, and everything that is not the positive word is the conservative default.
-// The optional second token is the launch profile the daemon seeds with.
+//
+// ⚠ ONE WORD, WHOLE. The whole trimmed text must BE the lane word — `daemon claude-fable` is not
+// `daemon`, it is a marker written under the retired grammar, and it resolves `console` under the
+// fail-closed rule above. It is reported as `legacy` so the caller can say so instead of leaving
+// the goal to look like one somebody parked deliberately. Its `python` twin is
+// `capabilities/goals-tree/tool/goal_cli.py#read_lane`; the two change together, always (DEC-1).
+//
+// ⚑ `paused ` STILL PREFIXES, and still resolves `console` here with no special case: a paused
+// marker's whole text is not `daemon`, which is the entire mechanism (`goal_cli.py#pause`).
 function readLane(goalFolder) {
   let raw;
   try {
     raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
   } catch {
-    return { lane: CONSOLE, profile: null, present: false, raw: '' };
+    return { lane: CONSOLE, present: false, legacy: false, raw: '' };
   }
   const text = raw.trim();
-  const [word, profile] = text.split(/\s+/);
-  if (String(word || '').toLowerCase() !== DAEMON) {
-    return { lane: CONSOLE, profile: null, present: true, raw: text };
-  }
-  return { lane: DAEMON, profile: profile || null, present: true, raw: text };
+  const word = text.toLowerCase();
+  if (word === DAEMON) return { lane: DAEMON, present: true, legacy: false, raw: text };
+  const legacy = text.split(/\s+/)[0].toLowerCase() === DAEMON;
+  return { lane: CONSOLE, present: true, legacy, raw: text };
 }
 
 // ── THE REPEATED-FAILURE MEMO ─────────────────────────────────────────────────────────────────
 //
-// A goal that cannot be seeded — a profile the shared config does not carry, a broken taskforce —
+// A goal that cannot be seeded — an uncast seat, a broken taskforce, a legacy lane marker —
 // is re-read every cadence, and the first version of this pass logged it every cadence too: at a
 // 10 s tick that is ~8,600 lines a day, per goal, for a condition that will not change until a
 // human edits the marker. So the loud line fires ONCE PER (goal, marker content): the memo is
@@ -96,6 +100,71 @@ const failedOn = new Map();
 function shouldShout(goalFolder, marker) {
   if (failedOn.get(goalFolder) === marker) return false;
   failedOn.set(goalFolder, marker);
+  return true;
+}
+
+// ── THE GOAL'S SLACK CHANNEL, ON THE DAEMON LANE (task 7.789) ─────────────────────────────────
+//
+// C3 (`server/ticker/goal-channel-start.js`) causes an interactive goal's channel to exist at its
+// run start, and until now it had ONE caller: the queued `start-workflow` dispatch branch in
+// `ticker.js`. The daemon lane starts a goal WITHOUT such a row — this pass adopts it off its
+// `execution-lane` marker and calls `seedGoal` directly — so a daemon-lane goal was born with NO
+// channel. Measured on `forge-reference-seat-id-naming`: journalctl over its entire 2026-08-11
+// seeding carries zero `goal-channel-cli` lines. That matters because `bridges/chat/bus-ferry.js`
+// gates owner messaging behind an existing channel, so every to-owner message from that goal's
+// seats had nowhere to land.
+//
+// ⚠ THE DECISION IS NOT RE-MADE HERE. This calls `engine.ticker.ensureGoalChannel`, which calls
+// `channelEnsureDecision` — the same function the queue lane's caller reaches, with the same body
+// deciding which kind gets a channel and what the invocation is. Two callers, one decision.
+//
+// ⚠ ONCE PER GOAL, NOT ONCE PER TICK, AND THE DEDUPE IS OURS TO OWN. `goal-channel-start.js` says
+// re-entry is free — and it is, at the BRIDGE: `ensureChannel` is idempotent and adopts an
+// existing channel. What is NOT free is the act between here and there: every call forks a
+// systemd unit running the bridge CLI, and this pass re-adopts an assigned goal EVERY cadence. At
+// 10 s that is ~8,600 transient units a day, per goal, to re-learn a channel id that did not
+// change. So it fires on the FIRST pass that adopts each goal, keyed on the goal folder.
+//
+// ponytail: the memo is daemon-lifetime, and a FAILED ensure is memoized too — a restart re-arms
+// it. That is deliberate and it is the conservative direction: `channel-ensure-failed` here means
+// a carrier or credential fault, which does not clear on its own, and retrying it every cadence
+// would spawn the doomed unit ~8,600 times a day instead of once. If a transient failure mode is
+// ever observed, clear the key on `channel-ensure-failed` and bound the retries — do not simply
+// stop memoizing.
+const channelEnsured = new Set();
+
+function ensureGoalChannelOnce({ goal, goalFolder, engine, say }) {
+  if (channelEnsured.has(goalFolder)) return false;
+  const perform = engine && engine.ticker && engine.ticker.ensureGoalChannel;
+  // The ATTACHED lane and the probes build an engine with no ticker surface. A goal channel is a
+  // daemon-lane act, so absence here is the ordinary case and not a fault: nothing is said.
+  if (typeof perform !== 'function') return false;
+  channelEnsured.add(goalFolder);
+  // Fire and forget, exactly as the queue lane does: the carriers resolve when the child is
+  // launched, never when Slack answers, and this pass runs immediately before a tick.
+  //
+  // ⚠ THE CALL IS SYNCHRONOUS; ONLY ITS RESULT IS AWAITED. Deferring the call itself into a
+  // microtask would hand the performer a `goalFolder` this pass has already moved past, and would
+  // make "was it called?" unobservable to any synchronous caller — including the probe arm that
+  // proves the once-per-goal memo. A synchronous throw is caught by the same handler.
+  let pending;
+  try {
+    pending = perform({ goal });
+  } catch (err) {
+    say('warn', 'lane watch: goal-channel ensure threw — the goal is seeded, its channel is not ensured',
+      { goal, error: err && err.message });
+    return true;
+  }
+  Promise.resolve(pending)
+    .then((actions) => {
+      for (const a of actions || []) {
+        say(a.action === 'channel-ensure-failed' ? 'warn' : 'info',
+          `lane watch: goal channel — ${a.action}`, { goal, ...a });
+      }
+    })
+    .catch((err) => say('warn',
+      'lane watch: goal-channel ensure threw — the goal is seeded, its channel is not ensured',
+      { goal, error: err && err.message }));
   return true;
 }
 
@@ -156,12 +225,30 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);
-    // `let`, because a marker that names NO profile has one DERIVED below — and it is derived into
-    // this same binding deliberately: every line downstream (the store guard, `seedGoal`, the log)
-    // then reads the value that will actually be used, with no second name to keep in step.
-    let { lane, profile, raw } = readLane(goalFolder);
+    const { lane, legacy, raw } = readLane(goalFolder);
 
     if (lane !== DAEMON) {
+      // A LEGACY two-token marker is reported, not silently treated as a console assignment: it
+      // was written to say `daemon` and this grammar cannot honour it, which is a state only a
+      // human can clear. Once per marker text, like every other loud line in this pass.
+      if (legacy) {
+        skipped.push({ goal, reason: 'legacy-two-token-marker', raw });
+        say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
+          'lane watch: this goal\'s `execution-lane` carries the RETIRED two-token grammar '
+          + '(`daemon <profile-name>`) — the second token was the fallback launch profile, abolished by '
+          + '`#d-abolish-profile-names`. The marker does not parse as `daemon`, so the goal reads CONSOLE '
+          + 'and is NOT being picked up.', {
+            goal,
+            raw,
+            fix: `rbtv goal lane ${goal} --set daemon`,
+          });
+        // ⚠ THE MEMO IS **NOT** CLEARED FOR A LEGACY MARKER, and that asymmetry is the whole
+        // point of the memo. A goal genuinely handed back to the console is a resolved state and
+        // starts clean if it returns; a legacy marker is an UNRESOLVED one that will be re-read
+        // every cadence until a human rewrites it — clearing here would re-arm the loud line on
+        // every pass, which at a 10 s tick is ~8,600 identical warnings a day.
+        continue;
+      }
       skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });
       failedOn.delete(goalFolder);      // a goal handed back to the console starts clean if it returns
       continue;
@@ -174,52 +261,36 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       continue;
     }
 
-    const known = (engine.heartStore && engine.heartStore.config && engine.heartStore.config.profiles) || {};
-
-    // ⚠ A MARKER NEED NOT NAME A PROFILE — it must only name one when a SEAT would consult it
-    // (2026-08-12, narrowing D19; the header's second ⚠ carries the argument). `uncastSeats` is
-    // the one predicate both CLI doors ask, so what this pass seeds and what `rbtv-goal lane`
-    // accepts are the same question answered by the same code. Nothing here is fatal, exactly as
-    // nothing else in this loop is: an unreadable taskforce or an unmappable cast leaves the goal
-    // for the next cadence rather than taking the tick down.
-    let forcedBy = null;
-    if (!profile) {
-      try {
-        const uncast = uncastSeats(goalFolder);
-        if (uncast.length) forcedBy = `seat(s) that declare no cast in their seat.md: ${uncast.join(', ')}`;
-        else profile = fallbackProfileFor(goalFolder, known);
-      } catch (err) {
-        forcedBy = `this goal's own casts could not answer it (${err.message})`;
-      }
-    }
-
-    if (!profile) {
-      skipped.push({ goal, reason: 'no-profile-in-the-assignment' });
+    // ── EVERY SEAT MUST BE CAST (`#d-abolish-profile-names` sub-ruling 3) ────────────────────
+    //
+    // The refusal that stood here was `no-profile-in-the-assignment`: the marker named no profile
+    // and the goal's own casts could not supply one. Both halves are gone — there is no profile to
+    // name and nothing to supply — and what replaces them is the ruling itself: a goal carrying an
+    // uncast seat is NOT seeded, and the seats are NAMED. Seeding it anyway would queue rows whose
+    // only possible outcome is `E_UNCAST_SEAT` at spawn, one wasted execution row per seat.
+    //
+    // `uncastSeats` is the one predicate `rbtv-goal lane --set daemon` and `rbtv run` also ask, so
+    // what this pass seeds and what those doors accept can never disagree. Nothing here is fatal,
+    // exactly as nothing else in this loop is: an unreadable taskforce leaves the goal for the next
+    // cadence rather than taking the tick down.
+    let uncast;
+    try {
+      uncast = uncastSeats(goalFolder);
+    } catch (err) {
+      skipped.push({ goal, reason: 'cast-unreadable', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
-        'lane watch: goal is assigned to the daemon, names NO launch profile, and cannot supply one '
-        + 'from its own casts — not seeded', {
-          goal,
-          forcedBy,
-          fix: `rbtv goal lane ${goal} --set daemon --profile <name>`,
-        });
+        'lane watch: could not read this goal\'s casts — not seeded', { goal, error: err.message });
       continue;
     }
-
-    // ⚠ THE PROFILE IS CHECKED BEFORE ANYTHING IS WRITTEN, and that ordering is the fix rather
-    // than the check. `enqueue` refuses an unknown profile (`E_UNKNOWN_PROFILE`) — but only AFTER
-    // `seedTaskforce` has already registered a job row per seat, and `registerJob` is create-only,
-    // so a marker carrying a typo left permanent orphan rows in the daemon's store on its very
-    // first pass and then threw every cadence forever. Refusing here writes nothing at all.
-    // `Object.hasOwn`, not a truthiness test, for the store's own reason: `constructor` is a legal
-    // kebab-case name that walks the prototype chain and reads present.
-    if (!Object.hasOwn(known, profile)) {
-      skipped.push({ goal, reason: 'unknown-profile', profile });
+    if (uncast.length) {
+      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
-        'lane watch: the assignment names a launch profile the shared config does not carry — not seeded, and NOTHING was registered', {
+        'lane watch: goal is assigned to the daemon but carries seat(s) with NO cast — NOT seeded, and '
+        + 'NOTHING was registered. Bindings are the one source of truth for what a seat runs '
+        + '(`#d-abolish-profile-names`); there is no fallback to launch these on.', {
           goal,
-          profile,
-          known: Object.keys(known),
-          fix: `rbtv goal lane ${goal} --set daemon --profile <a name from profiles: in the shared config>`,
+          seats: uncast,
+          fix: `rbtv-bindings set <workflow.csv> <seat> <harness> <model> [effort], then rbtv goal materialize ${goal}`,
         });
       continue;
     }
@@ -232,7 +303,7 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
     let pickup;
     try {
-      pickup = engine.seedGoal({ goalFolder, goal, profile });
+      pickup = engine.seedGoal({ goalFolder, goal });
     } catch (err) {
       skipped.push({ goal, reason: 'seed-failed', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'error' : 'debug',
@@ -252,6 +323,11 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
     failedOn.delete(goalFolder);
     adopted.push(pickup);
+    // The goal is ADOPTED — this is its daemon-lane run start, and the one moment its channel has
+    // to exist before its seats' first to-owner message. After the seed, not before: a goal whose
+    // seeding refused above gets no channel, exactly as the queue lane ensures nothing for a row
+    // that does not start.
+    ensureGoalChannelOnce({ goal, goalFolder, engine, say });
     const held = Object.keys(pickup.heldByOtherLane || {});
 
     // ── THE HUMAN-INTERACTIVE SEATS AND THEIR ARMS (task 7.626, ruling
@@ -301,7 +377,6 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     const waiting = Object.keys(pickup.blockedOnOwner || {});
     say(pickup.enqueued.length || held.length || waiting.length ? 'info' : 'debug', 'lane watch: daemon-assigned goal seeded', {
       goal,
-      profile,
       enqueued: pickup.enqueued,
       skippedAsFinished: pickup.skippedAsFinished,
       heldByOtherLane: pickup.heldByOtherLane,
@@ -313,4 +388,7 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
   return { adopted, skipped };
 }
 
-module.exports = { LANE_FILE, DAEMON, CONSOLE, readLane, consoleRunIsLive, runLaneWatch, failedOn };
+module.exports = {
+  LANE_FILE, DAEMON, CONSOLE, readLane, consoleRunIsLive, runLaneWatch, failedOn,
+  ensureGoalChannelOnce, channelEnsured,
+};

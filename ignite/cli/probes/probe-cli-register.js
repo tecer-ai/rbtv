@@ -37,7 +37,7 @@ function check(name, pass, detail) {
   out(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
 }
 
-const SCHEMA = '{"required":{"profile":"string"},"optional":{"prompt":"string"}}';
+const SCHEMA = '{"required":{},"optional":{"prompt":"string"}}';
 
 // ⚑ The S-2(a) register-time gate (`229009b`) REFUSES a registration whose args_schema.required
 // omits an argument its action type needs at enqueue — such a row would register, report
@@ -187,8 +187,7 @@ async function main() {
 
     // 8. The payoff: register -> enqueue, both through the shipped CLI.
     r = await runCli([
-      'add-job', '--fn', 'cli-registered', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
+      'add-job', '--fn', 'cli-registered',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
     ], ownerEnv);
     check('a CLI-registered job is then enqueueable by add-job',
       r.code === 0 && /queued: queue id \d+/.test(r.stdout),

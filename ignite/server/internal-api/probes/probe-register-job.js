@@ -57,7 +57,7 @@ const { parseRequest } = require('../../../gateway/parse');
 
 const tmpDb = path.join(os.tmpdir(), `ignite-probe-register-${Date.now()}-${process.pid}.db`);
 
-const SCHEMA = { required: { profile: 'string' }, optional: { prompt: 'string' } };
+const SCHEMA = { required: {}, optional: { prompt: 'string' } };
 
 function out(...lines) {
   fs.appendFileSync(outPath, lines.join('\n') + '\n');
@@ -274,7 +274,7 @@ async function main() {
   //        queue row.
   r = await enqueue(OWNER, {
     job_id: 'launch-worker',
-    args: { profile: 'test-sleep' },
+    args: {},
     trigger_kind: 'scheduled',
     run_at: new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
   });
@@ -285,7 +285,7 @@ async function main() {
   // --- 9. An UNREGISTERED job is still refused at enqueue (the guard registration exists for).
   r = await enqueue(OWNER, {
     job_id: 'never-registered',
-    args: { profile: 'test-sleep' },
+    args: {},
     trigger_kind: 'scheduled',
     run_at: new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
   });

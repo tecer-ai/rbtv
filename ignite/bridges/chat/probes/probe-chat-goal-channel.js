@@ -126,9 +126,6 @@ function makeBridge({ existing = [], goals = [], prefix = PREFIX, ownerUser = US
     gatewayAddr: '127.0.0.1:0',
     bridgeToken: 'stub',
     sessionJobId: 'chat-launch',
-    sessionProfile: 'fallback-profile',
-    masterProfile: 'master-profile',
-    goalProfile: 'goal-profile',
     sendMessageJobId: 'send-message',
     workdir: null,
     workspaceRoot,
@@ -244,13 +241,13 @@ async function main() {
     check('group DM (mpim) refused — neither master nor goal', group.forwarded === false && group.reason === 'unroutable-surface', { group });
     check('exactly two jobs enqueued across four inbound messages', forwarder.enqueued.length === 2, { enqueued: forwarder.enqueued.length });
     // …and the ruling itself, asserted rather than merely worked around: two DIFFERENT surfaces,
-    // ONE profile value. Paired with the two route checks above, which prove the surfaces really
-    // were told apart — so this cannot pass by both jobs being the same job.
-    check('both surfaces carry the SAME profile — the transport names no execution (D2)',
+    // NEITHER naming execution. D2 made the value non-deciding; `#d-abolish-profile-names` deleted
+    // it. Paired with the two route checks above, which prove the surfaces really were told apart
+    // — so this cannot pass by both jobs being the same job.
+    check('NEITHER surface carries a profile — the transport names no execution at all (D2 · 7.787)',
       Boolean(dmJob) && Boolean(goalJob) && dmJob !== goalJob
-      && dmJob.payload.args.profile === goalJob.payload.args.profile
-      && dmJob.payload.args.profile === 'fallback-profile',
-      { dm: dmJob && dmJob.payload.args.profile, goal: goalJob && goalJob.payload.args.profile });
+      && !('profile' in dmJob.payload.args) && !('profile' in goalJob.payload.args),
+      { dm: dmJob && dmJob.payload.args, goal: goalJob && goalJob.payload.args });
   }
 
   // 6 — THE 1:1 INVARIANT: the goal thread is the CHANNEL, so two messages posted at

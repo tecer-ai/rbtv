@@ -650,7 +650,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   async function launchAgent(queueRow, actions, tick, now) {
     const { parentExecId, cleanedArgs } = extractChainMarker(queueRow);
     const args = safeJsonParse(cleanedArgs, {});
-    const profileName = args.profile;
     const prompt = args.prompt ?? null;
     const workdir = args.workdir ?? null;
     // The reasoning RUNG this row asks for (owner ruling `d-0811lp-effort-lane-build-now`,
@@ -717,7 +716,14 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       } else {
         spawnPrompt = CONTINUE_PROMPT_HEADER + transcript + CONTINUE_PROMPT_FOOTER;
         const parentRow = heartStore.getExecution(parentExecId);
-        const profile = Object.hasOwn(heartStore.config.profiles || {}, profileName) ? heartStore.config.profiles[profileName] : undefined;
+        // The seat's OWN launch spec — the same one `spawn()` will resolve, keyed by the cast in
+        // its descriptor (7.787). It used to be `config.profiles[args.profile]`, the caller's
+        // named profile, which ruling D19 had already stopped being what launches: a chain could
+        // decide "resumable" off one spec and then resume against another. `homedWorkdir` is
+        // resolved here rather than inside the attempt loop for exactly that reason — the seat
+        // folder is the spec's only address.
+        let profile = null;
+        try { profile = spawnManager.specForSeat(resolveJobHome(queueRow, workdir)); } catch { profile = null; }
         const newMessages = composeNewSenderMessages(parentRow);
         // Every condition is a REASON, so a fallback in the journal names what was missing rather
         // than only that it fell back. `parent-compaction`: the predecessor is a compaction turn,
@@ -764,8 +770,8 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
         // loud against this exec's own jobs_log row (see resolveJobHome above).
         const homedWorkdir = resolveJobHome(queueRow, workdir);
-        await spawnManager.spawn(exec.exec_id, profileName, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref, effort);
-        const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, profile: profileName, thread: exec.thread };
+        await spawnManager.spawn(exec.exec_id, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref, effort);
+        const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, thread: exec.thread };
         if (effort !== null) spawnAction.effort = effort;
         if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
         if (compactTurn) spawnAction.compact = true;
@@ -1012,9 +1018,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // known, and the outcome is its own action. Same discipline as the queued-run notice above: the
   // decision is a fact the moment it was made, and a launch failure must not be able to erase the
   // record that the daemon decided to ensure.
-  async function ensureGoalChannelAtStart(job, actions) {
+  // ⚠ THE SUBJECT IS `{ job }` OR `{ goal }`, AND THAT IS THE WHOLE OF WHAT TASK 7.789 CHANGED
+  // HERE. The queued lane passes `{ job }` and reaches the identical body it always did; the
+  // DAEMON lane (`engine/lane-watch.js`, on the pass that first adopts a goal) passes `{ goal }`.
+  // The input is forwarded WHOLE to `channelEnsureDecision`, which owns the difference — this
+  // function performs a decision and does not make one, so a second lane costs it no branch.
+  //
+  // `actions` defaults to its own array so the daemon-lane caller, which has no tick to attach to,
+  // gets the same records back and can log them. It is returned for exactly that reason.
+  async function ensureGoalChannel(subject, actions = []) {
     const decision = channelEnsureDecision({
-      job,
+      ...subject,
       resolveRoot: () => resolveWorkspaceRoot(heartStore.dbPath),
     });
     if (decision.action !== 'ensure') {
@@ -1025,7 +1039,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         kind: decision.kind,
         reason: decision.reason,
       });
-      return;
+      return actions;
     }
 
     const envFile = process.env.RBTV_IGNITE_CHAT_ENV_FILE || null;
@@ -1037,7 +1051,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         kind: decision.kind,
         reason: 'no-chat-env-file (RBTV_IGNITE_CHAT_ENV_FILE unset — no chat credential to give the child)',
       });
-      return;
+      return actions;
     }
 
     // ⚠ THE PREPARATION IS INSIDE THE TRY, not only the spawn (A3/C3 review, 2026-08-08). Three of
@@ -1073,7 +1087,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
           kind: decision.kind,
           reason: `carrier-cannot-carry-credential (${carrier} — EnvironmentFile is a systemd property; a ${carrier} child would run the ensure with no chat token)`,
         });
-        return;
+        return actions;
       }
 
       sessionId = generateSessionId();
@@ -1123,6 +1137,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         error: err.message,
       });
     }
+    return actions;
   }
 
   async function launchStartWorkflow(queueRow, actions, tick, now) {
@@ -1496,10 +1511,13 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
       const args = safeJsonParse(queueRow.args, {});
       if (job.action_type === 'launch-agent') {
-        if (!args.profile || !Object.hasOwn(heartStore.config.profiles || {}, args.profile)) {
-          actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-profile' });
-          continue;
-        }
+        // ⚠ NO PRE-DISPATCH SPEC CHECK ANY MORE (7.787). This deferred a row whose `args.profile`
+        // was not a key of the config — the one argument `#d-abolish-profile-names` deletes. There
+        // is nothing here to check: the row names no spec, and the seat's cast is resolved inside
+        // `spawn()`. The failure it used to catch does NOT become silent — an uncast or unmappable
+        // seat throws `E_UNCAST_SEAT`/`E_UNMAPPED_BINDING` out of the spawn call below and is
+        // recorded as `spawn-failed` against this exec's own `jobs_log` row, which is louder than
+        // a `defer` that repeated every cadence with nobody reading it.
         await launchAgent(queueRow, actions, tick, now);
       } else if (job.action_type === 'fire-tool') {
         if (!args.tool || !Object.hasOwn(heartStore.config.tools || {}, args.tool)) {
@@ -1517,7 +1535,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // is about to launch must not be able to reach for a channel that is still being created.
         // Placed inside this branch and after the unknown-workflow guard because only a row that
         // will actually start a run is a workflow start; a deferred row is not one.
-        await ensureGoalChannelAtStart(job, actions);
+        await ensureGoalChannel({ job }, actions);
         await launchStartWorkflow(queueRow, actions, tick, now);
       } else if (job.action_type === 'send-message') {
         await launchSendMessage(queueRow, actions, tick, now);
@@ -1810,7 +1828,15 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     }
   }
 
-  return { tick, getTickNumber, nudge };
+  // ⚠ `ensureGoalChannel` IS EXPOSED FOR THE DAEMON LANE, and for nothing else (task 7.789). The
+  // performing half needs `spawnSystemd`, the carrier config and this store's data root — all of
+  // which live in this closure — while the DECIDING half is `goal-channel-start.js`, imported.
+  // `engine/lane-watch.js` reaches it as `engine.ticker.ensureGoalChannel`, which is why the
+  // engine already publishes `ticker` on its surface (`engine/index.js`). Exposing it beats the
+  // alternative shapes: re-implementing the spawn in the engine would be a second performer of an
+  // act that must stay singular, and threading a callback down from `server/index.js` would put
+  // the wire somewhere neither end can read.
+  return { tick, getTickNumber, nudge, ensureGoalChannel };
 }
 
 module.exports = { createTicker };

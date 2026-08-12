@@ -61,8 +61,7 @@ async function main() {
 
     // 1. Valid dry-run exits 0 and prints a verdict.
     let r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
     ], cliEnv);
     out('--- add-job --dry-run (valid) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim(), 'STDERR=' + r.stderr.trim());
     check('valid dry-run exits 0 with a verdict', r.code === 0 && /dry-run/i.test(r.stdout) && /valid/i.test(r.stdout),
@@ -96,8 +95,7 @@ async function main() {
 
     // 4. --json dry-run: stable { ok: true, result: { dry_run: true, valid: true } } envelope.
     r = await runCli([
-      '--json', 'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
+      '--json', 'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
     ], cliEnv);
     out('--- add-job --json --dry-run ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
     let envelope = null;

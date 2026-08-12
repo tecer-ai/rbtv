@@ -44,8 +44,7 @@ async function main() {
   try {
     // 1. add -> remove -> inspect queue confirms it is gone (test plan #5).
     let r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
     ], cliEnv);
     check('setup: add-job succeeds', r.code === 0, `exit=${r.code} ${r.stderr}`);
     const queueId = (r.stdout.match(/queue id (\d+)/) || [])[1];
@@ -67,8 +66,7 @@ async function main() {
     // 2. Removing a PERIODIC row: the CLI must say the WHOLE schedule was
     // cancelled (D68 widened result fields), not just "removed".
     r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'periodic', '--every', '3600',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'periodic', '--every', '3600',
     ], cliEnv);
     check('setup: add-job (periodic) succeeds', r.code === 0, `exit=${r.code} ${r.stderr}`);
     const periodicId = (r.stdout.match(/queue id (\d+)/) || [])[1];

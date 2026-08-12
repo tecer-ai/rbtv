@@ -1,20 +1,24 @@
 'use strict';
 
-// probe-binding-catalog — the (harness, model) -> profile-name catalog (task 7.54, ruling D19).
+// probe-binding-catalog — the (harness, model) -> launch-spec table (7.54 · D19 · 7.787).
 //
 // TWO THINGS ARE UNDER TEST, and they are different claims:
 //
-//   1. THE CATALOG resolves a cast to exactly one profile name, and REFUSES rather than guessing
-//      when it cannot (unknown pair, alias spelling, ambiguous pair). The refusals are the point:
-//      the defect being fixed is a SILENT wrong-model launch, so every arm that refuses is paired
-//      with the arm that shows the same input succeeding when it should.
+//   1. THE TABLE resolves a cast to exactly one launch spec, and REFUSES rather than guessing when
+//      it cannot (unknown pair, alias spelling). The refusals are the point: the defect being fixed
+//      is a SILENT wrong-model launch, so every arm that refuses is paired with the arm that shows
+//      the same input succeeding when it should.
 //
-//   2. THE FIX resolves a REAL `seat.md` descriptor — the seat's cast beats the caller's profile,
-//      an UNCAST seat REFUSES (owner ruling D2, 2026-08-11: the caller's profile is no longer a
-//      fallback; arm 8 asserted the opposite until that ruling), and an unmappable cast STOPS the
-//      launch. Exercised through
-//      `spawn.js#profileForSeatCast` against descriptors written to a temp dir, never a stub: a
-//      probe that stubbed the descriptor read would prove the catalog and not the fix.
+//   2. THE FIX resolves a REAL `seat.md` descriptor — the seat's cast is the ONLY answer, an
+//      UNCAST seat REFUSES (D2, 2026-08-11; made absolute by `#d-abolish-profile-names`, which
+//      deleted the caller's profile parameter outright), and an unmappable cast STOPS the launch.
+//      Exercised through `spawn.js#launchSpecForSeat` against descriptors written to a temp dir,
+//      never a stub: a probe that stubbed the descriptor read would prove the table and not the fix.
+//
+// ⚠ THE AMBIGUITY ARM IS GONE (7.787) AND ITS ABSENCE IS CORRECT, not an omission. Two specs
+// claiming one (harness, model) was expressible while `profiles:` was a flat name-keyed map; under
+// `launch-specs: { <harness>: { <model>: … } }` it is a duplicate YAML key — unspellable rather
+// than refused. Arm 5 now asserts the property that replaced it: the KEY and the argv must AGREE.
 //
 // ⚑ ARM 10 IS THE DRIFT ALARM, and it is the reason this file runs Python. `bindings.py#catalog`
 // derives the SAME (harness, model) pairs from the SAME document for the AUTHORING side, and the
@@ -30,7 +34,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const catalog = require('../catalog');
-const { profileForSeatCast, seatDeclaresValue } = require('../../server/spawn/spawn');
+const { launchSpecForSeat, seatDeclaresValue } = require('../../server/spawn/spawn');
 const { loadConfig } = require('../../server/spawn/config');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..', '..');
@@ -68,7 +72,7 @@ function eq(a, b, what) {
 
 // The shipped config, loaded through the DAEMON adapter — it injects the SeatBinds validator the
 // bare resolver refuses to run without, so this is the same profile set the daemon spawns from.
-const shipped = loadConfig(SHIPPED).profiles;
+const shipped = loadConfig(SHIPPED).launchSpecs;
 
 // A seat folder carrying exactly the frontmatter `materialize-seats.py` emits. The folder is
 // NAMED for the seat, as it is in production (`.rbtv/goals/<goal>/seats/<seat>/`) — the refusal
@@ -86,22 +90,23 @@ function seatWith(frontmatter, seatName = 'aseat') {
 const quiet = () => {};
 
 // ── 1 · the shipped config resolves the motivating cast ──────────────────────────────────────
-check('(1) claude + claude-fable-5 resolves to the claude-fable profile', () => {
-  const name = catalog.profileForBinding(shipped, { harness: 'claude', model: 'claude-fable-5' });
-  eq(name, 'claude-fable', 'profile');
-  return name;
+check('(1) claude + claude-fable-5 resolves to its own launch spec', () => {
+  const { key, spec } = catalog.specForSeatCast(shipped, { harness: 'claude', model: 'claude-fable-5' }, quiet, 'aseat');
+  eq(key, 'claude/claude-fable-5', 'spec key');
+  eq(spec.exec.argv[3], 'claude-fable-5', 'the argv the key resolves to');
+  return key;
 });
 
 // ── 2 · every shipped profile round-trips through its own cast ───────────────────────────────
 // The whole-set version of arm 1: no profile may resolve to a DIFFERENT profile than itself, which
 // is the property that makes the mapping usable as an identity for a launch.
-check('(2) every castable shipped profile round-trips to itself', () => {
+check('(2) every shipped launch spec round-trips to itself', () => {
   const rows = catalog.catalogOf(shipped);
   for (const r of rows) {
-    if (!catalog.declaresBinding(r)) continue;              // test-sleep pins no model
-    const back = catalog.profileForBinding(shipped, r);
-    eq(back, r.profile, `round-trip of ${r.profile}`);
+    const { key } = catalog.specForSeatCast(shipped, r, quiet, 'aseat');
+    eq(key, r.key, `round-trip of ${r.key}`);
   }
+  if (!rows.length) throw new Error('the catalog is EMPTY — a round-trip that proves nothing');
   return `${rows.length} rows`;
 });
 
@@ -111,8 +116,9 @@ check('(2) every castable shipped profile round-trips to itself', () => {
 // catalog that refuses everything.
 check('(3) the `fable` alias is REFUSED while `claude-fable-5` succeeds', () => {
   const err = expectCode('E_UNMAPPED_BINDING', () =>
-    catalog.profileForBinding(shipped, { harness: 'claude', model: 'fable' }, { seat: 'interviewer' }));
-  eq(catalog.profileForBinding(shipped, { harness: 'claude', model: 'claude-fable-5' }), 'claude-fable', 'control');
+    catalog.specForSeatCast(shipped, { harness: 'claude', model: 'fable' }, quiet, 'interviewer'));
+  eq(catalog.specForSeatCast(shipped, { harness: 'claude', model: 'claude-fable-5' }, quiet, 'x').key,
+     'claude/claude-fable-5', 'control');
   if (!/castable/i.test(err.message)) throw new Error('the refusal does not name the castable set');
   return err.code;
 });
@@ -120,105 +126,126 @@ check('(3) the `fable` alias is REFUSED while `claude-fable-5` succeeds', () => 
 // ── 4 · an unknown harness is refused ────────────────────────────────────────────────────────
 check('(4) an unconfigured harness is REFUSED', () => {
   const err = expectCode('E_UNMAPPED_BINDING', () =>
-    catalog.profileForBinding(shipped, { harness: 'gpt-cli', model: 'gpt-9' }));
+    catalog.specForSeatCast(shipped, { harness: 'gpt-cli', model: 'gpt-9' }, quiet, 'aseat'));
   return err.code;
 });
 
-// ── 5 · an AMBIGUOUS pair is refused, not picked ─────────────────────────────────────────────
-// The one place this side is stricter than `bindings.py#castable()`, which lets a duplicate win
-// last. Here the answer launches a process.
-check('(5) two profiles claiming one (harness, model) are REFUSED, not ranked', () => {
-  const twins = {
-    'twin-a': { exec: { argv: ['claude', '-p', '--model', 'claude-opus-5'] } },
-    'twin-b': { exec: { argv: ['claude', '-p', '--model', 'claude-opus-5'] } },
+// ── 5 · THE KEY AND THE ARGV MUST AGREE — the guard that replaced the ambiguity refusal ──────
+//
+// `launch-specs:`' key is what every seat cast resolves through, so a spec filed under one model
+// whose argv runs another is the same silent-wrong-model launch the ambiguity refusal guarded
+// against, one level down. `profiles.js#validateSpecKey` refuses it at config LOAD; this arm plants
+// exactly that disagreement, and PAIRS it with an agreeing spec so a validator that refused
+// everything could not read green.
+check('(5) a spec whose argv contradicts its KEY is refused at config LOAD', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keyguard-'));
+  const write = (model, argvModel) => {
+    const f = path.join(dir, `${model}.yaml`);
+    fs.writeFileSync(f, [
+      `default_workdir_root: ${dir}`,
+      'launch-specs:',
+      '  claude:',
+      `    ${model}:`,
+      `      exec: { argv: ["claude", "-p", "--model", "${argvModel}"], prompt: stdin }`,
+      '      session_ref: { source: cwd-implicit }',
+      `      workdir_root: ${dir}`,
+      '      caps: { memory_max: "64M" }',
+      '',
+    ].join('\n'));
+    return f;
   };
-  const err = expectCode('E_AMBIGUOUS_BINDING', () =>
-    catalog.profileForBinding(twins, { harness: 'claude', model: 'claude-opus-5' }));
-  if (!/twin-a/.test(err.message) || !/twin-b/.test(err.message)) {
-    throw new Error('the refusal does not name BOTH claimants');
-  }
-  return err.code;
+  const err = expectCode('E_CONFIG_LOAD', () => loadConfig(write('claude-opus-5', 'claude-haiku-4-5')));
+  if (!/claude-haiku-4-5/.test(err.message)) throw new Error('the refusal does not name what the argv RUNS');
+  loadConfig(write('claude-sonnet-5', 'claude-sonnet-5'));      // CONTROL — agreement loads clean
+  return `${err.code} — key says claude-opus-5, argv runs claude-haiku-4-5`;
 });
 
-// ── 6 · the derivation law's edges ───────────────────────────────────────────────────────────
+// ── 6 · the key-guard's derivation edges ─────────────────────────────────────────────────────
+// `bindingOf` no longer DERIVES a catalog (7.787 — the key does that). It is what
+// `validateSpecKey` compares a key against, so its edges still decide whether arm 5's guard can be
+// fooled, and they are still asserted here.
 check('(6) a trailing model flag pins NOTHING; `-m` is read; `--model` wins when both appear', () => {
   eq(catalog.bindingOf({ exec: { argv: ['claude', '--model'] } }).model, '', 'trailing flag');
   eq(catalog.bindingOf({ exec: { argv: ['opencode', 'run', '-m', 'a/b'] } }).model, 'a/b', '-m');
   eq(catalog.bindingOf({ exec: { argv: ['x', '-m', 'second', '--model', 'first'] } }).model, 'first', 'flag order');
   eq(catalog.bindingOf({ exec: { argv: ['/usr/local/bin/claude', '-p'] } }).harness, 'claude', 'basename');
-  eq(catalog.bindingOf({ headed: {} }), null, 'no exec: half casts nothing');
+  eq(catalog.bindingOf({ headed: {} }), null, 'no exec: half is not checkable against a key');
   return 'four edges';
 });
 
 // ── 7 · THE FIX · a real descriptor's cast beats the caller's profile ────────────────────────
-check('(7) a seat cast claude-fable-5 launches claude-fable even when the caller asked for claude-sonnet', () => {
+check('(7) a REAL descriptor cast claude-fable-5 resolves that spec, and nothing else can be asked for', () => {
   const dir = seatWith('seat: interviewer\nharness: claude\nmodel: claude-fable-5\neffort: high\nmode: interactive');
   eq(seatDeclaresValue(dir, 'model'), 'claude-fable-5', 'scalar reader');
-  eq(profileForSeatCast(shipped, dir, 'claude-sonnet', quiet), 'claude-fable', 'resolved profile');
-  return 'cast wins';
+  eq(launchSpecForSeat(shipped, dir, quiet).key, 'claude/claude-fable-5', 'resolved spec');
+  // ⚑ THE ABOLITION, ASSERTED STRUCTURALLY. `launchSpecForSeat` takes no caller profile: there is
+  // no parameter through which a transport could ask for a different one. A signature check is the
+  // only way to assert an ABSENCE — an arm that passed a name would just be testing arity.
+  if (launchSpecForSeat.length !== 3) {
+    throw new Error(`launchSpecForSeat takes ${launchSpecForSeat.length} args — a caller-supplied `
+      + 'profile parameter is back, which is what #d-abolish-profile-names deleted');
+  }
+  return 'the descriptor is the only input';
 });
 
-// ── 8 · THE FIX · an undeclared cast falls back, unchanged ───────────────────────────────────
-// The channel master (`open_binding`: all three omitted) and every unmaterialized seat. This is
-// the arm that keeps the fix additive — a workspace that casts nothing behaves as it did before.
-check('(8) an UNCAST seat REFUSES — the caller\'s profile is never a fallback', () => {
-  // ⚑ THIS ARM WAS INVERTED 2026-08-11 (launch-cast unification, owner ruling D2). It used to
-  // assert the OPPOSITE — that an open, absent or partial descriptor falls back to the caller's
-  // profile — and that fallback was the defect: it is how a transport's value came to decide what
-  // an agent ran. The old expectation is preserved here in words because a reader meeting this
-  // check needs to know it changed by ruling, not by drift.
+// ── 8 · THE FIX · an UNCAST seat refuses, with NOTHING left to fall back to ──────────────────
+check('(8) an UNCAST seat REFUSES — there is no fallback anywhere any more', () => {
+  // ⚑ THIS ARM WAS INVERTED 2026-08-11 (D2) AND NARROWED AGAIN 2026-08-12. It once asserted the
+  // OPPOSITE — that an open, absent or partial descriptor falls back to the caller's profile — and
+  // that fallback was the defect: it is how a transport's value came to decide what an agent ran.
+  // D2 made it refuse EXCEPT where the caller's own profile pinned no model (D3(a)); 7.787 deleted
+  // the caller's profile entirely, so that carve-out has no subject and the refusal is total. The
+  // old expectations are preserved here in words because a reader meeting this check needs to know
+  // it changed by ruling, twice, not by drift.
   const cases = [
     ['open binding', seatWith('seat: goal-master\nagent_type: master\nmode: interactive')],
     ['no frontmatter', seatWith(null)],
     ['no seat.md', path.join(os.tmpdir(), 'cast-probe-absent-seat')],
     // A HALF cast (harness, no model) is not a cast — `declaresBinding` needs both, matching
-    // `open_binding`'s all-three-or-none rule. It refuses with the rest now.
+    // `open_binding`'s all-three-or-none rule. It refuses with the rest.
     ['partial cast', seatWith('seat: half\nharness: claude\nmode: interactive')],
   ];
   for (const [what, dir] of cases) {
     let code = null;
-    try { profileForSeatCast(shipped, dir, 'claude-sonnet', quiet); }
+    try { launchSpecForSeat(shipped, dir, quiet); }
     catch (err) { code = err.code; }
     if (code !== 'E_UNCAST_SEAT') {
-      throw new Error(`${what}: expected E_UNCAST_SEAT, got ${code || 'NO THROW — the caller profile was returned'}`);
+      throw new Error(`${what}: expected E_UNCAST_SEAT, got ${code || 'NO THROW — something was returned'}`);
     }
   }
-  // …and the CONTROL that this arm is not vacuous: a FULL cast does not refuse, it diverts. Without
-  // it, a resolver that threw E_UNCAST_SEAT unconditionally would read green on every line above.
+  // …and the CONTROL that this arm is not vacuous: a FULL cast resolves. Without it, a resolver
+  // that threw E_UNCAST_SEAT unconditionally would read green on every line above.
   const full = seatWith('seat: full\nharness: claude\nmodel: claude-opus-5\neffort: high');
-  eq(profileForSeatCast(shipped, full, 'claude-sonnet', quiet), 'claude-opus', 'control diverts');
-
-  // ⚑ D3(a), owner-ruled 2026-08-11 — THE BOUND ON THE REFUSAL. A profile that pins NO model can
-  // never be cast to, so an uncast seat launched on one passes through instead of refusing: the
-  // rule guards a model being chosen, and here none is. The pair is the whole check — the SAME
-  // uncast seat refuses on a model-pinning profile and passes on a model-less one, so this cannot
-  // read green on a resolver that simply stopped refusing.
-  const modelless = { 'test-sleep': { exec: { argv: ['sleep', '3600'], prompt: 'stdin' } } };
-  const bare = seatWith('seat: bare\nmode: interactive');
-  eq(profileForSeatCast(modelless, bare, 'test-sleep', quiet), 'test-sleep', 'model-less passes through');
-  let refused = null;
-  try { profileForSeatCast(shipped, bare, 'claude-sonnet', quiet); } catch (err) { refused = err.code; }
-  eq(refused, 'E_UNCAST_SEAT', 'the same seat still refuses on a model-pinning profile');
-  return 'four refusals + control diverts + model-less pass-through (paired)';
+  eq(launchSpecForSeat(shipped, full, quiet).key, 'claude/claude-opus-5', 'control resolves');
+  // ⚑ AND THE RETIRED CARVE-OUT IS ASSERTED GONE. D3(a) let an uncast seat launch when the
+  // CALLER's profile pinned no model — the `sleep`-based probe stand-ins. Those live in the
+  // `jobs:` block now and `specForSeatCast` never reads it, so a model-less table refuses the same
+  // uncast seat as the shipped one. Planted because a re-introduced carve-out would be silent.
+  const modelless = {};
+  let bareCode = null;
+  try { catalog.specForSeatCast(modelless, { harness: '', model: '' }, quiet, 'bare'); }
+  catch (err) { bareCode = err.code; }
+  eq(bareCode, 'E_UNCAST_SEAT', 'a model-less table no longer lets an uncast seat through');
+  return 'four refusals + control resolves + the D3(a) carve-out asserted GONE';
 });
 
 // ── 9 · THE FIX · an unmappable cast STOPS the launch ────────────────────────────────────────
 // The defect class in one arm: the wrong answer here is "return claude-sonnet and launch it".
 check('(9) a seat cast as something unspawnable REFUSES rather than launching the caller profile', () => {
   const dir = seatWith('seat: ghost\nharness: claude\nmodel: claude-fable-9\neffort: high', 'ghost');
-  const err = expectCode('E_UNMAPPED_BINDING', () => profileForSeatCast(shipped, dir, 'claude-sonnet', quiet));
+  const err = expectCode('E_UNMAPPED_BINDING', () => launchSpecForSeat(shipped, dir, quiet));
   if (!/ghost/.test(err.message)) throw new Error('the refusal does not name the seat');
   return err.code;
 });
 
 // ── 10 · THE DRIFT ALARM · one derivation law, two implementations ───────────────────────────
 check('(10) the JS catalog equals `bindings.py#catalog` ROW FOR ROW on the shipped config', () => {
-  const mine = catalog.catalogOf(shipped).map((r) => `${r.profile}|${r.harness}|${r.model}`);
+  const mine = catalog.catalogOf(shipped).map((r) => `${r.key}|${r.harness}|${r.model}`);
   let theirs;
   try {
     const out = execFileSync('python', ['-c',
       'import sys,json; sys.path.insert(0, sys.argv[1]); import bindings;'
-      + ' print(json.dumps(["%s|%s|%s" % (r["profile"], r["harness"], r["model"]) for r in bindings.catalog(sys.argv[2])]))',
+      + ' print(json.dumps(["%s|%s|%s" % (r["spec"], r["harness"], r["model"]) for r in bindings.catalog(sys.argv[2])]))',
       path.join(IGNITE_ROOT, 'capabilities', 'bindings', 'tool'), SHIPPED,
     ], { encoding: 'utf8', timeout: 60000 });
     theirs = JSON.parse(out.trim().split('\n').pop());

@@ -6,7 +6,7 @@
 // D90; the set stays SEVEN, and the bridge speaks only add-job here):
 //
 //   1. FIRST message in a new chat thread  → a SESSION-CREATING job:
-//        enqueue-job naming a launch-agent function + a named launch profile
+//        enqueue-job naming a launch-agent function (7.787: and nothing about execution)
 //        (DEC-1 R3). The bridge NEVER spawns; the ticker's Dispatch phase does.
 //
 //   2. FOLLOW-UP in an already-mapped thread → a `send-message` ACTION-TYPE job
@@ -232,13 +232,12 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // at the same seat, in the same thread. Both doors resolve identically now, and an uncast seat
   // REFUSES (`catalog.js#E_UNCAST_SEAT`) instead of inheriting whatever the bridge carried.
   //
-  // `sessionProfile` is what remains, and it decides NOTHING: the enqueue must carry a non-empty
-  // `profile` arg (`launch-agent` REQUIRED_ARGS) and the daemon replaces it with the seat's cast or
-  // refuses. It is the request; the seat's record is the decision. Kept as one value for every
-  // surface precisely so no surface can mean anything by it.
-  function profileFor() {
-    return config.sessionProfile;
-  }
+  // ⚠ AND `sessionProfile` IS GONE TOO (`#d-abolish-profile-names`, 2026-08-12). It was the last
+  // remnant — a value that decided nothing, kept alive only because `launch-agent` required a
+  // non-empty `profile` argument. That argument no longer exists, so `profileFor()` is deleted
+  // rather than left returning a value with no consumer. The enqueue below carries `{prompt}` and,
+  // where the surface homes one, `{workdir}` — and the workdir is the SEAT, which is the only
+  // thing that decides what runs.
 
   // WHERE the session runs, by surface. Master/mention traffic uses the configured
   // `workdir` as it always has. GOAL traffic is homed at that goal's OPEN run's
@@ -263,12 +262,6 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // difference is that a second seat-busy refusal posts NO notice. The owner was told once, and
   // a notice per poll pass would turn one honest line into a stream of them.
   async function forwardSessionCreate({ chatThreadId, text, route, retry = false }) {
-    const profile = profileFor();
-    if (!profile) {
-      // A launch-agent job MUST name a profile (DEC-1 R3; the store re-validates it
-      // exists). Missing config is a loud refusal, never a silent malformed forward.
-      return { forwarded: false, leg: 'session-create', reason: 'no-session-profile-configured' };
-    }
     const home = workdirFor(route);
     if (!home.ok) {
       // Nothing is enqueued. The owner gets a fixed notice on the surface he typed on, because
@@ -301,7 +294,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       job_id: config.sessionJobId,
       // The user text, behind at most the one correlation line above — the seat's descriptor
       // carries behaviour (see the header).
-      args: { profile, prompt },
+      args: { prompt },
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
@@ -356,7 +349,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
     const queueId = res.result && res.result.jobId;
     threadMap.create(chatThreadId, { queueId });
-    log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, profile, workdir: home.workdir || null });
+    log('info', 'session-create job enqueued', { chatThreadId, queueId, route: route && route.kind, goalId: route && route.goalId, workdir: home.workdir || null });
     const busAnswer = await recordBusAnswer({ route, text });
     return { forwarded: true, leg: 'session-create', intent: 'enqueue-job', queueId, route: route && route.kind, goalId: (route && route.goalId) || null, ...(busAnswer ? { busAnswer } : {}) };
   }
@@ -478,9 +471,9 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return forwardSessionCreate({ chatThreadId, text, route });
   }
 
-  // `profileFor`/`workdirFor` are exposed so the WARM leg (live-sessions.js) resolves a
-  // conversation's profile and home through THESE functions rather than a second copy of the
-  // surface rules. A warm session must run the same profile at the same seat the cold path would
+  // `workdirFor` is exposed so the WARM leg (live-sessions.js) resolves a conversation's home
+  // through THIS function rather than a second copy of the
+  // surface rules. A warm session must run at the same seat the cold path would
   // have used, or the two paths are two different agents wearing one thread.
   //
   // ⚑ `recordBusAnswer` IS EXPOSED FOR EXACTLY THAT REASON, one fact further on. The warm leg is
@@ -489,7 +482,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // this the same defect the owner caught on 2026-08-11 would simply reappear there. The bridge
   // calls THIS function; it does not get a second copy of the rule, exactly as it does not get a
   // second copy of the surface rules.
-  return { onChatMessage, forwardSessionCreate, forwardFollowUp, profileFor, workdirFor, recordBusAnswer, CMP8_TYPES };
+  return { onChatMessage, forwardSessionCreate, forwardFollowUp, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
 module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, resolveGoalSeat };

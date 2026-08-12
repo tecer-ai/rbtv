@@ -38,8 +38,11 @@ function makeGoalTree(wsRoot, goal, run) {
 
 async function run(lines) {
   const ctx = setup({}, {
+    // 7.787: `setup`'s extras land in the fixture's `launch-specs.bash` block, so the argv must
+    // pin the model its key names (`profiles.js#validateSpecKey`). The `bash -c` shim really runs
+    // `sleep 3600`, unchanged.
     'agent-profile': {
-      exec: { argv: ['sleep', '3600'], prompt: 'stdin' },
+      exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'agent-profile'], prompt: 'stdin' },
       session_ref: { source: 'cwd-implicit' },
       workdir_root: '/tmp',
       caps: { memory_max: '64M', runtime_max: '1h' },
@@ -93,9 +96,9 @@ async function run(lines) {
     });
 
     registerJob('recovery-job', 'fire-tool', { tool: 'string' });
-    registerJob('agent-job', 'launch-agent', { profile: 'string' });
+    registerJob('agent-job', 'launch-agent', {});
     enqueue('recovery-job', { tool: 'recover-room-probe', workdir: runDir });
-    enqueue('agent-job', { profile: 'agent-profile', workdir: runDir });
+    enqueue('agent-job', { workdir: runDir });
 
     const r = await ctx.ticker.tick(new Date());
     lines.push(`tick actions: ${JSON.stringify(r.actions)}`);

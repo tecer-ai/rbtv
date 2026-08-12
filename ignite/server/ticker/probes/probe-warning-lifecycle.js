@@ -21,7 +21,7 @@ function warningNotes(messages) {
 
 async function makeBlockedBudgetExhaustedSeat(ctx, lines) {
   registerLaunchAgentJob(ctx);
-  const q1 = enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
+  const q1 = enqueueLaunchAgent(ctx, { runAt: new Date() });
   let r = await ctx.ticker.tick();
   lines.push(`launch tick ${r.tick}: warning actions=${JSON.stringify(r.actions.filter((a) => a.phase === 'warnings'))}`);
 
@@ -236,7 +236,7 @@ async function run(lines) {
     const mkExec = (parent) => ctx.store.recordExecutionStart({
       jobId: 'launch-agent',
       actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'test-sleep' }),
+      args: JSON.stringify({}),
       enqueuedBy: 'probe',
       firedTick: 1,
       firedAt: new Date(),

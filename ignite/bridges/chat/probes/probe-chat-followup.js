@@ -170,7 +170,7 @@ async function main() {
     const execNav = seedRunningExecution(daemon.store, { enqueuedBy: daemon.bridgeSenderId });
     const navQueueId = 4242;
     daemon.store.recordTick({ tick: 2, actionsJson: JSON.stringify([
-      { phase: 'dispatch', action: 'spawn', execId: execNav.exec_id, queueId: navQueueId, profile: 'worker' },
+      { phase: 'dispatch', action: 'spawn', execId: execNav.exec_id, queueId: navQueueId },
     ]) });
     const chanL3 = 'C-nav-fu'; const tsL3 = '1700000000.011000';
     const threadL3 = `${chanL3}:${tsL3}`;
@@ -195,15 +195,15 @@ async function main() {
     const execQtStart = daemon.store.recordExecutionStart({
       queueId: qtQueueId,
       jobId: 'chat-launch', actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'worker', prompt: 'hi' }),
+      args: JSON.stringify({ prompt: 'hi' }),
       enqueuedBy: daemon.bridgeSenderId, sessionMode: 'headless',
       firedTick: 3, firedAt: new Date(),
-      sessionId: 'sess-probe-qt', pid: 999998, profile: 'worker', workdir: null,
+      sessionId: 'sess-probe-qt', pid: 999998, profile: 'claude/claude-opus-5', workdir: null,
     });
     daemon.store.updateExecutionStatus(execQtStart.exec_id, { status: 'running' });
     const execQt = daemon.store.getExecution(execQtStart.exec_id); // carries thread = exec-<exec_id>
     daemon.store.recordTick({ tick: 3, actionsJson: JSON.stringify([
-      { phase: 'dispatch', action: 'spawn', execId: execQt.exec_id, queueId: qtQueueId, profile: 'worker' },
+      { phase: 'dispatch', action: 'spawn', execId: execQt.exec_id, queueId: qtQueueId },
     ]) });
     for (let n = 4; n <= 13; n++) daemon.store.recordTick({ tick: n, actionsJson: JSON.stringify([]) });
     // Prove the aging premise on the REAL surface: the spawn is NOT in recent_ticks,

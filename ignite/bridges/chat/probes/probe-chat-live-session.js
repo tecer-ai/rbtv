@@ -88,18 +88,24 @@ function scratchWorkspace({ humanInteractive = true, cast = DEFAULT_CAST } = {})
   // is untestable from this config: every shipped non-claude profile is refused one gate earlier
   // (no `resume:`), so a `kimi` refusal would pass whether the harness gate existed or not — the
   // check would be vacuous. This profile makes the harness the ONLY thing left to refuse it.
-  yamlText = yamlText.replace(/^tools:/m,
-    '  probe-nonclaude-with-resume:\n'
-    + '    exec:\n'
-    + '      argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--work-dir", "{workdir}"]\n'
-    + '      prompt: stdin\n'
-    + '    resume:\n'
-    + '      argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--resume", "{session_ref}"]\n'
-    + '      prompt: stdin\n'
-    + '    session_ref: { source: assigned }\n'
-    + '    toolset_ceiling: full\n'
-    + '    workdir_root: .rbtv/goals\n'
-    + '\ntools:');
+  // ⚠ INJECTED INTO `launch-specs:` UNDER ITS OWN HARNESS KEY (7.787). It used to be appended
+  // just before `tools:`, which was the end of the flat `profiles:` map; that slot is the
+  // name-keyed `jobs:` block now, and a `jobs:` entry can never be CAST to — the arm would go
+  // vacuous in the one direction it exists to measure. The key is the pair, and it agrees with the
+  // `-m` pin in the argv (`profiles.js#validateSpecKey`).
+  // Appended INSIDE the existing `kimi:` harness block rather than as a second one — a duplicate
+  // mapping key is a YAML parse error, and the shipped config already declares that harness.
+  yamlText = yamlText.replace(/^(  kimi:\n)/m,
+    '$1    probe-kimi-model:\n'
+    + '      exec:\n'
+    + '        argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--work-dir", "{workdir}"]\n'
+    + '        prompt: stdin\n'
+    + '      resume:\n'
+    + '        argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--resume", "{session_ref}"]\n'
+    + '        prompt: stdin\n'
+    + '      session_ref: { source: assigned }\n'
+    + '      toolset_ceiling: full\n'
+    + '      workdir_root: .rbtv/goals\n');
   const configPath = path.join(root, 'spawn-profiles.yaml');
   fs.writeFileSync(configPath, yamlText);
 
@@ -143,7 +149,7 @@ async function main() {
       const mgr = createLiveSessions({ configPath: w.configPath, workspaceRoot: w.ws, reapPollMs: 3600000 });
       cleanups.push(() => mgr.stop());
 
-      const admitted = mgr.eligible({ profileName: 'claude-haiku', workdir: w.seatDir });
+      const admitted = mgr.eligible({ workdir: w.seatDir });
       check('arm1: a claude profile at a human-interactive seat is ELIGIBLE', admitted.ok === true, { got: admitted });
 
       // The discriminating pair for the HARNESS gate: same seat, same resume template, only the
@@ -159,7 +165,7 @@ async function main() {
       cleanups.push(nonClaudeSeat.cleanup);
       const mgrNc = createLiveSessions({ configPath: nonClaudeSeat.configPath, workspaceRoot: nonClaudeSeat.ws, reapPollMs: 3600000 });
       cleanups.push(() => mgrNc.stop());
-      const nonClaude = mgrNc.eligible({ profileName: 'claude-haiku', workdir: nonClaudeSeat.seatDir });
+      const nonClaude = mgrNc.eligible({ workdir: nonClaudeSeat.seatDir });
       check('arm1: a seat CAST to a non-claude harness whose profile HAS a resume template is refused, ON THE HARNESS',
         nonClaude.ok === false && /harness-not-live-capable/.test(nonClaude.reason), { got: nonClaude });
 
@@ -168,20 +174,24 @@ async function main() {
       cleanups.push(badCast.cleanup);
       const mgrBad = createLiveSessions({ configPath: badCast.configPath, workspaceRoot: badCast.ws, reapPollMs: 3600000 });
       cleanups.push(() => mgrBad.stop());
-      const unmapped = mgrBad.eligible({ profileName: 'claude-haiku', workdir: badCast.seatDir });
+      const unmapped = mgrBad.eligible({ workdir: badCast.seatDir });
       check('arm1: a seat cast to a pair no profile carries is refused AT THE CAST',
         unmapped.ok === false && /uncastable-seat/.test(unmapped.reason), { got: unmapped });
 
-      // An UNCAST seat still reaches the profile-name gates, because with nothing declared the
-      // caller's profile is all there is — and an unknown one is refused there. This is the arm
-      // that keeps `unknown-profile` reachable at all, and it pairs with the two above: cast seat
-      // → the descriptor decides; uncast seat → the caller's name decides.
+      // ⚠ AN UNCAST SEAT IS REFUSED OUTRIGHT (7.787), and the arm inverted with the ruling. It
+      // used to assert that an uncast seat fell through to the CALLER'S profile name and was
+      // refused there when the name was unknown — the `unknown-profile` reason, which was the last
+      // place a transport's value decided anything. `#d-abolish-profile-names` deleted the caller's
+      // name from this door entirely, so an uncast seat has nothing to fall back to and the
+      // refusal is the cast's own. It still pairs with the two above: cast seat → the descriptor
+      // decides; uncast seat → nothing decides, so nothing runs.
       const uncast = scratchWorkspace({ humanInteractive: true, cast: '' });
       cleanups.push(uncast.cleanup);
       const mgrUncast = createLiveSessions({ configPath: uncast.configPath, workspaceRoot: uncast.ws, reapPollMs: 3600000 });
       cleanups.push(() => mgrUncast.stop());
-      const unknown = mgrUncast.eligible({ profileName: 'no-such-profile', workdir: uncast.seatDir });
-      check('arm1: on an UNCAST seat an unknown caller profile is refused', unknown.ok === false && unknown.reason === 'unknown-profile', { got: unknown });
+      const unknown = mgrUncast.eligible({ workdir: uncast.seatDir });
+      check('arm1: an UNCAST seat is refused AT THE CAST — there is no caller name left to fall back to',
+        unknown.ok === false && unknown.reason === 'uncastable-seat:E_UNCAST_SEAT', { got: unknown });
 
       // The SAME profile at a seat that does not declare the flag — the discriminator is the
       // seat, not the profile, so the pair is what proves gate 1 is read at all.
@@ -189,7 +199,7 @@ async function main() {
       cleanups.push(w2.cleanup);
       const mgr2 = createLiveSessions({ configPath: w2.configPath, workspaceRoot: w2.ws, reapPollMs: 3600000 });
       cleanups.push(() => mgr2.stop());
-      const notDeclared = mgr2.eligible({ profileName: 'claude-haiku', workdir: w2.seatDir });
+      const notDeclared = mgr2.eligible({ workdir: w2.seatDir });
       check('arm1: the SAME profile at a seat with no `human-interactive:` is refused (gate 1 is the seat\'s declaration)',
         notDeclared.ok === false && notDeclared.reason === 'seat-not-human-interactive', { got: notDeclared });
 
@@ -228,7 +238,7 @@ async function main() {
     // is a CONTINUATION of the chain, not a fresh process wearing its id. Continuity across the
     // cold→warm boundary is the design's whole claim; asserting only that a reply arrived would
     // pass on a session that had forgotten everything.
-    const p1 = mgr.feed({ conversationId: conv, profileName: 'claude-haiku', workdir: w.seatDir, prompt: 'What is the name of the module I mentioned? Reply with only the module name.', sessionRef, start: true });
+    const p1 = mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is the name of the module I mentioned? Reply with only the module name.', sessionRef, start: true });
 
     // ⚑ THE MID-TURN FEED — written while turn 1 is still running, which is the case the design
     // flagged as unverified. The spike measured the CLI QUEUEING it (2026-08-10, claude 2.1.226);
@@ -236,7 +246,7 @@ async function main() {
     await sleep(2500);
     const midTurnState = mgr.list()[0];
     const t2 = nowMs();
-    const p2 = mgr.feed({ conversationId: conv, profileName: 'claude-haiku', workdir: w.seatDir, prompt: 'What is 12 minus 5? Reply with only the number.', sessionRef, start: true });
+    const p2 = mgr.feed({ conversationId: conv, workdir: w.seatDir, prompt: 'What is 12 minus 5? Reply with only the number.', sessionRef, start: true });
 
     const r1 = await p1;
     const r2 = await p2;
@@ -305,7 +315,7 @@ async function main() {
       const conv2 = 'C-PROBE:crash';
       const ref2 = require('node:crypto').randomUUID();
       seedChain(w.seatDir, ref2);
-      const pending = mgr.feed({ conversationId: conv2, profileName: 'claude-haiku', workdir: w.seatDir, prompt: 'Write 500 words about the colour blue.', sessionRef: ref2, start: true });
+      const pending = mgr.feed({ conversationId: conv2, workdir: w.seatDir, prompt: 'Write 500 words about the colour blue.', sessionRef: ref2, start: true });
       await sleep(4000);
       const live = mgr.list()[0];
       if (!live) {
@@ -333,7 +343,7 @@ async function main() {
         return { status: res.status, body: await res.json() };
       };
 
-      const cold = await call({ conversation: 'C-NOT-WARM:1', prompt: 'hello', profile: 'claude-haiku', start: false });
+      const cold = await call({ conversation: 'C-NOT-WARM:1', prompt: 'hello', start: false });
       check('arm6: a BRIDGE token reaches `live-feed` (the same door `enqueue-job` is open on)',
         cold.body && cold.body.ok === true, { got: cold });
       check('arm6: a conversation with no warm session is a SOFT refusal, never an error — the caller takes the cold path',
@@ -369,7 +379,7 @@ async function main() {
         cleanups.push(() => mut.stop());
         const mutRef = require('node:crypto').randomUUID();
         seedChain(w.seatDir, mutRef);
-        const res = await mut.feed({ conversationId: 'C-MUT:1', profileName: 'claude-haiku', workdir: w.seatDir, prompt: 'What is the name of the module I mentioned? Reply with only the module name.', sessionRef: mutRef, start: true });
+        const res = await mut.feed({ conversationId: 'C-MUT:1', workdir: w.seatDir, prompt: 'What is the name of the module I mentioned? Reply with only the module name.', sessionRef: mutRef, start: true });
         check('arm7: with the stdin write cut out, the SAME feed that arm 2 answers is NOT answered — the probe can fail',
           res && res.ok === false, { got: res });
       }

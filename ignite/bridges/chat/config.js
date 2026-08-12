@@ -11,7 +11,7 @@
 // ⚑ SECRETS COME FROM THE ENVIRONMENT, NEVER FROM A COMMITTED FILE (D27:
 // credentials never travel in git). Tokens are read from the process environment
 // and never written back to disk or logged. The non-secret settings (allowlist,
-// job/profile names, gateway address) may come from a JSON config file OR env.
+// job names, gateway address) may come from a JSON config file OR env.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -40,7 +40,6 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //   {
 //     "gateway_addr": "127.0.0.1:7431",
 //     "session_job_id": "chat-launch",     // catalogue slug: a launch-agent job
-//     "session_profile": "worker",         // named launch profile the session runs
 //     "send_message_job_id": "send-message", // catalogue slug: a send-message action-type job
 //     "workdir": "/abs/path",              // optional workdir for the session
 //     "workspace_root": "/abs/path",       // workspace whose .rbtv/goals/ homes goal-master seats
@@ -92,8 +91,6 @@ function resolveConfig(overrides = {}) {
 
   const sessionJobId =
     overrides.sessionJobId || file.session_job_id || 'chat-launch';
-  const sessionProfile =
-    overrides.sessionProfile || file.session_profile || null;
   const sendMessageJobId =
     overrides.sendMessageJobId || file.send_message_job_id || 'send-message';
   const workdir = overrides.workdir || file.workdir || null;
@@ -119,18 +116,19 @@ function resolveConfig(overrides = {}) {
   // decide which harness, model and reasoning rung an agent ran at — so one seat answered a DM as
   // one model and the same seat answered a goal thread as another, with its own `seat.md` saying
   // a third thing. The seat's record is the authority now, resolved daemon-side at every launch
-  // door (`launch-profiles/catalog.js#castProfileFor`), and a seat that declares no cast REFUSES
+  // door (`launch-profiles/catalog.js#specForSeatCast`), and a seat that declares no cast REFUSES
   // rather than inheriting whatever the transport happened to carry.
   //
-  // `session_profile` SURVIVES and decides nothing. `launch-agent` requires a non-empty `profile`
-  // argument (heart-store.js REQUIRED_ARGS), so the enqueue must carry a name; the daemon replaces
-  // it with the seat's cast or refuses. It is the request, never the decision. Removing the store's
-  // requirement so this key can go too is the follow-up — it touches the queue schema, the gateway
-  // parse and every other producer, which is a larger blast radius than this change.
+  // ── `session_profile` — DELETED 2026-08-12 (`#d-abolish-profile-names`, task 7.787) ──────────
+  // It was the LAST of the four, and it survived the 2026-08-11 cut for exactly one reason its own
+  // comment stated: it "decides NOTHING" but `launch-agent` required a non-empty `profile`
+  // argument, so the enqueue had to carry SOMETHING. That requirement is gone — `launch-agent`'s
+  // REQUIRED_ARGS is now empty and the daemon derives every launch from the seat's own descriptor
+  // — so the key has nothing left to satisfy and is removed rather than left as a value nobody
+  // reads. This bridge now names no execution at all, in any field.
   //
-  // A deployment still carrying the three keys is not broken by their presence: they are simply
-  // never read. `master_profile.py` (the master's self-service knob) retargets to the bindings
-  // sheet in the same change — see `capabilities/master-profile/`.
+  // A deployment still carrying any of the four keys is not broken by their presence: they are
+  // simply never read.
 
   // Conversation state across restarts (chat-bridge.js § persistence). NON-SECRET
   // (conversation ids and Slack channel/thread ids only — never a token), so it may
@@ -185,7 +183,6 @@ function resolveConfig(overrides = {}) {
     gatewayAddr,
     bridgeToken,
     sessionJobId,
-    sessionProfile,
     sendMessageJobId,
     workdir,
     workspaceRoot,

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const yaml = require('js-yaml');
-const { setup, teardown, capture, fire } = require('./lib');
+const { setup, teardown, capture, fire, castSeat } = require('./lib');
 const { validateSpawnRequest, composeArgv } = require('../spawn');
 const { loadConfig } = require('../config');
 
@@ -16,9 +16,17 @@ capture('probe-flag-injection', async (lines) => {
     // argv-last guard cases are config-load failures now (probe-carriage-vocab.js proves that).
     // The WORKDIR guard stays UNCONDITIONAL — a workdir always rides argv/unit properties.
     const cases = [
-      { name: 'flag in workdir', code: 'E_FLAG_INJECTION', fn: () => ctx.mgr.spawn(0, 'test-sleep', 'headless', null, '-/tmp', 'probe') },
-      { name: 'unknown request key', code: 'E_UNKNOWN_REQUEST_KEY', fn: () => validateSpawnRequest({ profile: 'test-sleep', session_mode: 'headless', prompt: null, workdir: null, extra: 1 }) },
-      { name: 'unknown profile', code: 'E_UNKNOWN_PROFILE', fn: () => ctx.mgr.spawn(0, 'not-a-profile', 'headless', null, null, 'probe') },
+      { name: 'flag in workdir', code: 'E_FLAG_INJECTION', fn: () => ctx.mgr.spawn(0, 'headless', null, '-/tmp', 'probe') },
+      { name: 'unknown request key', code: 'E_UNKNOWN_REQUEST_KEY', fn: () => validateSpawnRequest({ session_mode: 'headless', prompt: null, workdir: null, extra: 1 }) },
+      // ⚠ AND `profile` IS ITSELF AN UNKNOWN KEY NOW (7.787). It was the request vocabulary's
+      // first field; `#d-abolish-profile-names` removed it, so a caller still sending it is
+      // refused by the SAME closed-vocabulary guard as `extra`. Planted, because a key that
+      // quietly went back to being accepted is exactly what nothing else would notice.
+      { name: 'a retired `profile` request key', code: 'E_UNKNOWN_REQUEST_KEY', fn: () => validateSpawnRequest({ profile: 'test-sleep', session_mode: 'headless', prompt: null, workdir: null }) },
+      // An UNMAPPABLE cast — the seat declares a pair no launch spec carries. This leg used to
+      // read "unknown profile" and pass a name; there is no name to pass, so it plants the
+      // failure where it can now occur: in the descriptor.
+      { name: 'a cast no launch spec carries', code: 'E_UNMAPPED_BINDING', fn: () => ctx.mgr.spawn(0, 'headless', null, castSeat(path.join(ctx.runDir, 'seats', 'ghost'), 'no-such-model'), 'probe') },
     ];
     // ASSERT the code, never merely record it — the same idiom 31149a02 put on probe-mode-gate and
     // probe-workdir-gate. `if (!err.code)` accepted ANY typed throw, and ERR_INVALID_ARG_TYPE has a
@@ -38,7 +46,7 @@ capture('probe-flag-injection', async (lines) => {
     // Retired flat branch (r-seats-only-architecture (3)): a spawn naming NO workdir used to
     // fall through to the flat .rbtv/sessions/ branch — it is a typed refusal now.
     try {
-      await ctx.mgr.spawn(0, 'test-quick', 'headless', 'x', null, 'probe');
+      await ctx.mgr.spawn(0, 'headless', 'x', null, 'probe');
       throw new Error('no-workdir spawn: UNEXPECTED PASS — the retired flat branch admitted it');
     } catch (err) {
       if (err.code !== 'E_SEATLESS_GOAL_DISPATCH') throw err;
@@ -49,9 +57,9 @@ capture('probe-flag-injection', async (lines) => {
     // parentheses, dollar signs are DATA there; the pre-p7-multiturn unconditional
     // guard refused exactly this and broke every composed multi-turn prompt). Spawned into the
     // fixture's canonical seat folder — the only admitted home under r-seats-only-architecture.
-    const fired = fire(ctx, { profile: 'test-quick', sessionMode: 'headless', workdir: ctx.seatDir });
+    const fired = fire(ctx, { cast: 'test-quick', sessionMode: 'headless', workdir: ctx.seatDir });
     const transcript = '[owner] what is 17*23? (exactly)\n\n[assistant] 391\n\n[owner] now add 9 & say "$done"';
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-quick', 'headless', transcript, ctx.seatDir, 'probe');
+    const row = await ctx.mgr.spawn(fired.exec_id, 'headless', transcript, ctx.seatDir, 'probe');
     lines.push(`stdin-carriage transcript prompt ACCEPTED: exec ${row.exec_id} spawned (session ${row.session_id})`);
 
     // ── THE SEAT DESCRIPTOR ON THE COMMAND LINE (owner ruling 2026-08-07) ──────────────────
@@ -70,19 +78,17 @@ capture('probe-flag-injection', async (lines) => {
       auth: { senders_file: path.join(ctx.tmp, 'senders.yaml') },
       spawn: { data_root: ctx.dataRoot, carrier: 'auto', kill_grace_seconds: 2 },
       default_workdir_root: ctx.defaultWorkdir,
-      profiles: {
-        // argv[0] IS the harness classifier (`harnessOf` → `harnessFromBinary`). Never spawned.
-        'test-claude': {
-          exec: { argv: ['claude', '-p'], prompt: 'stdin' },
-          session_ref: { source: 'cwd-implicit' },
-          workdir_root: ctx.workRoot,
-          caps: { memory_max: '64M', runtime_max: '1h' },
-        },
-      },
+      // argv[0] IS the harness classifier (`harnessOf` → `harnessFromBinary`). Never spawned.
+      'launch-specs': { claude: { 'probe-claude': {
+        exec: { argv: ['claude', '-p', '--model', 'probe-claude'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: ctx.workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      } } },
     }));
     const claudeCfg = loadConfig(claudeCfgPath);
-    const claudeProfile = claudeCfg.profiles['test-claude'];
-    const sleepProfile = loadConfig(ctx.cfgPath).profiles['test-sleep'];
+    const claudeProfile = claudeCfg.launchSpecs['claude/probe-claude'];
+    const sleepProfile = loadConfig(ctx.cfgPath).launchSpecs['bash/test-sleep'];
     const descriptor = path.join(ctx.seatDir, 'seat.md');
     if (!fs.existsSync(descriptor)) throw new Error('fixture premise broken: the seat folder has no seat.md');
 

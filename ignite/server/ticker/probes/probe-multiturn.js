@@ -20,17 +20,32 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { setup, teardown, registerLaunchAgentJob, enqueueLaunchAgent, sleep, capture } = require('./lib');
 
+// ⚠ argv[0] IS NAMED `claude`, AND THAT IS THE FIXTURE'S POINT, not a disguise. `harnessOf` reads
+// `basename(exec.argv[0])`, and owner ruling `d-uniform-descriptor-carriage` (2026-08-12) makes a
+// NON-claude harness carry its seat descriptor on the FIRST MESSAGE — which would prepend hundreds
+// of bytes to every prompt this probe measures byte-exactly, testing that ruling instead of this
+// probe's subject. A claude-named shim takes the descriptor on the FLAG instead (argv, which
+// nothing here asserts on), so the prompt bytes stay the prompt bytes. The shim is a symlink to
+// `bash`, so what actually runs is unchanged.
+const HARNESS_DIR = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'claude-shim-'));
+const CLAUDE_SHIM = path.join(HARNESS_DIR, 'claude');
+try { fs.symlinkSync('/bin/bash', CLAUDE_SHIM); } catch { /* already there */ }
+
 function makeCtx(configOverrides) {
   // \173/\175 are printf octal escapes for { } and wc -c stands in for ${#P} —
   // ANY literal brace in a profile argv reads as a template slot to the spawn
   // config validator.
   const echoResult = 'P=$(cat); L=$(printf %s "$P" | wc -c); printf \'\\173"type":"result","result":"ANSWER-len-%s"\\175\\n\' "$L"';
-  return setup(configOverrides, ({ workRoot }) => ({
-    'test-chat': {
-      exec: { argv: ['bash', '-c', echoResult], prompt: 'stdin' },
-      session_ref: { source: 'cwd-implicit' },
-      workdir_root: workRoot,
-      caps: { memory_max: '64M', runtime_max: '1h' },
+  return setup(configOverrides, {}, ({ workRoot }) => ({
+    claude: {
+      'test-chat': {
+        // 7.787: the `--model` pin makes the argv agree with the key it is filed under
+        // (`profiles.js#validateSpecKey`); it lands in bash's positional params, unread.
+        exec: { argv: [CLAUDE_SHIM, '-c', echoResult, '--model', 'test-chat'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
     },
   }));
 }
@@ -82,7 +97,7 @@ capture('probe-multiturn', async (lines) => {
   try {
     registerLaunchAgentJob(ctx, 'chat-agent');
     const Q1 = 'Q1-first-question';
-    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', profile: 'test-chat', prompt: Q1, runAt: new Date() });
+    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model: 'test-chat' }, prompt: Q1, runAt: new Date() });
 
     // Turn 1: spawn → clean exit → sweep records done → advance ends the slot.
     let acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
@@ -95,9 +110,18 @@ capture('probe-multiturn', async (lines) => {
       throw new Error(`turn 1: exec status=${exec1.status} exit_code=${exec1.exit_code}, want done/0`);
     }
     const comp1 = ctx.store.getMessage(sweep1.completionMsgId);
-    const A1 = `ANSWER-len-${Q1.length}`;
-    if (comp1.corpus !== A1 || comp1.status !== 'done') {
-      throw new Error(`turn 1: completion corpus=${JSON.stringify(comp1.corpus)} status=${comp1.status}, want ${A1}/done`);
+    // ⚠ TAKEN FROM THE HARNESS'S OWN ECHO, NOT FROM `Q1.length`. Owner ruling
+    // `d-uniform-descriptor-carriage` (2026-08-12) makes a NON-claude harness carry its seat
+    // descriptor on the first message, so the bytes it receives are legitimately more than the
+    // question — a typed literal would pin fixture detail and re-test that ruling instead of this
+    // probe's subject, which is the CHAIN. The claim is kept discriminating by asserting the
+    // SHAPE, that the count exceeds the bare question (the descriptor really did ride along), and
+    // that this exact string reappears as the assistant turn in turn 2's transcript below.
+    const A1 = comp1.corpus;
+    const m1 = /^ANSWER-len-(\d+)$/.exec(A1 || '');
+    if (!m1 || Number(m1[1]) <= Q1.length || comp1.status !== 'done') {
+      throw new Error(`turn 1: completion corpus=${JSON.stringify(comp1.corpus)} status=${comp1.status}, `
+        + `want ANSWER-len-<n> with n > ${Q1.length} (the question plus its descriptor) and status done`);
     }
     if (spawn1.thread !== exec1.thread) throw new Error('turn 1: spawn action carries no chain thread');
     lines.push(`A PASS: clean exit swept done, corpus=${A1}, exec done/0, spawn action thread=${spawn1.thread}`);
@@ -127,7 +151,13 @@ capture('probe-multiturn', async (lines) => {
     assertIncludes('turn 2 prompt', prompt2, `[assistant] ${A1}`);
     assertIncludes('turn 2 prompt', prompt2, `[owner] ${R1}`);
     assertExcludes('turn 2 prompt', prompt2, 'ticker-noise');
-    const A2 = `ANSWER-len-${prompt2.length}`;
+    // Turn 2's answer, taken from the harness's OWN echo for the same reason A1 is (see there):
+    // what the harness received is what it counted, and the composer's prefix is not this probe's
+    // subject. Read off the completion this turn actually produced.
+    const sweep2 = findAll(acts, 'clean-exit-sweep')[0];
+    if (!sweep2) throw new Error('turn 2: no clean-exit-sweep action');
+    const A2 = ctx.store.getMessage(sweep2.completionMsgId).corpus;
+    if (!/^ANSWER-len-\d+$/.test(A2 || '')) throw new Error(`turn 2: completion corpus=${JSON.stringify(A2)}`);
     lines.push(`B PASS (turn 2): woke on sender reply; prompt composed (Q1+A1+R1, no ticker rows); linear chain exec${exec1.exec_id}→exec${exec2.exec_id}`);
 
     // Turn 3: history accumulates.
@@ -153,7 +183,7 @@ capture('probe-multiturn', async (lines) => {
   try {
     registerLaunchAgentJob(ctx, 'chat-agent');
     const Q1 = 'Q1-compact-scenario-question-with-some-length-to-it';
-    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', profile: 'test-chat', prompt: Q1, runAt: new Date() });
+    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model: 'test-chat' }, prompt: Q1, runAt: new Date() });
     let acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
     const exec1 = ctx.store.getExecution(findAll(acts, 'spawn')[0].execId);
 
@@ -169,7 +199,13 @@ capture('probe-multiturn', async (lines) => {
     assertIncludes('compaction prompt', compactPrompt, 'Compact the following conversation');
     assertIncludes('compaction prompt', compactPrompt, `[owner] ${Q1}`);
     assertExcludes('compaction prompt', compactPrompt, `[owner] ${R1}`); // pending reply stays OUT of the summary
-    const SUMMARY = `ANSWER-len-${compactPrompt.length}`;
+    // Same rule as A1/A2: the summary is whatever the compaction turn's harness ACTUALLY echoed,
+    // read off its completion, never computed from the prompt file. The splice assertion below is
+    // the subject; the byte count is fixture detail the descriptor carriage legitimately moves.
+    const compactSweep = findAll(acts, 'clean-exit-sweep').find((a) => a.execId === compactExec.exec_id)
+      || findAll(acts, 'clean-exit-sweep').pop();
+    const SUMMARY = compactSweep ? ctx.store.getMessage(compactSweep.completionMsgId).corpus : null;
+    if (!/^ANSWER-len-\d+$/.test(SUMMARY || '')) throw new Error(`compaction: summary corpus=${JSON.stringify(SUMMARY)}`);
 
     // The answering turn spawns with the summary spliced in place of the old
     // history — and the pending reply verbatim after it.
@@ -193,7 +229,7 @@ capture('probe-multiturn', async (lines) => {
   ctx = makeCtx({ slot_max_repeats: 2, history_compact_chars: 100000 });
   try {
     registerLaunchAgentJob(ctx, 'chat-agent');
-    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', profile: 'test-chat', prompt: 'Q1-budget', runAt: new Date() });
+    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model: 'test-chat' }, prompt: 'Q1-budget', runAt: new Date() });
     let acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
     const exec1 = ctx.store.getExecution(findAll(acts, 'spawn')[0].execId);
 
@@ -215,7 +251,7 @@ capture('probe-multiturn', async (lines) => {
   ctx = makeCtx({ slot_max_repeats: 1, history_compact_chars: 120 });
   try {
     registerLaunchAgentJob(ctx, 'chat-agent');
-    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', profile: 'test-chat', prompt: 'Q1-budget-compact-long-enough-first-question', runAt: new Date() });
+    enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model: 'test-chat' }, prompt: 'Q1-budget-compact-long-enough-first-question', runAt: new Date() });
     let acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
     const exec1 = ctx.store.getExecution(findAll(acts, 'spawn')[0].execId);
 

@@ -8,7 +8,7 @@ async function run(lines) {
     registerLaunchAgentJob(ctx);
     const t0 = new Date();
     const runAt = new Date(t0.getTime() + 2000);
-    enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt });
+    enqueueLaunchAgent(ctx, { runAt });
 
     lines.push(`enqueued at ${t0.toISOString()}, run_at ${runAt.toISOString()}`);
 

@@ -1,10 +1,20 @@
-# `launch-profiles/` — the ONE shared launch-profile resolver
+# `launch-profiles/` — the ONE shared launch-spec resolver
 
-The single policy point through which every launch resolves a **launch profile** (the KG term:
-a named, config-pinned command-template set; the only unit a caller may select, by NAME).
+The single policy point through which every launch resolves a **launch spec**: a config-pinned
+command-template set (exec/resume/caps/sandbox/effort ladder), keyed by **(harness, model)**.
 
-Built by task 7.42. Governing records: registry `decisions.md#d-profile-source-unification`,
-DEC-1 § Shared profile source, CMP-6 § Interface (1), CMP-9.
+> ⚠ **THIS PAGE WAS REWRITTEN BY `#d-abolish-profile-names` (owner, 2026-08-12), and it is the
+> document that most directly stated the design that ruling reverses.** It used to open: *"a named,
+> config-pinned command-template set; the only unit a caller may select, BY NAME."* Both halves are
+> gone. The NAME layer between a seat's cast and its mechanics is DELETED — `launch-specs:` is keyed
+> by the pair — and **no caller anywhere in ignite may select a launch spec at all**: the daemon
+> reads the seat's own descriptor at spawn time, and an uncast seat REFUSES (`E_UNCAST_SEAT`).
+> The KG term "launch profile" is RETIRED, succeeded by **launch spec** (`#d-abolition-terminology`).
+> The FOLDER keeps its name — a rename is a cascade with no behavioural gain.
+
+Built by task 7.42, re-keyed by task 7.787. Governing records: registry
+`decisions.md#d-profile-source-unification`, DEC-1 § Shared launch-spec source, CMP-6 § Interface
+(1), CMP-9, plus core-build `decisions.md#d-abolish-profile-names` / `#d-abolition-terminology`.
 
 ## Why it exists
 
@@ -37,25 +47,30 @@ Slack, and `sessions.csv` recorded the launch as if nothing had diverged.
 
 | Export | Answers |
 |--------|---------|
-| `bindingOf(profile)` | the `(harness, model)` a profile runs, off its own `exec:` argv pin |
-| `catalogOf(profiles)` | every castable profile as rows |
+| `specKey(harness, model)` | the internal key `launch-specs:` is flattened to — `<harness>/<model>` |
+| `bindingOf(spec)` | the `(harness, model)` a spec's argv RUNS. ⚠ Not a lookup any more — the only caller is the config-LOAD guard that proves an argv agrees with its key |
+| `catalogOf(launchSpecs)` | every castable pair as rows, READ off the keys |
 | `declaresBinding(binding)` | whether a seat declares a cast at all (both halves present) |
-| `profileForBinding(profiles, binding)` | **the lookup** — the profile name, or a typed refusal |
+| `specForSeatCast(launchSpecs, binding, log, seat)` | **the lookup** — `{ key, spec }`, or a typed refusal |
 
 Three bounds, each earned:
 
-- **ONE derivation law, shared with `capabilities/bindings/tool/bindings.py#catalog`.** That tool
-  answers the AUTHORING question off the same document; this one answers the LAUNCH question. They
-  must agree or a cast the author was allowed to write is a cast the daemon cannot run, so the law
-  (`harness = basename(argv[0])`; `model = the token after the first of --model / -m, never last`)
-  is implemented identically on both sides. Only the READER differs — Python line-scans the YAML,
-  this side is handed the parsed config. `probe-binding-catalog` arm 10 runs BOTH against the
-  shipped config and compares them **row for row**, so a drift reds a probe instead of surfacing
-  as an unlaunchable seat months later.
-- **An unmappable or ambiguous cast is a typed REFUSAL** (`E_UNMAPPED_BINDING`,
-  `E_AMBIGUOUS_BINDING`), never a fallback to the caller's profile — falling back *is* the defect.
-  Aliases are refused, not rewritten: the model vocabulary is the profile's pin verbatim.
-- **Applied at ONE point**, `server/spawn/spawn.js#profileForSeatCast`, which is downstream of
+- **THE DERIVATION LAW IS DELETED, NOT SHARED.** Until 7.787 the pair a row ran was DERIVED from
+  its argv (`harness = basename(argv[0])`; `model = the token after the first of --model / -m,
+  never last`) identically here and in `capabilities/bindings/tool/bindings.py#catalog`, because
+  the document was keyed by an arbitrary name. Re-keying by the pair removed the derivation from
+  BOTH sides: each READS the keys. What survives of the law is one **config-LOAD guard** —
+  `profiles.js#validateSpecKey` refuses a spec whose argv runs a different model than its key
+  names, which is the silent-wrong-model failure the whole line of work exists to kill.
+  `probe-binding-catalog` arm 10 still runs BOTH catalogs against the shipped config and compares
+  them **row for row**; arm 5 plants a key/argv disagreement and asserts the load refusal.
+- **An unmappable cast is a typed REFUSAL** (`E_UNMAPPED_BINDING`), and an UNCAST seat is
+  `E_UNCAST_SEAT`. There is nothing left to fall back TO — falling back *was* the defect.
+  Aliases are refused, not rewritten: the model vocabulary is the spec's key verbatim.
+  (`E_AMBIGUOUS_BINDING` is RETIRED: two specs claiming one pair was expressible under a flat
+  name-keyed map; under `launch-specs: { <harness>: { <model>: … } }` it is a duplicate YAML key —
+  unspellable rather than refused.)
+- **Applied at ONE point**, `server/spawn/spawn.js#launchSpecForSeat`, which is downstream of
   every lane and upstream of both records (`jobs_log.profile` and the at-dispatch `sessions.csv`
   row), so what launched and what was recorded cannot drift apart. A seat declaring no cast — the
   channel master's `open_binding` case, and every unmaterialized seat — falls back to the caller's
@@ -73,8 +88,15 @@ state, not a gap being hidden.
 
 ## What a caller may supply — and may not
 
-A caller supplies exactly three things: the profile **NAME**, an **effort level** in the abstract
-vocabulary, and values for **DECLARED SLOTS**. It supplies no argv, no flags, and no half.
+⚠ **THE FIRST OF THESE IS GONE (7.787).** A caller used to supply the profile **NAME**; it supplies
+nothing of the kind now. `resolveLaunchSpec(config, address, opts)` takes `{harness, model}` — the
+pair a SEAT is cast to, read off its descriptor by the daemon — or `{job: '<name>'}` for the
+name-keyed `jobs:` block, which is the one place a name still identifies mechanics (a job pins no
+model, so "a job's name IS its identity"). No `--profile` flag, no lane-marker second token, no
+chat-bridge `session_profile`, no `launch-agent` `profile` argument exists anywhere to carry one.
+
+Beyond the address a caller supplies an **effort RUNG** on that spec's own ladder, and values for
+**DECLARED SLOTS**. It supplies no argv, no flags, and no half.
 
 | Bound | How it is enforced |
 |-------|--------------------|
@@ -87,10 +109,12 @@ vocabulary, and values for **DECLARED SLOTS**. It supplies no argv, no flags, an
 be a losing game over caller text. The real guarantee is that no code path pushes a caller-supplied
 string onto argv as its own element — values only fill positions the profile already wrote.
 
-## Profile shape (ruled)
+## Launch-spec shape (ruled)
 
-- **Identity bakes harness + model** (+ permission posture where one pair needs two shapes).
-  Picking the variant IS picking the profile.
+- **Identity IS harness + model** — it is the KEY, not something baked into a name. ⚠ The
+  parenthetical this bullet used to carry ("+ permission posture where one pair needs two shapes")
+  is a DISCLOSED GAP under the re-keying, not a supported case: a (harness, model) key cannot
+  address two permission postures for one pair. Registry `issues.md F-125` holds it open.
 - **Effort is NOT baked** — a per-dispatch slot in the abstract vocabulary, translated by the
   profile's own table (claude `effort`, codex `thinking`). A no-dial harness declares
   `effort: { inert: true }`; a caller's level is then accepted and reported back as

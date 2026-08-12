@@ -96,8 +96,12 @@ const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'config', 'spawn-pro
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
 cfg.default_workdir_root = path.join(tmp, 'work');
 fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
-cfg.profiles['probe-lane'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+// the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+// LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+cfg['launch-specs'] = { bash: {} };
+cfg['launch-specs'].bash['probe-lane'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-lane'], prompt: 'stdin' },
   headed: { tui: { argv: ['true'] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
@@ -113,8 +117,8 @@ fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
 fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
   'taskforce-id,seat,after\ntf-lane,alpha,\ntf-lane,bravo,alpha\n');
 fs.writeFileSync(path.join(goalFolder, 'seats', 'alpha', 'seat.md'),
-  '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
-fs.writeFileSync(path.join(goalFolder, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\n---\n\nbody\n');
+  '---\nseat: alpha\nharness: bash\nmodel: probe-lane\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
+fs.writeFileSync(path.join(goalFolder, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\nharness: bash\nmodel: probe-lane\n---\n\nbody\n');
 fs.writeFileSync(path.join(goalFolder, 'execution-mode'), 'interactive\n');
 
 const goalStorePath = path.join(goalFolder, 'heart.db');
@@ -210,7 +214,7 @@ async function main() {
     traceRows.slice(1).map((r) => r.split(',').slice(0, 3).join(',')).join(' | ') || 'empty');
 
   {
-    const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const daemonStore = openHeartStore({ dbPath: daemonStorePath });
     const daemonKnows = daemonStore.dump().jobs_log.filter((r) => /^seat-/.test(r.job_id));
     check('D1 the DAEMON lane\'s store knows NOTHING of what the attached lane did — two stores, still',
       daemonKnows.length === 0,
@@ -233,7 +237,7 @@ async function main() {
   // and the engine BOTH lanes boot exposes it. The store below sits at the DAEMON data root, which
   // is what makes this the daemon's lane rather than a second attached run.
   const daemonEngine = createEngine({
-    dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
   });
   let pickup;
   try {
@@ -273,13 +277,13 @@ async function main() {
   // the seat's real home, which is the column the record derives goal+seat from in both lanes.
   const DAEMON_SESSION = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   {
-    const daemonStore = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const daemonStore = openHeartStore({ dbPath: daemonStorePath });
     const daemonJobId = `seat-lane-goal-2-alpha`;
     daemonStore.registerJob({
       jobId: daemonJobId,
       actionType: 'launch-agent',
       function: 'daemon-side seat alpha',
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string' } }),
       description: 'a seat the DAEMON lane finished',
       createdAt: isoNow(),
       updatedAt: isoNow(),
@@ -287,7 +291,7 @@ async function main() {
     const daemonExec = daemonStore.recordExecutionStart({
       jobId: daemonJobId,
       actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'probe-lane' }),
+      args: JSON.stringify({}),
       enqueuedBy: 'daemon',
       sessionMode: 'headless',
       firedTick: 1,
@@ -309,7 +313,7 @@ async function main() {
   // façade's `tick()`, and the assertion that `server/index.js` is what calls it.
   {
     const daemonEngine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try {
       await daemonEngine.tick();
@@ -446,7 +450,7 @@ async function main() {
     `record ${record.readExecutionRecord(goalFolder).rows.map((r) => `${r.seat}=${r.outcome || 'open'}`).join(' ') || 'empty'}`);
   {
     const daemonEngine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pick;
     try { pick = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane' }); }

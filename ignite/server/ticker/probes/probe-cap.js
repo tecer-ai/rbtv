@@ -8,7 +8,7 @@ async function run(lines) {
     registerLaunchAgentJob(ctx);
     const now = new Date();
     for (let i = 0; i < 3; i++) {
-      enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: now });
+      enqueueLaunchAgent(ctx, { runAt: now });
     }
 
     lines.push('enqueued 3 due launch-agent jobs with cap=2');

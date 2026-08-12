@@ -535,8 +535,11 @@ function parseDeregisterJob(payload) {
 // the caller keeps its own path.
 function parseLiveFeed(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['conversation', 'prompt', 'workdir', 'profile', 'exec_id', 'start']), 'live-feed');
-  for (const key of ['conversation', 'prompt', 'profile']) {
+  // ⚠ `profile` LEFT THIS SET AT 7.787 (`#d-abolish-profile-names`). It was a REQUIRED non-empty
+  // string here, which made this door the last place a sender could name what a seat runs on; the
+  // warm leg now resolves the seat's own cast off `workdir`, exactly as every other lane does.
+  rejectUnknownKeys(payload, new Set(['conversation', 'prompt', 'workdir', 'exec_id', 'start']), 'live-feed');
+  for (const key of ['conversation', 'prompt']) {
     if (typeof payload[key] !== 'string' || payload[key].length === 0) {
       bad(`live-feed requires a non-empty ${key}`, key);
     }
@@ -554,7 +557,9 @@ function parseLiveFeed(payload) {
     conversation: payload.conversation,
     prompt: payload.prompt,
     workdir: payload.workdir ?? null,
-    profile: payload.profile,
+    // ⚠ NO `profile` (7.787). It was dropped from the accepted-key set above; leaving it on the
+    // returned object would have carried an `undefined` field into the core's own key check —
+    // a residue of the abolished parameter on a live path.
     exec_id: payload.exec_id ?? null,
     start: payload.start === true,
   };

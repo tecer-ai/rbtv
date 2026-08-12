@@ -58,8 +58,12 @@ const cfg = yaml.load(fs.readFileSync(path.join(IGNITE, 'config', 'spawn-profile
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
 cfg.default_workdir_root = path.join(TMP, 'work');
 fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
-cfg.profiles['probe-hold'] = {
-  exec: { argv: ['true'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+// the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+// LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+cfg['launch-specs'] = { bash: {} };
+cfg['launch-specs'].bash['probe-hold'] = {
+  exec: { argv: ['bash', '-c', 'exec true', '--model', 'probe-hold'], prompt: 'stdin' },
   headed: { tui: { argv: ['true'] } },
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
@@ -82,8 +86,8 @@ function makeGoal(goal, { arm, mode = 'interactive', flagged = true }) {
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'taskforce.csv'), 'taskforce-id,seat,after\ntf-hold,alpha,\ntf-hold,bravo,alpha\n');
   fs.writeFileSync(path.join(dir, 'seats', 'alpha', 'seat.md'),
-    `---\nseat: alpha\n${flagged ? 'human-interactive: yes\n' : ''}${arm ? `fallback: ${arm}\n` : ''}---\n\nalpha\n`);
-  fs.writeFileSync(path.join(dir, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\n---\n\nbravo\n');
+    `---\nseat: alpha\nharness: bash\nmodel: probe-hold\n${flagged ? 'human-interactive: yes\n' : ''}${arm ? `fallback: ${arm}\n` : ''}---\n\nalpha\n`);
+  fs.writeFileSync(path.join(dir, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\nharness: bash\nmodel: probe-hold\n---\n\nbravo\n');
   fs.writeFileSync(path.join(dir, 'execution-mode'), `${mode}\n`);
   return dir;
 }
@@ -157,7 +161,7 @@ function coordVerdicts(dir) {
 function withEngine(fn) {
   const engine = createEngine({
     dbPath: path.join(dataRoot, 'heart.db'),
-    profiles: cfg.profiles,
+    
     spawnConfigPath: configPath,
     userManager: false,
   });
@@ -171,7 +175,7 @@ function runSession(engine, goal, goalDir, seat, { status = 'done', during = nul
   const exec = engine.heartStore.recordExecutionStart({
     jobId: `seat-${goal}-${seat}`,
     actionType: 'launch-agent',
-    args: JSON.stringify({ profile: 'probe-hold' }),
+    args: JSON.stringify({}),
     enqueuedBy: 'daemon',
     sessionMode: 'headless',
     firedTick: 1,
@@ -325,20 +329,20 @@ async function scenario() {
   // …and the OTHER lane opens a row for the same seat and never closes it. Written through the real
   // writer, from a real second store placed in the goal folder (which is what makes it `attached`).
   const attachedEngine = createEngine({
-    dbPath: path.join(d5, 'heart.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    dbPath: path.join(d5, 'heart.db'), spawnConfigPath: configPath, userManager: false,
   });
   try {
     attachedEngine.heartStore.registerJob({
       jobId: 'seat-alpha',
       actionType: 'launch-agent',
       function: 'the other lane',
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string' } }),
       description: 'the other lane', createdAt: isoNow(), updatedAt: isoNow(),
     });
     attachedEngine.heartStore.recordExecutionStart({
       jobId: 'seat-alpha',
       actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'probe-hold' }),
+      args: JSON.stringify({}),
       enqueuedBy: 'attached-execution',
       sessionMode: 'headless',
       firedTick: 1,

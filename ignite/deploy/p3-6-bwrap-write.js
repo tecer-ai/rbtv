@@ -1,5 +1,11 @@
 'use strict';
 
+// ⚠ STALE PRE-7.787 SMOKE SCRIPT — NOT in the probe-suite enumerator, and NOT brought
+// forward by `#d-abolish-profile-names`. Its `spawn()` call was re-arited with that change
+// (the `profileName` operand is gone) but its CONFIG fixture still uses the retired flat
+// `profiles:` map, and it names profiles the shipped config no longer carries — it was
+// already unrunnable before 7.787 for that second reason. Fix both together, or delete it.
+
 // p3-6-bwrap-write.js — the EXTENDED kernel-level containment probe (D59). Closes the gap the
 // p3-5 probe proved open: on this box `systemd-run --user` enforces cgroup caps but its
 // filesystem sandbox is a SILENT no-op, so a worker could write anywhere. The fix is bubblewrap
@@ -159,7 +165,7 @@ async function main() {
       enqueuedBy: 'p3-6-bw', sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
       profile: 'bwrap-write', workdir: null,
     });
-    row = await mgr.spawn(fired.exec_id, 'bwrap-write', 'headless', null, null, 'p3-6-bw');
+    row = await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-6-bw');
     log(`spawned: unit=${row.unit_name} carrier=${row.carrier} sessionDir=${portable(row.workdir)}`);
     check('worker ran under systemd (cgroup caps + bwrap walls in force)', row.carrier === 'systemd');
 
@@ -225,7 +231,7 @@ async function main() {
       profile: 'bwrap-write', workdir: null,
     });
     process.env.PATH = '/nonexistent';
-    await mgr.spawn(fired.exec_id, 'bwrap-write', 'headless', null, null, 'p3-6-bw');
+    await mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-6-bw');
   } catch (e) {
     gErr = e;
   } finally {

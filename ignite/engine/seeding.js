@@ -289,27 +289,30 @@ function readTaskforce(goalFolder) {
   return rows;
 }
 
-// ── WHICH SEATS ACTUALLY NEED THE CALLER'S PROFILE (the D19 narrowing, 2026-08-12) ────────────
+// ── WHICH SEATS ARE NOT CAST — the ONE predicate every door refuses on (7.787) ────────────────
 //
-// Ruling D19 made the caller-named profile the FALLBACK for a seat that declares no cast, but the
-// two doors that take it — `rbtv run --profile` and `rbtv-goal lane --set daemon --profile` —
-// went on DEMANDING it unconditionally. Measured on the live 17-seat planning goal: 17 seats
-// declare harness+model, 0 declare none, so the operator was typing an answer to a question the
-// launch never asks. These two functions are the ONE answer both doors ask instead.
+// Ruling D19 made a caller-named profile the FALLBACK for a seat that declares no cast; the
+// 2026-08-12 narrowing stopped the two doors demanding it when nothing would read it; and
+// `#d-abolish-profile-names` sub-ruling 3 finishes the line by deleting the fallback outright.
+// "Any workflow reaching a taskforce MUST be cast first; an uncast seat is a NAMED REFUSAL at
+// materialize/lane time — never a fallback, never a 03:00 journal line."
+//
+// So this function's job changed from "does the operator need to type a profile name?" to "may
+// this goal be assigned to the daemon at all?". `rbtv-goal lane --set daemon`, `rbtv run` and the
+// daemon's own watch pass all ask THIS, so what one accepts the others accept.
 //
 // ⚠ THE SURFACE IS `seat.md`, AND THAT IS MEASURED, NOT ASSUMED. `taskforce.csv` carries
 // `harness,model,effort` columns too, and `rbtv run --help` says "seat.md" — they can disagree
 // (`goal_cli.py#lint`'s "binding matches taskforce.csv" finding exists because they do). The
-// LAUNCH reads the DESCRIPTOR: `spawn.js#profileForSeatCast` builds its binding from
+// LAUNCH reads the DESCRIPTOR: `spawn.js#launchSpecForSeat` builds its binding from
 // `seatDeclaresValue(seatDir, 'harness'|'model')`, and every lane — daemon seeding, the attached
 // tick, the foreground carrier, the warm-session leg — reaches the catalog through it. A gate
 // reading the other surface is a gate that can disagree with the thing it gates. `taskforce.csv`
 // supplies the seat NAMES here and nothing else.
 //
-// ⚠ THE PREDICATE AND THE DERIVATION ARE BOTH THE CATALOG'S OWN. `declaresBinding` answers
-// "is this seat cast at all"; `profileForBinding` answers "which profile IS that cast". Nothing
-// here re-implements either — a second interpreter of the one mapping is the drift
-// DEC-1 § Shared profile source forbids, and it is the drift `catalog.js` was built to end.
+// ⚠ THE PREDICATE IS THE CATALOG'S OWN. `declaresBinding` answers "is this seat cast at all", and
+// nothing here re-implements it — a second interpreter of the one mapping is the drift
+// DEC-1 § Shared launch-spec source forbids, and it is the drift `catalog.js` was built to end.
 //
 // Both are LAZY-required for the reason `attached-execution.js` lazy-requires the same reader:
 // `seeding.js` is loaded by probes and by the engine index that have no business pulling in the
@@ -323,9 +326,9 @@ function seatCast(goalFolder, seat) {
   };
 }
 
-// The seats a fallback profile would actually be consulted FOR — i.e. the ones that declare no
-// cast. Empty means no launch of this goal will ever read the caller's profile name, which is
-// exactly when demanding one is demanding a value that is never read.
+// The seats that declare no cast. NON-EMPTY IS A REFUSAL at every door: there is nothing left for
+// such a seat to run as, so seeding it would queue a row whose only possible outcome is
+// `E_UNCAST_SEAT` at spawn, hours later, against a wasted execution row.
 //
 // Throws `readTaskforce`'s refusal when the goal is not materialized: "which seats need a
 // fallback" has no answer before the seats exist, and inventing one either way is a guess. Each
@@ -335,33 +338,6 @@ function uncastSeats(goalFolder) {
   return readTaskforce(goalFolder)
     .filter((row) => !declaresBinding(seatCast(goalFolder, row.seat)))
     .map((row) => row.seat);
-}
-
-// THE FALLBACK A FULLY CAST GOAL SUPPLIES FOR ITSELF — and why one is still needed at all.
-//
-// `launch-agent` STRUCTURALLY requires a `profile` argument: `heart-store.js`'s
-// `REQUIRED_ARGS_BY_ACTION` names it, registration REFUSES a schema that omits it (campaign issue
-// S-2(a)'s guard), and `ticker.js` DEFERS a queue row whose `args.profile` is not a known profile.
-// So the slot cannot be emptied by anything short of a store-schema change on live rows — it can
-// only be ANSWERED without asking the operator.
-//
-// It is answered from the goal's OWN casts: the profile the first seat is cast to. That value is
-//   (a) real and valid — it is a key of `profiles:` by construction, being the catalog's own answer;
-//   (b) provably inert — every seat's declared cast outranks the caller's name at the launch point
-//       (`castProfileFor`), so no seat of a fully cast goal ever runs on it;
-//   (c) SAFE against a seat added later with no cast — a derived profile PINS a model, so
-//       `castProfileFor` refuses that seat loudly with `E_UNCAST_SEAT` rather than silently
-//       running it on somebody else's model. That is the D19 failure mode, and picking a
-//       model-less stand-in (`test-sleep`) instead would have re-opened it.
-//
-// Throws `E_UNMAPPED_BINDING` when the first seat's declared cast names a pair this workspace
-// cannot spawn. That is the right refusal and it is not softened: the goal cannot launch on any
-// profile in that state, and the catalog's message prints the castable set, which is the answer
-// the operator needs.
-function fallbackProfileFor(goalFolder, profiles) {
-  const { profileForBinding } = require('../launch-profiles/catalog');
-  const seat = readTaskforce(goalFolder)[0].seat;
-  return profileForBinding(profiles || {}, seatCast(goalFolder, seat), { seat });
 }
 
 // ── WHAT THE RECORD SAYS ABOUT EACH SEAT, from the perspective of THIS store ──────────────────
@@ -529,7 +505,7 @@ function jobIdFor(seat, goal = null) {
 //
 // The eligibility engine already honoured a grant; what it had no way to RECEIVE one from was the
 // daemon lane, because the grant's only source was an in-memory Set built from `rbtv-execution
-// --relaunch` argv and `lane-watch.js` calls `seedGoal({goalFolder, goal, profile})` with no
+// --relaunch` argv and `lane-watch.js` calls `seedGoal({goalFolder, goal})` with no
 // relaunch key, ever. Threading a parameter down from `lane-watch.js` would have created a SECOND
 // place that decides whether a grant applies — so the third caller of `seedGoal`, whenever it is
 // written, would silently get none. That is exactly how this gap was born. Sourcing it inside the
@@ -556,20 +532,17 @@ function withFileGrants(relaunch, goalFolder) {
 // scheduler is written: seeding only decides WHICH seats are eligible now, and the ticker decides
 // what actually launches and how many run at once (`max_live_agent_sessions` — the parallel wave).
 //
-// The PROFILE is not derived from the row's `harness`/`model` HERE, and it no longer needs to be.
-// Mapping a cast (harness, model) onto exactly one profile NAME is task 7.54's catalog, which is
-// now BUILT — `launch-profiles/catalog.js#profileForBinding`, the ONE derivation, shared with
-// `capabilities/bindings/tool/bindings.py#catalog`. It is applied at the ONE point every launch
-// passes through (`server/spawn/spawn.js#profileForSeatCast`, owner ruling D19), so a seat runs
-// what its `seat.md` casts it as no matter which lane dispatched it.
+// NOTHING PROFILE-SHAPED IS SEEDED HERE, and that is the pivot of `#d-abolish-profile-names`
+// (sub-ruling 2). A seat's launch spec is its own — resolved at spawn from its descriptor by
+// `launch-profiles/catalog.js#specForSeatCast`, keyed by the (harness, model) its bindings sheet
+// cast it as. A value carried on the queue row could only ever drift from that, which is exactly
+// what it did: `rbtv run --profile`, the lane marker's second token and the chat bridge's
+// `session_profile` all existed to fill ONE required argument, and every one of them was capable
+// of naming something the seat was not cast as.
 //
-// So the profile is still passed by NAME by the caller and is still resolved from the ONE shared
-// config — it is now the FALLBACK for a seat that declares no cast (the channel master's
-// `open_binding` case), not the answer for every seat. Deriving it here as well would be the
-// second mapping DEC-1's shared-profile-source ruling exists to prevent.
 // `rows` is the taskforce, optionally pre-read by a caller that already needed it (seedGoal reads
 // it before deciding whether to register anything at all). Default = read it here, as always.
-function seedTaskforce(heartStore, goalFolder, { profile, logger, goal = null, rows = null }) {
+function seedTaskforce(heartStore, goalFolder, { logger, goal = null, rows = null }) {
   rows = rows || readTaskforce(goalFolder);
 
   // CREATE-ONLY, and that is what makes a re-run a RESUME rather than a replay. registerJob is
@@ -585,7 +558,7 @@ function seedTaskforce(heartStore, goalFolder, { profile, logger, goal = null, r
       // `required`/`optional` are OBJECTS of name -> type, not arrays — the store parses them
       // that way (parseArgsSchema) and REFUSES an array. Registration is strict on purpose: a
       // schema a future enqueue could never satisfy is what campaign issue S-2(a) was.
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string', prompt: 'string' } }),
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string', prompt: 'string' } }),
       description: `seat ${row.seat} of ${row.taskforce_id || row['taskforce-id'] || 'this run'}`,
       createdAt: isoNow(),
       updatedAt: isoNow(),
@@ -686,7 +659,7 @@ function seatState(row, byJob, queued, { done = null, goal = null, foreign = nul
 // all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
 // taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
 function enqueueEligible(heartStore, rows, {
-  profile, goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
+  goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
   ready = null, readyRows = [], granted = null, heldByStore = null,
 }) {
   // The goal folder's own grant file, folded into whatever the caller supplied (see
@@ -697,10 +670,21 @@ function enqueueEligible(heartStore, rows, {
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch: grants });
   const enqueued = [];
-  // The LIVE cage template this pass's launches compose against — the daemon's own resolved
-  // profile, never a re-read of the YAML and never a transcribed snapshot (§ D5). An uncaged
-  // profile yields `[]`, and `admitDeclaredOutputs` does not run against one.
-  const seatBinds = heartStore.config?.profiles?.[profile]?.sandbox?.SeatBinds || null;
+  // The LIVE cage template each launch composes against — never a re-read of the YAML and never a
+  // transcribed snapshot (§ D5). ⚠ IT IS PER SEAT SINCE 7.787, and it always should have been: it
+  // used to read the CALLER'S profile, so on a mixed-cast goal (a claude seat and a codex seat)
+  // the admission test ran against a template belonging to neither. It now reads the seat's OWN
+  // launch spec, resolved through `specKey` from the same descriptor `spawn()` will read.
+  // `heartStore.config.launchSpecs` is assigned by the composition root (`engine/index.js`) off
+  // the spawn manager's loaded config. An uncaged spec yields `[]`, and `admitDeclaredOutputs`
+  // does not run against one.
+  const { specKey } = require('../launch-profiles/catalog');
+  const launchSpecs = heartStore.config?.launchSpecs || {};
+  const seatBindsFor = (seat) => {
+    const cast = seatCast(goalFolder, seat);
+    const spec = launchSpecs[specKey(cast.harness, cast.model)];
+    return (spec && spec.sandbox && spec.sandbox.SeatBinds) || null;
+  };
 
   for (const row of rows) {
     const jobId = jobIdFor(row.seat, goal);
@@ -747,7 +731,7 @@ function enqueueEligible(heartStore, rows, {
     // Ordered LAST of the pre-queue tests, exactly as the Python it replaces was: no seat that
     // would have been declined for another reason is now declined for this one.
     const refusal = admitDeclaredOutputs({
-      seatBinds, goalFolder, seat: row.seat, successorReads: successorReads(readyRows, row.seat),
+      seatBinds: seatBindsFor(row.seat), goalFolder, seat: row.seat, successorReads: successorReads(readyRows, row.seat),
     });
     if (refusal) {
       if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — a declared output is inadmissible for a caged launch', seat: row.seat, evidence: refusal });
@@ -805,7 +789,7 @@ function enqueueEligible(heartStore, rows, {
     heartStore.enqueue({
       jobId,
       // ⚠ THE SEED IS NOT IN THIS OBJECT, AND THAT IS THE DOOR'S RULE, NOT A CHOICE. The registered
-      // `args_schema` for a seat job is `{profile | workdir, prompt}` and `heart-store.js`
+      // `args_schema` for a seat job is `{workdir, prompt}` (7.787 emptied its `required` half) and `heart-store.js`
       // validateArgs REFUSES an unregistered key by name (`E_BAD_ARGS: unknown argument: seed`).
       // `edge-runner-job.py#_enqueue_argv` states the rule it was measured into: "THE SEED NO
       // LONGER RIDES IN ARGV AND MUST NOT BE PUT BACK — a seat is driven by its DESCRIPTOR and by
@@ -817,7 +801,7 @@ function enqueueEligible(heartStore, rows, {
       // and `spawn.js#ensurePromptFile` writes those bytes as the session's stdin. Passed VERBATIM
       // — coord printed it with no trailing newline exactly so nothing here has to strip anything,
       // and a consumer that strips is a consumer that has begun re-assembling the prompt.
-      args: JSON.stringify({ profile, workdir: seatDir, prompt }),
+      args: JSON.stringify({ workdir: seatDir, prompt }),
       sessionMode: 'headless',
       triggerKind: 'scheduled',
       runAt: isoNow(),
@@ -841,7 +825,7 @@ function enqueueEligible(heartStore, rows, {
 // unreachable from a flag — and answering it by, say, seeding every goal folder the daemon can see
 // would be a policy this build was not asked to invent. `engine.seedGoal()` is the seam; the caller
 // that fires it is named in the contract as the follow-on.
-function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld = null, relaunch = null }) {
+function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, relaunch = null }) {
   if (!goal) {
     throw new Error(
       'seedGoal requires the goal NAME: it namespaces the job ids so two goals with a seat of the ' +
@@ -885,7 +869,7 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
   }
   // ⚠ AN EXPLICIT CALLER-SUPPLIED SET STILL WINS. `--relaunch <seats>` is an operator saying "run
   // these again", and folding grants into it would silently widen what he named. Nothing in the
-  // daemon lane passes one (`lane-watch.js` calls `seedGoal({ goalFolder, goal, profile })`), so
+  // daemon lane passes one (`lane-watch.js` calls `seedGoal({ goalFolder, goal })`), so
   // this is the branch that runs unattended; the other is the one a human is standing over.
   // The view is recomputed WITH the set, because the grant's release of a record-level hold is
   // `recordView`'s own act and re-deriving it here would be its second home.
@@ -893,9 +877,9 @@ function seedGoal({ heartStore, goalFolder, profile, goal, logger = null, isHeld
     relaunch = new Set(granted.keys());
     view = recordView(heartStore, goalFolder, { relaunch });
   }
-  seedTaskforce(heartStore, goalFolder, { profile, logger, goal, rows });
+  seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
-  const enqueued = enqueueEligible(heartStore, rows, { profile, goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore });
+  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore });
   // WITH the grant set, since the loop re-fire (2026-08-12): the `states` report below must agree
   // with the enqueue decision above, and a granted `done` seat is dispatchable again — reporting
   // it `done` off a grant-blind read is the same one-report-contradicting-the-other defect F2
@@ -948,7 +932,6 @@ module.exports = {
   readTaskforce,
   seatCast,
   uncastSeats,
-  fallbackProfileFor,
   jobIdFor,
   seedTaskforce,
   executionsByJob,

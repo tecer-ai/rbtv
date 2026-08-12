@@ -79,34 +79,37 @@ async function main() {
   ].join('\n'), { mode: 0o600 });
   fs.chmodSync(sendersFile, 0o600);
 
-  // The server core's PINNED config knows exactly ONE profile. `ghost-profile` below
-  // is therefore semantically invalid while being perfectly well-SHAPED.
+  // ⚠ THE VEHICLE MOVED FROM `profile` TO `tool` AT 7.787, AND THE CLAIM IS UNCHANGED. This arm's
+  // subject is DEC-3 defence in depth — a payload that PARSES at the gateway (which holds no
+  // server config) and is REFUSED by the core, which does. Its vehicle was an unknown launch
+  // PROFILE; `#d-abolish-profile-names` deleted that argument, so `fire-tool`'s `tool` — the same
+  // catalogue lookup, one branch over in `heart-store.js#enqueue` — carries it now.
   const store = openHeartStore({
     dbPath: tmpDb,
-    profiles: { 'test-sleep': { headed: false } },
+    tools: { 'real-tool': { exec: { argv: ['/bin/true'] } } },
   });
   store.registerJob({
-    jobId: 'launch-worker',
-    actionType: 'launch-agent',
-    function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    jobId: 'fire-worker',
+    actionType: 'fire-tool',
+    function: 'fireTool',
+    argsSchema: JSON.stringify({ required: { tool: 'string' }, optional: {} }),
     enabled: 1,
   });
 
   const secret = crypto.randomBytes(32).toString('hex');
   const api = createInternalApi({
     heartStore: store,
-    spawnManager: { config: { profiles: { 'test-sleep': { headed: false } } } },
+    spawnManager: { config: {} },
     secret,
   });
   const gw = createGateway({ dispatch: api.dispatch, internalSecret: secret, sendersFilePath: sendersFile });
 
   const runAt = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const addJob = (profile) => ({
+  const addJob = (tool) => ({
     intent: 'enqueue-job',
     payload: {
-      job_id: 'launch-worker',
-      args: JSON.stringify({ profile }),
+      job_id: 'fire-worker',
+      args: JSON.stringify({ tool }),
       trigger_kind: 'scheduled',
       run_at: runAt,
       session_mode: 'headless',
@@ -117,14 +120,14 @@ async function main() {
   check('setup: the queue starts empty ON DISK', before.length === 0, `disk queue rows=${before.length}`);
 
   // --- 1. THE DEFENSE-IN-DEPTH CASE: parses at the gateway, refused by the core.
-  let r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('ghost-profile'), source: '127.0.0.1' });
+  let r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('ghost-tool'), source: '127.0.0.1' });
   check('a semantically-invalid job is REFUSED past the gateway',
     r.body.ok === false, `ok=${r.body.ok}`);
   check('the refusal is typed VALIDATION_FAILED (not a shape error — the gateway could not know)',
     r.body.error && r.body.error.code === 'VALIDATION_FAILED',
     `code=${r.body.error && r.body.error.code}`);
   check('the typed error NAMES the failing check (the contract\'s own requirement)',
-    r.body.error && r.body.error.details && r.body.error.details.check === 'E_UNKNOWN_PROFILE',
+    r.body.error && r.body.error.details && r.body.error.details.check === 'E_UNKNOWN_TOOL',
     `details=${JSON.stringify(r.body.error && r.body.error.details)}`);
   check('the refusal maps to the CLI\'s exit-4 class (HTTP 400)', r.status === 400, `status=${r.status}`);
 
@@ -139,7 +142,7 @@ async function main() {
   const { parseRequest } = require('../../../gateway/parse');
   let gatewayCaught = false;
   try {
-    parseRequest({ intent: 'enqueue-job', payload: addJob('ghost-profile').payload });
+    parseRequest({ intent: 'enqueue-job', payload: addJob('ghost-tool').payload });
   } catch {
     gatewayCaught = true;
   }
@@ -147,16 +150,16 @@ async function main() {
     gatewayCaught === false,
     'gateway shape-check accepted the well-formed-but-semantically-invalid job');
 
-  // --- 3. MUTATION: the same request with a REAL profile MUST enqueue.
+  // --- 3. MUTATION: the same request with a REAL tool MUST enqueue.
   // A core that refused everything would pass every check above.
-  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('test-sleep'), source: '127.0.0.1' });
-  check('MUTATION: the SAME request naming a REAL profile is ACCEPTED (the guard discriminates)',
+  r = await gw.handleRequest({ credential: AGENT_TOKEN, body: addJob('real-tool'), source: '127.0.0.1' });
+  check('MUTATION: the SAME request naming a REAL tool is ACCEPTED (the guard discriminates)',
     r.body.ok === true && Number.isInteger(r.body.result.jobId),
     `ok=${r.body.ok} jobId=${r.body.result && r.body.result.jobId}`);
 
   after = readBackQueue();
   check('the valid job landed ON DISK, identified',
-    after.length === 1 && after[0].queue_id === r.body.result.jobId && after[0].job_id === 'launch-worker',
+    after.length === 1 && after[0].queue_id === r.body.result.jobId && after[0].job_id === 'fire-worker',
     `disk row=${JSON.stringify(after[0])}`);
 
   // --- 4. `enqueued_by` is stamped from the ATTESTED sender, never the payload.
@@ -188,7 +191,7 @@ async function main() {
   d.result.rows.push({ queue_id: 999, job_id: 'INJECTED' });
   const afterMutation = readBackQueue();
   check('mutating the returned snapshot does NOT reach server-core state (proven ON DISK)',
-    afterMutation.length === 1 && afterMutation[0].job_id === 'launch-worker',
+    afterMutation.length === 1 && afterMutation[0].job_id === 'fire-worker',
     `disk rows=${afterMutation.length} job_id=${afterMutation[0].job_id}`);
 
   // --- 7. Version skew (test 6) and unknown intent.

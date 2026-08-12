@@ -54,17 +54,15 @@ async function main() {
     // fires it during this probe (no real spawn side effect).
     let r = await runCli([
       'add-job', '--fn', 'probe-cli-sleep',
-      '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
+            '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
     ], cliEnv);
     out('--- add-job scheduled ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim(), 'STDERR=' + r.stderr.trim());
-    check('add-job (scheduled, --profile sugar) exits 0 and prints a queue id',
+    check('add-job (scheduled) exits 0 and prints a queue id',
       r.code === 0 && /queued: queue id \d+/.test(r.stdout), `exit=${r.code}`);
 
     // 2. --json envelope on the same shape, parses and carries jobId.
     r = await runCli([
       '--json', 'add-job', '--fn', 'probe-cli-sleep',
-      '--arg', 'profile=test-sleep',
       '--trigger', 'periodic', '--every', '3600',
     ], cliEnv);
     out('--- add-job periodic --json ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
@@ -94,8 +92,7 @@ async function main() {
     // queue-unchanged proof, invalid-dry-run exit 4, --json shape — lives in
     // probe-cli-dryrun.js).
     r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z', '--dry-run',
     ], cliEnv);
     out('--- add-job --dry-run (smoke) ---', 'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim());
     check('add-job --dry-run (valid) exits 0 and prints a validation verdict',
@@ -115,8 +112,7 @@ async function main() {
     };
     delete cliEnvNoOverride.IGNITE_GATEWAY_ADDR;
     r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-06-01T00:00:00Z',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-06-01T00:00:00Z',
     ], cliEnvNoOverride);
     out('--- add-job resolved via .rbtv/modules/ignite/server.json (no IGNITE_GATEWAY_ADDR) ---',
       'EXIT=' + r.code, 'STDOUT=' + r.stdout.trim(), 'STDERR=' + r.stderr.trim());

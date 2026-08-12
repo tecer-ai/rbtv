@@ -42,9 +42,9 @@ const { loadConfig } = require('../server/spawn/config');
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
   seatState, SEAT_STATES, enqueueEligible, recordView, readySeats,
-  // WHO NEEDS A FALLBACK PROFILE NAMED, and what a fully cast goal names for itself. Shared with
-  // the daemon lane's watch pass so both doors demand `--profile` on exactly the same goals.
-  uncastSeats, fallbackProfileFor,
+  // WHICH SEATS ARE NOT CAST. Shared with the daemon lane's watch pass so both doors refuse the
+  // same goals (`#d-abolish-profile-names` sub-ruling 3).
+  uncastSeats,
 } = require('./seeding');
 // THE RELAUNCH GRANT'S ONE HOME — `<goal-folder>/relaunch-grants`, the same file the daemon lane
 // reads inside the shared seeding functions. This lane used to keep the grant in a process-local
@@ -544,39 +544,32 @@ function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null, read
 }
 
 function runForegroundSeat({
-  heartStore, seat, goalFolder, profileName, profile, tick, now,
-  // The whole profile set, so the seat's cast can be resolved to a profile NAME through the one
-  // shared catalog (D19). The default `{}` is an EMPTY catalog, not a bypass: an UNCAST seat still
-  // runs the caller's profile exactly as before, but a seat that DOES declare a cast refuses with
-  // `E_UNMAPPED_BINDING` — refusing is the D19 behaviour, and a caller holding a profile roster
-  // must pass it. The live caller (`executeAttached`) does; only unit fixtures omit it.
-  spawnProfiles = {},
+  heartStore, seat, goalFolder, tick, now,
+  // The whole (harness, model) -> launch-spec table. The seat's own cast selects from it and there
+  // is no second candidate: `#d-abolish-profile-names` deleted the caller's name at this door as
+  // at the other two. An UNCAST seat refuses with `E_UNCAST_SEAT`, an unmappable one with
+  // `E_UNMAPPED_BINDING`. The default `{}` is an EMPTY table, not a bypass — it refuses everything.
+  launchSpecs = {},
   spawnForeground = spawnForegroundInTerminal, logger = null,
 }) {
   const seatDir = path.join(goalFolder, 'seats', seat);
-  // ── THE SEAT'S CAST WINS HERE TOO (task 7.54 · ruling D19) ──────────────────────────────────
-  // The THIRD launch door, and it shares the shape exactly: a seat folder, a caller-named profile,
-  // and both records written from whatever this function decides. Resolved BEFORE the headed check
-  // below, so the capability gate below validates the profile that will actually carry the human —
-  // a seat cast as one model must not open a terminal on another.
-  {
-    const { profileForSeatCast } = require('../server/spawn/spawn');
-    const cast = profileForSeatCast(spawnProfiles || {}, seatDir, profileName,
-      (level, message, extra) => { if (logger) logger({ level, message, seat, ...extra }); });
-    if (cast !== profileName) {
-      profileName = cast;
-      profile = spawnProfiles[cast];
-    }
-  }
+  // ── THE SEAT'S CAST IS THE ANSWER HERE TOO (task 7.54 · D19 · 7.787) ────────────────────────
+  // The THIRD launch door, and it shares the shape exactly: a seat folder, and both records
+  // written from whatever this function decides. Resolved BEFORE the headed check below, so the
+  // capability gate validates the spec that will actually carry the human — a seat cast as one
+  // model must not open a terminal on another.
+  const { launchSpecForSeat } = require('../server/spawn/spawn');
+  const { key: profileName, spec: profile } = launchSpecForSeat(launchSpecs || {}, seatDir,
+    (level, message, extra) => { if (logger) logger({ level, message, seat, ...extra }); });
 
   if (!profile.headed || !profile.headed.tui) {
     throw new Error(
       `seat ${seat} is held for you (it declares human-interactive: and this goal runs in ` +
-      `interactive execution mode), so it must run in YOUR terminal — but profile ` +
-      `'${profileName}' declares no headed.tui block, which is the declaration that a profile can ` +
+      `interactive execution mode), so it must run in YOUR terminal — but launch spec ` +
+      `'${profileName}' declares no headed.tui block, which is the declaration that a spec can ` +
       `carry a human (D17). REFUSING rather than composing an interactive command out of the ` +
-      `headless \`exec:\` template: a second interpreter of the one profile config is the drift ` +
-      `DEC-1 § Shared profile source exists to prevent.`
+      `headless \`exec:\` template: a second interpreter of the one launch-spec config is the drift ` +
+      `DEC-1 § Shared launch-spec source exists to prevent.`
     );
   }
   const { generateSessionId } = require('../server/spawn/carrier');
@@ -591,7 +584,7 @@ function runForegroundSeat({
   const exec = heartStore.recordExecutionStart({
     jobId: jobIdFor(seat),
     actionType: 'launch-agent',
-    args: JSON.stringify({ profile: profileName, workdir: seatDir }),
+    args: JSON.stringify({ workdir: seatDir }),
     // The marker the boot reconciliation below keys on. A row carrying it was a child of A
     // TERMINAL-BOUND RUNNER, which is what makes "this row is non-terminal at boot ⇒ its process is
     // gone" an observation rather than a guess.
@@ -957,7 +950,6 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
 // ── The attached run ──────────────────────────────────────────────────────────────────────────
 async function executeAttached({
   goalFolder: goalFolderInput,
-  profile,
   spawnConfigPath,
   tickIntervalMs = null,
   maxTicks = null,
@@ -997,44 +989,28 @@ async function executeAttached({
     || machineStateRoot(goalFolder)
     || null;
 
-  // ── `--profile` IS DEMANDED ONLY WHERE A SEAT WOULD READ IT (2026-08-12, narrowing D19) ──────
+  // ── EVERY SEAT MUST BE CAST BEFORE THIS LANE RUNS (`#d-abolish-profile-names` sub-ruling 3) ──
   //
-  // This used to be an unconditional refusal. Ruling D19 had already made the caller's name the
-  // FALLBACK for a seat that declares no cast — the catalog (`launch-profiles/catalog.js`) is
-  // applied at the one shared launch point (`spawn.js#profileForSeatCast`), so a cast seat runs
-  // its OWN profile whatever is passed here — and on a fully cast goal the demanded value was
-  // therefore never read at all (measured: the live 17-seat planning goal casts all 17).
+  // `rbtv run --profile <name>` is GONE. It was the caller-named FALLBACK for a seat that declares
+  // no cast; the abolition deletes the fallback, so what stood here as "the flag is required when
+  // some seat would read it" becomes "an uncast seat refuses, and it refuses HERE rather than
+  // hours later at spawn". `uncastSeats` is the same predicate the daemon's lane watch asks, so
+  // the two lanes cannot disagree about which goals may run.
   //
-  // The ask is now the narrow one, asked of `seeding.js#uncastSeats` — the same function the
-  // daemon lane's pass asks, so the two lanes cannot disagree about which goals need a name. When
-  // no seat needs one, the goal supplies its own (see `fallbackProfileFor` for why the slot cannot
-  // simply be emptied, and why the derived value is inert rather than arbitrary).
-  //
-  // ⚠ AN UNMATERIALIZED GOAL IS NOT A CASE HERE, and that is not a decision this line makes:
-  // `uncastSeats` reads the taskforce through `readTaskforce`, which is the same refusal
-  // `enqueueEligible` would raise four lines later with a profile in hand ("no taskforce — a run
-  // executes the run's seats"). Identical with or without `--profile`, so the narrowing changed
-  // nothing about it.
-  if (!profile) {
+  // ⚠ AN UNMATERIALIZED GOAL IS NOT A CASE HERE: `uncastSeats` reads the taskforce through
+  // `readTaskforce`, which raises the same refusal `enqueueEligible` would raise four lines later
+  // ("no taskforce — a run executes the run's seats").
+  {
     const uncast = uncastSeats(goalFolder);
     if (uncast.length) {
       throw new Error(
-        `--profile <name> is REQUIRED for this goal: ${uncast.length} seat(s) declare no `
-        + `harness+model cast in their seat.md, so there is nothing to launch them on and the name `
-        + `you pass is what they fall back to — ${uncast.join(', ')}. Cast them `
-        + `(\`rbtv-bindings set\` and re-materialize) and the flag stops being required, or name a `
-        + `profile now. Every OTHER seat runs the profile its own cast maps to either way `
-        + `(launch-profiles/catalog.js, ruling D19).`
+        `REFUSING TO RUN: ${uncast.length} seat(s) of this goal declare no harness+model cast in `
+        + `their seat.md — ${uncast.join(', ')}. Bindings are the one source of truth for what a `
+        + `seat runs (\`#d-abolish-profile-names\`), and there is no fallback left to launch an `
+        + `uncast seat on. Cast them with \`rbtv-bindings set <workflow.csv> <seat> <harness> `
+        + `<model> [effort]\` and re-materialize, then run again.`
       );
     }
-    profile = fallbackProfileFor(goalFolder, spawnConfig.profiles || {});
-  }
-
-  if (!spawnConfig.profiles[profile]) {
-    throw new Error(
-      `unknown launch profile '${profile}' — known: ${Object.keys(spawnConfig.profiles).join(', ')}. ` +
-      `Profiles are PINNED and NAMED in the one shared config; this lane never composes one.`
-    );
   }
 
   // THE LOCK, BEFORE THE STORE IS OPENED. Refusing after opening it would already have created and
@@ -1043,7 +1019,6 @@ async function executeAttached({
 
   const engine = createEngine({
     dbPath: storePath,
-    profiles: spawnConfig.profiles || {},
     tools: spawnConfig.tools || {},
     workflows: spawnConfig.workflows || {},
     tickIntervalMs: tickIntervalMs || undefined,
@@ -1076,7 +1051,7 @@ async function executeAttached({
     // What the run guarantees instead, and what the probe measures: after any run, the goal's
     // record carries this store's outcomes — one tick later than a boot publish would have, which
     // costs nothing because the only reader that could care is the other lane.
-    const rows = seedTaskforce(engine.heartStore, goalFolder, { profile, logger });
+    const rows = seedTaskforce(engine.heartStore, goalFolder, { logger });
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
     const isHeld = heldSeatPredicate(goalFolder);
@@ -1135,9 +1110,7 @@ async function executeAttached({
           heartStore: engine.heartStore,
           seat: held.seat,
           goalFolder,
-          profileName: profile,
-          profile: spawnConfig.profiles[profile],
-          spawnProfiles: spawnConfig.profiles,   // D19 — so the seat's own cast can outrank this name
+          launchSpecs: spawnConfig.launchSpecs,   // the seat's own cast selects from it (D19 · 7.787)
           tick: engine.getTickNumber(),
           now: now(),
           spawnForeground,
@@ -1154,7 +1127,7 @@ async function executeAttached({
       }
 
       enqueueEligible(engine.heartStore, rows, {
-        profile, goalFolder, logger, isHeld, relaunch: grants, view, ready, readyRows,
+        goalFolder, logger, isHeld, relaunch: grants, view, ready, readyRows,
       });
       await engine.tick(now());
       ticks += 1;

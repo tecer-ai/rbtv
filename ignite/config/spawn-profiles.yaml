@@ -315,9 +315,22 @@ toolsets:
     # Unrestricted within the cage — the cage, not the harness, is the wall.
     {}
 
-profiles:
+launch-specs:
   # ═════════════════════════════════════════════════════════════════════════════════════════════
-  # ONE PROFILE PER HARNESS+MODEL (r-seats-only-architecture (2)) — nothing else is identity.
+  # KEYED BY (HARNESS, MODEL) — THERE IS NO NAME LAYER (owner ruling `#d-abolish-profile-names`,
+  # 2026-08-12). This block used to be `profiles:`, a flat map keyed by an arbitrary NAME, and that
+  # name was the only unit a caller could select. Both are abolished: a seat's CAST — the
+  # (harness, model, effort) written into its bindings sheet
+  # (`.rbtv/config/modules/{module}/{component}/bindings/{code}.json`) — is the absolute source of
+  # truth for what it runs, and the daemon looks the mechanics up BY THAT PAIR at spawn time. No
+  # caller anywhere in ignite may select a launch spec; an uncast seat is a NAMED REFUSAL.
+  #
+  # ⚠ THE KEY IS THE AUTHORITY AND `exec.argv` MUST AGREE WITH IT. `launch-profiles/profiles.js#
+  # validateSpecKey` refuses at config LOAD when a spec filed under `claude/claude-opus-5` runs
+  # `--model claude-haiku-4-5` — the key decides what a cast resolves to, so a disagreement is a
+  # launch running a model nobody asked for while every record says otherwise.
+  #
+  # ONE SPEC PER HARNESS+MODEL (r-seats-only-architecture (2)) — nothing else is identity.
   # The set is the owner-ruled roster (2026-08-06, live at console): claude fable/opus/sonnet/
   # haiku, codex gpt-5.5 only, kimi, opencode glm-5.2/deepseek-flash/deepseek-pro/fugu/
   # fugu-ultra/gemini-flash/gemini-pro. Effort translation tables are the retired cli-*
@@ -328,333 +341,348 @@ profiles:
   # boundary — the portable/caged halves retire with the flat lane, and a host with no cage
   # refuses to spawn rather than running wall-less (the E_NO_PORTABLE_HALF direction, kept).
   #
-  # ⚠ EFFORT IS TRANSLATED, NEVER BAKED, AND NEVER SILENTLY DROPPED (G-270): every profile
+  # ⚠ EFFORT IS TRANSLATED, NEVER BAKED, AND NEVER SILENTLY DROPPED (G-270): every spec
   # carries a translation table or an explicit `inert: true`. A harness whose dial does not
   # exist says so.
   # ═════════════════════════════════════════════════════════════════════════════════════════════
 
-  # ── claude (4 models) ────────────────────────────────────────────────────────────────────────
-  # `stream-json` + `--verbose` is the shape 18 real jobs ran on. Headed: seats are headed by
-  # construction where the owner joins; no prompt carriage — a seat is driven by its DESCRIPTOR
-  # and by the room, never by argv text (R7, D86).
-  #
-  # ⚑ `headed.tui` PINS THE PROFILE'S MODEL (owner ruling core-build decisions.md#d-s21-headed-tui-pins-model,
-  # 2026-08-10): a profile named `claude-opus` that runs the harness default in one lane and opus in
-  # the other is a profile whose name means two things. The pin is `--model`, the same flag and the
-  # same value the `exec`/`resume` templates carry. Blast radius INCLUDES the daemon-headed lane
-  # (tmux-pane seats), ruled knowingly.
-  #
-  # ⚑ exec/resume ARE A PAIR (r-chat-chain-resumes-session, owner 2026-08-07). The exec ASSIGNS
-  # the harness session id (`--session-id {session_ref}`, so the rbtv session id and the harness
-  # session id are ONE value and `session_ref: { source: assigned }` needs to read nothing back);
-  # a chained turn then launches the resume argv with the PREDECESSOR's ref and a prompt carrying
-  # only the owner's new message(s). Measured on claude 2.1.224: `-p --resume <id>` keeps the same
-  # session id and its context (cache_creation 8843 -> 92 tokens on the second turn).
-  # ponytail: the two argvs are spelled out in full and must be kept in step by hand — a
-  # `--settings` change applied to one only would run two different postures on one profile. A
-  # shared-core/two-templates config shape is the upgrade path if that ever bites.
+  claude:
+    # ── claude (4 models) ────────────────────────────────────────────────────────────────────────
+    # `stream-json` + `--verbose` is the shape 18 real jobs ran on. Headed: seats are headed by
+    # construction where the owner joins; no prompt carriage — a seat is driven by its DESCRIPTOR
+    # and by the room, never by argv text (R7, D86).
+    #
+    # ⚑ `headed.tui` PINS THE PROFILE'S MODEL (owner ruling core-build decisions.md#d-s21-headed-tui-pins-model,
+    # 2026-08-10): a profile named `claude-opus` that runs the harness default in one lane and opus in
+    # the other is a profile whose name means two things. The pin is `--model`, the same flag and the
+    # same value the `exec`/`resume` templates carry. Blast radius INCLUDES the daemon-headed lane
+    # (tmux-pane seats), ruled knowingly.
+    #
+    # ⚑ exec/resume ARE A PAIR (r-chat-chain-resumes-session, owner 2026-08-07). The exec ASSIGNS
+    # the harness session id (`--session-id {session_ref}`, so the rbtv session id and the harness
+    # session id are ONE value and `session_ref: { source: assigned }` needs to read nothing back);
+    # a chained turn then launches the resume argv with the PREDECESSOR's ref and a prompt carrying
+    # only the owner's new message(s). Measured on claude 2.1.224: `-p --resume <id>` keeps the same
+    # session id and its context (cache_creation 8843 -> 92 tokens on the second turn).
+    # ponytail: the two argvs are spelled out in full and must be kept in step by hand — a
+    # `--settings` change applied to one only would run two different postures on one profile. A
+    # shared-core/two-templates config shape is the upgrade path if that ever bites.
 
-  claude-fable:
-    exec:
-      argv: ["claude", "-p", "--model", "claude-fable-5",
-             "--session-id", "{session_ref}",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
-      prompt: stdin
-    resume:
-      argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "claude-fable-5",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["claude", "--model", "claude-fable-5"] }
-    effort:
-      dialect: effort
-      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
-      argv: ["--effort", "{effort}"]
-    session_ref: { source: assigned }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+    claude-fable-5:
+      exec:
+        argv: ["claude", "-p", "--model", "claude-fable-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-fable-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-fable-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
-  claude-opus:
-    # The FULL model id is pinned, never the `opus` alias (owner ruling 2026-08-10, "full model
-    # ids everywhere"): `claude --help` accepts either, but an alias records a mapping true on one
-    # machine at one moment, and a config where one profile spells a full id and its sibling an
-    # alias hands the bindings catalog two vocabularies for one fact.
-    exec:
-      argv: ["claude", "-p", "--model", "claude-opus-5",
-             "--session-id", "{session_ref}",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
-      prompt: stdin
-    resume:
-      argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "claude-opus-5",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["claude", "--model", "claude-opus-5"] }
-    effort:
-      dialect: effort
-      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
-      argv: ["--effort", "{effort}"]
-    session_ref: { source: assigned }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+    claude-opus-5:
+      # The FULL model id is pinned, never the `opus` alias (owner ruling 2026-08-10, "full model
+      # ids everywhere"): `claude --help` accepts either, but an alias records a mapping true on one
+      # machine at one moment, and a config where one profile spells a full id and its sibling an
+      # alias hands the bindings catalog two vocabularies for one fact.
+      exec:
+        argv: ["claude", "-p", "--model", "claude-opus-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-opus-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-opus-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
-  claude-sonnet:
-    exec:
-      argv: ["claude", "-p", "--model", "claude-sonnet-5",
-             "--session-id", "{session_ref}",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
-      prompt: stdin
-    resume:
-      argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "claude-sonnet-5",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
-    effort:
-      dialect: effort
-      rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
-      argv: ["--effort", "{effort}"]
-    session_ref: { source: assigned }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+    claude-sonnet-5:
+      exec:
+        argv: ["claude", "-p", "--model", "claude-sonnet-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-sonnet-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
-  claude-haiku:
-    # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
-    # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and
-    # has no effort dial. An inert table makes the resolver ACCEPT any rung and report it back as
-    # `effortInert: true`; omitting the block would refuse the pair (G-270). ⚠ SO A MASTER RUNNING
-    # ON HAIKU CARRIES AN EFFORT THAT VISIBLY DOES NOTHING — accepted, reported inert, no argv.
-    # That is the honest report, not a defect; switch to a dialed profile to move the dial.
-    exec:
-      argv: ["claude", "-p", "--model", "claude-haiku-4-5",
-             "--session-id", "{session_ref}",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
-      prompt: stdin
-    resume:
-      argv: ["claude", "-p", "--resume", "{session_ref}",
-             "--model", "claude-haiku-4-5",
-             "--output-format", "stream-json", "--verbose",
-             "--permission-mode", "bypassPermissions",
-             "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["claude", "--model", "claude-haiku-4-5"] }
-    effort: { inert: true }
-    session_ref: { source: assigned }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+    claude-haiku-4-5:
+      # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
+      # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and
+      # has no effort dial. An inert table makes the resolver ACCEPT any rung and report it back as
+      # `effortInert: true`; omitting the block would refuse the pair (G-270). ⚠ SO A MASTER RUNNING
+      # ON HAIKU CARRIES AN EFFORT THAT VISIBLY DOES NOTHING — accepted, reported inert, no argv.
+      # That is the honest report, not a defect; switch to a dialed profile to move the dial.
+      exec:
+        argv: ["claude", "-p", "--model", "claude-haiku-4-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-haiku-4-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-haiku-4-5"] }
+      effort: { inert: true }
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
-  # ── codex (1 model) ──────────────────────────────────────────────────────────────────────────
-  # codex POLICY-blocks .git writes under workspace-write regardless of config, so the exec runs
-  # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
-  # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
-  # one machine at one moment. Effort: codex spells the dial `thinking` and its manifest declares
-  # depths [low, medium, high] — THREE rungs, and since the numeric-rung ruling that is simply what
-  # this profile's LADDER IS. ⚠ The note that stood here — "the abstract `max` maps to `high`, a
-  # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
-  # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
-  # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
-  # <key=value>"), which is why the fragment is two tokens and not a flag. No `headed:` — the
-  # retired set never declared a codex TUI and none is verified here.
-  # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
-  # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
-  # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
-  # seat folders are machine-generated from owner-authored exposure manifests — codex's own
-  # documented case ("automation that already vets hook sources"). Daemon spawn profiles ONLY;
-  # never add this to an interactive/human codex invocation (humans keep the /hooks review).
 
-  codex-gpt-5-5:
-    exec:
-      argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
-             "--sandbox", "danger-full-access", "-c", "approval_policy=never",
-             "--dangerously-bypass-hook-trust", "--json"]
-      prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
-    effort:
-      dialect: thinking
-      rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
-      argv: ["-c", "model_reasoning_effort={effort}"]
-    session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+  codex:
+    # ── codex (1 model) ──────────────────────────────────────────────────────────────────────────
+    # codex POLICY-blocks .git writes under workspace-write regardless of config, so the exec runs
+    # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
+    # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
+    # one machine at one moment. Effort: codex spells the dial `thinking` and its manifest declares
+    # depths [low, medium, high] — THREE rungs, and since the numeric-rung ruling that is simply what
+    # this profile's LADDER IS. ⚠ The note that stood here — "the abstract `max` maps to `high`, a
+    # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
+    # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
+    # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
+    # <key=value>"), which is why the fragment is two tokens and not a flag. No `headed:` — the
+    # retired set never declared a codex TUI and none is verified here.
+    # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
+    # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
+    # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
+    # seat folders are machine-generated from owner-authored exposure manifests — codex's own
+    # documented case ("automation that already vets hook sources"). Daemon spawn profiles ONLY;
+    # never add this to an interactive/human codex invocation (humans keep the /hooks review).
 
-  # ── kimi (1 model) ───────────────────────────────────────────────────────────────────────────
-  # `kimi --help` declares no sandbox and no permission mode (measured) — containment is entirely
-  # the seat cage's. `--yolo` deliberately ABSENT: `--quiet` implies `--print`, which already
-  # auto-approves tool calls for the invocation. ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED
-  # AGAINST THIS BOX, NOT READ OFF IT: a machine whose kimi config does not carry this id refuses
-  # loudly at dispatch rather than silently running another model. Effort: a BINARY dial, measured
-  # on this box 2026-08-11 (`kimi --help`: "--thinking / --no-thinking   Enable thinking"). So the
-  # ladder is TWO rungs and each rung IS the flag — the argv fragment is a bare `{effort}`.
-  # ⚠ The note that stood here ("the four abstract levels collapse two-and-two, lossy and stated")
-  # described the RETIRED four-level vocabulary. Nothing collapses now: rung 2 is kimi's top and
-  # rung 3 is a refusal naming 1..2.
+    gpt-5.5:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
+        argv: ["-c", "model_reasoning_effort={effort}"]
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
 
   kimi:
-    exec:
-      argv: ["kimi", "--quiet", "-m", "kimi-code/kimi-for-coding", "--work-dir", "{workdir}"]
-      prompt: stdin
-    effort:
-      dialect: thinking-toggle
-      rungs: ["--no-thinking", "--thinking"]     # 1..2 — the rung IS the flag; the fragment is bare
-      argv: ["{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
+    # ── kimi (1 model) ───────────────────────────────────────────────────────────────────────────
+    # `kimi --help` declares no sandbox and no permission mode (measured) — containment is entirely
+    # the seat cage's. `--yolo` deliberately ABSENT: `--quiet` implies `--print`, which already
+    # auto-approves tool calls for the invocation. ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED
+    # AGAINST THIS BOX, NOT READ OFF IT: a machine whose kimi config does not carry this id refuses
+    # loudly at dispatch rather than silently running another model. Effort: a BINARY dial, measured
+    # on this box 2026-08-11 (`kimi --help`: "--thinking / --no-thinking   Enable thinking"). So the
+    # ladder is TWO rungs and each rung IS the flag — the argv fragment is a bare `{effort}`.
+    # ⚠ The note that stood here ("the four abstract levels collapse two-and-two, lossy and stated")
+    # described the RETIRED four-level vocabulary. Nothing collapses now: rung 2 is kimi's top and
+    # rung 3 is a refusal naming 1..2.
 
-  # ── opencode (7 models) ──────────────────────────────────────────────────────────────────────
-  # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
-  # unprompted) — containment is entirely the seat cage's. session_ref cwd-implicit:
-  # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
-  # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
-  # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
-  # ROOT option, so it applies to the default `opencode [project]` TUI command and not only to
-  # `run`), and no prompt carriage (D86 — carriage declaration awaits the real-terminal `--prompt`
-  # verification; a `{prompt}` slot would make the prompt mandatory and break the bare
-  # owner-driven entry path).
-  # 8h caps overrides: carried from the pre-doctrine per-profile blocks, pending ruling.
-  # Roster owner-ruled 2026-08-06; model IDs verified live on this box via `opencode models`
-  # (Google, DeepSeek, Sakana AI, Z.AI all authenticated per `opencode auth list`).
-  #
-  # ⚠ EFFORT WAS `inert: true` ON ALL SEVEN UNTIL 2026-08-11, AND THAT WAS A STALE INFERENCE, not
-  # the measurement it read as. The 2026-07-09 note it rested on — "opencode forwards `--variant`
-  # to the provider without validating it, so there is no honored ladder" — generalized ONE
-  # model's behaviour to all seven. `opencode run --help` (1.17.18) declares `--variant   model
-  # variant (provider-specific reasoning effort)`, and PROVIDER-SPECIFIC IS PER MODEL by
-  # definition — which is why every ladder below is enumerated from that model's own `variants`
-  # object and none is copied from its neighbour. Two of them prove the point: glm-5.2 carries no
-  # low/medium at all, gemini-flash no medium.
-  # ⚠⚠ AN INVALID `--variant` IS SILENTLY ACCEPTED — exit 0, no warning, no error (measured live,
-  # 2026-08-11). So nothing invalid may ever reach the binary, and the guards are both UPSTREAM of
-  # it, reading these same ladders: `bindings.py#set_seat` range-checks the number at authoring
-  # time, `catalog.js#effortRungFor` refuses an unknown word at launch. This file is the one copy.
-  # RUNG ORDER IS AUTHORED JUDGEMENT, NOT MEASUREMENT: models.dev publishes variant NAMES, not a
-  # reasoning ranking. Ascending-reasoning is the contract (rung 1 = lowest) and these follow the
-  # plain reading of the words. A model whose `variants` is `{}` KEEPS `inert: true` — that one
-  # is a measurement, with a command behind it.
+    kimi-code/kimi-for-coding:
+      exec:
+        argv: ["kimi", "--quiet", "-m", "kimi-code/kimi-for-coding", "--work-dir", "{workdir}"]
+        prompt: stdin
+      effort:
+        dialect: thinking-toggle
+        rungs: ["--no-thinking", "--thinking"]     # 1..2 — the rung IS the flag; the fragment is bare
+        argv: ["{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
-  opencode-glm-5-2:
-    exec:
-      argv: ["opencode", "run", "-m", "zai-coding-plan/glm-5.2"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
-    effort:
-      dialect: variant
-      rungs: [high, max]   # `opencode models zai-coding-plan --verbose` .variants, 2026-08-11 — NO low/medium
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-  opencode-deepseek-flash:
-    exec:
-      argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-flash"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
-    effort:
-      dialect: variant
-      rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+  opencode:
+    # ── opencode (7 models) ──────────────────────────────────────────────────────────────────────
+    # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
+    # unprompted) — containment is entirely the seat cage's. session_ref cwd-implicit:
+    # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
+    # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
+    # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
+    # ROOT option, so it applies to the default `opencode [project]` TUI command and not only to
+    # `run`), and no prompt carriage (D86 — carriage declaration awaits the real-terminal `--prompt`
+    # verification; a `{prompt}` slot would make the prompt mandatory and break the bare
+    # owner-driven entry path).
+    # 8h caps overrides: carried from the pre-doctrine per-profile blocks, pending ruling.
+    # Roster owner-ruled 2026-08-06; model IDs verified live on this box via `opencode models`
+    # (Google, DeepSeek, Sakana AI, Z.AI all authenticated per `opencode auth list`).
+    #
+    # ⚠ EFFORT WAS `inert: true` ON ALL SEVEN UNTIL 2026-08-11, AND THAT WAS A STALE INFERENCE, not
+    # the measurement it read as. The 2026-07-09 note it rested on — "opencode forwards `--variant`
+    # to the provider without validating it, so there is no honored ladder" — generalized ONE
+    # model's behaviour to all seven. `opencode run --help` (1.17.18) declares `--variant   model
+    # variant (provider-specific reasoning effort)`, and PROVIDER-SPECIFIC IS PER MODEL by
+    # definition — which is why every ladder below is enumerated from that model's own `variants`
+    # object and none is copied from its neighbour. Two of them prove the point: glm-5.2 carries no
+    # low/medium at all, gemini-flash no medium.
+    # ⚠⚠ AN INVALID `--variant` IS SILENTLY ACCEPTED — exit 0, no warning, no error (measured live,
+    # 2026-08-11). So nothing invalid may ever reach the binary, and the guards are both UPSTREAM of
+    # it, reading these same ladders: `bindings.py#set_seat` range-checks the number at authoring
+    # time, `catalog.js#effortRungFor` refuses an unknown word at launch. This file is the one copy.
+    # RUNG ORDER IS AUTHORED JUDGEMENT, NOT MEASUREMENT: models.dev publishes variant NAMES, not a
+    # reasoning ranking. Ascending-reasoning is the contract (rung 1 = lowest) and these follow the
+    # plain reading of the words. A model whose `variants` is `{}` KEEPS `inert: true` — that one
+    # is a measurement, with a command behind it.
 
-  opencode-deepseek-pro:
-    exec:
-      argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-pro"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
-    effort:
-      dialect: variant
-      rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+    zai-coding-plan/glm-5.2:
+      exec:
+        argv: ["opencode", "run", "-m", "zai-coding-plan/glm-5.2"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
+      effort:
+        dialect: variant
+        rungs: [high, max]   # `opencode models zai-coding-plan --verbose` .variants, 2026-08-11 — NO low/medium
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-  opencode-fugu:
-    exec:
-      argv: ["opencode", "run", "-m", "sakana/fugu"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "sakana/fugu"] }
-    effort:
-      dialect: variant
-      rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+    deepseek/deepseek-v4-flash:
+      exec:
+        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-flash"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-  opencode-fugu-ultra:
-    exec:
-      argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
-    effort:
-      dialect: variant
-      rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+    deepseek/deepseek-v4-pro:
+      exec:
+        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-pro"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-  opencode-gemini-flash:
-    # `gemini-flash-latest` is a FLOATING alias — the model identity floats with Google's latest; owner chose it knowingly.
-    exec:
-      argv: ["opencode", "run", "-m", "google/gemini-flash-latest"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
-    effort:
-      dialect: variant
-      rungs: [low, high]   # `opencode models google --verbose` .variants, 2026-08-11 — NO medium
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+    sakana/fugu:
+      exec:
+        argv: ["opencode", "run", "-m", "sakana/fugu"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "sakana/fugu"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
-  opencode-gemini-pro:
-    # PREVIEW model ID — Google may retire `gemini-3.1-pro-preview`; expect a re-pin when it graduates or disappears.
-    exec:
-      argv: ["opencode", "run", "-m", "google/gemini-3.1-pro-preview"]
-      prompt: stdin
-    headed:
-      tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
-    effort:
-      dialect: variant
-      rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
-      argv: ["--variant", "{effort}"]
-    session_ref: { source: cwd-implicit }
-    toolset_ceiling: full
-    workdir_root: .rbtv/goals
-    caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+    sakana/fugu-ultra:
+      exec:
+        argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-flash-latest:
+      # `gemini-flash-latest` is a FLOATING alias — the model identity floats with Google's latest; owner chose it knowingly.
+      exec:
+        argv: ["opencode", "run", "-m", "google/gemini-flash-latest"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
+      effort:
+        dialect: variant
+        rungs: [low, high]   # `opencode models google --verbose` .variants, 2026-08-11 — NO medium
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-3.1-pro-preview:
+      # PREVIEW model ID — Google may retire `gemini-3.1-pro-preview`; expect a re-pin when it graduates or disappears.
+      exec:
+        argv: ["opencode", "run", "-m", "google/gemini-3.1-pro-preview"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+# ── jobs: — MECHANICS THAT PIN NO MODEL, KEYED BY NAME ─────────────────────────────────────────
+# `#d-abolish-profile-names` sub-ruling 1: a deterministic launch with no (harness, model) pair has
+# nothing to key by, and "a job's name IS its identity". So these keep their names, in their own
+# block, which also removes the is-this-a-cast-or-a-job ambiguity the old flat `profiles:` map had
+# to paper over at launch time. ⚠ A SEAT CAN NEVER CAST TO ONE — `specForSeatCast` only ever reads
+# `launch-specs:`, so nothing here is reachable from an agent launch.
+jobs:
 
   test-sleep:
     # INERT TEST PROFILE (D52) -- the ONLY non-production profile here. It exists so the
@@ -684,6 +712,7 @@ profiles:
     # override pending ruling — was per-profile before r-seats-only-architecture (a test profile
     # at the 2G/6h default would let a stuck fixture hold seat-scale resources).
     caps: { memory_max: "64M", cpu_quota: "10%", runtime_max: "5m", tasks_max: 16 }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # tools:  — task 7.70. DAEMON-ONLY root key (server/index.js:40 DAEMON_ONLY_ROOT_KEYS);

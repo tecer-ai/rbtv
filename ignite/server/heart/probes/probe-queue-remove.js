@@ -66,13 +66,13 @@ try {
     jobId: 'launch-worker',
     actionType: 'launch-agent',
     function: 'spawnLaunchAgent',
-    argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: {} }),
+    argsSchema: JSON.stringify({ required: {}, optional: {} }),
     enabled: 1,
   });
 
   const now = new Date();
   const runAt = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const args = JSON.stringify({ profile: 'default' });
+  const args = JSON.stringify({});
 
   // A: a one-shot pending row.
   const rowA = store.enqueue({

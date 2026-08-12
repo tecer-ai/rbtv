@@ -37,6 +37,7 @@ import ast
 import contextlib
 import io
 import json
+import os
 import re
 import sys
 import tempfile
@@ -514,6 +515,138 @@ def check_v2_discloses_partial_state(src, mod):
                   f"both naming goal-dir and goal-exists (R8b's own keys)")
 
 
+def _sibling_goals_tree(mod):
+    """Make `goals-tree/` resolvable from the module under test, and answer where it is.
+
+    `scaffold_goal` finds the creation verb at `Path(__file__).parents[2]/goals-tree/tool/goal_cli.py`.
+    The REAL file resolves it; a MUTANT copy lives in a throwaway tree that has no such sibling, so
+    without this its subprocess would fail on a missing script and the check would go red on the
+    fixture instead of on the mutation — a red nobody can attribute is worth nothing.
+    """
+    caps = Path(mod.__file__).resolve().parents[2]
+    link = caps / "goals-tree"
+    if not link.exists():
+        link.symlink_to(CAP.parent / "goals-tree", target_is_directory=True)
+    return link / "tool" / "goal_cli.py"
+
+
+def check_drain_writes_lane_at_birth(src, mod):
+    """THE WHOLE CAGED PATH, DRIVEN FOR REAL (task 7.789): a staged request becomes a goal at the
+    goals root it was given, with `execution-lane` written AT BIRTH — and a request that names no
+    lane becomes a readable refusal and no directory.
+
+    ⚠ THIS IS THE ONE ARM THAT IS NOT A DRY RUN, and that is the point. Every other exercise of
+    `scaffold_and_queue` here passes `dry_run=True`, which composes argv and writes nothing — so
+    the claim "the daemon writes the marker the caged requester could not" was asserted at the
+    argv and never at the disk. The defect this path exists to close is a goal that is created and
+    then never runs because nothing wrote its marker; an argv assertion cannot see it.
+
+    WHAT IS REAL AND WHAT IS STUBBED, stated because a stub is always more permissive than the
+    thing it stands for. The creation verb is REAL — `goal_cli.py scaffold` runs as a subprocess
+    and writes the goal folder, `goal.md`, `execution-lane` and the `goals.csv` row. Only
+    `scaffold-seats` is stubbed, because materializing a 17-seat taskforce needs a component
+    catalog and a bindings sheet that are deployment state, not fixture. The stub is not trusted to
+    stand in for it: it CAPTURES ITS ARGV, and the check asserts what the entry handed it, so the
+    second act is measured at its interface rather than assumed from an exit code.
+
+    The negative arm rides the SAME drain as the positive one, deliberately: a refusal that took
+    the accepted request down with it — or an accepted request that dragged the refused one through
+    — is visible only when both are in one fire.
+    """
+    if mod is None:
+        return False, "module did not import"
+    goal_cli = _sibling_goals_tree(mod)
+    if not goal_cli.is_file():
+        return False, f"the creation verb is not resolvable from the module under test ({goal_cli})"
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        # The stubbed ruled name, on PATH under its RULED name — never the script path behind it.
+        binz = td / "bin"
+        binz.mkdir()
+        argv_log = td / "scaffold-seats.argv"
+        stub = binz / "scaffold-seats"
+        stub.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys, pathlib\n"
+            f"pathlib.Path({str(argv_log)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+            "print(json.dumps({'ok': True, 'taskforce_rows_appended': 0}))\n",
+            encoding="utf-8")
+        stub.chmod(0o755)
+
+        root = td / "goals"
+        root.mkdir()
+        inbox = td / "inbox"
+        inbox.mkdir()
+        (inbox / "a-lane-at-birth.json").write_text(json.dumps({
+            "goal-name": "probe-lane-at-birth", "goal-type": "one-shot",
+            "goal-contract": "the raw ask, passed through as written",
+            "goal-kind": "interactive", "execution-lane": "daemon",
+            "execution-mode": "interactive"}), encoding="utf-8")
+        (inbox / "b-no-lane.json").write_text(json.dumps({
+            "goal-name": "probe-no-lane", "goal-type": "one-shot",
+            "goal-contract": "c", "goal-kind": "interactive"}), encoding="utf-8")
+
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{binz}{os.pathsep}{old_path}"
+        try:
+            out = mod.scaffold_and_queue(inbox, root, "planning", td, td, td, td, td,
+                                         dry_run=False)
+        except Exception as exc:                       # noqa: BLE001 — reported, never swallowed
+            return False, f"the drain raised {type(exc).__name__}: {exc}"
+        finally:
+            os.environ["PATH"] = old_path
+
+        recs = {Path(r["request-file"]).stem: r for r in out["requests"]}
+        born, refused = recs.get("a-lane-at-birth"), recs.get("b-no-lane")
+        if born is None or refused is None:
+            return False, f"the drain did not process both staged requests: {list(recs)}"
+
+        # ── the ACCEPTED half, asserted at the disk ──────────────────────────────────────────
+        if born["outcome"] != "ACCEPTED":
+            return False, f"the well-formed request was refused: {born.get('stated-refusal')}"
+        goal_dir = root / "probe-lane-at-birth"
+        marker = goal_dir / "execution-lane"
+        if not marker.is_file():
+            return False, (f"THE MARKER WAS NEVER WRITTEN — {marker} does not exist, so the daemon's "
+                           f"watch pass would never adopt this goal and it would silently never run")
+        lane = marker.read_text(encoding="utf-8").strip()
+        if lane != "daemon":
+            return False, f"the marker reads {lane!r}, not the requested 'daemon'"
+        # ⚠ THE ROOT IS THE ONE IT WAS GIVEN. A creation that walked up to some enclosing goals
+        # tree would still produce a valid marker — somewhere nobody asked for.
+        if not (root / "goals.csv").is_file() or "probe-lane-at-birth" not in (root / "goals.csv").read_text(encoding="utf-8"):
+            return False, f"no goals.csv row at the goals root the request was drained against ({root})"
+        # The kind reaches `goal.md`, which is what `goal-channel-start.js#channelEnsureDecision`
+        # reads to decide whether this goal gets a Slack channel (task 7.789, criterion 6).
+        if "goal-kind: interactive" not in (goal_dir / "goal.md").read_text(encoding="utf-8"):
+            return False, "goal.md carries no `goal-kind:` — the channel-ensure decision reads it"
+        if not (inbox / "done" / "a-lane-at-birth.json").is_file():
+            return False, "the accepted request did not settle into done/ — a re-fire would re-process it"
+        if not argv_log.is_file():
+            return False, "the ruled name was never invoked — no argv captured"
+        seats_argv = json.loads(argv_log.read_text(encoding="utf-8"))
+        for expect in ("--package", str(goal_dir), "--workflow", "planning", "--root"):
+            if expect not in seats_argv:
+                return False, f"the ruled name was invoked without {expect!r}: {seats_argv}"
+
+        # ── the REFUSED half, in the same fire ───────────────────────────────────────────────
+        if refused["outcome"] != "REFUSED":
+            return False, "a request naming NO lane was accepted — the field is REQUIRED"
+        members = {r.get("member") for r in refused.get("refusals", [])}
+        if members != {"P5"}:
+            return False, f"the lane-less request refused on {members}, expected exactly P5"
+        if (root / "probe-no-lane").exists():
+            return False, "the refused request left a goal directory behind — validation must precede the scaffold"
+        rec_file = inbox / "refused" / "b-no-lane.refusal.json"   # `.json` is REPLACED, not appended
+        if not rec_file.is_file():
+            return False, f"no refusal record where the requester can read it ({rec_file})"
+        if "execution-lane" not in rec_file.read_text(encoding="utf-8"):
+            return False, "the refusal record does not name the field it rejected"
+    return True, ("goal born at the given root with execution-lane='daemon', goals.csv row, "
+                  f"goal.md kind, settled into done/, ruled name got {len(seats_argv)} argv tokens; "
+                  "the lane-less sibling refused P5 with no directory and a readable record")
+
+
 # The mutation each check must be able to catch. Text substitutions, applied to a throwaway copy.
 CHECKS = [
     # ⚠ THIS MUTATION WAS REPAIRED BY TASK 7.206, AND THE REPAIR IS THE HARNESS WORKING. The
@@ -594,6 +727,15 @@ CHECKS = [
     # owner ruled DISCLOSE on.
     ("16 v2-discloses-partial-state", check_v2_discloses_partial_state,
      lambda s: s.replace('                    **({"goal-name": taken,', '                    **({} if True else {"goal-name": taken,')),
+    # --- task 7.789: the caged path driven for real, end to end ---
+    # THE LANE DROPPED ON THE FLOOR — the request's validated `execution-lane` never reaching the
+    # creation verb's argv. It is the exact shape of the defect this whole route exists to close:
+    # the requester cannot write the marker, so if the entry does not forward it, NOBODY does and
+    # the goal is born into a lane nothing reads. Mutated at the FORWARDING, not at the
+    # resolution — `resolve_execution_lane` still refuses a lane-less payload, so the negative arm
+    # of the check stays intact and only the positive half can move.
+    ("17 drain-writes-lane-at-birth", check_drain_writes_lane_at_birth,
+     lambda s: s.replace('               "--lane", lane,\n', '')),
 ]
 
 

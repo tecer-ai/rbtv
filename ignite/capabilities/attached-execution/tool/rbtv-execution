@@ -42,8 +42,8 @@ const EXIT_QUESTION = 3;   // distinct: a run that STOPPED TO ASK is not a run t
 
 function help() {
   return [
-    'rbtv run <goal-folder> [--profile <name>] [options]',
-    'rbtv run <goal-folder> --status            (orient; read-only, no daemon, no profile)',
+    'rbtv run <goal-folder> [options]',
+    'rbtv run <goal-folder> --status            (orient; read-only, no daemon)',
     '',
     'Boot the ignite engine IN THIS TERMINAL and advance the goal. The engine is the daemon\'s —',
     'same queue, same tick algorithm, same fire path — attached instead of detached.',
@@ -55,16 +55,12 @@ function help() {
     '',
     'OPTIONS',
     '  --status                ORIENT instead of run: print done / ready / next / held-for-user',
-    '                          for this goal and exit. Read-only, needs no daemon, needs no',
-    '                          profile, and works before the goal has ever run.',
-    '  --profile <name>        The FALLBACK launch profile, BY NAME, from the one shared config. A seat',
-    '                          whose seat.md declares a harness+model cast launches on the profile THAT',
-    '                          maps to instead (launch-profiles/catalog.js, applied at spawn — D19), so',
-    '                          this name is read only by seats that declare no cast.',
-    '                          REQUIRED ONLY IF THIS GOAL HAS SUCH A SEAT — the refusal names them.',
-    '                          Passing it on a fully cast goal is legal and changes nothing.',
-    '                          This verb never composes a launch command of its own.',
-    '  --config <path>         the shared launch-profile config (default: the ignite config).',
+    '                          for this goal and exit. Read-only, needs no daemon, and works',
+    '                          before the goal has ever run.',
+    '                          (`--profile` is GONE — #d-abolish-profile-names, 2026-08-12. What a',
+    '                          seat runs on is its CAST, in the workflow bindings sheet, and',
+    '                          nothing else. An uncast seat refuses at this door, by name.)',
+    '  --config <path>         the shared launch-spec config (default: the ignite config).',
     '  --tick-ms <n>           tick cadence in ms (default 10000).',
     '  --max-ticks <n>         stop after n ticks — for probes and for a single pass.',
     '  --relaunch <seat>       GRANT one seat a single fresh attempt. Repeatable. A seat whose last',
@@ -94,14 +90,13 @@ function help() {
 }
 
 function parseArgs(argv) {
-  const opts = { goalFolder: null, profile: null, config: null, tickMs: null, maxTicks: null, json: false, status: false, relaunch: [] };
+  const opts = { goalFolder: null, config: null, tickMs: null, maxTicks: null, json: false, status: false, relaunch: [] };
   const rest = [];
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--help' || a === '-h') return { help: true };
     else if (a === '--json') opts.json = true;
     else if (a === '--status') opts.status = true;
-    else if (a === '--profile') opts.profile = argv[++i];
     else if (a === '--config') opts.config = argv[++i];
     else if (a === '--tick-ms') opts.tickMs = Number(argv[++i]);
     else if (a === '--max-ticks') opts.maxTicks = Number(argv[++i]);
@@ -166,15 +161,14 @@ async function main(argv) {
     return EXIT_OK;
   }
 
-  // ⚠ NO `--profile` GATE HERE, deliberately (2026-08-12, narrowing D19). Whether this goal needs
-  // a fallback profile named is a question about ITS SEATS, and this file cannot see them — it
-  // holds no config and reads no descriptor. `executeAttached` asks `seeding.js#uncastSeats` once
-  // the config is loaded, and its refusal NAMES the seats that forced the flag. A gate here would
-  // be a second, blinder answer to the same question.
+  // ⚠ NO CAST GATE HERE, deliberately. Whether every seat of this goal is cast is a question about
+  // ITS SEATS, and this file cannot see them — it holds no config and reads no descriptor.
+  // `executeAttached` asks `seeding.js#uncastSeats` once the config is loaded, and its refusal
+  // NAMES the seats. A gate here would be a second, blinder answer to the same question.
   const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
 
   // THE GRANT IS RECORDED BEFORE THE ENGINE BOOTS, and that ordering is the point: a run refused
-  // for any reason after this line (an unknown profile, a live runner on the goal) leaves the
+  // for any reason after this line (an uncast seat, a live runner on the goal) leaves the
   // operator's authorization standing instead of losing it with the process. The engine sources it
   // from the file, so nothing is passed down — one home, read by both lanes.
   for (const seat of opts.relaunch) {
@@ -190,7 +184,6 @@ async function main(argv) {
   try {
     result = await executeAttached({
       goalFolder: opts.goalFolder,
-      profile: opts.profile,
       spawnConfigPath,
       tickIntervalMs: opts.tickMs || null,
       maxTicks: Number.isFinite(opts.maxTicks) ? opts.maxTicks : null,

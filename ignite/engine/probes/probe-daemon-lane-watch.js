@@ -127,8 +127,12 @@ const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'config', 'spawn-pro
 cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
 cfg.default_workdir_root = path.join(tmp, 'work');
 fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
-cfg.profiles['probe-lane'] = {
-  exec: { argv: ['sleep', '1'], prompt: 'stdin' },
+// 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+// the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+// LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+cfg['launch-specs'] = { bash: {} };
+cfg['launch-specs'].bash['probe-lane'] = {
+  exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-lane'], prompt: 'stdin' },
   headed: { tui: { argv: ['true'] } },
   session_ref: { source: 'cwd-implicit' },
   // ABSOLUTE, and pointed at THIS fixture's goals root. A workspace-relative `.rbtv/goals` resolves
@@ -138,13 +142,10 @@ cfg.profiles['probe-lane'] = {
   caps: { memory_max: '64M', cpu_quota: '10%', runtime_max: '5m', tasks_max: 16 },
   sandbox: { ProtectSystem: 'strict', ReadWritePaths: ['{workdir}'], PrivateTmp: true, NoNewPrivileges: true },
 };
-// The CAST twin of `probe-lane`. `probe-lane`'s argv pins no model, so no seat can be cast TO it —
-// a cast is derived from a profile's own `--model` pin. The narrowing's fixture needs a profile a
-// seat can name, and this is it; nothing launches through it, only resolves to it.
-cfg.profiles['probe-lane-cast'] = {
-  ...cfg.profiles['probe-lane'],
-  exec: { argv: ['sleep', '--model', 'probe-cast-model', '1'], prompt: 'stdin' },
-};
+// ⚠ THE CAST TWIN IS GONE AT 7.787. `probe-lane-cast` existed because `probe-lane`'s argv pinned
+// no model, so no seat could be cast TO it — a cast was DERIVED from a spec's own `--model` pin.
+// `launch-specs:` is keyed by the pair, so every spec is castable by construction and the twin has
+// nothing left to be a twin of.
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
@@ -155,10 +156,12 @@ const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 // NO `execution-mode` file: absent means `autonomous` (ratified default), which is the state a
 // daemon-run goal is in, and it keeps the foreground carrier out of this probe entirely.
 // `cast` writes the seat's harness+model into its DESCRIPTOR frontmatter — the surface the launch
-// reads (`spawn.js#seatDeclaresValue`), and therefore the surface the `--profile` narrowing asks
-// about. Default OFF: every goal below predates the narrowing and its seats declare NO cast, which
-// is what keeps the "a profile is still demanded" arms measuring the case they were written for.
-function makeGoal(name, { cast = null } = {}) {
+// reads (`spawn.js#seatDeclaresValue`), and since `#d-abolish-profile-names` the ONLY surface that
+// decides what a seat runs. ⚠ DEFAULT ON since 7.787, and the flip is the ruling: an UNCAST seat is
+// a NAMED REFUSAL at both doors, so a fixture that declared none could no longer be adopted at all
+// and every downstream arm would measure the refusal instead of its own subject. `uncast-goal`
+// below is the one deliberate exception, and it exists to measure exactly that refusal.
+function makeGoal(name, { cast = { harness: 'bash', model: 'probe-lane' } } = {}) {
   const dir = path.join(goalsRoot, name);
   for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(dir, 'seats', s), { recursive: true });
   fs.mkdirSync(path.join(dir, 'coordination'), { recursive: true });
@@ -174,8 +177,10 @@ const switchGoal = makeGoal('switch-goal');     // the end-to-end: daemon first,
 const consoleGoal = makeGoal('console-goal');   // THE CONTROL: assigned to the console lane
 const lockedGoal = makeGoal('locked-goal');     // assigned daemon, but a console runner is attached
 const heldGoal = makeGoal('held-goal');         // assigned daemon, one seat OPEN in the other lane
-const badGoal = makeGoal('bad-profile-goal');   // assigned daemon with a profile the config lacks
-const noProfGoal = makeGoal('no-profile-goal'); // assigned daemon by hand, naming no profile at all
+// The two 7.787 fixtures: a goal whose seats are UNCAST (refused at both doors), and a goal whose
+// marker still carries the RETIRED two-token grammar (does not parse as `daemon`, reads console).
+const uncastGoal = makeGoal('uncast-goal', { cast: null });
+const legacyGoal = makeGoal('legacy-marker-goal');
 const hiGoal = makeGoal('human-interactive-goal');
 // The F1 fixture: an INTERACTIVE goal whose first seat declares `human-interactive:`. In the
 // attached lane that seat is carried in the terminal; in this one there is no terminal at all —
@@ -183,7 +188,7 @@ const hiGoal = makeGoal('human-interactive-goal');
 // declared `fallback:` is what executes there.
 fs.writeFileSync(path.join(hiGoal, 'execution-mode'), 'interactive\n');
 fs.writeFileSync(path.join(hiGoal, 'seats', 'alpha', 'seat.md'),
-  '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
+  '---\nseat: alpha\nharness: bash\nmodel: probe-lane\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
 // THE 7.626 RESIDUAL: the same shape with NO `fallback:` — a `component-lint --check
 // interactive-fallback` violation that reached dispatch. It is the ONE case the pass must still
 // be loud about, and it needs its own goal because the arm-declared case must stay quiet in the
@@ -196,11 +201,11 @@ const pausedGoal = makeGoal('paused-goal');
 // can ever read the marker's fallback token. Its whole point is to be the OTHER answer to the
 // question `no-profile-goal` asks — same bare `daemon` marker, opposite verdict — because a
 // refusal measured alone cannot tell an unconditional gate from a conditional one.
-const castGoal = makeGoal('cast-goal', { cast: { harness: 'sleep', model: 'probe-cast-model' } });
+const castGoal = makeGoal('cast-goal');
 const armlessGoal = makeGoal('armless-goal');
 fs.writeFileSync(path.join(armlessGoal, 'execution-mode'), 'interactive\n');
 fs.writeFileSync(path.join(armlessGoal, 'seats', 'alpha', 'seat.md'),
-  '---\nseat: alpha\nhuman-interactive: yes\n---\n\nbody\n');
+  '---\nseat: alpha\nharness: bash\nmodel: probe-lane\nhuman-interactive: yes\n---\n\nbody\n');
 
 const GOAL_CLI = path.join(IGNITE_SRC, 'capabilities', 'goals-tree', 'tool', 'goal_cli.py');
 // The CLI is the WRITER of the marker file, and it must work with no daemon anywhere — which is
@@ -307,85 +312,98 @@ async function main() {
     readsAs(null).lane === 'console');
   check('L1 …and so does a junk word, an empty file and `console` itself: one answer, three inputs',
     ['nonsense\n', '\n', 'console\n'].every((t) => readsAs(t).lane === 'console'));
-  const tolerant = readsAs('  Daemon   probe-lane \n');
+  const tolerant = readsAs('  Daemon   \n');
   check('L1 only `daemon` opens it — trimmed and case-insensitive, exactly as `execution-mode` is read',
-    tolerant.lane === 'daemon' && tolerant.profile === 'probe-lane', JSON.stringify(tolerant));
-  check('L1 a `daemon` marker with NO profile parses, and carries none — the pass warns rather than guessing',
-    readsAs('daemon\n').lane === 'daemon' && readsAs('daemon\n').profile === null);
+    tolerant.lane === 'daemon' && tolerant.legacy === false, JSON.stringify(tolerant));
+  // ⚑ THE MARKER IS ONE WORD (`#d-abolish-profile-names` sub-ruling 3). The retired second token
+  // named a fallback launch profile; a marker still carrying one does NOT parse as `daemon`, so it
+  // reads `console` under the standing fail-closed rule — and is REPORTED `legacy`, because a goal
+  // silently demoted to the console is the "quietly stopped" failure this whole surface exists to
+  // prevent. Both halves are asserted: the fail-closed verdict AND the report that makes it visible.
+  const legacyRead = readsAs('daemon probe-lane\n');
+  check('L1 a two-token marker (the RETIRED `daemon <profile>` grammar) reads CONSOLE and is REPORTED legacy',
+    legacyRead.lane === 'console' && legacyRead.legacy === true && legacyRead.raw === 'daemon probe-lane',
+    JSON.stringify(legacyRead));
+  check('L1 a bare `daemon` marker parses and is NOT legacy — the pair discriminates',
+    readsAs('daemon\n').lane === 'daemon' && readsAs('daemon\n').legacy === false);
   // ⚑ THE PAUSE MARKER, and it needs NO reader change — which is the arm. A pause is written by
   // PREFIXING the assignment (`paused daemon <profile>`), so the FIRST token stops being `daemon`
   // and the fail-closed default catches it: the goal reads `console`, the daemon does not adopt
   // it, and the profile it will return to is preserved verbatim in the marker for the resume to
   // put back. Pinned here because the pause verb DEPENDS on this reader behaviour — a reader that
   // grew tolerant of a leading word would silently un-pause every paused goal on the tree.
-  const paused = readsAs('paused daemon probe-lane\n');
-  check('L1 a PAUSED marker (`paused daemon <profile>`) reads as the CONSOLE lane — the pause verb '
+  const paused = readsAs('paused daemon\n');
+  check('L1 a PAUSED marker (`paused daemon`) reads as the CONSOLE lane — the pause verb '
     + 'rides the fail-closed default rather than a new word in this reader',
-    paused.lane === 'console' && paused.profile === null && paused.present === true
-      && paused.raw === 'paused daemon probe-lane',
+    paused.lane === 'console' && paused.present === true && paused.raw === 'paused daemon',
     JSON.stringify(paused));
   fs.unlinkSync(lanePath(grammar));
 
   // ── L2 · THE CLI IS THE WRITER, AND IT WORKS DAEMON-DOWN ────────────────────────────────────
   say('');
   say('L2 — `rbtv goal lane` writes the marker, with no daemon in the picture');
-  const refused = laneCli(['switch-goal', '--set', 'daemon'], { expectRefusal: true });
-  check('L2 `--set daemon` WITHOUT `--profile` is REFUSED when a SEAT of that goal declares no cast '
-    + '(these do) — nothing can say what it runs on, and the refusal is at the door rather than a '
-    + 'journal warning at 03:00. It NAMES the seats that forced it',
-    refused.ok === false && /--profile/.test(refused.out) && /alpha/.test(refused.out)
-      && !fs.existsSync(lanePath(switchGoal)),
+  const refused = laneCli(['uncast-goal', '--set', 'daemon'], { expectRefusal: true });
+  check('L2 `--set daemon` is REFUSED when a SEAT of that goal declares NO CAST — there is nothing '
+    + 'left to launch it on, and the refusal is at the door rather than a journal warning at '
+    + '03:00. It NAMES the seats that forced it',
+    refused.ok === false && /no harness\+model cast/.test(refused.out) && /alpha/.test(refused.out)
+      && !fs.existsSync(lanePath(uncastGoal)),
     refused.out.trim().split('\n').pop());
   // ⚑ THE OTHER ANSWER, in the same run and through the same door (narrowing of D19, 2026-08-12).
   // Only the seats' descriptors differ. Without this arm the one above is green whether the gate
   // is conditional or unconditional — which is exactly how the flag came to be demanded on a goal
   // where all 17 seats were cast and no launch ever read the value.
   laneCli(['cast-goal', '--set', 'daemon']);
-  check('L2 …and on a FULLY CAST goal the same command SUCCEEDS with no profile named — the marker '
-    + 'is a bare `daemon`, which both readers already resolved',
+  check('L2 …and on a FULLY CAST goal the same command SUCCEEDS — the marker is a bare `daemon`, '
+    + 'one word, which both readers resolve identically',
     fs.readFileSync(lanePath(castGoal), 'utf8') === 'daemon\n'
-      && laneWatch.readLane(castGoal).lane === 'daemon' && laneWatch.readLane(castGoal).profile === null,
+      && laneWatch.readLane(castGoal).lane === 'daemon' && laneWatch.readLane(castGoal).legacy === false,
     `${JSON.stringify(fs.readFileSync(lanePath(castGoal), 'utf8'))} ${JSON.stringify(laneWatch.readLane(castGoal))}`);
-  // ⚑ THE DOOR CHECK (review F2). A `--profile` typo used to be accepted here: the marker was
-  // written, the daemon adopted the goal, `seedTaskforce` registered a job row per seat, and only
-  // then did `enqueue` refuse `E_UNKNOWN_PROFILE` — leaving orphan rows and a goal that threw
-  // every cadence forever. The name is now checked against the SHARED CONFIG at the door.
-  const badName = laneCli(['switch-goal', '--set', 'daemon', '--profile', 'probe-laneX'], { expectRefusal: true });
-  check('L2 `--profile <not-in-the-shared-config>` is REFUSED at the door, naming the valid set — a '
-    + 'typo cannot reach the daemon at all, and nothing is written',
-    badName.ok === false && /probe-lane/.test(badName.out) && !fs.existsSync(lanePath(switchGoal)),
-    badName.out.trim().split('\n').pop());
+  // ⚑ THE DOOR CHECK (review F2), RE-POINTED. A `--profile` typo used to be accepted here: the
+  // marker was written, the daemon adopted the goal, `seedTaskforce` registered a job row per
+  // seat, and only then did the enqueue refuse — leaving orphan rows and a goal that threw every
+  // cadence forever. `#d-abolish-profile-names` removed the flag, so the typo it guarded is
+  // unspellable; what remains at this door is the UNCAST refusal above, which writes nothing for
+  // the same reason. Asserted here as the flag's ABSENCE, because a flag quietly coming back is
+  // exactly what nothing else would notice.
+  const deadFlag = laneCli(['cast-goal', '--set', 'daemon', '--profile', 'probe-lane'], { expectRefusal: true });
+  check('L2 `--profile` is GONE from the door — the retired flag is an argparse refusal, not a '
+    + 'silently ignored argument',
+    deadFlag.ok === false && /unrecognized arguments/.test(deadFlag.out),
+    deadFlag.out.trim().split('\n').pop());
 
-  laneCli(['switch-goal', '--set', 'daemon', '--profile', 'probe-lane']);
-  laneCli(['locked-goal', '--set', 'daemon', '--profile', 'probe-lane']);
-  laneCli(['held-goal', '--set', 'daemon', '--profile', 'probe-lane']);
-  laneCli(['human-interactive-goal', '--set', 'daemon', '--profile', 'probe-lane']);
-  laneCli(['armless-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  laneCli(['switch-goal', '--set', 'daemon']);
+  laneCli(['locked-goal', '--set', 'daemon']);
+  laneCli(['held-goal', '--set', 'daemon']);
+  laneCli(['human-interactive-goal', '--set', 'daemon']);
+  laneCli(['armless-goal', '--set', 'daemon']);
   laneCli(['console-goal', '--set', 'console']);
   // Assigned to the daemon by the CLI, then PAUSED by prefixing its marker — the pause is a
   // prefix, so the assignment (and the profile) survives it verbatim.
-  laneCli(['paused-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  laneCli(['paused-goal', '--set', 'daemon']);
   goalCli('pause', ['paused-goal']);
-  check('L2 `rbtv-goal pause` stashes the assignment behind a `paused ` PREFIX — the profile it '
+  check('L2 `rbtv-goal pause` stashes the assignment behind a `paused ` PREFIX — the marker it '
     + 'returns to is kept verbatim, and the DAEMON\'s reader resolves the result to `console` '
     + 'with no word of its own (two languages, one grammar, cross-checked)',
-    fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon probe-lane'
+    fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon'
       && laneWatch.readLane(pausedGoal).lane === 'console',
     JSON.stringify(laneWatch.readLane(pausedGoal)));
   // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
-  fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
-  fs.writeFileSync(lanePath(noProfGoal), 'daemon\n');
+  // The two markers only reachable by hand, since the door refuses both. `legacy-marker-goal`
+  // carries the RETIRED two-token grammar; `uncast-goal` is properly assigned but has no cast.
+  fs.writeFileSync(lanePath(legacyGoal), 'daemon probe-lane\n');
+  fs.writeFileSync(lanePath(uncastGoal), 'daemon\n');
   check('L2 the write is ATOMIC — a temp file is renamed into place and nothing is left beside it',
     !fs.existsSync(path.join(switchGoal, `${laneWatch.LANE_FILE}.tmp`))
-      && fs.readFileSync(lanePath(switchGoal), 'utf8') === 'daemon probe-lane\n');
+      && fs.readFileSync(lanePath(switchGoal), 'utf8') === 'daemon\n');
   check('L2 the CLI\'s writes are what the DAEMON\'s reader sees — two languages, one grammar, cross-checked',
     laneWatch.readLane(switchGoal).lane === 'daemon'
-      && laneWatch.readLane(switchGoal).profile === 'probe-lane'
+      && laneWatch.readLane(switchGoal).legacy === false
       && laneWatch.readLane(consoleGoal).lane === 'console',
     `switch=${JSON.stringify(laneWatch.readLane(switchGoal))} console=${JSON.stringify(laneWatch.readLane(consoleGoal))}`);
   const shown = JSON.parse(laneCli(['switch-goal', '--json']).out);
   check('L2 …and the read-only form reports the same answer as the engine\'s reader (orientation parity)',
-    shown.lane === 'daemon' && shown.profile === 'probe-lane' && shown.assigned === true,
+    shown.lane === 'daemon' && shown.legacy_marker === false && shown.assigned === true,
     JSON.stringify(shown));
 
   // ── L3 · THE RUN LOCK — a live console run owns the goal ─────────────────────────────────────
@@ -401,25 +419,25 @@ async function main() {
   // An OPEN row published into `held-goal`'s record by a GOAL-rooted store — i.e. the attached
   // lane's own writer, through `engine.tick`. Nothing is hand-written into `executions.csv`.
   {
-    const goalStore = openHeartStore({ dbPath: path.join(heldGoal, 'heart.db'), profiles: cfg.profiles });
+    const goalStore = openHeartStore({ dbPath: path.join(heldGoal, 'heart.db') });
     goalStore.registerJob({
       jobId: 'seat-alpha',
       actionType: 'launch-agent',
       function: 'attached-lane seat alpha',
-      argsSchema: JSON.stringify({ required: { profile: 'string' }, optional: { workdir: 'string' } }),
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string' } }),
       description: 'a seat the CONSOLE lane is running right now',
       createdAt: isoNow(), updatedAt: isoNow(),
     });
     goalStore.recordExecutionStart({
       jobId: 'seat-alpha', actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'probe-lane' }), enqueuedBy: 'attached-execution',
+      args: JSON.stringify({}), enqueuedBy: 'attached-execution',
       sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
       sessionId: 'ffffffff-1111-2222-3333-444444444444',
       workdir: path.join(heldGoal, 'seats', 'alpha'),
     });
     goalStore.close();
     const goalEngine = createEngine({
-      dbPath: path.join(heldGoal, 'heart.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(heldGoal, 'heart.db'), spawnConfigPath: configPath, userManager: false,
     });
     try { await goalEngine.tick(); } finally { goalEngine.close(); }
   }
@@ -439,7 +457,7 @@ async function main() {
   let pass1;
   {
     const engine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
       logger: collectingLogger(log1),
       // ⚑ THE LIVE-SESSION CAP IS RAISED FOR THIS FIXTURE, and it has to be. The default is 2, so
       // one tick dispatches the first two queued seats and leaves the rest — which made L6's
@@ -462,7 +480,7 @@ async function main() {
     JSON.stringify(pass1.skipped.filter((s) => s.goal === 'console-goal')));
   check('L5 …and NOTHING of that goal reached the daemon\'s store — no job, no queue row, no execution',
     (() => {
-      const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+      const s = openHeartStore({ dbPath: daemonStorePath });
       const d = s.dump();
       s.close();
       return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('console-goal');
@@ -470,15 +488,19 @@ async function main() {
   // ⚑ THE PAUSED GOAL — the same two facts as the console control, for a goal that IS assigned to
   // the daemon and is merely held. It must be skipped for the ordinary not-assigned reason and
   // leave no trace in the store, or a pause would be a pause in name only.
-  check('L5 a PAUSED goal (`paused daemon <profile>`) is NOT adopted — skipped for the ordinary '
-    + 'not-assigned reason, with the profile it returns to still written in its marker',
+  // ⚠ `paused daemon` IS ALSO A TWO-TOKEN-ish MARKER, and the reader tells the two cases apart by
+  // the FIRST token: `paused` is not `daemon`, so it is not a legacy marker, it is a pause. That
+  // distinction is asserted here — a reader that lumped them together would shout a repair command
+  // at every paused goal on the tree.
+  check('L5 a PAUSED goal (`paused daemon`) is NOT adopted — skipped for the ordinary not-assigned '
+    + 'reason (NOT the legacy-marker one), with the assignment it returns to still in its marker',
     !adoptedNames.includes('paused-goal')
       && pass1.skipped.some((s) => s.goal === 'paused-goal' && s.reason === 'not-assigned-to-the-daemon')
-      && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon probe-lane',
+      && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon',
     JSON.stringify(pass1.skipped.filter((s) => s.goal === 'paused-goal')));
   check('L5 …and NOTHING of the paused goal reached the daemon\'s store either',
     (() => {
-      const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+      const s = openHeartStore({ dbPath: daemonStorePath });
       const d = s.dump();
       s.close();
       return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('paused-goal');
@@ -499,67 +521,67 @@ async function main() {
     JSON.stringify(log1.filter((m) => m.goal === 'held-goal').map((m) => m.message)));
 
   // ── L5b · THE TWO BROKEN MARKERS, and what they cost (review F2/F3) ─────────────────────────
-  const badSkip = pass1.skipped.find((s) => s.goal === 'bad-profile-goal');
-  check('L5b a marker naming a profile the shared config does not carry is SKIPPED, typed, and '
-    + 'NOTHING is registered — the guard runs BEFORE seedTaskforce, so no orphan job rows survive '
-    + 'a marker that can never run',
-    Boolean(badSkip) && badSkip.reason === 'unknown-profile'
+  const badSkip = pass1.skipped.find((s) => s.goal === 'legacy-marker-goal');
+  check('L5b a marker still carrying the RETIRED two-token grammar is SKIPPED, typed, and NOTHING '
+    + 'is registered — it does not parse as `daemon`, so the goal reads CONSOLE and the pass writes '
+    + 'no job rows for it (the harm the ordering has always prevented)',
+    Boolean(badSkip) && badSkip.reason === 'legacy-two-token-marker'
       && (() => {
-        const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+        const s = openHeartStore({ dbPath: daemonStorePath });
         const d = s.dump(); s.close();
-        return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('bad-profile-goal');
+        return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('legacy-marker-goal');
       })(),
     JSON.stringify(badSkip || 'not skipped at all'));
-  check('L5b …and it says so ONCE, with the fix and the known set on the line an operator reads',
-    log1.some((m) => m.goal === 'bad-profile-goal' && m.level === 'warn'
-      && /shared config does not carry/.test(m.message || '')
-      && Array.isArray(m.known) && m.known.includes('probe-lane') && /rbtv goal lane/.test(m.fix || '')),
-    JSON.stringify(log1.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level)));
-  const noProfSkip = pass1.skipped.find((s) => s.goal === 'no-profile-goal');
-  check('L5b a `daemon` marker naming NO profile, on a goal whose seats declare NO cast, is SKIPPED '
-    + 'with its own reason and its own fix hint — and the line NAMES the seats that forced it '
-    + '(the branch a mutation used to survive because nothing measured it)',
-    Boolean(noProfSkip) && noProfSkip.reason === 'no-profile-in-the-assignment'
-      && log1.some((m) => m.goal === 'no-profile-goal' && m.level === 'warn'
-        && /NO launch profile/.test(m.message || '')
-        && /alpha/.test(m.forcedBy || '')
-        && /--set daemon --profile/.test(m.fix || '')),
+  check('L5b …and it says so ONCE, naming the retired grammar and the one-command repair — a goal '
+    + 'silently demoted to the console is the failure this line exists to prevent',
+    log1.some((m) => m.goal === 'legacy-marker-goal' && m.level === 'warn'
+      && /RETIRED two-token grammar/.test(m.message || '') && /--set daemon/.test(m.fix || '')),
+    JSON.stringify(log1.filter((m) => m.goal === 'legacy-marker-goal').map((m) => m.level)));
+  const noProfSkip = pass1.skipped.find((s) => s.goal === 'uncast-goal');
+  check('L5b a properly assigned goal whose seats declare NO CAST is SKIPPED with its own reason, '
+    + 'and the line NAMES the seats that forced it — since `#d-abolish-profile-names` there is no '
+    + 'fallback left to launch them on, so seeding would only queue rows that refuse at spawn',
+    Boolean(noProfSkip) && noProfSkip.reason === 'uncast-seats'
+      && log1.some((m) => m.goal === 'uncast-goal' && m.level === 'warn'
+        && /NO cast/.test(m.message || '')
+        && Array.isArray(m.seats) && m.seats.includes('alpha')
+        && /rbtv-bindings set/.test(m.fix || '')),
     JSON.stringify(noProfSkip || 'not skipped at all'));
-  // ⚑ THE SAME BARE MARKER, THE OPPOSITE VERDICT — the pair is the measurement (narrowing of D19).
-  // A fully cast goal is ADOPTED, and the fallback it seeds with is DERIVED from its own casts
-  // through the one catalog, never guessed and never the caller's. The profile is asserted on the
-  // log line an operator reads, because "adopted" alone would not say WHICH profile got recorded.
+  // ⚑ THE SAME BARE MARKER, THE OPPOSITE VERDICT — the pair is the measurement. A refusal observed
+  // alone cannot tell an unconditional gate from a conditional one, which is exactly how the old
+  // `--profile` demand came to fire on goals where every seat was cast. `uncast-goal` and
+  // `cast-goal` differ in ONE byte-level fact: whether their seat descriptors declare a cast.
   const castPickup = pass1.adopted.find((a) => a.goal === 'cast-goal');
-  check('L5b …while a FULLY CAST goal with the SAME bare `daemon` marker is ADOPTED, seeding with the '
-    + 'profile DERIVED from its own seats\' casts (`probe-lane-cast`, which no caller named)',
+  check('L5b …while a FULLY CAST goal with the SAME bare `daemon` marker is ADOPTED and seeded — '
+    + 'and the log line carries NO profile at all, because nothing names one any more',
     Boolean(castPickup)
       && log1.some((m) => m.goal === 'cast-goal' && /goal seeded/.test(m.message || '')
-        && m.profile === 'probe-lane-cast'),
+        && !('profile' in m)),
     JSON.stringify(log1.filter((m) => m.goal === 'cast-goal').map((m) => `${m.message}:${m.profile}`)));
 
   // ── L5c · THE FAILURE IS BOUNDED, and un-bounds itself when the marker changes ───────────────
   {
     const log2 = [];
     const engine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try { laneWatch.runLaneWatch({ goalsRoot, engine, logger: collectingLogger(log2) }); } finally { engine.close(); }
-    const lvls = log2.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level);
+    const lvls = log2.filter((m) => m.goal === 'legacy-marker-goal').map((m) => m.level);
     check('L5c the SECOND pass over the same broken marker drops to debug — at a 10 s cadence the '
       + 'loud version is ~8,600 identical lines a day for a condition only a human can change',
       lvls.length > 0 && !lvls.includes('warn'), JSON.stringify(lvls));
 
     const log3 = [];
-    fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneY\n');    // somebody EDITED it, still wrong
+    fs.writeFileSync(lanePath(legacyGoal), 'daemon probe-laneY\n');  // somebody EDITED it, still two tokens
     const engine3 = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try { laneWatch.runLaneWatch({ goalsRoot, engine: engine3, logger: collectingLogger(log3) }); } finally { engine3.close(); }
     check('L5c …and it is LOUD again the moment the marker text changes — quiet must never mean '
       + 'forgotten, so the memo is keyed on the marker, not on the goal',
-      log3.some((m) => m.goal === 'bad-profile-goal' && m.level === 'warn'),
-      JSON.stringify(log3.filter((m) => m.goal === 'bad-profile-goal').map((m) => m.level)));
-    fs.writeFileSync(lanePath(badGoal), 'daemon probe-laneX\n');
+      log3.some((m) => m.goal === 'legacy-marker-goal' && m.level === 'warn'),
+      JSON.stringify(log3.filter((m) => m.goal === 'legacy-marker-goal').map((m) => m.level)));
+    fs.writeFileSync(lanePath(legacyGoal), 'daemon probe-lane\n');
   }
 
   // ── L5d · THE HUMAN-INTERACTIVE SEAT IS DISPATCHED, AND ITS ARM IS REPORTED (7.626) ──────────
@@ -602,7 +624,7 @@ async function main() {
   fs.unlinkSync(lockPath);
   {
     const engine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pass2;
     try { pass2 = laneWatch.runLaneWatch({ goalsRoot, engine }); } finally { engine.close(); }
@@ -617,7 +639,7 @@ async function main() {
   say('L6 — the owner\'s own story: a goal STARTS in the daemon lane and FINISHES in the console one');
   const alphaJobId = 'seat-switch-goal-alpha';
   {
-    const s = openHeartStore({ dbPath: daemonStorePath, profiles: cfg.profiles });
+    const s = openHeartStore({ dbPath: daemonStorePath });
     const rows = s.dump().jobs_log.filter((r) => r.job_id === alphaJobId);
     check('L6 the daemon REALLY dispatched alpha — enqueued by the watch, fired by the daemon\'s tick',
       rows.length === 1, rows.map((r) => `${r.job_id}=${r.status}`).join(' ') || 'no execution row');
@@ -639,7 +661,7 @@ async function main() {
   }
   {
     const engine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try { await engine.tick(); } finally { engine.close(); }
   }
@@ -653,7 +675,7 @@ async function main() {
     laneWatch.readLane(switchGoal).lane === 'console');
   {
     const engine = createEngine({
-      dbPath: daemonStorePath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pass3;
     try { pass3 = laneWatch.runLaneWatch({ goalsRoot, engine }); } finally { engine.close(); }
@@ -714,12 +736,12 @@ async function main() {
   // seed the CONSOLE-assigned goal — the exact harm the fail-closed default exists to prevent.
   {
     const mutant = mutantWatch(
-      "    return { lane: CONSOLE, profile: null, present: true, raw: text };",
-      "    return { lane: DAEMON, profile: 'probe-lane', present: true, raw: text };");
+      '  return { lane: CONSOLE, present: true, legacy, raw: text };',
+      '  return { lane: DAEMON, present: true, legacy, raw: text };');
     const mutRoot = path.join(tmp, 'm1');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm1.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm1.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = mutant({ goalsRoot: mutRoot, engine }); } finally { engine.close(); }
@@ -739,7 +761,7 @@ async function main() {
     const relocked = path.join(mutRoot, 'locked-goal', attached.RUN_LOCK);
     fs.writeFileSync(relocked, `${process.pid} ${selfStart.slice(selfStart.lastIndexOf(')') + 2).split(' ')[19]}\n`);
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm2.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm2.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = mutant({ goalsRoot: mutRoot, engine }); } finally { engine.close(); }
@@ -753,40 +775,40 @@ async function main() {
   // never run. The arm reads the STORE, not the skip list, because the harm is what was written.
   {
     const mutant = mutantWatch(
-      '    if (!Object.hasOwn(known, profile)) {',
+      '    if (uncast.length) {',
       '    if (false) {');
     const mutRoot = path.join(tmp, 'm4');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     const dbPath = path.join(tmp, 'm4.db');
     const engine = createEngine({
-      dbPath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath, spawnConfigPath: configPath, userManager: false,
     });
     try { mutant({ goalsRoot: mutRoot, engine }); } finally { engine.close(); }
-    const s = openHeartStore({ dbPath, profiles: cfg.profiles });
+    const s = openHeartStore({ dbPath });
     const d = s.dump(); s.close();
-    check('L8 M4 unknown-profile guard REMOVED -> the unrunnable goal leaves orphan job rows in the '
+    check('L8 M4 the uncast guard REMOVED -> the unlaunchable goal leaves orphan job rows in the '
       + 'daemon store (L5b RED), which is exactly the harm the ordering fixes',
-      JSON.stringify(d.jobs).includes('bad-profile-goal'),
-      `job ids: ${(d.jobs || []).map((j) => j.job_id).filter((i) => /bad-profile/.test(i)).join(', ') || 'none'}`);
+      JSON.stringify(d.jobs).includes('uncast-goal'),
+      `job ids: ${(d.jobs || []).map((j) => j.job_id).filter((i) => /uncast/.test(i)).join(', ') || 'none'}`);
   }
 
-  // M5 · THE NO-PROFILE BRANCH REMOVED — review F3: this branch shipped unmeasured, and a mutation
-  // of it left the probe green.
+  // M5 · THE UNCAST BRANCH SILENCED — review F3: this branch shipped unmeasured, and a mutation
+  // of it left the probe green. Retargeted at 7.787 onto the branch that replaced it.
   {
     const mutant = mutantWatch(
-      "      skipped.push({ goal, reason: 'no-profile-in-the-assignment' });",
-      "      skipped.push({ goal, reason: 'no-profile-in-the-assignment' }); continue;");
+      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });",
+      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast }); continue;");
     const mutRoot = path.join(tmp, 'm5');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     const log = [];
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm5.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm5.db'), spawnConfigPath: configPath, userManager: false,
     });
     try { mutant({ goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
-    check('L8 M5 the no-profile branch skips SILENTLY -> the operator loses the only line that says '
+    check('L8 M5 the uncast branch skips SILENTLY -> the operator loses the only line that says '
       + 'why the goal never starts (L5b RED)',
-      !log.some((m) => m.goal === 'no-profile-goal' && /NO launch profile/.test(m.message || '')),
-      `lines for that goal: ${log.filter((m) => m.goal === 'no-profile-goal').length}`);
+      !log.some((m) => m.goal === 'uncast-goal' && /NO cast/.test(m.message || '')),
+      `lines for that goal: ${log.filter((m) => m.goal === 'uncast-goal').length}`);
   }
 
   // M6 · THE HUMAN-INTERACTIVE REPORT REMOVED — the silence review F1 named, still reproduced
@@ -802,7 +824,7 @@ async function main() {
     // the wrong reason (an unresolvable descriptor rather than a removed report).
     const log = [];
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm6.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm6.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = mutant({ goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
@@ -829,11 +851,11 @@ async function main() {
     const m7Goal = makeGoal('m7-arm-goal');
     fs.writeFileSync(path.join(m7Goal, 'execution-mode'), 'interactive\n');
     fs.writeFileSync(path.join(m7Goal, 'seats', 'alpha', 'seat.md'),
-      '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
-    laneCli(['m7-arm-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+      '---\nseat: alpha\nharness: bash\nmodel: probe-lane\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nbody\n');
+    laneCli(['m7-arm-goal', '--set', 'daemon']);
     const log = [];
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm7.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm7.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = mutant({ goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
@@ -848,7 +870,7 @@ async function main() {
     // and stays quiet — so the red above is the mutation and not the fixture.
     const clog = [];
     const cengine = createEngine({
-      dbPath: path.join(tmp, 'm7-control.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm7-control.db'), spawnConfigPath: configPath, userManager: false,
     });
     let cpass;
     try { cpass = laneWatch.runLaneWatch({ goalsRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
@@ -861,28 +883,28 @@ async function main() {
       chi ? JSON.stringify(chi.humanInteractiveDispatched || null) : 'goal not adopted');
   }
 
-  // M8 · THE DERIVATION REMOVED — the narrowing's own branch (2026-08-12, D19). Without it a bare
-  // `daemon` marker is the pre-narrowing dead end for EVERY goal, cast or not, so the CLI has to
-  // demand a profile again and the operator types a value no launch reads. The arm reads the
-  // ADOPTION, not the log: the harm is a goal that never starts.
+  // M8 · THE LEGACY-MARKER REPORT REMOVED (7.787). The branch it replaces (`fallbackProfileFor`,
+  // the D19 narrowing's derivation) is deleted with the fallback itself. What took its place is the
+  // one line that keeps a goal from vanishing quietly: a marker written under the retired grammar
+  // reads CONSOLE, and if that is not REPORTED the goal looks exactly like one somebody parked on
+  // purpose. Mutating the report away must therefore leave the goal un-adopted AND unexplained.
   {
     const mutant = mutantWatch(
-      '        else profile = fallbackProfileFor(goalFolder, known);',
-      '        else forcedBy = \'the derivation was mutated away\';');
+      "        skipped.push({ goal, reason: 'legacy-two-token-marker', raw });",
+      "        skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });");
     const mutRoot = path.join(tmp, 'm8');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
     const log = [];
     const engine = createEngine({
-      dbPath: path.join(tmp, 'm8.db'), profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath: path.join(tmp, 'm8.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = mutant({ goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
-    check('L8 M8 the fallback derivation REMOVED -> the FULLY CAST goal is no longer adopted at all '
-      + '(L5b RED): a bare `daemon` marker becomes a dead end again, for a goal no launch of which '
-      + 'would ever have read the token',
-      !pass.adopted.some((a) => a.goal === 'cast-goal')
-        && pass.skipped.some((s) => s.goal === 'cast-goal' && s.reason === 'no-profile-in-the-assignment'),
-      JSON.stringify(pass.skipped.filter((s) => s.goal === 'cast-goal')) || 'not skipped');
+    check('L8 M8 the legacy-marker REPORT removed -> a goal written under the retired grammar is '
+      + 'indistinguishable from one deliberately assigned to the console (L5b RED): same skip '
+      + 'reason, and nothing on the line says a human has to rewrite the marker',
+      !pass.skipped.some((s) => s.goal === 'legacy-marker-goal' && s.reason === 'legacy-two-token-marker'),
+      JSON.stringify(pass.skipped.filter((s) => s.goal === 'legacy-marker-goal')) || 'not skipped');
   }
 
   // M3 · THE WATCH IS NEVER CALLED — the state this whole build ends, mutated back into place. The
@@ -918,9 +940,9 @@ async function main() {
   say('');
   say('L9 — the enqueued row carries the seat\'s BOOT PROMPT, and it is coord\'s own bytes');
   const promptGoal = makeGoal('prompt-goal');
-  laneCli(['prompt-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  laneCli(['prompt-goal', '--set', 'daemon']);
   const L9_JOB = 'seat-prompt-goal-alpha';
-  const L9_ANCHOR = 'args: JSON.stringify({ profile, workdir: seatDir, prompt }),';
+  const L9_ANCHOR = 'args: JSON.stringify({ workdir: seatDir, prompt }),';
   // THE EXPECTATION IS COMPUTED, NEVER TYPED: `coordinate boot-prompt` is the ONE composer
   // (`seeding.js#seatBootPrompt` shells exactly this), so a hand-written string here would be a
   // second composer and the arm would pass on drift between them.
@@ -933,11 +955,11 @@ async function main() {
 
   function l9Pass(createEngineFn, dbPath, root) {
     const engine = createEngineFn({
-      dbPath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+      dbPath, spawnConfigPath: configPath, userManager: false,
     });
     let pass;
     try { pass = laneWatch.runLaneWatch({ goalsRoot: root, engine }); } finally { engine.close(); }
-    const s = openHeartStore({ dbPath, profiles: cfg.profiles });
+    const s = openHeartStore({ dbPath });
     const row = s.dump().queue.find((r) => r.job_id === L9_JOB);
     s.close();
     return { pass, row, pickup: pass.adopted.find((a) => a.goal === 'prompt-goal') };
@@ -967,15 +989,17 @@ async function main() {
         + `${JSON.stringify(expectedPrompt.slice(0, 60))}…`);
 
   // M9 · THE HISTORICAL DEFECT, put back. `765c9fac:seeding.js:503` — the line immediately before
-  // the fix — read `args: JSON.stringify({ profile, workdir: seatDir })`, so this mutation restores
-  // the pre-`d34277c6` enqueue EXACTLY for any goal whose boot prompt composes. The whole pre-fix
+  // the fix — enqueued the row WITHOUT `prompt`, so this mutation restores the pre-`d34277c6`
+  // enqueue for any goal whose boot prompt composes. (The historical line also carried `profile`;
+  // that argument was abolished at 7.787, so the mutant drops only the key this arm is about —
+  // which is what keeps it a PROMPT mutation rather than a second, unrelated schema change.) The whole pre-fix
   // FILE was the other candidate and was rejected on measurement: `e5dff4b8` landed 78 further
   // lines in `seeding.js` AFTER the fix, so checking the old file out would revert that too and
   // redden this arm for a reason that is not the defect.
   {
     const mutRoot = path.join(tmp, 'm9');
     fs.cpSync(goalsRoot, mutRoot, { recursive: true });
-    const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ profile, workdir: seatDir }),',
+    const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ workdir: seatDir }),',
       (mutantCreateEngine) => l9Pass(mutantCreateEngine, path.join(tmp, 'm9.db'), mutRoot));
     const m9args = m9.row ? JSON.parse(m9.row.args) : {};
     // THE MUTANT'S OWN NON-VACUITY: it must still adopt and still enqueue, or the arm below would

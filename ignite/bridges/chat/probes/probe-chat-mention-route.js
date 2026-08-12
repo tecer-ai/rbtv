@@ -99,9 +99,6 @@ function makeBridge({ goals = {}, authOk = true, workspaceRoot = undefined } = {
     gatewayAddr: '127.0.0.1:0',
     bridgeToken: 'stub',
     sessionJobId: 'chat-launch',
-    sessionProfile: 'fallback-profile',
-    masterProfile: 'master-profile',
-    goalProfile: 'goal-profile',
     sendMessageJobId: 'send-message',
     workdir: '/configured/master/workdir',
     workspaceRoot: root,
@@ -155,12 +152,12 @@ async function main() {
     // ⚑ INVERTED 2026-08-11 (launch-cast unification, owner ruling D2). This asserted a
     // per-SURFACE profile — mention traffic ran `master_profile`, goal traffic `goal_profile` —
     // which is exactly the transport deciding what an agent runs. Those keys are DELETED; every
-    // surface now carries the one non-deciding `session_profile` and the daemon replaces it with
-    // the seat's cast (or refuses). The WORKDIR half is untouched: where a sitting is homed is
-    // still the transport's business, and it is the control that keeps this arm non-vacuous —
-    // a bridge that stopped forwarding entirely would fail it rather than pass.
-    check('mention session carries the ONE non-deciding profile, and still homes at the configured workdir',
-      forwarder.enqueued.every((e) => e.payload.args.profile === 'fallback-profile' && e.payload.args.workdir === '/configured/master/workdir'),
+    // surface named execution through `session_profile`, the last such key; 7.787 deleted it, so
+    // the enqueue names NOTHING about what runs. The WORKDIR half is untouched: where a sitting is
+    // homed is still the transport's business, and it is the control that keeps this arm
+    // non-vacuous — a bridge that stopped forwarding entirely would fail it rather than pass.
+    check('mention session names NO execution at all, and still homes at the configured workdir',
+      forwarder.enqueued.every((e) => !('profile' in e.payload.args) && e.payload.args.workdir === '/configured/master/workdir'),
       { args: forwarder.enqueued.map((e) => e.payload.args) });
 
     await bridge.deliverToOwner({ chatThreadId: 'C_RANDOM:1.1', text: 'answer' });
@@ -213,10 +210,10 @@ async function main() {
     const args = forwarder.enqueued[0] && forwarder.enqueued[0].payload.args;
     check('goal session-create is homed at the open run\'s goal-master seat',
       res.forwarded === true && Boolean(args) && args.workdir === expected, { workdir: args && args.workdir, expected });
-    // …and the SAME value on goal traffic — that sameness IS the ruling. Paired with the mention
-    // arm above: two surfaces, one profile, so no surface can mean anything by it.
-    check('goal session-create carries the SAME profile as master traffic — the surface decides nothing',
-      Boolean(args) && args.profile === 'fallback-profile', { profile: args && args.profile });
+    // …and the same ABSENCE on goal traffic. Paired with the mention arm above: two surfaces,
+    // neither naming execution, so no surface can mean anything by it.
+    check('goal session-create names NO execution either — the surface decides nothing',
+      Boolean(args) && !('profile' in args), { args });
     bridge.stop();
   }
 

@@ -1,5 +1,11 @@
 'use strict';
 
+// ⚠ STALE PRE-7.787 SMOKE SCRIPT — NOT in the probe-suite enumerator, and NOT brought
+// forward by `#d-abolish-profile-names`. Its `spawn()` call was re-arited with that change
+// (the `profileName` operand is gone) but its CONFIG fixture still uses the retired flat
+// `profiles:` map, and it names profiles the shipped config no longer carries — it was
+// already unrunnable before 7.787 for that second reason. Fix both together, or delete it.
+
 // p3-5-mutation.js — the MUTATION-SHAPED proof that the D56 fail-open is CLOSED, not merely
 // untraveled. D58(2): the null-workdir (default/ticker) branch of resolveWorkdir() now passes the
 // SAME fail-closed containment check as the caller branch — the resolved session dir must sit
@@ -79,7 +85,7 @@ async function legAligned() {
       enqueuedBy: 'p3-5-mut', sessionMode: 'headless', firedTick: 1, firedAt: new Date(),
       profile: 'test-sleep', workdir: null,
     });
-    row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, null, 'p3-5-mut');
+    row = await ctx.mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-5-mut');
     const expected = fs.realpathSync(path.join(ctx.sessionsRoot, String(fired.exec_id)));
     log(`  spawned: workdir=${portable(row.workdir)} status=${row.status}`);
     check('aligned null-workdir spawn RUNS and is contained in .rbtv/sessions/<exec-id>',
@@ -107,7 +113,7 @@ async function legEscaping() {
       profile: 'test-sleep', workdir: null,
     });
     try {
-      ranRow = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', null, null, 'p3-5-mut');
+      ranRow = await ctx.mgr.spawn(fired.exec_id, 'headless', null, null, 'p3-5-mut');
     } catch (err) {
       thrown = err;
     }

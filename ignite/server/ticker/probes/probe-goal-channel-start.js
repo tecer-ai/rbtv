@@ -193,7 +193,7 @@ try {
     /require\('\.\/goal-channel-start'\)/.test(tickerSrc),
   );
   const branch = tickerSrc.indexOf("job.action_type === 'start-workflow'");
-  const ensureCall = tickerSrc.indexOf('await ensureGoalChannelAtStart(job, actions);');
+  const ensureCall = tickerSrc.indexOf('await ensureGoalChannel({ job }, actions);');
   const launchCall = tickerSrc.indexOf('await launchStartWorkflow(queueRow, actions, tick, now);');
   check(
     'the start-workflow dispatch branch calls the ensure BEFORE launching the workflow',
@@ -268,15 +268,126 @@ try {
   // manager, and `ensureLogPath`/`ensureExitFile` mkdir. `tick()` has a `finally` and no `catch`,
   // so any of those escaping abandons the rest of the tick. All three must sit INSIDE the
   // function's try.
-  const fnStart = tickerSrcCarrier.indexOf('async function ensureGoalChannelAtStart');
+  const fnStart = tickerSrcCarrier.indexOf('async function ensureGoalChannel(subject');
   const fnEnd = tickerSrcCarrier.indexOf('async function launchStartWorkflow', fnStart);
   const body = tickerSrcCarrier.slice(fnStart, fnEnd);
   const tryAt = body.indexOf('try {');
   check(
-    'selectCarrier / ensureLogPath / ensureExitFile all sit INSIDE ensureGoalChannelAtStart\'s try',
+    'selectCarrier / ensureLogPath / ensureExitFile all sit INSIDE ensureGoalChannel\'s try',
     fnStart > 0 && fnEnd > fnStart && tryAt > 0
       && ['selectCarrier(', 'ensureLogPath(', 'ensureExitFile('].every((c) => body.indexOf(c) > tryAt),
     `try@${tryAt} selectCarrier@${body.indexOf('selectCarrier(')} ensureLogPath@${body.indexOf('ensureLogPath(')} ensureExitFile@${body.indexOf('ensureExitFile(')}`,
+  );
+
+  // ── TASK 7.789 · THE SECOND CALLER — THE DAEMON LANE ─────────────────────────────────────────
+  //
+  // A goal reaches its run start on two lanes. Only the QUEUED one was wired, so a daemon-lane
+  // goal got no channel at all (measured: `forge-reference-seat-id-naming`, 2026-08-11, zero
+  // `goal-channel-cli` lines across its whole seeding). These arms prove the second entry exists,
+  // decides IDENTICALLY to the first, and is reached from `lane-watch.js` exactly once per goal.
+
+  // 1. THE ENTRY. A goal NAME with no job is a first-class subject.
+  const byName = channelEnsureDecision({ goal: DECLARED, resolveRoot: root });
+  check(
+    'the daemon-lane entry — a bare goal NAME, no catalogue row — decides `ensure`',
+    byName.action === 'ensure' && byName.goal === DECLARED,
+    `action=${byName.action} goal=${byName.goal}`,
+  );
+
+  // 2. ONE DECISION, NOT TWO. The discriminating claim: the two entries must be BYTE-IDENTICAL for
+  // the same goal. A second copy of the rule is free to drift, and the drift is invisible — one
+  // lane creating channels the other skips looks like nothing at all.
+  check(
+    'the two entries return the SAME decision for the same goal — one rule, not two copies',
+    JSON.stringify(byName) === JSON.stringify(declared),
+    `job-entry=${JSON.stringify(declared.argv)} goal-entry=${JSON.stringify(byName.argv)}`,
+  );
+
+  // 3. THE NEGATIVE ARM SURVIVES THE NEW ENTRY. A `goal` entry that skipped `isRunStart` AND the
+  // kind read would ensure for everything — the "ensures for everything" wrong caller, arriving by
+  // a new door. The kind rule must still bind on this side.
+  const byNameBatch = channelEnsureDecision({ goal: BATCH, resolveRoot: root });
+  check(
+    'the daemon-lane entry still refuses a non-interactive goal, and composes no invocation',
+    byNameBatch.action === 'skip' && byNameBatch.reason === REASONS.NON_INTERACTIVE && byNameBatch.argv === null,
+    `action=${byNameBatch.action} reason=${byNameBatch.reason}`,
+  );
+
+  // 4. THE ROW GATE IS NOT WEAKENED FOR THE JOB ENTRY. Adding a second door must not open the
+  // first one wider: a job that is not a run start still skips, and a call carrying NEITHER
+  // subject skips rather than throwing (this module may never abandon its caller's pass).
+  const notAStart = channelEnsureDecision({ job: { job_id: 'x', action_type: 'launch-agent', goal_name: DECLARED }, resolveRoot: root });
+  const noSubject = channelEnsureDecision({ resolveRoot: root });
+  check(
+    'the job entry keeps its isRunStart gate, and a subject-less call SKIPS instead of throwing',
+    notAStart.reason === REASONS.NOT_A_RUN_START && noSubject.reason === REASONS.NO_SUBJECT,
+    `notAStart=${notAStart.reason} noSubject=${noSubject.reason}`,
+  );
+
+  // 5. THE WIRE, on the same terms the queued branch's wire is asserted: the performer is exposed
+  // by the ticker and reached by the lane watch. A decision module with a second entry and no
+  // second caller is the exact state this task exists to end.
+  const laneSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'engine', 'lane-watch.js'), 'utf8');
+  check(
+    'ticker.js EXPOSES the performer so the engine lane can reach it',
+    /return \{ tick, getTickNumber, nudge, ensureGoalChannel \};/.test(tickerSrc),
+  );
+  check(
+    'lane-watch.js reaches the performer through engine.ticker.ensureGoalChannel',
+    /engine\.ticker\.ensureGoalChannel/.test(laneSrc) && /perform\(\{ goal \}\)/.test(laneSrc),
+  );
+  const adoptAt = laneSrc.indexOf('adopted.push(pickup);');
+  const ensureAt = laneSrc.indexOf('ensureGoalChannelOnce({ goal, goalFolder, engine, say });');
+  check(
+    'the ensure fires AFTER the goal is adopted — a goal whose seeding refused gets no channel',
+    adoptAt > 0 && ensureAt > adoptAt,
+    `adopt@${adoptAt} ensure@${ensureAt}`,
+  );
+
+  // 6. ONCE PER GOAL, NOT ONCE PER TICK — driven, not grepped. `runLaneWatch` re-adopts an
+  // assigned goal EVERY cadence; a per-tick ensure would fork ~8,600 systemd units a day per goal.
+  // The real `ensureGoalChannelOnce` is called three times for one goal against a spying performer.
+  const laneWatch = require('../../../engine/lane-watch');
+  const calls = [];
+  const spyEngine = { ticker: { ensureGoalChannel: (subject) => { calls.push(subject); return []; } } };
+  const dedupeFolder = path.join(root, '.rbtv', 'goals', DECLARED);
+  const fired = [0, 1, 2].map(() => laneWatch.ensureGoalChannelOnce({
+    goal: DECLARED, goalFolder: dedupeFolder, engine: spyEngine, say: () => {},
+  }));
+  check(
+    'three passes over one adopted goal perform the ensure exactly ONCE',
+    calls.length === 1 && calls[0].goal === DECLARED && JSON.stringify(fired) === '[true,false,false]',
+    `calls=${calls.length} fired=${JSON.stringify(fired)}`,
+  );
+  // THE CONTROL for the arm above: a memo that never fires is also `calls.length <= 1`. A SECOND
+  // goal must still get its own ensure, or the check above would pass over a dead call site.
+  laneWatch.ensureGoalChannelOnce({
+    goal: BATCH, goalFolder: path.join(root, '.rbtv', 'goals', BATCH), engine: spyEngine, say: () => {},
+  });
+  check(
+    'CONTROL — the memo is per GOAL, not a global fired-once: a second goal still ensures',
+    calls.length === 2 && calls[1].goal === BATCH,
+    `calls=${JSON.stringify(calls)}`,
+  );
+  // 7. THE ATTACHED LANE MUST NOT ENSURE, and that is TWO independent claims because either alone
+  // would mislead. (a) CONTAINMENT BY REACHABILITY — `rbtv run` never runs this pass at all: the
+  // lane watch is the DAEMON's goal pickup and `attached-execution.js` calls `seedGoal` directly.
+  // That is the claim that actually holds today, and the real attached engine DOES publish a
+  // `ticker`, so the guard below is not what protects it. (b) THE GUARD — an engine object with no
+  // ticker surface (a probe's, a future embedder's) no-ops silently rather than throwing.
+  const attachedSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'engine', 'attached-execution.js'), 'utf8');
+  check(
+    'the ATTACHED lane never reaches this pass — no runLaneWatch, no ensureGoalChannelOnce in it',
+    !/runLaneWatch|ensureGoalChannelOnce/.test(attachedSrc),
+  );
+  const beforeAttached = calls.length;
+  const guardFired = laneWatch.ensureGoalChannelOnce({
+    goal: 'test-c3-no-ticker', goalFolder: path.join(root, '.rbtv', 'goals', 'test-c3-no-ticker'),
+    engine: { seedGoal: () => {} }, say: () => { throw new Error('the guarded path said something'); },
+  });
+  check(
+    'an engine with NO ticker surface ensures nothing, silently, and does not throw',
+    guardFired === false && calls.length === beforeAttached,
   );
 
   const failed = checks.filter((c) => !c.pass);

@@ -120,8 +120,8 @@ capture('probe-spawn', async (lines) => {
 
     // --- exit-marker LIVE: a worker that exits 0 on its own leaves the real exit status in
     // <data_root>/exits/<session-id>.exit, written by the unit's own ExecStopPost hook ---
-    const quickFired = fire(ctx, { profile: 'test-quick', sessionMode: 'headless', workdir: ctx.seatDir });
-    const quickRow = await ctx.mgr.spawn(quickFired.exec_id, 'test-quick', 'headless', 'exit-marker live probe', ctx.seatDir, 'probe');
+    const quickFired = fire(ctx, { cast: 'test-quick', sessionMode: 'headless', workdir: ctx.seatDir });
+    const quickRow = await ctx.mgr.spawn(quickFired.exec_id, 'headless', 'exit-marker live probe', ctx.seatDir, 'probe');
     const markerPath = path.join(ctx.dataRoot, 'exits', `${quickRow.session_id}.exit`);
     let markerRaw = null;
     for (let i = 0; i < 20; i++) {
@@ -137,10 +137,10 @@ capture('probe-spawn', async (lines) => {
     // the retired flat/default branch is asserted as a refusal at the end of this probe.
     lines.push('action: fire row then spawn trivial worker via test-sleep profile (prompt: stdin) with a real prompt, homed in the fixture seat folder');
     const STDIN_PROMPT = 'p7-stdin-carriage probe prompt: bytes then EOF';
-    const fired = fire(ctx, { profile: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
+    const fired = fire(ctx, { cast: 'test-sleep', sessionMode: 'headless', workdir: ctx.seatDir });
     lines.push(`exec_id before spawn: ${fired.exec_id}, status: ${fired.status}`);
 
-    const row = await ctx.mgr.spawn(fired.exec_id, 'test-sleep', 'headless', STDIN_PROMPT, ctx.seatDir, 'probe');
+    const row = await ctx.mgr.spawn(fired.exec_id, 'headless', STDIN_PROMPT, ctx.seatDir, 'probe');
     lines.push(`exec_id after spawn: ${row.exec_id}`);
     lines.push(`session_id: ${row.session_id}`);
     lines.push(`pid: ${row.pid}`);
@@ -183,8 +183,15 @@ capture('probe-spawn', async (lines) => {
     // reports only the mode word `file`).
     const promptPath = path.join(ctx.dataRoot, 'prompts', `${row.session_id}.txt`);
     const promptOnDisk = fs.readFileSync(promptPath, 'utf8');
-    if (promptOnDisk !== STDIN_PROMPT) {
-      throw new Error(`stdin live: prompt file content ${JSON.stringify(promptOnDisk)} != ${JSON.stringify(STDIN_PROMPT)}`);
+    // ⚠ ENDS-WITH, NOT EQUALS, and the reason is a DIFFERENT ruling than this probe's:
+    // `d-uniform-descriptor-carriage` (2026-08-12) makes a NON-CLAUDE harness carry its seat
+    // descriptor on the first message, because it has no system-prompt flag to put it on. This
+    // fixture's specs are `bash`, so a fresh launch legitimately prepends the descriptor. The
+    // subject here is the STDIN CARRIAGE — that the prompt bytes reach the file intact — and
+    // ends-with still fails on truncation, mangling or a dropped prompt, which is what it is for.
+    // `probe-descriptor-carriage` owns the prefix's own correctness.
+    if (!promptOnDisk.endsWith(STDIN_PROMPT)) {
+      throw new Error(`stdin live: prompt file content ${JSON.stringify(promptOnDisk)} does not end with ${JSON.stringify(STDIN_PROMPT)}`);
     }
     lines.push(`stdin live PASS: prompt file ${promptPath} carries the prompt verbatim`);
     const unitFile = execFileSync('systemctl', ['--user', 'cat', row.unit_name], { encoding: 'utf8' });
@@ -208,7 +215,7 @@ capture('probe-spawn', async (lines) => {
     // workdir used to materialize the flat .rbtv/sessions/<exec-id>/ launch dir; it is now a
     // typed refusal, raised before anything is created ---
     try {
-      await ctx.mgr.spawn(0, 'test-sleep', 'headless', null, null, 'probe');
+      await ctx.mgr.spawn(0, 'headless', null, null, 'probe');
       throw new Error('no-workdir spawn: UNEXPECTED PASS — the retired flat branch admitted a homeless dispatch');
     } catch (err) {
       if (err.code !== 'E_SEATLESS_GOAL_DISPATCH' || !/REFUSING SEATLESS DISPATCH/.test(err.message)) throw err;

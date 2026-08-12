@@ -17,12 +17,17 @@ THE THREE PROPERTIES:
      one that can go red alone, and it is the point of the arm.
   2. THE WRITER AND THE READER AGREE. Arm C does not stop at "the marker says what I wrote": it
      feeds the scaffolded folder to `engine/lane-watch.js#readLane` — the function the daemon's
-     watch pass actually uses — and asserts the lane and profile it answers. A writer checked
-     against itself proves the writer, never the grammar.
-  3. ONE COMPOSER. Arm F scaffolds a goal `--lane daemon --profile X` and moves a second goal onto
-     the same lane with `lane --set daemon --profile X`, then compares the two markers BYTE FOR
-     BYTE. A second speller of the `daemon <profile>` grammar is drift `readLane` would misparse
-     in silence, and byte equality is the only assertion that catches a separator.
+     watch pass actually uses — and asserts the lane it answers. A writer checked against itself
+     proves the writer, never the grammar.
+  3. ONE COMPOSER. Arm F scaffolds a goal `--lane daemon` and moves a second goal onto the same
+     lane with `lane --set daemon`, then compares the two markers BYTE FOR BYTE. A second speller
+     of the marker grammar is drift `readLane` would misparse in silence, and byte equality is the
+     only assertion that catches a separator.
+
+  ⚠ 7.787 (`#d-abolish-profile-names`): the marker is ONE WORD and `--profile` is gone from both
+  doors. The arms that drove those two facts are re-pointed rather than deleted — B now plants the
+  RETIRED flag and requires argparse to refuse it, and D plants it on the console lane for the same
+  reason. A flag quietly coming back is exactly what nothing else would notice.
 
 Arm G covers the sibling verb: `relaunch` grants ONE more attempt at a named seat, writing one
 bare seat name per line to `<goal>/relaunch-grants` — the file a seeding pass reads and spends.
@@ -49,11 +54,10 @@ TOOL = HERE.parent / "tool" / "goal_cli.py"
 LANE_WATCH = HERE.parents[2] / "engine" / "lane-watch.js"
 OUT = HERE / "probe-lane-at-birth.out"
 
-# A profile the SHARED config really carries — the gate validates the name against `profiles:` in
-# `ignite/config/spawn-profiles.yaml`, so a made-up one here would fail arm C for the wrong reason.
-PROFILE = "claude-fable"
-# …and one it does not. Kept obviously synthetic so a future profile cannot collide with it.
-NO_SUCH_PROFILE = "no-such-profile-probe-fixture"
+# The RETIRED flag, planted at both doors below. It carried the fallback launch profile until
+# `#d-abolish-profile-names` (2026-08-12) deleted the fallback; argparse must now refuse it outright
+# rather than accept-and-ignore, which would leave an operator believing he had chosen something.
+RETIRED_FLAG = ["--profile", "claude-fable"]
 
 # The two operator phrases the refusal owes the person standing at the terminal (owner-ruled): it
 # names WHAT each lane means, never the file it writes.
@@ -127,26 +131,28 @@ def main():
               str(sorted(p.name for p in (root / "no-lane-goal").iterdir())
                   if (root / "no-lane-goal").is_dir() else "absent"))
 
-        # ── B. a --profile the shared config does not carry ────────────────────────────────────
-        rc, so, se = scaffold("bad-profile-goal", "--lane", "daemon", "--profile", NO_SUCH_PROFILE)
-        check("B. --lane daemon with an unknown --profile is refused", rc != 0,
+        # ── B. the RETIRED --profile flag (7.787) ──────────────────────────────────────────────
+        rc, so, se = scaffold("bad-profile-goal", "--lane", "daemon", *RETIRED_FLAG)
+        check("B. --lane daemon with the RETIRED --profile flag is refused by argparse — the "
+              "abolished knob cannot be passed at all, not even to be ignored",
+              rc != 0 and "unrecognized arguments" in (so + se),
               f"exit={rc} {(so + se).strip()[:200]}")
         check("B. …and nothing was created", not (root / "bad-profile-goal").exists())
 
         # ── C. the daemon lane, written and READ BACK BY THE DAEMON'S OWN READER ────────────────
-        rc, so, se = scaffold("daemon-goal", "--lane", "daemon", "--profile", PROFILE)
+        rc, so, se = scaffold("daemon-goal", "--lane", "daemon")
         dg = root / "daemon-goal"
-        check("C. --lane daemon --profile <known> creates the goal", rc == 0 and dg.is_dir(),
+        check("C. --lane daemon creates the goal", rc == 0 and dg.is_dir(),
               f"exit={rc} {(so + se).strip()[:200]}")
-        check(f"C. …and the marker reads exactly 'daemon {PROFILE}\\n'",
-              marker(dg) == f"daemon {PROFILE}\n", repr(marker(dg)))
+        check("C. …and the marker reads exactly 'daemon\\n' — ONE WORD, no second token",
+              marker(dg) == "daemon\n", repr(marker(dg)))
         if not LANE_WATCH.is_file():
             inoperative("C. the daemon's own reader agrees", f"{LANE_WATCH} does not exist")
         else:
             js = subprocess.run(
                 ["node", "-e",
                  "const r=require(process.argv[1]).readLane(process.argv[2]);"
-                 "process.stdout.write(`${r.lane}|${r.profile}`)",
+                 "process.stdout.write(`${r.lane}|${r.legacy}`)",
                  str(LANE_WATCH), str(dg)],
                 capture_output=True, text=True, timeout=60)
             if js.returncode != 0:
@@ -154,13 +160,15 @@ def main():
                             f"node rc={js.returncode} {js.stderr.strip()[:200]}")
             else:
                 check("C. …and `lane-watch.js#readLane` — the function the daemon's watch pass "
-                      "runs — answers daemon + that profile: WRITER AND READER AGREE",
-                      js.stdout == f"daemon|{PROFILE}", repr(js.stdout))
+                      "runs — answers daemon and NOT legacy: WRITER AND READER AGREE",
+                      js.stdout == "daemon|false", repr(js.stdout))
 
         # ── D/E. the console lane ──────────────────────────────────────────────────────────────
-        rc, so, se = scaffold("console-profile-goal", "--lane", "console", "--profile", PROFILE)
-        check("D. --lane console with a --profile is refused (the console lane takes its profile "
-              "from the `rbtv run` you type)", rc != 0, f"exit={rc} {(so + se).strip()[:200]}")
+        rc, so, se = scaffold("console-profile-goal", "--lane", "console", *RETIRED_FLAG)
+        check("D. --lane console with the RETIRED --profile flag is refused too — the flag is gone "
+              "from the parser, so neither lane can be handed one",
+              rc != 0 and "unrecognized arguments" in (so + se),
+              f"exit={rc} {(so + se).strip()[:200]}")
         check("D. …and nothing was created", not (root / "console-profile-goal").exists())
 
         rc, so, se = scaffold("console-goal", "--lane", "console")
@@ -175,10 +183,20 @@ def main():
         if rc != 0:
             inoperative("F. the one-composer comparison", f"fixture scaffold failed: {se.strip()[:200]}")
         else:
-            rc, so, se = run(["--root", str(root), "lane", "moved-goal",
-                              "--set", "daemon", "--profile", PROFILE])
+            # ⚠ MATERIALIZED FIRST (7.787). `--set daemon` now refuses a goal whose seats cannot be
+            # read (`lane-cast-unknown`) and one whose seats are UNCAST (`lane-uncast-seats`) —
+            # "unknown" is not "none". A bare scaffolded goal is the first of those, so the fixture
+            # gives it the minimum a real materialized goal has: a taskforce row and a CAST seat.
+            mg_dir = root / "moved-goal"
+            (mg_dir / "seats" / "alpha").mkdir(parents=True, exist_ok=True)
+            (mg_dir / "taskforce.csv").write_text(
+                "taskforce-id,seat,after\ntf-moved,alpha,\n", encoding="utf-8")
+            (mg_dir / "seats" / "alpha" / "seat.md").write_text(
+                "---\nseat: alpha\nharness: claude\nmodel: claude-fable-5\n---\n\nbody\n",
+                encoding="utf-8")
+            rc, so, se = run(["--root", str(root), "lane", "moved-goal", "--set", "daemon"])
             mg = root / "moved-goal"
-            check("F. `lane --set daemon --profile` moves an existing goal", rc == 0,
+            check("F. `lane --set daemon` moves an existing goal", rc == 0,
                   f"exit={rc} {(so + se).strip()[:200]}")
             check("F. …and its marker is BYTE-IDENTICAL to the one `scaffold --lane daemon` "
                   "wrote — one composer, no second grammar",

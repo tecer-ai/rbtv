@@ -54,17 +54,19 @@ function createLiveLeg({ forwarder, threadMap, config, logger = null, feedTimeou
 
   // Returns `{ answered: true, text }` ONLY when a warm session produced a reply. Everything else
   // is `{ answered: false, reason }` and the caller takes the cold path.
-  async function attempt({ chatThreadId, text, route, profile, workdir }) {
+  async function attempt({ chatThreadId, text, route, workdir }) {
     const c = candidate({ chatThreadId, route });
     if (!c.ok) return { answered: false, reason: c.reason };
-    if (!profile) return { answered: false, reason: 'no-profile' };
+    // ⚠ NO PROFILE ON THE WIRE (`#d-abolish-profile-names`, 2026-08-12). The warm leg used to send
+    // one; the daemon resolves the seat's own cast off `workdir`, and an uncast seat comes back as
+    // an ineligible reason so the caller takes the cold path — where the same refusal is recorded.
+    if (!workdir) return { answered: false, reason: 'no-workdir' };
 
     const startedAt = Date.now();
     const res = await forwarder.forward('live-feed', {
       conversation: String(chatThreadId),
       prompt: text,
-      profile,
-      workdir: workdir || null,
+      workdir,
       exec_id: c.execId,
       start: true,
     }, { timeoutMs: feedTimeoutMs });

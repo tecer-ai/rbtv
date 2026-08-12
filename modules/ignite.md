@@ -84,13 +84,18 @@ QUOTED verbatim:
   ruling `d-daemon-lane-button`, 2026-08-10): it writes one word into `<goal>/execution-lane` saying
   which lane currently runs the goal, and the daemon's watch pass (`ignite/engine/lane-watch.js`,
   fired by the daemon loop before every tick) seeds the goals assigned `daemon` through
-  `engine.seedGoal`. Absent means `console` — the daemon adopts only what it was explicitly given;
-  `--set daemon` requires `--profile` only when a seat of that goal declares no harness+model cast
+  `engine.seedGoal`. ⚠ Since task 7.789 that pass is also the SECOND caller of the C3 channel-ensure
+  decision (`server/ticker/goal-channel-start.js#channelEnsureDecision`, performed by
+  `ticker.js#ensureGoalChannel`): on the pass that FIRST adopts a goal, an `interactive` one gets
+  its Slack channel — the queued `start-workflow` branch was the only caller before, so a
+  daemon-lane goal had none and its seats' to-owner messages had nowhere to land. One decision, two
+  callers, memoized once per goal. Absent means `console` — the daemon adopts only what it was explicitly given;
+  `--set daemon` REFUSES a goal with any seat that declares no harness+model cast, naming them
   (the refusal names them); flipping it mid-goal is the supported act. Contract in
   `tool/README.md`; the lane half also in `capabilities/attached-execution/attached-execution.md`
   § The daemon lane's goal pickup.
 - **`attached-execution`** (`ignite/capabilities/attached-execution/`) — the ATTACHED lane: the
-  **`rbtv run`** verb (`rbtv run <goal-folder> [--profile <name>]` — the flag is the FALLBACK for
+  **`rbtv run`** verb (`rbtv run <goal-folder>` — ⚠ `--profile` RETIRED 2026-08-12; it was the FALLBACK for
   seats that declare no cast, and is required only when the goal has one; entry point
   `tool/rbtv-execution`, delegated from the TOP-LEVEL `rbtv` CLI — never `rbtv ignite`). Owner
   ruling `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO
@@ -171,8 +176,8 @@ QUOTED verbatim:
   `bindings.cast_seat`, the same validator and the same write `rbtv-bindings set` uses, and followed
   by a `materialize-seats.py --repass` that re-renders `seat.md` from it. Per
   `d-master-is-cast-like-any-other-seat` the SEAT governs; this CLI re-casts the seat. The requested
-  name is a spawn-profile NAME resolved to its harness+model pair and validated against the LIVE
-  CASTABLE set at BOTH halves (narrower than `profiles:` — `coord.py#validate_seat` must accept the
+  caller names harness + model DIRECTLY (no profile NAME since 2026-08-12) and both are validated against the LIVE
+  CASTABLE set at BOTH halves (narrower than `launch-specs:` — `coord.py#validate_seat` must accept the
   pair, so `test-sleep` is refused); an unknown SEAT is refused rather than created. ⚠ **Nothing is
   restarted and the requesting sitting survives** — a casting sheet is not boot-read: `spawn.js`
   reads `seat.md` per launch and `live-sessions.js` reaps a warm session whose conversation names a
@@ -186,7 +191,7 @@ QUOTED verbatim:
   program, a **taskforce** is its running instance, and the bindings file is what casts one into the
   other; `team-kit/materialize-seats.py --bindings` is its ONE consumer. ⚠ **A cast is now HONOURED
   AT LAUNCH** (ruling D19, 2026-08-11): `launch-profiles/catalog.js` maps a seat's declared
-  `(harness, model)` to the profile NAME that runs it — task 7.54's catalog half, built — and
+  `(harness, model)` to the launch spec that runs it — task 7.54's catalog half, built — and
   `server/spawn/spawn.js#profileForSeatCast` applies it at the one point every lane's launch passes
   through, so a seat runs what its `seat.md` casts it as whether the daemon lane, the attached lane
   or a Slack revival dispatched it. Before it, every lane launched a caller-named profile and a seat
@@ -194,15 +199,19 @@ QUOTED verbatim:
   with this capability's own `catalog` verb (`bindings.py#catalog`) — `probe-binding-catalog`
   compares the two row for row so they cannot drift; an unmappable or ambiguous cast is a typed
   refusal, never a fallback; a seat declaring no cast (the channel master's `open_binding`) is
-  untouched. Four verbs — `catalog`
+  untouched. Five verbs — `catalog`
   (every harness+model this workspace can spawn, each effort dial NUMBERED), `inspect` (every
   manifest seat with its definition file, staffing hints and casting state), `scaffold`
-  (create-only), `set`. ⚠ **NOT the two-part shape of the two capabilities above, and that is
+  (create-only), `set` (one seat), `set-many` (N seats of ONE workflow from a JSON file in one
+  validated call — ALL-OR-NOTHING: each seat goes through `set`'s own path with `dry_run`, and the
+  sheet is opened only if every one passes, so a batch with a bad seat leaves it byte-identical and
+  names every offending seat's reason. The casting flow it serves: inspect → the owner decides →
+  one batch call). ⚠ **NOT the two-part shape of the two capabilities above, and that is
   measured, not style**: the bindings tree sits in the channel master's `rw-paths` and NOTHING
   boot-reads it, so every verb is a plain direct file write — no staged inbox, no `enqueue-job`
   trigger, no restart. ⚠ **`catalog` IS the validator** `set` enforces: one derivation, two
   consumers, so the surface an agent reads and the surface that refuses it cannot disagree. It is
-  composed from `profiles:` in `config/spawn-profiles.yaml` (which `r-seats-only-architecture` makes
+  composed from `launch-specs:` in `config/spawn-profiles.yaml` (which `r-seats-only-architecture` makes
   the workspace's spawnable set) plus each profile's own `effort:` block for whether a dial exists,
   and gated by `coord.py#validate_seat` — the predicate `materialize-seats.py`'s F6 gate imports, so
   a pair this tool offers can never be one materialize then refuses. The effort NUMBER indexes the
@@ -316,7 +325,7 @@ delegated call's stdout, stderr and exit code are the delegate's, unchanged.
 rbtv ignite                      the module's components, its rules, and its action verbs
 rbtv ignite <component>          that component's entry point body + its invocable entry points
 
-rbtv run <goal-folder> ([--profile NAME] | --status) -> capabilities/attached-execution
+rbtv run <goal-folder> [--status]                 -> capabilities/attached-execution
 rbtv ignite daemon start|restart|stop|kill|unit [--service ignite|chat-bridge|probe-suite]
                                                     -> capabilities/daemon-operator
 rbtv ignite ticker show|set-interval|history        -> capabilities/ticker-settings

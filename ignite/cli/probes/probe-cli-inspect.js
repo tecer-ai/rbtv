@@ -128,8 +128,7 @@ async function main() {
 
     // 2. Enqueue a real queue row through add-job, then inspect queue sees it.
     r = await runCli([
-      'add-job', '--fn', 'probe-cli-sleep', '--profile', 'test-sleep',
-      '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
+      'add-job', '--fn', 'probe-cli-sleep',       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z',
     ], cliEnv);
     check('setup: add-job for the inspect-queue check succeeds', r.code === 0, `exit=${r.code} ${r.stderr}`);
     const queueId = (r.stdout.match(/queue id (\d+)/) || [])[1];

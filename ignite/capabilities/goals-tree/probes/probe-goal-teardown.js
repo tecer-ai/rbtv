@@ -55,8 +55,10 @@ function check(name, pass, detail) {
 
 const GOAL_CLI = path.join(__dirname, '..', 'tool', 'goal_cli.py');
 const CLI_ENTRY = path.join(__dirname, '..', '..', '..', 'cli', 'ignite.js');
-// `launch-agent` requires `profile` in args_schema.required (the S-2(a) register-time gate).
-const SCHEMA = '{"required":{"profile":"string"},"optional":{"workdir":"string"}}';
+// 7.787: `launch-agent` requires NOTHING (`#d-abolish-profile-names` emptied its REQUIRED_ARGS),
+// so the S-2(a) register-time gate admits an empty `required`. This probe's subject is teardown's
+// SEQUENCING, not the args schema — the row only has to be enqueueable.
+const SCHEMA = '{"required":{},"optional":{"workdir":"string"}}';
 
 // The verb under test, run as a REAL child process — never imported, never emulated. It is handed
 // the throwaway daemon's address and token exactly as an operator's shell would be.
@@ -152,7 +154,9 @@ async function main() {
     // --- 4. CONTROL: a pending queue row is removed first, in the order the guards admit. ----
     // Seeded BEFORE the act on purpose: run the steps by hand in the wrong order and the purge
     // refuses `pending-queue-rows`, so this is what proves teardown sequences them itself.
-    const added = await runCli(['add-job', '--fn', 'seat-tdgoal-beta', '--profile', 'test-sleep',
+    // 7.787: no `--profile` — the flag is gone and `launch-agent` requires no argument, so the
+    // row is enqueued with none. What it runs is the seat's own cast, resolved at spawn.
+    const added = await runCli(['add-job', '--fn', 'seat-tdgoal-beta',
       '--trigger', 'scheduled', '--at', '2099-01-01T00:00:00Z'], ownerEnv, { timeoutMs: 60000 });
     const queuedBefore = JSON.parse((await runCli(['--json', 'inspect', 'queue'], ownerEnv)).stdout).result.rows;
     check('setup: a pending queue row exists against one of the goal\'s seats',

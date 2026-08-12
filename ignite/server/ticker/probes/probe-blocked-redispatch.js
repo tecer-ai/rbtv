@@ -28,7 +28,7 @@ async function run(lines) {
     registerLaunchAgentJob(ctx);
 
     // ---------- Part A: blocked slot wakes on a new thread message ----------
-    const q1 = enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
+    const q1 = enqueueLaunchAgent(ctx, { runAt: new Date() });
     const t1 = await ctx.ticker.tick();
     lines.push(`tick-1 actions: ${actionSummary(t1.actions)}`);
 
@@ -99,7 +99,7 @@ async function run(lines) {
     lines.push(`exec2: exec_id=${exec2.exec_id} parent_exec_id=${exec2.parent_exec_id} thread=${exec2.thread} status=${exec2.status}`);
 
     // ---------- Part B: same slot with no new message never re-enqueues ----------
-    const q2 = enqueueLaunchAgent(ctx, { profile: 'test-sleep', runAt: new Date() });
+    const q2 = enqueueLaunchAgent(ctx, { runAt: new Date() });
     const t5 = await ctx.ticker.tick();
     const exec3 = ctx.store.dump().jobs_log.find((r) => r.queue_id === q2.queue_id);
     if (!exec3) throw new Error('exec3 not found after launch');
@@ -146,7 +146,7 @@ async function run(lines) {
     const ctxC = setup({ slot_max_repeats: 1 });
     try {
       registerLaunchAgentJob(ctxC);
-      const qC = enqueueLaunchAgent(ctxC, { profile: 'test-sleep', runAt: new Date() });
+      const qC = enqueueLaunchAgent(ctxC, { runAt: new Date() });
       const tC1 = await ctxC.ticker.tick();
       lines.push(`part-c tick-1 actions: ${actionSummary(tC1.actions)}`);
       const execC = ctxC.store.dump().jobs_log.find((r) => r.queue_id === qC.queue_id);

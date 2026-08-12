@@ -105,12 +105,14 @@ REQUIRED_FIELDS = ("goal-name", "goal-type", "goal-contract", "goal-kind", "exec
 # default, resolved from the workflow's own scaffolding — which is a better answer than any
 # default this layer could invent, and is why the field was not made required.
 #
-# `launch-profile` is optional because it is only ever MEANINGFUL on the daemon lane, and only for
-# seats that declare no harness+model cast of their own. It carries NO member of the reject set: its
-# one constraint — the name must exist in the shared config's `profiles:` — is enforced at the
-# creation verb (`goal_cli.py#check_lane_profile`, one home for both lane doors), and a second
-# spelling of that check here would be a second thing to keep in step with that roster.
-OPTIONAL_FIELDS = ("due-date", "execution-mode", "launch-profile")
+# ⚠ `launch-profile` IS DELETED FROM THE REQUEST SHAPE (`#d-abolish-profile-names`, 2026-08-12).
+# It named the FALLBACK launch profile for seats declaring no cast of their own; the fallback is
+# abolished and `rbtv-goal scaffold` no longer has a `--profile` flag to forward it to. A request
+# still carrying the field is refused as an unknown field, which is the honest answer: the value
+# would have been silently dropped otherwise, and the requester would believe it had chosen
+# something. What a seat runs on is its CAST, in the workflow's bindings sheet, and is not a
+# goal-creation input at all.
+OPTIONAL_FIELDS = ("due-date", "execution-mode")
 ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
 # §1.1 — the same expression the creation verb enforces (`goal_cli.py#GOAL_NAME_RE`), not a second
@@ -419,15 +421,6 @@ def validate(payload, goals_root=None):
                          "policy, and a value the control plane cannot read would silently make "
                          "the goal autonomous")
 
-    # `launch-profile` is OPTIONAL and contributes ZERO members, on the same terms as `due-date`
-    # but for a different reason: its one constraint (the name must be in the shared config's
-    # `profiles:`) has exactly one home — `goal_cli.py#check_lane_profile`, which both lane doors
-    # already call — and a copy here would be a second roster to keep in step. Named as checked so
-    # the empty slice is visible rather than mistaken for an oversight.
-    checked.append({"field": "launch-profile",
-                    "check": "optional; no member — the profile roster is enforced at the creation "
-                             "verb (goal_cli.py#check_lane_profile), before any write"})
-
     return _verdict(checked, refusals, "S,P,V")
 
 
@@ -617,12 +610,6 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
                # access to the goal folder at all.
                "--lane", lane,
                "--contract", str(contract_file), "--json"]
-        # `--profile` is CONDITIONAL, like `--due`: it is optional in the request, meaningless on
-        # the console lane, and needed on the daemon lane only for seats that declare no cast of
-        # their own. `goal_cli.py#check_lane_profile` refuses both wrong combinations, so this side
-        # forwards what it was given and judges nothing.
-        if request.get("launch-profile"):
-            cmd += ["--profile", request["launch-profile"]]
         if request.get("due-date"):
             cmd += ["--due", request["due-date"]]
         step = _run(cmd, "create-goal", dry_run)
@@ -635,8 +622,6 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
         # source, so it is named and no `-source` key is minted for a question with one answer.
         step["execution-lane"] = lane
         step["execution-lane-source"] = "the request payload (REQUIRED — no default, no derivation)"
-        if request.get("launch-profile"):
-            step["launch-profile"] = request["launch-profile"]
         return step
     finally:
         contract_file.unlink(missing_ok=True)

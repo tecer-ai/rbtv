@@ -43,11 +43,11 @@ const { buildBwrapArgv } = require('./bwrap');
 // `resolveSandbox`/`ensureLogPath` are IMPORTED (7.637). Copies of both stood here only because
 // `spawn.js` was another session's dirty file at build time. A live session's cage and its
 // transcript mode ARE the dispatch door's — now inexpressibly so, rather than by discipline.
-const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, profileForSeatCast } = require('./spawn');
+const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, launchSpecForSeat } = require('./spawn');
 const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir } = require('./carrier');
 const { parseSeatPath, parseServiceSeatPath } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
-const { SpawnError, E_UNKNOWN_PROFILE, E_BAD_REQUEST, E_CARRIER_FAILED } = require('./errors');
+const { SpawnError, E_UNKNOWN_LAUNCH_SPEC, E_BAD_REQUEST, E_CARRIER_FAILED } = require('./errors');
 
 // The design's defaults (owner-confirmed 2026-08-10, live-session-design.md § Deploy policy).
 const DEFAULT_IDLE_MS = 600000; // 10 minutes after the LAST OWNER MESSAGE, not the last reply
@@ -140,19 +140,17 @@ function createLiveSessions({
   // An UNCAST seat throws E_UNCAST_SEAT out of the resolver (ruling D2). Caught and reported as an
   // ineligible reason rather than propagated: this gate's whole contract is that it answers, and
   // the cold path the caller falls through to raises the same refusal where it can be acted on.
-  function eligible({ profileName, workdir }) {
-    if (!profileName) return { ok: false, reason: 'no-profile' };
+  function eligible({ workdir }) {
+    if (!workdir) return { ok: false, reason: 'no-workdir' };
+    let profile;
     try {
-      profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+      ({ spec: profile } = launchSpecForSeat(config.launchSpecs || {}, workdir, log));
     } catch (err) {
       return { ok: false, reason: `uncastable-seat:${err.code || 'unknown'}` };
     }
-    const profile = config.profiles && config.profiles[profileName];
-    if (!profile) return { ok: false, reason: 'unknown-profile' };
     if (!profile.resume) return { ok: false, reason: 'profile-has-no-resume-template' };
     const harness = harnessOf(profile);
     if (!LIVE_HARNESSES.has(harness)) return { ok: false, reason: `harness-not-live-capable:${harness || 'unknown'}` };
-    if (!workdir) return { ok: false, reason: 'no-workdir' };
     if (!seatIsHumanInteractive(workdir)) return { ok: false, reason: 'seat-not-human-interactive' };
     return { ok: true, harness };
   }
@@ -164,7 +162,7 @@ function createLiveSessions({
   // and `buildBwrapArgv` (the FS walls). The ONLY additions are `--input-format stream-json` and
   // live-pipe carriage. Nothing about the cage, the caps or the writable set is relaxed for a live
   // session — a warm process is the same session, held open.
-  function launch({ conversationId, profileName, workdir, sessionRef }) {
+  function launch({ conversationId, workdir, sessionRef }) {
     // ── THE SEAT'S CAST WINS HERE TOO (launch-cast unification, owner-ruled 2026-08-11) ────────
     //
     // This door did not apply it, and `catalog.js`'s own header claimed it did — "`spawn()` is
@@ -180,10 +178,7 @@ function createLiveSessions({
     // Read off the RAW `workdir`, before `resolveWorkdir` normalizes it — the same ordering and
     // the same stated ceiling as `spawn()`: a relative workdir resolves no descriptor, so it
     // cannot be cast, and under ruling D2 it now REFUSES rather than running the caller's profile.
-    profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
-
-    const profile = config.profiles[profileName];
-    if (!profile) throw new SpawnError(E_UNKNOWN_PROFILE, `unknown launch profile: ${profileName}`, { profile: profileName });
+    const { key: profileName, spec: profile } = launchSpecForSeat(config.launchSpecs || {}, workdir, log);
     if (!sessionRef) throw new SpawnError(E_BAD_REQUEST, 'a live session RESUMES a chain and therefore requires its session_ref', { profile: profileName });
 
     // The workspace root resolves a profile's WORKSPACE-RELATIVE `workdir_root` (e.g. `.rbtv/
@@ -401,7 +396,7 @@ function createLiveSessions({
   // yet, a death mid-turn, a timeout. `unanswered: true` marks the one case the caller must treat
   // as urgent rather than routine: the owner's words were written into a process that then died
   // without answering, so they MUST be re-routed cold or they are lost.
-  async function feed({ conversationId, profileName, workdir, prompt, sessionRef = null, start = false }) {
+  async function feed({ conversationId, workdir, prompt, sessionRef = null, start = false }) {
     if (!conversationId) return { ok: false, reason: 'no-conversation' };
     if (typeof prompt !== 'string' || !prompt) return { ok: false, reason: 'empty-prompt' };
 
@@ -418,8 +413,9 @@ function createLiveSessions({
     // correct on its own. An UNCAST seat throws here; swallowed, because `eligible()` a few lines
     // down turns it into an ordinary ineligible reason and the caller falls through to the cold
     // path, which is where that refusal belongs.
+    let profileName = null;
     try {
-      profileName = profileForSeatCast(config.profiles || {}, workdir, profileName, log);
+      ({ key: profileName } = launchSpecForSeat(config.launchSpecs || {}, workdir, log));
     } catch { /* eligible() reports it below */ }
 
     let s = sessions.get(conversationId);
@@ -442,12 +438,12 @@ function createLiveSessions({
 
     if (!s) {
       if (!start) return { ok: false, reason: 'no-warm-session' };
-      const el = eligible({ profileName, workdir });
+      const el = eligible({ workdir });
       if (!el.ok) return { ok: false, reason: `ineligible:${el.reason}` };
       if (!sessionRef) return { ok: false, reason: 'no-session-ref-to-resume' };
       evictIfFull();
       try {
-        s = launch({ conversationId, profileName, workdir, sessionRef });
+        s = launch({ conversationId, workdir, sessionRef });
       } catch (err) {
         log('warn', 'live session launch failed — the cold path is unaffected', { conversationId, error: err.message, code: err.code || null });
         return { ok: false, reason: `launch-failed:${err.message}` };

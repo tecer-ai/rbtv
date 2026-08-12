@@ -369,8 +369,12 @@ function main() {
   cfg.spawn = { ...(cfg.spawn || {}), data_root: dataRoot, carrier: 'setsid' };
   cfg.default_workdir_root = path.join(aTmp, 'work');
   fs.mkdirSync(cfg.default_workdir_root, { recursive: true });
-  cfg.profiles['probe-hold'] = {
-    exec: { argv: ['true'], prompt: 'stdin' },
+  // 7.787: `profiles:` is `launch-specs:`, keyed by (harness, model). The `bash -c` shim keeps
+  // the argv agreeing with the key (`profiles.js#validateSpecKey` refuses a disagreement at
+  // LOAD) while running exactly what it ran before; the goal's seats declare the matching cast.
+  cfg['launch-specs'] = { bash: {} };
+  cfg['launch-specs'].bash['probe-hold'] = {
+    exec: { argv: ['bash', '-c', 'exec true', '--model', 'probe-hold'], prompt: 'stdin' },
     headed: { tui: { argv: ['true'] } },
     session_ref: { source: 'cwd-implicit' },
     workdir_root: '.rbtv/goals',
@@ -385,8 +389,8 @@ function main() {
   fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
   fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), 'taskforce-id,seat,after\ntf-a,alpha,\ntf-a,bravo,alpha\n');
   fs.writeFileSync(path.join(goalFolder, 'seats', 'alpha', 'seat.md'),
-    '---\nseat: alpha\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nalpha\n');
-  fs.writeFileSync(path.join(goalFolder, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\n---\n\nbravo\n');
+    '---\nseat: alpha\nharness: bash\nmodel: probe-hold\nhuman-interactive: yes\nfallback: block-and-queue\n---\n\nalpha\n');
+  fs.writeFileSync(path.join(goalFolder, 'seats', 'bravo', 'seat.md'), '---\nseat: bravo\nharness: bash\nmodel: probe-hold\n---\n\nbravo\n');
   fs.writeFileSync(path.join(goalFolder, 'execution-mode'), 'interactive\n');
 
   // alpha is human-interactive in an interactive goal, so the attached lane CARRIES it in the

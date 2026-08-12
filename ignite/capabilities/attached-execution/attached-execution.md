@@ -1,5 +1,8 @@
 # attached-execution — the `rbtv run` verb
 
+> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `config/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
+
+
 **Built for core-build task 7.44.** Owner ruling `decisions.md#d-attached-run-embedded-engine`:
 **ONE implementation of workflow advancement, TWO attachments.**
 
@@ -9,7 +12,7 @@ the calling terminal, and it dies with that terminal.
 
 | | daemon lane | attached lane |
 |---|---|---|
-| entry | `rbtv ignite daemon start` | `rbtv run <goal-folder> [--profile <name>]` |
+| entry | `rbtv ignite daemon start` | `rbtv run <goal-folder>` |
 | store | `{state_root}/heart.db` | `<goal-folder>/heart.db` |
 | lifetime | outlives the terminal | dies with it |
 | recovery | `goal-watcher-job` | **the owner re-runs the verb** — no watcher, ruled |
@@ -31,7 +34,7 @@ forever. It now returns `seat-failed` and names the seat.
 
 **Console-run wave A, item A3.** The same entry point, asked to REPORT instead of run: it prints
 `done` / in-flight / `ready (next)` / waiting for the goal's seats, plus any seat **held for you**,
-and exits `0`. Read-only, no `--profile`, **no daemon**, and it works before the goal has ever run.
+and exits `0`. Read-only, **no daemon**, and it works before the goal has ever run.
 
 Everything it prints is DERIVED — console-run design ruling 2: no engine breadcrumb, no
 session-maintained doc, nothing written in order to be read back later. Sources: the goal's
@@ -386,7 +389,7 @@ by a CLI, read by the daemon once a cadence.**
 | Piece | Where |
 |---|---|
 | the marker | `<goal>/execution-lane` — one word, the `execution-mode` file's precedent exactly. A `daemon` assignment carries its launch profile as a second token: `daemon claude-sonnet` |
-| the writer | `rbtv goal lane <goal> [--set daemon --profile <name> \| --set console]` (`capabilities/goals-tree/`). Read-only with no `--set`. **Works daemon-down** — which is most of why the trigger is a file and not a gateway intent |
+| the writer | `rbtv goal lane <goal> [--set daemon \| --set console]` (`capabilities/goals-tree/`). Read-only with no `--set`. **Works daemon-down** — which is most of why the trigger is a file and not a gateway intent |
 | the watch | `engine/lane-watch.js#runLaneWatch`, called by `server/index.js` immediately **before** every tick (boot tick included), so a seat the pass enqueues is dispatched by that same tick |
 | the seeding | `engine.seedGoal` and nothing else — the pass decides WHICH goals, never HOW to seed (`PRIN-11`) |
 
@@ -398,34 +401,29 @@ whole tree on the first tick after deploy. "Assigned to the console" and "assign
 deliberately not distinguished — neither is the daemon's business, and a third state would be a
 state nothing reads.
 
-⚠ **A `daemon` assignment MAY name a launch profile, and where it does the NAME IS VALIDATED — at
-both doors.** Seeding takes a profile BY NAME from the one shared config and never composes one
-(`DEC-1` § Shared profile source — the same argument `rbtv run --profile` makes). ⚠ Since ruling
-**D19** that name is the **fallback**, not the answer for every seat: task 7.54's catalog is built
-(`launch-profiles/catalog.js`) and applied at `server/spawn/spawn.js#profileForSeatCast`, so a seat
-whose `seat.md` declares a cast launches on THAT profile and the marker covers only the seats that
-declare none.
+⚠ **A `daemon` ASSIGNMENT IS ONE WORD, AND NAMES NO EXECUTION** (`#d-abolish-profile-names`
+sub-ruling 3, owner, 2026-08-12). The marker admitted an optional SECOND token — the fallback
+launch profile — for exactly one reason: `launch-agent` structurally required a `profile`
+argument, so the slot could be answered but never emptied. That requirement is DELETED
+(`heart-store.js#REQUIRED_ARGS_BY_ACTION` for `launch-agent` is now empty), so the token has
+nothing left to fill, and a marker able to name what a seat runs is a marker able to contradict the
+seat's own cast. Every seat resolves its own launch spec at spawn
+(`launch-profiles/catalog.js#specForSeatCast`, applied at `spawn.js#launchSpecForSeat`).
 
-⚠ **AND SO THE TOKEN IS OPTIONAL SINCE 2026-08-12** (the narrowing of D19). Demanding it
-unconditionally made the operator type a value no launch ever read — measured on the live 17-seat
-planning goal: 17 seats cast, 0 uncast. Both doors now ask `seeding.js#uncastSeats` — the ONE
-predicate, reading what the launch reads (`seat.md`, through `spawn.js#seatDeclaresValue`) and
-answering with the catalog's own `declaresBinding` — and demand a name only when some seat would
-actually consult it, naming those seats in the refusal. A goal that needs none supplies its own
-from its casts (`fallbackProfileFor`), because `launch-agent` structurally requires a `profile`
-argument (`heart-store.js#REQUIRED_ARGS_BY_ACTION`): the slot cannot be emptied, only answered
-without asking. The derived name is inert by construction (every cast outranks it) and pins a
-model, so a seat added later with no cast REFUSES loudly (`E_UNCAST_SEAT`) instead of running on it.
+⚠ **A MARKER STILL CARRYING TWO TOKENS IS A LEGACY MARKER.** Its whole text is not `daemon`, so
+both readers resolve it to `console` under the fail-closed rule — and because a goal silently
+demoted to the console is the "quietly stopped" failure this whole surface exists to prevent, both
+readers REPORT it: `goal_cli.py#read_lane` returns `legacy: true` and `lane` prints the repair
+(`rbtv-goal lane <goal> --set daemon`); `lane-watch.js` shouts it once per marker text.
 
-- **At the CLI**, `--set daemon` refuses without `--profile` **when a seat of that goal declares no
-  cast** (refusal code `lane-uncast-seats`, naming the seats) or when the goal's seats cannot be
-  read at all (`lane-cast-unknown` — an UNMATERIALIZED goal is ruled to keep the requirement: the
-  refusal's value is naming the seats, and with no seats there is only a guess, whose cost is a
-  daemon journal line at 03:00 instead of a message in the terminal the operator is standing at).
-  A name that IS given is still refused when `profiles:` in the
-  shared config does not carry it — naming the valid set. Presence alone was not enough: `enqueue`'s
-  `args_schema` only asks that `profile` be a STRING, so a typo passed every gate and surfaced as a
-  spawn failure per seat, long after the person who typed it stopped watching.
+- **At the CLI**, `--set daemon` REFUSES a goal with any seat that declares no cast (refusal code
+  `lane-uncast-seats`, naming the seats), or whose seats cannot be read at all
+  (`lane-cast-unknown` — an UNMATERIALIZED goal keeps its own refusal: "unknown" is not "none",
+  and the alternative is a guess whose cost is a daemon journal line at 03:00 instead of a message
+  in the terminal the operator is standing at). The predicate is `seeding.js#uncastSeats`, reading
+  what the LAUNCH reads (`seat.md`, through `spawn.js#seatDeclaresValue`) and answering with the
+  catalog's own `declaresBinding` — the ONE predicate `rbtv run` and the daemon's watch pass also
+  ask, so no two doors can disagree.
 - **At the watch**, the same name is checked against the store's own profile catalogue **before
   `seedGoal` is called at all**, and the ORDERING is the fix rather than the check: `seedTaskforce`
   registers one job row per seat and `registerJob` is create-only, so an unknown profile used to
@@ -609,7 +607,7 @@ leader's ruling, `jobs/edge-runner-job.py` against the predecessor's validated o
 surface has been deleted, so there is one evaluator and nothing left to disagree. Ruling:
 `build/one-readiness-predicate.md`.
 
-**The profile is passed by NAME and never derived HERE.** Mapping an elected (harness, model) onto
+**Nothing profile-shaped is passed, and nothing is derived HERE (7.787).** Mapping an elected (harness, model) onto
 one profile name is core-build task **7.54**'s catalog — built at `launch-profiles/catalog.js` and
 applied at the one shared launch point (`server/spawn/spawn.js#profileForSeatCast`, ruling D19), so
 a seat runs its own cast and this name is what an uncast seat falls back to. A second mapping *here*

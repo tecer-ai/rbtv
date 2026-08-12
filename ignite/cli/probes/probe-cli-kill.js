@@ -39,11 +39,10 @@ function seedExecution(ws, patch) {
     const row = store.recordExecutionStart({
       jobId: 'probe-cli-sleep',
       actionType: 'launch-agent',
-      args: JSON.stringify({ profile: 'test-sleep' }),
+      args: JSON.stringify({}),
       enqueuedBy: 'probe-owner',
       firedTick: 0,
       firedAt: new Date(),
-      profile: 'test-sleep',
     });
     if (patch) store.updateExecutionStatus(row.exec_id, patch);
     return row.exec_id;

@@ -145,9 +145,6 @@ function makeBridge({ workspaceRoot, stateFile = null, logs = null, slack = make
     gatewayAddr: '127.0.0.1:0',
     bridgeToken: 'stub',
     sessionJobId: 'chat-launch',
-    sessionProfile: 'fallback-profile',
-    masterProfile: 'master-profile',
-    goalProfile: 'goal-profile',
     sendMessageJobId: 'send-message',
     workdir: '/configured/master/workdir',
     workspaceRoot,
@@ -834,9 +831,9 @@ async function main() {
     // every surface carries the one non-deciding `session_profile`. HOMED AT THE ASKING SEAT is
     // the claim that mattered here and it is untouched — the workdir is what makes the owner's
     // reply reach the asker, and it is what the daemon then resolves the seat's cast FROM.
-    check('the owner\'s reply mints a session-create HOMED AT THE ASKING SEAT, on the one non-deciding profile',
+    check('the owner\'s reply mints a session-create HOMED AT THE ASKING SEAT, naming NO execution',
       first.forwarded === true && first.leg === 'session-create' && first.route === 'agent'
-      && Boolean(create) && create.payload.args.workdir === seatDir && create.payload.args.profile === 'fallback-profile'
+      && Boolean(create) && create.payload.args.workdir === seatDir && !('profile' in create.payload.args)
       && create.payload.session_mode === 'headless',
       { first, workdir: create && create.payload.args.workdir, expected: seatDir });
     check('the prompt is the owner\'s BARE text behind the ONE correlation line — no behavioural text on this leg either',

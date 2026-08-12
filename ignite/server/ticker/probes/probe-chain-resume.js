@@ -24,22 +24,37 @@ const { setup, teardown, registerLaunchAgentJob, enqueueLaunchAgent, sleep, capt
 // template slot to the config validator. $0/$1 are the two argv words after `bash -c <script>`.
 const ECHO = 'printf \'\\173"type":"result","result":"MODE-%s-REF-%s"\\175\\n\' "$0" "$1"';
 
+// ⚠ argv[0] IS NAMED `claude`, AND THAT IS THE FIXTURE'S POINT, not a disguise. `harnessOf` reads
+// `basename(exec.argv[0])`, and owner ruling `d-uniform-descriptor-carriage` (2026-08-12) makes a
+// NON-claude harness carry its seat descriptor on the FIRST MESSAGE — which would prepend hundreds
+// of bytes to every prompt this probe measures byte-exactly, testing that ruling instead of this
+// probe's subject. A claude-named shim takes the descriptor on the FLAG instead (argv, which
+// nothing here asserts on), so the prompt bytes stay the prompt bytes. The shim is a symlink to
+// `bash`, so what actually runs is unchanged.
+const HARNESS_DIR = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'claude-shim-'));
+const CLAUDE_SHIM = path.join(HARNESS_DIR, 'claude');
+try { fs.symlinkSync('/bin/bash', CLAUDE_SHIM); } catch { /* already there */ }
+
 function makeCtx(configOverrides = {}) {
-  return setup(configOverrides, ({ workRoot }) => ({
-    // Resumable: assigns its ref at spawn and carries both templates.
-    'test-resumable': {
-      exec: { argv: ['bash', '-c', ECHO, 'exec', '{session_ref}'], prompt: 'stdin' },
-      resume: { argv: ['bash', '-c', ECHO, 'resume', '{session_ref}'], prompt: 'stdin' },
-      session_ref: { source: 'assigned' },
-      workdir_root: workRoot,
-      caps: { memory_max: '64M', runtime_max: '1h' },
-    },
-    // Not resumable: a ref on record (cwd-implicit) but NO resume template.
-    'test-no-resume': {
-      exec: { argv: ['bash', '-c', ECHO, 'exec', '{workdir}'], prompt: 'stdin' },
-      session_ref: { source: 'cwd-implicit' },
-      workdir_root: workRoot,
-      caps: { memory_max: '64M', runtime_max: '1h' },
+  return setup(configOverrides, {}, ({ workRoot }) => ({
+    claude: {
+      // Resumable: assigns its ref at spawn and carries both templates.
+      'test-resumable': {
+        // 7.787: `--model <the key's model>` so the argv agrees with the key it is filed under
+        // (`profiles.js#validateSpecKey`). It lands in bash's positional params, unread.
+        exec: { argv: [CLAUDE_SHIM, '-c', ECHO, 'exec', '{session_ref}', '--model', 'test-resumable'], prompt: 'stdin' },
+        resume: { argv: [CLAUDE_SHIM, '-c', ECHO, 'resume', '{session_ref}', '--model', 'test-resumable'], prompt: 'stdin' },
+        session_ref: { source: 'assigned' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
+      // Not resumable: a ref on record (cwd-implicit) but NO resume template.
+      'test-no-resume': {
+        exec: { argv: [CLAUDE_SHIM, '-c', ECHO, 'exec', '{workdir}', '--model', 'test-no-resume'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
     },
   }));
 }
@@ -74,8 +89,10 @@ function assertExcludes(label, hay, needle) {
 }
 
 // Turn 1 of a chain: enqueue, run to `end`, return its exec row.
-async function firstTurn(ctx, profile, prompt) {
-  enqueueLaunchAgent(ctx, { jobId: 'chat-agent', profile, prompt, runAt: new Date() });
+// `model` names which of the fixture's launch specs the seat this turn homes at is CAST to — the
+// only way a launch selects one since `#d-abolish-profile-names`. It is not a value on the wire.
+async function firstTurn(ctx, model, prompt) {
+  enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model }, prompt, runAt: new Date() });
   const acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
   return ctx.store.getExecution(findAll(acts, 'spawn')[0].execId);
 }
@@ -229,7 +246,11 @@ capture('probe-chain-resume', async (lines) => {
     const realSpawn = ctx.mgr.spawn;
     let refused = 0;
     ctx.mgr.spawn = (...a) => {
-      if (a[6]) { refused++; throw new Error('injected: resume spawn failed at the carrier'); }
+      // ⚠ INDEX 5, NOT 6 (7.787). `spawn`'s signature lost its `profileName` operand — the
+      // argument `#d-abolish-profile-names` deletes — so every positional after it shifted left.
+      // A stale index here reads `enqueuedBy` (always truthy), which would have made this arm
+      // refuse EVERY spawn and pass for the wrong reason.
+      if (a[5]) { refused++; throw new Error('injected: resume spawn failed at the carrier'); }
       return realSpawn(...a);
     };
 

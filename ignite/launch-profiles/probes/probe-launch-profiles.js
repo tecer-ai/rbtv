@@ -73,9 +73,19 @@ function expectCode(code, fn) {
 function writeFixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-probe-'));
   const file = path.join(dir, 'halves.yaml');
+  // ⚠ FILED UNDER `jobs:`, NOT `launch-specs:` (7.787). A halves-shaped fixture pins no model, so
+  // it has no (harness, model) to be keyed by — which is exactly the split
+  // `#d-abolish-profile-names` sub-ruling 1 introduced. The two blocks share one validator, so this
+  // still exercises the same schema path it always did.
   yaml && fs.writeFileSync(file, yaml.dump({
     default_workdir_root: dir,
-    profiles: {
+    'launch-specs': { probe: { 'probe-model': {
+      exec: { argv: ['probe', '--model', 'probe-model', '1'], prompt: 'stdin' },
+      session_ref: { source: 'cwd-implicit' },
+      workdir_root: dir,
+      caps: { memory_max: '64M' },
+    } } },
+    jobs: {
       'both-halves': {
         command: {
           caged: { argv: ['sleep', '--caged-marker', '{workdir}'], prompt: 'stdin' },
@@ -106,19 +116,36 @@ const shipped = lp.loadConfig(SHIPPED, { seatBindValidator: () => {} });
 const SESSION_REF = '00000000-0000-4000-8000-000000000000';
 
 // ── 1 · resolve by NAME ──────────────────────────────────────────────────────────────────────
-check('(1) unknown profile name is refused typed', () => {
-  const err = expectCode('E_UNKNOWN_PROFILE', () => lp.resolveProfile(shipped, 'no-such-profile'));
+// ── 1 · resolve by the ONE address a launch spec has: its (harness, model) — or a job's NAME ──
+// 7.787: `resolveProfile(config, 'a-name')` is `resolveLaunchSpec(config, {harness, model})`. Leg
+// 1c is the abolition's own assertion — a caller cannot select a launch spec by any name at all.
+check('(1) an uncastable (harness, model) is refused typed', () => {
+  const err = expectCode('E_UNKNOWN_LAUNCH_SPEC', () => lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'no-such-model' }));
   return err.code;
 });
-check('(1b) a known name resolves', () => {
-  const r = lp.resolveProfile(shipped, 'test-sleep');
-  if (r.argv[0] !== 'sleep') throw new Error(`argv0 ${r.argv[0]}`);
+check('(1b) a castable pair resolves', () => {
+  const r = lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { slots: { workdir: '/tmp' } });
+  if (r.argv[0] !== 'codex') throw new Error(`argv0 ${r.argv[0]}`);
   return r.argv.join(' ');
+});
+check('(1c) THE ABOLITION — a NAME selects nothing; only the pair or a job name addresses a spec', () => {
+  // The retired names are planted deliberately: they were the only unit a caller could select
+  // before `#d-abolish-profile-names`, and if `launch-specs:` ever regained a name layer this leg
+  // would go green for the wrong reason.
+  for (const dead of ['claude-opus', 'claude-fable', 'codex-gpt-5-5', 'kimi']) {
+    expectCode('E_UNKNOWN_LAUNCH_SPEC', () => lp.resolveLaunchSpec(shipped, { job: dead }));
+    expectCode('E_UNKNOWN_LAUNCH_SPEC', () => lp.resolveLaunchSpec(shipped, { harness: dead, model: dead }));
+  }
+  // CONTROL, so the leg is not passing because everything is refused: the `jobs:` block DOES still
+  // address by name (sub-ruling 1 — "a job's name IS its identity"), and `test-sleep` lives there.
+  const job = lp.resolveLaunchSpec(shipped, { job: 'test-sleep' });
+  if (job.argv[0] !== 'sleep') throw new Error(`the jobs: block stopped resolving: ${job.argv.join(' ')}`);
+  return 'every retired profile NAME refuses on both address forms; jobs: still resolves test-sleep';
 });
 
 // ── 2 · rejects raw flags — THE DISCRIMINATING CONTROL ───────────────────────────────────────
 check('(2) undeclared slot key REFUSED by the resolver', () => {
-  const err = expectCode('E_RAW_FLAG', () => lp.resolveProfile(shipped, 'test-sleep', {
+  const err = expectCode('E_RAW_FLAG', () => lp.resolveLaunchSpec(shipped, { job: 'test-sleep' }, {
     slots: { evil: '--dangerously-skip-permissions' },
   }));
   return err.code;
@@ -134,8 +161,8 @@ check('(2b) CONTROL — the pre-7.42 path SILENTLY IGNORES the same input (so le
   return 'silent, unchanged — the refusal in (2) is new behaviour, not shared behaviour';
 });
 check('(3) a caller value can never BECOME an argv element (arity asserted)', () => {
-  const r = lp.resolveProfile(fx, 'both-halves', { slots: { workdir: '/tmp/x --rm -rf /' } });
-  const tmpl = fx.profiles['both-halves'].command.caged.argv.length;
+  const r = lp.resolveLaunchSpec(fx, { job: 'both-halves' }, { slots: { workdir: '/tmp/x --rm -rf /' } });
+  const tmpl = fx.jobs['both-halves'].command.caged.argv.length;
   if (r.argv.length !== tmpl) throw new Error(`arity ${r.argv.length} != template ${tmpl}`);
   if (r.argv[2] !== '/tmp/x --rm -rf /') throw new Error('value not substituted in place');
   return `${tmpl} elements in, ${r.argv.length} out — flags inside a value stay INSIDE it`;
@@ -147,7 +174,7 @@ check('(4) host capability is DETECTED on this box (no argument accepted)', () =
   return lp.detectHostCapability();
 });
 check('(5) dual-half profile resolves the CAGED half on this VPS', () => {
-  const r = lp.resolveProfile(fx, 'both-halves', { slots: { workdir: '/tmp' } });
+  const r = lp.resolveLaunchSpec(fx, { job: 'both-halves' }, { slots: { workdir: '/tmp' } });
   if (r.half !== 'caged') throw new Error(`half=${r.half}`);
   if (!r.argv.includes('--caged-marker')) throw new Error(`argv=${r.argv.join(' ')}`);
   return `half=${r.half} argv=${r.argv.join(' ')}`;
@@ -167,7 +194,7 @@ check('(6) on a cage-less host the SAME profile resolves the PORTABLE half', () 
     const lp=require(${JSON.stringify(path.join(IGNITE_ROOT, 'launch-profiles'))});
     if (lp.detectHostCapability()!=='portable') { console.log('DETECT='+lp.detectHostCapability()); process.exit(0); }
     const c=lp.loadConfig(${JSON.stringify(fixture)});
-    const r=lp.resolveProfile(c,'both-halves',{slots:{workdir:'/tmp'}});
+    const r=lp.resolveLaunchSpec(c,{job:'both-halves'},{slots:{workdir:'/tmp'}});
     console.log('half='+r.half+' argv='+r.argv.join(' '));
   `);
   if (!out.startsWith('half=portable')) throw new Error(out);
@@ -178,7 +205,7 @@ check('(7) a portable-LESS profile FAILS CLOSED on a cage-less host', () => {
   const out = inCagelessChild(`
     const lp=require(${JSON.stringify(path.join(IGNITE_ROOT, 'launch-profiles'))});
     const c=lp.loadConfig(${JSON.stringify(fixture)});
-    try { const r=lp.resolveProfile(c,'caged-only'); console.log('UNEXPECTED PASS half='+r.half+' argv='+r.argv.join(' ')); }
+    try { const r=lp.resolveLaunchSpec(c,{job:'caged-only'}); console.log('UNEXPECTED PASS half='+r.half+' argv='+r.argv.join(' ')); }
     catch(e){ console.log('refused='+e.code); }
   `);
   if (out !== 'refused=E_NO_PORTABLE_HALF') throw new Error(out);
@@ -193,13 +220,13 @@ check('(7) a portable-LESS profile FAILS CLOSED on a cage-less host', () => {
 // to observe (that was the four-level table's artefact), so it now asserts what replaced it —
 // the SAME rung number renders differently per harness, and the TOP rung differs per harness.
 check('(8) a rung round-trips through the claude ladder (rung 4 = xhigh, the 5-rung dial\'s fourth)', () => {
-  const r = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 4, slots: { session_ref: SESSION_REF } });
+  const r = lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 4, slots: { session_ref: SESSION_REF } });
   if (!r.argv.includes('--effort') || !r.argv.includes('xhigh')) throw new Error(r.argv.join(' '));
   if (r.effort.of !== 5) throw new Error(`ladder size ${r.effort.of}`);
   return `dialect=${r.effort.dialect} rung=${r.effort.rung}/${r.effort.of} argv-tail=${r.argv.slice(-2).join(' ')}`;
 });
 check('(9) …and through a SECOND, differently-spelled dialect (codex: a -c override, 3 rungs)', () => {
-  const r = lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 3, slots: { workdir: '/tmp' } });
+  const r = lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 3, slots: { workdir: '/tmp' } });
   const tail = r.argv.slice(-2).join(' ');
   if (!tail.includes('model_reasoning_effort=high')) throw new Error(tail);
   if (r.effort.dialect !== 'thinking' || r.effort.of !== 3) throw new Error(`${r.effort.dialect}/${r.effort.of}`);
@@ -207,16 +234,16 @@ check('(9) …and through a SECOND, differently-spelled dialect (codex: a -c ove
 });
 check('(9b) ONE rung number, three harness spellings — and each ladder has its OWN top', () => {
   const three = [
-    ['claude-sonnet', lp.resolveProfile(shipped, 'claude-sonnet', { effort: 2, slots: { session_ref: SESSION_REF } })],
-    ['codex-gpt-5-5', lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 2, slots: { workdir: '/tmp' } })],
-    ['kimi', lp.resolveProfile(shipped, 'kimi', { effort: 2, slots: { workdir: '/tmp' } })],
+    ['claude/claude-sonnet-5', lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 2, slots: { session_ref: SESSION_REF } })],
+    ['codex/gpt-5.5', lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 2, slots: { workdir: '/tmp' } })],
+    ['kimi/kimi-code/kimi-for-coding', lp.resolveLaunchSpec(shipped, { harness: 'kimi', model: 'kimi-code/kimi-for-coding' }, { effort: 2, slots: { workdir: '/tmp' } })],
   ];
   const rendered = three.map(([n, r]) => `${n}:${r.effort.value}`);
-  if (rendered.join(' ') !== 'claude-sonnet:medium codex-gpt-5-5:medium kimi:--thinking') throw new Error(rendered.join(' '));
+  if (rendered.join(' ') !== 'claude/claude-sonnet-5:medium codex/gpt-5.5:medium kimi/kimi-code/kimi-for-coding:--thinking') throw new Error(rendered.join(' '));
   // The tops DIFFER — which is the whole reason the closed four-level vocabulary was retired: it
   // could only be as wide as its narrowest member, so claude's `xhigh` was unspellable through it.
   const tops = three.map(([n, r]) => `${n}:${r.effort.of}`).join(' ');
-  if (tops !== 'claude-sonnet:5 codex-gpt-5-5:3 kimi:2') throw new Error(tops);
+  if (tops !== 'claude/claude-sonnet-5:5 codex/gpt-5.5:3 kimi/kimi-code/kimi-for-coding:2') throw new Error(tops);
   return `${rendered.join(' ')} | ladder sizes ${tops}`;
 });
 check('(10) an INERT dial is STATED, never silently dropped', () => {
@@ -224,7 +251,7 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
   const f = path.join(dir, 'inert.yaml');
   fs.writeFileSync(f, yaml.dump({
     default_workdir_root: dir,
-    profiles: {
+    jobs: {
       'no-dial': {
         exec: { argv: ['sleep', '1'], prompt: 'stdin' },
         effort: { inert: true },
@@ -233,24 +260,28 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
         caps: { memory_max: '64M' },
       },
     },
+    'launch-specs': { probe: { 'probe-model': {
+      exec: { argv: ['probe', '--model', 'probe-model', '1'], prompt: 'stdin' },
+      session_ref: { source: 'cwd-implicit' }, workdir_root: dir, caps: { memory_max: '64M' },
+    } } },
   }));
   // An inert profile declares NO range, so ANY rung is accepted on it — including one no dialed
   // profile in the shipped file would admit. That is the G-270 posture, not a missing bound.
-  const r = lp.resolveProfile(lp.loadConfig(f), 'no-dial', { effort: 99 });
+  const r = lp.resolveLaunchSpec(lp.loadConfig(f), { job: 'no-dial' }, { effort: 99 });
   if (r.effortInert !== true) throw new Error('inert not reported');
   if (r.argv.length !== 2) throw new Error(`argv grew: ${r.argv.join(' ')}`);
   return 'effortInert=true reported to the caller; argv unchanged';
 });
 check('(11) a rung outside THIS profile\'s range is refused, and the refusal NAMES the range', () => {
-  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'codex-gpt-5-5', { effort: 4, slots: { workdir: '/tmp' } }));
+  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 4, slots: { workdir: '/tmp' } }));
   if (!/range 1\.\.3/.test(err.message)) throw new Error(err.message);
   // The CONTROL that makes it a range check rather than a ceiling: the same rung composes on a
   // profile whose ladder is longer, so nothing about "4" is refused — only "4 on codex".
-  const ok = lp.resolveProfile(shipped, 'claude-sonnet', { effort: 4, slots: { session_ref: SESSION_REF } });
+  const ok = lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 4, slots: { session_ref: SESSION_REF } });
   if (ok.effort.value !== 'xhigh') throw new Error(ok.effort.value);
   // …and a level from the RETIRED abstract vocabulary is now refused as a non-integer, so a caller
   // left on the old scheme fails loudly instead of resolving to something plausible.
-  expectCode('E_UNKNOWN_EFFORT', () => lp.resolveProfile(shipped, 'claude-sonnet', { effort: 'high', slots: { session_ref: SESSION_REF } }));
+  expectCode('E_UNKNOWN_EFFORT', () => lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 'high', slots: { session_ref: SESSION_REF } }));
   return `${err.code}; rung 4 still composes on claude (xhigh); legacy 'high' refused`;
 });
 
@@ -300,28 +331,26 @@ function writeSplitFixture(slotName) {
   const file = path.join(dir, 'split.yaml');
   fs.writeFileSync(file, yaml.dump({
     default_workdir_root: dir,
-    profiles: {
-      'g1-split': {
+    'launch-specs': { claude: { 'probe-split-model': {
         // The G1 confinement split, written by the PROFILE: guidance-root = {workdir},
         // work-target = the add-dir operand. TWO path values in one command template.
-        exec: { argv: ['claude', '-p', '--cd', '{workdir}', '--add-dir', `{${slotName}}`], prompt: 'stdin' },
+        exec: { argv: ['claude', '-p', '--model', 'probe-split-model', '--cd', '{workdir}', '--add-dir', `{${slotName}}`], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: dir,
         caps: { memory_max: '64M' },
-      },
-    },
+      } } },
   }));
   return file;
 }
 check('(16) a profile can express the G1 split as TWO values — {workdir} AND {extra_dir}', () => {
   const c = lp.loadConfig(writeSplitFixture('extra_dir'));
-  const r = lp.resolveProfile(c, 'g1-split', {
+  const r = lp.resolveLaunchSpec(c, { harness: 'claude', model: 'probe-split-model' }, {
     slots: { workdir: '/srv/orchestrator-root', extra_dir: '/srv/repos/target' },
   });
-  const tmpl = c.profiles['g1-split'].exec.argv.length;
+  const tmpl = c.launchSpecs['claude/probe-split-model'].exec.argv.length;
   if (r.argv.length !== tmpl) throw new Error(`arity ${r.argv.length} != template ${tmpl}`);
-  if (r.argv[3] !== '/srv/orchestrator-root') throw new Error(`workdir slot: ${r.argv[3]}`);
-  if (r.argv[5] !== '/srv/repos/target') throw new Error(`extra_dir slot: ${r.argv[5]}`);
+  if (r.argv[5] !== '/srv/orchestrator-root') throw new Error(`workdir slot: ${r.argv[5]}`);
+  if (r.argv[7] !== '/srv/repos/target') throw new Error(`extra_dir slot: ${r.argv[7]}`);
   return `${r.argv.join(' ')} — the add-dir flag is written by the PROFILE, not hand-composed`;
 });
 check('(17) PLANTED UNKNOWN SLOT — the vocabulary is still CLOSED after the widening', () => {
@@ -334,18 +363,18 @@ check('(17) PLANTED UNKNOWN SLOT — the vocabulary is still CLOSED after the wi
 check('(17b) …and a caller still cannot SUPPLY {extra_dir} to a profile that declares none', () => {
   // The second half of "closed": the load gate bounds what a PROFILE may write, this bounds what a
   // CALLER may fill. Widening the first must not widen the second.
-  const err = expectCode('E_RAW_FLAG', () => lp.resolveProfile(shipped, 'test-sleep', {
+  const err = expectCode('E_RAW_FLAG', () => lp.resolveLaunchSpec(shipped, { job: 'test-sleep' }, {
     slots: { extra_dir: '/srv/repos/target' },
   }));
   return `${err.code} — declared-slots-only, unchanged`;
 });
 
 // ── 15 · criterion 6 — no second profile file in the repo ───────────────────────────────────
-check('(15) exactly ONE file in the repo defines profiles', () => {
-  const out = execFileSync('git', ['grep', '-l', '^profiles:', '--', '*.yaml', '*.yml'], {
+check('(15) exactly ONE file in the repo defines launch specs', () => {
+  const out = execFileSync('git', ['grep', '-l', '^launch-specs:', '--', '*.yaml', '*.yml'], {
     cwd: path.resolve(IGNITE_ROOT, '..'), encoding: 'utf8',
   }).trim().split('\n').filter(Boolean);
-  if (out.length !== 1) throw new Error(`profile-defining files: ${out.join(', ')}`);
+  if (out.length !== 1) throw new Error(`spec-defining files: ${out.join(', ')}`);
   return out[0];
 });
 

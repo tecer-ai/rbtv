@@ -43,7 +43,7 @@ const SMOKE_TEST = process.argv.includes('--smoke-test');
 const WORKDIR_ROOT_PLACEHOLDER = '/path/set-at-setup';
 
 // One config file feeds two modules with different root-key vocabularies. spawn/config.js
-// validates against a STRICT root-key allowlist (bind, auth, spawn, profiles,
+// validates against a STRICT root-key allowlist (bind, auth, spawn, launch-specs, jobs,
 // default_workdir_root) and THROWS on any other root key. These namespaces belong to the
 // daemon (ticker tunables) and the heart store (tools/workflows catalogues), so spawn must
 // never be handed them — otherwise the first operator to configure a ticker cadence, a
@@ -578,7 +578,6 @@ async function main() {
   //
   const engine = createEngine({
     dbPath: path.join(dataRoot, 'heart.db'),
-    profiles: mergedConfig.profiles || {},
     tools: mergedConfig.tools || {},
     workflows: mergedConfig.workflows || {},
     // The snooze minutes→ticks conversion lives in the store (D44) and needs the live
@@ -614,9 +613,9 @@ async function main() {
     // `probe-effort-lane` leg 8 holds that shape. Only the headed branch names positions, because
     // it must hand `spawnSeat` its arguments by name — a headed seat carries no prompt and never
     // resumes, so those two are skipped.
-    spawn: (execId, profileName, sessionMode = 'headless', ...rest) => {
+    spawn: (execId, sessionMode = 'headless', ...rest) => {
       if (sessionMode !== 'headed') {
-        return spawnManager.spawn(execId, profileName, sessionMode, ...rest);
+        return spawnManager.spawn(execId, sessionMode, ...rest);
       }
       const [, workdir, enqueuedBy = 'unknown', , effort = null] = rest;
       // ⚑ THE ROOM IS NOW REQUIRED FOR A HEADED SPAWN, and that is a real behavior change, not a
@@ -638,7 +637,7 @@ async function main() {
           E_HEADED_NOT_CAPABLE,
           'headed spawn requires a tmux room: this daemon has no RBTV_IGNITE_TMUX_ROOM set, and the '
           + 'server-owned pty fallback was retired by task 7.29 — set the variable on the unit and restart',
-          { profile: profileName, sessionMode, check: 'tmux-room-configured' },
+          { workdir, sessionMode, check: 'tmux-room-configured' },
         );
       }
       // NO `seatName` IS SUPPLIED, and its absence is the point (task 7.11 — G9, verified by
@@ -655,7 +654,7 @@ async function main() {
       // strictly safer than the string this site used to compose: it has already passed
       // resolveWorkdir's containment gate and parseSeatPath's shape check, so it is not a caller
       // string either — and tmux.js still refuses `:`/`.`/whitespace outright (assertTmuxName).
-      return spawnManager.spawnSeat(execId, profileName, {
+      return spawnManager.spawnSeat(execId, {
         room: tmuxRoom,
         seatDir: workdir,
         enqueuedBy,

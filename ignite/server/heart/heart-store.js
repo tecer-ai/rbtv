@@ -9,7 +9,7 @@ const {
   E_UNKNOWN_JOB,
   E_JOB_DISABLED,
   E_BAD_ARGS,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_UNKNOWN_TOOL,
   E_UNKNOWN_WORKFLOW,
   E_BAD_MESSAGE,
@@ -50,7 +50,14 @@ const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'se
 // and hides the tool check entirely — which is why an observer testing this reasonably concluded
 // the tool name was never validated at all. It is (E_UNKNOWN_TOOL); it was simply unreachable.
 const REQUIRED_ARGS_BY_ACTION = Object.freeze({
-  'launch-agent': Object.freeze(['profile']),
+  // 7.787 — EMPTY, and that is the pivot of `#d-abolish-profile-names`. `launch-agent` required
+  // a non-empty `profile` string, and EVERY caller-facing `--profile` flag in ignite existed only
+  // to satisfy it: the goal-lane marker's second token, `rbtv run --profile`, `cli add-job
+  // --profile`, the chat bridge's `session_profile` ("decides NOTHING", its own comment). Sub-ruling
+  // 2 empties the row instead: a launch carries NOTHING profile-shaped, and the daemon derives the
+  // cast at spawn time from the seat's own descriptor, read per launch. Nothing on the wire can
+  // drift from the binding because nothing on the wire says anything about it.
+  'launch-agent': Object.freeze([]),
   'fire-tool': Object.freeze(['tool']),
   'start-workflow': Object.freeze(['workflow']),
   'send-message': Object.freeze(['type', 'thread', 'corpus']),
@@ -325,11 +332,7 @@ function validateArgs(args, schemaJson, actionType, tools = null, workdirRoot = 
     }
   }
 
-  if (actionType === 'launch-agent') {
-    if (typeof parsed.profile !== 'string' || parsed.profile.length === 0) {
-      throw new HeartStoreError(E_BAD_ARGS, 'launch-agent requires a non-empty profile argument', { field: 'profile' });
-    }
-  } else if (actionType === 'fire-tool') {
+  if (actionType === 'fire-tool') {
     if (typeof parsed.tool !== 'string' || parsed.tool.length === 0) {
       throw new HeartStoreError(E_BAD_ARGS, 'fire-tool requires a non-empty tool argument', { field: 'tool' });
     }
@@ -583,7 +586,13 @@ class HeartStore {
     this.db.exec('PRAGMA synchronous = NORMAL;');
 
     this.config = {
-      profiles: opts.profiles || {},
+      // The (harness, model) -> launch-spec table, keyed by `catalog.js#specKey`. NOT handed in at
+      // open: it lives in the launch-spec config the SPAWN MANAGER loads, and the spawn manager is
+      // built FROM this store — so the composition root assigns it after the load, exactly as it
+      // already does for `workdirRoot` below. Empty until then. The store itself reads it for
+      // nothing; it is here because `engine/seeding.js` needs each seat's cage template at
+      // pre-enqueue admission time and holds only the store.
+      launchSpecs: {},
       tools: opts.tools || {},
       workflows: opts.workflows || {},
       // The live ticker cadence, handed in by the composition root like every other
@@ -918,18 +927,20 @@ class HeartStore {
     validateArgs(args, job.args_schema, job.action_type, this.config.tools, this.config.workdirRoot);
 
     const parsedArgs = JSON.parse(args);
-    if (job.action_type === 'launch-agent') {
-      // ⚠ `Object.hasOwn`, NOT a truthiness test, on all three catalogue lookups below (C5 review
-      // 2026-08-08). The name comes from the ROW, and a plain `catalogue[name]` walks the prototype
-      // chain: `constructor` is a legal kebab-case value, so `workflow: "constructor"` resolved
-      // truthy and ENQUEUED past this very guard while `no-such-workflow` was refused (measured,
-      // `evidence/c5-review/c5r-02-integration-attacks.txt` § P1). Nothing exploitable followed —
-      // the fire path then found no argv and recorded a failed turn — but a row-controlled name
-      // that defeats its own existence check is a guard that reports absence wrongly.
-      if (!Object.hasOwn(this.config.profiles, parsedArgs.profile)) {
-        throw new HeartStoreError(E_UNKNOWN_PROFILE, `unknown launch profile: ${parsedArgs.profile}`, { profile: parsedArgs.profile });
-      }
-    } else if (job.action_type === 'fire-tool') {
+    // ⚠ `Object.hasOwn`, NOT a truthiness test, on both catalogue lookups below (C5 review
+    // 2026-08-08). The name comes from the ROW, and a plain `catalogue[name]` walks the prototype
+    // chain: `constructor` is a legal kebab-case value, so `workflow: "constructor"` resolved
+    // truthy and ENQUEUED past this very guard while `no-such-workflow` was refused (measured,
+    // `evidence/c5-review/c5r-02-integration-attacks.txt` § P1). Nothing exploitable followed —
+    // the fire path then found no argv and recorded a failed turn — but a row-controlled name
+    // that defeats its own existence check is a guard that reports absence wrongly.
+    //
+    // ⚠ `launch-agent` HAS NO ROW TO LOOK UP ANY MORE (7.787). It carried an unknown-profile
+    // refusal here; under `#d-abolish-profile-names` the row names no launch spec, so there is
+    // nothing at queue time to check. What replaces it is STRICTLY LOUDER, not absent: the seat's
+    // own cast is resolved at spawn (`launch-profiles/catalog.js#specForSeatCast`), and an uncast
+    // or unmappable seat is a NAMED refusal there — `E_UNCAST_SEAT` / `E_UNMAPPED_BINDING`.
+    if (job.action_type === 'fire-tool') {
       if (!Object.hasOwn(this.config.tools, parsedArgs.tool)) {
         throw new HeartStoreError(E_UNKNOWN_TOOL, `unknown tool: ${parsedArgs.tool}`, { tool: parsedArgs.tool });
       }
@@ -949,58 +960,16 @@ class HeartStore {
       if (job.action_type !== 'launch-agent') {
         throw new HeartStoreError(E_BAD_MODE, 'headed mode only allowed for launch-agent', { field: 'sessionMode' });
       }
-      const profile = this.config.profiles[parsedArgs.profile];
-      if (!profile || !profile.headed) {
-        throw new HeartStoreError(E_BAD_MODE, `profile ${parsedArgs.profile} is not headed-capable`, { field: 'sessionMode', profile: parsedArgs.profile });
-      }
-
-      // ── QUEUE-TIME half of the headed prompt-carriage DOUBLE GATE ──────────
-      // (session-surface-spec.md Design 3 + Behavior #9; OQ-F RULED D83; task p6-2b.)
+      // ⚠ THE PROFILE-SHAPED HALVES OF THIS GATE MOVED TO SPAWN (7.787). Two checks stood here —
+      // "is the profile headed-capable" and "does it declare a headed prompt carriage" — and BOTH
+      // read `this.config.profiles[args.profile]`, the parameter `#d-abolish-profile-names`
+      // deletes. They are not dropped: `server/spawn/spawn.js#spawn` now runs both against the
+      // spec the SEAT is cast to, which is the one that will actually launch. That is strictly
+      // more correct than what stood here even before the abolition — the queue checked the
+      // CALLER'S profile while ruling D19 already had the seat's own cast outranking it, so a
+      // headed launch could pass this gate on one spec and spawn on another.
       //
-      // ADDITIVE: the headed-CAPABILITY check above is UNTOUCHED — this is its
-      // sibling, not its replacement. The ruling requires a typed rejection at
-      // queue time AND spawn time: the SPAWN half already lives in
-      // the headed carriage gate (composeHeadedArgv → E_HEADED_PROMPT_REJECTED), retired at 7.29;
-      // this is the QUEUE half, so a prompt the profile has no carriage for is
-      // refused BEFORE a queue row exists — nothing is enqueued, nothing starts.
-      //
-      // WHERE THE PROMPT LIVES: `args.prompt` — the enqueue surface's own field.
-      // A launch-agent job's args_schema declares it (`optional: { prompt:
-      // 'string' }`), validateArgs() above has already type-checked it, and the
-      // ticker's launchAgent reads exactly `args.prompt ?? null` and hands it to
-      // the spawn path. So this gate reads the SAME value the spawn gate will.
-      //
-      // PROMPT-SUPPLIED TEST: mirrors composeHeadedArgv's test EXACTLY
-      // (undefined / null / '' = not supplied), so the two gates can never
-      // disagree — the queue must not refuse what the spawn path would accept.
-      //
-      // VOCABULARY: `headed.tui.prompt` ∈ argv | file | keystroke, `stdin`
-      // structurally absent. All three gates (profile-LOAD in spawn/config.js,
-      // this one, and the spawn-time one that lived in pty/carriage.js) agree on that set;
-      // presence of a carriage is the test here, never its value.
-      //
-      // CODE CHOICE — E_BAD_MODE, NOT a new E_HEADED_PROMPT_REJECTED. The store's
-      // typed codes cross the wire through internal-api/dispatch.js's CLOSED
-      // STORE_TO_WIRE map, and an UNMAPPED code degrades to INTERNAL "server-core
-      // fault" (dispatch.js toWireError) — which would show a sender this
-      // validation refusal as an internal fault instead of VALIDATION_FAILED.
-      // dispatch.js and heart/errors.js are both outside p6-2b's allowlist, so a
-      // new code could not be mapped in this change. E_BAD_MODE is the in-family
-      // code the SIBLING headed check immediately above already uses, it maps to
-      // VALIDATION_FAILED, and `details.check` + `carriage: null` name this exact
-      // refusal on the wire. Minting the distinct code is a follow-up needing
-      // errors.js + the dispatch map row together (surfaced in the p6-2b return).
-      const promptSupplied = parsedArgs.prompt !== undefined
-        && parsedArgs.prompt !== null
-        && parsedArgs.prompt !== '';
-      if (promptSupplied && !profile.headed.tui?.prompt) {
-        throw new HeartStoreError(
-          E_BAD_MODE,
-          `profile ${parsedArgs.profile}: a prompt was supplied for a headed session but the profile ` +
-          `declares NO headed.tui.prompt carriage — rejected by default (spec Design 3, Behavior #9)`,
-          { field: 'sessionMode', profile: parsedArgs.profile, carriage: null },
-        );
-      }
+      // What survives at queue time is the action-type bound above, which needs no config at all.
     }
 
     // ── Validate-only mode (owner ruling D73 / D72) ──────────────────────────
@@ -1900,7 +1869,7 @@ module.exports = {
   E_UNKNOWN_JOB,
   E_JOB_DISABLED,
   E_BAD_ARGS,
-  E_UNKNOWN_PROFILE,
+  E_UNKNOWN_LAUNCH_SPEC,
   E_UNKNOWN_TOOL,
   E_UNKNOWN_WORKFLOW,
   E_BAD_MESSAGE,
