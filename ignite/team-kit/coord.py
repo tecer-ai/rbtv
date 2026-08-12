@@ -9800,6 +9800,97 @@ def cmd_escalate(args):
               f"nothing appended")
 
 
+def cmd_verdict(args):
+    """IPH-26 — the trial verdict as a VERB, and THE ONLY DOOR THAT CAN ARM THE ESCALATION GATE.
+
+    Every escalation reader keys on the header clause `why: milestone-<id>` (`escalation_row`,
+    `trailing_fail_verdicts`, `escalate_if_second_fail`, `escalate`, `fail-status`). Until this
+    verb there was NO WRITER: `send --why` takes `choices=sorted(BROADCAST_CLAUSES)` — bare words
+    only, no `milestone-<id>` — and refuses `--why` outright to any recipient but `all`. So the
+    whole retry-threshold mechanism was inert from a seat, `fail-status` always answered 0, and
+    the dod-judge prompt ordered a composition the CLI could not accept. `send --why` is NOT
+    widened (owner ruling): one purpose-built verb instead.
+
+    THE VERB COMPOSES THE FIRST BODY LINE (`verdict: PASS` / `verdict: FAIL`); the occupant
+    supplies only the per-clause evidence. That is load-bearing, not tidiness.
+    `trailing_fail_verdicts` walks from the NEWEST row backwards and STOPS at the first row whose
+    body carries no verdict clause — so ONE malformed body appended last zeroes the count no
+    matter how many FAILs precede it, and a judge that formats its own first line wrongly
+    silently disarms its own halt. Mechanizing the line makes that unrepresentable.
+
+    RECORDING A VERDICT AND CHECKING THE BAR ARE ONE ACT (owner ruling): this ends in
+    `cmd_escalate`, unconditionally, including on `--pass`. No branch, no escape hatch — a PASS
+    makes the trailing count 0, so the gate appends nothing and simply says so, and the
+    pre-existing `escalate` verb is already the idempotent hatch for a re-check.
+
+    ROUTING (owner ruling). A FAIL row and a PASS row BOTH go to the PASS-OPENER — the seat that
+    queues the next wave from this verdict (`dod-judge.md` step 5: "on every arm, the pass-opener
+    acts next on this verdict"). The judge writes nothing to its own folder. Only the ESCALATION
+    row carries `owner`, and that recipient stays pinned inside `escalate_if_second_fail`. The
+    split is what keeps the owner's chat quiet: `bridges/chat/bus-ferry.js` ferries `owner`-
+    addressed rows into the owner's chat, so a routine verdict carrying `owner` would ping a human
+    on every trial. The fixer hears every verdict; the owner is pinged once, at the bar.
+
+    ⚠ `--to` IS AN ARGUMENT, NOT A TOKEN, and it is REQUIRED. The pass-opener's seat id differs
+    per goal (`forg-judge`'s goal names its own; `plan-dod-judge` is materialized nowhere), so a
+    literal would be wrong everywhere but one goal. It is not DERIVED either, and that was
+    checked rather than assumed: the pass-opener is a LOOP BACK to the seat that opened the pass,
+    and `taskforce.csv`'s `after` column is a DAG — it cannot carry a back-edge. Measured on the
+    one live goal that rosters a judge (`forge-reference-seat-id-naming`), NOTHING declares
+    `after: forg-judge`, so a derivation would answer "no successor" on the only case there is.
+    The seat's prompt names where the value comes from; inventing a registry for it was refused.
+
+    ⚠ LOCK SAFETY — SEQUENTIAL, NEVER NESTED. `append_message` takes AND RELEASES its own
+    `coord_lock`; `escalate_if_second_fail` then takes a FRESH one. They are deliberately not
+    wrapped in a single hold: a nested `coord_lock` on a second fd of the same .lock file
+    deadlocks under flock (see `_append_message_unlocked`). The benign race that leaves is
+    disclosed rather than hidden: a concurrent judge appending between the two calls changes only
+    WHICH invocation reports the escalation. At-most-once still holds, because the existence scan
+    lives inside the escalation's own hold.
+    """
+    base = base_dir(args)
+    sender = resolve_agent(args)
+    mid = str(args.milestone)
+    # The `why:` field is parsed back as `[^|]*?` on ONE header line (MSG_HEADER), so a pipe
+    # corrupts the field and a newline destroys the line; `to:` is parsed as `\S+`, so any
+    # whitespace in the recipient does the same. Refused HERE because the log is append-only: a
+    # corrupted header is permanent residue that no later read can repair.
+    for label, value, ws_fatal in (("milestone id", mid, False),
+                                   ("--to recipient", str(args.to), True)):
+        if (not value.strip() or any(ch in value for ch in "|\r\n")
+                or (ws_fatal and value.split() != [value])):
+            refuse(
+                "input",
+                f"{label} {value!r} cannot go in a message header — it is blank, or it "
+                f"carries a `|`, a newline, or (for a recipient) whitespace. The header is one "
+                f"line with `|`-separated fields, so this row would be unparseable FOREVER in an "
+                f"append-only log.\nPass the bare id (e.g. m3) and one seat name.",
+                1)
+    # MILESTONE REGISTRY CHECK, DELIBERATELY ADVISORY. Every live `milestones.csv` in this
+    # workspace is header-only, so refusing an unknown id would refuse every verdict in
+    # production — the gate would be a total outage dressed as rigour.
+    # ponytail: warn-only when NOTHING could be checked. Upgrade path: refuse on an unknown id
+    # once a goal actually seeds milestone rows — and add that refusal to `escalate` and
+    # `fail-status` in the SAME change, or three verbs will disagree about what a milestone is.
+    try:
+        with open(base.parent / "milestones.csv", encoding="utf-8", newline="") as fh:
+            seeded = [r for r in csv.DictReader(fh) if (r.get("milestone-id") or "").strip()]
+    except (OSError, csv.Error):
+        seeded = []
+    if not seeded:
+        print(f"warning: {base.parent / 'milestones.csv'} seeds no milestone rows, so "
+              f"'{mid}' could not be checked against any registry — this verdict is being "
+              f"recorded on an unverified id.", file=sys.stderr)
+    want = f"milestone-{mid}"
+    # NEVER A SECOND WRITER OF THE LOG: `append_message`, the same door `send` uses, with its own
+    # lock and its own numbering. Never `_append_message_unlocked`, never `messages.md` by hand.
+    n = append_message(base, sender, args.to, "verdict",
+                       f"verdict: {args.clause}\n{message_body(args)}", why=want)
+    print(f"verdict {args.clause}: sent message #{n} ({sender} -> {args.to}, type: verdict, "
+          f"why: {want})")
+    return cmd_escalate(args)
+
+
 def cmd_fail_status(args):
     """READ-ONLY: what the escalation gate would decide for this milestone right now.
 
@@ -30921,6 +31012,116 @@ def _selftest_checks(args, failures, names):
                   (bI / "messages.md").read_bytes() == _fs_bytes
                   and sorted(p.name for p in bI.parent.rglob("*")) == _fs_files)
 
+            # ---- IPH-26: THE VERDICT VERB, driven through the REAL PARSER -------------------
+            # ⚠ EVERY ARM ABOVE (and 7.581's) BUILDS ITS VERDICT ROWS BY CALLING
+            # `append_message(..., why=...)` IN PYTHON. THAT is why nothing caught IPH-26: a
+            # check that supplies its own inputs proves the helper and never the door a seat
+            # must use. `--why milestone-<id>` is not a value `send` accepts (argparse
+            # `choices`), and `--why` is refused to any recipient but `all` — so the whole
+            # retry-threshold mechanism was unreachable from a seat while every arm read green.
+            # Driving `build_parser()` is therefore the criterion here, not a style preference.
+            bJ = mk81(tdrt, "j")
+            (bJ.parent / "retry-threshold").write_text("2\n", encoding="utf-8")
+            pJ = build_parser()
+
+            def vcli81(mid, clause, to="plan-unblock-checker", body="clause 1: evidence …"):
+                nsJ = pJ.parse_args(["--base", str(bJ), "verdict", mid, body, clause,
+                                     "--to", to, "--inline", "--as", "dod-judge"])
+                o, e, c = harness_outcome(nsJ.func, nsJ)
+                return o + e, c
+
+            def vrows81(mid):
+                return [b for b in load_messages(bJ)[1]
+                        if b["type"] == "verdict" and (b["why"] or "") == f"milestone-{mid}"]
+
+            def vlast81(mid):
+                """The newest verdict row for `mid`, or a stand-in that fails every assertion.
+
+                G-66/G-215: a check must produce a VERDICT, never take the suite down. A bare
+                `vrows81(mid)[-1]` raises IndexError on exactly the mutation these arms exist to
+                catch (a why-clause that stops being `milestone-<id>` matches nothing), and the
+                run then ends ABORTED with no line for this check and every later check unrun —
+                which reads as a broken harness rather than the caught defect it is. Measured
+                2026-08-12 during this row's own red-first sweep."""
+                rows = vrows81(mid)
+                return rows[-1] if rows else {"type": None, "why": None, "to": None,
+                                              "sender": None, "lines": [None, None, None]}
+
+            # NON-VACUITY, measured on the FRESH package BEFORE the verb ever runs: nothing below
+            # can pass by inheriting another arm's state.
+            _v_pre = (trailing_fail_verdicts(bJ, "m1"), escalation_row(bJ, "m1"),
+                      len(load_messages(bJ)[1]))
+            _v_o1, _v_c1 = vcli81("m1", "--fail")
+            _v_r1 = vlast81("m1")
+            check("IPH-26 arm 1: a dod-judge occupant records a FAIL THROUGH THE REAL PARSER and "
+                  "the escalation gate COUNTS it — the header read back off load_messages carries "
+                  "type verdict and why milestone-m1 (the exact string every escalation reader "
+                  "keys on, and one `send --why` cannot produce), the recipient is the seat given "
+                  "to --to (the PASS-OPENER, never `owner`), the VERB composed the first body "
+                  "line, and trailing_fail_verdicts is 1 with no escalation row yet at bar 2. "
+                  "Non-vacuity: the same three readings were 0 / None / 0 on this package before "
+                  "the call",
+                  _v_pre == (0, None, 0) and _v_c1 is None
+                  and _v_r1["type"] == "verdict" and _v_r1["why"] == "milestone-m1"
+                  and _v_r1["to"] == "plan-unblock-checker" and _v_r1["sender"] == "dod-judge"
+                  and _v_r1["lines"][2] == "verdict: FAIL"
+                  and trailing_fail_verdicts(bJ, "m1") == 1
+                  and escalation_row(bJ, "m1") is None)
+
+            _v_o2, _v_c2 = vcli81("m1", "--fail")
+            _v_esc = escalation_row(bJ, "m1")
+            check("IPH-26 arm 2: RECORDING AND CHECKING THE BAR ARE ONE ACT — the second FAIL "
+                  "takes the count to 2 (the goal's bar) and THAT SAME SINGLE INVOCATION both "
+                  "appended the verdict and appended EXACTLY ONE escalation row addressed to the "
+                  "reserved owner token, naming it in its own output. No second command was run: "
+                  "this is the arm a design with a separate escalation step cannot pass",
+                  _v_c2 is None and trailing_fail_verdicts(bJ, "m1") == 2
+                  and _v_esc is not None and _v_esc["to"] == OWNER_TOKEN
+                  and len([b for b in vrows81("m1")
+                           if ESCALATION_MARKER in "\n".join(b["lines"][1:])]) == 1
+                  and f"escalated: sent message #{_v_esc['num']}" in _v_o2
+                  and f"(dod-judge -> {OWNER_TOKEN}" in _v_o2)
+
+            _v_o3, _v_c3 = vcli81("m9", "--pass")
+            _v_r3 = vlast81("m9")
+            check("IPH-26 arm 3: `--pass` composes `verdict: PASS`, derives a trailing FAIL count "
+                  "of 0 and escalates NOTHING — the one-act call still runs the gate (no branch) "
+                  "and reports below-bar, which is what makes a PASS reset the run by "
+                  "construction rather than by a reset step somebody must remember",
+                  _v_c3 is None and _v_r3["lines"][2] == "verdict: PASS"
+                  and trailing_fail_verdicts(bJ, "m9") == 0
+                  and escalation_row(bJ, "m9") is None
+                  and "below-bar: trailing FAIL count for milestone-m9 is 0" in _v_o3)
+
+            _v_before = len(load_messages(bJ)[1])
+            _v_blank, _v_bc = vcli81("   ", "--fail")
+            _v_pipe, _v_pc = vcli81("m|7", "--fail")
+            _v_nl, _v_nc = vcli81("m7", "--fail", to="two seats")
+            _v_after = len(load_messages(bJ)[1])
+            check("IPH-26 arm 4: THE HEADER GUARDS ARE REACHABLE AND APPEND NOTHING — a blank "
+                  "milestone id, an id carrying `|`, and a --to carrying whitespace are each "
+                  "refused (exit 1) and the block count is unchanged across all three. MSG_HEADER "
+                  "parses `why` as `[^|]*?` and `to` as `\\S+` on one `|`-separated line, so any "
+                  "of the three would be permanent unparseable residue in an append-only log",
+                  (_v_bc, _v_pc, _v_nc) == (1, 1, 1) and _v_after == _v_before
+                  and all("cannot go in a message header" in o
+                          for o in (_v_blank, _v_pipe, _v_nl)))
+
+            _v_old_door = "ACCEPTED"
+            try:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    build_parser().parse_args(["--base", str(bJ), "send", "all", "x",
+                                               "--type", "verdict", "--why", "milestone-m6"])
+            except SystemExit:
+                _v_old_door = "SystemExit"
+            check("IPH-26 arm 5 OLD-DOOR CONTROL: `send all --type verdict --why milestone-m6` "
+                  "still exits at argparse — `--why` was NOT widened (owner ruling: one "
+                  "purpose-built verb, not a widened broadcast clause). This pins that the four "
+                  "arms above are about the NEW CLI path and not about a loosened old one, and "
+                  "that the bare-word clause vocabulary is intact",
+                  _v_old_door == "SystemExit"
+                  and sorted(BROADCAST_CLAUSES) == ["milestone", "retraction", "roster", "ruling"])
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -30997,7 +31198,7 @@ HELP_EPILOG = """everyday
   checkin     register this session — binds this tmux pane to your agent name
   status      where you stand: identity, pane, owner, unread, cursor, open asks
   read        your unread messages, {limit} at a time (cursor persisted per agent)
-  send / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge retry escalation: append the ONE escalation row, addressed `owner`, once a milestone's consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
+  send / verdict / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge trial verdict: append the row the escalation gate counts (the verb composes its first line) and check the bar in the same act · the escalation alone: append the ONE row, addressed `owner`, once the consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
   pending     open asks: waiting on you, open to everyone, yours unanswered
   rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing, or an ask of yours to the owner is unanswered; --renew --handoff hands this seat to your own next session
 
@@ -31548,6 +31749,52 @@ def build_parser():
                         + " | ".join(f"{k} ({v})" for k, v in sorted(BROADCAST_CLAUSES.items())))
     add_identity_flags(s)
     s.set_defaults(func=cmd_send)
+
+    s = command(
+        "verdict",
+        "Record a milestone's trial verdict — THE ONLY VERB THAT ARMS THE ESCALATION GATE. It\n"
+        "appends one `verdict` row whose why-clause is `milestone-<id>`, which is the exact\n"
+        "string `escalate` and `fail-status` count; `send --why` cannot write it and is not\n"
+        "widened to.\n"
+        "\n"
+        "THE VERB COMPOSES THE FIRST BODY LINE (`verdict: PASS` / `verdict: FAIL`) — you supply\n"
+        "only the per-clause evidence beneath it. The count walks backwards from the newest row\n"
+        "and stops at the first body with no verdict clause, so one hand-typed first line in the\n"
+        "wrong shape would silently zero your own halt.\n"
+        "\n"
+        "RECORDING AND CHECKING THE BAR ARE ONE ACT: this always ends by running the escalation\n"
+        "check, on PASS as well as FAIL, and prints its outcome. A PASS derives a count of 0, so\n"
+        "nothing is appended. Re-running `escalate` afterwards is always safe and appends at most\n"
+        "one row per milestone.\n"
+        "\n"
+        "--to IS THE PASS-OPENER, the seat that queues the next wave from this verdict (the\n"
+        "unblock-checker seat of THIS goal — your seat prompt names it; it is not `owner`, which\n"
+        "only the escalation row addresses, and it is not derivable, because the pass-opener is a\n"
+        "loop back and taskforce.csv holds a DAG).",
+        "example:\n"
+        "  coordinate verdict m3 --fail --to plan-unblock-checker --file /tmp/verdict.txt\n"
+        "next: coordinate fail-status m3 — the count, the resolved bar, and whether the "
+        "escalation row is already in the log")
+    s.add_argument("milestone",
+                   help="the milestone id, bare (e.g. m3) — recorded as milestone-<id> in the row's why: clause, the string every escalation reader counts")
+    s.add_argument("message", nargs="?",
+                   help="the per-clause evidence body; the `verdict: PASS`/`verdict: FAIL` first line is composed for you and must NOT be typed here")
+    g = s.add_mutually_exclusive_group(required=True)
+    # `pass` is a Python keyword, hence the explicit dest. A required flag PAIR rather than a
+    # second positional: `verdict FAIL m3` would transpose silently and record a verdict against
+    # a milestone called FAIL.
+    g.add_argument("--pass", dest="clause", action="store_const", const="PASS",
+                   help="the milestone is ACCEPTED — composes `verdict: PASS`, which ends the FAIL run by construction")
+    g.add_argument("--fail", dest="clause", action="store_const", const="FAIL",
+                   help="the milestone FAILS — composes `verdict: FAIL` and extends the consecutive-FAIL run the bar is measured against")
+    s.add_argument("--to", required=True, metavar="SEAT",
+                   help="the PASS-OPENER seat that acts on this verdict (queues the gap wave, or enforces the halt) — your seat prompt names it; never `owner`, which only the escalation row addresses")
+    s.add_argument("--file", metavar="PATH",
+                   help="read the body from a file ('-' = stdin) — shell-safe for backticks/quotes/newlines")
+    s.add_argument("--inline", action="store_true",
+                   help="accept the quoted positional body from a shell command line: you are asserting it has no backticks, $(...) or anything else a shell would have eaten before coord.py saw it")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_verdict)
 
     s = command(
         "escalate",
@@ -32295,7 +32542,9 @@ def assert_argv_body_shell_safe(args):
     directly, so they never reach this boundary and never pay for a hazard they cannot have — which
     is what `CLI_INVOCATION` was always trying to express.
     """
-    if not (CLI_INVOCATION and getattr(args, "func", None) is cmd_send):
+    # `verdict` carries a positional body through `message_body` exactly as `send` does, so it
+    # is judged at this same boundary rather than growing a second copy of the guard.
+    if not (CLI_INVOCATION and getattr(args, "func", None) in (cmd_send, cmd_verdict)):
         return
     body = getattr(args, "message", None)
     if not body:
