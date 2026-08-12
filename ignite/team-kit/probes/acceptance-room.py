@@ -174,7 +174,7 @@ KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "t
 # BOTH print the line below and exit 1. AN OPERAND is a non-empty argument that is neither a flag NOR
 # a flag's value, so `--model M` and `--effort high` are never mistaken for a turn.
 #
-# ⚠⚠ THE `-p` GATE IS NOT HOUSE STYLE — IT IS A MEASUREMENT, AND `open_seat` BELOW IS WHAT FORCED IT.
+# ⚠⚠ THE TTY GATE IS NOT HOUSE STYLE — IT IS A MEASUREMENT, AND `open_seat` BELOW IS WHAT FORCED IT.
 # The guard was written UNGATED first, on the reasoning that the real binary refuses without `-p`
 # too and that this lane never composes a promptless launch. THE SECOND HALF IS FALSE, and this file
 # is where it is false: `open_seat` starts a seat with `send-keys <harness> Enter` — the BARE binary
@@ -185,25 +185,36 @@ KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "t
 #
 # So ungated the stub was STRICTER THAN THE THING IT IMPERSONATES, and `open_seat`'s 20 s wait for
 # `pane_current_command == <harness>` would have raised `RoomError` on every seat this room opens.
-# The `-p` gate is the ruled fallback for exactly that finding.
-# ⚠ KNOWN AND ACCEPTED CONSEQUENCE: `-p` never appears in a tmux-lane launch, so this guard is INERT
-# in all three probes that carry it — it bites only the daemon/stdin lane's shape. That is the cost
-# of not breaking `open_seat`; a guard that fires here cannot also let a bare TTY launch live.
+#
+# THE GATE IS `stdin is not a TTY`, NOT `--print is present` — owner-ruled 2026-08-12 after the
+# `-p` form shipped first. Both forms keep `open_seat` alive and both are equally inert in the
+# tmux lane, so this is a pure fidelity choice, and `-t 0` is the one that MODELS THE REAL BINARY
+# IN EVERY MEASURED CASE: `claude --model M </dev/null` refuses WITHOUT `-p` (measured), so a
+# `-p`-keyed gate lets a promptless redirected launch through that the real binary rejects. The
+# discriminator the real binary actually uses is whether a turn can still arrive on stdin — a
+# terminal can supply one interactively, a closed pipe never will.
+# ⚠ KNOWN AND ACCEPTED CONSEQUENCE: no tmux-lane launch redirects stdin, so this guard is INERT in
+# every probe that carries it — it bites only the daemon/stdin lane's shape. That is the cost of
+# not breaking `open_seat`; a guard that fires on a bare TTY launch cannot also let one live.
+# ⚠ THE GUARD IS BASH-ONLY, AND IT FAILS OPEN-SIDE-UP RATHER THAN LOUD. `read -t` is a bashism;
+# dash answers `read: Illegal option -t` and exits 2, which `! read` reads as SUCCESS — so under
+# `#!/bin/sh` this refuses EVERY promptless launch, including `open_seat`'s. Safe today only
+# because the interpreter is a COPY OF `/bin/bash` (see `make_stub` below, `shutil.copy2`), which
+# is what makes that copy load-bearing rather than incidental. Measured 2026-08-12 by tripping it.
 # ponytail: the prev-token rule stands in for claude's real flag table. Two known ceilings, neither
 # reachable from `harness_command`: a BOOLEAN flag placed immediately before the prompt reads as its
 # value, and a subcommand-first line (`opencode run … P`) reads the subcommand as the operand.
 # Upgrade to an explicit value-taking-flag list if either shape ever gets composed.
-STUB_GUARD = ('op=; pf=0; pr=\n'
+STUB_GUARD = ('op=; pf=0\n'
               'for a in "$@"; do\n'
               '  case $a in\n'
-              '    -p|--print) pr=1; pf=1 ;;\n'
               '    -*) pf=1 ;;\n'
               '    "") pf=0 ;;\n'
               '    *) [ "$pf" = 0 ] && op=1\n'
               '       pf=0 ;;\n'
               '  esac\n'
               'done\n'
-              'if [ -n "$pr" ] && [ -z "$op" ] && ! read -rt 1 _; then\n'
+              'if ! [ -t 0 ] && [ -z "$op" ] && ! read -rt 1 _; then\n'
               '  echo "Error: Input must be provided either through stdin or as a prompt argument'
               ' when using --print" >&2\n'
               '  exit 1\n'
