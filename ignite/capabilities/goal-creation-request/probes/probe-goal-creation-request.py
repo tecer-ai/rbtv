@@ -125,9 +125,11 @@ def check_validation_names_fields(src, mod):
     if mod is None:
         return False, "module did not import"
     out = mod.validate({"goal-name": "x-y", "goal-type": "one-shot",
-                        "goal-contract": "c", "goal-kind": "interactive"})
+                        "goal-contract": "c", "goal-kind": "interactive",
+                        "execution-lane": "console"})
     named = {c["field"] for c in out.get("checked", [])}
-    missing = [f for f in ("goal-name", "goal-type", "goal-contract", "goal-kind")
+    missing = [f for f in ("goal-name", "goal-type", "goal-contract", "goal-kind",
+                           "execution-lane")
                if f not in named]
     if missing:
         return False, f"validator did not name field(s) it checked: {missing}"
@@ -172,7 +174,8 @@ def check_fails_closed(src, mod):
                                        "stdout": "", "stderr": "refused"}]
         mod.launch = lambda *a, **k: (armed.append("launch"), {"step": "launch"})[1]
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
-                          "goal-contract": "c", "goal-kind": "interactive"},
+                          "goal-contract": "c", "goal-kind": "interactive",
+                          "execution-lane": "console"},
                          None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
                          seat="s", root=True)
     finally:
@@ -200,7 +203,8 @@ def check_launch_gates_outcome(src, mod):
         # rc=0 — a SUCCESSFUL-looking launch — against a package with no sessions.csv.
         mod.launch = lambda *a, **k: {"step": "launch", "rc": 0}
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
-                          "goal-contract": "c", "goal-kind": "interactive"},
+                          "goal-contract": "c", "goal-kind": "interactive",
+                          "execution-lane": "console"},
                          None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
                          seat="s", root=True)
     finally:
@@ -222,11 +226,12 @@ def check_launch_gates_outcome(src, mod):
 # is what makes check 8 an assertion rather than a restatement of whatever the code happens to do.
 MALFORMED = {"goal-name": "x", "goal-contract": "  ", "goal-kind": "interactive",
              "priority": "high"}
-# The fourteen ids, spelled out HERE rather than read from the handler under test. A check whose
+# The sixteen ids, spelled out HERE rather than read from the handler under test. A check whose
 # expectation reads the value it is checking moves with the code and passes any change to it.
-# `V7` joined on 2026-08-10 (task 7.631) when the live schema clause amended in the sixth field.
-CLOSED_SET = {"S1", "S2", "S3", "P1", "P2", "P3", "P4",
-              "V1", "V2", "V3", "V4", "V5", "V6", "V7"}
+# `V7` joined on 2026-08-10 (task 7.631) when the live schema clause amended in the sixth field;
+# `P5`/`V8` joined on 2026-08-12 (task 7.777) with the REQUIRED `execution-lane`.
+CLOSED_SET = {"S1", "S2", "S3", "P1", "P2", "P3", "P4", "P5",
+              "V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8"}
 
 
 def check_refusal_names_a_member(src, mod):
@@ -268,7 +273,8 @@ def check_class_stop_order(src, mod):
     # The accepting path must still traverse every class, or the stop above would be indis-
     # tinguishable from a validator that gave up early on everything.
     ok = mod.validate({"goal-name": "a-b", "goal-type": "one-shot", "goal-contract": "c",
-                       "goal-kind": "interactive"})
+                       "goal-kind": "interactive",
+                       "execution-lane": "console"})
     if not ok.get("accepted") or ok.get("classes-evaluated") != "S,P,V":
         return False, f"the accepting path did not traverse S,P,V: {ok.get('classes-evaluated')!r}"
     return True, "malformed -> ['S2'] alone (class S stop); valid -> S,P,V traversed"
@@ -321,7 +327,8 @@ def check_refusal_is_stated(src, mod):
 # wiring is under test too — check 14's condition lives in `main` and a check calling `handle`
 # with `do_launch=False` would pass with that wiring deleted.
 VALID_REQUEST = {"goal-name": "x-y", "goal-type": "one-shot", "goal-contract": "c",
-                 "goal-kind": "interactive"}
+                 "goal-kind": "interactive",
+                 "execution-lane": "console"}
 
 
 def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=False):
@@ -482,8 +489,10 @@ def check_v2_discloses_partial_state(src, mod):
         for name in ("orphan-goal", "healthy-goal"):
             (inbox / f"{name}.json").write_text(json.dumps({
                 "goal-name": name, "goal-type": "one-shot",
-                "goal-contract": "c", "goal-kind": "interactive"}), encoding="utf-8")
-        out = mod.scaffold_and_queue(inbox, root, "W", "plan-planner", Path(td), Path(td),
+                "goal-contract": "c", "goal-kind": "interactive",
+                "execution-lane": "console"}), encoding="utf-8")
+        # 7.778: `entry_seat` and `delay_seconds` are GONE from this signature with the door.
+        out = mod.scaffold_and_queue(inbox, root, "W", Path(td), Path(td),
                                      Path(td), Path(td), Path(td), dry_run=True)
         recs = {r.get("goal-name") or Path(r["request-file"]).stem: r for r in out["requests"]}
     if len(recs) != 2 or any(r["outcome"] != "REFUSED" for r in recs.values()):

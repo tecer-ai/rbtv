@@ -84,9 +84,12 @@ def load(src: str | None = None):
 
 
 def request(name: str, gtype: str) -> dict:
+    # `execution-lane` is a REQUIRED request field since 7.777 — the handler refuses without one
+    # and forwards it as `scaffold --lane`. `console` because this probe asserts nothing about the
+    # lane and the console lane needs no `--profile`.
     return {"goal-name": name, "goal-type": gtype,
             "goal-contract": "Ship the thing, verified at the edge.",
-            "goal-kind": "interactive"}
+            "goal-kind": "interactive", "execution-lane": "console"}
 
 
 def declared_type(goal_dir: Path) -> str | None:
@@ -131,7 +134,7 @@ def main() -> int:
         contract.write_text("Ship it.\n", encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(GOAL_CLI), "--root", str(root), "scaffold", "default-goal",
-             "--contract", str(contract)],
+             "--contract", str(contract), "--lane", "console"],
             capture_output=True, text=True)
         got_default = declared_type(root / "default-goal")
         check("a caller passing no --type still produces one-shot",

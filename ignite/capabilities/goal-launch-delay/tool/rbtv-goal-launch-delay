@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# rbtv-goal-launch-delay — thin wrapper so the capability's verbs run from anywhere on PATH.
-# Same shape as its siblings' entry points (rbtv-goal-request, rbtv-goal, rbtv-execution).
-exec python3 "$(dirname "$(readlink -f "$0")")/goal_launch_delay.py" "$@"

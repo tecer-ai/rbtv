@@ -3,7 +3,9 @@
 Core-build task **7.211** (design id `E16`) of run-3's `no-row-builds-the-entry` pass.
 
 The tool is `tool/rbtv-goal-request`. It takes a goal-creation request, validates it against the
-landed request schema, and discharges it as **three ordered acts — create → arm → launch**.
+landed request schema, and discharges it as **two ordered acts — create → launch**. (It was
+three; the ARM act is retired — nothing is armed per package any more, readiness is recomputed
+from disk every cadence.)
 
 **Why this capability exists.** The wave that consumes this entry was designed on the premise that
 the entry already existed. The disk refuted it: every consuming row reached for a thing no row
@@ -15,8 +17,8 @@ builds it.
 | Verb | What it does |
 |---|---|
 | `validate <request.json> [--goals-root R]` | Validates field by field and **names every field it checked**. Performs no act. Exit 0 accepted, 1 refused. |
-| `handle <request.json> …` | Validates, then create → arm → launch. A refused request performs **no** act. `--no-launch` withholds the launch act; `--dry-run` writes nothing. |
-| `scaffold-and-queue --inbox D --goals-root R --workflow W --entry-seat S [--delay-seconds N] [--ignite-bin B]` | **The daemon-executed verb** (task C2). Drains a staged inbox: per request, validate → scaffold the goal → register the goal's first workflow job homed at it → queue that job `--delay-seconds` out. **Arms nothing, launches nothing.** Exit 0 when every drained request was accepted (or the inbox was empty), 1 otherwise. |
+| `handle <request.json> …` | Validates, then create → launch. A refused request performs **no** act. `--no-launch` withholds the launch act; `--dry-run` writes nothing. |
+| `scaffold-and-queue --inbox D --goals-root R --workflow W [--ignite-bin B]` | **The daemon-executed verb** (task C2). Drains a staged inbox: per request, validate → scaffold the goal INTO ITS DECLARED LANE. **Queues nothing, arms nothing, launches nothing** — 7.778 deleted the workflow-start row it used to plant, so the verb's name outlives its second half. Exit 0 when every drained request was accepted (or the inbox was empty), 1 otherwise. |
 
 ## `scaffold-and-queue` — the caged requester's path, and the measurements that shaped it
 
@@ -44,16 +46,15 @@ cannot read is a silent drop.**
 directory behind — both arms are exercised in the same fire as an accepted request, so a refusal
 that took the accepted request down with it would be visible.
 
-**One partial state is real and is not hidden.** The scaffold runs before `register-job`, so a fire
-whose credential cannot register leaves a scaffolded goal with no queued job. The result records it
-truthfully (`scaffolded: true`, `outcome: REFUSED`, the stated refusal naming `register-workflow-job`)
-rather than rolling the goal back — an unwind here would delete a directory the daemon cannot prove
-it alone created.
+**One partial state is real and is not hidden.** The scaffold is two steps — `rbtv-goal scaffold`
+then `scaffold-seats` — so a fire whose second step fails leaves a goal folder with no materialized
+seats. The result records it truthfully (`scaffolded: true`, `outcome: REFUSED`, the stated refusal
+naming the failed step) rather than rolling the goal back — an unwind here would delete a directory
+the daemon cannot prove it alone created.
 
-**`register-job` failure is a refusal of that request, never something to retry around.** The verb
-is create-only with no update surface, so re-driving a half-registered id needs a human; sniffing
-the failure text for "already exists" would be reading a message as if it were a policy
-(project ledger `S-3`).
+*(Until 7.778 the partial state was a scaffolded goal with no QUEUED JOB, because the verb ended by
+minting and enqueueing a `<goal>-workflow-start` row. That row, its launcher and the whole
+`goal-launch-delay` capability that retimed it are deleted; a created goal advances on its LANE.)*
 
 ### The orphan that partial state leaves — how an operator finds it and closes it
 
@@ -76,47 +77,18 @@ queued job is also visible as a goals-root directory absent from `ignite inspect
 
 **Then close it, one of two ways — the choice is the operator's and neither is automatic:**
 
-1. **Complete it** — the goal is wanted; only its job is missing. Re-issue exactly what the verb
-   would have, with an owner or enrolled-**agent** token (`register-job` refuses a bridge one):
+1. **Complete it** — the goal is wanted; only part of its content is missing. There is no job to
+   re-issue since 7.778: finish the materialization by hand
+   (`rbtv-goal materialize <goal>` / `scaffold-seats`, per the failed step named in the refusal
+   record), then confirm the goal's LANE is what the requester asked for:
 
    ```
-   ignite register-job <goal>-workflow-start --action-type start-workflow \
-     --goal <goal> --seat <entry-seat> \
-     --args-schema '{"required": {"workflow": "string", "entry-seat": "string", "goal": "string", "workdir": "string"}}'
-   ignite add-job --fn <goal>-workflow-start \
-     --args-json '{"workflow": "<workflow>", "entry-seat": "<entry-seat>", "goal": "<goal>", "workdir": "<goal-dir>"}' \
-     --trigger scheduled --at <ISO-8601 Z>
+   rbtv-goal lane <goal>                        # which lane is running this right now
+   rbtv-goal lane <goal> --set daemon --profile <name>   # …or console, which takes no --profile
    ```
 
-   `<entry-seat>` and `<workflow>` are the catalogue entry's own `--entry-seat` / `--workflow`
-   values; `<goal-dir>` is the refusal record's. If `register-job` reports the id already exists,
-   the row was minted before the failure — skip to `add-job`.
-
-   ⚠⚠ **All four schema keys are `required`, exactly as the tool itself registers them**
-   (`tool/goal_creation_request.py` `register-workflow-job`) — the launcher's argv templates
-   `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` (a row missing one REFUSES AT EVERY FIRE:
-   `placeholder {{...}} has no value in the row args`, recorded `failed`), and `workflow` is what
-   `launchStartWorkflow` selects the catalogue entry by (a row naming a workflow the boot-read
-   config does not carry DEFERS every tick, forever; a row carrying no `workflow` at all cannot
-   exist — `add-job` refuses it).
-   `register-job` is create-only (`E_JOB_EXISTS`, no update surface), so a schema registered
-   without `goal`, `entry-seat`, or `workdir` cannot be repaired in-band — the id is burnt.
-   `workflow` is the ONE of the four that CANNOT burn an id: `register-job` refuses a
-   `start-workflow` schema that omits it (`args_schema.required declares no "workflow"`), so that
-   mistake is a refusal rather than a burn — which is precisely why the other three need this
-   warning. `workdir` is the
-   PACKAGE, which since 7.607 E2b IS THE GOAL DIR (design-lock item 8 — `runs/run-1` and
-   `FRESH_RUN_ID` are extinguished)
-   (task C5E: the package expands `{{workdir}}` in the launcher argv AND becomes the fired
-   process's CWD).
-
-   ⚠ **`entry-seat` appears TWICE and both are required** (task C5). `--seat` HOMES the job — the
-   ticker resolves the seat FOLDER from it at fire — while the `entry-seat` ARG is what the
-   launcher's argv template expands `{{entry-seat}}` from. Omitting the arg is refused at
-   `add-job` (the schema declares it required); omitting `--seat` leaves the job unhomed.
-   `add-job` also refuses a `workflow`/`entry-seat` that is not lowercase kebab-case, and a
-   `workdir` that does not resolve inside `.rbtv/goals/` — those values reach an exec'd command
-   line, so they are bounded at the door (`server/heart/argv-template.js`).
+   The lane marker is written at scaffold time from the request's REQUIRED `execution-lane`, so a
+   goal that got past `rbtv-goal scaffold` already has one; check it rather than assume it.
 
 2. **Drop it** — the goal is not wanted. Remove the directory, then rebuild the index, or
    `goals.csv` keeps a row for a goal that is gone:
@@ -166,22 +138,27 @@ content — file names, bytes, and directory structure — is chosen by the requ
 | A symlink swapped in *during* the fire | The symlink check is a check, so a requester that swaps a real directory for a link between the check and the move still wins that race. Closing it needs directory-fd-relative moves. |
 | Disclosure into `refused/` | A refusal record carries the failed step's argv and stderr tail, written where the requester can read it — daemon-side absolute paths and gateway error text included. That is the same property that makes a refusal readable at all. |
 
-### Arming it is three gated acts, in this order
+### Arming it is two gated acts, in this order
 
 The catalogue entry `tools: goal-creation-request` in `config/spawn-profiles.yaml` is landed **dark**.
 Landing it does not arm it:
 
 1. create the inbox directory the entry names (`.rbtv/goals/_channel-master/requests`);
-2. restart the daemon — `spawn-profiles.yaml` is boot-read;
-3. `ignite register-job goal-creation-request --action-type fire-tool …` then `ignite add-job`.
+2. restart the daemon — `spawn-profiles.yaml` is boot-read.
+
+*(There was a third — `ignite register-job goal-creation-request --action-type fire-tool …` then
+`ignite add-job` — which registers the FIRE-TOOL row that runs this verb. It is unchanged and still
+required to make the tool fire; what 7.778 deleted is the SECOND registration this verb performed,
+of a per-goal `start-workflow` row. Renumbered here because the two were being read as one gate.)*
 
 Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
 yet (that check logs; it never refuses the boot).
 
-⚠ **`--workflow` / `--entry-seat` are RULED — `planning` / `plan-interviewer`** (owner ruling
-`d-owner-q10-launcher-0808` (1), 2026-08-08; task C5). They name what EVERY master-created goal that
-does not route to a pre-existing workflow starts with: the meta component
-`.rbtv/mirror/meta/planning/`, whose chain root is `plan-interviewer`.
+⚠ **`--workflow` is RULED — `planning`** (owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08;
+task C5). It names what EVERY master-created goal that does not route to a pre-existing workflow is
+materialized with: the meta component `.rbtv/mirror/meta/planning/`, whose chain root is
+`plan-interviewer`. ⚠ **`--entry-seat` is GONE** (7.778): it existed only to fill the deleted
+workflow-start row's argv, and nothing at this door opens a seat any more.
 
 ⚠ **REPOINTED 2026-08-10 (issue C-2) — the ruling held, the component moved.** The pair originally
 landed against `.rbtv/mirror/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by
@@ -195,19 +172,16 @@ BUILT this machinery, whose root seat is a build-time measurement seat — so a 
 re-run the build wave. Confirming that pair is no longer an owner precondition; it is settled.
 
 ✅ **THAT PRECONDITION IS DISCHARGED** (task C5E, owner rulings `d-owner-planning-entry-0808` and
-`d-owner-planning-entry-2-0808`). `enqueue-job` refuses a `start-workflow` row whose workflow is
-absent from `config.workflows`; `spawn-profiles.yaml` now carries a `workflows:` section whose
-`planning` entry is that launcher. The three values named here as unresolved were ruled and landed:
+`d-owner-planning-entry-2-0808`). ⚠ **Its `workflows: planning:` half is DELETED by 7.778** — the
+`start-workflow` row that entry served is no longer minted, so the entry has no producer and was
+removed. The two values below are still ruled and still shipped on the `tools:` entry:
 
 | Was unresolved | Ruled and built |
 |---|---|
-| which `scaffold-seats` call shape | The WHOLE planning DAG — `--workflow planning --root`, **16** manifest seats (`workflows/planning/planning.csv`; `seats.csv`'s 20 is a different set — the four pool seats are not DAG rows), `--catalog-root` the SHARED PARENT `.rbtv/mirror/meta/` because the workflow resolves as `<catalog-root>/<component>/workflows/planning/planning.csv`. *(C-2, 2026-08-10: was `planning-deprecated`, 9 manifest seats, where the shared parent was additionally required because `ledger-groomer` resolved from a sibling component.)* |
-| which bindings file | The `planning` workflow's ONE casting sheet: `.rbtv/config/modules/meta/planning/bindings/plan.json`. It is STATIC, not a filled template — probing found no per-goal value to fill — and it is reused by every master-created goal. *(2026-08-10, bindings redesign: bindings moved OUT of the mirror, which carries component definitions only, to the ruled deployment-config path `.rbtv/config/modules/{module}/{component}/bindings/{code}.json`, where `{code}` is the workflow's code — the `plan-` prefix its manifest rows carry. The hand-authored `.rbtv/mirror/meta/planning/bindings-fresh-goal-planning.json` it replaces was deleted in the same change, and nobody hand-authors one any more: the `bindings` capability owns the file end to end. Its two measured deviations survive the move — no `pass-folder` (this component's units render no pass placeholder) and no `window` (a shared window disables in-place renew, G-154).)* |
 | how the PACKAGE is resolved | ⚠ 7.607 E2b: IT IS THE GOAL FOLDER (design-lock item 8). `scaffold-and-queue` calls `create()` — the ruled name `scaffold-seats` — which completes the goal folder's WORKING SURFACES. It appends NO register row: `runs.csv` is extinguished, liveness is the derived lease (item 1), and the deadlock that register caused (7.608) dies with it |
 
-**The goal is therefore born WITH a run**, and the full package path rides the queued row's args as
-a whole token — whole-token templating deliberately cannot compose `runs/run-N`, so a row queued at
-birth must carry a path that already exists.
+**The goal is therefore born with its working surfaces complete**, and — since 7.777 — with its
+LANE declared. Nothing rides a queued row: there is no queued row.
 
 ⚠ **Five flags on the entry are what make that happen**, and the last three are not defaultable:
 `--catalog-root`, `--bindings`, and `--conduct`/`--claude-md`/`--budget-json`. `scaffold-seats`
@@ -219,89 +193,35 @@ conduct-author instantiates it "filling every `{{slot}}`", while `--conduct` BYT
 at it would give every auto-created run a rulebook whose law reads `{{INSTANTIATE}}`; that option
 was put to the owner and rejected on exactly that ground.
 
-⚠ **The MECHANISM the entry uses is built and proven** (task C5): a registered workflow's argv is
-a TEMPLATE whose `{{workflow}}` / `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` tokens expand from
-the queue row's own args, so one generic entry serves every workflow. Contract, injection argument
-and value rules: `server/heart/argv-template.js`. Suite: `server/ticker/probes/probe-argv-template.js`.
+⚠ **The per-row argv TEMPLATING mechanism is unchanged and still live** — `{{workflow}}` /
+`{{entry-seat}}` / `{{goal}}` / `{{workdir}}` expand from a queue row's own args, so one generic
+entry can serve every workflow. Contract, injection argument and value rules:
+`server/heart/argv-template.js`. Suite: `server/ticker/probes/probe-argv-template.js`. ⚠ **This
+capability is no longer one of its consumers** (7.778): it registers no `start-workflow` job, so
+nothing here fills those tokens.
 
-⚠ **`goal` and `workdir` are now REQUIRED args on the registered job**, joining `workflow` and
-`entry-seat`. `workdir` moved out of `optional` deliberately: the ticker falls back to the carrier's
-DEFAULT workdir when a row carries none, so an absent value does not fail — it composes a command
-line pointed somewhere else. `required` turns that into a refusal at the enqueue door.
+### The launcher this entry used to fire — DELETED (7.778)
 
-### The launcher the `workflows: planning:` entry fires
+`tool/workflow_launcher.py` opened a goal's own detached tmux room and handed the launch to
+`coordinate` with an explicit `--tmux-target`, because `coordinate launch` cannot open a room and a
+daemon-fired exec has none. It is **deleted with the door**, along with the `workflows: planning:`
+entry that fired it, the `<goal>-workflow-start` row that triggered it, and the probes that pinned
+it (`probe-planning-entry.py`, `probe-sensor-start.py`, `probe-launcher-attribution.py`).
 
-`tool/workflow_launcher.py`. It exists because **`coordinate launch` cannot open a room and a
-daemon-fired exec has none**: `launch` contains zero `new-session` calls (it opens a WINDOW in an
-EXISTING session) and resolves its target from `COORD_LAUNCH_TARGET or TMUX_PANE`, neither of which
-the daemon exports — and with both unset tmux resolves an empty target to the MOST RECENT session,
-which is how a stray launch reaches a live room.
+**What opens the entry seat now: the LANE.** A created goal declares `<goal>/execution-lane` at
+birth (task 7.777 — a REQUIRED request field), and the daemon's watch pass reads that marker every
+cadence and seeds the goals assigned to `daemon`. A `console` goal opens when a human types
+`rbtv run`. One readiness predicate recomputed from disk replaces a one-shot row planted at birth
+that had to guess how long to wait — which is why `goal-launch-delay`, the capability that tuned
+that guess, is deleted too.
 
-So it creates a **per-run DETACHED session named `<goal>-<run-id>`** (owner ruling
-`d-owner-planning-entry-2-0808` Q2), proves the resolved pane really belongs to that session, and
-hands the launch to `coordinate` with an explicit `--tmux-target`. Properties worth knowing:
-
-- **Nothing short-lived is baked into boot config** — the config carries only placeholders and repo
-  paths; the session name is composed at fire time from the goal.
-- **Idempotent** — a re-fire joins the room it already opened (`has-session -t =NAME`, EXACT match:
-  prefix matching would let goal `foo` resolve goal `foo-bar`'s room). It never kills a session, so
-  the room outlives the launch, which is the point — humans attach over SSH.
-- **`--force` yes, `--force-memory` no.** `--force` carries the ROLE gate, which a daemon-fired exec
-  can never pass any other way (no pane ⇒ no seat identity). The MEMORY gate is left binding: this
-  is a NEW launch, exactly what that floor is sized for. `jobs/recover-room.py` does override it,
-  correctly, on a premise that is false here — a recovery replaces a seat that already died and is
-  load-neutral. Reusing that program as this launcher was considered and REJECTED for that reason.
-- ✅ **First fire on a brand-new package OPENS THE ENTRY SEAT — the CAPACITY gate is what
-  cold-start clears, and the RAM floor above is still binding.** `coordinate launch` carries a
-  COLD-START admission (team-kit task 7.406): a package no sensor has ever run against and no seat
-  has ever launched into is recognised on its own markers and admitted on the EMPTY-ROOM BOUND
-  (`in_use` 0). ⚠ That is an admission, not a guarantee: the MEMORY gate is left binding on purpose
-  (the bullet above — `--force` yes, `--force-memory` no), and every launch prints the floor it is
-  measured against (`floors.launch_refuse_mb` vs the per-seat spike). Under memory pressure the
-  first fire on a brand-new package opens NOTHING and exits non-zero. Proven end to end against a
-  fixture built by the shipped create path —
-  `probes/probe-planning-entry.py` **P5**, which fires the real launcher with no `--dry-run` and
-  asserts the seat's pane. This **corrects** the earlier claim (carried here, in the launcher and in
-  `spawn-profiles.yaml` until task 7.548) that the first fire opens nothing and that whoever arms
-  goal-creation must add the team-monitor census sensor to the arming sequence. That claim was read
-  off `coordinate launch`'s census-FAILURE branch rather than measured, and the remedy it named is
-  impossible anyway: `team_monitor.py` resolves the room's session FROM THE ROSTER and refuses while
-  no seat has checked in (exit 4), so it cannot run before the first launch. **Nothing about the
-  census belongs in the arming sequence.**
-- ✅ **The census sensor starts WITH the room's first seat** (task **7.552**). What no arming
-  sequence could carry, the LAUNCH does: `coordinate launch` hands `team_monitor.py ensure` the
-  session it just launched into (`--session`, read off the pane it used — asked of the room, never
-  derived from a path, `G-296`), so the sensor no longer refuses on an empty roster. This is what
-  makes the SECOND fire possible: the cold-start bound above is spent ONCE — it fires only while the
-  package is virgin — so before 7.552 every subsequent fire read `CAP UNENFORCEABLE` and deferred
-  every counted candidate, and Wave D's advancement launch IS that second fire. Proven end to end by
-  `probes/probe-sensor-start.py`: virgin package → first fire opens the entry seat → the sensor is
-  RUNNING (live lock holder + a `state.json` naming the room) → the second fire ADMITS and opens
-  another seat pane.
-- ⚠ **Exit codes: `0` means A SEAT OPENED, and nothing else.** `recordToolCompletion` maps a fired
-  tool's `0` to completion `done` and every non-zero to `failed`, so this program's exit code *is*
-  the store record. It proves the claim from the pane set THIS fire added (never an absolute count,
-  which cannot tell a fresh launch from a re-fire joining a room it already populated):
-
-  | Exit | Means | Store records |
-  |---|---|---|
-  | `0` | this fire opened ≥ 1 seat pane | `done` |
-  | `3` | the delegated launch exited 0 and opened NO seat pane — or the room could not be read, so nothing proves one opened | `failed` |
-  | `1` / `2` | refusal — unresolvable target, absent package, bad name, delegated launch failed | `failed` |
-
-  A `3` is a package that is **no longer virgin and has no census**, which is the state
-  `coordinate launch` defers on. Since 7.552 that means a sensor that **STOPPED** — the first launch
-  starts one, so it is no longer the fresh-package default it was when this table was written (the
-  sensor then never lived at all, and every fire ended with `WARNING team-monitor start FAILED …
-  the room runs UNOBSERVED`). It is loud and typed, never a silent success. It does **not**
-  mint the failure-per-cadence pattern: the row this program runs under is **one-shot** (enqueued
-  `--trigger scheduled --at <t>` with no repeat rule; `fireQueueRow` deletes it at fire), so there is
-  no cadence for a failure to recur on — one fire, one honest record. Probe **P7** pins that, because
-  the day the row becomes periodic this exit code starts writing a `failed` every pass.
+⚠ The `start-workflow` **action type** survives: it is a generic dispatch category with live
+consumers (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`). Only this
+capability's use of it is gone.
 
 ## The request schema it validates against — THE LIVE CLAUSE
 
-Six fields — four required, two optional — and the set is **closed**: a name outside it is a
+Eight fields — five required, three optional — and the set is **closed**: a name outside it is a
 refusal, never a passthrough.
 
 ⚠ **This section is the schema's LIVE text and it supersedes the frozen record** (task `7.631`,
@@ -321,7 +241,9 @@ tool implements and what a second implementer builds against.**
 | `goal-contract` | yes | non-empty after whitespace strip | `P3` · `V5` |
 | `goal-kind` | yes | `interactive` \| `non-interactive` | `P4` · `V6` |
 | `due-date` | no | type UNRESOLVED in the schema — **no value of it is rejected** | none — §6.3's empty slice |
-| `execution-mode` | no | `interactive` \| `autonomous` | **`V7`** — the fourteenth member, minted by this clause |
+| `execution-mode` | no | `interactive` \| `autonomous` | **`V7`** — the fourteenth member, minted by §1.7 |
+| `execution-lane` | **yes** | `daemon` \| `console` | **`P5`** · **`V8`** — the fifteenth and sixteenth, minted by §1.8 |
+| `launch-profile` | no | a name in the shared config's `profiles:` — enforced at the creation verb, not here | none — §1.9's empty slice |
 
 ### §1.7 · `execution-mode` — optional, enum `interactive | autonomous`
 
@@ -345,9 +267,49 @@ is only its order.
 | the VALUE is in the enum | `validate` — **`V7`**, class `V`, under the `S → P → V` class-stop |
 | the RESOLVED value reaches the created goal | `resolve_execution_mode`, called by `scaffold_goal` BEFORE the exists-check and before any write; a payload value outside the enum raises a typed `Refusal` there too, so the act-performing path refuses even when its caller skipped `validate` |
 
+### §1.8 · `execution-lane` — REQUIRED, enum `daemon | console`
+
+Which lane runs the goal (registry concept `lane assignment`,
+`system-definition/concepts/lane-assignment.md`). The marker is `<goal>/execution-lane`; `daemon`
+means the daemon's watch pass seeds the goal unattended, `console` means nothing runs until a human
+types `rbtv run`.
+
+⚠ **REQUIRED, and there is NO resolution ladder** (owner ruling, 2026-08-12, task 7.777). Read
+`execution-mode`'s five-rung ladder directly above and then do not generalise from it: every rung
+there has a defensible answer, and this field has exactly one. The two lanes differ in WHO runs the
+goal, which no layer below the requester knows, so a request that names no lane is REFUSED (`P5`)
+and one naming something else is REFUSED (`V8`). Nothing defaults, nothing derives.
+
+⚠ **THE DAEMON WRITES THE MARKER, AND THAT ROUTING IS THE FIX FOR A MEASURED DEFECT.** The channel
+master cannot write `<goal>/execution-lane` itself: its `goals-write` cage grant is resolved as a
+SPAWN-TIME SNAPSHOT of the goals it may write, so a goal created DURING a sitting can never be in
+that snapshot and the write dies on `EROFS` — there is no ordering that works. Carrying the lane as
+a request field means `scaffold_goal` forwards it as `goal_cli.py scaffold --lane`, in the very
+process that writes `goal.md`, and the master needs no goal-folder access at all.
+
+**Where each half is enforced** — the same two-site shape `execution-mode` has, for the same two
+reasons: `P5`/`V8` in `validate` (the requester's pre-flight, which performs no act), and a typed
+`Refusal` in `resolve_execution_lane`, called by `scaffold_goal` before the exists-check and before
+any write (the acting path, whose callers may skip `validate`). Both read the one constant
+`EXECUTION_LANES`.
+
+### §1.9 · `launch-profile` — optional, a name from `profiles:`
+
+The FALLBACK launch profile for seats that declare no harness+model cast of their own, meaningful
+only on the `daemon` lane. Forwarded as `goal_cli.py scaffold --profile` when present.
+
+⚠ **It contributes ZERO members, and not for `due-date`'s reason.** Its constraint is real and
+resolved — the name must exist in the shared config's `profiles:` — but that constraint has exactly
+ONE home already: `goal_cli.py#check_lane_profile`, which BOTH lane doors (`lane --set` and
+`scaffold --lane`) call, and which also owns the "`--profile` is meaningless with `console`"
+refusal. A member here would be a second copy of the profile roster to keep in step with the config,
+which is the drift §6.0's one-member-per-clause rule exists to make visible, not to cause. The
+refusal still reaches the requester: it fails the `create-goal` step and the failed step's stderr
+rides the settle record.
+
 ### The reject-set decision — `V7` is minted, and why
 
-The closed set grew to **fourteen**. That is not an implementer's judgment call; it is what the
+The closed set grew to **fourteen** (and to **sixteen** with §1.8's `P5`/`V8`). That is not an implementer's judgment call; it is what the
 schema's own generation rule produces once this clause exists. §6.0 generates the set from §1 by
 three finite passes — one member per structural precondition (3), one per REQUIRED field for its
 absence (4), **one per constraint CLAUSE for that clause's negation (6)** — and states that *adding
@@ -393,8 +355,8 @@ set, so a reader is never told the wrong one.
 **The refusing site and the site that answers the requester are the same file**, so one observable
 carries the whole criterion and no propagation question arises.
 
-A refusal names the **member of the schema's closed reject set** that matched — one of fourteen,
-`S1`–`S3` (shape), `P1`–`P4` (presence), `V1`–`V7` (value) — its member name, and what held instead.
+A refusal names the **member of the schema's closed reject set** that matched — one of sixteen,
+`S1`–`S3` (shape), `P1`–`P5` (presence), `V1`–`V8` (value) — its member name, and what held instead.
 Never a bare status. The text appears in `stated-refusal`, in `handle`'s requester-facing `outcome`,
 and on **stderr** for a human reading a terminal.
 
@@ -432,8 +394,8 @@ type" member the schema does not carry.
    That is a property of the only creation path in the system, not a choice.
 2. **`sessions.csv` is born at LAUNCH, not at create.** The creation path omits it deliberately;
    the file appears only when a seat actually boots. Its absence *before* the launch act is
-   expected; its absence *after* one is a defect. This is why the acts are ordered create → arm →
-   launch rather than create → launch → arm.
+   expected; its absence *after* one is a defect. (The ordering argument this line once carried
+   named a third act, `arm`, which is retired.)
 3. **`goal-kind` is validated AND persisted — the carrier is `goal.md` frontmatter.** The carrier
    this schema once declined to invent was owner-ruled on 2026-08-08 (`d-owner-batch1` (2)), so the
    creation verb carries `--kind` and the validated value is forwarded to it instead of being
@@ -486,41 +448,32 @@ type" member the schema does not carry.
    `goal_cli.py#cmd_scaffold` and, like it, leaving no goal directory behind. The probe drives
    both arms.
 
-## ⚠ Arming does not generalise from this capability
+## ⚠ Arming does not generalise from this capability — AND ARMING IS RETIRED
 
-This handler is the first production writer of an arming marker **for the path it builds and for
-nothing else** (`decisions.md#p-E16-carries-the-durable-arming-writer-itself-and-that-does-NOT-
-generalise-arming`). A goal created by any other path stays BORN INERT. This file's existence
-closes no general arming issue.
+This handler was the first production writer of an arming marker for the path it built and for
+nothing else (`decisions.md#p-E16-carries-the-durable-arming-writer-itself-and-that-does-NOT-
+generalise-arming`). Both the marker and the engine that read it are GONE
+(`build/one-readiness-predicate.md`, owner-ruled 2026-08-11): readiness is recomputed from disk
+every cadence. What decides whether a goal advances is its LANE (§1.8), which this handler now
+writes at birth.
 
 ## The probes
 
-Five, and they guard different things. Three arrived after this section was first written and are
-named here so the count stays true: `probes/probe-sensor-start.py` (task 7.552),
-`probes/probe-launcher-attribution.py` (task 7.588 — the launcher grades a fire by the pane its
-own delegated launch reported, never by a room-wide before/after delta, so two fires racing into
-one room cross-attribute neither the exit code nor the pane ids) and
-`probes/probe-goal-type-carrier.py` (task 7.533) — the last is the goal-type carrier's
-end-to-end witness, standing guard over the fact that a request carrying `--type recurring`
-produces a recurring goal, checked against the created goal's own descriptor on disk rather than
-against the request that asked for it. `probes/probe-planning-entry.py` (task C5E) is the
-**composition** probe: it drains a real request through a fixture goals root with a STUB
-`--ignite-bin`, then takes the SHIPPED `workflows: planning:` argv out of `spawn-profiles.yaml`,
-expands it with the REAL `argv-template.js` against the args that drain actually produced, and
-EXECUTES the composed command line against the real launcher (with `--dry-run` appended and a
-private tmux socket). 26 checks, 8 of them red arms.
+**Three**, and they guard different things.
 
-It exists because that composition was guarded by NOTHING: `probe-argv-template.js` certifies the
-mechanism and `probe-goal-creation-request.py` certifies the create act's shape, and **neither reads
-`config/spawn-profiles.yaml`** — so the config could drift to a different bindings file or catalog
-root and every probe would stay green. For the same reason it TYPES no flag value: every one is
-parsed out of the shipped config, and the queue-row args are captured from the drain rather than
-composed by hand. Its boundary is stated in its own header: it does not fire the row through a live
-ticker (that is `probe-argv-template.js`'s real-fire path); what it proves is that the composed argv
-is accepted by the real program.
+- `probes/probe-goal-creation-request.py` — the entry's own shape and refusal arm (below).
+- `probes/probe-goal-type-carrier.py` (task 7.533) — the goal-type carrier's end-to-end witness: a
+  request carrying `--type recurring` produces a recurring goal, checked against the created goal's
+  own descriptor on disk rather than against the request that asked for it.
+- `probes/probe-execution-mode-birth.py` — the execution-mode lifecycle, rung by rung.
 
-Nothing in it touches the live daemon, the live store, or a live room — tempdir goals root, stub
-`ignite` binary, private `-L` tmux socket.
+⚠ **Three probes were DELETED with the door in 7.778**, named here so a reader looking for them
+stops looking: `probe-planning-entry.py` (the `workflows: planning:` argv composition),
+`probe-sensor-start.py` (the census sensor starting with the room's first seat) and
+`probe-launcher-attribution.py` (the launcher grading a fire by its own reported pane). All three
+asserted `workflow_launcher.py`, which no longer exists. The lane-at-birth behaviour that replaced
+the door is guarded at the creation verb — `capabilities/goals-tree/probes/probe-lane-at-birth.py`
+and `probe-goal-scaffold-standard-files.py`, which asserts `execution-lane` in the ruled file set.
 
 ## The other probe, and why it carries mutants
 

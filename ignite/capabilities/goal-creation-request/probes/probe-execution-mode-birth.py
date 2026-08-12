@@ -123,9 +123,11 @@ def load(src: str | None = None):
 
 
 def request(name: str, mode: str | None = None, kind: str = "interactive") -> dict:
+    # `execution-lane` is REQUIRED since 7.777; `console` because this probe measures the MODE
+    # axis and the lane axis must not colour it (they are different axes — F-96's neighbour).
     req = {"goal-name": name, "goal-type": "one-shot",
            "goal-contract": "Ship the thing, verified at the edge.",
-           "goal-kind": kind}
+           "goal-kind": kind, "execution-lane": "console"}
     if mode is not None:
         req["execution-mode"] = mode
     return req
@@ -271,7 +273,7 @@ def main() -> int:
         contract.write_text("Ship it.\n", encoding="utf-8")
         proc = subprocess.run(
             [sys.executable, str(GOAL_CLI), "--root", str(root), "scaffold", "control-goal",
-             "--contract", str(contract)],
+             "--contract", str(contract), "--lane", "console"],
             capture_output=True, text=True)
         got_control = born_mode(root / "control-goal")
         check("a caller passing no --execution-mode gets the file, reading 'autonomous'",

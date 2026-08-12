@@ -63,7 +63,12 @@ QUOTED verbatim:
   reload is REJECTED, not unimplemented — write-then-restart composes two mechanisms that exist.
   Contract in `ticker-settings.md`.
 - **`goals-tree`** (`ignite/capabilities/goals-tree/`) — the goals-tree machinery
-  (`scaffold`/`reindex`/`lint`/`materialize`/`lane`/`pause`/`resume`/`dag`/`add-seat`/`retry-threshold`).
+  (`scaffold`/`reindex`/`lint`/`materialize`/`lane`/`pause`/`resume`/`dag`/`add-seat`/`retry-threshold`/`teardown`).
+  `teardown` reclaims a goal's JOB-CATALOGUE rows so its NAME is registerable again (issue
+  `IPH-27`): it removes their pending queue rows then `deregister-job --purge`es each one, composing
+  the ids from the goal's own `taskforce.csv` — so run it BEFORE deleting the folder, which it never
+  touches. ⚠ It is the ONLY verb in this capability that needs the daemon UP (the catalogue is in
+  `heart.db`, served only by the gateway); it refuses typed rather than half-working.
   `retry-threshold` sets the consecutive-FAIL bar the dod-judge escalates at — per goal, with a
   per-milestone override column in `milestones.csv`, absent everywhere 2 (issue `IPH-11`).
   The last four GROW A LIVE GOAL'S SEAT ROSTER (issue `S-33`): `pause` rewrites the lane marker to
@@ -98,21 +103,34 @@ QUOTED verbatim:
   (`seat-failed`) · `3` a worker asked a question and the run handed it back. Contract in
   `attached-execution.md`.
 - **`goal-creation-request`** (`ignite/capabilities/goal-creation-request/`) — the entry a
-  goal-creation request arrives at: `validate`, `handle` (create → arm → launch), and
-  `scaffold-and-queue`, the DAEMON-EXECUTED verb (task C2) that drains a staged request inbox,
-  scaffolds each goal and queues its first workflow job ten minutes out. That verb exists because a
-  Slack-caged channel master measurably cannot create a goal directory but can write its own seat
-  folder, so the payload is file-staged and only the trigger crosses the gateway. Registered in
-  `config/spawn-profiles.yaml` under `tools: goal-creation-request` and landed **dark** — arming is
-  three gated acts in a fixed order. The workflow every master-created goal starts in is RULED
+  goal-creation request arrives at: `validate`, `handle` (create → launch), and
+  `scaffold-and-queue`, the DAEMON-EXECUTED verb (task C2) that drains a staged request inbox and
+  scaffolds each goal. That verb exists because a Slack-caged channel master measurably cannot
+  create a goal directory but can write its own seat folder, so the payload is file-staged and only
+  the trigger crosses the gateway. Registered in `config/spawn-profiles.yaml` under
+  `tools: goal-creation-request` and landed **dark** — arming is two gated acts in a fixed order.
+  ⚠ **`execution-lane` IS A REQUIRED REQUEST FIELD** (task 7.777, owner-ruled 2026-08-12), with
+  `launch-profile` optional beside it. Creation REFUSES a request that names no lane — reject-set
+  members `P5` (absent) and `V8` (not in `{daemon, console}`) — and there is NO derivation ladder,
+  unlike `execution-mode`'s three tiers: the owner ruled the assignment EXPLICIT. The DAEMON writes
+  the marker, forwarding `goal_cli.py scaffold --lane` in the same process that writes `goal.md`,
+  and that routing is the FIX for a measured operator defect: the channel master's `goals-write`
+  cage grant is a SPAWN-TIME SNAPSHOT, so a goal created during a sitting could never be written by
+  that same sitting (`EROFS`). Through the request the master needs no goal-folder access at all.
+  ⚠ **THE `start-workflow` DOOR IS DELETED** (task 7.778, same ruling). `scaffold-and-queue` no
+  longer mints a `<goal>-workflow-start` job or queues it `--delay-seconds` out; the
+  `tool/workflow_launcher.py` that row fired, the `workflows: planning:` registry entry that named
+  it, and the whole `goal-launch-delay` capability are gone with it. What opens the entry seat now
+  is the LANE: the daemon's watch pass reads `<goal>/execution-lane` every cadence and seeds a
+  `daemon` goal; a `console` goal opens when a human types `rbtv run`. The `start-workflow` ACTION
+  TYPE survives — it is a generic dispatch category with live consumers
+  (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`). The workflow every master-created goal starts in is RULED
   (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `plan-interviewer`, the meta
   component `.rbtv/mirror/meta/planning/`. *(Issue C-2, 2026-08-10: the ruling originally landed
   against `planning-deprecated` / `elicitator` — named `planning`/`planner-workflow` when ruled,
   renamed by R11, vault `01f60de16`, task 7.598. That component was deleted and every fired
   creation refused `workflow-unknown`; the values were repointed at the 16-seat planning
-  rewrite.)* The launcher argv for it is now RULED AND
-  LANDED too (task C5E, `d-owner-planning-entry-0808` + `-2-0808`): `spawn-profiles.yaml` carries a
-  `workflows:` section, the goal is born WITH its package materialized through the ruled name
+  rewrite.)* The goal is born WITH its package materialized through the ruled name
   `scaffold-seats` — GOAL-DIRECT since 7.607, the package IS the goal folder and there is no
   `runs/run-N` compartment. **Instance-ordinal seat naming (7.545)** lives in that same script as
   the ONE place a nested-instance name is spelled: `compose_seat_name` / `parse_instance_seat_name`
@@ -129,26 +147,7 @@ QUOTED verbatim:
   never a `seats.csv` or bindings key, which stay the catalog id. ⚠ Nothing COMPOSES one yet: the
   nested-workflow materialization path went with the branch folder in 7.607 and the launch half is
   still a typed refusal in `jobs/edge-runner-job.py`; the naming ships as the surface re-founding
-  will consume. Alongside it, `tool/workflow_launcher.py` opens the goal's ONE detached tmux
-  room, named for the goal (design-lock item 2), before handing the launch to `coordinate` with an
-  explicit target. That first fire DOES open
-  the entry seat — `coordinate launch`'s cold-start admission (team-kit 7.406) admits a virgin
-  package on the empty-room bound — **subject to the RAM floor, which the launcher deliberately
-  leaves binding** (it passes `--force`, never `--force-memory`: this is a NEW launch and that floor
-  is sized for exactly it), so under memory pressure the first fire opens nothing and exits
-  non-zero. Cold-start clears the CAPACITY gate; it is not a guarantee that a seat opens. And the
-  launcher's exit code IS the store record: `0` means a
-  seat pane opened and nothing else, `3` means the launch ran and admitted nobody (recorded
-  `failed`, never a false `done`; the row is one-shot, so that failure has no cadence to recur on).
-  Task 7.548 measured both and corrected the contrary claim this doc, the launcher and
-  `spawn-profiles.yaml` had carried — including its instruction to put the team-monitor census
-  sensor in the arming sequence, which is impossible: the sensor refuses until a seat has checked
-  in. Task **7.552** then closed what that left open — `coordinate launch` now hands
-  `team_monitor.py ensure` the room's session, the one it just launched into, so the census sensor
-  STARTS with the room's first seat instead of refusing on a roster nobody has checked into yet.
-  Without it the cold-start bound was spent ONCE and every SUBSEQUENT fire read `CAP UNENFORCEABLE`
-  and deferred every counted candidate — and the second fire is exactly Wave D's advancement, so a
-  run's first fire worked and the run then stalled (`capabilities/goal-creation-request/probes/probe-sensor-start.py`).
+  will consume.
   The ruled bare name now
   RESOLVES under the daemon: a fired tool used to inherit the systemd `--user` MANAGER's PATH, which
   carries no `~/.local/bin`, so `scaffold-seats` exited 127 and every daemon-fired creation refused
@@ -156,7 +155,7 @@ QUOTED verbatim:
   (`d-owner-f1-carrier-env-0808`; `server/spawn/carrier.js` `toolExecEnv`). Landed is still not
   live, and that covers BOTH halves — the config file is boot-read AND the carrier fix is daemon
   code, so a RUNNING daemon has neither until the next restart; the PATH class is retired in the
-  tree, not yet in the process. Arming remains the three gated acts. Contract in
+  tree, not yet in the process. Arming remains the two gated acts. Contract in
   `goal-creation-request.md`. The carrier fix had ONE leak downstream of it, closed by task 7.551:
   `jobs/jobcontain.py` `detach_argv` opens a SECOND `systemd-run --user` so a recovery outlives the
   job that started it, and that inner hop went back through the MANAGER environment — so the
@@ -164,30 +163,24 @@ QUOTED verbatim:
   `coord.py`, which boots the harness by the bare name `claude`) were back on the manager PATH. It
   now FORWARDS `os.environ["PATH"]` — forwarded, never re-derived, so the composer stays singular
   (PRIN-11); guarded by `jobs/probes/probe-detach-env.py`.
-- **`goal-launch-delay`** (`ignite/capabilities/goal-launch-delay/`) — the channel master retiming
-  its OWN queue delay (issue C-1, owner-ruled 2026-08-10). The knob has no settings file: it IS the
-  `--delay-seconds` operand of the `tools: goal-creation-request:` argv above, so the tool performs
-  a LINE-PRECISE edit of that document and never round-trips it through a YAML dumper. Three verbs:
-  `show` (the value, whether it is explicit or the tool's own 600 default, and the `file:line` it
-  comes from), `request` (the SEAT's verb — validate, stage the payload in the seat's own folder,
-  `add-job` the trigger), `apply` (the DAEMON's verb — drain, edit, record the outcome, restart
-  `rbtv-ignite` LAST). Same two-part transport as `goal-creation-request` and for the same measured
-  reasons (read-only cage · static `fire-tool` argv · `enqueue-job` the one verb open to a `bridge`
-  token). Registered under `tools: goal-launch-delay`; arming is the same three gated acts. Contract
-  in `goal-launch-delay.md`.
 - **`master-profile`** (`ignite/capabilities/master-profile/`) — the channel master choosing its OWN
-  harness and model (issue C-1, same ruling). The knob is `master_profile` in
-  `.rbtv/config/chat-bridge-config.json`, read at boot by the bridge and selected for master (DM)
-  traffic by `forward-path.js#profileFor` (`masterProfile || sessionProfile`). The requested name is
-  validated against the LIVE `profiles:` set of `spawn-profiles.yaml` at BOTH halves — an unknown
-  name does not fail at the bridge, it fails at the spawn one owner message later — and an ABSENT
-  `master_profile` key is refused rather than created (creating it would split master and session
-  traffic apart without anyone deciding to). Restarts `rbtv-chat-bridge`, which ends the requesting
-  sitting, so the outcome record lands before the restart. ⚠ **No `--effort` flag, by measurement:**
-  effort is not on the master spawn wire at all — `forward-path.js` enqueues `{profile, prompt}`,
-  the `chat-agent` job's schema admits no effort key, `ticker.js#launchAgent` calls a
-  `spawnManager.spawn` signature with no effort parameter, and the per-profile `effort:` translation
-  table has NO daemon caller (`dispatch.js` says so verbatim). Contract in `master-profile.md`.
+  harness, model AND effort rung (issue C-1, same ruling). ⚠ **RETARGETED 2026-08-12.** The knob was
+  `master_profile` in `.rbtv/config/chat-bridge-config.json` until the launch-cast unification
+  (ruling D2) deleted that key's readers; it is now the master's own CASTING SHEET —
+  `.rbtv/config/modules/meta/master-agent/bindings/channel-master.json` — written through
+  `bindings.cast_seat`, the same validator and the same write `rbtv-bindings set` uses, and followed
+  by a `materialize-seats.py --repass` that re-renders `seat.md` from it. Per
+  `d-master-is-cast-like-any-other-seat` the SEAT governs; this CLI re-casts the seat. The requested
+  name is a spawn-profile NAME resolved to its harness+model pair and validated against the LIVE
+  CASTABLE set at BOTH halves (narrower than `profiles:` — `coord.py#validate_seat` must accept the
+  pair, so `test-sleep` is refused); an unknown SEAT is refused rather than created. ⚠ **Nothing is
+  restarted and the requesting sitting survives** — a casting sheet is not boot-read: `spawn.js`
+  reads `seat.md` per launch and `live-sessions.js` reaps a warm session whose conversation names a
+  different profile, so the switch lands on the owner's NEXT message. The split into request/apply
+  survives for ONE reason only — `--repass` writes under `.rbtv/goals/`, which every seat cage
+  refuses to grant writably. ⚠ **`--effort` IS live** (the 2026-08-11 lane build): a rung 1..N on the
+  TARGET profile's own ladder, stored in the sheet as the harness's own level string. Contract in
+  `master-profile.md`.
 - **`bindings`** (`ignite/capabilities/bindings/`) — the CASTING SHEET a workflow is run through
   (owner-ruled 2026-08-10): which harness, model and effort each seat gets. A workflow is the
   program, a **taskforce** is its running instance, and the bindings file is what casts one into the

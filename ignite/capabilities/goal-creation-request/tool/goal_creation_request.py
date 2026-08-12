@@ -33,13 +33,22 @@ the script path `materialize-seats.py` behind it, and it never hand-rolls a spaw
 and `p-the-scaffold-seats-fix-is-NOT-a-text-alignment` bind — invoke the ruled name, do not align
 text to whatever a call site happens to say.
 
-⚠ A GOAL CREATED HERE IS STILL BORN WITHOUT AN ADVANCER, and the reason has simply MOVED. It used
-to be that only this path armed its own marker (`decisions.md#p-E16-carries-the-durable-arming-
-writer-itself-and-that-does-NOT-generalise-arming`); now nothing is armed at all, and what decides
-whether a goal advances is its LANE ASSIGNMENT (`<goal>/execution-lane`, absent = `console`), which
-this handler does not write. Binding lane assignment to creation is named and deliberately deferred
-in the design's § Out of scope — until it lands, a goal created here advances only once someone
-assigns it a lane or runs `rbtv run` against it.
+A GOAL CREATED HERE IS BORN INTO A LANE (task **7.777**, owner-ruled). What decides whether a goal
+advances is its LANE ASSIGNMENT (`<goal>/execution-lane`), and since this row landed the request
+carries it as a REQUIRED field: creation REFUSES without one, and the DAEMON writes the marker —
+in the very process that already writes `goal.md`, through `goal_cli.py scaffold --lane`.
+
+⚠ THE ROUTE IS THE POINT, NOT A CONVENIENCE. The channel master CANNOT write `<goal>/execution-lane`
+itself. Its `goals-write` cage grant is resolved as a SPAWN-TIME SNAPSHOT of the goals that had a
+live, verified tmux occupant when the sandbox was composed, so a goal created DURING a sitting is
+never in that snapshot and the master's write dies on `EROFS`. Routing the lane through the request
+means the master needs no folder access at all.
+
+⚠ NO DERIVATION LADDER, DELIBERATELY. `execution-mode` below has a three-tier resolve (request →
+goal-kind → workflow default); this field has none. The owner ruled the assignment EXPLICIT: a
+requester who does not say which lane runs the goal is REFUSED, never defaulted, because the two
+lanes are "the daemon runs this unattended" and "you run it when you type `rbtv run`" and silently
+picking one for a requester who did not choose is how a goal ends up in neither.
 
 THE REFUSAL ARM (task **7.206**, design id `E11`, arm **a**)
 ------------------------------------------------------------
@@ -48,7 +57,7 @@ are the same file, so ONE observable carries the whole criterion and no propagat
 A refusal therefore names three things at the requester's surface, never a bare status: the MEMBER of
 E3's closed reject set that matched, the field or shape it rejects, and what held instead.
 
-The fourteen members and their `S -> P -> V` class-stop report order are the landed schema's
+The sixteen members and their `S -> P -> V` class-stop report order are the landed schema's
 (§6.1, §6.2) and are CONSUMED here, never forked: this file mints no member and re-orders nothing.
 The fourteenth (`V7`) was AMENDED INTO THE SCHEMA before it was implemented, by the clause the
 capability doc now carries — see the REJECT_SET header for where that clause lives and why it lives
@@ -78,20 +87,30 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 # --------------------------------------------------------------- the schema
 
-# From the landed request-schema artifact, §1 — ONE field set, both goal kinds, five fields:
-# four required plus one optional. The set is CLOSED: a name outside it is a refusal, never a
+# From the landed request-schema artifact, §1 — ONE field set, both goal kinds, EIGHT fields:
+# five required plus three optional. The set is CLOSED: a name outside it is a refusal, never a
 # passthrough, because §1's table IS the whole field set.
-REQUIRED_FIELDS = ("goal-name", "goal-type", "goal-contract", "goal-kind")
+#
+# `execution-lane` joined the REQUIRED half on 2026-08-12 (task 7.777, owner-ruled). It is required
+# and not optional for the reason the header states in full: there is no defensible default between
+# `daemon` and `console`, so the requester answers or is refused.
+REQUIRED_FIELDS = ("goal-name", "goal-type", "goal-contract", "goal-kind", "execution-lane")
 # `execution-mode` joined `due-date` here on 2026-08-10 (owner ruling, § the execution-mode
 # lifecycle below). OPTIONAL is the whole point: a requester who says nothing gets the WORKFLOW's
 # default, resolved from the workflow's own scaffolding — which is a better answer than any
 # default this layer could invent, and is why the field was not made required.
-OPTIONAL_FIELDS = ("due-date", "execution-mode")
+#
+# `launch-profile` is optional because it is only ever MEANINGFUL on the daemon lane, and only for
+# seats that declare no harness+model cast of their own. It carries NO member of the reject set: its
+# one constraint — the name must exist in the shared config's `profiles:` — is enforced at the
+# creation verb (`goal_cli.py#check_lane_profile`, one home for both lane doors), and a second
+# spelling of that check here would be a second thing to keep in step with that roster.
+OPTIONAL_FIELDS = ("due-date", "execution-mode", "launch-profile")
 ALL_FIELDS = REQUIRED_FIELDS + OPTIONAL_FIELDS
 
 # §1.1 — the same expression the creation verb enforces (`goal_cli.py#GOAL_NAME_RE`), not a second
@@ -146,16 +165,25 @@ EXECUTION_MODE_DEFAULT = "autonomous"
 DECLARED_MODE_RE = re.compile(r"^default-execution-mode:\s*(\S+)\s*$", re.M)
 INTERACTIVE_MODALITY = "interactive"
 
-RULED_LAUNCH_NAME = "scaffold-seats"
+# ── `execution-lane`: the REQUIRED sixth field (task 7.777, owner-ruled 2026-08-12) ────────────
+#
+# The two lanes, in the vocabulary the registry minted (`concepts/lane-assignment.md`): `daemon` —
+# the daemon's watch pass picks the goal up and seeds it unattended; `console` — nothing runs until
+# a human types `rbtv run`. The literals are duplicated from `goal_cli.py#LANES` on the SAME terms
+# as `GOAL_KINDS` above: a contract constant, deliberately not an import, so the request layer's
+# schema does not become reachable through a tool's internals.
+#
+# ⚠ ENFORCED AT TWO SITES, exactly as `EXECUTION_MODES` is and for the same two reasons: `V8` in
+# `validate` answers "may I send this?" for a caged requester staging on a pre-flight verdict, and
+# the typed `Refusal` in `resolve_execution_lane` answers "may I act on this?" for the callers that
+# reach `scaffold_goal` as a function without going through `validate`. Both read this one constant.
+EXECUTION_LANES = ("daemon", "console")
 
-# THE single source of truth for the goal-launch delay — the seconds a created goal's first
-# workflow job waits before it fires. Every other statement of it is derived, never retyped:
-# `goal_launch_delay.py`'s `show` reads THIS assignment out of this file as text.
-DELAY_DEFAULT = 600
+RULED_LAUNCH_NAME = "scaffold-seats"
 
 # ------------------------------------------- the CLOSED reject set (E3's §6.1)
 #
-# FOURTEEN members, id -> (member name, the field or shape it rejects). The set is CLOSED: these are
+# SIXTEEN members, id -> (member name, the field or shape it rejects). The set is CLOSED: these are
 # the members and no others, and growing it requires adding a CLAUSE to the schema's §1 FIRST. This
 # file therefore mints nothing — a condition with no member here is a condition this schema ADMITS,
 # and inventing a member with no clause behind it would re-open a closed half nobody reviewed.
@@ -166,8 +194,9 @@ DELAY_DEFAULT = 600
 # and that path is inside a run compartment the owner ruled READ-ONLY ARCHAEOLOGY: never migrated,
 # never edited (`.rbtv/goals/CLAUDE.md`). The sixth field's clause therefore could not be written
 # into it. It was written into the capability's own doc instead — which is what `REJECT_SET_SOURCE`
-# names below and what every refusal cites: SIX fields, FOURTEEN members, `V7` generated from §1.7
-# by §6.0's own generation rule (one member per constraint clause). The path above is left unedited
+# names below and what every refusal cites: EIGHT fields, SIXTEEN members — `V7` generated from
+# §1.7, and `P5`/`V8` from §1.8 (task 7.777's required `execution-lane`), all three by §6.0's own
+# generation rule (one member per presence requirement and one per constraint clause). The path above is left unedited
 # and is cited by NO refusal; it is the historical record of §1 as 7.197 landed it and §6.1 as
 # 7.198 landed it, and the live clause names it as superseded from the other side.
 REJECT_SET_SOURCE = ("ignite/capabilities/goal-creation-request/goal-creation-request.md "
@@ -184,6 +213,9 @@ REJECT_SET = {
     "P2": ("goal-type-absent", "field goal-type"),
     "P3": ("goal-contract-absent", "field goal-contract"),
     "P4": ("goal-kind-absent", "field goal-kind"),
+    # The FIFTEENTH, amended in with the required sixth field (task 7.777). A REQUIRED field
+    # contributes a presence member, exactly as `P1`..`P4` do — no exception was minted for it.
+    "P5": ("execution-lane-absent", "field execution-lane"),
     "V1": ("goal-name-not-kebab-case", "field goal-name"),
     "V2": ("goal-name-taken-in-resolved-root", "field goal-name"),
     "V3": ("goal-name-declared-by-another-goal", "field goal-name"),
@@ -196,6 +228,9 @@ REJECT_SET = {
     # it contributes none because §3.1 records its TYPE as UNRESOLVED (§6.3), and this field's type
     # is two literals.
     "V7": ("execution-mode-not-in-enum", "field execution-mode"),
+    # The SIXTEENTH, the negation of the required sixth field's constraint clause (task 7.777) —
+    # generated by §6.0's own rule, one member per constraint clause, exactly as `V4`/`V6`/`V7`.
+    "V8": ("execution-lane-not-in-enum", "field execution-lane"),
 }
 # §6.2 — the classes are evaluated S -> P -> V and evaluation STOPS at the first class in which any
 # member matched; within that class EVERY matching member is reported. The order is the schema's own
@@ -307,7 +342,8 @@ def validate(payload, goals_root=None):
 
     # ================================================================== class P
     for field, member in (("goal-name", "P1"), ("goal-type", "P2"),
-                          ("goal-contract", "P3"), ("goal-kind", "P4")):
+                          ("goal-contract", "P3"), ("goal-kind", "P4"),
+                          ("execution-lane", "P5")):
         checked.append({"field": field, "check": f"{member} · present"})
         if field not in payload:
             refuse(member, "the field name is not among the payload's names")
@@ -354,6 +390,15 @@ def validate(payload, goals_root=None):
     if payload["goal-kind"] not in GOAL_KINDS:
         refuse("V6", f"{payload['goal-kind']!r} is not exactly one of {list(GOAL_KINDS)}")
 
+    # REQUIRED, so it is present by the time class V runs — `P5` already refused an absent one and
+    # `S3` an arity-broken one, and each class returns before this point.
+    checked.append({"field": "execution-lane", "check": f"V8 · enum {list(EXECUTION_LANES)}"})
+    if payload["execution-lane"] not in EXECUTION_LANES:
+        refuse("V8", f"{payload['execution-lane']!r} is not exactly one of "
+                     f"{list(EXECUTION_LANES)}. This field decides WHO runs the goal — the daemon "
+                     "unattended, or a human typing `rbtv run` — and there is no default between "
+                     "them, which is why it refuses rather than falling back")
+
     # `due-date` is optional and its TYPE is unresolved in the schema, which records the gap rather
     # than guessing. So no value of it is rejected here — §6.3's ZERO value members, an empty slice
     # that is a decided closure and not a hole. Naming it as checked is what makes the slice visible.
@@ -373,6 +418,15 @@ def validate(payload, goals_root=None):
                          f"{list(EXECUTION_MODES)}. This field carries the per-goal owner-contact "
                          "policy, and a value the control plane cannot read would silently make "
                          "the goal autonomous")
+
+    # `launch-profile` is OPTIONAL and contributes ZERO members, on the same terms as `due-date`
+    # but for a different reason: its one constraint (the name must be in the shared config's
+    # `profiles:`) has exactly one home — `goal_cli.py#check_lane_profile`, which both lane doors
+    # already call — and a copy here would be a second roster to keep in step. Named as checked so
+    # the empty slice is visible rather than mistaken for an oversight.
+    checked.append({"field": "launch-profile",
+                    "check": "optional; no member — the profile roster is enforced at the creation "
+                             "verb (goal_cli.py#check_lane_profile), before any write"})
 
     return _verdict(checked, refusals, "S,P,V")
 
@@ -473,6 +527,34 @@ def resolve_execution_mode(request, catalog_root=None, workflow=None):
     return mode, f"the workflow default — {source}"
 
 
+# ------------------------------------------------- 1c · THE EXECUTION LANE (task 7.777)
+
+def resolve_execution_lane(request):
+    """The lane a goal is BORN into: the request's own value, and NOTHING else. Returns the lane.
+
+    ⚠ THERE IS NO LADDER HERE, and the flatness is the design. `resolve_execution_mode` above has
+    three rungs because every rung has a defensible answer; this field has one, because the two
+    lanes differ in WHO runs the goal and no layer below the requester knows that. An absent or
+    unreadable value is a `Refusal` raised BEFORE any act — the ACTING-path twin of `P5`/`V8`, kept
+    for the same reason `resolve_execution_mode`'s refusal is: `scaffold_goal` is reachable as a
+    function and `handle`'s callers may skip `validate`.
+    """
+    lane = request.get("execution-lane")
+    if lane is None:
+        raise Refusal(
+            "execution-lane is REQUIRED and the request carries none. REFUSED before any act: "
+            "nothing was created. Pass 'daemon' if the daemon should run this goal unattended, or "
+            f"'console' if a human runs it with `rbtv run`. One of {list(EXECUTION_LANES)} — there "
+            "is no default between them, so this refuses rather than choosing for you.")
+    if lane not in EXECUTION_LANES:
+        raise Refusal(
+            f"execution-lane {lane!r} is not one of {list(EXECUTION_LANES)}. REFUSED before any "
+            "act: nothing was created. An unreadable lane marker resolves to `console` at every "
+            "reader, so accepting this would silently park the goal in a lane the requester did "
+            "not ask for.")
+    return lane
+
+
 # --------------------------------------------------------------- 2 · CREATE
 
 def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflow=None):
@@ -493,6 +575,9 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
     # request naming an unreadable mode is refused whatever else is true of the goals root — an
     # act performed on a refused request is the one thing the entry's ordering exists to prevent.
     mode, mode_source = resolve_execution_mode(request, catalog_root, workflow)
+    # Same placement, same reason (task 7.777): a request naming no lane, or an unreadable one, is
+    # refused before the exists check and before any write.
+    lane = resolve_execution_lane(request)
 
     if goal_dir.exists():
         return {"step": "create-goal", "skipped": f"{goal_dir} already resolves"}
@@ -522,7 +607,22 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
                # creation verb's own `autonomous` default silently overwrite an `interactive`
                # workflow default, which is exactly the drop this ruling closed.
                "--execution-mode", mode,
+               # ⚠ THE WRITE THE REQUESTER COULD NOT MAKE (task 7.777). `--lane` is passed
+               # UNCONDITIONALLY: the field is REQUIRED and `resolve_execution_lane` above has
+               # already refused every payload that could not supply it, so there is always a word
+               # to forward. This is the whole reason the lane travels as a request field — the
+               # daemon writes `<goal>/execution-lane` inside the same process that writes
+               # `goal.md`, so the channel master (whose `goals-write` grant is a spawn-time
+               # snapshot that can never contain a goal created during its own sitting) needs no
+               # access to the goal folder at all.
+               "--lane", lane,
                "--contract", str(contract_file), "--json"]
+        # `--profile` is CONDITIONAL, like `--due`: it is optional in the request, meaningless on
+        # the console lane, and needed on the daemon lane only for seats that declare no cast of
+        # their own. `goal_cli.py#check_lane_profile` refuses both wrong combinations, so this side
+        # forwards what it was given and judges nothing.
+        if request.get("launch-profile"):
+            cmd += ["--profile", request["launch-profile"]]
         if request.get("due-date"):
             cmd += ["--due", request["due-date"]]
         step = _run(cmd, "create-goal", dry_run)
@@ -531,6 +631,12 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
         # state this whole lifecycle replaced.
         step["execution-mode"] = mode
         step["execution-mode-source"] = mode_source
+        # Stamped beside them for the same reason, one rung shorter: the lane has exactly one
+        # source, so it is named and no `-source` key is minted for a question with one answer.
+        step["execution-lane"] = lane
+        step["execution-lane-source"] = "the request payload (REQUIRED — no default, no derivation)"
+        if request.get("launch-profile"):
+            step["launch-profile"] = request["launch-profile"]
         return step
     finally:
         contract_file.unlink(missing_ok=True)
@@ -616,7 +722,7 @@ def launch(package, only=None, dry_run=False):
     return _run(cmd, "launch", dry_run=False)
 
 
-# ------------------------------------------------- 5 · SCAFFOLD-AND-QUEUE (task C2)
+# ------------------------------------------------- 5 · SCAFFOLD (task C2; the QUEUE half deleted 7.778)
 
 # The two subdirs the drain moves a request into. A processed request MUST leave the inbox: the
 # tool is fired by a queue row and would otherwise re-process every request on every fire, where
@@ -635,20 +741,39 @@ REFUSED_DIR = "refused"
 #     register it `state=open`. There is no ordinal to mint and no register to write into.
 #   · the WHOLE-TOKEN constraint. The old comment's argument was that whole-token templating
 #     "deliberately cannot compose `runs/run-N`", so a row queued at birth had to carry a
-#     pre-composed path. The goal dir is composable from the goal name, so the constraint has no
-#     subject — but the queued row still carries the resolved path, because the templating key set
-#     is closed and the arg is validated at the enqueue door AND at fire.
+#     pre-composed path. The goal dir is composable from the goal name, and since 7.778 no row is
+#     queued at birth at all, so the constraint has no subject on either side.
 #   · ⚠ THE DEADLOCK (inventory #73). `scaffold_and_queue` never wrote an open row itself, but the
 #     act it invoked did — `scaffold-seats` appended `state=open` to the goal's register, and the
 #     start row this verb queued then met the one-live-run gate holding that very row. The gate is
 #     already lease-founded (E1) and the register is gone, so the deadlock has no carrier left on
 #     either side. THIS FILE WRITES NO OPEN ROW ANYWHERE, and none may be added.
 
+# ── 7.778 — THE `start-workflow` DOOR THIS VERB USED TO ARM IS DELETED (owner-ruled 2026-08-12) ──
+#
+# This verb used to end by minting a `<goal>-workflow-start` job (`register-job`) and queueing it
+# `--delay-seconds` out (`add-job`), which fired `workflow_launcher.py` to open the goal's room and
+# launch its entry seat. All of it is GONE, and so is `workflow_launcher.py` itself.
+#
+# WHAT OPENS THE ENTRY SEAT NOW: the LANE. A goal is born with `<goal>/execution-lane` (task 7.777,
+# above), and the daemon's watch pass reads that marker every cadence and seeds the goals assigned
+# to `daemon` — one readiness predicate recomputed from disk, rather than a one-shot row planted at
+# birth that had to guess how long to wait. A `console` goal opens when a human types `rbtv run`.
+#
+# ⚠ WHAT IS **NOT** DELETED: the `start-workflow` ACTION TYPE. It is a generic dispatch category
+# with live consumers (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js` — one
+# of them a run-start safety gate). This row deleted the DOOR that armed it from goal creation,
+# never the category.
 
-def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bindings,
-                       conduct, claude_md, budget_json, delay_seconds=DELAY_DEFAULT,
+
+def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
+                       conduct, claude_md, budget_json,
                        ignite_bin="ignite", dry_run=False):
-    """SCAFFOLD-AND-QUEUE — the daemon-executed half of a caged requester's ask (task C2).
+    """SCAFFOLD — the daemon-executed half of a caged requester's ask (task C2).
+
+    ⚠ THE NAME STILL SAYS `and-queue` AND IT NO LONGER QUEUES ANYTHING (7.778). The verb name is
+    the tool's CLI contract and the `tools:` key in `config/spawn-profiles.yaml` that fires it, so
+    renaming it is a separate act with its own call sites; what it DOES is stated here.
 
     THE MEASUREMENT THIS SHAPE IS BUILT ON (evidence/c2/, probe-c2.js, 2026-08-08). Under the
     SHIPPED seat cage a channel-master-shaped service seat CANNOT create a goal directory
@@ -665,9 +790,10 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
         sender kind — the wire therefore works even if the channel master presents a bridge token.
 
     This function is the daemon side of that split: it drains the staged inbox, and for each
-    accepted request it scaffolds the goal (the write the requester could not make) and QUEUES the
-    goal's first workflow job `delay_seconds` out. It LAUNCHES NOTHING — `launch()` is the entry's
-    other act and stays out of this path deliberately. (It armed nothing either; arming is retired.)
+    accepted request it scaffolds the goal — the write the requester could not make, INCLUDING the
+    goal's lane marker (task 7.777). It QUEUES NOTHING and LAUNCHES NOTHING: the workflow-start row
+    it used to plant is deleted (7.778, § above) and `launch()` is the entry's other act, which
+    stays out of this path deliberately. What advances the goal from here is its LANE.
 
     ⚑ VALIDATION STRICTLY PRECEDES THE SCAFFOLD. A malformed or refused payload must leave no goal
     directory behind, so parse and `validate()` both run before `scaffold_goal` is reached.
@@ -695,8 +821,6 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
                 "requester owns this folder, so a symlinked inbox or settle target relocates every "
                 "write made here outside the cage. NOTHING was drained; replace it with a real "
                 "directory.")
-
-    run_at = (datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def settle(src, verdict, record):
         """Move the request out of the inbox and record where it went."""
@@ -792,77 +916,11 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
                            conduct, claude_md, budget_json,
                            workflow=workflow, root=True, dry_run=dry_run)
 
-            # THE GOAL'S FIRST WORKFLOW JOB. `register-job` mints the catalogue row HOMED at this
-            # goal (`--goal/--seat` are both-or-neither at the CLI); the home is what lets the
-            # daemon ensure the goal's channel at workflow start. `add-job` then queues it
-            # `delay_seconds` out.
-            #
-            # ⚑ `register-job` is CREATE-ONLY with no update surface, so a failure here is a REFUSAL
-            # of this request rather than something to retry around: re-driving a half-registered id
-            # needs a human, and sniffing the failure text for "already exists" would be reading a
-            # message as if it were a policy (project ledger S-3).
-            #
-            # ⚠ THIS IS THE SCAFFOLD-THEN-REGISTER SEAM, AND A FAILURE PAST IT LEAVES THE GOAL
-            # STANDING. Owner ruling `d-owner-q10-launcher-0808` (3): a failed registration leaves
-            # the scaffolded goal AS-IS, documented — NO UNWIND IS BUILT, and none may be added
-            # here. The reason is not tidiness: the daemon cannot prove it ALONE created that
-            # directory, so a delete-on-failure would be a destructive act taken on an assumption.
-            # The partial state is instead DISCLOSED — the `settle` record below carries
-            # `goal-name`, `goal-dir`, `goal-exists` and `scaffolded`, which is what makes an orphan
-            # findable from the refusal record rather than only from a walk of the goals root.
-            job_id = f"{goal}-workflow-start"
-            if all(s.get("rc", 0) == 0 for s in steps):
-                # ⚠ `entry-seat` RIDES THE ROW as well as homing the job (task C5, ruling
-                # `d-owner-q10-launcher-0808` (2)). The two carriers are not redundant: the
-                # `--goal/--seat` HOME is what the ticker resolves a seat folder from at fire, while
-                # the ARG is what the launcher's argv template expands `{{entry-seat}}` from. The
-                # home cannot serve the argv — `resolveJobHome` yields a path, not the seat's name —
-                # and the arg cannot serve the home, because the home is a JOB-level registration
-                # the ticker resolves a seat folder from, which no queue-row arg is read for.
-                # ⚠ The reason is NOT "the Q9 dedup key never reads args content" (corrected, C5
-                # review 2026-08-08): `seatKeyOf` DOES fall back to `args.workdir` when a job
-                # carries no goal/seat, and it returns null for every action type except
-                # `launch-agent` — so it does not see a start-workflow row at all. Measured:
-                # `evidence/c5-review/c5r-03-dedup-entryseat.txt`.
-                # Both are declared `required`: an absent value would compose an argv missing a
-                # flag's operand, which fails looking like a success.
-                steps.append(_run([ignite_bin, "register-job", job_id,
-                                   "--action-type", "start-workflow",
-                                   "--goal", goal, "--seat", entry_seat,
-                                   # ⚠ ALL FOUR ARE `required`, AND `workdir` MOVED HERE FROM
-                                   # `optional` (task C5E). Every one of them fills an operand of
-                                   # the launcher's templated argv, and the ticker falls back to the
-                                   # carrier's DEFAULT workdir when a row carries none — so an
-                                   # absent value does not fail, it composes a command line pointed
-                                   # somewhere else, or one missing a flag's operand. That is the
-                                   # failure that looks like a success, and `required` is what makes
-                                   # it a refusal at the enqueue door instead.
-                                   "--args-schema", json.dumps({"required": {"workflow": "string",
-                                                                             "entry-seat": "string",
-                                                                             "goal": "string",
-                                                                             "workdir": "string"}})],
-                                  "register-workflow-job", dry_run))
-            if all(s.get("rc", 0) == 0 for s in steps):
-                steps.append(_run([ignite_bin, "add-job", "--fn", job_id,
-                                   # ⚠ `workdir` IS THE PACKAGE — which, since 7.607 E2a, IS the
-                                   # goal dir (design-lock item 8; task C5E's clause 3 "the full
-                                   # package path rides the queued job's args as a whole token"
-                                   # still holds, the path is just shorter). It is read TWICE
-                                   # downstream and both readings want the package: it expands into
-                                   # `{{workdir}}` in the
-                                   # launcher's argv, and `launchStartWorkflow` passes it to
-                                   # `runToolLikeExec` as the fired process's CWD.
-                                   # `goal` rides as its own arg rather than being parsed back out
-                                   # of that path: it is a member of the templating mechanism's
-                                   # CLOSED key set, so as an arg it is validated by `nameRule` at
-                                   # the enqueue door AND again at fire, while a name sliced out of
-                                   # a path would be checked by whatever the slicer remembered to do.
-                                   "--args-json", json.dumps({"workflow": workflow,
-                                                              "entry-seat": entry_seat,
-                                                              "goal": goal,
-                                                              "workdir": str(package)}),
-                                   "--trigger", "scheduled", "--at", run_at],
-                                  "queue-workflow-job", dry_run))
+            # NO ROW IS QUEUED HERE ANY MORE (7.778). The `register-job` + `add-job` pair that
+            # minted `<goal>-workflow-start` and scheduled it `--delay-seconds` out is DELETED with
+            # the door it armed; the goal's lane marker (written by the scaffold above) is what the
+            # daemon's watch pass reads to seed it. `ignite_bin` is therefore invoked by nothing in
+            # this verb — the flag survives on the CLI so the shipped argv keeps parsing.
 
             failed = [s for s in steps if s.get("rc", 0) != 0]
             results.append(settle(src, "REFUSED" if failed else "ACCEPTED", {
@@ -876,10 +934,7 @@ def scaffold_and_queue(inbox, goals_root, workflow, entry_seat, catalog_root, bi
                 # diagnosed from.
                 "package": str(package),
                 "package-exists": package.is_dir(),
-                "workflow-job-id": job_id,
                 "workflow": workflow,
-                "run-at": run_at,
-                "delay-seconds": delay_seconds,
                 "steps": steps,
                 "scaffolded": any(s.get("step") == "create-goal" and s.get("rc", 0) == 0
                                   for s in steps),
@@ -1050,13 +1105,16 @@ def main(argv=None):
     # drained directory is the only shape that does. See scaffold_and_queue's docstring for the
     # measurements that settled this.
     q = sub.add_parser("scaffold-and-queue",
-                       help="drain a staged request inbox: scaffold each goal, queue its first workflow job")
+                       help="drain a staged request inbox: scaffold each goal into its declared "
+                            "lane (the name's `-and-queue` half is historical — 7.778 deleted the "
+                            "workflow-start row this verb used to plant)")
     q.add_argument("--inbox", required=True,
                    help="directory the requester stages request JSON into (its own seat folder)")
     q.add_argument("--goals-root", required=True)
-    q.add_argument("--workflow", required=True, help="the workflow name the queued job starts")
-    q.add_argument("--entry-seat", required=True,
-                   help="the workflow's entry seat — register-job homes --goal/--seat both or neither")
+    q.add_argument("--workflow", required=True,
+                   help="the workflow the created goal is materialized with (`scaffold-seats "
+                        "--workflow`). Since 7.778 it starts nothing by itself — the goal's LANE "
+                        "does")
     # ⚠ THE FIVE BASE INPUTS OF A CREATED RUN PACKAGE, ALL REQUIRED, NONE DEFAULTED (task C5E).
     # `scaffold-seats` REFUSES `create-inputs-missing` without the last three and states why:
     # "this command never invents run conventions and never defaults a floor". Those base texts are
@@ -1075,10 +1133,10 @@ def main(argv=None):
                    help="caller-supplied CLAUDE.md base text for the created goal package")
     q.add_argument("--budget-json", required=True,
                    help="caller-supplied budget.json for the created goal package (a PATH, never a value)")
-    q.add_argument("--delay-seconds", type=int, default=DELAY_DEFAULT,
-                   help="how far out the workflow job is queued (default: %(default)s seconds)")
     q.add_argument("--ignite-bin", default="ignite",
-                   help="the door's binary; a daemon-fired exec has no ~/.local/bin on PATH")
+                   help="the door's binary; a daemon-fired exec has no ~/.local/bin on PATH. "
+                        "UNUSED since 7.778 deleted the two gateway calls this verb made — kept so "
+                        "the shipped `tools:` argv keeps parsing")
     q.add_argument("--dry-run", action="store_true")
 
     args = p.parse_args(argv)
@@ -1088,11 +1146,10 @@ def main(argv=None):
         # instead of killing the whole fire. It therefore takes no `request` argument and must not
         # go through the single-payload read below.
         if args.verb == "scaffold-and-queue":
-            out = scaffold_and_queue(args.inbox, args.goals_root, args.workflow, args.entry_seat,
+            out = scaffold_and_queue(args.inbox, args.goals_root, args.workflow,
                                      args.catalog_root, args.bindings, args.conduct,
                                      args.claude_md, args.budget_json,
-                                     delay_seconds=args.delay_seconds, ignite_bin=args.ignite_bin,
-                                     dry_run=args.dry_run)
+                                     ignite_bin=args.ignite_bin, dry_run=args.dry_run)
             print(json.dumps(out, indent=2))
             for req in out["requests"]:
                 if req["outcome"] != "ACCEPTED":
