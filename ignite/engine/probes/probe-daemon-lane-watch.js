@@ -83,6 +83,37 @@ function mutantWatch(from, to) {
   return m.exports.runLaneWatch;
 }
 
+// The same harness pointed at `seeding.js` instead, for L9. It needs the extra step because
+// `index.js:37` DESTRUCTURES `seedGoal` at module load — recompiling `seeding.js` alone would leave
+// `createEngine` closed over the real one — so the mutant is placed in `require.cache` under
+// seeding's own resolved path and `index.js` is evicted, which makes the next `require` re-bind
+// `seedGoal` to the mutant. Deliberately boring, and both cache entries are restored in `finally`
+// so no arm after this one runs against a mutated build. `lane-watch.js` is NOT touched: the pass
+// reaches the store through `engine.seedGoal`, so mutating seeding alone is the honest edit.
+const SEEDING_PATH = require.resolve('../seeding');
+const ENGINE_INDEX_PATH = require.resolve('../index');
+const SEEDING_SRC = fs.readFileSync(SEEDING_PATH, 'utf8');
+function withMutantSeeding(from, to, fn) {
+  if (!SEEDING_SRC.includes(from)) {
+    throw new Error(`mutation anchor ABSENT in seeding.js — the arm would measure nothing: ${from}`);
+  }
+  const savedSeeding = require.cache[SEEDING_PATH];
+  const savedIndex = require.cache[ENGINE_INDEX_PATH];
+  const m = new Module(SEEDING_PATH, null);
+  m.filename = SEEDING_PATH;
+  m.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
+  m._compile(SEEDING_SRC.replace(from, to), SEEDING_PATH);
+  m.loaded = true;
+  require.cache[SEEDING_PATH] = m;
+  delete require.cache[ENGINE_INDEX_PATH];
+  try {
+    return fn(require('../index').createEngine);
+  } finally {
+    require.cache[SEEDING_PATH] = savedSeeding;
+    require.cache[ENGINE_INDEX_PATH] = savedIndex;
+  }
+}
+
 // ── fixture ───────────────────────────────────────────────────────────────────────────────────
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-lane-watch-'));
 const workspace = path.join(tmp, 'workspace');
@@ -865,6 +896,106 @@ async function main() {
       `remaining call sites: ${(disabled.match(/laneWatchPass\(\);/g) || []).length}`);
   }
 
+  // ── L9 · THE SEAT IS ENQUEUED WITH ITS INSTRUCTIONS ─────────────────────────────────────────
+  //
+  // THE DEFECT `d34277c6` CLOSED, which nothing here measured: `enqueueEligible` submitted
+  // `{profile, workdir}` and NO PROMPT, so `spawn.js#ensurePromptFile` wrote 0 bytes, systemd
+  // connected an empty file as stdin, and the harness refused — "Error: Input must be provided
+  // either through stdin or as a prompt argument when using --print", exit 1, on execs 26274 and
+  // 26358. The seeding pass had never successfully launched a seat, and every arm above stayed
+  // green throughout, because every one of them stops at "a row was enqueued".
+  //
+  // ⚠ WHY THIS IS NOT AN ARGV ASSERTION, and cannot be. The prompt NEVER APPEARS IN ARGV:
+  // `ticker.js:654` reads `args.prompt ?? null`, `spawn.js:233-241` sees `profile.exec.prompt ===
+  // 'stdin'` and routes to `ensurePromptFile` (:141-147), which writes the bytes 0600 and hands
+  // systemd `StandardInput=file:`. The composed command line carries no prompt operand at all —
+  // correctly so. The two surfaces that CAN witness the defect are the ENQUEUED ROW'S `args.prompt`
+  // and that file's bytes; this arm measures the first, at the door the defect lived behind.
+  //
+  // ⚠ ITS OWN FRESH GOAL AND ITS OWN FRESH STORE. Every goal above has been advanced by a prior
+  // arm — flipped lanes, released locks, completed turns — and a row enqueued eight arms ago says
+  // nothing about what THIS pass composed.
+  say('');
+  say('L9 — the enqueued row carries the seat\'s BOOT PROMPT, and it is coord\'s own bytes');
+  const promptGoal = makeGoal('prompt-goal');
+  laneCli(['prompt-goal', '--set', 'daemon', '--profile', 'probe-lane']);
+  const L9_JOB = 'seat-prompt-goal-alpha';
+  const L9_ANCHOR = 'args: JSON.stringify({ profile, workdir: seatDir, prompt }),';
+  // THE EXPECTATION IS COMPUTED, NEVER TYPED: `coordinate boot-prompt` is the ONE composer
+  // (`seeding.js#seatBootPrompt` shells exactly this), so a hand-written string here would be a
+  // second composer and the arm would pass on drift between them.
+  const expectedPrompt = execFileSync(requirePythonCmd(),
+    [path.join(IGNITE_SRC, 'team-kit', 'coord.py'), '--package', promptGoal, 'boot-prompt', 'alpha'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  check('L9 coord composes a NON-EMPTY boot prompt for this seat — the arm\'s own premise, asserted '
+    + 'before anything is compared against it',
+    expectedPrompt.trim().length > 0, `${expectedPrompt.length} bytes`);
+
+  function l9Pass(createEngineFn, dbPath, root) {
+    const engine = createEngineFn({
+      dbPath, profiles: cfg.profiles, spawnConfigPath: configPath, userManager: false,
+    });
+    let pass;
+    try { pass = laneWatch.runLaneWatch({ goalsRoot: root, engine }); } finally { engine.close(); }
+    const s = openHeartStore({ dbPath, profiles: cfg.profiles });
+    const row = s.dump().queue.find((r) => r.job_id === L9_JOB);
+    s.close();
+    return { pass, row, pickup: pass.adopted.find((a) => a.goal === 'prompt-goal') };
+  }
+
+  const l9 = l9Pass(createEngine, path.join(tmp, 'l9.db'), goalsRoot);
+  // NON-VACUITY, BOTH HALVES, BEFORE `args` IS EVER READ. Without these, "the goal was never
+  // adopted" and "no row was enqueued" would both reach the prompt checks as `undefined` and
+  // could be spun as "nothing wrong with the prompt".
+  check('L9 the pass ADOPTED the goal and enqueued a NON-EMPTY seat list — the premise the two '
+    + 'checks below rest on, so an empty store can never read as a healthy prompt',
+    !!l9.pickup && Array.isArray(l9.pickup.enqueued) && l9.pickup.enqueued.length > 0,
+    l9.pickup ? `enqueued: ${(l9.pickup.enqueued || []).join(', ') || 'none'}` : 'goal NOT adopted');
+  check(`L9 …and the row for \`${L9_JOB}\` EXISTS in the queue`, !!l9.row,
+    l9.row ? `queue_id=${l9.row.queue_id}` : 'no row');
+  const l9args = l9.row ? JSON.parse(l9.row.args) : {};
+  check('L9 the enqueued row carries a NON-EMPTY string `prompt` — the key `d34277c6` added, and '
+    + 'the ONLY surface the launch reads it from',
+    typeof l9args.prompt === 'string' && l9args.prompt.length > 0,
+    `prompt: ${typeof l9args.prompt}${typeof l9args.prompt === 'string' ? ` ${l9args.prompt.length} bytes` : ''}`
+    + ` · keys: ${Object.keys(l9args).join(', ') || 'none'}`);
+  check('L9 …and those bytes are IDENTICAL to what `coordinate boot-prompt alpha` prints — '
+    + 'non-empty alone would pass on a placeholder, a truncation, or another seat\'s prompt',
+    l9args.prompt === expectedPrompt,
+    l9args.prompt === expectedPrompt ? `${expectedPrompt.length} bytes, byte-for-byte`
+      : `enqueued ${JSON.stringify(String(l9args.prompt).slice(0, 60))}… vs coord `
+        + `${JSON.stringify(expectedPrompt.slice(0, 60))}…`);
+
+  // M9 · THE HISTORICAL DEFECT, put back. `765c9fac:seeding.js:503` — the line immediately before
+  // the fix — read `args: JSON.stringify({ profile, workdir: seatDir })`, so this mutation restores
+  // the pre-`d34277c6` enqueue EXACTLY for any goal whose boot prompt composes. The whole pre-fix
+  // FILE was the other candidate and was rejected on measurement: `e5dff4b8` landed 78 further
+  // lines in `seeding.js` AFTER the fix, so checking the old file out would revert that too and
+  // redden this arm for a reason that is not the defect.
+  {
+    const mutRoot = path.join(tmp, 'm9');
+    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ profile, workdir: seatDir }),',
+      (mutantCreateEngine) => l9Pass(mutantCreateEngine, path.join(tmp, 'm9.db'), mutRoot));
+    const m9args = m9.row ? JSON.parse(m9.row.args) : {};
+    // THE MUTANT'S OWN NON-VACUITY: it must still adopt and still enqueue, or the arm below would
+    // go red because nothing ran rather than because the prompt went missing.
+    check('L9 M9 CONTROL: the mutant still adopts the goal and still enqueues the seat — so the '
+      + 'red below is a MISSING PROMPT and not a pass that did nothing',
+      !!m9.pickup && (m9.pickup.enqueued || []).length > 0 && !!m9.row,
+      m9.pickup ? `enqueued: ${(m9.pickup.enqueued || []).join(', ') || 'none'} · row: ${!!m9.row}` : 'not adopted');
+    check('L9 M9 the prompt key REMOVED from the enqueue (the pre-`d34277c6` line, verbatim) -> '
+      + 'BOTH prompt checks above go RED — the 0-byte-stdin defect, reproduced',
+      !(typeof m9args.prompt === 'string' && m9args.prompt.length > 0) && m9args.prompt !== expectedPrompt,
+      `mutant args keys: ${Object.keys(m9args).join(', ') || 'none'}`);
+  }
+  // AND THE BUILD IS UNMUTATED AGAIN — the cache restore is asserted, not trusted, because every
+  // arm that runs after a `require.cache` swap depends on it having been undone.
+  check('L9 M9 the require-cache swap was UNDONE: the live build still carries the prompt key',
+    require('../seeding') === require.cache[SEEDING_PATH].exports
+      && fs.readFileSync(SEEDING_PATH, 'utf8').includes(L9_ANCHOR),
+    'seeding.js restored');
+
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
@@ -880,7 +1011,10 @@ main().then(() => {
       + 'end to end with nothing re-run. It refuses an unknown profile at BOTH doors and registers '
       + 'nothing for one; its failure lines are bounded per marker and go loud again the moment the '
       + 'marker changes; and it REPORTS the human-interactive seat it knowingly dispatches headless '
-      + '(behaviour unchanged, 7.626 owns the fix). Six mutations red.');
+      + '(behaviour unchanged, 7.626 owns the fix). And the seat it enqueues carries ITS BOOT '
+      + 'PROMPT — coord\'s own bytes, not a placeholder — which is the one thing every arm above '
+      + 'this one was blind to while no real seat had ever launched. Every mutation red (the count '
+      + 'is deliberately not a literal here: it read "Six" through three further mutations).');
   say(`FINDINGS: ${findings.length} (a PASS means "measured" — read the findings for the open bounds)`);
   say(`WALL_MS ${Date.now() - start}`);
   say(`EXIT ${exitCode}`);

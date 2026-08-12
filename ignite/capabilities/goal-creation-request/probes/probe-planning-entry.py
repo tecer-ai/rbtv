@@ -193,6 +193,9 @@ def make_shims(d, marker):
     `probe-sensor-start.py` (certified, 7.552) and here. Unification is deliberately DECLINED:
     one copy is certified and the two probe copies live in the same directory. Revisit ONLY on a
     FOURTH site, or on the first DIVERGENCE between the copies.
+    ⚠ 2026-08-12 (IPH-24): the EMPTY-INPUT REFUSAL below was added to ALL THREE COPIES IN ONE
+    COMMIT, so the trigger above did NOT fire — the copies did not diverge, they moved together.
+    A future change to the guard must move all three the same way or the trigger DOES fire.
     """
     d.mkdir(parents=True, exist_ok=True)
     real = shutil.which("tmux")
@@ -201,10 +204,37 @@ def make_shims(d, marker):
     hb = d / ".hb"
     hb.mkdir(exist_ok=True)
     shutil.copy2("/bin/bash", hb / "claude")
+    # THE EMPTY-INPUT REFUSAL (IPH-24). Until now the stub ignored argv and ACCEPTED a launch line
+    # the real binary REFUSES, so a green suite sat over a launch lane where every real daemon seat
+    # died on empty input. Measured on this box 2026-08-12: `claude --model M </dev/null` and
+    # `claude -p --model M "" </dev/null` BOTH print the line below and exit 1. UNGATED by `-p` on
+    # purpose — the real binary refuses without `-p` too, and a `-p`-gated guard would be dead code
+    # in the tmux lane this probe drives. AN OPERAND is a non-empty argument that is neither a flag
+    # NOR a flag's value, so `--model M` / `--effort high` are never read as a turn. Stricter than
+    # the real binary only for an interactive-TTY-with-no-prompt launch, which this lane never
+    # composes (`coord.py#harness_command` always appends `"$(cat <prompt-file>)"`).
+    # ponytail: prev-token rule instead of claude's real flag table — a boolean flag immediately
+    # before the prompt, or a subcommand-first line, would misread; neither is composed here.
+    # The marker `printf` stays FIRST so the "did the stub run" evidence survives a refusal.
     (d / "claude").write_text(
         f"#!{hb / 'claude'}\n"
-        "# stub harness — no model, no network, no cost. Flags are deliberately ignored.\n"
+        "# stub harness — no model, no network, no cost. Flags are ignored, but an argv carrying\n"
+        "# NO user turn is REFUSED exactly as the real binary refuses it.\n"
         f'printf "%s\\n" "$*" >> {marker}\n'
+        'op=; pf=0\n'
+        'for a in "$@"; do\n'
+        '  case $a in\n'
+        '    -*) pf=1 ;;\n'
+        '    "") pf=0 ;;\n'
+        '    *) [ "$pf" = 0 ] && op=1\n'
+        '       pf=0 ;;\n'
+        '  esac\n'
+        'done\n'
+        'if [ -z "$op" ] && ! read -rt 1 _; then\n'
+        '  echo "Error: Input must be provided either through stdin or as a prompt argument'
+        ' when using --print" >&2\n'
+        '  exit 1\n'
+        'fi\n'
         "while :; do read -rt 3600 _ || true; done\n", encoding="utf-8")
     for f in ("tmux", "claude"):
         (d / f).chmod(0o755)

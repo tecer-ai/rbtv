@@ -160,9 +160,44 @@ KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "t
 # harness name; argv[0] is the copy's path, so tmux reports the harness name; the script body
 # runs, so flags are ignored; and `read -t` is a builtin, so there is NO CHILD PROCESS and the
 # foreground process group is the stub itself.
+# ⚠ THE EMPTY-INPUT REFUSAL (2026-08-12, IPH-24) IS DUPLICATED VERBATIM in `probe-planning-entry.py`
+# and `probe-sensor-start.py`, and all three were changed in the SAME commit. The standing trigger
+# recorded in those two files says to revisit unification on the first DIVERGENCE — this change is
+# deliberately NOT one: the guard is byte-identical at all three sites.
+#
+# WHY IT EXISTS: until now the stub ignored argv entirely and accepted a launch line the REAL binary
+# REFUSES, so a 177-check suite stayed green while every real daemon-lane seat died on empty input.
+# Measured on this box 2026-08-12 — `claude --model M </dev/null` and `claude -p --model M "" </dev/null`
+# BOTH print the line below and exit 1. UNGATED by `-p` on purpose: the real binary refuses without
+# `-p` too (first case), and a `-p`-gated guard would be dead code in the tmux lane these probes
+# drive. AN OPERAND is a non-empty argument that is neither a flag NOR a flag's value, so
+# `--model M` and `--effort high` are never mistaken for a turn. Stricter than the real binary only
+# for an interactive-TTY-with-no-prompt launch, which this lane never composes (`coord.py#
+# harness_command` always appends `"$(cat <prompt-file>)"`).
+# ponytail: the prev-token rule stands in for claude's real flag table. Two known ceilings, neither
+# reachable from `harness_command`: a BOOLEAN flag placed immediately before the prompt reads as its
+# value, and a subcommand-first line (`opencode run … P`) reads the subcommand as the operand.
+# Upgrade to an explicit value-taking-flag list if either shape ever gets composed.
+STUB_GUARD = ('op=; pf=0\n'
+              'for a in "$@"; do\n'
+              '  case $a in\n'
+              '    -*) pf=1 ;;\n'
+              '    "") pf=0 ;;\n'
+              '    *) [ "$pf" = 0 ] && op=1\n'
+              '       pf=0 ;;\n'
+              '  esac\n'
+              'done\n'
+              'if [ -z "$op" ] && ! read -rt 1 _; then\n'
+              '  echo "Error: Input must be provided either through stdin or as a prompt argument'
+              ' when using --print" >&2\n'
+              '  exit 1\n'
+              'fi\n')
+
 STUB_BODY = ("#!{interp}\n"
              "# stub harness for acceptance-room — no model, no network, no cost.\n"
-             "# Args are deliberately ignored: a launcher may pass --model/--permission-mode.\n"
+             "# Flags are ignored (a launcher may pass --model/--permission-mode), but an argv\n"
+             "# carrying NO user turn is REFUSED exactly as the real binary refuses it.\n"
+             + STUB_GUARD +
              "while :; do read -rt 3600 _ || true; done\n")
 
 # The seat set `s4-09` §3 requires. `mode:` is Stage 3/4 vocabulary the descriptor declares and
