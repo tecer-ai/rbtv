@@ -99,11 +99,11 @@ PROVIDERS = {
 # store (opencode's auth.json): one key each, so there is nothing to switch between — usage
 # only. Add a PROVIDERS row above the day a second key exists.
 OPENCODE_STORE_KEYS = {"zai": "zai-coding-plan", "deepseek": "deepseek", "sakana": "sakana",
-                       "google": "google", "kimi": "moonshot"}
+                       "google": "google", "kimi": "moonshot", "xai": "xai"}
 CONSOLE_URLS = {"google": "aistudio.google.com", "sakana": "console.sakana.ai",
-                "kimi": "kimi.com"}
+                "kimi": "kimi.com", "xai": "grok.com/?_s=usage"}
 CLAUDE_WINDOW_LABELS = {"five_hour": "5h", "seven_day": "7d"}
-USAGE_PROVIDERS = ("claude", "codex", "zai", "deepseek", "kimi", "google", "sakana")
+USAGE_PROVIDERS = ("claude", "codex", "zai", "deepseek", "kimi", "google", "sakana", "xai")
 COMMANDS = {"ls", "list", "add", "use", "rm", "usage", "providers", "doctor"}
 
 DOC_PROVIDERS = """Providers — what acct can switch, and where each usage figure comes from
@@ -128,6 +128,12 @@ DOC_PROVIDERS = """Providers — what acct can switch, and where each usage figu
   deepseek  usage only: GET api.deepseek.com/user/balance -> money balance (no windows)
   google    no usage endpoint for an AI Studio key (verified 2026-07-24) -> console only
   sakana    no balance/usage endpoint (verified 2026-07-24) -> console only
+  xai       usage only, console only. The credential is an OAUTH entry in opencode's store
+            (access/refresh/expires, no `key`), so presence is read off `access`. No usage
+            endpoint for a Grok subscription login (2026-08-13). ⚠ As of that date the
+            account has no credits/subscription — a live run returns
+            `personal-team-blocked:spending-limit`, so presence here means logged in, NOT
+            usable.
 """
 
 
@@ -317,8 +323,12 @@ def opencode_store(path=None):
 
 
 def opencode_key(provider, path=None):
+    """The credential opencode holds for a provider, or None. Entries are `type: api` with a
+    `key`, EXCEPT oauth logins (xai) which carry `access`/`refresh`/`expires` and no `key` —
+    reading only `key` there reports a live login as `no credential` (measured 2026-08-13)."""
     store_key = OPENCODE_STORE_KEYS.get(provider, provider)
-    return (opencode_store(path).get(store_key) or {}).get("key")
+    entry = opencode_store(path).get(store_key) or {}
+    return entry.get("key") or entry.get("access")
 
 
 def fmt_epoch(epoch):
@@ -541,7 +551,7 @@ def usage_rows(provider=None, which=None):
             data = parse_codex_sessions(HOME / ".codex" / "sessions")
         elif prov == "kimi":
             data = kimi_usage(os.environ.get("MOONSHOT_API_KEY") or opencode_key("kimi"))
-        elif prov in ("google", "sakana"):
+        elif prov in ("google", "sakana", "xai"):
             state = "key present" if opencode_key(prov) else "no credential"
             data = {"note": f"{state} · console only", "console": CONSOLE_URLS[prov]}
         else:
@@ -756,6 +766,16 @@ def selftest():
            "data": {"error": "token expired " + "y" * 200}}]
     ck("posh-fits", all(len(re.sub(r"\033\[[0-9;]*m", "", l)) <= 60
                         for l in posh_lines(_r, 60, time.time())))
+
+    # opencode's store holds api entries (`key`) AND oauth ones (`access`, no `key`) — both count
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        f.write(json.dumps({"deepseek": {"type": "api", "key": "sk-1"},
+                            "xai": {"type": "oauth", "access": "tok", "refresh": "r"}}))
+        _store = f.name
+    ck("store-api-key", opencode_key("deepseek", _store) == "sk-1")
+    ck("store-oauth-access", opencode_key("xai", _store) == "tok")
+    ck("store-absent", opencode_key("sakana", _store) is None)
+    os.unlink(_store)
 
     # slot round-trip against a REAL temp provider: save -> ident -> active -> use.
     with tempfile.TemporaryDirectory() as td:

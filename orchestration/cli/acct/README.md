@@ -56,6 +56,7 @@ providers, not a gap here.
 | zai | — | ✅ | One key in opencode's shared `auth.json`; nothing to switch between |
 | deepseek | — | ✅ balance | Pay-as-you-go: a money balance, no windows |
 | google, sakana | — | console only | No usage endpoint exists (verified 2026-07-24) |
+| xai | — | console only | Grok subscription login exposes no usage endpoint (2026-08-13). Its `auth.json` entry is `type: oauth` (`access`/`refresh`/`expires`, **no** `key`) — presence is read off `access`, so a login is not mistaken for `no credential` |
 
 Adding a switchable provider is one row in the `PROVIDERS` table: the files (or JSON keys) that
 make up a login, plus how to read an account id out of them.
