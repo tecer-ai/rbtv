@@ -179,6 +179,26 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
     const outcome = ((rec && rec.outcome) || '').trim();
     if (!rec || !outcome || outcome === DONE) continue;
     if (view.finished.has(row.seat) || view.notFinished.has(row.seat)) continue;
+    // ⚠ NEVER AUTO-MINT AGAINST ANOTHER LANE'S SEAT (owner ruling 2026-08-13). `foreign` is "this
+    // seat's last execution belongs to a DIFFERENT lane's own store" — the cross-lane
+    // never-double-dispatch guarantee. A grant RELEASES a foreign hold (`recordView`'s grant loop),
+    // which is correct for a HUMAN-granted relaunch and wrong here: this path is unattended, so a
+    // seat that crashed under the console lane, seen by nobody, would be retried by the daemon on
+    // its next pass. A cross-lane failure waits for a human instead. Measured red without this
+    // line: `probe-daemon-lane-watch.js` L5 (`held-goal`/alpha).
+    if (view.foreign.has(row.seat)) {
+      if (logger) {
+        logger({
+          level: 'info',
+          message: 'seat NOT retried — its last execution belongs to another lane; an unattended '
+            + 'auto-mint would release the cross-lane hold, so this one waits for a human',
+          seat: row.seat,
+          outcome,
+          evidence: String(view.foreign.get(row.seat) || '').slice(0, 400),
+        });
+      }
+      continue;
+    }
     if (granted.has(row.seat)) continue;
     let out;
     try {

@@ -178,16 +178,22 @@ async function main() {
     `foreign=${withDaemonStore((s) => [...seeding.recordView(s, g1).foreign.keys()].join()) || 'none'}`);
 
   const c1 = daemonPass(g1, 'grant-control');
-  check('LEG 1 with no grant the daemon lane does NOT enqueue the failed seat',
-    c1.pickup.enqueued.length === 0, `enqueued ${JSON.stringify(c1.pickup.enqueued)} · states ${JSON.stringify(c1.pickup.states)}`);
-  // The hold must be VISIBLE. This bar is satisfied by task 7.776's visibility fix, which landed in
-  // `seeding.js` concurrently with this build: the skip used to be a bare `continue` with no log
-  // line and nothing in the return, which is how the live goal sat still for 18 hours looking
-  // healthy. If this arm ever goes red, that report is what was lost.
-  const heldReported = c1.logs.some((m) => m.seat === SEAT && /NOT enqueued|held/.test(m.message || ''))
-    || Boolean(c1.pickup.heldByStore && c1.pickup.heldByStore[SEAT]);
-  check('LEG 1 …and the hold is REPORTED — a silent skip is the defect that hid this for 18 hours',
-    heldReported, c1.logs.filter((m) => m.seat === SEAT).map((m) => m.message).join(' | ') || 'nothing logged');
+  // ⚠ RE-STATED FOR THE RULED DESIGN (task 7.776 + D4). This arm used to pin "no grant ⇒ held ⇒
+  // the seat waits for a human", which was the DEFECT: a failed seat on the daemon's OWN lane, seen
+  // by nobody, sat still forever. `mintRetryGrants` now mints the daemon's own bounded grant on
+  // exactly this shape, so the honest control is that the seat IS retried. The seat that still
+  // waits for a human is the one another lane failed (LEG 9) and the one past its bound (LEG 2).
+  check('LEG 1 with no grant on disk the daemon MINTS ITS OWN and enqueues the failed seat — its own '
+    + 'lane\'s failure is its own to retry',
+    c1.pickup.enqueued.includes(SEAT), `enqueued ${JSON.stringify(c1.pickup.enqueued)} · states ${JSON.stringify(c1.pickup.states)}`);
+  // The act must be VISIBLE, for the same reason the hold had to be: the skip used to be a bare
+  // `continue` with no log line and nothing in the return, which is how the live goal sat still for
+  // 18 hours looking healthy. An unattended retry that says nothing is that defect wearing the
+  // other face — nobody could tell a goal advancing from a goal burning its budget.
+  check('LEG 1 …and the daemon SAYS SO — an unattended retry nobody can read is the same blindness '
+    + 'the silent skip was',
+    c1.logs.some((m) => m.seat === SEAT && /seat RETRIED/.test(m.message || '')),
+    c1.logs.filter((m) => m.seat === SEAT).map((m) => m.message).join(' | ') || 'nothing logged');
 
   // ── LEG 2 · THE DAEMON ARM — the grant file, and the call lane-watch actually makes ──────────
   say('');
@@ -195,8 +201,27 @@ async function main() {
   const g2 = makeGoal('grant-daemon');
   const job2 = seeding.jobIdFor(SEAT, 'grant-daemon');
   withDaemonStore((s) => synthTerminalAttempt(s, g2, { jobId: job2, outcome: 'failed', storeStatus: 'failed' }));
+  // ⚠ THE FIXTURE MUST REACH THE STATE THE MANUAL GRANT IS FOR, or this leg measures nothing. Since
+  // D4 the daemon's own pass mints and enqueues this shape by itself (LEG 1), so an ungranted
+  // "control" pass now ENQUEUES — the manual grant that follows would never be exercised, and both
+  // halves would pass off the auto-retry. `DAEMON_RETRY_BOUND` (coord.py) is TWO automatic attempts
+  // per seat for the life of the goal; spend them, and what is left is exactly the human's door.
+  // The queue row is drained between passes for LEG 3's own reason: it would hold the seat on its
+  // own and the next pass would decline for a reason that has nothing to do with any grant.
+  const drainQueue = () => withDaemonStore((s) => {
+    for (const q of s.listQueue()) if (q.job_id === job2) s.removeQueueRow({ queueId: q.queue_id });
+  });
+  const autos = [daemonPass(g2, 'grant-daemon')];
+  drainQueue();
+  autos.push(daemonPass(g2, 'grant-daemon'));
+  drainQueue();
+  check('LEG 2 the daemon spends its OWN two automatic attempts first — the bound is a budget',
+    autos.every((a) => a.pickup.enqueued.includes(SEAT)),
+    autos.map((a) => JSON.stringify(a.pickup.enqueued)).join(' then '));
   const before2 = daemonPass(g2, 'grant-daemon');
-  check('LEG 2 CONTROL half: the same goal, ungranted, enqueues nothing',
+  drainQueue();
+  check('LEG 2 CONTROL half: with the automatic budget exhausted and no grant on disk, the seat '
+    + 'waits for a human — the pass enqueues nothing',
     before2.pickup.enqueued.length === 0, JSON.stringify(before2.pickup.enqueued));
 
   grantsApi.grantRelaunch(g2, SEAT);
@@ -218,9 +243,7 @@ async function main() {
   // …and BEHAVIOURALLY. The queue row this pass wrote would hold the seat on its own, so it is
   // removed first: without that, a second pass declines for a reason that has nothing to do with
   // the grant and the arm would pass whether or not the grant was ever spent.
-  withDaemonStore((s) => {
-    for (const q of s.listQueue()) if (q.job_id === job2) s.removeQueueRow({ queueId: q.queue_id });
-  });
+  drainQueue();
   const second2 = daemonPass(g2, 'grant-daemon');
   check('LEG 3 …and a SECOND pass does not enqueue it again, with the queue row cleared out of the way',
     second2.pickup.enqueued.length === 0,
@@ -321,9 +344,16 @@ async function main() {
   // ── LEG 7 · FAIL-CLOSED — an unreadable grant file is NOT a grant ────────────────────────────
   say('');
   say('LEG 7 — an unreadable grant file yields NO grant, and never throws');
+  // ⚠ THE LAST ROW IS `blocked`, NOT `failed`, AND THAT IS WHAT KEEPS THIS LEG ABOUT THE FILE.
+  // Since D4 a `failed` daemon-lane row is auto-minted a grant by the pass itself, so the seat
+  // would be enqueued whatever this file says and the arm would go red for a reason that has
+  // nothing to do with fail-closed reading. `blocked` is excluded from the automatic retry AT
+  // COORD'S OWN DECISION (`DAEMON_RETRY_FROM_OUTCOMES`, coord.py — a blocked seat is waiting on the
+  // owner), so the ONLY thing that could release this seat is a readable grant file: exactly the
+  // authorization the corrupted file must never synthesize.
   const g7 = makeGoal('grant-unreadable');
   const job7 = seeding.jobIdFor(SEAT, 'grant-unreadable');
-  withDaemonStore((s) => synthTerminalAttempt(s, g7, { jobId: job7, outcome: 'failed', storeStatus: 'failed' }));
+  withDaemonStore((s) => synthTerminalAttempt(s, g7, { jobId: job7, outcome: 'blocked', storeStatus: 'blocked' }));
   grantsApi.grantRelaunch(g7, SEAT);
   fs.chmodSync(path.join(g7, grantsApi.GRANT_FILE), 0o000);
   let readThrew = null;
@@ -337,6 +367,12 @@ async function main() {
     + 'can never synthesize an authorization',
     unreadablePass.pickup.enqueued.length === 0, JSON.stringify(unreadablePass.pickup.enqueued));
   fs.chmodSync(path.join(g7, grantsApi.GRANT_FILE), 0o644);
+  // NOT VACUOUS: with the SAME file readable the seat runs. Without this arm a hold from any other
+  // cause would pass the arm above, and a fail-closed claim nothing could falsify is not a claim.
+  const readablePass = daemonPass(g7, 'grant-unreadable');
+  check('LEG 7 …and the same file, READABLE, does release it — the arm above measures the file and '
+    + 'not some other hold',
+    readablePass.pickup.enqueued.includes(SEAT), JSON.stringify(readablePass.pickup.enqueued));
 
   // ── LEG 8 · THE REMEDY HINT IS REACHABLE ON `blocked` (the folded-in defect) ─────────────────
   //
@@ -384,6 +420,37 @@ async function main() {
     truth.outcome === 'blocked' && truth.unfinished.includes('bravo')
       && truth.grantable.join() === 'alpha',
     `unfinished ${JSON.stringify(truth.unfinished)} · grantable ${JSON.stringify(truth.grantable)}`);
+
+  // ── LEG 9 · THE AUTOMATIC RETRY IS THE DAEMON'S OWN LANE ONLY (owner ruling 2026-08-13) ───────
+  //
+  // The mint above is UNATTENDED. `foreign` is the record's statement that this seat's last
+  // execution belongs to ANOTHER lane's store — the cross-lane never-double-dispatch guarantee —
+  // and a grant RELEASES a foreign hold. Both are correct; minting one automatically is not: a seat
+  // that crashed under the console lane, inspected by nobody, would be picked up by the daemon on
+  // its next pass. It waits for a human instead. A human's grant releasing that hold is untouched
+  // (LEG 8 names the seat as grantable for exactly this state).
+  say('');
+  say('LEG 9 — a seat ANOTHER LANE failed is never auto-retried, and the daemon says why');
+  const g9 = makeGoal('grant-cross-lane');
+  {
+    const s9 = nextSession();                      // another lane's store: no row of ours anywhere
+    record.openExecution({ goalFolder: g9, seat: SEAT, sessionId: s9, lane: 'console', startedAt: isoNow() });
+    record.closeExecution({ goalFolder: g9, sessionId: s9, outcome: 'failed', endedAt: isoNow() });
+  }
+  check('LEG 9 the fixture IS the cross-lane shape — the record calls the seat FOREIGN',
+    withDaemonStore((s) => seeding.recordView(s, g9).foreign.has(SEAT)),
+    withDaemonStore((s) => [...seeding.recordView(s, g9).foreign.values()].join()) || 'not foreign');
+  const cross = daemonPass(g9, 'grant-cross-lane');
+  check('LEG 9 the daemon does NOT auto-mint against it and does NOT enqueue it — the cross-lane '
+    + 'hold outranks the automatic retry',
+    cross.pickup.enqueued.length === 0
+      && !cross.logs.some((m) => m.seat === SEAT && /seat RETRIED/.test(m.message || '')),
+    `enqueued ${JSON.stringify(cross.pickup.enqueued)} · ${cross.logs.filter((m) => m.seat === SEAT).map((m) => m.message).join(' | ') || 'nothing logged'}`);
+  check('LEG 9 …and it is REPORTED, naming the lane — a seat waiting for a human must be findable',
+    cross.logs.some((m) => m.seat === SEAT && /another lane/.test(m.message || '')),
+    cross.logs.filter((m) => m.seat === SEAT).map((m) => m.message).join(' | ') || 'nothing logged');
+  check('LEG 9 …while a HUMAN\'s grant still releases it — the ruling narrows the AUTOMATIC path only',
+    (() => { grantsApi.grantRelaunch(g9, SEAT); return daemonPass(g9, 'grant-cross-lane').pickup.enqueued.includes(SEAT); })());
 
   finding('`lane-watch.js` is UNTOUCHED by this build, and that is the structural claim: the grant is '
     + 'sourced INSIDE `recordView`/`enqueueEligible`, so every caller of `seedGoal` — including ones '
