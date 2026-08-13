@@ -76,6 +76,12 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    task" is useless. A re-check-in (relaunch, recovery) supersedes your prior row automatically —
    UNLESS the pane that already holds your name is still alive, in which case the check-in is
    REFUSED (P37): follow R-confirm-dead before you retry.
+   ⚠ **The DAEMON LANE is the one exception, and your own boot prompt states it** — do not derive it
+   from here. A daemon-lane seat is a `systemd-run` unit with no tmux pane for `checkin` to resolve
+   it against, and its session row was opened for it at spawn, so it is told NOT to run this command.
+   It still CHECKS OUT: that half works on this lane and is the sole producer of `incomplete` and of
+   the leader route flag. Its session-id is the `session-id` cell of its own still-open row in
+   `{package}/sessions.csv` — never a line printed by a check-in that did not happen.
 2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
    at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
    (`--type note`, direct to `leader` — a note broadcast is refused by the tool): what it

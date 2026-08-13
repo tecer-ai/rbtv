@@ -79,9 +79,20 @@ anchor you resolve.
   disposition. A successor seat is READY only when EVERY predecessor has checked out clean with
   disposition `done`. This is an obligation on your own close: a check-out you skip or leave dirty
   blocks seats you will never meet.
-- **The `exited` disposition never advances an edge.** It is written by the MACHINERY for a seat that
-  could not write its own. It routes to the seat holding run authority, which has exactly two exits:
-  rule a relaunch, or flip the row to `done`. A routed edge never sits blocking its successors.
+- **If you CANNOT finish, `checkout --incomplete "<reason>"` — the honest ending, and it is YOURS.**
+  It advances no edge, and that is exactly the point: it says the work stopped unfinished instead of
+  pretending it did not. Nobody may overwrite it — not the machinery, and not the run authority,
+  whose flip verb REFUSES a cell its own writer filled. What an `incomplete` row gets instead is a
+  relaunch the run authority mints against that row, per instance. Never take a plain `checkout`
+  because a row "has to be closed": a plain `checkout` asserts your briefing's output EXISTS.
+- **The `exited` disposition never advances an edge, and the machinery writes it ONLY when NOBODY
+  declared.** It attests that the harness terminated — a fact a seat cannot witness about itself —
+  and says nothing about whether the work is finished. Where you DID declare, the machinery carries
+  YOUR value across to the durable trace and records itself as the carrier (`kit-for-seat`), never
+  as you. An `exited` row routes to the seat holding run authority, which has exactly two exits:
+  rule a relaunch, or — on a RECORDED INVESTIGATION of that row — flip it to `done`. That flip verb
+  admits exactly two from-states, `exited` and an EMPTY cell; it is not a way to tidy any other
+  value, and `incomplete` is not among them. A routed edge never sits blocking its successors.
 - **DETECTION is the deterministic watch layer's — no seat watches, and no watcher seat is staffed.**
   Its chain is: detect → inline mechanical fix → nudge the SEAT → nudge the run authority
   (`d-watcher-deterministic-chain`). ⚠ **`chief-of-staff` and `closer` are RETIRED roles.** Never
