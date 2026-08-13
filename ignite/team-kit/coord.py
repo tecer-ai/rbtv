@@ -2403,12 +2403,41 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 DISPOSITION_WRITER_SEAT = "seat"
 DISPOSITION_WRITER_KIT = "kit"
 DISPOSITION_WRITER_LEADER = "leader"
+# ⚠⚠ W1 — THE FOURTH WRITER: THE KIT TRANSCRIBING A DECLARATION THE SEAT ALREADY MADE.
+#
+# It exists for ONE measured shape, the DAEMON LANE. A daemon-lane seat's check-out reaches
+# `awaiting-close.json` (a writable path) and its `sessions.csv` stamp fails EROFS-soft — the run
+# package's session trace is carved READ-ONLY into every cage on purpose (anti-spoofing, and that
+# carve STAYS). So the live surface carries the seat's own `incomplete` and the durable one is
+# empty, and the moment the lifecycle executor clears the live entry the honest ending is GONE.
+# The session-closer's job is to copy the value across before that happens.
+#
+# ⚠ IT IS A TRANSCRIPTION, NEVER A JUDGMENT, and every use of it must read the value off
+# `awaiting-close.json`. `kit` proper attests to what the KIT witnessed (a harness terminated →
+# `exited`); this token attests to what the SEAT DECLARED, carried by the kit because the seat
+# could not reach the durable surface itself. A caller that INVENTS a value under this token has
+# put words in a seat's mouth — the misgrading R-6 bars — and the writer column would then record
+# a lie with a provenance attached, which is worse than no column.
+#
+# ⚠ ITS THREE VALUES ARE EXACTLY THE SEAT-DECLARABLE ONES (`done`, `renew`, `incomplete`) and it
+# is admitted for NEITHER `exited` NOR `revive`. Those two are the kit's own attestations and are
+# reached under `kit`, which the closer still uses when NOBODY declared anything. Narrowing this
+# token to `incomplete` alone was considered and refused: the same transcription is needed for
+# `done` and `renew` (a daemon-lane seat declares those on the same broken surface), and a carve
+# that admits one third of one act would need re-widening on its first real use.
+#
+# ⚠ AUDITABILITY IS THE WHOLE PRICE OF ADMITTING IT. The `disposition-writer` column records
+# `kit-for-seat` and NOT `seat`, so an operator can always tell a value the occupant wrote itself
+# from one the kit carried on its behalf. Reusing `seat` here would have been a smaller diff and
+# would have made the two indistinguishable forever.
+DISPOSITION_WRITER_KIT_FOR_SEAT = "kit-for-seat"
 RECORD_DISPOSITION_WRITER = {
-    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
-    "renew": frozenset({DISPOSITION_WRITER_SEAT}),
+    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER,
+                       DISPOSITION_WRITER_KIT_FOR_SEAT}),
+    "renew": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_KIT_FOR_SEAT}),
     "revive": frozenset({DISPOSITION_WRITER_KIT}),
     "exited": frozenset({DISPOSITION_WRITER_KIT}),
-    "incomplete": frozenset({DISPOSITION_WRITER_SEAT})}
+    "incomplete": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_KIT_FOR_SEAT})}
 
 
 def validate_disposition(disposition, writer):
@@ -3690,7 +3719,38 @@ RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")
 # discriminates is therefore not state: it is the leader's per-instance minting act — `is_leader`
 # -gated, seat- and session-bound, single-use, spent at admission, with the anchor recorded. The
 # trade was weighed and OWNED at that ruling; it is not being discovered here.
-RELAUNCH_GRANT_FROM_STATES = ("exited", "done")
+# ⚠ W1/F4 — `incomplete` IS A MEMBER (owner-ruled). An honestly-unfinished seat is the ONE class
+# whose whole point is that it should come back, and before this widening all three recovery doors
+# were shut on it: the flip verb refuses it (correctly — a leader may not rewrite a seat's own
+# declaration), `--declare-only` is the EMPTY cell's instrument, and the grant refused it by state.
+#
+# ⚠ IT IS SAFE ON THE DAG BECAUSE NO AFTER-EDGE READS IT. Readiness gates on the LITERAL `done`;
+# an `incomplete` row advances nothing, so admitting a relaunch against it cannot hand a successor
+# a stale product. That is the property that makes this widening different in kind from widening
+# `RULED_FLIP_FROM_STATES`, WHICH IS NEVER DONE: the flip verb writes the DAG-advancing value.
+RELAUNCH_GRANT_FROM_STATES = ("exited", "done", "incomplete")
+
+# ⚠ (adv, C21) THE DAEMON'S OWN GRANTS DO NOT REACH `incomplete`, and the split is the guard.
+# `seat-retry` mints against the EXECUTION record's outcome and knows nothing about what the seat
+# declared; a daemon grant spent on an `incomplete` row would relaunch an honestly-held seat from
+# its stale seed, unattended, on a loop — the exact failure the honest ending exists to prevent.
+# The leader's per-instance minting act is what discriminates, so `incomplete` is admitted for
+# LEADER-minted grants only, keyed on the anchor (`DAEMON_RETRY_ANCHOR` is the recorded
+# discriminator by design — see its own block). Widens again when W3's payload carrier exists.
+LEADER_ONLY_GRANT_FROM_STATES = ("incomplete",)
+
+
+def grant_from_states_for(anchor):
+    """The from-states a grant carrying `anchor` admits. The daemon's automatic anchor gets the
+    pre-F4 pair; every other (leader-minted, per-instance, answered-for) anchor gets the full set.
+
+    DERIVED BY SUBTRACTION from the two constants above rather than spelled as a third literal
+    tuple: a later widening of `RELAUNCH_GRANT_FROM_STATES` must land in exactly one place, and a
+    third spelling is the drift the two-constant split above exists to prevent."""
+    if (anchor or "").strip() == DAEMON_RETRY_ANCHOR:
+        return tuple(s for s in RELAUNCH_GRANT_FROM_STATES
+                     if s not in LEADER_ONLY_GRANT_FROM_STATES)
+    return RELAUNCH_GRANT_FROM_STATES
 
 # ---- 7.776: THE DAEMON'S OWN RETRY BUDGET, AND WHY IT RANGES OVER A DIFFERENT VOCABULARY ------
 #
@@ -3738,15 +3798,21 @@ DAEMON_RETRY_BOUND = 2
 DAEMON_RETRY_ANCHOR = "p-daemon-self-grant-retry"
 
 
-def relaunch_grant_from_phrase():
+def relaunch_grant_from_phrase(states=None):
     """The grant's admissible from-states as one back-ticked phrase, DERIVED from the constant.
+
+    `states` overrides the default set for the ANCHOR-scoped refusal in `cmd_launch`'s P3b leg,
+    where the admissible set is narrower than the constant (`grant_from_states_for`). Passing the
+    set the caller actually tested is the same RD-EC-5 discipline the paragraph below states:
+    never render a set the code did not use.
 
     Derived and not spelled, deliberately, and it is the opposite call from the constant above:
     what a refusal must name is the SET as it currently stands, so a later widening cannot leave
     the text describing a set the code no longer uses. The row's OWN cell is always interpolated
     separately — RD-EC-5's lesson, where a report line printed a constant where the row's value
     belonged and told the leader a row carried `exited` when it carried nothing at all."""
-    return " / ".join(f"`{s}`" for s in RELAUNCH_GRANT_FROM_STATES)
+    return " / ".join(f"`{s}`" for s in
+                      (RELAUNCH_GRANT_FROM_STATES if states is None else states))
 
 
 def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
@@ -13535,9 +13601,215 @@ def attest_exit_seat(args, seat):
     return steps
 
 
+# ---------- W1: THE SESSION-CLOSER — attest-exit's DAEMON-LANE candidate source ----------------
+#
+# ⚠ IT IS THE SAME VERB, DELIBERATELY (adv, C1). `attest-exit` is already the specced kit-side
+# writer for "a harness terminated and nobody closed the row": it flips the roster, writes both
+# disposition surfaces, closes the session row, and advances no edge. What it LACKED was a
+# candidate source that works where there is no tmux (the daemon lane) and a caller inside the
+# engine. Minting a second closing verb would have given one act two instruments and two places
+# for the writer bound to drift apart.
+#
+# ⚠⚠ THE ROW KEY IS THE SESSION-ID AND NEVER THE SEAT NAME (adv, C6). The daemon HOLDS the id — it
+# wrote the open row itself at spawn (`spawn.js` § THE AT-DISPATCH RECORD, keyed by the same
+# `session_id` the `jobs_log` row carries). Matching by seat name would stamp whichever row is open
+# for that name RIGHT NOW, which under concurrent sittings is a LIVE one: F4's race, performed by
+# the mechanism built to close F3.
+#
+# ⚠⚠ THE VALUE IS READ, NEVER CHOSEN (adv, C2). `awaiting-close.json` is the LIVE declaration and
+# on the daemon lane it is the ONLY surface a seat's own check-out can reach — the session trace is
+# carved read-only into every cage (anti-spoofing; that carve STAYS). A closer that tested only the
+# session row's cell would see it empty on EVERY daemon-lane seat, write `exited` on top of a
+# declared `incomplete`, and manufacture DISPOSITION SKEW — which parks the row until a human
+# adjudicates and makes every honest `incomplete` unrelaunchable. So: declaration present → that
+# value, carried under `kit-for-seat`; declaration absent → `exited`, the kit's own attestation.
+# BOTH SURFACES, ONE VALUE, DURABLE FIRST (`cmd_rule_disposition`'s rule, unchanged).
+
+
+def session_row_by_id(pkg, sid):
+    """`(seat, ended, pid, pid_starttime)` for the session row named `sid`, or None.
+
+    Read-only and by SESSION-ID: this is the daemon lane's row key and the whole reason the closer
+    cannot misattribute under concurrent sittings."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return None
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if "session-id" not in idx or "seat" not in idx:
+        return None
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["session-id"]].strip() == sid:
+            return (r[idx["seat"]].strip(),
+                    r[idx["ended"]].strip() if "ended" in idx else "",
+                    r[idx["pid"]].strip() if "pid" in idx else "",
+                    r[idx["pid-starttime"]].strip() if "pid-starttime" in idx else "")
+    return None
+
+
+def close_session_row_by_id(pkg, base, sid, disposition, writer):
+    """Stamp `ended` + the disposition pair on the OPEN row named `sid`. `(seat, why)`.
+
+    RAISES nothing the caller must handle except `validate_disposition`'s ValueError, which is a
+    caller-contract breach and stays loud (R-8). Every environmental failure is reported as `why`.
+
+    It is `session_close`'s twin, keyed differently and NOT a rewrite of it: `session_close` targets
+    a SEAT's last open row (right for a check-out, which is the occupant speaking) and this targets
+    ONE session-id (right for a closer, which is a third party speaking about a specific ending)."""
+    if disposition:
+        validate_disposition(disposition, writer)
+    with coord_lock(base):
+        path = sessions_csv(pkg)
+        if not path.exists():
+            return "", f"no sessions.csv under {pkg}"
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        header, widened = widen_header(header, SESSIONS_COLS)
+        if widened:
+            rows = [pad_row(r, header) for r in rows]
+        idx = {c: i for i, c in enumerate(header)}
+        if "session-id" not in idx or "ended" not in idx:
+            return "", "sessions.csv carries no `session-id`/`ended` columns"
+        target = None
+        for r in rows:
+            pad_row(r, header)
+            if r[idx["session-id"]].strip() == sid and not r[idx["ended"]].strip():
+                target = r
+        if target is None:
+            return "", f"no OPEN row carries session-id `{sid}`"
+        target[idx["ended"]] = now()
+        if disposition and "disposition" in idx:
+            target[idx["disposition"]] = disposition
+            if "disposition-writer" in idx:
+                target[idx["disposition-writer"]] = writer
+        write_csv_table(path, header, rows)
+        return target[idx["seat"]].strip(), ""
+
+
+def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
+    """Every reason the session-closer must NOT close `sid`, as a list. EMPTY means act.
+
+    A LIST for `attest_exit_blockers`' reason — a caller and a human reading a dry pass must see
+    WHICH term held. The tmux-lane predicate's terms do not transfer: there is no roster row, no
+    `state.json` sensor pass and no pane to re-read, so the evidence is the ROW plus /proc.
+
+      (a) the row is still OPEN                      — a closed row is nobody's to close again
+      (b) its recorded process is DEAD               — pid+starttime, the identity pair the row
+                                                       already carries; a live one is not an exit
+      (c) the two disposition records do not SKEW    — a skew is a human's to adjudicate
+      (d) no LIVE lifecycle executor holds the seat  — mid-renewal is not an exit
+    """
+    base = base_dir(args, register=False)
+    pkg = package_dir(args, register=False)
+    why = []
+    if ended:
+        why.append(f"(a) the row for session `{sid}` is ALREADY CLOSED (ended {ended}) — there is "
+                   f"nothing left to close, and re-stamping it would rewrite a settled ending")
+    # ⚠ `ident_is_live_process`, NOT the harness predicate: a daemon-lane exec is whatever the
+    # launch spec named, and the harness predicate answers DEAD for processes that are plainly
+    # alive — which would close a RUNNING seat's row. An UNREADABLE pair is not evidence of death
+    # either, so it refuses (fail-closed) rather than assuming the exit it exists to record.
+    if not pid or not pid_starttime:
+        why.append("(b) the row carries no pid/pid-starttime pair, so this arm cannot establish "
+                   "that the process is gone — and an absence of evidence is not evidence of an "
+                   "exit. The engine caller passes `--force-dead` when IT witnessed the death")
+    elif not getattr(args, "force_dead", False) and ident_is_live_process((pid, pid_starttime)):
+        why.append(f"(b) pid {pid} (starttime {pid_starttime}) is STILL ALIVE — the process this "
+                   f"row names has not exited, and closing its row would end a live session on "
+                   f"paper while it keeps working")
+    _value, _source, skew = terminal_disposition(pkg, base, seat)
+    if skew:
+        why.append(f"(c) its two disposition records DISAGREE (awaiting-close.json={skew[0]} | "
+                   f"sessions.csv={skew[1]}) — a skew is a human's to adjudicate, and closing on "
+                   f"top of one would bury the contradiction")
+    entry = load_lifecycle(base).get(seat)
+    _ex = lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
+    if (isinstance(entry, dict) and entry.get("state") == "in-flight" and _ex
+            and ident_is_live_process((_ex["pid"], _ex["starttime"]))):
+        why.append("(d) a LIVE lifecycle executor holds this seat — it is mid-renewal, not exited")
+    return why
+
+
+def close_session_seat(args, sid, seat):
+    """Perform the daemon-lane close for ONE session-id. Returns the list of step strings.
+
+    THE VALUE IS DECIDED HERE, ONCE, and both surfaces receive it — see the block at the head of
+    this section for why reading `awaiting-close.json` rather than the row is the whole design."""
+    base = base_dir(args, register=False)
+    pkg = package_dir(args, register=False)
+    steps = []
+    entry = load_awaiting(base).get(seat)
+    declared = (entry.get("disposition", "done") or "").strip() if isinstance(entry, dict) else ""
+    if declared and declared in RECORD_DISPOSITION_WRITER and (
+            DISPOSITION_WRITER_KIT_FOR_SEAT in RECORD_DISPOSITION_WRITER[declared]):
+        value, writer = declared, DISPOSITION_WRITER_KIT_FOR_SEAT
+        steps.append(f"declaration: '{seat}' declared `{declared}` in awaiting-close.json — "
+                     f"CARRIED, not overridden (writer `{writer}`)")
+    else:
+        # `exited` is the honest answer when NOBODY declared anything, and it is the only value
+        # this arm ever originates. A declared `exited`/`revive` lands here too: those are the
+        # kit's own attestations and are re-stated under the kit's own token, not transcribed.
+        value, writer = "exited", DISPOSITION_WRITER_KIT
+        steps.append(f"declaration: none this arm may carry ({declared or 'no entry'}) — "
+                     f"attesting `exited`, THE HARNESS TERMINATED and nothing more")
+    # DURABLE FIRST — it is the surface that survives the lifecycle executor's clear.
+    closed_seat, cerr = close_session_row_by_id(pkg, base, sid, value, writer)
+    steps.append(f"sessions.csv: {sid} ended, disposition `{value}` by `{writer}`" if not cerr
+                 else f"sessions.csv: row NOT completed — {cerr}")
+    row = current_row(load_workers(base)[2], seat) or {}
+    if row.get("active") == "yes":
+        def flip(r):
+            r["active"] = "no"
+            r["checkout"] = f"closed {now()}"
+
+        ok, note = update_row(base, seat, flip)
+        steps.append("roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
+    if set_awaiting(base, seat, row.get("pane", ""), (entry or {}).get("transcript", "")
+                    if isinstance(entry, dict) else "",
+                    bool((entry or {}).get("exported")) if isinstance(entry, dict) else False,
+                    disposition=value, writer=writer):
+        steps.append(f"awaiting-close.json: disposition `{value}` recorded — BOTH SURFACES, ONE "
+                     f"VALUE")
+    else:
+        steps.append("awaiting-close.json: NOT recorded — the debt is unrecorded, say so")
+    if value == "exited":
+        # (adv, C10) An `exited` row routes to a LEADER, and until W3 lands there is no leader seat
+        # on the daemon lane to route it to. Said out loud on every close rather than left for
+        # somebody to discover from a row that never moves. Remove this note when W3 lands.
+        steps.append("⚠ INTERIM (pre-W3): an `exited` row routes to a LEADER and no leader seat "
+                     "is staffed on this lane yet — this row will sit until W3's staff wiring "
+                     "lands or a human rules it (`rule-disposition`).")
+    return steps, closed_seat, value
+
+
 def cmd_attest_exit(args):
     """Attest that a one-shot harness terminated. BARE = report; `--go` = act."""
     base = base_dir(args, register=False)
+    # ── W1: THE DAEMON-LANE ARM. Keyed on the session-id the caller HOLDS, so it never touches
+    # `state.json` (there is no sensor on this lane) and never matches by seat name (adv, C6).
+    sid = (getattr(args, "session", None) or "").strip()
+    if sid:
+        pkg = package_dir(args, register=False)
+        found = session_row_by_id(pkg, sid)
+        if found is None:
+            print(f"no candidate: no row in {sessions_csv(pkg)} carries session-id `{sid}`. "
+                  f"This arm closes a row the daemon itself opened; it invents none.")
+            return
+        seat, ended, pid, pid_st = found
+        why = daemon_close_blockers(args, sid, seat, ended, pid, pid_st)
+        if why:
+            print(f"{c(seat, C_LABEL)}  NOT CLOSABLE (session `{sid}`)")
+            for w in why:
+                print(f"    {w}")
+            sys.exit(1)
+        print(f"{c(seat, C_LABEL)}  CLOSABLE — session `{sid}` is open and its process is gone")
+        if not getattr(args, "go", False):
+            print("    (report only — nothing was written. Re-run with --go to act.)")
+            return
+        steps, _closed, _value = close_session_seat(args, sid, seat)
+        for step in steps:
+            print(f"    {step}")
+        return
     snap = load_state_snapshot(base)
     candidates = ([args.seat] if getattr(args, "seat", None)
                   else sorted({(r.get("seat") or "") for r in ((snap or {}).get("roster_absent")
@@ -15091,10 +15363,14 @@ def cmd_launch(args):
         # `p-fourth-lane-option-A-trade-owned` widened THIS class to reach a hold-exit `done` row
         # and ruled the flip verb's class byte-untouched, because one constant read across two
         # verbs would have carried the widening into a power to rewrite a `done` disposition.
-        if _rl_disp not in RELAUNCH_GRANT_FROM_STATES:
+        # (adv, C21) The admissible set is the ANCHOR's, not the constant's: a daemon-minted
+        # automatic grant does not reach `incomplete`. See `grant_from_states_for`.
+        _rl_admits = grant_from_states_for(_relaunch_anchor)
+        if _rl_disp not in _rl_admits:
             refuse("state",
                    f"P3b: last ENDED disposition is not one this instrument admits "
-                   f"({relaunch_grant_from_phrase()}) — '{_rl_t}'s last ENDED row ({_rl_sid}) "
+                   f"({relaunch_grant_from_phrase(_rl_admits)}) — '{_rl_t}'s last ENDED row "
+                   f"({_rl_sid}) "
                    f"carries `{_rl_disp or '(empty)'}`. An EMPTY cell is the UNDECLARED class, "
                    "whose one instrument is `--declare-only <leader-anchor>`; `renew` and `revive` "
                    "are live lanes that relaunch their own row and need no grant.\n"
@@ -15160,6 +15436,15 @@ def cmd_launch(args):
                    "is what makes the authorization checkable. A flag alone admits nothing.", 1)
         _relaunch_ruled_admitted = True
         _relaunch_target = _rl_t
+        # W1/F3 — THE PRESERVED `incomplete` CLEARS HERE, at the admission that supersedes it.
+        # `close-seat` now keeps a seat's own `incomplete` entry alive so the honest ending is not
+        # erased; the moment a relaunch is ADMITTED that entry is about a session this launch
+        # replaces, and leaving it would hand the fresh sitting a live declaration of its
+        # predecessor's ending — read as SKEW the first time the successor checks out.
+        if clear_awaiting(base_dir(args), _rl_t):
+            print(f"awaiting close: '{_rl_t}' preserved `incomplete` entry CLEARED — this "
+                  f"admitted relaunch supersedes the session that declared it (the durable "
+                  f"`sessions.csv` row keeps the record).")
         _relaunch_grant = dict(_rl_g)
         # THE ATTESTATION — on stdout with the HINT colour, never a refusal's stream or colour, and
         # it asserts ONLY what the tool verified. Its disclaimer is deliberately NOT
@@ -16156,7 +16441,28 @@ def cmd_close_seat(args):
     # than at the kill below so the RENEW path clears it too — an in-place renew keeps the pane
     # deliberately (G-12), and a debt left standing for a seat that is back and running would make
     # the record lie in the opposite direction.
-    if clear_awaiting(base, args.target):
+    # W1/F3 — THE `incomplete` ENTRY SURVIVES A PLAIN CLOSE, and it is the only value that does.
+    #
+    # WHAT THE WIPE COST. `incomplete` is the seat's own statement that its work is unfinished, and
+    # on the daemon lane `awaiting-close.json` is the ONLY surface that carries it (the session row
+    # is EROFS-empty inside the cage). Clearing it here erased the honest ending and left the seat
+    # indistinguishable from one that never checked out — so every recovery door that reads a
+    # disposition read nothing, and the manual pattern then had to write `done` about work that
+    # fail-blocked. The debt settlement was correct about PANES and wrong about the RECORD.
+    #
+    # ⚠ THE RENEW ARM STILL WIPES, AND THE EXCEPTION IS LOAD-BEARING (adv, C5, G-134's own reason).
+    # A renew brings the seat straight BACK: the successor is live, checked in and working, and a
+    # stale `incomplete` sitting in the live surface beside its fresh session row is DISPOSITION
+    # SKEW — two records of one seat's ending that disagree — which parks every reader until a
+    # human adjudicates. A renewed seat's ending is the successor's to declare.
+    _aw_entry = load_awaiting(base).get(args.target)
+    _aw_disp = (_aw_entry.get("disposition", "done") or "").strip() if isinstance(_aw_entry, dict) else ""
+    if _aw_disp == "incomplete" and not args.renew:
+        print(f"awaiting close: '{args.target}' entry KEPT — it carries the seat's own "
+              f"`incomplete`, the honest ending this close does not get to erase. It clears when "
+              f"the seat is relaunched (the relaunch admission clears it) or when a leader rules "
+              f"the row.")
+    elif clear_awaiting(base, args.target):
         print(f"awaiting close: '{args.target}' debt settled")
     old_window = ""
     if old_pane:
@@ -23914,8 +24220,18 @@ def _selftest_checks(args, failures, names):
         # BY HAND, with its justification written into the row's own prose. That is the only way a
         # pair may ever enter this set — never by deriving it from the mapping, which would retire
         # the tripwire on the first widening it was built to catch.
+        # ⚠ THE LITERAL HAS BEEN PAID A SECOND TIME (W1, the session-closer). This row went RED on
+        # the three `kit-for-seat` pairs exactly as designed, and each was added BY HAND with its
+        # justification here. `kit-for-seat` is the kit TRANSCRIBING a value the seat itself
+        # declared into a surface the seat could not reach (the daemon lane's `sessions.csv` is
+        # carved read-only into every cage), so it is admitted for the three SEAT-DECLARABLE values
+        # and for neither `exited` nor `revive` — those are the kit's OWN attestations, reached
+        # under `kit` proper. The `disposition-writer` column keeps the two tellable apart forever,
+        # which is the whole price of admitting the token at all.
         _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
-                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat")}
+                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat"),
+                          ("done", "kit-for-seat"), ("renew", "kit-for-seat"),
+                          ("incomplete", "kit-for-seat")}
         _w154_domain = ({"seat", "kit", "leader", "auditor"}
                         | set().union(*RECORD_DISPOSITION_WRITER.values()))
         _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
@@ -23923,7 +24239,8 @@ def _selftest_checks(args, failures, names):
         _w154_leader_exited = _d8_val("exited", DISPOSITION_WRITER_LEADER) or ""
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
               "full cross product of the enum and a writer domain WIDER than the model's own, the "
-              "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
+              "admitted set is EXACTLY {done<-seat, done<-leader, done<-kit-for-seat, "
+              "renew<-seat, renew<-kit-for-seat, incomplete<-kit-for-seat, revive<-kit, "
               "exited<-kit, incomplete<-seat} — six pairs, compared against a literal so this row "
               "cannot move with the mapping it grades. The leader is admitted for `done` "
               "(`d-exited-row-closure`: investigate the routed row, and where the work had "
@@ -26353,7 +26670,8 @@ def _selftest_checks(args, failures, names):
               "row's subject from a `done` row to a `renew` one — `done` is an ADMITTED class "
               "since `p-fourth-lane-option-A-trade-owned`, and asserting a refusal on it would be "
               "asserting the old law against the new code",
-              _a3_rr_rnw_code == 1 and "mints a grant on `exited` / `done` rows" in _a3_rr_rnw
+              _a3_rr_rnw_code == 1
+              and "mints a grant on `exited` / `done` / `incomplete` rows" in _a3_rr_rnw
               and _a3_rr_noend_code == 1 and "no ENDED session row" in _a3_rr_noend)
         _a3_rr_role, _a3_rr_role_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-x",
                                                go=True, **dict(_a3_rr_ns, agent="chief-of-staff"))
@@ -27278,8 +27596,10 @@ def _selftest_checks(args, failures, names):
               and [g for g in _a3_grants() if g["seat"] == "done1"][0]["session-id"]
               == sessions_last_ended(_a3l)["done1"][0]
               and [g for g in _a3_grants() if g["seat"] == "done1"][0]["minted-by"] == "leader"
-              and _f4_rvv_code == 1 and "mints a grant on `exited` / `done` rows" in _f4_rvv
-              and _f4_undec_code == 1 and "mints a grant on `exited` / `done` rows" in _f4_undec)
+              and _f4_rvv_code == 1
+              and "mints a grant on `exited` / `done` / `incomplete` rows" in _f4_rvv
+              and _f4_undec_code == 1
+              and "mints a grant on `exited` / `done` / `incomplete` rows" in _f4_undec)
 
         # ---- criterion 5: THE LADDER, hermetically, on the `done` class ------------------------
         _f4_dry = _a3_admit(dict(only="done1", relaunch_ruled=_f4_anchor))
@@ -27410,7 +27730,7 @@ def _selftest_checks(args, failures, names):
               and "force" not in _f4_mint_leg
               and "force" not in _f4_mint_src
               and "force" in _a3_src
-              and "if _rl_disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_ladder_src
+              and "if _rl_disp not in _rl_admits:" in _f4_ladder_src
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg)
 
         # ---- the separation, asserted at the SOURCE of the verb that must not have moved -------
@@ -27423,7 +27743,23 @@ def _selftest_checks(args, failures, names):
               not in _a3_inspect.getsource(session_rule_disposition)
               and "RULED_FLIP_FROM_STATES" in _a3_inspect.getsource(session_rule_disposition)
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
-              and "if _rl_disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_ladder_src)
+              and "_rl_admits = grant_from_states_for(_relaunch_anchor)" in _f4_ladder_src
+              and "RELAUNCH_GRANT_FROM_STATES"
+              in _a3_inspect.getsource(grant_from_states_for))
+
+        # ---- W1/F4 (adv, C21): THE DAEMON'S GRANTS DO NOT REACH `incomplete` -------------------
+        check("W1/F4 (adv, C21) THE ANCHOR NARROWS THE CLASS: `incomplete` is admitted for a "
+              "LEADER-minted grant and REFUSED for the daemon's automatic one, resolved off the "
+              "anchor alone. Without this, `seeding.js` — which mints against an EXECUTION outcome "
+              "and can see no disposition at all — would relaunch an honestly-held seat from its "
+              "stale seed, unattended, every pass. Both directions are exercised so a resolver "
+              "that returned one set for everything reds either way, and the daemon's set is "
+              "asserted to be exactly the pre-F4 pair rather than merely `smaller`",
+              "incomplete" in grant_from_states_for("p-some-leader-ruling")
+              and grant_from_states_for("p-some-leader-ruling") == RELAUNCH_GRANT_FROM_STATES
+              and grant_from_states_for(DAEMON_RETRY_ANCHOR) == ("exited", "done")
+              and "incomplete" not in grant_from_states_for(DAEMON_RETRY_ANCHOR)
+              and LEADER_ONLY_GRANT_FROM_STATES == ("incomplete",))
 
         # ============ 7.776: THE DAEMON SELF-GRANT (`seat-retry` + the DONE->READY flip) ========
         # ITS OWN PACKAGE, not `_a3l`. This block MINTS repeatedly against the bound and SPENDS,
@@ -27568,8 +27904,15 @@ def _selftest_checks(args, failures, names):
               "names the outcome one NOWHERE, and `cmd_seat_retry` is the mirror image. The "
               "positive control is that each slice is asserted to CONTAIN the predicate it is "
               "supposed to be showing, because an absence proves nothing about text that was never "
-              "there. The behavioural twin is the `exited` refusal two rows up",
-              RELAUNCH_GRANT_FROM_STATES == ("exited", "done")
+              "there. The behavioural twin is the `exited` refusal two rows up. W1/F4 RE-STATES "
+              "the invariant rather than merely re-pinning the tuple: the disposition set gained "
+              "`incomplete` (an honestly-unfinished seat is the one class that must be able to "
+              "come back, and no after-edge reads anything but a literal `done`), and DISJOINTNESS "
+              "is the property that survives the widening — a disposition word that ever equalled "
+              "an outcome word would let one constant's edit silently move the other file's "
+              "readers. `incomplete` is a disposition and NEVER an outcome, so the two tuples stay "
+              "disjoint and each verb still reads its own",
+              RELAUNCH_GRANT_FROM_STATES == ("exited", "done", "incomplete")
               and DAEMON_RETRY_FROM_OUTCOMES == ("failed", "killed")
               and not (set(RELAUNCH_GRANT_FROM_STATES) & set(DAEMON_RETRY_FROM_OUTCOMES))
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
@@ -32837,6 +33180,17 @@ def build_parser():
         "next: coordinate ready-seats — an `exited` row advances no edge until the leader "
         "relaunches the seat or flips its disposition to `done`")
     s.add_argument("--seat", help="one seat to consider; default is every roster_absent candidate")
+    # ── W1, THE DAEMON-LANE ARM. `--session` is the ROW KEY and never a filter: it selects the one
+    # row the caller opened, which is what keeps a close off a concurrent sitting's live row.
+    s.add_argument("--session", metavar="ID",
+                   help="(daemon lane) close the sessions.csv row carrying THIS session-id — the "
+                        "id the daemon itself wrote at spawn. Reads the seat's own declaration "
+                        "from awaiting-close.json and carries it; attests `exited` only when "
+                        "nobody declared anything. No tmux, no sensor snapshot, no name matching")
+    s.add_argument("--force-dead", action="store_true",
+                   help="(daemon lane, with --session) the CALLER witnessed the process exit, so "
+                        "skip the pid liveness re-check. For the engine's enforce/kill arms, "
+                        "which observed the death directly; never for a human")
     s.add_argument("--go", action="store_true",
                    help="ACT: export, flip the roster row, record `exited`, close the session row")
     s.set_defaults(func=cmd_attest_exit)

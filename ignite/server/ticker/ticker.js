@@ -9,7 +9,7 @@ const {
   generateSessionId,
   toolExecEnv,
 } = require('../spawn/carrier');
-const { exitFilePath, ensureExitFile } = require('../spawn/spawn');
+const { exitFilePath, ensureExitFile, closeSeatSessionRow } = require('../spawn/spawn');
 const { runWarningCheck } = require('./warnings-check');
 // Constants only — the ticker's store is INJECTED (`heartStore`), and this require never
 // constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
@@ -53,6 +53,8 @@ const DEFAULT_CONFIG = {
 // this in the v1 schema; this marker is stripped before spawn and before the
 // args are persisted in jobs_log.
 const CHAIN_MARKER = '__rbtv_chain_parent_exec_id';
+// W1 — how many seat session rows the closer may close in ONE tick. See its use in `enforce`.
+const CLOSER_MAX_PER_TICK = 5;
 
 // Private marker PERSISTED in a compaction turn's jobs_log args (unlike
 // CHAIN_MARKER it must survive the fire: Advance keys the always-re-dispatch
@@ -1636,10 +1638,29 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       liveSessionTurns().concat(heartStore.listExecutionsByStatus('stalled'))
     );
     const crashedThisTick = new Set();
+    // ── W1 · THE SESSION-CLOSER'S BUDGET FOR THIS TICK (adv, C14) ──────────────────────────────
+    // Each close is a BLOCKING `execFileSync` of python, and this loop runs INSIDE the tick. A
+    // backlog — a daemon restarted onto a store holding dozens of leaked rows — would otherwise
+    // stall the whole cadence on its first pass. Capped, so a backlog drains over several ticks
+    // instead of stopping the heart for one; the rows that do not fit this tick are still there
+    // next tick, because nothing else clears them.
+    let closerBudget = CLOSER_MAX_PER_TICK;
     for (const exec of liveBeforeCrash) {
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
       if (!info.live) {
+        // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
+        // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.
+        // What the ENGINE observed (clean exit / crash / already-reported) is a fact about the
+        // TURN; what the seat's row needs is the seat's OWN declaration, which coord reads off
+        // `awaiting-close.json`. Passing the engine's verdict down would be the engine asserting
+        // something about work only the occupant witnessed.
+        //
+        // Failure is never fatal and never breaks a `continue` below: the helper swallows and logs.
+        if (closerBudget > 0 && exec.workdir && exec.session_id) {
+          closerBudget -= 1;
+          closeSeatSessionRow({ workdir: exec.workdir, sessionId: exec.session_id, log });
+        }
         // ── G-222 · THE TURN ALREADY REPORTED. Write the SESSION, never the turn.
         //
         // What this sweep just observed is that a PROCESS is gone — a session-level fact. Before

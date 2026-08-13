@@ -403,6 +403,50 @@ function appendRowEnsuringHeader(csvPath, values, log) {
   return appendRow(csvPath, values);
 }
 
+// ── W1 · THE SESSION-CLOSER CALL — the engine half of F3 ────────────────────────────────────────
+//
+// WHAT WAS BROKEN. The daemon opens a `sessions.csv` row at spawn (§ THE AT-DISPATCH RECORD above)
+// and NOTHING ever closed it. A daemon-lane seat's own check-out reaches `awaiting-close.json` and
+// EROFSes on the row (the trace is carved read-only into every cage on purpose), so on every exit
+// the durable surface stayed open with an empty disposition — which every reader in coord takes as
+// "still working, forever". Ten hours of silent stall, measured 2026-08-13.
+//
+// ⚠ THE ENGINE DECIDES NOTHING HERE. It supplies the two facts it alone holds — WHICH row
+// (`--session`, the id it wrote itself) and THAT the process is gone (`--force-dead`, which it
+// witnessed) — and coord decides the VALUE by reading the seat's own declaration. An engine that
+// passed a disposition would be putting words in a seat's mouth from the one side that cannot
+// witness the work.
+//
+// ⚠ `--as ignite-daemon`, for `seeding.js`'s reason: the daemon's MAIN process is not a
+// daemon-fired exec, so coord's cgroup-keyed identity lane resolves nobody here.
+//
+// ⚠ NEVER THROWS AND NEVER BLOCKS A CALLER'S OWN WORK. A close that fails leaves the world exactly
+// as it was before this function existed, loudly. `execFileSync` is deliberate and its cost is the
+// reason the ticker CAPS the number of closes per tick (adv, C14): this runs inside the tick.
+const CLOSER_TIMEOUT_MS = 30000;
+
+function closeSeatSessionRow({ workdir, sessionId, log }) {
+  const sid = String(sessionId || '').trim();
+  if (!sid) return { closed: false, reason: 'no session-id' };
+  const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
+  if (!seatPath || !seatPath.goalDir) return { closed: false, reason: 'workdir is not a seat home' };
+  const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
+    'team-kit', 'coord.py');
+  try {
+    const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
+      '--as', 'ignite-daemon', 'attest-exit', '--session', sid, '--force-dead', '--go'],
+    { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (log) log('info', 'session-closer: the seat session row was closed', { sessionId: sid, goalDir: seatPath.goalDir, seat: seatPath.seat, evidence: out.trim().slice(0, 600) });
+    return { closed: true, reason: '', output: out };
+  } catch (err) {
+    // EVERY refusal is reported. A blocker held (the row is already closed, the process is not
+    // dead, the two records skew) is the closer WORKING; what must never happen again is the
+    // silent arm — that is the defect this whole change exists to close.
+    if (log) log('info', 'session-closer: the seat session row was NOT closed', { sessionId: sid, goalDir: seatPath.goalDir, seat: seatPath.seat, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
+    return { closed: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) };
+  }
+}
+
 // Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
 //
 // A worktree belonging to this seat is `<ws>/.rbtv/worktrees/{repo}--{goal}--{seat}` (7.38's
@@ -1842,6 +1886,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       endedAt: killedAt,
       reason: `kill-session on turn ${execId}`,
     });
+    // W1 (adv, C8) — THE KILL PATH NEEDS ITS OWN CLOSE. A deliberate kill ends the turn AND the
+    // session in one store call above, so the ticker's enforce sweep — which only ever looks at
+    // turns whose session is still `alive` — never sees this exec again. Without this line a
+    // killed seat's `sessions.csv` row stays open forever, which is exactly the state the enforce
+    // arms were taught to close, reached by the one door they cannot watch.
+    closeSeatSessionRow({ workdir: row.workdir, sessionId: row.session_id, log });
     return { execId, killed: result.killed, signal: result.signal };
   }
 
@@ -1956,6 +2006,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 // each only because this file was another session's dirty file at that build's moment (7.637, 7.628).
 // The schema still has one owner (`coord.py SESSIONS_COLS`); what unifies here is the mechanism.
 module.exports = {
+  closeSeatSessionRow,
   createSpawnManager,
   validateSpawnRequest,
   exitFilePath,

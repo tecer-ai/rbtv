@@ -182,7 +182,13 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
     if (granted.has(row.seat)) continue;
     let out;
     try {
-      out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'seat-retry',
+      // D4 — `--as ignite-daemon`, and it is not decoration. The daemon's MAIN process is not a
+      // daemon-fired exec, so coord's F16 lane (`daemon_exec_identity`, keyed on an
+      // `rbtv-worker-*` cgroup) resolves NOBODY here and `seat-retry`'s role gate refused every
+      // one of the 16,865 calls this line ever made. The claim is the documented equivalent of a
+      // check-in for a process that has no pane to check in from.
+      out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
+        '--as', 'ignite-daemon', 'seat-retry',
         row.seat, '--mint', '--session', rec['session-id'] || '', '--outcome', outcome, '--json'],
       { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
@@ -207,7 +213,21 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
     // with NO session row NEVER carries its grant on the wire however many were minted for it —
     // the exact `forg-intake` shape. Re-reading would return null and the seat would stay stuck
     // with an unspendable grant. coord's own self-test states this limit as a row.
-    if (!payload || !payload.grant) continue;
+    if (!payload || !payload.grant) {
+      // W1: NOT a silent `continue`. The mint SUCCEEDED (no throw) and still handed back no grant
+      // — the grant-hoist filter above is the known cause, and until this line existed the seat
+      // simply vanished from the pass with nothing anywhere saying why.
+      if (logger) {
+        logger({
+          level: 'info',
+          message: 'seat NOT retried — `coordinate seat-retry --mint` returned no grant on the wire',
+          seat: row.seat,
+          outcome,
+          evidence: `session ${rec['session-id'] || '(none)'} · payload ${JSON.stringify(payload)}`.slice(0, 400),
+        });
+      }
+      continue;
+    }
     minted.set(row.seat, payload.grant);
     if (logger) {
       logger({
@@ -771,6 +791,7 @@ function enqueueEligible(heartStore, rows, {
       let why = `session ${grant['session-id']} · anchor ${grant.anchor} — no unspent row matched`;
       try {
         const out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
+          '--as', 'ignite-daemon',
           'seat-retry', row.seat, '--spend', '--session', grant['session-id'] || '', '--json'],
         { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
         stamp = (JSON.parse(out).stamp || '');
