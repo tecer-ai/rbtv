@@ -35,6 +35,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { SpawnError, E_CAGE_TEMPLATE, E_CAGE_GROUND_TRUTH } = require('./errors');
+const { composePrivateScope } = require('./private-scope');
 
 // The bind verbs a template may declare. Deliberately NOT the whole bwrap vocabulary: these three
 // compose every opening `r-711-write-bounds` allows, and an unknown verb is a template error
@@ -321,7 +322,7 @@ function memoryMaskPaths(home) {
 // `keepInstructionFiles` is the CHANNEL policy (ruling bound (ii)): that seat additionally keeps
 // the path-up `CLAUDE.md`/`AGENTS.md` but NOT `.claude/`. It is a per-seat declaration, not a
 // path special-case — a second seat needing the same posture declares it and gets it.
-function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles = false, home = os.homedir() } = {}) {
+function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructionFiles = false, home = os.homedir(), log = () => {} } = {}) {
   const flags = [];
   const masked = { instructionFiles: 0, configDirs: 0, memory: 0, secrets: 0 };
   const policy = keepInstructionFiles ? 'keep-instruction-files' : 'cut-all';
@@ -353,28 +354,28 @@ function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructi
     }
   }
 
-  // THE THIRD-PARTY SECRETS FILE (owner ruling 2026-08-11, task 7.566). `.rbtv/config/.env`
-  // holds provider credentials, and a `read-root: true` seat binds the ENTIRE workspace root
-  // read-only — so every one of them was legible to that cage's occupant. Masked here, for
-  // EVERY seat: no seat has a reason to read it. The one key a caged seat legitimately needs
-  // moved out to `.rbtv/config/sender-token.env`, which is NOT masked and stays readable
-  // (cli/lib/config.js#readEnvFileToken) — the split is what makes this mask survivable.
-  // Same absent-path discipline as the walk above: nothing covering it (or a tmpfs cover) means
-  // nothing bound it, and masking would only make bwrap mkdir a mountpoint over nothing.
-  if (workspaceRoot) {
-    const envFile = path.join(path.normalize(workspaceRoot), '.rbtv', 'config', '.env');
-    const cover = lastCovering(spec, envFile);
-    if (cover && cover.verb !== 'tmpfs' && fs.existsSync(envFile)) { maskFile(envFile); masked.secrets++; }
-  }
-
   // Bound (iii): auto-memory is dropped for ALL seat spawns, channel seat included.
   for (const p of memoryMaskPaths(home)) { maskDir(p); masked.memory++; }
 
-  return { flags, masked, policy };
+  // ── W5 (owner ruling D-1, 2026-08-13) — THE PRIVATE READ SCOPE ──────────────────────────────
+  // The third-party secrets file (`.rbtv/config/.env`, task 7.566) is now the FIRST of two
+  // hardcodes inside a general default-deny seed; its former standalone block lived here and is
+  // absorbed by `private-scope.js`, which composes masks AND the pierce re-binds that must follow
+  // them. Appended last inside the last-appended mask block: order is the mechanism (adv C51).
+  // ⚠ ORDER IS LOAD-BEARING — masks then pierces, and this whole list after the cage spec.
+  let privateScope = { flags: [], masked: 0, pierced: [], refused: [] };
+  if (workspaceRoot) {
+    privateScope = composePrivateScope(spec, { workspaceRoot, log });
+    flags.push(...privateScope.flags);
+    masked.secrets += privateScope.masked;
+  }
+
+  return { flags, masked, policy, pierced: privateScope.pierced, refusedPierces: privateScope.refused };
 }
 
 module.exports = {
   contains,
+  lastCovering,
   composeAncestorMasks,
   MASK_INSTRUCTION_FILES,
   MASK_CONFIG_DIRS,

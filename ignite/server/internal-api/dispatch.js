@@ -399,6 +399,7 @@ const NOT_WIRE_REACHABLE = new Map([
   // /parseEntry/substituteScalars/normalize <- spawnSeat. Neither is wire-triggered.
   ['E_CAGE_TEMPLATE', 'TWO contexts, both non-wire: config LOAD (validateSeatBindTemplate via loadConfig — the daemon refuses to start) and seat compose (composeSeatCage <- spawnSeat, ticker-spawn path); dispatch never calls spawnSeat'],
   ['E_CAGE_GROUND_TRUTH', 'ticker-spawn-path only (assertGroundTruthUnwritable <- spawnSeat); dispatch never calls spawnSeat, and a cage that would leave sessions.csv writable is refused before any unit exists'],
+  ['E_CAGE_PRIVATE_ALIAS', 'ticker-spawn-path only (composePrivateScope <- composeAncestorMasks <- composeCageFor <- spawnSeat); dispatch never calls spawnSeat, and a cage whose opening resolves into a private path without naming it is refused before any unit exists'],
 
   // Task 7.11 §4b — the COMMAND-TIME identity gate (server/seat-identity/identity.js).
   // Never thrown, by construction: zero `throw` in that module. Consumers are resolvePeerSeat

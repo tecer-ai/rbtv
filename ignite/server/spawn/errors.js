@@ -56,6 +56,11 @@ const E_CAGE_TEMPLATE = 'E_CAGE_TEMPLATE';
 // inside. Refused unconditionally — a seat that can rewrite the log saying who sits where can
 // name itself, and under auto-approval harnesses the cage is the only remaining boundary.
 const E_CAGE_GROUND_TRUTH = 'E_CAGE_GROUND_TRUTH';
+// W5 / ruling D-1 — a cage opening whose REALPATH lands inside a private entry that it does not
+// NAME. The mask cannot close that hole (the alias is a separate mountpoint carrying the real
+// content), so the composition is refused outright: a grant reaches a private path only by
+// spelling it.
+const E_CAGE_PRIVATE_ALIAS = 'E_CAGE_PRIVATE_ALIAS';
 
 // ── 7.11 — the identity gate (seat-identity/) ────────────────────────────────────────────────
 // BOTH gates (§4a launch-time AND §4b command-time): the seat folder resolves, but its GOAL is not
@@ -128,6 +133,7 @@ module.exports = {
   E_TMUX_NAME_INVALID,
   E_CAGE_TEMPLATE,
   E_CAGE_GROUND_TRUTH,
+  E_CAGE_PRIVATE_ALIAS,
   E_GOAL_NOT_LIVE,
   E_NOT_A_SEAT_FOLDER,
   E_IDENTITY_NO_SEAT,

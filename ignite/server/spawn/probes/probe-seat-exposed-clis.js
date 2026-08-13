@@ -185,6 +185,42 @@ capture('probe-seat-exposed-clis', async (lines) => {
     leg('X4c', 'a REFUSED entry grants nothing — its name resolves to no command',
       !/\/ghost/.test(ghost.out) && !/\/rel/.test(ghost.out), `in-cage: ${JSON.stringify(ghost.out.slice(0, 160))}`);
 
+    // ── X5 — W5 / ruling D-1: a MULTI-DIRECTORY CLI runs green in-cage ───────────────────────
+    // THE POSITIVE HALF of the private-scope wave, and the one D1 itself measured red: every leg
+    // above exercises a CLI that reads nothing but its own directory. `rbtv teambuild` is the
+    // opposite shape — its code `require`s a SIBLING capability's `lib/render`, and its corpus is
+    // a `.rbtv/mirror` data root somewhere else entirely. Under the old per-seat `read-root`
+    // declaration this seat (which declares none) saw neither and crashed; under the universal
+    // read root it resolves both. A red here means the cage has gone back to binding only the
+    // entry point's own folder.
+    const CAPS = path.resolve(__dirname, '..', '..', '..', '..', 'core', 'capabilities');
+    if (!fs.existsSync(path.join(CAPS, 'teambuild', 'tool', 'rbtv-teambuild'))) {
+      throw new Error(`fixture precondition: ${CAPS}/teambuild/tool/rbtv-teambuild is absent — X5's subject must exist`);
+    }
+    // The two code trees are COPIED INTO the fixture workspace, because that is where they sit in
+    // production (`<ws>/3-resources/tools/rbtv/…`) and the whole claim is that the seat reaches the
+    // SIBLING one through the workspace read root rather than through its own grant. Copying keeps
+    // the probe free of any instance path while preserving the production topology; exposing the
+    // repo's own copy instead would test a layout no deployment has.
+    const repo = path.join(f.ws, 'tools', 'rbtv', 'core', 'capabilities');
+    fs.cpSync(path.join(CAPS, 'teambuild'), path.join(repo, 'teambuild'), { recursive: true });
+    fs.cpSync(path.join(CAPS, 'rbtv-cli'), path.join(repo, 'rbtv-cli'), { recursive: true });
+    const TEAMBUILD = path.join(repo, 'teambuild', 'tool', 'rbtv-teambuild');
+    const multiDir = path.join(f.goalDir, 'seats', 'multi');
+    fs.mkdirSync(multiDir, { recursive: true });
+    fs.writeFileSync(path.join(multiDir, 'seat.md'),
+      `---\nseat: multi\nexposed-clis:\n  - teambuild ${TEAMBUILD}\n---\nbriefing\n`);
+    // The corpus root: a real mirror shape inside the fixture workspace, i.e. a data root the CLI
+    // reaches only because the WORKSPACE is readable, not because its own directory is.
+    const mirror = path.join(f.ws, '.rbtv', 'mirror', 'demo', 'demo');   // <mirror>/<module>/<component>
+    fs.mkdirSync(mirror, { recursive: true });
+    fs.writeFileSync(path.join(mirror, 'seats.csv'), 'seat-id,description\nds-1,A demo seat row\n');
+    const multi = cageFor(multiDir, []);
+    const census = inCage(multiDir, multi, `teambuild seats --root ${path.join(f.ws, '.rbtv', 'mirror')} --json 2>&1`);
+    leg('X5', 'a MULTI-DIRECTORY CLI (sibling code tree + a data root elsewhere) runs GREEN in-cage',
+      census.exit === 0 && /ds-1/.test(census.out),
+      `exit ${census.exit}; output ${JSON.stringify(census.out.slice(0, 240))}`);
+
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);
     if (fails.length > 0) throw new Error(`exposed-clis probes failed: ${fails.join(', ')}`);

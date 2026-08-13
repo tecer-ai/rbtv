@@ -318,9 +318,13 @@ capture('probe-seat-grant-classes', async (lines) => {
       `setenv triple: ${JSON.stringify(granted.slice(setenvIdx, setenvIdx + 3))}; all setenv names ${JSON.stringify(setenvNames)}`);
 
     // ── G4 — THE FAIL-CLOSED CONTROL. A seat declaring none of the keys gets none of it.
-    leg('G4', 'a seat declaring NO keys gets no bus-write, no local-bin, no gateway env',
-      !plain.includes(f.betaCoord) && !plain.includes(LOCAL_BIN) && !plain.includes('--setenv') && !plain.includes(f.ws),
-      `beta coord: ${plain.includes(f.betaCoord)}; local-bin: ${plain.includes(LOCAL_BIN)}; setenv: ${plain.includes('--setenv')}; read-root: ${plain.includes(f.ws)}`);
+    // ⚠ THE READ ROOT LEFT THIS CONTROL on 2026-08-13 (W5 / ruling D-1): it is no longer a
+    // declared grant class but the FLOOR every seat stands on, minus `private-scope.js`'s
+    // default-deny seed. Asserting its absence here would now be asserting the defect D1
+    // measured. The three keys below are still declarations, and still fail closed.
+    leg('G4', 'a seat declaring NO keys gets no bus-write, no local-bin, no gateway env (the read root is now universal — ruling D-1)',
+      !plain.includes(f.betaCoord) && !plain.includes(LOCAL_BIN) && !plain.includes('--setenv') && plain.includes(f.ws),
+      `beta coord: ${plain.includes(f.betaCoord)}; local-bin: ${plain.includes(LOCAL_BIN)}; setenv: ${plain.includes('--setenv')}; universal read root present: ${plain.includes(f.ws)}`);
 
     // ── G5 — THE INVARIANT SURVIVES. sessions.csv stays unwritable in a bus-write composition,
     // proven on disk from outside the cage; and the cross-goal bus really is writable, proven the

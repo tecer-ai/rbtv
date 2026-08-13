@@ -633,8 +633,24 @@ function resolveGoalWriteGrants(seatPath, log) {
   return grants;
 }
 
+// ── W5 / ruling D-1 (2026-08-13) — THE READ ROOT IS NOW UNIVERSAL ────────────────────────────
+//
+// It was a per-seat declaration (`read-root: true`), and that is what D1 measured: a seat's cage
+// bound only each exposed CLI's OWN directory, so a multi-directory CLI — one that reads a data
+// root, an import root, or a sibling code tree — either crashed or saw empty data. Widening the
+// declaration seat by seat would have left 7 of 8 blast-radius combinations exposed; ruling D-1
+// inverts it instead: EVERY seat reads the workspace, minus a DEFAULT-DENY SEED
+// (`private-scope.js`) that is enumerated, pattern-floored and fails closed on new secrets.
+//
+// ⚠ THE DECLARATION IS NOW A NO-OP, DELIBERATELY LEFT PARSEABLE. Live seat.md files carry
+// `read-root: true`; refusing or warning on it would red every one of them for a key that now
+// describes the floor. It grants nothing extra because there is nothing extra to grant.
+//
+// ⚠ AND THE TEMPLATE'S LINE ORDER IS NOW LOAD-BEARING FOR EVERY SEAT (adv C56): `tmpfs:{goalDir}/
+// seats` — what makes PEER SEAT FOLDERS ABSENT — only shadows this floor because this line is
+// emitted first. It was previously load-bearing only for the one declaring seat.
 function resolveReadRootGrant(seatPath) {
-  return seatDeclares(seatPath.seatDir, 'read-root') ? [{ readRoot: seatPath.workspaceRoot }] : [];
+  return [{ readRoot: seatPath.workspaceRoot }];
 }
 
 // ── Owner ruling "1a" (2026-08-06) — the three CROSS-GOAL INSTRUMENT grants ──────────────────
@@ -1042,9 +1058,17 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     workspaceRoot: seatPath.workspaceRoot,
     launchFolder: resolvedWorkdir,
     keepInstructionFiles: seatDeclares(seatPath.seatDir, 'keep-instruction-files'),
+    log,
   });
   flags.push(...mask.flags);
   log('info', 'ancestor harness artifacts masked', { policy: mask.policy, ...mask.masked });
+  // ── W5 (adv C54) — PIERCE DISCLOSURE AT SPAWN, not at materialize ─────────────────────────
+  // SPAWN is where all grant sources converge (materialize-baked declarations, permission-edits,
+  // and private.json read here at dispatch), so it is the only place that can name every pierce
+  // and every refusal for the cage that is actually about to run. A pierce nobody can read is an
+  // undisclosed hole in the private scope.
+  for (const p of mask.pierced) log('info', 'private-scope PIERCE', { seat: seatPath.seat, opening: p });
+  for (const r of mask.refusedPierces) log('warn', `private-scope pierce REFUSED: ${r.reason}`, { seat: seatPath.seat, opening: r.opening });
   if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
     flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
   }
