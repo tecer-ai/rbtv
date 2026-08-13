@@ -74,7 +74,7 @@ DEFAULT_AUTO_WAKE = {"scientist"}
 # conversation, so a `to: all` broadcast is not their input: it wakes them and spends the context
 # their one job needs. The protocol bounded a closer's SENDING and never anyone's RECEIVING; this
 # is that missing half. `closer-*` is matched by prefix (see broadcast_scope).
-SPECIAL_CASE_SEATS = {"engineer", "watcher"}
+SPECIAL_CASE_SEATS = {"engineer"}
 # G-22 / leader #198 — `all` is legitimate ONLY when a seat that never reads it would act WRONGLY.
 # Measured on a live run: 86 broadcasts, 35 of them `note`, the leader alone accounting for 38 —
 # and ZERO groups existed after 192 messages, so the expensive channel was the only channel anyone
@@ -86,13 +86,10 @@ BROADCAST_CLAUSES = {
     "retraction": "retracting something broadcast — it must reach everyone who read the wrong thing",
     "roster": "a roster/lifecycle change altering who exists",
 }
-# The watcher is special-cased only UNTIL the deterministic watch layer (tasks 7.33 team-monitor +
-# 7.32 goal-watcher-job) replaces the agentic seat — at which point this exception expires with the
-# seat. It keeps `completion` and `verdict` because its DAG-unblock trigger RIDES those broadcasts
-# (it learns a task is ready from seats' completions): cutting them with no replacement trigger
-# stops new seats launching SILENTLY, which is a quiet stall, not a saving. Leader ruled type
-# granularity (a) tonight over trigger-replacement (b), which rides 7.32/7.33 (msg #189).
-WATCHER_BROADCAST_TYPES = frozenset({"completion", "verdict"})
+# The `watcher` seat's broadcast carve expired WITH the seat (retired 2026-08-13, owner-ruled):
+# the deterministic watch layer (team-monitor CMP-20 + goal-watcher-job CMP-21) replaced the
+# agentic seat per `d-watcher-deterministic-chain`, and DAG-unblocking is the edge-runner's
+# monopoly (CMP-25) — no seat rides broadcasts for it. Do not re-add the name.
 # G-21 — how long a `closing` state is honoured before it is treated as orphaned. A close ceremony
 # runs in minutes; a closer that dies mid-close (G-11 killed one tonight) must not leave its target
 # narrowed for the rest of the run.
@@ -5182,8 +5179,6 @@ def broadcast_scope(agent, decls=None):
         return declared["broadcast"]
     if is_closer(agent):
         return frozenset()          # one-shot: co-write memory, harvest, close, depart
-    if agent == "watcher":
-        return WATCHER_BROADCAST_TYPES
     if agent in SPECIAL_CASE_SEATS:
         return frozenset()
     return None
@@ -9475,7 +9470,7 @@ def refuse_special_case_members(args, command, names):
         "state",
         f"{', '.join(blocked)} "
         f"{'are special-case seats' if many else 'is a special-case seat'} — group traffic is "
-        f"not {'their' if many else 'its'} input (G-32). A closer, `engineer` and the watcher "
+        f"not {'their' if many else 'its'} input (G-32). A closer and `engineer` "
         f"serve the SYSTEM or the ROOM, not the goal's conversation, so the room's threads only "
         f"spend the context {'their' if many else 'its'} one job needs.\n"
         f"Send {'them' if many else 'it'} a DIRECT message instead — direct addressability is "
@@ -17303,7 +17298,7 @@ def _selftest_checks(args, failures, names):
         # beta declares a model but NO effort: an alias, so no ladder gates it, which keeps it
         # launchable while its `effort` stays the empty string the fallback now yields.
         (pkg / "workers" / "beta.md").write_text("---\nagent: beta\nmodel: opus\n---\nbrief\n")
-        (pkg / "workers" / "watcher.md").write_text("---\nagent: watcher\nobserver: yes\nauto-wake: yes\n---\nbrief\n")
+        (pkg / "workers" / "lookout.md").write_text("---\nagent: lookout\nobserver: yes\nauto-wake: yes\n---\nbrief\n")
         # folder-form seats (v2): opencode window seat, codex seat, memoryless validator
         gdir = pkg / "workers" / "gamma"
         gdir.mkdir()
@@ -17583,9 +17578,9 @@ def _selftest_checks(args, failures, names):
 
         obs, auto = observer_sets(ns())
         check("frontmatter observers: declared seat joins both sets",
-              "watcher" in obs and "watcher" in auto and "scientist" in obs and "beta" not in obs)
-        run(cmd_checkin, agent="watcher", summary="watching", pane="%9")
-        out = rd("watcher", after=0, peek=True, limit=0)
+              "lookout" in obs and "lookout" in auto and "scientist" in obs and "beta" not in obs)
+        run(cmd_checkin, agent="lookout", summary="watching", pane="%9")
+        out = rd("lookout", after=0, peek=True, limit=0)
         check("frontmatter observers: full-log read (sees a message addressed to neither it nor all)",
               "count is 11" in out)
 
@@ -17601,10 +17596,10 @@ def _selftest_checks(args, failures, names):
               "yield DEFAULT_MODEL and `effort:` absent DEFAULT_EFFORT, so an UNCAST seat launched "
               "silently on somebody else's choice while the record said otherwise — the case the "
               "daemon door refuses by name (E_UNCAST_SEAT). beta pins the effort half (it declares "
-              "a model and no effort) and watcher pins both (it declares neither)",
+              "a model and no effort) and lookout pins both (it declares neither)",
               by["alpha"]["model"] == "claude-fable-5" and by["alpha"]["effort"] == "xhigh"
               and by["beta"]["model"] == "opus" and by["beta"]["effort"] == ""
-              and by["watcher"]["model"] == "" and by["watcher"]["effort"] == "")
+              and by["lookout"]["model"] == "" and by["lookout"]["effort"] == "")
         check("v2: folder-form seat discovered with harness/model/window/cwd",
               by["gamma"]["harness"] == "opencode" and by["gamma"]["model"] == "zai-coding-plan/glm-5.2"
               and by["gamma"]["window"] and by["gamma"]["cwd"] == str(gdir)
@@ -18358,7 +18353,7 @@ def _selftest_checks(args, failures, names):
         # ---- T1: identity resolution + verification (F1) ----
         calling_pane["v"] = ""
         check("T1: an explicit args.agent (watch.py's internal Namespace calls) resolves as --as",
-              resolve_agent(ns(agent="watcher")) == "watcher")
+              resolve_agent(ns(agent="lookout")) == "lookout")
         os.environ["COORD_AGENT"] = "alpha"
         check("T1: COORD_AGENT (injected at launch) resolves the caller with nothing typed",
               resolve_agent(ns()) == "alpha")
@@ -19823,25 +19818,20 @@ def _selftest_checks(args, failures, names):
         # ---- G-20 (inbox-scope) + G-21 (closing state): who a broadcast reaches ----
         # The owner's directive bounds the RECEIVING direction the protocol never bounded. The bar
         # below is the leader's, verbatim in shape: a special-case seat's read shows nothing after
-        # an `all`; a direct send still arrives; a COMPLETION reaches the watcher while a NOTE does
-        # not; a closing seat gets no `all`; a peer's direct send is REFUSED with its typed reason
+        # an `all`; a direct send still arrives; a closing seat gets no `all`; a peer's direct send is REFUSED with its typed reason
         # and never silently accepted; its closer's ask arrives; the leader's order arrives; the
         # state clears when close-seat completes.
         check("G-20: broadcast_scope — a closer takes no broadcast at all",
               broadcast_scope("closer-alpha") == frozenset())
-        check("G-20: broadcast_scope — the watcher keeps completion+verdict and nothing else",
-              broadcast_scope("watcher") == WATCHER_BROADCAST_TYPES
-              and in_broadcast_scope("watcher", "completion")
-              and in_broadcast_scope("watcher", "verdict")
-              and not in_broadcast_scope("watcher", "note")
-              and not in_broadcast_scope("watcher", "ask"))
+        check("G-20: broadcast_scope — the retired `watcher` name is NOT special-cased: an "
+              "unknown seat named watcher is an ordinary seat (None = every type)",
+              broadcast_scope("watcher") is None)
         check("G-20: broadcast_scope — `engineer` (a one-agent inbox by r-engineer-practice) "
               "takes none, and an ordinary seat is UNTOUCHED (None = every type)",
               broadcast_scope("engineer") == frozenset()
               and broadcast_scope("alpha") is None
               and in_broadcast_scope("alpha", "note"))
 
-        run(cmd_checkin, agent="watcher", summary="sensor pass", pane="%20")
         run(cmd_checkin, agent="engineer", summary="one-agent inbox", pane="%21")
         run(cmd_checkin, agent="zeta", summary="an ordinary seat", pane="%22")
         base_g = base_dir(ns())
@@ -19850,12 +19840,11 @@ def _selftest_checks(args, failures, names):
         out = sd("alpha", "all", "room chatter nobody's sensor needs", type="note", force=True)
         check("G-20: an `all` NOTE skips the special-case seats by NAME in the sender's summary "
               "(never silently) and still reaches an ordinary seat",
-              "skipped (special-case seat: engineer, watcher)" in out
+              "skipped (special-case seat: engineer)" in out
               and "zeta" not in out.split("skipped (special-case seat")[1].split(")")[0])
-        check("G-20: after that broadcast the watcher's and engineer's read shows NOTHING NEW, "
+        check("G-20: after that broadcast the engineer's read shows NOTHING NEW, "
               "while the ordinary seat sees it",
-              "room chatter" not in rd("watcher", after=mark, peek=True)
-              and "room chatter" not in rd("engineer", after=mark, peek=True)
+              "room chatter" not in rd("engineer", after=mark, peek=True)
               and "room chatter" in rd("zeta", after=mark, peek=True))
         # G-94: read's withheld-disclosure footer. A message whose sender NAME equals the
         # recipient's is cut by the self-send rule — correct in its designed case, and wrong
@@ -19871,7 +19860,7 @@ def _selftest_checks(args, failures, names):
         # for every direct message in the room and could read none of them. `in_broadcast_scope`
         # is NOT the cure — it type-scopes BROADCASTS and answers True for an ordinary seat like
         # `cos`, so the symmetric-looking fix would have left this exact case broken while
-        # passing a test written over `engineer`/`watcher`.
+        # passing a test written over `engineer`.
         # Created HERE, not at package setup: `auto-wake: yes` puts this seat into EVERY send's
         # recipient set, so introducing it earlier would perturb unrelated wake checks upstream.
         # A fixture that changes results it is not testing makes every mutation non-isolated.
@@ -19885,7 +19874,7 @@ def _selftest_checks(args, failures, names):
         check("wake/read: and its own `read` confirms the wake would have fetched nothing",
               "a direct message to a third party" not in rd("cos", after=w_mark, peek=True))
         check("wake/read: in_broadcast_scope would NOT have cut it — the naive symmetric fix "
-              "passes over engineer/watcher and leaves the reported seat woken",
+              "passes over engineer and leaves the reported seat woken",
               in_broadcast_scope("cos", "note") is True)
         w_mark2 = load_messages(base_g)[1][-1]["num"]
         w_out2 = sd("alpha", "cos", "a direct message TO the auto-wake seat", type="note",
@@ -20027,15 +20016,16 @@ def _selftest_checks(args, failures, names):
         _, mid = load_messages(base_g)
         mark2 = mid[-1]["num"]
         out = sd("alpha", "all", "lane A node delivered", type="completion", why="milestone")
-        check("G-20: an `all` COMPLETION DOES reach the watcher — its DAG-unblock trigger rides "
-              "these — while the engineer still takes none",
-              "lane A node" in rd("watcher", after=mark2, peek=True)
+        check("G-20: an `all` COMPLETION reaches an ORDINARY seat while the engineer still takes "
+              "none — the cut is the special case's, never the room's",
+              "lane A node" in rd("zeta", after=mark2, peek=True)
               and "lane A node" not in rd("engineer", after=mark2, peek=True))
         _, mid2 = load_messages(base_g)
         mark3 = mid2[-1]["num"]
-        sd("alpha", "watcher", "a question only you can answer", type="note")
-        check("G-20: DIRECT addressability is untouched — a message naming the seat always lands",
-              "a question only you can answer" in rd("watcher", after=mark3, peek=True))
+        sd("alpha", "engineer", "a question only you can answer", type="note")
+        check("G-20: DIRECT addressability is untouched — a message naming the seat always lands, "
+              "even for the filtered special-case seat",
+              "a question only you can answer" in rd("engineer", after=mark3, peek=True))
 
         # ---- stage 3: a seat's inbox topology is DECLARED, not named in the kit ----
         # `SPECIAL_CASE_SEATS` listed its members while its own comment described a MANDATE
@@ -21500,40 +21490,47 @@ def _selftest_checks(args, failures, names):
         # TYPE scope as a broadcast) is the belt, because the run makes a fresh group per wave and
         # a deliberately-added member must still be filtered. The invariant both rest on — a
         # message NAMING the seat always lands — is asserted last.
-        out, code = refuse(cmd_add_to_group, agent="leader", group="pair", members=["watcher"])
+        out, code = refuse(cmd_add_to_group, agent="leader", group="pair", members=["engineer"])
         check("G-32: `add-to-group` REFUSES a special-case seat, naming the seat, the rule and the "
               "direct-message path — a rule kept only by remembering is what filed this issue",
-              code == 1 and "watcher is a special-case seat" in out
-              and "group traffic is not its input" in out and "send watcher" in out)
+              code == 1 and "engineer is a special-case seat" in out
+              and "group traffic is not its input" in out and "send engineer" in out)
         out, code = refuse(cmd_create_group, agent="alpha", group="lane-x", members=["engineer"])
         check("G-32: `create-group` refuses one too — a group must not be BORN carrying the seat",
               code == 1 and "engineer is a special-case seat" in out)
         gm32 = group_map(base_g)
         check("G-32: a refusal WRITES NOTHING — the existing group is untouched and the refused "
               "one was never created",
-              "watcher" not in gm32["pair"] and "lane-x" not in gm32)
+              "engineer" not in gm32["pair"] and "lane-x" not in gm32)
         out, code = refuse(cmd_create_group, agent="alpha", group="lane-g32",
-                           members=["watcher", "zeta"], force=True)
+                           members=["engineer", "zeta"], force=True)
         check("G-32: --force stays the single deliberate override, and SAYS so — the membership is "
               "bought, the traffic is not (delivery is still filtered by type)",
               code == 0 and "with --force" in out
-              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "watcher", "zeta"})
+              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "engineer", "zeta"})
         _, pre32 = load_messages(base_g)
         mk32 = pre32[-1]["num"]
         out = sd("alpha", "lane-g32", "lane chatter the sensor never needed", type="note")
         check("G-32: a GROUP note does NOT reach the special-case member — even one holding an "
               "observer grant — while an ORDINARY member of the same group reads it",
-              "lane chatter" not in rd("watcher", after=mk32, peek=True)
+              "lane chatter" not in rd("engineer", after=mk32, peek=True)
               and "lane chatter" in rd("zeta", after=mk32, peek=True))
         check("G-32: and it costs the filtered member no WAKE either — the sender is told by name "
               "and reason, exactly as on the `all` branch",
-              "skipped (special-case seat: watcher)" in out)
+              "skipped (special-case seat: engineer)" in out)
+        (pkg / "workers" / "relay32.md").write_text(
+            "---\nagent: relay32\nbroadcast: completion\n---\nbrief\n")
+        run(cmd_checkin, agent="relay32", summary="declared type scope", pane="%26")
+        run(cmd_add_to_group, agent="leader", group="lane-g32", members=["relay32"])
         _, mid32 = load_messages(base_g)
         mk33 = mid32[-1]["num"]
+        sd("alpha", "lane-g32", "lane note outside the declared scope", type="note")
         sd("alpha", "lane-g32", "lane G node delivered", type="completion")
-        check("G-32: a GROUP completion DOES reach the watcher — the DAG-unblock trigger kept on "
-              "the broadcast branch must survive the group branch too, or the cure stalls the run",
-              "lane G node" in rd("watcher", after=mk33, peek=True))
+        check("G-32: group fan-out honours a seat's DECLARED `broadcast:` type scope — the "
+              "declared type arrives and the undeclared one is filtered (with the watcher seat "
+              "retired, type-scoped group delivery is the declaration mechanism's job)",
+              "lane G node" in rd("relay32", after=mk33, peek=True)
+              and "lane note outside" not in rd("relay32", after=mk33, peek=True))
         run(cmd_checkin, agent="iota", summary="group member about to close", pane="%25")
         run(cmd_add_to_group, agent="leader", group="lane-g32", members=["iota"])
         set_closing(base_g, "iota", "closer-iota")
@@ -21547,19 +21544,19 @@ def _selftest_checks(args, failures, names):
         clear_closing(base_g, "iota")
         _, mid34 = load_messages(base_g)
         mk35 = mid34[-1]["num"]
-        sd("alpha", "watcher", "sensor, this one is for you", type="note")
+        sd("alpha", "engineer", "sensor, this one is for you", type="note")
         check("G-32: the INVARIANT the whole design rests on — a message addressed to the seat BY "
               "NAME still lands, group filtering or not",
-              "this one is for you" in rd("watcher", after=mk35, peek=True))
+              "this one is for you" in rd("engineer", after=mk35, peek=True))
         out, code = refuse(cmd_remove_from_group, agent="zeta", group="lane-g32",
-                           members=["watcher"])
+                           members=["engineer"])
         check("G-32: `remove-from-group` is leader-gated exactly like add-to-group", code == 2)
-        out = run(cmd_remove_from_group, agent="leader", group="lane-g32", members=["watcher"])
+        out = run(cmd_remove_from_group, agent="leader", group="lane-g32", members=["engineer"])
         check("G-32: leader REMOVES the member and the file is rewritten through the same writer — "
               "the three pre-existing memberships have a sanctioned undo at last "
               "(coordination/ is script-managed; hand-editing it is banned)",
-              "watcher" not in group_map(base_g)["lane-g32"]
-              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "zeta", "iota"}
+              "engineer" not in group_map(base_g)["lane-g32"]
+              and set(group_map(base_g)["lane-g32"]) == {"alpha", "leader", "zeta", "iota", "relay32"}
               and set(group_map(base_g)["pair"]) == {"alpha", "beta", "leader"})
         out, code = refuse(cmd_remove_from_group, agent="leader", group="lane-g32",
                            members=["nobody"])

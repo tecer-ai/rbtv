@@ -1,7 +1,7 @@
 # team-kit — role catalogue
 
 **Read this when you HOLD one of the special roles below** — leader, deputy, scientist, judge,
-verifier, closer, watcher — **or when your seat runs a codex or opencode harness** (the Harness note
+verifier, closer — **or when your seat runs a codex or opencode harness** (the Harness note
 closes the file). Read it at boot, right after you know which role you are. A plain worker seat does
 not: its own entry states only what `protocol.md` already binds it to. Split out of `protocol.md`
 (beside this file) so a seat stops loading another role's discipline; `protocol.md` remains the
@@ -34,7 +34,7 @@ entries below cite.
   and the failure-path close of ANOTHER seat — still bottlenecks on one seat: see **deputy**.
   Anchors resolve in the owning goal's `decisions.md` ledger (2026-07-29/30 rulings).
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
-  SEAT LIFECYCLE only: launch, `approve`, watcher restarts, and the failure-path close (`close`,
+  SEAT LIFECYCLE only: launch, `approve`, deterministic-layer restarts, and the failure-path close (`close`,
   `close --renew`) for a seat that cannot check itself out — a healthy seat renews itself. It does
   NOT rule, does not talk to the owner (R-owner-channel is unchanged — leader remains the sole
   door), and does not write target surfaces. It exists because leader is renewable like any other
@@ -71,22 +71,12 @@ entries below cite.
   leader ordered the salvaged seat brought back), depart.
   A closer never touches deliverables, never rules open questions, never messages beyond target
   and leader.
-- **watcher seats** — sentinel pattern: a deterministic monitor (`watch.py` beside `coord.py`)
-  measures liveness, inactivity, approval-gate parking, claude-seat context usage, system
-  RAM/load pressure (PROP-9) and leftover all-dead wave windows (PROP-10) on a loop and
-  flags leader with the exact command to run (at the context threshold, the seat's OWN
-  `checkout --renew --handoff "<note>"` — renewal is the seat's act, and the closer is only the
-  failure path for a seat that cannot check itself out; `approve <agent>` at a gate;
-  `tmux kill-window` for a dead wave window); the watcher agent keeps the loop alive and
-  interprets, and acts on no seat itself.
-  **The LOOP is notify-only with exactly ONE exception, and the watcher agent has none.** The one
-  exception is `watch.py`'s seat-down revival arm (`r-leader-revival-is-deterministic`), which
-  relaunches a CRASHED seat's session deterministically, with no agent in the path — it fires only
-  on a hard liveness signal (no harness pid behind a roster-ACTIVE row), never on silence. It is a
-  WAY-STATION in `watch.py`, not its permanent home (`decisions.md#d-watch-is-a-way-station`). The
-  charter in `watch.py` (beside its PROP-11 loop) is the source; this bullet must not drift from it.
-  Context is measurable for claude-harness seats only — codex/opencode seats
-  get liveness/inactivity/approval watching.
+- **watcher seats — RETIRED (owner-ruled, `d-watcher-deterministic-chain`; name removed from
+  coord.py 2026-08-13).** No run staffs a watcher seat. DETECTION is the deterministic watch
+  layer’s: team-monitor (CMP-20) is the sole raw sensor writing the goal’s `state.json`;
+  goal-watcher-job (CMP-21) thresholds that snapshot, performs the mechanical fixes (stale-sensor
+  restart, ruled revival) and nudges seat/leader. The former `watch.py` was dissolved into those
+  two components (task 7.35). See `starter-set/conduct.md` § DETECTION.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders
   (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
   in the pane/window title. Wakes reach them as terminal input like any pane.

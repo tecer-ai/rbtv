@@ -47,7 +47,7 @@ VALUE degrades GRACEFULLY at narrow widths (shrinks to a shorter but still-compl
 instead of a blind mid-word/mid-value clip.
 The header also carries a system RAM+CPU readout (available RAM, load average vs core
 count; stdlib only, `/proc/meminfo` + `os.getloadavg`), colored green/yellow/red by
-pressure so an operator or watcher spots an OOM risk at a glance; it degrades the same
+pressure so an operator spots an OOM risk at a glance; it degrades the same
 graceful way and vanishes rather than crash on a platform without these readings.
 Stdlib only.
 
@@ -1279,7 +1279,7 @@ def system_cell_variants(avail_mb, total_mb, load1, cores, cpu_pct=None):
     reclaimable page cache and reads misleadingly low), CPU as usage % when a /proc/stat
     delta exists (load-vs-cores fallback on the first frame / off-Linux). Colored by
     PRESSURE — red when available RAM < ~500MB, cpu% >= 90, or load1 >= cores; yellow at
-    the halfway warning band; else green — an operator AND watcher see resource pressure
+    the halfway warning band; else green — an operator sees resource pressure
     at a glance (this run hit an OOM cascade). A pure function of the 5 fields, so it's
     testable without touching the OS. [] when neither RAM nor CPU data is available."""
     ram_full = ram_short = cpu = None
@@ -1722,12 +1722,12 @@ def cmd_selftest():
           "~46%" in re.sub(r"\033\[[0-9;]*m", "", pane_cell(P("m", approx=True))))
     wins = [{"idx": "0", "name": "control", "active": True,
              "panes": [P("leader", busy=True),
-                       P("watcher", harness="opencode", model="deepseek-v4-pro", ctx=91.0,
+                       P("lookout", harness="opencode", model="deepseek-v4-pro", ctx=91.0,
                          age="5m")]},
             {"idx": "1", "name": "cli", "active": False, "panes": [P("cli", shell=True)]}]
     calm_wins = [{"idx": "0", "name": "control", "active": True,
                   "panes": [P("leader", busy=True),
-                            P("watcher", harness="opencode", model="deepseek-v4-pro",
+                            P("lookout", harness="opencode", model="deepseek-v4-pro",
                               ctx=51.0, age="5m")]},
                  {"idx": "1", "name": "cli", "active": False,
                   "panes": [P("cli", shell=True)]}]
@@ -2104,7 +2104,7 @@ def cmd_selftest():
           and "limits" not in ap_view._option_string_actions["--view"].choices)
 
     # Fix D (owner-approved item #172): system RAM+CPU readout, colored by pressure so an
-    # operator AND watcher see resource pressure at a glance (this run hit an OOM cascade).
+    # operator sees resource pressure at a glance (this run hit an OOM cascade).
     check("system_cell_variants: RED when avail RAM < 500MB, cpu% >= 90, or load1 >= "
           "cores (saturation reddens even a modest cpu%)",
           RED in system_cell_variants(200, 8000, 1.0, 4)[0]

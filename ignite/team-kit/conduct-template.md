@@ -10,7 +10,7 @@ lifecycle mechanics; this manual adds the run's own law and never restates the p
 `communication.md` (beside the protocol) governs message form; it ships as-is and is not templated.
 Two further files beside the protocol are ROLE-SCOPED and are read only on their trigger, never at
 boot by every seat: `roles.md` by a seat holding a leader, deputy, scientist, judge, verifier,
-closer or watcher role or running a codex/opencode harness, and `briefing-authoring.md` by the seat
+closer role or running a codex/opencode harness, and `briefing-authoring.md` by the seat
 authoring this run's briefings or seat descriptors. Each seat's descriptor lists the one that
 applies to it in its own pre-reads.
 

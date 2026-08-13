@@ -62,7 +62,7 @@ recipient/length/`--re` validation); leader-only commands hard-refuse everyone e
 one-line index) and `coordinate <command> -h` (arguments, one example, the step that follows).
 
 **Control-panel layout.** The leader window is the run's control panel: leader, the oversight
-seats (watcher/observers), on-demand closers, and the `panel` overview pane — target ≤6 panes.
+seats (observers), on-demand closers, and the `panel` overview pane — target ≤6 panes.
 Working seats declare `window: yes` and live in their own named windows (tabs).
 
 State files (`{package}/coordination/`) are script-managed: NEVER edit them by hand;
@@ -303,5 +303,5 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 
 - **Authoring a run's briefings or seat descriptors** (the assembler at bootstrap, or a live run's
   seat-authoring role, at the moment it writes one): read `briefing-authoring.md`.
-- **Holding a leader, deputy, scientist, judge, verifier, closer or watcher role — or running a
+- **Holding a leader, deputy, scientist, judge, verifier or closer role — or running a
   codex/opencode harness**: read `roles.md`.

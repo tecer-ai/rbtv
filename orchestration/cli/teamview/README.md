@@ -151,7 +151,7 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   (`RAM 1989MB/7746MB  CPU 0.7/4`), read stdlib-only from `/proc/meminfo` and
   `os.getloadavg()`/`os.cpu_count()` — no new deps. Colored by pressure (green comfortable,
   yellow past ~1.5GB-available/75%-load, red past ~500MB-available/at-or-over core count)
-  so an operator or the watcher spots an OOM risk at a glance (this run hit an OOM cascade
+  so an operator spots an OOM risk at a glance (this run hit an OOM cascade
   with no such warning). Degrades the same graceful way as every other cue — RAM detail
   shrinks before CPU drops, then the whole cue vanishes rather than clip mid-value — and
   disappears entirely (no crash) on a platform where neither reading is available.

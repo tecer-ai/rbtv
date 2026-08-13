@@ -38,7 +38,7 @@ can actually run). Both are decided once, per run, and the briefings below only 
   (`none` | `all` | a type list — which `to: all` types reach this seat; absent keeps the default),
   `senders:` (a comma-separated allow-list of the ONLY seats whose messages reach this one; absent
   means unbounded), and `ctx-refresh: N` (this seat's own context-refresh threshold %, enforced by
-  the watcher), and `outputs:` (the done contract — next bullet). Observer status is for seats whose
+  the deterministic watch layer), and `outputs:` (the done contract — next bullet). Observer status is for seats whose
   job is watching, never a convenience for a worker.
 - **`outputs:` — the seat's done contract (7.676).** Shape: `outputs: plan.md, build/report.json` —
   ONE line, comma-separated paths, on the seat's own descriptor frontmatter. Semantics: these are

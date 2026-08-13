@@ -60,7 +60,7 @@ outputs: plan.md, build/report.json
 
 {Absolute paths, each with one line saying what the agent needs FROM it.
  Two kit files are role-scoped and reach a seat ONLY through this list — omit them for every other
- seat: `{team-kit}/roles.md` for a leader, deputy, scientist, judge, verifier, closer or watcher
+ seat: `{team-kit}/roles.md` for a leader, deputy, scientist, judge, verifier or closer
  seat and for any codex/opencode seat; `{team-kit}/briefing-authoring.md` for the seat that
  authors this run's briefings or seat descriptors.}
 
