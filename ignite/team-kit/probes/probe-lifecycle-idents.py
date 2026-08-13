@@ -152,9 +152,15 @@ def stub_harness(workdir, tag):
     proc = real_subprocess.Popen([str(stub)], stdout=real_subprocess.DEVNULL,
                                  stderr=real_subprocess.DEVNULL)
     PROCS.append(proc)
-    for _ in range(100):                       # wait for /proc to carry a starttime
+    # /proc/<pid>/stat exists from the FORK, /proc/<pid>/cmdline only from the EXEC. Gating on the
+    # ident alone therefore never waits at all: it returns a pid whose argv is still EMPTY, and
+    # 1.1's `is_harness_argv` read loses that race — measured 0.8-3.3% of spawns on this box, which
+    # is the 2-in-24 intermittent of 2026-08-12 (state 'R', ident correct, cmdline zero bytes; the
+    # argv settles 40-190us later). Wait for the observable "exec happened" instead — a NON-EMPTY
+    # cmdline, not a harness-matching one, so 1.1's own predicate is still free to fail.
+    for _ in range(100):
         ident = coord.process_identity(proc.pid)
-        if ident:
+        if ident and cmdline(proc.pid):
             return proc, ident
         time.sleep(0.05)
     return proc, None
@@ -543,8 +549,31 @@ def main():
         check("4a the probe carries a python3 shebang",
               own.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3"))
         check("4b ...and is executable", os.access(own, os.X_OK), oct(own.stat().st_mode & 0o777))
-        after = hashlib.md5(COORD_PY.read_bytes()).hexdigest()
-        check("4c coord.py did not move under this run", after == digest, f"{digest} -> {after}")
+        # 4c — what part 3 measured must still hold of the file on disk. It used to assert the
+        # digest was UNCHANGED, which encodes a premise this box breaks: autonomous seats edit
+        # coord.py live through `save-coord.py`'s atomic `os.replace`, and one landing inside the
+        # ~19s window failed the run for a reason that was never a defect. The probe holds no
+        # writable handle to coord.py (every write above goes under `tmp`), so it is never the
+        # author of such a move. So: same bytes -> nothing to re-prove; different bytes -> RE-RUN
+        # the locator against the CURRENT file. That keeps both halves of the old coverage — the
+        # freshness of part 3's verdict, and the refusal to accept a damaged coord.py (either
+        # scratch mutant reddens guard 3 or guard 4 here) — without the byte-static premise.
+        after_src = COORD_PY.read_text(encoding="utf-8")
+        after = hashlib.md5(after_src.encode()).hexdigest()
+        if after == digest:
+            check("4c coord.py is byte-identical to the snapshot part 3 measured", True, digest)
+        else:
+            print(f"  NOTE  coord.py moved under this run ({digest} -> {after}) — an external "
+                  "writer, not this probe. Re-locating the seven guarded acts against it.")
+            try:
+                v2, cm2 = locate(after_src)
+                bad = [gid for gid, *_ in GUARDS if not v2[gid][0]]
+                ok2 = not bad and teardown_order_ok(cm2)[0]
+                why = f"failing guards {bad}" if bad else "teardown order" if not ok2 else ""
+            except SyntaxError as exc:
+                ok2, why = False, f"current coord.py does not parse: {exc}"
+            check("4c coord.py moved under this run — the seven guarded acts still locate in the "
+                  "CURRENT file", ok2, f"{digest} -> {after}" + (f"; {why}" if why else ""))
     finally:
         for p in PROCS:
             try:
@@ -580,9 +609,16 @@ def stub_python_child(workdir):
     proc = real_subprocess.Popen([sys.executable, str(script)],
                                  stdout=real_subprocess.DEVNULL, stderr=real_subprocess.DEVNULL)
     PROCS.append(proc)
+    # Same race as `stub_harness`, INVERTED and therefore worse: /proc/<pid>/stat exists from the
+    # FORK, /proc/<pid>/cmdline only from the EXEC, so gating on the ident alone hands back a pid
+    # whose argv is still ZERO BYTES — and `is_harness_argv("")` is False, which is the answer rows
+    # 5-7 want. The negative then PASSES FOR THE WRONG REASON: it cannot tell "this caller is
+    # correctly not a harness" from "argv has not materialized yet", and never fails, because the
+    # bug makes it pass. Wait for the observable "exec happened" — a NON-EMPTY cmdline, not a
+    # python-shaped one, so the consuming predicate is still free to fail.
     for _ in range(100):
         ident = coord.process_identity(proc.pid)
-        if ident:
+        if ident and cmdline(proc.pid):
             return proc, ident
         time.sleep(0.05)
     return proc, None

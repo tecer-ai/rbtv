@@ -423,18 +423,23 @@ async function main() {
     maxTicks: 1, relaunch: ['alpha'],
     spawnForeground: (argv, cwd) => { failedGranted.push(cwd); return { status: 0 }; },
   });
-  check('F6 …and the grant releases THAT one too, while never being able to re-open a `done` seat',
-    failedGranted.length === 1 && (await (async () => {
-      const doneGoal = mutantOf('lane-goal-2d', () => {});
-      const g = [];
-      await attached.executeAttached({
-        goalFolder: doneGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
-        maxTicks: 1, relaunch: ['alpha'],
-        spawnForeground: (argv, cwd) => { g.push(cwd); return { status: 0 }; },
-      });
-      return g.length === 0;
-    })()),
-    `granted-after-failure ${JSON.stringify(failedGranted)}`);
+  // …and a `done` seat too, since the loop re-fire (owner ruling 2026-08-12, `concepts/loop.md`)
+  // moved the "must not re-run completed work" guard to the grant's MINT. LEG 5 of
+  // probe-relaunch-grant and P5 of probe-block-and-queue-hold pin that on the DAEMON side; this is
+  // the ATTACHED lane's copy, which no other probe reaches. The unmutated fixture is the same one
+  // D2 above runs WITHOUT a grant and gets zero launches from — so the grant is the only difference.
+  const doneGoal = mutantOf('lane-goal-2d', () => {});
+  const doneGranted = [];
+  await attached.executeAttached({
+    goalFolder: doneGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
+    maxTicks: 1, relaunch: ['alpha'],
+    spawnForeground: (argv, cwd) => { doneGranted.push(cwd); return { status: 0 }; },
+  });
+  check('F6 …and the grant releases THAT one too — and a seat the record calls `done` as well: the '
+    + 'loop re-fire, in this lane',
+    failedGranted.length === 1
+      && doneGranted.length === 1 && doneGranted[0] === path.join(doneGoal, 'seats', 'alpha'),
+    `granted-after-failure ${JSON.stringify(failedGranted)} · granted-after-done ${JSON.stringify(doneGranted)}`);
 
   // ── F2 · ADOPTION: a goal that ran BEFORE this record existed publishes its history ──────────
   //

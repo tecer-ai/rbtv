@@ -1153,7 +1153,10 @@ async function executeAttached({
       if (status.key !== lastStatusKey || refreshDue) {
         lastStatusKey = status.key;
         lastStatusTick = ticks;
-        process.stdout.write(`${status.block}\n`);
+        // STDERR, not stdout: under `--json` stdout carries ONLY the machine-readable result, and
+        // this write is not gated by the caller's json flag. The CLI already routes every other
+        // operator line (the `logger`) to stderr, so a terminal shows this exactly as before.
+        process.stderr.write(`${status.block}\n`);
       }
       const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady);
       if (verdict.done) {

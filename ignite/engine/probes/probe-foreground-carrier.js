@@ -21,7 +21,10 @@
 //        while a foreground seat holds it, and the re-run must (1) reconcile that row, (2) REFUSE
 //        to advance past the seat rather than silently re-firing it, and (3) run it again — once —
 //        when, and only when, an explicit `--relaunch` grant is typed.
-//   B1f  THE GRANT IS SPENT AND CANNOT RE-RUN FINISHED WORK.
+//   B1f  THE GRANT'S BOUNDS AT THE VIEW IT CHANGES: it hides a granted seat's history WHOLE —
+//        finished rows included, since the loop re-fire (owner ruling 2026-08-12) moved the "must
+//        not re-run completed work" guard to the grant's MINT — and the ungranted view of the same
+//        store is the control.
 //
 // ⚠ A PROBE CANNOT OWN A REAL TTY, and this one does not pretend to. Two substitutions, both
 // disclosed: the library-level arms inject `spawnForeground` (the real carriage stays the DEFAULT,
@@ -159,7 +162,7 @@ cfg['launch-specs'].bash['probe-fg'] = {
 // Same, but the foreground seat blocks long enough to be killed while it holds the run.
 cfg['launch-specs'].bash['probe-fg-slow'] = {
   exec: { argv: ['bash', '-c', 'exec sleep 1', '--model', 'probe-fg-slow'], prompt: 'stdin' },
-  headed: { tui: { argv: ['sleep', '20.7'] } },   // the fractional second makes the pkill exact
+  headed: { tui: { argv: ['sleep', '20.7'] } },   // longer than B1e's kill window, by a distinctive duration
   session_ref: { source: 'cwd-implicit' },
   workdir_root: '.rbtv/goals',
   ...CONTAINMENT,
@@ -501,6 +504,12 @@ async function main() {
 
   const killGoal = makeGoal('fg-goal-kill');
   const killStore = path.join(killGoal, 'heart.db');
+  // ⚠ THE SEAT MUST STILL BE RUNNING WHEN THE KILL LANDS, and since 7.787 the ONLY way to say so is
+  // the descriptor: this run used to carry `--profile probe-fg-slow` and the abolition dropped the
+  // flag without recasting the seat, so alpha ran `probe-fg` — the INSTANT check-out — and every arm
+  // below raced a seat that was already `done`. The 20.7 s sleep is not a margin, it is the fixture
+  // CHOOSING the duration of the state these arms pin. Recast back to `probe-fg` before the re-runs.
+  recast(path.join(killGoal, 'seats', 'alpha'), 'probe-fg-slow');
   // ⚠ `detached: true` + a signal to the PROCESS GROUP, not to the pid. `rbtv` is a wrapper that
   // execs the delegate, which in turn holds the foreground child: a SIGKILL aimed at the wrapper's
   // pid alone leaves the real runner ALIVE and still writing to this store, and the arms below then
@@ -524,10 +533,13 @@ async function main() {
   try { process.kill(-victim.pid, 'SIGKILL'); } catch { victim.kill('SIGKILL'); }
   await awaitExit(victim);
   await sleep(300);
-  // The orphaned foreground child outlives a SIGKILL aimed at the runner alone (a real Ctrl-C
-  // signals the whole foreground process group and takes it with it). Disclosed in the contract;
-  // reaped here so the probe leaves nothing behind.
-  spawnSync('pkill', ['-f', 'sleep 20.7']);
+  // NO reap is needed here, and that is a property of the kill above, not luck: the foreground
+  // child is a plain `spawnSync` of the runner, so it INHERITS the runner's process group, and the
+  // group kill above takes it with the runner. Measured 2026-08-13 — pre-kill the `sleep 20.7`
+  // is alive with `pgid == victim.pid`, at +300 ms it is gone. This line used to be
+  // `pkill -f 'sleep 20.7'`, which matched on command-line TEXT (the shape that self-kills operator
+  // shells) and reaped nothing. If a future carriage detaches the child into its OWN group, capture
+  // that pid at spawn and kill it — never re-introduce a pattern match.
 
   check('B1e the killed runner left its lock behind — the STALE path is what the re-run must handle',
     fs.existsSync(path.join(killGoal, attached.RUN_LOCK)),
@@ -546,6 +558,9 @@ async function main() {
     return { status: res.status, json, stdout: res.stdout || '', stderr: res.stderr || '' };
   };
 
+  // The crash is over; the re-runs want the seat to FINISH, so alpha goes back to the check-out
+  // spec (this is what the retired `--profile probe-fg` on both re-runs said).
+  recast(path.join(killGoal, 'seats', 'alpha'), 'probe-fg');
   const afterKill = runCli(['run', killGoal, '--config', configPath, '--max-ticks', '3', '--json']);
   check('B1e the re-run RECONCILES the interrupted row instead of inheriting a ghost',
     afterKill.json && afterKill.json.reconciled.includes(attached.jobIdFor('alpha')),
@@ -583,6 +598,10 @@ async function main() {
   say('B1g — a SECOND runner on a goal a first one holds must refuse, not reconcile');
 
   const holdGoal = makeGoal('fg-goal-hold');
+  // Same abolition casualty as B1e: `--profile probe-fg-hold` went away without a recast, so A's
+  // seat finished before B ever started and "A is still holding it" was a race. `probe-fg-hold`
+  // sleeps 6 s and THEN checks out — long enough for B to be refused, and it still lets A complete.
+  recast(path.join(holdGoal, 'seats', 'alpha'), 'probe-fg-hold');
   const holder = spawnProc(RBTV_BIN,
     ['run', holdGoal, '--config', configPath, '--tick-ms', '300', '--json'],
     { stdio: 'ignore', detached: true });
@@ -658,18 +677,31 @@ async function main() {
 
   // ── B1f · the grant's own bounds, measured at the view it changes ───────────────────────────
   say('');
-  say('B1f — a grant re-opens a DEAD seat and can never re-open a FINISHED one');
+  say('B1f — a grant re-opens a DEAD seat, and since the loop re-fire a FINISHED one too');
 
   const view = openHeartStore({ dbPath: killStore });
   try {
     const rows = [{ seat: 'alpha', after: '' }, { seat: 'bravo', after: 'alpha' }];
     const plain = attached.executionsByJob(view);
     const withGrant = attached.executionsByJob(view, new Set(['alpha', 'bravo']));
-    check('B1f a FINISHED seat is not re-opened by naming it in a grant',
-      Boolean(withGrant.get(attached.jobIdFor('alpha')))
-        && Boolean(withGrant.get(attached.jobIdFor('bravo')))
-        && attached.seatState(rows[0], withGrant, new Set()) === 'done',
-      'alpha finished on the relaunch, bravo finished behind it — neither is hidden');
+    // This arm used to pin the OPPOSITE — "a grant can never re-open finished work". The loop
+    // re-fire (owner ruling 2026-08-12, `concepts/loop.md`) moved that guard to the grant's MINT —
+    // every writer of the grant is a deliberate act (the `--relaunch` CLI, the leader, the verdict
+    // verb's `on-fail-relaunch` route) — so a granted seat's history is now hidden WHOLE, finished
+    // rows included. LEG 5 of probe-relaunch-grant and P5 of probe-block-and-queue-hold pin it on
+    // the daemon side and F6 of probe-cross-lane-resume in the attached lane; this is the VIEW
+    // FUNCTION itself, on a store a real killed-then-relaunched subprocess wrote.
+    check('B1f a FINISHED seat IS re-opened by naming it in a grant — the loop re-fire, at the view',
+      !withGrant.get(attached.jobIdFor('alpha'))
+        && !withGrant.get(attached.jobIdFor('bravo'))
+        && attached.seatState(rows[0], withGrant, new Set(), { ready: new Map([['alpha', []]]) }) === 'ready'
+        // …and WITHOUT the grant the very same store reads `done`, so the grant is the only
+        // difference between the two verdicts and this arm cannot pass on an empty view.
+        && Boolean(plain.get(attached.jobIdFor('alpha')))
+        && Boolean(plain.get(attached.jobIdFor('bravo')))
+        && attached.seatState(rows[0], plain, new Set()) === 'done',
+      `granted=${attached.seatState(rows[0], withGrant, new Set(), { ready: new Map([['alpha', []]]) })}`
+        + ` · ungranted=${attached.seatState(rows[0], plain, new Set())}`);
     // …and the same call on a store where the seat is DEAD does re-open it. Measured on the
     // failed-only view built from this store's own first attempt.
     const deadOnly = new Map([[attached.jobIdFor('alpha'), plain.get(attached.jobIdFor('alpha')).filter((r) => r.status === 'failed')]]);
