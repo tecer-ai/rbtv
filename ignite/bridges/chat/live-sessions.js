@@ -26,6 +26,16 @@
 // deliberately the shorter-lived promise of the two.
 const DEFAULT_FEED_TIMEOUT_MS = 240000;
 
+// ⚑ THE WARM ARM HAS NO REVIVE, so the contract must ride the feed itself (owner ruling
+// 2026-08-13, option a). A live session answers the owner's words directly — nothing between
+// the resume and the reply ever restates the fence — and a seat that drifts into plain prose
+// stays unformatted on every warm turn (measured live: 3 prefixed replies in one thread,
+// 2026-08-13). One reminder line appended to every fed prompt is the one choke point that
+// reaches every seat. The sentinels are named INLINE, never on their own lines: `extractFenced`
+// matches whole trimmed lines, so this reminder can never be mistaken for the reply's fence.
+const { FENCE_OPEN, FENCE_CLOSE } = require('./reply-leg');
+const FENCE_REMINDER = `[bridge] Reply contract: end your turn with the owner-facing message between a ${FENCE_OPEN} line and a ${FENCE_CLOSE} line, body in Slack mrkdwn (*bold*, _italic_, <url|text> links — no markdown **bold**, # headings, [links](url) or | tables).`;
+
 function createLiveLeg({ forwarder, threadMap, config, logger = null, feedTimeoutMs = DEFAULT_FEED_TIMEOUT_MS }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, component: 'live-leg', ...extra });
@@ -65,7 +75,7 @@ function createLiveLeg({ forwarder, threadMap, config, logger = null, feedTimeou
     const startedAt = Date.now();
     const res = await forwarder.forward('live-feed', {
       conversation: String(chatThreadId),
-      prompt: text,
+      prompt: `${text}\n\n${FENCE_REMINDER}`,
       workdir,
       exec_id: c.execId,
       start: true,

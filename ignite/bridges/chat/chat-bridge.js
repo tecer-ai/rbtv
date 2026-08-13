@@ -531,6 +531,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         const text = verdict.ok
           ? verdict.body
           : (verdict.body !== null ? bestEffortText(verdict.body) : warm.text);
+        // Non-conformance was invisible here — the turn logged as cleanly handled while the
+        // owner saw the ⚠ prefix (observed 2026-08-13, three replies in one thread with not
+        // one journal line). The cold leg warns on every revive; the warm leg says so too.
+        if (!verdict.ok) log('warn', 'warm reply non-conformant — delivered best-effort behind the unformatted marker', { chatThreadId: chatMsg.chatThreadId, problems: (verdict.problems || []).map((p) => p.issue) });
         // ⚑ THE OWNER ANSWERED: SAY SO ON THE BUS — the THIRD door (task 7.771; owner review
         // 2026-08-11). `forward-path.js#recordBusAnswer` is called, never re-implemented: "the
         // owner answered" is ONE FACT and recording it at one door is what made the first cut of
