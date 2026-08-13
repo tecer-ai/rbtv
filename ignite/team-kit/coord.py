@@ -14394,7 +14394,7 @@ def harness_command(w, prompt=None, prompt_path=None):
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
-def boot_prompt(w, args):
+def boot_prompt(w, args, daemon_lane=False):
     """The initial prompt every seat starts with, harness-independent. A leader seat whose
     memory.md already exists is only ever (re)launched to CONTINUE a run it was arbitrating
     (renew, or crash recovery) — its prompt is resume-first, never the generic fresh boot."""
@@ -14417,20 +14417,53 @@ def boot_prompt(w, args):
                       f"file is YOURS: a present-tense state doc you REWRITE in place at your own "
                       f"renewal/close — resolved items deleted, ≤2 screens, never a log.")
         first = f"Read your briefing {w['briefing']} first.{memory}"
+    # ⚠ W1 (adv, C4) — THE DAEMON LANE IS TOLD A DIFFERENT OPENING, and only the opening.
+    #
+    # `checkin` needs a tmux pane to resolve the caller against, and a daemon-lane seat has none —
+    # it is a `systemd-run` unit inside a cage. So this instruction, on that lane, orders every
+    # seat to run a command that CANNOT succeed, as the first act of its session. It is dropped,
+    # not softened: an instruction a seat is expected to fail at teaches it to ignore instructions.
+    #
+    # ⚠ CHECK-OUT IS NOT DROPPED WITH IT, and that asymmetry is the whole correction. Check-out
+    # WORKS on this lane — `awaiting-close.json` is a writable path — and it is the SOLE producer
+    # of `incomplete` and of the leader route flag. Dropping both would delete the honest ending
+    # this entire wave exists to preserve.
+    if daemon_lane:
+        opening = (
+            f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly, "
+            f"with ONE amendment for this lane: DO NOT run `checkin`. You have no tmux pane to "
+            f"check in from, and your session row in {pkg}/sessions.csv was already opened for you "
+            f"when you were spawned. Everything else in the protocol stands — in particular you "
+            f"still CHECK OUT (coordination CLI: {coord_invocation(args)}), and `checkout "
+            f"--incomplete \"<reason>\"` is the ONLY way to end a session honestly unfinished; a "
+            f"plain `checkout` says your briefing's output exists. Your check-out will report that "
+            f"it could not stamp {pkg}/sessions.csv — that is EXPECTED here and does not weaken it: "
+            f"the run package is mounted read-only in your cage on purpose, your declaration is "
+            f"recorded on the writable surface, and the daemon copies it across when your process "
+            f"ends. Then execute ONLY your briefing. ")
+    else:
+        opening = (
+            f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
+            f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
+            f"then execute ONLY your briefing. ")
     return (
         f"You are agent '{w['agent']}' of the run package at {pkg}. "
         f"{first} "
-        f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
-        f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
-        f"then execute ONLY your briefing. "
-        f"{scratchpad_instruction(w)}"
+        f"{opening}"
+        f"{scratchpad_instruction(w, daemon_lane)}"
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
     )
 
 
-def scratchpad_instruction(w):
+def scratchpad_instruction(w, daemon_lane=False):
     """The seat-facing per-session scratchpad instruction (7.96 criterion 3), or `''`.
+
+    ⚠ W1 (adv, C4) — THE SESSION-ID'S SOURCE MOVES WITH THE LANE. This sentence used to promise
+    that the id "is printed to you by your own check-in", which is true on the tmux lane and a
+    dangling promise on the daemon lane the moment the check-in instruction is dropped above. The
+    daemon lane's seat reads it off its own OPEN row in the package's `sessions.csv` — a file its
+    cage mounts read-only, so it can always be read and never forged. It is the same id either way.
 
     ⚠ THE BOOT PROMPT IS THE ONE HOME, and the criterion says one home and not both. The
     alternative was the run package's `CLAUDE.md` — which `materialize-seats.py` authors per
@@ -14451,9 +14484,13 @@ def scratchpad_instruction(w):
     choosing."""
     if not w.get("folder"):
         return ""
+    where = ("the `session-id` cell of YOUR row in the package's `sessions.csv` — the one whose "
+             "`ended` cell is still empty; create the folder if it is not there"
+             if daemon_lane else
+             "printed to you by your own check-in, on its `session:` line, and the folder "
+             "already exists")
     return (f"EVERY working file you produce this session goes in your per-session scratchpad "
-            f"{Path(w['folder']) / SEAT_SCRATCHPAD_DIR}/<session-id>/ — <session-id> is printed to "
-            f"you by your own check-in, on its `session:` line, and the folder already exists. "
+            f"{Path(w['folder']) / SEAT_SCRATCHPAD_DIR}/<session-id>/ — <session-id> is {where}. "
             f"Your seat.md/agent.md descriptor, your memory.md and any conventions.md STAY at "
             f"{w['folder']}/ — nothing already at that root moves into the scratchpad. ")
 
@@ -14490,9 +14527,13 @@ def cmd_boot_prompt(args):
                f"{Path(__file__).resolve().parent / 'materialize-seats.py'} --package "
                f"{package_dir(args, register=False)}",
                2)
-    # NO trailing newline: the caller writes these bytes to the harness's stdin verbatim, and a
-    # consumer that has to strip anything is a consumer that has begun re-assembling the prompt.
-    sys.stdout.write(boot_prompt(w, args))
+    # ⚠ W1 (adv, C4) — THE LANE IS TOLD, NEVER DERIVED HERE. `execution-lane`'s grammar already
+    # has exactly two spellings that DEC-1 binds to change together (`engine/lane-watch.js#readLane`
+    # and `goals-tree/tool/goal_cli.py#read_lane`); a third one in this file would be a third thing
+    # to keep in step for a one-bit answer the CALLER already holds. `seeding.js` reads the marker
+    # through the existing JS speller and passes the result. Absent flag = the tmux lane = the
+    # bytes this verb has always printed.
+    sys.stdout.write(boot_prompt(w, args, daemon_lane=(getattr(args, "lane", "") == "daemon")))
 
 
 # ---------- worker-mirror refresh (pre-launch) ----------
@@ -28300,6 +28341,128 @@ def _selftest_checks(args, failures, names):
               and _ae3_state == {"roster_active": "yes", "awaiting": None,
                                  "session_disposition": None, "succ": "BLOCKED"})
 
+        # ---- W1: THE DAEMON-LANE CANDIDATE SOURCE (`--session`) --------------------------------
+        #
+        # ⚠ THE ARMS ABOVE NEVER REACH IT. Every one of them runs the TMUX arm — the sensor
+        # snapshot, `roster_absent`, the seat name — and the daemon arm shares not one line of that
+        # path: it is keyed on a session-id, reads no `state.json`, and decides its value from
+        # `awaiting-close.json`. The suite was green on the whole daemon lane while
+        # `session_row_by_id`, `daemon_close_blockers` and `close_session_seat` had NO arm at all,
+        # which is a green that means "nothing exercised it", not "it works".
+        #
+        # ⚠ `--as ignite-daemon` RIDES ON EVERY ARM, because that is the claim the ENGINE makes
+        # (`spawn.js#closeSeatSessionRow`, `seeding.js`'s two seat-retry argv). It is verified here
+        # against the two identity rows that could have refused it: F16 (the daemon-exec lane) is
+        # not consulted at all — an explicit claim outranks it in `resolve_agent`, which is what
+        # keeps `r-gate-ships-with-its-own-key` intact — and F17's asserted-launch bound is
+        # `launch`-scoped, so it neither admits nor refuses anything here.
+        def _dl_make(name, awaiting_dispo=None, rows=None):
+            """`_ae_make`'s fixture with the daemon lane's own trace: pid pair present (the
+            daemon writes one at spawn) and, where an arm needs it, a SECOND open row for the
+            same seat — the concurrent-sitting shape the session-id key exists to survive."""
+            p = _ae_make(name, awaiting_dispo=awaiting_dispo)
+            write_csv_table(p / "sessions.csv", SESSIONS_COLS,
+                            [[r.get(_c, "") for _c in SESSIONS_COLS] for r in (rows or [
+                                {"session-id": "oc2-sid", "seat": "oc2",
+                                 "started": "2026-07-29 10:00", "pid": "424242",
+                                 "pid-starttime": "999999999"}])])
+            return p
+
+        def _dl_rows(p):
+            _h, _rs2 = read_csv_table(p / "sessions.csv", SESSIONS_COLS)
+            _i = {c: n for n, c in enumerate(_h)}
+            return [{c: pad_row(r, _h)[_i[c]].strip() for c in
+                     ("session-id", "ended", "disposition", "disposition-writer")} for r in _rs2]
+
+        # (1) THE WHOLE POINT: a declared `incomplete` is CARRIED, not overwritten.
+        _dl1 = _dl_make("dl1", awaiting_dispo="incomplete")
+        _dl1_out, _, _dl1_code = _ae(_dl1, session="oc2-sid", force_dead=True, go=True,
+                                     as_agent="ignite-daemon")
+        _dl1_row = _dl_rows(_dl1)[0]
+        _dl1_aw = load_awaiting(_dl1 / "coordination").get("oc2") or {}
+        check("W1/C2: THE DAEMON-LANE CLOSER CARRIES THE SEAT'S OWN `incomplete` TO BOTH SURFACES, "
+              "under the `kit-for-seat` writer. The declaration lives on `awaiting-close.json` and "
+              "NOWHERE else on this lane — the run package is carved read-only into every cage, so "
+              "the seat's own `sessions.csv` stamp EROFSes. A closer that read the ROW's empty "
+              "cell instead would write `exited` over this and manufacture the disposition SKEW "
+              "that makes every honest `incomplete` unrelaunchable",
+              _dl1_code is None and _dl1_row["ended"] and _dl1_row["disposition"] == "incomplete"
+              and _dl1_row["disposition-writer"] == DISPOSITION_WRITER_KIT_FOR_SEAT
+              and _dl1_aw.get("disposition") == "incomplete")
+
+        # (2) NOBODY declared -> `exited` under the KIT's own token, plus the interim pre-W3 note.
+        _dl2 = _dl_make("dl2")
+        _dl2_out, _, _dl2_code = _ae(_dl2, session="oc2-sid", force_dead=True, go=True,
+                                     as_agent="ignite-daemon")
+        _dl2_row = _dl_rows(_dl2)[0]
+        check("W1: with NO declaration the closer attests `exited` under `kit` — its own witness "
+              "(a harness terminated) and nothing about the work — and SAYS OUT LOUD that the row "
+              "routes to a leader that does not exist before W3 (adv, C10). Silence there is how a "
+              "row nobody is coming for looks exactly like a row somebody is",
+              _dl2_code is None and _dl2_row["disposition"] == "exited"
+              and _dl2_row["disposition-writer"] == DISPOSITION_WRITER_KIT
+              and "INTERIM (pre-W3)" in _dl2_out)
+
+        # (3) THE SESSION-ID IS THE KEY, AND IT DISCRIMINATES (adv, C6). Two open rows for ONE
+        #     seat — the concurrent-sitting shape — and only the named one may be touched. Seat-name
+        #     matching would stamp the LIVE sitting's row, which is F4's race performed by the
+        #     mechanism built to close F3.
+        _dl3 = _dl_make("dl3", rows=[
+            {"session-id": "oc2-old", "seat": "oc2", "started": "2026-07-29 09:00",
+             "pid": "424242", "pid-starttime": "999999999"},
+            {"session-id": "oc2-new", "seat": "oc2", "started": "2026-07-29 10:00",
+             "pid": "424243", "pid-starttime": "999999998"}])
+        _ae(_dl3, session="oc2-old", force_dead=True, go=True, as_agent="ignite-daemon")
+        _dl3_rows = {r["session-id"]: r for r in _dl_rows(_dl3)}
+        _dl3_miss_out, _, _dl3_miss_code = _ae(_dl3, session="no-such-sid", go=True,
+                                               as_agent="ignite-daemon")
+        check("W1/C6: THE CLOSE LANDS ON THE NAMED SESSION AND ON NO OTHER. With two OPEN rows for "
+              "one seat, closing `oc2-old` leaves `oc2-new` untouched; and a session-id no row "
+              "carries is a NAMED no-candidate that writes nothing — it never falls back to the "
+              "seat's latest row, which is exactly the fallback that would stamp a live sitting",
+              _dl3_rows["oc2-old"]["ended"] and not _dl3_rows["oc2-new"]["ended"]
+              and _dl3_miss_code is None and "no candidate" in _dl3_miss_out)
+
+        # (4) THE BLOCKERS HOLD, and each names its own term. A LIVE process and an already-closed
+        #     row are the two that would destroy a record if they did not.
+        #
+        # ⚠ THE LIVE ARM USES THIS INTERPRETER'S OWN (pid, starttime), read from /proc — the one
+        # pair CERTAIN to be live while the check runs. A made-up pair reads DEAD (correctly), so a
+        # fixture carrying one would exercise the CLOSING path and prove nothing about the guard.
+        _dl4 = _dl_make("dl4", rows=[
+            {"session-id": "oc2-sid", "seat": "oc2", "started": "2026-07-29 10:00",
+             "pid": str(os.getpid()), "pid-starttime": proc_starttime(os.getpid()) or ""}])
+        _dl4_live_out, _, _dl4_live_code = _ae(_dl4, session="oc2-sid", go=True,
+                                               as_agent="ignite-daemon")
+        _dl4_after_live = _dl_rows(_dl4)[0]
+        _ae(_dl4, session="oc2-sid", force_dead=True, go=True, as_agent="ignite-daemon")
+        _dl4_closed = _dl_rows(_dl4)[0]
+        _dl4_twice_out, _, _dl4_twice_code = _ae(_dl4, session="oc2-sid", force_dead=True, go=True,
+                                                 as_agent="ignite-daemon")
+        check("W1: WITHOUT `--force-dead` THE CLOSER RE-CHECKS LIVENESS AND HOLDS ON A LIVE ROW, "
+              "and a row it already closed is REFUSED a second time. `--force-dead` is the ENGINE "
+              "saying it WITNESSED the exit; a caller who witnessed nothing gets the pid check, "
+              "and closing a row whose process is still working would end a live session on paper "
+              "— the one way this verb could destroy the record it exists to complete. `(a)` then "
+              "keeps a settled ending settled: re-stamping it rewrites an outcome somebody already "
+              "owns. The CONTROL is that SAME row closing under `--force-dead`, so `refuses "
+              "correctly` cannot be confused with `this arm cannot close anything`",
+              _dl4_live_code == 1 and "STILL ALIVE" in _dl4_live_out
+              and not _dl4_after_live["ended"] and _dl4_closed["ended"]
+              and _dl4_twice_code == 1 and "ALREADY CLOSED" in _dl4_twice_out)
+
+        # (5) `--as ignite-daemon` IS THE ENGINE'S CLAIM, and neither identity row refuses it.
+        _dl5_ns = ns(as_agent="ignite-daemon", pane=None, package=str(_dl1), base=None,
+                     workers_dir=None, force=False)
+        _dl5_claim, _ = asserted_launch_claim(_dl5_ns)
+        check("W1/F16+F17: `--as ignite-daemon` RESOLVES, and it neither captures F16's key nor "
+              "trips F17's bound. `resolve_agent` returns the claim (no pane, so nothing to "
+              "contradict) WITHOUT consulting the daemon-exec lane — that lane is LAST and is "
+              "F17's key, so a claim that reached it would be the gate holding its own key. F17's "
+              "asserted-launch bound reports the uncorroborated claim as DATA and is wired at "
+              "`launch` alone, so it neither admits nor refuses this close",
+              resolve_agent(_dl5_ns) == "ignite-daemon" and _dl5_claim == "ignite-daemon")
+
 
         # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================
         # Spec: stage-1-2-gate-checkout-spec.md §4 + §5. The mechanism copied is the MESSAGE
@@ -33290,6 +33453,12 @@ def build_parser():
     s.add_argument("seat", metavar="SEAT",
                    help="the TARGET seat whose boot prompt to print, as in its descriptor's "
                         "`agent:` key — never the caller")
+    s.add_argument("--lane", choices=("console", "daemon"), default="console",
+                   help="which lane will carry this seat. `daemon` DROPS the check-in instruction "
+                        "(a caged systemd unit has no pane to check in from, so the instruction "
+                        "could only ever be failed) and states where its session-id is readable; "
+                        "check-OUT is instructed on both lanes. Default `console` — the bytes this "
+                        "verb has always printed")
     s.set_defaults(func=cmd_boot_prompt)
 
     s = command(

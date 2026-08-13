@@ -946,12 +946,32 @@ async function main() {
   // THE EXPECTATION IS COMPUTED, NEVER TYPED: `coordinate boot-prompt` is the ONE composer
   // (`seeding.js#seatBootPrompt` shells exactly this), so a hand-written string here would be a
   // second composer and the arm would pass on drift between them.
-  const expectedPrompt = execFileSync(requirePythonCmd(),
-    [path.join(IGNITE_SRC, 'team-kit', 'coord.py'), '--package', promptGoal, 'boot-prompt', 'alpha'],
+  // ⚠ W1 (adv, C4) — `--lane daemon`, because THIS GOAL IS ON THE DAEMON LANE (set two lines
+  // above) and the prompt now differs by lane. Without the flag this expectation would be the
+  // CONSOLE bytes and the identity check below would red on a correct pass — the failure mode a
+  // computed expectation exists to avoid, reintroduced by computing the wrong thing.
+  const coordArgv = (...extra) => [path.join(IGNITE_SRC, 'team-kit', 'coord.py'),
+    '--package', promptGoal, 'boot-prompt', 'alpha', ...extra];
+  const expectedPrompt = execFileSync(requirePythonCmd(), coordArgv('--lane', 'daemon'),
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   check('L9 coord composes a NON-EMPTY boot prompt for this seat — the arm\'s own premise, asserted '
     + 'before anything is compared against it',
     expectedPrompt.trim().length > 0, `${expectedPrompt.length} bytes`);
+  // ── W1 (adv, C4) · THE LANE ACTUALLY CHANGES THE BYTES, and in the ruled direction ───────────
+  // Two seat-facing facts, asserted against the CONSOLE composition as the control, so neither
+  // can pass by the flag being ignored: the daemon prompt must NOT order a check-in the seat has
+  // no pane to perform, and it MUST still order the check-out that is the sole producer of
+  // `incomplete`. A single "they differ" check would pass on any difference at all.
+  const consolePrompt = execFileSync(requirePythonCmd(), coordArgv(),
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  check('L9/C4 the CONSOLE prompt orders a check-in — the control, without which "the daemon '
+    + 'prompt has no check-in" is true of any two strings',
+    /check in as/.test(consolePrompt), `console: ${consolePrompt.length} bytes`);
+  check('L9/C4 …and the DAEMON prompt does NOT order one, while still ordering the CHECK-OUT that '
+    + 'is the only producer of an honest `incomplete`',
+    !/check in as/.test(expectedPrompt) && /DO NOT run `checkin`/.test(expectedPrompt)
+      && /checkout --incomplete/.test(expectedPrompt),
+    `daemon: ${expectedPrompt.length} bytes · checkin-order=${/check in as/.test(expectedPrompt)}`);
 
   function l9Pass(createEngineFn, dbPath, root) {
     const engine = createEngineFn({

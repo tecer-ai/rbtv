@@ -245,7 +245,7 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
 
 // ── THE BOOT PROMPT — coord's, consumed here, composed nowhere ────────────────────────────────
 //
-//   python3 <ignite>/team-kit/coord.py --package <goal-folder> boot-prompt <seat>
+//   python3 <ignite>/team-kit/coord.py --package <goal-folder> boot-prompt <seat> --lane <lane>
 //
 // A queued seat that carries no `prompt` reaches `spawn.js#ensurePromptFile`, which writes a
 // 0-BYTE file, and the harness exits 1 on "Input must be provided either through stdin or as a
@@ -263,10 +263,19 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
 //
 // ⚠ NULL IS A REFUSAL AND NEVER AN EMPTY PROMPT. Empty output is treated as failure for the same
 // reason the whole defect exists: an empty prompt enqueued in a new place is the same bug moved.
+// ⚠ W1 (adv, C4) — THE LANE RIDES ALONG, because the prompt differs by it: a daemon-lane seat is
+// NOT told to check in (a caged `systemd-run` unit has no pane to check in from, so that
+// instruction could only ever be failed as the first act of every session), while check-OUT — the
+// sole producer of `incomplete` and of the leader route flag — is instructed on both lanes.
+// This pass serves BOTH lanes (`attached-execution.js` calls it too), so the marker is read rather
+// than assumed, through the ONE JS speller of its grammar. The require is lazy because
+// `lane-watch` requires THIS module.
 function seatBootPrompt(goalFolder, seat) {
+  let lane = 'console';
+  try { lane = require('./lane-watch').readLane(goalFolder).lane; } catch { /* console, fail-closed */ }
   let raw;
   try {
-    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'boot-prompt', seat], {
+    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'boot-prompt', seat, '--lane', lane], {
       encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {

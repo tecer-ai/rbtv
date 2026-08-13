@@ -681,6 +681,41 @@ function runForegroundSeat({
 // it observed ending badly — and the run then treats that seat as it treats any failed seat: it
 // REFUSES to advance past it and names it. Running it again takes an explicit human act, the
 // one-shot relaunch grant (`--relaunch <seat>`).
+//
+// ── W1 (adv, C12) · THE TWO CLOSERS, AND WHY NEITHER SUBSUMES THE OTHER ───────────────────────
+//
+// W1 gave the daemon lane a session-closer (`coordinate attest-exit --session … --force-dead`,
+// called from `spawn.js#closeSeatSessionRow`). That is a SECOND thing that closes `sessions.csv`
+// rows, and this lane already had one — `closeForegroundSessionRow` above. Two closers over one
+// file is worth stating rather than discovering, so: the risk is NOT double-close (both skip a row
+// whose `ended` is already stamped), it is the two writing DIFFERENT values for one ending.
+//
+//   THEY CANNOT COLLIDE ON A ROW. The daemon closer is reached only from the ticker's enforce
+//   sweep and from `kill()`. Enforce starts from a turn that is still in flight; a foreground
+//   turn's row is ended and its session closed IN THE SAME CALL the carrier makes the moment its
+//   blocking child returns, before any tick can look — and the runner's tick loop cannot even run
+//   while that child holds the terminal. Different stores, besides: this lane's is `<goal>/heart.db`.
+//
+//   THEY CANNOT DISAGREE ON A VALUE, TODAY. The daemon closer's value comes from the seat's own
+//   `awaiting-close.json` declaration and falls back to `exited` when nobody declared — and on THIS
+//   lane nobody can: a console-lane seat's check-out is refused `E_GOAL_NOT_LIVE` (there is no tmux
+//   room), which is the very reason the constant below exists. So both closers write `exited`.
+//
+// ⚠ TRIPWIRE — the second paragraph is a fact about TODAY, not a law. The day a console-lane seat
+// can check out, `FOREGROUND_DISPOSITION` starts overwriting a real declaration with `exited`, and
+// THAT is disposition skew manufactured by this file. At that moment this function and its sibling
+// must route through the one coord closer instead (the upgrade path `closeForegroundSessionRow`'s
+// own ponytail note already names). It is not done pre-emptively: it would trade an in-process
+// write for a python subprocess on the lane where the owner watches it run, to fix nothing yet.
+//
+// ⚠ WHAT IS *NOT* FIXED HERE, AND WHY IT IS LEFT STANDING. This function ends the STORE rows and
+// closes NO `sessions.csv` row, so an interrupted foreground seat leaks an open sitting forever —
+// F3 on the attached lane. The one-line fix (call `closeForegroundSessionRow` for each row before
+// ending it) was WRITTEN AND REVERTED inside W1's build: measured 2026-08-13, it turns
+// `probe-foreground-carrier` from PASS to FAIL on three checks (B1e's explicit `--relaunch`, B1f's
+// re-open-by-grant view), because stamping `ended`+`exited` on that row changes what coord's
+// readiness view says about the seat — a real behaviour change through the relaunch path that W1
+// neither scoped nor land-tests. It is a follow-up with its own acceptance, not a rider.
 function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new Date() } = {}) {
   const ended = [];
   for (const status of LIVE_TURN_STATUSES) {

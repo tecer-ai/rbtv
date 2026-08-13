@@ -55,6 +55,9 @@ const DEFAULT_CONFIG = {
 const CHAIN_MARKER = '__rbtv_chain_parent_exec_id';
 // W1 — how many seat session rows the closer may close in ONE tick. See its use in `enforce`.
 const CLOSER_MAX_PER_TICK = 5;
+// W1 — how often the enforce phase scans for row-less `rbtv-worker-*` units. See its use in
+// `enforce`: the scan reads the WHOLE store, and nothing acts on its finding automatically.
+const ROWLESS_UNIT_SCAN_EVERY_TICKS = 30;
 
 // Private marker PERSISTED in a compaction turn's jobs_log args (unlike
 // CHAIN_MARKER it must survive the fire: Advance keys the always-re-dispatch
@@ -1634,8 +1637,27 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // via liveSessionTurns(); the explicit concat is kept for the case where a stalled turn's
     // session row is absent (a pre-7.46 row on a store not yet migrated), and the dedupe below
     // keeps a row from being swept twice.
+    //
+    // ── W1 · V1's FOLD-IN, FIRST HALF: `liveTurns()` JOINS THE SWEPT SET ────────────────────────
+    //
+    // The verification found `orphanRescan` runs NOWHERE in production — its only caller is its own
+    // probe, and the "boot rescan" comments elsewhere are stale (`server/index.js` boots retention
+    // → lane watch → first tick and never calls it). So the two classes it alone reached were
+    // reached by NOTHING: (1) a `launching`/`running` turn whose session row is missing or no
+    // longer `alive`, and (2) row-less `rbtv-worker-*` units. This union closes (1); the scan below
+    // closes (2).
+    //
+    // ⚠ IT ADDS NO ROW ON THE HEALTHY PATH, and that is why it is safe to fold in rather than
+    // gate: a turn row and its session row are born in ONE transaction (`fireQueueRow`), so every
+    // live turn is ALREADY here via `liveSessionTurns()` and arrives deduped. What the union adds
+    // is exactly the DIVERGENT rows — a turn left in flight under a session that is gone — which
+    // is the state no sweep could see. Once here they take the same arms every other dead process
+    // takes (completion recorded, exit code read from the carrier's marker, session-closer called)
+    // instead of `orphanRescan`'s bare `status: failed` stamp with no completion and no closer.
     const liveBeforeCrash = dedupeByExecId(
-      liveSessionTurns().concat(heartStore.listExecutionsByStatus('stalled'))
+      liveSessionTurns()
+        .concat(heartStore.listExecutionsByStatus('stalled'))
+        .concat(liveTurns())
     );
     const crashedThisTick = new Set();
     // ── W1 · THE SESSION-CLOSER'S BUDGET FOR THIS TICK (adv, C14) ──────────────────────────────
@@ -1744,6 +1766,33 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         recordOwnerNote(`slot halted: session crashed (exec ${exec.exec_id})`, now, tick);
         crashedThisTick.add(exec.exec_id);
         actions.push({ phase: 'enforce', action: 'crash-sweep', execId: exec.exec_id, exitCode, completionMsgId: msg.msg_id });
+      }
+    }
+
+    // ── W1 · V1's FOLD-IN, SECOND HALF: THE ROW-LESS `rbtv-worker-*` UNITS ──────────────────────
+    //
+    // A unit whose session id matches no `jobs_log` row at all — a worker the store lost, or one
+    // left by a daemon that died between the spawn and the row. No sweep above can reach it,
+    // because every sweep starts FROM a row. `spawnManager.list()` already computes exactly this
+    // set (`anomalies`, type `row-less-unit`), so it is called rather than re-derived.
+    //
+    // ⚠ REPORTED, NEVER KILLED — `orphanRescan`'s own posture, kept: the daemon cannot prove a
+    // stray unit is not doing useful work, and killing on a store's silence is how a healthy
+    // worker gets shot for a bookkeeping gap.
+    //
+    // ⚠ THROTTLED, because `list()` dumps EVERY table of the store to answer it. At the tick
+    // cadence that is a full-table read every few seconds for a pathology that appears once in a
+    // daemon's lifetime; on the scan tick it is one dump. Detection latency of minutes is the
+    // trade, and it is the right one — nothing acts on the finding automatically anyway.
+    if (tick % ROWLESS_UNIT_SCAN_EVERY_TICKS === 0 && typeof spawnManager.list === 'function') {
+      try {
+        for (const a of (spawnManager.list().anomalies || [])) {
+          if (a.type !== 'row-less-unit') continue;
+          log('warn', 'row-less rbtv-worker unit found; NOT auto-killed', { unitName: a.unitName, sessionId: a.sessionId, active: a.active });
+          actions.push({ phase: 'enforce', action: 'row-less-unit', unitName: a.unitName, sessionId: a.sessionId, active: a.active });
+        }
+      } catch (err) {
+        log('warn', 'row-less unit scan failed', { error: err.message });
       }
     }
 
