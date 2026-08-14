@@ -544,6 +544,20 @@ permission and nobody needs to grant you anything. Write in place instead:
 ⚠ **Never test your write rights by creating a probe file in the goal folder.** That
 folder is read-only by design and refuses whatever your grants are — the probe measures
 the floor, never your grant. Test the actual path you mean to write.
+
+## Your read surface — the workspace, minus the private scope
+
+You read the WHOLE workspace (owner ruling D-1) — no declaration, no per-CLI carve-out.
+Subtracted from it is the `private scope`, the workspace's own deny list at
+`.rbtv/config/private.json` plus a pattern floor beneath it: those paths list EMPTY and
+refuse writes, which is a mask and not a missing grant — asking for one changes nothing,
+and `.rbtv/config/.env` and the list itself are unpierceable by construction.
+
+⚠ **A PIERCE — a grant of yours that names a path INSIDE a denied entry — is disclosed at
+SPAWN, not here.** This section is derived at materialize time, and the deny list is read
+at DISPATCH, so the materializer cannot know it: the per-spawn `private-scope PIERCE` /
+`pierce REFUSED` lines in the daemon log are the only complete account of what your cage
+actually opened. A merely broader grant does not pierce; the entry stays masked.
 """
 
 
