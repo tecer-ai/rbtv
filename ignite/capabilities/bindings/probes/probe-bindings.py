@@ -641,6 +641,121 @@ with tempfile.TemporaryDirectory() as td:
               half and mrefused,
               f"refused={mrefused}, sheet moved={half}")
 
+# ───────────────────────────────────────────────────────────────────────────────── check 10
+print("check 10 — the GOAL-LOCAL sheet: written where the engine reads it, keyed to the seats the "
+      "goal itself authored, and accepted by the lane that refused `goal-local-sheet-absent`")
+with tempfile.TemporaryDirectory() as td:
+    td = Path(td)
+    # A THROWAWAY GOAL under tempfile, with SYNTHETIC definitions rather than copies of the live
+    # flagship's: the real ones declare `ws:`/`rbtv:` exposes, which resolve by walking up for a
+    # `.rbtv/config/` and therefore cannot resolve from /tmp. Synthetic ones keep the whole check
+    # off the live tree, which is this probe's standing rule.
+    goal = td / "goals" / "probe-goal-local"
+    src = goal.joinpath(*mod.GOAL_LOCAL_SOURCE)
+    for seat in ("glxx-one", "glxx-two", "plan-dod-judge"):
+        (src / "seats" / seat).mkdir(parents=True)
+    (src / "manifest.csv").write_text(
+        "Seat/workflow,after,i/o,Modality\nglxx-one,,,agentic\nglxx-two,glxx-one,,agentic\n"
+        "plan-dod-judge,glxx-two,,agentic\n", encoding="utf-8")
+    # The third row is a CATALOGED REUSE — a `source.md` pointer, not a definition. It must not
+    # appear in the sheet: the goal-local lane never materializes it, and materialize refuses the
+    # whole batch `bindings-extra-seat` for a key outside the set being materialized.
+    (src / "seats" / "plan-dod-judge" / mod.GOAL_LOCAL_REUSE).write_text(
+        "cataloged reuse\n", encoding="utf-8")
+    for n in ("one", "two"):
+        (src / "seats" / f"glxx-{n}" / "p.md").write_text(
+            f"---\nid: gl-role-{n}\ndescription: probe-only goal-authored prompt\n---\n\n"
+            f"<role>\nProbe seat {n}.\n</role>\n\n"
+            f"<permissions>\nRead the probe fixture. Write nothing.\n</permissions>\n",
+            encoding="utf-8")
+        (src / "seats" / f"glxx-{n}" / "t.md").write_text(
+            f"---\nid: gl-task-{n}\ndescription: probe-only goal-authored task\n---\n\n"
+            f"<task-goal>\nDo the probe-only thing {n}.\n</task-goal>\n\n"
+            f"<scope>\nThe fixture only.\n</scope>\n\n"
+            f"<done-contract>\nNothing was written.\n</done-contract>\n", encoding="utf-8")
+    (goal / "taskforce.csv").write_text(
+        "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n", encoding="utf-8")
+
+    out = mod.scaffold(goal)
+    sheet = Path(out["bindings"])
+    # The path is spelled out HERE rather than read back off the tool's own constants: a check whose
+    # expectation moves with the code passes any change to it. This literal is `queue-request.js`'s
+    # (`GOAL_LOCAL_SOURCE` + `GOAL_LOCAL_SHEET`, :400/:425/:429) — the reader's spelling, which is
+    # the only one that matters.
+    check("the sheet lands at <goal>/planning/current/bindings.json — the exact path "
+          "`buildGoalLocalSeats` reads",
+          sheet == goal / "planning" / "current" / "bindings.json", str(sheet))
+    check("its keys are the GOAL-AUTHORED seats and only those — the cataloged reuse beside them "
+          "is absent, because the goal-local lane never materializes it",
+          sorted(json.loads(sheet.read_text(encoding="utf-8"))["seats"]) == ["glxx-one", "glxx-two"],
+          ", ".join(sorted(json.loads(sheet.read_text(encoding="utf-8"))["seats"])))
+    refused, msg = refuses(lambda: mod.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5", 4),
+                           _mod=mod)
+    check("casting the CATALOGED REUSE through the goal-local sheet is REFUSED — its cast belongs "
+          "to its own workflow's sheet", refused, msg[:120])
+    before = sha(sheet)
+    for seat, model, rung in (("glxx-one", "claude-opus-5", 4), ("glxx-two", "claude-fable-5", 3)):
+        mod.set_seat(goal, seat, "claude", model, rung)
+    bad, why = refuses(lambda: mod.set_seat(goal, "glxx-one", "claude", "probe-only-model", 4),
+                       _mod=mod)
+    check("an unknown pair is refused on the goal-local sheet by the SAME catalog validator the "
+          "cataloged path uses", bad, why[:100])
+
+    r = subprocess.run(
+        [sys.executable, str(MATERIALIZE), "--package", str(goal),
+         "--workflow", "goal-local", "--goal-local",
+         "--catalog-root", str(WORKSPACE / ".rbtv" / "mirror" / "meta"),
+         "--root", "--bindings", str(sheet), "--dry-run", "--json",
+         "--conduct", str(STARTER / "conduct.md"),
+         "--claude-md", str(STARTER / "CLAUDE.md"),
+         "--budget-json", str(STARTER / "budget.json")], capture_output=True, text=True)
+    # THE LANE ITSELF, not a reading of it: this is `goalLocalLint`'s own argv
+    # (`queue-request.js#goalLocalLint`), which is `buildGoalLocalSeats`'s argv asked not to write.
+    check("the lane ACCEPTS the sheet: --goal-local --dry-run exits 0 over the goal this tool just "
+          "cast", r.returncode == 0, (r.stderr or r.stdout).strip()[-200:] if r.returncode else "")
+    check("...and the descriptors it would write carry THIS SHEET's casting, per seat — the sheet "
+          "is what casts a goal-authored seat, which nothing did before",
+          # the descriptors come back as ONE escaped JSON string, so the frontmatter is matched
+          # after un-escaping it — the two lines together, since either alone is in the catalog too
+          "model: claude-opus-5\neffort: xhigh" in r.stdout.replace("\\n", "\n")
+          and "model: claude-fable-5\neffort: high" in r.stdout.replace("\\n", "\n"))
+    check("--dry-run appended no taskforce row and wrote no seat folder",
+          not (goal / "seats").exists()
+          and (goal / "taskforce.csv").read_text(encoding="utf-8").count("\n") == 1)
+
+    # 10b — THE MUTANT. The goal-local seat set is the manifest MINUS the cataloged reuses; widen
+    # that filter and a `source.md` seat becomes castable here. The arm above must then be ACCEPTED
+    # — which is what makes it a check rather than a sentence about a refusal that could have come
+    # from anywhere.
+    needle = ("             and not (src / \"seats\" / s / GOAL_LOCAL_REUSE).is_file()]")
+    src10 = TOOL.read_text(encoding="utf-8")
+    if src10.count(needle) != 1:
+        inoperative.append("the goal-local reuse-filter mutation target is not uniquely locatable")
+        check("mutant — the goal-local seat set", False, "mutation target not uniquely locatable")
+    else:
+        mpath = td / "capabilities" / "bindings" / "tool" / "mutant_goal_local.py"
+        mpath.parent.mkdir(parents=True, exist_ok=True)
+        mpath.write_text(src10.replace(needle, "             ]"), encoding="utf-8")
+        mut = load(mpath, "bindings_mutant_goal_local")
+        mut.TEAM_KIT, mut.DEFAULT_PROFILES = mod.TEAM_KIT, mod.DEFAULT_PROFILES
+        try:
+            # `profiles_path` EXPLICITLY: the mutant module's own `DEFAULT_PROFILES` was bound as a
+            # default argument at import, four levels under the temp dir, so repointing the module
+            # attribute afterwards does not reach it. The MUTANTS loop above passes it for the same
+            # reason — and this arm scored INOPERATIVE (FileNotFoundError, not a refusal) until it
+            # did too.
+            mut.set_seat(goal, "plan-dod-judge", "claude", "claude-opus-5", 4,
+                         profiles_path=LIVE_PROFILES, dry_run=True)
+            accepted, why = True, ""
+        except Exception as exc:
+            accepted, why = False, f"{type(exc).__name__}: {exc}"
+        if not accepted:
+            inoperative.append("the goal-local reuse-filter mutant stayed refused — its arm scores "
+                               "nothing")
+        check("mutant — the cataloged-reuse filter widened: casting `plan-dod-judge` into the "
+              "goal-local sheet is now ACCEPTED, so the refusal above discriminates",
+              accepted, why[:150])
+
 verdict = ("INOPERATIVE" if inoperative else ("FAIL" if failures else "PASS"))
 print(f"probe-bindings: {verdict} — "
       + ("; ".join(inoperative) if inoperative else

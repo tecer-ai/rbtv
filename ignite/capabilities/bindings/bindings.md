@@ -49,6 +49,45 @@ it. No per-goal copies and no templates lying around: `check_bindings_cover` dem
 `seats` key set EQUAL the manifest's, so a stale copy is a refusal at the next materialize, and the
 only way to keep N copies honest is to not have them.
 
+## ⚠ The GOAL-LOCAL sheet — a second path, for seats no catalog carries (owner ruling 2026-08-14)
+
+```
+<goal>/planning/current/bindings.json     ← the seats the goal's own planning pass AUTHORED
+```
+
+A planning pass can author a seat inside the goal — `planning/current/seats/<seat>/` holding the
+definition itself rather than a `source.md` pointer at a cataloged one. **Those seats belong to no
+workflow**, so the canonical path above cannot address them: `bindings/{code}.json` is keyed by a
+workflow code they do not have. `ignite/engine/queue-request.js:390-399` states exactly this and is
+the reason the two paths differ — it is a design, not a bug, and the reader must never be "fixed" to
+look under `.rbtv/config/`.
+
+The engine reads the goal-local sheet at `buildGoalLocalSeats` (`queue-request.js:425-433`) and
+**refuses `goal-local-sheet-absent` when it is missing** — an uncast goal-authored seat is a named
+refusal at every door, never a default (`#d-abolish-profile-names`). Until this mode existed nothing
+wrote that file, so every goal whose pass invented a seat stalled at it.
+
+**Every verb takes a GOAL FOLDER in place of `<workflow.csv>`** — dispatched on the argument's own
+shape (a directory is a goal; a file is a manifest), so there is no parallel verb set:
+
+```bash
+rbtv-bindings scaffold .rbtv/goals/<goal>                                  # sheet, every seat uncast
+rbtv-bindings set      .rbtv/goals/<goal> <seat> claude claude-opus-5 3    # same validator
+rbtv-bindings inspect  .rbtv/goals/<goal>                                  # casting state
+```
+
+The seat set is the goal's `planning/current/manifest.csv` **minus the cataloged reuses** — exactly
+the set `materialize-seats.py --goal-local` builds its lane from, which is why casting a `source.md`
+seat here is REFUSED: its cast belongs to its own workflow's sheet, and a key outside the
+materialized set is `bindings-extra-seat` for the whole batch. Everything else is identical to the
+cataloged path — the same `catalog` gate on harness/model/effort, the same atomic write, the same
+create-only `scaffold`. `--config-root` is refused in this mode: the sheet is goal product, not
+deployment config, so there is no config root to point at.
+
+The only shape difference is `component:`, which is ABSENT per seat: it names the mirrored component
+a cataloged seat's definitions come from, and a goal-authored seat has none (the derived lane
+`materialize-seats.py` rebuilds on every run is not a component home).
+
 ## Not a two-part capability — and that is the measured difference
 
 `goal-launch-delay` and `master-profile` each split into a seat-side `request` and a daemon-side
@@ -229,7 +268,7 @@ documentation, while this file is machine-owned end to end.
 ## Probe
 
 `probes/probe-bindings.py` — hermetic (tempfile copies only; the live bindings tree is never
-touched). Nine checks: the catalog moves when the profiles copy is re-pinned; every offered pair
+touched). Ten checks: the catalog moves when the profiles copy is re-pinned; every offered pair
 survives `validate_seat`; the effort number indexes the native ladder while the file stores the
 string; six refusal shapes each leave the sheet byte-identical; the code derivation refuses a mixed
 manifest and any code that is not exactly four ASCII letters; **four mutants** (each WIDENING one guard — a deletion crashes, and a crash reads like a
@@ -238,6 +277,11 @@ artifact this tool writes, with the one-seat-uncast twin refusing; both launch d
 rung of every castable ladder identically; and `set-many` casts three seats in one call while a
 batch carrying bad seats leaves the sheet byte-identical — proven discriminating by a mutant that
 collapses its validate-then-write two-pass into write-as-you-go (the batch still refuses, so the
-scoring observation is that the sheet MOVED).
+scoring observation is that the sheet MOVED). Check 10 covers the GOAL-LOCAL mode on a throwaway
+goal with synthetic goal-authored definitions: the sheet lands at the literal path the engine reads,
+its keys are the goal-authored seats and not the cataloged reuse beside them, `materialize-seats.py
+--goal-local --dry-run` — `goalLocalLint`'s own argv — exits 0 over it and the descriptors it plans
+carry that sheet's casting; its mutant widens the cataloged-reuse filter so casting `plan-dod-judge`
+into the goal-local sheet becomes ACCEPTED.
 
 Run it through the enumerator: `node deploy/probe-suite.js --only probe-bindings`.

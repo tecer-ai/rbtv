@@ -98,6 +98,12 @@ THE VERBS
                                            ALL-OR-NOTHING: every seat is validated through the same
                                            `set` path first and the file is opened only if all pass
 
+EVERY VERB ALSO TAKES A GOAL FOLDER in place of `<workflow.csv>` — the GOAL-LOCAL mode (owner
+ruling 2026-08-14). Seats a planning pass authored inside the goal belong to no workflow, so the
+canonical path above cannot name them; their sheet is `<goal>/planning/current/bindings.json`, read
+by `ignite/engine/queue-request.js#buildGoalLocalSeats`, which refuses `goal-local-sheet-absent`
+without it. Same verbs, same validator, same write — see `resolve_goal` below.
+
 ⚠ A FULL json.load/json.dump ROUND TRIP IS CORRECT HERE and is deliberately unlike this capability's
 siblings, which line-edit. Those edit `spawn-profiles.yaml`, a hand-authored document whose comments
 are its documentation. This file is machine-owned end to end: this tool creates it, this tool is the
@@ -209,6 +215,56 @@ class Refusal(Exception):
 
 # ─────────────────────────────────────────────────────── the workflow → {module, component, code}
 
+# ── THE GOAL-LOCAL SHEET (owner ruling 2026-08-14) ──────────────────────────────────────────────
+#
+# A planning pass can AUTHOR seats inside the goal itself — `planning/current/seats/<seat>/` holding
+# the definition, not a `source.md` pointer at a cataloged one. Those seats belong to NO workflow, so
+# the cataloged path above cannot name them: `bindings/<code>.json` is keyed by a workflow code they
+# do not have (`ignite/engine/queue-request.js:390-399`). Their sheet therefore sits INSIDE the goal
+# at `planning/current/bindings.json` — the path `buildGoalLocalSeats` reads and refuses
+# `goal-local-sheet-absent` without (`queue-request.js:425-433`). Nothing wrote it until this mode
+# existed, which is why the engine's own comment calls the cast of a goal-authored seat an open
+# question. It is the SAME verbs, the SAME validator and the SAME write: only which seats exist, and
+# where the file lands, change.
+GOAL_LOCAL_SOURCE = ("planning", "current")
+GOAL_LOCAL_SHEET = "bindings.json"
+GOAL_LOCAL_REUSE = "source.md"          # "this seat is CATALOGED reuse" — not a goal-local seat
+
+
+def resolve_goal(goal_folder):
+    """`resolve_workflow`'s twin for a goal that authored its own seats — same keys, so every verb
+    below is untouched. `sheet` is the one addition, and it is what makes `bindings_path` return
+    the in-goal path instead of the deployment-config one.
+
+    The seat set is the manifest's rows MINUS the cataloged reuses, which is exactly the set the
+    materializer's `--goal-local` lane builds (`materialize-seats.py#build_goal_local_lane`) and
+    therefore exactly the set `check_bindings_cover` demands the sheet's keys equal. Deriving it
+    the same way is what makes an extra/missing key impossible to write here."""
+    p = Path(goal_folder).resolve()
+    src = p.joinpath(*GOAL_LOCAL_SOURCE)
+    manifest = src / "manifest.csv"
+    if not manifest.is_file():
+        raise Refusal(f"{p} is a directory, so it is read as a GOAL folder — and it carries no "
+                      f"{'/'.join(GOAL_LOCAL_SOURCE)}/manifest.csv. A goal-local casting sheet is "
+                      f"authored against the goal's own planning product; a goal that ran no "
+                      f"planning pass authored no seats. (For a CATALOGED workflow, name the "
+                      f"manifest CSV itself, not a directory.)")
+    seats = [s for s in manifest_seats(manifest)
+             if (src / "seats" / s).is_dir()
+             and not (src / "seats" / s / GOAL_LOCAL_REUSE).is_file()]
+    if not seats:
+        raise Refusal(f"{manifest} names no GOAL-LOCAL seat — every row is either a cataloged reuse "
+                      f"(a `{GOAL_LOCAL_REUSE}` pointer) or has no definition folder at all. A "
+                      f"cataloged seat is cast in its own workflow's sheet under "
+                      f".rbtv/config/modules/…; this sheet would name seats the goal-local lane "
+                      f"never materializes, which materialize refuses as `bindings-extra-seat`.")
+    return {
+        "manifest": manifest, "workspace": p, "module": "goal", "component": p.name,
+        "component_dir": None, "catalog_root": src, "workflow": "goal-local",
+        "seats": seats, "code": p.name, "sheet": src / GOAL_LOCAL_SHEET,
+    }
+
+
 def resolve_workflow(workflow_csv):
     """Everything the canonical path needs, derived from the manifest's own location.
 
@@ -218,8 +274,13 @@ def resolve_workflow(workflow_csv):
     refuses: a path this function had to guess about would put the bindings file somewhere the next
     reader looks for in vain."""
     p = Path(workflow_csv).resolve()
+    if p.is_dir():
+        # A DIRECTORY is a goal folder, never a manifest — the goal-local mode, dispatched on the
+        # argument's own shape rather than on a flag every verb would have to thread through.
+        return resolve_goal(p)
     if not p.is_file():
-        raise Refusal(f"{p} is not a file — name the workflow manifest CSV itself")
+        raise Refusal(f"{p} is not a file — name the workflow manifest CSV itself (or a GOAL "
+                      f"folder, for the goal-local sheet)")
     parts = p.parts
     try:
         mirror_at = len(parts) - 1 - parts[::-1].index("mirror")
@@ -290,6 +351,14 @@ def bindings_path(wf, config_root=None):
     `<config>/bindings/<module>/<component>/<code>.json` keeps working — every verb operates on the
     old file and WARNS with the new path named. Silence here would let a deployment sit
     un-migrated forever; a refusal would take the channel master's own knob down mid-migration."""
+    if wf.get("sheet"):
+        # GOAL-LOCAL: the sheet lives inside the goal because the seats do. No config root is
+        # involved, and a caller passing one is refused rather than having it silently ignored.
+        if config_root:
+            raise Refusal(f"--config-root names where DEPLOYMENT config lives, and a goal-local "
+                          f"casting sheet is not deployment config — it sits inside the goal, at "
+                          f"{wf['sheet']}, because that is where `buildGoalLocalSeats` reads it.")
+        return wf["sheet"]
     root = Path(config_root) if config_root else wf["workspace"] / ".rbtv" / "config"
     new = root / "modules" / wf["module"] / wf["component"] / "bindings" / f"{wf['code']}.json"
     old = root / "bindings" / wf["module"] / wf["component"] / f"{wf['code']}.json"
@@ -429,7 +498,12 @@ def inspect(workflow_csv, config_root=None):
     for seat in wf["seats"]:
         row = seats_cat.get(seat)
         entry = {"seat": seat}
-        if not row:
+        if wf.get("sheet"):
+            # GOAL-LOCAL: nothing catalogs these seats — the definition IS the goal's own seat
+            # folder, and which .md inside it is the prompt half is the materializer's answer to
+            # give (it keys on the `<role>`/`<task-goal>` section), never a second one from here.
+            entry["definition"] = str(wf["catalog_root"] / "seats" / seat) + "/"
+        elif not row:
             entry["definition"] = None
             entry["unresolved"] = (f"no seats.csv row under {wf['catalog_root']} — materialize "
                                    f"would refuse this seat")
@@ -495,12 +569,22 @@ def scaffold(workflow_csv, config_root=None, dry_run=False):
                   f"{wf['manifest'].name}, read ONCE by materialize-seats.py --bindings when a "
                   f"goal's taskforce is materialized. Scaffolded by `rbtv-bindings`; authored only "
                   f"through that tool."),
-        "_code": (f"`{wf['code']}` is this workflow's CODE — the seat-id prefix every manifest row "
-                  f"carries — and it is this file's name. Derived from the manifest, never typed."),
+        "_code": ((f"This is the GOAL-LOCAL sheet: it names the seats this goal's own planning pass "
+                   f"authored, and it lives inside the goal because they do — a goal-authored seat "
+                   f"belongs to no workflow, so no `bindings/<code>.json` can address it "
+                   f"(queue-request.js:390-399). Cataloged reuses in the same manifest are cast in "
+                   f"their own workflow's sheet and are deliberately absent here.")
+                  if wf.get("sheet") else
+                  (f"`{wf['code']}` is this workflow's CODE — the seat-id prefix every manifest row "
+                   f"carries — and it is this file's name. Derived from the manifest, never typed.")),
         "defaults": dict(LANE_DEFAULTS),
+        # `component` names the mirrored component home a cataloged seat's definitions come from; a
+        # goal-authored seat has none (its definitions are the goal's own product), so the key is
+        # ABSENT rather than pointed at the derived lane materialize rebuilds on every run.
         "seats": {seat: dict(LANE_PER_SEAT,
                              **{k: None for k in CASTING_KEYS},
-                             component=str(wf["component_dir"]) + "/")
+                             **({"component": str(wf["component_dir"]) + "/"}
+                                if wf["component_dir"] else {}))
                   for seat in wf["seats"]},
     }
     if not dry_run:
@@ -731,7 +815,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(
         prog="rbtv-bindings",
         description="author the casting sheet that turns a workflow into a taskforce — the "
-                    "per-seat harness/model/effort file materialize-seats.py reads as --bindings")
+                    "per-seat harness/model/effort file materialize-seats.py reads as --bindings. "
+                    "Every verb's <workflow> may instead be a GOAL FOLDER: the goal-local sheet at "
+                    "<goal>/planning/current/bindings.json, for seats the goal's own planning pass "
+                    "authored (they belong to no workflow, so no bindings/<code>.json names them)")
     # Options hang off the VERBS, not the root parser: as root options argparse accepts them only
     # BEFORE the verb, and the sibling capability's first live fire died on exactly that
     # (`error: unrecognized arguments: --config`).
