@@ -1559,6 +1559,291 @@ def check_collisions(package: Path, added: list[str], force_partial: bool) -> No
             )
 
 
+# ── THE GOAL-LOCAL SEAT INPUT LANE (W7, R7 · adv C75) ────────────────────────
+#
+# THE DEFECT IT CLOSES (D5 defect 1). A planning pass AUTHORS its milestone's
+# build team inside the goal: `planning/current/manifest.csv` names the seats
+# and `planning/current/seats/<seat>/` holds each one's prompt+task pair. The
+# binder then REGISTERS those seats as `taskforce.csv` rows — and nothing can
+# build them, because this script's only input lane was the COMPONENT catalog
+# and a goal-authored seat is in no component. The rows exist, the folders do
+# not, and the goal's next hop never happens. Measured on the flagship: `tf-2`
+# carries `seam-toolsmith` and `seam-author`, seats no `seats.csv` anywhere
+# names.
+#
+# WHAT THIS LANE IS, AND WHY IT IS A SYNTHESIS RATHER THAN A SECOND LOADER.
+# The goal-authored files are ALREADY in the catalog's whole-file pool form —
+# frontmatter `id:` over one kind-named section (`<role>` for a prompt,
+# `<task-goal>` for a task), which is exactly what `goal_cli._pool_file_row`
+# reads. So this lane does NOT parse them, does not assemble them, and holds no
+# second opinion about what a seat is. It SHAPES the goal's own product into a
+# component catalog and hands it to the one existing pipeline: `load_catalogs`,
+# `resolve_added`, `assemble_seat`, the atomic append, `check_acyclic` — all
+# unchanged, all still the single implementation. A second loader would be a
+# second answer to "what is this seat", and the two would drift.
+#
+# ⚠ THE CHECKS BELOW ARE THIS LANE'S OWN, AND THEY EXIST BECAUSE COMPONENT-LINT
+# NEVER SEES THESE FILES (adv, C75). Lint runs over the component catalog; a
+# goal-authored seat is born after lint and dies with the goal, so every
+# structural guarantee lint provides has to be re-established here or it simply
+# is not there. Two classes, named as the ruling names them:
+#   · DANGLING REFERENCE — a manifest seat with no definition folder, a
+#     definition folder missing its prompt or its task half, an `after` member
+#     naming nothing that exists.
+#   · COLLISION — one id used twice inside the lane, or a lane id that SHADOWS
+#     a component-catalog id. Nothing guarded the second case anywhere in this
+#     system before now: a goal that named its seat `plan-binder` would have
+#     silently out-ranked (or been out-ranked by) the cataloged one, depending
+#     on `rglob` order.
+# W6 unifies these with component-lint later; until then they live here, in the
+# lane that needs them.
+#
+# ⚠ THE LANE IS A DERIVED INDEX AND IS REBUILT ON EVERY INVOCATION, INCLUDING
+# UNDER `--dry-run`. It carries no fact of its own — every byte is a copy of
+# `planning/current/` — so a persisted lane would be a second home for one fact
+# and stale exactly when the pass re-authors a seat. It is written INSIDE the
+# goal rather than into a temp dir for one mechanical reason: `rbtv:`-prefixed
+# `exposes` references resolve through `_rbtv_repo_root(comp_dir)`, which walks
+# UP from the component directory looking for the workspace, and a /tmp path has
+# no workspace above it. `--dry-run`'s contract — append no registry row, create
+# no seat folder — is untouched; rebuilding a derived index is not a mutation of
+# the goal's product, and doing it under --dry-run is what makes the dry run a
+# real LINT rather than a guess about one.
+GOAL_LOCAL_SOURCE = ("planning", "current")   # what the planning pass writes
+GOAL_LOCAL_LANE = "seat-lane"                 # the synthesized catalog ROOT
+GOAL_LOCAL_COMPONENT = "goal-local"           # the one component inside it
+GOAL_LOCAL_WORKFLOW = "goal-local"            # …and the one workflow manifest
+GOAL_LOCAL_REUSE = "source.md"                # "this seat is CATALOGED, not local"
+# The discriminator between the two halves of a seat pair. It is the kind-named
+# section, the same thing `_pool_file_row` keys on — never the filename, which
+# the authoring seat chooses freely (`toolsmith.md` + `build-validate-seams.md`
+# on the flagship). Measured against the live catalog before being relied on:
+# 19/19 prompts carry `<role>` and none carries `<task-goal>`; 29/29 tasks carry
+# `<task-goal>` and none carries `<role>`.
+GOAL_LOCAL_HALVES = (("prompts", "role"), ("tasks", "task-goal"))
+
+
+def _goal_local_id(path: Path) -> str:
+    """The `id:` a goal-authored prompt/task file declares, or a refusal.
+
+    Parsed HERE rather than left to the catalog loader because the loader's
+    refusal would name a path inside the synthesized lane — a directory the
+    author never wrote and cannot fix. This one names the file they DID write."""
+    text = path.read_text(encoding="utf-8")
+    m = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
+    if not m:
+        raise Refuse(
+            "goal-local-frontmatter-missing",
+            f"'{path.name}' has no frontmatter block, so it declares no `id:` — "
+            "a goal-authored prompt or task is a whole-file definition and the "
+            "id is the only thing that names it",
+            str(path))
+    try:
+        fm = yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise Refuse(
+            "goal-local-frontmatter-unparseable",
+            f"'{path.name}' frontmatter is not valid YAML — {str(exc).strip()}. "
+            "An unquoted `description:` carrying a colon is the usual cause",
+            str(path))
+    ident = str(fm.get("id") or "").strip()
+    if not ID_RE.match(ident):
+        raise Refuse(
+            "goal-local-id-missing",
+            f"'{path.name}' declares id {ident or '(none)'!r}, which is not a "
+            "legal id (lowercase kebab-case) — nothing materialized",
+            str(path))
+    return ident
+
+
+def _goal_local_pair(seat_dir: Path) -> dict | None:
+    """`{prompt: (id, path), task: (id, path)}` for ONE goal-authored seat, or
+    None when the folder declares itself a CATALOGED REUSE.
+
+    A reuse folder holds `source.md` — a pointer at cataloged definitions, never
+    a definition — so the seat belongs to the COMPONENT lane and this lane must
+    not shadow it with a copy. That is the flagship's `plan-dod-judge`."""
+    files = sorted(p for p in seat_dir.glob("*.md") if p.name != GOAL_LOCAL_REUSE)
+    if not files:
+        if (seat_dir / GOAL_LOCAL_REUSE).is_file():
+            return None
+        raise Refuse(
+            "goal-local-definition-empty",
+            f"'{seat_dir.name}' has a definition folder carrying no .md file at "
+            "all — neither a prompt/task pair nor a `source.md` naming the "
+            "cataloged definitions it reuses",
+            str(seat_dir))
+    found = {}
+    for pool, section in GOAL_LOCAL_HALVES:
+        hits = [p for p in files
+                if re.search(rf"<{section}>.*?</{section}>",
+                             p.read_text(encoding="utf-8"), re.S)]
+        if len(hits) != 1:
+            raise Refuse(
+                "goal-local-definition-ambiguous",
+                f"'{seat_dir.name}' resolves {len(hits)} <{section}> file(s) and "
+                f"a seat is exactly ONE prompt and ONE task — "
+                + (", ".join(p.name for p in hits) or "none found")
+                + f". The half is identified by its <{section}> section, never "
+                "by filename",
+                str(seat_dir))
+        found[pool] = (_goal_local_id(hits[0]), hits[0])
+    return found
+
+
+def build_goal_local_lane(package: Path, component_root: Path) -> Path:
+    """Shape the goal's OWN planning product into a component catalog and return
+    its root. Every refusal below is a check component-lint would have made."""
+    src = package.joinpath(*GOAL_LOCAL_SOURCE)
+    manifest = src / "manifest.csv"
+    if not manifest.is_file():
+        raise Refuse(
+            "goal-local-manifest-missing",
+            f"--goal-local reads the goal's own planning product and there is no "
+            f"{'/'.join(GOAL_LOCAL_SOURCE)}/manifest.csv — this goal has run no "
+            "planning pass, so it authored no seats and there is nothing to "
+            "build from",
+            str(manifest))
+    rows = _csv_rows(manifest)
+    if MANIFEST_SEAT_COLUMN not in (rows[0] if rows else {}):
+        raise Refuse(
+            "goal-local-manifest-header",
+            f"the goal's manifest lacks the '{MANIFEST_SEAT_COLUMN}' column",
+            str(manifest))
+    # ---- read the lane, one seat at a time -----------------------------------
+    lane, after_raw, order = {}, {}, []
+    for row in rows:
+        seat = (row.get(MANIFEST_SEAT_COLUMN) or "").strip()
+        if not seat:
+            continue
+        if seat in after_raw:
+            raise Refuse(
+                "goal-local-duplicate-seat",
+                f"the goal's manifest lists seat '{seat}' twice",
+                str(manifest))
+        after_raw[seat] = (row.get(MANIFEST_AFTER_COLUMN) or "").strip()
+        order.append(seat)
+        seat_dir = src / "seats" / seat
+        if not seat_dir.is_dir():
+            raise Refuse(
+                "goal-local-definition-missing",
+                f"the goal's manifest names seat '{seat}' and "
+                f"{'/'.join(GOAL_LOCAL_SOURCE)}/seats/{seat}/ does not exist — "
+                "the pass registered a seat it never authored, which is exactly "
+                "the registered-but-unbuilt state this lane exists to end",
+                str(seat_dir))
+        pair = _goal_local_pair(seat_dir)
+        if pair is not None:                  # None = cataloged reuse, not ours
+            lane[seat] = pair
+    if not lane:
+        raise Refuse(
+            "goal-local-empty",
+            "every seat in the goal's manifest is a CATALOGED REUSE (a "
+            f"`{GOAL_LOCAL_REUSE}` pointer) — this lane would synthesize an "
+            "empty catalog, and the component lane already serves those seats",
+            str(src))
+    # ---- COLLISION, both directions (adv C75) --------------------------------
+    catalog_ids = set()
+    try:
+        cat_seats, cat_prompts, cat_tasks = load_catalogs(component_root)
+        catalog_ids = set(cat_seats) | set(cat_prompts) | set(cat_tasks)
+    except CatalogRefusal:
+        # A broken COMPONENT catalog is not this lane's failure to report — the
+        # run reaches `load_catalogs` again a few lines later and refuses there,
+        # with the component lane's own words. Degrading to "check nothing"
+        # would be worse than useless, so it is DISCLOSED rather than silent:
+        # the shadow check below simply has no catalog to compare against.
+        catalog_ids = set()
+    seen: dict[str, str] = {}
+    for seat, pair in lane.items():
+        for pool, (ident, path) in pair.items():
+            if ident in seen:
+                raise Refuse(
+                    "goal-local-id-collision",
+                    f"id '{ident}' is declared twice inside the goal's own "
+                    f"seats — by {seen[ident]} and by {seat}/{path.name}. One "
+                    "name, one meaning: the catalog is a dict and the second "
+                    "one would silently replace the first",
+                    str(path))
+            seen[ident] = f"{seat}/{path.name}"
+            if ident in catalog_ids:
+                raise Refuse(
+                    "goal-local-shadows-catalog",
+                    f"'{seat}' declares id '{ident}', which the COMPONENT "
+                    f"catalog already carries. A goal-authored definition may "
+                    "never shadow a cataloged one — which of the two wins would "
+                    "be decided by rglob order, i.e. by nothing",
+                    str(path))
+        if seat in catalog_ids:
+            raise Refuse(
+                "goal-local-shadows-catalog",
+                f"the goal authored a seat named '{seat}' and the COMPONENT "
+                "catalog already carries that seat id — rename the goal's seat; "
+                "a cataloged seat is reused through a "
+                f"`{GOAL_LOCAL_REUSE}` pointer, never re-authored under its name",
+                str(src / "seats" / seat))
+    # ---- DANGLING REFERENCE: every `after` member must resolve ---------------
+    registry = {(r.get("seat") or "").strip()
+                for r in _csv_rows(package / TASKFORCE_NAME)}
+    known = set(order) | registry | catalog_ids
+    for seat in order:
+        for member in _manifest_after_ids(after_raw[seat]):
+            if member not in known:
+                raise Refuse(
+                    "goal-local-after-dangling",
+                    f"the goal's manifest says '{seat}' comes after '{member}', "
+                    f"and '{member}' is neither a seat of this manifest, nor a "
+                    f"row already in {TASKFORCE_NAME}, nor a cataloged seat — "
+                    "the edge points at nothing and the seat would never become "
+                    "ready",
+                    str(manifest))
+    # ---- SHAPE it into a catalog, atomically ---------------------------------
+    root = src / GOAL_LOCAL_LANE
+    comp = root / GOAL_LOCAL_COMPONENT
+    staging = src / f".{GOAL_LOCAL_LANE}.tmp"
+    if staging.exists():
+        shutil.rmtree(staging)
+    (staging / GOAL_LOCAL_COMPONENT / "prompts").mkdir(parents=True)
+    (staging / GOAL_LOCAL_COMPONENT / "tasks").mkdir(parents=True)
+    (staging / GOAL_LOCAL_COMPONENT / "workflows" / GOAL_LOCAL_WORKFLOW).mkdir(parents=True)
+    scomp = staging / GOAL_LOCAL_COMPONENT
+    (scomp / "component.md").write_text(
+        "---\ndescription: \"Seats this goal's own planning pass authored — a "
+        "DERIVED index of planning/current/, rebuilt on every materialize and "
+        "never edited by hand.\"\n---\n\n# goal-local\n", encoding="utf-8")
+    for pool, _section in GOAL_LOCAL_HALVES:
+        for seat, pair in lane.items():
+            ident, path = pair[pool]
+            shutil.copyfile(path, scomp / pool / f"{ident}.md")
+    with (scomp / "seats.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["seat-id", "executor", "task", "staffing-hints",
+                    "description", "goal-writes", "cage-grants", "rw-paths",
+                    "on-fail-relaunch"])
+        for seat in order:
+            if seat not in lane:
+                continue
+            w.writerow([seat, lane[seat]["prompts"][0], lane[seat]["tasks"][0],
+                        "", f"goal-authored seat ({seat})", "", "", "", ""])
+    with (scomp / "workflows" / GOAL_LOCAL_WORKFLOW /
+          f"{GOAL_LOCAL_WORKFLOW}.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow([MANIFEST_SEAT_COLUMN, MANIFEST_AFTER_COLUMN, "i/o", "Modality"])
+        for seat in order:
+            if seat not in lane:
+                continue
+            # The `after` cell is copied VERBATIM — the same Rule 13 discipline
+            # the nested path uses. A cell re-derived here would be a second
+            # rendering of the goal's own DAG.
+            w.writerow([seat, after_raw[seat], "", ""])
+    # Replaced, never merged: a lane rebuilt on top of a previous one would keep
+    # a seat the pass has since deleted, and that seat would still materialize.
+    if root.exists():
+        shutil.rmtree(root)
+    staging.replace(root)
+    return root
+
+
 def normalize_seat_rows(seats_cat: dict) -> None:
     """The ruled mirror seats.csv header pairs `executor` with `task`
     (topic-2-authoring-contract.md § 2); goal_cli's assemble_seat reads
@@ -4231,6 +4516,15 @@ def run(args) -> dict:
             "--catalog-root is not a directory — no catalog to materialize from",
             str(catalog_root),
         )
+    # ⚠ THE LANE SWAP, AND IT IS A SWAP RATHER THAN A MERGE. `--goal-local`
+    # shapes the goal's own planning product into a catalog and materializes
+    # FROM THAT, with the component catalog kept only as the set the collision
+    # check compares against. Merging the two roots was refused: `load_catalogs`
+    # is a dict keyed by id, so a merge makes "which definition wins" an rglob
+    # ordering question, and the shadow check inside the lane exists precisely
+    # to make that unrepresentable. One run, one lane.
+    if getattr(args, "goal_local", False):
+        catalog_root = build_goal_local_lane(package, catalog_root)
     catalogs = load_catalogs(catalog_root)
     normalize_seat_rows(catalogs[0])
     added, internal_after, internal_after_raw = resolve_added(
@@ -4384,6 +4678,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "is the whole pass")
     p.add_argument("--catalog-root", required=True, dest="catalog_root",
                    help="component catalog root the definitions are read from")
+    p.add_argument("--goal-local", action="store_true", dest="goal_local",
+                   help="materialize seats the GOAL'S OWN planning pass "
+                        "authored — read from planning/current/ (manifest.csv "
+                        "plus seats/<seat>/ prompt+task pairs) instead of the "
+                        "component catalog, which carries no row for them. "
+                        "This is the lane for a binder-REGISTERED seat whose "
+                        "folder was never built. --catalog-root is still "
+                        "required and is still read: it is the set this lane's "
+                        "SHADOW check compares against, since a goal-authored "
+                        "id may never collide with a cataloged one. Pair with "
+                        "--dry-run to LINT the goal's authored seats (dangling "
+                        "refs and collisions) without materializing any")
     where = p.add_mutually_exclusive_group()
     where.add_argument("--after",
                        help="comma-separated predecessors the materialized "
@@ -6729,6 +7035,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
                ("NEST-1 red",)),
     # The SINGLE-SEAT nested variant — W7's collapsed planning mode.
     "NEST-2": (("NEST-2 green",), ("NEST-2 red",)),
+    # The goal-local seat input lane and the checks component-lint never makes.
+    "GL-1": (("GL-1 green",), ("GL-1 red",)),
     # The staff chairs minted with the goal (W3) — ONE row over SM-1..SM-5:
     # the four green arms are one behaviour observed at four moments (mint,
     # backfill, re-run, self-materialize), and SM-5 is its only red.
@@ -7635,6 +7943,179 @@ def run_selftest() -> int:
               "series IS that workflow, so a second, different name there is a "
               "contradiction and never a silent winner",
               code(nest("--nested", "scramble-flow")) == "nested-workflow-mismatch")
+
+    print("GL-1 the GOAL-LOCAL seat input lane (W7 R7, adv C75)")
+    with tempfile.TemporaryDirectory() as gl_td:
+        glfx = build_fixture(Path(gl_td))
+        gl_cat = glfx["catalog"]
+
+        def gl_goal(name, seats, manifest_rows) -> Path:
+            """A goal whose OWN planning pass authored `seats`.
+
+            `seats` maps seat -> list of (filename, section, id) — the section
+            is what makes a file the prompt half or the task half, and the
+            FILENAMES are deliberately unrelated to the ids, because on the
+            flagship they are (`toolsmith.md` declares id `toolsmith`, but
+            `build-validate-seams.md` sits beside it and the pair is resolved by
+            <role>/<task-goal>, never by name)."""
+            g = Path(gl_td) / "goals" / name
+            (g / "seats").mkdir(parents=True)
+            (g / "coordination").mkdir(parents=True)
+            (g / TASKFORCE_NAME).write_text(
+                "taskforce-id,seat,after,harness,model,effort,ctx-refresh,"
+                "milestone-id\ntf-1,chief,,claude,claude-opus-5,high,35,\n",
+                encoding="utf-8")
+            cur = g.joinpath(*GOAL_LOCAL_SOURCE)
+            (cur / "seats").mkdir(parents=True)
+            with (cur / "manifest.csv").open("w", encoding="utf-8", newline="") as fh:
+                w = csv.writer(fh)
+                w.writerow([MANIFEST_SEAT_COLUMN, MANIFEST_AFTER_COLUMN, "i/o",
+                            "Modality"])
+                for seat, after in manifest_rows:
+                    w.writerow([seat, after, "", ""])
+            for seat, files in seats.items():
+                d = cur / "seats" / seat
+                d.mkdir(parents=True)
+                for fname, section, ident in files:
+                    if section is None:                    # a cataloged reuse
+                        (d / fname).write_text(
+                            f"# {seat} — reused definition, no copy\n",
+                            encoding="utf-8")
+                        continue
+                    # The prompt half carries <permissions> beside <role> and
+                    # the task half its contract sections: assembly HARD-GATES
+                    # a seat with no permissions unit, and a fixture that
+                    # skipped them would grade the lane against a shape no real
+                    # goal-authored seat has (the flagship's do carry them).
+                    extra_sections = {
+                        "role": ("permissions", "outcome"),
+                        "task-goal": ("scope", "done-contract"),
+                    }[section]
+                    body = "".join(
+                        f"<{s}>\n{s} of {ident}\n</{s}>\n\n"
+                        for s in (section, *extra_sections))
+                    (d / fname).write_text(
+                        f"---\nid: {ident}\ndescription: \"the {section} half\"\n"
+                        f"---\n\n{body}", encoding="utf-8")
+            # The lane's OWN bindings sheet — the goal's seats are not in the
+            # component's, and `check_bindings_cover` refuses an extra key, so
+            # a shared sheet could never serve both lanes.
+            gb = {"harness": "claude", "model": "claude-opus-5",
+                  "effort": "high", "ctx-refresh": 50, "agent_type": "staff",
+                  "description": "a goal-authored fixture seat"}
+            (g / "bindings.json").write_text(json.dumps({
+                "version": 1,
+                "defaults": {"harness": "claude", "cwd-mode": "seat-folder",
+                             "agent_type": "staff"},
+                "seats": {s: {**gb, "after": [x for x in [a] if x]}
+                          for s, a in manifest_rows
+                          if (cur / "seats" / s / GOAL_LOCAL_REUSE).is_file()
+                          is False and (cur / "seats" / s).is_dir()},
+            }), encoding="utf-8")
+            return g
+
+        def gl_run(g, *extra):
+            return _invoke(["--package", str(g), "--workflow",
+                            GOAL_LOCAL_WORKFLOW, "--goal-local",
+                            "--catalog-root", gl_cat, "--root", "--bindings",
+                            str(g / "bindings.json"), "--dry-run", "--json",
+                            *extra], clean_env)
+
+        def gl_code(cp) -> str:
+            try:
+                return (json.loads(cp.stdout).get("refusal") or {}).get("code", "")
+            except ValueError:
+                return ""
+
+        # ---- GREEN: the flagship's exact shape, reduced to two seats ---------
+        g_ok = gl_goal(
+            "gl-ok",
+            {"tool-seat": [("smith.md", "role", "smithy"),
+                           ("do-the-thing.md", "task-goal", "the-thing")],
+             "next-seat": [("writer.md", "role", "scribe"),
+                           ("write-it.md", "task-goal", "write-it")],
+             "reused-seat": [(GOAL_LOCAL_REUSE, None, None)]},
+            [("tool-seat", ""), ("next-seat", "tool-seat"),
+             ("reused-seat", "next-seat")])
+        cp_ok = gl_run(g_ok)
+        lane = g_ok.joinpath(*GOAL_LOCAL_SOURCE) / GOAL_LOCAL_LANE / GOAL_LOCAL_COMPONENT
+        gl_seats = {r["seat-id"]: r for r in _csv_rows(lane / "seats.csv")}
+        gl_mf = {r[MANIFEST_SEAT_COLUMN]: r[MANIFEST_AFTER_COLUMN]
+                 for r in _csv_rows(lane / "workflows" / GOAL_LOCAL_WORKFLOW
+                                    / f"{GOAL_LOCAL_WORKFLOW}.csv")}
+        check("GL-1 green: the goal's OWN planning product materializes — the "
+              "prompt half and the task half of each seat are resolved by their "
+              "<role>/<task-goal> SECTION (the filenames deliberately do not "
+              "match the ids), the seats.csv is synthesized with those ids, the "
+              "manifest's `after` cell is copied VERBATIM, and the CATALOGED-"
+              "REUSE seat (a source.md pointer) is EXCLUDED — it belongs to the "
+              "component lane and a copy here would shadow it",
+              cp_ok.returncode == 0
+              and set(gl_seats) == {"tool-seat", "next-seat"}
+              and gl_seats["tool-seat"]["executor"] == "smithy"
+              and gl_seats["tool-seat"]["task"] == "the-thing"
+              and gl_seats["next-seat"]["executor"] == "scribe"
+              and gl_mf == {"tool-seat": "", "next-seat": "tool-seat"},
+              f"rc={cp_ok.returncode} seats={list(gl_seats)} mf={gl_mf} "
+              f"[{cp_ok.stderr.strip()[:200]}]")
+        check("GL-1 green: and the run assembles those seats END TO END — two "
+              "descriptors and two registry rows planned, from definitions no "
+              "seats.csv anywhere in the component catalog carries. That is the "
+              "registered-but-unbuilt state closed at its source",
+              (json.loads(cp_ok.stdout).get("added_seats")
+               == ["tool-seat", "next-seat"])
+              and json.loads(cp_ok.stdout).get("taskforce_rows_appended") == 2,
+              cp_ok.stdout[:200])
+        # ---- RED: the four checks component-lint would have made ------------
+        g_miss = gl_goal("gl-miss",
+                         {"tool-seat": [("s.md", "role", "smithy"),
+                                        ("t.md", "task-goal", "the-thing")]},
+                         [("tool-seat", ""), ("ghost-seat", "tool-seat")])
+        check("GL-1 red: a manifest seat with NO definition folder REFUSES "
+              "(goal-local-definition-missing) — the pass registered a seat it "
+              "never authored, which is the very state this lane exists to end; "
+              "materializing the rest and skipping it would rebuild it",
+              gl_code(gl_run(g_miss)) == "goal-local-definition-missing")
+        g_shadow = gl_goal("gl-shadow",
+                           {"alpha": [("s.md", "role", "gl-smithy"),
+                                      ("t.md", "task-goal", "gl-thing")]},
+                           [("alpha", "")])
+        check("GL-1 red: a goal-authored seat whose id the COMPONENT CATALOG "
+              "already carries REFUSES (goal-local-shadows-catalog). Nothing in "
+              "this system guarded that before W7: which definition won would "
+              "have been decided by rglob ordering",
+              gl_code(gl_run(g_shadow)) == "goal-local-shadows-catalog")
+        g_dangle = gl_goal("gl-dangle",
+                           {"tool-seat": [("s.md", "role", "smithy"),
+                                          ("t.md", "task-goal", "the-thing")]},
+                           [("tool-seat", "nobody-at-all")])
+        check("GL-1 red: an `after` member naming nothing that exists REFUSES "
+              "(goal-local-after-dangling) — not a lane seat, not a "
+              f"{TASKFORCE_NAME} row, not a cataloged seat. The edge points at "
+              "nothing and the seat would sit BLOCKED forever, which reads as a "
+              "healthy waiting goal",
+              gl_code(gl_run(g_dangle)) == "goal-local-after-dangling")
+        g_amb = gl_goal("gl-amb",
+                        {"tool-seat": [("s.md", "role", "smithy"),
+                                       ("s2.md", "role", "smithy-two"),
+                                       ("t.md", "task-goal", "the-thing")]},
+                        [("tool-seat", "")])
+        check("GL-1 red: a definition folder carrying TWO <role> files REFUSES "
+              "(goal-local-definition-ambiguous) rather than picking the first "
+              "— a seat is exactly one prompt and one task, and 'whichever "
+              "sorted first' is not a rule",
+              gl_code(gl_run(g_amb)) == "goal-local-definition-ambiguous")
+        g_colide = gl_goal("gl-collide",
+                           {"tool-seat": [("s.md", "role", "smithy"),
+                                          ("t.md", "task-goal", "the-thing")],
+                            "next-seat": [("s.md", "role", "smithy"),
+                                          ("t.md", "task-goal", "other-thing")]},
+                           [("tool-seat", ""), ("next-seat", "tool-seat")])
+        check("GL-1 red: one id declared by TWO goal-authored seats REFUSES "
+              "(goal-local-id-collision) — the catalog is a dict, so the second "
+              "would silently replace the first and one seat would be assembled "
+              "from the other's prompt",
+              gl_code(gl_run(g_colide)) == "goal-local-id-collision")
 
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:

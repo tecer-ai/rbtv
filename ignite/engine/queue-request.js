@@ -385,12 +385,109 @@ function materializeUnbuiltSeatArgv({ goalFolder, seat, after, milestone, catalo
   return argv;
 }
 
+// ── THE GOAL-LOCAL LANE, FROM THE ENGINE SIDE (W7 R7, adv C75) ───────────────────────────────
+//
+// `sheetForSeat` above resolves a CATALOGED seat: the first segment of the name is a workflow code
+// and the sheet is `bindings/<code>.json`. A GOAL-AUTHORED seat has no such code and no such sheet
+// — `seam-toolsmith` yields code `seam`, nothing is named `seam.json`, and the honest refusal is
+// `unbuilt-seat-sheet-unresolvable`. That refusal was CORRECT and it was also the whole D5 stall:
+// the planning pass authored the seat inside the goal (`planning/current/seats/<seat>/`), the
+// binder registered its row, and no lane could read the definition back.
+//
+// A seat is GOAL-LOCAL when the goal's own planning product holds its definition folder AND that
+// folder is not a `source.md` pointer — a pointer means "this seat is CATALOGED, reuse it", which
+// is the cataloged lane's job and must not be served here.
+const GOAL_LOCAL_SOURCE = ['planning', 'current'];
+const GOAL_LOCAL_REUSE = 'source.md';
+
+function goalLocalSeatDir(goalFolder, seat) {
+  const dir = path.join(goalFolder, ...GOAL_LOCAL_SOURCE, 'seats', seat);
+  if (!fs.existsSync(dir)) return null;
+  if (fs.existsSync(path.join(dir, GOAL_LOCAL_REUSE))) return null;   // cataloged reuse
+  return dir;
+}
+
+// ⚠ THE LINT IS A REAL INVOCATION, NOT A SECOND IMPLEMENTATION (R7). The lane's dangling-ref and
+// collision checks live in `materialize-seats.py --goal-local`, where the reading happens; running
+// them from JS would be a second opinion about the goal's own product. `--dry-run` performs every
+// one of them and appends nothing, so the lint IS the materializer, asked not to write. It is run
+// BEFORE the build so a goal whose pass authored a broken seat set is reported ONCE, by code, with
+// nothing half-built behind it — rather than N times, one per seat, as an opaque build failure.
+// ⚠ THE CAST OF A GOAL-AUTHORED SEAT IS AN OPEN QUESTION, AND IT IS REFUSED RATHER THAN GUESSED.
+// A cataloged seat's harness/model/effort come from its workflow's casting sheet. A goal-authored
+// seat belongs to no workflow, so nothing casts it — and `#d-abolish-profile-names` ruled that an
+// uncast seat is a NAMED REFUSAL at every door, never a default. The goal's `taskforce.csv` row
+// does carry harness/model/effort (the binder wrote them), but a row is not a casting sheet: it
+// carries no `agent_type`, no `mode`, no `cwd-mode`, and inventing those three here would be this
+// engine deciding what kind of agent a planning pass authored. So: the pass must leave a sheet at
+// `planning/current/bindings.json`, and until it does this refuses BY NAME. Surfaced to the owner
+// rather than papered over — a wrong default here casts a live seat.
+const GOAL_LOCAL_SHEET = 'bindings.json';
+
+function buildGoalLocalSeats({ goalFolder, workspace, seats, say }) {
+  const catalogRoot = path.join(workspace, '.rbtv', 'mirror', PLANNING_MODULE);
+  const sheet = path.join(goalFolder, ...GOAL_LOCAL_SOURCE, GOAL_LOCAL_SHEET);
+  if (!fs.existsSync(sheet)) {
+    say('warn', 'lane watch: this goal authored its own seats and left no casting sheet — they '
+      + 'cannot be built, and their harness/model/effort is not the engine\'s to invent',
+    { code: 'goal-local-sheet-absent', sheet, seats });
+    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-sheet-absent' })) };
+  }
+  const lint = goalLocalLint({ goalFolder, catalogRoot, sheet });
+  if (lint) {
+    say('warn', 'lane watch: the goal\'s own authored seat set does not LINT — nothing was built, '
+      + 'and it is one refusal for the whole set rather than one opaque failure per seat',
+    { code: lint.code, evidence: lint.evidence, seats });
+    return { built: [], failed: seats.map((seat) => ({ seat, code: lint.code })) };
+  }
+  const argv = [MATERIALIZE_PY, '--package', goalFolder, '--workflow', 'goal-local',
+    '--goal-local', '--catalog-root', catalogRoot, '--root', '--bindings', sheet,
+    '--force-partial', '--json'];
+  try {
+    execFileSync(requirePythonCmd(), argv,
+      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    say('info', 'lane watch: built the goal\'s OWN authored seats — definitions no component '
+      + 'catalog carries, which is why nothing could build them before W7', { seats });
+    return { built: seats, failed: [] };
+  } catch (err) {
+    const evidence = (String(err.stdout || '') + String(err.stderr || '')).trim().slice(0, 400);
+    say('warn', 'lane watch: materializing the goal\'s own authored seats REFUSED — the goal '
+      + 'stalls at them until it is cleared', { evidence, seats });
+    return { built: [], failed: seats.map((seat) => ({ seat, error: evidence })) };
+  }
+}
+
+function goalLocalLint({ goalFolder, catalogRoot, sheet }) {
+  const argv = [MATERIALIZE_PY, '--package', goalFolder, '--workflow', 'goal-local',
+    '--goal-local', '--catalog-root', catalogRoot, '--root', '--bindings', sheet,
+    '--dry-run', '--json'];
+  try {
+    execFileSync(requirePythonCmd(), argv,
+      { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    return null;
+  } catch (err) {
+    const out = String(err.stdout || '') + String(err.stderr || '');
+    let code = '';
+    try { code = ((JSON.parse(out.slice(out.indexOf('{'))).refusal) || {}).code || ''; } catch { /* prose only */ }
+    return { code: code || 'goal-local-lint-failed', evidence: out.trim().slice(0, 400) };
+  }
+}
+
 // Build every registered-but-unbuilt seat of one goal. Returns `{built, failed}`; NEVER throws —
 // the caller is a watch pass over the whole tree.
 function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {} }) {
   const built = [];
   const failed = [];
   const workspace = path.resolve(goalsRoot, '..', '..');
+  // The goal-local half runs ONCE for the whole goal, not once per seat: the lane is the goal's
+  // manifest, and one materialize of it builds every goal-authored seat in one atomic append.
+  const local = unbuilt.filter((s) => goalLocalSeatDir(goalFolder, s));
+  if (local.length) {
+    const outcome = buildGoalLocalSeats({ goalFolder, workspace, seats: local, say });
+    built.push(...outcome.built);
+    failed.push(...outcome.failed);
+  }
+  unbuilt = unbuilt.filter((s) => !local.includes(s));   // the cataloged remainder
   const bySeat = new Map(rows.map((r) => [(r.seat || '').trim(), r]));
   for (const seat of unbuilt) {
     const row = bySeat.get(seat) || {};
@@ -648,6 +745,8 @@ module.exports = {
   Refusal, resolveCatalogRoot, queueRequests, passesMinted, planningMode, uncastInSheet,
   materializeArgv, runQueueRequestPass,
   sheetForSeat, materializeUnbuiltSeatArgv, buildUnbuiltSeats,
+  goalLocalSeatDir, goalLocalLint, buildGoalLocalSeats,
+  GOAL_LOCAL_SOURCE, GOAL_LOCAL_REUSE, GOAL_LOCAL_SHEET,
 };
 
 // Self-check: the two pure derivations this file OWNS — the consumption count and the argv shape.
@@ -678,5 +777,22 @@ if (require.main === module) {
   });
   assert(collapsed.includes('--seat') && collapsed.includes(COLLAPSED_SEAT));
   assert(!collapsed.includes('--workflow') && collapsed.includes('--root'));
+  // The goal-local DISCRIMINATOR — the one pure derivation the engine half owns. A definition
+  // folder makes a seat goal-local; a `source.md` pointer inside it makes it CATALOGED again, and
+  // getting that backwards would have the lane shadow every reused cataloged seat with a copy.
+  const os = require('node:os');
+  const gl = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-gl-'));
+  const mk = (seat, reuse) => {
+    const d = path.join(gl, ...GOAL_LOCAL_SOURCE, 'seats', seat);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, reuse ? GOAL_LOCAL_REUSE : 'prompt.md'), 'x');
+  };
+  mk('authored', false);
+  mk('reused', true);
+  assert(goalLocalSeatDir(gl, 'authored'), 'an authored definition folder IS the goal-local lane');
+  assert.strictEqual(goalLocalSeatDir(gl, 'reused'), null,
+    'a source.md pointer is a CATALOGED seat — the goal-local lane must not shadow it with a copy');
+  assert.strictEqual(goalLocalSeatDir(gl, 'absent'), null, 'no folder, no lane');
+  fs.rmSync(gl, { recursive: true, force: true });
   console.log('queue-request selftest OK');
 }
