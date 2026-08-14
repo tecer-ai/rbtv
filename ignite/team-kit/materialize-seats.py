@@ -3457,6 +3457,14 @@ def render_taskforce_rows(plan: dict) -> None:
     included) and before the --dry-run return, so a refusal here always leaves
     zero files and zero rows.
 
+    THE MULTI-TASKFORCE ANSWER (`d-staff-chair-joins-first-taskforce`, owner
+    2026-08-14). A goal whose registry carries more than one bare taskforce-id
+    refuses `taskforce-id-unreadable` for every ordinary seat — which taskforce a
+    workflow node joins is not this command's to guess. It is ANSWERED for a
+    STAFF CHAIR alone: the chair takes the goal's FIRST taskforce-id (the earliest
+    row carrying a bare id), because a chair holds no workflow node and its id is
+    read by nothing. See the ⚠ block at the gate for the evidence.
+
     Q8 second-carrier note (d-spec-open-points-ruled Q8; verified at dag-05
     implementation): the verbatim 15-rule DAG-authoring block is carried by
     TWO surfaces, both under .rbtv/mirror/meta/planning-deprecated/ (pre-rename planner-workflow) —
@@ -3584,6 +3592,28 @@ def render_taskforce_rows(plan: dict) -> None:
     # registry that HAS rows but no readable id still refuses (red arm), and
     # an id read from rows always wins over the derivation.
     #
+    # ⚠ ONE CASE OF THAT QUESTION IS NOW RULED — and only one: the STAFF CHAIR
+    # (`d-staff-chair-joins-first-taskforce`, owner 2026-08-14). A chair holds no
+    # workflow node, so its id has NO mechanical consequence anywhere — nothing
+    # routes, wakes or verdicts on it (`coord.py#is_staff_seat` :5139,
+    # `staff_route_target` :14120, `mint_staff_wake` :14081 all key on the seat
+    # NAME); the only other reader in the system is `coord.py#taskforce_ids`
+    # (:2720), a display accessor. Refusing the chair over a value nothing reads
+    # left the flagship goal — two taskforces — permanently unstaffable, which is
+    # the exact empty-chair defect the staff pass exists to end. The ruled answer
+    # is the goal's FIRST taskforce: the id of the earliest row carrying a bare
+    # id, i.e. the taskforce that existed when the goal was first materialized,
+    # which is what SM-1's "the chair takes the goal's own taskforce-id" meant
+    # when only one could exist. File order, not `max`/`min` of the ordinals: an
+    # id may legitimately be non-numeric (`tf-a` in the wild, see BARE_TF_RE) and
+    # a rule that cannot rank those is a rule with a hole in it.
+    # The AMBIGUITY THE GATE PROTECTS IS UNTOUCHED FOR EVERY OTHER SEAT: an
+    # ordinary seat is a workflow node, its id says which taskforce it belongs
+    # to, and guessing that is exactly the design act this gate refuses. The lift
+    # is keyed on the ADDED SET being staff chairs and nothing else, so it covers
+    # both doors that reach here — the second pass (`mint_staff_chairs`) and a
+    # direct `--seat leader` backfill — and no third.
+    #
     # ⚠ THE NESTED PATH TAKES NEITHER BRANCH. A nested instance mints its OWN
     # id (`tf-<n>-<prefix><m>`, owner ruling `d-r2-tfid-structured-counter`) so
     # the roster can tell one instance's rows from another's — which is the
@@ -3601,6 +3631,9 @@ def render_taskforce_rows(plan: dict) -> None:
                                     nested["prefix"], nested["ordinal"])
     elif not existing_rows:
         tf_id = derive_taskforce_id(Path(plan["package"]))
+    elif len(ids) > 1 and set(plan["added_seats"]) <= set(_coord_staff_seats()):
+        tf_id = next(i for r in existing_rows
+                     if (i := (r.get("taskforce-id") or "").strip()) in ids)
     elif len(ids) != 1:
         raise Refuse(
             "taskforce-id-unreadable",
@@ -6641,6 +6674,13 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # backfill, re-run, self-materialize), and SM-5 is its only red.
     "staff-mint": (("SM-1 green", "SM-2 green", "SM-3 green", "SM-4 green"),
                    ("SM-5 red",)),
+    # The multi-taskforce answer (`d-staff-chair-joins-first-taskforce`) — its
+    # OWN row, not more arms on `staff-mint`: SM-1..SM-5 are all measured on a
+    # single-taskforce registry and that premise is unchanged, while these two
+    # are a matched pair (the chair passes / the ordinary seat still refuses) on
+    # a registry no other arm builds. A row that passes only when BOTH fire is
+    # exactly the shape the lift needs — widen the gate and the red goes.
+    "staff-mint-multi-tf": (("SM-6 green",), ("SM-7 red",)),
 }
 
 
@@ -6869,7 +6909,8 @@ def _staff_rows(fx: dict) -> list[dict]:
 
 
 def run_staff_mint_acceptance(check) -> None:
-    """SM-1..SM-5 — the staff chairs are minted WITH the goal (W3).
+    """SM-1..SM-7 — the staff chairs are minted WITH the goal (W3); SM-6/SM-7 add
+    the multi-taskforce answer (`d-staff-chair-joins-first-taskforce`).
 
     The defect these guard is the one the whole silent-stall program exists
     for: a routed FAIL, a mid-run ask and the session-closer's staff mail all
@@ -6965,6 +7006,42 @@ def run_staff_mint_acceptance(check) -> None:
               and str(fx2["leader_sheet"]) in warned[0],
               str((res or {}).get("warnings"))[:300])
         shutil.rmtree(fx2["pkg"].parents[2].parent, ignore_errors=True)
+
+        # ---- SM-6/SM-7: the MULTI-TASKFORCE goal
+        # (`d-staff-chair-joins-first-taskforce`). The flagship
+        # `meet-transcript-summarizer` carries tf-1 (the planning wave) and tf-2
+        # (the m1 seam), and the id gate refused its chair on the FILE'S state
+        # before any value was chosen — so the one goal the staff pass was built
+        # for was the one goal it could not staff. The two arms are a pair on
+        # purpose: the chair passes, the ordinary seat still refuses.
+        fx3 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm3-")))
+        rows2 = [("tf-1", "w1"), ("tf-2", "x2")]
+        (fx3["pkg"] / TASKFORCE_NAME).write_text(
+            ",".join(TASKFORCE_HEADER) + "\n"
+            + "".join(_render_csv_line(
+                [tf, seat, "", "claude", "claude-opus-5", "high", "", ""]) + "\n"
+                for tf, seat in rows2), encoding="utf-8")
+
+        res = _staff_run(fx3, "leader", bindings=str(fx3["leader_sheet"]))
+        rows = {r["seat"]: r for r in _staff_rows(fx3)}
+        check("SM-6 green (multi-taskforce): a goal carrying TWO taskforce-ids "
+              "can still be staffed — the chair is minted instead of refused",
+              not isinstance(res, Refuse) and "leader" in rows,
+              str(res)[:200] or str(list(rows)))
+        check("SM-6 green: the chair joins the goal's FIRST taskforce (the "
+              "earliest bare id in the file), and its after cell is still empty",
+              rows.get("leader", {}).get("taskforce-id") == "tf-1"
+              and rows.get("leader", {}).get("after", "x") == "",
+              str(rows.get("leader")))
+
+        res = _staff_run(fx3, "w2")
+        check("SM-7 red: an ORDINARY seat against the same two-taskforce "
+              "registry still refuses `taskforce-id-unreadable` — the lift is "
+              "the staff chair's alone, never a hole in the gate",
+              isinstance(res, Refuse) and res.code == "taskforce-id-unreadable"
+              and "w2" not in [r["seat"] for r in _staff_rows(fx3)],
+              f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:160]}")
+        shutil.rmtree(fx3["pkg"].parents[2].parent, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -8176,7 +8253,7 @@ def run_selftest() -> int:
           "G-planner-0804-1502, task 7.678; both arms each)")
     run_pass_substitution_acceptance(check)
 
-    print("staff-chair acceptance pass (SM-1..SM-5 — W3: the chair a stalled "
+    print("staff-chair acceptance pass (SM-1..SM-7 — W3: the chair a stalled "
           "seat reaches is a taskforce row, minted with the goal)")
     run_staff_mint_acceptance(check)
 
