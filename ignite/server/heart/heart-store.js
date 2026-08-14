@@ -576,7 +576,6 @@ class HeartStore {
     ensureDir(path.dirname(this.dbPath));
 
     this.db = new DatabaseSync(this.dbPath);
-    singleton = this;
 
     // G-135: asked BEFORE schema.sql runs, and it can ONLY be asked here. Afterwards every store
     // has the six tables and a brand-new one is indistinguishable from a months-old one — which is
@@ -614,6 +613,15 @@ class HeartStore {
       // and the fire door, which reads the value directly, remains the boundary.
       workdirRoot: opts.workdirRoot || null,
     };
+
+    // The writer slot is claimed LAST, and that ordering is the fix, not a style choice: it used to
+    // be claimed right after `new DatabaseSync`, so any throw below (a WAL/schema/migrate failure,
+    // e.g. a locked db) left a half-built store owning the slot and every later openHeartStore in
+    // the process died with E_SECOND_WRITER forever — observed live 2026-08-14 20:25Z, where a
+    // probe's retry around `database is locked` turned a transient flake into a permanent failure.
+    // Safe to claim last because nothing above reads `singleton` (directly or via
+    // openHeartStore/isHeartStoreOpen). Guarded by probe-single-writer.js arm (c).
+    singleton = this;
   }
 
   _prepare(sql) {

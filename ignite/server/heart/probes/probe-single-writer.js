@@ -9,6 +9,8 @@ const { openHeartStore, closeHeartStore, E_SECOND_WRITER } = require('../heart-s
 const start = Date.now();
 const outPath = path.join(__dirname, 'probe-single-writer.out');
 const tmpDb = path.join(os.tmpdir(), `heart-probe-single-writer-${Date.now()}-${process.pid}.db`);
+const brokenDb = tmpDb.replace(/\.db$/, '-broken.db');
+const recoverDb = tmpDb.replace(/\.db$/, '-recover.db');
 const childScript = path.join(__dirname, '_busy-child.js');
 
 function out(...lines) {
@@ -41,6 +43,27 @@ try {
   const rowsAfter = store.db.prepare('SELECT COUNT(*) AS n FROM probe_w').get().n;
   closeHeartStore();
 
+  // (c) A constructor that THROWS must leave the writer slot unclaimed. The throw is forced after
+  // `new DatabaseSync` succeeds by planting a DIRECTORY where the WAL file must go, so the
+  // `PRAGMA journal_mode = WAL` inside the constructor fails with a disk I/O error — the same shape
+  // as the live `database is locked` failure of 2026-08-14. If the slot is claimed before that
+  // point, the next openHeartStore below dies with E_SECOND_WRITER instead of succeeding.
+  new (require('node:sqlite').DatabaseSync)(brokenDb).close();
+  fs.mkdirSync(brokenDb + '-wal');
+  let ctorThrew = null;
+  try {
+    openHeartStore({ dbPath: brokenDb });
+  } catch (err) {
+    ctorThrew = err;
+  }
+  let reopenErr = null;
+  try {
+    openHeartStore({ dbPath: recoverDb }).close();
+  } catch (err) {
+    reopenErr = err;
+  }
+  const slotReleased = ctorThrew !== null && reopenErr === null;
+
   const busyCaught = childOutput.startsWith('BUSY:') && childOutput.includes('database is locked');
   const noDoubleWrite = rowsAfter === 0;
   const secondWriterOk = Boolean(secondWriterCaught && secondWriterCaught.code === E_SECOND_WRITER);
@@ -52,12 +75,15 @@ try {
   out(`CHILD_OUTPUT: ${childOutput}`);
   out(`NO_DOUBLE_WRITE: ${noDoubleWrite}`);
   out(`ROWS_AFTER: ${rowsAfter}`);
+  out(`CTOR_THREW: ${ctorThrew ? ctorThrew.message : 'NONE'}`);
+  out(`SLOT_RELEASED_ON_THROW: ${slotReleased}`);
+  out(`REOPEN_ERROR: ${reopenErr ? `${reopenErr.code || ''} ${reopenErr.message}` : 'NONE'}`);
 
   // ASSERT the invariant, never merely record it: both arms below were computed, printed and
   // thrown away behind an unconditional exitCode 0, so the probe could not fail. No other probe
   // exercises E_SECOND_WRITER or SQLITE_BUSY — this is the single-writer guard's only witness.
-  if (!secondWriterOk || !busyCaught || !noDoubleWrite) {
-    throw new Error(`single-writer invariant broken — SECOND_WRITER_CAUGHT=${secondWriterOk} (code ${secondWriterCaught ? secondWriterCaught.code : 'NONE'}, expected ${E_SECOND_WRITER}) BUSY_CAUGHT=${busyCaught} (child said '${childOutput}') NO_DOUBLE_WRITE=${noDoubleWrite} (rows ${rowsAfter})`);
+  if (!secondWriterOk || !busyCaught || !noDoubleWrite || !slotReleased) {
+    throw new Error(`single-writer invariant broken — SECOND_WRITER_CAUGHT=${secondWriterOk} (code ${secondWriterCaught ? secondWriterCaught.code : 'NONE'}, expected ${E_SECOND_WRITER}) BUSY_CAUGHT=${busyCaught} (child said '${childOutput}') NO_DOUBLE_WRITE=${noDoubleWrite} (rows ${rowsAfter}) SLOT_RELEASED_ON_THROW=${slotReleased} (ctor threw: ${ctorThrew ? ctorThrew.message : 'NOTHING — arm is vacuous'}, reopen: ${reopenErr ? `${reopenErr.code || ''} ${reopenErr.message}` : 'ok'})`);
   }
 
   out(`EXIT: 0`);
@@ -72,4 +98,9 @@ try {
   try { fs.unlinkSync(tmpDb); } catch {}
   try { fs.unlinkSync(tmpDb + '-wal'); } catch {}
   try { fs.unlinkSync(tmpDb + '-shm'); } catch {}
+  for (const p of [brokenDb, recoverDb]) {
+    for (const suffix of ['', '-wal', '-shm']) {
+      try { fs.rmSync(p + suffix, { recursive: true, force: true }); } catch {}
+    }
+  }
 }
