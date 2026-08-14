@@ -424,25 +424,38 @@ function goalLocalSeatDir(goalFolder, seat) {
 // rather than papered over — a wrong default here casts a live seat.
 const GOAL_LOCAL_SHEET = 'bindings.json';
 
-function buildGoalLocalSeats({ goalFolder, workspace, seats, say }) {
+function buildGoalLocalSeats({ goalFolder, workspace, seats, rows = [], say }) {
   const catalogRoot = path.join(workspace, '.rbtv', 'mirror', PLANNING_MODULE);
   const sheet = path.join(goalFolder, ...GOAL_LOCAL_SOURCE, GOAL_LOCAL_SHEET);
+  // ⚠ THE MILESTONE COMES OFF THE SEATS' OWN ROWS, exactly as the cataloged lane below reads it
+  // (`:532`). It is not decoration: `--force-partial` byte-compares the row it WOULD write against
+  // the one on disk, and the milestone is a column of that row — omit it and a goal-authored seat
+  // registered under a milestone (every one of them: the pass that authors them runs FOR a
+  // milestone) refuses `partial-row-mismatch` on a cell nobody meant to change. One run carries
+  // one `--milestone-id`, so a set spanning two milestones is split by the caller, not guessed.
+  const mByRow = new Map(rows.map((r) => [(r.seat || '').trim(), (r['milestone-id'] || '').trim()]));
+  const milestones = [...new Set(seats.map((s) => mByRow.get(s) || ''))];
+  if (milestones.length > 1) {
+    say('warn', 'lane watch: this goal\'s authored seats span more than one milestone — one '
+      + 'materialize carries one milestone-id, so the set is refused rather than split blind',
+    { code: 'goal-local-milestone-split', milestones, seats });
+    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-milestone-split' })) };
+  }
+  const milestone = milestones[0] || '';
   if (!fs.existsSync(sheet)) {
     say('warn', 'lane watch: this goal authored its own seats and left no casting sheet — they '
       + 'cannot be built, and their harness/model/effort is not the engine\'s to invent',
     { code: 'goal-local-sheet-absent', sheet, seats });
     return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-sheet-absent' })) };
   }
-  const lint = goalLocalLint({ goalFolder, catalogRoot, sheet });
+  const lint = goalLocalLint({ goalFolder, catalogRoot, sheet, milestone });
   if (lint) {
     say('warn', 'lane watch: the goal\'s own authored seat set does not LINT — nothing was built, '
       + 'and it is one refusal for the whole set rather than one opaque failure per seat',
     { code: lint.code, evidence: lint.evidence, seats });
     return { built: [], failed: seats.map((seat) => ({ seat, code: lint.code })) };
   }
-  const argv = [MATERIALIZE_PY, '--package', goalFolder, '--workflow', 'goal-local',
-    '--goal-local', '--catalog-root', catalogRoot, '--root', '--bindings', sheet,
-    '--force-partial', '--json'];
+  const argv = goalLocalArgv({ goalFolder, catalogRoot, sheet, milestone });
   try {
     execFileSync(requirePythonCmd(), argv,
       { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -457,10 +470,24 @@ function buildGoalLocalSeats({ goalFolder, workspace, seats, say }) {
   }
 }
 
-function goalLocalLint({ goalFolder, catalogRoot, sheet }) {
+// ⚠ ONE ARGV, TWO CALLERS — and that is the whole point of the lint (R7). The lint is the BUILD
+// asked not to write, so it must differ from it in `--dry-run` AND NOTHING ELSE. It did differ:
+// the lint omitted `--force-partial`, so on a goal whose seats already carry registry rows (the
+// flagship's `seam-author`/`seam-toolsmith`, hand-built 2026-08-13) the lint took the pinned
+// `seat-exists` refusal that `--force-partial` exists to lift, and reported the whole set unbuilt
+// on a refusal the build would never have hit. Two argv literals is how that happened; one is how
+// it stops happening.
+function goalLocalArgv({ goalFolder, catalogRoot, sheet, milestone, dryRun = false }) {
   const argv = [MATERIALIZE_PY, '--package', goalFolder, '--workflow', 'goal-local',
-    '--goal-local', '--catalog-root', catalogRoot, '--root', '--bindings', sheet,
-    '--dry-run', '--json'];
+    '--goal-local', '--catalog-root', catalogRoot, '--root', '--bindings', sheet];
+  if (milestone) argv.push('--milestone-id', milestone);
+  argv.push('--force-partial', '--json');
+  if (dryRun) argv.push('--dry-run');
+  return argv;
+}
+
+function goalLocalLint({ goalFolder, catalogRoot, sheet, milestone }) {
+  const argv = goalLocalArgv({ goalFolder, catalogRoot, sheet, milestone, dryRun: true });
   try {
     execFileSync(requirePythonCmd(), argv,
       { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -483,7 +510,7 @@ function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {
   // manifest, and one materialize of it builds every goal-authored seat in one atomic append.
   const local = unbuilt.filter((s) => goalLocalSeatDir(goalFolder, s));
   if (local.length) {
-    const outcome = buildGoalLocalSeats({ goalFolder, workspace, seats: local, say });
+    const outcome = buildGoalLocalSeats({ goalFolder, workspace, seats: local, rows, say });
     built.push(...outcome.built);
     failed.push(...outcome.failed);
   }
@@ -745,7 +772,7 @@ module.exports = {
   Refusal, resolveCatalogRoot, queueRequests, passesMinted, planningMode, uncastInSheet,
   materializeArgv, runQueueRequestPass,
   sheetForSeat, materializeUnbuiltSeatArgv, buildUnbuiltSeats,
-  goalLocalSeatDir, goalLocalLint, buildGoalLocalSeats,
+  goalLocalSeatDir, goalLocalLint, goalLocalArgv, buildGoalLocalSeats,
   GOAL_LOCAL_SOURCE, GOAL_LOCAL_REUSE, GOAL_LOCAL_SHEET,
 };
 

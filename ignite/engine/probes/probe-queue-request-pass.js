@@ -509,6 +509,82 @@ function main() {
     }
   }
 
+  // ── R — R9's GENERALIZATION: A THIRD `planning-mode` VALUE CANNOT SLIP THROUGH ─────────────
+  //
+  // The two pass shapes are injected at TWO symmetric prompt points — `planner.md` demands
+  // `collapsed` and fails back on anything else, and the full chain is guarded on
+  // `[planning-mode=full]` in the workflow manifest's `after` cells. A THIRD value satisfies
+  // NEITHER, so on the prompts alone it does not fail: it produces a milestone nothing ever
+  // opens a pass for, which is the silent-stall shape this whole programme exists to end. The
+  // guard is the engine's, at the ONE door that opens a pass, and this arm is what pins it.
+  {
+    const fx = makeWorkspace(path.join(tmp, 'R'), {
+      taskforce: TF_BASE,
+      milestones: 'milestone-id,name,description,after,done-contract,planning-mode\n'
+        + 'm1,one,first,,contract,collapsed\n'
+        + 'm2,two,second,m1,contract,hybrid\n',
+    });
+    sendVerdict(fx.goal, { milestone: 'm2' });
+    sendQueueRequest(fx.goal, { milestone: 'm2', verdict: lastMessageNum(fx.goal) || 1 });
+    const before = snapshot(fx.goal);
+    const rlog = [];
+    const res = runQueueRequestPass({ goalsRoot: fx.goalsRoot, logger: logger(rlog) });
+    const after = snapshot(fx.goal);
+    check('R a milestone stamped a THIRD planning-mode value opens NO pass and writes NOTHING',
+      res.seeded.length === 0 && after.tf === before.tf && after.seats === before.seats,
+      `seeded ${res.seeded.length}`);
+    check('R it refuses BY NAME (`queue-request-planning-mode-unstamped`), so the third value is '
+      + 'reported as the authoring error it is — never as a milestone that merely never came up',
+    res.skipped.some((s) => s.reason === 'queue-request-planning-mode-unstamped'),
+    res.skipped.map((s) => s.reason).join(', ') || 'none');
+    check('R the refusal is LOUD (warn) — only a human can restamp the row',
+      rlog.some((m) => m.level === 'warn' && /REFUSED before writing/.test(m.message || '')));
+    // MUTANT: the enum check relaxed to "anything non-empty". The third value then flows on as a
+    // pass shape nothing implements — the exact silent bypass R9 asks to make impossible.
+    const mut = withMutant("if (mode !== 'full' && mode !== 'collapsed') {", 'if (!mode) {',
+      (mod) => mod.runQueueRequestPass({ goalsRoot: fx.goalsRoot, logger: logger([]) }));
+    if (mut) {
+      check('R MUTANT (enum relaxed to non-empty) -> `hybrid` is ACCEPTED and the pass proceeds '
+        + 'past the shape check: the bypass, reproduced',
+      !mut.skipped.some((s) => s.reason === 'queue-request-planning-mode-unstamped'),
+      mut.skipped.map((s) => s.reason).join(', ') || 'none');
+    }
+    check('R the live build is UNMUTATED',
+      fs.readFileSync(QR_PATH, 'utf8').includes("if (mode !== 'full' && mode !== 'collapsed') {"));
+  }
+
+  // ── G — THE GOAL-LOCAL LINT IS THE BUILD, ASKED NOT TO WRITE ───────────────────────────────
+  //
+  // The lint exists so a goal whose pass authored a broken seat set is reported ONCE, by code,
+  // with nothing half-built behind it. That only holds if it differs from the build in
+  // `--dry-run` AND NOTHING ELSE. It did differ: two argv literals drifted, the lint lost
+  // `--force-partial`, and since EVERY goal-local seat is a REGISTERED-but-unbuilt row, the
+  // dry run took `registry-row-exists`/`seat-exists` — a refusal the build itself would never
+  // hit — on every goal, always. One builder is the fix; this arm is what keeps it one.
+  {
+    const qr = require('../queue-request');
+    const args = { goalFolder: '/g', catalogRoot: '/c', sheet: '/s.json', milestone: 'm1' };
+    const build = qr.goalLocalArgv({ ...args });
+    const lint = qr.goalLocalArgv({ ...args, dryRun: true });
+    check('G the lint argv is the build argv PLUS `--dry-run`, and differs in nothing else',
+      JSON.stringify(lint) === JSON.stringify([...build, '--dry-run']),
+      `build ${JSON.stringify(build)} / lint ${JSON.stringify(lint)}`);
+    check('G both carry `--force-partial` — without it a registered-but-unbuilt goal-local seat '
+      + 'refuses on the very row that says it needs building',
+    build.includes('--force-partial') && lint.includes('--force-partial'));
+    check('G both carry the seat\'s own `--milestone-id` — it is a COLUMN of the row the '
+      + 'byte-match compares, so omitting it refuses `partial-row-mismatch` on a cell nobody '
+      + 'meant to change', build.includes('--milestone-id') && build.includes('m1'));
+    check('G a seat registered under NO milestone passes no `--milestone-id` at all (an empty '
+      + 'flag value is not the same as an absent column)',
+    !qr.goalLocalArgv({ ...args, milestone: '' }).includes('--milestone-id'));
+    // STRUCTURAL: there is exactly ONE place the goal-local invocation is spelled.
+    const src = fs.readFileSync(QR_PATH, 'utf8');
+    check('G ONE builder: `--goal-local` is spelled in exactly one argv literal',
+      (src.match(/'--goal-local'/g) || []).length === 1,
+      `${(src.match(/'--goal-local'/g) || []).length} occurrence(s)`);
+  }
+
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 

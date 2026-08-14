@@ -3853,6 +3853,7 @@ def render_taskforce_rows(plan: dict) -> None:
 
     existing_rows: list[dict] = []
     raw_by_seat: dict[str, str] = {}
+    tf_by_seat: dict[str, str] = {}
     for line in lines[1:]:
         if not line.strip():
             continue
@@ -3870,6 +3871,7 @@ def render_taskforce_rows(plan: dict) -> None:
                 str(tf_path),
             )
         raw_by_seat[seat] = line
+        tf_by_seat[seat] = (row.get("taskforce-id") or "").strip()
 
     # taskforce-id: the taskforce's EXISTING id, read from the file — never
     # argv. dag-06 bootstrap story: a registry with ZERO data rows (a freshly
@@ -3932,6 +3934,15 @@ def render_taskforce_rows(plan: dict) -> None:
     # (see the paragraph above). Manual and scratch materializes still hit it,
     # deliberately; the answer for them is `--nested`, which names the series
     # instead of guessing it.
+    #
+    # ⚠ ONE MORE ARM DOES NOT REACH IT, for the same reason `--nested` does not:
+    # a `--force-partial` run whose seats ALREADY HAVE ROWS reads their id off
+    # those rows (the branch below). Not a lift of the gate — the gate refuses
+    # GUESSING which taskforce a seat joins, and a seat that has a row has
+    # already joined one; the run appends nothing and only completes the
+    # descriptor half. This is what the W7 goal-local lane does on EVERY
+    # invocation, and refusing it left the flagship's own authored seats
+    # unbuildable over a value written in the very file being read.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
     ids = {i for i in ids if not NESTED_TF_RE.fullmatch(i)}
@@ -3944,6 +3955,31 @@ def render_taskforce_rows(plan: dict) -> None:
     elif len(ids) > 1 and set(plan["added_seats"]) <= set(_coord_staff_seats()):
         tf_id = next(i for r in existing_rows
                      if (i := (r.get("taskforce-id") or "").strip()) in ids)
+    elif (len(ids) != 1 and plan["force_partial"]
+          and set(plan["added_seats"]) <= set(tf_by_seat)):
+        # ⚠ THE PURE COMPLETION — NOT A SECOND LIFT OF THE GATE. Every seat of
+        # this run ALREADY has a registry row, so the run appends NOTHING: the
+        # rows below are rendered only to be byte-compared against the ones on
+        # disk (`partial-row-mismatch`), and the descriptor is the half being
+        # completed. The id is therefore READ from those very rows — the same
+        # "never argv, always the file" source the gate protects — and no
+        # taskforce is chosen for any seat. Refusing here refused a run that had
+        # nothing to guess: it is what left the flagship's goal-local seats
+        # (tf-2 in a tf-1+tf-2 registry) unbuildable by the W7 lane, whose
+        # every invocation is exactly this completion. If the held rows
+        # DISAGREE the ambiguity is real again and the refusal below stands.
+        held = {tf_by_seat[s] for s in plan["added_seats"]}
+        if len(held) == 1:
+            tf_id = next(iter(held))
+        else:
+            raise Refuse(
+                "taskforce-id-unreadable",
+                f"the run completes existing {TASKFORCE_NAME} rows and those "
+                f"rows carry {len(held)} distinct id(s) ("
+                + (", ".join(sorted(held)) or "none") + ") — one run writes "
+                "one taskforce's rows; nothing materialized",
+                str(tf_path),
+            )
     elif len(ids) != 1:
         raise Refuse(
             "taskforce-id-unreadable",
@@ -7277,8 +7313,8 @@ def _staff_rows(fx: dict) -> list[dict]:
 
 
 def run_staff_mint_acceptance(check) -> None:
-    """SM-1..SM-7 — the staff chairs are minted WITH the goal (W3); SM-6/SM-7 add
-    the multi-taskforce answer (`d-staff-chair-joins-first-taskforce`).
+    """SM-1..SM-9 — the staff chairs are minted WITH the goal (W3); SM-6/SM-7 add
+    the multi-taskforce answer; SM-8/SM-9 the pure-completion id read (W7) (`d-staff-chair-joins-first-taskforce`).
 
     The defect these guard is the one the whole silent-stall program exists
     for: a routed FAIL, a mid-run ask and the session-closer's staff mail all
@@ -7410,6 +7446,54 @@ def run_staff_mint_acceptance(check) -> None:
               and "w2" not in [r["seat"] for r in _staff_rows(fx3)],
               f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:160]}")
         shutil.rmtree(fx3["pkg"].parents[2].parent, ignore_errors=True)
+
+        # ---- SM-8/SM-9: the PURE COMPLETION. A `--force-partial` run whose
+        # seats ALREADY HAVE ROWS appends nothing — the rows are rendered only
+        # to be byte-compared — so its id is READ off those rows and no
+        # taskforce is chosen for anything. This is what W7's goal-local lane
+        # does on EVERY invocation (a goal-authored seat is registered by the
+        # binder and built later), and refusing it left the flagship's own
+        # `seam-*` seats unbuildable over a value written in the file being
+        # read. The fixture derives the held row by MATERIALIZING it, so the
+        # byte-match is against a row this code actually writes, never a
+        # hand-typed guess at its shape.
+        fx4 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm4-")))
+        _staff_run(fx4, "w1")
+        held = [r for r in _staff_rows(fx4) if r["seat"] == "w1"]
+        tf_path4 = fx4["pkg"] / TASKFORCE_NAME
+        # A SECOND taskforce joins the registry, which is what arms the gate.
+        tf_path4.write_text(tf_path4.read_text(encoding="utf-8") + _render_csv_line(
+            ["tf-2", "x9", "", "claude", "claude-opus-5", "high", "", ""]) + "\n",
+            encoding="utf-8")
+        before4 = tf_path4.read_text(encoding="utf-8")
+        shutil.rmtree(fx4["pkg"] / "seats" / "w1", ignore_errors=True)
+        check("SM-8 CONTROL: the registry carries TWO ids and w1's row survives "
+              "with its folder gone — the exact half-state --force-partial "
+              "completes",
+              len(held) == 1 and held[0]["taskforce-id"] == "tf-1"
+              and not (fx4["pkg"] / "seats" / "w1").exists(),
+              str(held))
+        res = _staff_run(fx4, "w1", force_partial=True)
+        check("SM-8 green: the completion SUCCEEDS on a two-taskforce registry "
+              "— the id comes off the seat's OWN row, so nothing is guessed",
+              not isinstance(res, Refuse)
+              and (fx4["pkg"] / "seats" / "w1" / "seat.md").exists(),
+              f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:200]}")
+        check("SM-8 green: it APPENDED NOTHING — the registry is byte-identical, "
+              "which is what makes reading the id off it honest rather than a "
+              "second lift of the gate",
+              tf_path4.read_text(encoding="utf-8") == before4)
+        # SM-9 RED: the twin. A seat with NO row on the same registry has no id
+        # to read and is still refused — the gate is intact for every seat this
+        # branch does not cover.
+        res = _staff_run(fx4, "w2", force_partial=True)
+        check("SM-9 red: a seat with NO existing row on the same two-taskforce "
+              "registry still refuses `taskforce-id-unreadable` — the branch "
+              "reads an id, it never picks one",
+              isinstance(res, Refuse) and res.code == "taskforce-id-unreadable"
+              and "w2" not in [r["seat"] for r in _staff_rows(fx4)],
+              f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:160]}")
+        shutil.rmtree(fx4["pkg"].parents[2].parent, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -8837,8 +8921,9 @@ def run_selftest() -> int:
           "G-planner-0804-1502, task 7.678; both arms each)")
     run_pass_substitution_acceptance(check)
 
-    print("staff-chair acceptance pass (SM-1..SM-7 — W3: the chair a stalled "
-          "seat reaches is a taskforce row, minted with the goal)")
+    print("staff-chair acceptance pass (SM-1..SM-9 — W3: the chair a stalled "
+          "seat reaches is a taskforce row, minted with the goal; SM-8/SM-9 "
+          "add the pure-completion id read W7's goal-local lane needs)")
     run_staff_mint_acceptance(check)
 
     print("\ndag-07 row rollup — one line per acceptance row; a row passes "
