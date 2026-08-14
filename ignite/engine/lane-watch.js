@@ -82,6 +82,24 @@ function readLane(goalFolder) {
   return { lane: CONSOLE, present: true, legacy, raw: text };
 }
 
+// IS THE GOAL PAUSED — the JS twin of `goal_cli.py#lane_is_paused` (the two change together,
+// like `readLane`/`read_lane`, DEC-1). `readLane` above deliberately flattens a paused marker
+// into `console` (that is the whole pause mechanism for SEEDING); this reader answers the
+// DIFFERENT question the ticker's dispatch pause gate asks — "did an operator pause this goal?"
+// — which `console` cannot carry. ABSENT OR UNREADABLE IS NOT PAUSED: the marker is the
+// operator's explicit act, and `rbtv-goal pause` CREATES the file on a goal that never had one
+// (`read_lane_raw` supplies `console\n`), so every goal is pausable and an unpaused goal keeps
+// its exact current behaviour.
+function laneIsPaused(goalFolder) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
+  } catch {
+    return false;
+  }
+  return raw.trim().split(/\s+/)[0] === 'paused';
+}
+
 // ── THE REPEATED-FAILURE MEMO ─────────────────────────────────────────────────────────────────
 //
 // A goal that cannot be seeded — an uncast seat, a broken taskforce, a legacy lane marker —
@@ -389,6 +407,6 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 }
 
 module.exports = {
-  LANE_FILE, DAEMON, CONSOLE, readLane, consoleRunIsLive, runLaneWatch, failedOn,
+  LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
   ensureGoalChannelOnce, channelEnsured,
 };

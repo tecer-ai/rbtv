@@ -122,10 +122,14 @@ LANES = ("daemon", "console")
 # `console`, so a paused marker reads as "not assigned to the daemon" on both sides with ZERO
 # reader change. The daemon lets go on its next pass; the stashed assignment is still on disk.
 #
-# ⚠ IT BOUNDS SEEDING, NOT EXECUTION. Pausing stops the daemon from SEEDING new seats for this
-# goal. It does not stop a session that is already running, and it does not touch an attached
-# `rbtv run` (which reads the marker for nothing). "Nothing new starts" is the guarantee; "nothing
-# is running" is not, and `add-seat`'s quiescence gate is what checks the second.
+# ⚠ IT BOUNDS STARTING, NOT EXECUTION. Pausing stops the daemon from starting anything NEW for
+# this goal — the watch pass will not SEED it, and the ticker's dispatch pause gate
+# (`ticker.js#pausedGoalForRow`, via `lane-watch.js#laneIsPaused` — `lane_is_paused`'s JS twin)
+# DEFERS every due queue row bound to it, goal-homed rows and `fire-tool` rows whose goal binding
+# is an argv path alike. It does not stop a session that is already running, and it does not touch
+# an attached `rbtv run` (which reads the marker for nothing). "Nothing new starts" is the
+# guarantee; "nothing is running" is not, and `add-seat`'s quiescence gate is what checks the
+# second.
 LANE_PAUSED = "paused"
 # `paused` as the FIRST token, followed by a space or end-of-text. `pausedfoo` is not a pause
 # marker, and treating it as one would strip a prefix off a word the operator meant literally.
@@ -793,8 +797,8 @@ def cmd_pause(args) -> int:
         print(f"{name}: PAUSED"
               + (" (already)" if already else "")
               + f" — stashed lane assignment: {stashed.strip()!r}. "
-                "Nothing new is SEEDED for this goal until `rbtv-goal resume`; a session already "
-                "running is untouched.")
+                "Nothing new is STARTED by the daemon for this goal until `rbtv-goal resume` "
+                "(seeding held, due queue rows deferred); a session already running is untouched.")
     return 0
 
 

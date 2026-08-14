@@ -1462,12 +1462,73 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     });
   }
 
+  // ── THE PAUSE GATE'S GOAL RESOLUTION ────────────────────────────────────────────────────────
+  //
+  // Which goal would this due row spawn FOR? `rbtv-goal pause` promises "nothing new starts for
+  // this goal", and until this gate the promise held only on the SEEDING path (`lane-watch.js`
+  // reads a paused marker as not-`daemon`). Every OTHER goal-driven spawn went through here
+  // unasked — measured on `system-health`: its `goal-watcher` fire-tool row (a periodic queue row
+  // whose goal binding lives ONLY in `config.tools[...].argv` as `--package .../goals/<goal>`)
+  // spawned workers straight through a paused landing, because its catalogue row carries no
+  // `goal_name` and nothing on the dispatch path reads `execution-lane` at all.
+  //
+  // So the resolution is two-armed, covering both places a row's goal binding can live:
+  //   · `job.goal_name` — the homed rows (`start-workflow` starts, seeded `launch-agent` seats);
+  //   · for `fire-tool`, any argv/args string under `<workspace>/.rbtv/goals/<goal>` — the
+  //     watchers and self-heal jobs, whose target is config-side.
+  // A row binding NO goal (send-message, workspace-wide tools) is never gated. Absence of the
+  // marker file is NOT paused — `pause` CREATES the file on a lane-less goal, so every goal is
+  // pausable and an unpaused goal's behaviour is unchanged.
+  //
+  // Fail-open by construction (the outer catch): this gate is an operator convenience, and a
+  // throw or misread inside it must neither abandon the tick nor silently park every row — the
+  // conservative failure for a PAUSE is "did not pause", the opposite of the one-live gate's.
+  function pausedGoalForRow(job, queueRow) {
+    try {
+      // Lazy: `lane-watch` → `attached-execution` → `engine/index` → this file (seeding.js:327's
+      // own precedent for exactly this cycle).
+      const { laneIsPaused } = require('../../engine/lane-watch');
+      const workspaceRoot = resolveWorkspaceRoot(heartStore.dbPath);
+      if (!workspaceRoot) return null;
+      const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
+      const goals = new Set();
+      if (job.goal_name) goals.add(job.goal_name);
+      if (job.action_type === 'fire-tool') {
+        const args = safeJsonParse(queueRow.args, {});
+        const tool = (heartStore.config.tools || {})[args.tool];
+        const prefix = goalsRoot + path.sep;
+        for (const s of [...((tool && tool.argv) || []), ...Object.values(args)]) {
+          if (typeof s !== 'string' || !s.startsWith(prefix)) continue;
+          const goal = s.slice(prefix.length).split(path.sep)[0];
+          if (goal) goals.add(goal);
+        }
+      }
+      for (const goal of goals) {
+        if (laneIsPaused(path.join(goalsRoot, goal))) return goal;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   async function dispatch(now, tick, actions) {
     const due = heartStore.getQueueDue(now);
     for (const queueRow of due) {
       const job = heartStore.getJob(queueRow.job_id);
       if (!job || !job.enabled) {
         actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'job-invalid' });
+        continue;
+      }
+
+      // ── THE PAUSE GATE, BEFORE ANY ACTION BRANCH ──────────────────────────────────────────────
+      // Like R9's gate below: the question "is this row's goal paused?" is about the ROW, not
+      // about how it would be launched, and a gate inside one branch is a gate a later action
+      // type silently escapes. `continue` leaves the row due and untouched — it fires by itself
+      // on the first tick after `rbtv-goal resume`.
+      const pausedGoal = pausedGoalForRow(job, queueRow);
+      if (pausedGoal) {
+        actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'goal-paused', goal: pausedGoal });
         continue;
       }
 

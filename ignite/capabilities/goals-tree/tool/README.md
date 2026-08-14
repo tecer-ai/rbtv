@@ -151,8 +151,14 @@ that prefix and writes the remainder back. Both lane readers — `goal_cli.read_
 change. The daemon lets go on its next watch pass; the stashed assignment is still on disk, and
 `lane --json` reports `paused` / `paused_from` so nothing has to be inferred.
 
-- **Pausing bounds SEEDING, not EXECUTION.** It stops the daemon starting anything NEW for this
-  goal. It does **not** stop a session that is already running, and it does not touch an attached
+- **Pausing bounds STARTING, not EXECUTION.** It stops the daemon starting anything NEW for this
+  goal — both halves: the watch pass will not SEED it (a paused marker is not `daemon`), and the
+  ticker's dispatch pause gate (`ticker.js#pausedGoalForRow`, reading
+  `lane-watch.js#laneIsPaused` — `lane_is_paused`'s JS twin) DEFERS every due queue row bound to
+  it, including a `fire-tool` row whose only goal binding is a `--package .../goals/<goal>` argv
+  path (the `system-health` watcher shape that used to fire straight through a paused landing).
+  Deferred rows stay in the queue and fire by themselves on the first tick after `resume`. It
+  does **not** stop a session that is already running, and it does not touch an attached
   `rbtv run` (which never reads the marker). "Nothing new starts" is the guarantee; "nothing is
   running" is `add-seat`'s quiescence gate, which is a different check against `executions.csv`.
 - **`pause` is idempotent** — a second pause does not double the prefix, and reports the stash it
@@ -162,7 +168,9 @@ change. The daemon lets go on its next watch pass; the stashed assignment is sti
 - **`lane --set` refuses `lane-paused` while the stash is held.** `--set` writes the marker WHOLE,
   so setting a lane during a pause would discard the stashed assignment silently — and leave the
   operator believing the goal is paused while the daemon reads it as assigned.
-- Absent file → the stashed text is `console`, which is what an absent file already reads as.
+- Absent file → the stashed text is `console`, which is what an absent file already reads as —
+  so EVERY goal is pausable: `pause` CREATES the marker on a goal born before lane-at-birth
+  (task 7.777), and the dispatch pause gate then holds it like any other.
 
 ### `retry-threshold` — the milestone retry bar (issue `IPH-11`, owner ruling 2026-08-11)
 

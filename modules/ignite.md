@@ -74,7 +74,9 @@ QUOTED verbatim:
   The last four GROW A LIVE GOAL'S SEAT ROSTER (issue `S-33`): `pause` rewrites the lane marker to
   `paused ` + its previous text verbatim and `resume` strips exactly that prefix back — no reader
   changed, because both lane readers already resolve any first token that is not `daemon` to
-  `console`; ⚠ it bounds SEEDING, never a session already running. `dag` is the read-only one-shot
+  `console`; ⚠ it bounds STARTING (seeding held, and the ticker's dispatch pause gate defers every
+  due queue row bound to the goal — goal-scoped `fire-tool` watchers included), never a session
+  already running. `dag` is the read-only one-shot
   graph view (every row's predecessors through the after grammar + its state derived from
   `executions.csv`). `add-seat` gates (paused · quiescent · no `--before` seat has run · no attached
   run · bindings cover the seat · no complex cell on a stashed daemon lane), mints through

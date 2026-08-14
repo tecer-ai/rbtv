@@ -41,9 +41,11 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   stashes the lane assignment behind a `paused ` prefix BOTH lane readers already resolve to
   `console` (so no reader changed) and `resume` returns it byte-for-byte; `dag` is the read-only
   one-shot graph view; `add-seat` gates, mints through `team-kit/materialize-seats.py`, then
-  splices the seat into the after-graph in ONE atomic registry write. ⚠ **Pausing bounds SEEDING,
-  not execution** — it stops the daemon starting anything new for the goal, never a session already
-  running. Contract: `capabilities/goals-tree/tool/README.md`.
+  splices the seat into the after-graph in ONE atomic registry write. ⚠ **Pausing bounds STARTING,
+  not execution** — it stops the daemon starting anything new for the goal (the watch pass will not
+  seed it AND the ticker's dispatch pause gate defers every due queue row bound to it, goal-scoped
+  `fire-tool` watchers included), never a session already running. Contract:
+  `capabilities/goals-tree/tool/README.md`.
 - **`attached-execution/`** — the ATTACHED lane, the **`rbtv run`** verb (`rbtv run <goal-folder>`
   — ⚠ `--profile` is GONE since `#d-abolish-profile-names` (2026-08-12): a seat runs the launch
   spec its own CAST resolves, and an UNCAST seat is a NAMED refusal at this door; entry point
