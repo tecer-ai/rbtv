@@ -63,6 +63,11 @@ const { openOwnerAsks } = require('./execution-record');
 // from an internet-facing component.
 const { isSafeName } = require('../bridges/chat/bus-ferry');
 
+// The two ON-DEMAND chairs, mirrored from `coord.py#STAFF_SEATS` — the same one-line mirror the
+// ferry keeps of that file's name guard. Two words that have not moved since W3; a require across
+// the Python boundary does not exist to be had.
+const STAFF_SEATS = ['leader', 'consultant'];
+
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const BUS_RELPATH = ['coordination', 'messages.md'];
 // coord's send path does a roster read, an append under its own lock, and a best-effort wake pass.
@@ -107,9 +112,21 @@ function recordBusAnswer({ workspaceRoot, goal, seat, corpus, timeoutMs = DEFAUL
   // addressed to nobody — but it stays, because it refuses HERE with a named reason
   // (`no-such-seat`) the bridge can report, instead of surfacing as a generic `coord-refused`.
   // A seat with a folder but no roster row and no briefing would now be refused by coord itself.
-  try {
-    if (!fs.statSync(path.join(goalDir, 'seats', String(seat))).isDirectory()) return Promise.resolve(refuse('no-such-seat'));
-  } catch { return Promise.resolve(refuse('no-such-seat')); }
+  // ⚑ W8 (adv, C78) — A STAFF CHAIR IS EXEMPT FROM THE DIRECTORY TEST. `leader` and `consultant`
+  // are ON-DEMAND: coord admits them as recipients unconditionally (`known_recipients` unions
+  // `STAFF_SEATS` in), precisely so mail always reaches an occupied chair whether or not one is
+  // sitting. Their seat FOLDER, by contrast, appears when the chair is materialized or first
+  // spawned — measured 2026-08-14: of six live goals only one had a `seats/leader/` on disk. A
+  // directory test would therefore refuse the owner's REPLY TO AN ESCALATION on five of them, and
+  // an escalation the owner answered into a `no-such-seat` is the silent stall this program is
+  // about, arriving from the one direction nobody watches. The typo protection this test exists
+  // for is unaffected: coord's own unknown-recipient gate is `--force`-proof and still refuses
+  // every name no roster, briefing, group or staff chair carries.
+  if (!STAFF_SEATS.includes(String(seat))) {
+    try {
+      if (!fs.statSync(path.join(goalDir, 'seats', String(seat))).isDirectory()) return Promise.resolve(refuse('no-such-seat'));
+    } catch { return Promise.resolve(refuse('no-such-seat')); }
+  }
 
   let python;
   try { python = requirePythonCmd(); } catch (err) { return Promise.resolve(refuse('no-python', { error: err.message })); }

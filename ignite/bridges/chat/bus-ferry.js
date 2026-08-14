@@ -567,6 +567,13 @@ function createBusFerry({
   // Runs this PROCESS watched be born: enumerated as open with no messages.md on disk yet.
   // Deliberately NOT persisted — see the born-watched block in `_runOnce` for why.
   const bornWatched = new Set();
+  // W8 (adv, C76) — `<key>#<msgId>` of an ESCALATION delivered AHEAD of the cursor, i.e. past a
+  // row that is still failing to post. PERSISTED, unlike every other volatile map above, and for
+  // one reason: the cursor is persisted, so a restart that forgot these would re-post every jumped
+  // escalation the moment the cursor caught up. An escalation interrupts a human; delivering it
+  // twice is the second-worst outcome after not delivering it at all. Entries are dropped as the
+  // cursor passes them, so the set is bounded by the head-of-line stall it exists for.
+  const jumped = new Set();
 
   let dmChannel = null;
   let enabled = false;
@@ -749,9 +756,24 @@ function createBusFerry({
           return fallbackMemo.get(name);
         };
 
-        // In id order, so one undeliverable row does not let a later one jump it.
+        // In id order, so one undeliverable row does not let a later one jump it — with ONE
+        // exception, ruled in W8 (adv, C76): a `type: escalation` row. Order is the point for
+        // ordinary traffic and it is the thing that matters LEAST for a halt nobody inside the run
+        // can clear, so an escalation is delivered past a stuck row rather than queued behind it.
+        // `stuckAt` is what used to be the `break` at the bottom of this loop.
+        let stuckAt = null;
         for (const row of rows) {
-          if (row.id <= cursors.get(key)) continue;
+          if (row.id <= cursors.get(key)) { jumped.delete(`${key}#${row.id}`); continue; }
+          const isEscalation = row.type === 'escalation';
+          // ALREADY DELIVERED, out of order, on an earlier pass. The cursor has now reached it, so
+          // step past it and forget it — re-posting is the one thing the persisted set prevents.
+          if (jumped.has(`${key}#${row.id}`)) {
+            jumped.delete(`${key}#${row.id}`);
+            if (stuckAt === null) { cursors.set(key, row.id); persist(); }
+            continue;
+          }
+          // HEAD-OF-LINE: a row behind a still-failing one waits, and only an escalation jumps it.
+          if (stuckAt !== null && !isEscalation) continue;
           // THE RETURN LEG. A row naming its own chat thread is routed there and skips BOTH
           // gates below — neither is about it. Read `chatThreadToken`'s header for why this
           // is a token and not a seat name.
@@ -770,7 +792,15 @@ function createBusFerry({
           // all. `to: master`, `to: leader`, `to: some-seat` are all one case now (ruling
           // `d-agents-address-owner-not-master`): the bus delivers them to seats, and the cursor
           // advances because the ferry never had a claim on them.
-          if (!chatThread && !addressesOwner(row.to)) { cursors.set(key, row.id); persist(); continue; }
+          // ⚑ `stuckAt === null` GUARDS THE ADVANCE, and it is reachable: only an escalation walks
+          // past the head-of-line test above, and an escalation addressed to anything but the
+          // owner still lands here. Advancing the cursor to ITS id would step over the undelivered
+          // row behind it — losing a row for good, in the one branch that looked harmless because
+          // it posts nothing.
+          if (!chatThread && !addressesOwner(row.to)) {
+            if (stuckAt === null) { cursors.set(key, row.id); persist(); }
+            continue;
+          }
           // THE TWO GATES — on AGENT-INITIATED contact only (read their header above). A row
           // carrying a chat-thread token is answering INTO the owner's own thread and is never
           // gated; every other row reaching here is `to: owner`, i.e. initiation.
@@ -779,8 +809,17 @@ function createBusFerry({
           // owner and declared that its questions wait on the bus instead. It is a rung of this
           // ladder and not a branch of its own precisely because the disposition is identical:
           // nothing posted anywhere, cursor advanced, logged with its reason.
+          //
+          // ⚑ AN `escalation` PASSES EVERY GATE ON THIS LADDER (W8, adv, D-8/C76). The gates ask
+          // "may this seat start a conversation with the human"; an escalation is not a
+          // conversation but the record of a halt nobody inside the run can clear, and its
+          // authority was already checked at the ONE door that can check it — `coord.py cmd_send`,
+          // where identity is resolved (leader or judge, no `--force`). Gating it here would gate
+          // it a second time on a WEAKER question and park exactly the goals it exists for: the
+          // autonomous ones, whose seats are never `human-interactive` (the staff chairs least of
+          // all — `meta/leader/component.md` declares that absence deliberate).
           let arm = null;
-          if (!chatThread) {
+          if (!chatThread && !isEscalation) {
             const gate = executionMode !== INTERACTIVE_MODE ? 'execution-mode'
               : !isHumanInteractive(row.from) ? 'human-interactive'
               : fallbackArm(row.from) === FALLBACK_PARK ? 'fallback-park'
@@ -840,7 +879,10 @@ function createBusFerry({
           }
           if (delivered) {
             attempts.delete(`${key}#${row.id}`);
-            cursors.set(key, row.id);
+            // The cursor may only advance over rows that ARE delivered. Past a stuck row it
+            // cannot, so a jumped escalation is remembered instead (see `jumped`).
+            if (stuckAt === null) cursors.set(key, row.id);
+            else jumped.add(`${key}#${row.id}`);
             persist();
             log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
               : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
@@ -870,7 +912,26 @@ function createBusFerry({
           }
           if (n >= maxAttempts) {
             attempts.delete(akey);
-            cursors.set(key, row.id); // advance — never wedge the ferry on one row
+            // ⚑ AN ESCALATION IS NEVER ABANDONED SILENTLY (W8, adv, C76). Every other row's
+            // abandonment is a warn line in a log nobody reads; for the one message type whose
+            // whole purpose is to interrupt a human, that is the silent stall this program exists
+            // to delete. So it takes the missing-channel notice's own path — `transport.sendToOwner`
+            // DIRECTLY, minting no sitting and seating nobody — but CONTENT-BEARING, because
+            // unlike that notice there is no retry left behind it: this is the last time these
+            // words can reach him.
+            if (isEscalation) {
+              try {
+                await transport.sendToOwner({
+                  channel: dmChannel, threadTs: null,
+                  text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* could NOT be posted to its channel after ${n} attempts (${error}). It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
+                });
+                log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead', { key, msgId: row.id, from: row.from, attempts: n, error });
+              } catch (err) {
+                log('error', 'bus ferry could not deliver an ESCALATION by ANY path — it is lost to the owner and lives only on the bus', { key, msgId: row.id, from: row.from, error: err.message });
+              }
+            }
+            if (stuckAt === null) cursors.set(key, row.id); // advance — never wedge the ferry on one row
+            else jumped.add(akey);
             persist();
             log('warn', 'bus ferry giving up on a row after persistent post failures — NOT delivered, cursor advanced', { key, msgId: row.id, attempts: n, error });
             continue;
@@ -880,7 +941,11 @@ function createBusFerry({
           // unchanged-size short-circuit at the top would skip the run entirely and the
           // retry would never happen — the bound would be unreachable and the row lost.
           sizes.delete(key);
-          break; // stop this goal's pass here; order is the point
+          // Was a `break`. It still stops every ORDINARY row behind this one (the head-of-line
+          // test at the top of the loop) — the pass keeps walking solely so a later `escalation`
+          // can jump it. `stuckAt` holds the FIRST such row: the cursor must never advance past
+          // it, whatever is delivered after.
+          if (stuckAt === null) stuckAt = row.id;
         }
       }
     } finally {
@@ -933,16 +998,21 @@ function createBusFerry({
   }
 
   // Serialization — this module owns its own shape inside the bridge's state file.
-  function toJSON() { return { cursors: Object.fromEntries(cursors) }; }
+  // `jumped` rides ALONGSIDE `cursors` rather than inside it: an older state file carries no
+  // `jumped` key and loads to an empty set, which is the correct reading (nothing was jumped by a
+  // build that could not jump).
+  function toJSON() { return { cursors: Object.fromEntries(cursors), jumped: [...jumped] }; }
   function load(obj) {
     cursors.clear();
+    jumped.clear();
     for (const [k, v] of Object.entries((obj && obj.cursors) || {})) {
       if (Number.isInteger(v)) cursors.set(String(k), v);
     }
+    for (const k of (obj && Array.isArray(obj.jumped) ? obj.jumped : [])) jumped.add(String(k));
     return cursors.size;
   }
 
-  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, get enabled() { return enabled; }, get dmChannel() { return dmChannel; }, get watching() { return watchers.size; } };
+  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, _jumped: jumped, get enabled() { return enabled; }, get dmChannel() { return dmChannel; }, get watching() { return watchers.size; } };
 }
 
 module.exports = {

@@ -335,6 +335,84 @@ async function main() {
     a.bridge.stop();
   }
 
+  // 6b — W8 (adv, C76): THE ESCALATION TRANSPORT CONTRACT. Three arms, each of which fails on a
+  //      naive `if (row.type === 'escalation') deliver()` branch bolted onto the gate ladder.
+  {
+    // W8-A — THE GATE BYPASS, on the fixture where it is DISCRIMINATING: an AUTONOMOUS goal whose
+    // seat is NOT `human-interactive`, i.e. both gates shut. That is the ONLY interesting case —
+    // the staff chairs are deliberately not flagged (`meta/leader/component.md`) and escalation
+    // exists for the goals nobody is watching. The `note` on the same pass from the SAME seat is
+    // the control: it must still PARK, or the arm would be measuring "gates removed".
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8a', '2026-08-14a',
+      { backlogRows: 1, executionMode: 'autonomous', senders: [] });
+    writeSeatDescriptor(path.join(root, '.rbtv', 'goals', 'goal-w8a'), 'leader', { humanInteractive: false });
+    const a = makeBridge({ workspaceRoot: root });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'an ordinary word to the human'));
+    append(file, msgRow(3, 'leader', 'owner', 'escalation', 'nobody in this run can clear this'));
+    await a.bridge.busFerry.tick();
+    check('W8-A: on an AUTONOMOUS goal with a NON-human-interactive seat — both gates shut — the '
+      + '`escalation` is DELIVERED and the same seat\'s `note` on the same pass still PARKS',
+      a.slack.posted.length === 1 && /#3/.test(a.slack.posted[0].text)
+      && a.bridge.busFerry._cursors.get('goal-w8a/2026-08-14a') === 3,
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8a/2026-08-14a') });
+    a.bridge.stop();
+  }
+  {
+    // W8-B — THE HEAD-OF-LINE JUMP. Section 6 pins that an ordinary row does NOT jump a stuck one;
+    // this pins that an escalation DOES, that the cursor does not lie about it (it may not advance
+    // over the undelivered row), and that when the stuck row finally posts the escalation is NOT
+    // delivered a second time — which is the whole reason `jumped` exists.
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8b', '2026-08-14a', { backlogRows: 1 });
+    const slack = makeFakeSlack();
+    const a = makeBridge({ workspaceRoot: root, slack, busFerryOptions: { maxAttempts: 5 } });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'the poisoned row'));
+    append(file, msgRow(3, 'leader', 'owner', 'escalation', 'the halt behind it'));
+    slack.failNextPosts(1);                       // row 2 fails; row 3 meets a working transport
+    await a.bridge.busFerry.tick();
+    check('W8-B: an `escalation` JUMPS a row that is still failing to post, and the cursor stays '
+      + 'on the undelivered row rather than claiming it travelled',
+      slack.posted.length === 1 && /#3/.test(slack.posted[0].text)
+      && a.bridge.busFerry._cursors.get('goal-w8b/2026-08-14a') === 1
+      && a.bridge.busFerry._jumped.has('goal-w8b/2026-08-14a#3'),
+      { posted: slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8b/2026-08-14a'), jumped: [...a.bridge.busFerry._jumped] });
+    await a.bridge.busFerry.tick();
+    check('W8-B: once the stuck row posts, the cursor sweeps past the jumped escalation WITHOUT '
+      + 'delivering it twice, and the jump record is dropped',
+      slack.posted.length === 2 && /#2/.test(slack.posted[1].text)
+      && a.bridge.busFerry._cursors.get('goal-w8b/2026-08-14a') === 3
+      && a.bridge.busFerry._jumped.size === 0,
+      { posted: slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8b/2026-08-14a'), jumped: [...a.bridge.busFerry._jumped] });
+    a.bridge.stop();
+  }
+  {
+    // W8-C — NEVER ABANDONED SILENTLY. At the attempt cap every other row leaves a `giving up`
+    // warn line and nothing else; an escalation leaves the owner a CONTENT-BEARING notice on the
+    // transport directly, because there is no retry behind it to carry the words later.
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8c', '2026-08-14a', { backlogRows: 1 });
+    const slack = makeFakeSlack();
+    const logs = [];
+    const a = makeBridge({ workspaceRoot: root, slack, logs, busFerryOptions: { maxAttempts: 1 } });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'escalation', 'the cage refuses the path and I cannot widen it'));
+    slack.failNextPosts(1);                       // the row's own post fails; the notice's does not
+    await a.bridge.busFerry.tick();
+    check('W8-C: an `escalation` abandoned at the attempt cap still reaches the owner — a direct '
+      + 'transport notice CARRYING ITS TEXT, not the bare "giving up" line every other row gets',
+      slack.posted.length === 1 && /ESCALATION from \*leader\*/.test(slack.posted[0].text)
+      && /cage refuses the path/.test(slack.posted[0].text)
+      && logs.some((l) => l.level === 'warn' && /could not post an ESCALATION/.test(l.message)),
+      { posted: slack.posted.map((p) => p.text.split('\n')[0]) });
+    a.bridge.stop();
+  }
+
   // 7 — THE CURSOR SURVIVES A RESTART. A second bridge on the same state_file must not
   //     re-post what the first already delivered — and must not re-arm first sight.
   {

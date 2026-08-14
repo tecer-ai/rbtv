@@ -288,6 +288,26 @@ async function main() {
   });
   check('P0 the reply is RECORDED against the ask it answers — `re` resolved, never guessed',
     answer && answer.recorded === true && answer.re !== null, JSON.stringify(answer));
+  // W8 (adv, C78) — THE ESCALATION RETURN LEG lands on this same transport, addressed to the
+  // `leader` chair, and it carries NO `re` (an escalation opens no ask, so `askToSettle` finds
+  // none). The chair is ON-DEMAND: its seat FOLDER need not exist, and on this fixture it does
+  // not. A directory test would refuse the owner's answer to a halt — with a control on the same
+  // call that a name which is NOT a staff chair and has no folder is still refused by name.
+  const staffReply = await recordBusAnswer({
+    workspaceRoot: workspace, goal, seat: 'leader',
+    corpus: 'widen it and relaunch — my ruling on your escalation',
+  });
+  const ghostReply = await recordBusAnswer({
+    workspaceRoot: workspace, goal, seat: 'nosuchseat',
+    corpus: 'a name nobody holds',
+  });
+  check('P0c W8: the owner\'s answer to the ON-DEMAND `leader` chair is RECORDED although the chair '
+    + 'has NO seat folder, and it carries no `re` (an escalation opens no ask to resolve one from) '
+    + '— while a non-staff name with no folder is still refused `no-such-seat`',
+    staffReply && staffReply.recorded === true && staffReply.re === null
+      && !fs.existsSync(path.join(dir, 'seats', 'leader'))
+      && ghostReply && ghostReply.recorded === false && ghostReply.reason === 'no-such-seat',
+    `staff=${JSON.stringify(staffReply)} ghost=${JSON.stringify(ghostReply)}`);
   // …and the seat, which is still checked IN because H's check-out was REFUSED, now ends its
   // session for real. THAT act is what advances bravo's `after` member; the answer is what lets it
   // through. Exactly ONE thing differs between this call and the refused one at H — the answer row.
