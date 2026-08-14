@@ -3939,6 +3939,137 @@ def check_refresh_drops(package: Path, plan: dict) -> None:
                 str(seat_home(package, seat) / "seat.md"))
 
 
+# ─── W3 · THE STAFF CHAIRS, MINTED WITH THE GOAL ──────────────────────────────
+#
+# Every silent stall this program closes was a correct signal delivered to an
+# EMPTY CHAIR: the incident goal's `leader` row did not exist, so the routed
+# FAIL, the mid-run ask and the closer's staff mail all resolved to a known name
+# with nobody in it. A chair is a `taskforce.csv` row — nothing else in this
+# system is a seat — so "the leader exists" means exactly "the goal's registry
+# carries its row", and the ONE act that appends rows is this command.
+#
+# Shape, and why it is a SECOND PASS rather than two more members of `added`:
+# a staff chair holds NO workflow node, so its `after` cell must be EMPTY. The
+# added subgraph's roots all take `--after` verbatim (Rule 13, `after_cells`),
+# and teaching that one composition a per-seat exception would put a branch in
+# the frozen-DAG copy — the one place in this file that must stay dumb. A second
+# `run()` with `--root` gets the empty cell from the rule that already exists.
+# It also inherits every gate (cast validation, exposure resolution, collision,
+# acyclicity) with no second spelling, and the recursion is bounded by its own
+# first line: a run whose `--seat` IS a staff chair never injects.
+#
+# Ordering is load-bearing: the staff pass runs AFTER the main append, never
+# before. `derive_taskforce_id` fires only on a ZERO-row registry (max + 1), so
+# a staff-first mint would take tf-1 and hand the goal's own seats tf-2.
+#
+# It is also the BACKFILL (adv, C35): the guard is "the registry has no such
+# row", not "the package was created in this run", so an already-materialized
+# goal gets its chairs from the next materialize that touches it — including an
+# `add-seat` splice, which is the one verb that reaches a live goal.
+STAFF_BINDINGS_DIR = "bindings"
+
+
+def _coord_staff_seats() -> tuple[str, ...]:
+    """`coord.STAFF_SEATS` — the room's OWN vocabulary of which seat ids are
+    staff chairs, imported for the same reason `validate_seat` is (F6): the
+    verdict that spawns these rows (`ready-seats`' IDLE branch), the closer's
+    mail router and this minter must never disagree about the set. NEVER
+    re-list the names here."""
+    kit_dir = Path(__file__).resolve().parent
+    if str(kit_dir) not in sys.path:
+        sys.path.insert(0, str(kit_dir))
+    try:
+        from coord import STAFF_SEATS
+    except Exception as exc:  # loud, machine-readable — never a crash
+        raise Refuse(
+            "coord-import",
+            f"cannot import STAFF_SEATS from coord.py — {exc}; refusing rather "
+            "than re-listing the staff chairs here (F6)",
+        ) from exc
+    return tuple(STAFF_SEATS)
+
+
+def staff_sheet_path(seat_row: dict, seat: str) -> Path | None:
+    """The casting sheet for one staff chair, or None when the workspace is
+    underivable.
+
+    DERIVED from the catalog row's own home, never a hardcoded component name:
+    a seats.csv at `<catalog-root>/<component>/seats.csv` under a mirror
+    `.rbtv/mirror/<module>/` casts from `.rbtv/config/modules/<module>/
+    <component>/bindings/<seat>.json` — the same address `rbtv-bindings` writes
+    a workflow's sheet to, with the seat id for a name because a staff chair
+    belongs to no workflow (the standing-seat spelling, `channel-master.json`).
+    """
+    source = seat_row.get("__source__")
+    if not source:
+        return None
+    comp_dir = Path(source).parent
+    try:
+        workspace = _workspace_root(comp_dir)
+    except Refuse:
+        return None
+    return (workspace / ".rbtv" / "config" / "modules" / comp_dir.parent.name
+            / comp_dir.name / STAFF_BINDINGS_DIR / f"{seat}.json")
+
+
+def mint_staff_chairs(result: dict, package: Path, args,
+                      seats_catalog: dict) -> dict:
+    """Append the goal's staff rows if they are absent, and return `result`
+    carrying what that did (`result['staff']`).
+
+    Every skip is one of THREE, and only the first is silent:
+      · the chair already has a row — the goal is already staffed;
+      · the catalog carries no such seat — this is a foreign or fixture catalog
+        with no staff component in it, and a materialize against it must render
+        exactly as it did before (the `_interactive_expose_refs` precedent);
+      · the chair has no casting sheet — a WARNING for the `leader`, which the
+        wake path requires, and silence for the `consultant`, whose absent
+        sheet IS the instance declaring it does not staff one (the seat catalog
+        marks it OPTIONAL).
+    A refusal from the staff pass itself degrades to a warning for one reason:
+    the main rows are already on disk by then, and exiting non-zero over a
+    chair would make the caller's retry impossible (`seat-exists`) while
+    leaving the goal materialized anyway."""
+    staff = _coord_staff_seats()
+    if getattr(args, "seat", None) in staff or getattr(args, "nested", False):
+        return result
+    existing = {(r.get("seat") or "").strip()
+                for r in _csv_rows(package / TASKFORCE_NAME)}
+    minted = []
+    for seat in staff:
+        if seat in existing:
+            continue
+        row = seats_catalog.get(seat)
+        if row is None:
+            continue
+        sheet = staff_sheet_path(row, seat)
+        if sheet is None or not sheet.is_file():
+            if seat == staff[0]:
+                result["warnings"].append(
+                    f"staff chair '{seat}' NOT minted: no casting sheet at "
+                    f"{sheet} — the goal has no chair for a routed FAIL, a "
+                    f"mid-run ask or the session-closer's staff mail to reach, "
+                    f"and every one of those will resolve to a name with "
+                    f"nobody in it. Cast it and re-run this materialize")
+            continue
+        sub = argparse.Namespace(**vars(args))
+        sub.seat, sub.workflow, sub.nested = seat, None, False
+        sub.root, sub.after = True, None
+        sub.bindings = str(sheet)
+        sub.milestone_id = ""          # a staff chair holds no workflow node
+        sub.force_partial = sub.repass = sub.refresh = False
+        try:
+            minted.append(run(sub))
+        except (Refuse, CatalogRefusal) as exc:
+            code = getattr(exc, "code", "catalog")
+            result["warnings"].append(
+                f"staff chair '{seat}' NOT minted: the mint refused "
+                f"[{code}] {exc} — the goal is materialized WITHOUT the chair")
+    if minted:
+        result["staff"] = minted
+    return result
+
+
 def run(args) -> dict:
     package = validate_package(args.package)
     # --refresh IS a repass — one code path renders the descriptor, so a mode
@@ -4109,7 +4240,10 @@ def run(args) -> dict:
     render_seat_exposures(plan)   # seat-exposure loaders (five methods)
     render_taskforce_rows(plan)
     if args.dry_run:
-        return result_of(plan, dry_run=True)
+        # The staff pass previews too — a --dry-run that under-reports its own
+        # writes is the same defect as an emitter that hides one.
+        return mint_staff_chairs(result_of(plan, dry_run=True), package, args,
+                                 catalogs[0])
     # Package surfaces FIRST (dag-06), descriptors SECOND, rows LAST — never
     # another order (the descriptor/rows rationale lives on
     # append_taskforce_rows' docstring; creation must precede both because
@@ -4119,7 +4253,10 @@ def run(args) -> dict:
     emit_harness_configs(plan)    # plugin/MCP config files
     emit_seat_exposures(plan)     # seat-exposure loaders (five methods)
     append_taskforce_rows(plan)   # dag-05
-    return result_of(plan, dry_run=False)
+    # LAST, and after the append on purpose — see the staff block above for why
+    # a staff-first mint would take the goal's own taskforce-id.
+    return mint_staff_chairs(result_of(plan, dry_run=False), package, args,
+                             catalogs[0])
 
 
 # ---------------------------------------------------------------- CLI
@@ -4264,6 +4401,11 @@ def main(argv: list[str] | None = None) -> int:
               f"{result['package']}: " + ", ".join(result["added_seats"]))
         for w in result["writes"]:
             print(f"  {w['kind']}: {w['path']}")
+        for sub in result.get("staff", ()):
+            # The chairs are DISCLOSED on the human surface too: they are rows
+            # this run appended that the caller did not name, and a write a
+            # command does not print is a write nobody reviews.
+            print(f"  {verb} staff chair(s): " + ", ".join(sub["added_seats"]))
         for warn in result["warnings"]:
             print(f"  warning: {warn}")
     return 0
@@ -6494,6 +6636,11 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # The nested-workflow materialization path (task 7.615).
     "NEST-1": (("NEST-1 green", "NEST-1: the frozen-cell rename"),
                ("NEST-1 red",)),
+    # The staff chairs minted with the goal (W3) — ONE row over SM-1..SM-5:
+    # the four green arms are one behaviour observed at four moments (mint,
+    # backfill, re-run, self-materialize), and SM-5 is its only red.
+    "staff-mint": (("SM-1 green", "SM-2 green", "SM-3 green", "SM-4 green"),
+                   ("SM-5 red",)),
 }
 
 
@@ -6615,6 +6762,211 @@ def _pf_fixture(root: Path) -> dict:
                                  "seats": {"pf": entry}}), encoding="utf-8")
         paths[name] = str(p)
     return {"catalog": str(root / "catalog"), "pkg": pkg, "b": paths}
+
+
+def _staff_fixture(root: Path) -> dict:
+    """A hermetic WORKSPACE — mirror catalog, `.rbtv/config` tree and goal
+    package — for the staff-chair rows (SM-1..SM-5). Its own tmp tree for the
+    same reason `_pf_fixture` has one, plus a second: the shared fixture's
+    catalog carries no staff seat, and adding one there would change the write
+    set of every other arm in the suite.
+
+    The layout is the LIVE one, not a convenient one: the catalog sits at
+    `<ws>/.rbtv/mirror/<module>/<component>` and the casting sheets at
+    `<ws>/.rbtv/config/modules/<module>/<component>/bindings/<seat>.json`,
+    because the address under test is DERIVED from the catalog row's own home
+    (`staff_sheet_path`) and a flat fixture would prove nothing about it."""
+    ws = root / "ws"
+    comp = ws / ".rbtv" / "mirror" / "meta" / "staff-comp"
+
+    def unit(rel: str, uid: str, body: str) -> None:
+        p = comp / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"---\nid: {uid}\ndescription: {uid}\n---\n\n{body}\n",
+                     encoding="utf-8")
+
+    unit("prompts/cognitive-units/roles/sm-role.md", "sm-role",
+         "<role>\nYou are the fixture seat.\n</role>")
+    unit("prompts/cognitive-units/permissions/sm-permissions.md",
+         "sm-permissions", "<permissions>\nWrite your own outputs.\n"
+                           "</permissions>")
+    unit("prompts/cognitive-units/procedures/sm-procedure.md", "sm-procedure",
+         "<procedure>\nDo the fixture work.\n</procedure>")
+    unit("tasks/cognitive-units/task-goals/sm-goal.md", "sm-goal",
+         "<task-goal>\nProve the mint.\n</task-goal>")
+    unit("tasks/cognitive-units/scopes/sm-scope.md", "sm-scope",
+         "<scope>\nThe fixture tree.\n</scope>")
+    unit("tasks/cognitive-units/done-contracts/sm-done.md", "sm-done",
+         "<done-contract>\nThe outputs exist.\n</done-contract>")
+    comp.joinpath("prompts.csv").write_text(
+        "prompt-id,role,permissions,procedure,description\n"
+        "sm-prompt,sm-role,sm-permissions,sm-procedure,sm prompt\n",
+        encoding="utf-8")
+    comp.joinpath("tasks.csv").write_text(
+        "task-id,task goal,scope,done contract,description\n"
+        "sm-task,sm-goal,sm-scope,sm-done,sm task\n", encoding="utf-8")
+    # The staff chair is an ORDINARY catalog row — nothing about the row shape
+    # marks it, which is the point: `coord.STAFF_SEATS` is the one vocabulary.
+    comp.joinpath("seats.csv").write_text(
+        "seat-id,executor,task,staffing-hints,description\n"
+        "w1,sm-prompt,sm-task,,the fixture worker\n"
+        "w2,sm-prompt,sm-task,,the second fixture worker\n"
+        "leader,sm-prompt,sm-task,,the fixture goal's unblocker\n",
+        encoding="utf-8")
+
+    (ws / ".rbtv" / "config").mkdir(parents=True)
+    sheets = ws / ".rbtv/config/modules/meta/staff-comp/bindings"
+    sheets.mkdir(parents=True)
+    base = {"agent_type": "worker", "harness": "claude",
+            "model": "claude-opus-5", "effort": "high", "mode": "interactive"}
+    leader_sheet = sheets / "leader.json"
+    leader_sheet.write_text(json.dumps(
+        {"defaults": {"cwd-mode": "seat-folder"},
+         "seats": {"leader": dict(base, agent_type="staff")}}),
+        encoding="utf-8")
+    worker_sheets = {}
+    for seat in ("w1", "w2"):
+        p = root / f"{seat}.json"
+        p.write_text(json.dumps({"defaults": {"cwd-mode": "seat-folder"},
+                                 "seats": {seat: dict(base)}}),
+                     encoding="utf-8")
+        worker_sheets[seat] = str(p)
+
+    pkg = ws / ".rbtv" / GOALS_DIR_NAME / "sm-goal"
+    (pkg / "seats").mkdir(parents=True)
+    (pkg / "coordination").mkdir()
+    (pkg / TASKFORCE_NAME).write_text(",".join(TASKFORCE_HEADER) + "\n",
+                                      encoding="utf-8")
+    (pkg / STATE_CSV_NAME).write_text(STATE_CSV_HEADER + "\n",
+                                      encoding="utf-8")
+    (pkg / "conduct.md").write_text("conduct\n", encoding="utf-8")
+    (pkg / "CLAUDE.md").write_text("claude\n", encoding="utf-8")
+    (pkg / "budget.json").write_text(
+        json.dumps({"floors": {"context-floor-pct": 20}}), encoding="utf-8")
+    return {"catalog": str(ws / ".rbtv" / "mirror" / "meta"), "pkg": pkg,
+            "b": worker_sheets, "leader_sheet": leader_sheet}
+
+
+def _staff_run(fx: dict, seat: str, **over):
+    """One in-process materialize against the staff fixture; the result dict,
+    or the Refuse it raised."""
+    args = argparse.Namespace(
+        package=str(fx["pkg"]), seat=seat, workflow=None,
+        catalog_root=fx["catalog"], after=None, root=True,
+        bindings=fx["b"].get(seat), milestone_id=None, conduct=None,
+        claude_md=None, budget_json=None, dry_run=False,
+        as_json=False, force_partial=False, repass=False)
+    for k, v in over.items():
+        setattr(args, k, v)
+    try:
+        return run(args)
+    except Refuse as r:
+        return r
+
+
+def _staff_rows(fx: dict) -> list[dict]:
+    return _csv_rows(fx["pkg"] / TASKFORCE_NAME)
+
+
+def run_staff_mint_acceptance(check) -> None:
+    """SM-1..SM-5 — the staff chairs are minted WITH the goal (W3).
+
+    The defect these guard is the one the whole silent-stall program exists
+    for: a routed FAIL, a mid-run ask and the session-closer's staff mail all
+    resolve to `leader`, and on the incident goal that name had NO ROW. The
+    arms are written against the ROW — not against a helper's return value —
+    because the row is what `ready-seats` reads and what the daemon spawns."""
+    root = Path(tempfile.mkdtemp(prefix="ms-sm-"))
+    try:
+        fx = _staff_fixture(root)
+
+        # ---- SM-1: the mint itself, on an ordinary materialize.
+        res = _staff_run(fx, "w1")
+        rows = {r["seat"]: r for r in _staff_rows(fx)}
+        check("SM-1 green: an ordinary --root materialize ALSO mints the "
+              "`leader` chair — the row exists without anyone naming it",
+              not isinstance(res, Refuse) and "leader" in rows,
+              str(res)[:200] or str(list(rows)))
+        check("SM-1 green: the chair carries an EMPTY after cell and the "
+              "goal's OWN taskforce-id — it holds no workflow node and is "
+              "not a second taskforce",
+              rows.get("leader", {}).get("after", "x") == ""
+              and rows.get("leader", {}).get("taskforce-id")
+              == rows.get("w1", {}).get("taskforce-id"),
+              str(rows.get("leader")))
+        check("SM-1 green: the chair is a materialized SEAT, not a bare row — "
+              "its descriptor is on disk",
+              (fx["pkg"] / "seats" / "leader" / "seat.md").is_file(),
+              str(fx["pkg"] / "seats" / "leader"))
+        check("SM-1 green: the mint is DISCLOSED in the result the caller "
+              "reads, never a silent extra row",
+              [s["added_seats"] for s in (res or {}).get("staff", ())]
+              == [["leader"]], str((res or {}).get("staff")))
+
+        # ---- SM-2 (adv, C35): the BACKFILL, and the one thing an
+        # inject-into-`added` implementation gets wrong. A chair minted beside
+        # a seat that carries `--after` must NOT inherit that edge: the added
+        # subgraph's roots all take the --after cell verbatim (Rule 13), and a
+        # chair that waits on a workflow node is a chair that cannot be woken
+        # until that node completes — precisely when it is needed least.
+        rows_before = [r for r in _staff_rows(fx) if r["seat"] != "leader"]
+        (fx["pkg"] / TASKFORCE_NAME).write_text(
+            ",".join(TASKFORCE_HEADER) + "\n"
+            + "".join(_render_csv_line([r[c] for c in TASKFORCE_HEADER]) + "\n"
+                      for r in rows_before), encoding="utf-8")
+        # `ignore_errors` so a suite run whose mint is BROKEN reports reds
+        # rather than exploding in the fixture teardown — a harness that
+        # crashes on the failing path hides the arms behind it.
+        shutil.rmtree(fx["pkg"] / "seats" / "leader", ignore_errors=True)
+        _staff_run(fx, "w2", root=False, after="w1")
+        rows = {r["seat"]: r for r in _staff_rows(fx)}
+        check("SM-2 green (C35 backfill): a materialize into an ALREADY-"
+              "populated registry with no chair mints one — the chair reaches "
+              "goals that were materialized before it existed",
+              "leader" in rows, str(list(rows)))
+        check("SM-2 green: the backfilled chair's after cell is EMPTY, never "
+              "the --after set the run was given",
+              rows.get("leader", {}).get("after", "x") == ""
+              and rows.get("w2", {}).get("after") == "w1",
+              str(rows.get("leader")) + str(rows.get("w2")))
+
+        # ---- SM-3: idempotent. A goal's chair is minted ONCE.
+        res = _staff_run(fx, "w1", force_partial=True)
+        seats = [r["seat"] for r in _staff_rows(fx)]
+        check("SM-3 green: a later materialize does NOT re-mint — exactly one "
+              "`leader` row survives N materializes",
+              seats.count("leader") == 1 and "staff" not in (res or {}),
+              str(seats))
+
+        # ---- SM-4: the recursion bound, stated as behaviour.
+        res = _staff_run(fx, "leader", bindings=str(fx["leader_sheet"]),
+                         force_partial=True)
+        check("SM-4 green: materializing the chair ITSELF does not recurse — "
+              "the run returns and no second row appears",
+              not isinstance(res, Refuse)
+              and [r["seat"] for r in _staff_rows(fx)].count("leader") == 1,
+              str(res)[:200])
+
+        # ---- SM-5 RED: no casting sheet, no chair — and it is LOUD. This is
+        # the arm that fails if the skip ever becomes silent; a chair that
+        # vanishes without a word is the failure mode this whole package
+        # exists to end.
+        fx2 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm2-")))
+        fx2["leader_sheet"].unlink()
+        res = _staff_run(fx2, "w1")
+        warned = [w for w in (res or {}).get("warnings", ())
+                  if "leader" in w and "casting sheet" in w]
+        check("SM-5 red: an UNCAST chair is not minted, the goal still "
+              "materializes, and the result carries a warning naming the "
+              "sheet path the workspace lacks",
+              not isinstance(res, Refuse)
+              and "leader" not in [r["seat"] for r in _staff_rows(fx2)]
+              and len(warned) == 1
+              and str(fx2["leader_sheet"]) in warned[0],
+              str((res or {}).get("warnings"))[:300])
+        shutil.rmtree(fx2["pkg"].parents[2].parent, ignore_errors=True)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _pf_run(fx: dict, binding: str, **over):
@@ -7823,6 +8175,10 @@ def run_selftest() -> int:
     print("pass-folder acceptance pass (PF-1/PF-2/PF-3/PF-4 — B4, B5, "
           "G-planner-0804-1502, task 7.678; both arms each)")
     run_pass_substitution_acceptance(check)
+
+    print("staff-chair acceptance pass (SM-1..SM-5 — W3: the chair a stalled "
+          "seat reaches is a taskforce row, minted with the goal)")
+    run_staff_mint_acceptance(check)
 
     print("\ndag-07 row rollup — one line per acceptance row; a row passes "
           "only when BOTH arms pass (R-6/AS-2)")
