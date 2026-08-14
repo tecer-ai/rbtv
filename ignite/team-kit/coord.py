@@ -9940,6 +9940,21 @@ VERDICT_CLAUSE = re.compile(r"^verdict:\s*(PASS|FAIL)\b", re.IGNORECASE | re.MUL
 # it names the resolved bar.
 ESCALATION_MARKER = "escalation: second-consecutive-FAIL"
 
+
+def _escalation_key(text):
+    """W8 (adv, C77) — an escalation's DEDUP KEY: its first non-empty body line, normalized.
+
+    The judge family's key is `ESCALATION_MARKER`, which IS a first body line; this generalizes
+    that one pattern to the leader's own rows rather than adding a second. Normalization is
+    case-folding plus whitespace collapse and nothing else — a key that survived rewrapping but
+    not a re-typed capital letter would fail exactly when a re-woken sitting re-composes its own
+    words, which is the case it exists for. `""` when the body opens with nothing (refused by the
+    caller: a key nothing can equal would make the scan vacuous, and a vacuous scan reads green)."""
+    for line in str(text).splitlines():
+        if line.strip():
+            return " ".join(line.split()).lower()
+    return ""
+
 # ── W4 (adv, D-8) · the two-strikes halt MIGRATES from `type: verdict` to `type: escalation` ─────
 #
 # The halt was a `verdict` whose body opened with ESCALATION_MARKER, because the vocabulary had no
@@ -10644,6 +10659,17 @@ def open_escalations(blocks):
     An escalation is SETTLED the same way an ask is — a row carrying `re: <its number>` — and by a
     supersession, for the same reason an ask is.
 
+    ⚠ W8 (adv, C78) ADDS A THIRD SETTLE ARM, and without it this view nags FOREVER on every
+    escalation that actually worked. The owner's reply comes back through `engine/bus-answer.js`,
+    which resolves `--re` from the sender's oldest open ASK and passes NONE when there is not one —
+    escalations are excluded from ask-linkage BY DESIGN (they open no hold, C45), so the return leg
+    is structurally a `type: answer` from `owner` with `re: null`. A settle test that only knows
+    `--re` therefore cannot see the one event that settles the row it renders. So: an `answer` from
+    the owner addressed to the escalating seat, appended AFTER the escalation, settles it. The
+    `--re` arm stays and stays preferred — a human who names the number closes exactly that row —
+    and this arm closes the seat's OLDEST open escalation only, so two open halts are not both
+    cleared by one reply.
+
     ⚠ TWO ARMS, and the marker is required on ONLY ONE of them. `type: escalation` is sufficient by
     itself (a leader's escalation composes its own body and carries no marker); the marker test
     applies to the pre-W4 encoding alone, where it is the ONLY thing distinguishing a halt from an
@@ -10651,10 +10677,19 @@ def open_escalations(blocks):
     row this view exists for."""
     superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
     answered = {b["re"] for b in blocks if b["re"] is not None}
-    return [b for b in blocks
+    rows = [b for b in blocks
             if (b["type"] == "escalation"
                 or (b["type"] == "verdict" and ESCALATION_MARKER in "\n".join(b["lines"][1:])))
             and b["num"] not in superseded and b["num"] not in answered]
+    # The C78 return-leg arm. One owner reply retires ONE escalation — the oldest still open from
+    # that seat — so a seat holding two halts does not have both cleared by a single answer.
+    for b in blocks:
+        if b["type"] != "answer" or b["sender"] != OWNER_TOKEN:
+            continue
+        mine = [e for e in rows if e["num"] < b["num"] and e["sender"] == b["to"]]
+        if mine:
+            rows.remove(mine[0])
+    return rows
 
 
 def open_asks(blocks, sender=None, to=None):
@@ -10960,6 +10995,99 @@ def cmd_send(args):
             f"owner, and the log is append-only.",
             1)
 
+    # ── W8 (adv, C77) · THE ESCALATION IS ITS OWN DURABLE RECORD, AND ITS FIRST LINE IS THE KEY ─
+    #
+    # The ruling asked for ONE durable record written at escalation time that is (a) the dedup key
+    # a re-woken leader reads instead of minting a second halt about the same blocker, and (b) the
+    # "escalated, awaiting owner" state an operator view can read. Both already exist and neither
+    # needed a new file or a new header field: the append-only log IS the record, `open_escalations`
+    # IS the at-most-once scan, and `pending` already renders it under "UNANSWERED ESCALATIONS".
+    #
+    # WHAT WAS MISSING IS A KEY. The judge family has one — `ESCALATION_MARKER` as the row's FIRST
+    # BODY LINE, which is how `escalation_row` finds a halt that landed on an earlier invocation.
+    # A leader's escalation composes its own body and had none, so nothing could tell two rows
+    # about one blocker from two rows about two. This reuses that existing pattern rather than
+    # inventing a second one: THE FIRST LINE IS THE KEY, normalized. `--why` is deliberately NOT
+    # used — on `send` it is `choices=BROADCAST_CLAUSES`, a closed four-word vocabulary the help
+    # text explicitly refuses to widen, and widening it here would put a free-text key in a field
+    # four other readers treat as an enum.
+    #
+    # ⚠ AT-MOST-ONCE, NOT ONCE-EVER. It refuses only while that escalation is still OPEN; once the
+    # owner answers (C78's return leg settles it — see `open_escalations`), the same key may be
+    # raised again, because a blocker that returns after a ruling is new information. And no
+    # --force: the escape hatch is a first line that says a different thing, which is the honest
+    # act — if it IS a different blocker, it does not read the same.
+    if args.type == "escalation":
+        _esc_key = _escalation_key(body)
+        if not _esc_key:
+            refuse(
+                "input",
+                "an escalation's FIRST LINE is its key in this log — a short, stable naming of "
+                "the BLOCKER (e.g. `escalation: alpha's cage refuses the data root`). This body "
+                "opens with no such line. Write one, then the halt below it.\n"
+                "It is not a title: it is what stops a re-woken sitting raising the same blocker "
+                "a second time while the owner is still reading the first, and what an operator "
+                f"sees in {coord_invocation(args)} pending.",
+                1)
+        _dup = [b for b in open_escalations(load_messages(base)[1])
+                if _escalation_key(body_of(b)) == _esc_key]
+        if _dup:
+            refuse(
+                "state",
+                f"ALREADY ESCALATED — message #{_dup[0]['num']} opens with this same first line "
+                f"and the owner has not answered it, so the run is already halted on exactly this "
+                f"blocker. A second row interrupts him twice for one decision and gives the log "
+                f"two records of one halt.\n"
+                f"  #{_dup[0]['num']} ({_dup[0]['sender']}): {truncate(body_of(_dup[0]), 160)}\n"
+                f"NEW EVIDENCE for the same blocker goes on the log as a `note`. A DIFFERENT "
+                f"blocker gets its own first line. There is no --force: the escape hatch is an "
+                f"honest key, not an override.",
+                1)
+
+    # ── W8 (owner ruling D-7) · AN OWNER-ASK FROM A NON-INTERACTIVE SEAT FAILS LOUDLY, AT SEND ───
+    #
+    # D3's shape: a seat asks the owner, the ferry's gates park the row (nobody is watching this
+    # goal, or this seat is not the one that may talk to a human), and NOTHING retries or escalates
+    # it. The seat believes it asked. The ruling replaces that silence with a refusal at the door —
+    # the sender still HOLDS the message, and it is told where the question can actually be
+    # answered: the staff chairs, which are occupied on demand and which no gate parks.
+    #
+    # ⚠ THE PARK IS NOT DELETED, IT IS DEMOTED TO A BACKSTOP. The ferry keeps its gates for every
+    # row this door never sees (a row written by a non-seat writer, a legacy row, an interactive
+    # seat's ask when the GOAL is autonomous). Parked-ask semantics for `human-interactive` seats
+    # are untouched — this refuses the class that could never be answered, and no other.
+    #
+    # ⚠ SCOPED TO SEATS THAT HAVE A DESCRIPTOR, deliberately. `seat_is_human_interactive` reads
+    # `seats/<name>/seat.md` BY PATH (the ferry's own read), and it answers False for every name
+    # with no descriptor at all — the master, the console, a daemon-fired job, an addressable
+    # non-member. Gating on the bare False would refuse all of them, which is a rule about seats
+    # applied to everything that is not one. The descriptor's EXISTENCE is the membership test.
+    if args.type == "ask" and args.to == OWNER_TOKEN and not force:
+        _pkg_hi = package_dir(args)
+        _has_seat_md = (_ferry_safe_name(sender)
+                        and _ferry_read(Path(_pkg_hi) / "seats" / str(sender) / "seat.md") is not None)
+        if _has_seat_md and not seat_is_human_interactive(_pkg_hi, sender):
+            _staff = [s for s in STAFF_SEATS
+                      if (Path(_pkg_hi) / "seats" / s / "seat.md").exists() or s == "leader"]
+            refuse(
+                "state",
+                f"'{sender}' is NOT flagged `human-interactive:` in its seat.md, so a question "
+                f"addressed to the owner cannot reach him: the chat ferry PARKS it at the gate — "
+                f"nothing posted, nothing retried, no answer possible, ever. You would be holding "
+                f"a hold nobody can clear.\n"
+                f"ASK THE STAFF INSTEAD — those chairs are occupied on demand, no gate parks their "
+                f"mail, and the leader escalates to the owner what genuinely needs him:\n"
+                f"  {coord_invocation(args)} send {_staff[0]} \"<your question>\" --type ask "
+                f"--inline\n"
+                + (f"  (a `{_staff[1]}` is staffed on this goal too — send guidance-shaped "
+                   f"questions there and authority-shaped ones to `leader`)\n"
+                   if len(_staff) > 1 else "")
+                + f"If you genuinely may talk to the human, that is a DESCRIPTOR fact, not a send "
+                  f"flag: `human-interactive: yes` in your seat.md, set by whoever authored the "
+                  f"seat. `--force` is accepted here for the transports that write on a seat's "
+                  f"behalf; a seat using it is choosing a row nobody will ever read.",
+                1)
+
     # ⚠ AGENTS NEVER INITIATE TO `master` (`decisions.md#d-agents-address-owner-not-master`,
     # owner, 2026-08-09). A `to: master` row is legal ONLY as an ANSWER to something master sent —
     # on this bus, a row carrying `--re <n>`. An initiation goes to `owner` instead, and everything
@@ -11208,6 +11336,28 @@ def cmd_send(args):
     # daemon being reachable.
     _g793_fail = gateway_send_leg(args, base, args.to, args.type, body)
     deliver_wakes(args, base, sender, args.to, n, args.type, origin)
+    # ── W8 (adv, C78) · MAIL TO AN ON-DEMAND CHAIR MINTS ITS WAKE ───────────────────────────────
+    #
+    # `deliver_wakes` nudges PANES, and a staff chair has none — a sitting is spawned when it has
+    # unread mail and ends when the mail is drained. For a chair that has NEVER SAT that is enough:
+    # `ready-seats` reads READY on the `staff_mail` term alone. FOR ONE THAT HAS SAT IT IS NOT —
+    # its last session row is ENDED, so it reads DONE, which is ABSORBING, and mail arriving after
+    # its first sitting wakes NOTHING without a grant. That is precisely the return leg's case: the
+    # owner's answer to an escalation reaches a chair that has, by construction, already sat (it
+    # sat to escalate). `mint_staff_wake` is that grant, and it is the same carrier `route-fail`
+    # and the session closer use — this is the third caller, not a third mechanism.
+    #
+    # ⚠ AT THE ONE DOOR, so every sender gets it: the owner's answer through `bus-answer.js`, a
+    # seat's ask routed here by the D-7 refusal above, a consultant routing what it cannot settle
+    # (C80). Idempotent by its own contract (an unspent grant for that session short-circuits), so
+    # ten messages before the sitting starts mint one wake. Never raises, and never blocks the
+    # send: the row is already on the log, and a chair that could not be granted a wake is a
+    # DISCLOSURE, never a lost message.
+    if is_staff_seat(args.to) and args.to != sender:
+        _sw_ok, _sw_note = mint_staff_wake(args, base, package_dir(args), args.to,
+                                           STAFF_WAKE_ANCHOR, sender)
+        print(c(f"  staff wake: `{args.to}` granted a sitting — {_sw_note}" if _sw_ok
+                else f"  staff wake: no grant written — {_sw_note}", C_HINT))
     if _g793_fail:
         # Loud, and non-zero. The message IS locally logged, so this is not a `refuse` — but a
         # contracted leg failed, and 7.94's whole finding is that a failed call must never read
@@ -33366,6 +33516,275 @@ def _selftest_checks(args, failures, names):
               "would put a row nobody drains on a second substrate). Measured at the client, not "
               "asserted off the literal: the spy saw exactly `note` and `escalation`",
               _w4_sent == ["note", "escalation"] and _w4_legs == [None, None, None, None])
+
+        # arm 10 (W7) — `send --milestone` exists, and it is BOUNDED to `queue-request`. Without
+        # the flag the pass-opener could not write the header key at all (only `cmd_verdict`
+        # could), and the mechanic would slide back into free text — the exact regression
+        # `concepts/body-sigil.md` argues against. Without the BOUND, `send` becomes a second
+        # writer of the field every escalation reader keys on.
+        _w4_qr_out, _w4_qr_code = sendW4(
+            "leader", "leader", "queue-request: m9/1/initial", "--type", "queue-request",
+            "--milestone", "m9")
+        _w4_qr_hdr = [b for b in load_messages(baseW4)[1] if b["type"] == "queue-request"][-1]
+        _w4_bad_out, _w4_bad_code = sendW4("leader", "alpha", "fyi", "--type", "note",
+                                           "--milestone", "m9")
+        check("W7 arm 6 (on W4's fixture): `send --milestone` writes the row's OWN `milestone:` "
+              "header key — the pass-opener's only door to it — and is REFUSED on every other "
+              "type, so `verdict` keeps exactly one writer of the field the escalation gate "
+              "counts. RED mutation: drop the type bound and the second call succeeds",
+              _w4_qr_code in (0, None) and _w4_qr_hdr["milestone"] == "m9"
+              and _w4_bad_code == 1 and "queue-request` only" in _w4_bad_out)
+
+    # ── W8 — THE ESCALATION, END TO END: who may raise one, at-most-once, the owner-ask refusal
+    #    it replaces, and the return leg's wake and settle. Every arm runs through the REAL
+    #    `cmd_send` on ONE package, in the order a leader meets them.
+    #
+    # ⚠ THE FIXTURE LIVES AT `<ws>/.rbtv/goals/<goal>`, like the D8 hold's, because the D-7 arms
+    # read the SEAT DESCRIPTOR by path the way the ferry does. Three seats, differing in exactly
+    # one fact each: `leader` (staff chair, no `human-interactive:`), `alpha` (an ordinary seat,
+    # no flag), `beta` (the same, flagged `human-interactive: yes`), plus `gamma`, which has a
+    # roster row and NO seat.md at all — the membership control.
+    with tempfile.TemporaryDirectory() as tdW8:
+        pkgW8 = Path(tdW8) / ".rbtv" / "goals" / "gW8"
+        baseW8 = pkgW8 / "coordination"
+        baseW8.mkdir(parents=True)
+        (pkgW8 / "workers").mkdir()
+        for _a in ("leader", "alpha", "beta", "gamma"):
+            (pkgW8 / "workers" / f"{_a}.md").write_text(f"---\nagent: {_a}\n---\nbrief\n",
+                                                        encoding="utf-8")
+        for _a, _hi in (("leader", False), ("alpha", False), ("beta", True)):
+            (pkgW8 / "seats" / _a).mkdir(parents=True)
+            (pkgW8 / "seats" / _a / "seat.md").write_text(
+                f"---\nseat: {_a}\n" + ("human-interactive: yes\n" if _hi else "") + "---\nbrief\n",
+                encoding="utf-8")
+        pW8 = build_parser()
+
+        def sendW8(sender, to, body, *extra):
+            ns = pW8.parse_args(["--package", str(pkgW8), "--as", sender, "send", to, body,
+                                 "--inline", *extra])
+            out, err, code = harness_outcome(ns.func, ns)
+            return out + err, code
+
+        for _a in ("leader", "alpha", "beta", "gamma"):
+            _ns8 = pW8.parse_args(["--package", str(pkgW8), "checkin", _a, "x"])
+            harness_outcome(_ns8.func, _ns8)
+
+        # arm 1 — (adv, C79) THE DISCRIMINATING IDENTITY ARM. A CAGED, OFF-PANE seat that is not
+        # the leader CLAIMS `--as leader` and sends the escalation. The naive arm ("a non-leader is
+        # refused") passes even with the claim wide open, because a worker sending under its OWN
+        # name is refused by the type gate — so it proves nothing about the door D-2 closed. This
+        # one goes through the claim: `_staff_claim_gate` resolves the identity the process would
+        # have WITHOUT the claim (here `COORD_AGENT=alpha`, the injected identity every caged seat
+        # carries) and refuses, exit 2, before the type gate is ever reached.
+        # RED mutation: delete the `_staff_claim_gate` call in `resolve_agent`, or add `alpha` to
+        # STAFF_CLAIM_IDENTITIES — the first conjunct goes false while the control below stays true.
+        _w8_env_save = os.environ.get("COORD_AGENT")
+        os.environ["COORD_AGENT"] = "alpha"
+        try:
+            _w8_claim_out, _w8_claim_code = sendW8(
+                "leader", OWNER_TOKEN, "escalation: the m2 cage refuses the data root\nI cannot "
+                "widen it — the path is inside the private scope.", "--type", "escalation")
+        finally:
+            if _w8_env_save is None:
+                os.environ.pop("COORD_AGENT", None)
+            else:
+                os.environ["COORD_AGENT"] = _w8_env_save
+        _w8_n1 = len(load_messages(baseW8)[1])
+        # THE CONTROL, and it is what makes the arm discriminating: the SAME argv from an uncaged
+        # console (no COORD_AGENT, no pane — nothing resolves) IS admitted and lands the row.
+        _w8_ok_out, _w8_ok_code = sendW8(
+            "leader", OWNER_TOKEN, "escalation: the m2 cage refuses the data root\nI cannot widen "
+            "it — the path is inside the private scope.", "--type", "escalation")
+        check("W8 arm 1 (adv, C79): a CAGED, OFF-PANE, NON-LEADER seat claiming `--as leader` to "
+              "send `--type escalation` is REFUSED at the identity door (exit 2, nothing appended) "
+              "— the claim is resolved against the identity the process would have WITHOUT it. The "
+              "control is the whole arm: the identical argv from an uncaged console, where nothing "
+              "resolves, IS admitted and appends the row",
+              _w8_claim_code == 2 and "STAFF CHAIR" in _w8_claim_out
+              and _w8_n1 == 0 and _w8_ok_code is None
+              and len(load_messages(baseW8)[1]) == 1)
+
+        # arm 2 — (adv, C77) AT-MOST-ONCE, keyed on the FIRST BODY LINE. The second sitting has no
+        # memory of the first and re-composes its own words: the key survives rewrapping, casing
+        # and whitespace, and a DIFFERENT blocker is admitted on the same log.
+        # RED mutation: drop the `_dup` scan — the second conjunct goes false.
+        _w8_dup_out, _w8_dup_code = sendW8(
+            "leader", OWNER_TOKEN, "Escalation:   the M2 cage refuses the DATA root\nSecond "
+            "sitting, same blocker, different words below the key.", "--type", "escalation")
+        _w8_other_out, _w8_other_code = sendW8(
+            "leader", OWNER_TOKEN, "escalation: beta has no upstream input and its author is gone\n"
+            "A different blocker entirely.", "--type", "escalation")
+        check("W8 arm 2 (adv, C77): a SECOND escalation whose first line normalizes to an OPEN "
+              "one's is REFUSED — that line is the halt's key in the log, so a re-woken sitting "
+              "cannot interrupt the owner twice for one decision (case and whitespace do not "
+              "defeat it). A DIFFERENT first line is admitted on the same log, and the empty body "
+              "can never be a key",
+              _w8_dup_code == 1 and "ALREADY ESCALATED" in _w8_dup_out
+              and _w8_other_code is None and len(load_messages(baseW8)[1]) == 2
+              and _escalation_key("") == "" and _escalation_key("  A  b \n") == "a b")
+
+        # arm 3 — (owner ruling D-7) THE OWNER-ASK REFUSAL that replaces silent ferry-parking, with
+        # its three controls on one fixture, each differing from the refused case in ONE fact.
+        # RED mutation: delete the gate — the first conjunct goes false while all three stay true.
+        _w8_n3 = len(load_messages(baseW8)[1])
+        _w8_park_out, _w8_park_code = sendW8("alpha", OWNER_TOKEN, "may I ship without the review?",
+                                             "--type", "ask")
+        _w8_hi_out, _w8_hi_code = sendW8("beta", OWNER_TOKEN, "may I ship without the review?",
+                                         "--type", "ask")
+        _w8_staff_out, _w8_staff_code = sendW8("alpha", "leader", "may I ship without the review?",
+                                               "--type", "ask")
+        _w8_nod_out, _w8_nod_code = sendW8("gamma", OWNER_TOKEN, "a writer with no descriptor",
+                                           "--type", "ask")
+        check("W8 arm 3 (owner ruling D-7): a `to: owner` ASK from a seat NOT flagged "
+              "`human-interactive:` is REFUSED AT SEND and told to ask the staff instead — the "
+              "ferry would have PARKED it, unanswerable forever. Three controls, one fact apart "
+              "each: the flagged seat's identical ask goes through, the same seat's ask to `leader` "
+              "goes through, and a sender with a roster row but NO seat.md is untouched (the "
+              "descriptor's EXISTENCE is the membership test, so the master and the daemon are not "
+              "caught by a rule about seats)",
+              _w8_park_code == 1 and "human-interactive" in _w8_park_out
+              and "send leader" in _w8_park_out
+              and _w8_hi_code is None and _w8_staff_code is None and _w8_nod_code is None
+              and len(load_messages(baseW8)[1]) == _w8_n3 + 3)
+
+        # arm 4 — (adv, C78) THE RETURN LEG. The owner's reply arrives exactly as
+        # `engine/bus-answer.js` writes it: `--type answer --as owner --force`, addressed to the
+        # chair, and carrying NO `--re` (that transport resolves `--re` from the sender's oldest
+        # open ASK, and an escalation is not one — it opens no hold, C45). Two things must follow,
+        # and neither did before W8: the chair is WOKEN, and the escalation stops being open.
+        # The chair is given an ENDED session row first, which is the state a chair that has
+        # already sat is in — and the only state in which mail alone wakes nothing.
+        _w8_srow = [""] * len(SESSIONS_COLS)
+        _w8_srow[SESSIONS_COLS.index("session-id")] = "leader-0814-1000"
+        _w8_srow[SESSIONS_COLS.index("seat")] = "leader"
+        _w8_srow[SESSIONS_COLS.index("ended")] = "2026-08-14 10:00"
+        _w8_srow[SESSIONS_COLS.index("disposition")] = "exited"
+        write_csv_table(sessions_csv(pkgW8), SESSIONS_COLS, [_w8_srow])
+        _w8_open_before = open_escalations(load_messages(baseW8)[1])
+        _w8_ans_out, _w8_ans_code = sendW8("owner", "leader", "widen it — the path is fine",
+                                           "--type", "answer", "--force")
+        _w8_open_after = open_escalations(load_messages(baseW8)[1])
+        check("W8 arm 4 (adv, C78): the owner's reply — `type: answer` from `owner` to the chair, "
+              "with NO `re:`, which is what the bus-answer transport can produce for a row that "
+              "opens no ask — WAKES the chair (a staff wake is granted against its last ended "
+              "session; mail alone wakes an already-sat chair not at all) and SETTLES exactly one "
+              "escalation, oldest first. Without this arm's settle rule `pending` would nag on an "
+              "answered halt forever, since `--re` never points at it",
+              _w8_ans_code is None and "staff wake" in _w8_ans_out
+              and "granted a sitting" in _w8_ans_out
+              and len(_w8_open_before) == 2 and len(_w8_open_after) == 1
+              and _w8_open_after[0]["num"] == _w8_open_before[1]["num"])
+
+        # arm 5 — the DEDUP RELEASES when the owner answers. At-most-once is not once-ever: a
+        # blocker that returns after a ruling is new information, and the chair must be able to say
+        # so. RED mutation: make the `_dup` scan read every escalation rather than the OPEN ones.
+        _w8_again_out, _w8_again_code = sendW8(
+            "leader", OWNER_TOKEN, "escalation: the m2 cage refuses the data root\nIt is back "
+            "after the ruling.", "--type", "escalation")
+        check("W8 arm 5: once the owner has ANSWERED, the same key may be raised again — the scan "
+              "is at-most-once over OPEN escalations, not once-ever over the log. This is the arm "
+              "that separates a dedup from a gag",
+              _w8_again_code is None
+              and len(open_escalations(load_messages(baseW8)[1])) == 2)
+
+    # ---- W7: the queue-request READ PATH — coord.py as the engine's one bus parser ------------
+    #
+    # The engine gets NO JavaScript reader of `messages.md`; it shells `queue-requests --json`.
+    # These arms score the parse and the two filters that decide what the consumer ever SEES, and
+    # each is red-first against W4's file, where the type could not even be written.
+    #
+    # ⚠ THE REQUEST IS SELF-ADDRESSED. Its recipient is the ENGINE, which is not a slot
+    # (`concepts/queue-request.md` § Fields), so it is addressed to the seat that wrote it: the
+    # self-send cut means it shows in NO inbox and wakes NOBODY, which is exactly the delivery a
+    # type drained by the daemon wants. `owner` would ferry every wave boundary into the owner's
+    # chat; a chair would spawn a sitting to read a row meant for the engine.
+    with tempfile.TemporaryDirectory() as tdW7:
+        baseW7 = Path(tdW7) / "goal" / "coordination"
+        baseW7.mkdir(parents=True)
+        _qr_opener = "plan-unblock-checker"
+
+        def _mk_qr(mid, vid, kind, first=None, **kw):
+            head = f"queue-request: {mid}/{vid}/{kind}" if first is None else first
+            return append_message(baseW7, _qr_opener, _qr_opener, "queue-request",
+                                  f"{head}\nmilestone: {mid}\npass-kind: {kind}\n"
+                                  f"corpus: m2 and m3 became ready", milestone=mid, **kw)
+
+        _v1 = append_message(baseW7, "plan-dod-judge", _qr_opener, "verdict",
+                             "verdict: PASS\nevidence", milestone="m1")
+        _q1 = _mk_qr("m1", _v1, "initial")
+        _rows = queue_request_rows(baseW7)
+        _r1 = [r for r in _rows if r["num"] == _q1][0]
+        check("W7 arm 1: a `queue-request` round-trips through the ONE bus parser with its "
+              "idempotency key DECOMPOSED — milestone read off the header key (authoritative), "
+              "verdict-id and pass-kind off the first body line. The engine never parses "
+              "messages.md itself, so a header key this file adds can never be a key that reader "
+              "silently drops",
+              _r1["key"] == f"m1/{_v1}/initial" and _r1["milestone"] == "m1"
+              and _r1["verdict_id"] == _v1 and _r1["pass_kind"] == "initial"
+              and _r1["sender"] == _qr_opener
+              and not _r1["superseded"] and not _r1["verdict_superseded"])
+
+        # arm 2 — pass_kind JOINS the key (adv, C66). A gap-fill re-trigger is the DESIGNED second
+        # event on the same milestone and the same verdict; if it hashed as a duplicate the gap
+        # wave would never be seeded, and if it did not it would re-add the initial pass's seats.
+        _q2 = _mk_qr("m1", _v1, "gap-fill")
+        _keys = {r["key"] for r in queue_request_rows(baseW7)}
+        check("W7 arm 2: `pass_kind` JOINS the idempotency key — a gap-fill on the SAME milestone "
+              "and the SAME verdict is a DISTINCT key, never a duplicate of the initial pass. "
+              "RED mutation: drop pass-kind from the key and the two rows collapse to one",
+              _keys == {f"m1/{_v1}/initial", f"m1/{_v1}/gap-fill"} and _q2 != _q1)
+
+        # arm 3 — the supersession the consumer must honour (adv, C72). The #42 -> #46 supersession
+        # happened on the flagship, so this is a measured shape and not a hypothetical.
+        _v2 = append_message(baseW7, "plan-dod-judge", _qr_opener, "verdict",
+                             "verdict: PASS\nevidence", milestone="m2")
+        _q3 = _mk_qr("m2", _v2, "initial")
+        append_message(baseW7, "plan-dod-judge", _qr_opener, "verdict",
+                       "verdict: FAIL\nretracted", milestone="m2", supersedes=_v2)
+        _open = {r["num"] for r in queue_request_rows(baseW7)
+                 if not r["superseded"] and not r["verdict_superseded"]}
+        _r3 = [r for r in queue_request_rows(baseW7) if r["num"] == _q3][0]
+        check("W7 arm 3: a request whose VERDICT was superseded is flagged and filtered out of "
+              "the consumer's default view, while the request row itself is untouched — the "
+              "engine TRUSTS the checker about readiness, which is about not re-deriving from "
+              "milestones.csv, never about acting on a retracted verdict",
+              _r3["verdict_superseded"] and not _r3["superseded"]
+              and _q3 not in _open and {_q1, _q2} <= _open)
+
+        # arm 4 — the malformed row is REPORTED, never dropped. A request that vanishes from this
+        # listing is the D7 shape all over again: a correct derivation with no consequence and
+        # nobody to notice. The consumer refuses it LOUDLY, which it can only do if it sees it.
+        _q4 = _mk_qr("m3", 999, "initial", first="the next wave is ready, honest")
+        _r4 = [r for r in queue_request_rows(baseW7) if r["num"] == _q4][0]
+        check("W7 arm 4: a `queue-request` whose FIRST body line is not the key parses with a "
+              "NULL key and every derived field null — and is still LISTED, so the consumer can "
+              "refuse it by name instead of never seeing it",
+              _r4["key"] is None and _r4["verdict_id"] is None and _r4["pass_kind"] is None
+              and _r4["milestone"] == "m3"
+              and _q4 in {r["num"] for r in queue_request_rows(baseW7)})
+
+        # arm 5 — the verb itself, through the real parser, is what the engine actually runs.
+        _pW7 = build_parser()
+        _nsW7 = _pW7.parse_args(["--base", str(baseW7), "queue-requests", "--json"])
+        _outW7, _errW7, _codeW7 = harness_outcome(_nsW7.func, _nsW7)
+        try:
+            _payload = json.loads(_outW7)
+        except ValueError:
+            _payload = None
+        _nsW7a = _pW7.parse_args(["--base", str(baseW7), "queue-requests", "--json", "--all"])
+        _outW7a, _, _ = harness_outcome(_nsW7a.func, _nsW7a)
+        try:
+            _payload_all = json.loads(_outW7a)
+        except ValueError:
+            _payload_all = None
+        check("W7 arm 5: `queue-requests --json` is the ENGINE'S DOOR and it works through the "
+              "real parser — valid JSON on stdout, the superseded-verdict row filtered by "
+              "default and present under --all, and nothing written (a read the daemon runs every "
+              "cadence must not register it as an occupant of every goal it looks at)",
+              _codeW7 in (0, None) and isinstance(_payload, list)
+              and {r["num"] for r in _payload} == _open
+              and isinstance(_payload_all, list) and len(_payload_all) == 4
+              and not (baseW7 / "workers.md").exists())
 
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
