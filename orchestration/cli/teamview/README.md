@@ -270,7 +270,7 @@ health.
 
 ## Where the plan limits went
 
-`acct` — `orchestration/cli/acct/`, on PATH as `acct`. It owns provider accounts end to end:
+`acct` — `.rbtv/mirror/meta/providers/capabilities/acct/` (moved out of this module 2026-08-14), on PATH as `acct`. It owns provider accounts end to end:
 parking logins in named slots and switching between them (`acct claude use rbtv`), and reading
 each account's plan windows (`acct usage`, or `acct usage --posh` for the live bar view this
 dashboard used to render). Its own `acct providers` documents every usage source and endpoint.

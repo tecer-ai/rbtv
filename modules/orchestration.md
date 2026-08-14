@@ -88,14 +88,14 @@ The long-horizon work module — creating structured plans, executing them throu
   - Input: a team-kit package — the GOAL FOLDER — holding `{goal}/state.json` (goal-direct since 7.607; there is no run folder)
   - Output: a continuously refreshed terminal dashboard (or one `--once` frame). It writes no file at all.
 
-### `acct` (CLI)
+### `acct` (CLI) — MOVED OUT OF THIS MODULE 2026-08-14
 
-- **What**: One CLI for every AI provider account on the box (`orchestration/cli/acct/acct.py`, python3 stdlib-only, runnable in place — not installed into `.claude/`). Two jobs. **(1) Switch** a harness between accounts of one provider WITHOUT re-logging-in, so agents keep calling the plain `claude`/`codex`/`kimi` binary — no wrapper command, no `CLAUDE_CONFIG_DIR`, no per-account harness. A slot is a snapshot of the credential locations that make up one login (a whole file, or ONE key of a JSON file so that everything else in it survives a switch), stored at `{workspace}/.rbtv/config/acct/<provider>/<name>.json` mode 600 — the CMP-1-ruled credential home, moved there from `.rbtv/env/` on 2026-08-07. ⚠ `.rbtv/config/` is NOT gitignored wholesale (its siblings are listed file by file), so `.rbtv/config/acct/` carries its OWN `.gitignore` directory rule and that one line is what keeps real refresh tokens out of a commit — relocating these files means moving the rule in the same change. Which slot is ACTIVE is DERIVED from the account id inside the live credentials — never a marker file, which drifts. `use` writes the live credentials back into the outgoing slot BEFORE swapping, because tokens rotate and a slot is usually the only surviving copy of that account's refresh token; two refusals guard that (a live login held by no slot, and `rm` without `--force`). **(2) Read plan limits** — the used % and renew time of every window each provider exposes: claude per-account via its OAuth usage endpoint including model-scoped weeklies like `7d fable`, codex from its LOCAL session rate-limit snapshots, Z.AI 5h/weekly via its documented quota endpoint, DeepSeek/Moonshot as a money balance, and honest console-only notes where no endpoint exists (Google, Sakana, Kimi subscription login). Standard mode prints plain aligned rows (`--json` for tooling); `--posh` renders the same data as a live full-screen bar dashboard with per-window countdowns, repainting every second off the clock alone. It NEVER refreshes a token — the harness owns that chain — so a slot parked past its access token's ~8h life is REPORTED as `token expired` with the fix, never rendered as an empty or 0% bar. Keys and tokens are never printed anywhere, and each credential is sent only to its own provider's documented endpoint (`acct providers`). `acct doctor` orients; `--selftest` gates every edit. Renamed from `claude-acct` 2026-08-07 when the provider argument and the usage mode landed; the usage lane was moved here from `teamview`.
-- **When to use**: A plan limit or a login expiry is blocking work and you need to know which account has headroom (`acct usage`, or `acct usage --posh` to watch it), or to move the harness to one that does (`acct <provider> use <name>` — NEW sessions only; a running harness holds its token in memory).
-- **How to invoke**: `acct [<provider>] <ls|add|use|rm|usage> [<name>]` (symlink onto PATH per machine as `acct`; `python3 orchestration/cli/acct/acct.py ...` otherwise). Switchable providers: claude, codex, kimi. Usage-readable: those plus zai, deepseek, google, sakana. Full surface: `orchestration/cli/acct/README.md`.
-- **Inputs / outputs**:
-  - Input: the harness credential stores present on the machine, plus the workspace's own slot files
-  - Output: slot files under `{workspace}/.rbtv/config/acct/<provider>/` (the only thing it writes), and terminal or `--json` usage output
+Owner-directed: `acct` left `orchestration/cli/acct/` for the install-local mirror, at
+`.rbtv/mirror/meta/providers/capabilities/acct/`, where it sits beside `cast` — the two CLIs that
+stand between the workspace and whoever supplies its compute. It is therefore no longer content this
+module ships, and its exposure row left `orchestration/exposure.csv` in the same change. The command
+is unchanged (`acct`, on PATH); its full surface is `capabilities/acct/acct.md` in that component,
+never restated here.
 
 ### `ctx-monitor` (CLI)
 
