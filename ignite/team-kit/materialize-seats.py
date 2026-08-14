@@ -1159,9 +1159,25 @@ def load_bindings(path: Path) -> dict:
     return {"defaults": defaults, "seats": data["seats"], "path": str(path)}
 
 
-def check_bindings_cover(bindings: dict, added: list[str]) -> None:
-    """The bindings `seats` keys MUST equal the resolved set — a missing or
-    extra key is a REFUSAL, never a default (the G-51 silent-default lesson)."""
+def check_bindings_cover(bindings: dict, added: list[str],
+                         whole_set: bool = True) -> None:
+    """The bindings `seats` keys MUST cover the resolved set — a MISSING key is
+    always a REFUSAL, never a default (the G-51 silent-default lesson).
+
+    An EXTRA key is a refusal only when this run materializes a WHOLE set
+    (`--workflow`), where the sheet and the manifest are meant to be the same
+    set and a leftover key is a typo. A single-seat run (`--seat`) is cast by
+    the sheet of the workflow that seat belongs to — `plan.json` casts all 17
+    planning seats — so on that path every seat but one is legitimately
+    "extra", and refusing made the collapsed wave-re-entry pass (which is
+    exactly `--seat plan-planner --nested planning --bindings plan.json`)
+    impossible to run at all. Measured live 2026-08-14 on the flagship goal:
+    `bindings-extra-seat` naming all 16 other planning seats.
+    # ponytail: the check that WOULD hold on the --seat path is "the sheet's
+    # keys are a subset of that workflow's manifest" — it needs the manifest
+    # read here, which this function has no access to. Missing-key protection
+    # is unchanged and is what catches a typo in the seat actually being built.
+    """
     missing = [s for s in added if s not in bindings["seats"]]
     if missing:
         raise Refuse(
@@ -1172,7 +1188,7 @@ def check_bindings_cover(bindings: dict, added: list[str]) -> None:
             "never a default",
             bindings["path"],
         )
-    extra = [s for s in bindings["seats"] if s not in added]
+    extra = [s for s in bindings["seats"] if s not in added] if whole_set else []
     if extra:
         raise Refuse(
             "bindings-extra-seat",
@@ -4594,7 +4610,9 @@ def run(args) -> dict:
                 else bindings_from_descriptors(package, added))
     if nested:
         rekey_bindings(bindings, nested["rename"])
-    check_bindings_cover(bindings, added)
+    # `whole_set` is FALSE on a single-seat run: the sheet that casts one seat
+    # is its WORKFLOW's sheet, so its other seats are not stray keys.
+    check_bindings_cover(bindings, added, whole_set=not args.seat)
     attach_after = validate_after(args, package, added)
     validate_milestone(args, package)
     if repass:
@@ -5367,6 +5385,13 @@ def selftest_scenarios(fx: dict) -> list[tuple[str, list[str], int, str | None]]
          wf(**{"--bindings": fx["b_missing"]}), 1, "bindings-missing-seat"),
         ("SK-3 red: bindings carrying an extra seat",
          wf(**{"--bindings": fx["b_extra"]}), 1, "bindings-extra-seat"),
+        # The pair above/below is the whole `whole_set` ruling: the SAME kind of
+        # sheet refuses on a --workflow run and is accepted on a --seat one.
+        # `b_both` casts alpha AND beta; building alpha alone out of it is what
+        # the collapsed wave-re-entry pass does with the planning sheet.
+        ("green: ONE seat built out of its WORKFLOW's whole sheet — every other "
+         "seat of that sheet is not a stray key on a --seat run",
+         [a if a != fx["b_alpha"] else fx["b_both"] for a in seat_argv], 0, None),
         ("red: bindings internal after outside the set",
          wf(**{"--bindings": fx["b_badafter"]}), 1, "bindings-after-unknown"),
         ("red: unknown seat id",
