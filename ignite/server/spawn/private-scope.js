@@ -295,7 +295,53 @@ function runningCages(workspaceRoot) {
   return live;
 }
 
+// ── W3 — THE PRIVATE-PATH REFUSAL, ASKED FROM OUTSIDE (widen-cage, ruling D-2) ─────────────────
+//
+// `coordinate widen-cage` must refuse UNCONDITIONALLY any path that is, or lies inside, a private
+// entry — the PIERCE rule is a materialize-time authoring affordance and never a runtime one. That
+// question is THIS module's (the deny list, the hardcodes, the pattern floor and the realpath
+// matching all live here), so the verb ASKS rather than re-deciding: a second Python reader of
+// `private.json` is exactly the two-interpreters drift PRIN-11 forbids, and it would drift in the
+// permissive direction — the one that matters.
+//
+// Returns the REASON string when the path is refused, `null` when it is not. Realpath-matched in
+// both directions, so a symlink planted in a writable directory cannot smuggle a private target in.
+function refusesPath(workspaceRoot, target) {
+  const root = path.normalize(workspaceRoot);
+  const scope = readPrivateScope(root);
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const abs = path.resolve(root, target);
+  const rt = real(abs) || abs;
+  // The ONE non-entry (`sender-token.env`) is never masked, so refusing it here would refuse a path
+  // every seat already reads — a refusal with no wall behind it.
+  if (scope.allow.has(abs) || scope.allow.has(rt)) return null;
+  for (const e of scope.entries) {
+    const re = real(e) || e;
+    if (rt === re || inside(re, rt)) {
+      return `it is, or lies inside, the private entry \`${e}\` — a runtime grant never pierces the private scope`;
+    }
+  }
+  // The pattern FLOOR, matched against the target's own basename and every ancestor basename up to
+  // the workspace root — the same basename matching `composePrivateScope`'s walk applies, so a NEW
+  // secret file is refused the day it appears rather than the day someone enumerates it.
+  for (let p = rt; p && p !== root && inside(root, p); p = path.dirname(p)) {
+    const b = path.basename(p);
+    if (scope.patterns.some((re) => re.test(b))) {
+      return `\`${p}\` matches the private-scope pattern FLOOR (basename \`${b}\`) — fail-closed for secrets nobody has enumerated yet`;
+    }
+  }
+  return null;
+}
+
 if (require.main === module) {
+  // `--refuses <workspace-root> <path>` — the widen-cage question, answered as JSON on stdout.
+  // Exit 0 with `{"refused": …}` either way: a non-zero exit would be indistinguishable, to the
+  // caller, from node being absent — and THAT caller fails closed on any non-answer.
+  if (process.argv[2] === '--refuses') {
+    const reason = refusesPath(process.argv[3] || process.cwd(), process.argv[4] || '');
+    console.log(JSON.stringify({ refused: reason !== null, reason }));
+    return;
+  }
   const ws = process.argv[2] || process.cwd();
   const live = runningCages(ws);
   if (live.length === 0) {
@@ -312,6 +358,7 @@ if (require.main === module) {
 module.exports = {
   composePrivateScope,
   readPrivateScope,
+  refusesPath,
   privateJsonPath,
   runningCages,
   emptyMaskSource,

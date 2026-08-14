@@ -243,6 +243,15 @@ cage:
     # in sequence are harmless under the same shadow rule that makes this whole stack work,
     # and a dedupe would be a second place where bind order is reasoned about.
     - "bind:{grant:busWrite}"
+    # W3 (adv, C34) — …and the CARVE that keeps the AUDIT file an audit file. `permission-edits.csv`
+    # is the leader's audited widenings AND the mechanism that applies them (spawn.js
+    # #resolvePermissionEditGrants reads it as a second rw-grant source), so it sits inside the
+    # coordination dir the two lines above open READ-WRITE to every seat — i.e. writable by every
+    # party it audits, and by every seat whose cage it can widen. Carved back to read-only here, in
+    # the same shape and for the same reason as the `sessions.csv` carve above: order is the whole
+    # mechanism, so it must come AFTER both openings. The grant resolves to the path only for a seat
+    # that is NOT the permission editor, so the leader's own cage still opens it read-write.
+    - "ro-bind-try:{grant:permissionEditsRo}"
     # GOALS-WRITE grant (owner ruling, 2026-08-07): the GOAL FOLDER of every EXECUTING goal,
     # READ-WRITE, one opening per grant — the materializer's write set (seats/<seat>/seat.md,
     # plus the atomic tmp-and-rename that appends taskforce.csv IN the goal dir). Same placement

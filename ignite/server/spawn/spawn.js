@@ -574,6 +574,33 @@ function launchSpecForSeat(launchSpecs, seatDir, log) {
 //      covering the seat's own folder is inside `.rbtv/goals` and is refused here, so it never
 //      reaches the ordering question at all (refused under rule 3's spirit, as ruled).
 //   4. does not exist              — skipped; this resolver NEVER creates a path.
+// The FOUR REFUSAL RULES, in ONE function: the reason string when `entry` may not be granted
+// read-write to this seat, `null` when it may. Split out at W3 so `permission-edits.csv` — the
+// leader's audited second grant source — is judged by the SAME predicate, and so `widen-cage`
+// can validate at WRITE time against the identical rules (a silently-dropped grant at launch reads
+// as a successful widen in the leader's evidence, adv C--).
+function rwPathRefusal(seatPath, entry) {
+  const root = seatPath.workspaceRoot;
+  const goals = path.join(root, '.rbtv', 'goals');
+  if (!entry) return 'empty entry';
+  if (path.isAbsolute(entry)) return 'absolute path — entries are workspace-relative';
+  const target = path.resolve(root, entry);
+  if (!contains(root, target) || target === root) return `resolves outside the workspace root: ${target}`;
+  if (contains(goals, target) || contains(target, goals)) {
+    return `overlaps ${goals} — the identity/ground-truth surfaces (sessions.csv, seat.md) stay unwritable: ${target}`;
+  }
+  if (!fs.existsSync(target)) return `does not exist (never created from here): ${target}`;
+  const realRoot = (() => { try { return fs.realpathSync(root); } catch { return null; } })();
+  const realGoals = (() => { try { return fs.realpathSync(goals); } catch { return null; } })();
+  if (!realRoot || !resolvesInsideGoalsRoot(target, realRoot)) {
+    return `RESOLVES outside the workspace root — a segment on this path is a symlink out of it: ${target}`;
+  }
+  if (realGoals && resolvesInsideGoalsRoot(target, realGoals)) {
+    return `RESOLVES inside ${goals} through a symlink — the identity/ground-truth surfaces stay unwritable: ${target}`;
+  }
+  return null;
+}
+
 function resolveRwPathGrants(seatPath, log) {
   const root = seatPath.workspaceRoot;
   const goals = path.join(root, '.rbtv', 'goals');
@@ -607,6 +634,73 @@ function resolveRwPathGrants(seatPath, log) {
     grants.push({ rwPath: target });
   }
   return grants;
+}
+
+// ── W3 · `coordination/permission-edits.csv` — THE LEADER'S AUDITED WIDENINGS ─────────────────
+//
+// The SECOND rw-grant source, read additively beside `rw-paths` at every launch (ruling D-2).
+//
+// ⚠ WHY IT IS NOT THE `rw-paths` CELL. That cell lives in `seat.md` frontmatter, which is
+// ro-bound in-cage and MATERIALIZER-OWNED: a `materialize-seats.py --repass` or an `add-seat`
+// splice re-emits the file and silently reverts whatever the leader wrote. So the widening is
+// recorded where it survives — an append-only CSV under the goal's `coordination/` — and THAT FILE
+// IS THE MECHANISM as well as the audit log. One artifact, so a wall that was widened and a
+// widening that was recorded can never be two different sets.
+//
+// FAIL-CLOSED PER ROW, same posture as its `rw-paths` sibling and enforced by the SAME function:
+// every row goes through `rwPathRefusal` below, so the four refusal rules have one home and the
+// verb that writes the file validates against the identical predicate at write time. A malformed
+// row is skipped and logged; it never takes a seat offline.
+//
+// ⚠ IT CANNOT PIERCE THE PRIVATE SCOPE and needs no check here to say so: `composePrivateScope`
+// masks every private entry AFTER this whole grant stack, and an opening that RESOLVES inside a
+// private entry without naming it throws `E_CAGE_PRIVATE_ALIAS`. The verb refuses such a path at
+// write time (`private-scope.js#refusesPath`) so the leader reads the refusal instead of meeting a
+// silently masked grant hours later.
+const PERMISSION_EDITS_REL = path.join('coordination', 'permission-edits.csv');
+
+function resolvePermissionEditGrants(seatPath, log) {
+  const file = path.join(seatPath.goalDir, PERMISSION_EDITS_REL);
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  const lines = text.split('\n').filter((l) => l.trim().length);
+  if (lines.length < 2) return [];
+  const { splitRow } = require('../seat-identity/csv');
+  const cols = splitRow(lines[0]).map((c) => c.trim());
+  const iSeat = cols.indexOf('seat');
+  const iPath = cols.indexOf('path');
+  if (iSeat < 0 || iPath < 0) {
+    log('warn', 'permission-edits.csv REFUSED WHOLE: no `seat`/`path` columns', { file });
+    return [];
+  }
+  const grants = [];
+  for (const line of lines.slice(1)) {
+    const cells = splitRow(line);
+    if ((cells[iSeat] || '').trim() !== seatPath.seat) continue;
+    const entry = (cells[iPath] || '').trim();
+    const reason = rwPathRefusal(seatPath, entry);
+    if (reason) {
+      log('warn', `permission-edits row REFUSED: ${reason}`, { seat: seatPath.seat, file, entry });
+      continue;
+    }
+    grants.push({ rwPath: path.resolve(seatPath.workspaceRoot, entry) });
+    log('info', 'permission-edits GRANT applied', { seat: seatPath.seat, entry });
+  }
+  return grants;
+}
+
+// THE PERMISSION EDITOR — the ONE seat whose cage keeps `permission-edits.csv` read-WRITE. Every
+// other seat gets the carve. Spelled here as the seat NAME because that is what a cage has in hand;
+// the AUTHORITY is coord.py's `is_permission_editor`, and `probe-permission-edits.js` asserts the
+// two spellings agree so a widening of one cannot silently outrun the other.
+const PERMISSION_EDITOR_SEAT = 'leader';
+
+function resolvePermissionEditsRoGrant(seatPath) {
+  if (seatPath.seat === PERMISSION_EDITOR_SEAT) return [];
+  const file = path.join(seatPath.goalDir, PERMISSION_EDITS_REL);
+  // No file, no carve: `ro-bind-try` would tolerate the absence, but emitting a grant for a path
+  // that does not exist would put a mount in the log for a wall that is not there.
+  return fs.existsSync(file) ? [{ permissionEditsRo: file }] : [];
 }
 
 // ── `goal-writes:` — the seat's ONE declared role output (owner ruling D9, 2026-08-10) ─────────
@@ -1082,12 +1176,17 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveHarnessCredGrants(),
       ...resolveReadRootGrant(seatPath),
       ...resolveBusWriteGrants(seatPath),
+      ...resolvePermissionEditsRoGrant(seatPath),
       ...resolveGoalsWriteGrants(seatPath),
       ...localBin,
       ...exposedClis,
       ...resolveTmuxSocketGrant(seatPath),
       ...resolveGoalWriteGrants(seatPath, log),
       ...resolveRwPathGrants(seatPath, log),
+      // W3 — the leader's audited widenings, ADDITIVE beside the declared cell above. Same grant
+      // shape (`rwPath`), so it lands on the same `bind:{grant:rwPath}` template line and inherits
+      // its placement (last, beneath nothing that could re-cover it) with no template change.
+      ...resolvePermissionEditGrants(seatPath, log),
     ],
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
@@ -2025,6 +2124,13 @@ module.exports = {
   // about the SAME `goal-writes` grant this spawner will compose, so it calls the one declaration
   // reader rather than parsing seat.md a second time.
   seatDeclaresList,
+  // Exported for `probe-permission-edits.js` (W3): the second rw-grant source and the ONE
+  // refusal predicate both doors share — the probe drives them against a real seat folder.
+  resolvePermissionEditGrants,
+  resolvePermissionEditsRoGrant,
+  rwPathRefusal,
+  PERMISSION_EDITS_REL,
+  PERMISSION_EDITOR_SEAT,
 };
 
 function validateSpawnRequest(req) {

@@ -4737,6 +4737,62 @@ def daemon_exec_identity(cgroup_text=None, db_path=None):
     return DAEMON_IDENTITY if row else ""
 
 
+# ── W3 · THE `--as <staff seat>` SCOPE (ruling D-2) ───────────────────────────────────────────
+#
+# A staff chair is the run's AUTHORITY, so claiming to BE one is the widest claim on this bus. The
+# claim is admitted from three identities and no other:
+#
+#   channel-master / goal-master   the two MASTER seats — they staff, and they stand in for the
+#                                  owner's side of the room
+#   console-master                 the human's uncaged console
+#
+# ⚠ AND FROM AN IDENTITY THAT RESOLVES TO NOTHING AT ALL, which is the console master before it has
+# a name — an UNCAGED shell. That admission is exactly as wide as the console already is and no
+# wider: a CAGED seat always carries `COORD_AGENT` (injected into every launched seat's harness
+# command, `agent_env_prefix`) and a daemon-fired exec resolves through `daemon_exec_identity`, so
+# "nothing resolves" is reachable only from outside both. ⚠⚠ THIS IS WHAT CLOSES THE PANE-LESS
+# DAEMON-LANE HOLE: `ignite-daemon` is a resolved identity and is NOT in the admitted set, so the
+# absence of a CONTRADICTING pane row no longer admits the claim — which is all that stood between
+# any daemon-fired exec and acting as the leader.
+#
+# ⚠ NOT EVEN THE STAFF SEAT ITSELF. A leader sitting carries `COORD_AGENT=leader`, so it IS the
+# leader without claiming to be one — check-in (or the injected identity) confers it. `--as leader`
+# from that seat is therefore never needed and is refused with the rest.
+STAFF_CLAIM_IDENTITIES = ("channel-master", "goal-master", "console-master")
+CONSOLE_OVERRIDE_MARKER = "console-override"
+
+
+def _staff_claim_gate(args, claimed, pane, registered):
+    """Refuse `--as <staff seat>` from an identity the ruling does not admit. Audit-log the rest.
+
+    The UNDERLYING identity is resolved WITHOUT the claim — pane row, then `COORD_AGENT`, then the
+    daemon-exec lane — which is the same ladder `resolve_agent` walks below this call, minus its
+    first rung. Read here rather than threaded in, because the whole question is what this process
+    would be if it stopped claiming."""
+    actual = (registered or os.environ.get("COORD_AGENT", "").strip()
+              or daemon_exec_identity())
+    if actual and actual not in STAFF_CLAIM_IDENTITIES:
+        refuse(
+            "identity",
+            f"you claimed '{claimed}' (--as), and '{claimed}' is a STAFF CHAIR — the run's own "
+            f"authority. That claim is admitted from "
+            f"{', '.join(STAFF_CLAIM_IDENTITIES)} and from an uncaged console only; you resolve to "
+            f"'{actual}'.\n"
+            f"If you ARE '{claimed}', drop the claim — your injected identity already says so. If "
+            f"you need the chair to act, SEND to it: "
+            f"{coord_invocation(args)} send {claimed} \"<what you need>\" --type note --inline. "
+            f"A staff chair always accepts mail, live session or not; that is the whole point of "
+            f"it.\n"
+            f"There is no --force for this one: the emergency lever is the console, and the console "
+            f"is one of the three identities above.",
+            2)
+    # ACCEPTED — and every accepted use is announced, never silent. An emergency lever nobody can
+    # find in the log is an emergency lever nobody can audit.
+    print(c(f"{CONSOLE_OVERRIDE_MARKER}: acting --as '{claimed}' (a STAFF CHAIR) from "
+            f"'{actual or 'an uncaged console — no identity resolves'}'"
+            f"{f' · pane {pane}' if pane else ''}", C_HINT), file=sys.stderr)
+
+
 def resolve_agent(args, required=True):
     """Who is calling, resolved instead of typed (T1 — F1: identity used to be hand-typed into
     every command and never verified; a sender/recipient reversal recorded leader as the sender
@@ -4758,6 +4814,8 @@ def resolve_agent(args, required=True):
         source = "COORD_AGENT"
     pane = detect_pane(getattr(args, "pane", None))
     registered = pane_agent(base_dir(args), pane) if pane else ""
+    if claimed and source == "--as" and is_staff_seat(claimed):
+        _staff_claim_gate(args, claimed, pane, registered)
     if claimed:
         if registered and registered != claimed and not getattr(args, "force", False):
             refuse(
@@ -5065,6 +5123,36 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
         if "overridden" in line:
             print(c(f"WARNING launching anyway: {line}", C_DEAD), file=sys.stderr)
     return caller
+
+
+# ── W3 · THE STAFF CHAIRS (`meta/leader`, ruling D-10) ────────────────────────────────────────
+#
+# The two ON-DEMAND seats a goal's taskforce staffs. They hold NO workflow node and NO checkin /
+# checkout: a sitting is spawned when the chair has unread mail and ends when the mail is drained.
+# Every silent stall this program closes was a correct signal delivered to an EMPTY chair.
+#
+# ⚠ THE LIST IS A SEAT-NAME LIST AND NOTHING ELSE. It confers no authority — `is_permission_editor`
+# below is the only widening grant, and it names ONE of the two deliberately.
+STAFF_SEATS = ("leader", "consultant")
+
+
+def is_staff_seat(name):
+    return name in STAFF_SEATS
+
+
+def is_permission_editor(name):
+    """Who may run the audited permission-edit verb (`widen-cage`): the `leader`, and nobody else.
+
+    ⚠ MINTED RATHER THAN REUSING `is_authorized_launcher` (adv, C29 / ruling D-2). That predicate's
+    docstring is a RULED BOUND — "`launch` and nothing else", open-versus-terminate — and it admits
+    `DAEMON_IDENTITY`. Reusing it here would silently authorize the ignite daemon as a
+    PERMISSION-EDITOR, which is a strictly larger act than opening a pane and was ruled to nobody.
+    The consultant is excluded by the same ruling: it holds the leader's judgment surface MINUS its
+    authorities, and a permission edit is the first of them.
+
+    The cage's own spelling of this seat is `spawn.js#PERMISSION_EDITOR_SEAT`; the two are asserted
+    equal by `probe-permission-edits.js`, so a widening of one cannot outrun the other."""
+    return name == "leader"
 
 
 def is_leader(name):
@@ -5436,7 +5524,7 @@ def load_awaiting(base):
 
 
 def set_awaiting(base, seat, pane, transcript, exported, disposition="done", handoff_stamp="",
-                 writer=DISPOSITION_WRITER_SEAT):
+                 writer=DISPOSITION_WRITER_SEAT, route=""):
     """Record the debt at checkout. Best-effort: bookkeeping ABOUT a checkout must never break the
     checkout itself — 7.37 already ruled that shape for the session trace, and a seat that cannot
     check out is worse than a debt nobody recorded.
@@ -5478,6 +5566,14 @@ def set_awaiting(base, seat, pane, transcript, exported, disposition="done", han
             # Caught by the selftest before it ever reached a live room, which is the whole point
             # of writing the record through a fixture that runs the real verb.
             data[seat] = {"since": now(), "pane": str(pane or ""),
+                          # W3 — THE ROUTE FLAG: which STAFF CHAIR this ending's staff mail is
+                          # addressed to. Written at check-out because the occupant is the only
+                          # party that knows whether its blocker is guidance-shaped; ONLY the
+                          # session-closer reads it, and an empty value means the default (the
+                          # unblocker, i.e. the `leader`). It is a HINT and never an authority —
+                          # `staff_route_target` re-resolves it against the roster, so naming a
+                          # chair this goal does not staff falls back rather than mailing a void.
+                          "route": str(route or ""),
                           "transcript": str(transcript or ""), "exported": bool(exported),
                           # The harness identity AS THE SEAT LEFT IT, in the pid+starttime form
                           # every teardown already uses (PID reuse cannot forge it). `reap` later
@@ -8975,7 +9071,11 @@ def cmd_checkout(args):
     checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
                     disposition=checkout_disposition, handoff_stamp=handoff_stamp,
-                    writer=DISPOSITION_WRITER_SEAT):
+                    writer=DISPOSITION_WRITER_SEAT,
+                    # W3 — THE ROUTE FLAG, recorded at the one moment its value is known: the
+                    # occupant is the only party that can say whether its blocker is
+                    # guidance-shaped. ONLY the session-closer reads it.
+                    route=(getattr(args, "route", None) or "")):
         print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
               f"`{coord_invocation(args)} close-seat {me}`")
     # 7.37: checkout ends the session as surely as a close does. dag-09: and it carries the SAME
@@ -10586,16 +10686,39 @@ def cmd_send(args):
     # recipient set reads exactly like a name that was never admitted.
     report_addressable_errors(args, base)
     nonmembers = addressable_nonmembers(args, base)[0]
-    known = known_recipients(args, base)
-    if args.to not in known and not force:
+    # W3 (adv, C33) — the recipient set `send` gates on, WRAPPED HERE and never inside
+    # `known_recipients`: that function's return set is selftest-keyed and is also what
+    # `lifecycle_alarm_recipient` reads to resolve the `leader` chair for executor-failure alarms.
+    known, departed = send_recipients(args, base)
+    # ⚠ `--force`-PROOF, and that is a CHANGE (adv, C33, specified rather than assumed). An unknown
+    # recipient is not a rule that is wrong in some case: the message lands under a name nobody
+    # reads, in an append-only log, and the only signal was one "wake skipped" line. The override
+    # existed because the recipient set used to be narrower than the set of legitimate addresses —
+    # staff chairs, in particular, were not in it. They are now, so the override has nothing left
+    # to be right about.
+    if args.to not in known:
         near = difflib.get_close_matches(args.to, sorted(known), n=1, cutoff=0.6)
         refuse(
             "state",
             f"'{args.to}' is not a known recipient — no roster row, no briefing, no "
-            f"group, no relay token and no addressable non-member of that name."
+            f"group, no relay token, no staff chair and no addressable non-member of that name."
             + (f" Did you mean '{near[0]}'?" if near else "")
-            + f"\nknown: {', '.join(sorted(known))}\nsend anyway: --force",
+            + f"\nknown: {', '.join(sorted(known))}\n"
+            + "There is no --force for this one: a message addressed to a name nobody holds is "
+              "permanent residue in an append-only log, and you still HOLD it at this refusal.",
             1)
+    # …and a DEPARTED worker seat is accepted, LOUDLY. Not refused — its successor may read the log,
+    # and the leader routes what it cannot — but never silent: this is the exact shape of a signal
+    # delivered to an empty chair, and the sender is the one party who can still do something else.
+    # Printed BEFORE the append and regardless of `--force`, for the same reason the refusal above
+    # is force-proof: an override waives a gate, and a warning is not a gate.
+    if args.to in departed:
+        print(c(f"⚠ '{args.to}' has DEPARTED — its roster row is no longer active, so nothing will "
+                f"be woken by this message and it may never be read. It IS in the log, addressed "
+                f"to that name, and a successor sitting in that seat would see it.\n"
+                f"  If this needs acting on, send it to `leader` instead — that chair is always "
+                f"occupied on demand and it routes what it cannot settle.", C_DEAD),
+              file=sys.stderr)
     # S-7 — an `ask` stays OPEN until an answer is addressed to its SENDER via --re, and
     # `known_recipients` refuses any name none of its five sources carries (roster, briefing,
     # group, relay token, addressable non-member). So an
@@ -12638,6 +12761,31 @@ def ready_seat_rows(args):
             held[_seat] = [b["num"] for b in open_asks(_msgs, sender=_seat, to=OWNER_TOKEN)]
     except Exception:                                          # noqa: BLE001 — see the note above
         held = {}
+    # ── W3 · THE ON-DEMAND TERM — how many messages a STAFF CHAIR has waiting ──────────────────
+    #
+    # A staff chair is a real `taskforce.csv` row with NO `after` set, so on its own account it
+    # reads READY the instant a goal materializes — and the daemon's seeding pass, which is a
+    # `verdict == "READY"` filter and nothing else, would spawn the leader of every goal at goal
+    # start with an empty inbox. The chair is spawned ON UNREAD MAIL and at no other time, so mail
+    # is a TERM OF THE VERDICT, not a note beside one.
+    #
+    # ⚠ THIS COUNTS ONLY THE NEVER-SAT CASE, and it is complete for it. A chair that HAS sat carries
+    # a terminal disposition (the session-closer writes one on every ending) and reads `DONE`, which
+    # is absorbing — its next wake comes through the UNSPENT GRANT the closer mints in the same act,
+    # by the DONE branch's own grant flip. So the two wake paths are: no session yet -> this count;
+    # session ended -> the grant. Neither invents a third reader of "is this chair wanted".
+    #
+    # ⚠ DEGRADES TO ZERO, NEVER RAISES — same rule and same reason as the hold above. An unreadable
+    # bus must cost the run its WAKES, never its other verdicts, and zero is the fail-CLOSED
+    # direction here: it leaves the chair IDLE rather than spawning one nobody asked for.
+    staff_mail = {}
+    if any(is_staff_seat(_s) for _s in after):
+        try:
+            for _b in load_messages(base)[1]:
+                if is_staff_seat(_b["to"]):
+                    staff_mail[_b["to"]] = staff_mail.get(_b["to"], 0) + 1
+        except Exception:                                      # noqa: BLE001 — see the note above
+            staff_mail = {}
     # 7.383: every member token parsed ONCE — and as of 7.424 that ONCE happens where the member is
     # PRODUCED (`taskforce_after` -> `AfterMember` -> `parse_after_member`), not in a map built
     # here. The member still carries the RAW token, which is what `preds` holds and what the reason
@@ -12906,6 +13054,19 @@ def ready_seat_rows(args):
                 f"is the ROW, and it governs over every session-keyed surface. A terminal value "
                 f"never lifts; a holding value lifts only when its named exit event fires and the "
                 f"tag is cleared in that same act. It advances NO edge meanwhile")
+        elif is_staff_seat(seat) and not staff_mail.get(seat):
+            # W3 · THE ON-DEMAND CHAIR, NOT WOKEN. See the `staff_mail` hoist above for why mail is
+            # a term at all. Placed LAST before the `after` arithmetic deliberately: every refusal
+            # above names a state a staff chair can genuinely reach (a skew, a hold, a ruled row),
+            # and each of those is the more informative reason. This is the CLEAN idle case.
+            rec["verdict"] = "IDLE"
+            rec["reason"] = (
+                f"ON-DEMAND staff chair with NO mail — this seat holds no workflow node and is "
+                f"spawned only to drain messages addressed to it. NOT OFFERED, and that is the "
+                f"seat working: an empty sitting spends a launch to read an empty inbox. It wakes "
+                f"the moment anything is addressed to `{seat}` (the session-closer's staff mail, a "
+                f"routed FAIL, a seat's ask, a lifecycle alarm), and after its first sitting it "
+                f"wakes through the UNSPENT GRANT its wake mints. It advances NO edge meanwhile")
         else:
             # 7.273: `unmet` is built ONCE at the top of this iteration, for every row and not
             # only the ones that reach here — see the hoist above. The membership, the order and
@@ -13840,19 +14001,528 @@ def close_session_seat(args, sid, seat):
     if set_awaiting(base, seat, row.get("pane", ""), (entry or {}).get("transcript", "")
                     if isinstance(entry, dict) else "",
                     bool((entry or {}).get("exported")) if isinstance(entry, dict) else False,
-                    disposition=value, writer=writer):
+                    disposition=value, writer=writer,
+                    # W3 — CARRIED, not dropped. This call REWRITES the whole entry, so a route
+                    # flag the occupant declared at check-out would be erased by the very act that
+                    # reads it if it were not threaded back through.
+                    route=(entry or {}).get("route", "") if isinstance(entry, dict) else ""):
         steps.append(f"awaiting-close.json: disposition `{value}` recorded — BOTH SURFACES, ONE "
                      f"VALUE")
     else:
         steps.append("awaiting-close.json: NOT recorded — the debt is unrecorded, say so")
-    if value == "exited":
-        # (adv, C10) An `exited` row routes to a LEADER, and until W3 lands there is no leader seat
-        # on the daemon lane to route it to. Said out loud on every close rather than left for
-        # somebody to discover from a row that never moves. Remove this note when W3 lands.
-        steps.append("⚠ INTERIM (pre-W3): an `exited` row routes to a LEADER and no leader seat "
-                     "is staffed on this lane yet — this row will sit until W3's staff wiring "
-                     "lands or a human rules it (`rule-disposition`).")
+    # W3 — THE STAFF-MAIL ARM. The interim note that stood here (adv, C10 — "an `exited` row routes
+    # to a LEADER and no leader seat is staffed on this lane yet") is REMOVED WITH ITS CONDITION:
+    # the leader now exists, is minted into every goal's taskforce at materialize, and this is the
+    # act that reaches it. A row that ends non-`done` no longer sits waiting for somebody to notice.
+    steps.extend(close_staff_mail_arm(args, base, pkg, seat, value, entry, sid))
     return steps, closed_seat, value
+
+
+# ═══ W3 · THE STAFF WIRING — a signal that reaches an OCCUPIED chair ══════════════════════════
+#
+# Everything in this section exists for one sentence: a seat that cannot finish must reach a chair
+# that is occupied. The four surfaces, in the order a wake travels them:
+#
+#   1. THE CLOSER'S STAFF-MAIL ARM  — every terminal non-`done` ending mints one message to a staff
+#      chair, carrying the seat's own check-out reason. Mechanical: no agent decides whether to
+#      mail, so no agent can decide not to.
+#   2. THE WAKE                     — the mail alone wakes nothing on the daemon lane. The chair is
+#      a `taskforce.csv` row, so its wake is the row becoming READY, and that is written into BOTH
+#      grant stores (coord's `relaunch-grants.csv` and the engine's `<goal>/relaunch-grants`) in
+#      one act, because the two lanes deliberately read different files.
+#   3. `route-fail`                 — a FAIL verdict with a declared route goes to the AUTHOR of the
+#      instruction; an undeclared one goes to the leader. Never a void.
+#   4. `widen-cage`                 — the leader's one repair actuator, audited into the same file
+#      that applies it.
+#
+# ⚠ THE WAKE IS THE GRANT AND NOT A HEART MESSAGE, and that is a decided departure from the spec's
+# first sketch (adv, C27/C28 named the ticker's `hasNewSenderInputSinceEnd` redispatch as the
+# carrier). It was rejected on design: that path needs a SYNTHETIC bootstrap execution forged into
+# the daemon's `heart.db` — a `jobs_log` row with `thread` + `completion_msg_id`, plus a forged
+# completion message — and `heart.db` is PER-MACHINE state outside the workspace that coord.py
+# opens read-only for identity resolution and nothing else. Forging a lifecycle row there would put
+# a second writer on the store the server core is the sole writer of. The spec's own stated
+# fallback ("normal seeding with an explicit trigger") is what is built, and the TWO-STORE
+# requirement it says stands either way is met in full — both grant stores, one act, one helper.
+# The bus row remains the auditable record; the grant is the mechanism.
+
+STAFF_WAKE_ANCHOR = "staff-wake"
+ROUTE_PAYLOAD_DIR = "route-payloads"
+PERMISSION_EDITS_COLS = ["stamped-at", "seat", "path", "reason", "edited-by"]
+
+
+def engine_grants_file(base):
+    """`<goal>/relaunch-grants` — the ENGINE's grant store, the twin of `relaunch-grants.csv`.
+
+    Two files because the two lanes read different ones: coord's CSV flips the seat's `ready-seats`
+    verdict (the daemon's door) and this one hides the seat's finished history from the engine's own
+    eligibility reader (`seeding.js#executionsByJob`). A wake written to one only is a wake that
+    stalls on the other — `mint_loop_refire` already learned this and writes both."""
+    return Path(base).parent / "relaunch-grants"
+
+
+def append_engine_grant(base, seat):
+    """Append `seat` to the engine's grant file unless it is already there. True when written."""
+    path = engine_grants_file(base)
+    try:
+        existing = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    except OSError:
+        existing = set()
+    if seat in existing:
+        return False
+    try:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(seat + "\n")
+    except OSError:
+        return False
+    return True
+
+
+def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
+    """Wake an ON-DEMAND staff chair: `(woken, note)`. Idempotent, and never raises.
+
+    THREE CASES, and only the middle one writes anything:
+
+      the chair has NEVER SAT   no session row, so it carries no disposition and `ready-seats`
+                                reads READY on its own account the moment mail exists (the
+                                `staff_mail` term). A grant would be UNBOUND — session-id `''` —
+                                and an unbound grant can never be SPENT (`seat-retry --spend`
+                                refuses an empty `--session` by name), so it would flip the chair
+                                READY after every later completion, FOREVER. That is the exact
+                                shape this function exists not to write.
+      the chair HAS SAT         its last row is ENDED and carries `exited`, so `ready-seats` reads
+                                DONE, which is ABSORBING. The wake is an unspent grant BOUND to
+                                that ended session — the DONE branch's own flip turns it READY, and
+                                the engine spends it at admission.
+      a wake is ALREADY PENDING one sitting drains the WHOLE queue, so a second grant for the same
+                                session would authorize a second sitting for mail the first will
+                                already have read.
+    """
+    try:
+        sid = (sessions_last_ended(pkg).get(seat) or ("", ""))[0]
+    except Exception:                                          # noqa: BLE001
+        sid = ""
+    if not sid:
+        return False, ("no ended session row for this chair yet — it has never sat, so it reads "
+                       "READY on its own account as soon as mail exists and needs no grant")
+    try:
+        if any(g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]
+               for _i, g in read_relaunch_grants(base)):
+            return False, ("an UNSPENT wake grant already stands for this chair's last session — "
+                           "one sitting drains the whole queue")
+        mint_relaunch_grant(base, seat, sid, anchor, minted_by)
+    except Exception as exc:                                   # noqa: BLE001
+        return False, f"the wake grant could NOT be minted ({type(exc).__name__}: {exc}) — SAY SO"
+    append_engine_grant(base, seat)
+    return True, f"session {sid}, anchor `{anchor}`"
+
+
+def staff_route_target(args, base, flag):
+    """`(chair, why)` — WHICH staff chair an ending's mail goes to.
+
+    The ladder, and it is three lines because the ruling is three lines: the check-out's route flag
+    when it names a chair this goal actually staffs; the `consultant` only where one is staffed;
+    the `leader` otherwise. The leader is the DEFAULT because it is the unblocker — the chair that
+    holds the goal's authority — and a guidance-shaped question reaching it costs a hop, while an
+    authority-shaped one reaching the consultant reaches a seat that cannot act on it."""
+    try:
+        known = known_recipients(args, base)
+    except Exception:                                          # noqa: BLE001
+        known = set()
+    want = (flag or "").strip()
+    if want and is_staff_seat(want) and want in known:
+        return want, f"the check-out named `{want}` and this goal staffs it"
+    if want and is_staff_seat(want):
+        return "leader", (f"the check-out named `{want}`, which this goal does NOT staff — falling "
+                          f"back to the unblocker rather than mailing a chair that does not exist")
+    if want:
+        return "leader", (f"the check-out's route flag `{want}` names no staff chair — the flag is "
+                          f"a HINT, never an authority, so this falls back to the unblocker")
+    return "leader", "no route flag — the default is the unblocker"
+
+
+def staff_mail_body(args, seat, value, entry, sid):
+    """The mail's TEXT: enough that the chair ACTS without opening the closer's own reasoning."""
+    reason = ""
+    if isinstance(entry, dict):
+        reason = str(entry.get("reason") or entry.get("incomplete-reason") or "").strip()
+    pkg = package_dir(args, register=False)
+    reason = reason or ("(none recorded — the ending was attested by the kit, not declared by "
+                        "the seat)")
+    return "\n".join([
+        f"STAFF MAIL — seat '{seat}' ended `{value}` and its work is NOT done.",
+        f"reason given at check-out: {reason}",
+        f"session: {sid or '(unresolved)'}",
+        f"evidence: {pkg}/sessions.csv (this seat's row), {pkg}/seats/{seat}/ (its own folder and "
+        f"session scratchpad), and whatever artifacts its briefing declares.",
+        "",
+        "This is the failure path. Triage it on evidence YOU observe — an unclean exit says how a "
+        "SESSION ended and nothing about whether the WORK finished — then take exactly one "
+        "disposition: FIX AND RELAUNCH, ROUTE to the seat that authored the instruction, ANSWER, "
+        "or ESCALATE. Never relabel this row `done`.",
+    ])
+
+
+def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
+    """The closer's staff-mail arm: mint the mail AND the wake for ONE ended seat. Steps, as a list.
+
+    ⚠ STAFF SEATS ARE EXCLUDED BY AN EXPLICIT PREDICATE (adv, C30), and the exclusion is structural
+    rather than defensive: a staff chair never checks out, so EVERY staff sitting ends kit-`exited`
+    — the very class this arm mails on. Without the predicate the closer would mail the leader about
+    the leader, forever, and each of those mails would mint the wake for the sitting that writes the
+    next one. WHAT CLOSES A STAFF SITTING'S SESSION ROW is this same closer, silently: the row is
+    ended and stamped `exited` exactly as any other, the roster is flipped, and NO mail is minted.
+
+    ⚠ IT MAILS ON EVERY TERMINAL NON-`done` ENDING and reads no further into the value. `incomplete`
+    is the seat's own honest declaration and reaches the chair IMMEDIATELY; `exited` is the kit's
+    attestation after the retry chain is exhausted. Both are endings nobody has ruled on, which is
+    the only property this arm needs."""
+    steps = []
+    if value == "done":
+        return steps
+    if is_staff_seat(seat):
+        steps.append(f"staff mail: NOT minted — '{seat}' IS a staff chair. A staff sitting ends "
+                     f"`{value}` by construction (it never checks out), so mailing here would mail "
+                     f"the chair about itself forever. Its row is closed silently, which is the "
+                     f"whole of what this ending means.")
+        return steps
+    to, why = staff_route_target(args, base, (entry or {}).get("route") if isinstance(entry, dict)
+                                 else "")
+    try:
+        n = append_message(base, DISPOSITION_WRITER_KIT, to, "note",
+                           staff_mail_body(args, seat, value, entry, sid))
+        steps.append(f"staff mail: #{n} -> `{to}` ({why}) — carrying '{seat}'s check-out reason")
+    except Exception as exc:                                   # noqa: BLE001
+        steps.append(f"staff mail: NOT minted — {type(exc).__name__}: {exc}. The ending is "
+                     f"recorded and NOBODY WAS TOLD; say so.")
+        return steps
+    woken, note = mint_staff_wake(args, base, pkg, to, STAFF_WAKE_ANCHOR, DISPOSITION_WRITER_KIT)
+    steps.append(f"staff wake: `{to}` granted a relaunch in BOTH stores — {note}" if woken
+                 else f"staff wake: no grant written — {note}")
+    return steps
+
+
+# ── `widen-cage` — the leader's audited permission edit (ruling D-2, adv C29/C34) ───────────────
+#
+# THE ONE REPAIR ACTUATOR behind the leader's FIX-AND-RELAUNCH disposition. The common blocker is a
+# CAGE TOO NARROW: a seat could not read or write a path its job requires.
+#
+# ⚠ IT DOES NOT WRITE THE `rw-paths` CELL, and that is the whole design rather than a detail. That
+# cell is `seat.md` frontmatter — ro-bound in-cage and MATERIALIZER-OWNED, so a `--repass` or an
+# `add-seat` splice re-emits the file and silently reverts it. This writes
+# `coordination/permission-edits.csv`, which `spawn.js#resolvePermissionEditGrants` reads
+# ADDITIVELY at every launch: the audit log and the mechanism are ONE ARTIFACT, so a wall that was
+# widened and a widening that was recorded can never be two different sets.
+#
+# ⚠ IT VALIDATES AT WRITE TIME AGAINST THE LAUNCH-TIME RULES (adv, C--). A grant the spawner will
+# silently drop reads, in the leader's evidence, as a successful widen — and the leader then
+# relaunches into the same wall and concludes the seat is lying. So the four refusal rules are
+# checked HERE, in the verb where the leader can read the reason, by asking the one function that
+# enforces them (`spawn.js#rwPathRefusal`) rather than by re-stating them in Python.
+
+
+def permission_edits_csv(base):
+    return Path(base) / "permission-edits.csv"
+
+
+def private_scope_refusal(pkg, target):
+    """The reason `target` may not be granted, per the PRIVATE SCOPE — or `''`.
+
+    ⚠ FAIL-CLOSED ON ANY NON-ANSWER. The authority is `server/spawn/private-scope.js` (the deny
+    list, the two unoverrulable hardcodes, the pattern floor and the realpath matching all live
+    there, W5). A second Python reader of `private.json` would be two interpreters of one wall, and
+    it would drift in the PERMISSIVE direction — the one that matters. So this asks, and a node
+    that will not answer REFUSES the widen: an unanswerable question about a secret is not a `no`.
+    """
+    js = Path(__file__).resolve().parent.parent / "server" / "spawn" / "private-scope.js"
+    ws = workspace_root_of(pkg)
+    try:
+        out = subprocess.run(["node", str(js), "--refuses", str(ws), str(target)],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return (f"the private scope could not be consulted ({type(exc).__name__}: {exc}) — and an "
+                f"unanswerable question about a secret is REFUSED, never waved through")
+    if out.returncode != 0:
+        return (f"the private scope refused to answer (exit {out.returncode}): "
+                f"{(out.stderr or '').strip()[:300]}")
+    try:
+        payload = json.loads(out.stdout)
+    except ValueError:
+        return f"the private scope returned no JSON: {(out.stdout or '').strip()[:200]}"
+    return payload.get("reason") or "" if payload.get("refused") else ""
+
+
+def workspace_root_of(pkg):
+    """The workspace root above a goal package: `<ws>/.rbtv/goals/<goal>` -> `<ws>`.
+
+    Derived by walking up to the `.rbtv` ancestor rather than by counting parents, because a goal
+    folder's depth is not a constant anyone here may assume."""
+    p = Path(pkg).resolve()
+    for parent in p.parents:
+        if parent.name == ".rbtv":
+            return parent.parent
+    return p.parent
+
+
+def rw_path_refusal(pkg, seat, entry):
+    """`spawn.js#rwPathRefusal`'s answer for one entry, or `''`. Fail-closed like its sibling."""
+    js = Path(__file__).resolve().parent.parent / "server" / "spawn" / "spawn.js"
+    ws = workspace_root_of(pkg)
+    script = (
+        "const s=require(process.argv[1]);"
+        "const r=s.rwPathRefusal({workspaceRoot:process.argv[2],seat:process.argv[3],"
+        "seatDir:'',goalDir:''},process.argv[4]);"
+        "process.stdout.write(JSON.stringify({reason:r}));"
+    )
+    try:
+        out = subprocess.run(["node", "-e", script, str(js), str(ws), str(seat), str(entry)],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return (f"the launch-time grant rules could not be consulted ({type(exc).__name__}: {exc})"
+                f" — a widen whose admissibility is unknown is REFUSED, so the leader never reads "
+                f"a success for a grant the spawner will drop")
+    if out.returncode != 0:
+        return (f"the launch-time grant rules refused to answer (exit {out.returncode}): "
+                f"{(out.stderr or '').strip()[:300]}")
+    try:
+        return json.loads(out.stdout).get("reason") or ""
+    except ValueError:
+        return f"the launch-time grant rules returned no JSON: {(out.stdout or '').strip()[:200]}"
+
+
+def cmd_widen_cage(args):
+    """(leader) Widen ONE seat's cage by ONE workspace-relative path, with a stated reason.
+
+    BARE = report what would be written; `--go` = append it. The append is the mechanism: the next
+    launch of that seat reads this file as a second rw-grant source."""
+    gate(args, "widen-cage", is_permission_editor,
+         "the `leader`'s alone — it is the goal's authority, and a permission edit is the first of "
+         "the authorities the consultant does NOT hold. The ignite daemon does not hold it either: "
+         "`is_authorized_launcher` is a ruled bound on OPENING a pane, never on editing a wall",
+         remedy="ask the leader; a seat blocked on a narrow cage reports the path it could not "
+                "reach and the leader widens it")
+    base = base_dir(args)
+    pkg = package_dir(args)
+    seat = args.seat
+    entry = (args.path or "").strip()
+    reason = (args.reason or "").strip()
+    if not reason:
+        refuse("input",
+               "--reason is REQUIRED. A widened wall nobody can audit is a wall nobody can narrow "
+               "again — the reason is what makes this file an audit log rather than a pile of "
+               "openings.", 1)
+    if not _ferry_safe_name(seat):
+        refuse("input", f"'{seat}' is not a valid seat name.", 1)
+    if not (Path(pkg) / "seats" / seat / "seat.md").exists():
+        refuse("state",
+               f"'{seat}' has no descriptor under {Path(pkg) / 'seats' / seat} — widening the cage "
+               f"of a seat that does not exist writes a grant no launch will ever read.\n"
+               f"Seats in this run: {coord_invocation(args)} ready-seats", 1)
+    # THE PRIVATE SCOPE FIRST, and UNCONDITIONALLY (adv, C29). The PIERCE rule — an opening that
+    # legitimately sits inside a private entry — is a MATERIALIZE-TIME authoring affordance, never a
+    # runtime one, so no reason, no flag and no identity carries this refusal.
+    why = private_scope_refusal(pkg, entry)
+    if why:
+        refuse("state",
+               f"REFUSED: `{entry}` is inside the workspace's PRIVATE SCOPE — {why}.\n"
+               f"This refusal is UNCONDITIONAL: there is no --force, no reason and no identity that "
+               f"carries it. A pierce of the private scope is authored at MATERIALIZE time, in the "
+               f"seat's own descriptor, where a human reviews it — it is never granted at runtime "
+               f"by a seat reacting to a blocker.\n"
+               f"If the seat genuinely needs this path, that is an ESCALATION, not a widen.", 1)
+    why = rw_path_refusal(pkg, seat, entry)
+    if why:
+        refuse("input",
+               f"REFUSED: `{entry}` — {why}.\n"
+               f"These are the SAME four rules the spawner applies at launch, checked here so you "
+               f"read the refusal now instead of reading a SUCCESS for a grant the spawner would "
+               f"silently drop — and then relaunching into the same wall.", 1)
+    stamp = now()
+    caller = resolve_agent(args)
+    if not getattr(args, "go", False):
+        print(f"{c(seat, C_LABEL)}  WIDENABLE — `{entry}` passes the private scope and all four "
+              f"launch-time grant rules.")
+        print(f"    would append to {permission_edits_csv(base)}: "
+              f"seat `{seat}`, path `{entry}`, edited-by `{caller}`")
+        print("    (report only — nothing was written. Re-run with --go to widen.)")
+        return
+    with coord_lock(base):
+        path = permission_edits_csv(base)
+        header, rows = read_csv_table(path, PERMISSION_EDITS_COLS)
+        header, _ = widen_header(header, PERMISSION_EDITS_COLS)
+        rows = [pad_row(r, header) for r in rows]
+        rec = {"stamped-at": stamp, "seat": seat, "path": entry, "reason": reason,
+               "edited-by": caller}
+        rows.append([rec.get(col, "") for col in header])
+        write_csv_table(path, header, rows)
+    print(f"{c(seat, C_LABEL)}  CAGE WIDENED — `{entry}` is read-write for this seat from its NEXT "
+          f"launch.")
+    print(f"    {path_display(permission_edits_csv(base))}: appended, edited-by `{caller}`")
+    print(c("\nIt takes effect at the seat's NEXT launch and NOT in any session already running — a "
+            "cage is fixed at spawn. Relaunch the seat, and SAY IN YOUR MESSAGE what you widened "
+            "and why: a widened wall nobody can audit is a wall nobody can narrow again.", C_HINT))
+
+
+def path_display(p):
+    return str(p)
+
+
+# ── `route-fail` — a FAIL verdict always reaches a receiver (adv, C31/C32) ─────────────────────
+#
+# D6's root cause was a builder seat's FAIL verdict with no mechanical receiver: its ask went to a
+# known-but-UNSTAFFED `leader` chair and was silently swallowed. This is the verb that makes the
+# receiver mandatory.
+#
+# ⚠ IT DOES NOT REUSE `mint_loop_refire`, and the reason is in that function's own docstring. Its
+# grants bind to the route seat's LATEST session row; a staff chair with no session row yields an
+# EMPTY binding, an unbound grant is surfaced unconditionally by every later sweep, and no spend
+# path can ever burn it (`seat-retry --spend` refuses an empty `--session` by name). The result is
+# a chair that flips READY after every later completion, forever. So: MAIL is the leader's
+# actuator, `mint_staff_wake` is the chair's wake, and a route target with an empty session is
+# REFUSED LOUDLY rather than granted an unbindable authorization.
+#
+# ⚠ THE PAYLOAD RIDES A FILE, NOT THE GRANT (D6's false-complete is the proof a bare grant re-runs
+# the STALE SEED). Every in-cage write path to a target's boot seed is closed — `seat.md` is
+# ro-bound, the goal root is read-only — and the ONE shared writable surface is
+# `{goalDir}/coordination`. So the payload is written there and `boot_prompt` folds it into the
+# relaunched sitting's opening.
+
+
+def route_payload_path(base, seat):
+    return Path(base) / ROUTE_PAYLOAD_DIR / f"{seat}.md"
+
+
+def write_route_payload(base, seat, text):
+    """Write the relaunched seat's payload. `(ok, why)` — never raises."""
+    p = route_payload_path(base, seat)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return False, f"{p}: {exc}"
+    return True, ""
+
+
+def read_route_payload(base, seat):
+    """The payload text for a seat's next sitting, or `''`. Never raises — a boot prompt that
+    raises is a seat that never boots, and the payload is an ADDITION to the prompt, not the
+    prompt."""
+    try:
+        return route_payload_path(base, seat).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def cmd_route_fail(args):
+    """Route a FAIL back to a receiver that exists. BARE = report; `--go` = act.
+
+    The route is the CALLER'S OWN declaration — `on-fail-relaunch:` in its `seat.md` frontmatter,
+    read by `on_fail_relaunch_route`, the same function the verdict verb's loop re-fire reads.
+    An UNDECLARED fail goes to the `leader`: a verdict with no declared receiver is exactly the
+    case D6 lost, so the fallback is a chair rather than a silence."""
+    base = base_dir(args)
+    pkg = package_dir(args)
+    sender = resolve_agent(args)
+    body = message_body(args)
+    go = bool(getattr(args, "go", False))
+    route = [r for r in on_fail_relaunch_route(base, sender)]
+    if not route:
+        to, why = staff_route_target(args, base, "")
+        print(f"{c(sender, C_LABEL)}  UNDECLARED FAIL -> `{to}` ({why})")
+        if not go:
+            print("    (report only — nothing was written. Re-run with --go to route it.)")
+            return
+        n = append_message(base, sender, to, "note",
+                           f"ROUTED FAIL — '{sender}' failed and declares no "
+                           f"`{ON_FAIL_RELAUNCH_KEY}` route.\n\n{body}")
+        woken, note = mint_staff_wake(args, base, pkg, to, STAFF_WAKE_ANCHOR, sender)
+        print(f"    routed: message #{n} -> `{to}`")
+        print(f"    staff wake: `{to}` granted a relaunch in BOTH stores — {note}" if woken
+              else f"    staff wake: no grant written — {note}")
+        return
+    # A DECLARED route. Each target is checked for EXISTENCE and for a bindable session BEFORE
+    # anything is written: `_ferry_safe_name` is SYNTAX ONLY, and D6's root cause was a TASK ID in
+    # that cell — a perfectly well-formed name that names no seat.
+    plans = []
+    for seat in route:
+        if not _ferry_safe_name(seat):
+            refuse("input",
+                   f"`{ON_FAIL_RELAUNCH_KEY}` entry {seat!r} on '{sender}'s seat.md is not a valid "
+                   f"seat name. Fix the descriptor; this verb routes to seats, not to text.", 1)
+        if not (Path(pkg) / "seats" / seat / "seat.md").exists():
+            refuse("state",
+                   f"`{ON_FAIL_RELAUNCH_KEY}` names `{seat}`, and this run has NO SEAT of that "
+                   f"name (no descriptor under {Path(pkg) / 'seats' / seat}).\n"
+                   f"That cell is checked for SYNTAX at every other door and for EXISTENCE at "
+                   f"none, and a task id sitting in it is exactly how a routed FAIL reached "
+                   f"nobody. Fix '{sender}'s `{ON_FAIL_RELAUNCH_KEY}` cell in its seat.md and in "
+                   f"the workflow's seats.csv, or route this by hand to a seat that exists.", 1)
+        sid = (sessions_last_ended(pkg).get(seat) or ("", ""))[0]
+        if not sid:
+            refuse("state",
+                   f"`{seat}` has NO ENDED SESSION ROW, so a relaunch grant for it would bind to "
+                   f"nothing — and an unbound grant is surfaced by every later sweep and can never "
+                   f"be spent, which flips that seat READY after every completion FOREVER.\n"
+                   f"If `{seat}` has never run, it is not a seat to RE-launch: let the DAG reach "
+                   f"it. If it is running now, wait for it to end. If it is a STAFF CHAIR, mail is "
+                   f"its actuator — {coord_invocation(args)} send {seat} \"<the fail>\" "
+                   f"--type note --inline.", 1)
+        plans.append((seat, sid))
+    print(f"{c(sender, C_LABEL)}  DECLARED ROUTE -> {', '.join(s for s, _ in plans)}")
+    if not go:
+        for seat, sid in plans:
+            print(f"    would grant `{seat}` a relaunch bound to session {sid}, write its payload "
+                  f"to {route_payload_path(base, seat)}, and message it")
+        print("    (report only — nothing was written. Re-run with --go to route it.)")
+        return
+    for seat, sid in plans:
+        n = append_message(base, sender, seat, "note",
+                           f"ROUTED FAIL from '{sender}' — you are being relaunched to address "
+                           f"it.\n\n{body}")
+        ok, why = write_route_payload(
+            base, seat,
+            f"## Routed FAIL from `{sender}` ({now()})\n\nYou are being relaunched because of "
+            f"this, and it is NOT the seed you ran on last time — address it before anything "
+            f"else.\n\n{body}\n")
+        mint_relaunch_grant(base, seat, sid, f"route-fail:{sender}", sender)
+        append_engine_grant(base, seat)
+        print(f"    `{seat}`: message #{n}, relaunch granted in BOTH stores (session {sid})")
+        told = f"written to {route_payload_path(base, seat)}" if ok else f"NOT written — {why}"
+        print(f"    `{seat}`: payload {told}")
+    print(c("\nEach routed seat relaunches on its NEXT seeding pass, and its boot prompt carries "
+            "the payload above — a bare grant would re-run the STALE SEED, which is how a "
+            "false-complete is manufactured.", C_HINT))
+
+
+# ── `send`'s recipient wrapper (adv, C33) ─────────────────────────────────────────────────────
+#
+# ⚠ WRAPPED AT THE CALL SITE, NEVER INSIDE `known_recipients`. That function's RETURN SET is
+# selftest-keyed and has a SECOND caller — `lifecycle_alarm_recipient`, which resolves the
+# `leader` chair for executor-failure alarms — so widening the function itself would change what
+# that caller reports as resolvable. The wrapper covers both concerns by sitting where the
+# recipient DECISION is made, and by leaving the set the two readers share untouched.
+
+
+def send_recipients(args, base):
+    """`(admitted, departed)` for `send`'s gate ONLY.
+
+    `admitted` is `known_recipients` plus the STAFF CHAIRS, which are always addressable whether or
+    not this goal has minted their roster rows yet: a send to a staff chair must never fail for
+    want of a live session, because "the chair was empty" is the failure this whole program exists
+    to close. `departed` is the roster names whose rows are no longer active — accepted, and LOUDLY,
+    because a message to a seat that has gone is not refused (its successor may read the log) but
+    is never silent either."""
+    admitted = set(known_recipients(args, base))
+    admitted |= set(STAFF_SEATS)
+    departed = set()
+    try:
+        _, _, rows = load_workers(base)
+        for r in rows:
+            if r.get("active") != "yes":
+                departed.add(r["agent"])
+    except Exception:                                          # noqa: BLE001
+        departed = set()
+    return admitted, departed - set(STAFF_SEATS)
 
 
 def cmd_attest_exit(args):
@@ -14526,6 +15196,21 @@ def boot_prompt(w, args, daemon_lane=False):
             f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
             f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
             f"then execute ONLY your briefing. ")
+    # ── W3 · THE ROUTED-FAIL PAYLOAD, folded in HERE and nowhere else ─────────────────────────
+    #
+    # A relaunch grant on its own re-runs the seat on its STALE SEED — which is precisely how D6's
+    # false-complete was manufactured: the seat ran again, saw the same inputs, and reported the
+    # same finish. The payload is what makes the second sitting DIFFERENT from the first, and this
+    # is the one composer every launcher on every lane goes through, so folding it in here reaches
+    # the daemon's seeding pass and `launch` alike with no second reader.
+    #
+    # ⚠ IT IS APPENDED, NEVER SUBSTITUTED. The seat still reads its briefing and still follows the
+    # protocol; the payload says why THIS sitting exists. A payload that replaced the prompt would
+    # hand a relaunched seat no idea what it is.
+    payload = read_route_payload(base_dir(args, register=False), w["agent"])
+    routed = ("\n\n⚠ THIS SITTING WAS ROUTED TO YOU — read this before your briefing's ordinary "
+              "work; it is the reason you were relaunched and it is NOT in the inputs you ran on "
+              f"last time:\n\n{payload}\n") if payload else ""
     return (
         f"You are agent '{w['agent']}' of the run package at {pkg}. "
         f"{first} "
@@ -14533,6 +15218,7 @@ def boot_prompt(w, args, daemon_lane=False):
         f"{scratchpad_instruction(w, daemon_lane)}"
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
+        f"{routed}"
     )
 
 
@@ -19203,7 +19889,16 @@ def _selftest_checks(args, failures, names):
               code == 1 and "betaa" in out and "'beta'" in out)
         out, code = refuse(cmd_send, agent="alpha", to="betaa", message="typo", type="note",
                            supersedes=None, re_num=None, file=None, force=True)
-        check("T3 validation: --force sends it anyway", code == 0 and "sent message #" in out)
+        # W3 (adv, C33) — THIS ROW IS INVERTED, and the inversion is the ruling. `--force` used to
+        # carry the unknown-recipient refusal, and the override was defensible only while the
+        # recipient set was NARROWER than the set of legitimate addresses — a STAFF CHAIR was not
+        # in it, so a seat reaching for the leader had to force past a gate that was wrong about
+        # the leader. `send_recipients` admits the chairs, so the override has nothing left to be
+        # right about, and what it does have is the F5 failure: the message lands under a name
+        # nobody reads, permanently, in an append-only log.
+        check("T3 validation (W3): `--force` NO LONGER carries an unknown recipient — the refusal "
+              "is force-proof, and the sender still HOLDS its message",
+              code == 1 and "betaa" in out and "no --force for this one" in out)
         raw_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
         out = sd("alpha", "hk-2", "your briefing exists but you have not checked in yet")
         raw_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
@@ -24191,9 +24886,9 @@ def _selftest_checks(args, failures, names):
               "since s12-07 are still keyword-only in practice",
               len(_s7_calls) >= 6
               and _s7_params[:5] == ["base", "seat", "pane", "transcript", "exported"]
-              and _s7_params[5:] == ["disposition", "handoff_stamp", "writer"]
+              and _s7_params[5:] == ["disposition", "handoff_stamp", "writer", "route"]
               and all(len(n.args) <= 5 for n in _s7_calls)
-              and _s7_kwnames <= {"disposition", "handoff_stamp", "writer"})
+              and _s7_kwnames <= {"disposition", "handoff_stamp", "writer", "route"})
 
         # ============ dag-08: THE RECORD DISPOSITION ENUM AND ITS WRITER BOUND ===================
         # Spec: implementation-tasks/dag-08-exited-disposition-enum.md (EX-1…EX-4, EX-6).
@@ -24300,8 +24995,13 @@ def _selftest_checks(args, failures, names):
             _d8_bad_msg = ""
         except ValueError as _d8_exc:
             _d8_bad_ret, _d8_bad_msg = "raised", str(_d8_exc)
+        # W3 added `route` — the STAFF CHAIR this ending's mail is addressed to, declared by the
+        # occupant at check-out and read ONLY by the session-closer. It joins the field set here
+        # rather than being excluded from it: the row's claim is that the record is COMPLETE and
+        # that a pre-change call site still writes every field, and a field left out of this set
+        # would be a field the sweep stops checking the day it is added.
         _d8_fields = {"since", "pane", "transcript", "exported", "pids", "disposition",
-                      "handoff_stamp"}
+                      "handoff_stamp", "route"}
         check("dag-08 EX-4: `set_awaiting` GAINED A WRITER BOUND AND LOST NOTHING — a pre-change "
               "call site (five positional arguments, no keywords) still records every field it "
               "always did, with the same values, and the explicit post-change call is "
@@ -24315,6 +25015,7 @@ def _selftest_checks(args, failures, names):
               and _d8_pre["disposition"] == "done" and _d8_pre["pane"] == "%84"
               and _d8_pre["transcript"] == "/tmp/d8.txt" and _d8_pre["exported"] is True
               and _d8_pre["handoff_stamp"] == "" and _d8_pre["since"]
+              and _d8_pre["route"] == ""
               and {k: v for k, v in _d8_pre.items() if k != "since"}
                   == {k: v for k, v in _d8_post.items() if k != "since"}
               and _d8_bad_ret == "raised" and "harvest" in _d8_bad_msg
@@ -28534,13 +29235,20 @@ def _selftest_checks(args, failures, names):
         _dl2_out, _, _dl2_code = _ae(_dl2, session="oc2-sid", force_dead=True, go=True,
                                      as_agent="ignite-daemon")
         _dl2_row = _dl_rows(_dl2)[0]
-        check("W1: with NO declaration the closer attests `exited` under `kit` — its own witness "
-              "(a harness terminated) and nothing about the work — and SAYS OUT LOUD that the row "
-              "routes to a leader that does not exist before W3 (adv, C10). Silence there is how a "
-              "row nobody is coming for looks exactly like a row somebody is",
+        # W3 INVERTS THE SECOND HALF OF THIS ROW, and the inversion is the whole wave. It pinned
+        # the C10 INTERIM NOTE — "an `exited` row routes to a LEADER and no leader seat is staffed
+        # on this lane yet" — which was the honest thing to say while nothing was listening. The
+        # chair exists now, so what must be pinned is the ACT that reaches it: the staff-mail arm,
+        # minted mechanically on every terminal non-`done` ending. Pinning the note would now pin a
+        # sentence about a gap that is closed; pinning the mail pins the closing.
+        check("W1/W3: with NO declaration the closer attests `exited` under `kit` — its own witness "
+              "(a harness terminated) and nothing about the work — and MAILS THE STAFF CHAIR in "
+              "the same act. The C10 interim note is GONE WITH ITS CONDITION: a row nobody is "
+              "coming for no longer looks exactly like a row somebody is, because somebody is",
               _dl2_code is None and _dl2_row["disposition"] == "exited"
               and _dl2_row["disposition-writer"] == DISPOSITION_WRITER_KIT
-              and "INTERIM (pre-W3)" in _dl2_out)
+              and "staff mail: #" in _dl2_out and "`leader`" in _dl2_out
+              and "INTERIM (pre-W3)" not in _dl2_out)
 
         # (3) THE SESSION-ID IS THE KEY, AND IT DISCRIMINATES (adv, C6). Two open rows for ONE
         #     seat — the concurrent-sitting shape — and only the named one may be touched. Seat-name
@@ -32310,7 +33018,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / seat-retry  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / seat-retry / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -32826,6 +33534,13 @@ def build_parser():
                    help="the same note, read from a UTF-8 file instead of the command line — requires --renew, and never together with --handoff. Use it whenever the note has backticks, quotes or many lines, which a shell mangles before coord.py sees them")
     s.add_argument("--incomplete", metavar="REASON", default=None,
                    help="end this session UNFINISHED and say so, quoted — your done-contract is unmet and no successor is booted. It records disposition `incomplete` instead of `done`, so NO DAG EDGE ADVANCES and leader is routed the row carrying your reason. Use it instead of a plain checkout whenever your briefing asked for something that does not exist; never together with --renew, which says the opposite (the seat CONTINUES)")
+    s.add_argument("--route", metavar="CHAIR", default=None, choices=list(STAFF_SEATS),
+                   help="which STAFF CHAIR the session-closer mails this ending to. Default (and "
+                        "the right answer nearly always): `leader`, the unblocker that holds this "
+                        "goal's authority. Name `consultant` only when what you are stuck on is "
+                        "GUIDANCE — a question above your scope that needs no authority to answer; "
+                        "a goal that staffs none falls back to the leader. It is a HINT, never an "
+                        "authority, and only the closer reads it")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 
@@ -33177,6 +33892,60 @@ def build_parser():
                    help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
     add_identity_flags(s)
     s.set_defaults(func=cmd_seat_retry)
+
+    # ── W3 · the leader's two actuators ────────────────────────────────────────────────────────
+    s = command(
+        "widen-cage",
+        "(leader) THE AUDITED PERMISSION EDIT — widen ONE seat's cage by ONE workspace-relative\n"
+        "path, with a stated reason. This is the actuator behind the leader's FIX-AND-RELAUNCH\n"
+        "disposition: the common blocker is a CAGE TOO NARROW, and this is how it is repaired.\n"
+        "\n"
+        "⚠ IT WRITES coordination/permission-edits.csv, NOT the seat's `rw-paths` cell. That cell\n"
+        "is seat.md frontmatter — ro-bound in-cage and materializer-owned, so a refresh or a splice\n"
+        "silently reverts it. The spawner reads THIS file additively at every launch, so the audit\n"
+        "log and the mechanism are ONE artifact.\n"
+        "\n"
+        "⚠ IT REFUSES A PRIVATE PATH UNCONDITIONALLY. No reason, no flag and no identity carries\n"
+        "that refusal: a pierce of the private scope is authored at MATERIALIZE time, where a human\n"
+        "reviews it, and is never granted at runtime. It also validates the four launch-time grant\n"
+        "rules HERE, so you never read a success for a grant the spawner would silently drop.\n"
+        "\n"
+        "It takes effect at the seat's NEXT launch and in no session already running.",
+        "example:\n"
+        "  coordinate widen-cage builder data/fixtures --reason \"its briefing writes here\"\n"
+        "  coordinate widen-cage builder data/fixtures --reason \"…\" --go\n"
+        "next: relaunch the seat, and SAY on the log what you widened and why")
+    s.add_argument("seat", help="the TARGET seat whose cage is widened (never the caller)")
+    s.add_argument("path", help="ONE workspace-RELATIVE path, which must already exist")
+    s.add_argument("--reason", required=True, metavar="WHY",
+                   help="REQUIRED: why this seat needs this path. A widened wall nobody can audit "
+                        "is a wall nobody can narrow again")
+    s.add_argument("--go", action="store_true", help="append it (bare = report, write nothing)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_widen_cage)
+
+    s = command(
+        "route-fail",
+        "Route a FAIL back to a receiver that EXISTS. The route is your own seat.md declaration\n"
+        "(`on-fail-relaunch:`); an UNDECLARED fail goes to the `leader`, because a verdict with no\n"
+        "declared receiver is exactly the case that was lost silently.\n"
+        "\n"
+        "A declared target is checked for EXISTENCE (a well-formed name that names no seat is how a\n"
+        "routed FAIL reached nobody) and for a bindable ENDED SESSION, then granted a relaunch in\n"
+        "BOTH grant stores — and handed a PAYLOAD FILE that its next boot prompt folds in. A bare\n"
+        "grant would re-run the seat on its STALE SEED, which manufactures a false complete.",
+        "example:\n"
+        "  coordinate route-fail \"the contract in step 3 contradicts step 1\" --inline --go\n"
+        "next: coordinate read — the routed seat relaunches on the next seeding pass")
+    s.add_argument("message", nargs="?",
+                   help="the fail, quoted — needs --inline when typed at a shell. Anything with "
+                        "backticks, quotes or newlines goes through --file")
+    s.add_argument("--file", metavar="PATH", help="read the body from a file instead")
+    s.add_argument("--inline", action="store_true",
+                   help="required with a positional body — the shell-quoting acknowledgement")
+    s.add_argument("--go", action="store_true", help="act (bare = report, write nothing)")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_route_fail)
 
     s = command(
         "export-transcript",
