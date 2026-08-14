@@ -251,9 +251,12 @@ def main():
         # file that held it, so there is no mirror left to guard.
 
         # ---- A5: the closure properties the Windows-aborted self-test cannot reach --------------
-        check("A5: `incomplete` is admitted from the SEAT and from nobody else — the kit may not "
-              "put this word in a seat's mouth, because only the occupant witnesses it",
-              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset({mod.DISPOSITION_WRITER_SEAT}))
+        check("A5: `incomplete` is admitted from the SEAT, and from the kit ONLY under "
+              "`kit-for-seat` — the token that transcribes a value the seat itself declared (W1, "
+              "`dc2b3f149`). The kit may still not put this word in a seat's mouth under its own "
+              "name, because only the occupant witnesses it",
+              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset(
+                  {mod.DISPOSITION_WRITER_SEAT, mod.DISPOSITION_WRITER_KIT_FOR_SEAT}))
         refused = []
         for writer in (mod.DISPOSITION_WRITER_KIT, mod.DISPOSITION_WRITER_LEADER):
             try:
