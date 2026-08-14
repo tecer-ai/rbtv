@@ -688,9 +688,13 @@ async function main() {
     // re-fire (owner ruling 2026-08-12, `concepts/loop.md`) moved that guard to the grant's MINT —
     // every writer of the grant is a deliberate act (the `--relaunch` CLI, the leader, the verdict
     // verb's `on-fail-relaunch` route) — so a granted seat's history is now hidden WHOLE, finished
-    // rows included. LEG 5 of probe-relaunch-grant and P5 of probe-block-and-queue-hold pin it on
-    // the daemon side and F6 of probe-cross-lane-resume in the attached lane; this is the VIEW
-    // FUNCTION itself, on a store a real killed-then-relaunched subprocess wrote.
+    // rows included. LEG 5 of probe-relaunch-grant pins it on the daemon side (control + granted
+    // pair against one attested check-out); this is the VIEW FUNCTION itself, on a store a real
+    // killed-then-relaunched subprocess wrote. ⚠ The two OTHER citations this comment carried are
+    // gone and were not replaced silently: `P5 of probe-block-and-queue-hold` died with that probe
+    // (W2 deleted its subject), and probe-cross-lane-resume's F6 `done` half was removed in the
+    // same change — since W2 that fixture's finishedness is a coord CHECK-OUT, which the engine's
+    // own grant cannot lift, so restoring it would mean hand-minting into a schema coord owns.
     check('B1f a FINISHED seat IS re-opened by naming it in a grant — the loop re-fire, at the view',
       !withGrant.get(attached.jobIdFor('alpha'))
         && !withGrant.get(attached.jobIdFor('bravo'))

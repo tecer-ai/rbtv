@@ -2728,12 +2728,26 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
                         f"uncanonical value would silently close the owner-contact gate."
                     )
                 if hi_norm in ("yes", "true"):
+                    # ⚠ `block-and-queue` IS STILL ACCEPTED, AND DELIBERATELY SO — do not
+                    # "clean" it out of this tuple. W2 deleted its ENGINE arm
+                    # (`execution-record.js#blockAndQueueVerdict`): the owner-ask hold is now a
+                    # `HELD` verdict computed for EVERY seat inside `coord.py ready-seats`, so
+                    # no gate reads this value any more and the word is ACCEPTED-BUT-INERT
+                    # pending W3. The two SURVIVING values still drive behaviour — `park` is
+                    # the Slack ferry's gate-3 arm, and the pairing itself (a
+                    # human-interactive seat MUST declare a fallback) is the
+                    # `interactive-fallback` check every consumer cites. Refusing the inert
+                    # word here would fail every already-materialized seat.md carrying it,
+                    # for a key whose only remaining fault is that nothing acts on it.
                     fb = str(row.get("fallback", "") or "").strip()
                     if fb not in ("park", "default-and-disclose", "block-and-queue"):
                         raise Refusal(
                             f"{row['__source__']}: `human-interactive: {hi}` "
                             f"declares fallback '{fb or '(absent)'}' — required, "
-                            f"one of park | default-and-disclose | block-and-queue"
+                            f"one of park | default-and-disclose | block-and-queue "
+                            f"(`block-and-queue` accepted but INERT since W2 — nothing acts "
+                            f"on it; the owner-ask hold is now `coord.py ready-seats`' "
+                            f"universal HELD verdict)"
                         )
                     # EMITTED AS THE BOOLEAN, never the source spelling, and that choice
                     # is load-bearing: `yaml.safe_dump` renders the STRING "yes" as
@@ -2956,7 +2970,14 @@ def seat_states(goal_dir: Path) -> dict[str, dict]:
       never-ran  no row names this seat
       open       its LAST row carries an EMPTY outcome (`ended` unstamped: still going, as far
                  as the lane that wrote it knows)
-      done       its LAST row is stamped; the outcome reported is that row's
+      ended      its LAST row is stamped; the outcome reported is that row's
+
+    ⚠ `ended` IS NOT `done`. W2 narrowed the `outcome` column to a PROCESS vocabulary —
+    `clean | crashed | killed` — so a stamped cell says the RUN finished, never that the WORK
+    is finished (a crashed seat stamps `crashed` and would have rendered `done` under the old
+    word). Done-ness left this column entirely: it now lives in the seat's check-out
+    disposition, read via `coord.py ready-seats --json` (field `disposition`). Anything here
+    that wants "is the work done" must go there; this function answers process state only.
 
     ⚠ THE LAST ROW DECIDES, IN FILE ORDER — never "any row is open". The record is append-only
     and the engine keys on exactly this (`engine/execution-record.js`: "the seat's LAST word in
@@ -2975,7 +2996,7 @@ def seat_states(goal_dir: Path) -> dict[str, dict]:
     states: dict[str, dict] = {}
     for seat, rows in by_seat.items():
         outcome = (rows[-1].get("outcome") or "").strip()
-        states[seat] = {"state": "done" if outcome else "open",
+        states[seat] = {"state": "ended" if outcome else "open",
                         "outcome": outcome, "runs": len(rows)}
     return states
 
@@ -3295,6 +3316,15 @@ def cmd_add_seat(args) -> int:
     # Read through `seat_states`, so this gate and `dag` answer the same question the same way,
     # and both answer it the way the engine does (`seeding.js#recordView`: a seat's LAST row is
     # its state; an earlier open row that a later row superseded is spent, not live).
+    #
+    # ⚠ EMPTINESS-KEYED, AND THAT SURVIVES W2 UNCHANGED — do not "tidy" it into the outcome
+    # vocabulary. This gate and `_retry_write_gate` ask only "is the cell EMPTY" (`state ==
+    # "open"` is the same question through `seat_states`), and emptiness still means exactly
+    # what it always meant: the run has not ended. W2 narrowed the STAMPED values
+    # (`clean | crashed | killed`) and moved done-ness out to the check-out disposition, but it
+    # did not touch the empty cell. W7's splice gate depends on these two readers keying on
+    # emptiness and nothing else — a rewrite that keys on any particular stamped word would
+    # let a crashed-but-ended seat read as still-running, or vice versa.
     executions = read_executions(goal_dir)
     still_open = {s for s, st in seat_states(goal_dir).items() if st["state"] == "open"}
     open_rows = [r for r in executions if not (r.get("outcome") or "").strip()
@@ -4895,21 +4925,21 @@ def cmd_selftest(args) -> int:
         (live / EXECUTIONS_FILE).write_text(
             "seat,session-id,lane,started,ended,outcome\n"
             "a,s1,attached,t0,,\n"
-            "a,s2,attached,t1,t2,done\n", encoding="utf-8", newline="")
+            "a,s2,attached,t1,t2,clean\n", encoding="utf-8", newline="")
         check("a seat whose LAST row is stamped is quiescent even with an earlier OPEN row",
               _code(cmd_add_seat, _add()) is None)
-        check("…and `seat_states` reports it `done`, not `open`",
-              seat_states(live)["a"] == {"state": "done", "outcome": "done", "runs": 2},
+        check("…and `seat_states` reports it `ended`, not `open`",
+              seat_states(live)["a"] == {"state": "ended", "outcome": "clean", "runs": 2},
               str(seat_states(live)))
         (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
         (live / EXECUTIONS_FILE).write_text(
             "seat,session-id,lane,started,ended,outcome\n"
-            "b,s1,attached,t0,t1,done\n", encoding="utf-8", newline="")
+            "b,s1,attached,t0,t1,clean\n", encoding="utf-8", newline="")
         check("a --before seat that has already RUN refuses `splice-target-has-run`",
               _code(cmd_add_seat, _add()) == "splice-target-has-run")
         (live / EXECUTIONS_FILE).write_text(
             "seat,session-id,lane,started,ended,outcome\n"
-            "a,s1,attached,t0,t1,done\n", encoding="utf-8", newline="")
+            "a,s1,attached,t0,t1,clean\n", encoding="utf-8", newline="")
         (live / ATTACHED_RUN_LOCK).write_text("pid\n", encoding="utf-8")
         check("a live attached run refuses `attached-run-live`",
               _code(cmd_add_seat, _add()) == "attached-run-live")
@@ -4954,7 +4984,7 @@ def cmd_selftest(args) -> int:
               str(seats_seen))
         by = {n["seat"]: n for n in dag["nodes"]}
         check("dag derives execution state from executions.csv",
-              by["a"]["state"] == "done" and by["a"]["outcome"] == "done"
+              by["a"]["state"] == "ended" and by["a"]["outcome"] == "clean"
               and by["c"]["state"] == "never-ran", json.dumps(by["a"]))
         check("dag reports the new seat's predecessors through the after grammar",
               by["b"]["predecessors"] == ["new"], str(by["b"]))
@@ -5066,7 +5096,7 @@ def cmd_selftest(args) -> int:
               _rt_show()["threshold"] == RETRY_THRESHOLD_DEFAULT)
         (rt / EXECUTIONS_FILE).write_text(
             "seat,session-id,lane,started,ended,outcome\n"
-            "plan-dod-judge,s1,daemon,t0,t1,done\n", encoding="utf-8", newline="")
+            "plan-dod-judge,s1,daemon,t0,t1,clean\n", encoding="utf-8", newline="")
         check("a CLOSED record lets the same --set through — a HALTED goal is exactly when the "
               "owner raises the bar, so the gate must not bar that case",
               _code(cmd_retry_threshold, _rt(**{"set": "5"})) is None

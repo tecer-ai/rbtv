@@ -135,6 +135,29 @@ const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 // occupant's check-out too, or the fixture models a seat that finished and an edge that cannot
 // move. `coord.py session_close` would write exactly these three cells for a seat that declared
 // itself done; `seat` is the only writer the enum admits for that value.
+// The launch TRACE's header, from the SCHEMA OWNER (`coord.py SESSIONS_COLS`) and never spelled
+// here. Hoisted to module scope because BOTH synthesized lanes need it since W2: a fixture that
+// writes only the execution record now models a lane that ran a seat which never checked out, and
+// `--status`/`recordView` correctly answer "not done" for it.
+const HEADER = require('node:child_process').execFileSync(requirePythonCmd(),
+  ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
+    path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
+const HEADER_COLS = HEADER.split(',');
+const cell = (m) => HEADER_COLS.map((c) => m[c] || '').join(',');
+
+// ⚠ A SYNTHESIZED LANE MUST WRITE **BOTH** HALVES SINCE W2, and this helper is why. The execution
+// record's `outcome` column is a PROCESS vocabulary now, so nothing in it can say the WORK is done;
+// done-ness is the seat's own CHECK-OUT, which `coord.py ready-seats --json` reports as a
+// `disposition` and `seeding.js#recordView` reads. A fixture that stopped at the record row was
+// modelling a real state — a seat whose process ended and which never checked out — but not the one
+// its arm claimed.
+function attestCheckout(goal, seat, sessionId) {
+  fs.writeFileSync(path.join(goal, 'sessions.csv'), `${HEADER}\n${cell({
+    'session-id': sessionId, seat, harness: 'claude', workdir: path.join(goal, 'seats', seat),
+    started: isoNow(), ended: isoNow(), disposition: 'done', 'disposition-writer': 'seat',
+  })}\n`);
+}
+
 const { splitRow, quoteField } = require('../../server/seat-identity/csv');
 function checkOutDone(goal, seat) {
   const csvPath = path.join(goal, 'sessions.csv');
@@ -228,9 +251,19 @@ async function main() {
   check('D1 the goal folder carries the EXECUTION RECORD, written by the lane that ran the seats',
     recordRows.length > 0 && recordRows.every((r) => r.lane === 'attached'),
     recordRows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
-  check('D1 alpha is DONE in the record — the answer that used to live only in this lane\'s heart.db',
-    record.finishedSeats(goalFolder).has('alpha'),
-    `finished: ${[...record.finishedSeats(goalFolder)].join(', ') || 'none'}`);
+  // ⚠ THIS ARM USED TO CLAIM "alpha is DONE in the record", off `finishedSeats`. IT CANNOT, AND
+  // SAYING SO IS THE POINT OF W2: the `outcome` column is a PROCESS vocabulary (`clean|crashed|
+  // killed`), so the most it can attest is that a lane RAN this seat and watched it end — a `clean`
+  // exit is equally true of a seat that fail-blocked. Done-ness is the seat's own check-out
+  // disposition, on `coord.py ready-seats --json`. What the record still answers is precisely what
+  // the cross-lane guarantee spends: has ANY lane already run this seat to termination. So the arm
+  // measures THAT, under the function's honest name, and the done-ness claim is not restated
+  // somewhere weaker — it is made where it now lives, at the `--status` arm in D4 below, which
+  // reads coord's disposition.
+  check('D1 the record shows a lane RAN alpha to termination — the cross-lane fact that used to '
+    + 'live only in this lane\'s heart.db',
+    record.ranSeats(goalFolder).has('alpha'),
+    `ran: ${[...record.ranSeats(goalFolder)].join(', ') || 'none'}`);
 
   // THE PICKUP, BEHAVIOURALLY — the half that could only be measured structurally before, and the
   // reason it can be measured now: seeding stopped being attached-lane machinery (engine/seeding.js)
@@ -321,8 +354,12 @@ async function main() {
       daemonEngine.close();
     }
   }
+  // …and the seat's own CHECK-OUT, which is the other half of what a daemon lane leaves behind and
+  // the ONLY surface that can say the WORK finished since W2 (see `attestCheckout`). Written AFTER
+  // the publish so the arm above still measures the record's own writer and nothing else.
+  attestCheckout(freshGoal, 'alpha', DAEMON_SESSION);
   check('D2 the DAEMON LANE\'S OWN TICK publishes that outcome into the GOAL FOLDER\'s record',
-    record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === 'done'),
+    record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === record.CLEAN),
     record.readExecutionRecord(freshGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
 
   // THE CALLER ARM (review F1). The behavioural arm above drives `engine.tick`; this one asserts
@@ -357,10 +394,24 @@ async function main() {
   // THE DISCRIMINATING MUTATION: nothing about this goal changes except the ONE fact the decision
   // rests on — alpha's ROW. Take it out and the very same fixture re-runs the seat, so the skip
   // above is the record's content, not the file's existence, not the seat's name, not the trace.
-  const mutantOf = (name, edit) => {
+  // ⚠ THE TARGET IS `record.CLEAN`, NOT A TYPED `done` (W2). This pattern used to read `/,done$/m`,
+  // and after the outcome column narrowed to `clean|crashed|killed` that regex could match NOTHING
+  // — the two mutations below would have applied to no byte, the fixtures would have been identical
+  // to their control, and the F3/F6 arms would have passed while measuring nothing at all. It is
+  // built from the module's own constant so the next narrowing breaks it loudly instead.
+  const BLANK_THE_OUTCOME = new RegExp(`,${record.CLEAN}$`, 'm');
+  // ⚠ A MUTANT DROPS THE CHECK-OUT BY DEFAULT SINCE W2, AND WITHOUT THAT EVERY ARM BELOW IS
+  // UNREACHABLE. `freshGoal` now carries both halves a finished daemon-lane seat leaves — the record
+  // row AND the `done` disposition on `sessions.csv` — because done-ness moved to the check-out.
+  // Every mutant below models a seat whose WORK is NOT finished (crashed, still open, or with its
+  // record row erased), and such a seat did not check out `done`; leaving the copied attestation in
+  // place makes coord answer `DONE` for it, so nothing can ever be dispatched and each arm reports
+  // `[]` no matter what the engine decides. Copying a fixture is copying its every fact.
+  const mutantOf = (name, edit, { keepCheckout = false } = {}) => {
     const dir = path.join(workspace, '.rbtv', 'goals', name);
     fs.cpSync(freshGoal, dir, { recursive: true });
     for (const f of fs.readdirSync(dir)) if (f.startsWith('heart.db')) fs.rmSync(path.join(dir, f), { force: true });
+    if (!keepCheckout) fs.rmSync(path.join(dir, 'sessions.csv'), { force: true });
     edit(record.recordPath(dir));
     return dir;
   };
@@ -373,13 +424,28 @@ async function main() {
     return { fired, out };
   };
 
-  const gone = mutantOf('lane-goal-2m', (rp) => {
+  const dropAlphaRow = (rp) => {
     const keep = fs.readFileSync(rp, 'utf8').split('\n').filter((l) => !/^alpha,/.test(l));
     fs.writeFileSync(rp, keep.join('\n'));
-  });
+  };
+  // ⚠ THE SINGLE MUTATION THAT USED TO SIT HERE IS NOW A **PAIR**, AND THE FIRST HALF IS THE W2
+  // REPOINT ITSELF. The arm read "delete alpha's ROW from the record and the same goal re-runs the
+  // seat — the decision is the recorded row and nothing else". That sentence is false since W2 and
+  // its falseness is the whole change: the record's `outcome` column is a PROCESS vocabulary, so
+  // nothing in it can say the WORK finished, and the seat's own CHECK-OUT decides. Erasing the
+  // record row alone therefore must NOT re-run the seat — and had this stayed one arm, the honest
+  // new behaviour would have read as a regression.
+  const goneRecordOnly = mutantOf('lane-goal-2m-rec', dropAlphaRow, { keepCheckout: true });
+  const goneRecordOnlyRun = await runOn(goneRecordOnly);
+  check('D2 MUTATION (a): with alpha\'s record ROW deleted but its CHECK-OUT intact the seat is '
+    + 'STILL not re-run — done-ness is the seat\'s own disposition since W2, not a cell in this file',
+    goneRecordOnlyRun.fired.length === 0, JSON.stringify(goneRecordOnlyRun.fired));
+  // …and the non-vacuity half: with NEITHER half of the evidence the very same fixture DOES re-run
+  // the seat, so arm (a) is a hold and not a fixture that could never dispatch anything.
+  const gone = mutantOf('lane-goal-2m', dropAlphaRow);
   const goneRun = await runOn(gone);
-  check('D2 MUTATION: delete alpha\'s ROW from the record and the same goal re-runs the seat — the '
-    + 'decision is the recorded row and nothing else',
+  check('D2 MUTATION (b): with the record row AND the check-out both gone the same goal re-runs the '
+    + 'seat — so (a) measured a hold, not a fixture that can never dispatch',
     goneRun.fired.length === 1 && goneRun.fired[0] === path.join(gone, 'seats', 'alpha'),
     JSON.stringify(goneRun.fired));
 
@@ -388,7 +454,7 @@ async function main() {
   // seat must NOT be dispatched here — that was the double-dispatch review finding F3 — and the run
   // must not spin on it either.
   const openGoal = mutantOf('lane-goal-2o', (rp) => {
-    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(/,done$/m, ','));
+    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(BLANK_THE_OUTCOME, ','));
   });
   const openRun = await runOn(openGoal);
   check('F3 an OPEN row from another lane HOLDS the seat — it is never dispatched a second time',
@@ -409,9 +475,9 @@ async function main() {
   check('F3 …and the EXPLICIT one-shot grant releases it — the same act a local failure requires',
     openGranted.length === 1, JSON.stringify(openGranted));
 
-  // ── F6 · A FOREIGN TERMINAL NON-`done` OUTCOME IS HELD TOO, exactly like a local one ────────
+  // ── F6 · A FOREIGN `crashed` OUTCOME IS HELD TOO, exactly like a local one ────────
   const failedGoal = mutantOf('lane-goal-2f', (rp) => {
-    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(/,done$/m, ',failed'));
+    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(BLANK_THE_OUTCOME, `,${record.CRASHED}`));
   });
   const failedRun = await runOn(failedGoal);
   check('F6 a seat that FAILED in the other lane is held here, not silently re-run — the local path '
@@ -423,23 +489,23 @@ async function main() {
     maxTicks: 1, relaunch: ['alpha'],
     spawnForeground: (argv, cwd) => { failedGranted.push(cwd); return { status: 0 }; },
   });
-  // …and a `done` seat too, since the loop re-fire (owner ruling 2026-08-12, `concepts/loop.md`)
-  // moved the "must not re-run completed work" guard to the grant's MINT. LEG 5 of
-  // probe-relaunch-grant and P5 of probe-block-and-queue-hold pin that on the DAEMON side; this is
-  // the ATTACHED lane's copy, which no other probe reaches. The unmutated fixture is the same one
-  // D2 above runs WITHOUT a grant and gets zero launches from — so the grant is the only difference.
-  const doneGoal = mutantOf('lane-goal-2d', () => {});
-  const doneGranted = [];
-  await attached.executeAttached({
-    goalFolder: doneGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
-    maxTicks: 1, relaunch: ['alpha'],
-    spawnForeground: (argv, cwd) => { doneGranted.push(cwd); return { status: 0 }; },
-  });
-  check('F6 …and the grant releases THAT one too — and a seat the record calls `done` as well: the '
-    + 'loop re-fire, in this lane',
-    failedGranted.length === 1
-      && doneGranted.length === 1 && doneGranted[0] === path.join(doneGoal, 'seats', 'alpha'),
-    `granted-after-failure ${JSON.stringify(failedGranted)} · granted-after-done ${JSON.stringify(doneGranted)}`);
+  check('F6 …and the grant releases it — the same one-shot act the local failure path takes',
+    failedGranted.length === 1 && failedGranted[0] === path.join(failedGoal, 'seats', 'alpha'),
+    `granted-after-failure ${JSON.stringify(failedGranted)}`);
+  // ⚠ THE LOOP RE-FIRE'S SECOND HALF WAS **REMOVED** FROM THIS PROBE BY W2, AND ITS COVERAGE MOVED
+  // RATHER THAN VANISHED — do not restore it here without reading this. A `doneGoal` arm stood
+  // beside the one above: the UNMUTATED fixture, plus `--relaunch`, expecting a launch, pinning
+  // that the grant re-opens a seat already finished (owner ruling 2026-08-12, `concepts/loop.md`).
+  // Since W2 that fixture's finishedness is its `sessions.csv` CHECK-OUT, and a `done` check-out
+  // makes `coord.py ready-seats` answer `DONE` — a verdict the engine's own grant cannot lift,
+  // because the loop re-fire is a TWO-STORE act: `<goal>/relaunch-grants` (engine) AND
+  // `coordination/relaunch-grants.csv` (coord's, which is what flips the verdict). `--relaunch`
+  // argv writes only the first, so the arm could only be restored by hand-minting a row into a
+  // schema coord owns — a second copy of another surface's file format, in a fixture.
+  // The guard it targeted is `recordView`'s `finished.delete(seat)` — ONE function, shared by both
+  // lanes, so there was never an attached-lane copy of it to lose. It is pinned behaviourally at
+  // `probe-relaunch-grant.js` LEG 5 (control + granted pair, engine half) and the coord hop at that
+  // probe's LEG 10, which drives the REAL mint that writes both stores.
 
   // ── F2 · ADOPTION: a goal that ran BEFORE this record existed publishes its history ──────────
   //
@@ -451,7 +517,7 @@ async function main() {
   fs.rmSync(record.recordPath(goalFolder), { force: true });
   await runOn(goalFolder);
   check('F2 ADOPTION: a goal whose record was deleted has its store\'s history published by the run',
-    record.finishedSeats(goalFolder).has('alpha'),
+    record.ranSeats(goalFolder).has('alpha'),
     `record ${record.readExecutionRecord(goalFolder).rows.map((r) => `${r.seat}=${r.outcome || 'open'}`).join(' ') || 'empty'}`);
   {
     const daemonEngine = createEngine({
@@ -475,8 +541,9 @@ async function main() {
   //
   // The first version of this file did its close as an UNLOCKED read-modify-write. Measured in
   // review: 300 appends racing 300 closes lost 336 of 601 rows — WHOLE ROWS, nothing malformed for
-  // a reader to notice — and `finishedSeats` transiently read EMPTY mid-rewrite, which is the one
-  // wrong answer that re-runs a finished seat. Two lanes over one goal is what this record is FOR,
+  // a reader to notice — and the record's own reader (`ranSeats`, spelled `finishedSeats` then)
+  // transiently read EMPTY mid-rewrite, which is the one wrong answer that re-runs a seat another
+  // lane already ran. Two lanes over one goal is what this record is FOR,
   // so that interleaving is the normal case. This arm is that experiment, kept.
   //
   // TWO REAL PROCESSES, not two loops in one: the losing interleaving is between processes, and an
@@ -492,7 +559,7 @@ async function main() {
     { stdio: 'ignore' });
 
   // The reader takes NO lock — that is the point of the atomic replace — and it must never see the
-  // row count go backwards, nor a `done` count go backwards.
+  // row count go backwards, nor a stamped-outcome count go backwards.
   let minRows = 0; let regressed = false; let sawEmptyAfterRows = false;
   const poll = setInterval(() => {
     const rows = record.readExecutionRecord(raceGoal).rows.length;
@@ -502,12 +569,12 @@ async function main() {
   }, 1);
 
   const appender = child('for(let i=0;i<N;i++)record.openExecution({goalFolder:G,seat:"s"+i,sessionId:"sid-"+i,lane:"attached",startedAt:"t"});');
-  const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"done",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
+  const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"clean",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
   await Promise.all([appender, closer].map(awaitExit));
   clearInterval(poll);
 
   const raceRows = record.readExecutionRecord(raceGoal).rows;
-  const stamped = raceRows.filter((r) => r.outcome === 'done');
+  const stamped = raceRows.filter((r) => r.outcome === record.CLEAN);
   const malformed = raceRows.filter((r) => !r.seat || !r['session-id']);
   check(`D5 all ${N} appended rows SURVIVED the race — not one lost`,
     raceRows.length === N, `${raceRows.length}/${N} rows · ${malformed.length} malformed`);
@@ -610,20 +677,14 @@ async function main() {
   // The launch TRACE the old guard refused on — header from the SCHEMA OWNER (coord.py
   // SESSIONS_COLS), never spelled here. It is written for two reasons: the trace is still the
   // lifecycle accounting both lanes keep, and the LAST arm below measures what it now does NOT do.
-  const HEADER = require('node:child_process').execFileSync(requirePythonCmd(),
-    ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
   const FOREIGN_SESSION = '11111111-2222-3333-4444-555555555555';
-  const foreignTrace = path.join(foreignGoal, 'sessions.csv');
-  const idx = HEADER.split(',');
-  const cell = (m) => idx.map((c) => m[c] || '').join(',');
-  fs.writeFileSync(foreignTrace, `${HEADER}\n${cell({
-    'session-id': FOREIGN_SESSION, seat: 'alpha', harness: 'claude',
-    workdir: path.join(foreignGoal, 'seats', 'alpha'), started: isoNow(),
-  })}\n`);
+  // ⚠ THE ROW IS CLOSED WITH A `done` DISPOSITION, and since W2 it must be. The seat this arm calls
+  // finished is finished BECAUSE IT SAID SO — an open trace row plus a record outcome models a lane
+  // that launched a seat which never checked out, which is a real state and not this one.
+  attestCheckout(foreignGoal, 'alpha', FOREIGN_SESSION);
   // …and the other lane's OUTCOME, in the shared record, keyed by that same session id.
   record.openExecution({ goalFolder: foreignGoal, seat: 'alpha', sessionId: FOREIGN_SESSION, lane: 'daemon', startedAt: isoNow() });
-  record.closeExecution({ goalFolder: foreignGoal, sessionId: FOREIGN_SESSION, outcome: 'done', endedAt: isoNow() });
+  record.closeExecution({ goalFolder: foreignGoal, sessionId: FOREIGN_SESSION, outcome: record.CLEAN, endedAt: isoNow() });
 
   const foreignRuns = [];
   const attempt = async (goal, sink = null) => {
@@ -643,7 +704,7 @@ async function main() {
     foreignRuns.length === 0 && attached.statusAttached({ goalFolder: foreignGoal }).done.includes('alpha'),
     `foreground launches ${JSON.stringify(foreignRuns)}`);
   check('D4 orientation is READ-ONLY and still never refuses — and it now answers `done` for a seat '
-    + 'THIS lane never ran, off the record alone',
+    + 'THIS lane never ran, off the other lane\'s two files and no store of its own',
     (() => {
       const fresh = path.join(workspace, '.rbtv', 'goals', 'lane-goal-4');
       fs.mkdirSync(path.join(fresh, 'seats', 'alpha'), { recursive: true });
@@ -652,7 +713,7 @@ async function main() {
       for (const s2 of ['alpha', 'bravo']) fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(fresh, 'seats', s2, 'seat.md'));
       const FRESH_SESSION = 'ffffffff-0000-0000-0000-000000000001';
       record.openExecution({ goalFolder: fresh, seat: 'alpha', sessionId: FRESH_SESSION, lane: 'daemon', startedAt: isoNow() });
-      record.closeExecution({ goalFolder: fresh, sessionId: FRESH_SESSION, outcome: 'done', endedAt: isoNow() });
+      record.closeExecution({ goalFolder: fresh, sessionId: FRESH_SESSION, outcome: record.CLEAN, endedAt: isoNow() });
       // …AND THE TRACE ROW THAT LANE'S SEAT LEFT, CHECKED OUT `done`. The record answers "did this
       // seat FINISH" and coord answers "is bravo READY", and since § D1 they are DIFFERENT
       // QUESTIONS asked of DIFFERENT FILES — a fixture writing only the record models a lane that

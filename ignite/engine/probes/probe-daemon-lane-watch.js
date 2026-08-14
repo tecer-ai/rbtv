@@ -444,10 +444,14 @@ async function main() {
   // ⚠ The row reads `failed`, not open, and that is the ticker's crash sweep doing its job: a
   // synthesized execution has no live process, so the lane that wrote it ends it on its own next
   // pass. Either way it is a row the other lane did NOT finish, which is exactly what holds the
-  // seat (`seeding.js` § `foreign` — open OR terminal-non-`done`), so the arm asserts that and not
-  // an emptiness the sweep is entitled to remove.
-  check('L4 the other lane\'s NOT-DONE row reached the record through its own writer',
-    record.readExecutionRecord(heldGoal).rows.some((r) => r.seat === 'alpha' && r.outcome !== 'done'),
+  // seat (`seeding.js` § `foreign` — a row belonging to another lane's store, whatever it says), so
+  // the arm asserts that and not an emptiness the sweep is entitled to remove.
+  // ⚠ THE WORD IS `crashed` SINCE W2, and the test is written against `CLEAN` rather than against
+  // the old `done`: a `failed` turn publishes `crashed` through `processOutcome`, and `!== 'done'`
+  // would now be satisfied by EVERY row this column can hold — including a tidy exit — which is a
+  // test that cannot fail.
+  check('L4 the other lane\'s NON-CLEAN row reached the record through its own writer',
+    record.readExecutionRecord(heldGoal).rows.some((r) => r.seat === 'alpha' && r.outcome === record.CRASHED),
     record.readExecutionRecord(heldGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
 
   // ── L5 · THE WATCH PASS ─────────────────────────────────────────────────────────────────────
@@ -666,7 +670,7 @@ async function main() {
     try { await engine.tick(); } finally { engine.close(); }
   }
   check('L6 the DAEMON\'s own tick published that outcome into the goal folder\'s execution record',
-    record.readExecutionRecord(switchGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === 'done'),
+    record.readExecutionRecord(switchGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === record.CLEAN),
     record.readExecutionRecord(switchGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
 
   // ⚑ THE FLIP — one CLI call, mid-goal. This is the act the ruling calls the button.

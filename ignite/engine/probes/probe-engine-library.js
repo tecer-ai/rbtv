@@ -760,11 +760,16 @@ async function main() {
     if (!fs.existsSync(f)) return [];
     return fs.readFileSync(f, 'utf8').trim().split('\n').slice(1).filter(Boolean);
   })();
-  const ghostDone = ghostRecord.filter((r) => /,done,|,done$/.test(r));
+  // ⚠ THE TEST IS "ANY STAMPED OUTCOME", NOT A WORD (W2). It read `/,done,|,done$/`, and after the
+  // outcome column narrowed to the process vocabulary `clean|crashed|killed` that pattern could
+  // never match — so the arm would have reported `done=0` for a goal that ran every seat, and
+  // passed forever. The claim here is ABSENCE OF A LAUNCH, and the record's own way of saying a
+  // launch ended is a non-empty last cell, whatever the word in it.
+  const ghostDone = ghostRecord.filter((r) => /,[a-z]+$/.test(r.trim()));
   check('C5 a cast NO launch spec carries is refused, and NOTHING of that goal ran — the verb never '
     + 'composes a launch out of a pair it cannot resolve',
     cliUnknownCast.status !== 0 && ghostDone.length === 0,
-    `exit ${cliUnknownCast.status} · record rows=${ghostRecord.length} done=${ghostDone.length}`);
+    `exit ${cliUnknownCast.status} · record rows=${ghostRecord.length} stamped=${ghostDone.length}`);
 
   // ── verdict ────────────────────────────────────────────────────────────────────────────────
   say('');

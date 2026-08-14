@@ -6,7 +6,7 @@
 // THE GAP THIS CLOSES. When the owner answers a seat's question in Slack, the reply is delivered
 // as a `session-create` at that seat's own home — and until this module NOTHING recorded anywhere
 // that the ask had been answered. The coordination bus kept every question and no reply, so
-// `execution-record.js#blockAndQueueVerdict` (which walks that bus pairing each `from: <seat>
+// `execution-record.js#openOwnerAsks` (which walks that bus pairing each `from: <seat>
 // to: owner` ask against a later `type: answer` addressed back) could never see the pairing close
 // and fell through to a heart-store term that is unreachable from inside a seat cage.
 //

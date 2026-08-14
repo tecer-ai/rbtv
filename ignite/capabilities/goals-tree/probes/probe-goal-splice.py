@@ -108,7 +108,7 @@ def build_tree(td: Path):
     goal = root / "live-goal"
     (goal / "taskforce.csv").write_text(taskforce_text(), encoding="utf-8", newline="")
     (goal / "executions.csv").write_text(
-        "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,done\n",
+        "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,clean\n",
         encoding="utf-8", newline="")
     sheet = td / "bindings.json"
     # The SHARED sheet names every seat of the goal — which is exactly why `add-seat` writes a
@@ -235,7 +235,7 @@ def main() -> int:
               f"exit={rc} {seats_seen}")
         states = {n["seat"]: n["state"] for n in dag.get("nodes", [])}
         check("2. `dag` derives each seat's state from executions.csv",
-              states.get("a") == "done" and states.get("c") == "never-ran", str(states))
+              states.get("a") == "ended" and states.get("c") == "never-ran", str(states))
 
         # ── 3. THE GREEN ARM — a splice succeeds and changes EXACTLY the rewired line ─────────
         #
@@ -301,21 +301,21 @@ def main() -> int:
         # reads the record (`engine/seeding.js#recordView`).
         (goal / "executions.csv").write_text(
             "seat,session-id,lane,started,ended,outcome\n"
-            "a,s1,attached,t0,,\na,s2,attached,t1,t2,done\n", encoding="utf-8", newline="")
+            "a,s1,attached,t0,,\na,s2,attached,t1,t2,clean\n", encoding="utf-8", newline="")
         rc, so, _ = add_seat()
         check("5. a seat whose LAST row is stamped is quiescent despite an earlier OPEN row",
               rc == 0, f"exit={rc} {so.strip()[:200]}")
         reset_registry()
 
         (goal / "executions.csv").write_text(
-            "seat,session-id,lane,started,ended,outcome\nb,s1,attached,t0,t1,done\n",
+            "seat,session-id,lane,started,ended,outcome\nb,s1,attached,t0,t1,clean\n",
             encoding="utf-8", newline="")
         refuses_without_damage(
             "5. a --before seat that has already RUN refuses `splice-target-has-run`",
             "splice-target-has-run")
 
         (goal / "executions.csv").write_text(
-            "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,done\n",
+            "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,clean\n",
             encoding="utf-8", newline="")
         (goal / ".attached-run.lock").write_text("held\n", encoding="utf-8")
         refuses_without_damage("5. a live attached run refuses `attached-run-live`",
@@ -390,7 +390,7 @@ def main() -> int:
         import shutil
         lane.write_text("paused console\n", encoding="utf-8", newline="")
         (goal / "executions.csv").write_text(
-            "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,done\n",
+            "seat,session-id,lane,started,ended,outcome\na,s1,attached,t0,t1,clean\n",
             encoding="utf-8", newline="")
         shutil.rmtree(goal / "seats", ignore_errors=True)
         # A registry WITHOUT the new seat — the mint is what puts it there.

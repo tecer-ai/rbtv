@@ -52,12 +52,11 @@ const {
 const { readGrants, grantRelaunch, spendGrant } = require('./relaunch-grants');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
-// `outcomeForSeat` is the BLOCK-AND-QUEUE HOLD's one decision point, shared with the per-tick
-// publish so both close sites reach the same verdict (owner ruling
-// decisions.md#d-block-and-queue-mechanical-hold). The arm is the SEAT's declaration, so it binds
-// this lane exactly as it binds the daemon's — a terminal-carried seat that asked the owner on the
-// bus and exited with no answer is held here too.
-const { openExecution, closeExecution, laneOf, outcomeForSeat } = require('./execution-record');
+// `processOutcome` is the store-status → PROCESS-word map both close sites share, so this lane and
+// the daemon's per-tick publish write the same word for the same ending (W2). The hold that used to
+// be decided here is gone: an unanswered owner-ask is coord's `HELD` verdict now, computed once,
+// universally, on the surface that knows what every seat declared.
+const { openExecution, closeExecution, laneOf, processOutcome } = require('./execution-record');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -624,26 +623,14 @@ function runForegroundSeat({
   // fact about a process, which is all an exit code can attest); the RECORD says what became of the
   // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
   // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
-  const carriedOutcome = outcomeForSeat(heartStore, goalFolder, seat, ok ? 'done' : 'failed');
-  closeExecution({ goalFolder, sessionId, outcome: carriedOutcome.outcome, endedAt: isoNow() });
-  if (carriedOutcome.held && logger) {
-    logger({
-      level: 'warn',
-      message: 'foreground seat HELD — it asked the owner and its turn ended; its record row says `blocked`, '
-        + 'not `done`, so its dependents do NOT start until it is answered (`--relaunch` is the escape)',
-      seat,
-      evidence: carriedOutcome.held,
-    });
-  }
-  if (carriedOutcome.parked && logger) {
-    logger({
-      level: 'info',
-      message: 'foreground seat PROCEEDED on its autonomous workaround — its ask was parked, so the wave was NOT '
-        + 'held; its derivation belongs in this goal\'s decisions.md / doubts.md',
-      seat,
-      evidence: carriedOutcome.parked,
-    });
-  }
+  const carriedOutcome = processOutcome(ok ? 'done' : 'failed');
+  closeExecution({ goalFolder, sessionId, outcome: carriedOutcome, endedAt: isoNow() });
+  // ⚠ NO HOLD IS DECIDED HERE ANY MORE (W2). This site used to call `outcomeForSeat`, which read
+  // the goal's bus and the ferry's gates to decide whether a carried seat's `done` should publish
+  // as `blocked`. That whole derivation is deleted: the outcome is a fact about the process this
+  // carriage just watched exit, and whether the WORK is done is the seat's own check-out, which
+  // coord reports as a disposition. A held seat surfaces as coord's `HELD` verdict on the next
+  // pass's `ready-seats`, which this loop already reads.
 
   // ⚠ SOMEONE ELSE MAY HAVE ENDED OUR ROW WHILE THE HUMAN WORKED (review finding 1, second half).
   // The run lock makes that unreachable now; this stays because the alternative to noticing is
@@ -901,7 +888,14 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   // done" from the goal's execution record, so it reports a seat the DAEMON finished (or is running
   // right now) on a goal this lane has never opened a store for — `everRun` false, seats already
   // `done`/`live`. With no store, nothing in the record is ours, which is exactly what is true.
-  let view = recordView(null, goalFolder);
+  // THE READINESS ANSWER IS COORD'S HERE TOO (§ D1), and asking it is safe on this surface:
+  // `ready-seats` launches nothing, writes nothing and messages nobody, which is exactly the bound
+  // this verb holds itself to. A refusal (no python, a SKEW) degrades every unfired seat to
+  // `waiting` rather than inventing a frontier — the same direction every other consumer takes.
+  // ⚠ READ BEFORE THE VIEW SINCE W2: `recordView` sources done-ness and the `HELD` hold from these
+  // rows, so a view built before them would report every seat unfinished.
+  const { ready, rows: statusReadyRows } = readySeats(goalFolder);
+  let view = recordView(null, goalFolder, { readyRows: statusReadyRows });
   if (everRun) {
     const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
     const store = open(storePath);
@@ -909,7 +903,7 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
       byJob = executionsByJob(store);
       queued = new Set(store.listQueue().map((q) => q.job_id));
       asks = unansweredAsks(store.dump().messages);
-      view = recordView(store, goalFolder);
+      view = recordView(store, goalFolder, { readyRows: statusReadyRows });
     } finally {
       store.close();
     }
@@ -920,12 +914,6 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   // `<workspace>/.rbtv/goals/<goal>` — the reader takes the workspace root and the goal NAME.
   const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
   const executionMode = goalExecutionMode(workspaceRoot, path.basename(goalFolder));
-
-  // THE READINESS ANSWER IS COORD'S HERE TOO (§ D1), and asking it is safe on this surface:
-  // `ready-seats` launches nothing, writes nothing and messages nobody, which is exactly the bound
-  // this verb holds itself to. A refusal (no python, a SKEW) degrades every unfired seat to
-  // `waiting` rather than inventing a frontier — the same direction every other consumer takes.
-  const { ready } = readySeats(goalFolder);
 
   const seats = rows.map((row) => {
     const state = seatState(row, byJob, queued, { done: view.done, foreign: view.foreign, notFinished: view.notFinished, ready });
@@ -1114,12 +1102,15 @@ async function executeAttached({
       //
       // Re-read each pass: our own tick publishes to it, and the other lane may be writing to it
       // while we run. One small file read per pass, against a decision that must not be stale.
-      let view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
       // COORD'S FRONTIER, ONCE PER PASS (§ D1). Every decision below — what the terminal carries,
       // what is enqueued, and whether the run can advance at all — reads this ONE answer, so the
       // three cannot disagree about which seats are ready. A refusal leaves it null, which reads
       // as "no seat is ready" everywhere: the store may decline, never promote.
+      // ⚠ IT IS READ BEFORE THE VIEW SINCE W2, and the order is now load-bearing rather than
+      // incidental: `recordView` takes these rows as the source of done-ness and of the `HELD`
+      // hold, so a view built before them would answer "nothing is done" for the whole pass.
       const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder);
+      let view = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows });
       if (!ready && logger) {
         logger({
           level: 'warn',
@@ -1158,7 +1149,7 @@ async function executeAttached({
         // view still had no row for it, and the store's own `done` turn let its dependent start
         // anyway. One extra small read, on carriage passes only. It is ALSO what makes the next
         // turn of this loop correct: the seat this one just unblocked is visible to it.
-        view = recordView(engine.heartStore, goalFolder, { relaunch: grants });
+        view = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows });
       }
 
       enqueueEligible(engine.heartStore, rows, {
@@ -1180,8 +1171,12 @@ async function executeAttached({
       // before that happened — so the pre-tick answer would call the seat it just unblocked
       // unreachable and END THE RUN `blocked` one pass early. One extra `ready-seats` per pass
       // (~0.4 s) against a decision that terminates the run.
-      const postView = recordView(engine.heartStore, goalFolder, { relaunch: grants });
-      const postReady = readySeats(goalFolder).ready;
+      // ⚠ ONE post-tick `ready-seats`, and the VIEW is built FROM IT (W2) rather than beside it.
+      // The frontier and the record's view now share one source for done-ness, so the exit decision
+      // and the status block cannot disagree about a seat that checked out inside this tick.
+      const post = readySeats(goalFolder);
+      const postView = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows: post.rows });
+      const postReady = post.ready;
       // The status block, from the SAME post-tick reads the exit decision is about to use.
       const status = renderStatusBlock(engine.heartStore, rows, isHeld, postView, postReady);
       const refreshDue = status.block.includes('Running') && (ticks - lastStatusTick) * intervalMs >= 60000;

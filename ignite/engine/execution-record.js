@@ -46,10 +46,36 @@
 //   started      when the execution fired (the store's `started_at`, else `fired_at`).
 //   ended        stamped when the outcome is known. EMPTY means "still open, as far as the lane
 //                that wrote it got to say" — the same convention `sessions.csv` uses.
-//   outcome      the store's OWN turn vocabulary, `done|blocked|failed|killed` — no new words
-//                (module CLAUDE.md § Terminology: "if a term already exists for what you are
-//                writing, USE it"). `done` is the ONLY value that stops another lane re-running the
-//                seat, exactly as `seatIsFinished` has always meant it.
+//   outcome      ⚠⚠ A **PROCESS** VOCABULARY SINCE W2 — `clean|crashed|killed`, and NOT the store's
+//                turn words. What this column now answers is "how did the PROCESS end", which is
+//                the only question a lane that watched a process exit can honestly answer. Whether
+//                the WORK is done is the seat's own CHECK-OUT DISPOSITION, read off
+//                `coord.py ready-seats --json` (§ WHERE DONE-NESS LIVES NOW, below).
+//                  `clean`    the turn ended normally — the store says `done` or `blocked`. BOTH
+//                             are clean exits: `blocked` is a seat reporting, in its own turn, that
+//                             it is waiting on something outside itself. Nothing crashed.
+//                  `crashed`  terminal without a successful completion (store `failed`).
+//                  `killed`   explicitly killed through the kill surface.
+//
+// ⚠ `exited` IS DELIBERATELY NOT A MEMBER (owner ruling D-8). It is already a DISPOSITION value in
+// `sessions.csv`, and a word living in both vocabularies at once is exactly the BLOCKED/HELD
+// collision class this narrowing exists to remove. And a vocabulary with no crash bit gives the
+// daemon's retry trigger no honest predicate: it would either never fire on a crash or fire on
+// every clean exit. `crashed|killed` is that trigger's whole domain
+// (`coord.py#DAEMON_RETRY_FROM_OUTCOMES`).
+//
+// ── WHERE DONE-NESS LIVES NOW (W2) ────────────────────────────────────────────────────────────
+//
+// It was here, and being here was the defect. A seat that honestly declared FAIL-BLOCKED was
+// recorded `done` by this engine, because the engine derived the WORK's outcome from a PROCESS it
+// watched exit 0 — a derivation no exit code can support. So the column narrows to what the lane
+// actually witnessed, and the one surface that knows what the seat DECLARED answers the rest:
+// `coord.py ready-seats --json` carries a `disposition` field on every row, from the seat's own
+// check-out. `engine/seeding.js#recordView` reads it. There is ONE parser of that answer and it is
+// coord's; nothing in JS re-derives done-ness from a CSV cell again.
+//
+// The old `outcome` values on live goals become INERT rather than rewritten — no file is migrated
+// (the D-5 disposition backfill is what makes the new reader correct on goals already running).
 //
 // Append-only, plus one in-place stamp of the row's `ended`/`outcome` cells — the same discipline
 // (and the same reader/writer pair, `seat-identity/csv.js`) the launch trace already uses.
@@ -57,8 +83,9 @@
 // ⚠ EVERY WRITE TAKES A LOCK, AND THAT IS NOT BELT-AND-BRACES. The first version of this file
 // shipped the close as an UNLOCKED read-modify-write with a comment calling the race theoretical.
 // It is not: measured in review, 300 appends racing 300 closes lost **336 of 601 rows** — WHOLE
-// ROWS, silently, with nothing malformed for a reader to detect, and `finishedSeats` transiently
-// reading EMPTY mid-rewrite (which is the one wrong answer that re-runs a finished seat). Two lanes
+// ROWS, silently, with nothing malformed for a reader to detect, and the record's own reader
+// (`ranSeats`, then spelled `finishedSeats`) transiently reading EMPTY mid-rewrite — which is the
+// one wrong answer that re-runs a seat another lane already ran. Two lanes
 // over one goal is exactly what this record exists for, so the losing interleaving is the normal
 // case, not the exotic one.
 //
@@ -76,11 +103,22 @@ const { TERMINAL_TURN_STATUSES } = require('../server/heart/heart-store');
 
 const RECORD_FILENAME = 'executions.csv';
 const COLUMNS = ['seat', 'session-id', 'lane', 'started', 'ended', 'outcome'];
-const DONE = 'done';
-// The store's own word for "ended its turn blocked on something outside itself" (module CLAUDE.md
-// § Session lifecycle states). It is what a HELD seat's row carries — see § THE BLOCK-AND-QUEUE
-// HOLD below. No word is minted for this: `blocked` already means exactly it.
-const BLOCKED = 'blocked';
+// THE NARROWED PROCESS VOCABULARY (§ THE SCHEMA). Three words, closed set.
+const CLEAN = 'clean';
+const CRASHED = 'crashed';
+const KILLED = 'killed';
+const PROCESS_OUTCOMES = [CLEAN, CRASHED, KILLED];
+
+// The store's terminal turn statuses, mapped onto it. ONE function, because every close site must
+// reach the same word — the per-tick publish below and the attached lane's foreground carriage.
+// `stalled` is not terminal and never reaches here; anything unrecognised is `crashed`, which is
+// the fail-loud direction (a word this map does not know is not a clean exit).
+const PROCESS_OUTCOME_OF = { done: CLEAN, blocked: CLEAN, failed: CRASHED, killed: KILLED };
+
+function processOutcome(status) {
+  return PROCESS_OUTCOME_OF[status] || CRASHED;
+}
+
 const LANE_ATTACHED = 'attached';
 const LANE_DAEMON = 'daemon';
 
@@ -155,11 +193,16 @@ function readExecutionRecord(goalFolder) {
   return { exists, header, rows: rows.filter((r) => r.seat) };
 }
 
-// THE READER EVERY LANE ASKS. A seat is finished when THIS file says so — that sentence is the
-// whole build.
-function finishedSeats(goalFolder) {
+// WHICH SEATS THIS RECORD HAS SEEN RUN TO TERMINATION — any lane, any process outcome.
+//
+// ⚠ IT IS NOT `finishedSeats` AND THE RENAME IS THE WHOLE POINT (W2). That function answered "is
+// this seat done" off a `done` cell in this column, and after the narrowing no cell here can answer
+// that: `clean` says a process ended tidily, which is true of a seat that fail-blocked. Done-ness
+// is the check-out disposition (§ WHERE DONE-NESS LIVES NOW). What this file can still say — and
+// what its cross-lane readers actually spend — is "a lane ran this seat and watched it end".
+function ranSeats(goalFolder) {
   return new Set(readExecutionRecord(goalFolder).rows
-    .filter((r) => (r.outcome || '').trim() === DONE)
+    .filter((r) => (r.outcome || '').trim())
     .map((r) => r.seat));
 }
 
@@ -244,139 +287,31 @@ function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
   return { closed: false, reason: 'no open row for this session id' };
 }
 
-// ── THE BLOCK-AND-QUEUE HOLD (owner ruling decisions.md#d-block-and-queue-mechanical-hold) ────
+// ── THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE (W2, owner-ruled) ────────────────────────────
 //
-// A seat whose descriptor declares `fallback: block-and-queue` and that ASKED THE OWNER and exited
-// without an answer is NOT `done` to the DAG. Its dependents wait. That is the arm's one-home
-// definition (`meta/planning/references/file-prompt.md` § fallback: "hold the seat, queue the
-// question") made mechanical — until this row the wait was procedural, i.e. an instruction to an
-// LLM, and `block-and-queue` differed from `default-and-disclose` at the OWNER's surface only.
+// `blockAndQueueVerdict`, `askParkedAtGate` and `outcomeForSeat` lived here and are DELETED. They
+// derived the WORK's outcome from a process this engine watched exit, and published `blocked` into
+// the outcome column to hold a seat's dependents. Three things were wrong with that, and all three
+// are the incident this program closes:
 //
-// ⚠ THE HOLD IS ONE WORD IN THE RECORD, AND THAT IS THE WHOLE MECHANISM. The asking session really
-// did exit 0, so the STORE's turn is `done` — a fact about a process, correctly recorded. What the
-// RECORD publishes is what became of the WORK, and the work is blocked on the owner. So the close
-// writes `blocked` instead of `done`, and every reader that already asks the record "is this seat
-// finished" (`seeding.js#recordView` → `seatState`, `attached-execution.js#evaluateExit`) answers
-// NO with no new concept and no second scheduler. There is NO new state file, NO poll loop and no
-// held-ness stored anywhere: held-ness IS the row (PRIN-11).
+//   · the hold fired ONLY on a seat declaring `fallback: block-and-queue`, so a seat that honestly
+//     fail-blocked without that key was published `done` and its dependents ran on a stale product;
+//   · it fired only when the ferry had DELIVERED the ask, and the delivery gates (goal execution
+//     mode, `human-interactive:` on the descriptor) were the root cause of the parked-ask stall —
+//     a gate deciding whether a question is real;
+//   · it put the answer in a column that also had to say what became of the process, so `blocked`
+//     meant two things and the two collided.
 //
-// ⚠ WHAT RELEASES IT — AND WHY IT IS NOT A LATER BUS ROW, though the ruling's sketch reads that
-// way. This paragraph WAS true and is now HALF true; both halves matter, so it is amended rather
-// than rewritten. The measurement it records stands: `bus-ferry.js` is outbound-only by
-// construction ("Slack → bus stays the sittings' job") and the owner's reply in the agent's thread
-// mints a SESSION at the asking seat's own home (`bridges/chat/forward-path.js`, route kind
-// `agent`), so for as long as no writer put the answer on the bus, a release derived from a bus
-// answer was a hold nothing could ever clear. (It was also measured the hard way: the first
-// version of this file did re-derive the hold from the bus at every close, and the REVIVED
-// session's own `done` republished `blocked` because the original ask was still sitting there
-// unanswered. The probe's paired arm went red.)
-//   ⚑ TASK 7.771 (owner ruling 2026-08-11, design § D8) MADE ONE WRITER EXIST, and it is still not
-// the bridge: the reply leg makes ONE gateway call (`record-bus-answer`) and the DAEMON shells to
-// `coord.py send --type answer`, so `coordination/messages.md` keeps exactly one writer — coord.
-// The `open` walk above therefore now SHIFTS on a delivered reply, and `spent` stops being the only
-// discriminator. Nothing here changed: both terms are computed exactly as before, and a deployment
-// whose bridge predates 7.771 (or whose bus write failed — it is best-effort by ruling) is the
-// unchanged `spent`-only case. See `engine/bus-answer.js`.
-//   The release is therefore the REVIVAL the answer mints: it opens a SECOND record row for the
-// seat, and the seat's LAST word in the record is what every reader keys on (`seeding.js#recordView`
-// § notFinished) — open while the revived session works, `done` when it finishes. The owner's answer
-// is still what releases the hold; it does so one leg further up, at the surface that actually
-// carries answers.
-//   The operator escape when no answer will ever come is the one that already exists for every
-// other kind of stuck seat: `--relaunch <seat>`, which clears this hold exactly as it clears a
-// foreign one.
+// The hold is now ONE verdict, `HELD`, computed in `coord.py ready-seats` — the surface that
+// already knows what every seat declared — and it applies UNIVERSALLY to an unanswered owner-ask.
+// The engine consumes it (`seeding.js#recordView`) exactly where it used to consume the `blocked`
+// row. Nothing in JS parses that question again.
 //
-// ⚠ THE ASKS ARE PAIRED AGAINST THE HOLDS ALREADY PUBLISHED, which is what makes the release above
-// work and is not a second correlation: an unanswered ask that a PREVIOUS turn was already held on
-// is spent. Count the seat's still-open owner-asks on the bus and the HOLD-MINTED `blocked` rows the
-// record already carries for it; hold only while the first exceeds the second. So the asking turn is
-// held (1 > 0), the revived turn is not (1 > 1 is false), and a revived turn that asks AGAIN is held
-// again (2 > 1). Greedy, in id order, exactly like `attached-execution.js#unansweredAsks` — which
-// pairs the STORE's typed ask/answer messages and cannot see a bus row at all.
-//
-// ⚠⚠ "HOLD-MINTED" IS THE WHOLE OF REVIEW FINDING F3, AND COUNTING EVERY `blocked` ROW WAS WRONG.
-// `blocked` is a real turn status a seat can END on for its own reasons, and such a turn publishes
-// a `blocked` row here too. Counting it as a spent hold made the NEXT turn's genuine ask read as
-// already-held: measured — an unrelated blocked turn, then a turn that asks and exits, published
-// `done` and released the dependent with the question unanswered. Precisely the failure the ruling
-// exists to prevent, reached through the guard meant to enforce it.
-//   THE DISCRIMINATOR IS THE STORE, and it needs no new column, no new word and nothing stored
-// (PRIN-11): a hold-minted row is one whose TURN was `done` — that is the only case this function
-// ever rewrites — while a genuinely blocked turn is `blocked` on both surfaces. So the count joins
-// the record's `blocked` rows to the store's `done` turns on `session-id`, which is the join the
-// record was built around.
-//   BOUND, disclosed: a hold minted by the OTHER lane's store is invisible to this one, so a seat
-// held on the daemon lane and then closed by an attached turn can hold a second time on the same
-// ask. Holding twice is the safe direction (the unsafe one is advancing past the question), and the
-// operator escape is the same `--relaunch`.
-//
-// ⚠ THE BUS IS READ EXACTLY ONCE PER ASK — HERE, at the close, and never at read time. It answers
-// the one question the record cannot: was the seat's ask ALREADY ANSWERED before it exited (a peer
-// answered on the bus), in which case nothing is held. Reading it at every `seatState` instead
-// would put a multi-megabyte file (5.9 MB on the run the ferry was built against) on the eligibility
-// path of every tick, to re-derive a fact that does not change.
-//
-// ⚠ THE DISCLOSED DEADLOCK: if the goal is NOT in `interactive` execution mode the ferry PARKS the
-// ask (§ THE TWO GATES) — nobody is told, so nobody answers, and this hold stands until a human
-// runs `--relaunch`. Holding is still the safe direction (the alternative is advancing a wave past
-// an unanswered question), and the stamp below is logged at `warn` naming the seat so the condition
-// is visible rather than silent.
-// ── AND THE HOLD KEYS ON A **DELIVERED** ASK, NOT ON THE ARM (owner ruling
-// decisions.md#d-parked-ask-autonomous-workaround) ────────────────────────────────────────────
-//
-// THE OWNER'S CORRECTION, which is the whole of this section: "the autonomous mechanism does not
-// exist to prevent me from getting messages; it exists to make agents complete workflows fully
-// autonomously." AUTONOMOUS MEANS THE WORKFLOW COMPLETES. So a `block-and-queue` seat holds the
-// wave only when its question ACTUALLY REACHED THE OWNER — when an answer can come. In an
-// autonomous goal the ferry PARKS the ask (§ THE TWO GATES): nobody is told, so nobody can reply,
-// and holding there would stall a goal on an answer that cannot exist. That was filed as this
-// build's one dead end and the owner ruled it isn't one — it is the AUTONOMOUS PATH:
-//
-//   · the seat executes its AUTHORED AUTONOMOUS WORKAROUND (`d-s14-autonomous-dod` + planning-v4
-//     D16): derive the answer, record it with provenance in the goal's own ledgers
-//     (`decisions.md` / `doubts.md`), proceed. The parked ask and the derived answer both land
-//     durably for the owner to review on return.
-//   · the wave CONTINUES. The record publishes the seat's real outcome (`done`), because the seat
-//     really did finish its turn.
-//
-// ⚠ THE OBLIGATION TO CARRY A WORKAROUND IS THE SEAT'S, NOT THIS ENGINE'S. Nothing here derives an
-// answer or writes a ledger; the engine's whole job is (1) not to hold a seat whose question was
-// parked and (2) to report which of the two happened. What enforces the seat side today, and where
-// it is thin, is stated in the contract (`bridges/chat/README.md` § The seat's fallback arm).
-//
-// ⚠ HOW "WAS IT DELIVERED?" IS DERIVED — the same storage-free way as everything else (PRIN-11).
-// The ferry's park decision writes NOTHING: no state file, no bus row, no marker. It is a pure
-// function of three files on disk, evaluated per row inside the pass (`bus-ferry.js`, the `gate`
-// ladder). So the answer is re-derived here from THE FERRY'S OWN READERS — never a second parse of
-// those files — and the one thing that could drift, the ladder's rung SET, is pinned by a
-// structural arm in `probes/probe-block-and-queue-hold.js` that goes red if the ferry grows a
-// fourth gate.
-//
-// ⚠ THE SKEW, disclosed: the gates are read HERE at close time and THERE at ferry time, so an owner
-// who flips `<goal>/execution-mode` between the ask and the seat's exit gets the mode in force at
-// the close. The window is one tick, both directions are safe (hold with an answer possible, or
-// proceed on the authored workaround), and the alternative — recording the delivery verdict at ferry
-// time — is the state file this ruling's design deliberately does not have.
-const FALLBACK_BLOCK_AND_QUEUE = 'block-and-queue';
-const BUS_RELPATH = ['coordination', 'messages.md'];
-
-// Did an agent-initiated `to: owner` row from this seat REACH the owner? The ferry's gate ladder,
-// in the ferry's own order, through the ferry's own readers.
-//
-// The ladder's THIRD rung — `fallback: park` — is deliberately absent: every caller here has
-// already established the arm is `block-and-queue`, so that rung cannot fire. The structural arm
-// named above is what keeps that assumption honest.
-//
-// Returns the ferry's own gate NAME when the row parks (so the report can say WHY), else null.
-function askParkedAtGate(goalFolder, seat) {
-  const { goalExecutionMode, seatIsHumanInteractive, INTERACTIVE_MODE } = require('../bridges/chat/bus-ferry');
-  // `<workspace>/.rbtv/goals/<goal>` — the same derivation `statusAttached` makes to reach the
-  // reader, which takes the workspace root and the goal NAME.
-  const workspaceRoot = path.resolve(goalFolder, '..', '..', '..');
-  if (goalExecutionMode(workspaceRoot, path.basename(goalFolder)) !== INTERACTIVE_MODE) return 'execution-mode';
-  if (!seatIsHumanInteractive(goalFolder, seat)) return 'human-interactive';
-  return null;
-}
+// TWO FUNCTIONS SURVIVE, and they were never part of the hold: they are the ASK/ANSWER PAIRING on
+// the goal's own bus, and `engine/bus-answer.js` is now their ONE consumer — it must name the ask
+// its `--re` settles, and a second walk of the same file with the same rule is the drift this whole
+// design removes. Kept here rather than moved into `bus-answer.js` because moving them would rename
+// the pairing's home for no behavioural gain and re-point every citation of it.
 
 // Does `to:` address this seat? The ferry's own tolerance (`addressesOwner`), for a seat name: a
 // token that merely CONTAINS the name is a different seat.
@@ -385,7 +320,8 @@ function addressesSeat(to, seat) {
 }
 
 // THE PAIRING — this seat's `to: owner` rows that no later `answer` addressed back has closed, in
-// id order, as ROWS. Extracted from `blockAndQueueVerdict` (below) by task 7.771 for ONE reason:
+// id order, as ROWS. Extracted by task 7.771 from the hold verdict W2 has since deleted, for ONE
+// reason that outlived it:
 // `engine/bus-answer.js` has to name the ask its `--re` settles, and a second walk of the same
 // file with the same rule is exactly the "two readers of one question that disagree" this whole
 // design removes. There is now one definition and two consumers — the hold, and the row that
@@ -403,63 +339,59 @@ function openOwnerAsks(busText, seat) {
   }
   return open;
 }
-
-// The evidence string when the seat is HELD, else null. Held = the arm is `block-and-queue` AND the
-// seat's last `to: owner` row on the coordination bus has no LATER `answer` addressed back to it.
+// ONE OWNER `note` FOR ONE NON-CLEAN CLOSE — the interim surfacing W2 owes until W3 (adv, C25).
 //
-// The bus readers are the ferry's OWN (`parseMessages` / `addressesOwner` / `seatFallback`) — a
-// second parser of that file is a lane that disagrees with the ferry about what a seat declared and
-// what it asked, which is the defect `seatIsHumanInteractive`'s F3 note describes in full.
-function blockAndQueueVerdict(heartStore, goalFolder, seat) {
-  const { seatFallback } = require('../bridges/chat/bus-ferry');
-  if (seatFallback(goalFolder, seat) !== FALLBACK_BLOCK_AND_QUEUE) return null;
-  let text;
-  try { text = fs.readFileSync(path.join(goalFolder, ...BUS_RELPATH), 'utf8'); } catch { return null; }
-  const open = openOwnerAsks(text, seat).map((row) => row.id); // this seat's still-unanswered asks
-  if (!open.length) return null;              // never asked, or every ask was answered on the bus
-  // …minus the asks a previous turn of this seat was ALREADY HELD on (see the pairing note above).
-  // A `blocked` row whose TURN was also `blocked` is a genuinely blocked turn, not a spent hold —
-  // only a `done` turn is ever rewritten here, so that join is what tells the two apart (F3).
-  const doneTurns = new Set();
-  for (const row of heartStore.listExecutionsByStatus(DONE, { withThread: false })) {
-    if (row.session_id) doneTurns.add(row.session_id);
+// Shelled to coord rather than written here, because `coordination/messages.md` has exactly ONE
+// writer and it is coord (`coordination/messages.md`, and `engine/bus-answer.js` takes the same
+// route for the same reason). `--as ignite-daemon` is the identity D4 gave the daemon's own
+// process; `--force` is what lets it address the reserved `owner` token, exactly as bus-answer's
+// reply leg does.
+//
+// It NEVER throws: every failure path returns after logging. The caller is the tick.
+function noteOwner({ seat, goalFolder, sessionId, outcome }, logger) {
+  const { execFileSync } = require('node:child_process');
+  const { requirePythonCmd } = require('../lib/python-cmd');
+  const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
+  const body = `seat \`${seat}\` ended \`${outcome}\` (session ${sessionId}). The execution record `
+    + 'carries the process outcome; whether the WORK is finished is the seat\'s own check-out, and '
+    + 'this seat did not exit cleanly. Nothing has retried it automatically unless the daemon\'s '
+    + 'retry budget admitted it. Interim surfacing until the staff-mail carrier exists.';
+  // THE BODY TRAVELS AS A FILE, NEVER AS ARGV. It carries backticks, and `--inline` is an assertion
+  // that it does not — `engine/bus-answer.js` takes the same route for the same reason.
+  let dir = null;
+  try {
+    dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'ignite-record-note-'));
+    const bodyFile = path.join(dir, 'body.md');
+    fs.writeFileSync(bodyFile, body, 'utf8');
+    execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'send', 'owner',
+      '--type', 'note', '--file', bodyFile, '--as', 'ignite-daemon', '--force'],
+    { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    if (logger) {
+      logger({
+        level: 'warn',
+        message: 'seat ended non-clean and the interim owner note could NOT be minted — the record '
+          + 'row is correct and NOTHING has told the owner. This line is the only surfacing left.',
+        seat,
+        goalFolder,
+        outcome,
+        evidence: String(err.stderr || err.message || '').trim().slice(0, 400),
+      });
+    }
+    return;
+  } finally {
+    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temp dir */ } }
   }
-  const spent = readExecutionRecord(goalFolder).rows
-    .filter((r) => r.seat === seat && (r.outcome || '').trim() === BLOCKED && doneTurns.has(r['session-id']))
-    .length;
-  if (open.length <= spent) return null;
-  const ask = open[spent];
-  // THE RULING'S FORK. An ask the ferry PARKED can never be answered, so it does not hold: the seat
-  // took its authored autonomous workaround and the wave continues (d-parked-ask-autonomous-workaround).
-  const gate = askParkedAtGate(goalFolder, seat);
-  if (gate) {
-    return {
-      parked: `asked the owner on the bus (row #${ask}) but the ferry PARKED it (gate: ${gate}) — nobody was told, `
-        + `so nobody can answer. NOT held: the seat proceeds on its authored autonomous workaround and its `
-        + `derivation belongs in this goal's decisions.md / doubts.md for review on return (d-s14-autonomous-dod).`,
-      gate,
-      ask,
-    };
+  if (logger) {
+    logger({
+      level: 'warn',
+      message: 'seat ended non-clean — an owner `note` was minted on this goal\'s bus. Its dependents '
+        + 'do NOT advance on this row: only a check-out disposition of `done` advances an edge.',
+      seat,
+      goalFolder,
+      outcome,
+    });
   }
-  return {
-    held: `asked the owner on the bus (row #${ask}), DELIVERED to his thread, and exited with no answer `
-      + '— `fallback: block-and-queue`',
-    ask,
-  };
-}
-
-// THE OUTCOME A LANE PUBLISHES FOR A TERMINAL TURN. Identity for every status but `done`: a seat
-// that failed, was killed or already ended `blocked` is not `done` anyway, so the hold has nothing
-// to add to it. ONE function, because both close sites (the per-tick publish below and the attached
-// lane's foreground carriage) must reach the same verdict — the ruling is the seat's declaration,
-// not a property of the lane that ran it.
-function outcomeForSeat(heartStore, goalFolder, seat, status) {
-  if (status !== DONE) return { outcome: status, held: null, parked: null };
-  const verdict = blockAndQueueVerdict(heartStore, goalFolder, seat);
-  if (verdict && verdict.held) return { outcome: BLOCKED, held: verdict.held, parked: null };
-  // The PARKED branch publishes the seat's REAL outcome — it finished its turn — and carries the
-  // evidence so the report can say the seat proceeded on its workaround rather than saying nothing.
-  return { outcome: status, held: null, parked: (verdict && verdict.parked) || null };
 }
 
 // ── THE PUBLISH PASS — how each lane's witness reaches the shared record ───────────────────────
@@ -485,12 +417,11 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   const all = statuses || ['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed'];
   const opened = [];
   const closed = [];
-  const held = [];
-  const proceeded = [];
+  const nonClean = [];
   // WHICH ROWS ARE ALREADY PUBLISHED, read ONCE per goal per pass. `closeExecution` refuses a
-  // second stamp on its own, so this is not correctness — it is what keeps the hold's bus read
-  // (below) to ONE per ask instead of one per terminal row per tick, forever, for the whole life
-  // of the goal. It also spares the lock on every already-closed row.
+  // second stamp on its own, so this is not correctness — it spares the lock on every already-closed
+  // row, and it is what keeps the interim owner-note below to ONE per execution instead of one per
+  // terminal row per tick, forever, for the whole life of the goal.
   const closedIds = new Map();
   const alreadyClosed = (goalFolder, sessionId) => {
     if (!closedIds.has(goalFolder)) {
@@ -516,74 +447,67 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       if (o.appended) opened.push(`${home.seat}/${row.session_id}`);
       if (!TERMINAL_TURN_STATUSES.has(row.status)) continue;
       if (alreadyClosed(home.goalFolder, row.session_id)) continue;
-      // THE HOLD IS DECIDED HERE, in the act that publishes the outcome (§ THE BLOCK-AND-QUEUE
-      // HOLD): a `done` turn whose seat asked the owner and got no answer publishes `blocked`.
-      const verdict = outcomeForSeat(heartStore, home.goalFolder, home.seat, row.status);
+      // NO VERDICT IS COMPUTED HERE ANY MORE (§ THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE). The
+      // outcome is a pure function of the store's own terminal status — one lookup, no file read,
+      // no bus parse, no ferry gate. Everything this line used to decide is coord's `HELD` verdict.
+      const outcome = processOutcome(row.status);
       const c = closeExecution({
         goalFolder: home.goalFolder,
         sessionId: row.session_id,
-        outcome: verdict.outcome,
+        outcome,
         endedAt: row.ended_at || '',
       });
       if (c.closed) {
-        closed.push(`${home.seat}=${verdict.outcome}`);
-        if (verdict.held) held.push({ seat: home.seat, goalFolder: home.goalFolder, evidence: verdict.held });
-        if (verdict.parked) proceeded.push({ seat: home.seat, goalFolder: home.goalFolder, gate: verdict.gate, evidence: verdict.parked });
+        closed.push(`${home.seat}=${outcome}`);
+        if (outcome !== CLEAN) {
+          nonClean.push({ seat: home.seat, goalFolder: home.goalFolder, sessionId: row.session_id, outcome });
+        }
       }
     }
   }
   if (logger && (opened.length || closed.length)) {
     logger({ level: 'info', message: 'execution record published', opened, closed });
   }
-  // LOUD, and per seat: the wave is now HELD on a human. An operator who cannot see this line
-  // sees a run that simply stopped advancing.
-  for (const h of held) {
-    if (logger) {
-      logger({
-        level: 'warn',
-        message: 'seat HELD — it asked the owner and exited; its record row says `blocked`, not `done`, so its '
-          + 'dependents do NOT start. The owner\'s reply in the seat\'s thread revives it; `--relaunch` is the escape.',
-        seat: h.seat,
-        goalFolder: h.goalFolder,
-        evidence: h.evidence,
-      });
-    }
+  // ── INTERIM SURFACING (W2, adv C25) — AN HONEST RECORD THAT STALLS SILENTLY IS THE ORIGINAL
+  // INCIDENT WITH A GREEN ACCEPTANCE ─────────────────────────────────────────────────────────
+  //
+  // W2 removes the engine's ability to say "this seat did not finish" by publishing `blocked`. Until
+  // W3 builds the staff-mail carrier, nothing else says it either — so a crash would be recorded
+  // truthfully and surfaced to nobody, which is exactly the shape of the stall this program exists
+  // to close. So each non-clean close mints ONE owner `note` on the goal's own bus, through the one
+  // writer of that file (coord), in the existing `note` type — no new message type, no new file.
+  //
+  // ⚠ ONCE PER EXECUTION, NOT ONCE PER TICK, and the idempotence is not this loop's: `closeExecution`
+  // stamps a row exactly once and refuses a second stamp, so `c.closed` is true for one pass in the
+  // life of the execution. That is the whole guard — do not add a marker file for it.
+  //
+  // ⚠ BEST-EFFORT AND SILENT-ON-FAILURE BY DESIGN. This runs inside the tick. A goal whose bus is
+  // unwritable, a missing interpreter, a coord refusal — none of them may cost the publish pass its
+  // own success, because the RECORD is the thing that must land. The failure is reported to the
+  // logger and nowhere else.
+  for (const n of nonClean) {
+    noteOwner(n, logger);
   }
-  // The AUTONOMOUS branch, reported as loudly as the held one and deliberately NOT as a warning:
-  // this is the ruled normal path (`d-parked-ask-autonomous-workaround`), not a fault. What an
-  // operator needs from it is the POINTER — this seat asked something nobody could answer and
-  // proceeded on its own derivation, so the goal's ledgers are where that derivation is.
-  for (const p of proceeded) {
-    if (logger) {
-      logger({
-        level: 'info',
-        message: 'seat PROCEEDED on its autonomous workaround — its ask was parked (gate: ' + p.gate + '), so the wave '
-          + 'was NOT held. Its derivation belongs in this goal\'s decisions.md / doubts.md; review it on return.',
-        seat: p.seat,
-        goalFolder: p.goalFolder,
-        evidence: p.evidence,
-      });
-    }
-  }
-  return { opened, closed, held, proceeded };
+  return { opened, closed, nonClean };
 }
 
 module.exports = {
   RECORD_FILENAME,
   COLUMNS,
-  DONE,
-  BLOCKED,
-  FALLBACK_BLOCK_AND_QUEUE,
-  blockAndQueueVerdict,
+  CLEAN,
+  CRASHED,
+  KILLED,
+  PROCESS_OUTCOMES,
+  processOutcome,
+  // The ask/answer pairing on the goal's bus. `engine/bus-answer.js` is the one consumer; the hold
+  // that was the other is gone (§ THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE).
   openOwnerAsks,
   addressesSeat,
-  askParkedAtGate,
-  outcomeForSeat,
   LANE_ATTACHED,
   LANE_DAEMON,
   recordPath,
   readExecutionRecord,
-  finishedSeats,
+  ranSeats,
   openExecution,
   closeExecution,
   publishToRecord,

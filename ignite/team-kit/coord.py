@@ -3754,13 +3754,15 @@ def grant_from_states_for(anchor):
 
 # ---- 7.776: THE DAEMON'S OWN RETRY BUDGET, AND WHY IT RANGES OVER A DIFFERENT VOCABULARY ------
 #
-# ⚠⚠ THESE CONSTANTS RANGE OVER THE EXECUTION RECORD'S `outcome` VOCABULARY — `done|blocked|failed|
-# killed`, `engine/execution-record.js` § THE SCHEMA — AND **NOT** OVER THE DISPOSITION VOCABULARY
-# `RELAUNCH_GRANT_FROM_STATES` ABOVE RANGES OVER (`exited`/`done`/`renew`/`revive`/`incomplete`,
-# written into `sessions.csv` by a seat's own check-out). Two files, two runtimes, two questions: a
-# DISPOSITION is a fact about a PROCESS's ending as its occupant declared it; an OUTCOME is a fact
-# about the WORK as the lane that ran it witnessed it. `failed` and `killed` are not disposition
-# values at all, and `exited` is not an outcome value at all.
+# ⚠⚠ THESE CONSTANTS RANGE OVER THE EXECUTION RECORD'S `outcome` VOCABULARY — `clean|crashed|
+# killed` since W2, `engine/execution-record.js` § THE SCHEMA — AND **NOT** OVER THE DISPOSITION
+# VOCABULARY `RELAUNCH_GRANT_FROM_STATES` ABOVE RANGES OVER (`exited`/`done`/`renew`/`revive`/
+# `incomplete`, written into `sessions.csv` by a seat's own check-out). Two files, two runtimes, two
+# questions — and W2 NARROWED the outcome column to exactly that split, which is why the words
+# moved: an outcome is now a PROCESS FACT ONLY (did the run end cleanly, crash, or get killed), and
+# DONE-NESS lives nowhere in it. Done-ness is the seat's own check-out DISPOSITION, which
+# `ready-seats` reports. `crashed` and `killed` are not disposition values at all, and `exited` is
+# not an outcome value at all — the split holds exactly as before, on narrower words.
 #
 # ⚠ SO `RELAUNCH_GRANT_FROM_STATES` IS DELIBERATELY **NOT** WIDENED TO REACH THEM, and that is not
 # an oversight left for a later tidy-up. Widening it would move `rule-relaunch`'s mint precondition
@@ -3774,13 +3776,17 @@ def grant_from_states_for(anchor):
 # imported from the engine's words — the same discipline stated three paragraphs up, for the same
 # reason: a set written in terms of another moves with it and re-couples what the split separates.
 #
-# ⚠ `blocked` IS NOT A MEMBER, AND ITS ABSENCE IS THE DECISION, not the leftover. A `blocked`
-# outcome means the seat is waiting on the OWNER; an automatic retry would spin a wave against a
-# human who has not answered — the one terminal outcome whose remedy is a person. `done` is not a
-# member for the obvious reason, and both exclusions are asserted BY EXERCISE in the self-test,
-# because "the daemon may not re-run finished or held work" is the property, not a side effect of
-# a list.
-DAEMON_RETRY_FROM_OUTCOMES = ("failed", "killed")
+# ⚠ `blocked` IS NOT A MEMBER BECAUSE IT IS NO LONGER A VALUE — W2 removed it from the column, so
+# this is not an exclusion any more and cannot be asserted as one. THE DECISION IT ENCODED SURVIVES,
+# MOVED: "no automatic retry against a waiting human" is now enforced ENGINE-SIDE, where `seeding.js`
+# skips the mint for a seat `ready-seats` reports `HELD` (the universal owner-ask hold, below in
+# `ready_seat_rows`). Recorded here rather than dropped because the words that carried it are gone
+# from this file and a later reader would otherwise read the narrowing as the decision's repeal.
+# `clean` is not a member for the obvious reason — it absorbs the old `done` AND the old `blocked`,
+# and neither is work the daemon may re-run on its own — and that exclusion is still asserted BY
+# EXERCISE in the self-test, because "the daemon may not re-run work that ended cleanly" is the
+# property, not a side effect of a list.
+DAEMON_RETRY_FROM_OUTCOMES = ("crashed", "killed")
 
 # TWO automatic attempts per seat, then the seat waits for a human — the same number, chosen for the
 # same reason, as the gap-wave loop's own retry bar (`resolve_retry_threshold`'s absent-everywhere
@@ -12496,6 +12502,21 @@ def ready_seat_rows(args):
 
     Verdict precedence, and the order is the design:
       SKEW     first, always — a contradiction must never be masked by a later verdict
+      HELD     (W2) this seat has at least one OPEN ask addressed to the OWNER. Its dependents
+               WAIT. ⚠ IT SITS ABOVE `DONE` DELIBERATELY, and that placement IS the mechanism:
+               the whole purpose of the hold is that a seat which checked out WHILE its question
+               to the owner was unanswered must not advance its successors, so a terminal
+               disposition — the very thing such a seat carries — must never mask it. Below `SKEW`
+               for the reason `SKEW` is first at all: two records disagreeing about this seat's
+               own ending is a contradiction, and nothing, hold included, is decided over it.
+               ⚠ UNIVERSAL, and every narrowing it could carry is DELIBERATELY ABSENT (owner
+               ruling, safe-hold default): NOT gated on `fallback: block-and-queue`, NOT on
+               whether the ferry delivered the ask, NOT on the seat's declared interactivity.
+               Those three gates were the root cause of the incident this program closes — each
+               one is a way for a real unanswered question to release the DAG anyway.
+               ⚠ IT IS NOT `BLOCKED`. `BLOCKED` means an `after` member is unsatisfied — a fact
+               about this seat's PREDECESSORS. `HELD` is a fact about this seat's own OPEN
+               QUESTION. Merging them loses which of the two a human must act on.
       DONE     this seat already has a terminal disposition on record (`terminal(S) is not None`),
                so it is not a candidate to launch. ⚠ THE WORD IS THE COARSE CLASS, NOT A CLAIM
                THAT THE WORK IS DONE: the reason string and the json `disposition` field always
@@ -12599,6 +12620,24 @@ def ready_seat_rows(args):
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
+    # W2: THE OWNER-ASK HOLD'S ONE READ OF THE BUS, hoisted for the same reason as every hoist
+    # above — N seats must cost ONE `messages.md` parse, not N. `open_asks` is the room's OWN
+    # settling predicate (`pending`'s, and the check-out gate's): it already drops superseded asks
+    # and asks an `answer`/`verdict` carrying `re: <n>` settled, so THAT LINK IS THE RELEASE
+    # MECHANISM and nothing here counts, pairs or spends a second time.
+    #
+    # ⚠⚠ IT DEGRADES, IT NEVER RAISES, AND THE BROAD `except` IS THE DESIGN. The ignite engine's
+    # seeding pass is FAIL-CLOSED PER GOAL: a non-zero exit from this command seeds NOTHING for the
+    # whole goal. So an unreadable, half-written or malformed bus must cost the run its HOLDS —
+    # never its other verdicts. Absent file, torn read, parse error, anything: no holds, `[]` on
+    # every row, exit 0, every other term intact.
+    held = {}
+    try:
+        _msgs = load_messages(base)[1]
+        for _seat in after:
+            held[_seat] = [b["num"] for b in open_asks(_msgs, sender=_seat, to=OWNER_TOKEN)]
+    except Exception:                                          # noqa: BLE001 — see the note above
+        held = {}
     # 7.383: every member token parsed ONCE — and as of 7.424 that ONCE happens where the member is
     # PRODUCED (`taskforce_after` -> `AfterMember` -> `parse_after_member`), not in a map built
     # here. The member still carries the RAW token, which is what `preds` holds and what the reason
@@ -12710,7 +12749,18 @@ def ready_seat_rows(args):
                     if _path not in seed_seen:
                         seed_seen.add(_path)
                         seed.append(_path)
+        # ⚠ `disposition`/`source` ARE THE TERMINAL-DISPOSITION SIGNAL, AND THERE IS NO SECOND ONE.
+        # W2 moved done-ness OUT of the execution record's `outcome` column (now the process
+        # vocabulary `clean|crashed|killed`) and onto the seat's own check-out — which is this
+        # pair, already emitted on EVERY row, with `terminal(S)` deriving the `DONE` verdict from
+        # it. `engine/seeding.js#recordView` is the consumer. Stated here because the obvious W2
+        # move is to add a field for what these two have always carried.
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
+               # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
+               # rule and the same reason as `undeclared-session`, `row-outcome`, `unmet-after` and
+               # `relaunch-grant` below: a key that appears only when it fires cannot be read as a
+               # term, and an ABSENT key raises in a consumer where an empty list decides.
+               "held-asks": held.get(seat, []),
                "skew": list(skew) if skew else None, "active": active,
                "built": seat in built,
                # 7.237: present on EVERY row (None when the ending was declared), never only on
@@ -12771,6 +12821,19 @@ def ready_seat_rows(args):
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
                              f"⚠ ADJUDICATE — the two records of this seat's own ending "
                              f"disagree; nothing advances on either until a human rules")
+        elif rec["held-asks"]:
+            # W2. ABOVE the disposition branch on purpose — see the verdict list. The seat this
+            # hold exists for is precisely a seat that CHECKED OUT with its question still open,
+            # so reading `DONE` first would mask every case the hold was built for.
+            _ha = rec["held-asks"]
+            rec["verdict"] = "HELD"
+            rec["reason"] = (
+                f"OWNER-ASK HOLD — this seat has {len(_ha)} unanswered ask(s) to the owner on the "
+                f"bus (#{', #'.join(str(n) for n in _ha)}). NOT OFFERED, and its dependents WAIT: "
+                f"a question the owner has not answered is a question the run has not settled, "
+                f"whatever this seat's own check-out says. It lifts when the owner answers — one "
+                f"`send --type answer --re <n>` per ask, naming the number — and on no other "
+                f"event. It advances NO edge meanwhile")
         elif value is not None:
             rec["verdict"] = "DONE"
             rec["reason"] = f"check-out `{value}` ({source})"
@@ -12898,6 +12961,15 @@ _DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
 # The class → verdict mirror. It is a HAND-COPY of `ready_seat_rows`' own precedence, and it is
 # made SELF-DETECTING by the self-test's row-P fixture rather than trusted: the fixture covers every
 # REACHABLE pair of defer limbs, so transposing any two of them reds arm 1.
+#
+# ⚠ W2's `HELD` IS DELIBERATELY NOT A LIMB HERE, AND THAT IS A SCOPE STATEMENT, NOT AN OMISSION.
+# The hold's consumer is the READY SURFACE — the ignite daemon's seeding door, a `verdict ==
+# "READY"` filter. This map serves `coordinate launch`'s admission predicate, where the owner-ask
+# hold is already enforced ONE door earlier and from the seat's own side: `cmd_checkout` REFUSES a
+# `done` while the seat's ask to the owner is open. A held seat can therefore still be hand-launched
+# by a human who types `launch --only <seat>`, which is a human overriding a hold in front of him,
+# not the automatic advance the hold exists to stop. Making it a limb means an eighth limb and a
+# 28-pair coverage set; do that only when a measured case needs it.
 CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE", "renewing": "DONE",
                     "revived": "DONE", "exit-unruled": "DONE", "terminal-unenumerated": "DONE",
                     # 7.676: `DONE` here is the ADMISSION verdict — "this row's session ENDED, so
@@ -13384,10 +13456,11 @@ def cmd_seat_retry(args):
                f"--outcome `{outcome or '(empty)'}` is not one this verb retries. It mints on "
                f"{' / '.join('`%s`' % o for o in DAEMON_RETRY_FROM_OUTCOMES)} ONLY, and the value "
                f"comes from the EXECUTION RECORD's outcome vocabulary "
-               f"(`done|blocked|failed|killed`), never from a session's disposition cell.\n"
-               f"`blocked` is EXCLUDED BY DECISION: it means the seat is waiting on the OWNER, and "
-               f"an automatic retry would spin a wave against a human who has not answered. "
-               f"`done` is finished work.", 1)
+               f"(`clean|crashed|killed` since W2), never from a session's disposition cell.\n"
+               f"`clean` is not retried: it is a run that ENDED WITHOUT CRASHING, which covers both "
+               f"finished work and a seat that stopped to ask the owner. Whether the WORK is done "
+               f"is the seat's check-out disposition, not this column, and the hold against "
+               f"retrying a seat waiting on a human is `ready-seats`' `HELD` verdict.", 1)
 
     with coord_lock(base):
         rows = read_relaunch_grants(base)
@@ -14075,6 +14148,13 @@ def cmd_ready_seats(args):
               + (f"   (also carries `row-outcome/"
                  + "`, `row-outcome/".join(_other) + "`, which is not an enumerated stop-state "
                  "and does NOT suppress)" if _other else ""))
+        # W2: THE OWNER-ASK HOLD, rendered on EVERY seat — `-> True` is the term CLEARING, and this
+        # one is a term of the verdict on every row (unlike the grant below, which is an instrument
+        # that either exists or does not).
+        _ha = rec.get("held-asks") or []
+        print(f"  no unanswered ask to the owner                        -> {not _ha}"
+              + (f"   ⚠ OWNER-ASK HOLD: #{', #'.join(str(n) for n in _ha)} open — dependents WAIT "
+                 f"until the owner answers with `--re <n>`" if _ha else ""))
         # THE GRANT, printed where present. Rendered only when it exists, because a `-> True` line
         # for "no grant is outstanding" would read as a term that held the seat.
         # 7.776: it OVERRIDES the disposition term above rather than sitting beside it — this line
@@ -25177,9 +25257,9 @@ def _selftest_checks(args, failures, names):
                         sessions=[("done1", "done"), ("skew1", "done")])
         _rs8_out, _, _ = _rs(_rs8)
         _rs8_bare = [_l for _l in _rs8_out.splitlines()
-                     if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW)\s+\S+\s*$", _l)]
+                     if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW|HELD)\s+\S+\s*$", _l)]
         _rs8_verdict_lines = [_l for _l in _rs8_out.splitlines()
-                              if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW)\s", _l)]
+                              if re.match(r"^(READY|BLOCKED|DONE|RUNNING|UNBUILT|SKEW|HELD)\s", _l)]
         check("dag-10 RS-8: EVERY VERDICT LINE CARRIES A REASON — no line is a bare verdict plus a "
               "seat name. A bare verdict re-installs agent judgment at the read: the caller would "
               "have to reconstruct WHY from the same three files this command just read, and "
@@ -26070,26 +26150,86 @@ def _selftest_checks(args, failures, names):
                                                                     _d8h_ask["dd"],
                                                                     _d8h_ask["bqp"]])
 
-        # ---- D8 PIN: THE PARK GATES, BOTH READERS, ONE SET OF FIXTURES -------------------------
-        # `ask_parked_at_gate` is a SECOND READING of the ferry's delivery gates, authorized as a
-        # PINNED MIRROR (owner ruling 2026-08-11 — the alternative, having the ferry record
-        # delivered/parked on the bus, was rejected against `bus-ferry.js`'s "no write to the bus"
-        # bound). THIS ROW IS THE PIN, and it is the condition the mirror was authorized under.
-        #
-        # The shape is `probe-daemon-lane-watch.js` § L0's, with the languages swapped: it executed
-        # the PYTHON `after`-cell parser in a subprocess and compared term by term; this executes
-        # the JS gate ladder in a subprocess and compares term by term, over the SAME fixture
-        # directories both readers open.
-        #
-        # ⚠ IT ASSERTS THE EXPECTED TABLE AS WELL AS THE EQUALITY, and the second is not redundant:
-        # equality alone is satisfied by two readers that are wrong together, and it would let a
-        # change to the FERRY drag this mirror along silently. With both, a ferry change reds the
-        # table (telling you the ruling moved) and a mirror change reds the equality (telling you
-        # this file drifted).
-        #
-        # ⚠ AND IT FAILS RATHER THAN SKIPS when `node` or the engine tree is absent. This file's own
-        # doctrine, stated at `advice_refused_sends`: a blind check reporting clean IS the defect.
-        # An unrunnable pin means the mirror is unchecked, which is the state the ruling forbids.
+        # ---- W2: THE UNIVERSAL OWNER-ASK HOLD, ON THE READY SURFACE ----------------------------
+        # DRIVEN ON THE D8 FIXTURE ABOVE RATHER THAN A FRESH ONE, and that is the design of the row:
+        # that package already carries the four shapes this hold must NOT distinguish between, each
+        # differing from the next in exactly one fact — `bq` (asked, unanswered, ended
+        # `incomplete`), `dd` (asked, unanswered, arm `default-and-disclose`, ended `done`), `bqp`
+        # (asked, unanswered, PARKED by the ferry, ended `done`), `bqn` (same arm, never asked,
+        # ended `done`). Three of the four are seats the OLD engine-side hold released; all three
+        # must read HELD here, and `bqn` must not.
+        _w2_v = {s: r["verdict"] for s, r in _d8h_rows.items()}
+        _w2_h = {s: r["held-asks"] for s, r in _d8h_rows.items()}
+        _w2_cwd = os.getcwd()
+        try:
+            # THE RELEASE ARM, on the SAME seat and through the SAME transport the D8 admission arm
+            # uses: one `--type answer --re <ask#>`. Nothing else about `dd` changes, so a hold that
+            # never lifts and a hold that never applies each red one half of this row.
+            os.chdir(_d8h_pkg)
+            _d8h_send(_d8h_pkg, OWNER_TOKEN, to="dd", type="answer", re_num=_d8h_ask["dd"],
+                      message="proceed — the default you named is right")
+        finally:
+            os.chdir(_w2_cwd)
+        _w2_rel = {r["seat"]: r for r in json.loads(_rs(_d8h_pkg, json=True)[0])}
+        # THE DEGRADE ARM: a package with NO `messages.md` at all — which is every fixture in this
+        # suite and every goal that has never used the bus.
+        _w2_nobus = _rs_make("w2nobus", [("a", ""), ("b", "a")])
+        _w2_nb_out, _, _w2_nb_code = _rs(_w2_nobus, json=True)
+        _w2_nb_rows = json.loads(_w2_nb_out)
+        # …AND THE ARM THAT ACTUALLY EXERCISES THE `except`: an UNREADABLE bus. An absent file is
+        # not an error at all (`load_messages` returns no blocks), so the row above alone would
+        # pass with the guard deleted. A `messages.md` that is a DIRECTORY raises inside the read,
+        # which is the shape a torn or permission-denied bus takes.
+        _w2_badbus = _rs_make("w2badbus", [("a", ""), ("b", "a")])
+        (_w2_badbus / "coordination" / "messages.md").mkdir()
+        _w2_bb_out, _, _w2_bb_code = _rs(_w2_badbus, json=True)
+        _w2_bb_rows = json.loads(_w2_bb_out)
+        check("W2 A SEAT WITH AN OPEN ASK TO THE OWNER IS `HELD`, UNIVERSALLY, AND THE HOLD OUTRANKS "
+              "ITS OWN CHECK-OUT. `dd` and `bqp` both ENDED `done` and both read HELD — which is the "
+              "precedence assertion, not a bonus: the seat this hold exists for is exactly the one "
+              "that checked out while its question was open, so a `DONE` printed over it would mask "
+              "every case in scope. ⚠ AND THE THREE NARROWINGS ARE ASSERTED ABSENT, one seat each, "
+              "because each was a root cause of the incident this closes: `dd` declares "
+              "`default-and-disclose` (NOT gated on the `block-and-queue` arm), `bqp`'s ask was "
+              "PARKED and never delivered (NOT gated on delivery — the engine-side hold released it, "
+              "this one does not), and `bqp` declares no `human-interactive:` (NOT gated on declared "
+              "interactivity). ⚠ THE DISCRIMINATING CONTROL IS `bqn` IN THE SAME PACKAGE: same arm, "
+              "never asked, reads DONE — a hold that fired on the arm or on the package rather than "
+              "on the ASK passes every arm above and refuses the whole room here. ⚠ THE RELEASE is "
+              "the owner's `--re` answer and nothing else: ONE such row flips `dd` off the hold "
+              "while every other seat stands. ⚠ `held-asks` is on EVERY row, `[]` when clean, and "
+              "the reason names the number and the way out",
+              _w2_v["dd"] == "HELD" and _w2_v["bqp"] == "HELD" and _w2_v["bq"] == "HELD"
+              and _w2_v["bqn"] == "DONE" and _w2_v["bqa"] == "DONE"
+              and _w2_h["dd"] == [_d8h_ask["dd"]] and _w2_h["bqp"] == [_d8h_ask["bqp"]]
+              and _w2_h["bqn"] == [] and _w2_h["bqa"] == [] and _w2_h["succ"] == []
+              and f"#{_d8h_ask['dd']}" in _d8h_rows["dd"]["reason"]
+              and "--re <n>" in _d8h_rows["dd"]["reason"]
+              and _w2_rel["dd"]["verdict"] == "DONE" and _w2_rel["dd"]["held-asks"] == []
+              and _w2_rel["bqp"]["verdict"] == "HELD" and _w2_rel["bq"]["verdict"] == "HELD")
+        check("W2 THE ASK SCAN DEGRADES AND NEVER RAISES. A goal with no `messages.md` at all — "
+              "every other fixture in this suite, and every goal that has never used the bus — "
+              "reports its ordinary verdicts, exits 0, and carries `held-asks: []` on EVERY row. "
+              "This is a term of the ENGINE's safety, not a nicety: its seeding pass is fail-closed "
+              "PER GOAL, so a non-zero exit here seeds NOTHING for the goal, and an ask-scan that "
+              "raised on a missing or torn bus would convert one unreadable file into a whole goal "
+              "that never advances. ⚠ THE SECOND ARM IS THE ONE THAT EXERCISES THE GUARD: an "
+              "ABSENT bus raises nothing at all, so the first arm alone reads green with the guard "
+              "deleted. An UNREADABLE bus does raise, and the same two verdicts and the same empty "
+              "`held-asks` come back — no holds, everything else intact",
+              _w2_nb_code is None                    # `harness_outcome`: None IS the clean exit
+              and {r["seat"]: r["verdict"] for r in _w2_nb_rows} == {"a": "READY", "b": "BLOCKED"}
+              and all(r["held-asks"] == [] for r in _w2_nb_rows)
+              and _w2_bb_code is None
+              and {r["seat"]: r["verdict"] for r in _w2_bb_rows} == {"a": "READY", "b": "BLOCKED"}
+              and all(r["held-asks"] == [] for r in _w2_bb_rows))
+
+        # ---- D8: THE PARK GATES, ONE SET OF FIXTURES -------------------------------------------
+        # `ask_parked_at_gate` reads the ferry's delivery gates (owner ruling 2026-08-11 — the
+        # alternative, having the ferry record delivered/parked on the bus, was rejected against
+        # `bus-ferry.js`'s "no write to the bus" bound). It was authorized as a PINNED MIRROR of a
+        # JS twin; W2 deleted that twin, so what remains is one reader and its expected table —
+        # see the tombstone below the fixtures.
         _pin_ws = Path(td) / "d8pin" / "ws"
         _PIN_HI = "human-interactive: yes\n"
 
@@ -26151,48 +26291,31 @@ def _selftest_checks(args, failures, names):
         _pin_cases.append((_pin_goal("owner", mode="interactive\n", seats=[("alpha", _PIN_HI)]),
                            "alpha", "execution-mode"))
 
-        _pin_js = Path(__file__).resolve().parent.parent / "engine" / "execution-record.js"
+        # ⚠ TOMBSTONE — THE CROSS-LANGUAGE HALF OF THIS PIN IS DELETED (W2). It shelled to `node`
+        # and compared this function term by term against `engine/execution-record.js#
+        # askParkedAtGate`; W2 DELETES that JS function along with the engine-side owner-ask hold
+        # (`execution-record.js#blockAndQueueVerdict` and its `blocked` outcome row), so the pin
+        # would now go RED against a deliberate deletion — a check failing because the thing it
+        # guards was correctly removed teaches the next agent to rebuild the JS half. THE MIRROR IS
+        # GONE, NOT UNCHECKED: there is no second reader left to disagree with. ⚠ AND
+        # `ask_parked_at_gate` ITSELF STAYS — coord's OWN check-out gate (`cmd_checkout`'s
+        # `_bq_gate` leg) still calls it to decide whether a `to: owner` ask was ever delivered, so
+        # its fixtures and its EXPECTED TABLE stay too and are asserted below. Only the `node`
+        # subprocess and the term-by-term comparison went.
         _pin_py = [ask_parked_at_gate(_g, _s) for _g, _s, _e in _pin_cases]
-        _pin_want = [_e for _g, _s, _e in _pin_cases]
-        _pin_js_out, _pin_why = None, ""
-        if not _pin_js.is_file():
-            _pin_why = f"the engine's verdict module is absent at {_pin_js}"
-        else:
-            try:
-                _pin_r = subprocess.run(
-                    ["node", "-e",
-                     "const rec = require(process.argv[1]);\n"
-                     "process.stdout.write(JSON.stringify(JSON.parse(process.argv[2])\n"
-                     "  .map(([f, s]) => rec.askParkedAtGate(f, s) || '')));\n",
-                     str(_pin_js),
-                     json.dumps([[str(_g), _s] for _g, _s, _e in _pin_cases])],
-                    capture_output=True, text=True, timeout=120)
-                if _pin_r.returncode != 0:
-                    _pin_why = (f"node exited {_pin_r.returncode}: "
-                                f"{(_pin_r.stderr or _pin_r.stdout or '').strip()[:200]}")
-                else:
-                    _pin_js_out = json.loads(_pin_r.stdout or "null")
-            except (OSError, subprocess.SubprocessError, ValueError) as _pin_exc:
-                _pin_why = f"could not run the ferry's own reader ({type(_pin_exc).__name__}: {_pin_exc})"
-        _pin_diff = ([] if _pin_js_out is None else
-                     [f"{_g.name}/{_s}: js={_j!r} py={_p!r} want={_e!r}"
-                      for (_g, _s, _e), _j, _p in zip(_pin_cases, _pin_js_out, _pin_py)
-                      if _j != _p or _p != _e])
-        check("D8 pin: THE PARK GATES ARE A MIRROR, AND THIS IS WHAT MAKES THE MIRROR LEGITIMATE — "
-              "`coord.py#ask_parked_at_gate` and `engine/execution-record.js#askParkedAtGate` are "
-              "executed over the SAME %d fixtures and compared term by term, AND against the "
-              "expected table (equality alone is satisfied by two readers wrong together, and it "
-              "would let a change to the FERRY drag this mirror along in silence). Covered: both "
-              "gates open; each gate shut independently and by an absent key; the quote/comment "
-              "strips; all three rungs of the C-4 execution-mode ladder including the file's "
-              "precedence over the birth attribute in both directions; a missing descriptor; an "
-              "unsafe seat name and an unsafe goal id; and a package OUTSIDE `.rbtv/goals/`, which "
-              "the JS's workspace round-trip resolves to nothing — mismatches: %s"
-              % (len(_pin_cases),
-                 ("PIN INOPERATIVE — %s. The mirror is UNCHECKED, which is the state the ruling "
-                  "forbids; a blind check reporting clean IS the defect" % _pin_why)
-                 if _pin_js_out is None else ("none" if not _pin_diff else "; ".join(_pin_diff))),
-              _pin_js_out is not None and not _pin_diff)
+        _pin_diff = [f"{_g.name}/{_s}: got {_p!r} want {_e!r}"
+                     for (_g, _s, _e), _p in zip(_pin_cases, _pin_py) if _p != _e]
+        check("D8 gates: `ask_parked_at_gate` ANSWERS THE EXPECTED TABLE ON ALL %d FIXTURES. "
+              "Covered: both gates open; each gate shut independently and by an absent key; the "
+              "quote/comment strips; all three rungs of the C-4 execution-mode ladder including "
+              "the file's precedence over the birth attribute in both directions; a missing "
+              "descriptor; an unsafe seat name and an unsafe goal id; and a package OUTSIDE "
+              "`.rbtv/goals/`. ⚠ THE EXPECTED TABLE IS THE WHOLE ASSERTION NOW that the JS mirror "
+              "is deleted (tombstone above) — which is the arm that always carried the weight: "
+              "equality between two readers is satisfied by two readers wrong together, and it was "
+              "this table that would catch a change to the ferry's ruling — mismatches: %s"
+              % (len(_pin_cases), "none" if not _pin_diff else "; ".join(_pin_diff)),
+              not _pin_diff)
 
         _rg_help = build_parser().format_help()
         check("dag-10 RS-27 (7.383) THE VERB IS REGISTERED AND THE INDEX A SEAT READS NAMES IT. "
@@ -27827,9 +27950,9 @@ def _selftest_checks(args, failures, names):
             return [g for _i, g in read_relaunch_grants(_sr_base) if g["seat"] == seat]
 
         # ---- the BOUND, at N and at N+1, with its own positive control -----------------------
-        _sr_m1 = _sr_run(mint=True, session="s-1", outcome="failed", json=True)
+        _sr_m1 = _sr_run(mint=True, session="s-1", outcome="crashed", json=True)
         _sr_m2 = _sr_run(mint=True, session="s-2", outcome="killed", json=True)
-        _sr_m3 = _sr_run(mint=True, session="s-3", outcome="failed", json=True)
+        _sr_m3 = _sr_run(mint=True, session="s-3", outcome="crashed", json=True)
         check("7.776 THE RETRY BOUND HOLDS AT N+1, AND MINTS 1..N SUCCEED IN THE SAME RUN. The "
               "control is the whole row: an arm that only asserts the third mint REFUSES is "
               "satisfied by a verb whose minting is simply broken, and it would read green with "
@@ -27845,29 +27968,41 @@ def _selftest_checks(args, failures, names):
               and "exhausted the daemon's retry budget" in _sr_m3[1]
               and len(_sr_rows("failed")) == DAEMON_RETRY_BOUND == 2)
 
-        # ---- the OUTCOME domain: `blocked` and `done` are refused, `killed` is not ------------
+        # ---- the OUTCOME domain: `clean` and the retired words are refused, `killed` is not ----
+        # W2 NARROWED the column to `clean|crashed|killed`, so this row's subject moved with it:
+        # `blocked` is no longer a VALUE and can only be exercised as a word off the vocabulary,
+        # which is what it is asserted as here.
+        _sr_cln = _sr_run(seat="blk", mint=True, session="s-b", outcome="clean")
         _sr_blk = _sr_run(seat="blk", mint=True, session="s-b", outcome="blocked")
-        _sr_dn = _sr_run(seat="blk", mint=True, session="s-b", outcome="done")
-        _sr_xd = _sr_run(seat="blk", mint=True, session="s-b", outcome="exited")
+        # THE DISJOINTNESS, BY EXERCISE — every disposition word fed to the outcome-keyed verb.
+        _sr_disp = [_sr_run(seat="blk", mint=True, session="s-b", outcome=_d)
+                    for _d in RELAUNCH_GRANT_FROM_STATES]
         _sr_empty = _sr_rows("blk")
         _sr_kil = _sr_run(seat="blk", mint=True, session="s-b", outcome="killed", json=True)
-        check("7.776 THE OUTCOME DOMAIN, BY EXERCISE AND IN BOTH DIRECTIONS. `blocked` is refused "
-              "BECAUSE IT MEANS A HUMAN OWES AN ANSWER — retrying it spins a wave against somebody "
-              "who has not replied — and `done` is refused because it is finished work; both write "
-              "NOTHING, read back off disk rather than trusted from the refusal text. `exited` is "
-              "refused too, and that arm is the VOCABULARY one: `exited` is a DISPOSITION word and "
-              "not an outcome word at all, so a verb that had reached for "
-              "`RELAUNCH_GRANT_FROM_STATES` would accept it here. The CONTROL is `killed` on the "
-              "SAME seat and the SAME session immediately after: it MINTS, so 'refuses correctly' "
-              "cannot be confused with 'this verb cannot mint'",
-              _sr_blk[2] == 1 and _sr_dn[2] == 1 and _sr_xd[2] == 1
-              and "`blocked` is EXCLUDED BY DECISION" in _sr_blk[1]
+        check("7.776/W2 THE OUTCOME DOMAIN, BY EXERCISE AND IN BOTH DIRECTIONS, ON W2's NARROWED "
+              "VOCABULARY. `clean` is refused: it is the value that ABSORBED both retired words — "
+              "the old `done` (finished work) and the old `blocked` (a human owes an answer) — and "
+              "neither is work the daemon may re-run on its own, so the exclusion the old `blocked` "
+              "arm asserted is asserted HERE now. `blocked` itself is refused as a word that names "
+              "nothing in the column any more. ⚠ AND THE DISJOINTNESS IS RE-STATED AS AN INVARIANT "
+              "RATHER THAN RE-PINNED: EVERY member of `RELAUNCH_GRANT_FROM_STATES` is fed to this "
+              "outcome-keyed verb and EVERY one is refused — so the two vocabularies are proved "
+              "disjoint BY THE VERB'S OWN BEHAVIOUR on whatever the disposition tuple happens to "
+              "hold, not by a literal that a widening of either side would leave stale. Everything "
+              "refused writes NOTHING, read back off disk rather than trusted from the refusal "
+              "text. The CONTROL is `killed` on the SAME seat and the SAME session immediately "
+              "after: it MINTS, so 'refuses correctly' cannot be confused with 'this verb cannot "
+              "mint'",
+              _sr_cln[2] == 1 and _sr_blk[2] == 1
+              and "`clean` is not retried" in _sr_cln[1]
+              and all(_r[2] == 1 for _r in _sr_disp)
+              and len(_sr_disp) == len(RELAUNCH_GRANT_FROM_STATES) >= 3
               and _sr_empty == []
               and _sr_kil[2] == 0 and json.loads(_sr_kil[0])["status"] == "minted"
               and len(_sr_rows("blk")) == 1)
 
         # ---- the DUP refusal and the SPEND, on the row the control just minted ---------------
-        _sr_dup = _sr_run(seat="blk", mint=True, session="s-b", outcome="failed")
+        _sr_dup = _sr_run(seat="blk", mint=True, session="s-b", outcome="crashed")
         _sr_sp1 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
         _sr_sp2 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
         check("7.776 ONE FAILURE BUYS ONE GRANT, AND A GRANT IS SPENT ONCE. A second mint for a "
@@ -27945,16 +28080,20 @@ def _selftest_checks(args, failures, names):
               "names the outcome one NOWHERE, and `cmd_seat_retry` is the mirror image. The "
               "positive control is that each slice is asserted to CONTAIN the predicate it is "
               "supposed to be showing, because an absence proves nothing about text that was never "
-              "there. The behavioural twin is the `exited` refusal two rows up. W1/F4 RE-STATES "
-              "the invariant rather than merely re-pinning the tuple: the disposition set gained "
-              "`incomplete` (an honestly-unfinished seat is the one class that must be able to "
-              "come back, and no after-edge reads anything but a literal `done`), and DISJOINTNESS "
-              "is the property that survives the widening — a disposition word that ever equalled "
-              "an outcome word would let one constant's edit silently move the other file's "
-              "readers. `incomplete` is a disposition and NEVER an outcome, so the two tuples stay "
-              "disjoint and each verb still reads its own",
+              "there. The behavioural twin is the whole-tuple refusal sweep two rows up. W1/F4 and "
+              "then W2 RE-STATE the invariant rather than merely re-pinning the tuples, and W2 is "
+              "the harder case: BOTH SIDES MOVED — the disposition set gained `incomplete` (an "
+              "honestly-unfinished seat is the one class that must be able to come back), and the "
+              "outcome set was RE-KEYED WORD FOR WORD onto W2's process vocabulary "
+              "`clean|crashed|killed`, where `done` and `blocked` no longer exist as values at "
+              "all. DISJOINTNESS is the property that survives both moves — a disposition word "
+              "that ever equalled an outcome word would let one constant's edit silently move the "
+              "other file's readers — and note it was ALMOST LOST, not preserved by luck: before "
+              "W2 the outcome column carried the literal word `done`, which the disposition column "
+              "also carries, and the only thing keeping the two apart was that no retry constant "
+              "listed it. W2's narrowing removes the collision from the VALUE SPACE itself",
               RELAUNCH_GRANT_FROM_STATES == ("exited", "done", "incomplete")
-              and DAEMON_RETRY_FROM_OUTCOMES == ("failed", "killed")
+              and DAEMON_RETRY_FROM_OUTCOMES == ("crashed", "killed")
               and not (set(RELAUNCH_GRANT_FROM_STATES) & set(DAEMON_RETRY_FROM_OUTCOMES))
               and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
               and "DAEMON_RETRY_FROM_OUTCOMES" not in _f4_mint_src

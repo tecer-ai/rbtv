@@ -165,8 +165,11 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   //
   // A reply in an AGENT'S OWN THREAD is delivered as a session-create at that seat's home — and
   // until this call NOTHING recorded anywhere that the ask had been answered. The coordination bus
-  // kept every question and no reply, so `engine/execution-record.js#blockAndQueueVerdict` could
-  // never see the pairing close and a run could walk past a question the owner had answered.
+  // kept every question and no reply, so nothing could see the pairing close and a run could walk
+  // past a question the owner had answered. The pairing is now read by `coord.py ready-seats`,
+  // which reports a seat with an unanswered owner ask as `HELD` (W2 — for every seat, with no
+  // `fallback:` arm and no ferry-delivery gate deciding who qualifies); `engine/seeding.js
+  // #recordView` treats that set as the seats whose dependents wait. This row is what releases it.
   //
   // ⚑ ONE GATEWAY CALL, NO SPAWN, NO SECOND WRITER. This subtree may not hold a child process
   // (`chat-bridge-spec.md` lines 14/26; `probes/probe-chat-boundary.js` scans every runtime `.js`

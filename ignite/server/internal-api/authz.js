@@ -414,7 +414,10 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
   //
   // BRIDGE ONLY — the narrowest predicate in this module, and deliberately narrower than every
   // sibling above. The act is not "write a message": it is ASSERTING THAT THE HUMAN ANSWERED, and
-  // the row it writes clears a seat's mechanical hold (`execution-record.js#blockAndQueueVerdict`).
+  // the row it writes clears a seat's mechanical hold — since W2 that hold is the `HELD` verdict
+  // `coord.py ready-seats` computes for ANY seat with an unanswered owner ask (universal: no
+  // `fallback:` arm gates it), which `engine/seeding.js#recordView` reads to keep the seat's
+  // dependents waiting.
   // A forged one lets a run walk past a question the owner never saw — the exact failure D8 exists
   // to prevent, reached through the door built to prevent it.
   //

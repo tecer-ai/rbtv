@@ -4,7 +4,9 @@
 // probe-relaunch-grant — CAN A SEAT THAT FAILED ON THE DAEMON LANE EVER BE RETRIED?
 //
 // THE MEASURED DEFECT, live on `.rbtv/goals/forge-reference-seat-id-naming`, seat `forg-intake`:
-// `execution-lane` = `daemon claude-fable`, `executions.csv` carries one row `outcome=failed`, and
+// `execution-lane` = `daemon claude-fable`, `executions.csv` carries one row whose outcome is a
+// terminal non-clean word (`outcome=failed` when it was measured; `crashed` since W2 narrowed that
+// column to the process vocabulary `clean|crashed|killed`), and
 // `coordinate ready-seats` says READY (root seat, no predecessors — the DAG gate was green all
 // along). The seat still never ran again. The eligibility engine ALREADY honoured a relaunch grant
 // — `recordView` drops a granted seat from `foreign`/`notFinished`/`blocked`, `executionsByJob`
@@ -19,7 +21,8 @@
 // SKIPPED. What holds the seat is `seatHasRun(byJob.get('seat-<goal>-<seat>'))` — `failed` is in
 // `ALL_TURN_STATUSES` — so `seatState` answers `live`, and `live` is not `ready`. The grant
 // therefore releases the seat through the `executionsByJob` arm, and every leg below reproduces
-// THAT: a `failed` jobs_log row in the pass's own store PLUS the matching `executions.csv` row.
+// THAT: a `failed` jobs_log row in the pass's own store PLUS the matching `executions.csv` row
+// (which the store status maps to, rather than being spelled twice — `synthTerminalAttempt`).
 //
 // WHAT IS SUBSTITUTED, disclosed up front:
 //   · no daemon PROCESS — the daemon-lane legs call `engine.seedGoal({goalFolder, goal, profile})`,
@@ -103,7 +106,13 @@ function makeGoal(name) {
 // THE ACCEPTANCE CASE'S SHAPE, in both halves — the store row AND the record row, joined by one
 // session id. The join is what makes `recordView` call the row OURS (so `foreign` is skipped) and
 // the store row is what makes `seatHasRun` answer `live`.
-function synthTerminalAttempt(store, goalFolder, { jobId, outcome, storeStatus }) {
+// ⚠ THE RECORD'S WORD IS DERIVED, NEVER TYPED (W2). The `outcome` column is a PROCESS vocabulary
+// now (`clean|crashed|killed`), so a fixture spelling its own outcome beside a store status is a
+// second copy of the map — and the first thing a narrowing of that vocabulary breaks. This fixture
+// calls the SAME `processOutcome` the two real close sites call, so a store `failed` turn lands
+// `crashed` here for exactly the reason it lands `crashed` in production, and a `blocked` turn
+// lands `clean` — which is what keeps LEG 7 out of the automatic retry domain.
+function synthTerminalAttempt(store, goalFolder, { jobId, storeStatus }) {
   const sessionId = nextSession();
   store.registerJob({
     jobId,
@@ -129,7 +138,7 @@ function synthTerminalAttempt(store, goalFolder, { jobId, outcome, storeStatus }
     turnStatus: storeStatus, sessionStatus: storeStatus === 'done' ? 'closed' : 'crashed', endedAt: new Date(),
   });
   record.openExecution({ goalFolder, seat: SEAT, sessionId, lane: 'daemon', startedAt: isoNow() });
-  record.closeExecution({ goalFolder, sessionId, outcome, endedAt: isoNow() });
+  record.closeExecution({ goalFolder, sessionId, outcome: record.processOutcome(storeStatus), endedAt: isoNow() });
   return sessionId;
 }
 
@@ -168,7 +177,7 @@ async function main() {
   say('LEG 1 — CONTROL: the acceptance shape with NO grant');
   const g1 = makeGoal('grant-control');
   const job1 = seeding.jobIdFor(SEAT, 'grant-control');
-  withDaemonStore((s) => synthTerminalAttempt(s, g1, { jobId: job1, outcome: 'failed', storeStatus: 'failed' }));
+  withDaemonStore((s) => synthTerminalAttempt(s, g1, { jobId: job1, storeStatus: 'failed' }));
 
   check('LEG 1 the fixture IS the measured shape: coord says READY and the store carries a `failed` row',
     seeding.readySeats(g1).ready.has(SEAT)
@@ -201,7 +210,7 @@ async function main() {
   say('LEG 2 — DAEMON ARM: write the grant, seed with NO relaunch key');
   const g2 = makeGoal('grant-daemon');
   const job2 = seeding.jobIdFor(SEAT, 'grant-daemon');
-  withDaemonStore((s) => synthTerminalAttempt(s, g2, { jobId: job2, outcome: 'failed', storeStatus: 'failed' }));
+  withDaemonStore((s) => synthTerminalAttempt(s, g2, { jobId: job2, storeStatus: 'failed' }));
   // ⚠ THE FIXTURE MUST REACH THE STATE THE MANUAL GRANT IS FOR, or this leg measures nothing. Since
   // D4 the daemon's own pass mints and enqueues this shape by itself (LEG 1), so an ungranted
   // "control" pass now ENQUEUES — the manual grant that follows would never be exercised, and both
@@ -258,7 +267,7 @@ async function main() {
   const consoleStorePath = path.join(g4, 'heart.db');
   {
     const store = openHeartStore({ dbPath: consoleStorePath });
-    try { synthTerminalAttempt(store, g4, { jobId: job4, outcome: 'failed', storeStatus: 'failed' }); }
+    try { synthTerminalAttempt(store, g4, { jobId: job4, storeStatus: 'failed' }); }
     finally { store.close(); }
   }
   const runConsole = async () => {
@@ -285,32 +294,58 @@ async function main() {
   // reader now honors a grant on a `done` row — that is what re-dispatches a FAILed builder on
   // its slot (`concepts/loop.md`).
   say('');
-  say('LEG 5 — the loop re-fire: a grant re-opens a seat the RECORD calls done');
+  say('LEG 5 — the loop re-fire: a grant re-opens a seat that CHECKED OUT `done`');
   const g5 = makeGoal('grant-finished');
   const job5 = seeding.jobIdFor(SEAT, 'grant-finished');
-  // The cross-lane `done` shape: the record says done and THIS store has no row at all, so the
-  // record's word is the only thing protecting the seat. (A store `done` row protects it a second
-  // time — measured separately by probe-cross-lane-resume — and would make this arm undiscriminating
-  // by covering for the record.)
+  // ⚠ THE FIXTURE MOVED FILES, BECAUSE DONE-NESS DID (W2). This leg used to write `outcome=done`
+  // into the execution record and assert the grant beat it. That column cannot say `done` any more
+  // — it is the PROCESS vocabulary now — and had this fixture merely been retyped `clean`, the arm
+  // would have gone quietly VACUOUS: `recordView`'s `done` set would be empty, so `finished` would
+  // be empty, so `skippedAsFinished` could not name this seat whatever the grant loop did.
+  // The seat's done-ness is its own CHECK-OUT, on `coord.py ready-seats --json`, so the fixture is
+  // a CLOSED `sessions.csv` row stamped `disposition: done` — the shape a finished seat really
+  // leaves. The record row rides along in the process vocabulary because the lane still writes one.
+  // THIS store has no row at all, so nothing else is covering for the attestation.
   {
     const s5 = nextSession();
     record.openExecution({ goalFolder: g5, seat: SEAT, sessionId: s5, lane: 'daemon', startedAt: isoNow() });
-    record.closeExecution({ goalFolder: g5, sessionId: s5, outcome: 'done', endedAt: isoNow() });
+    record.closeExecution({ goalFolder: g5, sessionId: s5, outcome: record.CLEAN, endedAt: isoNow() });
+    spawnjs.appendRowEnsuringHeader(path.join(g5, 'sessions.csv'), {
+      seat: SEAT, 'session-id': s5, harness: 'bash', model: PROFILE,
+      workdir: path.join(g5, 'seats', SEAT), started: isoNow(), ended: isoNow(),
+      disposition: 'done', 'disposition-writer': 'seat',
+    }, () => {});
   }
+  // NOT VACUOUS, and this is the arm that says so: WITHOUT the grant the attested seat is skipped
+  // as finished. It is the control the old shape never carried, and the one that keeps the arm
+  // below from passing on an empty `finished` set.
+  const finishedControl = daemonPass(g5, 'grant-finished');
+  check('LEG 5 CONTROL: ungranted, the seat that checked out `done` is SKIPPED AS FINISHED — so the '
+    + 'arm below is measuring the grant and not an empty set',
+    finishedControl.pickup.skippedAsFinished.includes(SEAT) && !finishedControl.pickup.enqueued.includes(SEAT),
+    `enqueued ${JSON.stringify(finishedControl.pickup.enqueued)} · skippedAsFinished ${JSON.stringify(finishedControl.pickup.skippedAsFinished)}`);
   grantsApi.grantRelaunch(g5, SEAT);
   const finishedPass = daemonPass(g5, 'grant-finished');
-  check('LEG 5 a granted seat whose last record row is `done` IS enqueued — the loop re-fire',
-    finishedPass.pickup.enqueued.includes(SEAT) && !finishedPass.pickup.skippedAsFinished.includes(SEAT),
+  // ⚠ THE CLAIM IS THE ENGINE'S HALF, AND ITS BOUND IS STATED RATHER THAN QUIETLY ASSUMED. The
+  // loop re-fire is a TWO-STORE act (`relaunch-grants.js#spendCoordTwin`): this file's grant is
+  // what stops the ENGINE calling the seat finished, and coord's own `relaunch-grants.csv` twin is
+  // what flips its `ready-seats` verdict off `DONE`. `grantRelaunch` writes only the first, so the
+  // seat is deliberately NOT expected to reach the queue here — the second hop, and the enqueue it
+  // buys, is LEG 10, which drives the real mint that writes both.
+  // What this arm measures is exactly the guard that used to be reverted to `if (finished.has(seat))
+  // continue;` — `recordView`'s `finished.delete(seat)`. Against the control above it is
+  // discriminating: same goal, same attested check-out, one grant file's difference.
+  check('LEG 5 a granted seat that checked out `done` is NO LONGER SKIPPED AS FINISHED — the '
+    + 'eligibility reader honours a grant over a terminal disposition (the loop re-fire, engine half)',
+    !finishedPass.pickup.skippedAsFinished.includes(SEAT),
     `enqueued ${JSON.stringify(finishedPass.pickup.enqueued)} · skippedAsFinished ${JSON.stringify(finishedPass.pickup.skippedAsFinished)}`);
-  check('LEG 5 …and the grant IS spent at that enqueue — single-use, so the seat cannot loop free',
-    !grantsApi.readGrants(g5).has(SEAT), JSON.stringify([...grantsApi.readGrants(g5)]));
 
   // ── LEG 6 · AN UNSPENT GRANT SURVIVES AN UNLAUNCHABLE PASS ───────────────────────────────────
   say('');
   say('LEG 6 — the boot prompt cannot be composed: the seat is not enqueued AND the grant survives');
   const g6 = makeGoal('grant-unlaunchable');
   const job6 = seeding.jobIdFor(SEAT, 'grant-unlaunchable');
-  withDaemonStore((s) => synthTerminalAttempt(s, g6, { jobId: job6, outcome: 'failed', storeStatus: 'failed' }));
+  withDaemonStore((s) => synthTerminalAttempt(s, g6, { jobId: job6, storeStatus: 'failed' }));
   grantsApi.grantRelaunch(g6, SEAT);
   {
     // Coord's two answers are taken WITH the environment intact; only the boot-prompt call below
@@ -345,16 +380,17 @@ async function main() {
   // ── LEG 7 · FAIL-CLOSED — an unreadable grant file is NOT a grant ────────────────────────────
   say('');
   say('LEG 7 — an unreadable grant file yields NO grant, and never throws');
-  // ⚠ THE LAST ROW IS `blocked`, NOT `failed`, AND THAT IS WHAT KEEPS THIS LEG ABOUT THE FILE.
+  // ⚠ THE TURN ENDS `blocked`, NOT `failed`, AND THAT IS WHAT KEEPS THIS LEG ABOUT THE FILE.
   // Since D4 a `failed` daemon-lane row is auto-minted a grant by the pass itself, so the seat
   // would be enqueued whatever this file says and the arm would go red for a reason that has
-  // nothing to do with fail-closed reading. `blocked` is excluded from the automatic retry AT
-  // COORD'S OWN DECISION (`DAEMON_RETRY_FROM_OUTCOMES`, coord.py — a blocked seat is waiting on the
-  // owner), so the ONLY thing that could release this seat is a readable grant file: exactly the
-  // authorization the corrupted file must never synthesize.
+  // nothing to do with fail-closed reading. A `blocked` turn PUBLISHES `clean` since W2 — it is a
+  // tidy exit, whatever the work's state — and `clean` is excluded from the automatic retry twice
+  // over: `mintRetryGrants` skips it outright, and coord's `DAEMON_RETRY_FROM_OUTCOMES` is
+  // `crashed`/`killed` ONLY. So the sole thing that could release this seat is a readable grant
+  // file: exactly the authorization the corrupted file must never synthesize.
   const g7 = makeGoal('grant-unreadable');
   const job7 = seeding.jobIdFor(SEAT, 'grant-unreadable');
-  withDaemonStore((s) => synthTerminalAttempt(s, g7, { jobId: job7, outcome: 'blocked', storeStatus: 'blocked' }));
+  withDaemonStore((s) => synthTerminalAttempt(s, g7, { jobId: job7, storeStatus: 'blocked' }));
   grantsApi.grantRelaunch(g7, SEAT);
   fs.chmodSync(path.join(g7, grantsApi.GRANT_FILE), 0o000);
   let readThrew = null;
@@ -388,7 +424,7 @@ async function main() {
   {
     const s8 = nextSession();                      // another lane's failure: no store row of ours
     record.openExecution({ goalFolder: g8, seat: SEAT, sessionId: s8, lane: 'daemon', startedAt: isoNow() });
-    record.closeExecution({ goalFolder: g8, sessionId: s8, outcome: 'failed', endedAt: isoNow() });
+    record.closeExecution({ goalFolder: g8, sessionId: s8, outcome: record.CRASHED, endedAt: isoNow() });
   }
   const cli = require('node:child_process').spawnSync(process.execPath,
     [path.join(IGNITE_SRC, 'capabilities', 'attached-execution', 'tool', 'rbtv-execution'),
@@ -411,7 +447,7 @@ async function main() {
   {
     const sb = nextSession();
     record.openExecution({ goalFolder: g8b, seat: 'alpha', sessionId: sb, lane: 'daemon', startedAt: isoNow() });
-    record.closeExecution({ goalFolder: g8b, sessionId: sb, outcome: 'failed', endedAt: isoNow() });
+    record.closeExecution({ goalFolder: g8b, sessionId: sb, outcome: record.CRASHED, endedAt: isoNow() });
   }
   const truth = await attached.executeAttached({
     goalFolder: g8b, profile: PROFILE, spawnConfigPath: configPath, tickIntervalMs: 200, maxTicks: 1,
@@ -436,7 +472,7 @@ async function main() {
   {
     const s9 = nextSession();                      // another lane's store: no row of ours anywhere
     record.openExecution({ goalFolder: g9, seat: SEAT, sessionId: s9, lane: 'console', startedAt: isoNow() });
-    record.closeExecution({ goalFolder: g9, sessionId: s9, outcome: 'failed', endedAt: isoNow() });
+    record.closeExecution({ goalFolder: g9, sessionId: s9, outcome: record.CRASHED, endedAt: isoNow() });
   }
   check('LEG 9 the fixture IS the cross-lane shape — the record calls the seat FOREIGN',
     withDaemonStore((s) => seeding.recordView(s, g9).foreign.has(SEAT)),
@@ -467,7 +503,7 @@ async function main() {
   say('LEG 10 — the REAL session-closer, the grant HOIST off the closed row, and the ENQUEUE');
   const g10 = makeGoal('grant-session-closed');
   const job10 = seeding.jobIdFor(SEAT, 'grant-session-closed');
-  const sid10 = withDaemonStore((s) => synthTerminalAttempt(s, g10, { jobId: job10, outcome: 'failed', storeStatus: 'failed' }));
+  const sid10 = withDaemonStore((s) => synthTerminalAttempt(s, g10, { jobId: job10, storeStatus: 'failed' }));
   const seatDir10 = path.join(g10, 'seats', SEAT);
   // The at-dispatch row, through the DAEMON'S OWN writer (`spawn.js#appendRowEnsuringHeader`) and
   // carrying the SAME session id `executions.csv` holds — that single identifier is what the mint

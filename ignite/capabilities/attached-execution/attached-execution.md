@@ -350,7 +350,8 @@ somebody else may still be running.
 **Every write takes a lock, and that is not belt-and-braces.** The close shipped as an unlocked
 read-modify-write in the first version of this build; measured in review, **300 appends racing 300
 closes lost 336 of 601 rows** — whole rows, nothing malformed for a reader to detect, and
-`finishedSeats` transiently reading EMPTY (the one wrong answer that re-runs a finished seat). Two
+the record's own reader (`ranSeats`, spelled `finishedSeats` before W2 renamed what it can honestly
+claim) transiently reading EMPTY (the one wrong answer that re-runs a seat another lane ran). Two
 lanes over one goal is what this record is FOR, so that interleaving is the normal case. Both halves
 of the cure are needed and both are probed (`D5`, two real processes): a **lockfile** (`O_EXCL`,
 self-clearing, stale-stolen after 5s) around every write, and an **atomic replace** (temp + `rename`)
@@ -492,35 +493,51 @@ row. It is dispatched as an ordinary detached child and any `to: owner` row it w
 applies on the attached lane too: a `park` seat carried in a terminal has its terminal, and the bus
 rows it also writes `to: owner` park — which is what it declared its bus questions do.
 
-(2) **`block-and-queue` HOLDS THE DAG — mechanically** (owner ruling
-`#d-block-and-queue-mechanical-hold`, 2026-08-10, settling the `#decision` row this bound used to
-be). The arm's one-home definition — `meta/planning/references/file-prompt.md` § `fallback`, *"hold
-the seat, queue the question for review"* — **stands; the build changed to match it.** A seat that
-asks the owner and exits 0 is **not `done` to the DAG**.
+(2) **AN UNANSWERED OWNER-ASK HOLDS THE SEAT — universally, and NOT from here** (W2, superseding
+`#d-block-and-queue-mechanical-hold`). The intent is unchanged and the arm's one-home definition —
+`meta/planning/references/file-prompt.md` § `fallback`, *"hold the seat, queue the question for
+review"* — still stands. **What changed is where the hold is decided, and what it keys on.**
 
-**The mechanism is one word in the record, and nothing else** — no state file, no poll loop
-(`PRIN-11`). The store's turn is truly `done` (the process exited); the record publishes **`blocked`**
-(the store's own word for blocked-on-something, minted nowhere), decided in
-`execution-record.js#outcomeForSeat`, which **both** close sites go through — the per-tick publish and
-this lane's foreground carriage, because the arm is the *seat's* declaration and binds every lane. So
-`recordView` collects the seat under `notFinished`/`blocked`, and the ONE eligibility predicate
-(`seatState`) plus `evaluateExit` both answer "not finished" — the enqueue pass, the carrier,
-`--status` and the exit condition inherit it with no second rule to keep in step. An attached run
-whose remaining seats are all held returns `outcome: 'blocked'` naming them, rather than
-`seat-failed` (it did not fail) or `complete`.
+**It is no longer decided in this engine, and it no longer keys on the arm.** The hold is ONE
+verdict, `HELD`, computed in `coord.py ready-seats` — the surface that already knows what every seat
+declared and what it checked out — and it applies to ANY seat carrying an open `to: owner` ask.
+`fallback: block-and-queue`, `human-interactive:` and the ferry's delivery gates are **not**
+consulted: all three were ways for a real unanswered question to release the DAG anyway, which is
+the incident W2 closes. `execution-record.js#outcomeForSeat`, `#blockAndQueueVerdict` and
+`#askParkedAtGate` are **deleted**; nothing in JS parses that question again.
 
-**The release is the answer, through the revival.** Nothing writes an answer row onto the bus — the
-ferry is outbound-only — so the owner's reply mints a session at the asking seat's home, which opens
-a **second** record row; the seat's **last** row is what readers key on (open → `live`, then `done`).
-The bus is read once, at the close, only to see whether the ask was already answered there before the
-seat exited.
+**The record's `outcome` column does not carry the hold, and cannot.** It narrowed to a **PROCESS**
+vocabulary — `clean | crashed | killed` — because that is the only question a lane which watched a
+process exit can honestly answer. A seat that fail-blocked exits tidily, so `clean` is true of it,
+which is exactly why nothing may read done-ness out of that column. `blocked` is no longer an
+outcome word. **Whether the WORK is done is the seat's own CHECK-OUT DISPOSITION**, on
+`coord.py ready-seats --json`.
 
-⚠ **ONLY AN `answer` RELEASES, AND ONLY BEFORE THE SEAT EXITS.** The bus read pairs the seat's
-`to: owner` asks against `type: answer` rows addressed back to it — a `note` in the same direction
-does **not** count. That is deliberate (the closed CMP-8 vocabulary has a word for answering and a
-different word for remarking, and a peer's aside must not release a wave), and it is narrow: after
-the seat has exited, a later bus `answer` releases nothing either — the record's last word is the
-hold, and the revival or `--relaunch` is what clears it.
+**The engine's half is CONSUMPTION.** `seeding.js#recordView` reads coord's rows once per pass and
+turns `verdict: HELD` into `view.blocked` (carrying coord's own reason string, so this engine states
+nothing about *why*) and a `done` disposition into `view.done`; the record's own last row still
+supplies `foreign` and the OPEN half of `notFinished`, which are facts about processes and lanes.
+From there the ONE eligibility predicate (`seatState`) and `evaluateExit` inherit it with no second
+rule to keep in step — the enqueue pass, the carrier, `--status` and the exit condition all read the
+one view. An attached run whose remaining seats are all held returns `outcome: 'blocked'` naming
+them, rather than `seat-failed` (it did not fail) or `complete`.
+
+⚠ **`readyRows` ABSENT DEGRADES TO "NOTHING DONE, NOTHING HELD"** — never to a read of the stale
+column. Old `outcome` values on live goals are **inert, not migrated**: no file is rewritten, so a
+reader that fell back to them would advance a wave off values the migration deliberately left behind.
+
+**The release is the owner's answer, and it lifts the hold at its source.** The reply is written to
+the bus by its one writer (`coord.py send --type answer --re <n>`, driven by
+`engine/bus-answer.js#recordBusAnswer`, which resolves the ask id via the surviving
+`execution-record.js#openOwnerAsks` pairing). Once the ask is answered `ready-seats` stops reporting
+`HELD`, and coord's `cmd_checkout` — which refuses a `done` while the seat's ask is open — admits
+the check-out that advances the successors' `after` members. `--relaunch` remains the operator's
+escape when no answer is coming.
+
+⚠ **ONLY AN `answer` RELEASES.** A `note` in the same direction does not count: the closed CMP-8
+vocabulary has a word for answering and a different word for remarking, and a peer's aside must not
+release a wave. Unlike the deleted mechanism, an answer arriving **after** the seat has exited works
+fine — the hold is recomputed from the bus on every `ready-seats` call, not frozen into a cell.
 
 ⚠ **ON THIS LANE THE REVIVAL DOES NOT ARRIVE BY ITSELF.** The owner's reply enqueues a
 session-create for the **next tick** — and an attached run that returned `blocked` has already
@@ -529,26 +546,30 @@ exited, so nothing is ticking. After answering, somebody must **re-run `rbtv run
 itself survives the exit correctly — it is on disk, not in the process — so a later run picks the
 seat up exactly where it was.
 
-⚠ **AND IT KEYS ON A *DELIVERED* ASK** (owner ruling `#d-parked-ask-autonomous-workaround`, which
-replaced what this bound used to call a standing hazard). **Autonomous means the workflow
-completes**, so `block-and-queue` holds only when the ferry's gates were OPEN and the question
-actually reached the owner. When the ask **parks** — an autonomous goal, or an unflagged seat — the
-seat is NOT held: it executes its authored autonomous workaround (`d-s14-autonomous-dod` — derive,
-record with provenance in the goal's `decisions.md` / `doubts.md`, proceed), the record publishes
-its real outcome, and the wave runs to completion. The parked ask stays on the bus; both it and the
-derivation are there for the owner on return.
+⚠ **THE PARKED-ASK RESIDUAL, measured — and it is now smaller and in a different place.** The old
+mechanism keyed the whole hold on a **delivered** ask (`#d-parked-ask-autonomous-workaround`:
+*autonomous means the workflow completes*), so a parked ask released everything. Since W2 the
+**seat** is held either way — `ready-seats` reports `HELD` on an open `to: owner` ask with no gate
+consulted, and the pass reports it as `blockedOnOwner`. What still consults the ferry's gates is the
+OTHER door: `coord.py cmd_checkout` calls `ask_parked_at_gate`, so on an autonomous goal or for an
+unflagged seat the `done` check-out is **admitted**, the successor's `after` member is satisfied, and
+the **dependents advance** while the seat itself reads `HELD`. The seat executes its authored
+autonomous workaround (`d-s14-autonomous-dod` — derive, record with provenance in the goal's
+`decisions.md` / `doubts.md`, proceed) and the parked ask stays on the bus for the owner on return.
 
-Delivery is re-derived at the close from the ferry's own two gate readers — no state file, because
-the ferry's park writes nothing (a structural probe arm pins its rung set). The report distinguishes
-the two: a held seat is a `warn` plus `blockedOnOwner`; a seat that proceeded on its workaround is an
-`info` naming the gate that parked its ask, so the operator knows to look in the ledgers.
+Measured at `engine/probes/probe-owner-ask-hold.js` arms U1/U2, and recorded there as a FINDING
+rather than ruled: whether the dependents advancing on a parked ask is the intended residual of
+`#d-parked-ask-autonomous-workaround` or a surviving limb of the incident W2 closes is an **owner
+call**.
 
 (3) ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS.** It still mints a second `executions.csv` row
-for the same seat (open, `lane: daemon`) beside the earlier one — but the record now answers with a
-seat's **LAST** row rather than with any `done` row, so `--status` reports `live` while that session
-runs and its dependents stay held. The measured-safe-but-real concurrency this bound used to disclose
-(review F6) is **closed**, not accepted. Both halves are probed in
-`engine/probes/probe-block-and-queue-hold.js`, with two source mutants proven red.
+for the same seat (open, `lane: daemon`) beside the earlier one — and since W2 the two halves come
+from **different surfaces**, which makes the independence structural rather than incidental: `done`
+is the seat's check-out disposition on coord's answer, `notFinished` is the record's **LAST** row
+(still open) plus coord's `HELD`. `finished` is the set that reconciles them, so `--status` reports
+`live` while that session runs and its dependents stay held. The measured-safe-but-real concurrency
+this bound used to disclose (review F6) is **closed**, not accepted. Probed as a control/treatment
+pair in `engine/probes/probe-owner-ask-hold.js` § F (arms F0–F3).
 
 ⚠ **The marker's TERM is `lane assignment`, values `daemon | console` — MINTED registry-side
 2026-08-10** (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`), per

@@ -47,7 +47,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { readExecutionRecord, finishedSeats, DONE, BLOCKED } = require('./execution-record');
+// ⚠ `finishedSeats` IS GONE AND IT WAS ALREADY DEAD HERE (W2). It was imported on this line and
+// called from NOWHERE — repointing it would have been a no-op on a live goal, which is why the
+// consumer sweep was ordered by grep rather than by memory. What replaced its QUESTION is
+// `recordView`'s `done` set, and that set no longer comes from this file at all: it comes from the
+// seats' own check-out dispositions on coord's `ready-seats --json` answer.
+const { readExecutionRecord, CLEAN } = require('./execution-record');
 // The ONE interpreter resolver this repo already has (`python3` is a Microsoft-Store LIE on
 // Windows — it is on PATH, is executable, and runs no python).
 const { requirePythonCmd } = require('../lib/python-cmd');
@@ -177,8 +182,35 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
   for (const row of rows) {
     const rec = last.get(row.seat);
     const outcome = ((rec && rec.outcome) || '').trim();
-    if (!rec || !outcome || outcome === DONE) continue;
+    // ⚠ W2 — THE GUARD IS `CLEAN`, NOT `done`. The outcome column is a PROCESS vocabulary now
+    // (`clean|crashed|killed`, `execution-record.js` § THE SCHEMA), so the old `outcome === DONE`
+    // test could never match again and this pass would have minted against every seat that ever
+    // exited tidily. A clean exit is nothing to retry: whether the WORK finished is the seat's
+    // check-out, and that lives on `view.finished` below. `crashed`/`killed` are the whole retry
+    // domain and coord's `DAEMON_RETRY_FROM_OUTCOMES` is where that set is enforced — this line
+    // only declines to ASK about the rows that plainly are not it.
+    if (!rec || !outcome || outcome === CLEAN) continue;
     if (view.finished.has(row.seat) || view.notFinished.has(row.seat)) continue;
+    // ⚠ NO AUTO-RETRY AGAINST A WAITING HUMAN — the exclusion TRANSFERRED HERE from coord's
+    // `DAEMON_RETRY_FROM_OUTCOMES` (adv, C18). That constant used to carry it by omitting `blocked`
+    // from the outcome vocabulary; `blocked` is not an outcome word any more, so the decision moved
+    // to the surface that now holds the fact: coord's `HELD` verdict, which `recordView` collects
+    // into `view.blocked`. Same ruling, same effect, one hop further up — a seat waiting on an
+    // owner-ask is the one terminal state whose remedy is a person, and an unattended retry would
+    // spin a wave against a question nobody answered.
+    if (view.blocked.has(row.seat)) {
+      if (logger) {
+        logger({
+          level: 'info',
+          message: 'seat NOT retried — it is HELD on an unanswered owner-ask, and the remedy for that '
+            + 'is a person. An automatic retry would spin the wave against a question nobody answered.',
+          seat: row.seat,
+          outcome,
+          evidence: String(view.blocked.get(row.seat) || '').slice(0, 400),
+        });
+      }
+      continue;
+    }
     // ⚠ NEVER AUTO-MINT AGAINST ANOTHER LANE'S SEAT (owner ruling 2026-08-13). `foreign` is "this
     // seat's last execution belongs to a DIFFERENT lane's own store" — the cross-lane
     // never-double-dispatch guarantee. A grant RELEASES a foreign hold (`recordView`'s grant loop),
@@ -447,13 +479,56 @@ function uncastSeats(goalFolder) {
 // A LATER row clears it — which is exactly what the owner's answer mints (a revival session at the
 // seat's home), so the hold releases through machinery that already existed. A `--relaunch` grant
 // clears it for the same reason it clears `foreign`: an explicit human act.
-function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
+// ── W2 — `done` AND `blocked` NO LONGER COME OUT OF THE RECORD ────────────────────────────────
+//
+// `readyRows` is coord's `ready-seats --json` answer, handed in by the caller that already paid for
+// it (ONE subprocess per goal per pass — see `readySeats`). Two of the four sets below now read it
+// instead of the record's `outcome` column:
+//
+//   done      the seat's CHECK-OUT DISPOSITION is `done` — the seat's own word for its own work,
+//             which is the only surface that ever knew it. The record's `outcome` column cannot
+//             answer this any more and never honestly could: it said `done` for a seat that
+//             fail-blocked, because it was derived from a process exiting 0.
+//   blocked   coord's `HELD` verdict — a seat with an unanswered ask to the owner. UNIVERSAL: no
+//             `fallback: block-and-queue` gate and no ferry-delivery gate, both of which were the
+//             root cause of the original silent stall. The map's VALUE is coord's own reason
+//             string, so this file states nothing about why a seat is held.
+//
+// `foreign` and the OPEN half of `notFinished` still come from the record, because they are facts
+// about PROCESSES and lanes, which is exactly what the record now carries.
+//
+// ⚠ `readyRows` ABSENT DEGRADES TO "NOTHING IS DONE, NOTHING IS HELD", never to the old column
+// read. Two callers pass none today — the `--status` verb on a goal whose readiness coord refused,
+// and any caller written before this parameter. Both directions of a wrong guess are unsafe, but
+// they are not equally unsafe: an empty `done` set makes a finished seat merely look unfinished,
+// and the STORE's own no-double-fire guard (`seatHasRun`) plus `foreign` still stop it being
+// re-run. Reading the stale column instead would advance a wave off a value the migration
+// deliberately left inert (adv, C-migration: old `outcome` values are inert, files are NOT
+// rewritten).
+function recordView(heartStore, goalFolder, { relaunch = null, readyRows = null } = {}) {
   const rows = readExecutionRecord(goalFolder).rows;
   const done = new Set();
   const foreign = new Map();
   const notFinished = new Map();
   const blocked = new Map();
-  if (!rows.length) return { done, finished: done, foreign, notFinished, blocked };
+  // THE ATTESTATION, read first and independently of the record: a seat can carry a disposition
+  // with no record row at all (the measured `forg-intake` shape — a daemon execution that wrote no
+  // `sessions.csv`, and its mirror, a seat coord knows about that this record never saw).
+  for (const r of readyRows || []) {
+    if (!r || !r.seat) continue;
+    if ((r.disposition || '').trim() === 'done') done.add(r.seat);
+    if (r.verdict === 'HELD') {
+      blocked.set(r.seat, r.reason || 'coord reports HELD — an unanswered ask to the owner');
+      notFinished.set(r.seat, blocked.get(r.seat));
+    }
+  }
+  if (!rows.length) {
+    const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
+    for (const seat of withFileGrants(relaunch, goalFolder)) {
+      finished.delete(seat); done.delete(seat); notFinished.delete(seat); blocked.delete(seat);
+    }
+    return { done, finished, foreign, notFinished, blocked };
+  }
   // THE GRANT IS SOURCED HERE, not handed in — see `relaunch-grants.js`. A caller-supplied set is
   // still honoured (`--relaunch` argv, and any grant a caller minted for this pass); the goal
   // folder's own file is FOLDED IN rather than used as a fallback, because a pass that already
@@ -464,14 +539,16 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
   // keep the behaviour they had (the seat is not done and an explicit grant re-runs it), so only
   // the two non-finishes below are collected here.
+  // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
+  // its most recent execution. ⚠ ONLY THE **OPEN** CASE IS COLLECTED HERE NOW. The `blocked` arm
+  // that stood beside it read the record's outcome column, and W2 deleted that word from this
+  // vocabulary: a held seat is coord's `HELD` verdict, folded in above. Every terminal process word
+  // (`clean`/`crashed`/`killed`) is silent here, exactly as `failed`/`killed` always were — the
+  // seat is not done, and its done-ness is decided by its disposition, not by how its process ended.
   const last = new Map();
   for (const r of rows) last.set(r.seat, r);
   for (const [seat, r] of last) {
-    const outcome = (r.outcome || '').trim();
-    if (outcome === BLOCKED) {
-      blocked.set(seat, `its last execution ended '${BLOCKED}' — the seat is waiting on an answer, so its dependents wait with it`);
-      notFinished.set(seat, blocked.get(seat));
-    } else if (!outcome) {
+    if (!(r.outcome || '').trim()) {
       notFinished.set(seat, `its last execution is still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
     }
   }
@@ -490,7 +567,11 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   }
   for (const r of rows) {
     const outcome = (r.outcome || '').trim();
-    if (outcome === DONE) { done.add(r.seat); continue; }
+    // ⚠ THE `done` BRANCH THAT STOOD HERE IS GONE AND ITS ABSENCE IS THE WHOLE REPOINT. It read
+    // `outcome === 'done'` and both ADDED to `done` and skipped the foreign test. Done-ness is the
+    // disposition now (folded in at the top), and the foreign test is applied to every row on its
+    // own merits — a seat coord attests `done` has its foreign hold cleared below, by the same
+    // `finished` deletion that always cleared it.
     if (ours.has(r['session-id'])) continue;            // our own store already governs this one
     foreign.set(r.seat, outcome
       ? `ended '${outcome}' in the ${r.lane || 'other'} lane (session ${r['session-id']})`
@@ -499,11 +580,13 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   // ── `finished` — "IS THIS SEAT DONE **NOW**", AND THE ONE ANSWER EVERY OUTRANKING TEST TAKES ──
   //
   // ⚠ THIS SET EXISTS BECAUSE `done` AND `notFinished` ARE INDEPENDENT, AND EVERY TEST THAT USED TO
-  // WRITE `done.has(seat)` MEANT THIS. `done` is "ANY row says done" — the cross-lane no-double-run
-  // guarantee, which must stay any-row. `notFinished` is the LAST row. Between them sits the seat
-  // this build created: rows `done, blocked` or `done, open`, which `done` calls finished and the
-  // last word calls not. Review findings F1 and F2 were both that gap, at the two call sites below
-  // — the review's own words, a signature change that did not sweep its callers.
+  // WRITE `done.has(seat)` MEANT THIS. Since W2 the two come from DIFFERENT SURFACES, which makes
+  // the independence structural rather than incidental: `done` is the seat's CHECK-OUT DISPOSITION
+  // on coord's answer, `notFinished` is the record's last row (still OPEN) plus coord's `HELD`
+  // verdict. A seat can carry both at once and it is the ordinary case — it checked out `done` on
+  // an earlier turn and something is running for it now, or it checked out `done` with a question
+  // to the owner still unanswered. Review findings F1 and F2 were both that gap, at the two call
+  // sites below — the review's own words, a signature change that did not sweep its callers.
   //
   //   F1 (HIGH): the relaunch grant bailed on `done.has(seat)`, so `--relaunch` was a NO-OP for a
   //   seat held on its SECOND ask (`blocked, done, blocked`) — the documented escape did nothing
@@ -514,21 +597,26 @@ function recordView(heartStore, goalFolder, { relaunch = null } = {}) {
   // Computed BEFORE the grant's deletes, so a grant can never make a seat read finished.
   const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
 
-  // A later `done` outranks an earlier non-done row for the same seat: the seat IS finished — but
-  // only when `done` IS the last word (see above). An OPEN or `blocked` row after it is the seat's
-  // current state and outranks the older `done`.
+  // An attested `done` clears a foreign hold — the seat IS finished, and the lane that ran it is
+  // nobody's business at that point. But only while nothing outranks the attestation: an OPEN
+  // record row, or coord's `HELD`, is the seat's current state and `finished` above already
+  // excluded it.
   for (const seat of finished) foreign.delete(seat);
   // The one-shot relaunch grant releases a foreign hold exactly as it releases a local failure —
   // and, exactly as there, it can never release a FINISHED seat. It releases the record's last-word
   // hold too: an operator saying "run this seat again" is the same explicit act, and the answer
   // that would otherwise release it is the one thing he is saying will not come.
-  // ⚠ THE `if` IS NOT DEAD FLEXIBILITY AND THE INDENTATION IS LOAD-BEARING. This loop's guard line
-  // is a MUTATION SITE, matched by exact text (`probe-block-and-queue-hold.js`, mutant `grant` —
-  // review F1's red-first proof that a grant bails on the LAST WORD and not on any `done` row).
-  // Sourcing the grant from a file made the old `if (relaunch)` wrapper unnecessary, and dropping
-  // it re-indented these lines by two columns — which silently un-anchored that mutant: it reported
-  // "0 file(s) carry the mutation site" and its arm went vacuous. The wrapper stays, now testing
-  // the set instead of the parameter.
+  // ⚠ THE `if` IS NOT DEAD FLEXIBILITY. It survives a history worth keeping: sourcing the grant from
+  // a file made the old `if (relaunch)` wrapper unnecessary, and dropping it re-indented these lines
+  // by two columns — which silently un-anchored the exact-text mutation site that then guarded them
+  // (`probe-block-and-queue-hold.js`, mutant `grant`). That mutant reported "0 file(s) carry the
+  // mutation site" and its arm went vacuous, which is the failure mode this note exists to name.
+  // ⚠ W2 RETIRED THAT PROBE WITH THE HOLD IT MEASURED, so THE INDENTATION IS NO LONGER LOAD-BEARING
+  // and nothing pins this line's exact text any more. What guards the BEHAVIOUR instead is
+  // `probe-relaunch-grant.js` LEG 5, as a control/treatment pair (ungranted vs granted) rather than
+  // as a source mutation — which is the sturdier anchor, because it cannot be un-anchored by
+  // reformatting. Do not re-introduce an exact-text pin here without also re-introducing the
+  // "0 file(s) carry the mutation site" check that would catch it going vacuous.
   if (grants.size) {
     for (const seat of grants) {
       // Since the 2026-08-12 loop-re-fire ruling the grant releases a FINISHED seat too — the
@@ -722,7 +810,7 @@ function enqueueEligible(heartStore, rows, {
   const grants = withFileGrants(relaunch, goalFolder);
   const byJob = executionsByJob(heartStore, grants, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch: grants });
+  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch: grants, readyRows });
   const enqueued = [];
   // The LIVE cage template each launch composes against — never a re-read of the YAML and never a
   // transcribed snapshot (§ D5). ⚠ IT IS PER SEAT SINCE 7.787, and it always should have been: it
@@ -746,7 +834,10 @@ function enqueueEligible(heartStore, rows, {
       logger({ level: 'info', message: 'seat held — the execution record shows it elsewhere', seat: row.seat, evidence: foreign.get(row.seat) });
     }
     if (blocked && blocked.has(row.seat) && logger) {
-      logger({ level: 'info', message: 'seat held — it is BLOCKED on the owner and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
+      // ⚠ THE WORD IS `HELD`, NOT `BLOCKED` (adv, C82). `ready-seats` already spells `BLOCKED` for
+      // "an `after` member is unsatisfied", and the two are different things — a message calling
+      // this one BLOCKED sends an operator to the DAG when the answer is a person.
+      logger({ level: 'info', message: 'seat HELD — an unanswered ask to the owner, and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
     }
     // ⚠ THE SILENT DROP THIS LINE USED TO BE (task 7.776). It was a bare `continue` with no logger
     // call, and it is where the measured 18-hour stall lived: coord answered READY, this store's
@@ -915,7 +1006,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // finished — and a fresh mint FLIPS that seat's coord verdict from `DONE` to `READY`, which is
   // why `ready-seats` is asked a SECOND time when and only when something was minted. Once per
   // pass, never in a loop: a mint that changes no verdict changes none on the second read either.
-  let view = recordView(heartStore, goalFolder, { relaunch });
+  let view = recordView(heartStore, goalFolder, { relaunch, readyRows });
   const minted = mintRetryGrants(goalFolder, rows, { view, granted, logger });
   if (minted.size) {
     const again = readySeats(goalFolder);
@@ -930,7 +1021,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // `recordView`'s own act and re-deriving it here would be its second home.
   if (!relaunch && granted.size) {
     relaunch = new Set(granted.keys());
-    view = recordView(heartStore, goalFolder, { relaunch });
+    view = recordView(heartStore, goalFolder, { relaunch, readyRows });
   }
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
