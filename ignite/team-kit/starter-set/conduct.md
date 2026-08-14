@@ -85,6 +85,25 @@ anchor you resolve.
   whose flip verb REFUSES a cell its own writer filled. What an `incomplete` row gets instead is a
   relaunch the run authority mints against that row, per instance. Never take a plain `checkout`
   because a row "has to be closed": a plain `checkout` asserts your briefing's output EXISTS.
+- **An OPEN ask to the owner HOLDS you — whatever you declared, and whatever your check-out said.**
+  While any ask of yours addressed to the owner is unanswered, readiness reports you `HELD` and your
+  dependents do not start. It is UNIVERSAL since 2026-08-14: no `fallback:` value earns an exemption,
+  and neither does an ask nobody delivered — those two gates were the root cause of a ten-hour silent
+  stall, so they were deleted rather than tuned. ⚠ Two doors, two conditions, on purpose for now: the
+  check-out gate still REFUSES only a `block-and-queue` seat, so your close may well be ADMITTED while
+  the wave still holds you — a clean check-out is not evidence your successors started. The hold lifts
+  on ONE event: an answer carrying `--re <ask#>`, which is what makes the ask stop being open. Nothing
+  else clears it, and no amount of waiting does.
+- **`HELD` is not `BLOCKED`, and the difference is who fixes it.** `BLOCKED` says a predecessor of
+  yours has not finished — the remedy is the DAG. `HELD` says you are waiting on a PERSON. Never read
+  one as the other, and never report one as the other.
+- **What ends your PROCESS is not what ends your WORK, and the machinery no longer confuses them.**
+  The execution record's `outcome` says only how your process ended — `clean | crashed | killed` — and
+  a `clean` exit is NOT a claim that the work is done. Done-ness comes from your own check-out
+  disposition and from nowhere else. So a seat that honestly declares `incomplete` and exits tidily is
+  recorded as unfinished, its dependents wait, and the honest ending costs you nothing. Before
+  2026-08-14 that same seat was recorded `done` and its successors ran on a stale product; if you meet
+  an old `done`/`blocked`/`failed` row in a record, it predates the change and means nothing now.
 - **The `exited` disposition never advances an edge, and the machinery writes it ONLY when NOBODY
   declared.** It attests that the harness terminated — a fact a seat cannot witness about itself —
   and says nothing about whether the work is finished. Where you DID declare, the machinery carries
