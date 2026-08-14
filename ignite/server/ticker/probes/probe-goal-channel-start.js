@@ -330,7 +330,7 @@ try {
   const laneSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'engine', 'lane-watch.js'), 'utf8');
   check(
     'ticker.js EXPOSES the performer so the engine lane can reach it',
-    /return \{ tick, getTickNumber, nudge, ensureGoalChannel \};/.test(tickerSrc),
+    /return \{ tick, getTickNumber, nudge, stop, ensureGoalChannel \};/.test(tickerSrc),
   );
   check(
     'lane-watch.js reaches the performer through engine.ticker.ensureGoalChannel',
