@@ -635,6 +635,21 @@ launch-specs:
       workdir_root: .rbtv/goals
       caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
 
+    xai/grok-4.6:
+      exec:
+        argv: ["opencode", "run", "-m", "xai/grok-4.6"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "xai/grok-4.6"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models xai --verbose` .variants, 2026-08-14 — NO xhigh
+        argv: ["--variant", "{effort}"]
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
     sakana/fugu:
       exec:
         argv: ["opencode", "run", "-m", "sakana/fugu"]
