@@ -12,7 +12,7 @@
 //   2. FOLLOW-UP in an already-mapped thread → a `send-message` ACTION-TYPE job
 //        addressed to the mapped turn-chain's thread (`exec-<first exec_id>`).
 //        Reply type is PINNED (D105): `answer` when it responds to a pending
-//        `ask`, else `note` — the closed CMP-8 five-type vocabulary (mint nothing).
+//        `ask`, else `note` — from the closed CMP-8 vocabulary (mint nothing).
 //
 // ⚑ NEVER `send-to-session` (D104). That intent's ratified re-validation required
 // the execution to be `session_mode: headed` AND live (the pty keystroke rung —

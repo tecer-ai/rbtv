@@ -59,8 +59,9 @@ sends one message per pass, never per flag; answer a batch once, per-item.
 `CLAUDE.md` § Run state); your work state is your seat folder. Handovers and renewals carry the
 pointer plus ONLY what changed.
 
-**10 · Obey the tool; never `--force`. [HAND]** Types: `completion|ask|answer|verdict|note` — no
-sixth. `--why` (`milestone|retraction|roster|ruling`) only on broadcast and required on one;
+**10 · Obey the tool; never `--force`. [HAND]** Types YOURS to send:
+`completion|ask|answer|verdict|note`. The enum is CLOSED and carries two further types that are
+not yours — the writer refuses them from your identity; do not reach for one. `--why` (`milestone|retraction|roster|ruling`) only on broadcast and required on one;
 `--re` required on `answer`, only against an `ask` (**[TOOL]**: every gate in that sentence is
 refused at send — but the cap, the guard, the bounded inbox and most of these answer to `--force`
 (NOT the unknown recipient: since W3 that refusal is `--force`-proof),

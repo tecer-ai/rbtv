@@ -31,7 +31,7 @@ $COORD read                                     # your unread messages, 10 at a 
 $COORD read --digest | --msg N | --after N      # one line each | one message in full | replay from N (all peek-only)
 $COORD read --peek | --all | --type T | --addressed any|direct|broadcast   # peek-only views too
 $COORD pending                                  # open asks: waiting on you, open to everyone, yours unanswered
-$COORD send <to> "<msg>" --type T --inline      # T ∈ completion|ask|answer|verdict|note (P2); --inline is REQUIRED for a typed body (G-181)
+$COORD send <to> "<msg>" --type T --inline      # T ∈ completion|ask|answer|verdict|note — YOURS (P2); the enum carries two further gated types the writer refuses you; --inline is REQUIRED for a typed body (G-181)
 $COORD send <to> --file PATH|- --type T         # body from a file or stdin — no shell touches it (backticks, quotes, newlines)
 $COORD send <to> "<msg>" --type answer --re N --inline   # the ask this settles — REQUIRED on answer, optional on verdict
 $COORD send <to> "<msg>" --type T --supersedes N --inline   # retract message N (P12)

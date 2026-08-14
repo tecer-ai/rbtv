@@ -173,7 +173,8 @@ CREATE TABLE IF NOT EXISTS threads (
     recipient   TEXT NOT NULL,
     corpus      TEXT NOT NULL,
     type        TEXT NOT NULL CHECK (type IN
-                  ('completion','ask','answer','verdict','note')),
+                  ('completion','ask','answer','verdict','note',
+                   'queue-request','escalation')),
     sent_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS threads_recipient_idx ON threads (recipient);

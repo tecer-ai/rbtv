@@ -776,7 +776,7 @@ def goal_finished(package):
 
     Scans `{package}/coordination/messages.md` for a `type: completion` header whose body OPENS
     with FINISH_MARKER — the first-line convention coord.py's verdict/escalation records already
-    use, so no sixth message type is invented (the registry's five are the sole vocabulary, P2).
+    use, so no message type is invented for it (the registry's enum is the sole vocabulary, P2).
 
     ⚠ UNREADABLE -> False, and here that is the SAFE direction rather than the convenient one: a
     sensor that cannot read the log must not conclude the goal is over and walk away from a live
