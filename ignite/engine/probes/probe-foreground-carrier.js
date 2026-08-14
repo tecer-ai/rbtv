@@ -68,7 +68,7 @@ const { readySeats } = require('../seeding');
 // The chat bridge's own gate readers — held BESIDE `heldSeatPredicate` so B1b can measure that the
 // two answer alike rather than asserting it (7.626 review F3).
 const ferry = require('../../bridges/chat/bus-ferry');
-const { openHeartStore } = require('../../server/heart/heart-store');
+const { openHeartStore, closeHeartStore } = require('../../server/heart/heart-store');
 const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig } = require('../../server/spawn/config');
 
@@ -249,11 +249,34 @@ function makeWaveGoal(name, seats) {
   return dir;
 }
 
+// ⚠ FIXTURE HARDENING, not a product guard. The polling loops below open a FRESH store on a goal
+// a concurrently-spawned `rbtv run` is writing every 300 ms, and `HeartStore`'s constructor runs
+// WAL/schema/migrate BEFORE it sets `busy_timeout` — so the open can throw `database is locked`
+// inside a window no timeout covers. Retried 3× narrowly (that string ONLY); anything else, and a
+// lock that survives all three, still fails the probe loudly.
+//
+// The closeHeartStore() below is NOT housekeeping - without it the retry makes things WORSE,
+// measured 2026-08-14. The constructor claims the process-wide single-writer slot
+// (`singleton = this`, heart-store.js:579) BEFORE the migrate that throws, so a lock leaves a
+// half-built store owning that slot; the next open then dies with `heart store writer already open
+// in this process` and every later rowsFor in the run is poisoned. closeHeartStore() releases the
+// orphaned slot - on the final rethrow too, so the probe reports the honest lock, not the shrapnel.
 function rowsFor(storePath, seat) {
-  const store = openHeartStore({ dbPath: storePath });
-  try {
-    return store.dump().jobs_log.filter((r) => r.job_id === attached.jobIdFor(seat));
-  } finally { store.close(); }
+  for (let attempt = 1; ; attempt += 1) {
+    let store;
+    try {
+      store = openHeartStore({ dbPath: storePath });
+    } catch (err) {
+      if (!/database is locked/i.test(err.message || '')) throw err;
+      closeHeartStore();
+      if (attempt >= 3) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+      continue;
+    }
+    try {
+      return store.dump().jobs_log.filter((r) => r.job_id === attached.jobIdFor(seat));
+    } finally { store.close(); }
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
