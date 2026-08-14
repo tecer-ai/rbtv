@@ -173,7 +173,12 @@ DM, the "first alerted" figure from the first — so a re-alert does not then fi
 ## Verbs and exit codes
 
 `rbtv-ignite-watchdog [--dry-run]` — one pass, then exit. `--dry-run` probes and reports
-what it WOULD restart without restarting anything.
+what it WOULD restart without restarting anything, **and cannot DM the owner under any
+verdict**: it prints the message it would have sent and returns not-sent, so the dedupe
+state is never consumed either. The guard sits on `notify()` itself rather than on the
+`--dry-run` branch in `main()`, because an `alarm` row reaches the notify block without
+passing that branch — which is how a `--dry-run` DM'd a real person until 2026-08-14.
+Guarded by `probes/probe-watchdog-dry-run-no-dm.py`.
 
 | Exit | Means |
 |------|-------|

@@ -745,11 +745,17 @@ def owner_dm_user():
     return cfg.get("bus_ferry_dm_user") or (allow[0] if allow else None)
 
 
-def notify(text):
+def notify(text, dry=False):
     """Its OWN two-call Slack client, deliberately: this must reach the owner when
     the chat bridge is the thing that is down, so it can depend on neither the
     bridge process nor its bus-poll loop. Returns (ok, detail)."""
     text = (env("RBTV_WATCHDOG_NOTIFY_PREFIX", "") + text).strip()
+    # BEFORE any sink, because ok=True would let a dry run consume the dedupe state.
+    # A dry run SHOWS the message and is structurally incapable of sending it — the
+    # `alarm` rows reach here without passing the --dry-run branch in main(), so the
+    # guard has to sit on the send itself, not on the path that leads to it.
+    if dry:
+        return False, "--dry-run: NOT sent. Would have sent:\n" + text
     sink = env("RBTV_WATCHDOG_NOTIFY_FILE")
     if sink:
         os.makedirs(os.path.dirname(os.path.abspath(sink)), exist_ok=True)
@@ -895,7 +901,7 @@ def main(argv):
             if repeat:
                 head += "  — STILL UNRESOLVED, first alerted %dm ago" % int(
                     (time.time() - float(since or time.time())) / 60)
-            ok, detail = notify(head + "\n" + "\n".join("• " + a for a in alerts))
+            ok, detail = notify(head + "\n" + "\n".join("• " + a for a in alerts), dry=dry)
             print("\n[notify] ok=%s %s" % (ok, detail))
             if ok:
                 save_state(fingerprint, since)
