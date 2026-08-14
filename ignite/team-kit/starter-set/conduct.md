@@ -79,12 +79,44 @@ anchor you resolve.
   disposition. A successor seat is READY only when EVERY predecessor has checked out clean with
   disposition `done`. This is an obligation on your own close: a check-out you skip or leave dirty
   blocks seats you will never meet.
-- **If you CANNOT finish, `checkout --incomplete "<reason>"` — the honest ending, and it is YOURS.**
+- **REACH THE STAFF CHAIR MID-RUN, BEFORE you check out `incomplete`.** Every goal staffs a
+  `leader`: an ON-DEMAND chair with a real `taskforce.csv` row minted when the goal is materialized,
+  holding NO workflow node and no session of its own. Mail addressed to it is ALWAYS accepted and
+  queued — a sitting is spawned to drain it, live session or not — so this is the PRIMARY path and
+  the cheap one: a seat that asks before it fails costs the run nothing, while an `incomplete` row
+  costs a relaunch. **Classify what stopped you and address it accordingly.** BLOCKED-SHAPED — a
+  wall only authority lifts (a cage too narrow, a permission, an instruction that cannot be executed
+  as written, a relaunch someone must mint) → `leader`; name the EXACT path or line you could not
+  reach, because its remedy is `widen-cage <you> <path> --reason …`, which is the leader's verb
+  alone and takes effect at your NEXT launch, never in the session you are in.
+  GUIDANCE-SHAPED — a question above your scope that needs no authority to answer → `consultant`,
+  where the goal staffs one. `coordinate send leader "<it>" --type ask --inline`.
+- **A goal that staffs NO `consultant` is normal, not a gap.** Which chairs a goal staffs is
+  declared by CASTING them: a chair is minted at materialize only where a casting sheet exists at
+  `.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`. The `leader`'s is required —
+  its absence is a materialize WARNING, because a goal with no chair has nowhere for a routed FAIL
+  or the closer's mail to land. The `consultant`'s absence is a STATEMENT: this workspace staffs
+  none, and everything addressed to it falls back to the `leader`.
+- **A staff chair reported `IDLE` is the chair WORKING.** Readiness reads `IDLE` for a chair with no
+  mail — not offered, because an empty sitting spends a launch to read an empty inbox. It holds no
+  DAG node, advances no edge and blocks none; it wakes the moment anything is addressed to it. Never
+  read `IDLE` as a stall and never wait on it.
+- **A FAIL verdict always has a receiver.** Where your seat declares `on-fail-relaunch:`, the
+  verdict verb re-fires that loop itself and you route nothing by hand. Where it declares none,
+  `coordinate route-fail "<the fail>" --inline --go` sends it to the `leader` — bare is report-only.
+  An undeclared receiver is a silence, never an ending.
+- **If you CANNOT finish, `checkout --incomplete "<reason>" [--route leader|consultant]` — the
+  honest ending, and it is YOURS.**
   It advances no edge, and that is exactly the point: it says the work stopped unfinished instead of
   pretending it did not. Nobody may overwrite it — not the machinery, and not the run authority,
   whose flip verb REFUSES a cell its own writer filled. What an `incomplete` row gets instead is a
   relaunch the run authority mints against that row, per instance. Never take a plain `checkout`
   because a row "has to be closed": a plain `checkout` asserts your briefing's output EXISTS.
+  **Every terminal non-`done` ending is MAILED to a staff chair by the session-closer** — your
+  `incomplete` and the machinery's `exited` alike — carrying your row, your reason and where the
+  evidence sits, and waking that chair. `--route` says which one, and it is a HINT only the closer
+  reads: it falls back to the `leader` when you name none, and when you name a chair this goal does
+  not staff.
 - **An OPEN ask to the owner HOLDS you — whatever you declared, and whatever your check-out said.**
   While any ask of yours addressed to the owner is unanswered, readiness reports you `HELD` and your
   dependents do not start. It is UNIVERSAL since 2026-08-14: no `fallback:` value earns an exemption,
@@ -113,18 +145,22 @@ anchor you resolve.
   admits exactly two from-states, `exited` and an EMPTY cell; it is not a way to tidy any other
   value, and `incomplete` is not among them. A routed edge never sits blocking its successors.
 - **DETECTION is the deterministic watch layer's — no seat watches, and no watcher seat is staffed.**
-  Its chain is: detect → inline mechanical fix → nudge the SEAT → nudge the run authority
-  (`d-watcher-deterministic-chain`). ⚠ **`chief-of-staff` and `closer` are RETIRED roles.** Never
-  wake, spawn, address, or fall back to one; any code, config, or prompt that does is built against a
-  dead spec — flag it, never extend it.
+  Its chain is: detect → inline mechanical fix → nudge the SEAT → nudge the run authority, which is
+  this goal's `leader` chair (`d-watcher-deterministic-chain`). ⚠ **`chief-of-staff` and `closer` are
+  RETIRED roles — the `leader` and the optional `consultant` are NOT: they are this goal's staff
+  chairs and they are staffed.** Never wake, spawn, address, or fall back to a retired role; any
+  code, config, or prompt that does is built against a dead spec — flag it, never extend it.
 - ⚠ **A CONDITION THAT PRODUCES NO FLAG HAS NO DETECTOR.** Whatever the watch layer does not flag is
   caught only by the volunteer floor (`communication.md` rule 0). So a seat that runs out of work SAYS
   SO unprompted, and every seat treats "no flag" as "no detector fired", never as "nothing is wrong".
 - **Resolve the escalation addressee from the ROSTER, never from memory or from this file.** A seat
   holding run authority is resolved from `taskforce.csv` / `coordinate workers` at the instant of use.
-  **A freshly scaffolded run carries the planning DAG's seats and NO authority seat** — when no such
-  row exists, the call is neither yours to make nor to improvise, and you do all THREE of these, in
-  order: **(1) file it in the goal's owner-decision queue `./doubts.md`** — the durable record,
+  **Normally it is there from the goal's first moment** — the `leader` chair is minted when the goal
+  is materialized — and it is the addressee: escalating to it is the bullet above, not this one.
+  Owner contact is the `leader`'s alone, through its one `escalation` carve-out; you never carry a
+  question to the owner yourself. **Only when the roster carries NO such row** — an uncast chair,
+  which materialize warns about — is the call neither yours to make nor to improvise, and then you
+  do all THREE of these, in order: **(1) file it in the goal's owner-decision queue `./doubts.md`** — the durable record,
   which survives a bridge outage, a restart and a phone that is off; **(2) send it to `master`** —
   `coordinate send master "<the escalation>" --type note --inline` — the ROLE ADDRESS of the standing
   owner door, which resolves through this run's `addressable.csv` and is carried to the owner from

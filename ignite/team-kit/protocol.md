@@ -45,6 +45,9 @@ $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
 $COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
 $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle
+$COORD checkout --incomplete "<reason>" [--route leader|consultant]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and fallback: leader)
+$COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
+$COORD widen-cage <seat> <path> --reason "<why>" [--go]  # leader only — the audited permission edit: ONE seat, ONE workspace-relative path; effective at that seat's NEXT launch, never in a live session
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $COORD close <agent> [--renew]                  # leader only — FAILURE PATH: spawn a closer to dirty-close/salvage a seat that cannot check itself out. A healthy seat renews itself (line above), never through this
 $COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — leader's remedy for a dead pane, and the closer's own tail step
@@ -64,6 +67,15 @@ one-line index) and `coordinate <command> -h` (arguments, one example, the step 
 **Control-panel layout.** The leader window is the run's control panel: leader, the oversight
 seats (observers), on-demand closers, and the `panel` overview pane — target ≤6 panes.
 Working seats declare `window: yes` and live in their own named windows (tabs).
+
+**Staff chairs — always addressable, never waited on.** A goal's `leader` (mandatory) and
+`consultant` (optional) are ON-DEMAND seats: real `taskforce.csv` rows minted at goal-materialize,
+holding no workflow node, excluded from `checkin`/`checkout`. A send to one ALWAYS succeeds and is
+queued — a sitting is spawned to drain the mail and ends when it is drained — so `ready-seats`
+reporting a chair `IDLE` means it has no mail, never that it stalled. Which chairs a goal staffs is
+declared by CASTING them: a chair is minted only where a casting sheet exists at
+`.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`, and an absent `consultant.json`
+is the workspace stating it staffs none — everything addressed to it falls back to the `leader`.
 
 State files (`{package}/coordination/`) are script-managed: NEVER edit them by hand;
 `messages.md` is append-only.
@@ -125,6 +137,13 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    between yourselves, do not settle it pairwise: `create-group` (you + the other; creator and
    leader auto-added) and put the question there. Anything owner-gated is escalated by leader to
    the owner — never ruled by leader, and never carried to the owner by you (R-owner-channel).
+   **Reach the chair MID-RUN, before an unfinished check-out.** An ask sent while you are still
+   running is the primary path and the cheap one; an `incomplete` row is the expensive one. Address
+   it by SHAPE: blocked-shaped — a wall only authority lifts (a narrow cage, a permission, an
+   instruction that cannot be executed as written) — goes to `leader`, naming the exact path or line
+   you could not reach, since the remedy is `widen-cage` and that verb is the leader's alone;
+   guidance-shaped — a question above your scope that needs no authority — goes to `consultant`
+   where the goal staffs one. The same two shapes pick `checkout --incomplete --route`.
 8. **Check out last — completion first.** When your briefing is complete: send your completion
    DIRECT to `leader` (`--type completion`; to `all` only when it carries a milestone or roster
    consequence — the broadcast `--why` gate enforces exactly that), then `checkout`. The transcript export is no longer yours to remember —

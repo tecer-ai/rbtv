@@ -1,7 +1,7 @@
 # team-kit — role catalogue
 
-**Read this when you HOLD one of the special roles below** — leader, deputy, scientist, judge,
-verifier, closer — **or when your seat runs a codex or opencode harness** (the Harness note
+**Read this when you HOLD one of the special roles below** — leader, consultant, deputy, scientist,
+judge, verifier, closer — **or when your seat runs a codex or opencode harness** (the Harness note
 closes the file). Read it at boot, right after you know which role you are. A plain worker seat does
 not: its own entry states only what `protocol.md` already binds it to. Split out of `protocol.md`
 (beside this file) so a seat stops loading another role's discipline; `protocol.md` remains the
@@ -10,7 +10,20 @@ entries below cite.
 
 ## Roles
 
-- **leader** — support/arbiter, launched by the owner by hand; launches the roster at bootstrap
+- **leader** — the goal's ON-DEMAND STAFF CHAIR, and every goal staffs one: a real `taskforce.csv`
+  row minted at goal-materialize, holding NO workflow node and EXCLUDED from `checkin`/`checkout`.
+  A sitting is spawned when the chair has unread mail, drains the whole queue, and ends — so a
+  `checkout` here is the one act that would make the next mail wake nothing, and readiness reporting
+  it `IDLE` means only that no mail is waiting. Four things arrive: the session-closer's staff mail
+  on every terminal non-`done` ending, a live seat's mid-run ask (the PRIMARY path — a seat that
+  asks before it fails costs the run nothing), a FAIL with no declared `on-fail-relaunch:` receiver
+  (`route-fail`), and an executor-failure lifecycle alarm. Each item leaves with exactly ONE
+  disposition — FIX AND RELAUNCH (`widen-cage <seat> <path> --reason "<why>" --go`, this chair's
+  verb alone, effective at that seat's NEXT launch), ROUTE to the seat that authored the
+  instruction, ANSWER, or ESCALATE — and an unfinished row is NEVER relabelled `done`. Its full
+  briefing is the component's own prompt (`meta/leader/prompts/leader.md`); the rest of this entry
+  is the discipline that survives from the hand-launched arbiter it replaces.
+  Support/arbiter, launched by the owner by hand; launches the roster at bootstrap
   (launch authority is shared — see the lifecycle note closing this entry); sole reader
   of worker briefings (lazily); reads the full log; the ONLY door to the owner (R-owner-channel).
   Drain rule (measured, adopted): per batch, ESCALATE-FIRST — relay owner-gated items before
@@ -33,6 +46,15 @@ entries below cite.
   close-and-relaunch, `d-mechanical-no-self-renew`). What stays the leader's — every `approve`
   and the failure-path close of ANOTHER seat — still bottlenecks on one seat: see **deputy**.
   Anchors resolve in the owning goal's `decisions.md` ledger (2026-07-29/30 rulings).
+- **consultant** — the goal's OPTIONAL second staff chair, same lifecycle as the leader (on-demand,
+  no node, no checkin/checkout): the same judgment surface MINUS the authorities — no close gate, no
+  acceptance, no permission or relaunch verb, no owner contact. It answers GUIDANCE-shaped questions
+  a seat cannot settle from its own scope and routes anything needing authority to the `leader`.
+  **Whether a goal staffs one is declared by CASTING it:** a chair is minted at materialize only
+  where a casting sheet exists at `.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`,
+  so an absent `consultant.json` is the workspace stating it staffs none — mail and check-out routes
+  aimed at it fall back to the `leader`. The `leader`'s sheet is required; its absence is a
+  materialize warning, because then a goal has no chair for a routed FAIL or staff mail to reach.
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
   SEAT LIFECYCLE only: launch, `approve`, deterministic-layer restarts, and the failure-path close (`close`,
   `close --renew`) for a seat that cannot check itself out — a healthy seat renews itself. It does
