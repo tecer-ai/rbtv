@@ -120,12 +120,12 @@ capture('probe-carriage-vocab', async (lines) => {
     lines.push(`(6) shipped config loads cleanly: ${all.length} entries (${specNames.length} launch-specs + ${jobNames.length} jobs) = ${execLane.length} exec-lane [${carriages.join(', ')}] + ${commandLane.length} command-lane [${commandLane.join(', ')}]`);
     // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. This leg exists to notice an entry appearing in
     // (or vanishing from) the shipped config; a floor would stop noticing exactly that.
-    if (execLane.length !== 14) throw new Error(`(6) expected the 14 exec-lane shipped entries, found ${execLane.length}: ${execLane.join(', ')}`);
-    // ⚠ AND THE SPLIT ITSELF IS ASSERTED (7.787): 13 castable pairs and exactly one name-keyed job.
+    if (execLane.length !== 15) throw new Error(`(6) expected the 15 exec-lane shipped entries, found ${execLane.length}: ${execLane.join(', ')}`);
+    // ⚠ AND THE SPLIT ITSELF IS ASSERTED (7.787): 14 castable pairs and exactly one name-keyed job.
     // Without this, a job row silently migrating back into `launch-specs:` — the ambiguity
-    // `#d-abolish-profile-names` sub-ruling 1 removed — would keep the total at 14 and go unseen.
-    if (specNames.length !== 13 || jobNames.length !== 1) {
-      throw new Error(`(6) expected 13 launch-specs + 1 job, found ${specNames.length} + ${jobNames.length}`);
+    // `#d-abolish-profile-names` sub-ruling 1 removed — would keep the total at 15 and go unseen.
+    if (specNames.length !== 14 || jobNames.length !== 1) {
+      throw new Error(`(6) expected 14 launch-specs + 1 job, found ${specNames.length} + ${jobNames.length}`);
     }
     // Zero command-lane entries is a POSITIVE assertion, not an omission: the command lane
     // retired with the daemon's sub-agent lane, and one reappearing must fire this leg.
