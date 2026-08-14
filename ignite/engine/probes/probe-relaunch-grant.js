@@ -55,6 +55,7 @@ const record = require('../execution-record');
 const seeding = require('../seeding');
 const grantsApi = require('../relaunch-grants');
 const { createEngine } = require('../index');
+const spawnjs = require('../../server/spawn/spawn');
 const { openHeartStore } = require('../../server/heart/heart-store');
 
 // ── fixture ───────────────────────────────────────────────────────────────────────────────────
@@ -451,6 +452,78 @@ async function main() {
     cross.logs.filter((m) => m.seat === SEAT).map((m) => m.message).join(' | ') || 'nothing logged');
   check('LEG 9 …while a HUMAN\'s grant still releases it — the ruling narrows the AUTOMATIC path only',
     (() => { grantsApi.grantRelaunch(g9, SEAT); return daemonPass(g9, 'grant-cross-lane').pickup.enqueued.includes(SEAT); })());
+
+  // ── LEG 10 · THE THIRD LINK — a REAL closed `sessions.csv` row, the grant HOIST, and the ENQUEUE
+  //
+  // ⚠ WHY EVERY LEG ABOVE MEASURES SOMETHING ELSE. None of them writes a `sessions.csv` row at all,
+  // so coord sees a seat that NEVER RAN and answers READY for that reason — a different mechanism
+  // from the one W1 shipped. The chain W1 built is mint → HOIST → spend/enqueue, and the hoist is
+  // the link that had never been witnessed anywhere: `ready_seat_rows` puts a closed row in the
+  // `DONE` branch, and only an unspent grant whose `session-id` MATCHES `sessions_last_ended[seat]`
+  // flips it to READY. A bare `verdict: READY` assertion is satisfied by the never-run path and
+  // proves nothing, so this leg asserts the DONE row FIRST and then discriminates on the reason
+  // string naming the grant and the very session id the closer stamped.
+  say('');
+  say('LEG 10 — the REAL session-closer, the grant HOIST off the closed row, and the ENQUEUE');
+  const g10 = makeGoal('grant-session-closed');
+  const job10 = seeding.jobIdFor(SEAT, 'grant-session-closed');
+  const sid10 = withDaemonStore((s) => synthTerminalAttempt(s, g10, { jobId: job10, outcome: 'failed', storeStatus: 'failed' }));
+  const seatDir10 = path.join(g10, 'seats', SEAT);
+  // The at-dispatch row, through the DAEMON'S OWN writer (`spawn.js#appendRowEnsuringHeader`) and
+  // carrying the SAME session id `executions.csv` holds — that single identifier is what the mint
+  // binds the grant to and what the hoist matches on. A pid/starttime pair must be present or the
+  // closer refuses on its term (b); `--force-dead` is what the closer itself passes for liveness.
+  spawnjs.appendRowEnsuringHeader(path.join(g10, 'sessions.csv'), {
+    seat: SEAT, 'session-id': sid10, harness: 'bash', model: PROFILE, workdir: seatDir10,
+    pid: 4194303, 'pid-starttime': '1', tty: '', started: isoNow(),
+  }, () => {});
+  // …and the REAL closer — `coord.py --as ignite-daemon attest-exit --session <sid> --force-dead
+  // --go`, composed by the shipped W1 function, in-process against this fixture.
+  const closed10 = spawnjs.closeSeatSessionRow({ workdir: seatDir10, sessionId: sid10, log: null });
+  check('LEG 10 the REAL session-closer closed the REAL row and stamped a disposition',
+    closed10.closed && /disposition `exited`/.test(String(closed10.output || '')),
+    String(closed10.output || closed10.reason || '').trim().split('\n').slice(0, 3).join(' / '));
+
+  const rowOf = (rs) => (rs.rows || []).find((r) => r.seat === SEAT) || {};
+  const pre10 = seeding.readySeats(g10);
+  // THE DISCRIMINATOR AGAINST EVERY OTHER LEG: with the row closed this seat is NOT the never-run
+  // shape. It is `DONE` off its own check-out, which is precisely the verdict the daemon's seeding
+  // filter drops — so nothing below can pass through the "root seat, no predecessors" door.
+  check('LEG 10 DISCRIMINATION: the closed row reads DONE off its check-out, NOT READY — this seat '
+    + 'can never satisfy the never-run mechanism every other leg rides',
+    rowOf(pre10).verdict === 'DONE' && /check-out `exited`/.test(rowOf(pre10).reason || ''),
+    `verdict ${rowOf(pre10).verdict} · ${String(rowOf(pre10).reason || '').slice(0, 160)}`);
+
+  const minted10 = withDaemonStore((s) => seeding.mintRetryGrants(g10, seeding.readTaskforce(g10),
+    { view: seeding.recordView(s, g10), granted: pre10.granted, logger: null }));
+  check('LEG 10 the daemon MINTS against the record\'s failed outcome (link 1)',
+    minted10.has(SEAT), `minted ${JSON.stringify([...minted10.keys()])}`);
+
+  const post10 = seeding.readySeats(g10);
+  // LINK 2 — THE HOIST, named. Not the bare verdict: the reason must name the unspent grant AND the
+  // session the closer stamped, which is the only thing that ties this READY to the grant filter
+  // (`sessions_last_ended[seat][0] == grant['session-id']`) rather than to any other door.
+  check('LEG 10 the unspent grant HOISTS that DONE row to READY, bound to the closed row\'s own '
+    + 'session (link 2 — never witnessed before this leg)',
+    rowOf(post10).verdict === 'READY'
+      && /UNSPENT RELAUNCH GRANT/.test(rowOf(post10).reason || '')
+      && rowOf(post10).reason.includes(`bound to session \`${sid10}\``),
+    `verdict ${rowOf(post10).verdict} · ${String(rowOf(post10).reason || '').slice(0, 200)}`);
+
+  // LINK 3 — THE ENQUEUE. A READY verdict that never reaches the queue is the defect restated, so
+  // the claim is checked on the STORE's own queue table and not only on the pass's return value.
+  const pass10 = daemonPass(g10, 'grant-session-closed');
+  check('LEG 10 …and the seeding pass ENQUEUES it — the third link, on the queue table itself',
+    pass10.pickup.enqueued.includes(SEAT)
+      && withDaemonStore((s) => s.listQueue().some((q) => q.job_id === job10)),
+    `enqueued ${JSON.stringify(pass10.pickup.enqueued)} · queue ${JSON.stringify(withDaemonStore((s) => s.listQueue().map((q) => q.job_id)))}`);
+  // ⚠ THIS LAST ARM IS CONDITIONAL AND SAYS SO: it is vacuous whenever the hoist arm above is red
+  // (a row that never left `DONE` "falls back" to it for free). The hoist arm is the discriminator
+  // — measured: breaking the grant-hoist match reddens the hoist AND the enqueue, not this one.
+  check('LEG 10 …and the grant is SPENT at that enqueue — the row falls back to DONE, so one close '
+    + 'buys one retry and not a loop',
+    rowOf(seeding.readySeats(g10)).verdict === 'DONE',
+    `verdict ${rowOf(seeding.readySeats(g10)).verdict}`);
 
   finding('`lane-watch.js` is UNTOUCHED by this build, and that is the structural claim: the grant is '
     + 'sourced INSIDE `recordView`/`enqueueEligible`, so every caller of `seedGoal` — including ones '

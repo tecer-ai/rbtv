@@ -994,6 +994,10 @@ module.exports = {
   seatHasRun,
   seatState,
   recordView,
+  // Exported for `probes/probe-relaunch-grant.js` LEG 10 ONLY: the mint has to be driven as its own
+  // step there, because the grant it writes is SPENT again inside the same `seedGoal` call — the
+  // READY-via-grant verdict the leg discriminates on exists only between the two.
+  mintRetryGrants,
   enqueueEligible,
   seedGoal,
 };
