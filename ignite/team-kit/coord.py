@@ -108,8 +108,27 @@ REAP_MIN_AGE_MIN = 15
 # bare counter instantly, which is the whole guarantee gone. Set below the ~10-min sweep cadence so
 # a slightly early pass still counts, and far above zero so no burst can manufacture a trend.
 REAP_MIN_PASS_GAP_MIN = 5
-# P2 — the registry's five canonical message types (concepts/message.md): the SOLE vocabulary.
-MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note"]
+# P2 — the registry's canonical message types (concepts/message.md): the SOLE vocabulary.
+#
+# ⚠ CLOSED AT SEVEN (W4). The original five gained two, and each has ONE consumer that justifies it:
+#   queue-request  ENGINE-INTERNAL. A judged milestone PASS asking for the next wave to be seeded.
+#                  Its consumer arrives in W7; until then `_append_message_unlocked` REFUSES it, so
+#                  the type exists on every door before anything can write a row nobody drains.
+#   escalation     OWNER-DIRECTED. A halt the leader (or the two-strikes judge) could not fix. It
+#                  succeeds the `type: verdict` + ESCALATION_MARKER encoding, which is dual-read
+#                  for rows already on live buses.
+# The enum is copied at SEVEN sites and they move in ONE change (adv, C39): here, `TYPE_COLOR`
+# below, both argparse `--type` sites, `server/heart/heart-store.js`, `server/internal-api/
+# dispatch.js`, `gateway/parse.js`, `bridges/chat/forward-path.js`, plus `heart/schema.sql`'s CHECK
+# (a table REBUILD — migration 5, `message-types-seven-w4`). A partial move recreates the D3 silent
+# class: the row lands in this append-only log and the daemon door then refuses it.
+MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note", "queue-request", "escalation"]
+
+# The types this file will not WRITE yet, for want of a consumer. `queue-request` is engine-internal
+# and W7 builds what drains it; a row written before then is permanent residue in an append-only log
+# that nothing will ever read. Enforced at `_append_message_unlocked` — the one writer — so no verb
+# can route around it. W7 empties this tuple in the same change that lands its consumer.
+WRITER_HELD_TYPES = ("queue-request",)
 
 # ---- the CLOSED ADDRESSING RULE for agents (`decisions.md#d-agents-address-owner-not-master`) --
 #
@@ -150,7 +169,13 @@ WAKE_PARALLEL_MAX = 8
 # workers, read, pending. It is an EXPLICIT switch, never TTY auto-detection: agents live in TTYs
 # too, so a TTY check would hand them the human mode by default (owner ruling, 2026-07-25).
 PRETTY = {"on": False}
-TYPE_COLOR = {"ask": "33", "verdict": "35", "completion": "32", "answer": "36", "note": "2"}
+# W4: an escalation borrows C_RETRACT's bright red — it is the other thing a reader must not miss;
+# `queue-request` is engine plumbing and stays dim. This dict is the SEVENTH copy of the closed
+# vocabulary and moves with the other six: a view meeting a type with no colour here raises
+# KeyError on the one row a reader most needs to see. Held closed by
+# `server/heart/probes/probe-message-type-vocabulary.js`, which reads all seven and compares them.
+TYPE_COLOR = {"ask": "33", "verdict": "35", "completion": "32", "answer": "36", "note": "2",
+              "escalation": "1;31", "queue-request": "2"}
 C_ALIVE, C_DEAD, C_DONE = "32", "31", "2"   # roster states
 C_RETRACT = "1;31"    # supersession markers — the one thing a reader must not miss
 C_LOGNOTE = "2;31"    # delivery-failure trailers: the log speaking, not the sender
@@ -217,11 +242,27 @@ GROUP_ROW = re.compile(
 # with `exec` = None, which is the honest reading (that row predates the delimiter, it does not
 # belong to execution `a`). Placed before `why:` so the free-text `why` clause stays the last
 # labelled field and its `[^|]*?` cannot swallow a following one.
+# W4 adds THREE optional groups, and every one of them sits BEFORE `why:` for the reason the
+# paragraph above states about `exec:` — `why` is free text matched `[^|]*?`, so anything placed
+# after it is swallowed by that clause. They are the same additive extension `from-pkg:` was, and
+# the ferry's by-key header reader (`bus-ferry.js#parseHeader`) already tolerates insertions.
+#   `milestone:`     (adv, C41) THE milestone a verdict/escalation belongs to, as its own key.
+#                    It succeeds the overloaded `why: milestone-<id>` encoding, which had 2 writers
+#                    and 4 readers all pattern-matching a free-text field. DUAL-READ via
+#                    `milestone_of`; both are written during the sunset window so every pre-W4 row
+#                    and every selftest pinning the old clause keeps answering the same.
+#   `chat-thread:` / `deliver:`  (adv, C42) promoted from BODY SIGILS (`[chat-thread: …]`,
+#                    `[deliver: post|wake]`) to header mechanics, written by `send --chat-thread` /
+#                    `--deliver`. The ferry prefers the header and keeps the body sigils as a
+#                    documented fallback — rows already on live buses carry only the bracketed form.
 MSG_HEADER = re.compile(
     r"^## (?P<num>\d+) \| from: (?P<sender>\S+)(?: \| from-pkg: (?P<from_pkg>\S+))?"
     r" \| to: (?P<to>\S+) \| type: (?P<type>\S+)"
     r"(?: \| supersedes: (?P<supersedes>\d+))?(?: \| re: (?P<re>\d+))?"
     r"(?: \| exec: (?P<exec_id>\S+))?"
+    r"(?: \| milestone: (?P<milestone>\S+))?"
+    r"(?: \| chat-thread: (?P<chat_thread>\S+))?"
+    r"(?: \| deliver: (?P<deliver>post|wake))?"
     r"(?: \| why: (?P<why>[^|]*?))? \| (?P<ts>.+)$"
 )
 FM_KEY = {
@@ -2827,11 +2868,19 @@ def cmd_execution(args):
 # 7.608 deadlock is rebuilt one file over. The lease answers "is it executing"; the finish event
 # answers "was it declared done" — two questions, two surfaces, no overlap.
 #
-# ⚠ NO SIXTH MESSAGE TYPE. `MESSAGE_TYPES` is the registry's five canonical types and the SOLE
-# vocabulary (P2, `concepts/message.md`) — inventing `type: finish` would be a registry edit made
-# from the code. The event is a `completion` whose body OPENS with `FINISH_MARKER`, exactly the
-# first-line convention `VERDICT_CLAUSE` / `ESCALATION_MARKER` already established: findable by a
-# scan, excluded from every other walk, and expressible in the settled vocabulary.
+# ⚠ NO TYPE `finish`, AND THE VOCABULARY IS CLOSED AT SEVEN. This block read "NO SIXTH MESSAGE
+# TYPE" until W4, and the correction is worth stating rather than deleting: the rule was never
+# "five", it was that MINTING A TYPE FROM THE CODE is a registry edit made in the wrong place
+# (P2, `concepts/message.md`). W4 added two — `queue-request` and `escalation` — through the
+# registry, with a named consumer for each, moving all seven enum sites plus the store's CHECK in
+# one change. `finish` is still not among them and still must not be: the event is a `completion`
+# whose body OPENS with `FINISH_MARKER`, exactly the first-line convention `VERDICT_CLAUSE`
+# established — findable by a scan, excluded from every other walk, expressible in the settled
+# vocabulary.
+#
+# ⚠ `ESCALATION_MARKER` is the one first-line convention W4 retired AS AN IDENTITY: the two-strikes
+# halt is a `type: escalation` row now (D-8). The marker string survives on the body because it is
+# what keeps every pre-W4 halt findable — see `ESCALATION_TYPES` and its stated sunset.
 
 FINISH_MARKER = "goal-finished: the finish edge fired"
 
@@ -9764,6 +9813,11 @@ def load_messages(base):
                        "re": int(m.group("re")) if m.group("re") else None,
                        # None = written before the execution stamp existed (design-lock item 5).
                        "exec": m.group("exec_id"),
+                       # W4's three. None on every row written before they existed, which is the
+                       # honest reading — `milestone_of` is where the pre-W4 `why:` fallback lives.
+                       "milestone": m.group("milestone"),
+                       "chat_thread": m.group("chat_thread"),
+                       "deliver": m.group("deliver"),
                        "why": (m.group("why") or "").strip() or None,
                        "ts": m.group("ts").strip(),
                        "lines": [line]}
@@ -9778,11 +9832,41 @@ def next_message_number(blocks):
 
 
 def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_num=None,
-                             why=None, origin=None):
+                             why=None, origin=None, milestone=None, chat_thread=None,
+                             deliver=None):
     """The append WITHOUT the lock — for callers already inside a `coord_lock` hold
     (`escalate_if_second_fail` derives + scans + appends under ONE hold; a nested
     `coord_lock` on a second fd of the same .lock file would deadlock under flock).
-    Everyone else calls `append_message`."""
+    Everyone else calls `append_message`.
+
+    ⚠ THE TYPE IS VALIDATED HERE, NOT AT ARGPARSE (adv, C40, and the choke-point rule). This
+    docstring used to say the function "validates nothing" and `escalate_if_second_fail` was cited
+    as proof that a wrapper-level check is unreachable: it writes through this function from inside
+    the lock and cannot call `append_message`. argparse `choices=` covers exactly one caller — the
+    `send` verb — and every internal writer (verdict, escalation, finish edge, the closer) walks
+    past it. So the closed vocabulary is enforced at the TRUE SINGLE WRITER, and `append_message`
+    inherits it.
+
+    ⚠ THIS DOES NOT REACH A HAND-EDITED LOG, and that limit is measured rather than assumed
+    (adv, C44). The two stray `type: correction` rows on build-core-daemon-mvp/run-3
+    (`messages.md` #6027, #6028, 2026-08-09) were NOT written by a bypassing writer: their
+    `from:` fields carry parenthetical prose ("w7573-docs-correction (conductor-dispatched, task
+    7.573)"), which no caller of this function can produce — `sender` comes from `resolve_agent`
+    as a bare token. They were typed into the file by an agent editing `messages.md` directly. A
+    consequence worth stating: those two rows do not match `MSG_HEADER` (`sender` is `\\S+`), so
+    they parse as BODY of the preceding block and are invisible to every reader in this file. The
+    route is closed by the rule that a seat never hand-writes the log — never by a check here."""
+    if mtype not in MESSAGE_TYPES:
+        raise ValueError(
+            f"message type {mtype!r} is not in the closed vocabulary "
+            f"({', '.join(MESSAGE_TYPES)}). The log is append-only, so a row typed with a word no "
+            f"reader knows is permanent residue that every type filter silently skips.")
+    if mtype in WRITER_HELD_TYPES:
+        raise ValueError(
+            f"message type {mtype!r} is a known type with NO CONSUMER YET, so this file refuses to "
+            f"write one: the row would sit forever in an append-only log waiting for a reader that "
+            f"does not exist. It is admitted at every door (enum, gateway, store) so that the "
+            f"package which builds its consumer only has to remove it from WRITER_HELD_TYPES.")
     path, blocks = load_messages(base)
     n = next_message_number(blocks)
     if not path.exists():
@@ -9808,7 +9892,13 @@ def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_
     # claim one id when there is only one allocator. The stamp gives the SCOPE; the number keeps
     # its uniqueness.
     ex = f" | exec: {current_execution(base)}"
-    block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{ex}{wc} | "
+    # W4's three, emitted in the grammar's order and all BEFORE `why:` (adv, C41/C42) — `why` is
+    # the last labelled field by construction, and anything after it is eaten by its `[^|]*?`.
+    ms = f" | milestone: {milestone}" if milestone else ""
+    ct = f" | chat-thread: {chat_thread}" if chat_thread else ""
+    dv = f" | deliver: {deliver}" if deliver else ""
+    block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{ex}"
+             f"{ms}{ct}{dv}{wc} | "
              f"{now()}\n"
              f"\n{body}\n")
     with open(path, "a", encoding="utf-8") as f:
@@ -9817,13 +9907,16 @@ def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_
 
 
 def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None,
-                   origin=None):
+                   origin=None, milestone=None, chat_thread=None, deliver=None):
     """Allocate the next message number AND append the block inside one lock hold — two
     concurrent sends used to read the same tail and claim the same ID (run-obs §589).
-    Returns the number."""
+    Returns the number. Type validation is INHERITED from `_append_message_unlocked`, never
+    restated here (the choke-point rule: one writer, one set of send-time invariants)."""
     with coord_lock(base):
         return _append_message_unlocked(base, sender, to, mtype, body, supersedes=supersedes,
-                                        re_num=re_num, why=why, origin=origin)
+                                        re_num=re_num, why=why, origin=origin,
+                                        milestone=milestone, chat_thread=chat_thread,
+                                        deliver=deliver)
 
 
 # ---- dod-judge two-strikes derivation (7.581 / Q17) --------------------------------------------
@@ -9846,6 +9939,47 @@ VERDICT_CLAUSE = re.compile(r"^verdict:\s*(PASS|FAIL)\b", re.IGNORECASE | re.MUL
 # live log goes invisible to the scan, which appends a second one. The human-readable line beneath
 # it names the resolved bar.
 ESCALATION_MARKER = "escalation: second-consecutive-FAIL"
+
+# ── W4 (adv, D-8) · the two-strikes halt MIGRATES from `type: verdict` to `type: escalation` ─────
+#
+# The halt was a `verdict` whose body opened with ESCALATION_MARKER, because the vocabulary had no
+# word for it (the "NO SIXTH MESSAGE TYPE" note at the finish edge states that constraint at
+# length). W4 closes the vocabulary at SEVEN and `escalation` is one of them, so the record finally
+# has its own type and the marker stops being the only thing that says what the row IS.
+#
+# ⚠ DUAL-READ, NOT A CUTOVER. Live buses hold rows written under the old encoding, and the
+# at-most-once scan that keeps a milestone from escalating twice is exactly what re-fires if a
+# pre-migration row goes unrecognised. Both types are therefore accepted by every reader, and the
+# marker stays load-bearing on both. SUNSET: drop `"verdict"` from this tuple once no bus in service
+# holds a pre-W4 escalation row — check with `fail-status --json` per live milestone before doing it.
+ESCALATION_TYPES = ("escalation", "verdict")
+
+# The `milestone-<id>` value the escalation family keys on used to ride in `why:` — a free-text
+# field with 2 writers and 4 readers pattern-matching it (adv, C41). W4 gives it its own header
+# key. Same dual-read posture, same reason, and both are WRITTEN during the sunset window so no
+# pre-W4 reader (or pinned selftest row) changes its answer.
+MILESTONE_WHY_PREFIX = "milestone-"
+
+# W4 (adv, C42) — the chat-thread id's shape, kept identical to the ferry's own
+# `bus-ferry.js#THREAD_ID_RE`. The ferry fails CLOSED on a malformed token (the row silently takes
+# the ordinary DM path), so the shape is checked HERE, where the sender still holds the message.
+CHAT_THREAD_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}:\d+\.\d+$")
+
+
+def milestone_clause(milestone_id):
+    """The legacy `why:` clause for a milestone — one composer, so the writers and the fallback
+    reader below cannot drift about what the pre-W4 encoding looked like."""
+    return f"{MILESTONE_WHY_PREFIX}{milestone_id}"
+
+
+def milestone_of(b):
+    """The milestone a message block belongs to, or None. Prefers the `milestone:` header key and
+    falls back to the pre-W4 `why: milestone-<id>` encoding — ONE reader for both, so every scan in
+    the escalation family answers identically on an old row and a new one."""
+    if b.get("milestone"):
+        return b["milestone"]
+    why = b.get("why") or ""
+    return why[len(MILESTONE_WHY_PREFIX):] if why.startswith(MILESTONE_WHY_PREFIX) else None
 
 # ---- the retry threshold: ONE authority (IPH-11) -----------------------------------------------
 #
@@ -9921,9 +10055,9 @@ def resolve_retry_threshold(base, milestone_id):
 def escalation_row(base, milestone_id):
     """The milestone's escalation row, or None — the one scan `escalate` and `fail-status`
     share, so "already escalated" means the same thing to both."""
-    want = f"milestone-{milestone_id}"
+    want = str(milestone_id)
     return next((b for b in load_messages(base)[1]
-                 if b["type"] == "verdict" and (b["why"] or "") == want
+                 if b["type"] in ESCALATION_TYPES and milestone_of(b) == want
                  and ESCALATION_MARKER in "\n".join(b["lines"][1:])), None)
 
 
@@ -9934,10 +10068,12 @@ def trailing_fail_verdicts(base, milestone_id):
     stopping at the first PASS (or clause-less row). Escalation records are skipped: they are
     not trials. Returns 0 for a milestone with no verdict rows."""
     _, blocks = load_messages(base)
-    want = f"milestone-{milestone_id}"
+    want = str(milestone_id)
     count = 0
     for b in reversed(blocks):
-        if b["type"] != "verdict" or (b["why"] or "") != want:
+        # `type: escalation` rows are skipped by this filter outright; the marker test below still
+        # runs for the pre-W4 escalations that were written as verdicts (ESCALATION_TYPES' sunset).
+        if b["type"] != "verdict" or milestone_of(b) != want:
             continue
         body = "\n".join(b["lines"][1:])
         if ESCALATION_MARKER in body:
@@ -9963,7 +10099,7 @@ def escalate_if_second_fail(base, milestone_id, sender):
     address cannot type the wrong one. This append is also the ONE write path that reaches
     `_append_message_unlocked` — which validates nothing — so the token is pinned here rather
     than trusted from a caller."""
-    want = f"milestone-{milestone_id}"
+    want = milestone_clause(milestone_id)
     with coord_lock(base):
         count = trailing_fail_verdicts(base, milestone_id)
         bar, _source = resolve_retry_threshold(base, milestone_id)
@@ -9971,15 +10107,18 @@ def escalate_if_second_fail(base, milestone_id, sender):
             return None
         _, blocks = load_messages(base)
         for b in blocks:
-            if (b["type"] == "verdict" and (b["why"] or "") == want
+            if (b["type"] in ESCALATION_TYPES and milestone_of(b) == str(milestone_id)
                     and ESCALATION_MARKER in "\n".join(b["lines"][1:])):
                 return None
+        # W4 (adv, D-8): the halt is a `type: escalation` row now, carrying its milestone in the
+        # `milestone:` key. `why:` is written too, for the sunset window — a pre-W4 reader (and
+        # every selftest row pinning the old clause) still sees exactly what it saw.
         _append_message_unlocked(
-            base, sender, OWNER_TOKEN, "verdict",
+            base, sender, OWNER_TOKEN, "escalation",
             f"{ESCALATION_MARKER}\n"
             f"{count} consecutive FAIL verdicts for {want} (bar: {bar}) — the gap-wave loop "
             f"halts here; this row travels the owner channel and waits for the owner's answer.",
-            why=want)
+            why=want, milestone=str(milestone_id))
         return count
 
 
@@ -9998,8 +10137,9 @@ def cmd_escalate(args):
     row = escalation_row(base, args.milestone)
     bar, source = resolve_retry_threshold(base, args.milestone)
     if count is not None:
-        print(f"escalated: sent message #{row['num']} ({sender} -> {OWNER_TOKEN}, type: verdict, "
-              f"why: {want}) — {count} consecutive FAIL verdicts (bar: {bar}, from {source})")
+        print(f"escalated: sent message #{row['num']} ({sender} -> {OWNER_TOKEN}, "
+              f"type: {row['type']}, milestone: {args.milestone}) — {count} consecutive FAIL "
+              f"verdicts (bar: {bar}, from {source})")
     elif row is not None:
         print(f"already-escalated: message #{row['num']} already carries {want}'s escalation "
               f"row — nothing appended (at-most-once)")
@@ -10176,11 +10316,13 @@ def cmd_verdict(args):
         print(f"warning: {base.parent / 'milestones.csv'} seeds no milestone rows, so "
               f"'{mid}' could not be checked against any registry — this verdict is being "
               f"recorded on an unverified id.", file=sys.stderr)
-    want = f"milestone-{mid}"
+    want = milestone_clause(mid)
     # NEVER A SECOND WRITER OF THE LOG: `append_message`, the same door `send` uses, with its own
     # lock and its own numbering. Never `_append_message_unlocked`, never `messages.md` by hand.
+    # W4 (adv, C41): the milestone rides its OWN key now; `why:` carries the legacy clause through
+    # the sunset window so no pre-W4 reader and no pinned selftest row changes its answer.
     n = append_message(base, sender, args.to, "verdict",
-                       f"verdict: {args.clause}\n{message_body(args)}", why=want)
+                       f"verdict: {args.clause}\n{message_body(args)}", why=want, milestone=mid)
     print(f"verdict {args.clause}: sent message #{n} ({sender} -> {args.to}, type: verdict, "
           f"why: {want})")
     # THE LOOP RE-FIRE — see the helpers above. BELOW the bar, a FAIL from a judge whose seat.md
@@ -10490,6 +10632,31 @@ def why_not_woken(b, agent, gmap, observers, decls=None):
     return "not in its inbox"
 
 
+def open_escalations(blocks):
+    """Escalation rows nobody has answered — W4 (adv, C47), for `pending`'s nag view.
+
+    ⚠ VISIBILITY, NOT A HOLD. An escalation is not an `ask` and never becomes one: `open_asks`
+    filters on `type == "ask"`, so an escalation opens NO check-out hold for its sender (adv, C45 —
+    the leader must not be HELD by its own escalation, and it is not, by construction rather than
+    by an exclusion list). This function only makes an unanswered halt impossible to scroll past.
+    Nothing here starts a timeout; `d-auto-proceed-declined` is untouched.
+
+    An escalation is SETTLED the same way an ask is — a row carrying `re: <its number>` — and by a
+    supersession, for the same reason an ask is.
+
+    ⚠ TWO ARMS, and the marker is required on ONLY ONE of them. `type: escalation` is sufficient by
+    itself (a leader's escalation composes its own body and carries no marker); the marker test
+    applies to the pre-W4 encoding alone, where it is the ONLY thing distinguishing a halt from an
+    ordinary trial verdict. Requiring it on both would hide every leader escalation — which is the
+    row this view exists for."""
+    superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
+    answered = {b["re"] for b in blocks if b["re"] is not None}
+    return [b for b in blocks
+            if (b["type"] == "escalation"
+                or (b["type"] == "verdict" and ESCALATION_MARKER in "\n".join(b["lines"][1:])))
+            and b["num"] not in superseded and b["num"] not in answered]
+
+
 def open_asks(blocks, sender=None, to=None):
     """Asks nobody has settled: type ask, not superseded, and no answer/verdict carrying `re:`
     its number (T4/F11 — before the link existed, an unanswered ask was invisible without
@@ -10759,6 +10926,40 @@ def cmd_send(args):
             f"one of them can ever be closed.",
             1)
 
+    # ── W4 (adv, C43 / D-2c) · THE ESCALATION IDENTITY GATE ─────────────────────────────────────
+    #
+    # ⚠ IT LIVES HERE, AT `cmd_send`, AND NOT AT THE WRITER — the one deliberate exception to the
+    # choke-point rule, for the same reason the `known_recipients` wrapper is one. `resolve_agent`
+    # runs HERE; `_append_message_unlocked` has no identity and never will. Threading a
+    # self-asserted sender string down to the writer and checking it there would be a gate that
+    # tests the claim against itself — guaranteed green, and worse than no gate because it reads
+    # like one.
+    #
+    # WHO MAY ESCALATE: the LEADER, or a JUDGE. Both arms are mechanical:
+    #   · `leader` — the staff chair W3 minted. Escalating what it could not fix IS its commission.
+    #   · a judge — a seat whose own `seat.md` declares `on-fail-relaunch:`, which is the ONLY
+    #     mechanical judge signal this file has (`on_fail_relaunch_route`, the loop re-fire's
+    #     source of truth). A judge's ORDINARY route to this type is not this verb at all: the
+    #     two-strikes halt is written from inside `escalate_if_second_fail`, under the `escalate` /
+    #     `verdict` verbs, which never pass through here. This arm exists so a judge that must
+    #     escalate something the bar did not catch is not forced to lie about its type.
+    # Everyone else routes through the leader — which is the entire point of staffing that chair.
+    if args.type == "escalation" and sender != "leader" and not on_fail_relaunch_route(base, sender):
+        refuse(
+            "state",
+            f"'{sender}' may not send `--type escalation`. An escalation is the record of a halt "
+            f"nobody inside the run can clear — it travels the owner channel and interrupts a "
+            f"human, so the authority to raise one is held by the `leader` chair and by a judge "
+            f"(a seat declaring `{ON_FAIL_RELAUNCH_KEY}:` in its seat.md).\n"
+            f"What to do instead: send this to `leader` as an --type ask. That chair is always "
+            f"occupied on demand, it can widen your cage or relaunch you, and it escalates what it "
+            f"genuinely cannot fix — which is one more filter than you crossing this door.\n"
+            f"If you ARE the milestone judge, the verb is `{coord_invocation(args)} verdict` / "
+            f"`escalate`: the two-strikes halt is composed for you, at the resolved bar.\n"
+            f"There is no --force for this one: an escalation nobody authorized still wakes the "
+            f"owner, and the log is append-only.",
+            1)
+
     # ⚠ AGENTS NEVER INITIATE TO `master` (`decisions.md#d-agents-address-owner-not-master`,
     # owner, 2026-08-09). A `to: master` row is legal ONLY as an ANSWER to something master sent —
     # on this bus, a row carrying `--re <n>`. An initiation goes to `owner` instead, and everything
@@ -10935,18 +11136,46 @@ def cmd_send(args):
                 f"#{blocks[-1]['num'] if blocks else 0}), so the ask would stay OPEN for every "
                 f"reader.\nList the open asks: {coord_invocation(args)} pending",
                 1)
-        if target["type"] != "ask":
+        # W4 (adv, C47): an ESCALATION is settleable too, and the widening is load-bearing rather
+        # than tidy. `pending` now shows unanswered escalations as things awaiting an answer; if
+        # `--re` refused to point at one, the owner's answer could never be linked and the row
+        # would nag FOREVER — a view that names a thing it makes unclosable is the silent-stall
+        # shape this whole program is about.
+        if target["type"] not in ("ask", "escalation"):
             refuse(
                 "state",
                 f"--re {re_num} — message #{re_num} is a '{target['type']}', not an "
-                f"ask; --re links an answer/verdict to the ask it settles.\nList the open asks: "
-                f"{coord_invocation(args)} pending",
+                f"ask or an escalation; --re links an answer/verdict to the row it settles.\n"
+                f"List what is open: {coord_invocation(args)} pending",
                 1)
 
+    # W4 (adv, C42) — the two chat-routing sigils as HEADER MECHANICS. `--deliver` says what the
+    # named thread does with the row and means nothing without one, exactly as the body token did
+    # (`bus-ferry.js#rowDeliver`), so it is refused alone rather than written to be ignored.
+    chat_thread = getattr(args, "chat_thread", None)
+    deliver = getattr(args, "deliver", None)
+    if chat_thread and not CHAT_THREAD_ID_RE.match(chat_thread):
+        refuse(
+            "input",
+            f"--chat-thread {chat_thread!r} is not a thread id — the shape is "
+            f"`<CHANNEL>:<ts>` (e.g. C09ABCDEF:1754500000.123456), which is the plain "
+            f"`chat-thread:` line at the top of your prompt.\n"
+            f"The ferry fails CLOSED on a malformed token, so this row would have gone to the "
+            f"owner's DM with no sign anything was wrong.",
+            1)
+    if deliver and not chat_thread:
+        refuse(
+            "input",
+            f"--deliver {deliver} names what happens AT a thread and names no thread. Pass "
+            f"--chat-thread <id> with it, or drop it.",
+            1)
     n = append_message(base, sender, args.to, args.type, body,
-                       supersedes=args.supersedes, re_num=re_num, why=why, origin=origin)
+                       supersedes=args.supersedes, re_num=re_num, why=why, origin=origin,
+                       chat_thread=chat_thread, deliver=deliver)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
              + (f", re #{re_num}" if re_num is not None else "")
+             + (f", chat-thread: {chat_thread}" if chat_thread else "")
+             + (f", deliver: {deliver}" if deliver else "")
              + (f", why: {why}" if why else ""))
     # A cross-package send is called out to the SENDER too: the seat that most needs to know its
     # message landed on a roster that does not describe it is the one that just sent it.
@@ -11451,7 +11680,7 @@ def cmd_pending(args):
     broadcast = [b for b in opens if not is_own_send(b, me) and b["to"] == "all"]
     from_me = [b for b in opens if is_own_send(b, me)]
 
-    def section(title, items, hint):
+    def section(title, items, hint, colour="ask"):
         print(f"{c(title, C_LABEL)} ({len(items)})")
         if not items:
             print("  (none)")
@@ -11459,10 +11688,16 @@ def cmd_pending(args):
         for b in items:
             num_col = "{:<4}".format("#" + str(b["num"]))
             age_col = "{:>4}".format(age_of(b["ts"]))
-            print(f"  {c(num_col, TYPE_COLOR['ask'])} {age_col} old  {b['sender']}->{b['to']}  "
+            print(f"  {c(num_col, TYPE_COLOR[colour])} {age_col} old  {b['sender']}->{b['to']}  "
                   f"{truncate(body_of(b))}")
         print(c(f"  {hint}", C_HINT))
 
+    # W4 (adv, C47) — an unanswered ESCALATION is a halt, and it sits in the nag view until somebody
+    # settles it. FIRST, above the asks: it is the one row here that means the run is stopped.
+    section("UNANSWERED ESCALATIONS — the run is halted on these", open_escalations(blocks),
+            "these wait on the OWNER. Nothing here times out and nothing auto-proceeds; "
+            "settle one with an answer carrying --re <#>",
+            colour="escalation")
     section("asks waiting on you", to_me,
             f"answer one: {coord} send <sender> \"<answer>\" --type answer --inline --re <#>")
     section("open asks to everyone", broadcast, "answer only what is yours to answer")
@@ -11545,7 +11780,16 @@ def gateway_send_leg(args, base, to, mtype, body):
     # `completion` is not carried by this door: it needs a status the door has no field for, and
     # the daemon refuses it explicitly. Skipped rather than sent-and-refused, so an ordinary
     # completion never produces a false failure line.
-    if mtype == "completion":
+    #
+    # W4 decides the new types' carriage EXPLICITLY rather than letting the enum decide by default:
+    #   · `queue-request` JOINS the skip list. It is ENGINE-INTERNAL — the consumer W7 builds reads
+    #     the local bus, not the daemon plane — so crossing this door buys nothing and puts a row
+    #     nobody drains on a second substrate.
+    #   · `escalation` CROSSES. It is owner-directed, and the daemon plane is how it reaches a
+    #     human; that is why the four JS enum copies had to move in this same change.
+    # Spelled as a literal, NOT derived from WRITER_HELD_TYPES: that tuple empties when W7 lands a
+    # consumer, and the skip is a permanent routing decision that must not empty with it.
+    if mtype in ("completion", "queue-request"):
         return None
     thread = gateway_thread_for(args, base, to)
     try:
@@ -32518,8 +32762,15 @@ def _selftest_checks(args, failures, names):
                            f"verdict: {clause}\nclause 1: evidence …", why=why)
 
         def esc_rows81(mid):
+            # W4 (D-8): the halt is `type: escalation` now, keyed by the `milestone:` header field.
+            # `verdict` + the legacy `why:` clause stay accepted so this counter still sees a
+            # pre-W4 row — the dual-read this counter's own subject implements.
+            # ⚠ THE LITERALS ARE SPELLED OUT rather than read from ESCALATION_TYPES /
+            # `milestone_of`: an expectation that reads the constant under test moves with any
+            # change to it and passes every one.
             return [b for b in load_messages(base81)[1]
-                    if b["type"] == "verdict" and (b["why"] or "") == f"milestone-{mid}"
+                    if b["type"] in ("escalation", "verdict")
+                    and (b.get("milestone") == mid or (b["why"] or "") == f"milestone-{mid}")
                     and ESCALATION_MARKER in "\n".join(b["lines"][1:])]
 
         # arm 1 — trailing, not total. The PASS sits in the MIDDLE on purpose: a count-ALL
@@ -32890,8 +33141,14 @@ def _selftest_checks(args, failures, names):
                   "this is the arm a design with a separate escalation step cannot pass",
                   _v_c2 is None and trailing_fail_verdicts(bJ, "m1") == 2
                   and _v_esc is not None and _v_esc["to"] == OWNER_TOKEN
-                  and len([b for b in vrows81("m1")
-                           if ESCALATION_MARKER in "\n".join(b["lines"][1:])]) == 1
+                  # W4 (D-8): the halt no longer rides `vrows81`'s type — it IS `type: escalation`,
+                  # and this arm now pins that as well as the at-most-once count. Literals spelled
+                  # out; nothing here reads ESCALATION_TYPES.
+                  and _v_esc["type"] == "escalation"
+                  and len([b for b in load_messages(bJ)[1]
+                           if b["type"] == "escalation" and b.get("milestone") == "m1"
+                           and ESCALATION_MARKER in "\n".join(b["lines"][1:])]) == 1
+                  and len(vrows81("m1")) == 2      # the two TRIALS, and only they
                   and f"escalated: sent message #{_v_esc['num']}" in _v_o2
                   and f"(dod-judge -> {OWNER_TOKEN}" in _v_o2)
 
@@ -32934,6 +33191,181 @@ def _selftest_checks(args, failures, names):
                   "that the bare-word clause vocabulary is intact",
                   _v_old_door == "SystemExit"
                   and sorted(BROADCAST_CLAUSES) == ["milestone", "retraction", "roster", "ruling"])
+
+    # ---- W4: the SEVEN-TYPE vocabulary, its writer-side gate, and the two promoted header keys ---
+    #
+    # Every arm below is red-first against the pre-W4 file: the type closure did not exist at any
+    # writer, the halt was a `verdict`, and `chat-thread`/`deliver` were body text. The fixture is
+    # built explicitly here; nothing can pass by inheriting another block's state.
+    with tempfile.TemporaryDirectory() as tdW4:
+        pkgW4 = Path(tdW4) / "goal" / "runs" / "run-1"
+        baseW4 = pkgW4 / "coordination"
+        baseW4.mkdir(parents=True)
+        (pkgW4 / "workers").mkdir()
+        for _a in ("leader", "alpha", "judge-a"):
+            (pkgW4 / "workers" / f"{_a}.md").write_text(f"---\nagent: {_a}\n---\nbrief\n",
+                                                        encoding="utf-8")
+        # The ONE mechanical judge signal `cmd_send`'s gate reads (`on_fail_relaunch_route`).
+        (pkgW4 / "seats" / "judge-a").mkdir(parents=True)
+        (pkgW4 / "seats" / "judge-a" / "seat.md").write_text(
+            f"---\nseat: judge-a\n{ON_FAIL_RELAUNCH_KEY}: [alpha]\n---\nbrief\n", encoding="utf-8")
+        pW4 = build_parser()
+
+        def sendW4(sender, to, body, *extra):
+            ns = pW4.parse_args(["--package", str(pkgW4), "--as", sender, "send", to, body,
+                                 "--inline", *extra])
+            out, err, code = harness_outcome(ns.func, ns)
+            return out + err, code
+
+        for _a in ("leader", "alpha", "judge-a"):
+            _ns = pW4.parse_args(["--package", str(pkgW4), "checkin", _a, "x"])
+            harness_outcome(_ns.func, _ns)
+        _n_before = len(load_messages(baseW4)[1])
+
+        # arm 1 — THE CLOSURE IS AT THE WRITER, not at argparse (adv, C40). The literals are spelled
+        # out; reading MESSAGE_TYPES here would make the expectation move with the value under test.
+        # RED mutation: delete the `mtype not in MESSAGE_TYPES` raise.
+        _w4_bogus_unlocked = _w4_bogus_wrapper = "ACCEPTED"
+        try:
+            _append_message_unlocked(baseW4, "alpha", "leader", "correction", "x")
+        except ValueError as _e:
+            _w4_bogus_unlocked = str(_e)
+        try:
+            append_message(baseW4, "alpha", "leader", "correction", "x")
+        except ValueError as _e:
+            _w4_bogus_wrapper = str(_e)
+        check("W4 arm 1: a type outside the closed vocabulary is refused AT "
+              "`_append_message_unlocked` — the true single writer, which every internal verb "
+              "(verdict, escalate, the finish edge, the closer) reaches while walking past "
+              "argparse's `choices=`. `append_message` INHERITS the refusal rather than restating "
+              "it, and NOTHING is appended by either attempt",
+              "closed vocabulary" in _w4_bogus_unlocked
+              and "closed vocabulary" in _w4_bogus_wrapper
+              and len(load_messages(baseW4)[1]) == _n_before)
+
+        # arm 2 — a KNOWN type with no consumer yet. This is the discriminating pair: `escalation`
+        # and `queue-request` are both in the enum, and exactly one of them is writable today.
+        _w4_held = "ACCEPTED"
+        try:
+            append_message(baseW4, "leader", OWNER_TOKEN, "queue-request", "next wave")
+        except ValueError as _e:
+            _w4_held = str(_e)
+        _w4_esc_n = append_message(baseW4, "leader", OWNER_TOKEN, "escalation", "halted here")
+        _w4_esc_row = [b for b in load_messages(baseW4)[1] if b["num"] == _w4_esc_n][0]
+        check("W4 arm 2: `queue-request` is IN the seven-type enum (so every door — gateway, "
+              "store CHECK, argparse — already admits it) and the WRITER still refuses it for want "
+              "of a consumer, while `escalation` on the same writer lands and reads back with its "
+              "type intact. W7 empties WRITER_HELD_TYPES in the change that lands the consumer",
+              "queue-request" in MESSAGE_TYPES and "NO CONSUMER YET" in _w4_held
+              and _w4_esc_row["type"] == "escalation")
+
+        check("W4 arm 3: every type in the closed vocabulary has a render colour — a `pending` or "
+              "`read` view meeting a type TYPE_COLOR does not carry would raise KeyError on the "
+              "one row a reader most needs to see",
+              all(t in TYPE_COLOR for t in MESSAGE_TYPES))
+
+        # arm 4 — the three new header groups round-trip, and `why` (matched `[^|]*?`) still parses
+        # BESIDE them. RED mutation: emit any of the three AFTER `why` in the writer.
+        _w4_hn = append_message(baseW4, "leader", "alpha", "verdict", "body",
+                                why="milestone-m1", milestone="m1",
+                                chat_thread="C09ABCDEF:1754500000.123456", deliver="post")
+        _w4_h = [b for b in load_messages(baseW4)[1] if b["num"] == _w4_hn][0]
+        check("W4 arm 4: `milestone:`, `chat-thread:` and `deliver:` round-trip through the header "
+              "grammar, and the free-text `why:` clause beside them parses INTACT — every one of "
+              "the three is emitted BEFORE `why`, whose `[^|]*?` swallows any field written after "
+              "it (the constraint `exec:` was placed for)",
+              (_w4_h["milestone"], _w4_h["chat_thread"], _w4_h["deliver"], _w4_h["why"])
+              == ("m1", "C09ABCDEF:1754500000.123456", "post", "milestone-m1"))
+
+        # arm 5 — THE ESCALATION IDENTITY GATE (adv, C43 / D-2c), at cmd_send where identity exists.
+        # RED mutation: delete the gate, or move it to the writer (where `sender` is self-asserted).
+        _n5 = len(load_messages(baseW4)[1])
+        _o_alpha, _c_alpha = sendW4("alpha", OWNER_TOKEN, "I am stuck", "--type", "escalation")
+        _o_lead, _c_lead = sendW4("leader", OWNER_TOKEN, "cannot fix this", "--type", "escalation")
+        _o_judge, _c_judge = sendW4("judge-a", OWNER_TOKEN, "bar missed it", "--type", "escalation")
+        _o_note, _c_note = sendW4("alpha", "leader", "fyi", "--type", "note")
+        check("W4 arm 5: only the LEADER and a JUDGE may raise an escalation — a plain worker is "
+              "refused and told to route through the leader chair, while the same worker's `note` "
+              "on the same fixture goes through. The judge arm keys on its seat.md declaring "
+              f"`{ON_FAIL_RELAUNCH_KEY}:`, the only mechanical judge signal this file has",
+              _c_alpha == 1 and "may not send `--type escalation`" in _o_alpha
+              and _c_lead is None and _c_judge is None and _c_note is None
+              and len(load_messages(baseW4)[1]) == _n5 + 3)
+
+        # arm 6 — (adv, C45) the hold question, asked of the sender of an escalation.
+        _blocksW4 = load_messages(baseW4)[1]
+        check("W4 arm 6: AN ESCALATION OPENS NO CHECK-OUT HOLD FOR ITS SENDER — `open_asks` "
+              "narrowed to (leader -> owner) is EMPTY although the leader has just escalated to "
+              "the owner, so the chair whose commission is escalating cannot be HELD by its own "
+              "escalation. Positive control on the same log: an ordinary `ask` from the leader to "
+              "the owner DOES open one",
+              open_asks(_blocksW4, sender="leader", to=OWNER_TOKEN) == []
+              and (sendW4("leader", OWNER_TOKEN, "a real question", "--type", "ask")[1] is None)
+              and len(open_asks(load_messages(baseW4)[1], sender="leader", to=OWNER_TOKEN)) == 1)
+
+        # arm 7 — (adv, C47) visibility is not a timeout.
+        _open_esc = open_escalations(load_messages(baseW4)[1])
+        _ans, _ansc = sendW4("alpha", "leader", "answered", "--type", "answer",
+                             "--re", str(_open_esc[0]["num"]))
+        check("W4 arm 7: `pending`'s nag view carries UNANSWERED escalations — the leader's and "
+              "the judge's rows are both open, and answering one with `--re` closes exactly that "
+              "one. Nothing here times out and nothing auto-proceeds. The `--re` leg is the arm "
+              "that matters: a view naming a row it makes UNCLOSABLE would nag forever",
+              len(_open_esc) == 3 and _ansc is None
+              and len(open_escalations(load_messages(baseW4)[1])) == 2)
+
+        # arm 8 — the D-8 migration and its DUAL-READ, on one log holding both encodings.
+        _w4_pre = _append_message_unlocked(
+            baseW4, "dod-judge", OWNER_TOKEN, "verdict",
+            f"{ESCALATION_MARKER}\n2 consecutive FAIL verdicts for milestone-old",
+            why="milestone-old")
+        _w4_pre_row = escalation_row(baseW4, "old")
+        append_message(baseW4, "dod-judge", "alpha", "verdict", "verdict: FAIL\nx",
+                       why="milestone-new", milestone="new")
+        append_message(baseW4, "dod-judge", "alpha", "verdict", "verdict: FAIL\nx",
+                       why="milestone-new", milestone="new")
+        _w4_new_count = escalate_if_second_fail(baseW4, "new", "dod-judge")
+        _w4_new_row = escalation_row(baseW4, "new")
+        check("W4 arm 8: the two-strikes halt MIGRATED to `type: escalation` (D-8) and the readers "
+              "DUAL-READ — a pre-W4 row (type verdict, milestone carried only in `why:`) is still "
+              "found by `escalation_row`, a post-W4 halt is found as `type: escalation` with the "
+              "milestone in its own key, and `trailing_fail_verdicts` counts NEITHER as a trial",
+              _w4_pre_row is not None and _w4_pre_row["num"] == _w4_pre
+              and _w4_pre_row["type"] == "verdict" and _w4_pre_row["milestone"] is None
+              and _w4_new_count == 2 and _w4_new_row is not None
+              and _w4_new_row["type"] == "escalation" and _w4_new_row["milestone"] == "new"
+              and trailing_fail_verdicts(baseW4, "new") == 2
+              and milestone_of(_w4_pre_row) == "old" and milestone_of(_w4_new_row) == "new")
+
+        # arm 9 — GATEWAY CARRIAGE, decided rather than inherited from the enum. The transport is
+        # driven with a STUBBED target and a spy in place of the real client, so this arm never
+        # opens a socket and never reaches a daemon that may be running on this box.
+        _w4_sent = []
+        _w4_real_target = globals()["gateway_transport_target"]
+        _w4_real_send = gateway_client.send_message
+        _w4_env = os.environ.get(GATEWAY_TRANSPORT_ENV)
+        try:
+            globals()["gateway_transport_target"] = lambda a: ("stub-host", 1, "stub-token")
+            gateway_client.send_message = (
+                lambda h, p, t, mt, b, token=None: _w4_sent.append(mt))
+            os.environ[GATEWAY_TRANSPORT_ENV] = "1"
+            _w4_ns = pW4.parse_args(["--package", str(pkgW4), "--as", "leader", "send", "alpha",
+                                     "x", "--inline", "--type", "note"])
+            _w4_legs = [gateway_send_leg(_w4_ns, baseW4, "alpha", t, "b")
+                        for t in ("note", "escalation", "completion", "queue-request")]
+        finally:
+            globals()["gateway_transport_target"] = _w4_real_target
+            gateway_client.send_message = _w4_real_send
+            if _w4_env is None:
+                os.environ.pop(GATEWAY_TRANSPORT_ENV, None)
+            else:
+                os.environ[GATEWAY_TRANSPORT_ENV] = _w4_env
+        check("W4 arm 9: gateway carriage is DECIDED for both new types — `escalation` CROSSES the "
+              "door (it is owner-directed, and the daemon plane is how it reaches a human), while "
+              "`queue-request` joins `completion` in the skip list (engine-internal; crossing "
+              "would put a row nobody drains on a second substrate). Measured at the client, not "
+              "asserted off the literal: the spy saw exactly `note` and `escalation`",
+              _w4_sent == ["note", "escalation"] and _w4_legs == [None, None, None, None])
 
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
@@ -33555,9 +33987,14 @@ def build_parser():
     s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
     s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
     s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
-                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI)")
+                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal; this verb refuses to write one until its consumer exists)")
+    # W4 (adv, C42) — the two chat-routing sigils, promoted from body text to header mechanics.
+    s.add_argument("--chat-thread", dest="chat_thread", metavar="ID",
+                   help="route this row into a chat thread you already know: `<CHANNEL>:<ts>`, the plain `chat-thread:` line at the top of your prompt. Without it the row takes the owner's DM")
+    s.add_argument("--deliver", choices=["post", "wake"], default=None,
+                   help="what the named thread does with the row — post (verbatim, no agent, ~0.3s: a settled FACT) | wake (posted AND a sitting is minted to act on it). Needs --chat-thread; absent = mint a sitting and post nothing")
     s.add_argument("--re", dest="re_num", type=int, metavar="N",
-                   help="the ask this settles — REQUIRED on --type answer, optional on verdict")
+                   help="the ask (or escalation) this settles — REQUIRED on --type answer, optional on verdict")
     s.add_argument("--supersedes", type=int, metavar="N",
                    help="retract message N: readers see the retraction inline wherever N is rendered")
     s.add_argument("--file", metavar="PATH",

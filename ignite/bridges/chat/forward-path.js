@@ -33,10 +33,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { nowIsoUtc } = require('./config');
 
-// The five CMP-8 message types (closed vocabulary — mint nothing). Only `answer`
-// and `note` are produced by the follow-up leg per D105; the full set is stated
-// so a future producer never invents a sixth.
-const CMP8_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
+// The SEVEN CMP-8 message types (closed vocabulary — mint nothing; W4 closed it at seven).
+// Only `answer` and `note` are produced by the follow-up leg per D105; the full set is stated
+// so a future producer never invents an eighth. See heart-store.js MESSAGE_TYPES for the site list.
+const CMP8_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation']);
 
 // D111 part 2 — the honest decline notice. When a MAPPED conversation's follow-up
 // cannot reach the running work (chain unresolved, or the gateway refused the

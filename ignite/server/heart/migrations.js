@@ -254,6 +254,99 @@ const MIGRATION_ENQUEUING_SEAT = {
 // (`migrate(db, { migrations: [...] })`).
 MIGRATIONS.push(MIGRATION_ENQUEUING_SEAT);
 
+// ── W4 · the message vocabulary CLOSED AT SEVEN — `queue-request` + `escalation` ─────────────────
+//
+// The other four enum sites are `Set`s in JS and move with an edit. This one is a CHECK constraint,
+// and SQLite CANNOT ALTER A CHECK: the only way is the documented table rebuild. So this is the
+// first migration in this file that rebuilds a table rather than adding a column, and it must do it
+// WITHOUT the step the documented procedure opens with — `PRAGMA foreign_keys=OFF` is a NO-OP
+// inside a transaction, and `migrate()` always opens one (schema.sql's jobs_log CHECK note is where
+// that trap is recorded; this is the same trap, met head on instead of avoided).
+//
+// ⚠ THE FOREIGN KEY IS THE HARD PART, and three plausible sequences were MEASURED to fail before
+// the one below was kept. `messages` has no OUTGOING foreign key, but
+// `jobs_log.completion_msg_id REFERENCES messages(msg_id)` points INTO it:
+//
+//   · create-new / DROP old — the DROP runs an implicit delete against a referenced table and
+//     raises `FOREIGN KEY constraint failed` immediately.
+//   · rename-first under `PRAGMA legacy_alter_table = ON` — measured NOT to help: the FK-clause
+//     rewrite on RENAME is governed by `foreign_keys`, not by legacy_alter_table, so jobs_log's
+//     clause was rewritten to name the shim table and the DROP failed anyway.
+//   · `PRAGMA defer_foreign_keys = ON` (which DOES take effect inside a transaction) — the whole
+//     rebuild then runs and `PRAGMA foreign_key_check` comes back CLEAN, but COMMIT still fails:
+//     SQLite's deferred-violation COUNTER was incremented by the DROP and is never decremented by
+//     re-inserting the same rows under a different table name.
+//
+// So the child column is UNHOOKED and RE-HOOKED around the rebuild. Every non-null
+// `completion_msg_id` is read out, nulled, and written back after the new table is in place —
+// exact, because `msg_id` values are carried through the copy. It all sits inside the one
+// transaction `migrate()` opens, so a failure anywhere rolls the unhooking back with everything
+// else and no row is left orphaned.
+//
+// IDEMPOTENT: it reads the live table's own SQL and returns immediately when the CHECK already
+// carries `escalation` — so it is a NO-OP on a store built from today's `schema.sql`.
+const MIGRATION_MESSAGE_TYPES_SEVEN = {
+  version: 5,
+  name: 'message-types-seven-w4',
+  up(db) {
+    const row = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+    ).get();
+    if (!row || String(row.sql).includes("'escalation'")) return;
+
+    const links = db.prepare(
+      'SELECT exec_id, completion_msg_id FROM jobs_log WHERE completion_msg_id IS NOT NULL'
+    ).all();
+    db.exec('UPDATE jobs_log SET completion_msg_id = NULL WHERE completion_msg_id IS NOT NULL;');
+
+    db.exec(`
+      CREATE TABLE messages_w4 (
+        msg_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note','queue-request','escalation')),
+        sender       TEXT NOT NULL,
+        thread       TEXT NOT NULL,
+        corpus       TEXT NOT NULL,
+        status       TEXT,
+        created_at   TEXT NOT NULL,
+        routed_at_tick    INTEGER,
+        broadcast_at_tick INTEGER,
+        CHECK ((type = 'completion') = (status IS NOT NULL)),
+        CHECK (status IS NULL OR status IN ('done','blocked','failed'))
+      );
+    `);
+    // Columns named explicitly: a bare `SELECT *` would silently mis-map if the two shapes ever
+    // drifted, and msg_id is carried so the re-hooked `completion_msg_id` still resolves.
+    db.exec(`
+      INSERT INTO messages_w4
+        (msg_id, type, sender, thread, corpus, status, created_at, routed_at_tick, broadcast_at_tick)
+      SELECT
+         msg_id, type, sender, thread, corpus, status, created_at, routed_at_tick, broadcast_at_tick
+      FROM messages;
+    `);
+    db.exec('DROP TABLE messages;');
+    // jobs_log's clause names `messages`, NOT `messages_w4`, so this rename does not touch it — it
+    // simply finds its parent again. (The reverse order is what the second failed sequence above
+    // got wrong.)
+    db.exec('ALTER TABLE messages_w4 RENAME TO messages;');
+    // The indexes went with the dropped table and are recreated on the new one, byte-identical to
+    // schema.sql's — a fresh and a migrated store must not differ in what they index either.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_messages_unrouted    ON messages(msg_id) WHERE routed_at_tick IS NULL;');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_messages_unbroadcast ON messages(msg_id) WHERE broadcast_at_tick IS NULL;');
+    db.exec("CREATE INDEX IF NOT EXISTS idx_messages_unrouted_completion ON messages(msg_id) WHERE routed_at_tick IS NULL AND type = 'completion';");
+
+    const relink = db.prepare('UPDATE jobs_log SET completion_msg_id = ? WHERE exec_id = ?');
+    for (const l of links) relink.run(l.completion_msg_id, l.exec_id);
+  },
+};
+
+// ARMED WITH ITS WRITE SITES, which is what `r-746-schema-pregrant`'s ARMING RIDER requires and
+// not a builder overriding the owner's line: the four JS enum copies that let a `queue-request` or
+// an `escalation` row reach `recordMessage` land in this same change, and the rider forbids exactly
+// the half-landed state where a write site depends on an unarmed migration. W4's LANDING is the
+// owner-gated ratification of the whole package (task-12, under the landing protocol) — the two
+// halves ratify together or neither lands.
+MIGRATIONS.push(MIGRATION_MESSAGE_TYPES_SEVEN);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -359,4 +452,8 @@ module.exports = {
   // definition, the day the owner ratifies it the push goes below the const and THIS COMMENT
   // BECOMES FALSE: correct it in the same change, as MIGRATION_SESSION_SPLIT's had to be.
   MIGRATION_ENQUEUING_SEAT,
+  // W4. Exported by name AND registered above — `probe-migration-message-types` injects it to prove
+  // the REBUILD works on a store that already holds rows (the fresh-vs-migrated split schema.sql
+  // documents), which is a separate claim from it being registered.
+  MIGRATION_MESSAGE_TYPES_SEVEN,
 };

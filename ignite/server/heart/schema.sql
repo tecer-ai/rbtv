@@ -53,7 +53,11 @@ CREATE INDEX IF NOT EXISTS idx_queue_due ON queue(run_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   msg_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note')),
+  -- W4: the vocabulary is CLOSED AT SEVEN. Unlike jobs_log.status below, this CHECK IS moved on
+  -- migrated stores too (migration 5, `message-types-seven-w4`) — a table rebuild, because SQLite
+  -- cannot alter a CHECK. Fresh and migrated therefore enforce the SAME constraint, which is the
+  -- property the jobs_log note below could not buy and had to reason around.
+  type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note','queue-request','escalation')),
   sender       TEXT NOT NULL,
   thread       TEXT NOT NULL,
   corpus       TEXT NOT NULL,

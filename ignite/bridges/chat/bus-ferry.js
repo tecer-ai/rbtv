@@ -80,7 +80,16 @@ function parseHeader(line) {
     if (i > 0) f[part.slice(0, i)] = part.slice(i + 2).trim();
   }
   if (!f.from || !f.to || !f.type) return null;
-  return { id: Number(m[1]), from: f.from, to: f.to, type: f.type, body: [] };
+  // W4 (adv, C42): `chat-thread` and `deliver` are HEADER MECHANICS now — coord.py's
+  // `send --chat-thread/--deliver` writes them as their own header group. Carried here so the two
+  // readers below can prefer the header; the body sigils they were before stay as a documented
+  // FALLBACK, because rows already on live buses carry only the bracketed form. Sunset: drop the
+  // body-sigil leg once no bus in service holds a pre-W4 row.
+  return {
+    id: Number(m[1]), from: f.from, to: f.to, type: f.type, body: [],
+    hdrChatThread: f['chat-thread'] || null,
+    hdrDeliver: f.deliver || null,
+  };
 }
 
 // ── THE ONE ADDRESS THIS FERRY CARRIES: `owner` (ruling `d-agents-address-owner-not-master`,
@@ -375,6 +384,19 @@ function chatThreadToken(body) {
   return m ? m[1] : null;
 }
 
+// W4 (adv, C42) — the same shape, unbracketed, for the HEADER field. One pattern source, so the
+// header leg and the body leg can never disagree about what a thread id looks like.
+const THREAD_ID_RE = /^[A-Z][A-Z0-9_]{2,}:\d+\.\d+$/;
+
+// The row's chat thread: HEADER FIRST, body sigil as the documented fallback. Same fail-closed
+// posture either way — a malformed header value reads as absent and the body is consulted, exactly
+// as a malformed sigil reads as absent today.
+function rowChatThread(row) {
+  const h = row && row.hdrChatThread;
+  if (h && THREAD_ID_RE.test(h)) return h;
+  return chatThreadToken(row && row.body);
+}
+
 // ── WHAT THE THREAD SHOULD DO WITH THE ROW: `[deliver: post|wake]` (live-session-design.md §3) ──
 //
 // The return leg above answers WHERE a row goes. This answers WHAT HAPPENS THERE, and it exists
@@ -405,6 +427,14 @@ const DELIVER_RE = /\[deliver:\s*(post|wake)\s*\]/;
 function deliverToken(body) {
   const m = String(body || '').match(DELIVER_RE);
   return m ? m[1] : null;
+}
+
+// W4 (adv, C42) — header first, body sigil as the fallback. An unrecognised header word reads as
+// absent and the body is consulted, matching `deliverToken`'s own cannot-tell posture.
+function rowDeliver(row) {
+  const h = row && row.hdrDeliver;
+  if (h === 'post' || h === 'wake') return h;
+  return deliverToken(row && row.body);
 }
 
 // The Slack message: one mrkdwn header line, then the body. Truncation cuts at a LINE
@@ -731,7 +761,7 @@ function createBusFerry({
           // NO token at all — so it falls through to the ordinary path below (`to: owner` → gates
           // → thread or PARK; anything else → cursor advance) rather than being dropped, and
           // nothing is ever posted to, or minted on, a thread the sender invented.
-          const namedThread = chatThreadToken(row.body);
+          const namedThread = rowChatThread(row);
           const chatThread = namedThread && knowsThread(namedThread) ? namedThread : null;
           if (namedThread && !chatThread) {
             log('info', 'bus row named a chat thread the bridge does not know — token IGNORED, row takes the ordinary path', { key, msgId: row.id, from: row.from, namedThread });
@@ -798,7 +828,7 @@ function createBusFerry({
               const send = routeToMaster || ((a) => transport.sendToOwner(a));
               // `deliver` rides ONLY with `chatThread` — it says what to do at a named thread and
               // means nothing without one (see `deliverToken`'s header).
-              res = await send({ channel: dmChannel, threadTs: null, text, chatThread, deliver: chatThread ? deliverToken(row.body) : null });
+              res = await send({ channel: dmChannel, threadTs: null, text, chatThread, deliver: chatThread ? rowDeliver(row) : null });
               postedText = text;
             }
             delivered = Boolean(res && res.delivered);
@@ -917,7 +947,7 @@ function createBusFerry({
 
 module.exports = {
   createBusFerry, parseMessages, formatMessage, addressesOwner, goalBuses, executionStamp,
-  chatThreadToken, deliverToken,
+  chatThreadToken, deliverToken, rowChatThread, rowDeliver,
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS, DEFAULT_WATCH_DEBOUNCE_MS,
   goalExecutionMode, seatIsHumanInteractive, seatDirIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
   seatFallback, seatDirFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,

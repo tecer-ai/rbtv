@@ -105,7 +105,10 @@ const ACTION_TYPES = new Set(['launch-agent', 'fire-tool', 'start-workflow', 'se
 // for exactly the reason every sibling copy above exists: the gateway holds no store import by
 // design (DEC-4), and a closed enum is SHAPE, so an unknown type is refused at the door. The core
 // re-validates it independently (recordMessage's own E_BAD_MESSAGE), which is the point of DEC-3.
-const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note']);
+// W4 — CLOSED AT SEVEN (see heart-store.js MESSAGE_TYPES for the whole site list). `escalation`
+// MUST be here: a leader's escalation crosses this door, and a door refusing it is the exact
+// silent class W4 exists to close.
+const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation']);
 // ⚑ `messages` ADDED by the cli-expansion run (ruling D3, ce-5): a new TARGET of the
 // existing `inspect` intent, never a sixth intent — read-only store queries are what
 // `inspect` is for. Execution-scoped like `status`/`logs`: the id is a jobs_log exec_id,

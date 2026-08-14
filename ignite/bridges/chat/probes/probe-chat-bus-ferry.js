@@ -649,6 +649,18 @@ async function main() {
       minted && slack.posted.length === 3,
       { creates: creates(), expected: before + 2, posted: slack.posted.length });
 
+    // W4 (adv, C42) — the two sigils PROMOTED TO HEADER MECHANICS. The row below carries them in
+    // the header only, with a body that contains no bracketed token at all, and must route exactly
+    // as row 3 did. The body-sigil arms above are the FALLBACK's control: they still pass, which is
+    // what "documented fallback with a sunset" has to mean mechanically.
+    append(file, `## 6 | from: leader | to: owner | type: note | chat-thread: ${known} | deliver: post | 2026-08-06 14:23\n\nheader-routed, no bracketed token anywhere in this body\n\n`);
+    const hdrPosted = await waitFor(() => slack.posted.length === 4);
+    const p6 = slack.posted[3];
+    check('W4: `chat-thread:` / `deliver:` READ OFF THE HEADER — a row with no body sigil posts into the named thread and mints no sitting, identically to the bracketed form',
+      hdrPosted && p6.channel === DM && p6.threadTs === '1.0' && creates() === before + 2
+      && /header-routed/.test(p6.text),
+      { channel: p6 && p6.channel, threadTs: p6 && p6.threadTs, creates: creates(), expected: before + 2 });
+
     b.bridge.stop();
     check('stop() closes every watcher it armed', b.bridge.busFerry.watching === 0,
       { watching: b.bridge.busFerry.watching });
