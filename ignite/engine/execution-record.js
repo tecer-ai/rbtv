@@ -498,6 +498,7 @@ module.exports = {
   CRASHED,
   KILLED,
   PROCESS_OUTCOMES,
+  PROCESS_OUTCOME_OF,
   processOutcome,
   // The ask/answer pairing on the goal's bus. `engine/bus-answer.js` is the one consumer; the hold
   // that was the other is gone (§ THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE).

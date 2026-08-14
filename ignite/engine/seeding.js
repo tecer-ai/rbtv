@@ -52,7 +52,7 @@ const { execFileSync } = require('node:child_process');
 // consumer sweep was ordered by grep rather than by memory. What replaced its QUESTION is
 // `recordView`'s `done` set, and that set no longer comes from this file at all: it comes from the
 // seats' own check-out dispositions on coord's `ready-seats --json` answer.
-const { readExecutionRecord, CLEAN } = require('./execution-record');
+const { readExecutionRecord, CLEAN, PROCESS_OUTCOME_OF } = require('./execution-record');
 // The ONE interpreter resolver this repo already has (`python3` is a Microsoft-Store LIE on
 // Windows — it is on PATH, is executable, and runs no python).
 const { requirePythonCmd } = require('../lib/python-cmd');
@@ -181,15 +181,28 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
   const minted = new Map();
   for (const row of rows) {
     const rec = last.get(row.seat);
-    const outcome = ((rec && rec.outcome) || '').trim();
-    // ⚠ W2 — THE GUARD IS `CLEAN`, NOT `done`. The outcome column is a PROCESS vocabulary now
-    // (`clean|crashed|killed`, `execution-record.js` § THE SCHEMA), so the old `outcome === DONE`
-    // test could never match again and this pass would have minted against every seat that ever
-    // exited tidily. A clean exit is nothing to retry: whether the WORK finished is the seat's
-    // check-out, and that lives on `view.finished` below. `crashed`/`killed` are the whole retry
-    // domain and coord's `DAEMON_RETRY_FROM_OUTCOMES` is where that set is enforced — this line
-    // only declines to ASK about the rows that plainly are not it.
-    if (!rec || !outcome || outcome === CLEAN) continue;
+    const rawOutcome = ((rec && rec.outcome) || '').trim();
+    // ⚠ THE EMPTY CHECK COMES BEFORE THE TRANSLATION, AND THAT ORDER IS THE POINT. A row that never
+    // recorded an outcome at all is not a retry candidate; translating first would hand it to the
+    // `crashed` side of the map and mint against it forever.
+    if (!rec || !rawOutcome) continue;
+    // ⚠ W2 — THE COLUMN IS A PROCESS VOCABULARY (`clean|crashed|killed`, `execution-record.js`
+    // § THE SCHEMA) AND OLD ROWS ARE INERT BY MIGRATION: a seat whose last execution predates
+    // W2 (`f956f4c4`, 2026-08-14T01:33Z) still carries `done`/`blocked`/`failed` on disk, and
+    // those words are refused by coord's `DAEMON_RETRY_FROM_OUTCOMES`. So the legacy word is
+    // TRANSLATED ONCE, HERE, through the same map the writer uses — and the translated value is
+    // what BOTH the guard below and the mint argv see. Without it, a legacy `failed` row fell
+    // through this guard, reached the blocking `execFileSync` below and was refused by coord on
+    // every 10s tick, forever (2,621 refusals, 0 mints, measured 2026-08-14).
+    // An UNKNOWN word passes through UNCHANGED (`|| rawOutcome`) rather than defaulting to
+    // `crashed`: it is then refused once, visibly, instead of being silently retried as a crash.
+    const outcome = PROCESS_OUTCOME_OF[rawOutcome] || rawOutcome;
+    // THE GUARD IS `CLEAN`, NOT `done`. A clean exit is nothing to retry: whether the WORK finished
+    // is the seat's check-out, and that lives on `view.finished` below. `crashed`/`killed` are the
+    // whole retry domain and coord's `DAEMON_RETRY_FROM_OUTCOMES` is where that set is enforced —
+    // this line only declines to ASK about the rows that plainly are not it. Legacy `blocked` maps
+    // to `CLEAN` and is skipped here, which is the same ruling the comment below records.
+    if (outcome === CLEAN) continue;
     if (view.finished.has(row.seat) || view.notFinished.has(row.seat)) continue;
     // ⚠ NO AUTO-RETRY AGAINST A WAITING HUMAN — the exclusion TRANSFERRED HERE from coord's
     // `DAEMON_RETRY_FROM_OUTCOMES` (adv, C18). That constant used to carry it by omitting `blocked`
