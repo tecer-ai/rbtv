@@ -1087,10 +1087,21 @@ def nested_instance(package: Path, catalog_root: Path, workflow: str,
     INSTANCE into `package` — the catalog-id -> composed-name map every other
     surface of this run is re-keyed through.
 
-    `resolve_added` has already refused an absent or ambiguous manifest, so the
-    glob below resolves exactly one folder."""
-    wf_dir = sorted(
-        catalog_root.glob(f"*/workflows/{workflow}/{workflow}.csv"))[0].parent
+    On the --workflow path `resolve_added` has already refused an absent or
+    ambiguous manifest, so the glob below resolves exactly one folder. On the
+    SINGLE-SEAT path (W7: `--seat <seat> --nested <workflow>`) it has NOT — the
+    seat is resolved against seats.csv and the named workflow is never touched —
+    so the glob is guarded here rather than raising IndexError out of a helper."""
+    hits = sorted(catalog_root.glob(f"*/workflows/{workflow}/{workflow}.csv"))
+    if not hits:
+        raise Refuse(
+            "nested-workflow-unresolvable",
+            f"--nested names the instance series '{workflow}', and no "
+            f"<component>/workflows/{workflow}/{workflow}.csv exists under the "
+            "catalog root — there is no workflow to be the Nth of",
+            str(catalog_root),
+        )
+    wf_dir = hits[0].parent
     prefix = read_workflow_prefix(wf_dir)
     ordinal = next_instance_ordinal(package, prefix)
     return {"prefix": prefix, "ordinal": ordinal, "workflow": workflow,
@@ -3622,6 +3633,20 @@ def render_taskforce_rows(plan: dict) -> None:
     # (the filter below — nested ids are a second namespace in one column), and
     # a registry carrying ONLY nested rows still refuses `taskforce-id-
     # unreadable`, since a nested instance always attaches after a parent row.
+    #
+    # ⚠ F1 IS N/A FOR THE SPLICE PATH, AND THAT WAS VERIFIED, NOT ASSUMED (W7).
+    # F1 is "the materializer refuses any multi-taskforce registry" — the
+    # `len(ids) != 1` arm below, which is what made D5's queue-fired
+    # materialization impossible on a goal that already carries more than one
+    # taskforce. W7's wave re-entry does not meet it: the `if nested:` branch
+    # immediately below is evaluated FIRST and returns, so a nested splice never
+    # reaches the arm no matter how many ids the registry carries. No fix is
+    # applied to the flat arm and that is the RULING, not an omission — for an
+    # ORDINARY seat the id says which taskforce the seat belongs to, and picking
+    # one from an ambiguous set is the design act this gate exists to refuse
+    # (see the paragraph above). Manual and scratch materializes still hit it,
+    # deliberately; the answer for them is `--nested`, which names the series
+    # instead of guessing it.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
     ids = {i for i in ids if not NESTED_TF_RE.fullmatch(i)}
@@ -4129,13 +4154,39 @@ def run(args) -> dict:
                 "a descriptor deliberately, the other refuses anything that "
                 "does not byte-match",
             )
+    # ⚠ THE SINGLE-SEAT NESTED VARIANT IS A DELIBERATE, DOCUMENTED CONTRACT
+    # CHANGE (W7, owner-ruled D-6). Until W7 `--seat` + `--nested` was a hard
+    # refusal, on the reasoning that "a single --seat has no workflow to be the
+    # Nth of". That reasoning holds for a seat materialized on its own account
+    # and FAILS for the case W7 has: a `collapsed`-stamped milestone runs
+    # `plan-planner` ALONE, and that lone seat IS a planning pass — the Nth
+    # instance of the planning workflow, needing the same composed name and the
+    # same `tf-<n>-<prefix><m>` id as a full-mode pass, or the second collapsed
+    # milestone re-splices `plan-planner` onto a name that already exists and
+    # hits the pinned `seat-exists` refusal forever.
+    #
+    # So `--nested` NAMES the instance series when `--seat` is used, and stays
+    # bare when `--workflow` is (the workflow is its own series). No new flag:
+    # one flag whose value answers exactly the question the refusal below asks.
+    nested_workflow = None
     if getattr(args, "nested", False):
-        if not args.workflow:
+        nested_workflow = (args.workflow if args.nested is True
+                           else str(args.nested))
+        if args.workflow and args.nested is not True \
+                and str(args.nested) != args.workflow:
+            raise Refuse(
+                "nested-workflow-mismatch",
+                f"--workflow names '{args.workflow}' and --nested names "
+                f"'{args.nested}' — with --workflow the instance series IS "
+                "that workflow, so --nested takes no value there",
+            )
+        if not nested_workflow:
             raise Refuse(
                 "nested-without-workflow",
-                "--nested names an INSTANCE of a workflow — a single --seat "
-                "has no workflow to be the Nth of, and top-level seats keep "
-                "bare names",
+                "--nested names an INSTANCE of a workflow — a bare --nested "
+                "beside a single --seat says which seat but not which instance "
+                "series it joins, and top-level seats keep bare names. Pass the "
+                "workflow: --seat <seat> --nested <workflow>",
             )
         if repass:
             raise Refuse(
@@ -4190,7 +4241,9 @@ def run(args) -> dict:
     # carry it with no second spelling and no per-site translation.
     nested = None
     if getattr(args, "nested", False):
-        nested = nested_instance(package, catalog_root, args.workflow, added)
+        # `nested_workflow` (not `args.workflow`) — on the single-seat variant
+        # there IS no --workflow, and the series is the one --nested named.
+        nested = nested_instance(package, catalog_root, nested_workflow, added)
         rename = nested["rename"]
         added = [rename[s] for s in added]
         internal_after = {rename[s]: [rename[p] for p in preds]
@@ -4313,17 +4366,22 @@ def build_parser() -> argparse.ArgumentParser:
     what.add_argument("--workflow",
                       help="materialize a whole workflow "
                            "(<component>/workflows/<W>/<W>.csv manifest)")
-    p.add_argument("--nested", action="store_true",
-                   help="with --workflow: materialize it as a NESTED INSTANCE "
-                        "of the parent goal — every seat named "
-                        "<four-letters>-<seat> (first instance) or "
-                        "<four-letters>-<n>-<seat> (second onward), from the "
-                        "prefix the workflow's own workflow.md DECLARES. The "
-                        "seats are ORDINARY seats of the parent goal "
-                        "(r-branch-folder-deleted-nested-seats-are-ordinary-"
-                        "run-seats): one seats/, one taskforce.csv, no "
-                        "branches/ tree. The rows carry the instance's own "
-                        "taskforce-id (tf-<n>-<prefix><m>)")
+    p.add_argument("--nested", nargs="?", const=True, default=False,
+                   metavar="WORKFLOW",
+                   help="materialize as a NESTED INSTANCE of the parent goal — "
+                        "every seat named <four-letters>-<seat> (first "
+                        "instance) or <four-letters>-<n>-<seat> (second "
+                        "onward), from the prefix the workflow's own "
+                        "workflow.md DECLARES. The seats are ORDINARY seats of "
+                        "the parent goal (r-branch-folder-deleted-nested-seats-"
+                        "are-ordinary-run-seats): one seats/, one "
+                        "taskforce.csv, no branches/ tree. The rows carry the "
+                        "instance's own taskforce-id (tf-<n>-<prefix><m>). "
+                        "BARE with --workflow (the workflow IS the instance "
+                        "series); with --seat it TAKES the workflow name whose "
+                        "instance series the single seat joins — the collapsed "
+                        "mode of a per-milestone planning pass, where one seat "
+                        "is the whole pass")
     p.add_argument("--catalog-root", required=True, dest="catalog_root",
                    help="component catalog root the definitions are read from")
     where = p.add_mutually_exclusive_group()
@@ -6669,6 +6727,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # The nested-workflow materialization path (task 7.615).
     "NEST-1": (("NEST-1 green", "NEST-1: the frozen-cell rename"),
                ("NEST-1 red",)),
+    # The SINGLE-SEAT nested variant — W7's collapsed planning mode.
+    "NEST-2": (("NEST-2 green",), ("NEST-2 red",)),
     # The staff chairs minted with the goal (W3) — ONE row over SM-1..SM-5:
     # the four green arms are one behaviour observed at four moments (mint,
     # backfill, re-run, self-materialize), and SM-5 is its only red.
@@ -7532,6 +7592,49 @@ def run_selftest() -> int:
                                  "s3": "demo-s3"})
               == "demo-s2|demo-s3,demo-s1[g=a|b]",
               rename_after_cell("s2|s3,s1[g=a|b]", {"s1": "demo-s1"}))
+
+        # ---- NEST-2: the SINGLE-SEAT nested variant (W7) ------------------
+        # The collapsed planning mode: ONE seat IS the whole pass, so it needs
+        # the same composed name and the same instance id a full-mode pass
+        # gets. `--nested` TAKES the workflow name here; bare it still refuses
+        # (the red arm two checks above, unchanged and still green).
+        solo = _invoke(["--package", nfx["pkg"], "--seat", "alpha",
+                        "--catalog-root", nfx["catalog"], "--bindings",
+                        nfx["b_alpha"], "--milestone-id", "m1", "--after",
+                        "chief", "--nested", "demo-flow", "--json"], clean_env)
+        try:
+            solo_added = json.loads(solo.stdout).get("added_seats")
+        except ValueError:
+            solo_added = None
+        solo_rows = rows_by_seat()
+        check("NEST-2 green (W7, the deliberate contract change): `--seat "
+              "<seat> --nested <workflow>` mints the seat as the NEXT instance "
+              "of that workflow — composed name and instance taskforce-id, the "
+              "same two things a full-mode pass gets, because a collapsed "
+              "milestone's lone seat IS a pass. Two demo instances already "
+              "exist above, so this one is the THIRD",
+              solo.returncode == 0 and solo_added == ["demo-3-alpha"]
+              and (npkg / "seats" / "demo-3-alpha").is_dir()
+              and (solo_rows.get("demo-3-alpha") or {}).get("taskforce-id")
+              == "tf-2-demo3",
+              f"rc={solo.returncode} added={solo_added} "
+              f"tf={(solo_rows.get('demo-3-alpha') or {}).get('taskforce-id')!r}"
+              f" [{solo.stderr.strip()}]")
+        check("NEST-2 red: `--seat <seat> --nested <workflow>` naming a "
+              "workflow the catalog does not carry REFUSES "
+              "(nested-workflow-unresolvable) instead of raising IndexError "
+              "out of the glob — the single-seat path never went through "
+              "resolve_added's manifest check, so the guard lives at the glob",
+              code(_invoke(["--package", nfx["pkg"], "--seat", "alpha",
+                            "--catalog-root", nfx["catalog"], "--bindings",
+                            nfx["b_alpha"], "--after", "chief", "--nested",
+                            "no-such-flow", "--json"], clean_env))
+              == "nested-workflow-unresolvable")
+        check("NEST-2 red: `--workflow W --nested V` with V != W REFUSES "
+              "(nested-workflow-mismatch) — with --workflow the instance "
+              "series IS that workflow, so a second, different name there is a "
+              "contradiction and never a silent winner",
+              code(nest("--nested", "scramble-flow")) == "nested-workflow-mismatch")
 
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:

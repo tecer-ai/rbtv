@@ -124,11 +124,21 @@ REAP_MIN_PASS_GAP_MIN = 5
 # class: the row lands in this append-only log and the daemon door then refuses it.
 MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note", "queue-request", "escalation"]
 
-# The types this file will not WRITE yet, for want of a consumer. `queue-request` is engine-internal
-# and W7 builds what drains it; a row written before then is permanent residue in an append-only log
-# that nothing will ever read. Enforced at `_append_message_unlocked` — the one writer — so no verb
-# can route around it. W7 empties this tuple in the same change that lands its consumer.
-WRITER_HELD_TYPES = ("queue-request",)
+# The types this file will not WRITE yet, for want of a consumer. Enforced at
+# `_append_message_unlocked` — the one writer — so no verb can route around it.
+#
+# ⚠ EMPTY SINCE W7, AND THAT IS THE MECHANISM WORKING, NOT A DEAD KNOB. W4 admitted
+# `queue-request` at every door (enum, argparse, gateway, store CHECK) while holding the WRITER,
+# so the type could never be written into an append-only log before something drained it; W7 built
+# that consumer (the engine's queue-request pass + the `queue-requests` read verb below) and empties
+# the tuple in the same change, which is the whole contract. Keep the tuple — the next type admitted
+# ahead of its consumer re-uses this exact hold; do NOT delete it as unused flexibility.
+#
+# ⚠ `gateway_send_leg`'s skip-list spells `queue-request` as a LITERAL and is NOT derived from this
+# tuple (see its note at the `("completion", "queue-request")` test). The two are independent on
+# purpose: this tuple is "nothing may write it yet", that list is "this type does not cross the
+# gateway door" — emptying one must not silently open the other.
+WRITER_HELD_TYPES = ()
 
 # ---- the CLOSED ADDRESSING RULE for agents (`decisions.md#d-agents-address-owner-not-master`) --
 #
@@ -10395,6 +10405,104 @@ def cmd_fail_status(args):
     return 0
 
 
+# ── W7 · THE QUEUE-REQUEST READ PATH ───────────────────────────────────────────────────────────
+#
+# ⚠ COORD.PY STAYS THE ONE BUS PARSER (adv, C66/fidelity-2). The engine consumer gets NO JavaScript
+# reader of `messages.md`: a second parser of an append-only log written by this file is the drift
+# `MSG_HEADER` exists to prevent, and it would drift silently — a header key this file adds is a
+# key that reader silently drops. The engine shells `queue-requests --json` exactly as it already
+# shells `send`.
+#
+# THE IDEMPOTENCY KEY IS THE FIRST BODY LINE, and it is three fields, not one (adv, C66):
+#
+#     queue-request: <milestone-id>/<verdict-id>/<pass-kind>
+#
+# `pass_kind` JOINS the key because a gap-fill re-trigger is the DESIGNED second event on the same
+# milestone — it must not hash as a duplicate of the initial pass, and it must not re-add the
+# initial pass's seats. `<verdict-id>` is the message number of the verdict row this request was
+# minted from, which is what makes the supersession lookup below a LOOKUP rather than a
+# re-derivation from milestones.csv.
+#
+# ⚠ THE KEY IS A BODY LINE AND THE `milestone:` HEADER KEY IS NOT ITS SOURCE. `concepts/
+# body-sigil.md` argues a machine-read mechanic belongs in a header key, and it is right; the
+# divergence is deliberate and bounded: `milestone` IS read from the header (authoritative), and
+# the body line carries only the two fields the wire form has no key for. It is transcribed to the
+# KG at landing rather than left as an undeclared convention.
+QUEUE_REQUEST_KEY = re.compile(r"^queue-request:\s*(?P<key>\S+)\s*$")
+
+
+def queue_request_rows(base):
+    """Every `queue-request` row of this goal's log, oldest first, with its key decomposed and
+    both supersession facts resolved.
+
+    Two DIFFERENT supersessions, and conflating them would drop live work:
+      · `superseded`        — THIS request row was superseded by a later one.
+      · `verdict_superseded` — the VERDICT the request was minted from was superseded (adv, C72;
+        the #42 -> #46 supersession happened on the flagship). The consumer skips these. It is a
+        LOOKUP of one message number, never a re-derivation from `milestones.csv` — "the engine
+        TRUSTS the checker" is about not re-deriving readiness, not about ignoring a retraction.
+
+    A row whose first body line is not the key parses with `key: null` and every derived field
+    null. It is REPORTED, never dropped: a malformed request that vanishes from this listing is
+    the D7 shape again (a correct derivation with no mechanical consequence), and the consumer
+    can refuse it loudly instead of never seeing it."""
+    _, blocks = load_messages(base)
+    superseded = {b["supersedes"] for b in blocks if b["supersedes"] is not None}
+    rows = []
+    for b in blocks:
+        if b["type"] != "queue-request":
+            continue
+        key = None
+        for line in b["lines"][1:]:                # [0] is the header line itself
+            if not line.strip():
+                continue
+            m = QUEUE_REQUEST_KEY.match(line.strip())
+            key = m.group("key") if m else None
+            break                                  # FIRST non-blank body line or nothing
+        parts = key.split("/") if key else []
+        vid = parts[1] if len(parts) == 3 and parts[1].isdigit() else None
+        rows.append({
+            "num": b["num"],
+            "key": key if len(parts) == 3 else None,
+            # The HEADER key is authoritative for the milestone; the body's first field is the
+            # same value and is kept only so the key string round-trips.
+            "milestone": b["milestone"],
+            "verdict_id": int(vid) if vid else None,
+            "pass_kind": parts[2] if len(parts) == 3 else None,
+            "sender": b["sender"],
+            "ts": b["ts"],
+            "superseded": b["num"] in superseded,
+            "verdict_superseded": bool(vid) and int(vid) in superseded,
+            "body": "\n".join(b["lines"][1:]).strip(),
+        })
+    return rows
+
+
+def cmd_queue_requests(args):
+    """READ-ONLY: the goal's `queue-request` rows, for the engine's queue-request pass.
+
+    Writes nothing — not even a run-tag registration — for the same reason `fail-status` does not:
+    the daemon reads this on every cadence, and a read that mutates the roster would register the
+    daemon as an occupant of every goal it looks at."""
+    base = base_dir(args, register=False)
+    rows = queue_request_rows(base)
+    if not getattr(args, "all", False):
+        rows = [r for r in rows if not r["superseded"] and not r["verdict_superseded"]]
+    if getattr(args, "json", False):
+        print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+    if not rows:
+        print("no queue-request rows")
+        return 0
+    for r in rows:
+        flags = " ".join(f for f, on in (("SUPERSEDED", r["superseded"]),
+                                         ("VERDICT-SUPERSEDED", r["verdict_superseded"]),
+                                         ("MALFORMED-KEY", r["key"] is None)) if on)
+        print(f"#{r['num']} {r['key'] or '(no key line)'} from {r['sender']} "
+              f"{r['ts']}{'  ' + flags if flags else ''}")
+    return 0
+
+
 def log_delivery_failures(base, failures):
     """P22 — a lost wake must be visible in the LOG, not only on the sender's terminal."""
     if not failures:
@@ -11297,8 +11405,24 @@ def cmd_send(args):
             f"--deliver {deliver} names what happens AT a thread and names no thread. Pass "
             f"--chat-thread <id> with it, or drop it.",
             1)
+    # ⚠ `--milestone` IS BOUNDED TO `queue-request` (W7). W4 promoted `milestone:` to a header key
+    # so the mechanic stops being pattern-matched out of free text, but `verdict` rows get theirs
+    # from `cmd_verdict` — the ONE door that can arm the escalation gate — and widening this verb
+    # to stamp a milestone on any type would give a second writer of the field every escalation
+    # reader keys on. The queue-request needs it and has no other door, so it gets exactly that.
+    if getattr(args, "milestone", None) and args.type != "queue-request":
+        refuse(
+            "input",
+            f"--milestone is for `--type queue-request` only, and this row is a "
+            f"`{args.type}`.\n"
+            f"A `verdict` row's milestone is stamped by the verb that records it "
+            f"(`coordinate verdict <milestone> --pass|--fail`), which is the one door that can "
+            f"arm the escalation gate; a second writer of that field is a second authority over "
+            f"the halt.",
+            1)
     n = append_message(base, sender, args.to, args.type, body,
                        supersedes=args.supersedes, re_num=re_num, why=why, origin=origin,
+                       milestone=getattr(args, "milestone", None),
                        chat_thread=chat_thread, deliver=deliver)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
              + (f", re #{re_num}" if re_num is not None else "")
@@ -13163,21 +13287,40 @@ def ready_seat_rows(args):
     # start with an empty inbox. The chair is spawned ON UNREAD MAIL and at no other time, so mail
     # is a TERM OF THE VERDICT, not a note beside one.
     #
-    # ⚠ THIS COUNTS ONLY THE NEVER-SAT CASE, and it is complete for it. A chair that HAS sat carries
-    # a terminal disposition (the session-closer writes one on every ending) and reads `DONE`, which
-    # is absorbing — its next wake comes through the UNSPENT GRANT the closer mints in the same act,
-    # by the DONE branch's own grant flip. So the two wake paths are: no session yet -> this count;
-    # session ended -> the grant. Neither invents a third reader of "is this chair wanted".
+    # ⚠ IT IS THE CHAIR'S UNREAD COUNT, NOT THE LOG'S TOTAL (W7, owner-ruled 2026-08-14). The W3
+    # original raw-counted every row ever addressed to a staff chair and claimed in this very
+    # comment to "count only the never-sat case" — it does not. A raw count has no cursor, so once
+    # ANY message has been addressed to a chair the term is permanently non-zero, the IDLE branch
+    # below stops firing forever, and the daemon's bare `verdict == "READY"` seeding pass re-spawns
+    # the chair on every wake window. Falsified on `meet-transcript-summarizer`: the leader chair
+    # had NEVER sat, the goal already carried 12 `to: leader` rows, and the freshly minted chair was
+    # seeded READY 3 minutes after minting.
+    #
+    # The fix REUSES what this file already has rather than inventing a second cursor: the per-seat
+    # `lastread` on the `workers.md` row, resolved by `unread_for()` ("P26 — persisted cursor"),
+    # which is the SAME predicate `read` uses — so what the chair would see on an unfiltered `read`
+    # and what this verdict counts can never disagree. A never-sat chair holds no roster row at all,
+    # so its cursor reads 0 and every addressed row counts: the never-sat case is preserved exactly,
+    # and the sat-then-drained case now correctly reads zero.
     #
     # ⚠ DEGRADES TO ZERO, NEVER RAISES — same rule and same reason as the hold above. An unreadable
     # bus must cost the run its WAKES, never its other verdicts, and zero is the fail-CLOSED
     # direction here: it leaves the chair IDLE rather than spawning one nobody asked for.
     staff_mail = {}
-    if any(is_staff_seat(_s) for _s in after):
+    _staff_after = [_s for _s in after if is_staff_seat(_s)]
+    if _staff_after:
         try:
-            for _b in load_messages(base)[1]:
-                if is_staff_seat(_b["to"]):
-                    staff_mail[_b["to"]] = staff_mail.get(_b["to"], 0) + 1
+            _sm_blocks = load_messages(base)[1]
+            _sm_rows = load_workers(base)[2]
+            _sm_gmap = group_map(base)
+            _sm_observers = observer_sets(args)[0]
+            _sm_closing = closing_seats(base)
+            for _s in _staff_after:
+                _sm_row = current_row(_sm_rows, _s)
+                _sm_start = (int(_sm_row["lastread"])
+                             if _sm_row and _sm_row["lastread"].isdigit() else 0)
+                staff_mail[_s] = len(unread_for(args, base, _s, _sm_start, _sm_blocks,
+                                                _sm_gmap, _sm_observers, _sm_closing))
         except Exception:                                      # noqa: BLE001 — see the note above
             staff_mail = {}
     # 7.383: every member token parsed ONCE — and as of 7.424 that ONCE happens where the member is
@@ -33393,21 +33536,34 @@ def _selftest_checks(args, failures, names):
               and "closed vocabulary" in _w4_bogus_wrapper
               and len(load_messages(baseW4)[1]) == _n_before)
 
-        # arm 2 — a KNOWN type with no consumer yet. This is the discriminating pair: `escalation`
-        # and `queue-request` are both in the enum, and exactly one of them is writable today.
-        _w4_held = "ACCEPTED"
-        try:
-            append_message(baseW4, "leader", OWNER_TOKEN, "queue-request", "next wave")
-        except ValueError as _e:
-            _w4_held = str(_e)
+        # arm 2 — W7 LIFTED the hold. `queue-request` now has a consumer (the engine's
+        # queue-request pass, read through `queue-requests --json` below), so WRITER_HELD_TYPES is
+        # empty and the type writes like any other. The HOLD MECHANISM is still asserted — with the
+        # global temporarily naming a type, the one writer refuses it — so emptying the tuple can
+        # never be mistaken for deleting the guard. RED mutation: drop the `WRITER_HELD_TYPES` test
+        # out of `_append_message_unlocked` and the third conjunct goes false.
+        _w4_qr_n = append_message(baseW4, "leader", OWNER_TOKEN, "queue-request", "next wave")
+        _w4_qr_row = [b for b in load_messages(baseW4)[1] if b["num"] == _w4_qr_n][0]
         _w4_esc_n = append_message(baseW4, "leader", OWNER_TOKEN, "escalation", "halted here")
         _w4_esc_row = [b for b in load_messages(baseW4)[1] if b["num"] == _w4_esc_n][0]
-        check("W4 arm 2: `queue-request` is IN the seven-type enum (so every door — gateway, "
-              "store CHECK, argparse — already admits it) and the WRITER still refuses it for want "
-              "of a consumer, while `escalation` on the same writer lands and reads back with its "
-              "type intact. W7 empties WRITER_HELD_TYPES in the change that lands the consumer",
-              "queue-request" in MESSAGE_TYPES and "NO CONSUMER YET" in _w4_held
-              and _w4_esc_row["type"] == "escalation")
+        global WRITER_HELD_TYPES                       # noqa: PLW0603 — restored two lines below
+        _w4_held_save, WRITER_HELD_TYPES = WRITER_HELD_TYPES, ("note",)
+        _w4_held = "ACCEPTED"
+        try:
+            append_message(baseW4, "leader", OWNER_TOKEN, "note", "held")
+        except ValueError as _e:
+            _w4_held = str(_e)
+        finally:
+            WRITER_HELD_TYPES = _w4_held_save
+        check("W4/W7 arm 2: `queue-request` is IN the seven-type enum AND now WRITABLE — W7 landed "
+              "its consumer and emptied WRITER_HELD_TYPES in the same change — so it lands and "
+              "reads back typed, exactly like `escalation` on the same writer; and the hold "
+              "MECHANISM survives the emptying (a type placed in the tuple is still refused by the "
+              "one writer)",
+              "queue-request" in MESSAGE_TYPES and WRITER_HELD_TYPES == ()
+              and _w4_qr_row["type"] == "queue-request"
+              and _w4_esc_row["type"] == "escalation"
+              and "NO CONSUMER YET" in _w4_held)
 
         check("W4 arm 3: every type in the closed vocabulary has a render colour — a `pending` or "
               "`read` view meeting a type TYPE_COLOR does not carry would raise KeyError on the "
@@ -33782,7 +33938,11 @@ def _selftest_checks(args, failures, names):
               "default and present under --all, and nothing written (a read the daemon runs every "
               "cadence must not register it as an occupant of every goal it looks at)",
               _codeW7 in (0, None) and isinstance(_payload, list)
-              and {r["num"] for r in _payload} == _open
+              # Recomputed HERE, not reused from arm 3: arm 4 appended a fifth row after that set
+              # was taken, and an expectation captured before the last write is a check that
+              # measures the fixture's history instead of the verb's answer.
+              and {r["num"] for r in _payload} == {_q1, _q2, _q4}
+              and _q3 not in {r["num"] for r in _payload}
               and isinstance(_payload_all, list) and len(_payload_all) == 4
               and not (baseW7 / "workers.md").exists())
 
@@ -33862,7 +34022,7 @@ HELP_EPILOG = """everyday
   checkin     register this session — binds this tmux pane to your agent name
   status      where you stand: identity, pane, owner, unread, cursor, open asks
   read        your unread messages, {limit} at a time (cursor persisted per agent)
-  send / verdict / escalate / fail-status  message one agent, a group, or all — typed, their pane woken · dod-judge trial verdict: append the row the escalation gate counts (the verb composes its first line) and check the bar in the same act · the escalation alone: append the ONE row, addressed `owner`, once the consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from
+  send / verdict / escalate / fail-status / queue-requests  message one agent, a group, or all — typed, their pane woken · dod-judge trial verdict: append the row the escalation gate counts (the verb composes its first line) and check the bar in the same act · the escalation alone: append the ONE row, addressed `owner`, once the consecutive-FAIL count reaches its bar · read-only: that count, the resolved bar and where it came from · read-only: this goal's `queue-request` rows, the ENGINE's door (keys decomposed, superseded requests and superseded verdicts filtered)
   pending     open asks: waiting on you, open to everyone, yours unanswered
   rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing, or an ask of yours to the owner is unanswered; --renew --handoff hands this seat to your own next session
 
@@ -34406,12 +34566,14 @@ def build_parser():
     s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
     s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
     s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
-                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal; this verb refuses to write one until its consumer exists)")
+                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal: the pass-opener asking the daemon to seed the next wave — first body line is `queue-request: <milestone-id>/<verdict-id>/<pass-kind>`; the engine drains it, no seat is woken)")
     # W4 (adv, C42) — the two chat-routing sigils, promoted from body text to header mechanics.
     s.add_argument("--chat-thread", dest="chat_thread", metavar="ID",
                    help="route this row into a chat thread you already know: `<CHANNEL>:<ts>`, the plain `chat-thread:` line at the top of your prompt. Without it the row takes the owner's DM")
     s.add_argument("--deliver", choices=["post", "wake"], default=None,
                    help="what the named thread does with the row — post (verbatim, no agent, ~0.3s: a settled FACT) | wake (posted AND a sitting is minted to act on it). Needs --chat-thread; absent = mint a sitting and post nothing")
+    s.add_argument("--milestone", metavar="ID",
+                   help="`--type queue-request` ONLY: the milestone that became ready, written into the row's own `milestone:` header key. A verdict's milestone is stamped by `coordinate verdict` instead — the one door that can arm the escalation gate")
     s.add_argument("--re", dest="re_num", type=int, metavar="N",
                    help="the ask (or escalation) this settles — REQUIRED on --type answer, optional on verdict")
     s.add_argument("--supersedes", type=int, metavar="N",
@@ -34512,6 +34674,29 @@ def build_parser():
                    help="the milestone id, bare (e.g. m3) — the same id `escalate` takes")
     s.add_argument("--json", action="store_true", help="machine-readable, for an asserting caller")
     s.set_defaults(func=cmd_fail_status)
+
+    s = command(
+        "queue-requests",
+        "READ-ONLY: this goal's `queue-request` rows — the ENGINE's read path, and the reason no\n"
+        "JavaScript ever parses `messages.md`. coord.py is the one bus parser; the daemon shells\n"
+        "this verb the same way it shells `send`.\n"
+        "\n"
+        "Each row carries its idempotency key decomposed — `<milestone-id>/<verdict-id>/\n"
+        "<pass-kind>`, read off the FIRST body line — plus TWO supersession facts: whether the\n"
+        "request row itself was superseded, and whether the VERDICT it was minted from was. Both\n"
+        "are filtered out by default; `--all` shows them. A row whose first body line is not the\n"
+        "key is listed with a null key rather than dropped.\n"
+        "\n"
+        "It reports NO consumption state, because none is stored: a request is consumed when the\n"
+        "pass's composed-name rows exist in `taskforce.csv`, which the create-only splice makes\n"
+        "safe to re-check on every cadence.",
+        "example:\n"
+        "  coordinate --package /path/to/goal queue-requests --json\n"
+        "next: nothing — this command reads state and changes none")
+    s.add_argument("--json", action="store_true", help="machine-readable, for an asserting caller")
+    s.add_argument("--all", action="store_true",
+                   help="include superseded requests and requests whose verdict was superseded (the consumer skips both; this is for a human auditing the log)")
+    s.set_defaults(func=cmd_queue_requests)
 
     s = command(
         "gates",

@@ -17,6 +17,7 @@ const { WARNING_KINDS } = require('./heart/warnings');
 // tmux seat path (task 7.29 retired the server-owned pty the hook used to fork to).
 const { createEngine } = require('../engine');
 const { runLaneWatch } = require('../engine/lane-watch');
+const { runQueueRequestPass } = require('../engine/queue-request');
 const { selectCarrier } = require('./spawn/carrier');
 const { createLiveSessions } = require('./spawn/live-sessions');
 const { SpawnError, E_HEADED_NOT_CAPABLE } = require('./spawn/errors');
@@ -955,12 +956,28 @@ async function main() {
     }
   };
 
+  // ⚠ THE QUEUE-REQUEST PASS RUNS **BEFORE** THE LANE WATCH, NOT AFTER. It consumes each goal's
+  // `queue-request` rows and splices the newly unblocked milestone's planning pass into
+  // `taskforce.csv` (`engine/queue-request.js`, W7); the lane watch then seeds that same registry
+  // in the same cadence, and the tick that follows dispatches it. Reversed, every wave boundary
+  // would cost one extra cadence for no reason. Same outer belt as the lane watch: one bad goal
+  // folder must never take the loop down.
+  const queueRequestPass = () => {
+    try {
+      runQueueRequestPass({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
+    } catch (err) {
+      log('error', 'queue-request pass failed', { error: err.message });
+    }
+  };
+
+  queueRequestPass();
   laneWatchPass();
   const tickResult = await engine.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
   const intervalMs = Number(tickerConfig.tick_interval_ms) || 10000; // ticker.js DEFAULT_CONFIG default
   const timer = setInterval(() => {
+    queueRequestPass();
     laneWatchPass();
     engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
   }, intervalMs);

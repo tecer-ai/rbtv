@@ -284,6 +284,36 @@ def main():
           "— a wake with no readable cause is a sitting that has to guess why it was woken",
           "STAFF MAIL" in msgs and "builder" in msgs, msgs[-400:])
 
+    # ── W7 · THE CHAIR CAN GO BACK TO IDLE (owner-ruled 2026-08-14) ───────────────────────────
+    #
+    # C38 above proves the chair is spawnable BY MAIL. It does NOT prove the chair ever stops
+    # being spawnable, and until W7 it never did: `staff_mail` RAW-COUNTED every row ever
+    # addressed to a staff chair — no cursor, no timestamp, no read/unread field — so one message
+    # pinned the term non-zero forever, the IDLE branch stopped firing, and the daemon's bare
+    # `verdict == "READY"` seeding pass re-spawned the chair on every wake window. Measured on the
+    # flagship `meet-transcript-summarizer`: 12 `to: leader` rows, chair spawned 3 min after
+    # minting. C38's CONTROL could not catch it — its control has NO mail at all, so it reads IDLE
+    # under both the defect and the fix; the discriminating state is mail that has been SETTLED.
+    #
+    # The fix reuses the cursor this file already has (`lastread` on the workers.md row, resolved
+    # by `unread_for()` — the same predicate `read` uses), so the chair's verdict and the chair's
+    # own inbox can never disagree.
+    w7_before = verdicts(mod, pkg)
+    run_cmd(mod, mod.cmd_checkin, pkg, agent="leader", summary="first sitting")
+    w7_tail = mod.load_messages(base)[1][-1]["num"]
+    # The sitting ENDED and drained its inbox: `active: no` (or the verdict reads RUNNING off the
+    # live roster row and never reaches the on-demand branch) plus the cursor at the log's tail.
+    mod.update_row(base, "leader",
+                   lambda r: r.update({"active": "no", "lastread": str(w7_tail)}))
+    w7_after = verdicts(mod, pkg)
+    check("W7: a staff chair whose mail is SETTLED reads IDLE again — the chair sat, its read "
+          "cursor advanced past the log, and the on-demand term went back to zero. Before W7 this "
+          "was unreachable: the term was a raw count of the whole log, so a chair that had ever "
+          "been addressed read READY forever and the daemon re-spawned it every wake window. The "
+          "CONTROL is the same chair one call earlier, still READY on the same unsettled mail",
+          w7_before.get("leader") == "READY" and w7_after.get("leader") == "IDLE",
+          f"before={w7_before} after={w7_after} cursor={w7_tail}")
+
     # ── X1 · the staff-seat EXCLUSION (adv C30) ───────────────────────────────────────────────
     n_before = len(mod.load_messages(base)[1])
     open_session(pkg, "leader", "sess-leader-1")

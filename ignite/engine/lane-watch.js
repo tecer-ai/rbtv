@@ -279,6 +279,53 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       continue;
     }
 
+    // ── REGISTERED BUT UNBUILT: A ROW WITH NO `seats/<seat>/` FOLDER (adv, C71 / D5 defect 1) ─
+    //
+    // THE DEFECT, measured on the flagship: a milestone's planner and binder REGISTER the next
+    // milestone's build team as `taskforce.csv` rows and NOTHING ever materializes them. The rows
+    // exist, the folders do not, and the goal's next hop never happens.
+    //
+    // ⚠ ORDER IS LOAD-BEARING — THIS RUNS **BEFORE** THE UNCAST CHECK BELOW, AND MUST. A row with
+    // no folder has no `seat.md`, so it has no declared harness/model, so `uncastSeats` reports it
+    // UNCAST — and the uncast branch then skips the whole goal, at `debug` after the first
+    // cadence. The genuine state ("registered, never built") would be permanently reported as a
+    // DIFFERENT state ("somebody forgot to cast it") whose fix (`rbtv-bindings set`) does not
+    // repair it. Placed here, an unbuilt seat is BUILT and the uncast check below then rules on a
+    // complete tree; placed after, it is swallowed forever.
+    //
+    // It runs after `taskforce.csv` exists (a goal with no registry has no rows to be unbuilt) and
+    // it seeds NOTHING this cadence: the folders it writes are read by the very next pass, 10 s
+    // later, through the ordinary path. Lazy-required for the reason `seeding.js` lazy-requires
+    // the spawn reader — a module-level import here is a dependency every probe of this file
+    // inherits.
+    let unbuiltRows;
+    try {
+      unbuiltRows = require('./seeding').readTaskforce(goalFolder);
+    } catch (err) {
+      skipped.push({ goal, reason: 'taskforce-unreadable', error: err.message });
+      say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
+        'lane watch: could not read this goal\'s taskforce — not seeded', { goal, error: err.message });
+      continue;
+    }
+    const unbuilt = unbuiltRows
+      .map((r) => (r.seat || '').trim())
+      .filter((s) => s && !fs.existsSync(path.join(goalFolder, 'seats', s)));
+    if (unbuilt.length) {
+      const { buildUnbuiltSeats } = require('./queue-request');
+      const outcome = buildUnbuiltSeats({
+        goalFolder,
+        goalsRoot,
+        rows: unbuiltRows,
+        unbuilt,
+        say: (level, message, extra = {}) => say(level, message, { goal, ...extra }),
+      });
+      skipped.push({ goal, reason: 'unbuilt-seats', built: outcome.built, failed: outcome.failed });
+      // Not seeded THIS cadence either way: a build that succeeded changed the tree the checks
+      // below read, and a build that refused leaves the goal in exactly the state that made the
+      // uncast branch lie about it. The next cadence rules on the tree as it now is.
+      continue;
+    }
+
     // ── EVERY SEAT MUST BE CAST (`#d-abolish-profile-names` sub-ruling 3) ────────────────────
     //
     // The refusal that stood here was `no-profile-in-the-assignment`: the marker named no profile
