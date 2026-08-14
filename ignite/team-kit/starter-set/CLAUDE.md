@@ -89,10 +89,13 @@ written into this file and never into any other.**
 interact by message; an edge would serialize them. `ledger-groomer` neither blocks nor is blocked by
 the planning of the next milestone.
 
-**A scaffolded planning workflow rosters no meta seat** — no authority seat, and **no `chief-of-staff` or
-`closer`, which are RETIRED roles**. If a meta seat is added later, its definition is materialized
-from its own component folder under `.rbtv/mirror/meta/`, never hand-written here. `conduct.md` § 4
-governs what happens to an escalation while no authority seat is rostered.
+**A scaffolded planning workflow rosters ONE meta seat: the `leader` staff chair** — a real
+`taskforce.csv` row minted at goal-materialize, holding no workflow node and no `after`. It is the
+authority seat, and `consultant` is its optional sibling (minted only where the workspace casts one).
+Still RETIRED, and not to be confused with them: **`chief-of-staff` and `closer`**. Any meta seat's
+definition is materialized from its own component folder under `.rbtv/mirror/meta/`, never
+hand-written here. `conduct.md` § 4 governs escalation — including the fallback while a chair is
+UNCAST and therefore unrostered.
 
 ## Who resumes from what
 
