@@ -255,8 +255,12 @@ def main():
               "`kit-for-seat` — the token that transcribes a value the seat itself declared (W1, "
               "`dc2b3f149`). The kit may still not put this word in a seat's mouth under its own "
               "name, because only the occupant witnesses it",
-              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset(
-                  {mod.DISPOSITION_WRITER_SEAT, mod.DISPOSITION_WRITER_KIT_FOR_SEAT}))
+              # The expected side is spelled out as LITERALS, never as coord's own constants: the
+              # two writer tokens are written into the durable `disposition-writer` column, so
+              # their spelling is a data contract an operator reads years later. Building the
+              # expected set from `mod.DISPOSITION_WRITER_*` would move with any rename and score
+              # membership only — green through a value change this arm exists to catch.
+              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset({"seat", "kit-for-seat"}))
         refused = []
         for writer in (mod.DISPOSITION_WRITER_KIT, mod.DISPOSITION_WRITER_LEADER):
             try:
