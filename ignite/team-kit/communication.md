@@ -62,7 +62,8 @@ pointer plus ONLY what changed.
 **10 · Obey the tool; never `--force`. [HAND]** Types: `completion|ask|answer|verdict|note` — no
 sixth. `--why` (`milestone|retraction|roster|ruling`) only on broadcast and required on one;
 `--re` required on `answer`, only against an `ask` (**[TOOL]**: every gate in that sentence is
-refused at send — but the cap, the guard, the bounded inbox and most of these answer to `--force`,
+refused at send — but the cap, the guard, the bounded inbox and most of these answer to `--force`
+(NOT the unknown recipient: since W3 that refusal is `--force`-proof),
 which is exactly why "never `--force`" is [HAND] and a breach of it is silent; only the type enum
 and `--why`-off-broadcast have no escape). Where protocol text and the tool disagree: obey the
 TOOL, send direct to leader, disclose in one line.

@@ -102,9 +102,11 @@ function recordBusAnswer({ workspaceRoot, goal, seat, corpus, timeoutMs = DEFAUL
   try {
     if (!fs.statSync(goalDir).isDirectory()) return Promise.resolve(refuse('no-such-goal'));
   } catch { return Promise.resolve(refuse('no-such-goal')); }
-  // The seat must EXIST IN THIS GOAL. `--force` lifts coord's own unknown-recipient gate (see the
-  // header), so without this check a typo'd or invented seat name would append a permanent row
-  // addressed to nobody — and the log is append-only.
+  // The seat must EXIST IN THIS GOAL. Since W3 coord's unknown-recipient gate is `--force`-PROOF,
+  // so this is no longer the only thing standing between a typo'd seat name and a permanent row
+  // addressed to nobody — but it stays, because it refuses HERE with a named reason
+  // (`no-such-seat`) the bridge can report, instead of surfacing as a generic `coord-refused`.
+  // A seat with a folder but no roster row and no briefing would now be refused by coord itself.
   try {
     if (!fs.statSync(path.join(goalDir, 'seats', String(seat))).isDirectory()) return Promise.resolve(refuse('no-such-seat'));
   } catch { return Promise.resolve(refuse('no-such-seat')); }
