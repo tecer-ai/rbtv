@@ -25,10 +25,41 @@ identical on every row: **acted, or acted and it did not come back.** Nothing no
 
 | Row | Probe | Restart action |
 |-----|-------|----------------|
-| `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` |
+| `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart`, **through the restart gate below** |
 | `bridge` | `is-active`, AND the newest Socket-Mode lifecycle line in the last 200 journal lines. `active` only proves the Node process exists — Slack's socket can die under it. The bridge's own `reconnect()` is the first line of self-heal, so what this catches is that **backoff loop being stuck**: newest marker is a reconnect failure with no later hello. Neither marker present is NOT a fault; a healthy bridge is quiet | `RBTV_IGNITE_UNIT=<bridge unit> rbtv-ignite-daemon restart` |
 | `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness first, then correctness**: a LIVE artifact whose `verdict` is anything other than `GREEN`/`UNKNOWN` is an **alarm**, never a down — a failing or ungraded suite is not a liveness problem and no restart fixes it. That covers `RED` (`d-probe-suite-verdict-delivery`, 2026-08-10) and the runner-grade-broken set — `ERROR` · `COVERAGE-MISMATCH` · `ARTIFACT-PATH-MISMATCH` · `ARTIFACT-MISSING` · `INCOMPLETE` (owner ruling 2026-08-11), which carry a `note`/`error` instead of a `failed` count and were previously reported as healthy | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
 | `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **alarm** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
+
+## The daemon row's RESTART GATE — the one place this component interprets before it acts
+
+Owner ruling 2026-08-14 (`hand-notes/daemon-issues.md` §2 ratification). **Amends CMP-28
+invariant 2 for this row only**: the `daemon` row now consults evidence and may WITHHOLD its
+restart. Everything else still probes, restarts and reports without interpreting.
+
+**Why.** `probe_daemon()` grades an unanswered 10s gateway call as `down`. But the daemon parks
+its event loop in `execFileSync` under load, so an unanswered call is an expected condition of a
+**busy** daemon and no evidence at all of a dead one. On 2026-08-14 that mapping fired **57
+`restart rc=0` passes against a daemon that was alive the whole time**, and each restart reaped
+the shared tmux server — every pane on the box, including the owner's live sessions. The
+disproving datum (`daemon_identity()`) was already in the file, one step *downstream* of the act.
+
+Three gates, in order, before any `restart_via_operator(DAEMON_UNIT)` on a `down` verdict:
+
+| Gate | Rule |
+|------|------|
+| **Liveness** | `daemon_identity()` says `ActiveState=active` with a live `MainPID` ⇒ **alarm, never restart**. This alone would have prevented all 57. `stopped` and `unknown` fall through — `unknown` is a measurement failing and must not *authorize* an act either, so it still has to spend the strikes |
+| **3 strikes** | a restart needs `RBTV_WATCHDOG_STRIKES` (default 3) **consecutive** failed passes, counted in `.rbtv/runtime/watchdog/failcount.json` — its own file, written through the tool's one atomic state-file path, because the alert-dedupe `state.json` is cleared on every green pass. One `up` verdict resets the streak |
+| **Backoff** | within `RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS` (default 600) of a restart, a still-`down` verdict is REPORTED, not re-restarted. The journal showed `reprobe=down` immediately after each of the 57: the remedy was visibly not working and was re-applied anyway |
+
+**The restart lever stays** — a unit systemd reports `stopped`, with the strikes spent and no
+recent restart, is still restarted. It is not behind a flag. A gate that swallowed that case
+would leave the box unmonitored in exactly the case monitoring exists for.
+
+⚠ **The gate sits on the ACTION path, between the verdict and the operator call** — never on the
+notify path. The 6h repeat-suppression window gates the DM leg only, which is structurally
+downstream of the restart and can therefore never throttle an act.
+
+A `--dry-run` restarts nothing and so never reaches the gate: the counter is not consumed.
 
 ## The fifth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
 
@@ -62,7 +93,8 @@ and compares it against the previous pass's reading on disk.
 
 It is a REPORT row and sits **outside the restart table on purpose**: no restart fixes any of the
 four, and the `daemon` row already owns the only restart lever this unit has (CMP-28 invariant 2 —
-probe · restart · report, never interpret). Its alert texts carry their dedupe key **before** the
+probe · restart · report; the sole interpretation this component performs is the `daemon` row's
+restart gate above). Its alert texts carry their dedupe key **before** the
 em-dash (`[restarts N]`, `[inv X]`), because the pass-level dedupe fingerprints on the head of each
 alert: without the key a climbing crash loop and a second restart would both read as an unchanged
 repeat and stay suppressed for the whole re-alert window.

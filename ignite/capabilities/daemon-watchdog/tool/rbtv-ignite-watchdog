@@ -3,8 +3,11 @@
 
 Runs OUTSIDE the daemon's process tree and job queue (a systemd user timer), because
 the one thing the in-daemon goal-watcher job can never see is the daemon being dead.
-Deterministic only: it never interprets, never escalates to an agent, never widens
-beyond probe/restart/report (CMP-28 invariant 2 / PRIN-7).
+Deterministic only: it never escalates to an agent and never widens beyond
+probe/restart/report (CMP-28 invariant 2 / PRIN-7). ⚠ AMENDED 2026-08-14 (owner ruling,
+daemon-issues §2): the DAEMON row now INTERPRETS its own `down` verdict before acting —
+it consults systemd, and withholds the restart when the unit is alive or the strikes are
+not spent. See `daemon_restart_gate`. Every other row is unchanged.
 
 Silence means healthy: the owner DM fires ONLY when this pass ACTED or when a
 restart did NOT restore the subject (CMP-28 invariant 3). A chatty watchdog trains
@@ -45,6 +48,14 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
                               file: the alert-dedupe state above is cleared to null on
                               every all-green pass, which is exactly the pass a restart
                               has to be detected ACROSS.
+  RBTV_WATCHDOG_FAILCOUNT     the daemon row's consecutive-failure counter (default
+                              <workspace>/.rbtv/runtime/watchdog/failcount.json). Its own
+                              file for the same reason daemon.json is: the alert-dedupe
+                              state is cleared on every green pass.
+  RBTV_WATCHDOG_STRIKES       consecutive failed daemon passes required before a restart
+                              is allowed at all (default 3)
+  RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS  after a daemon restart, how long a still-down
+                              verdict is reported rather than re-restarted (default 600)
   RBTV_WATCHDOG_REALERT_SECONDS  how long an UNCHANGED alert stays suppressed
                               before it is re-sent (default 21600 = 6h). Without
                               this ceiling a stuck condition DMs once and then
@@ -289,17 +300,25 @@ def load_daemon_state():
         return {}
 
 
+def write_json_atomic(path, obj):
+    """THE state-file write path of this tool — tmp beside the target, then os.replace.
+    All three state files (state.json · daemon.json · failcount.json) go through it: a
+    watchdog fired every 60s is killed mid-write eventually, and a torn state file is read
+    back as "no prior pass", which re-arms every announcement it exists to suppress."""
+    p = os.path.abspath(path)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+    os.replace(tmp, p)
+
+
 def save_daemon_state(st):
     """Its OWN file, next to state.json rather than inside it: the alert-dedupe record is
     rewritten wholesale on every pass (and cleared to None when all green), so parking a
     prior-pass identity in it would erase the identity exactly when the system is healthy —
     which is every pass a restart has to be detected ACROSS."""
-    p = os.path.abspath(daemon_state_path())
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(st, f)
-    os.replace(tmp, p)
+    write_json_atomic(daemon_state_path(), st)
 
 
 def _int_or_none(kv, key):
@@ -603,6 +622,89 @@ def restart_via_operator(unit):
     return run([operator_path(), "restart"], {"RBTV_IGNITE_UNIT": unit})
 
 
+# ── the daemon row's restart gate ───────────────────────────────────────────
+# ⚠⚠ THIS ROW INTERPRETS BEFORE IT ACTS, and that is a DELIBERATE amendment of the
+# "probe · restart · report, never interpret" framing above (owner ruling 2026-08-14, the
+# daemon-issues §2 ratification). WHY: `probe_daemon()` grades an unanswered 10s gateway call
+# as `down`, but the daemon parks its event loop in execFileSync under load, so an unanswered
+# call is an expected condition of a BUSY daemon and not evidence of a dead one. On
+# 2026-08-14 that mapping fired 57 `restart rc=0` passes against a daemon that was alive the
+# whole time, and each restart reaped the shared tmux server with every pane in it.
+# The disproving datum was already in this file — `daemon_identity()` — one step DOWNSTREAM
+# of the action. This moves it upstream of the action, where it can withhold one.
+# ⚠ The restart lever is NOT removed and is NOT behind a flag: a genuinely dead unit
+# (systemd answers `stopped`) still gets restarted once the strikes are spent. A gate that
+# swallowed that case would leave the box unmonitored in the one case monitoring exists for.
+
+STRIKES = int(env("RBTV_WATCHDOG_STRIKES", "3"))
+RESTART_BACKOFF = float(env("RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS", "600"))
+
+
+def failcount_path():
+    return env("RBTV_WATCHDOG_FAILCOUNT",
+               os.path.join(WORKSPACE, ".rbtv", "runtime", "watchdog", "failcount.json"))
+
+
+def load_failcount():
+    try:
+        with open(failcount_path()) as f:
+            fc = json.load(f)
+        return fc if isinstance(fc, dict) else {}
+    except Exception:
+        return {}
+
+
+def clear_failcount():
+    """Called on the daemon row's `up` verdict — the strikes are CONSECUTIVE, so one good
+    pass ends the streak. Leaves `last_restart_at` alone: the backoff is about how recently
+    the remedy was applied, and one healthy pass does not un-apply it."""
+    fc = load_failcount()
+    if fc.get("strikes"):
+        fc["strikes"] = 0
+        write_json_atomic(failcount_path(), fc)
+
+
+def daemon_restart_gate(detail):
+    """May the daemon row restart on THIS pass's `down` verdict? Returns (allow, note).
+
+    Persists the strike count, so it counts PASSES (60s apart) and not this process's
+    lifetime — a per-invocation tool has no memory of its own."""
+    fc = load_failcount()
+    strikes = int(fc.get("strikes") or 0) + 1
+    fc["strikes"] = strikes
+    fc["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    ident = daemon_identity()
+    if ident.get("state") == "running":
+        # NOT a strike toward anything: systemd says the process is there. Alarm, never act.
+        write_json_atomic(failcount_path(), fc)
+        return False, ("daemon: THE GATEWAY IS UNANSWERABLE BUT THE DAEMON IS ALIVE — systemd "
+                       "reports pid %s active since %s, so this is a busy or wedged daemon, not "
+                       "a dead one, and a restart would reap every tmux pane on the box for "
+                       "nothing. NOT restarting; a human is needed. Gateway said: %s"
+                       % (ident.get("pid"), ident.get("since") or "?", detail))
+    last = float(fc.get("last_restart_at") or 0)
+    since_restart = time.time() - last
+    if last and since_restart < RESTART_BACKOFF:
+        write_json_atomic(failcount_path(), fc)
+        return False, ("daemon: RESTART DID NOT RESTORE THE GATEWAY — backing off. The last "
+                       "restart was %dm ago and the verdict is still down, so re-applying the "
+                       "same remedy every pass is not a remedy. Holding for another %dm "
+                       "(systemd says %s). Gateway said: %s"
+                       % (since_restart / 60, (RESTART_BACKOFF - since_restart) / 60,
+                          ident.get("state"), detail))
+    if strikes < STRIKES:
+        write_json_atomic(failcount_path(), fc)
+        return False, ("daemon: GATEWAY DOWN, RESTART WITHHELD — strike %d of %d consecutive "
+                       "failed passes (systemd says %s: %s). One missed 10s call is not an "
+                       "outage. Gateway said: %s"
+                       % (strikes, STRIKES, ident.get("state"),
+                          ident.get("why") or ident.get("pid") or "?", detail))
+    fc["strikes"] = 0
+    fc["last_restart_at"] = time.time()
+    write_json_atomic(failcount_path(), fc)
+    return True, None
+
+
 ROWS = {
     "daemon":      (probe_daemon,       lambda: restart_via_operator(DAEMON_UNIT),
                     lambda: "restarted %s" % DAEMON_UNIT),
@@ -691,16 +793,11 @@ def save_state(fingerprint, since=None):
     """`since` = when THIS fingerprint first alerted; `notified_at` = when the owner
     was last actually told. The gate reads notified_at (so a re-alert does not then
     fire every pass); the message reads since (so it can say how long this has stood)."""
-    p = os.path.abspath(state_path())
-    os.makedirs(os.path.dirname(p), exist_ok=True)
     now = time.time()
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"alert": fingerprint,
-                   "since": since if since is not None else now,
-                   "notified_at": now,
-                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}, f)
-    os.replace(tmp, p)
+    write_json_atomic(state_path(), {"alert": fingerprint,
+                          "since": since if since is not None else now,
+                          "notified_at": now,
+                          "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))})
 
 
 def main(argv):
@@ -728,6 +825,8 @@ def main(argv):
         state, detail = probe()
         lines.append("%-13s %-6s %s" % (name, state, detail))
         if state in ("up", "skip"):
+            if name == "daemon" and state == "up" and not dry:
+                clear_failcount()
             continue
         if state == "alarm":
             alerts.append("%s: %s (no restart can fix this — human needed)" % (name, detail))
@@ -740,6 +839,16 @@ def main(argv):
             lines.append("%-13s %-6s would restart, but --dry-run" % ("  ->", "dry"))
             dry_down.append(name)
             continue
+        if name == "daemon":
+            # The ACTION path is the only place this can sit: the 6h repeat-suppression below
+            # gates the DM leg, which is structurally downstream of the restart and can
+            # therefore never throttle an act.
+            allow, note = daemon_restart_gate(detail)
+            if not allow:
+                lines.append("%-13s %-6s %s" % ("  ->", "held", note))
+                alerts.append(note)
+                unrestored = True
+                continue
         rc, out = restart()
         after, after_detail = probe()
         lines.append("%-13s %-6s restart rc=%s | reprobe=%s %s"

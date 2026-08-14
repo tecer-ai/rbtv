@@ -35,7 +35,9 @@ pass: a probe that cannot execute has proven nothing, and reporting that as gree
 absence-reads-as-health shape under test).
 """
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -110,6 +112,8 @@ VERDICT_MEMBERS = [
     ("one reading per pass, persisted for the next one", ("daemon_verdicts",
                                                           "load_daemon_state",
                                                           "save_daemon_state")),
+    ("the daemon row's RESTART GATE — liveness, 3 strikes, backoff (2026-08-14)",
+     ("daemon_restart_gate", "load_failcount", "clear_failcount", "write_json_atomic")),
 ]
 
 
@@ -126,6 +130,7 @@ def main():
         return 1
 
     orig_run = W.run
+    orig_gateway_call = W.gateway_call
     try:
         print("\nARM A — a determinate running unit is read as running (the control).")
         W.run = fake_systemctl(RUNNING_ANSWER)
@@ -533,6 +538,98 @@ def main():
             finally:
                 W.WORKSPACE = orig_ws
                 os.environ.pop("RBTV_WATCHDOG_DAEMON_STATE", None)
+
+        print("\nARM M — the daemon RESTART GATE (owner ruling 2026-08-14, daemon-issues §2).")
+        # Driven through main(), not through daemon_restart_gate alone: the gate returning the
+        # right verdict and main() OBEYING it are two different claims, and on 2026-08-14 the
+        # tool held the disproving datum already — one step downstream of the act. So the
+        # observation is the ARGV of the operator call, captured at the same `run` seam.
+        # The gateway is pointed at a port nothing listens on, so every pass grades `down`.
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            env_saved = {k: os.environ.get(k) for k in (
+                "RBTV_WATCHDOG_FAILCOUNT", "RBTV_WATCHDOG_DAEMON_STATE", "RBTV_WATCHDOG_STATE",
+                "RBTV_WATCHDOG_NOTIFY_FILE", "RBTV_WATCHDOG_TARGETS", "IGNITE_WATCHDOG_TOKEN")}
+            os.environ.update({
+                "RBTV_WATCHDOG_FAILCOUNT": str(base / "failcount.json"),
+                "RBTV_WATCHDOG_DAEMON_STATE": str(base / "daemon.json"),
+                "RBTV_WATCHDOG_STATE": str(base / "state.json"),
+                "RBTV_WATCHDOG_NOTIFY_FILE": str(base / "notify.jsonl"),
+                "RBTV_WATCHDOG_TARGETS": "daemon",
+                "IGNITE_WATCHDOG_TOKEN": "probe-token-never-accepted-by-anything"})
+            orig_ws, orig_gw = W.WORKSPACE, W.GATEWAY
+            W.WORKSPACE, W.GATEWAY = str(base), "http://127.0.0.1:1/"
+
+            def pass_():
+                """One whole watchdog pass. Returns (stdout, [operator argv]).
+                `restart_via_operator` goes through the same faked `run`, so a fired restart is
+                an argv in hand rather than a real systemctl call."""
+                SEEN_ARGV.clear()
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    W.main([])
+                return buf.getvalue(), [a for a in SEEN_ARGV if "restart" in a]
+
+            try:
+                # (a) ALIVE per systemd + a dead gateway. THE 57-RESTART CASE.
+                W.run = fake_systemctl(RUNNING_ANSWER)
+                for i in (1, 2, 3, 4):
+                    out, fired = pass_()
+                    check(f"pass {i}: an ALIVE daemon with an unanswerable gateway is NOT restarted",
+                          not fired, "operator called with %s" % (fired[0] if fired else ""))
+                check("and the withheld pass ALARMS instead of going quiet",
+                      "THE GATEWAY IS UNANSWERABLE BUT THE DAEMON IS ALIVE" in out, out[:90])
+                check("four failed passes did not spend the gate — strikes never authorize a "
+                      "restart while systemd says the process is there",
+                      json.loads((base / "failcount.json").read_text()).get("strikes") == 4)
+
+                # (b) GENUINELY DEAD + strikes spent. The lever MUST still fire.
+                (base / "failcount.json").unlink()
+                W.run = fake_systemctl(STOPPED_ANSWER)
+                out1, fired1 = pass_()
+                out2, fired2 = pass_()
+                check("a DEAD daemon is not restarted on the first failed pass (strike 1)",
+                      not fired1, "operator called")
+                check("nor on the second (strike 2)", not fired2, "operator called")
+                check("and the held passes say which strike they are on",
+                      "strike 1 of 3" in out1 and "strike 2 of 3" in out2)
+                out3, fired3 = pass_()
+                check("⚠ THE LEVER SURVIVES: on the third consecutive failed pass a DEAD daemon "
+                      "IS restarted", bool(fired3), "no operator call — the gate swallowed the "
+                                                    "one case monitoring exists for")
+                check("and the restart is routed through the daemon-operator (PRIN-11)",
+                      bool(fired3) and "rbtv-ignite-daemon" in fired3[0][0], repr(fired3[:1])[:80])
+
+                # (c) backoff: the same remedy is not re-applied once it demonstrably did not
+                # change the verdict. ⚠ MEASURED AT THE DECISION, not one pass after the restart:
+                # the restart resets the strike counter, so the immediately-following passes are
+                # withheld by the STRIKES gate and would report backoff working while it was
+                # deleted (mutation-checked — `if False:` on the backoff branch left an
+                # any-pass-after-restart check green). So the strikes are SPENT AGAIN first, and
+                # only the pass that clears them can be explained by the backoff.
+                for _ in range(W.STRIKES - 1):
+                    out_c, fired_c = pass_()
+                    check("still no second restart while the strikes re-accumulate", not fired_c)
+                out_c, fired_c = pass_()
+                check("⚠ with the strikes SPENT AGAIN, a still-down verdict inside the backoff "
+                      "window is NOT re-restarted — the strikes gate cannot explain this one",
+                      not fired_c, "operator called again")
+                check("and it says the restart did not restore it",
+                      "RESTART DID NOT RESTORE THE GATEWAY" in out_c, out_c[-120:])
+
+                # (d) one `up` pass ends the streak.
+                W.gateway_call = lambda t: ("ok", {"result": {"pid": 1}})
+                pass_()
+                check("an `up` verdict resets the consecutive-failure counter",
+                      json.loads((base / "failcount.json").read_text()).get("strikes") == 0)
+            finally:
+                W.WORKSPACE, W.GATEWAY = orig_ws, orig_gw
+                W.gateway_call = orig_gateway_call
+                for k, v in env_saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
     finally:
         W.run = orig_run
 
@@ -540,8 +637,8 @@ def main():
     if FAILED:
         print("FAILED: " + "; ".join(FAILED))
         return 1
-    if len(PASSED) < 96:
-        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 96")
+    if len(PASSED) < 112:
+        print(f"INOPERATIVE: only {len(PASSED)} checks ran; this probe asserts at least 112")
         return 2
     return 0
 
