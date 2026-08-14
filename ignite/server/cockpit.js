@@ -16,6 +16,16 @@
 // NOTHING is launched in it, so there is no harnessArgv to wrap. Forcing the seat composer here
 // would mean inventing an argv for a pane defined by the absence of one.
 //
+// ⚠ WHAT DROPPING THE COMPOSER DROPPED WITH IT (fixed 2026-08-14, daemon-fix §1). The rationale
+// above never mentioned CGROUP DETACHMENT, but `composeSeatSpawn`'s other job is the
+// `systemd-run --scope` wrapper. Without it, at boot — when no tmux server is running yet — the
+// `new-session` call FORKS THE TMUX SERVER as a child of the node process, inside
+// `rbtv-ignite.service`'s cgroup (measured: server pid 241103 double-forked away, reparented to
+// `systemd --user`, and STILL sat in the unit's cgroup). The unit is KillMode=control-group, so
+// every stop/restart reaped the tmux server and with it EVERY pane on the box, including the
+// owner's own sessions. The server-creating call is therefore wrapped in its own transient scope;
+// the later split-window/new-window calls talk to an already-detached server and are untouched.
+//
 // The bound that SURVIVES the addition is DEC-1's R3 (R28): the ignite daemon stays the SOLE
 // spawn path. This module is reached only from the daemon's own boot (server/index.js); it takes
 // no caller argument, is exposed through no gateway intent, and no agent can ask for a cockpit or
@@ -70,6 +80,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { pythonCmd } = require('../lib/python-cmd');
 
 const { assertTmuxName } = require('./spawn/tmux');
@@ -83,6 +94,13 @@ const COCKPIT_SESSION = 'rbtv-cockpit';
 const COCKPIT_WINDOW = 'cockpit';
 // The machine-readable identity marker (a tmux user option, session-scoped).
 const COCKPIT_MARKER = '@rbtv-cockpit';
+
+// The transient scope that holds the tmux SERVER, minted fresh per boot attempt. Not a fixed name:
+// with this fix the server normally SURVIVES a daemon restart, so `ensureCockpit` finds the session
+// and skips creation entirely — a constant unit name would collide on the rare re-create path
+// (--collect only reaps a scope once its processes are gone).
+const COCKPIT_SCOPE_PREFIX = 'rbtv-tmux-cockpit-';
+const mintCockpitScopeUnit = () => `${COCKPIT_SCOPE_PREFIX}${randomUUID()}`;
 
 // Percentage of the window width given to the teamview pane. The master pane keeps the rest and
 // stays ACTIVE, so attaching lands the owner on the pane they type into (criterion: "attaching
@@ -202,10 +220,14 @@ function resolveCockpitPackage(workspaceRoot, { env = process.env, readLease = n
 // Returns the three argv vectors, in the order they must run. Pure: it validates and composes,
 // it never executes.
 //
-//   1. newSessionArgv — creates the session AND the LAZY master pane in one act. There is NO
-//      command after `-c <masterDir>`, and that absence IS the feature: tmux starts the
-//      configured default-shell, so the pane holds a shell and no harness. `-d` so the spawn
-//      never steals an attached client's focus.
+//   1. newSessionArgv — creates the session AND the LAZY master pane in one act, wrapped in a
+//      per-attempt `systemd-run --user --scope --collect` so the tmux server it forks lands in
+//      its OWN cgroup instead of the daemon's (see the header note). Everything after the
+//      wrapper's `--` is the intact tmux vector: there is NO command after `-c <masterDir>`, and
+//      that absence IS the feature — tmux starts the configured default-shell, so the pane holds
+//      a shell and no harness. `-d` so the spawn never steals an attached client's focus.
+//      `-P -F` still captures on stdout: systemd-run --scope forks/execs and waits, and its own
+//      chatter goes to stderr.
 //   2. markArgv       — stamps the identity marker.
 //   3. splitArgv      — adds the teamview pane. `-d` keeps the MASTER pane active, so an
 //      attaching owner lands where they type. `--` then the vector: tmux execs it, no shell
@@ -217,6 +239,7 @@ function composeCockpitSpawn({
   teamviewArgv,
   packageDir,
   teamviewPercent = TEAMVIEW_PANE_PERCENT,
+  scopeUnit = mintCockpitScopeUnit(),
 }) {
   assertTmuxName('tmux session', sessionName);
   assertTmuxName('tmux window', windowName);
@@ -228,7 +251,13 @@ function composeCockpitSpawn({
       'composeCockpitSpawn: teamviewArgv is required and must be a non-empty vector', {});
   }
 
+  // Composed inline rather than through spawn/tmux.js's `buildScopeArgv`: that one emits
+  // `--quiet` and no `--collect`, takes seat caps this call has none of, and names its unit
+  // `rbtv-seat-*`. Widening it for one non-seat caller would change every seat's argv; the
+  // divergence here is four literal flags.
   const newSessionArgv = [
+    'systemd-run', '--user', '--scope', '--collect', `--unit=${scopeUnit}`,
+    '--',
     'tmux', 'new-session',
     '-d',
     '-s', sessionName,
@@ -256,7 +285,7 @@ function composeCockpitSpawn({
     ...teamviewCmd,
   ];
 
-  return { newSessionArgv, markArgv, splitArgv, teamviewCmd };
+  return { newSessionArgv, markArgv, splitArgv, teamviewCmd, scopeUnit };
 }
 
 // The default executor. Separated so `ensureCockpit` can be driven with a recording stub.
@@ -380,6 +409,7 @@ function ensureCockpit({
       package: packageDir,
       masterPane,
       teamviewPane,
+      scopeUnit: composed.scopeUnit,
       spawned: true,
     });
     return { spawned: true, session: sessionName, masterDir: resolvedMasterDir, packageDir, masterPane, teamviewPane };

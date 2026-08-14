@@ -45,7 +45,7 @@ const {
 // Declared BEFORE anything runs. A run that ends with a different tally is INCOMPLETE, whatever
 // its failures say.
 //
-// 38 = 12 (layer 1) + 13 (layer 1b) + 13 (layer 2). The live layer's skip branch emits exactly 13
+// 40 = 14 (layer 1) + 13 (layer 1b) + 13 (layer 2). The live layer's skip branch emits exactly 13
 // too, so a tmux-less box reaches the same denominator rather than silently shrinking it.
 // (7.607 E3: layer 1b went 10 -> 13 — the three run-folder RANKING arms were replaced by six
 // LEASE-ranking arms, and the count moving is how this assertion reported the change.)
@@ -54,7 +54,9 @@ const {
 // SO: every check passed and the probe still exited 1. Recorded because it is the argument for
 // the assertion existing — a probe that only counted its failures would have reported a clean
 // green over an author who had lost track of his own coverage.
-const EXPECTED_CHECKS = 38;
+// (daemon-fix §1: layer 1 went 12 -> 14 — the cgroup-scope wrapper on the server-creating call
+// added a prefix arm and a per-attempt-minting arm.)
+const EXPECTED_CHECKS = 40;
 
 const checks = [];
 let skipped = 0;
@@ -146,16 +148,33 @@ function layerCompose() {
     packageDir: '/tmp/.rbtv/goals/some-goal',
   });
 
-  // THE LAZY PANE. `new-session` must carry NO command — the absence IS the feature. If a command
-  // ever appears after the flags, the master pane stops being lazy and this check catches it.
+  // ⚠ THE CGROUP WALL (daemon-fix §1). The server-creating call must run inside its OWN transient
+  // scope, or the tmux server it forks at boot lives in rbtv-ignite.service's cgroup and every
+  // daemon restart reaps every pane on the box. The prefix is spelled out as a LITERAL here on
+  // purpose: a check that reads the same constant the code reads moves with the code and passes
+  // any change to it.
   const ns = composed.newSessionArgv;
-  check('master pane is LAZY: new-session argv carries no command and no `--`',
-    !ns.includes('--') && ns[ns.length - 2] === '-F',
-    `argv=${JSON.stringify(ns)}`);
+  check('the server-creating call is wrapped in a per-attempt systemd-run --scope --collect',
+    ns.slice(0, 4).join(' ') === 'systemd-run --user --scope --collect'
+      && /^--unit=rbtv-tmux-cockpit-.+/.test(ns[4]) && ns[5] === '--',
+    `argv=${JSON.stringify(ns.slice(0, 6))}`);
+  check('the minted scope unit differs per composition (no fixed name to collide on re-create)',
+    composed.scopeUnit !== composeCockpitSpawn({
+      masterDir: '/tmp/m', teamviewArgv: ['teamview'],
+    }).scopeUnit, `unit=${composed.scopeUnit}`);
+
+  // THE LAZY PANE. `new-session` must carry NO command — the absence IS the feature. If a command
+  // ever appears after the flags, the master pane stops being lazy and this check catches it. Read
+  // off the tmux TAIL (everything past the wrapper's `--`), which must still be the intact vector.
+  const tail = ns.slice(ns.indexOf('--') + 1);
+  check('master pane is LAZY: the tmux tail is intact and carries no command and no `--`',
+    tail[0] === 'tmux' && tail[1] === 'new-session'
+      && !tail.includes('--') && tail[tail.length - 2] === '-F',
+    `tail=${JSON.stringify(tail)}`);
   check('master pane opens at the requested cwd',
-    ns[ns.indexOf('-c') + 1] === '/tmp/master-here');
+    tail[tail.indexOf('-c') + 1] === '/tmp/master-here');
   check('session is created detached (-d), never stealing an attached client',
-    ns.includes('-d'));
+    tail.includes('-d'));
 
   // THE EXPLICIT --package (leader ruling 2026-07-27 ~23:25). Without it teamview exits 2 from a
   // cockpit and the pane dies.
