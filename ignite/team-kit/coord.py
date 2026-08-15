@@ -18597,6 +18597,43 @@ def harness_outcome(fn, args, capture_err=True):
     return out.getvalue(), err.getvalue(), code
 
 
+SELFTEST_TMUX_TMPDIR = None      # set by `isolate_tmux_for_selftest`; asserted by its own check row
+_SELFTEST_TMUX_DIR = None        # the TemporaryDirectory object — held so it outlives this function
+
+
+def isolate_tmux_for_selftest():
+    """Bind THIS process to a PRIVATE tmux server before any check runs. Returns the tmpdir.
+
+    The suite shells out to REAL tmux ~170 times a run — `new-session`, `pipe-pane`,
+    `list-panes -a`, `display-message`, plus the sensor's `team_monitor.py ensure` — and
+    `fire_finish_edge` reaches `tmux kill-session`. Every one of those acts on whichever server
+    THIS process is bound to. Bound to the operator's server, the suite is not a self-test, it is
+    an unattended agent typing into the room it is running in: on 2026-08-14 a session
+    orchestrating a landing DAG died with `coord.py selftest` as its last recorded act.
+
+    ⚠ `TMUX_TMPDIR` ALONE DOES NOT ISOLATE. When `$TMUX` is set, tmux takes the socket path from
+    ITS first field and ignores `TMUX_TMPDIR` entirely — measured 2026-08-15: a `new-session` run
+    with a private `TMUX_TMPDIR` and an inherited `$TMUX` landed on the OPERATOR's server. That is
+    why this is a scrub PLUS a redirect; either half alone is a guard that does not guard.
+
+    rbtv `a3f8f90` isolated the probe RUNNER exactly this way. A SOLO `coord.py selftest` — which
+    is precisely what the landing protocol asks an agent to run — still inherited, and the fix was
+    a hand-carried `env -u TMUX -u TMUX_PANE TMUX_TMPDIR=…` prefix on every call site. Relying on
+    every caller to remember that prefix IS the failure mode; the isolation belongs at the choke
+    point, which is here. Refusing instead was the other option and is worse: it would make the
+    documented invocation refuse, and callers route around a refusal with the same forgettable
+    prefix.
+    """
+    global SELFTEST_TMUX_TMPDIR, _SELFTEST_TMUX_DIR
+    os.environ.pop("TMUX", None)
+    os.environ.pop("TMUX_PANE", None)
+    _SELFTEST_TMUX_DIR = tempfile.TemporaryDirectory(prefix="coord-selftest-tmux-",
+                                                     ignore_cleanup_errors=True)
+    SELFTEST_TMUX_TMPDIR = _SELFTEST_TMUX_DIR.name
+    os.environ["TMUX_TMPDIR"] = SELFTEST_TMUX_TMPDIR
+    return SELFTEST_TMUX_TMPDIR
+
+
 def cmd_selftest(args):
     """G-66: run the checks, and ALWAYS reach a verdict.
 
@@ -18617,6 +18654,7 @@ def cmd_selftest(args):
     subject's termination into that ROW's verdict so the suite continues. Reaching this line with
     a `SystemExit` now means one escaped a path that does not go through it.
     """
+    isolate_tmux_for_selftest()   # BEFORE any check: the suite's tmux calls must not reach the caller's server
     failures, names = [], []
     aborted = ""
     try:
@@ -18892,6 +18930,24 @@ def _selftest_checks(args, failures, names):
     sent_texts.clear(); enter_calls.clear()
     capture_sequence[:] = [(CLAUDE_TAIL_IDLE, ""), (CLAUDE_TAIL_IDLE, "")]
     ok, terr = wake("%1", "[coord wake] hello")
+    # ---- the suite's OWN tmux binding, asserted before anything reads it ----
+    # This row is about the process running the suite, not about a subject function: ~170 real
+    # tmux calls follow, and they act on whatever server this process is bound to. Asserting all
+    # three names together is deliberate — `$TMUX` beats `TMUX_TMPDIR` at tmux's own socket
+    # resolution, so a row checking only the tmpdir would pass while the suite acted on the
+    # operator's server. RED under mutation from either direction: drop the isolation call and
+    # inside tmux `TMUX` is present, outside tmux `SELFTEST_TMUX_TMPDIR` is still None.
+    check("selftest isolation: this process is bound to a PRIVATE tmux server — TMUX and "
+          "TMUX_PANE scrubbed, TMUX_TMPDIR redirected to a fresh dir that exists. Without this "
+          "the suite's own tmux calls (new-session, pipe-pane, list-panes -a, kill-session) land "
+          "on the CALLER's server; a landing session was lost that way on 2026-08-14, and the "
+          "hand-carried `env -u TMUX …` prefix that stood in for it is exactly what a caller "
+          "forgets",
+          "TMUX" not in os.environ and "TMUX_PANE" not in os.environ
+          and SELFTEST_TMUX_TMPDIR is not None
+          and os.environ.get("TMUX_TMPDIR") == SELFTEST_TMUX_TMPDIR
+          and Path(SELFTEST_TMUX_TMPDIR).is_dir())
+
     check("P35: claude normal path submits on the first Enter, no retry (real idle pane tail)",
           ok and len(enter_calls) == 1 and sent_texts == ["[coord wake] hello"])
 
