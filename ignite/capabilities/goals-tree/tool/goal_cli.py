@@ -2778,6 +2778,21 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
             val = row.get("capabilities")
             if val:
                 fm["capabilities"] = val
+            # …and the drop is LOUD, never silent. Goal-produced draft task
+            # files authored BEFORE the deletion still carry the field on disk
+            # (11 across the live goals at landing), and a pointer that
+            # vanishes at assembly is precisely the failure class this program
+            # exists to remove — D1's plan-planner fail-blocked on one. A
+            # warning rather than a refusal because these are goal-local
+            # drafts, not component tasks: component-lint REFUSES the field
+            # where an author owns the file, and a live goal must not be
+            # reddened by a draft its own earlier pass wrote.
+            dead = row.get("context")
+            if dead:
+                print(f"warn: seat '{seat_id}' — `context: {dead}` is a "
+                      "DELETED task field (W6/R3) and is NOT carried into the "
+                      "assembled seat. Move those pointers into the task's "
+                      "<scope> before this seat runs", file=sys.stderr)
             continue
         for kind_col, refs in _refs_of(row, NON_REF_COLUMNS):
             resolved: list[str] = []
@@ -4704,6 +4719,26 @@ def cmd_selftest(args) -> int:
         # schema, so neither the pass-through nor its exclusion may come back.
         check("`context` is gone from the pass-through exclusion list",
               "context" not in LINT_NON_REF_KEYS)
+        # …and a draft still carrying it is dropped LOUDLY, never silently: the
+        # pool row above already carries `context`, so this asserts on the same
+        # assemble_seat call the green arms use.
+        (pc / "tasks" / "pt.md").write_text(
+            "---\nid: pt\ndescription: pool task\ncapabilities: [cc]\n"
+            "context:\n  - references/gone.md\n---\n\n"
+            "<task-goal>\ngoal body\n</task-goal>\n", encoding="utf-8")
+        s_c2, p_c2, t_c2 = load_catalogs(tmp / "poolcat")
+        import contextlib   # imported again below; `io` is already global
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            asm2 = assemble_seat("ps", {}, s_c2, p_c2, t_c2, {})
+        check("a DELETED `context:` on a draft is dropped LOUDLY — the field is "
+              "absent from the assembled frontmatter AND the drop is named on "
+              "stderr (a pointer that vanishes silently is the D1 failure)",
+              "context" not in (yaml.safe_load(
+                  FRONTMATTER_RE.match(asm2).group(1)) or {})
+              and "DELETED task field" in err.getvalue()
+              and "references/gone.md" in err.getvalue(),
+              repr(err.getvalue())[:200])
 
         (pc / "prompts" / "pp.md").write_text(
             "---\nid: pp\ndescription: pool prompt\nhuman-interactive: yes\n---\n\n"
