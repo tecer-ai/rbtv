@@ -4672,7 +4672,7 @@ def mint_staff_chairs(result: dict, package: Path, args,
     """Append the goal's staff rows if they are absent, and return `result`
     carrying what that did (`result['staff']`).
 
-    Every skip is one of THREE, and only the first is silent:
+    Every skip is one of FOUR, and only the first is silent:
       · the chair already has a row — the goal is already staffed;
       · the catalog carries no such seat — this is a foreign or fixture catalog
         with no staff component in it, and a materialize against it must render
@@ -4680,7 +4680,9 @@ def mint_staff_chairs(result: dict, package: Path, args,
       · the chair has no casting sheet — a WARNING for the `leader`, which the
         wake path requires, and silence for the `consultant`, whose absent
         sheet IS the instance declaring it does not staff one (the seat catalog
-        marks it OPTIONAL).
+        marks it OPTIONAL);
+      · the goal carries an UNSETTLED awaiting-close debt under this chair's
+        name — a WARNING for either chair, see the gate below.
     A refusal from the staff pass itself degrades to a warning for one reason:
     the main rows are already on disk by then, and exiting non-zero over a
     chair would make the caller's retry impossible (`seat-exists`) while
@@ -4690,12 +4692,52 @@ def mint_staff_chairs(result: dict, package: Path, args,
         return result
     existing = {(r.get("seat") or "").strip()
                 for r in _csv_rows(package / TASKFORCE_NAME)}
+    # THE UNSETTLED-DEBT GATE. `awaiting-close.json` is a DEBT LEDGER, not an
+    # archive, and a record under a chair's NAME is read by `ready-seats` as
+    # that chair's own check-out (`coord.terminal_disposition`, whose live
+    # surface this file is). DONE is an ABSORBING state whose only wake is an
+    # unspent grant a closer mints — and no closer minted one for a sitting
+    # that predates the chair — so a chair minted on top of a standing debt is
+    # BORN PERMANENTLY DEAD, with nothing to detect it. Measured 2026-08-14 on
+    # `meet-transcript-summarizer`: the freshly minted `leader` read check-out
+    # `done` from a debt a hand-driven console sitting left behind (pane %121,
+    # pid 2846816, both long dead), and it was found only because a Definition
+    # of done demanded the chair read IDLE.
+    #
+    # ⚠ THE DEBT IS NOT THIS PASS'S TO SETTLE, dead pane or live one. Only
+    # `coord.py close-seat`/`reap` discharges a ledger entry, and a minter that
+    # cleared debts would be a second writer of the one surface that records
+    # them. So this SKIPS and WARNS — no chair is better than a dead chair,
+    # because a warning is read and an absorbing DONE is not.
+    #
+    # Imported through `coord`, never re-read here, for the same reason
+    # `STAFF_SEATS` is (F6): the ledger the chair's verdict reads and the
+    # ledger this gate reads must be ONE reader. `sys.path` is primed by
+    # `_coord_staff_seats` above, and `load_awaiting` never raises — an
+    # unreadable ledger is "no debt" by its own documented contract.
+    from coord import load_awaiting
+    debts = load_awaiting(package / "coordination")
     minted = []
     for seat in staff:
         if seat in existing:
             continue
         row = seats_catalog.get(seat)
         if row is None:
+            continue
+        debt = debts.get(seat)
+        if isinstance(debt, dict):
+            result["warnings"].append(
+                f"staff chair '{seat}' NOT minted: this goal carries an "
+                f"UNSETTLED awaiting-close debt under that name (since "
+                f"{debt.get('since') or '(unstamped)'}, pane "
+                f"{debt.get('pane') or '(none)'}, disposition "
+                f"`{debt.get('disposition', 'done')}`). A chair minted over it "
+                f"reads that record as its OWN check-out and is born DONE — an "
+                f"absorbing state whose only wake is a grant nobody will mint, "
+                f"so the chair would exist and never sit. Settle the debt "
+                f"first — `coord.py --as {seat} close-seat {seat}` once you "
+                f"have confirmed its pane is dead (or `reap --go`) — then "
+                f"re-run this materialize")
             continue
         sheet = staff_sheet_path(row, seat)
         if sheet is None or not sheet.is_file():
@@ -7371,6 +7413,13 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # a registry no other arm builds. A row that passes only when BOTH fire is
     # exactly the shape the lift needs — widen the gate and the red goes.
     "staff-mint-multi-tf": (("SM-6 green",), ("SM-7 red",)),
+    # The UNSETTLED-DEBT gate (task 05 defect B) — its own row for the same
+    # reason the multi-tf pair is: it is measured on a registry no other arm
+    # builds (a goal carrying an `awaiting-close.json` record under the chair's
+    # name), and it passes only when BOTH sides fire — the debt blocks, and the
+    # SETTLED ledger still mints. Widen the gate and the control alone would
+    # keep it green.
+    "staff-mint-debt": (("SM-12 control",), ("SM-10 red", "SM-11 red")),
 }
 
 
@@ -7780,6 +7829,72 @@ def run_staff_mint_acceptance(check) -> None:
               and "w2" not in [r["seat"] for r in _staff_rows(fx4)],
               f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:160]}")
         shutil.rmtree(fx4["pkg"].parents[2].parent, ignore_errors=True)
+
+        # ---- SM-10..SM-12: THE BORN-DONE CHAIR (task 05 defect B).
+        # `awaiting-close.json` is a DEBT LEDGER, so a record under the chair's
+        # NAME is read by `ready-seats` as that chair's own check-out — and DONE
+        # is absorbing. Minting a chair over a standing debt therefore produces
+        # a chair that exists and can never sit, and nothing detects it: the
+        # flagship's was found only because a Definition of done demanded the
+        # chair read IDLE. The three arms are a set — the DEAD debt (the
+        # measured shape), the LIVE debt (the guard is not narrowed by
+        # liveness: this pass does not adjudicate a ledger), and the CONTROL
+        # that discriminates the gate from any other reason the mint could
+        # skip: the same fixture with the debt SETTLED mints the chair.
+        fx5 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm5-")))
+        awaiting5 = fx5["pkg"] / "coordination" / "awaiting-close.json"
+        awaiting5.parent.mkdir(parents=True, exist_ok=True)
+        # The flagship's own record, verbatim in shape: a console sitting's
+        # pane and pid, both long dead, disposition `done`.
+        awaiting5.write_text(json.dumps({"leader": {
+            "since": "2026-08-13 22:41", "pane": "%121", "transcript": "",
+            "exported": False, "pids": [2846816], "disposition": "done"}}),
+            encoding="utf-8")
+        res = _staff_run(fx5, "w1")
+        warned = [w for w in (res or {}).get("warnings", ())
+                  if "leader" in w and "awaiting-close debt" in w]
+        check("SM-10 red: a materialize against a goal carrying an UNSETTLED "
+              "awaiting-close debt under the chair's name does NOT mint the "
+              "chair — the goal still materializes, and the warning names the "
+              "debt's stamp and pane and the verb that settles it. Without "
+              "this gate the chair is minted and reads its predecessor's "
+              "check-out as its own: born DONE, absorbing, unwakeable",
+              not isinstance(res, Refuse)
+              and "leader" not in [r["seat"] for r in _staff_rows(fx5)]
+              and len(warned) == 1 and "%121" in warned[0]
+              and "close-seat leader" in warned[0],
+              str((res or {}).get("warnings"))[:400])
+
+        # SM-11: the LIVE debt — same refusal. Stated as its own arm because
+        # the alternative fix (teaching the DONE resolution to ignore a dead
+        # debt) would have had to distinguish these two, and this one must not
+        # regress into a lift: a live debt is a live pane somebody must free.
+        awaiting5.write_text(json.dumps({"leader": {
+            "since": "2026-08-15 09:00", "pane": "%0", "transcript": "",
+            "exported": False, "pids": [os.getpid()], "disposition": "renew"}}),
+            encoding="utf-8")
+        res = _staff_run(fx5, "w2", root=False, after="w1")
+        check("SM-11 red: a LIVE debt (its pid is this very process) blocks the "
+              "mint too — the gate is keyed on the DEBT STANDING, never on how "
+              "dead it looks, because settling a ledger entry is `close-seat`'s "
+              "act and not a minter's",
+              not isinstance(res, Refuse)
+              and "leader" not in [r["seat"] for r in _staff_rows(fx5)]
+              and any("awaiting-close debt" in w
+                      for w in (res or {}).get("warnings", ())),
+              str((res or {}).get("warnings"))[:300])
+
+        # SM-12 CONTROL: settle the debt, mint the chair. Without this arm
+        # SM-10/SM-11 pass for any reason the chair fails to appear.
+        awaiting5.write_text("{}", encoding="utf-8")
+        res = _staff_run(fx5, "w1", force_partial=True)
+        check("SM-12 control: with the ledger SETTLED the same fixture mints "
+              "the chair — so the two arms above discriminate the debt gate "
+              "from every other reason a chair can fail to appear",
+              not isinstance(res, Refuse)
+              and "leader" in [r["seat"] for r in _staff_rows(fx5)],
+              str(res)[:200] or str([r["seat"] for r in _staff_rows(fx5)]))
+        shutil.rmtree(fx5["pkg"].parents[2].parent, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

@@ -25,6 +25,11 @@ WHAT EACH ARM SCORES OVER, stated per arm, because "probes pass" reads as a clea
       WITH `--force`; a departed worker seat accepted with a LOUD warning.
   K1 (the consultant criterion)  a check-out routed to a `consultant` this goal does not staff
       falls back to the leader instead of mailing a chair that does not exist.
+  A-SIT (the fourth case)  MAIL THAT ARRIVES WHILE THE CHAIR IS STILL SITTING. The wake binds to
+      the session the chair is sitting ON, so it survives that sitting's end instead of being
+      dropped as a stale binding — and the chair reads READY afterwards rather than DONE with the
+      mail unread. The CONTROL is the grant's own session-id one call earlier, which is what
+      discriminates "bound correctly" from "woken for some other reason".
   X1 (the exclusion, adv C30)  a STAFF seat's own close mints NO mail — otherwise the closer mails
       the leader about the leader forever, each mail minting the wake for the sitting that writes
       the next one.
@@ -140,14 +145,20 @@ def verdicts(mod, pkg):
     return {r["seat"]: r["verdict"] for r in mod.ready_seat_rows(ns(pkg))}
 
 
-def open_session(pkg, seat, sid, ended="", disposition=""):
-    """Append a `sessions.csv` row by hand — this probe drives the CLOSER, not the spawner."""
+def open_session(pkg, seat, sid, ended="", disposition="", pid="", pid_starttime=""):
+    """Append a `sessions.csv` row by hand — this probe drives the CLOSER, not the spawner.
+
+    `pid`/`pid_starttime` are the row's IDENTITY PAIR, and they are real when an arm needs them:
+    `sessions_sitting_id` asks /proc whether the process an OPEN row names is still alive, so a
+    row carrying a made-up pair reads NOT SITTING and the A-SIT arm below would pass for the wrong
+    reason. The arm passes this process's own pair, which is alive by construction."""
     p = Path(pkg) / "sessions.csv"
     if not p.exists():
         p.write_text("session-id,seat,started,ended,disposition,disposition-writer,pid,"
                      "pid-starttime\n", encoding="utf-8")
     with open(p, "a", encoding="utf-8") as fh:
-        fh.write(f"{sid},{seat},2026-08-14T00:00:00Z,{ended},{disposition},,,\n")
+        fh.write(f"{sid},{seat},2026-08-14T00:00:00Z,{ended},{disposition},,{pid},"
+                 f"{pid_starttime}\n")
 
 
 def run_cmd(mod, fn, pkg, **kw):
@@ -407,6 +418,50 @@ def main():
           "unblocker — the route flag is a HINT, never an authority, so a goal that staffs no "
           "consultant never mails a chair that does not exist",
           to == "leader" and "does NOT staff" in why, f"{to}: {why}")
+
+    # ── A-SIT · MAIL THAT ARRIVES WHILE THE CHAIR IS STILL SITTING ────────────────────────────
+    #
+    # The fourth case `mint_staff_wake` did not name. Its three were never-sat, has-sat and
+    # already-pending; the one it missed is IS SITTING RIGHT NOW. Binding the wake to
+    # `sessions_last_ended` reads the PREVIOUS sitting — the current one has no `ended` cell yet —
+    # and `ready-seats` drops any unspent grant whose session-id is not the chair's LAST-ENDED id.
+    # So the grant was stale the instant the sitting ended and the mail woke nobody, while the row
+    # read DONE (absorbing) with the message unread. Measured on `meet-transcript-summarizer`
+    # 2026-08-15: grant bound to `46d185eb…` minted 23:36, mid-sitting of `6a4a0ce4…`, orphaned at
+    # 23:41; `ready-seats` reported the leader DONE with message #70 unread.
+    #
+    # THE FIXTURE IS THE INCIDENT'S OWN SHAPE and every step is real: a previous ENDED sitting, a
+    # current OPEN one whose recorded (pid, pid-starttime) pair is THIS process (so the liveness
+    # test `sessions_sitting_id` runs has a live process to find, rather than a row this probe
+    # merely asserts is sitting), mail minted by a worker's terminal non-`done` close, and then the
+    # sitting ending through the same closer the daemon runs.
+    ws2, pkg2 = make_workspace(tmp / "sit", ["worker", "leader"],
+                               [("worker", ""), ("leader", "")])
+    base2 = Path(pkg2) / "coordination"
+    live_pid = str(_os.getpid())
+    live_start = mod.proc_starttime(live_pid)
+    open_session(pkg2, "leader", "sess-prev", ended="2026-08-14T08:20:00Z", disposition="exited")
+    open_session(pkg2, "leader", "sess-now", pid=live_pid, pid_starttime=live_start)
+    open_session(pkg2, "worker", "sess-worker")
+    mod.set_awaiting(base2, "worker", "", "", False, disposition="incomplete",
+                     writer=mod.DISPOSITION_WRITER_SEAT)
+    mod.close_session_seat(ns(pkg2, force_dead=True, go=True), "sess-worker", "worker")
+    gr = [g for _i, g in mod.read_relaunch_grants(base2) if g["seat"] == "leader"]
+    check("A-SIT CONTROL: the mail minted exactly ONE wake grant for the chair, and it is bound to "
+          "the session the chair is SITTING ON (`sess-now`) — NOT to the previous sitting the "
+          "last-ended read returns while the current row has no `ended` cell",
+          len(gr) == 1 and gr[0]["session-id"] == "sess-now", gr)
+    mod.close_session_seat(ns(pkg2, force_dead=True, go=True), "sess-now", "leader")
+    sit_after = verdicts(mod, pkg2)
+    sit_rows = {r["seat"]: r for r in mod.ready_seat_rows(ns(pkg2))}
+    check("A-SIT: the sitting ENDS and the chair reads READY — not DONE with the mail unread. This "
+          "is the whole defect: a correctly-minted grant bound to the wrong session is dropped by "
+          "`ready-seats` the moment the current sitting becomes the last-ended one, and DONE is "
+          "ABSORBING, so a goal whose LAST mail arrives mid-sitting stays silently unwoken forever",
+          sit_after.get("leader") == "READY"
+          and sit_rows["leader"]["relaunch-grant"]
+          and sit_rows["leader"]["relaunch-grant"]["session-id"] == "sess-now",
+          f"{sit_after} {sit_rows.get('leader', {}).get('reason', '')[:200]}")
 
     failures = [c for c, ok in RESULTS if not ok]
     print(f"\n{len(RESULTS)} arm(s), {len(failures)} failure(s)")

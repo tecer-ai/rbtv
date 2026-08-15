@@ -14615,18 +14615,55 @@ def append_engine_grant(base, seat):
     return True
 
 
+def sessions_sitting_id(pkg, seat):
+    """The session-id the seat is sitting on RIGHT NOW — `''` when it is not sitting.
+
+    An OPEN `sessions.csv` row is not by itself a sitting: a crashed session nobody closed leaves
+    one behind forever, and binding anything to that row is binding to a session that can never
+    become the seat's last-ended one. So the row's own identity pair decides — the same
+    `(pid, pid-starttime)` and the same `ident_is_live_process` predicate the session-closer's
+    term (b) uses, never a second liveness test. An unreadable or dead pair reads NOT SITTING,
+    which is the fail-safe direction here: the caller falls back to the last ENDED row, which is
+    exactly what it did before this function existed."""
+    sid = sessions_open_ids(pkg).get(seat, "")
+    if not sid:
+        return ""
+    row = session_row_by_id(pkg, sid)
+    if not row:
+        return ""
+    _seat, _ended, pid, pid_starttime = row
+    if not pid or not pid_starttime:
+        return ""
+    return sid if ident_is_live_process((pid, pid_starttime)) else ""
+
+
 def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
     """Wake an ON-DEMAND staff chair: `(woken, note)`. Idempotent, and never raises.
 
-    THREE CASES, and only the middle one writes anything:
+    FOUR CASES, and only two of them write anything:
 
-      the chair has NEVER SAT   no session row, so it carries no disposition and `ready-seats`
-                                reads READY on its own account the moment mail exists (the
-                                `staff_mail` term). A grant would be UNBOUND — session-id `''` —
-                                and an unbound grant can never be SPENT (`seat-retry --spend`
+      the chair has NEVER SAT   no session row at all, so it carries no disposition and
+                                `ready-seats` reads READY on its own account the moment mail exists
+                                (the `staff_mail` term). A grant would be UNBOUND — session-id `''`
+                                — and an unbound grant can never be SPENT (`seat-retry --spend`
                                 refuses an empty `--session` by name), so it would flip the chair
                                 READY after every later completion, FOREVER. That is the exact
                                 shape this function exists not to write.
+      the chair IS SITTING RIGHT NOW
+                                its row is OPEN and the process that row names is ALIVE
+                                (`sessions_sitting_id`). The grant binds to THAT
+                                open session, not to the last ENDED one: the sitting is about to
+                                become the last-ended row, and `ready-seats` drops any unspent grant
+                                whose session-id is not the chair's last-ended id. Binding to the
+                                PREVIOUS sitting — which is what reading `sessions_last_ended` alone
+                                does here — writes a grant that is stale the instant the current
+                                sitting ends, so the mail wakes nobody and the chair sits at DONE
+                                with unread mail (measured on `meet-transcript-summarizer`,
+                                2026-08-15: grant `46d185eb…` minted 23:36 mid-sitting of
+                                `6a4a0ce4…`, orphaned at 23:41). The current sitting MAY drain this
+                                mail itself, in which case the grant buys one short empty sitting —
+                                the fail-open direction, and the same cost the HAS-SAT case already
+                                accepts.
       the chair HAS SAT         its last row is ENDED and carries `exited`, so `ready-seats` reads
                                 DONE, which is ABSORBING. The wake is an unspent grant BOUND to
                                 that ended session — the DONE branch's own flip turns it READY, and
@@ -14636,16 +14673,21 @@ def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
                                 already have read.
     """
     try:
-        sid = (sessions_last_ended(pkg).get(seat) or ("", ""))[0]
+        # THE LIVE SITTING FIRST — see the IS-SITTING case above. `sessions_sitting_id` answers
+        # with the row's own identity pair rather than with the mere absence of an `ended` cell, so
+        # a crashed session's abandoned open row does NOT capture the grant; that falls through to
+        # the last ENDED row, which is what this line always did.
+        sid = (sessions_sitting_id(pkg, seat)
+               or (sessions_last_ended(pkg).get(seat) or ("", ""))[0])
     except Exception:                                          # noqa: BLE001
         sid = ""
     if not sid:
-        return False, ("no ended session row for this chair yet — it has never sat, so it reads "
+        return False, ("no session row for this chair yet — it has never sat, so it reads "
                        "READY on its own account as soon as mail exists and needs no grant")
     try:
         if any(g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]
                for _i, g in read_relaunch_grants(base)):
-            return False, ("an UNSPENT wake grant already stands for this chair's last session — "
+            return False, ("an UNSPENT wake grant already stands for this chair's session — "
                            "one sitting drains the whole queue")
         mint_relaunch_grant(base, seat, sid, anchor, minted_by)
     except Exception as exc:                                   # noqa: BLE001
