@@ -5192,6 +5192,11 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
 #
 # ⚠ THE LIST IS A SEAT-NAME LIST AND NOTHING ELSE. It confers no authority — `is_permission_editor`
 # below is the only widening grant, and it names ONE of the two deliberately.
+#
+# ⚠ NO LIVE GOAL STAFFS A `consultant`, AND THAT IS THE DESIGN — not an oversight, not a migration
+# left half-done. The consultant chair is OPTIONAL PER WORKFLOW and homed at
+# `.rbtv/mirror/meta/leader/` (D-10, sd `decisions.md#d-consultant-optional-per-workflow`);
+# ratified by the owner 2026-08-15 (closeout R5.3). Do not staff one to "fix" the absence.
 STAFF_SEATS = ("leader", "consultant")
 
 
@@ -11170,7 +11175,18 @@ def cmd_send(args):
     # with no descriptor at all — the master, the console, a daemon-fired job, an addressable
     # non-member. Gating on the bare False would refuse all of them, which is a rule about seats
     # applied to everything that is not one. The descriptor's EXISTENCE is the membership test.
-    if args.type == "ask" and args.to == OWNER_TOKEN and not force:
+    #
+    # ⚠ NO `--force`, BY OWNER RULING (2026-08-15, closeout R5.7) — and it is a DELIBERATE REVERSAL
+    # of how W8 first shipped this gate. W8 admitted `force` here because the D8 hold fixture drove
+    # `cmd_send` with `force=True` on exactly this shape and the seat-behalf transports all carry
+    # `force`. Both reasons were wrong on inspection: the D8 fixture's forced ask is now authored
+    # while its descriptor still permits it (see the `bqp` note in the D8 hold rows), and NO
+    # transport anywhere sends `--type ask` to the owner — they send `note`, `answer`,
+    # `queue-request` and `verdict` (swept across the tree, 2026-08-15). More to the point, `force`
+    # could not be right here: this gate refuses the class of ask that CAN NEVER BE ANSWERED, so an
+    # override buys a row nobody will ever read. It now matches its two sibling gates below, which
+    # carry no override for the same reason.
+    if args.type == "ask" and args.to == OWNER_TOKEN:
         _pkg_hi = package_dir(args)
         _has_seat_md = (_ferry_safe_name(sender)
                         and _ferry_read(Path(_pkg_hi) / "seats" / str(sender) / "seat.md") is not None)
@@ -11192,8 +11208,8 @@ def cmd_send(args):
                    if len(_staff) > 1 else "")
                 + f"If you genuinely may talk to the human, that is a DESCRIPTOR fact, not a send "
                   f"flag: `human-interactive: yes` in your seat.md, set by whoever authored the "
-                  f"seat. `--force` is accepted here for the transports that write on a seat's "
-                  f"behalf; a seat using it is choosing a row nobody will ever read.",
+                  f"seat. THERE IS NO `--force` FOR THIS ONE: the refusal is not about permission, "
+                  f"it is about reachability — a forced row is still a row nobody will ever read.",
                 1)
 
     # ⚠ AGENTS NEVER INITIATE TO `master` (`decisions.md#d-agents-address-owner-not-master`,
@@ -27372,12 +27388,17 @@ def _selftest_checks(args, failures, names):
                                        "bqa": "'block-and-queue'", "bqn": "block-and-queue",
                                        "bqp": "block-and-queue", "dd": "default-and-disclose"})
         (_d8h_pkg / "execution-mode").write_text("interactive\n", encoding="utf-8")
-        # `bqp` is the PARKED control and its descriptor is rewritten HERE, in the open, rather than
-        # through `_rs_make`: it declares the arm and does NOT declare `human-interactive:`, so the
-        # ferry's gate 2 was shut for it — it asked, nobody was told, and no answer can ever come.
-        (_d8h_pkg / "seats" / "bqp" / "seat.md").write_text(
-            "---\nagent: bqp\nmodel: opus\nfallback: block-and-queue\n---\nbrief\n",
-            encoding="utf-8")
+        # `bqp` is the PARKED control: it declares the arm but must end up WITHOUT
+        # `human-interactive:`, so the ferry's gate 2 is shut for it — it asked, nobody was told,
+        # and no answer can ever come.
+        #
+        # ⚠ ITS DESCRIPTOR IS STRIPPED **AFTER** THE ASK IS SENT, not before, and the order is
+        # load-bearing (2026-08-15, closeout R5.7). `cmd_send`'s D-7 gate is now FORCE-PROOF, so an
+        # ask authored by a seat already lacking the flag is refused at the door and never reaches
+        # the log — the fixture would be asserting on a row that does not exist. Authoring it first
+        # and stripping after reproduces the exact class the ferry's park survives as a BACKSTOP
+        # for: a row the door already let through, whose descriptor no longer permits delivery.
+        # The row on the log is byte-identical either way; only who refuses it changes.
         for _d8h_s, _d8h_p in (("bq", "%81"), ("bqa", "%82"), ("bqn", "%83"), ("dd", "%84"),
                                ("bqp", "%85")):
             _d3_checkin(_d8h_pkg, _d8h_s, _d8h_p)
@@ -27391,6 +27412,12 @@ def _selftest_checks(args, failures, names):
             os.chdir(_d8h_pkg)
             for _d8h_s in ("bq", "bqa", "dd", "bqp"):
                 _d8h_send(_d8h_pkg, _d8h_s)
+            # …and NOW `bqp` loses the flag (see the note above the check-ins): the row is on the
+            # log, and from here on every reader — the ferry's gate 2, `ask_parked_at_gate`, the
+            # hold — sees a seat that may not talk to a human.
+            (_d8h_pkg / "seats" / "bqp" / "seat.md").write_text(
+                "---\nagent: bqp\nmodel: opus\nfallback: block-and-queue\n---\nbrief\n",
+                encoding="utf-8")
             _d8h_ask = {b["sender"]: b["num"]
                         for b in load_messages(_d8h_pkg / "coordination")[1]}
             # THE OWNER'S ANSWER, written through the real send path in the form the transport must
@@ -33902,15 +33929,25 @@ def _selftest_checks(args, failures, names):
                                                "--type", "ask")
         _w8_nod_out, _w8_nod_code = sendW8("gamma", OWNER_TOKEN, "a writer with no descriptor",
                                            "--type", "ask")
+        # closeout R5.7: the SAME ask under `--force`. W8 shipped this gate honouring `force`;
+        # the owner ruled it FORCE-PROOF, so the override must change nothing. Asserted beside the
+        # unforced case on the same fixture so the two differ in exactly one flag, and counted in
+        # the +3 below — a forced refusal that LANDED would push the log to +4.
+        _w8_frc_out, _w8_frc_code = sendW8("alpha", OWNER_TOKEN, "may I ship without the review?",
+                                           "--type", "ask", "--force")
         check("W8 arm 3 (owner ruling D-7): a `to: owner` ASK from a seat NOT flagged "
               "`human-interactive:` is REFUSED AT SEND and told to ask the staff instead — the "
               "ferry would have PARKED it, unanswerable forever. Three controls, one fact apart "
               "each: the flagged seat's identical ask goes through, the same seat's ask to `leader` "
               "goes through, and a sender with a roster row but NO seat.md is untouched (the "
               "descriptor's EXISTENCE is the membership test, so the master and the daemon are not "
-              "caught by a rule about seats)",
+              "caught by a rule about seats). AND IT IS FORCE-PROOF (closeout R5.7): the identical "
+              "ask under `--force` is refused the same way and lands nothing — the refusal is about "
+              "REACHABILITY, not permission, so there is nothing for an override to buy",
               _w8_park_code == 1 and "human-interactive" in _w8_park_out
               and "send leader" in _w8_park_out
+              and _w8_frc_code == 1 and "human-interactive" in _w8_frc_out
+              and "send leader" in _w8_frc_out
               and _w8_hi_code is None and _w8_staff_code is None and _w8_nod_code is None
               and len(load_messages(baseW8)[1]) == _w8_n3 + 3)
 
