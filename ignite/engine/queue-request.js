@@ -70,9 +70,11 @@
 //
 // The gate-stripping ruling does NOT cover the atomicity mechanics, and this pass writes none of
 // them, because the nested materializer ALREADY performs all three, with evidence:
-//   · atomic replace ................ `team-kit/materialize-seats.py:3795` `_atomic_replace`
-//                                     (tmp in the same directory + `os.replace`, mode carried;
-//                                     NEVER an open-append), called at `:3846`.
+//   · single-write splice ........... `team-kit/materialize-seats.py:4411` `_rewrite_in_place`
+//                                     (one `os.pwrite` under an exclusive `flock`, SAME INODE;
+//                                     never an open-append, and — since task 08 — never
+//                                     `tmp + os.replace`, which orphaned the dentry a seat's
+//                                     single-file cage bind was attached to), called at `:4484`.
 //   · changed-underfoot re-read ..... `:3840` `registry-changed-underfoot` — the file is re-read
 //                                     immediately before the write and compared to the text the
 //                                     validations ran against.
@@ -302,8 +304,8 @@ function uncastInSheet(sheetPath, onlySeat = null) {
 // ── THE ONE INVOCATION ───────────────────────────────────────────────────────────────────────
 //
 // ⚠ EXACTLY ONE MATERIALIZE PER PASS, AND THAT IS THE WHOLE-CHAIN ATOMICITY ARGUMENT. The
-// materializer renders every row in memory and appends them in ONE atomic replace
-// (`materialize-seats.py:3816 append_taskforce_rows` → `:3846 _atomic_replace`), so a refusal on
+// materializer renders every row in memory and appends them in ONE write
+// (`materialize-seats.py:4453 append_taskforce_rows` → `:4484 _rewrite_in_place`), so a refusal on
 // the last seat of seventeen leaves ZERO rows. N single-seat mints would have no such property and
 // NO ROLLBACK VERB EXISTS to repair a half-minted chain — there is nothing to call. So the loop
 // that would be natural here is forbidden.
