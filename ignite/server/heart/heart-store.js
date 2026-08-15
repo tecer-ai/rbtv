@@ -577,42 +577,60 @@ class HeartStore {
 
     this.db = new DatabaseSync(this.dbPath);
 
-    // G-135: asked BEFORE schema.sql runs, and it can ONLY be asked here. Afterwards every store
-    // has the six tables and a brand-new one is indistinguishable from a months-old one — which is
-    // exactly why a schema change could never tell them apart and silently reached only the new.
-    const fresh = isFreshStore(this.db);
+    // Everything below can throw. Two things must not survive that throw: the DatabaseSync handle
+    // opened above (leaked fd + a lingering lock on the db file, unchanged pre-existing behaviour
+    // until R3/2026-08-15) and the writer slot (claimed last, see the comment at the end).
+    try {
+      // R3(b), owner-ruled 2026-08-15: busy_timeout is set FIRST, ahead of WAL/schema/migrate.
+      // It used to sit after them, so those three ran with no busy timeout and a concurrent writer
+      // made them throw `database is locked` immediately instead of waiting — observed live
+      // 2026-08-14 20:25Z. Guarded by probe-single-writer.js arm (d).
+      this.db.exec('PRAGMA busy_timeout = 5000;');
 
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec(SCHEMA_SQL);
-    // schema.sql is six CREATE TABLE IF NOT EXISTS, so against an EXISTING store it has just done
-    // nothing at all. Everything that brings such a store forward happens here instead.
-    this.migration = migrate(this.db, { fresh });
-    this.db.exec('PRAGMA foreign_keys = ON;');
-    this.db.exec('PRAGMA busy_timeout = 5000;');
-    this.db.exec('PRAGMA synchronous = NORMAL;');
+      // G-135: asked BEFORE schema.sql runs, and it can ONLY be asked here. Afterwards every store
+      // has the six tables and a brand-new one is indistinguishable from a months-old one — which is
+      // exactly why a schema change could never tell them apart and silently reached only the new.
+      const fresh = isFreshStore(this.db);
 
-    this.config = {
-      // The (harness, model) -> launch-spec table, keyed by `catalog.js#specKey`. NOT handed in at
-      // open: it lives in the launch-spec config the SPAWN MANAGER loads, and the spawn manager is
-      // built FROM this store — so the composition root assigns it after the load, exactly as it
-      // already does for `workdirRoot` below. Empty until then. The store itself reads it for
-      // nothing; it is here because `engine/seeding.js` needs each seat's cage template at
-      // pre-enqueue admission time and holds only the store.
-      launchSpecs: {},
-      tools: opts.tools || {},
-      workflows: opts.workflows || {},
-      // The live ticker cadence, handed in by the composition root like every other
-      // configured value: the minutes→ticks conversion below reads it so a snooze
-      // means the same wall-clock duration at any tick_interval_ms. Absent → the
-      // ticker's own 10 s default (warnings.js).
-      tick_interval_ms: opts.tickIntervalMs,
-      // Task 7.562 — the sanctioned fire-tool workdir. Set by the composition root AFTER the spawn
-      // manager loads the launch-profile config (engine/index.js), because that config is where
-      // `default_workdir_root` lives and the spawn manager is built from this store. Null until
-      // then, and null forever for a store opened without one — the enqueue door then stays silent
-      // and the fire door, which reads the value directly, remains the boundary.
-      workdirRoot: opts.workdirRoot || null,
-    };
+      this.db.exec('PRAGMA journal_mode = WAL;');
+      this.db.exec(SCHEMA_SQL);
+      // schema.sql is six CREATE TABLE IF NOT EXISTS, so against an EXISTING store it has just done
+      // nothing at all. Everything that brings such a store forward happens here instead.
+      this.migration = migrate(this.db, { fresh });
+      this.db.exec('PRAGMA foreign_keys = ON;');
+      this.db.exec('PRAGMA synchronous = NORMAL;');
+
+      this.config = {
+        // The (harness, model) -> launch-spec table, keyed by `catalog.js#specKey`. NOT handed in at
+        // open: it lives in the launch-spec config the SPAWN MANAGER loads, and the spawn manager is
+        // built FROM this store — so the composition root assigns it after the load, exactly as it
+        // already does for `workdirRoot` below. Empty until then. The store itself reads it for
+        // nothing; it is here because `engine/seeding.js` needs each seat's cage template at
+        // pre-enqueue admission time and holds only the store.
+        launchSpecs: {},
+        tools: opts.tools || {},
+        workflows: opts.workflows || {},
+        // The live ticker cadence, handed in by the composition root like every other
+        // configured value: the minutes→ticks conversion below reads it so a snooze
+        // means the same wall-clock duration at any tick_interval_ms. Absent → the
+        // ticker's own 10 s default (warnings.js).
+        tick_interval_ms: opts.tickIntervalMs,
+        // Task 7.562 — the sanctioned fire-tool workdir. Set by the composition root AFTER the spawn
+        // manager loads the launch-profile config (engine/index.js), because that config is where
+        // `default_workdir_root` lives and the spawn manager is built from this store. Null until
+        // then, and null forever for a store opened without one — the enqueue door then stays silent
+        // and the fire door, which reads the value directly, remains the boundary.
+        workdirRoot: opts.workdirRoot || null,
+      };
+    } catch (err) {
+      // The handle leaked here until R3/2026-08-15: `new DatabaseSync` had succeeded, so a throw
+      // above left an open fd (and its lock on the db file) for the life of the process. It only
+      // ever mattered to a caller that retries the SAME path in-process — which is exactly what the
+      // 2026-08-14 20:25Z incident was — so close it rather than reason about who those callers are.
+      try { this.db.close(); } catch {}
+      this.db = null;
+      throw err;
+    }
 
     // The writer slot is claimed LAST, and that ordering is the fix, not a style choice: it used to
     // be claimed right after `new DatabaseSync`, so any throw below (a WAL/schema/migrate failure,
