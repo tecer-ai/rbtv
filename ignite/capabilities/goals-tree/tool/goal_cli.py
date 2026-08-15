@@ -58,6 +58,24 @@ import yaml
 # ---------------------------------------------------------------- constants
 
 GOAL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+# THE NAME RULE FOR ADDRESSING AN EXISTING GOAL — deliberately one character wider than the
+# CREATION rule above. It admits `GOAL_NAME_RE` plus an optional SINGLE leading `_`, and nothing
+# else: no dot (so `..` stays unrepresentable, not filtered), no `/`, no leading/trailing hyphen,
+# never empty — `..`, `_`, `__x`, `a/b`, `a_b`, `-x`, `Foo` are all still refused.
+#
+# WHY THE SPLIT (2026-08-15, owner ruling R2). `_channel-master` is a LIVE goal — the owner's
+# Slack-DM entry point — that predates the kebab rule, and the leading underscore made it
+# UNPAUSABLE: `pause`/`resume`/`lane` all refused it `goal-name-invalid`, so no landing could ever
+# hold it, and every deploy ran with a goal free to spawn straight through. Renaming it was the
+# alternative and it is the bigger blast radius (KG records, heart.db job rows, seat.md,
+# sessions.csv, the chat bridge's room state).
+#
+# `scaffold` deliberately KEEPS `GOAL_NAME_RE`, so no NEW underscore goal can be minted: the
+# daemon-side argv gate (`server/heart/argv-template.js#NAME_RE`) is kebab-only and would refuse
+# such a name at enqueue. The underscore prefix is therefore grandfathered, not blessed.
+GOAL_REF_NAME_RE = re.compile(r"^_?[a-z0-9]+(?:-[a-z0-9]+)*$")
+
 FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 GOAL_TYPES = ("one-shot", "recurring")
@@ -769,10 +787,11 @@ def _lane_goal_dir(args) -> tuple[Path, Path, str]:
     """(root, goal_dir, name) for the three marker verbs — `cmd_lane`'s own gate, once."""
     root = resolve_goals_root(args.root)
     name = args.goal_name
-    if not GOAL_NAME_RE.match(name):
+    if not GOAL_REF_NAME_RE.match(name):
         raise Refusal(
             f"goal name '{name}' violates the naming rule — lowercase kebab-case "
-            "([a-z0-9] words joined by single hyphens)", "goal-name-invalid")
+            "([a-z0-9] words joined by single hyphens, optionally prefixed by one `_`)",
+            "goal-name-invalid")
     goal_dir = root / name
     if not goal_dir.is_dir():
         raise Refusal(f"{goal_dir}: no such goal", "goal-absent")
@@ -1180,10 +1199,10 @@ def cmd_lane(args) -> int:
     name = args.goal_name
     # The same name gate every other verb applies — it is also what keeps a `../..` from
     # resolving this write outside the goals root.
-    if not GOAL_NAME_RE.match(name):
+    if not GOAL_REF_NAME_RE.match(name):
         raise Refusal(
             f"goal name '{name}' violates the naming rule — lowercase kebab-case "
-            "([a-z0-9] words joined by single hyphens)"
+            "([a-z0-9] words joined by single hyphens, optionally prefixed by one `_`)"
         )
     goal_dir = root / name
     if not goal_dir.is_dir():
@@ -1623,7 +1642,7 @@ def lint_goal(root: Path, name: str) -> Findings:
         if declared != name:
             f.add("folder name == goal.md name", str(goal_dir / "goal.md"),
                   f"folder is '{name}' but goal.md declares '{declared}'")
-        if not GOAL_NAME_RE.match(name):
+        if not GOAL_REF_NAME_RE.match(name):
             f.add("goal name well-formed", str(goal_dir),
                   f"'{name}' is not lowercase kebab-case")
         for field in ("name", "creation-date", "type", "status"):
@@ -4860,6 +4879,39 @@ def cmd_selftest(args) -> int:
         check("pausing a goal with NO marker stashes `console`",
               (live / LANE_FILE).read_text(encoding="utf-8") == "paused console\n",
               repr((live / LANE_FILE).read_text(encoding="utf-8")))
+
+        # ── the grandfathered `_` prefix (R2, 2026-08-15) ────────────────────────────────────
+        # `_channel-master` is LIVE and was UNPAUSABLE: every marker verb refused it
+        # `goal-name-invalid`, so no landing could hold it. `GOAL_REF_NAME_RE` widened the
+        # ADDRESSING rule by exactly one optional leading `_`. Both sides are armed here —
+        # the accepted shape reaches the marker, every refused shape still refuses, and
+        # `scaffold` (the CREATION rule) is unchanged so no new one can be minted.
+        res = s33 / "_reserved-goal"
+        res.mkdir()
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_pause(_ns(goal_name="_reserved-goal"))
+        check("an `_`-prefixed goal PAUSES (it used to refuse `goal-name-invalid`)",
+              (res / LANE_FILE).read_text(encoding="utf-8") == "paused console\n",
+              repr((res / LANE_FILE).read_text(encoding="utf-8")))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_resume(_ns(goal_name="_reserved-goal"))
+        check("...and RESUMES byte-exactly back to its console marker",
+              (res / LANE_FILE).read_text(encoding="utf-8") == "console\n",
+              repr((res / LANE_FILE).read_text(encoding="utf-8")))
+        for bad in ("..", "_", "__x", "a/b", "a_b", "-x", "Foo", ""):
+            check(f"the widened rule STILL refuses {bad!r}",
+                  _code(cmd_pause, _ns(goal_name=bad)) == "goal-name-invalid",
+                  repr(_code(cmd_pause, _ns(goal_name=bad))))
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                cmd_scaffold(argparse.Namespace(root=str(s33), goal_name="_new-goal",
+                                                type="one-shot", lane="console", json=False))
+            scaffold_refused = False
+        except Refusal:
+            scaffold_refused = True
+        check("scaffold's CREATION rule still refuses a new `_` goal, and wrote nothing",
+              scaffold_refused and not (s33 / "_new-goal").exists(),
+              f"refused={scaffold_refused} exists={(s33 / '_new-goal').exists()}")
 
         print("splice (pure)")
         TF_HEAD = ["taskforce-id", "seat", "after", "harness", "model", "effort",

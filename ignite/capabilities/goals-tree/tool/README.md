@@ -151,6 +151,15 @@ that prefix and writes the remainder back. Both lane readers — `goal_cli.read_
 change. The daemon lets go on its next watch pass; the stashed assignment is still on disk, and
 `lane --json` reports `paused` / `paused_from` so nothing has to be inferred.
 
+**Every goal on the tree is pausable, including `_channel-master`** (owner ruling R2, 2026-08-15).
+The verbs that ADDRESS an existing goal — `lane`, `pause`, `resume`, `relaunch`, and `lint`'s name
+check — validate through `GOAL_REF_NAME_RE`, which is `GOAL_NAME_RE` plus an optional SINGLE
+leading `_`. `scaffold` deliberately still validates through the narrower `GOAL_NAME_RE`, so no NEW
+underscore goal can be minted (the daemon-side argv gate, `server/heart/argv-template.js#NAME_RE`,
+is kebab-only and would refuse such a name at enqueue). Before this split the leading underscore
+refused `goal-name-invalid` at every marker verb, so **no landing had ever been able to hold that
+goal** and every deploy ran with it free to spawn straight through.
+
 - **Pausing bounds STARTING, not EXECUTION.** It stops the daemon starting anything NEW for this
   goal — both halves: the watch pass will not SEED it (a paused marker is not `daemon`), and the
   ticker's dispatch pause gate (`ticker.js#pausedGoalForRow`, reading
