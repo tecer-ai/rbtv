@@ -2372,12 +2372,33 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         tail = ""
         if fm["mode"] == "one-shot":
             # F10 — a one-shot pays for CLI discovery inside its single
-            # session; carry the two exact command strings VERBATIM.
+            # session; carry the exact command string VERBATIM.
+            #
+            # ⚠ CHECK-IN IS DELIBERATELY NOT HERE, and its absence is the fix,
+            # not an omission. W1's C4 patch made check-in LANE-DEPENDENT: a
+            # daemon-lane seat is a `systemd-run` unit with no tmux pane for
+            # `checkin` to resolve against, so `coord.py#boot_prompt` drops the
+            # order on that lane and keeps it on the tmux lane. This file is
+            # LANE-BLIND — a seat is materialized before its lane is known — so
+            # a hardcoded `checkin` here re-issued, inside the seat's own
+            # descriptor, the very order the boot prompt had just withdrawn.
+            # Threading the lane down to materialize was the alternative and it
+            # is a design change for no gain: the boot prompt is composed on
+            # EVERY boot, already knows the lane, and already carries the
+            # check-in sentence. One instruction, one home, the one that knows.
+            #
+            # ⚠ CHECK-OUT STAYS, on both lanes. It WORKS on the daemon lane
+            # (`awaiting-close.json` is writable there) and it is the sole
+            # producer of `incomplete` and of the leader route flag — dropping
+            # it would be a far worse defect than the desync being fixed.
             tail = (
-                "\n<!-- one-shot boot (F10): the two exact coordination "
-                "commands for this seat, verbatim. -->\n\n"
-                "One-shot boot — run these two commands exactly:\n\n"
-                f"    coordinate --package {package} --as {seat} checkin\n"
+                "\n<!-- one-shot boot (F10): the exact coordination command "
+                "for this seat, verbatim. Check-IN is lane-dependent and is "
+                "ordered by the boot prompt, which knows the lane; this file "
+                "does not. -->\n\n"
+                "One-shot boot — end your session with this command exactly "
+                "(your boot prompt states whether this lane also checks in):"
+                "\n\n"
                 f"    coordinate --package {package} --as {seat} checkout\n"
             )
 
@@ -6035,8 +6056,15 @@ def run_dag04_acceptance(check, env: dict) -> None:
               "the assembler's task-id)",
               all(k in kinds for k in ("task-goal", "scope",
                                        "done-contract")))
+        # ⚠ RE-STATED, not deleted (the one-shot tail dropped its `checkin`
+        # line). It still keys on `checkout` and on the boot-tail MARKER, so an
+        # interactive seat that started carrying the tail goes red here; the
+        # `checkin` half is kept as the standing assertion that no descriptor
+        # of any mode re-issues a lane-dependent order this file cannot resolve.
         check("F10 control: an interactive seat carries no one-shot boot "
-              "text", "checkin" not in atext and "checkout" not in atext)
+              "text — no marker, no checkout order, and no checkin anywhere",
+              "one-shot boot (F10)" not in atext
+              and "checkout" not in atext and "checkin" not in atext)
         _check_emission_bits(
             check, "dag-04: emission bits are 0644 file / 0755 folder",
             alpha_md)
@@ -6139,11 +6167,18 @@ def run_dag04_acceptance(check, env: dict) -> None:
               and "ctx-refresh" not in s1_fm)
         check("SC-16: a cheap one-shot worker gets close: mechanical (F8)",
               s1_fm.get("close") == "mechanical")
-        check("F10: a one-shot descriptor carries both exact coordinate "
-              "command strings verbatim",
-              f"coordinate --package {fx['pkg']} --as s1 checkin" in s1_text
-              and f"coordinate --package {fx['pkg']} --as s1 checkout"
-              in s1_text)
+        # ⚠ RE-STATED, not deleted. It used to demand BOTH command strings;
+        # it now demands the check-OUT string verbatim and REFUSES the
+        # check-IN one — this file is lane-blind, and a hardcoded `checkin`
+        # re-issues on the daemon lane the order `coord.py#boot_prompt`
+        # withdrew there (W1 C4). Both halves are load-bearing: without the
+        # positive half a change that dropped check-out entirely would pass,
+        # and check-out is the sole producer of `incomplete`.
+        check("F10: a one-shot descriptor carries the check-OUT command "
+              "string verbatim and orders NO check-in (lane-blind: check-in "
+              "is the boot prompt's, which knows the lane)",
+              f"coordinate --package {fx['pkg']} --as s1 checkout" in s1_text
+              and "checkin" not in s1_text)
 
         def s1_bindings(name: str, extra: dict, seat: str = "s1") -> str:
             entry = {"model": "deepseek/deepseek-chat", "after": [], **extra}

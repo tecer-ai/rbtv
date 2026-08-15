@@ -15757,10 +15757,45 @@ def boot_prompt(w, args, daemon_lane=False):
     # WORKS on this lane — `awaiting-close.json` is a writable path — and it is the SOLE producer
     # of `incomplete` and of the leader route flag. Dropping both would delete the honest ending
     # this entire wave exists to preserve.
+    #
+    # ⚠ THE PROTOCOL IS NAMED FROM THE KIT, NOT FROM THE PACKAGE — and both lanes name the SAME
+    # bytes, because they are composed once, here, and concatenated by both branches below. Until
+    # 2026-08-15 both lanes said "read {pkg}/CLAUDE.md and follow its coordination protocol
+    # exactly". That file is a deterministic ROUTER (owner ruling R21): a file table and the
+    # write-if-something ledgers, 1976 bytes, and NOT ONE LINE of coordination protocol. So every
+    # seat on every lane was sent for instructions that are not there, at the one moment it is
+    # deciding how to behave. `protocol.md` is the protocol — it is already what "protocol item 9"
+    # in the memory sentence above resolves in — and `starter-set/conduct.md` is the goal conduct
+    # manual.
+    #
+    # ⚠ BOTH ARE READ FROM THE KIT'S SINGLE SOURCE, and that is the fix for a second defect, not a
+    # convenience. A goal's own `conduct.md` is BYTE-COPIED at scaffold time and nothing backfills
+    # it, so a conduct ruling reaches NEW goals only. Measured 2026-08-15: all five goals holding a
+    # copy on this box carried the SAME pre-W1 snapshot (sha `6f1d599a…`), four conduct commits
+    # behind source — teaching `exited`'s two exits as freely available, with no `checkout
+    # --incomplete` vocabulary and none of W2's two-doors caveat. Naming the source removes the
+    # drift BY CONSTRUCTION rather than deferring it to the next sweep, and it reaches goals
+    # scaffolded last month on their very next boot, because this composer runs on every boot.
+    # The accepted cost: a goal that customized its own `conduct.md` would no longer be read from
+    # (none has — all five copies are byte-identical to a source snapshot).
+    #
+    # ⚠ IT IS INSIDE THE CAGE. `config/spawn-profiles.yaml`'s `cage.SeatBinds` opens
+    # `ro-bind:{grant:readRoot}` — the whole workspace root, read-only, FIRST in the stack — and
+    # the kit lives under it. `cage.js#composeAncestorMasks` cuts only `CLAUDE.md`/`AGENTS.md` and
+    # the harness config dirs, and only on the walk-up from the seat's launch folder, which the kit
+    # is not on. Verified through `cagespec.py#evaluate` for a live flagship seat.
+    kit = Path(__file__).resolve().parent
+    reads = (
+        f"Then read {kit / 'protocol.md'} — THE coordination protocol, messaging, identity and "
+        f"lifecycle mechanics — and follow it exactly, and read "
+        f"{kit / 'starter-set' / 'conduct.md'}, the goal conduct manual. Both are read from the "
+        f"kit's single source, so they carry the current rulings. ({pkg}/CLAUDE.md is your goal's "
+        f"ROUTER — where things are and where to write — and carries no protocol; read it for "
+        f"that.) ")
     if daemon_lane:
         opening = (
-            f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly, "
-            f"with ONE amendment for this lane: DO NOT run `checkin`. You have no tmux pane to "
+            reads +
+            f"There is ONE amendment for this lane: DO NOT run `checkin`. You have no tmux pane to "
             f"check in from, and your session row in {pkg}/sessions.csv was already opened for you "
             f"when you were spawned. Everything else in the protocol stands — in particular you "
             f"still CHECK OUT (coordination CLI: {coord_invocation(args)}), and `checkout "
@@ -15772,8 +15807,8 @@ def boot_prompt(w, args, daemon_lane=False):
             f"ends. Then execute ONLY your briefing. ")
     else:
         opening = (
-            f"Then read {pkg}/CLAUDE.md and follow its coordination protocol exactly: "
-            f"check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
+            reads +
+            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
             f"then execute ONLY your briefing. ")
     # ── W3 · THE ROUTED-FAIL PAYLOAD, folded in HERE and nowhere else ─────────────────────────
     #
@@ -19498,6 +19533,40 @@ def _selftest_checks(args, failures, names):
         p = boot_prompt(by["delta"], ns())
         check("v2: ephemeral seat boot prompt omits the memory-read instruction",
               "PREDECESSOR'S HANDOFF" not in p)
+        # ---- the boot READS: real protocol text, and BOTH lanes name the same bytes ----
+        # ⚠ THE ASSERTION IS ABOUT THE FILE'S CONTENT, NOT ITS NAME. Both lanes used to send a
+        # booting seat to the package `CLAUDE.md` "and follow its coordination protocol exactly",
+        # and that file is a router with no protocol in it — so a row that only checked a path was
+        # named would have stayed green throughout the defect. These rows resolve what the prompt
+        # names, ON DISK, and demand the protocol's own §-heading and the conduct clauses W1/W2
+        # added (`checkout --incomplete`, the two-doors caveat) actually be in there.
+        _bp_kit = Path(__file__).resolve().parent
+        _bp_proto, _bp_conduct = _bp_kit / "protocol.md", _bp_kit / "starter-set" / "conduct.md"
+        _bp_tmux = boot_prompt(by["gamma"], ns())
+        _bp_dmn = boot_prompt(by["gamma"], ns(), daemon_lane=True)
+        check("boot reads: both lanes name the kit's protocol.md AND starter-set/conduct.md — "
+              "identical bytes on both lanes, composed once",
+              all(str(f) in _bp_tmux and str(f) in _bp_dmn for f in (_bp_proto, _bp_conduct)))
+        check("boot reads: no lane sends a seat to the package CLAUDE.md FOR THE PROTOCOL — "
+              "that file is a deterministic router (R21) and never carried one",
+              "CLAUDE.md and follow its coordination protocol" not in _bp_tmux
+              and "CLAUDE.md and follow its coordination protocol" not in _bp_dmn)
+        check("boot reads: what the prompt names RESOLVES to actual protocol text on disk "
+              "(the file exists and carries the session protocol's own heading)",
+              _bp_proto.is_file()
+              and "## Session protocol" in _bp_proto.read_text(encoding="utf-8"))
+        check("boot reads: the conduct the prompt names is the LIVE source, carrying the W1/W2 "
+              "clauses a byte-copied per-goal conduct.md never received",
+              _bp_conduct.is_file()
+              and all(s in _bp_conduct.read_text(encoding="utf-8")
+                      for s in ("checkout --incomplete", "Two doors, two conditions")))
+        check("boot reads: check-OUT reaches BOTH lanes — the daemon lane orders it in the "
+              "prompt, the tmux lane through the protocol the prompt now names; check-IN only "
+              "where a pane exists to resolve it (W1 C4 — the asymmetry is the correction)",
+              "CHECK OUT" in _bp_dmn and "DO NOT run `checkin`" in _bp_dmn
+              and "check in as 'gamma'" in _bp_tmux
+              and "$COORD checkout " in _bp_proto.read_text(encoding="utf-8"))
+
         p = boot_prompt(by["leader"], ns())
         check("leader renew: no memory.md yet -> generic fresh boot prompt", "RESUMING" not in p)
         (mdir / "memory.md").write_text("# memory\n## Resume here\nstate\n")
