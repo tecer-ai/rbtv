@@ -180,17 +180,28 @@ state is never consumed either. The guard sits on `notify()` itself rather than 
 passing that branch — which is how a `--dry-run` DM'd a real person until 2026-08-14.
 Guarded by `probes/probe-watchdog-dry-run-no-dm.py`.
 
+⚠ **AMENDED 2026-08-15, owner ruling R1: an alarm is NOT a systemd failure.**
+
 | Exit | Means |
 |------|-------|
-| `0` | the pass completed — all green, or it acted and every subject came back |
-| `1` | a subject is still down after its restart action (a human is needed), the pass could not run at all (no token, unreadable config, notify failed), or `--dry-run` found a subject down |
+| `0` | the pass RAN — all green, it acted, a subject is still down, an alarm stands, the notify failed. Every one of those is a completed pass |
 | `2` | usage error |
+| anything else | **the watchdog itself broke** (an unhandled exception) |
 
-Unlike `rbtv-ignite-daemon`'s `unit` verb, this exit code is NOT "did the read succeed" —
-a watchdog pass has no read to report, only an outcome. And unlike
-`rbtv-probe-suite.service`, exit `1` is deliberately **not** whitelisted in the unit, so a
-subject that will not come back shows as a failed unit to anyone reading
-`systemctl --user status rbtv-watchdog`.
+The verdict of a pass is carried by the owner DM and by the state file
+(`RBTV_WATCHDOG_STATE`, written on EVERY alerting pass — including a suppressed repeat and
+a failed notify), never by the exit code. WHY R1: the timer re-fires every ~60s, so an
+alarm reported as exit `1` made systemd log `rbtv-watchdog.service: Failed with result
+exit-code` once a minute for as long as the alarm stood — `systemctl --user --failed` was
+useless as a signal for exactly the window something was wrong, and a watchdog correctly
+alarming was indistinguishable at a glance from a watchdog that had crashed.
+
+Nothing is whitelisted in the unit (`SuccessExitStatus` was rejected, not forgotten): the
+exit-0 change belongs on the tool side precisely so a real failure — this component dying —
+still shows FAILED. A blanket whitelist would have masked that too. Guarded by
+`probes/probe-watchdog-alarm-exit-zero.py`, whose control arm proves the nonzero path is
+still reachable — without it "exit 0" would be indistinguishable from an exit code nothing
+can move.
 
 ## Environment
 

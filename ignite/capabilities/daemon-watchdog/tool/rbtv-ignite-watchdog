@@ -13,13 +13,17 @@ Silence means healthy: the owner DM fires ONLY when this pass ACTED or when a
 restart did NOT restore the subject (CMP-28 invariant 3). A chatty watchdog trains
 its reader to ignore it.
 
-Exit codes:
-  0  the pass completed — all green, or it acted and every subject came back
-  1  a subject is still down after its restart action (a human is needed), the
-     pass could not run at all (missing token/config), or --dry-run found a
-     subject down. All are cases a reader of `systemctl --user status` should
-     see as a failure.
+Exit codes — ⚠ AMENDED 2026-08-15 (owner ruling R1): AN ALARM IS NOT A SYSTEMD FAILURE.
+  0  the pass RAN. All green, it acted, a subject is still down, an alarm stands — every
+     one of those is a completed pass, and the VERDICT is carried by the owner DM and by
+     the state file (RBTV_WATCHDOG_STATE), never by the exit code. WHY: the timer re-fires
+     every ~60s, so a standing alarm reported as exit 1 logged `Failed with result
+     exit-code` once a minute and made `systemctl --user --failed` useless for exactly the
+     window something was wrong — and a watchdog correctly alarming became
+     indistinguishable at a glance from a watchdog that had crashed.
   2  usage error
+  anything else — THE WATCHDOG ITSELF BROKE (an unhandled exception). That is now the ONLY
+     thing that paints this unit FAILED, which is what makes a failed unit worth reading.
 
 Environment (every per-instance value is resolved at runtime; nothing is baked in):
   RBTV_WATCHDOG_WORKSPACE     workspace root that carries .rbtv/  (default: CWD)
@@ -795,14 +799,18 @@ def load_state():
         return {}
 
 
-def save_state(fingerprint, since=None):
+def save_state(fingerprint, since=None, notified_at=None):
     """`since` = when THIS fingerprint first alerted; `notified_at` = when the owner
     was last actually told. The gate reads notified_at (so a re-alert does not then
-    fire every pass); the message reads since (so it can say how long this has stood)."""
+    fire every pass); the message reads since (so it can say how long this has stood).
+
+    ⚠ `at` is refreshed on EVERY alerting pass, notified or not (R1): since an alarm no
+    longer paints the unit failed, THIS FILE is the standing-alarm signal, and a reader
+    must be able to tell an alarm still standing this minute from one last seen 6h ago."""
     now = time.time()
     write_json_atomic(state_path(), {"alert": fingerprint,
                           "since": since if since is not None else now,
-                          "notified_at": now,
+                          "notified_at": now if notified_at is None else notified_at,
                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))})
 
 
@@ -825,7 +833,7 @@ def main(argv):
               file=sys.stderr)
         return 2
 
-    lines, alerts, dry_down, unrestored = [], [], [], False
+    lines, alerts, dry_down = [], [], []
     for name in targets:
         probe, restart, describe = ROWS[name]
         state, detail = probe()
@@ -836,7 +844,6 @@ def main(argv):
             continue
         if state == "alarm":
             alerts.append("%s: %s (no restart can fix this — human needed)" % (name, detail))
-            unrestored = True
             continue
         if dry:
             # A dry run INSPECTS. It restarts nothing and it must also not DM: a
@@ -853,7 +860,6 @@ def main(argv):
             if not allow:
                 lines.append("%-13s %-6s %s" % ("  ->", "held", note))
                 alerts.append(note)
-                unrestored = True
                 continue
         rc, out = restart()
         after, after_detail = probe()
@@ -862,7 +868,6 @@ def main(argv):
         if after in ("up", "skip"):
             alerts.append("%s was down (%s) — %s, and it is back." % (name, detail, describe()))
         else:
-            unrestored = True
             alerts.append("%s is DOWN and did NOT come back after %s — %s. Restart output: %s"
                           % (name, describe(), after_detail, out[-400:] or "<none>"))
 
@@ -891,8 +896,10 @@ def main(argv):
         fingerprint = " | ".join(sorted(a.split(" —")[0].split(" (")[0] for a in alerts))
         last = load_state()
         repeat = fingerprint == last.get("alert")
-        silent_for = time.time() - float(last.get("notified_at") or 0)
+        prior_notified = float(last.get("notified_at") or 0)
+        silent_for = time.time() - prior_notified
         since = last.get("since") if repeat else None
+        notified_at = prior_notified if repeat else 0
         if repeat and silent_for < realert:
             print("\n[repeat] unchanged since the previous pass — not re-notifying for another %dm: %s"
                   % (int((realert - silent_for) / 60), fingerprint))
@@ -904,9 +911,14 @@ def main(argv):
             ok, detail = notify(head + "\n" + "\n".join("• " + a for a in alerts), dry=dry)
             print("\n[notify] ok=%s %s" % (ok, detail))
             if ok:
-                save_state(fingerprint, since)
-            else:
-                unrestored = True
+                notified_at = time.time()
+        # R1: the exit code no longer says an alarm is standing, so THE STATE FILE HAS TO —
+        # written on every alerting pass, including a suppressed repeat and a notify that
+        # FAILED (that pass is the one where the owner was not told, so it is the last one
+        # that may leave no record). `notified_at` moves only when he actually was.
+        # A --dry-run still persists nothing: it must not consume a real pass's record.
+        if not dry:
+            save_state(fingerprint, since, notified_at)
     elif dry_down:
         # Not green, but nothing was done and nothing is claimed. The dedupe state is
         # deliberately left untouched: a dry run must not consume a real pass's
@@ -918,7 +930,10 @@ def main(argv):
             save_state(None)
         print("\nall green — exiting silently (no DM)")
 
-    return 1 if (unrestored or dry_down) else 0
+    # R1: a pass that RAN is exit 0, whatever it found. Nonzero is reserved for the
+    # watchdog itself breaking (an unhandled exception, or the usage errors above), so
+    # `systemctl --user --failed` means "the watchdog is broken" and nothing else.
+    return 0
 
 
 if __name__ == "__main__":
