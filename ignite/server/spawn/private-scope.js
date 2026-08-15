@@ -154,10 +154,21 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   // THE FLOOR is only walked when the cage can actually SEE the workspace root (a `read-root:
   // true` seat); an ordinary seat has no opening there, so there is nothing to hide and no walk
   // to pay for.
-  // ponytail: a full recursive readdir of the workspace per read-root spawn (measured 2026-08-13:
-  // ~48k entries, 111 ms on the ignite VPS). Cache it against the tree's mtimes only if a
-  // spawn-latency measurement ever names it.
+  // A full recursive readdir of the workspace per read-root spawn. MEASURED, twice:
+  //   2026-08-13  "111 ms" — that figure was WRONG for the universal read root W5 shipped, and it
+  //               stood in this comment while every spawn paid 60x it.
+  //   2026-08-15  6417-6822 ms over 75054 entries / 9349 dirs on the ignite VPS (live workspace,
+  //               111 masked paths). The readdir itself is 148 ms of that. The other ~5.7 s was
+  //               `entries.some((m) => inside(m, p))` — an O(tree x entries) containment scan, run
+  //               75054 x up to 111 times, each call re-`require`ing cage.js.
+  // The scan was also unnecessary: a path is only skipped when it IS a seed entry or lies under
+  // one, and the loop never RECURSES into anything it skips or pushes — so nothing under a seed
+  // entry is ever visited, and self-match against the seed set answers the same question. Set
+  // membership instead: 174 ms, byte-identical 111-entry result. No cache, therefore no mask list
+  // that can go stale — the walk is fresh on every composition, which `probe-private-scope-fresh`
+  // holds.
   const entries = scope.entries.filter((e) => fs.existsSync(e));
+  const seeded = new Set(entries);
   const rootCover = lastCovering(spec, root);
   if (rootCover && rootCover.verb !== 'tmpfs' && scope.patterns.length > 0) {
     (function walk(dir) {
@@ -166,7 +177,7 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
       for (const ent of listing) {
         const p = path.join(dir, ent.name);
         if (scope.allow.has(p)) continue;
-        if (entries.some((m) => inside(m, p))) continue;      // already denied by a broader entry
+        if (seeded.has(p)) continue;                          // already denied by a seed entry
         if (scope.patterns.some((re) => re.test(ent.name))) { entries.push(p); continue; }
         if (ent.isDirectory() && !ent.isSymbolicLink()) walk(p);
       }
