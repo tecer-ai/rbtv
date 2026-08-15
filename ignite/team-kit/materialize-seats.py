@@ -162,6 +162,7 @@ import argparse
 import collections
 import csv
 import datetime
+import fcntl
 import hashlib
 import io
 import json
@@ -1538,13 +1539,13 @@ def check_repass(package: Path, added: list[str]) -> None:
 
 def repass_descriptors(plan: dict) -> list[str]:
     """The --repass write: REPLACE each existing seat.md with the freshly
-    rendered one, atomically (tmp in the same directory + os.replace, the
-    discipline every other writer here uses). Nothing else is touched — no
-    registry row, no run register, no package surface."""
+    rendered one, in place (`_rewrite_in_place`, the discipline every other
+    writer here uses). Nothing else is touched — no registry row, no run
+    register, no package surface."""
     written: list[str] = []
     for seat in plan["added_seats"]:
         target = seat_home(Path(plan["package"]), seat) / "seat.md"
-        _atomic_replace(target, plan["descriptors"][seat])
+        _rewrite_in_place(target, plan["descriptors"][seat])
         written.append(str(target))
     return written
 
@@ -4384,31 +4385,53 @@ def render_taskforce_rows(plan: dict) -> None:
     }
 
 
-def _atomic_replace(path: Path, new_text: str) -> None:
-    """Replace a csv's whole content atomically: tmp file in the SAME directory
-    + os.replace, carrying the live file's mode. NEVER an open-append — a
-    partial line in a csv is unparseable by every consumer at once. Shared by
-    both append writers (the taskforce registry and the run register) so the
-    two can never drift into two different write disciplines."""
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
-                                    prefix=f".{path.name}.")
+def _rewrite_in_place(path: Path, new_text: str) -> None:
+    """Replace a csv's whole content IN PLACE — same inode, one `pwrite` under
+    an exclusive `flock`. NEVER an open-append (a partial line in a csv is
+    unparseable by every consumer at once), and — since task 08 — never
+    `tmp + os.replace` either. Shared by both append writers (the taskforce
+    registry and the run register) so the two can never drift into two
+    different write disciplines.
+
+    WHY NOT os.replace, measured 2026-08-15 (task 08 / the 2026-08-14
+    `plan-2-plan-planner` EROFS). A single-file bind mount attaches to a
+    DENTRY, not to a pathname. `os.replace` unlinks the file a seat's cage
+    bound and puts a NEW inode under the same name; the seat's next lookup
+    resolves a fresh dentry carrying no mount override, falls through the
+    cage's enclosing `--ro-bind / /` floor, and every write fails EROFS. That
+    is one shared `composeCageFor` path, so a splice here locked out EVERY
+    seat declaring `goal-writes` on the spliced file — and it locked out this
+    very function when the caller is itself inside the cage, because
+    `os.replace` over a bind mountpoint cannot work at all. Keeping the inode
+    keeps the bind. (The alternative — widening the cage bind to the
+    CONTAINING DIRECTORY — survives the replace but hands a seat the whole
+    goal folder and needs a companion carve to take back what it must not
+    have; this is the smaller and sharper fix, and it needs no cage change.)
+
+    The property the old discipline bought is kept: `os.pwrite` is ONE
+    syscall, so a concurrent reader sees the file whole-or-unchanged and never
+    a half-written row.
+    """
+    # ponytail: in-place is not crash-atomic — a power loss mid-write leaves a
+    # truncated registry where os.replace left the old file intact. Acceptable:
+    # the writer re-reads and refuses `registry-changed-underfoot`, and the
+    # cage bind is the property that must hold. If it ever bites, add a sidecar
+    # journal — do NOT go back to os.replace.
+    data = new_text.encode("utf-8")
+    fd = os.open(str(path), os.O_WRONLY)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write(new_text)
-        os.chmod(tmp_name, os.stat(path).st_mode & 0o7777)
-        os.replace(tmp_name, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.pwrite(fd, data, 0)
+        os.ftruncate(fd, len(data))
+    finally:
+        os.close(fd)
 
 
 def append_taskforce_rows(plan: dict) -> int:
     """dag-05 — the registry append, from the plan render_taskforce_rows
-    validated: read → append → ATOMIC write (tmp in the same directory +
-    os.replace), NEVER an open-append — a partial line in the run's registry
+    validated: read → append → single-syscall IN-PLACE write (same inode, see
+    `_rewrite_in_place` for why the inode is load-bearing), NEVER an
+    open-append — a partial line in the run's registry
     is unparseable by every consumer at once. The existing bytes (header
     included) pass through unchanged; only whole rendered lines are added.
 
@@ -4435,7 +4458,7 @@ def append_taskforce_rows(plan: dict) -> int:
             str(tf_path),
         )
     new_text = current + "".join(line + "\n" for line in reg["append_lines"])
-    _atomic_replace(tf_path, new_text)
+    _rewrite_in_place(tf_path, new_text)
     plan["rows_appended"] = len(reg["append_lines"])
     return plan["rows_appended"]
 
@@ -6374,6 +6397,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         tf = pkg / TASKFORCE_NAME
         header_before = tf.read_text(encoding="utf-8").split("\n")[0]
         rows_before = len(tf.read_text(encoding="utf-8").splitlines())
+        ino_before = tf.stat().st_ino
         argv = ["--package", fx["pkg"], "--workflow", "demo-flow",
                 "--catalog-root", fx["catalog"], "--bindings", fx["b_both"],
                 "--milestone-id", "m1", "--root", "--json"]
@@ -6389,6 +6413,16 @@ def run_dag05_acceptance(check, env: dict) -> None:
               (cp.stdout + cp.stderr).strip()[:200])
         check("SC-10: the written header equals the read header exactly",
               tf_lines[0] == header_before, tf_lines[0])
+        # SC-22 (task 08) — the registry splice KEEPS THE INODE. A single-file
+        # bind mount attaches to a dentry, so an inode swap here is what gave a
+        # live seat EROFS on its own `goal-writes` grant. Spelled as the raw
+        # st_ino rather than "the writer used pwrite" so it stays a check on the
+        # OBSERVABLE property, not on the implementation that provides it: any
+        # future return to tmp+os.replace turns this row red.
+        check("SC-22: the append rewrites taskforce.csv IN PLACE — same inode "
+              "before and after, so a cage's single-file bind survives it",
+              tf.stat().st_ino == ino_before,
+              f"{ino_before} -> {tf.stat().st_ino}")
         rows = {r["seat"]: r for r in csv.DictReader(tf_lines)}
         afm = yaml.safe_load(_FM_RE.match(
             (pkg / "seats" / "alpha" / "seat.md")
