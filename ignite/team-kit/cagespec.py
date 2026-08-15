@@ -98,9 +98,15 @@ GOAL_WRITE_GRANT = "goalWrite"
 #                             folder. (⚠ Not listed in the IPH-2 design's drop table — an omission
 #                             there, not a new class: it is in the live template and its refusal
 #                             rule is the same "outside by construction" the row above states.)
+#   cliWriteRoot            — W6. Judged by the SAME predicate as its `rwPath` sibling above:
+#                             `resolveCliWriteRootGrants` runs every entry through `rwPathRefusal`,
+#                             which refuses anything overlapping `<ws>/.rbtv/goals` in either
+#                             direction. So a CLI-derived write root can never reach a goal folder,
+#                             for exactly the reason the row above gives, enforced by exactly the
+#                             same function.
 DROPPED_GRANTS = ("readRoot", "busWrite", "goalsWrite", "goalsWriteGroundTruth",
                   "worktree", "repoGit", "worktreeGitDir", "harnessCreds",
-                  "localBin", "tmuxSocketDir", "rwPath")
+                  "localBin", "tmuxSocketDir", "rwPath", "cliWriteRoot")
 
 # THE ONE GRANT CLASS THAT IS NEITHER DROPPED NOR THE GOAL-WRITES FAN-OUT (W3, adv C34). It lands
 # INSIDE the goal folder — `{goalDir}/coordination/permission-edits.csv` — so dropping it would be

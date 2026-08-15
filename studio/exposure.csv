@@ -16,11 +16,11 @@
 #     surface (the ignite boundary's services exclusion);
 #   · hypresent/tests/**, slide-library/engine/tests/**, slide-library/tests/** — test runners
 #     and fixtures (incl. fixture copies of assemble.py/archive.py).
-part-id,part-kind,method,rbtv-cli,entry-point,description
-extract-subtle-refs,tool,path,,capabilities/extract-subtle-refs/extract.py,
-image-gen,tool,path,,capabilities/image-gen/generate.py,
-screenshot-capture,tool,path,,capabilities/screenshot-capture/capture.py,
-hypresent,tool,path,,hypresent/tools/hypresent.py,
-slide-assemble,tool,path,,slide-library/engine/assemble.py,
-slide-archive,tool,path,,slide-library/engine/archive.py,
-slide-install-engine,tool,path,,slide-library/engine/install-engine.py,
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+extract-subtle-refs,tool,path,,capabilities/extract-subtle-refs/extract.py,,
+image-gen,tool,path,,capabilities/image-gen/generate.py,,
+screenshot-capture,tool,path,,capabilities/screenshot-capture/capture.py,,
+hypresent,tool,path,,hypresent/tools/hypresent.py,,
+slide-assemble,tool,path,,slide-library/engine/assemble.py,,
+slide-archive,tool,path,,slide-library/engine/archive.py,,
+slide-install-engine,tool,path,,slide-library/engine/install-engine.py,,

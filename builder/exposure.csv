@@ -11,5 +11,5 @@
 # command surface): builder ships exactly ONE, the component-review measurement CLI below
 # (stdlib, usage block, exit codes — agents run it by hand). Everything else in the module is
 # harness-exposed markdown (workflows, skills), which this inventory does not cover.
-part-id,part-kind,method,rbtv-cli,entry-point,description
-measure-component,tool,path,,workflows/component-review/scripts/measure-component.py,
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+measure-component,tool,path,,workflows/component-review/scripts/measure-component.py,,

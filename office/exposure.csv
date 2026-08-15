@@ -12,5 +12,5 @@
 # invoked by hand per the doc-export workflow). NOTE: it requires third-party libraries
 # (python-docx, PyYAML) but is itself first-party — module-authored. Everything else in the
 # module is harness-exposed markdown, which this inventory does not cover.
-part-id,part-kind,method,rbtv-cli,entry-point,description
-md-to-docx,tool,path,,workflows/doc-export/engines/docx/md-to-docx.py,
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+md-to-docx,tool,path,,workflows/doc-export/engines/docx/md-to-docx.py,,

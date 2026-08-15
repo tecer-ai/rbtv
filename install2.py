@@ -1663,16 +1663,16 @@ def _fixture(root: Path) -> None:
         "fix": {"type": "http", "url": "https://example.invalid/mcp"}}}),
         encoding="utf-8")
     (good / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "fixskill,capability,skill,exhibit,skill-entry.md,A fixture skill: with a colon\n"
-        "fixcmd,workflow,command,,cmd-entry.md,\n"
-        "fixrule,reference,rule,,rule-entry.md,the fixture rule\n"
-        "fixagent,prompt,sub-agent,,agent-entry.md,\n"
-        "fixhook,capability,hook,,hooks.json,\n"
-        "fixmcp,plugin/MCP,config,,mcp.json,\n"
-        "fixguide,prompt,agents.md,exhibit,guide.md,\n"
-        "fixtool,tool,path,,tool/thing.py,\n"
-        "fixpool,prompt,pool,,guide.md,a pool member — shopped, never minted\n",
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "fixskill,capability,skill,exhibit,skill-entry.md,A fixture skill: with a colon,\n"
+        "fixcmd,workflow,command,,cmd-entry.md,,\n"
+        "fixrule,reference,rule,,rule-entry.md,the fixture rule,\n"
+        "fixagent,prompt,sub-agent,,agent-entry.md,,\n"
+        "fixhook,capability,hook,,hooks.json,,\n"
+        "fixmcp,plugin/MCP,config,,mcp.json,,\n"
+        "fixguide,prompt,agents.md,exhibit,guide.md,,\n"
+        "fixtool,tool,path,,tool/thing.py,,\n"
+        "fixpool,prompt,pool,,guide.md,a pool member — shopped, never minted,\n",
         encoding="utf-8")
 
     codexc = root / "fixmod" / "codexcomp"
@@ -1681,9 +1681,9 @@ def _fixture(root: Path) -> None:
     (codexc / "rule-entry.md").write_text("# CODEX RULE\n", encoding="utf-8")
     (codexc / "guide.md").write_text("# codex guidance part\n", encoding="utf-8")
     (codexc / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "codexrule,reference,rule,,rule-entry.md,the codex-side rule\n"
-        "codexguide,prompt,agents.md,,guide.md,\n", encoding="utf-8")
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "codexrule,reference,rule,,rule-entry.md,the codex-side rule,\n"
+        "codexguide,prompt,agents.md,,guide.md,,\n", encoding="utf-8")
 
     bare = root / "fixmod" / "barecomp"
     bare.mkdir(parents=True)
@@ -1695,8 +1695,8 @@ def _fixture(root: Path) -> None:
     (bad / COMPONENT_NAME).write_text("# badcomp\n", encoding="utf-8")
     (bad / "x.md").write_text("x\n", encoding="utf-8")
     (bad / EXPOSURE_NAME).write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "boom,capability,telepathy,,x.md,\n", encoding="utf-8")
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "boom,capability,telepathy,,x.md,,\n", encoding="utf-8")
 
 
 def selftest() -> int:

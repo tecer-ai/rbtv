@@ -2598,7 +2598,7 @@ SECTION_RE = re.compile(
 LINT_NON_REF_KEYS = (
     "id", "seat", "description", "cwd", "agent_type", "mode", "window", "senders",
     "close", "auto-wake", "ephemeral", "broadcast", "component",
-    "human-interactive", "fallback", "capabilities", "context",
+    "human-interactive", "fallback", "capabilities",
 )
 
 _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
@@ -2765,14 +2765,19 @@ def assemble_seat(seat_id: str, binding: dict, seats: dict, prompts: dict,
                     # exact silent-false this canon check exists to kill.
                     fm["human-interactive"] = True
                     fm["fallback"] = fb
-            # `capabilities:`/`context:` are carried VERBATIM, never dropped:
-            # a declared capability or forced read that vanished at assembly is
-            # a seat promised a means it never receives. Rendering them as
-            # resolved blocks is a separate, unbuilt design step.
-            for col in ("capabilities", "context"):
-                val = row.get(col)
-                if val:
-                    fm[col] = val
+            # `capabilities:` is carried VERBATIM, never dropped: a declared
+            # capability that vanished at assembly is a seat promised a means it
+            # never receives. Rendering it as a resolved block is a separate,
+            # unbuilt design step.
+            # ⚠ `context:` USED TO RIDE HERE and is DELETED (W6/R3, 2026-08-14):
+            # the task-schema field is retired, component-lint refuses it on any
+            # task or component file, and its pointer CONTENT moved into the
+            # task's own <scope> read surface. A pass-through for a field no
+            # author may write is dead flexibility, so it is gone rather than
+            # left harmless.
+            val = row.get("capabilities")
+            if val:
+                fm["capabilities"] = val
             continue
         for kind_col, refs in _refs_of(row, NON_REF_COLUMNS):
             resolved: list[str] = []
@@ -4689,12 +4694,16 @@ def cmd_selftest(args) -> int:
               any(i["check"] == "permissions well-formed"
                   for i in lint_goal(root, "pool-goal").items))
 
-        # Every pass-through must be OUT of the ref grammar's reach: `fallback`,
-        # `capabilities` and `context` values are token-shaped, so each one false-positived
+        # Every pass-through must be OUT of the ref grammar's reach: `fallback`
+        # and `capabilities` values are token-shaped, so each one false-positived
         # as a dangling cognitive-unit ref before it was excluded.
-        for key in ("human-interactive", "fallback", "capabilities", "context"):
+        for key in ("human-interactive", "fallback", "capabilities"):
             check(f"`{key}` is excluded from the unit-ref grammar",
                   key in LINT_NON_REF_KEYS)
+        # …and `context` is RETIRED (W6/R3): the field is deleted from the task
+        # schema, so neither the pass-through nor its exclusion may come back.
+        check("`context` is gone from the pass-through exclusion list",
+              "context" not in LINT_NON_REF_KEYS)
 
         (pc / "prompts" / "pp.md").write_text(
             "---\nid: pp\ndescription: pool prompt\nhuman-interactive: yes\n---\n\n"

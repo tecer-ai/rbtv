@@ -1012,6 +1012,37 @@ function resolveExposedCliGrants(seatPath, log) {
   return grants;
 }
 
+// ── W6 · `cli-write-roots:` — the SKILL-DERIVED write grants ─────────────────────────────────
+//
+// A seat exposes a skill; the skill's entry point declares `exposes-cli:`; those CLIs' exposure
+// rows declare `write-roots`. The MATERIALIZER walks that whole chain and bakes the resolved
+// absolute roots into `seat.md` (resolution variant B) — THIS reader only reads, exactly like its
+// `exposed-clis` sibling above. Nothing here re-derives the chain: a second walk is a second place
+// the answer can differ, and only one of them would be the one the cage was composed from.
+//
+// FAIL-CLOSED PER ENTRY, like every grant class in this file.
+//
+// ⚠ IT IS NOT A PIERCE, and needs no check here to say so: `composePrivateScope` masks every
+// private entry AFTER this whole grant stack, so a deny wins over a baked grant unconditionally.
+// `materialize-seats.py#resolve_cli_write_roots` additionally REFUSES such a root at authoring
+// time, so the author reads the refusal instead of meeting a silently masked mount.
+//
+// ⚠ AND IT NEVER REACHES `.rbtv/goals`: same rule and same reason as `rw-paths` — that subtree
+// holds every `sessions.csv` and every `seat.md`, including this seat's own read-only identity
+// surface. A CLI that claims it must write there is refused, not accommodated.
+function resolveCliWriteRootGrants(seatPath, log) {
+  const grants = [];
+  for (const entry of seatDeclaresList(seatPath.seatDir, 'cli-write-roots')) {
+    const refuse = (reason) => log('warn', `cli-write-roots entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
+    if (!entry) { refuse('empty entry'); continue; }
+    if (!path.isAbsolute(entry)) { refuse('entry is not absolute — the materializer resolves it'); continue; }
+    const refusal = rwPathRefusal(seatPath, path.relative(seatPath.workspaceRoot, entry));
+    if (refusal) { refuse(refusal); continue; }
+    grants.push({ cliWriteRoot: entry });
+  }
+  return grants;
+}
+
 function resolveSeatGrants(seatPath) {
   const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
   let entries;
@@ -1187,6 +1218,11 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       // shape (`rwPath`), so it lands on the same `bind:{grant:rwPath}` template line and inherits
       // its placement (last, beneath nothing that could re-cover it) with no template change.
       ...resolvePermissionEditGrants(seatPath, log),
+      // W6 — the skill-derived CLI write roots. Its OWN grant key rather than the `rwPath` shape
+      // its neighbours share: the two answer different questions in the cage spec and in the log
+      // ("the seat declared this" vs "a CLI this seat's skill routes to declared this"), and that
+      // provenance is the whole reason the chain is resolved at materialize and disclosed there.
+      ...resolveCliWriteRootGrants(seatPath, log),
     ],
   });
   assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);

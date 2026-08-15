@@ -7,4 +7,4 @@
 # two ways (rbtv-reasoning § Verify absence): (1) a find for *.py/*.js/*.sh/extension-less files
 # returned nothing; (2) a shebang sweep over every git-tracked file in the module returned
 # nothing. The module is harness-exposed markdown only, which this inventory does not cover.
-part-id,part-kind,method,rbtv-cli,entry-point,description
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots

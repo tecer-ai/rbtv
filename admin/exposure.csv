@@ -15,4 +15,4 @@
 #   · admin/roadmap/ — documents only.
 # When the CMP-5 component tree materializes and the installer wrapper gains a module-resident
 # home, the row lands there in the same change.
-part-id,part-kind,method,rbtv-cli,entry-point,description
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots

@@ -24,9 +24,9 @@
 #     same main) and tools/safe-move/tests/ — package internals and test runners;
 #   · skills/, rules/, commands/, personas/ — harness-exposed markdown, not CLI tools (their
 #     harness exposure is the OLD installer's manifest surface, out of this inventory's scope).
-part-id,part-kind,method,rbtv-cli,entry-point,description
-rbtv,tool,path,,capabilities/rbtv-cli/tool/rbtv,
-rbtv-install,tool,path,,capabilities/installer/tool/rbtv-install,
-rbtv-teambuild,tool,path,rbtv teambuild,capabilities/teambuild/tool/rbtv-teambuild,
-safe-move,tool,path,,tools/safe-move/safe_move/cli.py,
-commit,tool,path,,workflows/commit/commit.py,
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+rbtv,tool,path,,capabilities/rbtv-cli/tool/rbtv,,
+rbtv-install,tool,path,,capabilities/installer/tool/rbtv-install,,
+rbtv-teambuild,tool,path,rbtv teambuild,capabilities/teambuild/tool/rbtv-teambuild,,
+safe-move,tool,path,,tools/safe-move/safe_move/cli.py,,
+commit,tool,path,,workflows/commit/commit.py,,

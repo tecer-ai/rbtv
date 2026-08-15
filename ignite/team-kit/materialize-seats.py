@@ -2348,6 +2348,26 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         if clis:
             fm["exposed-clis"] = clis
 
+        # W6 — the CLI-DERIVED WRITE ROOTS, resolution variant B: the
+        # materializer walked seat -> skills -> CLIs -> roots, so spawn.js only
+        # reads. Emitted HERE for the same reason as `exposed-clis:` above —
+        # seat.md is ro-carved in-cage, so a grant that lands here is not
+        # self-grantable, and a file beside it would be.
+        # ⚠ It is NOT a pierce and never becomes one: private.json's deny list
+        # is applied AFTER every grant at spawn, and `resolve_cli_write_roots`
+        # already refused any root landing on a private entry.
+        # ⚠ STALENESS: these roots are resolved from exposure.csv AT
+        # MATERIALIZE, so an edit to a `write-roots` cell reaches a live seat
+        # only through `materialize-seats.py --repass`. A resolved-AT stamp was
+        # considered and REFUSED: a timestamp in the descriptor makes every
+        # repass emit a different file, which destroys the byte-identical skip
+        # this whole emitter is built on. The baked LIST is the observable — a
+        # repass that changes it is exactly the staleness signal, and a
+        # `--dry-run` repass reports it without writing.
+        cli_roots = (plan.get("cli_write_roots") or {}).get(seat)
+        if cli_roots:
+            fm["cli-write-roots"] = cli_roots
+
         tail = ""
         if fm["mode"] == "one-shot":
             # F10 — a one-shot pays for CLI discovery inside its single
@@ -3276,6 +3296,36 @@ def _assembled_is_interactive(assembled: str) -> bool:
 WS_PREFIX = "ws:"
 ENTRY_AUTHORED = "__entry-point-authored__"
 
+# ── W6 · `write-roots` — the SEVENTH exposure.csv column ─────────────────────
+#
+# A `method=path` row may declare the directories its CLI must WRITE to (gtools
+# refreshing an OAuth token, a tool keeping a cache). The cell is
+# `;`-separated; each entry takes the ENTRY-POINT grammar (component-relative,
+# or `ws:<path-from-the-workspace-root>`) and inherits the `..` refusal, both
+# normalized by `_exposure_rows` — the ONE reader — exactly like `entry-point`.
+#
+# ⚠ EVERY entry carries the DANGER SIGIL `!` and a write grant is NEVER
+# INFERRED (owner ruling, W6/R2). The sigil is not decoration: it is the whole
+# reason this column cannot grow a write grant by accident. An unmarked entry
+# is a REFUSAL at component-lint and at materialize alike — one rule, two
+# doors, so an author meets it while still holding the file.
+#
+# The header stays SEVEN columns: the marker is IN-CELL, never an eighth
+# column, because it qualifies one entry and not the row.
+WRITE_ROOTS_COLUMN = "write-roots"
+WRITE_ROOTS_RESOLVED = "__write-roots-resolved__"
+DANGER_SIGIL = "!"
+
+# The DISCOVERY layer's key (owner ruling, W6/R2): the file a `method=skill`
+# row's `entry-point` NAMES carries a flat `exposes-cli:` list — the CLIs that
+# skill routes to, in the `resolve_seat_exposes` reference grammar. It is NOT
+# "SKILL.md": 10 of the 11 live skill rows point at some other file.
+#
+# A seat that exposes the skill therefore inherits those CLIs' write-roots
+# without having to know them. exposure.csv stays the DECLARATION layer — the
+# refs here resolve to `method=path` rows or REFUSE (`skill-cli-dangling`).
+EXPOSES_CLI_KEY = "exposes-cli"
+
 
 def _workspace_root(start: Path) -> Path:
     """The WORKSPACE rooting `start` — the first ancestor holding a
@@ -3375,8 +3425,64 @@ def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
                 str(path))
         row["entry-point"] = entry
         row[ENTRY_AUTHORED] = raw
+        row[WRITE_ROOTS_RESOLVED] = _write_roots(row, pid, comp_dir, path)
         rows[pid] = row
     return rows
+
+
+def _write_roots(row: dict, pid: str, comp_dir: Path, manifest: Path) -> list[str]:
+    """The `write-roots` cell, resolved to absolute paths — [] when empty.
+
+    Normalized HERE, beside `entry-point`, for the reason stated on
+    `_exposure_rows`: one reader, so the join sites cannot drift. Same two
+    rules in the same order (`ws:` expansion, then the `..` refusal), plus the
+    danger sigil every entry must carry."""
+    cell = (row.get(WRITE_ROOTS_COLUMN) or "").strip()
+    if not cell:
+        return []
+    method = (row.get("method") or "").strip()
+    if method != "path":
+        raise Refuse(
+            "write-root-invalid",
+            f"part '{pid}' declares write-roots on a method={method or '(empty)'} "
+            "row — a write root belongs to a CLI, so the column is legal on "
+            "`method=path` rows ONLY",
+            str(manifest))
+    out: list[str] = []
+    for authored in (e.strip() for e in cell.split(";")):
+        if not authored:
+            continue
+        if not authored.startswith(DANGER_SIGIL):
+            raise Refuse(
+                "write-root-unmarked",
+                f"part '{pid}' declares write-root '{authored}' without the "
+                f"danger marker — every entry is written '{DANGER_SIGIL}<path>'. "
+                "A write grant reaches a seat only because an author typed the "
+                "marker; it is never inferred from a path that merely looks "
+                "writable",
+                str(manifest))
+        body = authored[len(DANGER_SIGIL):].strip()
+        if not body:
+            raise Refuse(
+                "write-root-invalid",
+                f"part '{pid}' declares write-root '{authored}' — the marker "
+                "carries no path",
+                str(manifest))
+        # The prefix is stripped BEFORE the `..` test — same order as the
+        # entry-point rule, so `!ws:../outside` and a bare `!../outside` take
+        # ONE rule and the climb cannot be reintroduced by prefixing it.
+        prefixed = body.startswith(WS_PREFIX)
+        rel = body[len(WS_PREFIX):] if prefixed else body
+        if ".." in PurePosixPath(rel).parts:
+            raise Refuse(
+                "write-root-escape",
+                f"part '{pid}' declares write-root '{authored}', which climbs "
+                "with `..` — reach a path elsewhere in the workspace with "
+                "`ws:<path-from-the-workspace-root>` instead",
+                str(manifest))
+        base = _workspace_root(comp_dir) if prefixed else comp_dir
+        out.append(str((base / rel).resolve()))
+    return out
 
 
 def _rbtv_repo_root(comp_dir: Path) -> Path:
@@ -3434,6 +3540,181 @@ def _rbtv_repo_root(comp_dir: Path) -> Path:
     return root
 
 
+def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
+    """(component dir, part-id) for one reference in the `exposes:` grammar.
+
+    ONE home for the grammar, shared by `resolve_seat_exposes` and W6's
+    `exposes-cli:` chain — a second copy is a second place the arithmetic can
+    drift. `subject` is the caller's already-composed "who did what" clause, so
+    a refusal reads the same from either door.
+
+    Grammar, disambiguated by segment count (owner-ruled 2026-08-09,
+    cross-module must exist): `part` = own component · `component/part` =
+    sibling component, same module · `module/component/part` = another
+    module's component, resolved from the referencing component's position
+    (comp_dir.parent.parent = the tree root above the modules) — identical
+    arithmetic for the mirror and the rbtv repo, both `<tree>/<module>/
+    <component>/`. …plus the SECOND ROOT (owner-ruled 2026-08-10): a `rbtv:`
+    reference resolves against the rbtv REPO tree instead."""
+    if ref.startswith("rbtv:"):
+        segs = ref[len("rbtv:"):].split("/")
+        if len(segs) < 2 or not all(s.strip() for s in segs):
+            raise Refuse(
+                "exposes-invalid",
+                f"{subject} — a `rbtv:` reference is "
+                "`rbtv:<path-under-the-repo>/<part>` and needs at least one "
+                "directory segment before the part-id",
+            )
+        return _rbtv_repo_root(comp_dir).joinpath(*segs[:-1]), segs[-1]
+    segs = ref.split("/")
+    if not all(s.strip() for s in segs) or len(segs) > 3:
+        raise Refuse(
+            "exposes-invalid",
+            f"{subject} — a reference is `part`, `component/part`, or "
+            "`module/component/part`; empty segments or deeper nesting are "
+            "not expressible",
+        )
+    if len(segs) == 1:
+        return comp_dir, segs[0]
+    if len(segs) == 2:
+        return comp_dir.parent / segs[0], segs[1]
+    return comp_dir.parent.parent / segs[0] / segs[1], segs[2]
+
+
+def _frontmatter(path: Path) -> dict:
+    """A file's YAML frontmatter as a dict — {} when the file is absent or
+    carries none. Refuses on unparseable YAML rather than reading a broken
+    card as an empty one."""
+    try:
+        m = _FM_RE.match(path.read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+    if not m:
+        return {}
+    try:
+        return yaml.safe_load(m.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise Refuse("frontmatter-unparseable",
+                     f"{path}: frontmatter is not YAML — {exc}",
+                     str(path)) from exc
+
+
+def _skill_cli_refs(entry_file: Path) -> list[str]:
+    """The flat `exposes-cli:` list off a skill entry-point file's frontmatter
+    — [] when the file carries no frontmatter or no key. Absence is normal: a
+    skill that routes to no CLI declares nothing."""
+    fm = _frontmatter(entry_file)
+    raw = fm.get(EXPOSES_CLI_KEY) if isinstance(fm, dict) else None
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(r, str) and r.strip()
+                                            for r in raw):
+        raise Refuse(
+            "skill-cli-invalid",
+            f"{entry_file}: `{EXPOSES_CLI_KEY}:` must be a flat list of "
+            "non-empty part references (the `exposes:` reference grammar)",
+            str(entry_file))
+    return [r.strip() for r in raw]
+
+
+def resolve_cli_write_roots(plan: dict) -> None:
+    """W6 · resolution variant B — the MATERIALIZER walks seat → skills → CLIs
+    → write-roots and bakes the result into seat.md; spawn.js only reads.
+
+    plan['cli_write_roots'][seat] = sorted absolute roots, deduped BY TARGET.
+    The dedup is not tidiness: two identical `--bind` lines for one path are
+    what bwrap errors on, and a seat can reach the same CLI twice (directly
+    through `exposes: path:` and again through a skill that routes to it).
+
+    Three gates, all at generation time where the author is still holding the
+    file:
+      · `skill-cli-dangling` — a ref resolving to no row, or to a row whose
+        method is not `path`. Enforced HERE and at component-lint both.
+      · `exposed-cli-collision` — one part-id reaching two different entry
+        points through two different components; the seat would otherwise get
+        whichever bind landed last.
+      · `write-root-private` — a CLI-derived root landing on a private-scope
+        entry. A baked CLI grant is NOT a pierce and may never become one by
+        accident: the deny list wins, always, and the refusal says so here
+        rather than letting the seat meet a silently masked mount at spawn."""
+    plan["cli_write_roots"] = {}
+    for seat, parts in (plan.get("expose_parts") or {}).items():
+        roots: dict[str, list[str]] = {}     # root -> provenance chain
+        entries: dict[str, str] = {}         # cli part-id -> resolved entry
+        ws_hint = None
+        for method, pid, row, ref_dir in parts:
+            ws_hint = ws_hint or ref_dir
+            if method != "skill":
+                continue
+            entry_file = ref_dir / (row.get("entry-point") or "").strip()
+            for ref in _skill_cli_refs(entry_file):
+                subject = (f"seat '{seat}' exposes skill '{pid}', which routes "
+                           f"to CLI '{ref}'")
+                cli_dir, cli_pid = _ref_target(ref_dir, ref, subject)
+                cli_rows = _exposure_rows(cli_dir)
+                cli = cli_rows.get(cli_pid)
+                if cli is None or (cli.get("method") or "").strip() != "path":
+                    raise Refuse(
+                        "skill-cli-dangling",
+                        f"{subject} — no `method=path` row '{cli_pid}' under "
+                        f"{cli_dir / EXPOSURE_NAME}. A skill is the DISCOVERY "
+                        "layer; exposure.csv stays the declaration layer, and "
+                        "a dead skill->CLI reference must not reach a "
+                        "materialized seat",
+                        str(entry_file))
+                target = str(Path((cli.get("entry-point") or "").strip()))
+                if entries.setdefault(cli_pid, target) != target:
+                    raise Refuse(
+                        "exposed-cli-collision",
+                        f"seat '{seat}' reaches CLI '{cli_pid}' at two "
+                        f"different entry points ({entries[cli_pid]} and "
+                        f"{target}) — one name cannot bind two targets",
+                        str(entry_file))
+                for root in cli.get(WRITE_ROOTS_RESOLVED) or ():
+                    roots.setdefault(
+                        root, [seat, pid, cli_pid])
+        if not roots:
+            continue
+        try:
+            private = _private_deny(_workspace_root(ws_hint))
+        except Refuse:
+            private = []
+        for root, chain in sorted(roots.items()):
+            for entry in private:
+                if root == entry or root.startswith(entry + os.sep):
+                    raise Refuse(
+                        "write-root-private",
+                        f"seat '{chain[0]}' would receive write-root {root} "
+                        f"through skill '{chain[1]}' -> CLI '{chain[2]}', and "
+                        f"it lands on the private-scope entry {entry}. A "
+                        "CLI-derived root is never a pierce: the deny list "
+                        "wins. Drop the declaration, or move the CLI's state "
+                        "out of the private path",
+                    )
+            plan["warnings"].append(
+                f"write-root GRANTED to seat '{chain[0]}': {root} "
+                f"(seat -> skill '{chain[1]}' -> CLI '{chain[2]}' -> root)")
+        plan["cli_write_roots"][seat] = sorted(roots)
+
+
+def _private_deny(workspace_root) -> list[str]:
+    """The workspace's private-scope deny entries as absolute paths — [] when
+    there is no list. Read here ONLY to REFUSE; `private-scope.js` at spawn
+    stays the one authority on what is actually masked (it also owns the
+    pattern floor and the realpath aliasing rules)."""
+    if not workspace_root:
+        return []
+    book = Path(workspace_root) / ".rbtv" / "config" / "private.json"
+    try:
+        deny = (json.loads(book.read_text(encoding="utf-8")) or {}).get("deny")
+    except (OSError, ValueError):
+        return []
+    if not isinstance(deny, list):
+        return []
+    return [str((Path(workspace_root) / str(e).strip().rstrip("/")).resolve())
+            for e in deny if str(e).strip()]
+
+
 def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
     """Resolve + validate every added seat's `exposes:` declaration (ALL
     gates fire here, before any render and any write):
@@ -3481,34 +3762,8 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                 # the manifest (`rbtv:ignite/coordinate` today, module root;
                 # `rbtv:ignite/team-kit/coordinate` after the CMP-5 move,
                 # same line). Unprefixed references are untouched.
-                if ref.startswith("rbtv:"):
-                    segs = ref[len("rbtv:"):].split("/")
-                    if len(segs) < 2 or not all(s.strip() for s in segs):
-                        raise Refuse(
-                            "exposes-invalid",
-                            f"seat '{seat}' exposes '{ref}' ({method}) — a "
-                            "`rbtv:` reference is "
-                            "`rbtv:<path-under-the-repo>/<part>` and needs at "
-                            "least one directory segment before the part-id",
-                        )
-                    ref_dir = _rbtv_repo_root(comp_dir).joinpath(*segs[:-1])
-                else:
-                    segs = ref.split("/")
-                    if not all(s.strip() for s in segs) or len(segs) > 3:
-                        raise Refuse(
-                            "exposes-invalid",
-                            f"seat '{seat}' exposes '{ref}' ({method}) — a "
-                            "reference is `part`, `component/part`, or "
-                            "`module/component/part`; empty segments or "
-                            "deeper nesting are not expressible",
-                        )
-                    if len(segs) == 1:
-                        ref_dir = comp_dir
-                    elif len(segs) == 2:
-                        ref_dir = comp_dir.parent / segs[0]
-                    else:
-                        ref_dir = comp_dir.parent.parent / segs[0] / segs[1]
-                pid = segs[-1]
+                ref_dir, pid = _ref_target(
+                    comp_dir, ref, f"seat '{seat}' exposes '{ref}' ({method})")
                 rows = _exposure_rows(ref_dir)
                 if pid not in rows:
                     raise Refuse(
@@ -4224,7 +4479,7 @@ EMITTER_OWNED_KEYS = frozenset((
     "harness", "model", "effort", "mode",
     "ctx-refresh", "window", "senders", "close",
     "auto-wake", "ephemeral", "broadcast", "component", "relays",
-    "addressable", "context", "exposes", "exposed-clis",
+    "addressable", "exposes", "exposed-clis", "cli-write-roots",
     # `human-interactive` (+ its required `fallback`) arrive via the
     # assembler's frontmatter pass-through (goal_cli.py#assemble_seat reads
     # them off the prompt card, canon-checks the value, and carries them into
@@ -4250,7 +4505,12 @@ EMITTER_OWNED_KEYS = frozenset((
 # were dropped by owner ruling 2026-08-10. This set is deliberately tiny — the
 # conditional keys live in EMITTER_OWNED_KEYS above, and anything in NEITHER set
 # can only have been typed by a human, which is exactly what the guard defends.
-RETIRED_DESCRIPTOR_KEYS = frozenset(("launch-home", "artifact-home"))
+# …joined 2026-08-14 by `context` (W6/R3): the task-schema field is DELETED, so
+# the emitter no longer carries it through. It is here and NOT in
+# EMITTER_OWNED_KEYS on purpose — live descriptors still carry it (13 on the
+# flagship goal), and a re-render must be allowed to DROP it rather than read it
+# as a hand-authored key and refuse.
+RETIRED_DESCRIPTOR_KEYS = frozenset(("launch-home", "artifact-home", "context"))
 
 
 def _descriptor_fm(path: Path) -> dict:
@@ -4629,6 +4889,7 @@ def run(args) -> dict:
     # loader FILES are planned only on the materialize path below — a repass
     # replaces descriptors, nothing else.
     resolve_seat_exposes(plan, catalogs[0])
+    resolve_cli_write_roots(plan)
     if repass:
         # A repass renders and REPLACES descriptors — plus the seat's GUIDANCE
         # PAIR, which is pure derived boilerplate regenerated with the same
@@ -5134,8 +5395,8 @@ def build_fixture(tmp: Path) -> dict:
         "seat-id,executor,task,staffing-hints,description\n"
         "mcp-seat,alpha-prompt,alpha-task,,the mcp seat\n", encoding="utf-8")
     mcpc.joinpath("exposure.csv").write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "demo-mcp,plugin/MCP,config,,mcp.json,demo MCP declaration\n",
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "demo-mcp,plugin/MCP,config,,mcp.json,demo MCP declaration,\n",
         encoding="utf-8")
     mcpc.joinpath("mcp.json").write_text(json.dumps({"mcpServers": {
         "demo-http": {"type": "http", "url": "https://mcp.example.test"},
@@ -5148,7 +5409,7 @@ def build_fixture(tmp: Path) -> dict:
     mcpc.joinpath("xsk.md").write_text("# xsk\n\nCross skill content.\n",
                                        encoding="utf-8")
     with mcpc.joinpath("exposure.csv").open("a", encoding="utf-8") as fh:
-        fh.write("xsk,reference,skill,,xsk.md,cross-component skill\n")
+        fh.write("xsk,reference,skill,,xsk.md,cross-component skill,\n")
 
     # A fourth component whose seat DECLARES exposure in its prompt-file
     # frontmatter (EXP-1, d-materializer-seat-loaders /
@@ -5165,17 +5426,17 @@ def build_fixture(tmp: Path) -> dict:
         "read-root bus-write local-bin,1-projects\n",
         encoding="utf-8")
     expc.joinpath("exposure.csv").write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "brws,capability,skill,,skills/brws.md,browse the fixture web\n"
-        "cmd1,workflow,command,,commands/cmd1.md,run the demo flow\n"
-        "rul1,reference,rule,,rules/rul1.md,house style rule\n"
-        "hk1,capability,hook,,hooks/hk1.json,post-write lint\n"
-        "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher\n"
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "brws,capability,skill,,skills/brws.md,browse the fixture web,\n"
+        "cmd1,workflow,command,,commands/cmd1.md,run the demo flow,\n"
+        "rul1,reference,rule,,rules/rul1.md,house style rule,\n"
+        "hk1,capability,hook,,hooks/hk1.json,post-write lint,\n"
+        "res1,prompt,sub-agent,,prompts/res1.md,fixture researcher,\n"
         # The WORKSPACE root (IPH-6 / D33): a `ws:` entry-point resolves
         # against the first ancestor holding `.rbtv/config/` — `tmp` here,
         # created just below — so the tool lands OUTSIDE the component
         # without a single `..`, which is now refused.
-        "wstool,tool,path,,ws:wsbin/wstool.py,\n",
+        "wstool,tool,path,,ws:wsbin/wstool.py,,!ws:wsbin\n",
         encoding="utf-8")
     (tmp / "wsbin").mkdir()
     (tmp / "wsbin" / "wstool.py").write_text(
@@ -5200,16 +5461,16 @@ def build_fixture(tmp: Path) -> dict:
     (repo_mod / "team-kit").mkdir(parents=True)
     repo_mod.joinpath("exposure.csv").write_text(
         "# a prose header line — `#`-led lines are dropped before the header\n"
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "coordfix,tool,path,,team-kit/coordfix.py,\n"
-        "skillish,capability,skill,,team-kit/skillish.md,a skill row\n",
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "coordfix,tool,path,,team-kit/coordfix.py,,\n"
+        "skillish,capability,skill,,team-kit/skillish.md,a skill row,\n",
         encoding="utf-8")
     repo_mod.joinpath("team-kit", "coordfix.py").write_text(
         "#!/usr/bin/env python3\nprint('coordfix')\n", encoding="utf-8")
     repo_mod.joinpath("team-kit", "skillish.md").write_text(
         "# skillish\n", encoding="utf-8")
     for rel, body in (
-            ("skills/brws.md", "# brws\n\nBrowse skill content.\n"),
+            ("skills/brws.md", "---\nexposes-cli:\n  - wstool\n---\n\n# brws\n\nBrowse skill content.\n"),
             ("commands/cmd1.md", "# cmd1\n\nCommand content.\n"),
             ("rules/rul1.md", "# rul1\n\nAlways-on fixture rule.\n"),
             ("prompts/res1.md",
@@ -5241,8 +5502,8 @@ def build_fixture(tmp: Path) -> dict:
     xmodc = tmp / "xmod" / "xmodc"
     xmodc.mkdir(parents=True)
     xmodc.joinpath("exposure.csv").write_text(
-        "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
-        "xms,capability,skill,,xms.md,cross-module skill\n",
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "xms,capability,skill,,xms.md,cross-module skill,\n",
         encoding="utf-8")
     xmodc.joinpath("xms.md").write_text(
         "# xms\n\nCross-module skill content.\n", encoding="utf-8")
@@ -8377,6 +8638,27 @@ def run_selftest() -> int:
               not any(p.name.startswith("coordfix")
                       for p in sd.rglob("*") if p.is_file()),
               str([str(p) for p in sd.rglob("coordfix*")]))
+        # ── W6 · seat -> skill -> CLI -> write-root (resolution variant B) ──
+        res_e_w = json.loads(pe.stdout) if pe.stdout.strip() else {}
+        wsbin = str((Path(fxe["tmp"]) / "wsbin").resolve())
+        check("EXP-1 green (W6): the seat exposes skill `brws`, whose "
+              "`exposes-cli:` names the `wstool` CLI, whose exposure row "
+              "declares `!ws:wsbin` — and the MATERIALIZER walked that whole "
+              "chain into seat.md's `cli-write-roots:`. The seat's own prompt "
+              "card never names the root",
+              sfm.get("cli-write-roots") == [wsbin],
+              repr(sfm.get("cli-write-roots")))
+        check("EXP-1 green (W6): the chain is DISCLOSED with its provenance "
+              "(seat -> skill -> CLI -> root), symmetric with the pierce "
+              "disclosure — a grant nobody can read is not auditable",
+              any("write-root GRANTED" in w and "brws" in w and "wstool" in w
+                  for w in res_e_w.get("warnings", ())),
+              repr(res_e_w.get("warnings")))
+        check("EXP-1 green (W6): the declaration is readable by the cage's "
+              "LIST reader shape (a block list of scalars under the key)",
+              f"\ncli-write-roots:\n- {wsbin}\n"
+              in (sd / "seat.md").read_text(encoding="utf-8"),
+              (sd / "seat.md").read_text(encoding="utf-8")[:800])
         res_e = json.loads(pe.stdout) if pe.stdout.strip() else {}
         declared = {w["path"] for w in res_e.get("writes", [])
                     if w.get("kind") == "seat-exposure"}
@@ -8450,6 +8732,65 @@ def run_selftest() -> int:
               and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
               pr5.stderr.strip()[:200])
         prompt_path.write_text(orig, encoding="utf-8")
+        # ── W6 RED ARMS — the discovery layer and the seventh column ────────
+        expc_dir = Path(fxe["catalog"]) / "exp-comp"
+        skill_file = expc_dir / "skills" / "brws.md"
+        orig_skill = skill_file.read_text(encoding="utf-8")
+        for label, ref, code in (
+                ("resolving to no row", "ghostcli", "skill-cli-dangling"),
+                ("resolving to a row whose method is not `path`", "brws",
+                 "skill-cli-dangling")):
+            skill_file.write_text(
+                orig_skill.replace("- wstool", f"- {ref}"), encoding="utf-8")
+            pw = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                          "--bindings", fxe["b_exp"]] + common_e, clean_env)
+            check(f"EXP-1 red (W6): an `exposes-cli:` ref {label} refuses "
+                  f"{code} and writes NOTHING — the skill is the DISCOVERY "
+                  "layer, exposure.csv the DECLARATION layer, and a dead "
+                  "reference between them never reaches a seat",
+                  pw.returncode == 1 and code in pw.stderr
+                  and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+                  pw.stderr.strip()[:200])
+        skill_file.write_text(orig_skill, encoding="utf-8")
+        exp_manifest = expc_dir / EXPOSURE_NAME
+        orig_exp_manifest = exp_manifest.read_text(encoding="utf-8")
+        exp_manifest.write_text(
+            orig_exp_manifest.replace(",!ws:wsbin", ",ws:wsbin"),
+            encoding="utf-8")
+        pwm = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red (W6): a write-root without the DANGER MARKER refuses "
+              "write-root-unmarked and writes NOTHING — a write grant reaches "
+              "a seat only because an author typed the marker, never because a "
+              "path looked writable",
+              pwm.returncode == 1 and "write-root-unmarked" in pwm.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pwm.stderr.strip()[:200])
+        exp_manifest.write_text(
+            orig_exp_manifest.replace(",!ws:wsbin", ",!ws:../outside"),
+            encoding="utf-8")
+        pwe = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        check("EXP-1 red (W6): a `..`-climbing write-root refuses "
+              "write-root-escape — the seventh column inherits the entry "
+              "point's ban, in the same reader",
+              pwe.returncode == 1 and "write-root-escape" in pwe.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pwe.stderr.strip()[:200])
+        exp_manifest.write_text(orig_exp_manifest, encoding="utf-8")
+        private_book = Path(fxe["tmp"]) / ".rbtv" / "config" / "private.json"
+        private_book.write_text(json.dumps({"deny": ["wsbin/"]}),
+                                encoding="utf-8")
+        pwp = _invoke(["--package", fxe["pkg9"], "--seat", "exp-seat",
+                       "--bindings", fxe["b_exp"]] + common_e, clean_env)
+        private_book.unlink()
+        check("EXP-1 red (W6): a CLI-derived root landing on a PRIVATE-SCOPE "
+              "entry refuses write-root-private and writes NOTHING — the deny "
+              "list wins over a baked grant ALWAYS, and a CLI-derived root is "
+              "never a pierce",
+              pwp.returncode == 1 and "write-root-private" in pwp.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "exp-seat").exists(),
+              pwp.stderr.strip()[:200])
         # ── the `..` BAN (IPH-6 / D33) — enforced in _exposure_rows, AFTER the
         # prefix strip, so the bare climb and the prefixed climb take ONE rule.
         # The mutation is on the MANIFEST, not the prompt card: the ban covers
@@ -8479,7 +8820,7 @@ def run_selftest() -> int:
             lone = Path(ws_td) / "lone-comp"
             lone.mkdir()
             (lone / EXPOSURE_NAME).write_text(
-                "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+                "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
                 "lonely,tool,path,,ws:wsbin/wstool.py,\n", encoding="utf-8")
             try:
                 _exposure_rows(lone)
@@ -8687,7 +9028,7 @@ def run_selftest() -> int:
         (hi_comp / "references" / "etq.md").write_text(
             "# etq\n\nFixture etiquette reference.\n", encoding="utf-8")
         (hi_comp / EXPOSURE_NAME).write_text(
-            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
             "etq,reference,skill,,references/etq.md,fixture etiquette\n",
             encoding="utf-8")
         _invoke(["--package", str(hi_home)] + common_hi, clean_env)
@@ -8739,7 +9080,7 @@ def run_selftest() -> int:
         (comp / EXPOSURE_NAME).write_text(
             "# a prose header block, the live exposure-manifest shape\n"
             "# second comment line\n"
-            "part-id,part-kind,method,rbtv-cli,entry-point,description\n"
+            "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
             "brws,capability,skill,,skills/brws.md,browse\n", encoding="utf-8")
         check("RF-1 green: an exposure manifest led by `#` comment lines "
               "still resolves its part-ids (a DictReader that reads the "

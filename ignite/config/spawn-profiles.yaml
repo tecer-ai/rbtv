@@ -301,6 +301,16 @@ cage:
     # both live under `.rbtv/goals`, and the resolver REFUSES any entry overlapping that
     # subtree — so the carves win by never meeting an rw-paths entry, not by ordering.
     - "bind:{grant:rwPath}"
+    # W6 · CLI-WRITE-ROOTS grant: the write roots declared by the CLIs this seat's exposed SKILLS
+    # route to (`write-roots` in exposure.csv, resolved seat -> skill -> CLI -> root by
+    # `team-kit/materialize-seats.py` and baked into seat.md as `cli-write-roots:`). Beside its
+    # `rwPath` sibling and for the identical reason: every entry lies inside the workspace root,
+    # which `ro-bind:{grant:readRoot}` covers read-only at the top of this stack, so an opening
+    # placed above that floor composes to nothing. It carries its own grant key rather than reusing
+    # `rwPath` so the cage spec and the spawn log keep the provenance visible.
+    # ⚠ The private-scope masks are appended AFTER this whole stack, so a deny always wins over one
+    # of these grants — a CLI-derived root is never a pierce.
+    - "bind:{grant:cliWriteRoot}"
   # ⚑ ABSENT BY CONSTRUCTION, each one a pre-registered probe: the run folder's files for
   # WRITE (the identity gate's ground truth — refused at compose time by cage.js, not merely
   # unlisted here), peer seat folders even for READ, other seats' worktrees, the goal
