@@ -416,6 +416,12 @@ function ensureCockpit({
   } catch (err) {
     // Loud, and never fatal. `reason` names WHY there is no cockpit, so an absent one is never
     // mistaken for a healthy one.
+    //
+    // ⚠ One `reason` this arm CAN carry is a missing `systemd-run` — since the cockpit-scope fix
+    // (2026-08-14, `0ce5f9e0`) the session-creating vector is systemd-run-wrapped, so on a box
+    // without it this arm fires instead of spawning an unwrapped cockpit. That path is
+    // DELIBERATELY unexercised: the owner ruled on 2026-08-15 (closeout R5.4) that NON-SYSTEMD
+    // BOXES ARE OUT OF SUPPORT. Do not build a fixture for it — the question is closed.
     log('warn', 'boot cockpit not spawned', {
       spawned: false,
       reason: err.code || 'error',
