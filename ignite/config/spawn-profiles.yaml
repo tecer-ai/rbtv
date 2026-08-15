@@ -233,6 +233,16 @@ cage:
     # target model routes that through the gateway (7.57/7.59, unbuilt). Nothing wider: the
     # goal-root ledgers and vault task files stay OUT, routed through uncaged stewards.
     - "bind:{goalDir}/coordination"
+    # SETTINGS-REQUEST INBOXES, READ-WRITE (regression fix, 2026-08-15). The two-part capability
+    # pattern (`master-profile.md`) has the SEAT stage a request file into
+    # `{goalDir}/settings-requests/<capability>` and the daemon's `fire-tool` drain it — the whole
+    # design exists BECAUSE the seat cannot write what `--repass` rewrites. But the SeatBinds
+    # narrowing that replaced the flat workdir opening never carried the inbox itself, so
+    # `request`'s write died EROFS and a sitting improvised its payload into `coordination/`,
+    # where nothing drains it (two stranded model-change requests, 2026-08-15). `bind-try`: only
+    # a goal that HAS the inbox tree gets the opening; today that is `_channel-master` alone.
+    # ORDER: after the read-only goal floor, disjoint from every carve below.
+    - "bind-try:{goalDir}/settings-requests"
     # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every EXECUTING goal,
     # READ-WRITE, one opening per grant. Placed HERE, immediately after the line above, for
     # the ordering reason that survives the run layer's death: it must come AFTER the
