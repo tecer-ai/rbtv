@@ -1893,7 +1893,13 @@ def resolve_room_package(args):
     sys.path.insert(0, str(Path(args.coord).resolve().parent))
     import coord  # noqa: E402  — the lease's single accessor; see this docstring
     goal = Path(args.room_goal).resolve()
-    lease, why = coord.derive_lease(goal)
+    # ⚠ `derive_lease` SHELLS TO node, and this process is already inside `jobcontain.contain()`'s
+    # 256 MB `RLIMIT_AS` — which children inherit. V8 reserves GBs of virtual address space at
+    # startup, so node aborted with SIGTRAP and every fire from 2026-08-11 to 2026-08-15 read the
+    # lease as `unreadable (exit -5)` and REFUSED TO START. The cap is lifted for the read only;
+    # see `jobcontain.uncapped`.
+    with jobcontain.uncapped():
+        lease, why = coord.derive_lease(goal)
     if why:
         return None, (f"the lease for {goal.name} is UNREADABLE ({why}). That is IGNORANCE, not an "
                       f"idle goal — refusing rather than reading it as 'nothing is running'.")

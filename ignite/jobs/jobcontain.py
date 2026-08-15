@@ -22,6 +22,7 @@ including the run's own seats. A fork bomb in a detector is a smaller risk than 
 detector that locks the box's own user out of forking.
 """
 
+import contextlib
 import hashlib
 import os
 import shutil
@@ -93,6 +94,43 @@ def contain(mem_mb=256, seconds=600):
         resource.setrlimit(resource.RLIMIT_AS, (want, hard))
     signal.signal(signal.SIGALRM, _on_alarm)
     signal.alarm(seconds)
+
+
+@contextlib.contextmanager
+def uncapped():
+    """Lift `contain()`'s ADDRESS-SPACE cap for the duration of a block. The wall-clock alarm and
+    the CPU cap stay in force, so the job is still bounded.
+
+    FOR A CHILD THIS SCRIPT DOES NOT SPAWN ITSELF. `child_preexec` covers every child we exec, but
+    a helper we call IN-PROCESS spawns its own — and `RLIMIT_AS` is inherited, so that grandchild
+    silently gets the detector's 256 MB cap. **node is fatal under it**: V8 RESERVES gigabytes of
+    VIRTUAL address space at startup, so it aborts with SIGTRAP before running a line of JS.
+
+    MEASURED, not theorised (2026-08-15): `goal-watcher-job.py` calls `coord.derive_lease()`, which
+    shells to `server/lease/lease.js` — under `contain(mem_mb=256)` node died with signal 5 and the
+    lease read as `unreadable (exit -5)`. The job REFUSED TO START on every fire from
+    2026-08-11T04:13Z to 2026-08-15T14:48Z — 200+ consecutive failures — reporting IGNORANCE about a
+    lease that is perfectly readable. Reproduce with `bash -c 'ulimit -v 262144; node …'`.
+
+    Use it around an in-process helper that shells to node (or to any VM with a large virtual
+    reservation), and nowhere else: the block runs with no memory bound at all.
+    """
+    try:
+        import resource
+    except ImportError:
+        _degraded_once("uncapped", "resource", "no cap to lift on this host")
+        yield
+        return
+    saved = _ORIGINAL_LIMITS.get(resource.RLIMIT_AS)
+    if saved is None:          # `contain()` never ran — nothing was capped, nothing to lift
+        yield
+        return
+    current = resource.getrlimit(resource.RLIMIT_AS)
+    resource.setrlimit(resource.RLIMIT_AS, saved)
+    try:
+        yield
+    finally:
+        resource.setrlimit(resource.RLIMIT_AS, current)
 
 
 def child_preexec():

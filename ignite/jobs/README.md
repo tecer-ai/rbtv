@@ -131,6 +131,16 @@ enforces one instance per target. Its central subtlety: `RLIMIT_AS` is inherited
 is exec'd through `child_preexec()`, which restores the original limits — otherwise a detector
 would hand its 256 MB cap to the very sensor or recovery agent it is resurrecting.
 
+⚠ **`child_preexec()` only covers a child THIS SCRIPT EXECS.** A helper called IN-PROCESS spawns
+its own, and that grandchild inherits the cap. **node dies under it** — V8 reserves GBs of VIRTUAL
+address space at startup and aborts with SIGTRAP. Measured: `goal-watcher-job.py` →
+`coord.derive_lease()` → `server/lease/lease.js` read the lease as `unreadable (exit -5)` and the
+job REFUSED TO START on ~200 consecutive fires (2026-08-11 → 2026-08-15) while reporting IGNORANCE
+about a lease that is perfectly readable from a shell. Wrap any such call in
+`with jobcontain.uncapped():` — the AS cap is lifted for that block only, the wall-clock alarm and
+CPU cap stay on. Guarded by `probes/probe-jobcontain-uncapped.py`, whose U1 control fails the whole
+probe if node ever SURVIVES the cap (a green U2 could not otherwise be told from a no-op).
+
 ## Design calls, settled and stated (never defaulted into)
 
 - **Recovery goes through the kit, not the daemon** (7.71). The sole-spawn-path invariant covers

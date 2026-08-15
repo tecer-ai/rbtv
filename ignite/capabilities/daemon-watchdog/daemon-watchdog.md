@@ -137,6 +137,31 @@ swallow the very restart the next real pass exists to announce.
    stale, reintroducing the exact silent-`skip` failure the `alarm` ruling just closed. The cost
    is real and accepted — the omission lives in the unit rather than beside the row it disarms,
    so a reader of this table does not see it. That is what the mandatory comment is for.
+4. **The arm measures SCHEDULING, never OUTCOME — and an N-consecutive-failure alarm is ruled
+   OUT for now** (ruled 2026-08-15, closeout task 09). The blindness is real and measured:
+   `goal-watcher-job` FAILED (exit 2) on all ~200 fires between 2026-08-11T04:13Z and
+   2026-08-15T14:48Z, and this arm read `up` on every pass throughout, because a row that keeps
+   re-arming on schedule is a row that keeps *firing*. Nothing else looked either, so a four-day
+   dead job was invisible on the only channel that pushes — the same failure shape item 3 just
+   closed one level up.
+
+   It is ruled out anyway, on ONE fact: **the job this alarm would watch is deliberately red.**
+   Its `--room-goal` is `system-health` (owner ruling `d-0811-goalwatcher-arm-long-cadence`,
+   recorded in `config/spawn-profiles.yaml`), a goal with an EMPTY taskforce — it can never hold
+   a room, so the job refuses to start on every fire BY DESIGN, and the owner accepted that when
+   he armed it at 1800 s instead of 30 s. An outcome alarm would therefore fire on its very first
+   pass and on every pass forever, about a state already ruled acceptable. That is not R1's
+   "surface state without failing a unit"; it is a standing alarm on an accepted state, which
+   trains the reader to ignore the channel — and this arm has already been broken once by
+   something that looked like health.
+
+   **The condition that lifts this** (falsifiable, so the next agent need not re-derive it):
+   the goal-watcher's `--room-goal` names a goal that can actually execute, or the queue row is
+   dequeued. At that moment add the outcome half here — N consecutive `failed` rows in
+   `jobs_log` for `RBTV_WATCHDOG_WATCH_JOB` → **`alarm`, never `down`**: no restart turns a
+   refusing job green, exactly as in item 3. The data is already reachable without a store change
+   (`inspect executions --status failed|done`, `total`/`nextOffset` paging); what is missing is a
+   target worth alarming about, not a mechanism.
 
 ## The row that used to bypass the operator, and why it no longer does
 

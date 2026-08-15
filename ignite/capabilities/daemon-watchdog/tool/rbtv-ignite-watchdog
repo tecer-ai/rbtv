@@ -241,6 +241,13 @@ def probe_goal_watcher():
     queue row still due on schedule', read from the queue itself, and the overdue
     threshold is the row's OWN interval_seconds — never a number written here,
     which would go stale in silence the moment anyone retuned the cadence.
+
+    ⚠ THIS MEASURES SCHEDULING, NOT OUTCOME, AND THAT IS A RULING — not an oversight.
+    `goal-watcher-job` failed on ~200 consecutive fires (2026-08-11..2026-08-15) while this arm
+    read `up` on every pass. An N-consecutive-failure alarm is ruled OUT until the job has a
+    target that can go green (it is armed at `system-health`, a seatless goal, so it refuses BY
+    DESIGN). The reasoning and the condition that lifts the ruling: `daemon-watchdog.md`
+    § "Three of these deserve their reasoning stated", item 4.
     """
     state, detail = gateway_call("queue")
     if state != "ok":

@@ -1069,6 +1069,15 @@ tools:
   # rather than the 30 s of `r-job-fire-interval-30s`: a dead target polled twice an hour, not twice a
   # minute, until a live run exists and the cadence is tightened.
   #
+  # ⚠ SO THERE ARE TWO DIFFERENT RED FIRES HERE, AND ONLY ONE OF THEM IS THE ACCEPTED ONE. The
+  # accepted refusal names ZERO ROOMS ("the goal is NOT EXECUTING"). From 2026-08-11T04:13Z to
+  # 2026-08-15T14:48Z every fire instead refused with the lease "UNREADABLE (exit -5)" — IGNORANCE,
+  # not an answer: the job self-contains at 256 MB `RLIMIT_AS`, children inherit it, and the node
+  # process `coord.derive_lease()` shells to reserves GBs of VIRTUAL address space, so V8 aborted
+  # with SIGTRAP before reading anything. Fixed 2026-08-15 (`jobcontain.uncapped()`, guarded by
+  # `probe-jobcontain-uncapped`). If a fire ever says UNREADABLE again, that is a DEFECT; a fire
+  # that says 0 rooms is this entry working as ruled.
+  #
   # ⚠ `--to leader` IS NAMED, unlike the twin's `enforcement-builder`. The twin's own comment requires
   # it: copying that value would route every judgment row to a builder. `leader` is a ROLE NAME, not a
   # policy value — a fixed seat of the run system, present in every run — so the home-in-waiting
