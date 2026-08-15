@@ -117,6 +117,15 @@ anchor you resolve.
   evidence sits, and waking that chair. `--route` says which one, and it is a HINT only the closer
   reads: it falls back to the `leader` when you name none, and when you name a chair this goal does
   not staff.
+- **You cannot ASK the owner at all unless your seat.md says `human-interactive: yes` — the send is
+  REFUSED, and that is the good outcome.** Since 2026-08-15 `coordinate send owner --type ask` from a
+  seat without that flag fails at the door: you still hold your text, and the refusal prints the
+  `send leader … --type ask` line to use instead (plus `consultant` where this goal staffs one). The
+  refusal exists because the alternative was worse — the row used to be ACCEPTED and then parked at
+  the chat gate, so you held a hold nobody could ever clear, believing you had asked. Do NOT reach for
+  `--force`: it is carried for the transports that write on a seat's behalf, and a seat using it is
+  choosing a row nobody will ever read. `human-interactive` is a DESCRIPTOR fact set by whoever
+  authored your seat, never a send-time flag you may award yourself.
 - **An OPEN ask to the owner HOLDS you — whatever you declared, and whatever your check-out said.**
   While any ask of yours addressed to the owner is unanswered, readiness reports you `HELD` and your
   dependents do not start. It is UNIVERSAL since 2026-08-14: no `fallback:` value earns an exemption,

@@ -32,6 +32,11 @@ diverged · a number the requester acts on changed · you noticed something nobo
 **4 · Address the seat that must ACT. [HAND]** The leader is a recipient for rulings, lifecycle,
 and milestone decisions — not as a witness. Peer work goes to the peer; the leader learns in one clause of your next report.
 Carve-outs: an `ask` still goes to the leader; so does any disclosure the leader may override.
+**`owner` is not an address you may pick. [TOOL]** Unless your own `seat.md` says
+`human-interactive: yes`, an `ask` you address to `owner` is REFUSED AT SEND — you keep the text, and
+the refusal prints the `send leader … --type ask` line to use instead. It is a refusal, not a park:
+the question a gate parks is one nobody can ever answer. The `leader` chair escalates to the owner
+what genuinely needs him, which is one filter more than you crossing that door.
 
 **5 · First line states the want. [HAND]** Open `WANT: <one line>. BY: <name>.` or
 `FYI — no reply needed.` An `ask` fits one screen: the decision in a sentence · options costed by
