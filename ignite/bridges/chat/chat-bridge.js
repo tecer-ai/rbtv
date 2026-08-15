@@ -571,7 +571,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     if (outcome && outcome.undeliveredText && chatMsg.chatThreadId) {
       // …unless the seat is busy with THIS EXACT TEXT (§ the held duplicate). Re-submitting it
       // would run the owner's one question as two conversations.
-      const busyWith = lastForwarded.get(seatHomeOf(route) || ' none');
+      const busyWith = lastForwarded.get(seatHomeOf(route) || '\u0000none');
       if (busyWith && busyWith.text === outcome.undeliveredText && (Date.now() - busyWith.at) <= RETRY_WINDOW_MS) {
         log('warn', 'held message DROPPED — byte-identical to the message this seat is already working on', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
         await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: SEAT_BUSY_DUPLICATE_NOTICE, markAsk: false });

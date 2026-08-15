@@ -919,13 +919,19 @@ function createBusFerry({
             // DIRECTLY, minting no sitting and seating nobody — but CONTENT-BEARING, because
             // unlike that notice there is no retry left behind it: this is the last time these
             // words can reach him.
+            // ONE outcome per msgId: whichever branch below reports, the other stays quiet.
+            // The pair used to BOTH fire — "delivered it to the owner DM in full" immediately
+            // followed by "NOT delivered" for the same row — and `NOT delivered` is the string an
+            // operator greps, so the honest outcome was the unreadable one.
+            let escalationDelivered = false;
             if (isEscalation) {
               try {
                 await transport.sendToOwner({
                   channel: dmChannel, threadTs: null,
                   text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* could NOT be posted to its channel after ${n} attempts (${error}). It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
                 });
-                log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead', { key, msgId: row.id, from: row.from, attempts: n, error });
+                escalationDelivered = true;
+                log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead, cursor advanced', { key, msgId: row.id, from: row.from, attempts: n, error });
               } catch (err) {
                 log('error', 'bus ferry could not deliver an ESCALATION by ANY path — it is lost to the owner and lives only on the bus', { key, msgId: row.id, from: row.from, error: err.message });
               }
@@ -933,7 +939,7 @@ function createBusFerry({
             if (stuckAt === null) cursors.set(key, row.id); // advance — never wedge the ferry on one row
             else jumped.add(akey);
             persist();
-            log('warn', 'bus ferry giving up on a row after persistent post failures — NOT delivered, cursor advanced', { key, msgId: row.id, attempts: n, error });
+            if (!escalationDelivered) log('warn', 'bus ferry giving up on a row after persistent post failures — NOT delivered, cursor advanced', { key, msgId: row.id, attempts: n, error });
             continue;
           }
           log('warn', 'bus ferry post failed — will retry next pass', { key, msgId: row.id, attempts: n, error });

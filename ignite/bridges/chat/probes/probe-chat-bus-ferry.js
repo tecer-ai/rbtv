@@ -410,6 +410,13 @@ async function main() {
       && /cage refuses the path/.test(slack.posted[0].text)
       && logs.some((l) => l.level === 'warn' && /could not post an ESCALATION/.test(l.message)),
       { posted: slack.posted.map((p) => p.text.split('\n')[0]) });
+    // ONE outcome per msgId. The delivery line used to be followed IMMEDIATELY by
+    // `NOT delivered, cursor advanced` for the SAME row — and `NOT delivered` is what an
+    // operator greps, so the log contradicted itself about whether the owner was reached.
+    check('W8-C: the cap leaves ONE outcome for the msgId — no `NOT delivered` line for a row the '
+      + 'content-bearing DM path DID deliver',
+      logs.filter((l) => /NOT delivered/.test(l.message)).length === 0,
+      { contradicting: logs.filter((l) => /NOT delivered/.test(l.message)).map((l) => l.message) });
     a.bridge.stop();
   }
 
