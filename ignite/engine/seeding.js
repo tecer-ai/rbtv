@@ -175,6 +175,36 @@ function readySeats(goalFolder) {
 // ⚠ IT MINTS ONLY ON THE SEAT'S **LAST** EXECUTION ROW, and only on a terminal non-`done` outcome
 // the retry set admits. `blocked` is excluded at coord's end BY DECISION (a blocked seat is waiting
 // on the owner); an OPEN row is excluded here, because a seat still running is not a seat to retry.
+// ── R3a — A STRUCTURALLY-UNFIXABLE REFUSAL STOPS BEING REISSUED (owner-ruled 2026-08-15) ───────
+//
+// THE DEFECT: the mint below is asked every 10s per goal, forever, with no bound anywhere. A seat
+// whose refusal can NEVER succeed (a garbage outcome word coord's vocabulary refuses; an unspent
+// grant already outstanding) was re-offered and refused ~8,600 times a day — one live seat measured
+// at ~20 points of a core continuously, 2026-08-13 → 2026-08-15.
+//
+// ⚠ THE STRUCTURAL/TRANSIENT SPLIT IS COORD'S OWN, NOT A SECOND CLASSIFIER. `coord.py`
+// § REFUSAL_LAYERS names the layer in every refusal's first line, and that text ALREADY crosses on
+// `err.stderr` — no new surface, no vocabulary duplicated in JS. `input` (the argv can never
+// satisfy the verb) and `state` (the run's recorded state forbids it) are unfixable by asking again
+// with the SAME argv, so they strike out. `environment` (a busy/contended world), `role gate`,
+// `identity`, a coord timeout and any UNLAYERED crash keep retrying forever, unchanged: a strike
+// limit that silently gave up on contention would be a worse defect than the loop it replaces, so
+// the cap is opt-IN by layer and an unrecognised refusal is treated as transient.
+const REFUSAL_STRIKE_LIMIT = 3;
+const STRUCTURAL_REFUSAL_LAYERS = new Set(['input', 'state']);
+// ⚠ THE KEY IS THE WHOLE INPUT, and that is what keeps this from being a permanent blacklist: a new
+// execution row, a different outcome word or a new session is a DIFFERENT key that retries from
+// zero. Only the identical unfixable ask is capped.
+// ponytail: process-lifetime Map, no eviction. One entry per distinct (goal, seat, outcome,
+// session) that was refused structurally, and each stops growing at the limit; if a box ever
+// accumulates enough distinct dead executions to matter, evict by insertion order.
+const structuralStrikes = new Map();
+
+function refusalLayerOf(stderr) {
+  const m = /refused \[coord ([a-z ]+)\]/.exec(String(stderr || ''));
+  return m ? m[1] : null;
+}
+
 function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
   const last = new Map();
   for (const r of readExecutionRecord(goalFolder).rows) last.set(r.seat, r);
@@ -245,6 +275,11 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
       continue;
     }
     if (granted.has(row.seat)) continue;
+    const strikeKey = `${goalFolder} ${row.seat} ${outcome} ${rec['session-id'] || ''}`;
+    // STRUCK OUT — skipped silently, and the silence is deliberate here where it is a defect
+    // everywhere else: the strike-out itself was logged loudly once, naming this exact input, and
+    // re-logging it every 10s forever is half of what this fix exists to stop.
+    if ((structuralStrikes.get(strikeKey) || 0) >= REFUSAL_STRIKE_LIMIT) continue;
     let out;
     try {
       // D4 — `--as ignite-daemon`, and it is not decoration. The daemon's MAIN process is not a
@@ -260,13 +295,25 @@ function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
       // EVERY refusal is reported, and at `info` rather than `warn`: the bound being reached, the
       // outcome being one nobody retries, a grant already outstanding — these are the verb working.
       // What must never happen again is the SILENT arm.
+      const layer = refusalLayerOf(err.stderr);
+      let struck = 0;
+      if (STRUCTURAL_REFUSAL_LAYERS.has(layer)) {
+        struck = (structuralStrikes.get(strikeKey) || 0) + 1;
+        structuralStrikes.set(strikeKey, struck);
+      }
       if (logger) {
         logger({
           level: 'info',
-          message: 'seat NOT retried — `coordinate seat-retry --mint` declined',
+          message: struck >= REFUSAL_STRIKE_LIMIT
+            ? 'seat GIVEN UP ON — `coordinate seat-retry --mint` refused this exact input '
+              + `${REFUSAL_STRIKE_LIMIT} times at coord's \`${layer}\` layer, which asking again `
+              + 'cannot change. It will NOT be reissued or logged again until the seat records a '
+              + 'new execution; a human must clear it.'
+            : 'seat NOT retried — `coordinate seat-retry --mint` declined',
           seat: row.seat,
           outcome,
-          evidence: String(err.stderr || err.message || '').trim().slice(0, 400),
+          evidence: `${struck ? `structural strike ${struck}/${REFUSAL_STRIKE_LIMIT} · ` : ''}`
+            + String(err.stderr || err.message || '').trim().slice(0, 400),
         });
       }
       continue;
