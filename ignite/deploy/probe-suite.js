@@ -153,15 +153,48 @@ function discoverProbes(root, only, probeOnly) {
 // while the same probes ran green by hand from the repo root (task 7.652). `/tmp/rbtv-tmux-XXXXXX`
 // is 21 bytes, so the same worst case lands at 58 with ~50 to spare. Captures are NOT affected —
 // they stay in `captureDir`; only the socket-bearing scratch moves.
+//
+// ── THE SECOND CLASS THIS ENV CLOSES: A PROBE THAT REACHES REAL SLACK ───────────────────────────
+//
+// MEASURED 2026-08-17. A suite run created FOUR real Slack channels and invited the owner to them:
+// `goal-zz-olr-dead-…`, `goal-zz-olr-live-…`, `goal-zz-olr-red-…` and `goal-goal-closed`. Nobody
+// invoked the bridge — `probe-one-live-run.js` seeds goals in a scratch workspace and drives the
+// REAL ticker, whose C3 run-start arm (`ticker.js#ensureGoalChannel`) spawns the bridge's
+// `goal-channel-cli.js ensure <goal>` for any goal that resolves `interactive` — and `interactive`
+// is the RULED DEFAULT for a goal folder that declares no `goal-kind:`, which every probe fixture
+// is. The credential was ours to hand over: the ticker passes `RBTV_IGNITE_CHAT_ENV_FILE` from ITS
+// OWN `process.env` to the carrier as `EnvironmentFile=`, and the probe inherited that variable
+// from the operator shell / user manager, so the child got the live bot token and the CLI's default
+// `goal-` prefix. The probe's own `RBTV_IGNITE_WORKSPACE_ROOT` redirection is irrelevant here: it
+// scopes the STORE, and nothing about a scratch store makes an outbound HTTPS call local.
+//
+// FIXED HERE, not in the probe, for this file's own reason (above): per-probe hygiene cannot hold a
+// floor a NEW probe breaks by default, and ANY probe that drives a ticker past a run-start row
+// inherits this. Three deletions and one assignment, each closing a DIFFERENT route to Slack:
+//   · `RBTV_IGNITE_CHAT_ENV_FILE` — the PRIMARY. `ticker.js:1143` reads it and, unset, records
+//     `channel-ensure-skipped` / `no-chat-env-file` and spawns NO process at all. Fully offline.
+//   · `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` — covers a probe invoking `goal-channel-cli.js`
+//     DIRECTLY, which inherits this env rather than an EnvironmentFile; tokenless, that CLI exits 2
+//     before its first API call. No probe supplies a REAL token this way — the four that mention
+//     `SLACK_BOT_TOKEN` all write fake ones into files they own — so nothing legitimate loses a
+//     credential here.
+//   · `IGNITE_CHANNEL_PREFIX=test-` — the last resort, for a token arriving by a route neither
+//     deletion covers: `goal-channel-cli.js:29` invites NOBODY under a `test-` prefix, which is
+//     what keeps `r-slack-etiquette`'s "the owner is in no test channel" mechanical.
+// A probe that GENUINELY needs to create a real owner-visible channel does not exist and must not
+// be created — same posture as the tmux note above.
 let cachedIsolatedEnv = null;
-function tmuxIsolatedEnv(opts) {
+function isolatedProbeEnv(opts) {
   if (!cachedIsolatedEnv) {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtv-tmux-'));
     // Nothing used to reap this dir (it rode inside captureDir); rooted in /tmp it must reap itself.
     process.on('exit', () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch {} });
-    const env = { ...process.env, TMUX_TMPDIR: scratch };
+    const env = { ...process.env, TMUX_TMPDIR: scratch, IGNITE_CHANNEL_PREFIX: 'test-' };
     delete env.TMUX;
     delete env.TMUX_PANE;
+    delete env.RBTV_IGNITE_CHAT_ENV_FILE;
+    delete env.SLACK_BOT_TOKEN;
+    delete env.SLACK_APP_TOKEN;
     cachedIsolatedEnv = env;
   }
   return cachedIsolatedEnv;
@@ -186,7 +219,7 @@ function executeProbe(probe, opts) {
     timeout: timeoutMs,
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,
-    env: tmuxIsolatedEnv(opts),
+    env: isolatedProbeEnv(opts),
   });
 
   const endedAt = Date.now();
@@ -734,6 +767,44 @@ function selftest() {
       if (r.error || r.status !== 0 || !/live/.test(String(r.stdout || ''))) {
         throw new Error(`resolved '${cmd}' does not run python: status=${r.status} `
           + `stdout=${JSON.stringify(tail(r.stdout, 120))} stderr=${JSON.stringify(tail(r.stderr, 120))}`);
+      }
+    });
+
+  t('S19 ⚠ the probe child env carries NO chat credential and NO real channel prefix — a suite run '
+    + 'created 4 real Slack channels and invited the owner (2026-08-17) because probes inherited '
+    + '`RBTV_IGNITE_CHAT_ENV_FILE` and the ticker handed it to the bridge CLI as EnvironmentFile=', () => {
+      // Driven against the REAL builder, with the leak's own conditions FORCED into this process's
+      // env first — otherwise the check passes on a box where the variables merely happen to be
+      // unset, which is the box the leak never occurs on. Restored afterwards.
+      const saved = {};
+      const forced = {
+        RBTV_IGNITE_CHAT_ENV_FILE: '/tmp/probe-suite-selftest-fake-chat.env',
+        SLACK_BOT_TOKEN: 'xoxb-selftest-not-a-real-token',
+        SLACK_APP_TOKEN: 'xapp-selftest-not-a-real-token',
+        IGNITE_CHANNEL_PREFIX: 'goal-',
+      };
+      for (const k of Object.keys(forced)) { saved[k] = process.env[k]; process.env[k] = forced[k]; }
+      // The builder caches on first call, and earlier selftest checks may already have built it —
+      // so the cache is dropped to force a rebuild under the forced env.
+      const savedCache = cachedIsolatedEnv;
+      cachedIsolatedEnv = null;
+      try {
+        const env = isolatedProbeEnv({});
+        for (const k of ['RBTV_IGNITE_CHAT_ENV_FILE', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']) {
+          if (env[k] !== undefined) {
+            throw new Error(`${k} survived into the probe child env as ${JSON.stringify(env[k])} — `
+              + 'a probe driving a ticker past a run-start row will reach real Slack');
+          }
+        }
+        if (env.IGNITE_CHANNEL_PREFIX !== 'test-') {
+          throw new Error(`IGNITE_CHANNEL_PREFIX is ${JSON.stringify(env.IGNITE_CHANNEL_PREFIX)}, not 'test-' `
+            + '— the last-resort guard that keeps the owner out of every probe-made channel');
+        }
+      } finally {
+        cachedIsolatedEnv = savedCache;
+        for (const k of Object.keys(forced)) {
+          if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+        }
       }
     });
 

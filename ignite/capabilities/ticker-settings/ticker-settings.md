@@ -73,9 +73,10 @@ running the command, not by reading it.
 
 ## ⚠ The ladder this edit retimes
 
-Three engine durations are still stored in TICKS (`ticker.js` `stall_warn_ticks` 12 /
-`stall_halt_ticks` 24; `warnings.js` announce every 6), so **a cadence edit silently retimes all
-three** — at a 1 s tick, "stalled" would fire at 24 seconds. Design § 2.2 rules them re-expressed in
+Four engine durations are still stored in TICKS (`ticker.js` `stall_warn_ticks` 12 /
+`stall_halt_ticks` 24 / `stall_kill_ticks` 60; `warnings.js` announce every 6), so **a cadence edit
+silently retimes all four** — at a 1 s tick, "stalled" would fire at 24 seconds and the hung-kill
+rung would KILL the turn at 60. Design § 2.2 rules them re-expressed in
 wall-clock; **that is R3's coupling fix and is NOT task 7.66**. Until it lands, `set-interval` prints
 the derived ladder at the new cadence so the consequence is visible before it takes effect. Showing
 it is not a substitute for fixing it.

@@ -1971,6 +1971,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath: row.log_path,
       sessionRef: row.session_ref,
       live: carrierInfo.active,
+      // Cumulative CPU nanoseconds, or null when the carrier reports none (setsid, or a systemd
+      // unit with no CPU accounting). Lifted to the top level beside `live` because the ticker's
+      // hung-kill rung reads it every tick and must not reach into a carrier-shaped sub-object.
+      cpuNsec: carrierInfo.cpuNsec ?? null,
       carrierInfo,
     };
   }

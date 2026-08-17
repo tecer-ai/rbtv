@@ -109,6 +109,24 @@ const GIVE_UP_NOTICE = "⚠ the agent finished but its reply couldn't be deliver
 // Every disarm now says so. Fixed string, NO internals, best-effort, never retried.
 const DEAD_AIR_NOTICE = '⚠ no reply is coming for this turn — the agent run never completed';
 
+// ── THE THREE VISIBILITY NOTICES (P3) ────────────────────────────────────────────────────────
+// Same discipline as GIVE_UP_NOTICE and DEAD_AIR_NOTICE in every respect: fixed strings, NO
+// internals, best-effort (a failed post is logged and dropped, never retried), ONE-SHOT per turn.
+// They exist because every silence the owner sees is indistinguishable from a broken bridge, and
+// the leg's own poll already knows the difference — it just never said so.
+
+// The daemon marked the exec `stalled` (silent past the stall rung) while its process still lives.
+const STALL_NOTICE = '⚠ the agent has gone silent — nothing is lost; your message is held and it will be restarted if it does not wake';
+
+// …and it was then killed for that silence. The owner is told the run died, NOT shown its partial
+// log: a hung run's half-written output is not an answer and must never be delivered as one.
+const RECOVERY_NOTICE = '⚠ that run was stopped after going silent — your queued message will be delivered to a fresh run';
+
+// The turn is simply LONG. Not an error, not a promise — just the fact that would otherwise be
+// silence. Env-overridable, one number, one place (same shape as the latency threshold above).
+const DEFAULT_SLOW_NOTICE_S = Number(process.env.RBTV_CHAT_SLOW_NOTICE_S || 300);
+const slowNoticeText = (minutes) => `⏳ still working on your message — ${minutes} minute${minutes === 1 ? '' : 's'} so far`;
+
 const DEFAULT_POLL_MS = 3000;                 // single driver cadence (D110 step 3)
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;     // bound: wait for a spawn ≤ 10 min (step 6)
 
@@ -305,12 +323,6 @@ function createReplyLeg({
   // other edge of this leg is injected: the driver holds no transport and mints no path of its
   // own. Absent (an embedder that wires none) → non-conformance goes straight to best-effort.
   redispatch = null,
-  // One call per driver pass, for work that needs a heartbeat but not a second timer: the
-  // bridge's pending re-submits (chat-bridge.js § pending re-submit, task 7.541). It runs BEFORE
-  // the `pending.size === 0` early return, because a conversation whose create was refused was
-  // never armed — the leg holds nothing for it, and that is exactly when the sweep must still run.
-  // Injected and optional, like every other edge here: an embedder that wires none loses nothing.
-  retrySweep = null,
   logger = null,
   pollMs = DEFAULT_POLL_MS,
   windowMs = DEFAULT_WINDOW_MS,
@@ -321,9 +333,22 @@ function createReplyLeg({
   maxStatusErrors = DEFAULT_MAX_STATUS_ERRORS,
   maxDeliverAttempts = DEFAULT_MAX_DELIVER_ATTEMPTS,
   maxRevives = DEFAULT_MAX_REVIVES,
+  slowNoticeS = DEFAULT_SLOW_NOTICE_S,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
+  }
+
+  // The one owner-notice path for the P3 notices: best-effort, both outcomes logged, a failure
+  // dropped and NEVER retried into a loop. (`deadAir` below keeps its own wording, unchanged.)
+  async function postNotice(chatThreadId, text, kind) {
+    try {
+      const n = await deliver({ chatThreadId, text, markAsk: false });
+      if (n && n.delivered === false) log('warn', 'reply leg notice not delivered (best-effort, dropped)', { chatThreadId, kind, why: n.reason || n.error || 'unknown' });
+      else log('info', 'reply leg notice posted to owner', { chatThreadId, kind });
+    } catch (err) {
+      log('warn', 'reply leg notice threw (best-effort, dropped)', { chatThreadId, kind, error: err.message });
+    }
   }
 
   // chatThreadId -> {
@@ -358,7 +383,7 @@ function createReplyLeg({
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
     if (!p) {
-      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false, disarmedAt: null };
+      p = { queueId, armedAt: Date.now(), turnStartedAt: Date.now(), watching: new Map(), delivered: new Set(), statusErrors: 0, revives: 0, compacted: false, disarmedAt: null, slowNoticed: false };
       pending.set(id, p);
     } else {
       p.armedAt = Date.now();
@@ -369,6 +394,7 @@ function createReplyLeg({
       p.turnStartedAt = Date.now();
       p.revives = 0; // a NEW owner turn — never charged for the previous turn's corrections
       p.compacted = false;
+      p.slowNoticed = false; // …and a fresh slow-notice budget: one per owner turn (P3)
       if (p.queueId == null) p.queueId = queueId;
     }
     log('info', 'reply leg armed for conversation', { chatThreadId: id, queueId: p.queueId });
@@ -433,10 +459,6 @@ function createReplyLeg({
     if (ticking) return;
     ticking = true;
     try {
-      // Isolated: a sweep that throws must never abort the reply driver's own pass.
-      if (typeof retrySweep === 'function') {
-        try { await retrySweep(); } catch (err) { log('warn', 'pending re-submit sweep threw', { error: err.message }); }
-      }
       if (pending.size === 0) return;
 
       // 1. Capture new execIds from ticker spawn actions, per conversation. A
@@ -518,14 +540,44 @@ function createReplyLeg({
             continue;
           }
           p.statusErrors = 0;
-          if (statusRes.result.live !== false) continue; // still live (or unknown) — keep polling
+          const watch = p.watching.get(execId);
+
+          // ── STALL (P3) ──────────────────────────────────────────────────────────────────
+          // The daemon marks an exec `stalled` when it has been silent past the stall rung while
+          // its process still lives, and halts the slot's automatic action. From Slack that is
+          // indistinguishable from a bridge that stopped working. ONE post per watched exec
+          // (`stallNoticed`), and only while the exec is otherwise LIVE — a stall that has already
+          // ended is the recovery arm's business, not this one.
+          if (statusRes.result.live !== false) {
+            if (statusRes.result.status === 'stalled' && !watch.stallNoticed) {
+              watch.stallNoticed = true;
+              log('warn', 'reply leg saw a STALLED exec — telling the owner once', { chatThreadId: id, execId });
+              await postNotice(id, STALL_NOTICE, 'stall');
+            }
+            continue; // still live (or unknown) — keep polling
+          }
+
+          // ── RECOVERY (P3) ───────────────────────────────────────────────────────────────
+          // The turn ended as `killed` AFTER we told the owner it had gone silent: the daemon's
+          // hang-killer took it. Its log is a HALF-WRITTEN HANG, so it must never reach the reply
+          // extractor — delivering that as "the reply" is worse than saying nothing. The exec is
+          // retired, the owner is told once, and the spawn window is RESET so the leg waits for
+          // the daemon's next run on this conversation instead of tombstoning it.
+          if (statusRes.result.status === 'killed' && watch.stallNoticed) {
+            p.watching.delete(execId);
+            p.delivered.add(execId);
+            p.armedAt = Date.now();
+            p.disarmedAt = null;
+            log('warn', 'reply leg retired a KILLED hung exec — its partial log was NOT run through the reply extractor', { chatThreadId: id, execId });
+            await postNotice(id, RECOVERY_NOTICE, 'recovery');
+            continue;
+          }
 
           // Turn ended — fetch, extract, deliver. Failures here are ISOLATED per
           // exec (a throw must not abort the pass for other execs/conversations)
           // and RETRIED next pass, bounded per exec (step 6 — never unbounded):
           // the exec is marked delivered ONLY on a confirmed delivery, so a
           // transient logs/transport/Slack failure never burns the reply.
-          const watch = p.watching.get(execId);
 
           // A COMPACTION turn ended. Its output is the chain's memory, not a reply — nothing is
           // fetched and nothing is delivered. Retire it and RESTART the spawn wait: the answering
@@ -677,7 +729,42 @@ function createReplyLeg({
         }
       };
       const now = Date.now();
+
+      // ⚑ A TURN STILL SITTING IN THE DAEMON'S QUEUE IS NOT DEAD AIR (P2). With `on_seat_busy:
+      // 'queue'` an owner message that arrives at a busy seat is QUEUED rather than refused, so no
+      // spawn appears until the seat frees — which behind a 20-minute turn is well past the
+      // spawn-wait window. The rung below would call that a dead thread and tell the owner nothing
+      // is coming, minutes before his answer arrives.
+      //
+      // The queue is the authority. ONE `inspect queue` read per pass, taken LAZILY — only when a
+      // conversation is actually about to be disarmed — and the conversation is identified by the
+      // `chat-thread: <id>` line the forward path puts at the head of every session-create prompt
+      // (forward-path.js § the one admitted correlation id).
+      //
+      // ⚑ A FAILED READ COUNTS AS "STILL QUEUED", the same posture the `tickerOk` gate keeps: a
+      // driver that could not look has seen nothing to declare a thread dead on.
+      let queuedArgs; // undefined = not read this pass · null = read failed · string = joined args
+      const stillQueued = async (id) => {
+        if (queuedArgs === undefined) {
+          const res = await forwarder.inspect('queue');
+          const rows = res && res.ok && res.result && Array.isArray(res.result.rows) ? res.result.rows : null;
+          queuedArgs = rows ? rows.map((r) => String((r && r.args) || '')).join('\n') : null;
+          if (queuedArgs === null) log('warn', 'reply leg queue inspect failed — holding off on every disarm this pass', { error: res && res.error });
+        }
+        return queuedArgs === null || queuedArgs.includes(`chat-thread: ${id}`);
+      };
+
       for (const [id, p] of Array.from(pending.entries())) {
+        // ── SLOW (P3) ────────────────────────────────────────────────────────────────────────
+        // The turn is simply taking a long time. One post per OWNER turn (`slowNoticed`, reset in
+        // arm() beside the other per-turn resets), never on a conversation already tombstoned —
+        // that one has been told the opposite and must not now be told to keep waiting.
+        if (!p.slowNoticed && !p.disarmedAt && p.turnStartedAt && (now - p.turnStartedAt) > slowNoticeS * 1000) {
+          p.slowNoticed = true;
+          const minutes = Math.max(1, Math.round((now - p.turnStartedAt) / 60000));
+          log('info', 'reply leg telling the owner his turn is still running', { chatThreadId: id, minutes, thresholdS: slowNoticeS });
+          await postNotice(id, slowNoticeText(minutes), 'slow');
+        }
         // A TOMBSTONED conversation has already been declared dead to the owner; it is kept only
         // so a LATE spawn can still be captured and delivered (below, § tombstone). Once the grace
         // is spent with nothing watched, the entry is reaped — a tombstone is not a leak.
@@ -713,6 +800,10 @@ function createReplyLeg({
         const fast = p.revives > 0 || p.compacted === true;
         const owedSpawn = p.delivered.size === 0 || fast;
         if (tickerOk && !p.disarmedAt && owedSpawn && p.watching.size === 0 && (now - p.armedAt) > (fast ? correctiveWindowMs : windowMs)) {
+          if (await stillQueued(id)) {
+            log('info', 'reply leg NOT disarming — this turn is still waiting its place in the daemon queue', { chatThreadId: id, queueId: p.queueId });
+            continue;
+          }
           const reason = p.revives > 0 ? 'revive-no-spawn' : p.compacted ? 'compaction-no-answering-turn' : 'no-spawn';
           log('warn', 'reply leg disarming conversation — expected spawn never appeared', { chatThreadId: id, queueId: p.queueId, reason, revives: p.revives, windowMs: fast ? correctiveWindowMs : windowMs });
           // § TOMBSTONE — `revive-no-spawn` ONLY. That disarm used to `pending.delete(id)`, which
@@ -769,5 +860,6 @@ function bestEffortText(body) {
 module.exports = {
   createReplyLeg, extractReplyText, extractCodexText, normalizeLog, extractFenced,
   checkReplyContract, buildFeedback, bestEffortText,
-  FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
+  FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, STALL_NOTICE, RECOVERY_NOTICE, slowNoticeText,
+  FENCE_OPEN, FENCE_CLOSE, CONTRACT_TEMPLATE, UNFORMATTED_PREFIX,
 };

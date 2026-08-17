@@ -163,6 +163,10 @@ const ENQUEUE_ALLOWED_KEYS = new Set([
   // Validate-only mode (owner ruling D72/D73): opt-in, default false. NOT a job
   // column — it selects a pre-insert exit, it is never written to the queue.
   'dry_run',
+  // What to do when this row's (run, seat) is already held: 'dedupe' (default, absent = this)
+  // suppresses per the Q9 idempotent door; 'queue' inserts the row anyway and lets the ticker's
+  // seat-busy gate serialize it behind the holder. Also not a queue column.
+  'on_seat_busy',
 ]);
 
 // The register-job payload's field set (task 7.12). The `jobs` DDL is the authoritative
@@ -503,6 +507,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     const dryRun = payload.dry_run === true;
 
+    // Re-checked here for the same DEC-3 reason as `dry_run`: the enum selects which door the
+    // store takes, so an unrecognised value must be a typed refusal at the wire, never a silent
+    // fall-through to the default. Absent → 'dedupe' (today's behaviour, unchanged).
+    if (payload.on_seat_busy !== undefined && payload.on_seat_busy !== 'dedupe' && payload.on_seat_busy !== 'queue') {
+      throw new InternalApiError(VALIDATION_FAILED, `on_seat_busy must be 'dedupe' or 'queue'`, { check: 'on_seat_busy-enum', field: 'on_seat_busy' });
+    }
+
     // The store re-runs the COMPLETE deterministic dry-run (function in catalogue,
     // args shape, trigger, named profile, session_mode) inside enqueue() and writes
     // NOTHING on any failure — the single place all mutations pass. Under `dryRun` it
@@ -527,6 +538,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       // so an unproven caller writes NULL and is byte-identical to the pre-7.389 row.
       enqueuingSeat: sender.seat || null,
       dryRun,
+      onSeatBusy: payload.on_seat_busy,
     });
 
     // Validate-only verdict — no queue row minted (D72/D73). Reaching here means the
@@ -720,6 +732,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
           : configuredTick !== (configKnobs.tick_interval_ms ?? 10000),
         stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
         stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
+        // The hung-kill rung's window, in ticks of silence past `stalled`. 0 = the rung is off.
+        stall_kill_ticks: configKnobs.stall_kill_ticks ?? 60,
+        // How long a seat-busy-deferred queue row may wait before the ticker drops it with an
+        // owner note. Seconds.
+        seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
         max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
         // Task 7.13 piece 3: the retention window, READ-ONLY, as a FIELD on this existing
@@ -788,6 +805,11 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
         stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
         stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
+        // The hung-kill rung's window, in ticks of silence past `stalled`. 0 = the rung is off.
+        stall_kill_ticks: configKnobs.stall_kill_ticks ?? 60,
+        // How long a seat-busy-deferred queue row may wait before the ticker drops it with an
+        // owner note. Seconds.
+        seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
         max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
       },

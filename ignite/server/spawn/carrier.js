@@ -319,7 +319,11 @@ function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exit
 function systemctlShow(unitName, userManager = true) {
   try {
     const flag = userManager ? '--user' : '--system';
-    const out = execFileSync('systemctl', [flag, 'show', '--property=ExecMainPID,ExecMainStatus,Result,ActiveState,SubState', unitName], { encoding: 'utf8', timeout: 10000 });
+    // `CPUUsageNSec` is the ticker's SECOND silence signal (the hung-kill rung): a turn already
+    // `stalled` whose log has not grown AND whose cumulative CPU time has not moved is not slow,
+    // it is hung. One property added to a show call that was already being made — no second
+    // `systemctl` per exec.
+    const out = execFileSync('systemctl', [flag, 'show', '--property=ExecMainPID,ExecMainStatus,Result,ActiveState,SubState,CPUUsageNSec', unitName], { encoding: 'utf8', timeout: 10000 });
     const props = {};
     for (const line of out.split('\n')) {
       const idx = line.indexOf('=');
@@ -353,6 +357,13 @@ function systemdStatus(unitName, userManager = true) {
     result: show.Result || null,
     state: show.ActiveState || null,
     subState: show.SubState || null,
+    // Cumulative CPU time of the unit, nanoseconds, or null. systemd reports `[not set]` (and
+    // older versions `18446744073709551615`) when it has no accounting for the unit — both must
+    // read as "no signal", never as a number, because a CONSTANT bogus value looks exactly like a
+    // frozen process to the hung-kill rung. Only a plain decimal is accepted.
+    cpuNsec: /^\d+$/.test(show.CPUUsageNSec || '') && show.CPUUsageNSec !== '18446744073709551615'
+      ? Number(show.CPUUsageNSec)
+      : null,
   };
 }
 
@@ -371,9 +382,13 @@ function setsidStatus(pid, pidStarttime = null) {
       pid,
       active: true,
       pidStarttime: starttime,
+      // No CPU signal on this arm — stated explicitly rather than left undefined, because the
+      // hung-kill rung EXCLUDES a null-cpuNsec exec (owner-ruled: one frozen signal is too weak
+      // to kill on) and that exclusion must key on a value the arm actually reports.
+      cpuNsec: null,
     };
   } catch {
-    return { carrier: 'setsid', pid, active: false, pidStarttime: null };
+    return { carrier: 'setsid', pid, active: false, pidStarttime: null, cpuNsec: null };
   }
 }
 

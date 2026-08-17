@@ -15,7 +15,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { createForwardPath, SEAT_BUSY_GAVE_UP_NOTICE } = require('./forward-path');
+const { createForwardPath } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
@@ -50,8 +50,6 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     forwarder,
     deliver: (args) => deliverToOwner(args),
     redispatch: (args) => forwardPath.forwardFollowUp({ ...args, corrective: true }),
-    // The pending re-submit sweep rides the reply leg's EXISTING poll pass (§ pending re-submit).
-    retrySweep: () => retryPending(),
     logger,
     ...replyLegOptions,
   });
@@ -454,12 +452,6 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // — it is refused downstream and never reaches the thread map.
     const chatMsg = { ...rawMsg, chatThreadId: route ? route.conversationId : (rawMsg && rawMsg.chatThreadId), route };
 
-    // ⚠ THE ANTI-DOUBLE GUARD, FIRST AND UNCONDITIONAL (§ pending re-submit). A human message on
-    // this thread supersedes any re-submit the bridge was holding for it — including a refused or
-    // unroutable one, which is why this sits above admission rather than beside the outcome: the
-    // pending text is the human's own, and he is here typing again.
-    if (chatMsg.chatThreadId) dropPendingRetry(chatMsg.chatThreadId);
-
     // Remember the Slack reply address for outbound delivery on this conversation.
     // Goal traffic replies IN-CHANNEL (top level) unless the human posted inside a
     // Slack thread — the goal's surface is the channel, so burying every reply in a
@@ -565,22 +557,21 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       }
     }
 
-    const outcome = await forwardPath.onChatMessage(chatMsg);
-    // The door suppressed the create and handed back the text it discarded — record it for the
-    // automatic re-submit (§ pending re-submit). `undeliveredText` rides ONLY that refusal.
-    if (outcome && outcome.undeliveredText && chatMsg.chatThreadId) {
-      // …unless the seat is busy with THIS EXACT TEXT (§ the held duplicate). Re-submitting it
-      // would run the owner's one question as two conversations.
-      const busyWith = lastForwarded.get(seatHomeOf(route) || '\u0000none');
-      if (busyWith && busyWith.text === outcome.undeliveredText && (Date.now() - busyWith.at) <= RETRY_WINDOW_MS) {
-        log('warn', 'held message DROPPED — byte-identical to the message this seat is already working on', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
-        await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: SEAT_BUSY_DUPLICATE_NOTICE, markAsk: false });
-      } else {
-        pendingRetries.set(chatMsg.chatThreadId, { text: outcome.undeliveredText, route, since: Date.now() });
-        saveState();
-        log('info', 'message held for automatic re-submit — the seat is busy', { chatThreadId: chatMsg.chatThreadId, reason: outcome.reason });
+    // ⚠ THE TWO PRE-ENQUEUE GUARDS (P2). Both sit HERE, above the forward path, because the
+    // daemon queue no longer collapses anything for us: whatever reaches `enqueue-job` becomes a row
+    // that WILL run. They apply only to a conversation the bridge would open with a SESSION-CREATE —
+    // a follow-up rides `send-message` on a live chain, which the seat door never keys.
+    if (route && chatMsg.chatThreadId && !threadMap.has(chatMsg.chatThreadId) && allowlist.isAdmitted(chatMsg.chatUserId)) {
+      const refusal = await preEnqueueRefusal(route, chatMsg.text);
+      if (refusal) {
+        clearPending(chatMsg.chatThreadId); // the ⏳ the warm attempt stamped must not outlive the drop
+        await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text: refusal.notice, markAsk: false });
+        log('warn', refusal.message, { chatThreadId: chatMsg.chatThreadId, ...refusal.detail });
+        return { forwarded: false, refused: true, reason: refusal.reason };
       }
     }
+
+    const outcome = await forwardPath.onChatMessage(chatMsg);
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
     // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
@@ -595,12 +586,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // REPLACES the fire-and-forget 🤖 of 2026-08-06 — see that section for why two
       // independent indicators could not be ordered against each other.
       markPending(chatMsg.chatThreadId, chatMsg._channel, chatMsg._msgTs);
-    } else if (chatMsg && chatMsg.chatThreadId && !pendingRetries.has(chatMsg.chatThreadId)) {
+    } else if (chatMsg && chatMsg.chatThreadId) {
       // REFUSED after the warm attempt marked it. Nothing is coming for this message, so the
       // ⏳ must not outlive it — a marker with no answer behind it is dead air wearing the
-      // costume of work in progress. A no-op when nothing was marked.
-      // ⚑ UNLESS A RE-SUBMIT IS HELD: then something IS coming, and clearing the marker would
-      // be the mirror lie — work in progress wearing the costume of nothing.
+      // costume of work in progress. A no-op when nothing was marked. (The held-re-submit
+      // exception this branch used to carry is gone with the machinery: a message the DAEMON
+      // queued was `forwarded`, so it takes the arming branch above and keeps its marker.)
       clearPending(chatMsg.chatThreadId);
     }
     log('info', 'chat message handled', { chatThreadId: chatMsg && chatMsg.chatThreadId, ...outcome });
@@ -677,51 +668,34 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     queueReaction(() => transport.unreact({ channel: at.channel, ts: at.ts, name: HOURGLASS }));
   }
 
-  // ── PENDING RE-SUBMIT (owner ruling 2026-08-11, task 7.541) ─────────────────
+  // ── THE TWO PRE-ENQUEUE GUARDS (P2, replacing the pending re-submit) ────────
   //
-  // The daemon's idempotent door refuses a session-create while the seat holds a live turn, and
-  // the owner used to be told to send his message again. He should not have to: the bridge holds
-  // the text (it rides the refusal as `undeliveredText`, forward-path.js) and re-submits it when
-  // the seat frees.
+  // The whole pending-re-submit machinery is DELETED. It existed because the daemon's idempotent
+  // door DISCARDED a session-create that arrived while the seat held a live turn, so the bridge had
+  // to hold the text and re-fire it — a queue reimplemented inside a transport that restarts.
+  // `on_seat_busy: 'queue'` (forward-path.js) hands the row to the daemon's own persistent queue
+  // instead, and the daemon launches it when the seat frees. Nothing to hold, nothing to re-fire,
+  // nothing to persist, and no give-up notice: the queue outlives this process.
   //
-  // ⚠ THE HAZARD THIS EXISTS TO PREVENT IS THE DOUBLE, NOT THE LOSS. The door only dedupes while
-  // the seat is STILL HELD, so the dangerous sequence is SEQUENTIAL and the door cannot see it:
-  // refused → seat frees → the human re-sends by hand → the retry fires afterwards → the message
-  // is delivered TWICE. So ANY inbound message on the thread DROPS the pending retry,
-  // unconditionally and before anything else happens (see onChatMessage) — the human superseded
-  // it, and whether his new text is the same or different is not the bridge's judgement to make.
-  // The reworded notice is the other half: it no longer asks for the re-send that caused this.
-  //
-  // ⚑ NO TIMER, NO SECOND MECHANISM. "The seat freed" is discovered by RE-ASKING THE DOOR: the
-  // re-submit is the same `forwardSessionCreate` call, and a still-held seat simply dedupes again.
-  // That is what makes this ~20 lines instead of a seat-key subscription the bridge has no way to
-  // hold. It rides the reply leg's existing poll pass (reply-leg.js `retrySweep`), and it rides
-  // the existing state file, so a bridge restart does not swallow the message it promised to send.
-  //
-  // ponytail: one attempt per poll pass, no backoff — a refused create is a single cheap gateway
-  // call and the whole window is 10 minutes. Add backoff if the gateway ever notices.
-  const pendingRetries = new Map(); // chatThreadId -> { text, route, since }
+  // What the daemon queue does NOT do is collapse a DUPLICATE — every row it takes will run. So the
+  // two things the bridge still owes happen BEFORE the enqueue, never after it:
 
-  // How long a re-submit keeps trying before it gives up and SAYS SO. The same 10-minute patience
-  // the reply leg gives a spawn that has not appeared (reply-leg.js DEFAULT_WINDOW_MS): both are
-  // waiting on the same thing, a seat finishing its turn.
-  const RETRY_WINDOW_MS = 10 * 60 * 1000;
-
-  // ⚠ THE HELD DUPLICATE (owner-observed 2026-08-12). The owner's DM arrived TWICE, byte-identical,
-  // 22 seconds apart across a Socket Mode drop/reconnect — two GENUINE Slack messages with different
-  // ts (he re-sent after seeing silence), so the transport's redelivery guard cannot see them and
-  // must not. The door refused the second correctly; the re-submit above then ran it as a SECOND
-  // full conversation when the seat freed 100s later: a duplicate agent chain, duplicate model
-  // spend, and the same answer delivered twice.
+  // ⚠ (1) THE BYTE-IDENTICAL DUPLICATE (owner-observed 2026-08-12). The owner's DM arrived TWICE,
+  // byte-identical, 22 seconds apart across a Socket Mode drop/reconnect — two GENUINE Slack
+  // messages with different ts (he re-sent after seeing silence), so the transport's redelivery
+  // guard cannot see them and must not. The door used to absorb the second one; now it would become
+  // a second queued row: a duplicate agent chain, duplicate spend, the same answer twice.
   //
-  // ⚑ THE SEAT IS THE UNIT, NOT THE CONVERSATION — which is the whole reason this is not a
-  // per-thread check. The two DMs were two conversations; what they shared was ONE master seat, and
-  // the seat is what the door dedupes on. So the bridge remembers the last text it sent to each seat
-  // home, and a hold whose text matches it byte-for-byte is DROPPED at the door rather than queued.
+  // ⚑ THE SEAT IS THE UNIT, NOT THE CONVERSATION. The two DMs were two conversations; what they
+  // shared was ONE master seat. So the bridge remembers the last text it sent to each seat home and
+  // drops a byte-identical repeat BEFORE it reaches `enqueue-job`.
   //
-  // ponytail: exact match, one entry per seat, no persistence, 10-minute ceiling — the window is one
-  // live turn. Clear the entry when that turn's reply lands if a false drop is ever observed.
+  // ⚑ AND IT NOW APPLIES TO EVERY SEND, not only to a refused one — which is the price of the door
+  // no longer telling us "busy". ponytail: exact match, one entry per seat (a different text to the
+  // same seat evicts it), no persistence, 10-minute ceiling. Clear the entry when that turn's reply
+  // lands if a false drop is ever observed.
   const lastForwarded = new Map(); // seat home -> { text, at }
+  const DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
 
   // The seat a route homes at, from the forward path's OWN resolver — so the key is the thing the
   // door actually keys on and not a second guess at it. `master` stands in for an unset workdir:
@@ -736,39 +710,69 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     if (seat) lastForwarded.set(seat, { text, at: Date.now() });
   }
 
-  // Posted INSTEAD of holding. The owner has already been told by the door's own notice that his
-  // message will be re-sent automatically; dropping it silently would make that a lie. Fixed string,
-  // no internals — the same D111 discipline the other two notices keep.
+  // Posted INSTEAD of enqueuing. Dropping in silence would leave the owner watching a thread that
+  // never answers. Fixed string, no internals — the same D111 discipline the other notices keep.
   const SEAT_BUSY_DUPLICATE_NOTICE = "⚠ that was identical to the message already being worked on — it was NOT sent again; the answer to the first one is on its way";
 
-  function dropPendingRetry(chatThreadId) {
-    if (!pendingRetries.delete(chatThreadId)) return false;
-    log('info', 'pending re-submit dropped — the human sent a new message on this thread', { chatThreadId });
-    saveState();
-    return true;
+  // ⚠ (2) THE PER-SEAT PENDING CAP. A daemon queue that never refuses turns a busy seat into an
+  // unbounded backlog: the owner types five more questions into the silence and gets five more
+  // sessions, hours later, in order, each answering a question he has moved on from.
+  //
+  // ⚑ THE SIGNAL IS THE DAEMON'S OWN QUEUE, not a counter this process keeps. A local counter is
+  // wrong across a restart and wrong about rows the daemon has already launched; `inspect queue`
+  // returns the PENDING rows, which is exactly the question being asked. One read per cold
+  // session-create — chat is a handful of messages a minute.
+  //
+  // ⚑ AND IT FAILS OPEN. A queue read that does not answer means the bridge cannot tell, and a
+  // bridge that cannot tell must never refuse the owner's message.
+  const PENDING_CAP = 5;
+  const PENDING_CAP_NOTICE = `⏳ ${PENDING_CAP} messages already waiting — hold on`;
+
+  // A pending row's seat, from the same `args.workdir` the enqueue put there (`master` for an
+  // unset workdir, matching seatHomeOf). `args` is stored as JSON text.
+  function seatOfQueueRow(row) {
+    if (!row || row.job_id !== config.sessionJobId) return null;
+    try {
+      const args = typeof row.args === 'string' ? JSON.parse(row.args) : (row.args || {});
+      return args.workdir || 'master';
+    } catch { return null; }
   }
 
-  async function retryPending() {
-    if (pendingRetries.size === 0) return;
-    for (const [id, r] of Array.from(pendingRetries.entries())) {
-      const res = await forwardPath.forwardSessionCreate({ chatThreadId: id, text: r.text, route: r.route, retry: true });
-      if (res && res.forwarded) {
-        pendingRetries.delete(id);
-        noteForwarded(r.route, r.text); // this text is now the seat's live turn (§ the held duplicate)
-        replyLeg.arm(id);
-        saveState();
-        log('info', 'pending re-submit delivered — the seat freed', { chatThreadId: id, queueId: res.queueId, waitedMs: Date.now() - r.since });
-        continue;
-      }
-      const stillBusy = String((res && res.reason) || '').startsWith('seat-busy-deduped');
-      if (stillBusy && (Date.now() - r.since) <= RETRY_WINDOW_MS) continue; // the seat is still held — wait
-      // Bounded, and honest at the bound: this is the ONE place the owner is asked to send it
-      // again, and by now there is no pending retry left for that re-send to double with.
-      pendingRetries.delete(id);
-      saveState();
-      log('warn', 'pending re-submit GIVING UP — the message was NOT delivered', { chatThreadId: id, waitedMs: Date.now() - r.since, reason: (res && (res.reason || res.error)) || 'unknown' });
-      await deliverToOwner({ chatThreadId: id, text: SEAT_BUSY_GAVE_UP_NOTICE, markAsk: false });
+  async function pendingAtSeat(seat) {
+    const res = await forwarder.inspect('queue');
+    if (!res || !res.ok || !res.result) {
+      log('warn', 'pending-cap queue read failed — NOT refusing the message', { seat, error: res && res.error });
+      return null; // cannot tell → fail open
     }
+    const rows = Array.isArray(res.result.rows) ? res.result.rows : [];
+    return rows.filter((r) => seatOfQueueRow(r) === seat).length;
+  }
+
+  // Runs both guards for a message that would open a NEW conversation. Returns null to proceed, or
+  // the notice/reason to refuse with.
+  async function preEnqueueRefusal(route, text) {
+    const seat = seatHomeOf(route);
+    if (!seat) return null; // unresolvable seat — the forward path's own refusal is the honest one
+    const last = lastForwarded.get(seat);
+    if (last && last.text === text && (Date.now() - last.at) <= DUPLICATE_WINDOW_MS) {
+      return {
+        notice: SEAT_BUSY_DUPLICATE_NOTICE, reason: 'duplicate-at-seat',
+        message: 'message DROPPED before the enqueue — byte-identical to the last one sent to this seat',
+        detail: { seat, agoMs: Date.now() - last.at },
+      };
+    }
+    // ponytail: `>=` so the notice states a FACT (five are waiting, this would be the sixth). The
+    // count also includes a row enqueued at a FREE seat in the seconds before its tick fires —
+    // harmless at a cap of five, and the alternative is a liveness check nobody needs.
+    const waiting = await pendingAtSeat(seat);
+    if (waiting !== null && waiting >= PENDING_CAP) {
+      return {
+        notice: PENDING_CAP_NOTICE, reason: 'pending-cap',
+        message: 'message REFUSED before the enqueue — too many already queued at this seat',
+        detail: { seat, waiting, cap: PENDING_CAP },
+      };
+    }
+    return null;
   }
 
   // ── CONVERSATION STATE ACROSS RESTARTS (owner ruling 2026-08-06) ────────────
@@ -806,9 +810,9 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // orphan every open agent thread: the owner's reply would land in a thread the bridge no
       // longer attributes to anybody and be handled as ordinary goal traffic.
       agentThreads: Object.fromEntries(agentThreads),
-      // Same additive rule once more (task 7.541). A restart must not swallow a message the
-      // bridge already told the owner it would send again.
-      pendingRetries: Object.fromEntries(pendingRetries),
+      // ⚠ NO `pendingRetries` KEY (P2). The daemon queue holds what this used to hold, and it
+      // survives a bridge restart by construction. A file written by an OLDER bridge may still
+      // carry the key — loadState says so out loud rather than dropping it in silence.
     };
     // Atomic: temp file in the SAME directory (rename is only atomic within a
     // filesystem) + rename over the target. A reader never sees a half-written file,
@@ -856,16 +860,21 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     for (const [k, v] of Object.entries(doc.agentThreads || {})) {
       if (v && typeof v === 'object' && v.threadTs) agentThreads.set(String(k), { threadTs: String(v.threadTs) });
     }
-    // Held re-submits ride the file too. An entry with no text is DROPPED rather than half-
-    // restored: a re-submit with nothing to send would burn the window and then apologize.
-    pendingRetries.clear();
-    for (const [k, v] of Object.entries(doc.pendingRetries || {})) {
-      if (v && typeof v === 'object' && typeof v.text === 'string' && v.text) {
-        pendingRetries.set(String(k), { text: v.text, route: v.route || { kind: 'master', goalId: null }, since: Number(v.since) || Date.now() });
-      }
+    // ⚠ A STATE FILE FROM THE PRE-QUEUE BRIDGE (P2). Held re-submits used to ride this file, and
+    // the deploy that deletes the machinery meets exactly one such file on this box. The entries
+    // are DISCARDED — there is no holder left to restore them into — but never in silence: each
+    // held text is named in the log, because a message vanishing across a deploy is the one thing
+    // the whole re-submit feature existed to prevent. The owner can re-send what he sees here.
+    const staleHeld = Object.entries(doc.pendingRetries || {})
+      .filter(([, v]) => v && typeof v === 'object' && typeof v.text === 'string' && v.text);
+    if (staleHeld.length) {
+      log('warn', 'DISCARDING held re-submits from an older state file — the daemon queue replaces them; these texts were NOT sent and are not held any more', {
+        stateFile, count: staleHeld.length,
+        discarded: staleHeld.map(([id, v]) => ({ chatThreadId: id, text: v.text })),
+      });
     }
-    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, pendingRetries: pendingRetries.size, savedAt: doc.savedAt || null });
-    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, pendingRetries: pendingRetries.size };
+    log('info', 'chat bridge conversation state restored', { stateFile, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, discardedHeldTexts: staleHeld.length, savedAt: doc.savedAt || null });
+    return { loaded: true, threads, replyAddresses: replyAddr.size, busCursors, agentThreads: agentThreads.size, discardedHeldTexts: staleHeld.length };
   }
 
   // Every thread-map mutation persists — including the ones resolveChainThread makes
@@ -979,8 +988,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     onChatMessage, deliverToOwner, start, stop,
     registerGoal, closeGoal, routeOf,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
-    retryPending,
-    _replyAddr: replyAddr, _agentThreads: agentThreads, _pendingRetries: pendingRetries,
+    _replyAddr: replyAddr, _agentThreads: agentThreads, _lastForwarded: lastForwarded,
     forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
     _saveState: saveState, _loadState: loadState, stateFile,
   };

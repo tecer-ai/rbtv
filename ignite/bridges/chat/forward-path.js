@@ -49,22 +49,18 @@ const DECLINE_NOTICE = "⚠ couldn't route your reply to the running work — pl
 // fixes it, because the owner reading it in Slack is the one who can.
 const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — ask the run's owner to seat one";
 
-// The THIRD honest refusal, same mechanics again: the daemon's idempotent door suppressed this
-// session-create because the seat is still busy with a live turn, so NOTHING was enqueued
-// (ruling `d-q9-door`). Fixed string, no internals — it states the outcome the owner cannot
-// otherwise see (his message did NOT land) and what happens next.
+// The THIRD notice, same mechanics again — and since `on_seat_busy: 'queue'` (P2) it is no longer
+// a REFUSAL. The seat is busy with a live turn, so the daemon puts this message in its persistent
+// queue and launches it when the turn finishes. The owner cannot see any of that, so he is told the
+// one fact that matters: it is queued and it will be delivered.
 //
-// ⚑ IT NO LONGER ASKS THE HUMAN TO RE-SEND (owner ruling 2026-08-11, task 7.541). The bridge
-// re-submits the message itself when the seat frees (chat-bridge.js § pending re-submit). The old
-// wording was an INSTRUCTION to re-send, and following it now would deliver the message twice —
-// once by hand and once by the retry. So the wording and the guard shipped together: a manual
-// re-send on the thread DROPS the pending retry, and the notice stops asking for one.
-const SEAT_BUSY_NOTICE = "⚠ that work is still busy with the previous message — yours was NOT delivered yet; it will be sent again automatically as soon as it frees";
-
-// The give-up twin of the notice above: the seat stayed busy past the retry window, so the
-// re-submit was abandoned. Only HERE does the owner get told to send it again — and by then there
-// is no pending retry left to double with.
-const SEAT_BUSY_GAVE_UP_NOTICE = "⚠ that work stayed busy — your message was NOT delivered, please send it again";
+// ⚑ IT NO LONGER ASKS THE HUMAN TO RE-SEND, and it no longer promises a BRIDGE-side re-send either
+// (the pending-retry machinery is deleted — chat-bridge.js). A manual re-send would now be a
+// SECOND queued row, which is exactly the double this wording exists to prevent.
+//
+// ⚑ IT STILL RIDES THE `deduped` BRANCH, which is reachable only if the daemon REJECTS or ignores
+// the flag — an honest "not delivered yet" is then still the truth, so one string serves both.
+const SEAT_BUSY_NOTICE = "⚠ that work is busy with the previous message — yours is queued behind it and will be delivered as soon as that finishes";
 
 // The FOURTH honest refusal (ratified 2026-08-09): the owner replied in an agent's own thread,
 // but that agent's seat is no longer on disk — it was never materialized, or it was cleaned up.
@@ -268,11 +264,12 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   }
 
   // A first message that STARTS work → a session-creating launch-agent job.
-  // `retry` — this call IS the automatic re-submit of a message the door already refused
-  // (chat-bridge.js § pending re-submit). Everything about the leg is identical; the ONE
-  // difference is that a second seat-busy refusal posts NO notice. The owner was told once, and
-  // a notice per poll pass would turn one honest line into a stream of them.
-  async function forwardSessionCreate({ chatThreadId, text, route, retry = false }) {
+  //
+  // ⚠ THE `retry` PARAMETER IS GONE (P2). It existed for ONE caller — `chat-bridge.js#retryPending`
+  // — whose whole machinery is deleted now that the DAEMON queues a message that arrives at a busy
+  // seat. Nothing re-fires this leg, so the two `!retry` notice guards below are gone with it: every
+  // refusal notifies, unconditionally, which is what they did for every other caller anyway.
+  async function forwardSessionCreate({ chatThreadId, text, route }) {
     const home = workdirFor(route);
     if (!home.ok) {
       // Nothing is enqueued. The owner gets a fixed notice on the surface he typed on, because
@@ -309,6 +306,13 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       session_mode: 'headless',                 // chat rides the headless model (notes §7b)
       trigger_kind: 'scheduled',
       run_at: nowIsoUtc(),                      // due now: the next tick dispatches it
+      // ⚑ QUEUE, DON'T DEDUPE (P2). The idempotent door's default is `dedupe`: a create arriving
+      // while the seat holds a live turn is suppressed and its args — the owner's text — DISCARDED.
+      // The bridge held that text and re-fired it, which is a queue reimplemented in a transport
+      // that restarts. `queue` hands the row to the daemon's own persistent queue instead, launched
+      // oldest-first when the seat frees. A daemon that does not know the flag falls back to its
+      // dedupe behaviour and the `deduped` branch below still tells the owner the truth.
+      on_seat_busy: 'queue',
     };
     if (home.workdir) payload.args.workdir = home.workdir;
     // NO `effort` KEY (launch-cast unification, 2026-08-11). The rung is the SEAT's declaration
@@ -318,11 +322,7 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const res = await forwarder.forward('enqueue-job', payload);
     if (!res.ok) {
       log('warn', 'session-create enqueue refused by gateway', { chatThreadId, error: res.error });
-      // ⚑ `!retry` FOR THE SAME REASON THE SEAT-BUSY BRANCH BELOW CARRIES IT, not by symmetry: on
-      // the re-submit path `chat-bridge.js#retryPending` treats any non-seat-busy refusal as the
-      // give-up and posts SEAT_BUSY_GAVE_UP_NOTICE itself, so notifying here too would put two
-      // lines in the owner's thread for one undelivered message.
-      if (!retry) await postDeclineNotice(chatThreadId, GATEWAY_REFUSED_NOTICE);
+      await postDeclineNotice(chatThreadId, GATEWAY_REFUSED_NOTICE);
       return { forwarded: false, leg: 'session-create', intent: 'enqueue-job', error: res.error };
     }
     // ⚠ A RETURNED QUEUE ID IS NOT DELIVERY — the door may have suppressed this create
@@ -348,11 +348,10 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
         chatThreadId, route: route && route.kind, goalId: route && route.goalId,
         heldQueueId: res.result.jobId, because: res.result.because, seatKey: res.result.seat_key,
       });
-      if (!retry) await postDeclineNotice(chatThreadId, SEAT_BUSY_NOTICE);
-      // The undelivered text rides the REFUSAL — and since task 7.541 it has a PRODUCTION reader:
-      // `chat-bridge.js` records it as a pending re-submit and this same leg re-fires it when the
-      // seat frees. (It also still serves the older degraded path — routeBusRowToMaster falls
-      // through to posting the row raw on a not-forwarded result.)
+      await postDeclineNotice(chatThreadId, SEAT_BUSY_NOTICE);
+      // The undelivered text still rides the REFUSAL. Its pending-re-submit reader is gone (P2), but
+      // the older degraded path remains: routeBusRowToMaster falls through to posting the row raw on
+      // a not-forwarded result, and a caller that must not lose a payload should be able to see it.
       return {
         forwarded: false,
         leg: 'session-create',
@@ -501,4 +500,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, SEAT_BUSY_GAVE_UP_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };

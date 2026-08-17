@@ -923,8 +923,20 @@ class HeartStore {
   // ORDERING: a holder that carries an ORIGINATING queue id wins over one that does not, then the
   // most recent. The ruled return is that originating id, so a turn born outside the queue (a
   // direct recordExecutionStart, as probes do) must never mask a turn that has one.
-  _findSeatHolder(seatKey) {
+  //
+  // ⚠ PUBLIC SINCE THE SEAT-BUSY GATE. The ticker's dispatch phase asks the SAME busy question
+  // this door asks, so it calls THIS method rather than re-deriving one — one predicate by
+  // construction (`_findSeatHolder` stays below as an alias for anything still binding it).
+  // `excludeQueueId` exists for that caller only, and it applies to BOTH arms — it means "held by
+  // anyone OTHER THAN THIS ROW". The pending arm needs it because the asking row is itself pending
+  // and would otherwise match its own key and mask every other holder. The LIVE-TURN arm needs it
+  // for a measured reason: a recurring row keeps its queue_id across fires, so its own previous
+  // execution is a live turn carrying THIS row's originating id — and gating on that would stop
+  // every periodic launch-agent job from re-firing while its predecessor runs, which is certified
+  // behaviour this gate has no business changing (probe-periodic, measured red).
+  findSeatHolder(seatKey, { excludeQueueId = null } = {}) {
     for (const row of this.listQueue()) {
+      if (excludeQueueId !== null && row.queue_id === excludeQueueId) continue;
       let args;
       try { args = JSON.parse(row.args); } catch { args = {}; }
       if (seatKeyOf(this.getJob(row.job_id), args) === seatKey) {
@@ -938,6 +950,7 @@ class HeartStore {
       ORDER BY (queue_id IS NULL), exec_id DESC
     `).all(...nonTerminal);
     for (const row of rows) {
+      if (excludeQueueId !== null && row.queue_id === excludeQueueId) continue;
       let args;
       try { args = JSON.parse(row.args); } catch { args = {}; }
       if (seatKeyOf(this.getJob(row.job_id), args) === seatKey) {
@@ -946,6 +959,9 @@ class HeartStore {
     }
     return null;
   }
+
+  // Kept so nothing that binds the pre-rename name breaks. One implementation, one alias.
+  _findSeatHolder(seatKey, opts) { return this.findSeatHolder(seatKey, opts); }
 
   enqueue(req) {
     const job = this.getJob(req.jobId);
@@ -1051,9 +1067,21 @@ class HeartStore {
     // The lossiness of THIS method is unchanged and is not a bug to be fixed here — a caller that
     // must not lose its payload MUST read `deduped` on the result rather than treating a returned
     // id as delivery. The bridge is the precedent for doing so, not an exemption from it.
-    const seatKey = seatKeyOf(job, parsedArgs);
+    //
+    // ⚠ THE LOSSINESS IS NOW OPT-OUT, NOT UNCONDITIONAL (`on_seat_busy`, owner-ruled). A caller
+    // whose payload carries something the held operation never saw — a chat message typed while
+    // the seat's turn is still running — passes `onSeatBusy: 'queue'` and gets an ORDINARY INSERT:
+    // no dedupe, no suppression, the row waits its turn. `'dedupe'` (and absent) is the behaviour
+    // above, byte-identical. Queueing is safe only because the ticker's dispatch phase asks THIS
+    // OBJECT's `findSeatHolder` before it launches, so two pending rows for one seat fire one
+    // after the other rather than at once; the per-seat pending CAP is enforced at the bridge.
+    const onSeatBusy = req.onSeatBusy === undefined || req.onSeatBusy === null ? 'dedupe' : req.onSeatBusy;
+    if (onSeatBusy !== 'dedupe' && onSeatBusy !== 'queue') {
+      throw new HeartStoreError(E_BAD_ARGS, `on_seat_busy must be 'dedupe' or 'queue'`, { onSeatBusy });
+    }
+    const seatKey = onSeatBusy === 'queue' ? null : seatKeyOf(job, parsedArgs);
     if (seatKey) {
-      const holder = this._findSeatHolder(seatKey);
+      const holder = this.findSeatHolder(seatKey);
       if (holder) {
         return {
           deduped: true,
@@ -1933,4 +1961,7 @@ module.exports = {
   TURN_STATUSES,
   TERMINAL_TURN_STATUSES,
   sessionStatusForEndedTurn,
+  // The (run, seat) key. Exported so the ticker's seat-busy gate asks the door's own question
+  // with the door's own key rather than a second spelling of it.
+  seatKeyOf,
 };

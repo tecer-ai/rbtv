@@ -102,7 +102,7 @@ const { startMockSlack, makeCapture, nowMs, sleep } = require('./lib');
 const { resolveConfig } = require('../config');
 const { createSlackSocketMode } = require('../slack-socket-mode');
 const { buildBridge } = require('../index');
-const { FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
+const { FALLBACK_TEXT, GIVE_UP_NOTICE, DEAD_AIR_NOTICE, STALL_NOTICE, RECOVERY_NOTICE, slowNoticeText, FENCE_OPEN, FENCE_CLOSE, UNFORMATTED_PREFIX } = require('../reply-leg');
 const { toMrkdwn } = require('../mrkdwn');
 
 const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
@@ -115,6 +115,9 @@ const OUT = path.join(__dirname, 'probe-chat-reply-leg.out');
 //   logs:         Map<execId, string[]>                (the harness's own log lines)
 //   logPageMax:   server-side page clamp stand-in (dispatch.js MAX_PAGE shape)
 //   failLogs:     fail the next N `inspect logs` calls (transient transport error)
+//   queueRows:    `inspect queue` rows — the daemon's PENDING queue. Since `on_seat_busy: 'queue'`
+//                 an owner turn can WAIT here before it is ever launched, so the spawn-wait rung
+//                 asks the queue before it declares a thread dead (leg u4)
 //   forwarded:    every enqueue-job payload, in order — the corrective revive turns are
 //                 OBSERVED here (legs p/q), never inferred from what did not reach Slack
 function scriptedForwarder(state) {
@@ -137,6 +140,10 @@ function scriptedForwarder(state) {
         // from the response it already makes, so no inspect surface is widened. Defaulted here
         // to the claude profile because every pre-contract leg below scripts a stream-json log.
         return { ok: true, result: { target: 'status', id: Number(extra.id), live: s.live, status: s.status, profile: s.profile || 'claude/claude-opus-5' } };
+      }
+      if (target === 'queue') {
+        if (state.failQueueInspect) return { ok: false, error: { code: 'TRANSPORT', message: 'scripted queue read failure' } };
+        return { ok: true, result: { target: 'queue', rows: state.queueRows } };
       }
       if (target === 'logs') {
         if (state.failLogs > 0) {
@@ -213,7 +220,7 @@ async function main() {
   try {
     mock = await startMockSlack();
 
-    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100, forwarded: [] };
+    const state = { recentTicks: [], liveSessions: [], status: new Map(), logs: new Map(), logPageMax: 500, failLogs: 0, nextJobId: 100, forwarded: [], queueRows: [], failQueueInspect: false };
     const config = resolveConfig({
       gatewayAddr: '127.0.0.1:1', bridgeToken: 'unused-here', sessionProfile: 'worker', allowlist: ['U-owner'],
       slackApiBase: mock.apiBase, slackAppToken: 'xapp-fake', slackBotToken: 'xoxb-fake',
@@ -676,6 +683,82 @@ async function main() {
       && !/SLOW/.test(fastLine.bridge.message) && typeof fastLine.bridge.latencyS === 'number'
       && fastLine.bridge.latencyS < 30 && lastText() === 'the fast answer',
       { line: fastLine && fastLine.bridge, text: lastText() });
+
+    // ══ (u) THE THREE VISIBILITY NOTICES + THE QUEUE-AWARE DISARM (P2/P3) ═══════════════════════
+    // Every silence the owner sees is indistinguishable from a broken bridge. The leg's own poll
+    // already knows the difference between "stalled", "killed after stalling", "just slow" and
+    // "still waiting its turn in the daemon queue" — these legs assert it now SAYS so, exactly
+    // once each, and that a killed hang's partial log is never delivered as an answer.
+    state.recentTicks = [];
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a turn that goes silent', channel: CHANNEL, thread_ts: ROOT_TS, ts: '1700000000.001300', event_ts: '1700000000.001300', client_msg_id: 'reply-leg-m13' });
+    await waitFor(() => Boolean(pend()));
+    const sentBeforeU1 = sent.length;
+    state.recentTicks.push({ tick: 22, actions: [{ action: 'spawn', execId: 60, queueId: QUEUE }] });
+    state.status.set(60, { live: true, status: 'stalled', profile: 'claude/claude-opus-5' });
+    await leg().tick();
+    const afterFirstStall = sent.length;
+    await leg().tick();   // STILL stalled — the notice is one-shot, not one-per-pass
+    record('u1:a stalled-but-live exec posts the stall notice EXACTLY ONCE, however many passes see it',
+      afterFirstStall === sentBeforeU1 + 1 && sent[sentBeforeU1].text === STALL_NOTICE
+      && sent.length === sentBeforeU1 + 1
+      && Boolean(pend()) && pend().watching.get(60) && pend().watching.get(60).stallNoticed === true,
+      { sentBeforeU1, afterFirstStall, sentNow: sent.length, text: sent[sentBeforeU1] && sent[sentBeforeU1].text,
+        flagged: pend() && pend().watching.get(60) && pend().watching.get(60).stallNoticed });
+
+    // ── (u2) THE HANG WAS KILLED: one recovery notice, and NOT A BYTE of its partial log ────────
+    // The daemon kills a hung agent at ~10 min of silence and the turn's status becomes `killed`.
+    // Its log is a half-written hang; running it through the reply extractor would deliver that
+    // fragment as "the reply", which is worse than saying nothing.
+    const sentBeforeU2 = sent.length;
+    const armedAtBeforeU2 = pend().armedAt;
+    state.status.set(60, { live: false, status: 'killed', profile: 'claude/claude-opus-5' });
+    state.logs.set(60, [resultLine('a half-written hang that must never be delivered')]);
+    await leg().tick();
+    await leg().tick();   // one-shot here too: the exec is retired, nothing re-posts
+    record('u2:a killed hang posts ONE recovery notice, delivers NO log-derived text, and resets the spawn window instead of tombstoning',
+      sent.length === sentBeforeU2 + 1 && lastText() === RECOVERY_NOTICE
+      && !sent.some((m) => /half-written hang/.test(String(m.text)))
+      && Boolean(pend()) && pend().delivered.has(60) && !pend().watching.has(60)
+      && pend().armedAt >= armedAtBeforeU2 && pend().disarmedAt === null,
+      { sentCount: sent.length, sentBeforeU2, text: lastText(),
+        leakedLog: sent.filter((m) => /half-written hang/.test(String(m.text))).length,
+        retired: Boolean(pend()) && pend().delivered.has(60), rearmed: Boolean(pend()) && pend().armedAt >= armedAtBeforeU2 });
+
+    // ── (u3) A LONG TURN SAYS SO, ONCE ──────────────────────────────────────────────────────────
+    // Not an error and not a promise — just the fact that would otherwise be silence. One post per
+    // OWNER turn (the flag resets in arm(), beside the other per-turn resets).
+    const sentBeforeU3 = sent.length;
+    pend().turnStartedAt = nowMs() - (6 * 60 * 1000); // past the 300 s default
+    await leg().tick();
+    await leg().tick();
+    record('u3:a turn past the slow threshold posts ONE hourglass notice carrying the minutes so far',
+      sent.length === sentBeforeU3 + 1 && lastText() === slowNoticeText(6)
+      && Boolean(pend()) && pend().slowNoticed === true,
+      { sentCount: sent.length, sentBeforeU3, text: lastText(), expected: slowNoticeText(6), flagged: pend() && pend().slowNoticed });
+
+    // ── (u4) A TURN STILL IN THE DAEMON QUEUE IS NOT DEAD AIR ────────────────────────────────────
+    // The P2 half of the reply leg. Under `on_seat_busy: 'queue'` an owner message that lands at a
+    // busy seat WAITS in the daemon's queue — no spawn appears, and behind a 20-minute turn that is
+    // well past the spawn-wait window. Declaring dead air there tells the owner nothing is coming
+    // minutes before his answer arrives. The queue is the authority; the conversation is identified
+    // by the `chat-thread: <id>` line the forward path puts at the head of every create prompt.
+    state.recentTicks = [];
+    const U4_TS = '1700000000.001600';
+    const CHAT_U4 = `${CHANNEL}:${U4_TS}`;
+    await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'a message that waits its turn', channel: CHANNEL, ts: U4_TS, event_ts: U4_TS, client_msg_id: 'reply-leg-m14' });
+    const pu4 = () => leg()._pending.get(CHAT_U4);
+    await waitFor(() => Boolean(pu4()));
+    const sentBeforeU4 = sent.length;
+    state.queueRows = [{ queue_id: 9001, job_id: 'chat-launch', args: JSON.stringify({ prompt: `chat-thread: ${CHAT_U4}\n\na message that waits its turn`, workdir: '/seat' }) }];
+    pu4().armedAt = nowMs() - (11 * 60 * 1000); // past EVERY window
+    await leg().tick();
+    const heldWhileQueued = Boolean(pu4()) && sent.length === sentBeforeU4;
+    state.queueRows = [];   // the daemon launched it — the row is gone, and no spawn ever came
+    await leg().tick();
+    record('u4:a conversation whose row is STILL in the daemon queue does not disarm; once the row is gone the dead-air notice fires as before',
+      heldWhileQueued && !pu4() && sent.length === sentBeforeU4 + 1 && lastText() === DEAD_AIR_NOTICE,
+      { heldWhileQueued, stillPending: Boolean(pu4()), sentBeforeU4, sentNow: sent.length, text: lastText() });
+
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });

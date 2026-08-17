@@ -164,7 +164,13 @@ function optionalPositiveInt(value, field) {
 const ENQUEUE_KEYS = new Set([
   'job_id', 'args', 'session_mode', 'trigger_kind', 'run_at',
   'repeat_rule', 'interval_seconds', 'max_fires', 'dry_run',
+  // What to do when this row's (run, seat) is already held — 'dedupe' | 'queue'. THE GATEWAY IS
+  // THE FIRST OF TWO ALLOWLISTS and a field absent here never reaches the second: the shape check
+  // refuses it as an unknown field before dispatch.js is ever called. (Measured: the chat bridge's
+  // first send of this field came back SHAPE_INVALID with dispatch.js already accepting it.)
+  'on_seat_busy',
 ]);
+const ON_SEAT_BUSY = new Set(['dedupe', 'queue']);
 
 function parseEnqueueJob(payload) {
   requireObject(payload);
@@ -234,7 +240,19 @@ function parseEnqueueJob(payload) {
     dryRun = payload.dry_run;
   }
 
+  // `on_seat_busy` — SHAPE ONLY here, exactly like `dry_run` above: a member of the closed enum,
+  // default 'dedupe' when absent (which is byte-identical to absent at the store). The gateway
+  // forwards it and decides no semantics; the core re-validates it and picks the door.
+  let onSeatBusy = 'dedupe';
+  if (payload.on_seat_busy !== undefined) {
+    if (!ON_SEAT_BUSY.has(payload.on_seat_busy)) {
+      bad(`on_seat_busy must be dedupe|queue (got "${payload.on_seat_busy}")`, 'on_seat_busy');
+    }
+    onSeatBusy = payload.on_seat_busy;
+  }
+
   return {
+    on_seat_busy: onSeatBusy,
     job_id: payload.job_id,
     args: JSON.stringify(args),
     session_mode: sessionMode,

@@ -184,11 +184,71 @@ async function main() {
     marker ? `level=${marker.level} heldBy=${marker.heldBy} originatingQueueId=${marker.originatingQueueId}`
       : `NO 'idempotent-suppress' line among ${logged.length} logged entries`);
 
+  // ── 9. `on_seat_busy` · the door's lossiness is now OPT-OUT ─────────────────────────────────
+  // The default arm is asserted BYTE-IDENTICAL to the behaviour checks 1-2 measured, and it is
+  // asserted by REPLAY rather than by reading the code: an absent field and an explicit 'dedupe'
+  // must both land on the same suppression, and 'queue' must mint a real row while the seat is
+  // still held by the same holder. The three run against ONE seat in sequence so the HOLDER is
+  // identical across them — otherwise 'queue' could pass for the trivial reason that nothing held
+  // the seat when it ran.
+  const SEAT_E = '/ws/.rbtv/goals/g/runs/run-1/seats/epsilon';
+  const eHold = enqueueSeat(store, SEAT_E);                                   // the holder
+  const eAbsent = enqueueSeat(store, SEAT_E);                                 // on_seat_busy absent
+  const eDedupe = store.enqueue({
+    jobId: 'seat-launch', args: seatArgs(SEAT_E), sessionMode: 'headless',
+    triggerKind: 'scheduled', runAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    enqueuedBy: 'probe', onSeatBusy: 'dedupe',
+  });
+  check('absent-and-dedupe-are-identical',
+    eAbsent.deduped === true && eDedupe.deduped === true
+      && eAbsent.queue_id === eHold.queue_id && eDedupe.queue_id === eHold.queue_id
+      && pendingFor(store, SEAT_E).length === 1,
+    `holder=${eHold.queue_id} absent→${eAbsent.queue_id} dedupe→${eDedupe.queue_id} pending=${pendingFor(store, SEAT_E).length}`);
+
+  const eQueued = store.enqueue({
+    jobId: 'seat-launch', args: seatArgs(SEAT_E), sessionMode: 'headless',
+    triggerKind: 'scheduled', runAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    enqueuedBy: 'probe', onSeatBusy: 'queue',
+  });
+  check('queue-inserts-while-seat-held',
+    !eQueued.deduped && typeof eQueued.queue_id === 'number' && eQueued.queue_id !== eHold.queue_id
+      && pendingFor(store, SEAT_E).length === 2,
+    `new queue_id=${eQueued.queue_id} (holder ${eHold.queue_id}) pending=${pendingFor(store, SEAT_E).length}`);
+
+  // The seat-busy gate's own predicate, asked exactly as the ticker asks it: excluding a row
+  // itself, the OLDER pending row is the holder — which is what serializes the two.
+  const holderOfQueued = store.findSeatHolder(`workdir:${SEAT_E}`, { excludeQueueId: eQueued.queue_id });
+  const holderOfHold = store.findSeatHolder(`workdir:${SEAT_E}`, { excludeQueueId: eHold.queue_id });
+  check('gate-predicate-orders-the-two-rows',
+    holderOfQueued && holderOfQueued.queueId === eHold.queue_id
+      && holderOfHold && holderOfHold.queueId === eQueued.queue_id,
+    `younger row sees holder=${holderOfQueued && holderOfQueued.queueId} (expected ${eHold.queue_id}); older sees ${holderOfHold && holderOfHold.queueId}`);
+
+  // ── 10. THE WIRE · the enum, and its refusal ────────────────────────────────────────────────
+  const SEAT_F = '/ws/.rbtv/goals/g/runs/run-1/seats/zeta';
+  const wireBase = {
+    job_id: 'seat-launch', trigger_kind: 'scheduled',
+    run_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  };
+  const f1 = await api.dispatch(envelope({ ...wireBase, args: { workdir: SEAT_F } }));
+  const f2 = await api.dispatch(envelope({ ...wireBase, args: { workdir: SEAT_F }, on_seat_busy: 'queue' }));
+  const fBad = await api.dispatch(envelope({ ...wireBase, args: { workdir: SEAT_F }, on_seat_busy: 'later' }));
+  check('wire-carries-on_seat_busy',
+    f1.ok && f2.ok && !f2.result.deduped && f2.result.jobId !== f1.result.jobId,
+    `first=${f1.result && f1.result.jobId} queued=${f2.result && f2.result.jobId} deduped=${f2.result && f2.result.deduped}`);
+  check('wire-refuses-an-unknown-value',
+    !fBad.ok && fBad.error && fBad.error.details && fBad.error.details.check === 'on_seat_busy-enum'
+      && pendingFor(store, SEAT_F).length === 2,
+    `ok=${fBad.ok} error=${JSON.stringify(fBad.error)} pending=${pendingFor(store, SEAT_F).length}`);
+
   closeHeartStore();
 
   // ── 8. RED ARM · the same live-turn scenario against a store with the guard CUT OUT ─────────
   const original = fs.readFileSync(HEART_STORE_SRC, 'utf8');
-  const GUARD_START = '    const seatKey = seatKeyOf(job, parsedArgs);';
+  // The anchor is the FIRST line of the door block — which since `on_seat_busy` is the enum read,
+  // not the `seatKey` line. Cutting from here removes the whole door (enum validation included),
+  // which is exactly what the red arm needs: the scenario below passes no `onSeatBusy`.
+  const GUARD_START = "    const onSeatBusy = req.onSeatBusy === undefined";
   const GUARD_END = '    const enqueuedAt = req.enqueuedAt || isoNow();';
   const startIdx = original.indexOf(GUARD_START);
   const endIdx = original.indexOf(GUARD_END, startIdx);
