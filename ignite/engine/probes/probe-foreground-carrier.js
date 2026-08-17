@@ -951,6 +951,88 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
       && waveResult.outcome === 'complete',
     `outcome=${waveResult.outcome}`);
 
+  // ── B1k · the seat's declared EFFORT at THIS door — validated and REPORTED, never dropped ────
+  //
+  // The third launch door honours the cast's fourth field the only way measurement allows
+  // (2026-08-17, this box): claude's TUI accepts `--effort`, but opencode's TUI REFUSES
+  // `--variant` (prints the root help and exits 1 — the flag belongs to the `run` subcommand), so
+  // the headless `effort:` argv must NOT be composed onto a headed command. What the door owes
+  // instead: the word is VALIDATED against the profile's own ladder (an off-ladder word refuses
+  // here exactly as at the daemon door), and an accepted rung is loudly reported as NOT carried —
+  // a silent drop is the defect this block exists to pin out.
+  say('');
+  say('B1k — a declared effort is validated and reported at this door, and NO effort fragment reaches the headed argv');
+
+  const effGoal = makeGoal('fg-goal-effort');
+  const effStore = openHeartStore({ dbPath: path.join(effGoal, 'heart.db') });
+  attached.seedTaskforce(effStore, effGoal, {});
+  const effCast = (seat, effortLine) => fs.writeFileSync(path.join(effGoal, 'seats', seat, 'seat.md'),
+    `---\nseat: ${seat}\nharness: claude\nmodel: claude-fable-5\n${effortLine}---\n\nbody\n`);
+
+  // Arm 1 — declared, on-ladder (`xhigh` = rung 4 of the shipped fable ladder): reported, not composed.
+  effCast('alpha', 'effort: xhigh\n');
+  const effEvents = [];
+  let effArgv = null;
+  attached.runForegroundSeat({
+    heartStore: effStore, seat: 'alpha', goalFolder: effGoal, launchSpecs: shipped,
+    tick: 1, now: new Date(),
+    spawnForeground: (argv) => { effArgv = argv; return { status: 0 }; },
+    logger: (e) => effEvents.push(e),
+  });
+  const notCarried = effEvents.filter((e) => /effort/i.test(e.message || '') && /not carried/i.test(e.message || ''));
+  check('B1k an on-ladder declared effort is REPORTED accepted-but-not-carried, naming the rung, and the headed argv carries NO effort fragment',
+    notCarried.length === 1 && notCarried[0].rung === 4
+      && !effArgv.includes('--effort') && !effArgv.includes('xhigh'),
+    `notCarried=${notCarried.length} rung=${notCarried[0] && notCarried[0].rung} argv=${JSON.stringify(effArgv)}`);
+
+  // Arm 2 — CONTROL: an UNDECLARED effort reports nothing and refuses nothing. This is what tells
+  // "the door read the descriptor" from "the door hardcodes a report": a hardcoded rung reds here
+  // while arm 1 stays green.
+  effCast('bravo', '');
+  const ctlEvents = [];
+  let ctlArgv = null;
+  attached.runForegroundSeat({
+    heartStore: effStore, seat: 'bravo', goalFolder: effGoal, launchSpecs: shipped,
+    tick: 1, now: new Date(),
+    spawnForeground: (argv) => { ctlArgv = argv; return { status: 0 }; },
+    logger: (e) => ctlEvents.push(e),
+  });
+  check('B1k CONTROL: an undeclared effort produces NO effort report and no refusal — the launch is byte-unchanged',
+    ctlEvents.every((e) => !/effort/i.test(e.message || '')) && Array.isArray(ctlArgv)
+      && !ctlArgv.includes('--effort'),
+    `events=${JSON.stringify(ctlEvents.map((e) => e.message))}`);
+
+  // Arm 3 — an OFF-LADDER word REFUSES at this door exactly as at the daemon door
+  // (E_UNKNOWN_EFFORT naming the word and the numbered ladder), BEFORE any record is written.
+  effCast('bravo', 'effort: turbo\n');
+  let effRefusal = null;
+  try {
+    attached.runForegroundSeat({
+      heartStore: effStore, seat: 'bravo', goalFolder: effGoal, launchSpecs: shipped,
+      tick: 1, now: new Date(), spawnForeground: () => ({ status: 0 }),
+    });
+  } catch (err) { effRefusal = err; }
+  check('B1k an off-ladder word REFUSES with E_UNKNOWN_EFFORT naming the word and the ladder — this door validates like the other two',
+    Boolean(effRefusal) && effRefusal.code === 'E_UNKNOWN_EFFORT'
+      && /turbo/.test(effRefusal.message) && /xhigh/.test(effRefusal.message),
+    effRefusal ? `${effRefusal.code}: ${String(effRefusal.message).split('\n')[0]}` : 'NO refusal — the launch proceeded');
+
+  // Arm 4 — an INERT dial (shipped haiku) ACCEPTS any word and says so (G-270): accept-and-report,
+  // never a silent drop, and never a refusal.
+  effCast('alpha', 'effort: whatever\n');
+  fs.writeFileSync(path.join(effGoal, 'seats', 'alpha', 'seat.md'),
+    '---\nseat: alpha\nharness: claude\nmodel: claude-haiku-4-5\neffort: whatever\n---\n\nbody\n');
+  const inertEvents = [];
+  attached.runForegroundSeat({
+    heartStore: effStore, seat: 'alpha', goalFolder: effGoal, launchSpecs: shipped,
+    tick: 1, now: new Date(), spawnForeground: () => ({ status: 0 }),
+    logger: (e) => inertEvents.push(e),
+  });
+  check('B1k an INERT dial is accepted and REPORTED inert (G-270) — not refused, not silently dropped',
+    inertEvents.some((e) => /INERT/.test(e.message || '')),
+    `events=${JSON.stringify(inertEvents.map((e) => e.message))}`);
+  effStore.close();
+
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
@@ -965,8 +1047,8 @@ main().then(() => {
   say('');
   say('NOT PROVEN HERE, deliberately: nothing about a harness TUI on an inherited tty — the carriage is');
   say('substituted (an injected function, or `sleep`/`true` as the headed command). That is B2\'s, with a');
-  say('person at the keyboard. Nothing about model binding either: the shipped claude profiles pin no');
-  say('--model in `headed.tui`, which is a config gap filed rather than fixed here.');
+  say('person at the keyboard. Model binding IS proven above (B1i): every shipped headed.tui pins its');
+  say('profile\'s own --model (d-s21-headed-tui-pins-model), measured on the config and the composed argv.');
   say(`WALL_MS ${Date.now() - start}`);
   say(`EXIT ${exitCode}`);
   fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');

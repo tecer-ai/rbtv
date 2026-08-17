@@ -356,11 +356,13 @@ function acquireRunLock(goalFolder, { pid = process.pid } = {}) {
 //     interactive one is exactly the second interpreter of the one config that DEC-1 forbids. A
 //     profile that declares no `headed.tui` is REFUSED, naming the seat and the profile: the
 //     headed block IS the declaration that this profile can carry a human (D17).
-//     ⚠ KNOWN BOUND, disclosed rather than papered over: the shipped claude profiles declare
-//     `headed.tui: { argv: ["claude"] }`, which binds the HARNESS but pins no `--model`. So the
-//     foreground seat runs the harness's default model, not the profile's. Fixing it is a one-line
-//     change per profile in `config/spawn-profiles.yaml` with daemon-headed blast radius, and is
-//     filed rather than smuggled in here.
+//     The shipped headed.tui blocks each pin the profile's OWN `--model` (owner ruling
+//     `decisions.md#d-s21-headed-tui-pins-model`; probe arm B1i measures both the config lines
+//     and the composed argv), so the foreground seat runs the profile's model. The KNOWN BOUND
+//     formerly disclosed here — `headed.tui: { argv: ["claude"] }` pinning nothing — is retired.
+//     ⚠ The EFFORT field, by contrast, is validated and reported but NOT composed onto the headed
+//     command — the measured bound and its reason live at the `effortRungFor` call in
+//     `runForegroundSeat` below.
 //  3. NO CAGE. Accepted bound (console-run § Cautions): a session sharing the owner's terminal has
 //     neither bwrap nor a systemd slice — the same bound d1's hand-run elicitator had. The
 //     detached seats of the same run are caged exactly as before.
@@ -571,6 +573,35 @@ function runForegroundSeat({
       `DEC-1 § Shared launch-spec source exists to prevent.`
     );
   }
+  // ── THE SEAT'S DECLARED EFFORT: validated and REPORTED here — NOT composed (measured bound) ──
+  // The cast's fourth field reaches this door through the same word→rung joint the daemon door
+  // uses (`effortRungFor`, the profile's OWN ladder): an off-ladder word REFUSES here exactly as
+  // it does there, and an inert dial is accepted and said so (G-270). What this door does NOT do
+  // is push the profile's `effort:` argv onto the headed command — measured 2026-08-17 on this
+  // box: claude's TUI accepts `--effort` (top-level option), but opencode's TUI REFUSES
+  // `--variant` (prints the root help and exits 1 before the TUI starts — the flag is an option
+  // of the `run` subcommand only), so composing the headless fragment here would kill every
+  // opencode foreground seat that declares an effort. Which headed commands carry which effort
+  // argv is per-harness knowledge whose honest home is a declaration in
+  // `config/spawn-profiles.yaml` (a `headed:`-level effort block) — a schema change with
+  // deployed-config blast radius, deliberately NOT made here. Until it lands, a declared effort
+  // is accepted, validated, and loudly reported as not carried: the foreground session runs at
+  // the harness's own default effort. Probe: probe-foreground-carrier B1k.
+  {
+    const { effortRungFor } = require('../launch-profiles/catalog');
+    const { seatDeclaresValue } = require('../server/spawn/spawn');
+    const declared = effortRungFor(profile, seatDeclaresValue(seatDir, 'effort'), profileName, seat);
+    if (logger && declared.inert) {
+      logger({ level: 'info', message: 'the seat declares an effort but this profile\'s dial is INERT — accepted, composes nothing (G-270)', seat, profile: profileName });
+    } else if (logger && declared.rung !== null) {
+      logger({
+        level: 'warn',
+        message: `seat effort accepted (rung ${declared.rung}) but NOT carried — the foreground headed command composes no effort fragment (no headed effort declaration exists in the launch-spec schema; the session runs at the harness's default effort)`,
+        seat, profile: profileName, rung: declared.rung,
+      });
+    }
+  }
+
   const { generateSessionId } = require('../server/spawn/carrier');
   const { composeArgv } = require('../server/spawn/spawn');
 
