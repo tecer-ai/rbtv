@@ -262,8 +262,6 @@ async function main() {
       midTurnState && midTurnState.state === 'in-turn', { midTurnState });
     check('arm2: ONE process served BOTH turns (the warm path, not two cold spawns)',
       r1.sessionId && r1.sessionId === r2.sessionId, { first: r1.sessionId, second: r2.sessionId });
-    check('arm2: the second turn was faster than the first (no process creation on a warm turn)',
-      typeof r2.ms === 'number' && typeof r1.ms === 'number', { turn1Ms: r1.ms, turn2Ms: r2.ms, feedGapMs: t2 - t1 });
     // ⚠ turn2Ms IS NOT A WARM FIGURE. `ms` is stamped inside feed()'s executor, but turn 2 is fed
     // mid-turn, so its result cannot arrive until turn 1's has: turn2Ms = (remaining turn 1) +
     // (turn 2's own work). Measured once: turn1 3449, feedGap 2555, turn2 2584 — of which 894 was
