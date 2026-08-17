@@ -470,6 +470,7 @@ if _r.returncode != 0:
           False, (_r.stderr or _r.stdout).strip().splitlines()[-1][:180] if (_r.stderr or _r.stdout)
           else f"exit {_r.returncode}")
     cells = []
+    _by_spec = {}
 else:
     _castable = mod.castable(LIVE_PROFILES)                    # {(harness, model): row}
     # 7.787: door A now keys its cells by the LAUNCH-SPEC KEY (`<harness>/<model>`), which IS the
@@ -530,6 +531,72 @@ else:
           "green above is a floor that was cleared, not one that cannot fail",
           bool(_one) and not (len(_h1) > 1 and len(_d1) > 1),
           f"{len(_one)} claude cells · harnesses {sorted(_h1)} · dialects {sorted(_d1)}")
+
+# HEADED COLUMN — a third column, not an A-vs-B cell. Door B's opencode line is
+# `opencode run --auto … --variant`, not the TUI; comparing that to headed composeArgv
+# would certify the fatal flag. For every spec that declares headed.tui and a real
+# ladder, composeArgv(mode=headed)'s effort fragment equals the effort.headed
+# declaration (empty iff false/absent).
+_DOOR_A_HEADED = r"""
+const cfgmod = require(process.argv[1]);
+const { composeArgv } = require(process.argv[3]);
+const cfg = cfgmod.loadConfig(process.argv[2]);
+const out = [];
+for (const [key, p] of Object.entries(cfg.launchSpecs || {})) {
+  if (!p.headed || !p.headed.tui) continue;
+  const eff = p.effort;
+  if (!eff || eff.inert === true || !Array.isArray(eff.rungs)) continue;
+  const headedDecl = eff.headed;
+  for (let r = 1; r <= eff.rungs.length; r += 1) {
+    const composed = composeArgv(p, 'headed', 'e8-headed', '/tmp', null, null, null, r, key);
+    const headless = (cfgmod.resolveEffort(p, r, key).argv || []).map(String);
+    let expected;
+    if (headedDecl === true) expected = headless;
+    else if (Array.isArray(headedDecl)) {
+      expected = headedDecl.map((el) => String(el).replace('{effort}', eff.rungs[r - 1]));
+    } else {
+      expected = [];
+    }
+    out.push({ spec: key, rung: r, expected, argv: (composed.argv || []).map(String),
+               headless, dialect: eff.dialect || null });
+  }
+}
+process.stdout.write(JSON.stringify(out));
+"""
+_hr = subprocess.run(
+    ["node", "-e", _DOOR_A_HEADED,
+     str(IGNITE / "server" / "spawn" / "config.js"),
+     str(LIVE_PROFILES),
+     str(IGNITE / "server" / "spawn" / "spawn.js")],
+    capture_output=True, text=True)
+if _hr.returncode != 0:
+    check("door A headed composeArgv answers for headed+ladder specs",
+          False, (_hr.stderr or _hr.stdout).strip().splitlines()[-1][:180]
+          if (_hr.stderr or _hr.stdout) else f"exit {_hr.returncode}")
+elif not _covered:
+    pass
+else:
+    _hcells = [c for c in json.loads(_hr.stdout) if c["spec"] in _by_spec]
+    _hh, _hd = _coverage([(c["spec"].split("/", 1)[0], None, None, None, c["dialect"])
+                          for c in _hcells]) if _hcells else (set(), set())
+    _hfloor = check(
+        "HEADED COVERAGE FLOOR — more than one harness before comparing headed effort fragments",
+        len(_hh) > 1,
+        f"{len(_hcells)} headed cells · harnesses {sorted(_hh)} · dialects {sorted(_hd)}")
+    if _hfloor:
+        _hmismatch = []
+        for c in _hcells:
+            argv, expected, frag = c["argv"], c["expected"], c.get("headless") or []
+            if expected:
+                if not any(argv[i:i + len(expected)] == expected
+                           for i in range(len(argv) + 1)):
+                    _hmismatch.append(f"{c['spec']} rung {c['rung']}: expected {expected} "
+                                      f"absent from headed argv {argv}")
+            elif frag and any(argv[i:i + len(frag)] == frag for i in range(len(argv) + 1)):
+                _hmismatch.append(f"{c['spec']} rung {c['rung']}: headed argv still carries "
+                                  f"headless fragment {frag}")
+        check("headed composeArgv effort fragment equals effort.headed (empty iff false/absent)",
+              not _hmismatch, "; ".join(_hmismatch[:3]) or f"{len(_hcells)} headed cells agree")
 
 # ────────────────────────────────────────────────────────────────────────────────── check 9
 #

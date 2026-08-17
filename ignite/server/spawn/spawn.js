@@ -309,14 +309,17 @@ function composeArgv(profile, mode, sessionId, workdir, prompt, dataRoot, resume
   // is the same function `launch-profiles/resolveProfile` calls; this module owns argv composition
   // (G-144) but not the ladder's meaning. An out-of-range rung throws E_UNKNOWN_EFFORT naming the
   // profile's range; a profile whose dial is declared INERT accepts the rung and emits nothing
-  // (G-270), so an effort set while the master runs on such a profile visibly does nothing.
+  // (G-270). Headed mode is the profile's `effort.headed` tri-state: true uses the same argv,
+  // a list uses that list, false/absent emits nothing and reports headedNotCarried.
   // ⚠ NO PROFILE IS NAMED HERE, and that is a rule this module is probed against
   // (probe-caged-settings, 'no per-profile special case anywhere in server/spawn/'): which
-  // profiles have a dial is the CONFIG's statement, never this file's.
-  const { argv: effortArgv } = resolveEffort(profile, effort, profileName || '(unnamed profile)');
+  // profiles have a dial, and whether the TUI can express it, is the CONFIG's statement.
+  const { argv: effortArgv, headedNotCarried } = resolveEffort(
+    profile, effort, profileName || '(unnamed profile)', isHeaded ? 'headed' : undefined,
+  );
   argv.push(...effortArgv);
 
-  return { argv, stdinFile, promptCarriage };
+  return { argv, stdinFile, promptCarriage, headedNotCarried };
 }
 
 function ensureLogPath(dataRoot, sessionId) {
@@ -1799,14 +1802,14 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // rather than an observable one. PLANNED here and COPIED past the dryRun return below: the
     // probe must see the real argv without this composition leaving a file behind.
     // The EFFORT RUNG rides this door too, through the SAME one interpreter `composeArgv` uses
-    // (`resolveEffort` — never a second reading of the `effort:` table). A seat door that composed
-    // its own argv and skipped the ladder ran the harness default while the tick log reported the
-    // rung, which is precisely the silent drop G-270 forbids. Null composes nothing, so every
-    // caller that passes no rung is byte-unchanged; an out-of-range rung refuses here exactly as
-    // it does headless, and an inert dial accepts and emits nothing.
+    // (`resolveEffort` — never a second reading of the `effort:` table). Headed-capable seats
+    // pass mode=headed so effort.headed decides the fragment; a second reader that always
+    // pasted the headless argv is the fatal `--variant` on an opencode TUI. Null composes
+    // nothing, so every caller that passes no rung is byte-unchanged.
+    const seatIsHeaded = Boolean(profile.headed && profile.headed.tui);
     const harnessArgvRaw = [
-      ...((profile.headed && profile.headed.tui && profile.headed.tui.argv) || profile.exec.argv),
-      ...resolveEffort(profile, effort, profileName).argv,
+      ...((seatIsHeaded && profile.headed.tui.argv) || profile.exec.argv),
+      ...resolveEffort(profile, effort, profileName, seatIsHeaded ? 'headed' : undefined).argv,
     ];
     const settings = planCagedSettings(harnessArgvRaw, resolvedWorkdir);
     const harnessArgv = settings.argv;

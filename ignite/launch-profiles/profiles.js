@@ -158,7 +158,7 @@ const UNKNOWN_SLOT_RE = /\{[^}]+\}/g;
 // The ladder is 1-BASED and ORDERED: rung 1 = lowest reasoning, rung N = highest. A request outside
 // 1..N is REFUSED naming that profile's range. A harness with no dial declares `inert: true` and
 // ACCEPTS any rung, reporting `effortInert` (G-270 — stated, never silently dropped).
-const KNOWN_EFFORT_KEYS = new Set(['dialect', 'rungs', 'argv', 'inert']);
+const KNOWN_EFFORT_KEYS = new Set(['dialect', 'rungs', 'argv', 'inert', 'headed']);
 const KNOWN_COMMAND_HALVES = new Set([CAGED, PORTABLE]);
 
 function assertObject(value, name, filePath) {
@@ -402,7 +402,7 @@ function validateEffort(effort, label, filePath) {
   if (effort.inert === true) {
     // An inert table declares nothing else — a dialect or argv beside `inert` would be a
     // contradiction the resolver would have to arbitrate at runtime.
-    for (const key of ['dialect', 'values', 'argv']) {
+    for (const key of ['dialect', 'values', 'argv', 'headed']) {
       if (effort[key] !== undefined) {
         throw new SpawnError(
           E_CONFIG_LOAD,
@@ -451,6 +451,19 @@ function validateEffort(effort, label, filePath) {
       { file: filePath, key: `${label}.effort.argv` },
     );
   }
+
+  // Tri-state `headed:` — true (TUI accepts the same argv), false/absent (not expressible),
+  // or a string list that must carry {effort}. Absent = false is the safe default.
+  if (effort.headed !== undefined && effort.headed !== true && effort.headed !== false) {
+    assertArrayOfStrings(effort.headed, `${label}.effort.headed`, filePath);
+    if (!effort.headed.some((el) => el.includes('{effort}'))) {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `${label}.effort.headed carries no {effort} slot — the level would be dropped silently`,
+        { file: filePath, key: `${label}.effort.headed` },
+      );
+    }
+  }
 }
 
 // ── resolveEffort — THE ONE implementation of rung → argv, shared by BOTH live consumers ─────
@@ -466,7 +479,7 @@ function validateEffort(effort, label, filePath) {
 // Returns { argv, applied, inert }. `applied` carries the rung, the harness's dialect name, the
 // literal it composed and the ladder's size — a consumer logs what actually happened rather than
 // what it asked for.
-function resolveEffort(profile, rung, label) {
+function resolveEffort(profile, rung, label, mode) {
   if (rung === null || rung === undefined) return { argv: [], applied: null, inert: false };
   if (!Number.isInteger(rung) || rung < 1) {
     throw new SpawnError(
@@ -501,13 +514,26 @@ function resolveEffort(profile, rung, label) {
     );
   }
   const value = rungs[rung - 1];
+  const applied = { rung, of: rungs.length, dialect: profile.effort.dialect, value };
+  if (mode === 'headed') {
+    const headed = profile.effort.headed;
+    if (headed === true) {
+      // TUI accepts the same effort.argv — fall through.
+    } else if (Array.isArray(headed)) {
+      const argv = resolveTemplateSlots(headed, {}).map((el) => el.replace('{effort}', value));
+      return { argv, applied, inert: false };
+    } else {
+      // false or absent — not expressible headed. Distinct from inert (G-270).
+      return { argv: [], applied, inert: false, headedNotCarried: true };
+    }
+  }
   const argv = resolveTemplateSlots(
     profile.effort.argv,
     // The {effort} slot is NOT in CLOSED_SLOTS (that set governs the workdir/prompt/session
     // vocabulary), so it is substituted here against the profile's own rung literal.
     {},
   ).map((el) => el.replace('{effort}', value));
-  return { argv, applied: { rung, of: rungs.length, dialect: profile.effort.dialect, value }, inert: false };
+  return { argv, applied, inert: false };
 }
 
 // ── THE KEY/ARGV AGREEMENT GUARD (owner ruling `#d-abolish-profile-names`, 2026-08-12) ─────────

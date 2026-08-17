@@ -430,6 +430,7 @@ launch-specs:
         dialect: effort
         rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
         argv: ["--effort", "{effort}"]
+        headed: true
       session_ref: { source: assigned }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -459,6 +460,7 @@ launch-specs:
         dialect: effort
         rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
         argv: ["--effort", "{effort}"]
+        headed: true
       session_ref: { source: assigned }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -484,6 +486,7 @@ launch-specs:
         dialect: effort
         rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
         argv: ["--effort", "{effort}"]
+        headed: true
       session_ref: { source: assigned }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -528,8 +531,9 @@ launch-specs:
     # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
     # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
     # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
-    # <key=value>"), which is why the fragment is two tokens and not a flag. No `headed:` — the
-    # retired set never declared a codex TUI and none is verified here.
+    # <key=value>"), which is why the fragment is two tokens and not a flag. The same `-c`
+    # fragment is legal on the TUI (`codex --help` exposes `-c` as a root option); `headed.tui`
+    # pins the model (B1i) and does NOT carry `--dangerously-bypass-hook-trust`.
     # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
     # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
     # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
@@ -543,10 +547,13 @@ launch-specs:
                "--sandbox", "danger-full-access", "-c", "approval_policy=never",
                "--dangerously-bypass-hook-trust", "--json"]
         prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.5"] }
       effort:
         dialect: thinking
         rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
         argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
       session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -620,6 +627,7 @@ launch-specs:
         dialect: variant
         rungs: [high, max]   # `opencode models zai-coding-plan --verbose` .variants, 2026-08-11 — NO low/medium
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -635,6 +643,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -650,6 +659,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -665,6 +675,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models xai --verbose` .variants, 2026-08-14 — NO xhigh
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -680,6 +691,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -695,6 +707,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -711,6 +724,7 @@ launch-specs:
         dialect: variant
         rungs: [low, high]   # `opencode models google --verbose` .variants, 2026-08-11 — NO medium
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
@@ -727,6 +741,7 @@ launch-specs:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
         argv: ["--variant", "{effort}"]
+        headed: false
       session_ref: { source: cwd-implicit }
       toolset_ceiling: full
       workdir_root: .rbtv/goals

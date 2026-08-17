@@ -272,6 +272,25 @@ check('(10) an INERT dial is STATED, never silently dropped', () => {
   if (r.argv.length !== 2) throw new Error(`argv grew: ${r.argv.join(' ')}`);
   return 'effortInert=true reported to the caller; argv unchanged';
 });
+check('(11b) an unknown effort-block key is a LOAD failure (KNOWN_EFFORT_KEYS mutant)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-unk-effort-'));
+  const f = path.join(dir, 'unknown-effort-key.yaml');
+  fs.writeFileSync(f, yaml.dump({
+    default_workdir_root: dir,
+    'launch-specs': { probe: { 'probe-model': {
+      exec: { argv: ['probe', '--model', 'probe-model'], prompt: 'stdin' },
+      effort: {
+        dialect: 'x', rungs: ['low'], argv: ['--effort', '{effort}'],
+        not_a_real_effort_key: true,
+      },
+      session_ref: { source: 'cwd-implicit' }, workdir_root: dir, caps: { memory_max: '64M' },
+    } } },
+  }));
+  const err = expectCode('E_CONFIG_LOAD', () => lp.loadConfig(f));
+  if (!/not_a_real_effort_key/.test(err.message)) throw new Error(err.message);
+  return `${err.code} names the unknown key`;
+});
+
 check('(11) a rung outside THIS profile\'s range is refused, and the refusal NAMES the range', () => {
   const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 4, slots: { workdir: '/tmp' } }));
   if (!/range 1\.\.3/.test(err.message)) throw new Error(err.message);

@@ -951,17 +951,13 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
       && waveResult.outcome === 'complete',
     `outcome=${waveResult.outcome}`);
 
-  // ── B1k · the seat's declared EFFORT at THIS door — validated and REPORTED, never dropped ────
+  // ── B1k · the seat's declared EFFORT at THIS door — validated, composed when headed says so ─
   //
-  // The third launch door honours the cast's fourth field the only way measurement allows
-  // (2026-08-17, this box): claude's TUI accepts `--effort`, but opencode's TUI REFUSES
-  // `--variant` (prints the root help and exits 1 — the flag belongs to the `run` subcommand), so
-  // the headless `effort:` argv must NOT be composed onto a headed command. What the door owes
-  // instead: the word is VALIDATED against the profile's own ladder (an off-ladder word refuses
-  // here exactly as at the daemon door), and an accepted rung is loudly reported as NOT carried —
-  // a silent drop is the defect this block exists to pin out.
+  // claude's TUI accepts `--effort` (`effort.headed: true`) so an on-ladder word IS on argv.
+  // opencode's TUI has no `--variant` (`effort.headed: false`) so the word is accepted and the
+  // headless fragment is absent. Off-ladder still refuses before any record.
   say('');
-  say('B1k — a declared effort is validated and reported at this door, and NO effort fragment reaches the headed argv');
+  say('B1k — a declared effort is validated; headed:true composes it, headed:false does not paste --variant');
 
   const effGoal = makeGoal('fg-goal-effort');
   const effStore = openHeartStore({ dbPath: path.join(effGoal, 'heart.db') });
@@ -969,7 +965,7 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
   const effCast = (seat, effortLine) => fs.writeFileSync(path.join(effGoal, 'seats', seat, 'seat.md'),
     `---\nseat: ${seat}\nharness: claude\nmodel: claude-fable-5\n${effortLine}---\n\nbody\n`);
 
-  // Arm 1 — declared, on-ladder (`xhigh` = rung 4 of the shipped fable ladder): reported, not composed.
+  // Arm 1 — declared, on-ladder (`xhigh` = rung 4 of the shipped fable ladder): COMPOSED.
   effCast('alpha', 'effort: xhigh\n');
   const effEvents = [];
   let effArgv = null;
@@ -980,10 +976,26 @@ print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s 
     logger: (e) => effEvents.push(e),
   });
   const notCarried = effEvents.filter((e) => /effort/i.test(e.message || '') && /not carried/i.test(e.message || ''));
-  check('B1k an on-ladder declared effort is REPORTED accepted-but-not-carried, naming the rung, and the headed argv carries NO effort fragment',
-    notCarried.length === 1 && notCarried[0].rung === 4
-      && !effArgv.includes('--effort') && !effArgv.includes('xhigh'),
-    `notCarried=${notCarried.length} rung=${notCarried[0] && notCarried[0].rung} argv=${JSON.stringify(effArgv)}`);
+  const effortAt = Array.isArray(effArgv) ? effArgv.indexOf('--effort') : -1;
+  check('B1k claude headed:true — on-ladder xhigh IS on argv as --effort xhigh, and is not reported NOT carried',
+    notCarried.length === 0 && effortAt >= 0 && effArgv[effortAt + 1] === 'xhigh',
+    `notCarried=${notCarried.length} argv=${JSON.stringify(effArgv)}`);
+
+  // Arm 1b — opencode headed:false: on-ladder word accepted, --variant absent.
+  fs.writeFileSync(path.join(effGoal, 'seats', 'alpha', 'seat.md'),
+    '---\nseat: alpha\nharness: opencode\nmodel: xai/grok-4.6\neffort: high\n---\n\nbody\n');
+  const ocEvents = [];
+  let ocArgv = null;
+  attached.runForegroundSeat({
+    heartStore: effStore, seat: 'alpha', goalFolder: effGoal, launchSpecs: shipped,
+    tick: 1, now: new Date(),
+    spawnForeground: (argv) => { ocArgv = argv; return { status: 0 }; },
+    logger: (e) => ocEvents.push(e),
+  });
+  check('B1k opencode headed:false — on-ladder word accepted and --variant is absent from the TUI argv',
+    Array.isArray(ocArgv) && !ocArgv.includes('--variant')
+      && ocEvents.every((e) => !/E_UNKNOWN_EFFORT/.test(e.message || '')),
+    `argv=${JSON.stringify(ocArgv)} events=${JSON.stringify(ocEvents.map((e) => e.message))}`);
 
   // Arm 2 — CONTROL: an UNDECLARED effort reports nothing and refuses nothing. This is what tells
   // "the door read the descriptor" from "the door hardcodes a report": a hardcoded rung reds here

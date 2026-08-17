@@ -104,21 +104,46 @@ function resolveGoalFolder(input) {
 // configured data root is resolved and compared. Fail-closed: if the config cannot be read at all
 // we still know the goal-folder path, and that path is the only one we ever pass to the engine —
 // but where the daemon's root IS knowable, an equal path is a hard refusal.
-function assertNotTheDaemonStore(storePath, spawnConfig) {
-  const daemonDataRoot = process.env.RBTV_IGNITE_DATA_ROOT
-    || (spawnConfig && spawnConfig.spawn && spawnConfig.spawn.data_root)
-    || null;
-  if (!daemonDataRoot) return;
-  const daemonStore = path.resolve(daemonDataRoot, STORE_FILENAME);
-  if (path.resolve(storePath) === daemonStore) {
-    throw new Error(
-      `REFUSING TO RUN: the resolved per-goal store ${storePath} IS the daemon's store. ` +
-      `An attached execution keeps its own heart store in its goal folder and never opens ` +
-      `{state_root}/heart.db (owner ruling decisions.md#d-attached-run-store-and-seats; ` +
-      `CMP-2 § Two store kinds). Two writers on one store is meant to be impossible here by ` +
-      `construction, not guarded — the in-process E_SECOND_WRITER guard cannot see the daemon.`
-    );
-  }
+//
+// ── THE SESSION-ARTIFACT ROOT THIS LANE SPAWNS AGAINST (logs/, exits/) ────────────────────────
+//
+// The committed config's `spawn.data_root` is the SEED value — system-centric
+// (/var/lib/rbtv-ignite), overridable by RBTV_IGNITE_DATA_ROOT, which the daemon's unit sets and
+// folds into a materialized effective config before its engine boots. This lane boots from the
+// committed file in a user shell where that env var is normally ABSENT, so without a resolution
+// of its own it spawns headless seats against a root a user cannot mkdir — the spawn dies at
+// `ensureLogPath` with EACCES before `launching` is ever recorded (measured 2026-08-12:
+// forge-prompt-channel-master forg-builder, two same-second `crash sweep: exit=null` deaths).
+// Resolution order: the operator env override, then THIS MACHINE's recorded state root from the
+// install's endpoint record (`.rbtv/modules/ignite/server.json` — the one home of that fact),
+// then the config value as committed. Null falls through to the config untouched.
+// `goalFolder` null/undefined EXPLICITLY skips the machine rung — never silently.
+function daemonDataRootRungs(spawnConfig, goalFolder) {
+  const envRoot = process.env.RBTV_IGNITE_DATA_ROOT || null;
+  const machineRoot = (goalFolder === undefined || goalFolder === null)
+    ? null
+    : machineStateRoot(goalFolder);
+  const configRoot = (spawnConfig && spawnConfig.spawn && spawnConfig.spawn.data_root) || null;
+  return { envRoot, machineRoot, configRoot };
+}
+
+function resolveDaemonDataRoot(spawnConfig, goalFolder) {
+  const { envRoot, machineRoot, configRoot } = daemonDataRootRungs(spawnConfig, goalFolder);
+  return envRoot || machineRoot || configRoot || null;
+}
+
+function assertNotTheDaemonStore(storePath, spawnConfig, goalFolder) {
+  const rungs = daemonDataRootRungs(spawnConfig, goalFolder);
+  const roots = [rungs.envRoot, rungs.machineRoot, rungs.configRoot].filter(Boolean);
+  const hit = roots.some((root) => path.resolve(storePath) === path.resolve(root, STORE_FILENAME));
+  if (!hit) return;
+  throw new Error(
+    `REFUSING TO RUN: the resolved per-goal store ${storePath} IS the daemon's store. ` +
+    `An attached execution keeps its own heart store in its goal folder and never opens ` +
+    `{state_root}/heart.db (owner ruling decisions.md#d-attached-run-store-and-seats; ` +
+    `CMP-2 § Two store kinds). Two writers on one store is meant to be impossible here by ` +
+    `construction, not guarded — the in-process E_SECOND_WRITER guard cannot see the daemon.`
+  );
 }
 
 // THIS MACHINE's state root, read from the install's endpoint record — the file § State layout
@@ -360,9 +385,8 @@ function acquireRunLock(goalFolder, { pid = process.pid } = {}) {
 //     `decisions.md#d-s21-headed-tui-pins-model`; probe arm B1i measures both the config lines
 //     and the composed argv), so the foreground seat runs the profile's model. The KNOWN BOUND
 //     formerly disclosed here — `headed.tui: { argv: ["claude"] }` pinning nothing — is retired.
-//     ⚠ The EFFORT field, by contrast, is validated and reported but NOT composed onto the headed
-//     command — the measured bound and its reason live at the `effortRungFor` call in
-//     `runForegroundSeat` below.
+//     Effort is composed when `effort.headed` says the TUI can express it (claude/codex: true;
+//     opencode: false — no `--variant` on the TUI). The report lives at `runForegroundSeat`.
 //  3. NO CAGE. Accepted bound (console-run § Cautions): a session sharing the owner's terminal has
 //     neither bwrap nor a systemd slice — the same bound d1's hand-run elicitator had. The
 //     detached seats of the same run are caged exactly as before.
@@ -573,33 +597,18 @@ function runForegroundSeat({
       `DEC-1 § Shared launch-spec source exists to prevent.`
     );
   }
-  // ── THE SEAT'S DECLARED EFFORT: validated and REPORTED here — NOT composed (measured bound) ──
+  // ── THE SEAT'S DECLARED EFFORT: validated here, composed when effort.headed says so ──
   // The cast's fourth field reaches this door through the same word→rung joint the daemon door
   // uses (`effortRungFor`, the profile's OWN ladder): an off-ladder word REFUSES here exactly as
-  // it does there, and an inert dial is accepted and said so (G-270). What this door does NOT do
-  // is push the profile's `effort:` argv onto the headed command — measured 2026-08-17 on this
-  // box: claude's TUI accepts `--effort` (top-level option), but opencode's TUI REFUSES
-  // `--variant` (prints the root help and exits 1 before the TUI starts — the flag is an option
-  // of the `run` subcommand only), so composing the headless fragment here would kill every
-  // opencode foreground seat that declares an effort. Which headed commands carry which effort
-  // argv is per-harness knowledge whose honest home is a declaration in
-  // `config/spawn-profiles.yaml` (a `headed:`-level effort block) — a schema change with
-  // deployed-config blast radius, deliberately NOT made here. Until it lands, a declared effort
-  // is accepted, validated, and loudly reported as not carried: the foreground session runs at
-  // the harness's own default effort. Probe: probe-foreground-carrier B1k.
-  {
-    const { effortRungFor } = require('../launch-profiles/catalog');
-    const { seatDeclaresValue } = require('../server/spawn/spawn');
-    const declared = effortRungFor(profile, seatDeclaresValue(seatDir, 'effort'), profileName, seat);
-    if (logger && declared.inert) {
-      logger({ level: 'info', message: 'the seat declares an effort but this profile\'s dial is INERT — accepted, composes nothing (G-270)', seat, profile: profileName });
-    } else if (logger && declared.rung !== null) {
-      logger({
-        level: 'warn',
-        message: `seat effort accepted (rung ${declared.rung}) but NOT carried — the foreground headed command composes no effort fragment (no headed effort declaration exists in the launch-spec schema; the session runs at the harness's default effort)`,
-        seat, profile: profileName, rung: declared.rung,
-      });
-    }
+  // it does there, and an inert dial is accepted and said so (G-270). The headed fragment is
+  // `resolveEffort`'s: headed:true uses the same argv (claude `--effort`, codex `-c`);
+  // headed:false/absent composes nothing and reports NOT carried (opencode TUI has no
+  // `--variant`). Probe: probe-foreground-carrier B1k.
+  const { effortRungFor } = require('../launch-profiles/catalog');
+  const { seatDeclaresValue } = require('../server/spawn/spawn');
+  const declared = effortRungFor(profile, seatDeclaresValue(seatDir, 'effort'), profileName, seat);
+  if (logger && declared.inert) {
+    logger({ level: 'info', message: 'the seat declares an effort but this profile\'s dial is INERT — accepted, composes nothing (G-270)', seat, profile: profileName });
   }
 
   const { generateSessionId } = require('../server/spawn/carrier');
@@ -608,8 +617,18 @@ function runForegroundSeat({
   const sessionId = generateSessionId();
   // mode `headed` selects `profile.headed.tui`; the descriptor injection
   // (`--append-system-prompt-file <seatDir>/seat.md`, claude-only and file-conditional) rides along
-  // from the ONE composer every launch already uses.
-  const { argv } = composeArgv(profile, 'headed', sessionId, seatDir, null, null);
+  // from the ONE composer every launch already uses. The resolved rung and profileName go in so
+  // a refusal names the spec and headed effort is composed (or reported not-carried).
+  const { argv, headedNotCarried } = composeArgv(
+    profile, 'headed', sessionId, seatDir, null, null, null, declared.rung, profileName,
+  );
+  if (logger && declared.rung !== null && headedNotCarried) {
+    logger({
+      level: 'warn',
+      message: `seat effort accepted (rung ${declared.rung}) but NOT carried — this profile's effort.headed says the TUI cannot express the dial; the session runs at the harness's default effort`,
+      seat, profile: profileName, rung: declared.rung,
+    });
+  }
 
   const exec = heartStore.recordExecutionStart({
     jobId: jobIdFor(seat),
@@ -1025,23 +1044,8 @@ async function executeAttached({
   const storePath = path.join(goalFolder, STORE_FILENAME);
 
   const spawnConfig = loadConfig(spawnConfigPath);
-  assertNotTheDaemonStore(storePath, spawnConfig);
-
-  // ── THE SESSION-ARTIFACT ROOT THIS LANE SPAWNS AGAINST (logs/, exits/) ────────────────────────
-  //
-  // The committed config's `spawn.data_root` is the SEED value — system-centric
-  // (/var/lib/rbtv-ignite), overridable by RBTV_IGNITE_DATA_ROOT, which the daemon's unit sets and
-  // folds into a materialized effective config before its engine boots. This lane boots from the
-  // committed file in a user shell where that env var is normally ABSENT, so without a resolution
-  // of its own it spawns headless seats against a root a user cannot mkdir — the spawn dies at
-  // `ensureLogPath` with EACCES before `launching` is ever recorded (measured 2026-08-12:
-  // forge-prompt-channel-master forg-builder, two same-second `crash sweep: exit=null` deaths).
-  // Resolution order: the operator env override, then THIS MACHINE's recorded state root from the
-  // install's endpoint record (`.rbtv/modules/ignite/server.json` — the one home of that fact),
-  // then the config value as committed. Null falls through to the config untouched.
-  const spawnDataRoot = process.env.RBTV_IGNITE_DATA_ROOT
-    || machineStateRoot(goalFolder)
-    || null;
+  assertNotTheDaemonStore(storePath, spawnConfig, goalFolder);
+  const spawnDataRoot = resolveDaemonDataRoot(spawnConfig, goalFolder);
 
   // ── EVERY SEAT MUST BE CAST BEFORE THIS LANE RUNS (`#d-abolish-profile-names` sub-ruling 3) ──
   //
