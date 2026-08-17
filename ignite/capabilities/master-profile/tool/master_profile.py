@@ -177,6 +177,13 @@ DEFAULT_CATALOG_ROOT = _WORKSPACE / ".rbtv" / "mirror" / "meta"
 
 KEY = "master_profile"
 ENTRY_TOOL_KEY = "master-profile"   # this capability's own `tools:` key
+# The ONE default a wrong guess at cannot be recovered from: `apply`'s fired argv drains EXACTLY
+# this path (`tools: master-profile:` in spawn-profiles.yaml), so a request staged anywhere else
+# is never picked up while the stage itself reports ok — measured 2026-08-17, a sitting guessed
+# `coordination/` and its correctly-shaped request sat unread while the enqueued fire drained an
+# empty inbox. Defaulted like its siblings above, and shape-guarded in `request()`.
+DEFAULT_INBOX = (_WORKSPACE / ".rbtv" / "goals" / f"_{DEFAULT_SEAT}"
+                 / "settings-requests" / ENTRY_TOOL_KEY)
 JOB_ID = "master-profile"           # the registered fire-tool job id the client half enqueues
 
 DONE_DIR = "done"
@@ -493,6 +500,12 @@ def request(inbox, harness, model, ignite_bin, profiles_path=DEFAULT_PROFILES, j
     if chat_thread is not None:
         validate_chat_thread(chat_thread)
     inbox = Path(inbox)
+    if inbox.parent.name != "settings-requests":
+        raise Refusal(
+            f"--inbox {inbox} is not a settings-request inbox — the shape is "
+            f"<goal>/settings-requests/<capability>. The daemon's `apply` drains ONLY the inbox "
+            f"its fired argv names, so a request staged anywhere else is never picked up (while "
+            f"this stage would still report ok). Omit --inbox to use the default: {DEFAULT_INBOX}")
     if inbox.is_symlink():
         raise Refusal(f"{inbox} is a symlink — refusing to stage through one")
     inbox.mkdir(parents=True, exist_ok=True)
@@ -722,7 +735,11 @@ def main(argv=None):
                         "no effort. Omitting it on a dial-less pair clears any rung currently set, "
                         "because a rung is only meaningful against the pair it was chosen "
                         "for. " + EFFORT_GUIDANCE)
-    q.add_argument("--inbox", required=True)
+    q.add_argument("--inbox", default=str(DEFAULT_INBOX),
+                   help="the settings-request inbox to stage into — <goal>/settings-requests/"
+                        "<capability>, and it MUST be the same path the daemon's `apply` argv "
+                        "drains. Default: this workspace's channel-master inbox. Omit it unless "
+                        "you are a probe with a fixture.")
     q.add_argument("--ignite-bin", default="ignite")
     q.add_argument("--chat-thread", default=None,
                    help="`<channel>:<ts>` — YOUR OWN chat thread, the plain `chat-thread:` line at "

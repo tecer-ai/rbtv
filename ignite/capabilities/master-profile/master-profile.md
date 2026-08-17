@@ -133,7 +133,7 @@ that divergence is deliberate.
 | Verb | What it does | Who runs it |
 |---|---|---|
 | `show [--json]` | the cast in force in BOTH vocabularies (harness/model/effort AND the profile name + rung it maps to), the sheet it came from, and **every castable profile with the rungs it admits** | anyone, including a caged seat |
-| `request <harness> <model> [--effort N] --inbox D [--chat-thread C:TS]` | validate the PAIR against the live castable set **and the rung against that pair's ladder** → stage `{"harness": …, "model": …, "effort": N}` (plus the thread id when given) → `ignite add-job` | **the seat** |
+| `request <harness> <model> [--effort N] [--inbox D] [--chat-thread C:TS]` | validate the PAIR against the live castable set **and the rung against that pair's ladder** → stage `{"harness": …, "model": …, "effort": N}` (plus the thread id when given) → `ignite add-job`. `--inbox` DEFAULTS to this workspace's channel-master inbox and REFUSES any path not shaped `<goal>/settings-requests/<capability>` — `apply`'s fired argv drains one fixed inbox, so a request staged anywhere else is orphaned while the stage reports ok (measured 2026-08-17: a sitting guessed `coordination/`) | **the seat** |
 | `apply --inbox D --bindings F --seat S --catalog-root R --profiles P [--no-repass]` | drain, re-validate, write the **harness/model/effort triple**, record the outcome, **report into the requester's chat thread**, `--repass` the seat's descriptor LAST | **the daemon**, via `tools: master-profile` |
 
 Exit 0 when everything drained was accepted (or the inbox was empty), 1 otherwise.
