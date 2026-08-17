@@ -223,6 +223,32 @@ async function main() {
       r.status === 400 && r.body.error.code === 'VALIDATION_FAILED',
       `status=${r.status} code=${r.body && r.body.error && r.body.error.code}`);
 
+    // 5b. `seat_shard` PASSES BOTH ALLOWLISTS. The field must be named in gateway/parse.js AND in
+    // dispatch.js; absent from EITHER it is refused as an unknown field, and the chat bridge's
+    // first send of the sibling `on_seat_busy` came back SHAPE_INVALID for exactly that reason —
+    // with the second allowlist already updated. Only a live socket asks both at once.
+    //
+    // ⚑ THE DISCRIMINATOR IS *WHICH* REFUSAL. Both requests below fail; that is not the check. A
+    // well-formed shard on an unknown job must fail on the JOB (VALIDATION_FAILED) — meaning the
+    // field travelled the whole chain — while a shard carrying the seat key's own `#` separator
+    // must be refused for its SHAPE at the gateway, before it can split a key downstream.
+    r = await request(port, {
+      token: OWNER_TOKEN,
+      body: { intent: 'enqueue-job', payload: { job_id: 'no-such-job', args: '{}', trigger_kind: 'scheduled', run_at: '2026-01-01T00:00:00Z', seat_shard: 'D_IM:1786501607' } },
+    });
+    check('LIVE: a well-formed seat_shard clears BOTH allowlists (it fails on the JOB, not the field)',
+      r.status === 400 && r.body.error.code === 'VALIDATION_FAILED'
+        && !/seat_shard|unknown field/i.test(JSON.stringify(r.body.error)),
+      `status=${r.status} code=${r.body && r.body.error && r.body.error.code} message=${r.body && r.body.error && r.body.error.message}`);
+
+    r = await request(port, {
+      token: OWNER_TOKEN,
+      body: { intent: 'enqueue-job', payload: { job_id: 'no-such-job', args: '{}', trigger_kind: 'scheduled', run_at: '2026-01-01T00:00:00Z', seat_shard: 'has#hash' } },
+    });
+    check('LIVE: a seat_shard carrying the key separator is refused for its SHAPE',
+      r.status === 400 && /seat_shard/.test(JSON.stringify(r.body.error)),
+      `status=${r.status} code=${r.body && r.body.error && r.body.error.code} message=${r.body && r.body.error && r.body.error.message}`);
+
     // 6. A garbage body from an AUTHENTICATED sender is a shape error — the other
     // half of the auth-precedes-parse ordering, proven live.
     r = await request(port, { token: OWNER_TOKEN, body: { intent: 'not-an-intent', payload: {} } });

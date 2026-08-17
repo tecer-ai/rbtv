@@ -164,13 +164,50 @@ function sessionStatusForEndedTurn(turnStatus) {
 // homed at a (goal, seat) is a one-shot process running OUT OF that home, not a claim on it, and
 // firing one twice is ordinary. Keying those too would gate every homed fire-tool job — the
 // edge-runner was the measured one — and would make the door forbid the very cadence it serves.
+//
+// ── THE SHARD (`__seat_shard`) — one seat, N INDEPENDENT CONVERSATIONS ───────────────────────────
+//
+// A seat key answers "may these two rows run at the same time?". For a seat that serves ONE line of
+// work that is the seat itself, and everything above holds unchanged. But `_channel-master` serves
+// EVERY Slack DM: `forward-path.js#workdirFor` falls through to the configured `workdir` for every
+// master route, so every DM thread resolved to `workdir:<that one path>` and the ticker's seat-busy
+// gate serialized the whole surface — a question typed in thread B waited behind an unrelated
+// twenty-minute turn in thread A. What the gate SHOULD serialize is a CONVERSATION, which is what
+// the shard names.
+//
+// ⚠ THE STORE IS ITS SOLE MINTER, AND THAT IS WHAT MAKES IT SAFE TO READ FROM `args`. The key is
+// spelled `__seat_shard`, which no job's `args_schema` declares — so a caller that puts it in `args`
+// itself is refused by `validateArgs`'s unknown-argument arm before it can reach here. It arrives on
+// the WIRE as the top-level `seat_shard` field (allowlisted at gateway/parse.js AND dispatch.js,
+// exactly like `on_seat_busy`), and `enqueue()` stamps it into the persisted args. Args is the
+// carrier because it is the ONE per-row payload BOTH `findSeatHolder` arms parse — the pending arm
+// off `queue.args`, the live-turn arm off `jobs_log.args` — so a column would have had to be added
+// to both tables to say the same thing.
+//
+// ⚠ ABSENT ⇒ BYTE-IDENTICAL TO BEFORE. Every non-chat producer in this tree supplies no shard, so
+// its key is the unsuffixed one above. It appends to WHICHEVER key was computed rather than to the
+// `workdir:` arm alone: the arm a row takes is a property of how its job was registered, and a rule
+// that silently dropped the shard on one of them would be a caller asking for isolation and not
+// getting it. `#` is barred from the value at the wire, so the split is unambiguous.
+
+// The reserved args key the shard is stamped under. Double-underscored so it can never collide with
+// a declared argument name, and so `validateArgs` refuses it from a caller (see the header above).
+const SEAT_SHARD_ARG = '__seat_shard';
+
+// `#` is the key separator; whitespace would make a key unreadable in a log line and a tick action.
+// Everything else is the caller's business — a Slack thread id (`D0BJ50Y1DC6:1786501607`) is the
+// only producer today and nothing here should know that.
+const SEAT_SHARD_RE = /^[^\s#]{1,200}$/;
+
 function seatKeyOf(job, args) {
   if (!job || job.action_type !== 'launch-agent') return null;
-  if (job.goal_name && job.seat_name) return `goal:${job.goal_name}/seat:${job.seat_name}`;
+  const raw = args && typeof args[SEAT_SHARD_ARG] === 'string' ? args[SEAT_SHARD_ARG] : '';
+  const shard = raw ? `#${raw}` : '';
+  if (job.goal_name && job.seat_name) return `goal:${job.goal_name}/seat:${job.seat_name}${shard}`;
   const workdir = args && typeof args.workdir === 'string' ? args.workdir : null;
   if (!workdir) return null;
   const trimmed = workdir.replace(/\/+$/, '');
-  return trimmed ? `workdir:${trimmed}` : null;
+  return trimmed ? `workdir:${trimmed}${shard}` : null;
 }
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
@@ -934,9 +971,27 @@ class HeartStore {
   // execution is a live turn carrying THIS row's originating id — and gating on that would stop
   // every periodic launch-agent job from re-firing while its predecessor runs, which is certified
   // behaviour this gate has no business changing (probe-periodic, measured red).
-  findSeatHolder(seatKey, { excludeQueueId = null } = {}) {
+  //
+  // ⚠⚠ `pendingAheadOf` — WITHOUT IT, TWO PENDING ROWS FOR ONE SEAT DEADLOCK. Measured here
+  // 2026-08-17 by this method's own probe: with rows 1 and 2 pending at one idle seat, row 1's gate
+  // finds row 2 (excluded from itself, not from its sibling) and row 2 finds row 1 — BOTH defer,
+  // every tick, until the age bound silently drops both an hour later. The seat-busy gate's own
+  // header claims the ordering "falls out of `getQueueDue`'s (run_at, queue_id)", and it does not:
+  // this scan returned the first row that MATCHED, never the first row that came BEFORE the asker.
+  // Live path: two chat messages landing at an idle seat inside one tick interval — neither runs.
+  //
+  // So the ticker passes the ASKING ROW and the pending arm counts only rows genuinely ahead of it
+  // in dispatch order. The oldest row then has no holder and fires; its siblings wait on it. The
+  // Q9 door passes nothing and is unchanged: for an enqueue there is no asking row yet, so ANY
+  // pending row for the seat legitimately holds it.
+  //
+  // ⚠ THE LIVE-TURN ARM IS DELIBERATELY NOT ORDERED. A running turn holds the seat whatever its
+  // row's ordinal — that is the whole gate.
+  findSeatHolder(seatKey, { excludeQueueId = null, pendingAheadOf = null } = {}) {
     for (const row of this.listQueue()) {
       if (excludeQueueId !== null && row.queue_id === excludeQueueId) continue;
+      if (pendingAheadOf && !(row.run_at < pendingAheadOf.run_at
+        || (row.run_at === pendingAheadOf.run_at && row.queue_id < pendingAheadOf.queue_id))) continue;
       let args;
       try { args = JSON.parse(row.args); } catch { args = {}; }
       if (seatKeyOf(this.getJob(row.job_id), args) === seatKey) {
@@ -976,6 +1031,27 @@ class HeartStore {
     validateArgs(args, job.args_schema, job.action_type, this.config.tools, this.config.workdirRoot);
 
     const parsedArgs = JSON.parse(args);
+
+    // ── THE SEAT SHARD's stamp (seatKeyOf § THE SHARD) ────────────────────────────────────────
+    //
+    // AFTER `validateArgs`, and that ordering is the guarantee: the caller's args have already been
+    // checked against the job's schema, so `__seat_shard` arriving in them is a refusal and cannot
+    // reach this line. What lands here comes from `req.seatShard` — the wire's `seat_shard` — and
+    // the store is therefore the only thing that can put the key in a row.
+    //
+    // `argsForRow` and not `args`: the stamped JSON is what the INSERT writes, so every later reader
+    // (`findSeatHolder`'s pending arm, `fireQueueRow`'s copy into `jobs_log.args`, the ticker's
+    // gate) sees the shard off the row itself. An absent shard leaves `args` untouched by reference
+    // — no re-serialization, so a row enqueued without one is byte-identical to before this landed.
+    let argsForRow = args;
+    if (req.seatShard !== undefined && req.seatShard !== null && req.seatShard !== '') {
+      if (typeof req.seatShard !== 'string' || !SEAT_SHARD_RE.test(req.seatShard)) {
+        throw new HeartStoreError(E_BAD_ARGS, 'seat_shard must be 1-200 chars with no whitespace and no "#"', { field: 'seatShard' });
+      }
+      parsedArgs[SEAT_SHARD_ARG] = req.seatShard;
+      argsForRow = JSON.stringify(parsedArgs);
+    }
+
     // ⚠ `Object.hasOwn`, NOT a truthiness test, on both catalogue lookups below (C5 review
     // 2026-08-08). The name comes from the ROW, and a plain `catalogue[name]` walks the prototype
     // chain: `constructor` is a legal kebab-case value, so `workflow: "constructor"` resolved
@@ -1101,7 +1177,7 @@ class HeartStore {
     `);
     const result = stmt.run(
       req.jobId,
-      args,
+      argsForRow,
       sessionMode,
       req.triggerKind,
       req.runAt,
@@ -1964,4 +2040,7 @@ module.exports = {
   // The (run, seat) key. Exported so the ticker's seat-busy gate asks the door's own question
   // with the door's own key rather than a second spelling of it.
   seatKeyOf,
+  // The reserved args key the seat shard is stamped under, exported for the same reason: a probe or
+  // a reader that needs to see a row's shard reads THE name, never a second spelling of it.
+  SEAT_SHARD_ARG,
 };

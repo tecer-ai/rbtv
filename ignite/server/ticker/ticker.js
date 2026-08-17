@@ -739,7 +739,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // pause and one-live-run gates above.
     const seatKey = seatKeyOf(heartStore.getJob(queueRow.job_id), args);
     if (seatKey) {
-      const holder = heartStore.findSeatHolder(seatKey, { excludeQueueId: queueRow.queue_id });
+      // `pendingAheadOf` is THIS row: a pending sibling holds the seat against me only if it
+      // dispatches BEFORE me. Without it two pending rows for one seat each see the other and both
+      // defer forever — see findSeatHolder's header for the measurement.
+      const holder = heartStore.findSeatHolder(seatKey, { excludeQueueId: queueRow.queue_id, pendingAheadOf: queueRow });
       if (holder) {
         // ── THE AGE BOUND. An hour-old chat message must NOT fire as if it were fresh — by then
         // the conversation has moved and the owner has usually asked again. Removed, never

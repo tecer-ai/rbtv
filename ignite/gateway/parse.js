@@ -169,8 +169,15 @@ const ENQUEUE_KEYS = new Set([
   // refuses it as an unknown field before dispatch.js is ever called. (Measured: the chat bridge's
   // first send of this field came back SHAPE_INVALID with dispatch.js already accepting it.)
   'on_seat_busy',
+  // Which CONVERSATION at the seat this row belongs to — the seat-busy gate serializes rows sharing
+  // one shard and lets different shards run side by side (heart-store.js#seatKeyOf § THE SHARD).
+  // Same two-allowlist rule as `on_seat_busy` above: absent here ⇒ SHAPE_INVALID before dispatch.
+  'seat_shard',
 ]);
 const ON_SEAT_BUSY = new Set(['dedupe', 'queue']);
+// `#` is the seat key's own separator and whitespace would make a tick action unreadable. The bound
+// is duplicated at the store (which is where it is ENFORCED — this is the wire's early refusal).
+const SEAT_SHARD_RE = /^[^\s#]{1,200}$/;
 
 function parseEnqueueJob(payload) {
   requireObject(payload);
@@ -251,8 +258,19 @@ function parseEnqueueJob(payload) {
     onSeatBusy = payload.on_seat_busy;
   }
 
+  // `seat_shard` — SHAPE ONLY here too. Absent (or empty) is the unsharded seat key, which is every
+  // producer that predates this field.
+  let seatShard = null;
+  if (payload.seat_shard !== undefined && payload.seat_shard !== null && payload.seat_shard !== '') {
+    if (typeof payload.seat_shard !== 'string' || !SEAT_SHARD_RE.test(payload.seat_shard)) {
+      bad('seat_shard must be a 1-200 char string with no whitespace and no "#"', 'seat_shard');
+    }
+    seatShard = payload.seat_shard;
+  }
+
   return {
     on_seat_busy: onSeatBusy,
+    seat_shard: seatShard,
     job_id: payload.job_id,
     args: JSON.stringify(args),
     session_mode: sessionMode,

@@ -591,6 +591,27 @@ branch REMAINS as the honest refusal for a daemon that rejects or ignores the fl
 **nothing**, returns `forwarded: false` with `reason: seat-busy-deduped:<what held it>` plus
 `undeliveredText`, and posts the seat-busy notice below.
 
+⚠ **AND SINCE THE SEAT SHARD, TWO DM CONVERSATIONS RUN SIDE BY SIDE** (2026-08-17). Queueing made a
+busy master seat lossless; it did not make it concurrent. `workdirFor` falls through to the ONE
+configured `workdir` for every master/DM route, so the daemon's seat key was identical for every
+conversation the owner had and the ticker's seat-busy gate serialized the whole surface — a question
+typed in thread B waited out an unrelated twenty-minute turn in thread A. A master session-create now
+also carries **`seat_shard: <chat thread id>`**, which the store stamps into the row's args and
+`heart-store.js#seatKeyOf` appends to the seat key. Two threads therefore key differently and neither
+defers behind the other; **two messages of ONE thread carry the same shard and still serialize, in
+order**, which is the property the seat key exists to hold.
+
+- **MASTER ONLY.** A `goal` or `agent` thread homes at a real seat coordinating a live taskforce;
+  running two of those in one seat folder is a different question and is not answered here. The
+  field is set on the `workdirFor` fallback arm alone (`home.master`).
+- **The bridge's two pre-enqueue guards below are deliberately NOT sharded.** The duplicate guard's
+  case IS the cross-thread one — the observed incident was one DM redelivered across a reconnect as
+  two thread ids — so sharding it would delete the protection it was built for; and the pending cap
+  stays a bound on the whole master surface.
+- **Fail-open at the transport.** A thread id that could not satisfy the daemon's shard shape
+  (`1-200 chars, no whitespace, no #`) is simply omitted rather than sent, because a shape refusal at
+  the gateway would take the owner's whole message down with it. None does today.
+
 ⚠ **WHAT THE BRIDGE STILL OWES, BEFORE THE ENQUEUE.** A queue that never refuses collapses
 nothing, so two guards run in `chat-bridge.js#onChatMessage` ahead of the forward path, on
 SESSION-CREATES only (a follow-up rides `send-message`, which the seat door never keys):

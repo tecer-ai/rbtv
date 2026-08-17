@@ -167,6 +167,10 @@ const ENQUEUE_ALLOWED_KEYS = new Set([
   // suppresses per the Q9 idempotent door; 'queue' inserts the row anyway and lets the ticker's
   // seat-busy gate serialize it behind the holder. Also not a queue column.
   'on_seat_busy',
+  // Which CONVERSATION at the seat this row belongs to. The store stamps it into the row's args
+  // under a reserved key and `seatKeyOf` suffixes the seat key with it, so two shards of one seat
+  // run concurrently while one shard stays serialized. Also not a queue column.
+  'seat_shard',
 ]);
 
 // The register-job payload's field set (task 7.12). The `jobs` DDL is the authoritative
@@ -514,6 +518,14 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(VALIDATION_FAILED, `on_seat_busy must be 'dedupe' or 'queue'`, { check: 'on_seat_busy-enum', field: 'on_seat_busy' });
     }
 
+    // Same DEC-3 reason, and the same shape the gateway already refused: a malformed shard would
+    // otherwise reach the store as part of a SEAT KEY, where a stray `#` or newline would split or
+    // corrupt the very string the busy gate compares. Absent/null/'' → no shard, today's key.
+    if (payload.seat_shard !== undefined && payload.seat_shard !== null && payload.seat_shard !== ''
+      && (typeof payload.seat_shard !== 'string' || !/^[^\s#]{1,200}$/.test(payload.seat_shard))) {
+      throw new InternalApiError(VALIDATION_FAILED, 'seat_shard must be a 1-200 char string with no whitespace and no "#"', { check: 'seat_shard-shape', field: 'seat_shard' });
+    }
+
     // The store re-runs the COMPLETE deterministic dry-run (function in catalogue,
     // args shape, trigger, named profile, session_mode) inside enqueue() and writes
     // NOTHING on any failure — the single place all mutations pass. Under `dryRun` it
@@ -539,6 +551,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       enqueuingSeat: sender.seat || null,
       dryRun,
       onSeatBusy: payload.on_seat_busy,
+      seatShard: payload.seat_shard,
     });
 
     // Validate-only verdict — no queue row minted (D72/D73). Reaching here means the

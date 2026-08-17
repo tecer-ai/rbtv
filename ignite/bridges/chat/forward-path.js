@@ -112,6 +112,11 @@ const GATEWAY_REFUSED_NOTICE = "⚠ couldn't start work on that message — it w
 const SEAT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const RESERVED_SEAT_NAME = 'owner';
 
+// The daemon's bound on `seat_shard` (gateway/parse.js and heart-store.js both enforce it). Checked
+// HERE only so a thread id that could not satisfy it degrades to an unsharded enqueue instead of
+// taking the owner's message down with a shape refusal — see the guard at the enqueue.
+const SEAT_SHARD_RE = /^[^\s#]{1,200}$/;
+
 function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   if (!workspaceRoot) return { ok: false, reason: 'no-workspace-root-configured' };
   if (!SEAT_NAME_RE.test(String(seatName))) return { ok: false, reason: 'seat-name-not-a-name' };
@@ -256,8 +261,14 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // REVIVES that seat headless with the reply as its prompt, and a follow-up rides the chain the
   // seat already holds. The seat's descriptor supplies the identity, exactly as for goal-master.
   // Returns { ok, workdir } or { ok: false, reason } — never a fallback.
+  //
+  // ⚑ `master: true` ON THE FALLBACK ARM. Every DM/mention thread lands on that arm and gets the ONE
+  // configured workdir, so the daemon's seat key was identical for all of them and the seat-busy
+  // gate serialized every conversation the owner had. The flag is what lets the two callers that
+  // must shard per conversation (this file's enqueue, chat-bridge's pre-enqueue guards) tell that
+  // arm apart WITHOUT re-deriving the route predicate — one spelling of "is this the master seat?".
   function workdirFor(route) {
-    if (!route || (route.kind !== 'goal' && route.kind !== 'agent')) return { ok: true, workdir: config.workdir || null };
+    if (!route || (route.kind !== 'goal' && route.kind !== 'agent')) return { ok: true, workdir: config.workdir || null, master: true };
     const seat = resolveGoalSeat(config.workspaceRoot, route.goalId, route.kind === 'agent' ? route.agent : 'goal-master');
     if (!seat.ok) return seat;
     return { ok: true, workdir: seat.seatDir, seat: seat.seat };
@@ -315,6 +326,24 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       on_seat_busy: 'queue',
     };
     if (home.workdir) payload.args.workdir = home.workdir;
+    // ⚑ ONE SHARD PER CONVERSATION, ON THE MASTER SURFACE ONLY. `queue` above made a busy seat
+    // lossless; it did not make it CONCURRENT, and on this surface the seat is shared by every DM
+    // the owner has. So thread B's question waited behind thread A's turn — in order, delivered,
+    // and half an hour late. The shard suffixes the daemon's seat key with this thread id, which
+    // splits the gate exactly where the conversations are: two threads no longer see each other,
+    // and two messages of ONE thread still serialize, because they carry the SAME shard.
+    //
+    // ⚠ MASTER ONLY, deliberately. A goal or agent thread homes at a REAL seat that is coordinating
+    // a live taskforce; running two of those side by side in one seat folder is a different question
+    // with a different answer, and it is not being answered here.
+    //
+    // ⚠ SHAPE-GUARDED HERE, AND FAIL-OPEN IS THE POINT. A shard the gateway would refuse takes the
+    // WHOLE enqueue down with it — the owner's message would be lost to a formatting rule. A thread
+    // id that does not fit (none does today: `D0BJ50Y1DC6:1786501607`) simply goes unsharded, which
+    // is the serialized behaviour that shipped before this line.
+    if (home.master && chatThreadId && SEAT_SHARD_RE.test(String(chatThreadId))) {
+      payload.seat_shard = String(chatThreadId);
+    }
     // NO `effort` KEY (launch-cast unification, 2026-08-11). The rung is the SEAT's declaration
     // now, read daemon-side off its descriptor at both launch doors — so putting one on the wire
     // here would be the transport naming execution again, in the one field it still touches.

@@ -159,6 +159,23 @@ async function main() {
         Boolean(payload) && payload.effort === undefined && payload.profile === undefined
           && payload.session_mode === 'headless',
         { effort: payload && payload.effort, profile: payload && payload.profile, sessionMode: payload && payload.session_mode });
+
+      // ── THE SEAT SHARD (2026-08-17) ────────────────────────────────────────────────────────
+      // `queue` made a busy master seat lossless; it did not make it concurrent. EVERY DM homes at
+      // the one configured workdir, so the daemon's seat key was identical for every conversation
+      // and thread B waited behind thread A's turn. The shard is this transport's half: the thread
+      // id, on the wire, verbatim — the daemon suffixes its seat key with it.
+      const second = await r.bridge.onChatMessage(dm('1.2', 'ARM1 a different conversation entirely'));
+      const p2 = r.door.enqueued[1] && r.door.enqueued[1].payload;
+      check('arm1-session-create-carries-its-own-thread-as-seat_shard',
+        payload.seat_shard === 'D_IM:1.1' && Boolean(p2) && p2.seat_shard === 'D_IM:1.2',
+        { first: payload.seat_shard, second: p2 && p2.seat_shard, secondForwarded: second.forwarded });
+
+      // ⚑ THE DISCRIMINATING HALF. A shard that were a CONSTANT would satisfy the check above's
+      // shape and shard nothing — two conversations would still collide on one key.
+      check('arm1-control-two-threads-get-DIFFERENT-shards',
+        Boolean(p2) && payload.seat_shard !== p2.seat_shard,
+        { a: payload.seat_shard, b: p2 && p2.seat_shard });
       r.bridge.stop();
     }
 

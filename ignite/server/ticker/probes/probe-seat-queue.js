@@ -15,6 +15,7 @@
 
 const { setup, teardown, registerLaunchAgentJob, capture } = require('./lib');
 const { createTicker } = require('../ticker');
+const { seatKeyOf, SEAT_SHARD_ARG } = require('../../heart/heart-store');
 
 const SEAT_ARGS = (workdir) => JSON.stringify({ workdir });
 
@@ -44,11 +45,11 @@ function makeTicker(ctx, config = {}) {
 
 const iso = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-function enqueue(ctx, workdir, { onSeatBusy, runAt = new Date(), triggerKind = 'scheduled', intervalSeconds } = {}) {
+function enqueue(ctx, workdir, { onSeatBusy, runAt = new Date(), triggerKind = 'scheduled', intervalSeconds, seatShard } = {}) {
   return ctx.store.enqueue({
     jobId: 'launch-agent', args: SEAT_ARGS(workdir), sessionMode: 'headless',
     triggerKind, runAt: iso(runAt), intervalSeconds,
-    enqueuedBy: 'probe', onSeatBusy,
+    enqueuedBy: 'probe', onSeatBusy, seatShard,
   });
 }
 
@@ -148,6 +149,108 @@ async function run(lines) {
         actionsOf(r3, 'seat-queue-expired').length === 0
           && ctx.store.getQueueRow(periodic.queue_id) !== null,
         `a day-past-due periodic row: expired=${actionsOf(r3, 'seat-queue-expired').length} still pending=${ctx.store.getQueueRow(periodic.queue_id) !== null}`);
+    } finally {
+      teardown(ctx);
+    }
+  }
+
+  // ── C · THE SEAT SHARD · two conversations at ONE seat run side by side ─────────────────────
+  //
+  // What B guarantees is that a busy seat loses nothing. It does NOT make the seat concurrent, and
+  // on the master/DM surface the seat is EVERY conversation the owner has: `forward-path.js`
+  // #workdirFor falls through to one configured workdir for every DM thread, so thread B's question
+  // waited behind thread A's twenty-minute turn. The shard splits the gate's key per conversation.
+  //
+  // ⚠ THE PAIR IS THE POINT — neither half is evidence alone. "Two rows fired" proves nothing if
+  // the gate is simply toothless, and "the second row deferred" proves nothing if the gate defers
+  // everything. So the SAME scenario runs twice: sharded (both fire) and shardless (the second
+  // defers), and the shardless run IS the red arm — it is what this code does with the sharding
+  // mutated away, driven through the real store and the real dispatch path rather than simulated.
+  {
+    const ctx = setup();
+    try {
+      registerLaunchAgentJob(ctx);
+      const ticker = makeTicker(ctx);
+      const seat = ctx.seatDir;
+      const job = ctx.store.getJob('launch-agent');
+
+      // C0 · the key itself. Unit-level and deliberately spelled with LITERALS on both sides: a
+      // check whose expectation reads the value under test would move with any change to it.
+      const bare = seatKeyOf(job, { workdir: '/seat/x' });
+      const shardA = seatKeyOf(job, { workdir: '/seat/x', [SEAT_SHARD_ARG]: 'D_IM:1' });
+      const shardA2 = seatKeyOf(job, { workdir: '/seat/x', [SEAT_SHARD_ARG]: 'D_IM:1' });
+      const shardB = seatKeyOf(job, { workdir: '/seat/x', [SEAT_SHARD_ARG]: 'D_IM:2' });
+      check('unsharded-key-is-byte-identical-to-before',
+        bare === 'workdir:/seat/x',
+        `seatKeyOf({workdir}) = ${bare} — every producer that sends no shard must key exactly as it did`);
+      check('same-shard-same-key-different-shard-different',
+        shardA === 'workdir:/seat/x#D_IM:1' && shardA === shardA2 && shardB === 'workdir:/seat/x#D_IM:2',
+        `A=${shardA} A2=${shardA2} B=${shardB}`);
+
+      // C0b · THE STORE IS THE SHARD'S SOLE MINTER. Reading the key out of `args` is safe only
+      // because no CALLER can put it there: `__seat_shard` is declared by no job's `args_schema`,
+      // so `validateArgs`'s unknown-argument arm refuses it. Without this, any sender able to
+      // enqueue could hand itself a private seat key and walk past the busy gate.
+      let forged = null;
+      try {
+        ctx.store.enqueue({
+          jobId: 'launch-agent', args: JSON.stringify({ workdir: seat, [SEAT_SHARD_ARG]: 'forged' }),
+          sessionMode: 'headless', triggerKind: 'scheduled', runAt: iso(new Date()), enqueuedBy: 'probe',
+        });
+      } catch (err) { forged = err; }
+      check('a-caller-CANNOT-put-the-shard-in-args-itself',
+        forged !== null && /unknown argument/.test(forged.message) && forged.message.includes(SEAT_SHARD_ARG),
+        forged ? forged.message : 'ENQUEUED — a caller-supplied shard reached the row, so the key is caller-controlled');
+
+      // C1 · TWO DIFFERENT CONVERSATIONS, ONE SEAT — neither defers behind the other.
+      const a = enqueue(ctx, seat, { onSeatBusy: 'queue', seatShard: 'D_IM:1786501607' });
+      const b = enqueue(ctx, seat, { onSeatBusy: 'queue', seatShard: 'D_IM:1786509999' });
+      const r1 = await ticker.tick(new Date());
+      const spawned = actionsOf(r1, 'spawn').map((x) => x.queueId).sort();
+      const seatBusy = r1.actions.filter((x) => x.action === 'defer' && x.reason === 'seat-busy');
+      check('two-shards-of-one-seat-BOTH-fire',
+        spawned.length === 2 && spawned.includes(a.queue_id) && spawned.includes(b.queue_id)
+          && seatBusy.length === 0,
+        `spawned=${JSON.stringify(spawned)} seat-busy defers=${JSON.stringify(seatBusy)}`);
+
+      // C2 · ONE conversation still serializes. The second message of thread A carries the SAME
+      // shard, so it is the held case — this is the ordering the shard must NOT break.
+      const a2 = enqueue(ctx, seat, { onSeatBusy: 'queue', seatShard: 'D_IM:1786501607' });
+      const r2 = await ticker.tick(new Date());
+      const held = r2.actions.filter((x) => x.action === 'defer' && x.reason === 'seat-busy' && x.queueId === a2.queue_id);
+      check('same-shard-second-message-DEFERS',
+        held.length === 1 && held[0].seatKey === `workdir:${seat}#D_IM:1786501607`
+          && ctx.store.getQueueRow(a2.queue_id) !== null
+          && actionsOf(r2, 'spawn').length === 0,
+        `defers=${JSON.stringify(held)} spawns this tick=${actionsOf(r2, 'spawn').length}`);
+    } finally {
+      teardown(ctx);
+    }
+  }
+
+  // ── C-RED · THE SAME TWO CONVERSATIONS, SHARDING MUTATED AWAY ───────────────────────────────
+  //
+  // Byte-for-byte scenario C1 with `seatShard` dropped — which is precisely the state of this code
+  // before the shard, and the state it returns to if `seatKeyOf`'s suffix is deleted. The second
+  // conversation MUST defer here. If it does not, C1's green means the gate stopped working, not
+  // that the shard started working.
+  {
+    const ctx = setup();
+    try {
+      registerLaunchAgentJob(ctx);
+      const ticker = makeTicker(ctx);
+      const seat = ctx.seatDir;
+
+      const a = enqueue(ctx, seat, { onSeatBusy: 'queue' });
+      const b = enqueue(ctx, seat, { onSeatBusy: 'queue' });
+      const r = await ticker.tick(new Date());
+      const spawned = actionsOf(r, 'spawn').map((x) => x.queueId);
+      const defers = r.actions.filter((x) => x.action === 'defer' && x.reason === 'seat-busy');
+      check('RED-ARM-shardless-second-conversation-DEFERS',
+        spawned.length === 1 && spawned[0] === a.queue_id
+          && defers.length === 1 && defers[0].queueId === b.queue_id
+          && defers[0].seatKey === `workdir:${seat}`,
+        `spawned=${JSON.stringify(spawned)} defers=${JSON.stringify(defers)} — this is C1 with the sharding removed`);
     } finally {
       teardown(ctx);
     }
