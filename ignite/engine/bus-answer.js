@@ -44,8 +44,10 @@
 // `<goalId>#<agent>` and stores only `threadTs` (`chat-bridge.js`) — but it IS reachable HERE, from
 // the goal's own bus, through `execution-record.js#openOwnerAsks`: the SAME pairing the hold makes,
 // so `pending` and the hold can never disagree about which question is still open. An answer with
-// no `--re` leaves the ask open for every reader forever; that is the fallback (a seat whose oldest
-// open row is a NOTE rather than an ASK — coord's `--re` takes nothing but an ask), never the plan.
+// no `--re` leaves the ask open for every reader forever. Coord already accepts `--re` on an `ask`
+// OR an `escalation`; if the oldest open row is an escalation (no ask), that is what we settle.
+// `--supersedes` of one escalation by another is not a close. C78's pending-view settle stays the
+// belt for console answers that never pass through this module.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -81,13 +83,16 @@ function refuse(reason, extra = {}) {
   return { recorded: false, reason, ...extra };
 }
 
-// The oldest still-open `ask` this seat put to the owner, or null. Filtered on the type because
-// `coord.py cmd_send` refuses `--re <n>` when #n is not an ask, with no `--force` override.
+// The oldest still-open `ask` this seat put to the owner, or — if none — the oldest still-open
+// `escalation`. Coord accepts `--re` on either type. A note (or anything else) is left unlinked.
 function askToSettle(goalDir, seat) {
   let text;
   try { text = fs.readFileSync(path.join(goalDir, ...BUS_RELPATH), 'utf8'); } catch { return null; }
-  const row = openOwnerAsks(text, seat).find((r) => r.type === 'ask');
-  return row ? row.id : null;
+  const open = openOwnerAsks(text, seat);
+  const ask = open.find((r) => r.type === 'ask');
+  if (ask) return ask.id;
+  const esc = open.find((r) => r.type === 'escalation');
+  return esc ? esc.id : null;
 }
 
 // Record ONE `type: answer` row addressed to `seat` on `goal`'s coordination bus, as the owner.

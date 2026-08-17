@@ -302,12 +302,34 @@ async function main() {
     corpus: 'a name nobody holds',
   });
   check('P0c W8: the owner\'s answer to the ON-DEMAND `leader` chair is RECORDED although the chair '
-    + 'has NO seat folder, and it carries no `re` (an escalation opens no ask to resolve one from) '
+    + 'has NO seat folder, and with no open ask or escalation it carries no `re` '
     + '— while a non-staff name with no folder is still refused `no-such-seat`',
     staffReply && staffReply.recorded === true && staffReply.re === null
       && !fs.existsSync(path.join(dir, 'seats', 'leader'))
       && ghostReply && ghostReply.recorded === false && ghostReply.reason === 'no-such-seat',
     `staff=${JSON.stringify(staffReply)} ghost=${JSON.stringify(ghostReply)}`);
+  // IDs must continue THIS file's last heading — the global `bus()` counter collides with
+  // rows `recordBusAnswer` already wrote through coord (P0/P0c), and `--re` then names an answer.
+  function appendOn(goalDir, { from, to, type, body }) {
+    let text = '';
+    try { text = fs.readFileSync(path.join(goalDir, 'coordination', 'messages.md'), 'utf8'); } catch { /* empty */ }
+    let max = 0;
+    for (const m of text.matchAll(/^## (\d+) \|/gm)) max = Math.max(max, Number(m[1]));
+    const id = max + 1;
+    fs.appendFileSync(path.join(goalDir, 'coordination', 'messages.md'),
+      `## ${id} | from: ${from} | to: ${to} | type: ${type} | 2026-08-10 12:00\n${body}\n\n`);
+    return id;
+  }
+  const escOlder = appendOn(dir, { from: 'leader', to: 'owner', type: 'escalation', body: 'escalation: first halt\nblocked' });
+  const escNewer = appendOn(dir, { from: 'leader', to: 'owner', type: 'escalation', body: 'escalation: second halt\nblocked' });
+  const escReply = await recordBusAnswer({
+    workspaceRoot: workspace, goal, seat: 'leader',
+    corpus: 'widen the first — my ruling on the oldest open escalation',
+  });
+  check('P0d C78/askToSettle: an owner answer with no typed `--re` attaches durable `re:` to the '
+    + 'oldest open escalation from that chair (not the newer one; `--supersedes` is not a close)',
+    escReply && escReply.recorded === true && escReply.re === escOlder && escOlder !== escNewer,
+    `escReply=${JSON.stringify(escReply)} older=${escOlder} newer=${escNewer}`);
   // …and the seat, which is still checked IN because H's check-out was REFUSED, now ends its
   // session for real. THAT act is what advances bravo's `after` member; the answer is what lets it
   // through. Exactly ONE thing differs between this call and the refused one at H — the answer row.

@@ -420,6 +420,13 @@ function createLiveSessions({
 
     let s = sessions.get(conversationId);
     if (s && s.dead) { sessions.delete(conversationId); s = null; }
+    if (!s && workdir) {
+      const want = String(workdir).replace(/\/+$/, '');
+      for (const sess of sessions.values()) {
+        if (sess.dead) continue;
+        if (sess.workdir && String(sess.workdir).replace(/\/+$/, '') === want) { s = sess; break; }
+      }
+    }
 
     // ── REAP ON A PROFILE SWITCH, measured at the only moment that matters ─────────────────────
     // The design asks that a master-profile apply guarantee "a switch takes effect at the very

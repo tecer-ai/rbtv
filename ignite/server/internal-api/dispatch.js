@@ -773,15 +773,20 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
     const liveRows = heartStore.listExecutionsByStatus('running')
       .concat(heartStore.listExecutionsByStatus('launching'));
-    const liveSessions = liveRows.map((r) => ({
-      exec_id: r.exec_id,
-      status: r.status,
-      action_type: r.action_type,
-      job_id: r.job_id,
-      queue_id: r.queue_id,
-      fired_tick: r.fired_tick,
-      thread: r.thread,
-    }));
+    const liveSessions = liveRows.map((r) => {
+      let args;
+      try { args = JSON.parse(r.args); } catch { args = {}; }
+      return {
+        exec_id: r.exec_id,
+        status: r.status,
+        action_type: r.action_type,
+        job_id: r.job_id,
+        queue_id: r.queue_id,
+        fired_tick: r.fired_tick,
+        thread: r.thread,
+        workdir: typeof args.workdir === 'string' ? args.workdir : null,
+      };
+    });
 
     const queueRows = heartStore.listQueue();
     const dueSoon = queueRows.filter((r) => r.run_at !== undefined).slice(0, 20);

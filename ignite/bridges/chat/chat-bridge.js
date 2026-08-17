@@ -575,7 +575,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // Arm the reply leg on every FORWARDED turn — a session-create (new conversation)
     // or a follow-up (the chain re-dispatches → a new exec on the same queue). The
     // leg then watches for the spawn, awaits turn-end, and delivers the reply.
-    if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
+    if (outcome && outcome.liveHolder && chatMsg && chatMsg.chatThreadId) {
+      // Bus-only: the live sitting reads the reply. Do not arm — that resets the ⏳ clock —
+      // and take off the ⏳ this turn stamped before the warm attempt; the sitting already
+      // has its own watcher from the sitting that is live.
+      clearPending(chatMsg.chatThreadId);
+    } else if (outcome && outcome.forwarded && chatMsg && chatMsg.chatThreadId) {
       // What this seat is now working on (§ the held duplicate) — recorded on the COLD path only.
       // A warm turn answers within the same call, so the seat it ran at is free again by the time
       // anything could match it, and remembering that text would only invite a false drop later.

@@ -274,6 +274,49 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     return { ok: true, workdir: seat.seatDir, seat: seat.seat };
   }
 
+  function sameWorkdir(a, b) {
+    if (!a || !b) return false;
+    return String(a).replace(/\/+$/, '') === String(b).replace(/\/+$/, '');
+  }
+
+  // Live-turn at this seat folder (staff-wake and chat-launch use different seat keys for the
+  // same folder, so findSeatHolder on the chat job's key would miss the sitting). Ticker
+  // `live_sessions` is the live-turn arm. Fail-open: an unreadable ticker enqueues as today.
+  async function findLiveHolder(home) {
+    if (!home || !home.workdir || home.master) return null;
+    try {
+      const res = await forwarder.inspect('ticker');
+      if (!res || !res.ok) return null;
+      const live = (res.result && res.result.live_sessions) || [];
+      return live.find((s) => sameWorkdir(s.workdir, home.workdir)) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function nudgeLiveSitting({ workdir, text, execId, chatThreadId }) {
+    try {
+      const payload = {
+        conversation: chatThreadId ? String(chatThreadId) : `seat:${workdir}`,
+        prompt: String(text || ''),
+        workdir,
+        start: false,
+      };
+      if (execId != null && Number.isInteger(Number(execId))) payload.exec_id = Number(execId);
+      const res = await forwarder.forward('live-feed', payload);
+      if (!res.ok || !(res.result && res.result.fed)) {
+        log('info', 'live-holder nudge did not feed a warm session — bus write still stands', {
+          workdir, execId, reason: (res.result && res.result.reason) || (res.error && res.error.code) || 'not-fed',
+        });
+        return { nudged: false, reason: (res.result && res.result.reason) || 'not-fed' };
+      }
+      return { nudged: true };
+    } catch (err) {
+      log('warn', 'live-holder nudge threw — bus write still stands', { workdir, error: err.message });
+      return { nudged: false, error: err.message };
+    }
+  }
+
   // A first message that STARTS work → a session-creating launch-agent job.
   //
   // ⚠ THE `retry` PARAMETER IS GONE (P2). It existed for ONE caller — `chat-bridge.js#retryPending`
@@ -308,6 +351,28 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     // `[chat-thread: …]` routes a row (`bus-ferry.js`). If a relay carried the bracketed
     // form, the ferry would read the outbound question as an inbound answer and mint a
     // sitting from it — the question returning to its own thread.
+    const holder = await findLiveHolder(home);
+    if (holder) {
+      log('info', 'session-create skipped — live sitting at this seat; writing the bus and nudging', {
+        chatThreadId, route: route && route.kind, goalId: route && route.goalId,
+        workdir: home.workdir, execId: holder.exec_id, status: holder.status,
+      });
+      const busAnswer = await recordBusAnswer({ route, text });
+      const nudge = await nudgeLiveSitting({
+        workdir: home.workdir, text, execId: holder.exec_id, chatThreadId,
+      });
+      return {
+        forwarded: true,
+        liveHolder: true,
+        leg: 'session-create',
+        execId: holder.exec_id,
+        route: route && route.kind,
+        goalId: (route && route.goalId) || null,
+        ...(busAnswer ? { busAnswer } : {}),
+        ...(nudge ? { nudge } : {}),
+      };
+    }
+
     const prompt = chatThreadId ? `chat-thread: ${chatThreadId}\n\n${text}` : text;
     const payload = {
       job_id: config.sessionJobId,

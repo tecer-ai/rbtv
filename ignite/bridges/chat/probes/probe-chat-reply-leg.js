@@ -735,6 +735,14 @@ async function main() {
       sent.length === sentBeforeU3 + 1 && lastText() === slowNoticeText(6)
       && Boolean(pend()) && pend().slowNoticed === true,
       { sentCount: sent.length, sentBeforeU3, text: lastText(), expected: slowNoticeText(6), flagged: pend() && pend().slowNoticed });
+    const slowAtU3 = pend().slowNoticed;
+    leg().arm(`${CHANNEL}:other-sitting`);
+    record('u3b:slowNoticed resets only on a real new sitting of THIS conversation — arming another sitting leaves it set',
+      slowAtU3 === true && pend().slowNoticed === true
+      && Boolean(leg()._pending.get(`${CHANNEL}:other-sitting`))
+      && leg()._pending.get(`${CHANNEL}:other-sitting`).slowNoticed === false,
+      { slowAtU3, stillSet: pend() && pend().slowNoticed,
+        other: leg()._pending.get(`${CHANNEL}:other-sitting`) && leg()._pending.get(`${CHANNEL}:other-sitting`).slowNoticed });
 
     // ── (u4) A TURN STILL IN THE DAEMON QUEUE IS NOT DEAD AIR ────────────────────────────────────
     // The P2 half of the reply leg. Under `on_seat_busy: 'queue'` an owner message that lands at a

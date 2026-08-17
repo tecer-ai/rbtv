@@ -41,6 +41,7 @@ const forwardPathModule = require('../forward-path');
 const { createThreadMap } = require('../thread-map');
 const { createAllowlist } = require('../allowlist');
 const { buildBridge } = require('../index');
+const { createChatBridge } = require('../chat-bridge');
 
 const OUT = path.join(__dirname, 'probe-chat-dedup-refusal.out');
 const BRIDGE_SRC = path.join(__dirname, '..', 'chat-bridge.js');
@@ -63,9 +64,18 @@ function makeDoor({ queueRows = [] } = {}) {
   const door = {
     enqueued,
     queueRows,
+    liveSessions: [],
     inspectCalls: [],
     failQueueInspect: false,
     async forward(intent, payload) {
+      if (intent === 'record-bus-answer') {
+        enqueued.push({ intent, payload, jobId: null });
+        return { ok: true, result: { recorded: true, msg_id: 1, re: null } };
+      }
+      if (intent === 'live-feed') {
+        enqueued.push({ intent, payload, jobId: null });
+        return { ok: true, result: { fed: false, reason: 'no-warm-session' } };
+      }
       const jobId = nextId++;
       enqueued.push({ intent, payload, jobId });
       return { ok: true, result: { jobId } };
@@ -76,7 +86,10 @@ function makeDoor({ queueRows = [] } = {}) {
         if (door.failQueueInspect) return { ok: false, error: { code: 'TRANSPORT', message: 'scripted queue read failure' } };
         return { ok: true, result: { target: 'queue', rows: door.queueRows } };
       }
-      return { ok: true, result: { recent_ticks: [], live_sessions: [] } };
+      if (target === 'ticker') {
+        return { ok: true, result: { target: 'ticker', recent_ticks: [], live_sessions: door.liveSessions } };
+      }
+      return { ok: true, result: { recent_ticks: [], live_sessions: door.liveSessions } };
     },
   };
   return door;
@@ -345,6 +358,55 @@ async function main() {
       check('arm6-the-retired-give-up-notice-is-gone-from-the-module',
         forwardPathModule.SEAT_BUSY_GAVE_UP_NOTICE === undefined,
         { stillExported: forwardPathModule.SEAT_BUSY_GAVE_UP_NOTICE });
+    }
+
+    // ── ARM 7 · LIVE HOLDER: no second launch-agent, bus written, arm() not called ────────────
+    {
+      const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-liveholder-'));
+      const goalId = 'hold-g';
+      const seatDir = path.join(ws, '.rbtv', 'goals', goalId, 'seats', 'leader');
+      fs.mkdirSync(seatDir, { recursive: true });
+      const door = makeDoor();
+      door.liveSessions = [{ exec_id: 77, status: 'running', workdir: seatDir }];
+      const slack = makeFakeSlack();
+      const threadMap = createThreadMap();
+      const allowlist = createAllowlist({ allowed: [USER] });
+      const goalChannels = { goalForChannel: (ch) => (ch === 'C_LIVE' ? goalId : null) };
+      const bridge = createChatBridge({
+        config: { ...BRIDGE_CONFIG, workspaceRoot: ws, stateFile: null },
+        forwarder: door, transport: slack, allowlist, threadMap, goalChannels,
+        logger: () => {},
+        replyLegOptions: { pollMs: 3600000 },
+      });
+      await bridge.start();
+      const first = await bridge.onChatMessage(dm('7.0', 'ARM7 a real new sitting first'));
+      const pendingA = bridge.replyLeg._pending.get('D_IM:7.0');
+      if (pendingA) pendingA.slowNoticed = true;
+      bridge._agentThreads.set(`${goalId}#leader`, { threadTs: '7.1' });
+      const agentMsg = {
+        chatUserId: USER, chatThreadId: 'C_LIVE:7.1', text: 'ARM7 widen it',
+        _channel: 'C_LIVE', _threadTs: '7.1', _channelType: 'channel', _inThread: true, _msgTs: '7.1',
+      };
+      const live = await bridge.onChatMessage(agentMsg);
+      const launches = door.enqueued.filter((e) => e.intent !== 'record-bus-answer' && e.intent !== 'live-feed'
+        && e.payload && e.payload.job_id === 'chat-launch');
+      const busWrites = door.enqueued.filter((e) => e.intent === 'record-bus-answer');
+      const nudges = door.enqueued.filter((e) => e.intent === 'live-feed');
+      check('arm7-live-holder-does-not-enqueue-a-second-launch-agent',
+        first.forwarded === true && live.forwarded === true && live.liveHolder === true
+          && launches.length === 1 && !launches.some((e) => String(e.payload.args && e.payload.args.prompt).includes('ARM7 widen')),
+        { firstForwarded: first.forwarded, live, launchCount: launches.length, intents: door.enqueued.map((e) => e.intent) });
+      check('arm7-live-holder-writes-the-bus-and-nudges-by-workdir',
+        busWrites.length === 1 && busWrites[0].payload.seat === 'leader'
+          && nudges.length === 1 && String(nudges[0].payload.workdir).replace(/\/+$/, '') === seatDir.replace(/\/+$/, '')
+          && nudges[0].payload.start === false,
+        { bus: busWrites[0] && busWrites[0].payload, nudge: nudges[0] && nudges[0].payload });
+      check('arm7-live-holder-does-not-arm-and-does-not-reset-slowNoticed',
+        !bridge.replyLeg._pending.has('C_LIVE:7.1')
+          && pendingA && pendingA.slowNoticed === true,
+        { agentArmed: bridge.replyLeg._pending.has('C_LIVE:7.1'), slowNoticed: pendingA && pendingA.slowNoticed });
+      bridge.stop();
+      try { fs.rmSync(ws, { recursive: true, force: true }); } catch {}
     }
 
     // ── ARM R · RED ARM · the guard block cut out of a SCRATCH chat-bridge.js ─────────────────
