@@ -13358,7 +13358,7 @@ def ready_seat_rows(args):
     # `--relaunch-ruled <anchor>`. The flip moves the READY SURFACE, which is the daemon's door.
     grants = {}
     for _gi, _g in read_relaunch_grants(base):
-        if _g["spent-at"]:
+        if grant_is_spent(_g) or grant_is_revoked(_g):
             continue
         if _g["session-id"] and _g["session-id"] != (last_ended.get(_g["seat"]) or ("", ""))[0]:
             continue
@@ -13991,7 +13991,30 @@ def arm1_fails_under_transposition(rows, x, y):
 # the rows ALREADY written `done`), and it was OWNED at the ruling. The attestation below is
 # CLASS-AWARE for exactly this reason: on a `done` admission the tool must claim the ruling act and
 # nothing about the work.
-RELAUNCH_GRANT_COLS = ["seat", "session-id", "anchor", "minted-by", "minted-at", "spent-at"]
+RELAUNCH_GRANT_COLS = [
+    "seat", "session-id", "anchor", "minted-by", "minted-at", "spent-at",
+    "revoked-at", "revoke-reason",
+]
+
+_REVOKED_SPENT_RE = re.compile(r"^revoked-")
+
+
+def grant_is_revoked(g):
+    """True when the row carries `revoked-at`, or a legacy `spent-at` matching `^revoked-`."""
+    if (g.get("revoked-at") or "").strip():
+        return True
+    return bool(_REVOKED_SPENT_RE.match((g.get("spent-at") or "").strip()))
+
+
+def grant_is_spent(g):
+    """True when `spent-at` is a spend stamp — not a legacy revoke written into that cell."""
+    spent = (g.get("spent-at") or "").strip()
+    return bool(spent) and not _REVOKED_SPENT_RE.match(spent)
+
+
+def grant_is_live(g):
+    """Unspent and unrevoked — the only row `match_relaunch_grant` will admit."""
+    return not grant_is_spent(g) and not grant_is_revoked(g)
 
 
 def relaunch_grants_csv(base):
@@ -14029,21 +14052,25 @@ def match_relaunch_grant(base, seat, session_id, anchor):
     """(index, row, why) — the first UNSPENT grant matching all three cells.
 
     `why` NAMES WHICH LEG FAILED rather than reporting a bare miss: `no-row`, `stale-session`,
-    `anchor-mismatch`, `spent`. A refusal that cannot say which of four conditions it tripped
-    sends the caller back to guess, and the four have four different remedies. The legs are
-    reported in the order of what the caller can most cheaply check."""
+    `anchor-mismatch`, `spent`, `revoked`. A refusal that cannot say which of five conditions it
+    tripped sends the caller back to guess, and the five have five different remedies. The legs
+    are reported in the order of what the caller can most cheaply check. `revoked` is distinct
+    from `spent`: a retired grant is not a consumed authorization."""
     rows = read_relaunch_grants(base)
     for_seat = [(i, g) for i, g in rows if g["seat"] == seat]
     if not for_seat:
         return None, None, "no-row"
     for i, g in for_seat:
-        if g["session-id"] == session_id and g["anchor"] == anchor and not g["spent-at"]:
+        if g["session-id"] == session_id and g["anchor"] == anchor and grant_is_live(g):
             return i, g, ""
     if not any(g["session-id"] == session_id for _, g in for_seat):
         return None, None, "stale-session"
     same_session = [(i, g) for i, g in for_seat if g["session-id"] == session_id]
     if not any(g["anchor"] == anchor for _, g in same_session):
         return None, None, "anchor-mismatch"
+    matched = [(i, g) for i, g in same_session if g["anchor"] == anchor]
+    if any(grant_is_revoked(g) for _, g in matched):
+        return None, None, "revoked"
     return None, None, "spent"
 
 
@@ -14060,7 +14087,8 @@ def _mint_relaunch_grant_unlocked(base, seat, session_id, anchor, minted_by):
     header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
     rows = [pad_row(r, header) for r in rows]
     rec = {"seat": seat, "session-id": session_id, "anchor": anchor,
-           "minted-by": minted_by, "minted-at": now(), "spent-at": ""}
+           "minted-by": minted_by, "minted-at": now(), "spent-at": "",
+           "revoked-at": "", "revoke-reason": ""}
     rows.append([rec.get(col, "") for col in header])
     write_csv_table(path, header, rows)
     return rec
@@ -14092,8 +14120,29 @@ def spend_relaunch_grant(base, seat, session_id, anchor):
             if (r[idx["seat"]].strip() == seat
                     and r[idx["session-id"]].strip() == session_id
                     and r[idx["anchor"]].strip() == anchor
-                    and not r[idx["spent-at"]].strip()):
+                    and not r[idx["spent-at"]].strip()
+                    and not (r[idx["revoked-at"]].strip() if "revoked-at" in idx else "")
+                    and not _REVOKED_SPENT_RE.match(r[idx["spent-at"]].strip())):
                 r[idx["spent-at"]] = stamp
+                write_csv_table(path, header, rows)
+                return stamp
+    return ""
+
+
+def revoke_relaunch_grant(base, seat, anchor, reason):
+    """Stamp `revoked-at` + `revoke-reason` on the first live (seat, anchor) row. Returns the stamp."""
+    with coord_lock(base):
+        path = relaunch_grants_csv(base)
+        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
+        header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
+        rows = [pad_row(r, header) for r in rows]
+        idx = {col: i for i, col in enumerate(header)}
+        stamp = now()
+        for r in rows:
+            g = {col: r[idx[col]].strip() if col in idx else "" for col in RELAUNCH_GRANT_COLS}
+            if g["seat"] == seat and g["anchor"] == anchor and grant_is_live(g):
+                r[idx["revoked-at"]] = stamp
+                r[idx["revoke-reason"]] = reason
                 write_csv_table(path, header, rows)
                 return stamp
     return ""
@@ -14216,7 +14265,7 @@ def cmd_rule_relaunch(args):
                f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE.", 1)
     # Precondition 3 — no unspent grant already exists for this (seat, session-id).
     existing = [g for _, g in read_relaunch_grants(base)
-                if g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]]
+                if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)]
     if existing:
         refuse("state",
                f"'{seat}' already carries an UNSPENT grant for session {sid} "
@@ -14243,6 +14292,59 @@ def cmd_rule_relaunch(args):
             f"admission. It does not clear the `{disp}` row — that clears by SUPERSESSION when the "
             f"admitted session writes its own ended row.\nnext: "
             f"{coord_invocation(args)} launch --only {seat} --relaunch-ruled {anchor}", C_HINT))
+
+
+def cmd_revoke_relaunch(args):
+    """(leader) RETIRE a standing grant with its own stamp, distinct from spent.
+    BARE = report; `--go` = write. Keyed on (seat, anchor), never every unspent row."""
+    gate(args, "revoke-relaunch", is_leader,
+         "the leader's alone — minting and revoking are the same chair's ruling acts",
+         remedy="ask the leader to revoke the grant")
+    base = base_dir(args)
+    seat = args.seat
+    anchor = (args.anchor or "").strip()
+    reason = (args.reason or "").strip()
+    go = bool(getattr(args, "go", False))
+    if not anchor:
+        refuse("input",
+               "--anchor names WHICH grant to retire; an empty one would match every unspent row "
+               "for the seat, which is the near-miss that made this verb take (seat, anchor).", 2)
+    if not reason:
+        refuse("input",
+               "--reason is the revocation trail; an empty one would retire a grant citing nothing.", 2)
+    matches = [g for _, g in read_relaunch_grants(base)
+               if g["seat"] == seat and g["anchor"] == anchor]
+    if not matches:
+        refuse("state",
+               f"'{seat}' has no grant row with anchor `{anchor}`. "
+               f"Read the file: {relaunch_grants_csv(base)}", 1)
+    live = [g for g in matches if grant_is_live(g)]
+    if not live:
+        if any(grant_is_revoked(g) for g in matches):
+            refuse("state",
+                   f"'{seat}' anchor `{anchor}` is ALREADY REVOKED "
+                   f"(revoked-at `{matches[0].get('revoked-at') or matches[0].get('spent-at')}`). "
+                   f"A revoke is single-use; it does not re-stamp a retired row.", 1)
+        refuse("state",
+               f"'{seat}' anchor `{anchor}` is ALREADY SPENT "
+               f"(spent-at `{matches[0].get('spent-at')}`). Revoke retires a standing grant; "
+               f"a consumed authorization is a spend, not a revoke.", 1)
+    rec = live[0]
+    if not go:
+        print(f"{c(seat, C_LABEL)}  REVOCABLE — unspent grant for session {rec['session-id']} "
+              f"anchor `{anchor}`, minted {rec['minted-at']} by {rec['minted-by']}.")
+        print("    (report only — nothing was written. Re-run with --go to revoke.)")
+        return
+    stamp = revoke_relaunch_grant(base, seat, anchor, reason)
+    if not stamp:
+        refuse("state",
+               f"'{seat}' anchor `{anchor}` was not revoked — a concurrent spend or revoke "
+               f"took the row first.", 1)
+    print(f"{c(seat, C_LABEL)}  GRANT REVOKED at {stamp}")
+    print(f"    relaunch-grants.csv: seat `{seat}` session-id `{rec['session-id']}` "
+          f"anchor `{anchor}` revoked-at `{stamp}` revoke-reason `{reason}`")
+    print(c("\nThe grant is retired, not spent. `match_relaunch_grant` returns `revoked` "
+            "(not `spent`); the READY flip will not fire on this row.", C_HINT))
 
 
 # ---------- 7.776: THE DAEMON SELF-GRANT (`coordinate seat-retry`) ----------------------------
@@ -14306,7 +14408,7 @@ def cmd_seat_retry(args):
         # `DAEMON_RETRY_ANCHOR` is what makes this arm spend a LEADER-minted grant too — the owner
         # ruled the daemon acts on any unspent grant, not only its own.
         row = next((g for _i, g in read_relaunch_grants(base)
-                    if g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]), None)
+                    if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)), None)
         stamp = spend_relaunch_grant(base, seat, sid, row["anchor"]) if row else ""
         if not stamp:
             emit({"status": "not-spent", "seat": seat, "session-id": sid, "stamp": "",
@@ -14348,7 +14450,7 @@ def cmd_seat_retry(args):
                    f"{coord_invocation(args)} rule-relaunch {seat} --anchor <your-anchor> --go, "
                    f"then launch --only {seat} --relaunch-ruled <your-anchor>. That grant is "
                    f"minted by the `leader` and is NOT charged against this budget.", 1)
-        if any(g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]
+        if any(g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)
                for _i, g in rows):
             refuse("state",
                    f"'{seat}' already carries an UNSPENT grant for session {sid}. Minting a second "
@@ -14859,7 +14961,7 @@ def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
         return False, ("no session row for this chair yet — it has never sat, so it reads "
                        "READY on its own account as soon as mail exists and needs no grant")
     try:
-        if any(g["seat"] == seat and g["session-id"] == sid and not g["spent-at"]
+        if any(g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)
                for _i, g in read_relaunch_grants(base)):
             return False, ("an UNSPENT wake grant already stands for this chair's session — "
                            "one sitting drains the whole queue")
@@ -17129,6 +17231,9 @@ def cmd_launch(args):
                           f"SPENT. A grant is SINGLE-USE by design — it authorizes one relaunch, "
                           f"and a second would be a replay. If another is warranted, the `leader` "
                           f"mints a new one."),
+                "revoked": (f"the matching grant for '{_rl_t}' session `{_rl_sid}` is REVOKED. "
+                            f"A revocation is not a spend — the authorization was retired, not "
+                            f"consumed. The `leader` mints a new grant if a relaunch is still ruled."),
             }[_rl_why]
             refuse("state",
                    f"P5: {_rl_why} — {_rl_leg}\n"
@@ -26787,6 +26892,67 @@ def _selftest_checks(args, failures, names):
               _f3_lead_code == 2
               and "refused [coord role gate]" in (_f3_lead_out + _f3_lead_err))
 
+        # ============ F4: revoke-relaunch (mint → revoke → revoked, not spent) ==================
+        _f4_base = base_dir(_r155_ns())
+        _r155_seed("f4rev", ended=now(), disposition="exited")
+        mint_relaunch_grant(_f4_base, "f4rev", "f4rev-sid", "p-f4-revoke", "leader")
+        _f4_bare_out, _f4_bare_err, _f4_bare_code = harness_outcome(
+            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
+                                          reason="park", go=False))
+        _f4_live_after_bare = [g for _, g in read_relaunch_grants(_f4_base)
+                               if g["seat"] == "f4rev" and grant_is_live(g)]
+        check("F4 bare revoke is a REPORT — it names the row and writes nothing",
+              _f4_bare_code is None and "REVOCABLE" in _f4_bare_out
+              and "report only" in _f4_bare_out
+              and len(_f4_live_after_bare) == 1)
+        _f4_go_out, _f4_go_err, _f4_go_code = harness_outcome(
+            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
+                                          reason="park", go=True))
+        _f4_idx, _f4_row, _f4_why = match_relaunch_grant(
+            _f4_base, "f4rev", "f4rev-sid", "p-f4-revoke")
+        _f4_after = [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4rev"]
+        check("F4 mint→revoke→match returns `revoked` (not `spent`); the row carries revoked-at",
+              _f4_go_code is None and "GRANT REVOKED" in _f4_go_out
+              and _f4_idx is None and _f4_row is None and _f4_why == "revoked"
+              and _f4_after and _f4_after[0]["revoked-at"]
+              and _f4_after[0]["revoke-reason"] == "park"
+              and not grant_is_spent(_f4_after[0])
+              and grant_is_revoked(_f4_after[0]))
+        _f4_again_out, _f4_again_err, _f4_again_code = harness_outcome(
+            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
+                                          reason="again", go=True))
+        check("F4 refuse already-revoked by name",
+              _f4_again_code == 1
+              and "refused [coord state]" in (_f4_again_out + _f4_again_err)
+              and "ALREADY REVOKED" in (_f4_again_out + _f4_again_err))
+        _r155_seed("f4spent", ended=now(), disposition="exited")
+        mint_relaunch_grant(_f4_base, "f4spent", "f4spent-sid", "p-f4-spent", "leader")
+        spend_relaunch_grant(_f4_base, "f4spent", "f4spent-sid", "p-f4-spent")
+        _f4s_out, _f4s_err, _f4s_code = harness_outcome(
+            cmd_revoke_relaunch, _r155_ns(seat="f4spent", anchor="p-f4-spent",
+                                          reason="too late", go=True))
+        check("F4 refuse already-spent by name",
+              _f4s_code == 1
+              and "refused [coord state]" in (_f4s_out + _f4s_err)
+              and "ALREADY SPENT" in (_f4s_out + _f4s_err))
+        _r155_seed("f4leg", ended=now(), disposition="exited")
+        mint_relaunch_grant(_f4_base, "f4leg", "f4leg-sid", "p-f4-legacy", "leader")
+        _f4leg_path = relaunch_grants_csv(_f4_base)
+        _f4leg_h, _f4leg_rows = read_csv_table(_f4leg_path, RELAUNCH_GRANT_COLS)
+        _f4leg_idx = {col: i for i, col in enumerate(_f4leg_h)}
+        for _r in _f4leg_rows:
+            pad_row(_r, _f4leg_h)
+            if _r[_f4leg_idx["seat"]].strip() == "f4leg":
+                _r[_f4leg_idx["spent-at"]] = "revoked-2026-08-17T13:09Z"
+        write_csv_table(_f4leg_path, _f4leg_h, _f4leg_rows)
+        _f4l_i, _f4l_g, _f4l_why = match_relaunch_grant(
+            _f4_base, "f4leg", "f4leg-sid", "p-f4-legacy")
+        check("F4 legacy spent-at matching ^revoked- reads as revoked, not spent",
+              _f4l_why == "revoked" and grant_is_revoked(
+                  [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0])
+              and not grant_is_spent(
+                  [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0]))
+
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
         # Every fixture below is a WHOLE run package of its own — a taskforce DAG, descriptors, a
@@ -28375,7 +28541,8 @@ def _selftest_checks(args, failures, names):
             prints, so a row cannot pass on a bare refusal that tripped some other guard."""
             _o, _c = _a3l_run(**shape)
             for _leg in ("P2a", "P2b", "P3a", "P3b", "P3c: skew present", "P4",
-                         "P5: no-row", "P5: stale-session", "P5: anchor-mismatch", "P5: spent"):
+                         "P5: no-row", "P5: stale-session", "P5: anchor-mismatch",
+                         "P5: spent", "P5: revoked"):
                 if _leg + (":" if ":" not in _leg else "") in _o or _leg in _o:
                     return ("REFUSED pre-boolean", _leg, _o, _c)
             if "ADMITTED by --relaunch-ruled" in _o:
@@ -29894,6 +30061,22 @@ def _selftest_checks(args, failures, names):
               and "p-sr-ruled" in _sr_row_granted["reason"]
               and (_sr_row_granted["relaunch-grant"] or {}).get("anchor") == "p-sr-ruled"
               and _sr_row_granted["disposition"] == "exited")
+
+        _f4_flip_pkg = _rs_make("f4-revoked-flip", [("rev1", "")],
+                                sessions=[("rev1", "exited")])
+        _f4_flip_base = _f4_flip_pkg / "coordination"
+        mint_relaunch_grant(_f4_flip_base, "rev1",
+                            sessions_last_ended(_f4_flip_pkg)["rev1"][0],
+                            "p-f4-no-flip", "leader")
+        _f4_flip_before, _ = _rs_v(_f4_flip_pkg)
+        harness_outcome(cmd_revoke_relaunch, argparse.Namespace(
+            package=str(_f4_flip_pkg), base=None, workers_dir=None, force=False,
+            as_agent=None, agent="leader", seat="rev1", anchor="p-f4-no-flip",
+            reason="park", go=True))
+        _f4_flip_after, _ = _rs_v(_f4_flip_pkg)
+        check("F4 a revoked grant does NOT flip DONE→READY — ready_seat_rows skips the row",
+              _f4_flip_before.get("rev1") == "READY"
+              and _f4_flip_after.get("rev1") == "DONE")
 
         # ---- the DISCLOSED LIMIT the JS half is built against ---------------------------------
         check("7.776 A GRANT WHOSE SESSION-ID MATCHES NO ENDED SESSION ROW IS NOT ON THE WIRE, AND "
@@ -34641,7 +34824,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / seat-retry / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / revoke-relaunch / seat-retry / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · retire a standing grant with its own stamp, distinct from spent (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -35509,6 +35692,26 @@ def build_parser():
                    help="ACT: append the grant row; without it nothing is written")
     add_identity_flags(s)
     s.set_defaults(func=cmd_rule_relaunch)
+
+    s = command(
+        "revoke-relaunch",
+        "(leader) RETIRE a standing relaunch grant with its own stamp and reason, distinct\n"
+        "from spent. Keyed on (seat, --anchor) — never every unspent row. BARE = report;\n"
+        "`--go` writes `revoked-at` + `revoke-reason`. Refuses already-spent and already-revoked\n"
+        "by name. A legacy `spent-at` matching `^revoked-` still reads as revoked, not spent.",
+        "example:\n"
+        "  coordinate revoke-relaunch plan-2 --anchor p-m2-relaunch --reason 'park'        # report\n"
+        "  coordinate revoke-relaunch plan-2 --anchor p-m2-relaunch --reason 'park' --go   # revoke\n"
+        "next: coordinate ready-seats — a revoked row does not flip DONE→READY")
+    s.add_argument("seat", help="the TARGET seat whose grant is being retired — never the caller")
+    s.add_argument("--anchor", default=None,
+                   help="the grant's own ruling anchor; required, and it selects ONE row")
+    s.add_argument("--reason", default=None,
+                   help="why this grant is being retired; recorded on the row")
+    s.add_argument("--go", action="store_true",
+                   help="ACT: stamp revoked-at + revoke-reason; without it nothing is written")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_revoke_relaunch)
 
     s = command(
         "seat-retry",

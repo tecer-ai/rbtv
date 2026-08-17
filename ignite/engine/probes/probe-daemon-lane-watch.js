@@ -381,13 +381,35 @@ async function main() {
   // Assigned to the daemon by the CLI, then PAUSED by prefixing its marker — the pause is a
   // prefix, so the assignment (and the profile) survives it verbatim.
   laneCli(['paused-goal', '--set', 'daemon']);
-  goalCli('pause', ['paused-goal']);
+  goalCli('pause', ['paused-goal', '--reason', 'probe hold']);
+  const pausedDecisions = fs.existsSync(path.join(pausedGoal, 'decisions.md'))
+    ? fs.readFileSync(path.join(pausedGoal, 'decisions.md'), 'utf8') : '';
   check('L2 `rbtv-goal pause` stashes the assignment behind a `paused ` PREFIX — the marker it '
     + 'returns to is kept verbatim, and the DAEMON\'s reader resolves the result to `console` '
     + 'with no word of its own (two languages, one grammar, cross-checked)',
     fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon'
       && laneWatch.readLane(pausedGoal).lane === 'console',
     JSON.stringify(laneWatch.readLane(pausedGoal)));
+  check('L2 …and the SAME pause appended a decisions.md ruling row (decision / rationale / scope)',
+    /\*\*Decision:\*\*/.test(pausedDecisions) && /\*\*Rationale:\*\*/.test(pausedDecisions)
+      && /\*\*Scope:\*\*/.test(pausedDecisions) && /probe hold/.test(pausedDecisions)
+      && /PAUSED/.test(pausedDecisions),
+    pausedDecisions.slice(-300));
+  {
+    let resumeAsLeader;
+    try {
+      execFileSync(requirePythonCmd(), [GOAL_CLI, '--root', goalsRoot, 'resume', 'paused-goal'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, RBTV_IGNITE_CONFIG_PATH: configPath, COORD_AGENT: 'leader' } });
+      resumeAsLeader = { ok: true, out: '' };
+    } catch (err) {
+      resumeAsLeader = { ok: false, out: String(err.stdout || '') + String(err.stderr || '') };
+    }
+    check('L2 `resume` REFUSES a non-owner (leader) — lift is owner-only',
+      resumeAsLeader.ok === false && /owner-only/.test(resumeAsLeader.out)
+        && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon',
+      resumeAsLeader.out.trim().split('\n').pop());
+  }
   // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
   // The two markers only reachable by hand, since the door refuses both. `legacy-marker-goal`
   // carries the RETIRED two-token grammar; `uncast-goal` is properly assigned but has no cast.

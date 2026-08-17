@@ -200,7 +200,7 @@ def main() -> int:
 
         # ── 1. the PAUSE stash round-trips byte-exactly through the real CLI ──────────────────
         lane.write_text("daemon claude-sonnet\n", encoding="utf-8", newline="")
-        rc, so, se = run([*R, "pause", "live-goal"])
+        rc, so, se = run([*R, "pause", "live-goal", "--reason", "splice-probe hold"])
         check("1. `pause` exits 0", rc == 0, f"exit={rc} {se.strip()[:200]}")
         check("1. the marker is stashed behind `paused `",
               lane.read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
@@ -243,7 +243,7 @@ def main() -> int:
         # daemon-complex-cell gate refuses on a stashed DAEMON lane (row 5 scores that on
         # purpose). The green rows must not be measuring that gate by accident.
         lane.write_text("console\n", encoding="utf-8", newline="")
-        run([*R, "pause", "live-goal"])
+        run([*R, "pause", "live-goal", "--reason", "splice-probe hold"])
         before_text = (goal / "taskforce.csv").read_text(encoding="utf-8")
         rc, so, se = add_seat()
         check("3. add-seat --splice-only exits 0", rc == 0, f"exit={rc} {se.strip()[:300]}")

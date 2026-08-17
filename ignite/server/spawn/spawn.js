@@ -17,6 +17,7 @@ const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
+const { spendCoordTwin } = require('../../engine/relaunch-grants');
 // The ONE symlink-aware containment rule (fA-4 D-1), parameterized by root and shared with the
 // fire-tool workdir guard rather than respelled here — `path.resolve` + a lexical prefix test
 // answers where a path POINTS, never where it LANDS.
@@ -1656,7 +1657,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           log('warn', 'at-dispatch session row NOT recorded — this headless session will be UNATTRIBUTABLE', {
             seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, reason: written.reason,
           });
-        } else if (written.dropped.length > 0) {
+        } else {
+          spendCoordTwin(dispatchSeat.goalDir, dispatchSeat.seat);
+        }
+        if (written.appended && written.dropped.length > 0) {
           log('warn', 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', {
             seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, dropped: written.dropped,
           });

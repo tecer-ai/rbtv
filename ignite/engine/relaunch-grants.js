@@ -74,7 +74,6 @@ function spendGrant(goalFolder, seat) {
   const tmp = `${file}.tmp.${process.pid}`;      // same directory — that is what makes rename atomic
   fs.writeFileSync(tmp, keep.length ? `${keep.join('\n')}\n` : '', 'utf8');
   fs.renameSync(tmp, file);
-  spendCoordTwin(goalFolder, seat);
   return true;
 }
 
@@ -99,11 +98,15 @@ function spendCoordTwin(goalFolder, seat) {
   const header = (lines[0] || '').split(',').map((c) => c.trim());
   const seatIdx = header.indexOf('seat');
   const spentIdx = header.indexOf('spent-at');
+  const revokedIdx = header.indexOf('revoked-at');
   if (seatIdx === -1 || spentIdx === -1) return;
   for (let i = 1; i < lines.length; i += 1) {
     if (!lines[i].trim()) continue;
     const cells = lines[i].split(',');
-    if ((cells[seatIdx] || '').trim() !== seat || (cells[spentIdx] || '').trim()) continue;
+    const spent = (cells[spentIdx] || '').trim();
+    const revoked = revokedIdx === -1 ? '' : (cells[revokedIdx] || '').trim();
+    if ((cells[seatIdx] || '').trim() !== seat) continue;
+    if (spent || revoked || /^revoked-/.test(spent)) continue;
     while (cells.length <= spentIdx) cells.push('');
     cells[spentIdx] = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     lines[i] = cells.join(',');
@@ -116,4 +119,4 @@ function spendCoordTwin(goalFolder, seat) {
   }
 }
 
-module.exports = { GRANT_FILE, grantPath, readGrants, grantRelaunch, spendGrant };
+module.exports = { GRANT_FILE, grantPath, readGrants, grantRelaunch, spendGrant, spendCoordTwin };

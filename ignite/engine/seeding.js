@@ -965,28 +965,9 @@ function enqueueEligible(heartStore, rows, {
     // grant must survive to be spent on the pass that can. Fail-closed in the other direction too —
     // an empty stamp means somebody else took the row, and this pass must NOT enqueue on an
     // authorization it did not burn, or two lanes launch one seat off one grant.
-    const grant = granted && granted.get(row.seat);
-    if (grant) {
-      let stamp = '';
-      let why = `session ${grant['session-id']} · anchor ${grant.anchor} — no unspent row matched`;
-      try {
-        const out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
-          '--as', 'ignite-daemon',
-          'seat-retry', row.seat, '--spend', '--session', grant['session-id'] || '', '--json'],
-        { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-        stamp = (JSON.parse(out).stamp || '');
-      } catch (err) {
-        why = `\`coordinate seat-retry --spend\` failed: ${String(err.stderr || err.message || '').trim().slice(0, 400)}`;
-      }
-      if (!stamp) {
-        if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — its relaunch grant was NOT spent, and a launch off an unburnt grant is a replay window', seat: row.seat, evidence: why });
-        continue;
-      }
-    }
-    // THE SPEND, in the SAME instant the in-memory delete already happened — still after the cage
-    // test and the boot-prompt compose, still with no `continue` between here and the enqueue, so
-    // "grant spent" and "seat enqueued" remain ONE event. `Set.delete` answers whether this seat
-    // held a grant at all, so a seat that never had one costs no file write.
+    // Engine `spendGrant` stays at enqueue — that burn is what blocks replay. The coord CSV
+    // `spent-at` stamp moved to spawn (`spendCoordTwin` at session-open / ticker fire) so a
+    // grant is not marked spent with no session behind it.
     if (grants.delete(row.seat)) spendGrant(goalFolder, row.seat);
 
     const after = (row.after || '').trim();
