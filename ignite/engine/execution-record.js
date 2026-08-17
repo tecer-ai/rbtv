@@ -339,60 +339,14 @@ function openOwnerAsks(busText, seat) {
   }
   return open;
 }
-// ONE OWNER `note` FOR ONE NON-CLEAN CLOSE — the interim surfacing W2 owes until W3 (adv, C25).
-//
-// Shelled to coord rather than written here, because `coordination/messages.md` has exactly ONE
-// writer and it is coord (`coordination/messages.md`, and `engine/bus-answer.js` takes the same
-// route for the same reason). `--as ignite-daemon` is the identity D4 gave the daemon's own
-// process; `--force` is what lets it address the reserved `owner` token, exactly as bus-answer's
-// reply leg does.
-//
-// It NEVER throws: every failure path returns after logging. The caller is the tick.
-function noteOwner({ seat, goalFolder, sessionId, outcome }, logger) {
-  const { execFileSync } = require('node:child_process');
-  const { requirePythonCmd } = require('../lib/python-cmd');
-  const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
-  const body = `seat \`${seat}\` ended \`${outcome}\` (session ${sessionId}). The execution record `
-    + 'carries the process outcome; whether the WORK is finished is the seat\'s own check-out, and '
-    + 'this seat did not exit cleanly. Nothing has retried it automatically unless the daemon\'s '
-    + 'retry budget admitted it. Interim surfacing until the staff-mail carrier exists.';
-  // THE BODY TRAVELS AS A FILE, NEVER AS ARGV. It carries backticks, and `--inline` is an assertion
-  // that it does not — `engine/bus-answer.js` takes the same route for the same reason.
-  let dir = null;
-  try {
-    dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'ignite-record-note-'));
-    const bodyFile = path.join(dir, 'body.md');
-    fs.writeFileSync(bodyFile, body, 'utf8');
-    execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'send', 'owner',
-      '--type', 'note', '--file', bodyFile, '--as', 'ignite-daemon', '--force'],
-    { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    if (logger) {
-      logger({
-        level: 'warn',
-        message: 'seat ended non-clean and the interim owner note could NOT be minted — the record '
-          + 'row is correct and NOTHING has told the owner. This line is the only surfacing left.',
-        seat,
-        goalFolder,
-        outcome,
-        evidence: String(err.stderr || err.message || '').trim().slice(0, 400),
-      });
-    }
-    return;
-  } finally {
-    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temp dir */ } }
-  }
-  if (logger) {
-    logger({
-      level: 'warn',
-      message: 'seat ended non-clean — an owner `note` was minted on this goal\'s bus. Its dependents '
-        + 'do NOT advance on this row: only a check-out disposition of `done` advances an edge.',
-      seat,
-      goalFolder,
-      outcome,
-    });
-  }
-}
+// The interim owner-note shell-out that stood here (W2, adv C25 — one owner `note` per non-clean
+// close, shelled to coord from the tick) is RETIRED WITH ITS CONDITION (closeout task 17 item 2,
+// 2026-08-17). W3 built the staff-mail carrier it was waiting on: the ticker's enforce sweep calls
+// `spawn.js#closeSeatSessionRow` (coord `attest-exit --force-dead`) the moment a process is
+// observed gone, and coord's closer (`close_session_seat` → `close_staff_mail_arm`) mints one
+// leader-chair mail plus a relaunch wake for EVERY terminal non-`done` ending — a mechanical
+// receiver, where the interim note reached an unreceived owner DM. Two mechanisms for one
+// surfacing was the defect; the tick now carries none, and `nonClean` below is report-only.
 
 // ── THE PUBLISH PASS — how each lane's witness reaches the shared record ───────────────────────
 //
@@ -420,7 +374,7 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   const nonClean = [];
   // WHICH ROWS ARE ALREADY PUBLISHED, read ONCE per goal per pass. `closeExecution` refuses a
   // second stamp on its own, so this is not correctness — it spares the lock on every already-closed
-  // row, and it is what keeps the interim owner-note below to ONE per execution instead of one per
+  // row, and it is what keeps `nonClean` below reporting each ending ONCE instead of once per
   // terminal row per tick, forever, for the whole life of the goal.
   const closedIds = new Map();
   const alreadyClosed = (goalFolder, sessionId) => {
@@ -468,26 +422,10 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   if (logger && (opened.length || closed.length)) {
     logger({ level: 'info', message: 'execution record published', opened, closed });
   }
-  // ── INTERIM SURFACING (W2, adv C25) — AN HONEST RECORD THAT STALLS SILENTLY IS THE ORIGINAL
-  // INCIDENT WITH A GREEN ACCEPTANCE ─────────────────────────────────────────────────────────
-  //
-  // W2 removes the engine's ability to say "this seat did not finish" by publishing `blocked`. Until
-  // W3 builds the staff-mail carrier, nothing else says it either — so a crash would be recorded
-  // truthfully and surfaced to nobody, which is exactly the shape of the stall this program exists
-  // to close. So each non-clean close mints ONE owner `note` on the goal's own bus, through the one
-  // writer of that file (coord), in the existing `note` type — no new message type, no new file.
-  //
-  // ⚠ ONCE PER EXECUTION, NOT ONCE PER TICK, and the idempotence is not this loop's: `closeExecution`
-  // stamps a row exactly once and refuses a second stamp, so `c.closed` is true for one pass in the
-  // life of the execution. That is the whole guard — do not add a marker file for it.
-  //
-  // ⚠ BEST-EFFORT AND SILENT-ON-FAILURE BY DESIGN. This runs inside the tick. A goal whose bus is
-  // unwritable, a missing interpreter, a coord refusal — none of them may cost the publish pass its
-  // own success, because the RECORD is the thing that must land. The failure is reported to the
-  // logger and nowhere else.
-  for (const n of nonClean) {
-    noteOwner(n, logger);
-  }
+  // `nonClean` is REPORT-ONLY since the interim owner-note retired (see the note above the publish
+  // pass): surfacing a non-clean ending is coord's staff-mail arm, reached through the enforce
+  // sweep's session-closer — never this pass. The list stays in the return so the log and the
+  // probes can still see which closes were non-clean.
   return { opened, closed, nonClean };
 }
 

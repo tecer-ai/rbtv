@@ -418,34 +418,38 @@ async function main() {
       && !passFb.skippedAsFinished.includes('alpha'),
     `heldByOtherLane ${JSON.stringify(Object.keys(passFb.heldByOtherLane || {}))} · skippedAsFinished ${JSON.stringify(passFb.skippedAsFinished)}`);
 
-  // ── N · THE INTERIM SURFACING (W2, adv C25) ─────────────────────────────────────────────────
+  // ── N · THE TICK MINTS NO OWNER NOTE (interim surfacing RETIRED, closeout task 17 item 2) ────
   //
-  // W2 removes the engine's ability to say "this seat did not finish" by publishing `blocked`.
-  // Until W3 builds the staff-mail carrier NOTHING else says it either — a crash recorded truthfully
-  // and surfaced to nobody is the original stall with a green acceptance. So each non-clean close
-  // mints ONE owner `note` on the goal's own bus, through the one writer of that file.
+  // The W2 interim owner-note (adv, C25) is gone WITH its condition: W3's staff-mail carrier — the
+  // enforce sweep's session-closer into coord's `close_staff_mail_arm` — is the one surfacing of a
+  // non-clean ending, and it lives outside this publish pass. What the pass still owes is the
+  // honest RECORD (`crashed` on the row) and the report (`nonClean` in the return); what it must
+  // never do again is write the goal's bus.
   say('');
-  say('N — a non-clean close mints exactly one owner `note`, and a clean one mints none');
+  say('N — a non-clean close is recorded and reported, and the tick writes NO owner note');
   const gN = 'hold-goal-crashed';
   const dN = makeGoal(gN, { arm: null });
   seed(dN, gN);
   withEngine((e) => runSession(e, gN, dN, 'alpha', { status: 'failed' }));
   const pubN = withEngine((e) => e.publishRecord());
-  const busN = () => fs.readFileSync(path.join(dN, 'coordination', 'messages.md'), 'utf8');
-  const notesN = () => (busN().match(/from: ignite-daemon \| to: owner \| type: note/g) || []).length;
-  check('N1 the crash is recorded `crashed` AND surfaced — one owner `note` naming the seat',
+  const busPathN = path.join(dN, 'coordination', 'messages.md');
+  const notesN = () => (fs.existsSync(busPathN)
+    ? (fs.readFileSync(busPathN, 'utf8').match(/from: ignite-daemon \| to: owner \| type: note/g) || []).length
+    : 0);
+  check('N1 the crash is recorded `crashed` AND reported non-clean — and NO owner `note` is minted '
+    + 'by the tick (the staff-mail arm, not this pass, is the surfacing)',
     rowsOf(dN).join() === 'alpha=crashed' && pubN.nonClean.length === 1
-      && pubN.nonClean[0].seat === 'alpha' && notesN() === 1 && /seat `alpha` ended `crashed`/.test(busN()),
+      && pubN.nonClean[0].seat === 'alpha' && notesN() === 0,
     `${JSON.stringify(rowsOf(dN))} · nonClean ${JSON.stringify(pubN.nonClean.map((n) => `${n.seat}=${n.outcome}`))} · notes ${notesN()}`);
   // ONCE PER EXECUTION, NOT ONCE PER TICK — and the idempotence is `closeExecution`'s stamp, not the
-  // publish loop's. A second publish over the same terminal row must mint nothing.
+  // publish loop's. A second publish over the same terminal row must report nothing.
   const pubN2 = withEngine((e) => e.publishRecord());
-  check('N2 a SECOND publish over the same terminal row mints NOTHING — once per execution, not '
+  check('N2 a SECOND publish over the same terminal row reports NOTHING — once per execution, not '
     + 'once per tick forever',
-    pubN2.nonClean.length === 0 && notesN() === 1,
+    pubN2.nonClean.length === 0 && notesN() === 0,
     `nonClean ${JSON.stringify(pubN2.nonClean)} · notes ${notesN()}`);
-  check('N3 CONTROL: the CLEAN closes of every goal above minted no note at all — the note tracks '
-    + 'the outcome word and not the act of publishing',
+  check('N3 CONTROL: the CLEAN closes of every goal above minted no note either — the tick\'s bus '
+    + 'silence holds regardless of the outcome word',
     !fs.existsSync(path.join(dir, 'coordination', 'messages.md'))
       || !/from: ignite-daemon \| to: owner \| type: note/.test(fs.readFileSync(path.join(dir, 'coordination', 'messages.md'), 'utf8')),
     'the H/P goal closed `clean` throughout');
