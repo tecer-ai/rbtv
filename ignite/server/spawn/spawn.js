@@ -456,26 +456,55 @@ function closeSeatSessionRow({ workdir, sessionId, log }) {
 // because both are coord.py execs the ticker fires; the closer itself is too late (it
 // has already attested exited/kit before the leader investigates).
 //
-// NEVER THROWS. Dedupes by goalDir when the caller passes `seen`.
-function applyDispositionGrants({ workdir, log, seen }) {
-  const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
-  if (!seatPath || !seatPath.goalDir) return { applied: false, reason: 'workdir is not a seat home' };
-  if (seen) {
-    if (seen.has(seatPath.goalDir)) return { applied: false, reason: 'already-this-tick' };
-    seen.add(seatPath.goalDir);
+// ⚠ THE DRAIN IS KEYED OFF THE GRANT FILE, NOT OFF A LIVE EXEC. F3 first hung this call inside
+// the crash sweep's loop over `liveBeforeCrash`, which reaches a goal only while something of
+// that goal still ticks. The state the whole grant mechanism exists for is the OPPOSITE one —
+// the leader rules on a seat AFTER it died, and on a fully dead goal nothing of it ticks, so the
+// ruling was minted and never applied. The grant file is the only honest trigger: it exists
+// exactly where there is something to drain, live exec or not.
+//
+// NEVER THROWS. One `coord.py` exec per goal that actually carries an unspent grant — normally
+// zero, so the per-tick cost is a readdir plus one small read per goal.
+function goalsWithUnspentGrants(workspaceRoot) {
+  const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
+  let entries;
+  try { entries = fs.readdirSync(goalsRoot, { withFileTypes: true }); } catch { return []; }
+  const out = [];
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const goalDir = path.join(goalsRoot, e.name);
+    let text;
+    try {
+      text = fs.readFileSync(path.join(goalDir, 'coordination', 'disposition-grants.csv'), 'utf8');
+    } catch { continue; }
+    // `spent-at` is the LAST column (coord.py DISPOSITION_GRANT_COLS), so an unspent row is a
+    // line whose final field is empty. Reading the flag rather than parsing the CSV keeps this
+    // side free of a second reader of coord's schema; the cost of being wrong is asymmetric and
+    // this errs the safe way — a false positive is one no-op drain, a false negative is the
+    // defect above.
+    if (text.split('\n').slice(1).some((l) => l.trim() && l.trimEnd().endsWith(','))) out.push(goalDir);
   }
+  return out;
+}
+
+function applyDispositionGrants({ workspaceRoot, log }) {
+  if (!workspaceRoot) return { drained: [], reason: 'no workspace root' };
   const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
     'team-kit', 'coord.py');
-  try {
-    const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
-      '--as', 'ignite-daemon', 'apply-disposition-grants'],
-    { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (log) log('info', 'disposition-grants: drain ran', { goalDir: seatPath.goalDir, evidence: out.trim().slice(0, 600) });
-    return { applied: true, reason: '', output: out };
-  } catch (err) {
-    if (log) log('info', 'disposition-grants: drain did not apply', { goalDir: seatPath.goalDir, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
-    return { applied: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) };
+  const drained = [];
+  for (const goalDir of goalsWithUnspentGrants(workspaceRoot)) {
+    try {
+      const out = execFileSync(requirePythonCmd(), [coordPy, '--package', goalDir,
+        '--as', 'ignite-daemon', 'apply-disposition-grants'],
+      { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+      if (log) log('info', 'disposition-grants: drain ran', { goalDir, evidence: out.trim().slice(0, 600) });
+      drained.push({ goalDir, applied: true, output: out });
+    } catch (err) {
+      if (log) log('info', 'disposition-grants: drain did not apply', { goalDir, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
+      drained.push({ goalDir, applied: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) });
+    }
   }
+  return { drained, reason: '' };
 }
 
 // Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
