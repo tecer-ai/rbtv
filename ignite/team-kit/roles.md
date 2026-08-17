@@ -37,7 +37,7 @@ entries below cite.
   **ignite daemon** (`coord.py` `is_authorized_launcher` — task 7.738, owner 2026-08-11: a
   daemon-fired `start-workflow` opens the goal's entry seat, so the grant is stated at the gate
   instead of spelled as a `--force` by the caller. It replaces the retired chief-of-staff's half of
-  the G-257 repair — `starter-set/conduct.md` 87-88 retires that role; every TERMINATING verb —
+  the G-257 repair — `protocol.md` staffs `leader`/`consultant` only, so that role is RETIRED; every TERMINATING verb —
   close, renew-of-another, reap, kill, revive — stays off this predicate per `d-cos-may-launch`, so
   the bound is still open-versus-terminate), and a healthy seat's renewal is its OWN
   deterministic act — `checkout --renew --handoff "<note>"`, no approval, no closer
@@ -98,7 +98,7 @@ entries below cite.
   layer’s: team-monitor (CMP-20) is the sole raw sensor writing the goal’s `state.json`;
   goal-watcher-job (CMP-21) thresholds that snapshot, performs the mechanical fixes (stale-sensor
   restart, ruled revival) and nudges seat/leader. The former `watch.py` was dissolved into those
-  two components (task 7.35). See `starter-set/conduct.md` § DETECTION.
+  two components (task 7.35) — they ARE the detection spec; nothing else declares one.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders
   (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
   in the pane/window title. Wakes reach them as terminal input like any pane.

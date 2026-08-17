@@ -271,7 +271,8 @@ CREATION_INPUTS = (
 
 # ---- the ONE OPTIONAL creation surface: the addressable register (7.569) ----
 #
-# WHY IT IS NOT A FOURTH `CREATION_INPUTS` ENTRY. That tuple is the REQUIRED
+# WHY IT IS NOT A THIRD `CREATION_INPUTS` ENTRY (a FOURTH until F7 abolished
+# the `conduct.md` input, 2026-08-17). That tuple is the REQUIRED
 # set: a member absent and unsupplied refuses `create-inputs-missing` in the
 # full/bootstrap mode. Adding this file there would make every caller that does
 # not pass a new option start refusing — including the ARMED goal-creation loop

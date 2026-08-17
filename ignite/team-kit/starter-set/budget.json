@@ -3,7 +3,7 @@
  "_readme": "This run's DECLARED capacity. Machine-read by ignite/team-kit/budget.py, which compares it against the live census in state.json. This file DECLARES; it never OBSERVES. Shipped as the goal-generic starter set and byte-copied here at scaffold time (scaffold-seats --budget-json). Writer thereafter: the run authority. A number here without a ruling in decisions.md is a defect.",
  "cap": {
   "agent_panes": 10,
-  "ruling": "r-pane-cap-10 — owner, 2026-07-27. Carried into the starter set as the box-wide agent-pane ceiling; cited by conduct.md section 8, which states no number of its own.",
+  "ruling": "r-pane-cap-10 — owner, 2026-07-27. Carried into the starter set as the box-wide agent-pane ceiling. This file is the ONE home of the number; F7 (2026-08-17) abolished conduct.md, which used to cite it and stated no number of its own.",
   "note": "A CEILING, not a licence. Every launch is still gated on the RAM floor below, measured fresh at the launch instant. The census counts AGENT panes only and is MEASURED at each fill pass, never remembered.",
   "_scope": "PER-RUN. A box running several live runs at once is bounded by the RAM floor, not by the sum of these caps — the floor is what refuses, and it reads the whole box."
  },

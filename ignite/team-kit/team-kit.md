@@ -104,20 +104,21 @@ gap and their own owners — each module exposes its own.
    the auto `/rename` like any launched claude seat; a bare `launch` still never boots leader.
    Everything else follows `protocol.md`.
 
-## Run conduct and communication — both are read-and-follow, on every seat
-
-Two documents bind every seat of a run, and neither is optional reading:
+## Run conduct and communication — read-and-follow, on every seat
 
 - **`communication.md` ships AS-IS.** A run adopts it by pointing every seat loader at this file by
   absolute path — never by copying it into the package, which forks it silently. Amendments inside a
   live run are that run's leader's rulings.
-- **`conduct-template.md` is INSTANTIATED,** at bootstrap, as the package's own `conduct.md`: fill
-  every `{{slot}}` (mission + done contract, terminology hook, budget + model policy — always
-  measured per box). Once ratified it is FROZEN; amendments are leader rulings, each recorded as a
-  sitting in the goal's `decisions.md`.
+- **Conduct is NOT a document.** F7 (owner ruling, 2026-08-17) ABOLISHED `conduct.md` and its
+  template: the four procedures they carried — check in, declare `done`/`incomplete`, check out,
+  file issues — are composed ONCE into every seat's GENERATED BOOT PROMPT (`coord.py#boot_prompt`),
+  identical on both lanes and pinned by `coord.py selftest`. There is no second template, no
+  per-seat snippet, and no "read conduct.md" line to add anywhere. A goal-specific bar is a leader
+  ruling recorded in the goal's `decisions.md`, never a new manual.
 
-Every seat-folder loader lists both, with the protocol, as imperative read-and-follow steps — a
-non-claude seat reads nothing ambiently, so a manual nothing points at is a manual nobody obeys.
+Every seat-folder loader lists `communication.md`, with the protocol, as imperative read-and-follow
+steps — a non-claude seat reads nothing ambiently, so a manual nothing points at is a manual nobody
+obeys.
 
 ## Roster assembly — partition by surface, then put a checker on every surface
 

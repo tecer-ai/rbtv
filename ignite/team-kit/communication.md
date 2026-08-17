@@ -24,7 +24,7 @@ to fit a message — move it. Bodies with backticks, `$()`, quotes or newlines g
 **3 · Five things you do not send. [HAND]** (a) an operational act that succeeded exactly as
 requested — `coordinate workers` is the record; (b) an acknowledgement adding no fact — silence
 after a clear instruction means you are doing it; declining or diverging IS a fact: send it;
-(c) a standing bar already in `conduct.md` / the run's `CLAUDE.md` / `decisions.md` — cite its id;
+(c) a standing bar already in your boot prompt / the run's `CLAUDE.md` / `decisions.md` — cite its id;
 (d) a second message to the same recipient in one turn — fold it in; (e) praise as its own message — it
 rides your next real send. **SEND ANYWAY, ALWAYS:** it failed · it
 diverged · a number the requester acts on changed · you noticed something nobody asked.
