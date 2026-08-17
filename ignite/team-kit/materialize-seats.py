@@ -1627,8 +1627,22 @@ def check_collisions(package: Path, added: list[str], force_partial: bool) -> No
 # the goal's product, and doing it under --dry-run is what makes the dry run a
 # real LINT rather than a guess about one.
 GOAL_LOCAL_SOURCE = ("planning", "current")   # what the planning pass writes
-GOAL_LOCAL_LANE = "seat-lane"                 # the synthesized catalog ROOT
+GOAL_LOCAL_LANE = "seat-lane"                 # the synthesized TREE root
+GOAL_LOCAL_MODULE = "goal-local"              # the one module inside the tree
 GOAL_LOCAL_COMPONENT = "goal-local"           # the one component inside it
+# ⚠ THE MODULE LEVEL IS LOAD-BEARING, not decoration. `_ref_target` resolves a
+# `module/component/part` reference as `comp_dir.parent.parent/<module>/
+# <component>` — "the tree root above the modules", identical arithmetic for
+# the mirror and the rbtv repo, both `<tree>/<module>/<component>/`. A lane
+# shaped `<tree>/<component>/` puts that arithmetic one level too high: it
+# lands in the goal's own `planning/current/`, where no module lives, so EVERY
+# cross-module reference a goal-authored seat carries dies with
+# `exposes-ref-dangling`. Measured 2026-08-15: the flagship's interactive seat
+# took that refusal on the `meta/master-agent/slack-message-format` skill the
+# interactive-seat injection folds in, and it refused the WHOLE lane on every
+# cadence. The mirror's module dirs are SYMLINKED in beside the module below so
+# the resolution finds them — outside the returned catalog root, because
+# `load_catalogs` rglobs it and a merge of the two catalogs is ruled against.
 GOAL_LOCAL_WORKFLOW = "goal-local"            # …and the one workflow manifest
 GOAL_LOCAL_REUSE = "source.md"                # "this seat is CATALOGED, not local"
 # The discriminator between the two halves of a seat pair. It is the kind-named
@@ -1816,14 +1830,23 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
                     str(manifest))
     # ---- SHAPE it into a catalog, atomically ---------------------------------
     root = src / GOAL_LOCAL_LANE
-    comp = root / GOAL_LOCAL_COMPONENT
     staging = src / f".{GOAL_LOCAL_LANE}.tmp"
     if staging.exists():
         shutil.rmtree(staging)
-    (staging / GOAL_LOCAL_COMPONENT / "prompts").mkdir(parents=True)
-    (staging / GOAL_LOCAL_COMPONENT / "tasks").mkdir(parents=True)
-    (staging / GOAL_LOCAL_COMPONENT / "workflows" / GOAL_LOCAL_WORKFLOW).mkdir(parents=True)
-    scomp = staging / GOAL_LOCAL_COMPONENT
+    scomp = staging / GOAL_LOCAL_MODULE / GOAL_LOCAL_COMPONENT
+    (scomp / "prompts").mkdir(parents=True)
+    (scomp / "tasks").mkdir(parents=True)
+    (scomp / "workflows" / GOAL_LOCAL_WORKFLOW).mkdir(parents=True)
+    # The sibling modules a goal-authored `exposes:` may reach across (see the
+    # constant block). `component_root` is the MODULE the component lane is
+    # read from (`.rbtv/mirror/meta`), so its PARENT is the tree root above the
+    # modules — the same level `_ref_target` counts back to. Symlinks, not
+    # copies: the mirror is the one home, and `rglob` does not recurse
+    # symlinked dirs, so even a future catalog scan that reached this level
+    # would not swallow the component lane.
+    for mod in sorted(p for p in component_root.parent.iterdir() if p.is_dir()):
+        if mod.name != GOAL_LOCAL_MODULE:
+            (staging / mod.name).symlink_to(mod.resolve(), target_is_directory=True)
     (scomp / "component.md").write_text(
         "---\ndescription: \"Seats this goal's own planning pass authored — a "
         "DERIVED index of planning/current/, rebuilt on every materialize and "
@@ -1858,7 +1881,7 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
     if root.exists():
         shutil.rmtree(root)
     staging.replace(root)
-    return root
+    return root / GOAL_LOCAL_MODULE
 
 
 def normalize_seat_rows(seats_cat: dict) -> None:
@@ -8592,7 +8615,8 @@ def run_selftest() -> int:
             [("tool-seat", ""), ("next-seat", "tool-seat"),
              ("reused-seat", "next-seat")])
         cp_ok = gl_run(g_ok)
-        lane = g_ok.joinpath(*GOAL_LOCAL_SOURCE) / GOAL_LOCAL_LANE / GOAL_LOCAL_COMPONENT
+        lane = (g_ok.joinpath(*GOAL_LOCAL_SOURCE) / GOAL_LOCAL_LANE
+                / GOAL_LOCAL_MODULE / GOAL_LOCAL_COMPONENT)
         gl_seats = {r["seat-id"]: r for r in _csv_rows(lane / "seats.csv")}
         gl_mf = {r[MANIFEST_SEAT_COLUMN]: r[MANIFEST_AFTER_COLUMN]
                  for r in _csv_rows(lane / "workflows" / GOAL_LOCAL_WORKFLOW
