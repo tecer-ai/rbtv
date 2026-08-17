@@ -28,7 +28,7 @@ identical on every row: **acted, or acted and it did not come back.** Nothing no
 | `daemon` | `POST /` `{intent:"inspect", payload:{target:"daemon"}}` at the gateway with a Bearer token. Connect failure / timeout / non-200 = **down**. HTTP 401 = **alarm**, never down: the daemon is up and answering, the token is not accepted — restarting cannot fix that and would loop | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart`, **through the restart gate below** |
 | `bridge` | `is-active`, AND the newest Socket-Mode lifecycle line in the last 200 journal lines. `active` only proves the Node process exists — Slack's socket can die under it. The bridge's own `reconnect()` is the first line of self-heal, so what this catches is that **backoff loop being stuck**: newest marker is a reconnect failure with no later hello. Neither marker present is NOT a fault; a healthy bridge is quiet | `RBTV_IGNITE_UNIT=<bridge unit> rbtv-ignite-daemon restart` |
 | `probe-suite` | `<workspace>/.rbtv/runtime/probe-suite/latest.json`: `now - fired_at > stale_after_seconds`. **Liveness first, then correctness**: a LIVE artifact whose `verdict` is anything other than `GREEN`/`UNKNOWN` is an **alarm**, never a down — a failing or ungraded suite is not a liveness problem and no restart fixes it. That covers `RED` (`d-probe-suite-verdict-delivery`, 2026-08-10) and the runner-grade-broken set — `ERROR` · `COVERAGE-MISMATCH` · `ARTIFACT-PATH-MISMATCH` · `ARTIFACT-MISSING` · `INCOMPLETE` (owner ruling 2026-08-11), which carry a `note`/`error` instead of a `failed` count and were previously reported as healthy | `RBTV_IGNITE_UNIT=<timer> rbtv-ignite-daemon restart` — see § The row that used to bypass the operator |
-| `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **alarm** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
+| `goal-watcher` | the job's own periodic **queue row**, via `inspect queue`: overdue by more than the row's OWN `interval_seconds`. No row at all = **alarm** (see below). Queue unreadable = **skip**, because that means the daemon is down and the `daemon` row already owns both the cause and the only lever. ⚠ **Currently scoped OFF the pass** (owner ruling 2026-08-17): the row was DEQUEUED, so the no-row alarm would stand about an accepted state — disarmed via `RBTV_WATCHDOG_TARGETS` in `units/rbtv-watchdog.service` per item 3's recorded-disarm surface; the arm's code and probe are unchanged, awaiting re-arm | `RBTV_IGNITE_UNIT=<daemon unit> rbtv-ignite-daemon restart` — a FULL daemon restart, and the DM says so in those words |
 
 ## The daemon row's RESTART GATE — the one place this component interprets before it acts
 
@@ -162,6 +162,15 @@ swallow the very restart the next real pass exists to announce.
    refusing job green, exactly as in item 3. The data is already reachable without a store change
    (`inspect executions --status failed|done`, `total`/`nextOffset` paging); what is missing is a
    target worth alarming about, not a mechanism.
+
+   **The DEQUEUED branch of that clause fired 2026-08-17** (owner ruling — the periodic row was
+   removed; supersede block at the live entry in `config/spawn-profiles.yaml`) and the outcome
+   half was NOT added: a dequeued job produces no new fires, so an N-consecutive-`failed` read
+   over `jobs_log` would alarm forever on the accepted-red HISTORY, not on anything current.
+   Instead the whole arm is scoped off the pass via item 3's recorded-disarm surface
+   (`RBTV_WATCHDOG_TARGETS` in `units/rbtv-watchdog.service`). The clause above stands for the
+   OTHER branch: when the job is re-armed against a goal that can execute, restore `goal-watcher`
+   to the targets and add the outcome half then.
 
 ## The row that used to bypass the operator, and why it no longer does
 

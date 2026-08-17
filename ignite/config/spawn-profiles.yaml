@@ -1070,8 +1070,13 @@ tools:
   # accepted-red arm is ENDED: the owner ruled the permanent failed row stops, so the periodic
   # queue row (1800 s, queue_id 391) was removed via `ignite remove-job` on 2026-08-17. The job
   # DEFINITION (`goal-watcher-job`) stays registered and fireable, and this argv block stays as
-  # its profile — if `system-health` ever gets real seats, re-arming is one `ignite add-job`
-  # line. The underlying RLIMIT_AS defect the accepted-red era masked was separately fixed by
+  # its profile — if `system-health` ever gets real seats, re-arming is TWO acts: (1) one
+  # `ignite add-job` line for the periodic row, and (2) restore `goal-watcher` to
+  # `RBTV_WATCHDOG_TARGETS` in the watchdog unit — the dequeue's follow-through (2026-08-17)
+  # scoped the watchdog's goal-watcher arm off the pass, because its no-row alarm would
+  # otherwise stand every ~60s about this ruled state (recorded-disarm surface per
+  # `capabilities/daemon-watchdog/daemon-watchdog.md` item 3; arm code and probe unchanged).
+  # The underlying RLIMIT_AS defect the accepted-red era masked was separately fixed by
   # closeout task 09 in rbtv `f79bcdec` (`jobcontain.uncapped()`). The paragraphs below describe
   # the superseded era and are kept as history.
   #
