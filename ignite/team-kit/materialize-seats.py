@@ -1654,12 +1654,12 @@ GOAL_LOCAL_REUSE = "source.md"                # "this seat is CATALOGED, not loc
 GOAL_LOCAL_HALVES = (("prompts", "role"), ("tasks", "task-goal"))
 
 
-def _goal_local_id(path: Path) -> str:
-    """The `id:` a goal-authored prompt/task file declares, or a refusal.
+def _goal_local_frontmatter(path: Path) -> dict:
+    """The parsed frontmatter of a goal-authored prompt/task, or a refusal.
 
-    Parsed HERE rather than left to the catalog loader because the loader's
-    refusal would name a path inside the synthesized lane — a directory the
-    author never wrote and cannot fix. This one names the file they DID write."""
+    Shared by the id check and the seats.csv writer so a cage key is copied
+    from the file the author wrote, never invented. The loader is not used:
+    its refusal would name a path inside the synthesized lane."""
     text = path.read_text(encoding="utf-8")
     m = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
     if not m:
@@ -1684,7 +1684,23 @@ def _goal_local_id(path: Path) -> str:
             f"'{path.name}' declares id {ident or '(none)'!r}, which is not a "
             "legal id (lowercase kebab-case) — nothing materialized",
             str(path))
-    return ident
+    return fm
+
+
+def _goal_local_id(path: Path) -> str:
+    return str(_goal_local_frontmatter(path).get("id") or "").strip()
+
+
+def _goal_local_csv_cell(fm: dict, key: str) -> str:
+    """Copy a prompt-half cage key into a seats.csv cell.
+
+    A YAML list joins comma-separated — the format `_cage_frontmatter` splits."""
+    val = fm.get(key)
+    if val is None or val == "":
+        return ""
+    if isinstance(val, list):
+        return ",".join(str(x).strip() for x in val if str(x).strip())
+    return str(val).strip()
 
 
 def _goal_local_pair(seat_dir: Path) -> dict | None:
@@ -1863,8 +1879,13 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
         for seat in order:
             if seat not in lane:
                 continue
+            pfm = _goal_local_frontmatter(lane[seat]["prompts"][1])
             w.writerow([seat, lane[seat]["prompts"][0], lane[seat]["tasks"][0],
-                        "", f"goal-authored seat ({seat})", "", "", "", ""])
+                        "", f"goal-authored seat ({seat})",
+                        _goal_local_csv_cell(pfm, CAGE_GOAL_WRITES_COLUMN),
+                        _goal_local_csv_cell(pfm, CAGE_GRANTS_COLUMN),
+                        _goal_local_csv_cell(pfm, CAGE_RW_COLUMN),
+                        _goal_local_csv_cell(pfm, ON_FAIL_RELAUNCH_COLUMN)])
     with (scomp / "workflows" / GOAL_LOCAL_WORKFLOW /
           f"{GOAL_LOCAL_WORKFLOW}.csv").open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
@@ -8551,7 +8572,9 @@ def run_selftest() -> int:
             for seat, files in seats.items():
                 d = cur / "seats" / seat
                 d.mkdir(parents=True)
-                for fname, section, ident in files:
+                for spec in files:
+                    fname, section, ident = spec[0], spec[1], spec[2]
+                    extra_fm = spec[3] if len(spec) > 3 else ""
                     if section is None:                    # a cataloged reuse
                         (d / fname).write_text(
                             f"# {seat} — reused definition, no copy\n",
@@ -8571,6 +8594,7 @@ def run_selftest() -> int:
                         for s in (section, *extra_sections))
                     (d / fname).write_text(
                         f"---\nid: {ident}\ndescription: \"the {section} half\"\n"
+                        f"{extra_fm}"
                         f"---\n\n{body}", encoding="utf-8")
             # The lane's OWN bindings sheet — the goal's seats are not in the
             # component's, and `check_bindings_cover` refuses an extra key, so
@@ -8692,6 +8716,62 @@ def run_selftest() -> int:
               "would silently replace the first and one seat would be assembled "
               "from the other's prompt",
               gl_code(gl_run(g_colide)) == "goal-local-id-collision")
+
+        def gl_run_write(g, *extra):
+            return _invoke(["--package", str(g), "--workflow",
+                            GOAL_LOCAL_WORKFLOW, "--goal-local",
+                            "--catalog-root", gl_cat, "--root", "--bindings",
+                            str(g / "bindings.json"), "--json",
+                            *extra], clean_env)
+
+        g_rw = gl_goal(
+            "gl-rw",
+            {"rw-seat": [("p.md", "role", "rw-prompt",
+                          "rw-paths:\n- some/existing/rel\n"),
+                         ("t.md", "task-goal", "rw-task")]},
+            [("rw-seat", "")])
+        cp_rw = gl_run_write(g_rw)
+        rw_lane = (g_rw.joinpath(*GOAL_LOCAL_SOURCE) / GOAL_LOCAL_LANE
+                   / GOAL_LOCAL_MODULE / GOAL_LOCAL_COMPONENT)
+        rw_row = {r["seat-id"]: r for r in _csv_rows(rw_lane / "seats.csv")}
+        rw_md = g_rw / "seats" / "rw-seat" / "seat.md"
+        rw_head = (rw_md.read_text(encoding="utf-8").split("\n---", 1)[0]
+                   if rw_md.is_file() else "")
+        check("GL-1 green: a fixture prompt with rw-paths lands that cell and "
+              "the assembled seat.md carries it",
+              cp_rw.returncode == 0
+              and (rw_row.get("rw-seat") or {}).get("rw-paths")
+              == "some/existing/rel"
+              and "rw-paths:" in rw_head
+              and "- some/existing/rel" in rw_head,
+              f"rc={cp_rw.returncode} cell={(rw_row.get('rw-seat') or {}).get('rw-paths')!r} "
+              f"head={rw_head[:200]!r} [{cp_rw.stderr.strip()[:200]}]")
+        g_gt = gl_goal(
+            "gl-rw-gt",
+            {"rw-seat": [("p.md", "role", "gt-prompt",
+                          "rw-paths:\n- .rbtv/goals/x\n"),
+                         ("t.md", "task-goal", "gt-task")]},
+            [("rw-seat", "")])
+        cp_gt = gl_run_write(g_gt)
+        check("GL-1 red: an rw-paths entry under .rbtv/goals is "
+              "cage-rw-path-ground-truth at assemble, nothing materialized",
+              gl_code(cp_gt) == "cage-rw-path-ground-truth"
+              and not (g_gt / "seats" / "rw-seat").exists(),
+              f"code={gl_code(cp_gt)!r} exists={(g_gt / 'seats' / 'rw-seat').exists()} "
+              f"[{cp_gt.stderr.strip()[:200]}]")
+        g_abs = gl_goal(
+            "gl-rw-abs",
+            {"rw-seat": [("p.md", "role", "abs-prompt",
+                          "rw-paths:\n- /tmp/abs\n"),
+                         ("t.md", "task-goal", "abs-task")]},
+            [("rw-seat", "")])
+        cp_abs = gl_run_write(g_abs)
+        check("GL-1 red: an absolute rw-paths entry is cage-rw-path-absolute "
+              "at assemble, nothing materialized",
+              gl_code(cp_abs) == "cage-rw-path-absolute"
+              and not (g_abs / "seats" / "rw-seat").exists(),
+              f"code={gl_code(cp_abs)!r} exists={(g_abs / 'seats' / 'rw-seat').exists()} "
+              f"[{cp_abs.stderr.strip()[:200]}]")
 
     print("MCP-1 plugin/MCP registration pass (d-mcp-registration-is-config)")
     with tempfile.TemporaryDirectory() as mcp_td:
