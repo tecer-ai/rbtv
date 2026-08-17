@@ -586,7 +586,7 @@ launch-specs:
 
 
   opencode:
-    # ── opencode (8 models — grok-4.6 joined 2026-08-14, `35414c89`) ──────────────────────────────────────────────────────────────────────
+    # ── opencode (8 models; grok-4.6 joined 2026-08-14, `35414c89`) ──────────────────────────────
     # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
     # unprompted) — containment is entirely the seat cage's. session_ref cwd-implicit:
     # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
