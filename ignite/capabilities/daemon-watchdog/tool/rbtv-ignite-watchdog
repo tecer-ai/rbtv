@@ -442,6 +442,35 @@ def identity_verdict(prev, now):
         str(prev.get("invocation"))[:12], str(now.get("invocation"))[:12])
 
 
+def code_scope_note(root, entries):
+    """The verdict's OWN SCOPE, said in the verdict (closeout task 23, 2026-08-17). WHY THE
+    SCOPE-STATEMENT ROUTE AND NOT A WIDER FINGERPRINT: the marker covers only what sat in the
+    DAEMON's require.cache under the marker's root at boot — `ignite/engine/**` is outside that
+    root today, and `ignite/bridges/**` runs in a DIFFERENT process (the chat bridge unit), so
+    its modules can never appear in this daemon's require.cache at all. Widening the boot capture
+    is daemon JS (inert until a restart this program does not have) and still could not reach the
+    bridge — so `current` names what it covers instead, because a bare `current` was read as
+    whole-tree-current and hid a landed-but-inert file for ~15h (the W8 failure). Computed per
+    pass from the marker itself, never hardcoded: a future boot that widens the root makes the
+    uncovered list shrink on its own instead of printing a stale disclaimer."""
+    base = root.parent if root.name == "server" else root
+    blind = []
+    for name in ("engine", "bridges"):
+        tree = base / name
+        try:
+            if tree.is_dir() and not any(
+                    Path(os.path.abspath(str(root / rel))).is_relative_to(tree)
+                    for rel in entries):
+                blind.append("%s/%s/**" % (base.name, name))
+        except Exception:
+            continue
+    if not blind:
+        return ""
+    return (" — SCOPE: only the %d files fingerprinted at boot under %s; %s NOT covered, drift "
+            "there is INVISIBLE to this check (use the per-file mtime-vs-unit-start check)"
+            % (len(entries), root, ", ".join(blind)))
+
+
 def daemon_code_state(workspace_root, daemon):
     """Is the DAEMON running current code? Returns (verdict, detail).
 
@@ -502,7 +531,10 @@ def daemon_code_state(workspace_root, daemon):
     if drifted:
         return "stale", ", ".join(drifted[:6]) + (
             " (+%d more)" % (len(drifted) - 6) if len(drifted) > 6 else "")
-    return "current", "%d files match the bytes this daemon booted on" % len(entries)
+    # `stale` needs no scope suffix: it is a positive signal. `current` is the verdict that was
+    # misread as whole-tree-current, so it carries its scope — see code_scope_note above.
+    return "current", "%d files match the bytes this daemon booted on%s" % (
+        len(entries), code_scope_note(root, entries))
 
 
 def check_daemon(sysstate, daemon, change, notes, code=None):
@@ -593,7 +625,9 @@ def check_daemon(sysstate, daemon, change, notes, code=None):
         # Printed in EVERY state, including current: a healthy case printing nothing leaves
         # "checked and current" to be inferred from an absence, in the one feature whose
         # whole subject is that absence and health look identical.
-        detail += {"current": ", running current code",
+        # `current` carries code[1] so the scope statement reaches the report row — a bare
+        # "running current code" is exactly the whole-tree misreading task 23 closed.
+        detail += {"current": ", running current code (%s)" % code[1],
                    "stale": ", RUNNING STALE CODE",
                    "unknown": ", code UNKNOWN (%s)" % code[1]}.get(code[0], "")
     return "%-13s %-6s %s" % ("daemon-id", label, detail)
