@@ -122,8 +122,8 @@ guards are proved at the store layer by `../server/heart/probes/probe-deregister
 where a pending queue row and a live execution can be seeded without spawning real work),
 `probe-cli-add.js`, `probe-cli-inspect.js` (covers `inspect messages`),
 `probe-cli-remove.js`, `probe-cli-snooze.js`, `probe-cli-dryrun.js`,
-`probe-cli-status.js`, `probe-cli-ticker.js`, `probe-cli-send.js`,
-`probe-cli-screen.js`, `probe-cli-kill.js` each boot their OWN throwaway daemon (mirrors
+`probe-cli-status.js`, `probe-cli-ticker.js`,
+`probe-cli-kill.js` each boot their OWN throwaway daemon (mirrors
 `../gateway/probes/probe-gateway-live.js`) and drive this CLI as a real child
 process against it — never the live `rbtv-ignite` daemon. `probes/lib/fixtures.js`
 holds the shared boot/seed/run helpers.

@@ -12,8 +12,9 @@ That is the state this probe ends.
 ⚠ IT WIRES CLEAN, WHICH IS WHY IT IS ITS OWN PROBE. The selftest EXITS 0 TODAY. The sibling half
 of 7.575 (`watch.py`'s selftest, which has four pre-existing failures) is deliberately NOT scored
 here: coupling the two would mask this one behind a red that has nothing to do with it — the same
-masking that hid the `watch.py` enforcement in the first place. `watch.py`'s bounded-failure
-enforcement lives in `team-kit/probes/probe-watch-selftest-bounded.py`.
+masking that hid the `watch.py` enforcement in the first place. ⚠ `watch.py`'s bounded-failure
+enforcement is UNGUARDED today: the probe that scored it was retired and is absent from the
+suite (`probe-suite.js --list` is the authority) — nothing pins `watch.py`'s selftest now.
 
 ARMS
   R1  the selftest EXITS 0 **and printed no `[FAIL]` row**. Both halves, because a selftest that
