@@ -6,13 +6,17 @@ onward it is THIS goal's own router.
 
 **This file is a ROUTER (PRIN-3) — auto-loaded by folder, just-in-time.** It carries the goal's
 surfaces, ownership map, roster and navigation, and **never the goal's conduct, state, or log.**
-What binds every seat's behavior lives in `conduct.md`; what only some seats need lives behind a
-reference. A router that inlines what a folder artifact should carry taxes every seat for content
+What binds every seat's behavior lives in the kit's SOURCE `conduct.md` (path below); what only
+some seats need lives behind a reference. A router that inlines what a folder artifact should carry taxes every seat for content
 only some need — the predecessor router that did reached 338,676 characters, 3.8% of it rules, before
 it was split.
 
-**Read `conduct.md` next.** Terminology is king (PRIN-10): `sd-graph show <term>` before using ANY
-system term.
+**Read the protocol and conduct next, both from SOURCE:**
+`3-resources/tools/rbtv/ignite/team-kit/protocol.md` and
+`3-resources/tools/rbtv/ignite/team-kit/starter-set/conduct.md` (workspace-root-relative). The
+goal-local `conduct.md` is a scaffold-time byte-copy that nothing backfills — never the source of
+truth; seats boot from the source (2026-08-15). Terminology is king (PRIN-10):
+`sd-graph show <term>` before using ANY system term.
 
 ## Where things are
 
@@ -48,7 +52,7 @@ absent file below is NORMAL at goal birth, not a defect.
 
 | Surface | Present at creation | Writer — write ONLY inside your row |
 |---------|--------------------|--------------------------------------|
-| `conduct.md` | yes (caller-supplied) | frozen; an amendment is a run-authority ruling recorded in `./decisions.md` |
+| `conduct.md` | yes (caller-supplied scaffold-time byte-copy — seats read conduct from the kit SOURCE `starter-set/conduct.md`, not this copy) | frozen; an amendment is a run-authority ruling recorded in `./decisions.md` |
 | `CLAUDE.md` (this file) | yes (caller-supplied) | the run authority; amendments are rulings |
 | `budget.json` | yes (caller-supplied) | the run authority — **a number here without a ruling is a defect** |
 | `taskforce.csv` | yes, HEADER-ONLY — `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id` | the materialize command only. **No agent hand-writes a seat folder or a taskforce row.** No `status` column exists: run-state is DERIVED from the check-out record |
@@ -99,7 +103,7 @@ UNCAST and therefore unrostered.
 
 ## Who resumes from what
 
-**Every seat boots from its own DESCRIPTOR + `conduct.md` (+ `bars.md` once minted), and does NOT
+**Every seat boots from its own DESCRIPTOR + the source-side `conduct.md` (+ `bars.md` once minted), and does NOT
 read `handoff-log.md`.** A seat's resume contract is its OWN seat folder: the durable half in its
 `seat.md`, the dated working half in that folder's `memory.md`. If a seat needs a fact it does not
 have, **its `seat.md` is incomplete — the fix goes in the `seat.md`**, and it is the staffing stage's.

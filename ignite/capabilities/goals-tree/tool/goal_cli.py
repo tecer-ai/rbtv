@@ -277,6 +277,14 @@ where things are and where to write. What this goal IS lives in `goal.md`.
 | `coordination/` | the coordination bus — the message log every seat reads and writes |
 | `threads.sql` | the goal-scoped message/completion store schema |
 
+## Read next — protocol and conduct, from SOURCE
+
+The coordination protocol — messaging, identity, lifecycle mechanics — is
+`ignite/team-kit/protocol.md` in the rbtv repo (its path is `rbtv_path` in the workspace's
+`rbtv.json`); the goal conduct manual is `ignite/team-kit/starter-set/conduct.md` beside it. Read
+BOTH from the kit's source — a goal-local `conduct.md` copy, where one exists, is a scaffold-time
+byte-copy that nothing backfills, never the source of truth. This router carries no protocol.
+
 ## Write-if-something files
 
 These are NOT logs — except `decisions.md`, which IS an append-only record — and none of them is
