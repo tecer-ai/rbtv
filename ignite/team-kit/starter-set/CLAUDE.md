@@ -5,17 +5,13 @@ STARTER SET and byte-copied here at scaffold time (`scaffold-seats --claude-md`)
 onward it is THIS goal's own router.
 
 **This file is a ROUTER (PRIN-3) — auto-loaded by folder, just-in-time.** It carries the goal's
-surfaces, ownership map, roster and navigation, and **never the goal's conduct, state, or log.**
-What binds every seat's behavior lives in the kit's SOURCE `conduct.md` (path below); what only
-some seats need lives behind a reference. A router that inlines what a folder artifact should carry taxes every seat for content
+surfaces, ownership map, roster and navigation, and **never the goal's state or log.**
+What only some seats need lives behind a reference. A router that inlines what a folder artifact should carry taxes every seat for content
 only some need — the predecessor router that did reached 338,676 characters, 3.8% of it rules, before
 it was split.
 
-**Read the protocol and conduct next, both from SOURCE:**
-`3-resources/tools/rbtv/ignite/team-kit/protocol.md` and
-`3-resources/tools/rbtv/ignite/team-kit/starter-set/conduct.md` (workspace-root-relative). The
-goal-local `conduct.md` is a scaffold-time byte-copy that nothing backfills — never the source of
-truth; seats boot from the source (2026-08-15). Terminology is king (PRIN-10):
+**Read the protocol next, from SOURCE:**
+`3-resources/tools/rbtv/ignite/team-kit/protocol.md` (workspace-root-relative). Terminology is king (PRIN-10):
 `sd-graph show <term>` before using ANY system term.
 
 ## Where things are
@@ -52,14 +48,13 @@ absent file below is NORMAL at goal birth, not a defect.
 
 | Surface | Present at creation | Writer — write ONLY inside your row |
 |---------|--------------------|--------------------------------------|
-| `conduct.md` | yes (caller-supplied scaffold-time byte-copy — seats read conduct from the kit SOURCE `starter-set/conduct.md`, not this copy) | frozen; an amendment is a run-authority ruling recorded in `./decisions.md` |
 | `CLAUDE.md` (this file) | yes (caller-supplied) | the run authority; amendments are rulings |
 | `budget.json` | yes (caller-supplied) | the run authority — **a number here without a ruling is a defect** |
 | `taskforce.csv` | yes, HEADER-ONLY — `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id` | the materialize command only. **No agent hand-writes a seat folder or a taskforce row.** No `status` column exists: run-state is DERIVED from the check-out record |
 | `state.csv` | yes, HEADER-ONLY — `stamped-at,execution-stamp,goal-state,seat,session-id,note` (the KG `state-cursor` column list; `execution-stamp` ADDED and `run-state` RENAMED `goal-state` by owner ruling `d-runs-extinguished-transcription`, 2026-08-09) | the run authority — the goal cursor: **APPEND-ONLY, one row per goal-state ADVANCE**, never per turn or per commit. Position only; narrative goes elsewhere |
 | `seats/<seat>/` | yes, empty | the materialize command only. Inside its OWN seat folder each seat keeps `memory.md` and, **created the first time it is needed and never speculatively**, the three standard folders `downloads/` (fetched files) · `scratchpad/` (working scratch) · `outputs/` (finished artifacts). The names are fixed so a reader finds them without asking; the folders are absent until used. An in-process probe a seat fans out writes ONLY under its own dispatch subfolder `scratchpad/probes/<short-name>-<n>/` — one folder per dispatch, so concurrent probes never collide on a filename and every return traces to the dispatch that produced it |
 | `coordination/` | yes, empty | scripts only — `coord.py` state lands here on demand |
-| `addressable.csv` | yes — the register that makes the standing owner door a legal address before any authority seat is rostered, so `conduct.md`'s tier-2 escalation resolves. Carries a PATH ONLY, relative to this folder; the name and the role word come from the descriptor the correspondent itself owns, which must declare `addressable: non-member` AND `relays:`. ⚠ **The ONE OPTIONAL creation surface** (7.569): `scaffold-seats --addressable <file>` byte-copies a supplied register, and a bootstrap creation WITHOUT the flag DERIVES the rows from the standing-seat homes that declare the opt-in themselves — so a goal born under a goals root that offers no door simply has no register, exactly as before. Optional and not a fourth REQUIRED input deliberately: a required one would make every caller that does not pass the flag — the armed goal-creation loop included — start refusing `create-inputs-missing`. ⚠ The starter set ships NO copy of this file: `starter-set/addressable.csv` was DROPPED 2026-08-10 by owner ruling `d-r2-addressable-dropped`, not repaired — its one row spelled a three-level walk-up to the `_channel-master` seat file, written for the extinct run-layer compartment, that resolves to nothing. A shipped row carries a FROZEN depth; the 7.569 bootstrap derivation (`derive_addressable_register`) computes the depth against the actual layout and is now the SINGLE source of these rows | the run authority; a row added here is a ruling |
+| `addressable.csv` | yes — the register that makes the standing owner door a legal address before any authority seat is rostered. Carries a PATH ONLY, relative to this folder; the name and the role word come from the descriptor the correspondent itself owns, which must declare `addressable: non-member` AND `relays:`. ⚠ **The ONE OPTIONAL creation surface** (7.569): `scaffold-seats --addressable <file>` byte-copies a supplied register, and a bootstrap creation WITHOUT the flag DERIVES the rows from the standing-seat homes that declare the opt-in themselves — so a goal born under a goals root that offers no door simply has no register, exactly as before. Optional and not a fourth REQUIRED input deliberately: a required one would make every caller that does not pass the flag — the armed goal-creation loop included — start refusing `create-inputs-missing`. ⚠ The starter set ships NO copy of this file: `starter-set/addressable.csv` was DROPPED 2026-08-10 by owner ruling `d-r2-addressable-dropped`, not repaired — its one row spelled a three-level walk-up to the `_channel-master` seat file, written for the extinct run-layer compartment, that resolves to nothing. A shipped row carries a FROZEN depth; the 7.569 bootstrap derivation (`derive_addressable_register`) computes the depth against the actual layout and is now the SINGLE source of these rows | the run authority; a row added here is a ruling |
 | `sessions.csv` · `state.json` | no | script-managed — `coord.py`'s launch/close hooks and the `team-monitor` sensor. **Never hand-edited** |
 | `./decisions.md` | no | the run authority (PROVISIONAL `p-*` rulings) |
 | `milestones.csv` · `planning/` | no | the planning DAG's seats — see the roster below |
@@ -98,12 +93,11 @@ the planning of the next milestone.
 authority seat, and `consultant` is its optional sibling (minted only where the workspace casts one).
 Still RETIRED, and not to be confused with them: **`chief-of-staff` and `closer`**. Any meta seat's
 definition is materialized from its own component folder under `.rbtv/mirror/meta/`, never
-hand-written here. `conduct.md` § 4 governs escalation — including the fallback while a chair is
-UNCAST and therefore unrostered.
+hand-written here.
 
 ## Who resumes from what
 
-**Every seat boots from its own DESCRIPTOR + the source-side `conduct.md` (+ `bars.md` once minted), and does NOT
+**Every seat boots from its own DESCRIPTOR (+ `bars.md` once minted), and does NOT
 read `handoff-log.md`.** A seat's resume contract is its OWN seat folder: the durable half in its
 `seat.md`, the dated working half in that folder's `memory.md`. If a seat needs a fact it does not
 have, **its `seat.md` is incomplete — the fix goes in the `seat.md`**, and it is the staffing stage's.

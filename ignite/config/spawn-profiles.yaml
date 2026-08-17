@@ -1266,7 +1266,7 @@ tools:
   # leaving a bare scaffold. ⚠ 7.607 E2b: it no longer mints a `runs/run-1/` compartment and no
   # longer appends a `state=open` register row — the run register is EXTINGUISHED (design-lock
   # item 8), liveness is the DERIVED LEASE (item 1), and the deadlock that register caused (7.608)
-  # dies with it. `--conduct`/`--claude-md`/`--budget-json` name the OWNER-APPROVED
+  # dies with it. `--claude-md`/`--budget-json` name the OWNER-APPROVED
   # goal-generic starter set (`d-owner-starter-set-approved-0808`): that command refuses
   # `create-inputs-missing` without them because it "never invents run conventions and never defaults
   # a floor", and the run's constitution is the owner's to author, never this config's.
@@ -1291,13 +1291,7 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
       - --bindings
       - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/planning/bindings/plan.json
-      # The OWNER-APPROVED starter set, shipped with the team-kit beside `conduct-template.md`.
-      # ⚠ NOT `conduct-template.md` ITSELF — that file is an UNFILLED FORM whose own first lines say
-      # a run's conduct-author instantiates it "filling every {{slot}}", and `--conduct` BYTE-COPIES.
-      # Pointing this at it would give every auto-created run a rulebook whose law reads
-      # `{{INSTANTIATE}}`. That option was put to the owner and rejected on exactly that ground.
-      - --conduct
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/conduct.md
+      # The OWNER-APPROVED starter set (CLAUDE.md + budget.json). F7 abolished conduct.md.
       - --claude-md
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
       - --budget-json

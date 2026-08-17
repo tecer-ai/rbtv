@@ -177,7 +177,7 @@ def check_fails_closed(src, mod):
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
                           "goal-contract": "c", "goal-kind": "interactive",
                           "execution-lane": "console"},
-                         None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
+                         None, "/nonexistent/pkg", "cat", "bind", "cmd", "budget",
                          seat="s", root=True)
     finally:
         mod.create, mod.launch = real_create, real_launch
@@ -206,7 +206,7 @@ def check_launch_gates_outcome(src, mod):
         out = mod.handle({"goal-name": "x-y", "goal-type": "one-shot",
                           "goal-contract": "c", "goal-kind": "interactive",
                           "execution-lane": "console"},
-                         None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd", "budget",
+                         None, "/nonexistent/pkg", "cat", "bind", "cmd", "budget",
                          seat="s", root=True)
     finally:
         mod.create, mod.launch = real_create, real_launch
@@ -296,7 +296,7 @@ def check_refusal_is_stated(src, mod):
         # letting the check pass on a create that quietly did nothing.
         mod.create = lambda *a, **k: [{"step": "create-package", "rc": 0,
                                        "NOTE": "REACHED — the malformed request was not refused"}]
-        out = mod.handle(MALFORMED, None, "/nonexistent/pkg", "cat", "bind", "cond", "cmd",
+        out = mod.handle(MALFORMED, None, "/nonexistent/pkg", "cat", "bind", "cmd",
                          "budget", seat="s", root=True)
     finally:
         mod.create = real_create
@@ -363,7 +363,7 @@ def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=Fa
                 captured.append(list(cmd)),
                 {"step": step, "argv": list(cmd), "rc": 0, "stdout": "", "stderr": ""})[1]
             argv = ["handle", str(req), "--goals-root", str(goals_root), "--package", str(pkg),
-                    "--catalog-root", "CAT", "--bindings", "BIND", "--conduct", "COND",
+                    "--catalog-root", "CAT", "--bindings", "BIND",
                     "--claude-md", "CMD", "--budget-json", "BUD", *selection, *insertion]
             if no_launch:
                 argv.append("--no-launch")

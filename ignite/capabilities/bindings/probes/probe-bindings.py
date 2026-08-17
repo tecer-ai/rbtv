@@ -396,9 +396,8 @@ with tempfile.TemporaryDirectory() as td:
             [sys.executable, str(MATERIALIZE),
              "--package", str(pkg), "--workflow", "planning",
              "--catalog-root", str(WORKSPACE / ".rbtv" / "mirror" / "meta"),
-             "--root", "--bindings", str(sheet),
-             "--conduct", str(STARTER / "conduct.md"),
-             "--claude-md", str(STARTER / "CLAUDE.md"),
+              "--root", "--bindings", str(sheet),
+              "--claude-md", str(STARTER / "CLAUDE.md"),
              "--budget-json", str(STARTER / "budget.json"),
              "--dry-run"], capture_output=True, text=True)
 
@@ -772,9 +771,8 @@ with tempfile.TemporaryDirectory() as td:
         [sys.executable, str(MATERIALIZE), "--package", str(goal),
          "--workflow", "goal-local", "--goal-local",
          "--catalog-root", str(WORKSPACE / ".rbtv" / "mirror" / "meta"),
-         "--root", "--bindings", str(sheet), "--dry-run", "--json",
-         "--conduct", str(STARTER / "conduct.md"),
-         "--claude-md", str(STARTER / "CLAUDE.md"),
+          "--root", "--bindings", str(sheet), "--dry-run", "--json",
+          "--claude-md", str(STARTER / "CLAUDE.md"),
          "--budget-json", str(STARTER / "budget.json")], capture_output=True, text=True)
     # THE LANE ITSELF, not a reading of it: this is `goalLocalLint`'s own argv
     # (`queue-request.js#goalLocalLint`), which is `buildGoalLocalSeats`'s argv asked not to write.

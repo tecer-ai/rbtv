@@ -5284,8 +5284,8 @@ def is_authorized_launcher(name):
     literals for one identity is how a gate and its key drift apart.
 
     THE CHIEF-OF-STAFF IS REMOVED, and this is a RETIREMENT, not a narrowing of a live duty:
-    `starter-set/conduct.md` (§ DETECTION, lines 87-88) declares `chief-of-staff` and `closer`
-    RETIRED roles -- "never wake, spawn, address, or fall back to one; any code, config, or prompt
+    `protocol.md` staffs `leader`/`consultant` only — `chief-of-staff` and `closer` are RETIRED
+    roles -- "never wake, spawn, address, or fall back to one; any code, config, or prompt
     that does is built against a dead spec". `r-cos-launches-the-staffed-seat` and the G-257 repair
     it earned are HISTORY now; they stay cited across this file because they explain why the
     widening must not come back on its own, never because a seat still holds it.
@@ -5316,7 +5316,7 @@ def is_authorized_launcher(name):
 # is a loaded gun a later call site re-points at itself, and the widening comes back with no
 # ruling behind it. Since 7.738 the chief-of-staff holds NO role predicate in this file at all —
 # `is_authorized_launcher` names the leader and the ignite daemon, and the role is RETIRED
-# (`starter-set/conduct.md` 87-88). The bound that predicate carries is unchanged: open, never
+# (`protocol.md` staffs `leader`/`consultant` only). The bound that predicate carries is unchanged: open, never
 # terminate.
 
 
@@ -16110,19 +16110,12 @@ def boot_prompt(w, args, daemon_lane=False):
     # write-if-something ledgers, 1976 bytes, and NOT ONE LINE of coordination protocol. So every
     # seat on every lane was sent for instructions that are not there, at the one moment it is
     # deciding how to behave. `protocol.md` is the protocol — it is already what "protocol item 9"
-    # in the memory sentence above resolves in — and `starter-set/conduct.md` is the goal conduct
-    # manual.
+    # in the memory sentence above resolves in.
     #
-    # ⚠ BOTH ARE READ FROM THE KIT'S SINGLE SOURCE, and that is the fix for a second defect, not a
-    # convenience. A goal's own `conduct.md` is BYTE-COPIED at scaffold time and nothing backfills
-    # it, so a conduct ruling reaches NEW goals only. Measured 2026-08-15: all five goals holding a
-    # copy on this box carried the SAME pre-W1 snapshot (sha `6f1d599a…`), four conduct commits
-    # behind source — teaching `exited`'s two exits as freely available, with no `checkout
-    # --incomplete` vocabulary and none of W2's two-doors caveat. Naming the source removes the
-    # drift BY CONSTRUCTION rather than deferring it to the next sweep, and it reaches goals
-    # scaffolded last month on their very next boot, because this composer runs on every boot.
-    # The accepted cost: a goal that customized its own `conduct.md` would no longer be read from
-    # (none has — all five copies are byte-identical to a source snapshot).
+    # ⚠ F7 (owner ruling, 2026-08-17) ABOLISHED `conduct.md`. The four procedures that file
+    # carried (check in, declare outcome, check out, file issues) live ONCE in this composer —
+    # no second template, no per-seat snippet, no leftover "read conduct.md" line. Model policy
+    # does not survive here: nothing enforced it.
     #
     # ⚠ IT IS INSIDE THE CAGE. `config/spawn-profiles.yaml`'s `cage.SeatBinds` opens
     # `ro-bind:{grant:readRoot}` — the whole workspace root, read-only, FIRST in the stack — and
@@ -16132,9 +16125,7 @@ def boot_prompt(w, args, daemon_lane=False):
     kit = Path(__file__).resolve().parent
     reads = (
         f"Then read {kit / 'protocol.md'} — THE coordination protocol, messaging, identity and "
-        f"lifecycle mechanics — and follow it exactly, and read "
-        f"{kit / 'starter-set' / 'conduct.md'}, the goal conduct manual. Both are read from the "
-        f"kit's single source, so they carry the current rulings. ({pkg}/CLAUDE.md is your goal's "
+        f"lifecycle mechanics — and follow it exactly. ({pkg}/CLAUDE.md is your goal's "
         f"ROUTER — where things are and where to write — and carries no protocol; read it for "
         f"that.) ")
     if daemon_lane:
@@ -16146,18 +16137,20 @@ def boot_prompt(w, args, daemon_lane=False):
             f"opened for you in {pkg}/sessions.csv, and it says so on its own output. That roster "
             f"row is what makes your CHECK-OUT work, what lets others address and close you, and "
             f"what keeps your read cursor — so check in FIRST, before anything else. Because you "
-            f"hold no pane, no wake can reach you: run `read` at your own checkpoints. Then CHECK "
-            f"OUT when you end — `checkout --incomplete \"<reason>\"` is the ONLY way to end a "
-            f"session honestly unfinished; a plain `checkout` says your briefing's output exists. "
+            f"hold no pane, no wake can reach you: run `read` at your own checkpoints. "
             f"Your check-out may report that it could not stamp {pkg}/sessions.csv — the run "
             f"package is mounted read-only in your cage on purpose; your declaration is recorded on "
-            f"the writable surface and the daemon copies it across when your process ends. Then "
-            f"execute ONLY your briefing. ")
+            f"the writable surface and the daemon copies it across when your process ends. ")
     else:
         opening = (
             reads +
-            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}), "
-            f"then execute ONLY your briefing. ")
+            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}). ")
+    procedures = (
+        f"A sitting ends by declaring `done` or `incomplete`; process exit is not a declaration. "
+        f"CHECK OUT when you end — `checkout --incomplete \"<reason>\"` is the ONLY way to end a "
+        f"session honestly unfinished; a plain `checkout` says your briefing's output exists. "
+        f"File issues as appends to {pkg}/issues.md with id `G-<seat>-<MMDD>-<HHMM>`. "
+        f"Then execute ONLY your briefing. ")
     # ── W3 · THE ROUTED-FAIL PAYLOAD, folded in HERE and nowhere else ─────────────────────────
     #
     # A relaunch grant on its own re-runs the seat on its STALE SEED — which is precisely how D6's
@@ -16177,6 +16170,7 @@ def boot_prompt(w, args, daemon_lane=False):
         f"You are agent '{w['agent']}' of the run package at {pkg}. "
         f"{first} "
         f"{opening}"
+        f"{procedures}"
         f"{scratchpad_instruction(w, daemon_lane)}"
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
@@ -20012,15 +20006,18 @@ def _selftest_checks(args, failures, names):
         # booting seat to the package `CLAUDE.md` "and follow its coordination protocol exactly",
         # and that file is a router with no protocol in it — so a row that only checked a path was
         # named would have stayed green throughout the defect. These rows resolve what the prompt
-        # names, ON DISK, and demand the protocol's own §-heading and the conduct clauses W1/W2
-        # added (`checkout --incomplete`, the two-doors caveat) actually be in there.
+        # names, ON DISK, and demand the protocol's own §-heading. F7 abolished conduct.md: the
+        # four procedures live in this composer, and no lane names that file.
         _bp_kit = Path(__file__).resolve().parent
-        _bp_proto, _bp_conduct = _bp_kit / "protocol.md", _bp_kit / "starter-set" / "conduct.md"
+        _bp_proto = _bp_kit / "protocol.md"
         _bp_tmux = boot_prompt(by["gamma"], ns())
         _bp_dmn = boot_prompt(by["gamma"], ns(), daemon_lane=True)
-        check("boot reads: both lanes name the kit's protocol.md AND starter-set/conduct.md — "
+        check("boot reads: both lanes name the kit's protocol.md — "
               "identical bytes on both lanes, composed once",
-              all(str(f) in _bp_tmux and str(f) in _bp_dmn for f in (_bp_proto, _bp_conduct)))
+              str(_bp_proto) in _bp_tmux and str(_bp_proto) in _bp_dmn)
+        check("boot reads: no lane names conduct.md — the file is abolished (F7); "
+              "the four procedures live in this composer",
+              "conduct.md" not in _bp_tmux and "conduct.md" not in _bp_dmn)
         check("boot reads: no lane sends a seat to the package CLAUDE.md FOR THE PROTOCOL — "
               "that file is a deterministic router (R21) and never carried one",
               "CLAUDE.md and follow its coordination protocol" not in _bp_tmux
@@ -20029,11 +20026,16 @@ def _selftest_checks(args, failures, names):
               "(the file exists and carries the session protocol's own heading)",
               _bp_proto.is_file()
               and "## Session protocol" in _bp_proto.read_text(encoding="utf-8"))
-        check("boot reads: the conduct the prompt names is the LIVE source, carrying the W1/W2 "
-              "clauses a byte-copied per-goal conduct.md never received",
-              _bp_conduct.is_file()
-              and all(s in _bp_conduct.read_text(encoding="utf-8")
-                      for s in ("checkout --incomplete", "Two doors, two conditions")))
+        check("boot reads: both lanes inject the four procedures (checkin, declare done/"
+              "incomplete, checkout, file issues) — process exit is not a declaration, "
+              "and the issue id is G-<seat>-<MMDD>-<HHMM>",
+              all(s in _bp_tmux and s in _bp_dmn for s in (
+                  "declaring `done` or `incomplete`",
+                  "process exit is not a declaration",
+                  "checkout --incomplete",
+                  "issues.md",
+                  "G-<seat>-<MMDD>-<HHMM>",
+              )))
         check("boot reads: check-IN and check-OUT reach BOTH lanes (F1, 2026-08-17 — W1 C4's "
               "asymmetry INVERTED). The daemon lane's check-in is marked PANELESS and the retired "
               "`DO NOT run checkin` sentence is asserted ABSENT: with both present a seat would "
@@ -25162,8 +25164,8 @@ def _selftest_checks(args, failures, names):
         # against the chief-of-staff: launching the staffed seat was that seat's ROUTINE DUTY and
         # the gate predated it, so every routine launch required `--force` -- a flag that reads as
         # an override of policy while actually being compliance with it, which trains the room to
-        # force and spends the flag's only signal. `starter-set/conduct.md` 87-88 has since RETIRED
-        # the role, and the SAME defect reappeared one layer over: `workflow_launcher.py` passed an
+        # force and spends the flag's only signal. `protocol.md` staffs `leader`/`consultant` only
+        # — the role is RETIRED, and the SAME defect reappeared one layer over: `workflow_launcher.py` passed an
         # unconditional `--force` on every daemon-fired `start-workflow`. So the rows keep their
         # shape and change their subject; the S4-cos row below is added so the retirement itself
         # has a control, and deleting the block would have discarded the evidence for both.
@@ -25230,7 +25232,7 @@ def _selftest_checks(args, failures, names):
 
         check("s12-04 S4-cos (control): the CHIEF-OF-STAFF is REFUSED on `launch`, at the ROLE "
               "GATE. 7.738 RE-POINTED this widening, it did not add a second holder: the role is "
-              "RETIRED (`starter-set/conduct.md` 87-88) and a retired role that still passes a "
+              "RETIRED (`protocol.md` staffs `leader`/`consultant` only) and a retired role that still passes a "
               "live gate is a dead spec with a live grant. Read on the same command and branch as "
               "S4-a, so only the NAME differs between the row that passes and the row that does "
               "not",

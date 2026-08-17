@@ -52,16 +52,16 @@ the ruled header-only state.csv) are CREATED under the goal folder that passes
 the package bar — so the MASTER can materialize at bootstrap, before the team
 exists. (7.607 E2b: the package IS the goal folder — design-lock item 8 — so
 this step no longer mints a `runs/run-N/` compartment; it completes the goal
-folder `rbtv-goal scaffold` minted.) The three CONTENT surfaces
-— conduct.md, CLAUDE.md, budget.json — arrive as CALLER-SUPPLIED input files
-(--conduct / --claude-md / --budget-json, byte-copied), per
+folder `rbtv-goal scaffold` minted.) The two CONTENT surfaces
+— CLAUDE.md, budget.json — arrive as CALLER-SUPPLIED input files
+(--claude-md / --budget-json, byte-copied), per
 `d-run3-seeds-from-run2-amended`: run-2's versions as amended by the authored
 designs, CARRIED BY THE CALLER (dag-16's bootstrap job). This command never
 invents run conventions, never defaults a floor — a missing input REFUSES
-loudly (`create-inputs-missing`) naming the input and the remedy. A FOURTH,
+loudly (`create-inputs-missing`) naming the input and the remedy. A THIRD,
 OPTIONAL surface joins them (7.569): `addressable.csv`, the register that makes
-the standing owner door a legal address so conduct.md's tier-2 escalation
-resolves in a goal nobody has staffed yet. `--addressable` byte-copies a
+the standing owner door a legal address in a goal nobody has staffed yet.
+`--addressable` byte-copies a
 caller's register; without it a bootstrap creation DERIVES the rows from the
 standing-seat homes whose OWN descriptor declares `addressable: non-member`,
 and creates nothing when none does. Optional, not required, deliberately: a
@@ -265,7 +265,6 @@ STATE_CSV_HEADER = "stamped-at,execution-stamp,goal-state,seat,session-id,note"
 # FILE carries the base text. VALUES never cross argv (R-10,
 # r-floor-single-source) — the option is a path, a reference, not a copy.
 CREATION_INPUTS = (
-    ("conduct.md", "--conduct", "conduct"),
     ("CLAUDE.md", "--claude-md", "claude_md"),
     ("budget.json", "--budget-json", "budget_json"),
 )
@@ -2656,9 +2655,9 @@ def plan_package_creation(package: Path, args) -> list[dict]:
                       launch gate's check_bindings reads
       state.csv       header-only, the ruled run-3 state-cursor header
                       (r-stage0-state-cursor-interim-convention (a)/(b))
-      conduct.md      CALLER-SUPPLIED (--conduct)      \\  d-run3-seeds-
-      CLAUDE.md       CALLER-SUPPLIED (--claude-md)     } from-run2-amended:
-      budget.json     CALLER-SUPPLIED (--budget-json)  /  never invented here
+      CLAUDE.md       CALLER-SUPPLIED (--claude-md)     \\  d-run3-seeds-
+      budget.json     CALLER-SUPPLIED (--budget-json)  /  from-run2-amended:
+                                                       never invented here
       addressable.csv OPTIONAL (7.569): --addressable byte-copies a supplied
                       register; a bootstrap creation without one DERIVES the
                       rows from the standing-seat doors that declare
@@ -2666,12 +2665,12 @@ def plan_package_creation(package: Path, args) -> list[dict]:
                       nothing when none does
 
     Ask-(f) RULING ENCODED (`d-run3-seeds-from-run2-amended`, 2026-07-29):
-    all three content surfaces arrive as caller-supplied input FILES — run-2's
+    both content surfaces arrive as caller-supplied input FILES — run-2's
     versions as amended by the authored designs, carried by the caller
     (dag-16's bootstrap job). budget.json takes the caller-supplied-file
     option of the dag-06 task (consistent with that ruling): a missing input
     REFUSES loudly naming it; a silently-defaulted floor or an invented
-    conduct/CLAUDE surface is the failure this refusal exists to prevent.
+    CLAUDE surface is the failure this refusal exists to prevent.
 
     DELIBERATELY NOT CREATED (each has its own writer/author):
       sessions.csv / messages.md / workers.md / state.json — coord.py and
@@ -2693,7 +2692,7 @@ def plan_package_creation(package: Path, args) -> list[dict]:
     ruled header-only state.csv, the three caller-supplied content files).
 
     Modes: a goal folder missing taskforce.csv is completed FULLY and requires
-    all three inputs (this is the bootstrap path, and it is the same code path
+    both inputs (this is the bootstrap path, and it is the same code path
     that closed the crash-then-flagless-retry window); a goal folder WITH
     taskforce.csv completes only the structural dirs seats/ and coordination/,
     plus any caller-input surface whose option was explicitly supplied and
@@ -4136,7 +4135,7 @@ def render_taskforce_rows(plan: dict) -> None:
             f"the goal package carries no {TASKFORCE_NAME} — the append needs "
             "the run's registry (its taskforce-id is read from the file, "
             "never argv). Completing this package is dag-06's creation step: "
-            "re-run with --conduct/--claude-md/--budget-json so the missing "
+            "re-run with --claude-md/--budget-json so the missing "
             "surfaces can be created from caller-supplied content",
             str(tf_path),
         )
@@ -5146,15 +5145,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--milestone-id", dest="milestone_id",
                    help="written to every materialized row; must resolve to a "
                         "milestones.csv row")
-    p.add_argument("--conduct", dest="conduct",
-                   help="caller-supplied conduct.md BASE-TEXT file, byte-"
+    p.add_argument("--claude-md", dest="claude_md",
+                   help="caller-supplied run CLAUDE.md base-text file, byte-"
                         "copied into a CREATED goal package (d-run3-seeds-"
                         "from-run2-amended — this command never invents run "
                         "conventions). Required when creating/completing")
-    p.add_argument("--claude-md", dest="claude_md",
-                   help="caller-supplied run CLAUDE.md base-text file, byte-"
-                        "copied into a CREATED goal package (same ruling as "
-                        "--conduct). Required when creating/completing")
     p.add_argument("--budget-json", dest="budget_json",
                    help="caller-supplied budget.json file, byte-copied into "
                         "a CREATED goal package. A PATH, never a value: the "
@@ -5690,15 +5685,12 @@ def build_fixture(tmp: Path) -> dict:
     bdir.joinpath("guard.json").write_text(json.dumps(guard),
                                            encoding="utf-8")
 
-    # dag-06 creation inputs — the CALLER-SUPPLIED trio
+    # dag-06 creation inputs — the CALLER-SUPPLIED pair
     # (d-run3-seeds-from-run2-amended). Fixture stand-ins for the amended
     # run-2 base texts dag-16 carries; the floor value is FIXTURE data inside
     # a caller file, never a number this command holds (R-10).
     seeds = tmp / "run-seeds"
     seeds.mkdir()
-    (seeds / "conduct.md").write_text(
-        "# conduct\n\nFixture conduct base text (caller-supplied).\n",
-        encoding="utf-8")
     (seeds / "CLAUDE.md").write_text(
         "# run\n\nFixture run CLAUDE.md base text (caller-supplied).\n",
         encoding="utf-8")
@@ -5733,7 +5725,6 @@ def build_fixture(tmp: Path) -> dict:
         "exp_prompt": str(expc / "prompts" / "alpha-prompt.md"),
         "repo_mod": str(repo_mod),
         "mcp_decl": str(mcpc / "mcp.json"),
-        "src_conduct": str(seeds / "conduct.md"),
         "src_claude": str(seeds / "CLAUDE.md"),
         "src_budget": str(seeds / "budget.json"),
         "src_budget_broken": str(seeds / "broken-budget.json"),
@@ -6921,11 +6912,9 @@ def run_dag06_acceptance(check, env: dict) -> None:
             return ["--package", str(pkg), "--seat", seat,
                     "--catalog-root", fx["catalog"], "--root",
                     "--bindings", bindings,
-                    "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
                     "--budget-json", fx["src_budget"],
                     "--json", *extra]
-
         # CP-7: --dry-run against the UNCOMPLETED goal folder — plan printed,
         # nothing on disk.
         cp = _invoke(create_argv("alpha", fx["b_alpha"], ("--dry-run",)), env)
@@ -6936,7 +6925,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         check("CP-7: dry-run against an uncompleted goal folder exits 0 and "
               "the printed plan names every created surface",
               cp.returncode == 0
-              and {"conduct.md", "CLAUDE.md", "budget.json",
+              and {"CLAUDE.md", "budget.json",
                    TASKFORCE_NAME, STATE_CSV_NAME, "seats",
                    "coordination"} <= planned,
               (cp.stdout + cp.stderr).strip()[:200])
@@ -6957,7 +6946,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               and (pkg / "coordination").is_dir()
               and (pkg / TASKFORCE_NAME).is_file()
               and (pkg / STATE_CSV_NAME).is_file()
-              and {"conduct.md", "CLAUDE.md", "budget.json"} <= surfaces,
+              and {"CLAUDE.md", "budget.json"} <= surfaces,
               (cp.stdout + cp.stderr).strip()[:200])
         check("CP-7 control: the dry flag is the discriminator — the same "
               "argv without it completed the package",
@@ -7036,14 +7025,12 @@ def run_dag06_acceptance(check, env: dict) -> None:
               and json.loads(made_budget)["floors"]["launch_refuse_mb"] == 64)
         check("CP-5 comparator control: the byte comparator can fail (a "
               "different source diverges)",
-              Path(fx["src_conduct"]).read_bytes() != made_budget)
+              Path(fx["src_claude"]).read_bytes() != made_budget)
 
-        # CP-8 green: conduct.md + CLAUDE.md byte-identical to the sources.
-        check("CP-8: created conduct.md and CLAUDE.md are byte-identical to "
+        # CP-8 green: CLAUDE.md byte-identical to the source.
+        check("CP-8: created CLAUDE.md is byte-identical to "
               "the caller-supplied base text",
-              (pkg / "conduct.md").read_bytes()
-              == Path(fx["src_conduct"]).read_bytes()
-              and (pkg / "CLAUDE.md").read_bytes()
+              (pkg / "CLAUDE.md").read_bytes()
               == Path(fx["src_claude"]).read_bytes())
 
         # CP-2 arm 1: the IDENTICAL call again — collision refusal on the
@@ -7065,8 +7052,8 @@ def run_dag06_acceptance(check, env: dict) -> None:
               cp.returncode == 0
               and [w for w in res.get("writes", [])
                    if w["kind"] == "package-surface"] == []
-              and (pkg / "conduct.md").read_bytes()
-              == Path(fx["src_conduct"]).read_bytes()
+              and (pkg / "CLAUDE.md").read_bytes()
+              == Path(fx["src_claude"]).read_bytes()
               and (pkg / "budget.json").read_bytes() == src_budget
               and (pkg / STATE_CSV_NAME).read_text(encoding="utf-8")
               == STATE_CSV_HEADER + "\n",
@@ -7143,7 +7130,6 @@ def run_dag06_acceptance(check, env: dict) -> None:
             return ["--package", str(pkg), "--seat", seat,
                     "--catalog-root", fx["catalog"], "--root",
                     "--bindings", bindings,
-                    "--conduct", fx["src_conduct"],
                     "--claude-md", fx["src_claude"],
                     "--budget-json", fx["src_budget"],
                     "--json", *extra]
@@ -7189,18 +7175,6 @@ def run_dag06_acceptance(check, env: dict) -> None:
               and _refusal(cp).get("code") == "bindings-missing-seat"
               and list(pkg5.iterdir()) == [])
 
-        # CP-8 red arm: omit --conduct → REFUSAL naming it, nothing created.
-        argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
-        i = argv8.index("--conduct")
-        del argv8[i:i + 2]
-        cp = _invoke(argv8, env)
-        check("CP-8 red: omitting the conduct source REFUSES "
-              "(create-inputs-missing naming --conduct) — never a silent "
-              "package without it",
-              cp.returncode == 1
-              and _refusal(cp).get("code") == "create-inputs-missing"
-              and "--conduct" in _refusal(cp).get("message", "")
-              and list(pkg5.iterdir()) == [])
         argv8 = argv_for(pkg5, "alpha", fx["b_alpha"])
         i = argv8.index("--budget-json")
         del argv8[i:i + 2]
@@ -7263,7 +7237,6 @@ def run_dag06_acceptance(check, env: dict) -> None:
         check("creation-partial control: the same call WITH the inputs "
               "completes every missing surface and materializes",
               cp.returncode == 0
-              and (pkg6 / "conduct.md").is_file()
               and (pkg6 / "CLAUDE.md").is_file()
               and (pkg6 / "budget.json").is_file()
               and (pkg6 / TASKFORCE_NAME).is_file()
@@ -7475,8 +7448,8 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
              ("CP-6 control: without budget.json", "CP-6/CP-8 red")),
     "CP-7": (("CP-7: dry-run against an uncompleted goal folder exits 0",
               "CP-7: ...and writes NOTHING"), ("CP-7 control",)),
-    "CP-8": (("CP-8: created conduct.md",),
-             ("CP-8 red", "CP-6/CP-8 red")),
+    "CP-8": (("CP-8: created CLAUDE.md",),
+             ("CP-6/CP-8 red",)),
     "contract-order": (("contract §1: blocks in the FIXED kind order",),
                        ("reorder red",)),
     "topo-order": (("topo: rows append in TOPOLOGICAL order",),
@@ -7743,7 +7716,7 @@ def _staff_run(fx: dict, seat: str, **over):
     args = argparse.Namespace(
         package=str(fx["pkg"]), seat=seat, workflow=None,
         catalog_root=fx["catalog"], after=None, root=True,
-        bindings=fx["b"].get(seat), milestone_id=None, conduct=None,
+        bindings=fx["b"].get(seat), milestone_id=None,
         claude_md=None, budget_json=None, dry_run=False,
         as_json=False, force_partial=False, repass=False)
     for k, v in over.items():
@@ -8016,7 +7989,7 @@ def _pf_run(fx: dict, binding: str, **over):
     args = argparse.Namespace(
         package=str(fx["pkg"]), seat="pf", workflow=None,
         catalog_root=fx["catalog"], after=None, root=True,
-        bindings=fx["b"][binding], milestone_id=None, conduct=None,
+        bindings=fx["b"][binding], milestone_id=None,
         claude_md=None, budget_json=None, dry_run=True,
         as_json=False, force_partial=False, repass=False)
     for k, v in over.items():

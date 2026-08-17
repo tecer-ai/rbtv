@@ -627,7 +627,7 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
         contract_file.unlink(missing_ok=True)
 
 
-def create(request, goals_root, package, catalog_root, bindings, conduct, claude_md, budget_json,
+def create(request, goals_root, package, catalog_root, bindings, claude_md, budget_json,
            seat=None, workflow=None, after=None, root=False, dry_run=False):
     """CREATE — the goal, then its working content, through the RULED NAME.
 
@@ -661,7 +661,7 @@ def create(request, goals_root, package, catalog_root, bindings, conduct, claude
             "An omitted insertion point can NEVER default to root."
         )
     cmd = [RULED_LAUNCH_NAME, "--package", str(package), "--catalog-root", str(catalog_root),
-           "--bindings", str(bindings), "--conduct", str(conduct), "--claude-md", str(claude_md),
+           "--bindings", str(bindings), "--claude-md", str(claude_md),
            # ⚠ 7.607 E2b: `--run-type` is GONE with the run register (design-lock item 8). It
            # named the `type` cell of a `runs.csv` row that is no longer written by anything.
            "--budget-json", str(budget_json), "--json"]
@@ -752,7 +752,7 @@ REFUSED_DIR = "refused"
 
 
 def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
-                       conduct, claude_md, budget_json,
+                       claude_md, budget_json,
                        ignite_bin="ignite", dry_run=False):
     """SCAFFOLD — the daemon-executed half of a caged requester's ask (task C2).
 
@@ -898,7 +898,7 @@ def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
             package = goal_dir
 
             steps = create(payload, goals_root, package, catalog_root, bindings,
-                           conduct, claude_md, budget_json,
+                           claude_md, budget_json,
                            workflow=workflow, root=True, dry_run=dry_run)
 
             # NO ROW IS QUEUED HERE ANY MORE (7.778). The `register-job` + `add-job` pair that
@@ -975,7 +975,7 @@ def _run(cmd, step, dry_run):
 
 # ----------------------------------------------------------------- the entry
 
-def handle(request, goals_root, package, catalog_root, bindings, conduct, claude_md, budget_json,
+def handle(request, goals_root, package, catalog_root, bindings, claude_md, budget_json,
            seat=None, workflow=None, after=None, root=False, note=None,
            do_launch=True, dry_run=False):
     """The entry: validate, then create -> launch, in that order and once.
@@ -998,7 +998,7 @@ def handle(request, goals_root, package, catalog_root, bindings, conduct, claude
         result["outcome"] = "REFUSED — no act performed\n" + verdict["stated-refusal"]
         return result
     result["acts"]["create"] = create(
-        request, goals_root, package, catalog_root, bindings, conduct, claude_md, budget_json,
+        request, goals_root, package, catalog_root, bindings, claude_md, budget_json,
         seat=seat, workflow=workflow, after=after, root=root, dry_run=dry_run)
 
     # ⚠ THE CHAIN FAILS CLOSED, AND THIS GUARD IS HERE BECAUSE ITS ABSENCE WAS MEASURED. On this
@@ -1071,7 +1071,6 @@ def main(argv=None):
                         "(<goals-root>/<goal>/); the runs/run-N compartment is extinguished")
     h.add_argument("--catalog-root", required=True)
     h.add_argument("--bindings", required=True)
-    h.add_argument("--conduct", required=True)
     h.add_argument("--claude-md", required=True)
     h.add_argument("--budget-json", required=True)
     h.add_argument("--note", help="free text written into the arming marker")
@@ -1100,8 +1099,8 @@ def main(argv=None):
                    help="the workflow the created goal is materialized with (`scaffold-seats "
                         "--workflow`). Since 7.778 it starts nothing by itself — the goal's LANE "
                         "does")
-    # ⚠ THE FIVE BASE INPUTS OF A CREATED RUN PACKAGE, ALL REQUIRED, NONE DEFAULTED (task C5E).
-    # `scaffold-seats` REFUSES `create-inputs-missing` without the last three and states why:
+    # ⚠ THE BASE INPUTS OF A CREATED RUN PACKAGE, ALL REQUIRED, NONE DEFAULTED (task C5E).
+    # `scaffold-seats` REFUSES `create-inputs-missing` without the last two and states why:
     # "this command never invents run conventions and never defaults a floor". Those base texts are
     # the goal-generic STARTER SET the owner authored and approved for exactly this path
     # (`d-owner-starter-set-approved-0808`), shipped at `ignite/team-kit/starter-set/`. They are
@@ -1112,8 +1111,6 @@ def main(argv=None):
                         "SHARED PARENT of the components, since catalog resolution is catalog-root-wide")
     q.add_argument("--bindings", required=True,
                    help="goal-generic per-seat bindings JSON for this workflow's manifest seats")
-    q.add_argument("--conduct", required=True,
-                   help="caller-supplied conduct.md base text for the created goal package")
     q.add_argument("--claude-md", required=True,
                    help="caller-supplied CLAUDE.md base text for the created goal package")
     q.add_argument("--budget-json", required=True,
@@ -1132,7 +1129,7 @@ def main(argv=None):
         # go through the single-payload read below.
         if args.verb == "scaffold-and-queue":
             out = scaffold_and_queue(args.inbox, args.goals_root, args.workflow,
-                                     args.catalog_root, args.bindings, args.conduct,
+                                     args.catalog_root, args.bindings,
                                      args.claude_md, args.budget_json,
                                      ignite_bin=args.ignite_bin, dry_run=args.dry_run)
             print(json.dumps(out, indent=2))
@@ -1153,7 +1150,7 @@ def main(argv=None):
                 print(out["stated-refusal"], file=sys.stderr)
             return 0 if out["accepted"] else 1
         out = handle(payload, args.goals_root, args.package, args.catalog_root, args.bindings,
-                     args.conduct, args.claude_md, args.budget_json,
+                     args.claude_md, args.budget_json,
                      seat=args.seat, workflow=args.workflow, after=args.after, root=args.root,
                      note=args.note, do_launch=not args.no_launch, dry_run=args.dry_run)
         print(json.dumps(out, indent=2))

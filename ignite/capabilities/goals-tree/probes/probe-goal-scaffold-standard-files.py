@@ -28,7 +28,7 @@ The five properties scored:
   5. re-writing the standard set over a goal whose files HAVE CONTENT clobbers nothing.
 
 7.675 adds arm 2c, over the OTHER birth path: `goal_cli.py` writes the files above, but
-`scaffold-seats --claude-md/--conduct` byte-copies `team-kit/starter-set/{CLAUDE,conduct}.md` into
+`scaffold-seats --claude-md` byte-copies `team-kit/starter-set/CLAUDE.md` into
 the created package. Those two templates still computed `../../` paths and spoke of a "run folder"
 long after the run layer was extinguished, and no arm here could see it. Arm 2c asserts their
 content directly, the way arm 2b asserts the `decisions.md` template's.
@@ -67,11 +67,11 @@ TOOL = HERE.parent / "tool" / "goal_cli.py"
 OUT = HERE / "probe-goal-scaffold-standard-files.out"
 
 # 7.675 — the OTHER two templates a created goal is born from. `goal_cli.py` writes the routers and
-# the write-if-something set; `scaffold-seats --claude-md/--conduct` byte-copies THESE, so a
+# the write-if-something set; `scaffold-seats --claude-md` byte-copies THIS, so a
 # run-layer regression here is invisible to every arm above. Guarded the way arm 2b guards the
 # decisions.md template: content literals, asserted on the shipped file.
 STARTER_SET = HERE.parents[2] / "team-kit" / "starter-set"
-STARTER_TEMPLATES = ("CLAUDE.md", "conduct.md")
+STARTER_TEMPLATES = ("CLAUDE.md",)
 # The run layer is EXTINGUISHED (`decisions.md#d-runs-extinguished`, 7.607 E2b): a goal's package IS
 # the goal folder, so a walk-up path or run-folder wording in a starter template sends every seat of
 # every new goal outside its own package.

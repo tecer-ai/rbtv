@@ -183,15 +183,12 @@ removed. The two values below are still ruled and still shipped on the `tools:` 
 **The goal is therefore born with its working surfaces complete**, and — since 7.777 — with its
 LANE declared. Nothing rides a queued row: there is no queued row.
 
-⚠ **Five flags on the entry are what make that happen**, and the last three are not defaultable:
-`--catalog-root`, `--bindings`, and `--conduct`/`--claude-md`/`--budget-json`. `scaffold-seats`
+⚠ **Four flags on the entry are what make that happen**, and the last two are not defaultable:
+`--catalog-root`, `--bindings`, and `--claude-md`/`--budget-json`. `scaffold-seats`
 refuses `create-inputs-missing` without the base texts, saying why — it "never invents run
 conventions and never defaults a floor". They name the OWNER-AUTHORED, OWNER-APPROVED goal-generic
-starter set at `team-kit/starter-set/` (`d-owner-starter-set-approved-0808`). ⚠ **NOT
-`team-kit/conduct-template.md`** — that is an UNFILLED FORM whose own opening lines say a run's
-conduct-author instantiates it "filling every `{{slot}}`", while `--conduct` BYTE-COPIES. Pointing
-at it would give every auto-created run a rulebook whose law reads `{{INSTANTIATE}}`; that option
-was put to the owner and rejected on exactly that ground.
+starter set at `team-kit/starter-set/` (`d-owner-starter-set-approved-0808`). F7 abolished
+`conduct.md`; the four procedures live in `coord.py` `boot_prompt`.
 
 ⚠ **The per-row argv TEMPLATING mechanism is unchanged and still live** — `{{workflow}}` /
 `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` expand from a queue row's own args, so one generic
