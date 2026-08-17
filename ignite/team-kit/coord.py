@@ -11018,6 +11018,7 @@ def known_recipients(args, base):
     _, _, rows = load_workers(base)
     names = {r["agent"] for r in rows}
     names |= set(briefing_frontmatters(workers_dir(args)))
+    names |= registered_seats(package_dir(args))
     names |= set(group_map(base))
     for d in inbox_decls(args).values():
         names |= set(d.get("relays") or ())
@@ -12575,6 +12576,31 @@ def taskforce_bindings(args):
     return out
 
 
+def registered_seats(pkg):
+    """Seat names this package's registers know — taskforce.csv `seat` ∪ sessions.csv `seat`.
+
+    Empty or absent file → empty contribution. Never raises. Folder presence is not consulted.
+    """
+    names = set()
+    try:
+        root = Path(pkg)
+    except (TypeError, ValueError):
+        return names
+    for path in (root / "taskforce.csv", sessions_csv(root)):
+        try:
+            header, rows = read_csv_table(path, [])
+        except Exception:
+            continue
+        if "seat" not in header:
+            continue
+        idx = header.index("seat")
+        for r in rows:
+            name = (r[idx] if idx < len(r) else "").strip() if r else ""
+            if name:
+                names.add(name)
+    return names
+
+
 def binding_divergence(w, row):
     """[(field, descriptor_value, registry_value)] where the two disagree.
 
@@ -13234,7 +13260,7 @@ def ready_seat_rows(args):
                name the actual value, and for `exited` the reason carries the routing in full.
                Nothing here maps `exited` to `done`.
       RUNNING  an ACTIVE roster row — the seat is occupied; launching it again double-launches it
-      UNBUILT  no descriptor on disk — a `taskforce.csv`-only row would be launched into nothing
+      UNBUILT  name in neither register (taskforce.csv ∪ sessions.csv) — not a missing folder
       UNDECLARED  (7.237) this seat's LAST ENDED session declared NO disposition — its work
                CONCLUDED and nobody asserted how it ended. NOT a launch candidate, and NOT a
                relaunch: relaunching re-runs finished work, which is the harm. Routes to the
@@ -13286,7 +13312,7 @@ def ready_seat_rows(args):
     # line always made) while re-reading it per predecessor would cost one descriptor sweep per
     # edge. `built` is derived from it and is the identical set it always was.
     seat_desc = {w["agent"]: w for w in discover_workers(wdir)}
-    built = set(seat_desc)
+    built = registered_seats(pkg)
     awaiting = load_awaiting(base)
     # 7.237: hoisted ONCE, for the same reason `awaiting` above is — N seats must cost one read of
     # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
@@ -13633,7 +13659,7 @@ def ready_seat_rows(args):
             rec["reason"] = f"roster: active since {row.get('checkin') or '(unstamped)'}"
         elif seat not in built:
             rec["verdict"] = "UNBUILT"
-            rec["reason"] = f"no descriptor under {wdir / seat}"
+            rec["reason"] = "not in taskforce.csv or sessions.csv"
         elif seat in undeclared:
             # 7.237. `terminal(self)` is None here, and this branch is the ONE place that None is
             # read as something other than "has not finished yet" — because an ENDED row says the
@@ -13841,35 +13867,35 @@ ALL_21_PAIRS = frozenset({
     ("stop", "unmet"),
 })
 
-# 19 of 21. `(skew, disposition)` and `(skew, undeclared)` cannot BOTH hold on any row this home
-# can produce, and the proofs are at source, not by inspection of today's population:
+# 13 of 21. `(skew, disposition)` and `(skew, undeclared)` cannot BOTH hold on any row this home
+# can produce, and every pair that includes `built` is unreachable once existence is the CSV
+# registers: a `taskforce.csv` row is always in `registered_seats`, so `row["built"]` is True
+# and the limb never trips.
 #   (skew, disposition) — the only `return` that produces a skew tuple binds `None` as the
 #       disposition, so a tripped `skew` FORCES the `disposition` conjunct to hold.
 #   (skew, undeclared)  — skew requires a NON-EMPTY durable cell; `undeclared_endings` admits a
 #       seat only when that SAME cell of that SAME row is EMPTY. Both cannot hold.
 REACHABLE_PAIRS = frozenset({
-    ("skew", "active"), ("skew", "built"), ("skew", "stop"), ("skew", "unmet"),
-    ("disposition", "active"), ("disposition", "built"), ("disposition", "undeclared"),
+    ("skew", "active"), ("skew", "stop"), ("skew", "unmet"),
+    ("disposition", "active"), ("disposition", "undeclared"),
     ("disposition", "stop"), ("disposition", "unmet"),
-    ("active", "built"), ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
-    ("built", "undeclared"), ("built", "stop"), ("built", "unmet"),
+    ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
     ("undeclared", "stop"), ("undeclared", "unmet"),
     ("stop", "unmet"),
 })
 
-# 20 of 21 — a DIFFERENT set from the one above, and the difference is the point. Coverage is
+# 14 of 21 — a DIFFERENT set from the one above, and the difference is the point. Coverage is
 # bounded by what the home can PRODUCE; detection by what a re-ordering can be SEEN BY. A
 # transposition re-orders the whole map, so a swap of two limbs is caught by any row tripping the
 # lower one and anything ranked between them — no row need trip both. `(skew, undeclared)` is
-# therefore DETECTABLE though unreachable. Only `(skew, disposition)` — ADJACENT in precedence AND
-# impossible — is undetectable by any fixture whatsoever.
+# therefore DETECTABLE though unreachable. `(skew, disposition)` and every pair that includes
+# `built` (the limb never trips on a registered taskforce row) are undetectable.
 DETECTABLE_PAIRS = frozenset({
-    ("skew", "active"), ("skew", "built"), ("skew", "undeclared"), ("skew", "stop"),
+    ("skew", "active"), ("skew", "undeclared"), ("skew", "stop"),
     ("skew", "unmet"),
-    ("disposition", "active"), ("disposition", "built"), ("disposition", "undeclared"),
+    ("disposition", "active"), ("disposition", "undeclared"),
     ("disposition", "stop"), ("disposition", "unmet"),
-    ("active", "built"), ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
-    ("built", "undeclared"), ("built", "stop"), ("built", "unmet"),
+    ("active", "undeclared"), ("active", "stop"), ("active", "unmet"),
     ("undeclared", "stop"), ("undeclared", "unmet"),
     ("stop", "unmet"),
 })
@@ -14962,10 +14988,11 @@ def cmd_widen_cage(args):
                "openings.", 1)
     if not _ferry_safe_name(seat):
         refuse("input", f"'{seat}' is not a valid seat name.", 1)
-    if not (Path(pkg) / "seats" / seat / "seat.md").exists():
+    if seat not in registered_seats(pkg) and seat not in briefing_frontmatters(workers_dir(args)):
         refuse("state",
-               f"'{seat}' has no descriptor under {Path(pkg) / 'seats' / seat} — widening the cage "
-               f"of a seat that does not exist writes a grant no launch will ever read.\n"
+               f"'{seat}' is not a registered seat (no row in taskforce.csv or sessions.csv) — "
+               f"widening the cage of a seat that does not exist writes a grant no launch will "
+               f"ever read.\n"
                f"Seats in this run: {coord_invocation(args)} ready-seats", 1)
     # THE PRIVATE SCOPE FIRST, and UNCONDITIONALLY (adv, C29). The PIERCE rule — an opening that
     # legitimately sits inside a private entry — is a MATERIALIZE-TIME authoring affordance, never a
@@ -15098,10 +15125,10 @@ def cmd_route_fail(args):
             refuse("input",
                    f"`{ON_FAIL_RELAUNCH_KEY}` entry {seat!r} on '{sender}'s seat.md is not a valid "
                    f"seat name. Fix the descriptor; this verb routes to seats, not to text.", 1)
-        if not (Path(pkg) / "seats" / seat / "seat.md").exists():
+        if seat not in registered_seats(pkg) and seat not in briefing_frontmatters(workers_dir(args)):
             refuse("state",
                    f"`{ON_FAIL_RELAUNCH_KEY}` names `{seat}`, and this run has NO SEAT of that "
-                   f"name (no descriptor under {Path(pkg) / 'seats' / seat}).\n"
+                   f"name (not in taskforce.csv or sessions.csv).\n"
                    f"That cell is checked for SYNTAX at every other door and for EXISTENCE at "
                    f"none, and a task id sitting in it is exactly how a routed FAIL reached "
                    f"nobody. Fix '{sender}'s `{ON_FAIL_RELAUNCH_KEY}` cell in its seat.md and in "
@@ -15974,6 +16001,13 @@ def cmd_boot_prompt(args):
     seats = discover_workers(wdir)
     w = next((x for x in seats if x["agent"] == args.seat), None)
     if w is None:
+        pkg_bp = package_dir(args, register=False)
+        if args.seat not in registered_seats(pkg_bp):
+            refuse("input",
+                   f"'{args.seat}' is not a registered seat (no row in taskforce.csv or "
+                   f"sessions.csv), so there is nothing to compose a boot prompt FROM.\n"
+                   f"Registered seats: {', '.join(sorted(registered_seats(pkg_bp))) or '(none)'}",
+                   2)
         refuse("input",
                f"'{args.seat}' has no descriptor under {wdir}, so there is nothing to compose a "
                f"boot prompt FROM — and an empty prompt boots a harness that exits on empty "
@@ -16235,15 +16269,41 @@ def seats_by_name(args, names=None):
         return [w for w in workers if w["agent"] != "leader"]
     wanted = [n.strip() for n in names.split(",") if n.strip()]
     picked = [w for w in workers if w["agent"] in wanted]
-    missing = set(wanted) - {w["agent"] for w in picked}
+    have = {w["agent"] for w in picked}
+    registered = registered_seats(package_dir(args))
+    missing = set(wanted) - have - registered
     if missing:
-        known = ", ".join(sorted(w["agent"] for w in workers)) or "(none)"
+        known = ", ".join(sorted(registered | have)) or "(none)"
         refuse(
             "state",
-            f"no worker briefing carries `agent: {', '.join(sorted(missing))}` in "
-            f"{workers_dir(args)}, so there is nothing to launch under that name.\n"
-            f"briefed seats: {known}\nFix the name, or add the briefing folder first.",
+            f"no register carries seat `{', '.join(sorted(missing))}` "
+            f"(taskforce.csv ∪ sessions.csv), so there is nothing to launch under that name.\n"
+            f"registered seats: {known}\nFix the name, or add a taskforce.csv / sessions.csv row "
+            f"first.",
             1)
+    bindings = taskforce_bindings(args)
+    for name in wanted:
+        if name in have:
+            continue
+        row = bindings.get(name) or {}
+        picked.append({
+            "agent": name,
+            "briefing": None,
+            "harness": (row.get("harness") or "").strip(),
+            "agent_type": "",
+            "model": (row.get("model") or "").strip(),
+            "effort": (row.get("effort") or "").strip(),
+            "cwd": VAULT_ROOT,
+            "window": "",
+            "ephemeral": False,
+            "ctx_refresh": None,
+            "mode": "",
+            "folder": None,
+            "mechanical_close": False,
+            "outputs": [],
+            "outputs_defect": False,
+        })
+        have.add(name)
     return picked
 
 
@@ -26656,20 +26716,50 @@ def _selftest_checks(args, failures, names):
               and "roster: active since 2026-07-29 14:57" in _rs3_out
               and _rs_v(_rs1_done)[0]["b"] == "READY")
 
-        # ---- RS-4: a taskforce row with no descriptor is UNBUILT, never READY ----
+        # ---- RS-4: UNBUILT is a name in neither register, not a missing seat.md ----
         _rs4 = _rs_make("4", [("a", ""), ("b", "a")], built=["a"], sessions=[("a", "done")])
         _rs4_v, _ = _rs_v(_rs4)
-        (_rs4 / "seats" / "b").mkdir()
-        (_rs4 / "seats" / "b" / "seat.md").write_text(
-            "---\nagent: b\nmodel: opus\n---\nbrief\n", encoding="utf-8")
-        _rs4_after, _ = _rs_v(_rs4)
-        check("dag-10 RS-4: A `taskforce.csv` ROW WITH NO DESCRIPTOR ON DISK REPORTS UNBUILT, "
-              "NEVER READY, and materializing it flips the very same package to READY. Without "
-              "this term the command would hand its caller a seat to launch into nothing — the "
-              "row exists, the folder does not, and the launch fails after the frontier has "
-              "already been reported as advanced",
-              _rs4_v == {"a": "DONE", "b": "UNBUILT"}
-              and _rs4_after == {"a": "DONE", "b": "READY"})
+        check("dag-10 RS-4: A `taskforce.csv` ROW WITH NO DESCRIPTOR ON DISK IS REGISTERED, "
+              "NEVER UNBUILT — the folder mask is not the census. The predecessor is done, so "
+              "the invisible row reports READY. UNBUILT is a name in neither register",
+              _rs4_v == {"a": "DONE", "b": "READY"})
+        _rs4_ns = argparse.Namespace(package=str(_rs4), run=None, base=None, workers_dir=None,
+                                     as_agent="leader", force=False)
+        check("dag-10 RS-4 (registers): registered_seats is taskforce.csv ∪ sessions.csv; a "
+              "name in neither is absent, and empty/absent files never throw",
+              registered_seats(_rs4) == {"a", "b"}
+              and registered_seats(_rs4 / "no-such-pkg") == set()
+              and "ghost" not in registered_seats(_rs4))
+        _rs4_stub = seats_by_name(_rs4_ns, "b")
+        _rs4_miss_o, _rs4_miss_e, _rs4_miss_c = harness_outcome(
+            lambda a: seats_by_name(a, "ghost"), _rs4_ns)
+        check("dag-10 RS-4 (launch --only): a registered name with no folder is accepted as a "
+              "taskforce_bindings stub; a name in neither CSV still refuses",
+              [w["agent"] for w in _rs4_stub] == ["b"]
+              and _rs4_stub[0]["harness"] == "claude"
+              and _rs4_stub[0]["model"] == "opus"
+              and _rs4_stub[0]["effort"] == "medium"
+              and _rs4_stub[0]["folder"] is None
+              and (_rs4_miss_c or 0) != 0
+              and "no register carries seat" in (_rs4_miss_o + _rs4_miss_e))
+        _rs4_wid_ok, _rs4_wid_e, _rs4_wid_c = harness_outcome(
+            cmd_widen_cage, argparse.Namespace(
+                package=str(_rs4), run=None, base=None, workers_dir=None, as_agent="leader",
+                force=False, seat="b", path="data/out", reason="f2-register", go=False))
+        _rs4_wid_bad, _rs4_wid_be, _rs4_wid_bc = harness_outcome(
+            cmd_widen_cage, argparse.Namespace(
+                package=str(_rs4), run=None, base=None, workers_dir=None, as_agent="leader",
+                force=False, seat="ghost", path="data/out", reason="f2-register", go=False))
+        check("dag-10 RS-4 (widen-cage): a registered name with no folder is not refused as "
+              "missing; a name in neither CSV still refuses",
+              "not a registered seat" not in (_rs4_wid_ok + _rs4_wid_e)
+              and "no descriptor under" not in (_rs4_wid_ok + _rs4_wid_e)
+              and (_rs4_wid_bc or 0) != 0
+              and "not a registered seat" in (_rs4_wid_bad + _rs4_wid_be))
+        check("dag-10 RS-4 (send census): known_recipients unions the registers, so a "
+              "taskforce name with no folder is addressable",
+              "b" in known_recipients(_rs4_ns, _rs4 / "coordination")
+              and "ghost" not in known_recipients(_rs4_ns, _rs4 / "coordination"))
 
         # ---- RS-5: a skew is REPORTED, never resolved ----
         _rs5 = _rs_make("5", [("a", ""), ("b", "a")],
@@ -27949,38 +28039,40 @@ def _selftest_checks(args, failures, names):
                       (cls is not None and CLASS_TO_VERDICT[cls] == v)
                       for _s, cls, v in _a3_arm1))
         # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
-        check("7.274 row P arm 1C: every one of the TWELVE classes is exercised by some fixture "
+        check("7.274 row P arm 1C: every REACHABLE class is exercised by some fixture "
               "row — set equality, not a count. Seven limbs produce twelve classes (the "
-              "`disposition` limb alone produces six since 7.676's `declared-incomplete`), so a "
-              "fixture carrying one row per LIMB would leave five classes unexercised while "
-              "reading as complete",
-              {deferral_class(r) for r in _a3_rows} - {None} == set(CLASS_TO_VERDICT)
+              "`disposition` limb alone produces six since 7.676's `declared-incomplete`); "
+              "`unbuilt` is no longer reachable for a taskforce row (existence is the CSV "
+              "registers, and every such row is registered)",
+              {deferral_class(r) for r in _a3_rows} - {None}
+              == set(CLASS_TO_VERDICT) - {"unbuilt"}
               and len(CLASS_TO_VERDICT) == 12)
         # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
         _a3_cov = covered_limb_pairs(_a3_rows)
         check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "
-              "19 of the 21, the two exclusions being structurally impossible. Precedence is only "
-              "observable where two limbs COMPETE on one row; a fixture that covers fewer pairs "
-              "cannot SEE a swap of the ones it misses, which is exactly how a live population "
-              "leaves 11 of 21 transpositions undetected while arm 1 reads GREEN",
-              _a3_cov == REACHABLE_PAIRS and len(REACHABLE_PAIRS) == 19)
+              "13 of the 21, the exclusions being the two structurally impossible skew pairs "
+              "plus every pair that includes `built` (a taskforce row is always registered). "
+              "Precedence is only observable where two limbs COMPETE on one row",
+              _a3_cov == REACHABLE_PAIRS and len(REACHABLE_PAIRS) == 13)
         _a3_undetected = [(x, y) for x, y in sorted(DETECTABLE_PAIRS)
                           if not arm1_fails_under_transposition(_a3_rows, x, y)]
         check("7.274 row P arm 1M (detection): TRANSPOSING ANY TWO LIMBS OF THE PRECEDENCE MAKES "
               "ARM 1 GO RED — all 20 detectable pairs, each re-ordered and re-run. This is the "
               "row that proves arm 1 is load-bearing rather than coincidentally true of today's "
               "fixture: without it, a map that mirrored nothing would still pass arm 1",
-              _a3_undetected == [] and len(DETECTABLE_PAIRS) == 20)
+              _a3_undetected == [] and len(DETECTABLE_PAIRS) == 14)
+        _a3_built_pairs = {("skew", "built"), ("disposition", "built"), ("active", "built"),
+                           ("built", "undeclared"), ("built", "stop"), ("built", "unmet")}
         check("7.274 row P arm 1M (the two sets are NOT the same set): coverage is bounded by what "
               "the home can PRODUCE, detection by what a re-ordering can be SEEN BY. "
               "`(skew,disposition)` and `(skew,undeclared)` cannot occur on any row this home "
-              "emits; `(skew,undeclared)` is DETECTABLE anyway, because a transposition re-orders "
-              "the whole map and any row tripping the lower limb sees it. Only "
-              "`(skew,disposition)` — ADJACENT in precedence AND impossible — is undetectable by "
-              "any fixture whatsoever, and asserting over the full cross-product is therefore "
-              "unsatisfiable rather than merely unmet",
-              ALL_21_PAIRS - REACHABLE_PAIRS == {("skew", "disposition"), ("skew", "undeclared")}
-              and ALL_21_PAIRS - DETECTABLE_PAIRS == {("skew", "disposition")}
+              "emits; `(skew,undeclared)` is DETECTABLE anyway. Pairs that include `built` are "
+              "neither reachable nor detectable: the limb never trips on a registered row. "
+              "Only `(skew,disposition)` plus the six `built` pairs are undetectable",
+              ALL_21_PAIRS - REACHABLE_PAIRS
+              == {("skew", "disposition"), ("skew", "undeclared")} | _a3_built_pairs
+              and ALL_21_PAIRS - DETECTABLE_PAIRS
+              == {("skew", "disposition")} | _a3_built_pairs
               and len(ALL_21_PAIRS) == 21)
         # ---- arm 2 / 2N: clause B's ONE answer, and the conjunctive control ----
         check("7.274 row P arm 2: an `exited` row that is otherwise CLEAN classes `exit-unruled` "
@@ -28005,7 +28097,8 @@ def _selftest_checks(args, failures, names):
               "admits a row that still carries a class, by design",
               all(conjunction_admits(r) == (deferral_class(r) is None) for r in _a3_rows)
               and conjunction_admits(_a3_by["clean"])
-              and sum(1 for r in _a3_rows if conjunction_admits(r)) == 1)
+              and conjunction_admits(_a3_by["s08"])
+              and sum(1 for r in _a3_rows if conjunction_admits(r)) == 2)
         # ---- row S: the disposition domain's closure, MECHANIZED ----
         check("7.274 row S: every value `RECORD_DISPOSITION_WRITER` admits at the WRITE boundary "
               "has a deferral class here — set equality, so a disposition added without a class "
