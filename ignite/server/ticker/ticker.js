@@ -9,7 +9,7 @@ const {
   generateSessionId,
   toolExecEnv,
 } = require('../spawn/carrier');
-const { exitFilePath, ensureExitFile, closeSeatSessionRow } = require('../spawn/spawn');
+const { exitFilePath, ensureExitFile, closeSeatSessionRow, applyDispositionGrants } = require('../spawn/spawn');
 const { runWarningCheck } = require('./warnings-check');
 // Constants only — the ticker's store is INJECTED (`heartStore`), and this require never
 // constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
@@ -1805,10 +1805,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // instead of stopping the heart for one; the rows that do not fit this tick are still there
     // next tick, because nothing else clears them.
     let closerBudget = CLOSER_MAX_PER_TICK;
+    // F3 — drain disposition grants once per goal per tick, including still-live execs.
+    // Grants are minted AFTER the closer has attested exited/kit; draining only on death
+    // would miss the leader's later ruling. Deduped by goalDir inside the helper.
+    const drainedGoals = new Set();
     for (const exec of liveBeforeCrash) {
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
       statusThisTick.set(exec.exec_id, info);
+      if (exec.workdir) {
+        applyDispositionGrants({ workdir: exec.workdir, log, seen: drainedGoals });
+      }
       if (!info.live) {
         // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
         // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.

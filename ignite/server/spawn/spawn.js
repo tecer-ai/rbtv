@@ -450,6 +450,33 @@ function closeSeatSessionRow({ workdir, sessionId, log }) {
   }
 }
 
+// F3 — drain leader-minted disposition grants onto sessions.csv. The leader mints on
+// writable coordination/; this uncaged call is the apply. Next to closeSeatSessionRow
+// because both are coord.py execs the ticker fires; the closer itself is too late (it
+// has already attested exited/kit before the leader investigates).
+//
+// NEVER THROWS. Dedupes by goalDir when the caller passes `seen`.
+function applyDispositionGrants({ workdir, log, seen }) {
+  const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
+  if (!seatPath || !seatPath.goalDir) return { applied: false, reason: 'workdir is not a seat home' };
+  if (seen) {
+    if (seen.has(seatPath.goalDir)) return { applied: false, reason: 'already-this-tick' };
+    seen.add(seatPath.goalDir);
+  }
+  const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
+    'team-kit', 'coord.py');
+  try {
+    const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
+      '--as', 'ignite-daemon', 'apply-disposition-grants'],
+    { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (log) log('info', 'disposition-grants: drain ran', { goalDir: seatPath.goalDir, evidence: out.trim().slice(0, 600) });
+    return { applied: true, reason: '', output: out };
+  } catch (err) {
+    if (log) log('info', 'disposition-grants: drain did not apply', { goalDir: seatPath.goalDir, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
+    return { applied: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) };
+  }
+}
+
 // Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
 //
 // A worktree belonging to this seat is `<ws>/.rbtv/worktrees/{repo}--{goal}--{seat}` (7.38's
@@ -2149,6 +2176,7 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 // The schema still has one owner (`coord.py SESSIONS_COLS`); what unifies here is the mechanism.
 module.exports = {
   closeSeatSessionRow,
+  applyDispositionGrants,
   createSpawnManager,
   validateSpawnRequest,
   exitFilePath,

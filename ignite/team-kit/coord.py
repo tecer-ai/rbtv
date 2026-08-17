@@ -5256,6 +5256,15 @@ def is_leader(name):
     return name == "leader"
 
 
+def is_daemon(name):
+    """Who may drain disposition grants onto `sessions.csv`: the uncaged ignite daemon only.
+
+    The leader mints on writable `coordination/`; this predicate is the apply half. Reusing
+    `is_authorized_launcher` would let the leader write `sessions.csv` from a cage that carves
+    that file read-only — the EROFS this split exists to avoid."""
+    return name == DAEMON_IDENTITY
+
+
 def is_leader_or_closer(name):
     return name == "leader" or name.startswith("closer-")
 
@@ -14090,6 +14099,75 @@ def spend_relaunch_grant(base, seat, session_id, anchor):
     return ""
 
 
+DISPOSITION_GRANT_COLS = [
+    "seat", "session-id", "from-state", "ruled", "writer", "anchor", "stamp", "spent-at",
+]
+
+
+def disposition_grants_csv(base):
+    """`{package}/coordination/disposition-grants.csv` — leader-minted rulings the daemon applies.
+
+    The leader cannot write `sessions.csv` (every cage ro-binds it). It mints here, on the
+    writable `coordination/` hole, the same way `relaunch-grants.csv` already works. The uncaged
+    daemon drains unspent rows through `session_rule_disposition`. An unspent row is NOT a
+    READY override and is invisible to after-edges until applied."""
+    return Path(base) / "disposition-grants.csv"
+
+
+def read_disposition_grants(base):
+    """[(row-index, {col: cell})] over the grant file, file order. `[]` when there is none."""
+    path = disposition_grants_csv(base)
+    if not path.exists():
+        return []
+    header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
+    out = []
+    for i, r in enumerate(rows):
+        pad_row(r, header)
+        out.append((i, {col: (r[header.index(col)].strip() if col in header else "")
+                        for col in DISPOSITION_GRANT_COLS}))
+    return out
+
+
+def mint_disposition_grant(base, seat, session_id, from_state, ruled, writer, anchor):
+    """Append one disposition grant row. Returns the row as written."""
+    with coord_lock(base):
+        path = disposition_grants_csv(base)
+        header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
+        header, _ = widen_header(header, DISPOSITION_GRANT_COLS)
+        rows = [pad_row(r, header) for r in rows]
+        rec = {"seat": seat, "session-id": session_id, "from-state": from_state,
+               "ruled": ruled, "writer": writer, "anchor": anchor,
+               "stamp": now(), "spent-at": ""}
+        rows.append([rec.get(col, "") for col in header])
+        write_csv_table(path, header, rows)
+        return rec
+
+
+def spend_disposition_grant(base, seat, session_id, anchor):
+    """Stamp `spent-at` on the matched unspent grant. Returns the stamp, or "" when none matched.
+
+    Spent only AFTER a successful apply (fail-closed): a grant that did not land stays
+    unspent so the next drain can retry. Spending first would burn the ruling with no
+    durable cell behind it."""
+    with coord_lock(base):
+        path = disposition_grants_csv(base)
+        header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
+        if "spent-at" not in header:
+            return ""
+        idx = {col: i for i, col in enumerate(header)}
+        stamp = now()
+        for r in rows:
+            pad_row(r, header)
+            if (r[idx["seat"]].strip() == seat
+                    and r[idx["session-id"]].strip() == session_id
+                    and r[idx["anchor"]].strip() == anchor
+                    and not r[idx["spent-at"]].strip()):
+                r[idx["spent-at"]] = stamp
+                write_csv_table(path, header, rows)
+                return stamp
+    return ""
+
+
 def cmd_rule_relaunch(args):
     """(leader) MINT the grant that admits ONE ruled relaunch of an ENDED row whose disposition is
     in `RELAUNCH_GRANT_FROM_STATES` — exit 1 of `d-exited-row-closure` on the `exited` class, and
@@ -15263,20 +15341,19 @@ def cmd_attest_exit(args):
 
 
 def cmd_rule_disposition(args):
-    """(leader) Record a RULED disposition on a session row that has ALREADY ENDED — the second
-    half of `d-exited-row-closure`. BARE = report; `--go` = write.
+    """(leader) MINT a disposition grant for a RULED value on a session row that has ALREADY
+    ENDED — the second half of `d-exited-row-closure`. BARE = report; `--go` = mint.
 
     THE ACT, in full: the chief-of-staff's sweep routes an `exited` row to the leader; the leader
     INVESTIGATES whether the seat needs relaunching; where the work had in fact concluded, this is
     how that finding is recorded. The investigation is the leader's and happens before this command
     — the command records a ruling, it never makes one, and it reads nothing about the work.
 
-    ⚠ BOTH SURFACES, ONE VALUE, DURABLE FIRST. `terminal_disposition` reads `awaiting-close.json`
-    and the session row and reports SKEW when they disagree, and `attest-exit` wrote `exited` to
-    both. The durable row is written first because it is the surface that survives the lifecycle
-    executor's clear; the live entry is re-pointed after, and its outcome is REPORTED rather than
-    assumed — an `absent` entry is the ordinary case for a seat whose debt was already cleared, and
-    a `failed` one is a skew the caller must see, not a step that quietly did nothing."""
+    ⚠ `--go` NEVER WRITES `sessions.csv`. Every cage, including the leader's, ro-binds that file
+    (anti-spoofing, and it STAYS). The grant lands on writable `coordination/`; the uncaged
+    daemon applies it through `session_rule_disposition`. An unspent grant is invisible to
+    after-edges — that is deliberate, so awaiting/sessions cannot skew off a file the DAG does
+    not read."""
     gate(args, "rule-disposition", is_leader,
          "the leader's alone — `d-exited-row-closure` grants this act to the leader, and to no "
          "other side. Every other writer declares its own disposition at its own check-out",
@@ -15286,17 +15363,31 @@ def cmd_rule_disposition(args):
     seat = args.seat
     disposition = args.disposition
     go = bool(getattr(args, "go", False))
+    anchor = (getattr(args, "anchor", None) or "").strip()
+    if not anchor:
+        refuse("input",
+               "--anchor is the leader's own ruling anchor and carries the trail; an empty one "
+               "would mint a grant citing nothing.", 2)
     # The writer is DECLARED at this call site, exactly as `attest_exit_seat` declares the kit's.
     # Whether the leader may write the requested value is `RECORD_DISPOSITION_WRITER`'s answer,
     # read through `validate_disposition` inside the writer below — never re-stated here.
+    # ALWAYS dry: `--go` mints a grant; `session_rule_disposition` is the daemon drain's writer.
     try:
         sid, from_state, why = session_rule_disposition(pkg, base, seat, disposition,
-                                                        DISPOSITION_WRITER_LEADER, dry=not go)
+                                                        DISPOSITION_WRITER_LEADER, dry=True)
     except ValueError as exc:
         refuse("input", f"{exc}\nThat is the writer model's own refusal, read at the moment of "
                         f"the write — this command carries no copy of it.", 2)
     if why:
         refuse("state", f"{seat}: {why}", 1)
+    existing = [g for _, g in read_disposition_grants(base)
+                if g["seat"] == seat and g["session-id"] == sid]
+    if existing:
+        refuse("state",
+               f"'{seat}' already carries a grant for session {sid} "
+               f"(anchor `{existing[0]['anchor']}`, stamp {existing[0]['stamp']}, "
+               f"spent-at `{existing[0]['spent-at'] or '(unspent)'}`). Minting a second would "
+               f"authorize two rulings where one was made.", 1)
     if not go:
         # The row's OWN cell, as the predicate that admitted it read it — never the constant. A
         # report interpolating `RULED_FLIP_FROM` would tell a leader that an EMPTY row "carries"
@@ -15306,23 +15397,75 @@ def cmd_rule_disposition(args):
                    else "an EMPTY disposition cell (nobody declared one)")
         print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
               f"{carried}, and `{disposition}` is admitted from the leader.")
-        print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
+        print("    (report only — nothing was written. Re-run with --go to mint the grant.)")
         return
-    print(f"{c(seat, C_LABEL)}  RULED `{disposition}` by {DISPOSITION_WRITER_LEADER}")
-    print(f"    sessions.csv: {sid} disposition `{disposition}`, "
-          f"disposition-writer `{DISPOSITION_WRITER_LEADER}`")
-    outcome = rule_awaiting_disposition(base, seat, disposition, DISPOSITION_WRITER_LEADER)
-    print({"updated": f"    awaiting-close.json: entry re-pointed to `{disposition}` — the two "
-                      f"surfaces agree, so nothing reads SKEW",
-           "absent": "    awaiting-close.json: no entry for this seat — nothing to re-point (the "
-                     "debt was already cleared; the durable row is the surviving record)",
-           "failed": "    awaiting-close.json: NOT re-pointed — the two surfaces now DISAGREE and "
-                     "`ready-seats` will report SKEW for this seat until that is resolved. SAY SO"
-           }[outcome])
-    print(c(f"\nThe ruling is recorded, and the row names {DISPOSITION_WRITER_LEADER} as the party "
-            f"that made it — a later reader can tell this `{disposition}` from one a seat wrote "
-            f"about its own work. Advancement follows the ordinary arithmetic "
+    try:
+        rec = mint_disposition_grant(base, seat, sid, from_state, disposition,
+                                     DISPOSITION_WRITER_LEADER, anchor)
+    except OSError as exc:
+        refuse("state",
+               f"{seat}: could not mint the disposition grant under coordination/ "
+               f"({exc.__class__.__name__}: {exc}). Nothing was written to sessions.csv.", 1)
+    print(f"{c(seat, C_LABEL)}  GRANT MINTED for session {sid}")
+    print(f"    disposition-grants.csv: seat `{seat}` session-id `{sid}` "
+          f"from-state `{rec['from-state']}` ruled `{rec['ruled']}` "
+          f"writer `{rec['writer']}` anchor `{anchor}` stamp `{rec['stamp']}` "
+          f"spent-at (unspent)")
+    print(c(f"\nThe grant is recorded. The uncaged daemon applies it to sessions.csv "
+            f"(`{coord_invocation(args)} apply-disposition-grants`); until then the durable "
+            f"cell is unchanged and after-edges do not advance "
             f"({coord_invocation(args)} ready-seats).", C_HINT))
+
+
+def cmd_apply_disposition_grants(args):
+    """(daemon) Drain unspent disposition grants onto `sessions.csv` through
+    `session_rule_disposition`, then re-point `awaiting-close.json`. Writer cell stays `leader`.
+
+    Fail-closed: a grant is spent only after a successful apply. A row that cannot land is
+    left unspent for the next drain. An unspent grant is never treated as `done` by after-edges."""
+    gate(args, "apply-disposition-grants", is_daemon,
+         "the uncaged ignite daemon's — it is the hand that writes sessions.csv; the leader "
+         "mints the grant and is the ruler named in the writer cell",
+         remedy="the ticker drains this; a human does not type it")
+    pkg = package_dir(args)
+    base = base_dir(args)
+    applied = 0
+    for _i, g in read_disposition_grants(base):
+        if g["spent-at"]:
+            continue
+        seat = g["seat"]
+        sid = g["session-id"]
+        ruled = g["ruled"]
+        writer = g["writer"] or DISPOSITION_WRITER_LEADER
+        anchor = g["anchor"]
+        try:
+            got_sid, _from_state, why = session_rule_disposition(
+                pkg, base, seat, ruled, writer, dry=True)
+        except ValueError as exc:
+            print(f"{seat}: SKIP session {sid} — {exc}")
+            continue
+        if why or got_sid != sid:
+            print(f"{seat}: SKIP session {sid} — {why or ('last ended row is ' + (got_sid or '(none)'))}")
+            continue
+        try:
+            got_sid, _from_state, why = session_rule_disposition(
+                pkg, base, seat, ruled, writer, dry=False)
+        except (ValueError, OSError) as exc:
+            print(f"{seat}: SKIP session {sid} — apply failed ({exc.__class__.__name__}: {exc})")
+            continue
+        if why or got_sid != sid:
+            print(f"{seat}: SKIP session {sid} — {why or ('wrote ' + (got_sid or '(none)'))}")
+            continue
+        rule_awaiting_disposition(base, seat, ruled, writer)
+        stamp = spend_disposition_grant(base, seat, sid, anchor)
+        if not stamp:
+            print(f"{seat}: APPLIED session {sid} `{ruled}` but grant was NOT spent "
+                  f"(no matching unspent row)")
+            continue
+        applied += 1
+        print(f"{seat}: APPLIED `{ruled}` by {writer} on session {sid} — grant spent at {stamp}")
+    if not applied:
+        print("apply-disposition-grants: 0 applied")
 
 
 def cmd_rule_guard(args):
@@ -26250,7 +26393,7 @@ def _selftest_checks(args, failures, names):
         def _r155_ns(**kw):
             d = {"package": str(_r155_pkg), "base": None, "workers_dir": None,
                  "as_agent": "leader", "force": False, "go": True,
-                 "seat": "r155", "disposition": "done"}
+                 "seat": "r155", "disposition": "done", "anchor": "r155-anchor"}
             d.update(kw)
             return argparse.Namespace(**d)
 
@@ -26291,39 +26434,51 @@ def _selftest_checks(args, failures, names):
                     _hit = _x
             return {c: _hit[_i[c]] for c in _h} if _hit else {}
 
-        # ---- ARM 1: the ENDED row is written, and the row names the party that ruled it ----
+        # ---- ARM 1: the ENDED row mints a grant; sessions.csv is untouched until the drain ----
         _r155_seed("r155ended", ended=now(), disposition="exited")
         _r155_out, _r155_err, _r155_code = harness_outcome(
             cmd_rule_disposition, _r155_ns(seat="r155ended"))
         _r155_after = _r155_row("r155ended")
         _r155_awa = load_awaiting(base_dir(_r155_ns())).get("r155ended") or {}
-        check("7.155 (1) THE ENDED ARM WRITES, AND THE ROW RECORDS WHO RULED IT. The seat's last "
-              "session row is ENDED and carries `exited` — the state `attest-exit` leaves and the "
-              "state `d-exited-row-closure` routes to the leader. The verb exits clean, the row "
-              "now reads `done` in `disposition` AND `leader` in `disposition-writer`, and the "
-              "`ended` stamp is untouched. The writer cell is the whole point: by VALUE a ruled "
-              "`done` is indistinguishable from a seat's own, and the two are different claims — "
-              "one is a seat reporting its work finished, the other a third party's ruling after "
-              "an investigation it performed",
+        _r155_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
+                        if g["seat"] == "r155ended"]
+        check("7.155 (1) THE ENDED ARM MINTS A GRANT, AND SESSIONS.CSV IS UNTOUCHED. The seat's "
+              "last session row is ENDED and carries `exited` — the state `attest-exit` leaves and "
+              "the state `d-exited-row-closure` routes to the leader. The verb exits clean, prints "
+              "`GRANT MINTED`, and the durable row still reads `exited` with no writer. The grant "
+              "names the leader as writer and `done` as the ruled value. `--go` never writes "
+              "sessions.csv (every cage ro-binds it)",
               _r155_code is None
+              and "GRANT MINTED" in _r155_out
+              and _r155_after.get("disposition") == "exited"
+              and _r155_after.get("disposition-writer") == ""
+              and _r155_after.get("ended")
+              and len(_r155_grants) == 1
+              and _r155_grants[0]["ruled"] == "done"
+              and _r155_grants[0]["writer"] == "leader"
+              and _r155_grants[0]["session-id"] == "r155ended-sid"
+              and not _r155_grants[0]["spent-at"])
+        _r155_apply_out, _r155_apply_err, _r155_apply_code = harness_outcome(
+            cmd_apply_disposition_grants,
+            _r155_ns(seat="r155ended", as_agent="ignite-daemon", go=False))
+        _r155_after = _r155_row("r155ended")
+        _r155_awa = load_awaiting(base_dir(_r155_ns())).get("r155ended") or {}
+        _r155_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
+                        if g["seat"] == "r155ended"]
+        check("7.155 (2) THE DRAIN APPLIES BOTH SURFACES TOGETHER, AND THE ENTRY IS RE-POINTED "
+              "RATHER THAN REBUILT. After `--go` the grant exists and after-edges still see "
+              "`exited`. The daemon drain writes the durable cell through `session_rule_disposition` "
+              "(writer stays `leader`) and re-points awaiting-close. `pids`/`pane`/`transcript`/"
+              "`exported` stay byte-identical to what was seeded",
+              _r155_apply_code is None
               and _r155_after.get("disposition") == "done"
               and _r155_after.get("disposition-writer") == "leader"
-              and _r155_after.get("ended")
-              and "leader" in _r155_out)
-        check("7.155 (2) BOTH SURFACES MOVE TOGETHER, AND THE ENTRY IS RE-POINTED RATHER THAN "
-              "REBUILT. `terminal_disposition` reads `awaiting-close.json` AND the session row and "
-              "reports SKEW when they disagree, so a flip that touched only the durable row would "
-              "have taken the seat from `exited` (routes to the leader) to SKEW (adjudicate, "
-              "advances nothing) — the instrument for the leader's exit deepening the hole it "
-              "closes. The control is FIELD-LEVEL: `pids`, `pane`, `transcript` and `exported` are "
-              "byte-identical to what was seeded, because `reap` gates a pane KILL on that "
-              "recorded harness identity and a rebuild would replace it with an empty list read "
-              "off a pane that is already dead",
-              _r155_awa.get("disposition") == "done"
+              and _r155_awa.get("disposition") == "done"
               and _r155_awa.get("pids") == [[4242, "884118"]]
               and _r155_awa.get("pane") == "%466"
               and _r155_awa.get("transcript") == "/tmp/r155.txt"
               and _r155_awa.get("exported") is True
+              and _r155_grants and _r155_grants[0]["spent-at"]
               and terminal_disposition(_r155_pkg, base_dir(_r155_ns()), "r155ended")
                   == ("done", "awaiting-close.json", None))
 
@@ -26440,23 +26595,28 @@ def _selftest_checks(args, failures, names):
         # its own — that defect is the reason this battery exists, and reproducing it here would
         # be the same bug in a new place.
 
-        # ---- RD-EC-1: class (a) — the empty-cell ENDED row is rulable, and the write lands ----
+        # ---- RD-EC-1: class (a) — the empty-cell ENDED row is rulable, and the grant lands ----
         _r155_seed("rdec1", ended=now(), disposition="")
         _rdec1_out, _rdec1_err, _rdec1_code = harness_outcome(
             cmd_rule_disposition, _r155_ns(seat="rdec1"))
         _rdec1_after = _r155_row("rdec1")
-        check("RD-EC-1 AN EMPTY-CELL ENDED ROW IS RULABLE AND THE WRITE LANDS, NAMING THE LEADER. "
+        _rdec1_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
+                         if g["seat"] == "rdec1"]
+        check("RD-EC-1 AN EMPTY-CELL ENDED ROW IS RULABLE AND THE GRANT LANDS, NAMING THE LEADER. "
               "The row is ENDED and NOBODY DECLARED WHAT ITS SESSION MEANT — the state "
               "`undeclared_endings` exists to report and the one the grant re-points the leader's "
               "act at. It differs from 7.155 arm 1 in ONE cell, and that cell is the whole "
-              "change: the same caller, the same value, the same package. The row must come back "
-              "reading `done` in `disposition` AND `leader` in `disposition-writer`, because by "
-              "VALUE a ruled `done` is indistinguishable from a seat's own and the two are "
-              "different claims",
+              "change: the same caller, the same value, the same package. `--go` mints the grant "
+              "(writer `leader`, ruled `done`) and leaves the durable cell empty",
               _rdec1_code is None
-              and _rdec1_after.get("disposition") == "done"
-              and _rdec1_after.get("disposition-writer") == "leader"
-              and _rdec1_after.get("ended"))
+              and "GRANT MINTED" in _rdec1_out
+              and _rdec1_after.get("disposition") == ""
+              and _rdec1_after.get("disposition-writer") == ""
+              and _rdec1_after.get("ended")
+              and len(_rdec1_grants) == 1
+              and _rdec1_grants[0]["ruled"] == "done"
+              and _rdec1_grants[0]["writer"] == "leader"
+              and not _rdec1_grants[0]["spent-at"])
 
         # ---- RD-EC-2: classes (b)+(e) — a DECLARED cell stays unrewritable, bare and --force ----
         _r155_seed("rdec2done", ended=now(), disposition="done")
@@ -26567,6 +26727,65 @@ def _selftest_checks(args, failures, names):
               and "report only" in _rdec5_out
               and _rdec5_after.get("disposition") == ""
               and _rdec5_after.get("disposition-writer") == "")
+
+        # ============ F3: DISPOSITION GRANTS (mint / spend / refuse-on-spent / OSError) ==========
+        _f3_base = base_dir(_r155_ns())
+        _f3_mint = mint_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "exited", "done",
+                                          "leader", "f3-anchor")
+        _f3_rows = [g for _, g in read_disposition_grants(_f3_base) if g["seat"] == "f3mint"]
+        check("F3 mint: mint_disposition_grant appends an unspent row with the ruled columns",
+              _f3_mint["ruled"] == "done"
+              and _f3_mint["writer"] == "leader"
+              and _f3_mint["anchor"] == "f3-anchor"
+              and not _f3_mint["spent-at"]
+              and len(_f3_rows) == 1
+              and _f3_rows[0]["session-id"] == "f3mint-sid")
+        _f3_spent = spend_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "f3-anchor")
+        _f3_spent_again = spend_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "f3-anchor")
+        _f3_after_spend = [g for _, g in read_disposition_grants(_f3_base) if g["seat"] == "f3mint"]
+        check("F3 spend / refuse-on-spent: first spend stamps spent-at; a second spend returns empty",
+              bool(_f3_spent)
+              and _f3_spent_again == ""
+              and _f3_after_spend
+              and _f3_after_spend[0]["spent-at"] == _f3_spent)
+        _r155_seed("f3dup", ended=now(), disposition="exited")
+        _f3d1_out, _f3d1_err, _f3d1_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="f3-dup-a"))
+        _f3d2_out, _f3d2_err, _f3d2_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="f3-dup-b"))
+        check("F3 refuse-already-granted: a second --go for the same (seat, session-id) refuses",
+              _f3d1_code is None and "GRANT MINTED" in _f3d1_out
+              and _f3d2_code == 1
+              and "refused [coord state]" in (_f3d2_out + _f3d2_err)
+              and "already carries a grant" in (_f3d2_out + _f3d2_err)
+              and _r155_row("f3dup").get("disposition") == "exited")
+        _f3_empty_out, _f3_empty_err, _f3_empty_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="", go=False))
+        check("F3 empty-anchor: an empty --anchor is refused at input, even on the bare run",
+              _f3_empty_code == 2
+              and "refused [coord input]" in (_f3_empty_out + _f3_empty_err)
+              and "--anchor" in (_f3_empty_out + _f3_empty_err))
+        _r155_seed("f3err", ended=now(), disposition="exited")
+        _f3_orig_mint = mint_disposition_grant
+        def _f3_boom(*_a, **_k):
+            raise OSError(30, "Read-only file system")
+        globals()["mint_disposition_grant"] = _f3_boom
+        try:
+            _f3e_out, _f3e_err, _f3e_code = harness_outcome(
+                cmd_rule_disposition, _r155_ns(seat="f3err", anchor="f3-err"))
+        finally:
+            globals()["mint_disposition_grant"] = _f3_orig_mint
+        check("F3 OSError-refuse: mint OSError is a clean state refuse, no traceback, sessions "
+              "untouched",
+              _f3e_code == 1
+              and "refused [coord state]" in (_f3e_out + _f3e_err)
+              and "Traceback" not in (_f3e_out + _f3e_err)
+              and _r155_row("f3err").get("disposition") == "exited")
+        _f3_lead_out, _f3_lead_err, _f3_lead_code = harness_outcome(
+            cmd_apply_disposition_grants, _r155_ns(as_agent="leader"))
+        check("F3 apply is daemon-only: the leader is refused at the role gate",
+              _f3_lead_code == 2
+              and "refused [coord role gate]" in (_f3_lead_out + _f3_lead_err))
 
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
@@ -34447,7 +34666,9 @@ details + examples: coordinate <command> -h · --force overrides a refusal, wher
 # `lifecycle-exec` (s3-05) is here because no seat ever types it: `s3-09`'s caller forks it as a
 # detached subprocess. It is still registered through `command()` like every other subcommand, so
 # `save-coord.py`'s parser-build gate covers it and its own -h is held to the same example/next bar.
-HIDDEN_COMMANDS = ("lifecycle-exec",)
+# `apply-disposition-grants` is the ticker's drain of leader-minted disposition grants — daemon
+# identity, never a seat verb.
+HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants")
 
 
 ADVICE_SEND = re.compile(
@@ -35702,28 +35923,43 @@ def build_parser():
 
     s = command(
         "rule-disposition",
-        "(leader) Record a RULED disposition on a session row that has ALREADY ENDED — the\n"
-        "second half of `d-exited-row-closure`. `attest-exit` writes `exited` (THE HARNESS\n"
-        "TERMINATED, nothing more) and routes the row to the leader; the leader investigates,\n"
-        "and where the work had in fact concluded this is how that finding is recorded. It\n"
-        "writes ENDED rows ONLY — a row still open is its occupant's to end — and only one\n"
+        "(leader) MINT a disposition grant for a RULED value on a session row that has ALREADY\n"
+        "ENDED — the second half of `d-exited-row-closure`. `attest-exit` writes `exited` (THE\n"
+        "HARNESS TERMINATED, nothing more) and routes the row to the leader; the leader\n"
+        "investigates, and where the work had in fact concluded this is how that finding is\n"
+        "recorded. `--go` mints `coordination/disposition-grants.csv`; it never writes\n"
+        "`sessions.csv` (every cage ro-binds that file). The uncaged daemon applies the grant.\n"
+        "It admits ENDED rows ONLY — a row still open is its occupant's to end — and only one\n"
         "sitting on `exited`. The value is validated against the SAME writer model every other\n"
-        "disposition is, and the row records the leader as the party that ruled it. BARE =\n"
-        "report only.",
+        "disposition is. BARE = report only. `--anchor` is mandatory.",
         "example:\n"
-        "  coordinate rule-disposition oc2 done          # report: is this row rulable?\n"
-        "  coordinate rule-disposition oc2 done --go     # record the ruling\n"
-        "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
-        "other `done`")
+        "  coordinate rule-disposition oc2 done --anchor p-oc2-done          # report\n"
+        "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # mint the grant\n"
+        "next: the daemon drains the grant onto sessions.csv; then coordinate ready-seats — a "
+        "ruled `done` advances its successors' edges like any other `done`")
     s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
     s.add_argument("disposition",
                    help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
                         "from the leader")
+    s.add_argument("--anchor", default=None,
+                   help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
+                        "recorded as the trail and an empty one is refused")
     s.add_argument("--go", action="store_true",
-                   help="ACT: write the ruling to the session row and re-point the awaiting-close "
-                        "entry; without it nothing is written")
+                   help="ACT: mint the disposition grant under coordination/; without it nothing "
+                        "is written. Does not write sessions.csv")
     add_identity_flags(s)
     s.set_defaults(func=cmd_rule_disposition)
+
+    s = command(
+        "apply-disposition-grants",
+        "(daemon) Drain unspent rows of coordination/disposition-grants.csv onto sessions.csv\n"
+        "through session_rule_disposition (writer cell stays `leader`) and re-point\n"
+        "awaiting-close.json. Spends a grant only after a successful apply. Seats never type this.",
+        "example:\n"
+        "  coordinate --as ignite-daemon apply-disposition-grants\n"
+        "next: coordinate ready-seats — a just-applied `done` advances its successors")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_apply_disposition_grants)
 
     s = command(
         "rule-guard",
