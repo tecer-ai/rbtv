@@ -2397,30 +2397,28 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
             # F10 — a one-shot pays for CLI discovery inside its single
             # session; carry the exact command string VERBATIM.
             #
-            # ⚠ CHECK-IN IS DELIBERATELY NOT HERE, and its absence is the fix,
-            # not an omission. W1's C4 patch made check-in LANE-DEPENDENT: a
-            # daemon-lane seat is a `systemd-run` unit with no tmux pane for
-            # `checkin` to resolve against, so `coord.py#boot_prompt` drops the
-            # order on that lane and keeps it on the tmux lane. This file is
-            # LANE-BLIND — a seat is materialized before its lane is known — so
-            # a hardcoded `checkin` here re-issued, inside the seat's own
-            # descriptor, the very order the boot prompt had just withdrawn.
-            # Threading the lane down to materialize was the alternative and it
-            # is a design change for no gain: the boot prompt is composed on
-            # EVERY boot, already knows the lane, and already carries the
-            # check-in sentence. One instruction, one home, the one that knows.
+            # ⚠ CHECK-IN IS DELIBERATELY NOT HERE, and its absence is still
+            # the fix, not an omission — but the REASON has changed. It is no
+            # longer lane-dependent: since F1 (owner ruling 2026-08-17) BOTH
+            # lanes check in, the daemon lane's check-in simply being PANELESS
+            # (it registers against the seat's own open `sessions.csv` row
+            # instead of a tmux pane). What stands is the placement: the boot
+            # prompt is composed on EVERY boot and already carries the check-in
+            # sentence with the lane's amendment, while this file is LANE-BLIND
+            # — a seat is materialized before its lane is known. One
+            # instruction, one home, the one that knows.
             #
-            # ⚠ CHECK-OUT STAYS, on both lanes. It WORKS on the daemon lane
-            # (`awaiting-close.json` is writable there) and it is the sole
-            # producer of `incomplete` and of the leader route flag — dropping
-            # it would be a far worse defect than the desync being fixed.
+            # ⚠ CHECK-OUT STAYS, on both lanes, and now actually WORKS on both:
+            # it gates on the ACTIVE roster row a check-in writes, which the
+            # daemon lane had no way to produce until F1. It is the sole
+            # producer of `incomplete` and of the leader route flag.
             tail = (
                 "\n<!-- one-shot boot (F10): the exact coordination command "
-                "for this seat, verbatim. Check-IN is lane-dependent and is "
-                "ordered by the boot prompt, which knows the lane; this file "
+                "for this seat, verbatim. Check-IN is ordered by the boot "
+                "prompt, which knows the lane and its amendment; this file "
                 "does not. -->\n\n"
                 "One-shot boot — end your session with this command exactly "
-                "(your boot prompt states whether this lane also checks in):"
+                "(check in first — your boot prompt orders it):"
                 "\n\n"
                 f"    coordinate --package {package} --as {seat} checkout\n"
             )

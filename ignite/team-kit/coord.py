@@ -994,6 +994,19 @@ def coord_lock(base):
             fh.close()
 
 
+# F1 (paneless checkin, owner-ruled 2026-08-17). A daemon-launched seat has NO tmux pane, so its
+# roster row carries its OPEN `sessions.csv` session id in the pane cell instead, prefixed. One
+# column, two identity kinds — no header change, and the prefix is what keeps them tellable apart.
+# ⚠ A raw id handed to `tmux -t` is a silent wrong-target; every tmux wrapper below refuses a token
+# this predicate rejects, which is why the guard lives at the wrappers and not at each caller.
+SID_PANE_PREFIX = "sid:"
+
+
+def is_tmux_pane(s):
+    """True only for a real tmux pane id (`%N`) — the one token tmux may be handed as `-t`."""
+    return bool(s) and s.startswith("%")
+
+
 def detect_pane(override=None):
     if override:
         return override
@@ -1196,8 +1209,8 @@ def log_injection(pane, primitive, payload):
 
 def set_pane_title(pane, title):
     """Name the tmux pane after the agent (visible via pane-border-status)."""
-    if not pane:
-        return
+    if not is_tmux_pane(pane):
+        return   # F1: a session-id token is not a tmux target
     subprocess.run(["tmux", "select-pane", "-t", pane, "-T", title],
                    capture_output=True, text=True)
 
@@ -1277,6 +1290,8 @@ APPROVAL_TITLE_MARKERS = ("action required",)
 
 def pane_title(pane):
     """Current tmux title of a pane. '' when tmux is unavailable or the pane is gone."""
+    if not is_tmux_pane(pane):
+        return ""   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "-F", "#{pane_title}"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -1353,12 +1368,16 @@ _OPENCODE_BORDER = "┃"
 
 
 def tmux_send_text(pane, text):
+    if not is_tmux_pane(pane):
+        return False, "not a tmux pane"   # F1: a session-id token is not a tmux target
     log_injection(pane, "text", text)
     r = subprocess.run(["tmux", "send-keys", "-t", pane, "-l", text], capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
 
 
 def tmux_send_enter(pane):
+    if not is_tmux_pane(pane):
+        return False, "not a tmux pane"   # F1: a session-id token is not a tmux target
     log_injection(pane, "enter", "<Enter>")
     r = subprocess.run(["tmux", "send-keys", "-t", pane, "Enter"], capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
@@ -1367,6 +1386,8 @@ def tmux_send_enter(pane):
 def tmux_capture_tail(pane, lines=WAKE_TAIL_LINES, escapes=False):
     """Last N on-screen lines of a pane, soft-wraps rejoined (-J). Returns (text, err).
     `escapes` adds -e so SGR styling survives — the one bit that tells a P35-ghost from a draft."""
+    if not is_tmux_pane(pane):
+        return "", "not a tmux pane"   # F1: a session-id token is not a tmux target
     cmd = ["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", f"-{lines}"]
     if escapes:
         cmd.insert(2, "-e")
@@ -1636,6 +1657,8 @@ def tmux_find_window_pane(session, window):
 
 def tmux_kill_pane(pane):
     """Kill a pane; a window whose last pane dies closes with it. Returns (ok, err)."""
+    if not is_tmux_pane(pane):
+        return False, "not a tmux pane"   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "kill-pane", "-t", pane], capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
 
@@ -1644,6 +1667,8 @@ def tmux_respawn_pane(pane, cwd):
     """Restart a pane's command IN PLACE — same pane id, same cell, window layout untouched
     (G-12). `-k` kills whatever still runs there first. A renew used to kill the pane and split a
     fresh one, which re-tiles the whole window and destroys an arranged layout. Returns (ok, err)."""
+    if not is_tmux_pane(pane):
+        return False, "not a tmux pane"   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "respawn-pane", "-k", "-c", cwd, "-t", pane],
                        capture_output=True, text=True)
     return r.returncode == 0, r.stderr.strip()
@@ -1651,6 +1676,8 @@ def tmux_respawn_pane(pane, cwd):
 
 def tmux_pane_pid(pane):
     """PID of the pane's own process (its shell), 0 when unresolvable."""
+    if not is_tmux_pane(pane):
+        return 0   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_pid}"],
                        capture_output=True, text=True)
     out = r.stdout.strip()
@@ -1659,6 +1686,8 @@ def tmux_pane_pid(pane):
 
 def tmux_pane_window(pane):
     """Window id (@N) of a pane, '' when unresolvable."""
+    if not is_tmux_pane(pane):
+        return ""   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{window_id}"],
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else ""
@@ -1667,6 +1696,8 @@ def tmux_pane_window(pane):
 def tmux_pane_window_name(pane):
     """Window NAME of a pane ('control', 'workers'), '' when unresolvable. The id form above
     answers identity; this answers placement, which is what a descriptor declares."""
+    if not is_tmux_pane(pane):
+        return ""   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{window_name}"],
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else ""
@@ -1674,6 +1705,8 @@ def tmux_pane_window_name(pane):
 
 def tmux_capture(pane):
     """Full scrollback of a pane, wrapped lines joined. Returns (text, err)."""
+    if not is_tmux_pane(pane):
+        return "", "not a tmux pane"   # F1: a session-id token is not a tmux target
     r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", pane, "-S", "-"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -8077,12 +8110,28 @@ def cmd_checkin(args):
             "and which shared surfaces (records, scripts, views) you touch. No filler.",
             1)
     pane = detect_pane(args.pane)
+    # F1 — PANELESS CHECK-IN (owner ruling, 2026-08-17). Same verb, one code path, both lanes. A
+    # daemon-launched seat has no tmux pane, and it was ORDERED TO SKIP CHECKIN because of it — so
+    # it had no ACTIVE roster row, which is the single cause behind: checkout refused at its state
+    # gate (30 of 45 rows attested `exited`/`kit` because the seat could never declare its own
+    # ending), the read cursor never persisting, `ready-seats` unable to report RUNNING (twin leader
+    # sittings 4 s apart), and `send`/`close-seat` having no handle. Checkin already tolerated an
+    # empty pane; what was missing is an IDENTITY to register under. The seat's own still-open
+    # `sessions.csv` row is that identity — it exists by the time the seat is running its boot
+    # prompt, and it is the same row its checkout later closes.
     if not pane:
-        print("warning: not inside tmux and no --pane given, so your row carries no pane and "
-              "wakes cannot reach you — you must run `read` at your own checkpoints. Pass "
-              "--pane %N to bind one.", file=sys.stderr)
-    else:
+        _open_sid = sessions_open_ids(package_dir(args)).get(args.agent, "")
+        if _open_sid:
+            pane = SID_PANE_PREFIX + _open_sid
+    if is_tmux_pane(pane):
         set_pane_title(pane, args.agent)
+    elif pane:
+        print(f"paneless check-in: no tmux pane, registered against open session {pane} — wakes "
+              f"cannot reach you, so run `read` at your own checkpoints.", file=sys.stderr)
+    else:
+        print("warning: not inside tmux and no --pane given, and no open sessions.csv row to bind "
+              "to, so your row carries no pane and wakes cannot reach you — you must run `read` at "
+              "your own checkpoints. Pass --pane %N to bind one.", file=sys.stderr)
     # P37 (zombie double-launch): supersession is the RIGHT answer for a relaunch or a recovery —
     # the prior pane is gone, so nothing else can be holding the name. It is the WRONG answer when
     # the prior pane is still ALIVE: two live sessions then share one roster name, and the run has
@@ -8140,7 +8189,7 @@ def cmd_checkin(args):
     # table or pane pid ("cannot tell") passes, since losing a real seat to a false refusal is
     # worse than the defect. COORD_SKIP_HARNESS_CHECK=1 is the escape hatch for an unrecognized
     # harness wrapper.
-    if pane and not SKIP_HARNESS_CHECK:
+    if is_tmux_pane(pane) and not SKIP_HARNESS_CHECK:
         pids, verifiable = pane_harness_pids(pane)
         if verifiable and not pids:
             refuse(
@@ -8235,7 +8284,7 @@ def cmd_checkin(args):
     # it, and a pane whose purpose is human contact must never be moved to tidy a layout — a door
     # in the wrong window is cosmetic, a door killed for the layout is an outage. So it FLAGS and
     # leaves, and the operational fix stays a human's.
-    if pane:
+    if is_tmux_pane(pane):
         _decl = next((w["window"] for w in discover_workers(workers_dir(args))
                       if w["agent"] == args.agent), "")
         _actual = tmux_pane_window_name(pane)
@@ -9599,7 +9648,7 @@ def cmd_workers(args):
     for r in shown:
         if r["active"] == "yes":
             status, tone = "ACTIVE", C_ALIVE
-            if r["pane"] and live and r["pane"] not in live:
+            if is_tmux_pane(r["pane"]) and live and r["pane"] not in live:
                 status, tone = "DEAD?", C_DEAD  # registered pane is gone — wakes cannot reach it
                 dead += 1
         else:
@@ -11612,8 +11661,10 @@ def deliver_wakes(args, base, sender, to, n, mtype="note", origin=None):
             skipped.setdefault("not launched", []).append(name)   # briefed/named, no row yet
         elif row["active"] != "yes":
             skipped.setdefault("departed", []).append(name)       # had a row, checked out/closed
-        elif not row["pane"]:
-            skipped.setdefault("no pane", []).append(name)        # checked in without a pane
+        elif not is_tmux_pane(row["pane"]):
+            # F1: either no pane at all, or a PANELESS (daemon-lane) row bound to a session id.
+            # Both are pull-delivery seats — they read the log at their own checkpoints.
+            skipped.setdefault("no pane", []).append(name)
         elif at_approval_gate(row["pane"]):
             # 8(b) blind-gate hygiene: the seat is alive but parked on an interactive approval
             # modal. Typing into it cannot be read and can land INSIDE the modal's input — the
@@ -11876,6 +11927,9 @@ def cmd_status(args):
     live = live_panes()
     if not row["pane"]:
         pane_state, pane_tone = "no pane registered — wakes cannot reach you", C_DEAD
+    elif not is_tmux_pane(row["pane"]):
+        # F1: paneless (daemon-lane) row — bound to its session id, not to tmux. Not a defect.
+        pane_state, pane_tone = "paneless — bound to your session id; run `read` yourself", C_ALIVE
     elif live and row["pane"] not in live:
         pane_state, pane_tone = "DEAD? — the registered pane is gone, wakes cannot reach you", C_DEAD
     else:
@@ -15762,17 +15816,20 @@ def boot_prompt(w, args, daemon_lane=False):
                       f"file is YOURS: a present-tense state doc you REWRITE in place at your own "
                       f"renewal/close — resolved items deleted, ≤2 screens, never a log.")
         first = f"Read your briefing {w['briefing']} first.{memory}"
-    # ⚠ W1 (adv, C4) — THE DAEMON LANE IS TOLD A DIFFERENT OPENING, and only the opening.
+    # ⚠ F1 (owner ruling, 2026-08-17) — BOTH LANES CHECK IN. The daemon lane's opening differs in
+    # ONE sentence: its check-in is paneless.
     #
-    # `checkin` needs a tmux pane to resolve the caller against, and a daemon-lane seat has none —
-    # it is a `systemd-run` unit inside a cage. So this instruction, on that lane, orders every
-    # seat to run a command that CANNOT succeed, as the first act of its session. It is dropped,
-    # not softened: an instruction a seat is expected to fail at teaches it to ignore instructions.
+    # W1 dropped the check-in instruction on this lane because `checkin` had no identity to
+    # register a paneless seat under. That was measured wrong at its consequence, not its premise:
+    # the ACTIVE roster row `checkin` writes is what `checkout` gates on, what `persist_cursor`
+    # writes through, what makes `ready-seats` report RUNNING, and what gives `send`/`close-seat` a
+    # handle. Dropping it did not cost one instruction — it cost the seat its ending (30 of 45 rows
+    # attested `exited`/`kit` because no seat could declare its own), its cursor (~49 messages
+    # re-read per leader sitting), and the RUNNING mutex (twin leader sittings 4 s apart).
     #
-    # ⚠ CHECK-OUT IS NOT DROPPED WITH IT, and that asymmetry is the whole correction. Check-out
-    # WORKS on this lane — `awaiting-close.json` is a writable path — and it is the SOLE producer
-    # of `incomplete` and of the leader route flag. Dropping both would delete the honest ending
-    # this entire wave exists to preserve.
+    # The W1 comment that stood here also promised "check-out WORKS on this lane". It did not, and
+    # could not: `cmd_checkout` refuses at its roster gate BEFORE any write, and `--force` is not
+    # read on that refusal. It works now because the row exists.
     #
     # ⚠ THE PROTOCOL IS NAMED FROM THE KIT, NOT FROM THE PACKAGE — and both lanes name the SAME
     # bytes, because they are composed once, here, and concatenated by both branches below. Until
@@ -15811,16 +15868,19 @@ def boot_prompt(w, args, daemon_lane=False):
     if daemon_lane:
         opening = (
             reads +
-            f"There is ONE amendment for this lane: DO NOT run `checkin`. You have no tmux pane to "
-            f"check in from, and your session row in {pkg}/sessions.csv was already opened for you "
-            f"when you were spawned. Everything else in the protocol stands — in particular you "
-            f"still CHECK OUT (coordination CLI: {coord_invocation(args)}), and `checkout "
-            f"--incomplete \"<reason>\"` is the ONLY way to end a session honestly unfinished; a "
-            f"plain `checkout` says your briefing's output exists. Your check-out will report that "
-            f"it could not stamp {pkg}/sessions.csv — that is EXPECTED here and does not weaken it: "
-            f"the run package is mounted read-only in your cage on purpose, your declaration is "
-            f"recorded on the writable surface, and the daemon copies it across when your process "
-            f"ends. Then execute ONLY your briefing. ")
+            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}) — the "
+            f"SAME protocol as every other lane, with ONE amendment: your check-in is PANELESS. "
+            f"You have no tmux pane, so it registers you against the still-open session row already "
+            f"opened for you in {pkg}/sessions.csv, and it says so on its own output. That roster "
+            f"row is what makes your CHECK-OUT work, what lets others address and close you, and "
+            f"what keeps your read cursor — so check in FIRST, before anything else. Because you "
+            f"hold no pane, no wake can reach you: run `read` at your own checkpoints. Then CHECK "
+            f"OUT when you end — `checkout --incomplete \"<reason>\"` is the ONLY way to end a "
+            f"session honestly unfinished; a plain `checkout` says your briefing's output exists. "
+            f"Your check-out may report that it could not stamp {pkg}/sessions.csv — the run "
+            f"package is mounted read-only in your cage on purpose; your declaration is recorded on "
+            f"the writable surface and the daemon copies it across when your process ends. Then "
+            f"execute ONLY your briefing. ")
     else:
         opening = (
             reads +
@@ -19203,6 +19263,40 @@ def _selftest_checks(args, failures, names):
         active_alpha = [r for r in rows if r["agent"] == "alpha" and r["active"] == "yes"]
         check("P1: exactly one active row per agent", len(active_alpha) == 1 and active_alpha[0]["pane"] == "%3")
 
+        # ---- F1: PANELESS CHECK-IN, and the ending it buys back (owner ruling 2026-08-17) ------
+        # The daemon lane's seat has no pane, was ORDERED to skip check-in because of it, and so
+        # held no ACTIVE roster row — which is what `cmd_checkout` gates on BEFORE any write. 30 of
+        # 45 rows on the trigger goal ended `exited`/`kit` for that one reason: the seat could not
+        # declare its own ending. Both arms below are needed, and the second is the one that
+        # matters — a check-in that writes a row nothing downstream accepts is not the fix.
+        _pl_sessions = sessions_csv(pkg)
+        write_csv_table(_pl_sessions, SESSIONS_COLS,
+                        [[{"session-id": "pl-sid-1", "seat": "paneless",
+                           "started": "2026-08-17 12:00"}.get(_c, "") for _c in SESSIONS_COLS]])
+        calling_pane["v"] = ""   # explicit: this caller is in no pane, like every caged seat
+        _pl_out = run(cmd_checkin, agent="paneless", summary="daemon-lane seat, no pane",
+                      pane=None)
+        _, _, _pl_rows = load_workers(base_dir(ns()))
+        _pl_row = current_row(_pl_rows, "paneless")
+        check("F1: a seat with NO pane checks in against its OPEN sessions.csv row — the roster row "
+              "is ACTIVE and carries the session id as its identity token, not a pane id. Without "
+              "an identity to register under, this seat had no row at all",
+              _pl_row is not None and _pl_row["active"] == "yes"
+              and _pl_row["pane"] == SID_PANE_PREFIX + "pl-sid-1"
+              and "checked in: paneless" in _pl_out)
+        check("F1: and the token is NOT a tmux target — every tmux wrapper refuses it, so a raw "
+              "session id can never be handed to `tmux -t` as if it were a pane",
+              not is_tmux_pane(_pl_row["pane"]) and is_tmux_pane("%3")
+              and not is_tmux_pane("") and not is_tmux_pane("pl-sid-1"))
+        run(cmd_checkout, agent="paneless", no_export=True, incomplete="ran out of budget")
+        _pl_aw = load_awaiting(base_dir(ns())).get("paneless") or {}
+        check("F1: THE ENDING IS BOUGHT BACK — that seat now CHECKS OUT, reaching `set_awaiting` "
+              "and recording its own `incomplete` where the closer's carry-across reads it. This "
+              "is the row that used to refuse at the roster gate and attest `exited`/`kit`",
+              _pl_aw.get("disposition") == "incomplete")
+
+        _pl_sessions.unlink()   # fixture restored: the suite's package has no sessions.csv
+
         keys_log = []
         tmux_send_text = lambda pane, text: (keys_log.append((pane, text)) or (True, ""))
         tmux_send_enter = lambda pane: (keys_log.append((pane, "<Enter>")) or (True, ""))
@@ -19632,10 +19726,12 @@ def _selftest_checks(args, failures, names):
               _bp_conduct.is_file()
               and all(s in _bp_conduct.read_text(encoding="utf-8")
                       for s in ("checkout --incomplete", "Two doors, two conditions")))
-        check("boot reads: check-OUT reaches BOTH lanes — the daemon lane orders it in the "
-              "prompt, the tmux lane through the protocol the prompt now names; check-IN only "
-              "where a pane exists to resolve it (W1 C4 — the asymmetry is the correction)",
-              "CHECK OUT" in _bp_dmn and "DO NOT run `checkin`" in _bp_dmn
+        check("boot reads: check-IN and check-OUT reach BOTH lanes (F1, 2026-08-17 — W1 C4's "
+              "asymmetry INVERTED). The daemon lane's check-in is marked PANELESS and the retired "
+              "`DO NOT run checkin` sentence is asserted ABSENT: with both present a seat would "
+              "obey the negative one, which is the state that cost 30 of 45 sessions their ending",
+              "CHECK OUT" in _bp_dmn and "check in as 'gamma'" in _bp_dmn
+              and "PANELESS" in _bp_dmn and "DO NOT run `checkin`" not in _bp_dmn
               and "check in as 'gamma'" in _bp_tmux
               and "$COORD checkout " in _bp_proto.read_text(encoding="utf-8"))
 
@@ -35607,11 +35703,11 @@ def build_parser():
                    help="the TARGET seat whose boot prompt to print, as in its descriptor's "
                         "`agent:` key — never the caller")
     s.add_argument("--lane", choices=("console", "daemon"), default="console",
-                   help="which lane will carry this seat. `daemon` DROPS the check-in instruction "
-                        "(a caged systemd unit has no pane to check in from, so the instruction "
-                        "could only ever be failed) and states where its session-id is readable; "
-                        "check-OUT is instructed on both lanes. Default `console` — the bytes this "
-                        "verb has always printed")
+                   help="which lane will carry this seat. BOTH lanes are instructed to check in "
+                        "and to check out (F1, 2026-08-17); `daemon` states that its check-in is "
+                        "PANELESS — it registers against the seat's already-open sessions.csv row "
+                        "instead of a tmux pane — that no wake can reach it, and where its "
+                        "session-id is readable. Default `console`")
     s.set_defaults(func=cmd_boot_prompt)
 
     s = command(

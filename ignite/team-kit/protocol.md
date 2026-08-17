@@ -70,7 +70,10 @@ Working seats declare `window: yes` and live in their own named windows (tabs).
 
 **Staff chairs — always addressable, never waited on.** A goal's `leader` (mandatory) and
 `consultant` (optional) are ON-DEMAND seats: real `taskforce.csv` rows minted at goal-materialize,
-holding no workflow node, excluded from `checkin`/`checkout`. A send to one ALWAYS succeeds and is
+holding no workflow node. They CHECK IN when they sit and CHECK OUT when they rise, like every
+other seat (F1, 2026-08-17 — the former exclusion is retracted: it is what left the leader chair
+with no roster row, so its read cursor never persisted, `ready-seats` could not report it RUNNING,
+and one staff-wake grant opened two leader sittings 4 s apart). A send to one ALWAYS succeeds and is
 queued — a sitting is spawned to drain the mail and ends when it is drained — so `ready-seats`
 reporting a chair `IDLE` means it has no mail, never that it stalled. Which chairs a goal staffs is
 declared by CASTING them: a chair is minted only where a casting sheet exists at
@@ -88,12 +91,14 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    task" is useless. A re-check-in (relaunch, recovery) supersedes your prior row automatically —
    UNLESS the pane that already holds your name is still alive, in which case the check-in is
    REFUSED (P37): follow R-confirm-dead before you retry.
-   ⚠ **The DAEMON LANE is the one exception, and your own boot prompt states it** — do not derive it
-   from here. A daemon-lane seat is a `systemd-run` unit with no tmux pane for `checkin` to resolve
-   it against, and its session row was opened for it at spawn, so it is told NOT to run this command.
-   It still CHECKS OUT: that half works on this lane and is the sole producer of `incomplete` and of
-   the leader route flag. Its session-id is the `session-id` cell of its own still-open row in
-   `{package}/sessions.csv` — never a line printed by a check-in that did not happen.
+   ⚠ **The DAEMON LANE checks in like every other lane; its check-in is PANELESS** (F1, owner ruling
+   2026-08-17). A `systemd-run` seat has no tmux pane, so `checkin` resolves it against its own
+   still-open row in `{package}/sessions.csv` and registers that session id as its identity token.
+   No wake can reach a paneless seat — run `read` at your own checkpoints. This replaces the
+   standing instruction to SKIP check-in on that lane: the ACTIVE roster row it writes is what
+   `checkout` gates on before any write, what keeps your read cursor, and what makes you
+   addressable and closeable. Without it, 30 of 45 sessions on the goal that earned this rule
+   ended attested `exited` by the closer because no seat could declare its own ending.
 2. **Startup round — organize BEFORE you discuss.** No detailed cross-agent discussion on `all`
    at run start. Leader announces a turn order; each agent, in turn, sends ONE short intro
    (`--type note`, direct to `leader` — a note broadcast is refused by the tool): what it

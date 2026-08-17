@@ -961,19 +961,26 @@ async function main() {
   check('L9 coord composes a NON-EMPTY boot prompt for this seat — the arm\'s own premise, asserted '
     + 'before anything is compared against it',
     expectedPrompt.trim().length > 0, `${expectedPrompt.length} bytes`);
-  // ── W1 (adv, C4) · THE LANE ACTUALLY CHANGES THE BYTES, and in the ruled direction ───────────
-  // Two seat-facing facts, asserted against the CONSOLE composition as the control, so neither
-  // can pass by the flag being ignored: the daemon prompt must NOT order a check-in the seat has
-  // no pane to perform, and it MUST still order the check-out that is the sole producer of
-  // `incomplete`. A single "they differ" check would pass on any difference at all.
+  // ── F1 (owner ruling 2026-08-17) · THE LANE CHANGES THE BYTES, and in the RULED direction ────
+  // INVERTED from W1's C4, which asserted the opposite and so pinned the defect: the daemon lane
+  // was told NOT to check in, and without an ACTIVE roster row `cmd_checkout` refuses at its state
+  // gate before any write — so the check-out this same arm asserted was never reachable, and 30 of
+  // 45 sessions on the trigger goal ended attested `exited` by the closer. Both lanes now order a
+  // check-in; the daemon lane's is PANELESS (it registers against the seat's own open
+  // `sessions.csv` row). The CONSOLE composition stays the control, so neither half can pass by
+  // the flag being ignored, and the retired sentence is asserted ABSENT — a probe that only
+  // demanded the new text would still pass with both instructions present.
   const consolePrompt = execFileSync(requirePythonCmd(), coordArgv(),
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  check('L9/C4 the CONSOLE prompt orders a check-in — the control, without which "the daemon '
-    + 'prompt has no check-in" is true of any two strings',
+  check('L9/F1 the CONSOLE prompt orders a check-in — the control, without which any claim about '
+    + 'the daemon prompt\'s check-in is true of any two strings',
     /check in as/.test(consolePrompt), `console: ${consolePrompt.length} bytes`);
-  check('L9/C4 …and the DAEMON prompt does NOT order one, while still ordering the CHECK-OUT that '
-    + 'is the only producer of an honest `incomplete`',
-    !/check in as/.test(expectedPrompt) && /DO NOT run `checkin`/.test(expectedPrompt)
+  check('L9/F1 …and the DAEMON prompt orders one TOO, marked PANELESS and naming the open '
+    + 'sessions.csv row it binds — never the retired "DO NOT run `checkin`" — while still ordering '
+    + 'the CHECK-OUT that is the only producer of an honest `incomplete`',
+    /check in as/.test(expectedPrompt) && /PANELESS/.test(expectedPrompt)
+      && /sessions\.csv/.test(expectedPrompt)
+      && !/DO NOT run `checkin`/.test(expectedPrompt)
       && /checkout --incomplete/.test(expectedPrompt),
     `daemon: ${expectedPrompt.length} bytes · checkin-order=${/check in as/.test(expectedPrompt)}`);
 
