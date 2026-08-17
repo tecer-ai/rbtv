@@ -201,6 +201,24 @@ pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other scripts in the fo
 (`recover-room.py`, `agent-tmp-clean.py`) do not import
 `jobcontain` and already load anywhere.
 
+## Deploy model — in place, gated by ordering (owner-ruled 2026-08-17)
+
+The daemon runs **in place from the source tree**: the systemd units' `ExecStart` points straight at
+the working copy, so there is no build artifact, no staging copy, and no deploy gate — and by owner
+ruling (2026-08-17, accepting the in-place shape as designed) none is built. Two consequences bind
+every agent committing changes here:
+
+- **Per-invocation scripts** (team-kit CLIs, job scripts, probes, goal tooling) are live the moment
+  they are saved — **a build commit IS a deploy of its per-invocation half.** Say so in the report.
+- **Long-lived daemon JS** goes live only at the next restart of the unit that requires it — *any*
+  restart, including a watchdog's or an OOM recovery, fires whatever has landed.
+
+**The ordering rule that replaces a deploy gate: a wave's build commits must land only inside its
+landing window** — the window that ends with the restart that arms them. A commit landed outside its
+window sits armed, waiting to ride an unrelated restart, and per-invocation halves skew against the
+running daemon in the meantime (measured: ~14 min of engine/coord skew when a coordination CLI went
+live at its build commit while the daemon held the prior engine).
+
 ## Installation model
 
 Canonical statement of the ignite install model (owner ruling D27, 2026-07-14, `…/phase-7-plan/decisions.md`).

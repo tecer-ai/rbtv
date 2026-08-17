@@ -1066,6 +1066,15 @@ tools:
   # 7.560's authored plan (`dossiers/7560a-catalogue-entry-plan.md`) drafted this block against
   # `build-core-daemon-mvp`; the ruling re-aims it. Everything else below is that plan's block.
   #
+  # ⚠⚠ SUPERSEDED — DEQUEUED (owner, 2026-08-17). `d-0811-goalwatcher-arm-long-cadence`'s
+  # accepted-red arm is ENDED: the owner ruled the permanent failed row stops, so the periodic
+  # queue row (1800 s, queue_id 391) was removed via `ignite remove-job` on 2026-08-17. The job
+  # DEFINITION (`goal-watcher-job`) stays registered and fireable, and this argv block stays as
+  # its profile — if `system-health` ever gets real seats, re-arming is one `ignite add-job`
+  # line. The underlying RLIMIT_AS defect the accepted-red era masked was separately fixed by
+  # closeout task 09 in rbtv `f79bcdec` (`jobcontain.uncapped()`). The paragraphs below describe
+  # the superseded era and are kept as history.
+  #
   # ⚠ NEITHER TARGET FIELD NAMES A RUN — deliberately, and here that costs nothing: a run number in
   # an argv is a HOME IN WAITING and goes stale at the next close (7.117, 7.168, 7.188). `--package`
   # names the GOAL FOLDER (the plan had to pin `runs/run-3` for its own target and disclosed that as
