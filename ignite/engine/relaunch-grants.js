@@ -84,39 +84,116 @@ function spendGrant(goalFolder, seat) {
 // and this file is what hides its history from the engine's own eligibility reader. The csv grant
 // is spent by `coordinate launch` on the tmux lane — but the ENGINE lane never calls that, so an
 // engine spend that left the twin standing would flip the seat READY again after its re-run,
-// forever, and hold its dependents on `relaunch-granted` with it. Stamping the FIRST unspent row
-// for the seat here keeps the two stores moving as one on this lane. Best-effort by design: no
-// csv, no matching row, or an unparseable file spends nothing and fails silently — this is a
-// hygiene write over another surface's file, and refusing the engine's own spend over it would
-// invert the ownership. Plain comma split: every column the writer emits (seat, session-id,
-// anchor, minted-by, stamps) is comma-free by construction.
-function spendCoordTwin(goalFolder, seat) {
+// forever, and hold its dependents on `relaunch-granted` with it. Still a hygiene write over
+// another surface's file; still best-effort — no csv, no matching row, or an unparseable file
+// spends nothing. Plain comma split: every column the writer emits (seat, session-id, anchor,
+// minted-by, stamps) is comma-free by construction.
+//
+// ── ONE FILE, ONE PREDICATE (G-0818 fix) ──────────────────────────────────────────────────────
+//
+// THIS USED TO STAMP THE FIRST UNSPENT ROW FOR THE SEAT NAME, and that is the defect. coord owns
+// this file and its predicate needs ALL THREE CELLS — seat AND `session-id` AND `anchor`, unspent
+// and unrevoked (`coord.py#match_relaunch_grant`, `#spend_relaunch_grant`). Two readers with two
+// ideas of what a matching grant is made a freeze permanent on 2026-08-18 at 02:42Z: a chat-bridge
+// dispatch reached here, stamped the SESSION-STALE 01:05 grant, and left the LIVE 01:25 one
+// standing — and a standing unspent grant makes `coord.py#mint_staff_wake` refuse every later wake
+// mint for that chair, forever. So the predicate below IS coord's, leg for leg, including the
+// order the legs are reported in. Nothing is invented over coord's file; the three cells cross as
+// ARGUMENTS, which is the rule `seeding.js#mintRetryGrants` states.
+//
+// ⚠ `sessionId` IS THE GRANT'S BINDING — THE SEAT'S PREVIOUS, ENDED SITTING — NOT the id of the
+// session a caller is starting. A dispatch that passes its NEW session id matches nothing, ever,
+// which turns this function into a silent no-op. Callers that hold no binding pass none and get
+// `no-binding` back.
+//
+// THE NO-MATCH BEHAVIOUR, stated because a silent one is how 02:42Z stayed invisible: SPEND
+// NOTHING, and say so through `log` — with the leg that failed, in coord's own five-word
+// vocabulary (`no-row`, `stale-session`, `anchor-mismatch`, `spent`, `revoked`; `no-binding` and
+// `write-failed` name a CALLER-side and an IO-side absence, which are this side's, not coord's).
+// It logs only when a LIVE grant is left STANDING for that seat, because that is the state with a
+// cost — an unspent grant suppresses the chair's next wake mint. A seat with nothing standing is
+// the ordinary case and warning on it every dispatch would bury the one line that matters.
+//
+// Returns `{spent, why}`: the stamp written (or ""), and the leg that refused (or "").
+function spendCoordTwin(goalFolder, seat, sessionId, anchor, log = null) {
   const file = path.join(goalFolder, 'coordination', 'relaunch-grants.csv');
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return; }
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return { spent: '', why: 'no-row' }; }
   const lines = text.split('\n');
   const header = (lines[0] || '').split(',').map((c) => c.trim());
   const seatIdx = header.indexOf('seat');
   const spentIdx = header.indexOf('spent-at');
+  if (seatIdx === -1 || spentIdx === -1) return { spent: '', why: 'no-row' };
+  const sessionIdx = header.indexOf('session-id');
+  const anchorIdx = header.indexOf('anchor');
   const revokedIdx = header.indexOf('revoked-at');
-  if (seatIdx === -1 || spentIdx === -1) return;
+  // An ABSENT column reads "" on every row — `coord.py#read_relaunch_grants` pads the same way, so
+  // a narrow legacy header refuses rather than matching on the columns it happens to carry.
+  const cell = (cells, i) => (i === -1 ? '' : (cells[i] || '').trim());
+
+  const forSeat = [];
   for (let i = 1; i < lines.length; i += 1) {
     if (!lines[i].trim()) continue;
     const cells = lines[i].split(',');
-    const spent = (cells[spentIdx] || '').trim();
-    const revoked = revokedIdx === -1 ? '' : (cells[revokedIdx] || '').trim();
-    if ((cells[seatIdx] || '').trim() !== seat) continue;
-    if (spent || revoked || /^revoked-/.test(spent)) continue;
-    while (cells.length <= spentIdx) cells.push('');
-    cells[spentIdx] = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-    lines[i] = cells.join(',');
-    const tmp = `${file}.tmp.${process.pid}`;
-    try {
-      fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
-      fs.renameSync(tmp, file);
-    } catch { /* hygiene write only — the engine's own spend already happened */ }
-    return;
+    if (cell(cells, seatIdx) !== seat) continue;
+    const stampCell = cell(cells, spentIdx);
+    // coord's own two predicates: a legacy `revoked-…` written into `spent-at` is REVOKED, not
+    // spent (`grant_is_spent`/`grant_is_revoked`), and a retired grant is not a consumed one.
+    const revoked = !!cell(cells, revokedIdx) || /^revoked-/.test(stampCell);
+    const spent = !!stampCell && !/^revoked-/.test(stampCell);
+    forSeat.push({
+      i,
+      cells,
+      session: cell(cells, sessionIdx),
+      anchor: cell(cells, anchorIdx),
+      revoked,
+      live: !spent && !revoked,
+    });
   }
+  if (!forSeat.length) return { spent: '', why: 'no-row' };
+
+  const standing = forSeat.filter((g) => g.live);
+  const refuse = (why) => {
+    if (log && standing.length) {
+      log('warn', 'coord relaunch grant NOT spent — no row matched all three cells (seat + session-id '
+        + '+ anchor, unspent and unrevoked), and a LIVE grant is left STANDING for this seat. An '
+        + 'unspent grant suppresses this chair\'s next wake mint (coord.py#mint_staff_wake), so the '
+        + 'seat can go quiet with nothing else saying why.', {
+        seat,
+        why,
+        goalFolder,
+        askedSession: sessionId || null,
+        askedAnchor: anchor || null,
+        standing: standing.map((g) => `${g.session}/${g.anchor}`),
+      });
+    }
+    return { spent: '', why };
+  };
+
+  if (!sessionId || !anchor) return refuse('no-binding');
+
+  const hit = forSeat.find((g) => g.session === sessionId && g.anchor === anchor && g.live);
+  if (!hit) {
+    // The legs, in `match_relaunch_grant`'s order — cheapest for the caller to check first.
+    const sameSession = forSeat.filter((g) => g.session === sessionId);
+    if (!sameSession.length) return refuse('stale-session');
+    const matched = sameSession.filter((g) => g.anchor === anchor);
+    if (!matched.length) return refuse('anchor-mismatch');
+    return refuse(matched.some((g) => g.revoked) ? 'revoked' : 'spent');
+  }
+
+  const stamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  while (hit.cells.length <= spentIdx) hit.cells.push('');
+  hit.cells[spentIdx] = stamp;
+  lines[hit.i] = hit.cells.join(',');
+  const tmp = `${file}.tmp.${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch {
+    return refuse('write-failed');    // hygiene write only — the engine's own spend already happened
+  }
+  return { spent: stamp, why: '' };
 }
 
 module.exports = { GRANT_FILE, grantPath, readGrants, grantRelaunch, spendGrant, spendCoordTwin };

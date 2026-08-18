@@ -1687,7 +1687,17 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
             seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, reason: written.reason,
           });
         } else {
-          spendCoordTwin(dispatchSeat.goalDir, dispatchSeat.seat);
+          // ⚠ THE DISPATCH HOLDS NO GRANT BINDING, AND `sessionId` ABOVE IS NOT IT. A coord grant's
+          // `session-id` names the seat's PREVIOUS, ENDED sitting — the one whose ending authorizes
+          // the relaunch — while `sessionId` here is the session being STARTED. Handing it over
+          // would match nothing, ever, and turn this call into a silent no-op. So no binding is
+          // claimed: `spendCoordTwin` refuses on `no-binding` and, when a LIVE grant is left
+          // standing for this seat, says so through this same `log`. That warning is the signal
+          // that did not exist on 2026-08-18 at 02:42Z, when this call stamped the seat's
+          // session-stale grant and left its live one standing, suppressing every later wake mint.
+          // Whoever teaches this door the seat's grant (coord's own `relaunch-grant` field on a
+          // `ready-seats` row carries all three cells) passes them here and nothing else changes.
+          spendCoordTwin(dispatchSeat.goalDir, dispatchSeat.seat, null, null, log);
         }
         if (written.appended && written.dropped.length > 0) {
           log('warn', 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', {
