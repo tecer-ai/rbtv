@@ -104,7 +104,7 @@ Do not add a gate here. The enforcement point that does exist is the OS — a da
 bwrap namespace mounts `--tmpfs /run`, masking `/run/user/<uid>/bus`, so the user manager is
 unreachable from inside the cage (`CMP-17` Invariant 5). The ruled master gate needs `CMP-13`'s
 resolver (core-build task 7.10) and is **PARKED** in
-`1-projects/rbtv-sb-merge-refactor/parked-gaps.md`; it turns on only with explicit owner sign-off.
+`4-archives/executed/rbtv-sb-merge/rbtv-sb-merge-refactor/parked-gaps.md` (archived 2026-08-18, park unchanged); it turns on only with explicit owner sign-off.
 Discovery is not authorization: the surface is handed to every agent per `PRIN-8`.
 
 ## Retirement — the successor is the `rbtv` CLI

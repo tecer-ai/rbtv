@@ -115,8 +115,10 @@ async function run(argv, ctx) {
         // resolveJobHome has a single call site, inside launchAgent, while launchFireTool resolves
         // args.workdir || defaultWorkdir and spawns — so a fire-tool row FIRES unhomed (measured,
         // task 7.603 evidence w7603/c05). Telling every unhomed row it can never fire is the exact
-        // misreading that produced 7.587/7.603. ⚠ issues.md S-11 (does a fire-tool row's goal/seat
-        // HOME its execution?) is OPEN — a ruling toward homing changes the second wording.
+        // misreading that produced 7.587/7.603. ⚠ S-11 (does a fire-tool row's goal/seat HOME its
+        // execution?) was never ruled; its ledger is archived (vault: 4-archives/executed/
+        // rbtv-sb-merge/rbtv-sb-merge-refactor-core-build/issues.md, triage 2026-08-18). A future
+        // ruling toward homing changes the second wording.
         const home = result.homed
           ? `homed at ${result.homed.goal}/${result.homed.seat}`
           : result.action_type === 'launch-agent'
