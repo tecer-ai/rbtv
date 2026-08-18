@@ -1,181 +1,67 @@
 #!/usr/bin/env python3
-"""scaffold.py — generate per-model dispatch task files from source.
+"""scaffold.py — generate dispatch task files from the dispatch-wrapper card + cast argv.
 
-The dispatch-scaffold generator (p2-6 of the token-efficiency refactor).
-Composes dispatch boilerplate from the dispatch-wrapper card + a model delta,
-never hardcoded. Reuses render-manuals.py primitives for parsing/composition.
+Composes dispatch boilerplate from the dispatch-wrapper card and the catalog
+pair `cast route --catalog` names.
 
 Usage (run from the rbtv repo root):
     python orchestration/skills/orchestrating/scripts/scaffold.py \\
-        --model kimi --output-folder <dir> --filename <name>
-    # With task-specific instructions (complete mode):
-    python ... --model kimi --output-folder <dir> --filename <name> \\
-        --instructions <file-or-inline>
-    # With provenance preview:
+        --model sonnet-5 --output-folder <dir> --filename <name>
+    python ... --model sonnet-5 --harness claude --output-folder <dir> \\
+        --filename <name> --instructions <file-or-inline>
     python ... --explain
-
-Spec: orchestration/token-efficiency/token-efficiency-refactor/specs/dispatch-scaffold-spec.md
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Path resolution — repo root is the rbtv repo (this script lives under
-# orchestration/skills/orchestrating/scripts/, two levels below orchestration/).
-# ---------------------------------------------------------------------------
-
 SCRIPT_PATH = Path(__file__).resolve()
-# scaffold.py → scripts/ → orchestrating/ → skills/ → orchestration/ → rbtv/
-_ORCH_DIR_FROM_SCRIPT = SCRIPT_PATH.parent.parent.parent.parent  # orchestration/
-RBTV_ROOT = _ORCH_DIR_FROM_SCRIPT.parent  # rbtv repo root
+_ORCH_DIR_FROM_SCRIPT = SCRIPT_PATH.parent.parent.parent.parent
+RBTV_ROOT = _ORCH_DIR_FROM_SCRIPT.parent
 ORCH_DIR = _ORCH_DIR_FROM_SCRIPT
 
-# Default source paths (overridable via --wrapper / --model-dir for testing).
 DEFAULT_WRAPPER_PATH = (
     ORCH_DIR / "skills" / "orchestrating" / "cards" / "dispatch-wrapper.md"
 )
-DEFAULT_MODELS_DIR = ORCH_DIR / "models"
 
-DELTA_FILENAME = "delta.md"
-
-# Reuse render-manuals.py primitives — import from the canonical module.
-RENDER_MANUALS = ORCH_DIR / "models" / "render-manuals.py"
-
-
-def _import_render_primitives():
-    """Import compose primitives from render-manuals.py without requiring it
-    to be on sys.path or installed as a package."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("render_manuals", str(RENDER_MANUALS))
-    if spec is None or spec.loader is None:
-        _fail(f"cannot load render-manuals.py from {RENDER_MANUALS}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# ---------------------------------------------------------------------------
-# Per-model frontmatter skeleton and body-section header extraction from delta.
-# The delta states required frontmatter keys and body section headers in prose
-# under "The {model} task contract" heading. We parse them with a structured
-# convention: lines between "Required frontmatter:" and the next heading give
-# the skeleton keys; lines between "Required body sections:" and the next
-# heading give the section headers.
-# ---------------------------------------------------------------------------
-
-# Known frontmatter keys we recognise from model deltas (skeleton keys only —
-# values are left as placeholders for the conductor to fill).
-_KNOWN_FM_KEYS = [
+_GENERIC_FM_KEYS = [
     "execution_kind", "executor", "allowed_workdir", "allowlist",
     "commit_policy", "test_command", "forbidden_ops", "doubt_policy",
-    "reviewer", "swarm_policy", "max_kimi_subagents",
+    "reviewer",
 ]
 
-# Body-section header ordering (generic — models may add/remove; the delta
-# declares the authoritative list).
 _GENERIC_BODY_SECTIONS = [
     "Goal", "Context Snapshot", "Allowed Paths", "Forbidden Paths",
     "Implementation Requirements", "Validation", "Commit Rule",
-    "Swarm Rule", "Return Format",
+    "Return Format",
 ]
 
 
-def parse_required_sections(delta_text: str, model: str) -> tuple[list[str], list[str]]:
-    """Extract (frontmatter_keys, body_section_headers) from a delta's prose.
-
-    Looks for the 'Required frontmatter:' YAML block and 'Required body
-    sections:' prose within the model's task-contract section. Returns the
-    frontmatter keys (as YAML key names) and body-section headers (as display
-    names). If a structured block is not found, returns empty lists — the
-    caller should fail loud (derive-or-fail).
-    """
-    fm_keys: list[str] = []
-    body_headers: list[str] = []
-
-    # --- Parse required frontmatter: look for a YAML code block after
-    # "Required frontmatter:" marker. ---
-    fm_match = re.search(
-        r"\*\*Required frontmatter:\*\*\s*\n```yaml\s*\n(.*?)```",
-        delta_text, re.DOTALL,
-    )
-    if fm_match:
-        yaml_block = fm_match.group(1)
-        for line in yaml_block.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or line.startswith("- "):
-                continue
-            # Strip value part (everything after the first colon for scalars).
-            key = line.split(":")[0].strip()
-            if key and not key.startswith("-"):
-                fm_keys.append(key)
-
-    # --- Parse required body sections: look for "Required body sections:"
-    # followed by section names. They may be on the same line (kimi: inline
-    # with · separators) or on subsequent lines (bullet list). ---
-    bs_match = re.search(
-        r"\*\*Required body sections:\*\*\s*\n?(.*?)(?:\n\n|\n```|\n###|\Z)",
-        delta_text, re.DOTALL,
-    )
-    if bs_match:
-        bs_text = bs_match.group(1).strip()
-        # kimi style: "Goal · Context Snapshot · Allowed Paths · …" (inline, ·-separated)
-        if "·" in bs_text:
-            body_headers = [s.strip() for s in bs_text.split("·") if s.strip()]
-            # Clean up: remove parenthetical descriptions from the header name
-            cleaned = []
-            for h in body_headers:
-                # "Goal (one bounded deliverable)" → "Goal"
-                name = h.split("(")[0].strip()
-                if name:
-                    cleaned.append(name)
-            body_headers = cleaned
-        else:
-            # Bullet-list style: "- Goal" or "  - Goal"
-            for line in bs_text.splitlines():
-                m = re.match(r"\s*[-*]\s+(.+)", line)
-                if m:
-                    body_headers.append(m.group(1).strip())
-
-    if not fm_keys or not body_headers:
-        return fm_keys, body_headers  # Caller detects empty → fail loud
-
-    return fm_keys, body_headers
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter skeleton generation — keys from delta, values as placeholders.
-# ---------------------------------------------------------------------------
-
 def _placeholder_value(key: str) -> str:
-    """Return a human-readable placeholder for a frontmatter key."""
     placeholders = {
         "execution_kind": "<code|research>",
-        "executor": "<model-id>",
+        "executor": "<harness/model>",
         "allowed_workdir": "<repo-path>",
         "allowlist": "\n  - <file-or-folder-glob>",
         "commit_policy": "<local-only|none>",
         "test_command": "<command-or-NONE>",
         "forbidden_ops": "\n  - git push\n  - writes outside allowlist\n  - destructive git reset\n  - external production API calls",
         "doubt_policy": "halt",
-        "reviewer": "<reviewer-model>",
-        "swarm_policy": "<disabled|allowed>",
-        "max_kimi_subagents": "<N-or-0>",
+        "reviewer": "<reviewer-harness/model>",
     }
     return placeholders.get(key, f"<{key}>")
 
 
 def generate_frontmatter_skeleton(keys: list[str]) -> str:
-    """Generate a YAML frontmatter skeleton with placeholder values."""
     lines = ["---"]
     for key in keys:
         val = _placeholder_value(key)
         if "\n" in val:
-            # Multi-line value — emit directly (already indented).
             lines.append(f"{key}:{val}")
         else:
             lines.append(f"{key}: {val}")
@@ -183,285 +69,95 @@ def generate_frontmatter_skeleton(keys: list[str]) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Carrier detection — read the model manifest to determine Agent-tool vs CLI.
-#
-# Manifest-grounded discriminator (robust, not fragile):
-#   - Agent-tool carrier: headless.flags == "" AND auth.method == "none"
-#     AND auth.required == false.  This is the in-session Agent/Task tool
-#     path — there is NO process invocation, the prompt reaches the sub-agent
-#     as the Agent tool's `prompt` parameter (see claude manifest header).
-#   - CLI carrier: headless.flags is non-empty (e.g. "--quiet", "-p …") OR
-#     auth.method is something other than "none" (cli-login, api-key).  These
-#     packages have a process surface (command, flags, stdin/stdout).
-#
-# The spec forbids fabricating CLI invocation notes for an Agent-tool target
-# (Out-of-Scope: "fabricate CLI flags for an Agent-tool target").
-# ---------------------------------------------------------------------------
-
-def _is_agent_tool_carrier(model: str, models_dir: Path) -> bool:
-    """Return True if the model package is an Agent-tool carrier (no CLI process).
-
-    Reads the model's manifest.yaml and checks the carrier discriminator:
-    headless.flags == "" AND auth.method == "none" AND auth.required == False.
-    """
-    try:
-        import importlib.util
-        yaml_path = models_dir / model / "manifest.yaml"
-        if not yaml_path.exists():
-            return False
-        # Load yaml using stdlib-only approach (manifest is simple key-value).
-        # Try importing pyyaml first; fall back to minimal parser.
-        try:
-            import yaml as _yaml
-            with open(yaml_path, encoding="utf-8") as f:
-                manifest = _yaml.safe_load(f)
-        except ImportError:
-            # Minimal YAML parser for the fields we need.
-            manifest = _minimal_manifest_parse(yaml_path)
-
-        if manifest is None:
-            return False
-
-        variants = manifest.get("variants", [])
-        if not variants:
-            return False
-        v = variants[0]  # Check first variant as carrier discriminator
-        headless = v.get("headless", {})
-        auth = v.get("auth", {})
-
-        flags = headless.get("flags", "")
-        auth_method = auth.get("method", "")
-        auth_required = auth.get("required", True)
-
-        return flags == "" and auth_method == "none" and auth_required is False
-    except Exception:
-        # If manifest reading fails, default to CLI (safe: won't suppress flags
-        # for a genuine CLI carrier).
-        return False
-
-
-def _minimal_manifest_parse(yaml_path: Path) -> dict | None:
-    """Minimal stdlib YAML parser extracting only headless.flags, auth.method,
-    auth.required, and variants list. Returns None on failure."""
-    try:
-        import yaml as _yaml
-        with open(yaml_path, encoding="utf-8") as f:
-            return _yaml.safe_load(f)
-    except ImportError:
-        pass
-
-    # Fallback: regex-based extraction for the three fields we need.
-    text = yaml_path.read_text(encoding="utf-8")
-
-    # Extract headless.flags value.
-    flags_m = re.search(r'^\s+flags:\s*["\']?(.*?)["\']?\s*$', text, re.MULTILINE)
-    auth_method_m = re.search(r'^\s+method:\s*(\S+)\s*$', text, re.MULTILINE)
-    auth_required_m = re.search(r'^\s+required:\s*(true|false)\s*$', text, re.MULTILINE | re.IGNORECASE)
-
-    if not flags_m or not auth_method_m or not auth_required_m:
-        return None
-
-    return {
-        "variants": [{
-            "headless": {"flags": flags_m.group(1).strip().strip("'\"")},
-            "auth": {
-                "method": auth_method_m.group(1).strip(),
-                "required": auth_required_m.group(1).lower() == "true",
-            },
-        }]
-    }
-
-
-# ---------------------------------------------------------------------------
-# Launch-flag emission as DATA — read from the delta's invocation section.
-# ---------------------------------------------------------------------------
-
-def extract_launch_flags(delta_text: str, model: str, models_dir: Path) -> str:
-    """Derive launch flags from the model delta's invocation section.
-
-    FIX ADX-18 #1 (carrier-aware): before emitting any CLI flags, reads the
-    target package's manifest to determine carrier nature.  Agent-tool carriers
-    (headless.flags == "" AND auth.method == "none" AND auth.required == False)
-    get an explicit Agent-tool note with NO scraped flags.  CLI carriers keep
-    the derived-flag emission.
-
-    Deterministically extracts flag tokens (`--name` and short `-x`) from
-    the invocation section in first-appearance order, then emits them as
-    DATA with a provenance note. Per spec S8: the scaffold EMITS the fields,
-    never authors G1 policy text or fills root/target values.
-    """
-    # ADX-18 #1: carrier check — Agent-tool carriers must NOT get CLI flags.
-    if _is_agent_tool_carrier(model, models_dir):
-        return (
-            "### Invocation note (Agent-tool dispatch)\n\n"
-            "Agent-tool dispatch — no CLI invocation; the prompt is the Agent tool's prompt parameter.\n"
-            "\n> This is an in-session sub-agent carrier. There is no process, no flags, no stdin/stdout surface.\n"
-        )
-
-    inv_match = re.search(
-        r"<!--\s*RENDER:DELTA\s+invocation\s*-->\s*\n(.*?)<!--\s*RENDER:DELTA-END\s+invocation\s*-->",
-        delta_text, re.DOTALL,
-    )
-    if not inv_match:
-        return ""
-
-    inv_text = inv_match.group(1)
-
-    # Derive flag tokens: --long-form (and --kebab-case) first, then -x short forms.
-    long_flags = re.findall(r'--([A-Za-z][A-Za-z0-9][A-Za-z0-9-]*)', inv_text)
-    # Deduplicate preserving first-appearance order.
-    seen: set[str] = set()
-    ordered_long: list[str] = []
-    for f in long_flags:
-        if f not in seen:
-            seen.add(f)
-            ordered_long.append(f)
-
-    # Short single-letter flags: -C, -p, -q, etc. (but not -- or markdown dashes).
-    short_flags = re.findall(r'(?<![A-Za-z0-9])-([A-Za-z])(?![A-Za-z0-9-])', inv_text)
-    ordered_short: list[str] = []
-    for f in short_flags:
-        if f not in seen:
-            seen.add(f)
-            ordered_short.append(f)
-
-    # Build the derived invocation note.
-    flags_text_parts: list[str] = []
-    for f in ordered_long[:12]:  # cap at 12 for readability
-        flags_text_parts.append(f"`--{f}`")
-    for f in ordered_short[:6]:
-        flags_text_parts.append(f"`-{f}`")
-
-    flags_summary = ", ".join(flags_text_parts) if flags_text_parts else "(none derived)"
-
-    return (
-        f"### Invocation note (launch flags — DATA only; derived-from: delta invocation section)\n\n"
-        f"Derived flags from delta: {flags_summary}\n\n"
-        f"Confinement diff: `git diff --name-only HEAD` run in the work-target's git, not the launch-root.\n"
-        f"\n> These fields are emitted as data; the conductor supplies orchestrator-root and work-target values at dispatch.\n"
-    )
-
-
-# ---------------------------------------------------------------------------
-# G3 hook seam — named, no-op default.
-# ---------------------------------------------------------------------------
-
-def pre_dispatch_hook(model: str, work_dir: str, output_path: str) -> tuple[bool, str]:
-    """Named pre-dispatch hook slot (Brief E G3 seam).
-
-    Contract: receives the model + work-dir + output context, returns
-    (pass: bool, gap_message: str). Default implementation is a no-op that
-    always passes. Review 5 supplies the verify-or-supply body later.
-
-    DO NOT implement rules-reach logic here — this is a seam, not the policy.
-    """
-    # No-op default — always passes.
-    return True, ""
-
-
-# ---------------------------------------------------------------------------
-# Pre-flight checks (S6).
-# ---------------------------------------------------------------------------
-
 def _fail(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(1)
 
 
-def preflight_check_package(model: str, models_dir: Path) -> None:
-    """Check 1: model package folder + delta.md exist."""
-    model_dir = models_dir / model
-    if not model_dir.is_dir():
-        _fail(f"pre-flight: model package '{model}' not found at {model_dir}")
-    delta_path = model_dir / DELTA_FILENAME
-    if not delta_path.exists():
-        _fail(f"pre-flight: model '{model}' has no {DELTA_FILENAME} at {delta_path}")
-
-
-def preflight_check_manual_fresh(model: str, models_dir: Path | None = None) -> None:
-    """Check 2: render-manuals.py --check reports zero drift for this model.
-
-    models_dir: when the caller passed --model-dir, this is the override package
-    directory. It is threaded into render-manuals.py via --models-dir so the
-    staleness gate is exercised against the SAME scratch package directory that
-    scaffold.py uses for composition — not the live orchestration/models/ tree.
-    Omitting (None) → render-manuals.py uses its default live tree (today's behavior).
-    """
-    import subprocess
-
-    cmd = [sys.executable, str(RENDER_MANUALS), "--check", "--model", model]
-    if models_dir is not None:
-        # Pass the parent of the model package dir as --models-dir so that
-        # render-manuals.py --model {model} resolves {models_dir}/{model}/.
-        cmd += ["--models-dir", str(models_dir)]
+def load_catalog() -> list[dict]:
     result = subprocess.run(
-        cmd,
+        ["cast", "route", "--catalog", "--json"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=str(RBTV_ROOT),
     )
     if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        _fail(
-            f"pre-flight: model '{model}' manual is stale — re-render needed. "
-            f"Run: python {RENDER_MANUALS.relative_to(RBTV_ROOT)}\n"
-            f"  {stderr}"
-        )
+        stderr = (result.stderr or result.stdout or "").strip()
+        _fail(f"pre-flight: cast route --catalog failed (exit {result.returncode}): {stderr}")
+    try:
+        rows = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        _fail(f"pre-flight: cast route --catalog did not emit JSON: {exc}")
+    if not isinstance(rows, list):
+        _fail("pre-flight: cast route --catalog JSON is not a list")
+    return rows
 
 
-def preflight_check_guidance(model: str, models_dir: Path) -> None:
-    """Check 3: guidance file convention is satisfiable.
+def preflight_check_catalog(model: str, harness: str | None = None) -> dict:
+    rows = load_catalog()
+    matches = [r for r in rows if r.get("model") == model]
+    if harness:
+        matches = [r for r in matches if r.get("harness") == harness]
+    if not matches:
+        pair = f"harness={harness} model={model}" if harness else f"model={model}"
+        _fail(f"pre-flight: catalog does not name pair {pair}")
+    return matches[0]
 
-    This check is a documented stub — the actual verify-or-supply rules-reach
-    logic (Brief E G3: check .agents/behavior-rules/ present+current, inject/mirror)
-    is Review 5's track. The scaffold ships WITHOUT rules-reach logic; this slot
-    always defers to Review 5/G3.
-    """
-    # DEFERRED no-op — the real guidance-file check is Review 5 / G3 track.
-    # This stub documents that the check exists and will be supplied later.
-    pass  # guidance check: DEFERRED (Review-5/G3 track) — no-op
+
+def preflight_check_guidance(_model: str) -> None:
+    pass
 
 
 def preflight_check_output_folder(output_folder: Path) -> None:
-    """Check 4: --output-folder is an existing directory."""
     if not output_folder.is_dir():
         _fail(f"pre-flight: output folder does not exist: {output_folder}")
 
 
-# ---------------------------------------------------------------------------
-# Composed header generation — reuse render-manuals primitives.
-# ---------------------------------------------------------------------------
+def compose_run_binding_header(wrapper_path: Path) -> str:
+    if not wrapper_path.exists():
+        _fail(f"wrapper card not found: {wrapper_path}")
+    text = wrapper_path.read_text(encoding="utf-8")
+    start = text.find("## 2. The binding addendum")
+    end = text.find("## 4. Tripwires")
+    if start == -1:
+        start = text.find("## 2.")
+    if end == -1:
+        end = text.find("## 4.")
+    if start == -1:
+        return text
+    if end == -1:
+        return text[start:].strip() + "\n"
+    return text[start:end].strip() + "\n"
 
-def compose_run_binding_header(
-    model: str,
-    wrapper_path: Path,
-    delta_path: Path,
-    render_mod,
-) -> str:
-    """Compose the run-binding header from the card + model delta.
 
-    Reuses render-manuals.py's parse_template, parse_delta, and
-    compose_manual to produce the same composed header the rendered manual
-    carries for the binding addendum + return schema sections. Returns the
-    composed text (generic blocks with delta inserts).
-    """
-    blocks, insert_ids = render_mod.parse_template(wrapper_path)
-    delta_sections = render_mod.parse_delta(delta_path)
-    # Use compose_manual to get the full composed text, then extract just
-    # the header portion (before the invocation section).
-    full_manual = render_mod.compose_manual(
-        model, blocks, insert_ids, delta_sections, delta_path,
+def compose_invocation_note(row: dict) -> str:
+    harness = row.get("harness", "<harness>")
+    model = row.get("model", "<model>")
+    carrier = row.get("carrier", "cli")
+    if carrier == "agent-tool":
+        return (
+            "### Invocation note (Agent-tool dispatch)\n\n"
+            "Agent-tool dispatch — no CLI invocation; the prompt is the Agent tool's prompt parameter.\n"
+            "`cast` refuses to launch `carrier: agent-tool` rows.\n"
+        )
+    if carrier == "api":
+        return (
+            "### Invocation note (API dispatch)\n\n"
+            f"`cast api {model} <effort> -f <task file> --output-folder <dir>`\n"
+            "Use `--grounded` / `--extra-params` as the `[mode]` surface. "
+            "`cast --dry-run` is the composition check.\n"
+        )
+    return (
+        "### Invocation note (cast argv)\n\n"
+        f"`cast {harness} {model} <effort> <launch-root> -f <task file>`\n"
+        "Absolute paths. Binary-first (D17): the line begins with `cast`. "
+        "`cast --dry-run` is the composition check.\n"
+        "G1: launch-folder = orchestrator root; work-target via `--add-dir` "
+        "(opencode exception: launch root IS the target).\n"
     )
-    # The run-binding header = everything before the invocation heading.
-    inv_heading = render_mod.INVOCATION_HEADING
-    parts = full_manual.split(inv_heading)
-    header = parts[0].rstrip("\n") + "\n"
-    return header
 
 
-# ---------------------------------------------------------------------------
-# Skeleton-mode output.
-# ---------------------------------------------------------------------------
+def pre_dispatch_hook(model: str, work_dir: str, output_path: str) -> tuple[bool, str]:
+    return True, ""
+
 
 def build_skeleton_output(
     model: str,
@@ -470,9 +166,6 @@ def build_skeleton_output(
     body_headers: list[str],
     launch_flags: str,
 ) -> str:
-    """Build a skeleton task file: frontmatter at top, then body-section
-    headers, then the composed header at the bottom."""
-    # FIX 2: frontmatter must be FIRST in the file (task-file contract §1).
     parts = [generate_frontmatter_skeleton(fm_keys)]
     parts.append("")
     for section in body_headers:
@@ -483,36 +176,22 @@ def build_skeleton_output(
     if launch_flags:
         parts.append(launch_flags)
         parts.append("")
-    # G3 hook mention.
     parts.append("## Pre-Dispatch Hook")
     parts.append("")
     parts.append(
         "A named pre-dispatch hook slot exists (`pre_dispatch_hook` in scaffold.py) — "
         "default no-op, always passes. Review 5 supplies the verify-or-supply body.\n"
     )
-    # Composed run-binding header goes after the body (the header is the
-    # wrapper-derived context — it follows the task-specific sections).
     parts.append("")
     parts.append("---")
     parts.append("")
-    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + model delta)")
+    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + cast argv)")
     parts.append("")
     parts.append(header)
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Complete-mode output (--instructions).
-# ---------------------------------------------------------------------------
-
 def _parse_instruction_headings(instructions: str) -> dict[str, str]:
-    """Parse an instructions blob into {section_name: content} mapping.
-
-    If the instructions contain markdown headings (## Name) whose names match
-    known task-specific body sections, return the mapping. Otherwise return
-    an empty dict (all content falls into Goal as the fallback).
-    """
-    # Task-specific section names that headings can match.
     task_specific = {"Goal", "Context Snapshot", "Allowed Paths", "Forbidden Paths",
                      "Implementation Requirements", "Validation", "Commit Rule",
                      "Swarm Rule", "Return Format"}
@@ -522,8 +201,6 @@ def _parse_instruction_headings(instructions: str) -> dict[str, str]:
     buf: list[str] = []
 
     def flush() -> None:
-        """Append the current buffer to its section (append, so multiple
-        unmatched segments accumulating into Goal are never overwritten)."""
         if current_heading is None:
             return
         text = "\n".join(buf).strip()
@@ -538,24 +215,16 @@ def _parse_instruction_headings(instructions: str) -> dict[str, str]:
     for line in instructions.splitlines():
         stripped = line.lstrip()
         is_fence = stripped.startswith("```") or stripped.startswith("~~~")
-        # A heading counts ONLY outside a fenced code block. Fence delimiter lines
-        # and everything between them are content, never section headings — an
-        # inlined spec/example with `## Goal` inside a fence must not be promoted
-        # to a real section (mirrors is_preauthored_brief's fence-tracking).
         m = None if (in_fence or is_fence) else re.match(r'^#{1,3}\s+(.+)$', line)
         if is_fence:
             in_fence = not in_fence
         if m:
             heading_name = m.group(1).strip()
             if heading_name in task_specific:
-                # Matched heading → flush the prior section, open this one.
                 flush()
                 current_heading = heading_name
                 buf = []
             else:
-                # Unmatched heading → its content (heading line included)
-                # lands in Goal. If we were inside another section, flush it
-                # first so the unmatched run does not bleed into that section.
                 if current_heading != "Goal":
                     flush()
                     current_heading = "Goal"
@@ -569,10 +238,7 @@ def _parse_instruction_headings(instructions: str) -> dict[str, str]:
             else:
                 buf.append(line)
 
-    # Flush the final section.
     flush()
-
-    # Only return non-empty mappings.
     return {k: v for k, v in sections.items() if v}
 
 
@@ -584,9 +250,6 @@ def build_complete_output(
     instructions: str,
     launch_flags: str,
 ) -> str:
-    """Build a complete dispatchable prompt: frontmatter at top, body sections
-    with heading-aware instructions merge, then composed header."""
-    # FIX 4: heading-aware merge — parse instructions for matching section headings.
     heading_map = _parse_instruction_headings(instructions)
 
     parts = [generate_frontmatter_skeleton(fm_keys)]
@@ -601,9 +264,6 @@ def build_complete_output(
             parts.append("<conductor fills this section>")
         parts.append("")
 
-    # Any instructions content that didn't match a heading goes into Goal.
-    # (Already handled by _parse_instruction_headings → "Goal" fallback.)
-
     if launch_flags:
         parts.append(launch_flags)
         parts.append("")
@@ -614,39 +274,16 @@ def build_complete_output(
         "A named pre-dispatch hook slot exists (`pre_dispatch_hook` in scaffold.py) — "
         "default no-op, always passes. Review 5 supplies the verify-or-supply body.\n"
     )
-    # Composed run-binding header at the end.
     parts.append("")
     parts.append("---")
     parts.append("")
-    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + model delta)")
+    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + cast argv)")
     parts.append("")
     parts.append(header)
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Pre-authored-brief detection + complete-mode preserve path.
-#
-# When --instructions is itself a COMPLETE, pre-authored task file (its own
-# frontmatter and/or its own multi-section structure under an H1 title), the
-# conductor wants the brief PRESERVED VERBATIM with the derived boilerplate
-# INSERTED around it — not re-emitted over the fixed model skeleton. Slotting a
-# pre-authored brief into the skeleton mangles it three ways: duplicated
-# frontmatter (the brief's own `---` block dumped into Goal beneath a second,
-# skeleton `---` block), unfilled `<conductor fills this section>` placeholders
-# for every model section the brief named differently, and header-match
-# duplication (headings inside the brief's fenced code blocks mis-parsed as real
-# sections). This path avoids all three by never parsing the brief's body.
-# ---------------------------------------------------------------------------
-
 def _extract_frontmatter(text: str) -> tuple[str | None, str]:
-    """Split a leading YAML frontmatter block off the text.
-
-    Returns (frontmatter_inner, body) when the text's FIRST line is `---` and a
-    closing `---` line follows; otherwise (None, text). frontmatter_inner is the
-    content BETWEEN the fences (no fence lines); body is everything after the
-    closing fence.
-    """
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return None, text
@@ -655,12 +292,10 @@ def _extract_frontmatter(text: str) -> tuple[str | None, str]:
             fm_inner = "\n".join(lines[1:i])
             body = "\n".join(lines[i + 1:])
             return fm_inner, body
-    return None, text  # no closing fence — not a frontmatter block
+    return None, text
 
 
 def _top_level_fm_keys(fm_inner: str) -> set[str]:
-    """Top-level (column-0) YAML keys in a frontmatter block — nested/indented
-    keys (e.g. allowlist children) are intentionally ignored."""
     keys: set[str] = set()
     for line in fm_inner.splitlines():
         m = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*):", line)
@@ -670,16 +305,6 @@ def _top_level_fm_keys(fm_inner: str) -> set[str]:
 
 
 def is_preauthored_brief(text: str) -> bool:
-    """True when --instructions is a complete pre-authored task file rather than
-    loose section content.
-
-    Signal: the text carries its OWN leading frontmatter block, OR it contains an
-    H1 heading (`# `) outside fenced code blocks. A complete task file always has
-    a `# Task …` title and/or frontmatter; loose instructions are prose or `##`
-    section fragments matching model body sections. This discriminator keeps loose
-    instructions on the skeleton-merge path (the existing contract) while routing
-    real briefs to verbatim preservation.
-    """
     fm_inner, _ = _extract_frontmatter(text)
     if fm_inner is not None:
         return True
@@ -703,15 +328,6 @@ def build_preauthored_output(
     brief: str,
     launch_flags: str,
 ) -> str:
-    """Preserve a pre-authored brief VERBATIM and INSERT the derived boilerplate.
-
-    Frontmatter reconciliation: when the brief carries its own frontmatter, the
-    required model keys MISSING from it are appended into that single block (the
-    brief's own keys/values are never overwritten or duplicated); when the brief
-    has none, the model frontmatter skeleton is prepended. The brief body is then
-    emitted unchanged, followed by the launch-flag note, the pre-dispatch hook
-    note, and the composed run-binding header.
-    """
     fm_inner, body = _extract_frontmatter(brief)
 
     if fm_inner is not None:
@@ -751,83 +367,32 @@ def build_preauthored_output(
     parts.append("")
     parts.append("---")
     parts.append("")
-    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + model delta)")
+    parts.append("## Run-Binding Header (derived from dispatch-wrapper card + cast argv)")
     parts.append("")
     parts.append(header)
     return "\n".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Explain mode.
-# ---------------------------------------------------------------------------
-
-def explain(
-    model: str,
-    wrapper_path: Path,
-    delta_path: Path,
-    models_dir: Path,
-) -> None:
-    """Print provenance info: source file paths + pre-flight outcomes."""
-    print(f"=== Scaffold Provenance ===")
+def explain(model: str, wrapper_path: Path, row: dict) -> None:
+    print("=== Scaffold Provenance ===")
     print(f"Model:            {model}")
+    print(f"Harness:          {row.get('harness')}")
+    print(f"Carrier:          {row.get('carrier')}")
     print(f"Wrapper card:     {wrapper_path}")
-    print(f"Model delta:      {delta_path}")
-    print(f"Models directory: {models_dir}")
     print()
     print("=== Pre-flight Checks ===")
-
-    # Run checks in report-only mode (don't exit on failure).
-    checks = [
-        ("Package installed", lambda: _check_pkg(model, models_dir)),
-        ("Manual fresh", lambda: _check_manual(model)),
-        ("Guidance file", lambda: _check_guidance(model, models_dir)),
-    ]
-    for name, check_fn in checks:
-        ok, msg = check_fn()
-        status = "PASS" if ok else f"FAIL — {msg}"
-        print(f"  [{status}] {name}")
+    print("  [PASS] Catalog names the pair")
+    print("  [PASS] Guidance file (DEFERRED no-op)")
     print()
 
-
-def _check_pkg(model: str, models_dir: Path) -> tuple[bool, str]:
-    model_dir = models_dir / model
-    if not model_dir.is_dir():
-        return False, f"model package '{model}' not found"
-    if not (model_dir / DELTA_FILENAME).exists():
-        return False, f"no {DELTA_FILENAME}"
-    return True, ""
-
-
-def _check_manual(model: str, models_dir: Path | None = None) -> tuple[bool, str]:
-    import subprocess
-    cmd = [sys.executable, str(RENDER_MANUALS), "--check", "--model", model]
-    if models_dir is not None:
-        cmd += ["--models-dir", str(models_dir)]
-    result = subprocess.run(
-        cmd,
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-        cwd=str(RBTV_ROOT),
-    )
-    if result.returncode != 0:
-        return False, "manual stale"
-    return True, ""
-
-
-def _check_guidance(model: str, models_dir: Path) -> tuple[bool, str]:
-    # DEFERRED no-op — Review 5/G3 track.
-    return True, "DEFERRED (Review-5/G3 track) — no-op"
-
-
-# ---------------------------------------------------------------------------
-# Main driver.
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Generate per-model dispatch task files from the dispatch-wrapper "
-                    "card + model delta. Boilerplate is DERIVED, never hardcoded.",
+        description="Generate dispatch task files from the dispatch-wrapper "
+                    "card + cast argv. Boilerplate is DERIVED, never hardcoded.",
     )
-    parser.add_argument("--model", required=True, help="Worker model package id.")
+    parser.add_argument("--model", required=True, help="Catalog short-name model.")
+    parser.add_argument("--harness", default=None, help="Catalog harness (optional filter).")
     parser.add_argument("--output-folder", required=True, type=Path, help="Output directory.")
     parser.add_argument("--filename", required=True, help="Output filename.")
     parser.add_argument(
@@ -838,76 +403,38 @@ def main(argv: list[str] | None = None) -> int:
         "--explain", action="store_true",
         help="Print composed source paths + pre-flight outcomes.",
     )
-    # Overridable source paths (for testing / derive-test injection).
     parser.add_argument("--wrapper", type=Path, default=None, help="Override wrapper card path.")
-    parser.add_argument("--model-dir", type=Path, default=None, help="Override models directory.")
 
     args = parser.parse_args(argv)
 
-    # Resolve paths.
     wrapper_path = args.wrapper or DEFAULT_WRAPPER_PATH
-    models_dir = args.model_dir or DEFAULT_MODELS_DIR
-    delta_path = models_dir / args.model / DELTA_FILENAME
     output_path = Path(args.output_folder) / args.filename
 
-    # Import render-manuals primitives.
-    render_mod = _import_render_primitives()
-
-    # --- Pre-flight checks (S6) ---
-    preflight_check_package(args.model, models_dir)
-    # Thread models_dir into the manual-freshness pre-flight so the staleness gate
-    # checks the scratch package when --model-dir overrides the catalog root.
-    # When models_dir == DEFAULT_MODELS_DIR (no override), pass None to use the
-    # render-manuals.py default (behavior byte-identical to pre-change).
-    preflight_models_dir = models_dir if (args.model_dir is not None) else None
-    preflight_check_manual_fresh(args.model, models_dir=preflight_models_dir)
-    preflight_check_guidance(args.model, models_dir)
+    row = preflight_check_catalog(args.model, args.harness)
+    preflight_check_guidance(args.model)
     preflight_check_output_folder(Path(args.output_folder))
 
-    # --- Parse sources ---
-    if not wrapper_path.exists():
-        _fail(f"wrapper card not found: {wrapper_path}")
-    if not delta_path.exists():
-        _fail(f"model delta not found: {delta_path}")
+    header = compose_run_binding_header(wrapper_path)
+    launch_flags = compose_invocation_note(row)
+    fm_keys = list(_GENERIC_FM_KEYS)
+    body_headers = list(_GENERIC_BODY_SECTIONS)
 
-    delta_text = delta_path.read_text(encoding="utf-8")
-
-    # Extract required sections from delta.
-    fm_keys, body_headers = parse_required_sections(delta_text, args.model)
-    if not fm_keys or not body_headers:
-        _fail(
-            f"model '{args.model}' delta lacks a machine-readable required-frontmatter / "
-            f"required-body-sections block — the scaffold refuses to guess a skeleton from prose. "
-            f"Structure the blocks in the delta or declare a parse convention."
-        )
-
-    # Compose run-binding header.
-    header = compose_run_binding_header(args.model, wrapper_path, delta_path, render_mod)
-
-    # Extract launch flags (carrier-aware — ADX-18 #1).
-    launch_flags = extract_launch_flags(delta_text, args.model, models_dir)
-
-    # --- G3 hook ---
     hook_pass, hook_msg = pre_dispatch_hook(
         args.model, str(Path(args.output_folder)), str(output_path),
     )
     if not hook_pass:
         _fail(f"pre-dispatch hook failed: {hook_msg}")
 
-    # --- Check for file collision ---
     if output_path.exists():
         _fail(
             f"output file already exists: {output_path} — "
             f"refusing to clobber. Use a different --filename or remove the existing file."
         )
 
-    # --- Explain mode (prints provenance + pre-flight; still writes) ---
     if args.explain:
-        explain(args.model, wrapper_path, delta_path, models_dir)
+        explain(args.model, wrapper_path, row)
 
-    # --- Build output ---
     if args.instructions:
-        # Complete mode: read instructions from file if it looks like a path.
         instr_path = Path(args.instructions)
         if instr_path.is_file():
             instructions = instr_path.read_text(encoding="utf-8")
@@ -915,8 +442,6 @@ def main(argv: list[str] | None = None) -> int:
             instructions = args.instructions
 
         if is_preauthored_brief(instructions):
-            # The instructions ARE a complete task file — preserve verbatim and
-            # insert the derived boilerplate (never re-emit a skeleton over it).
             content = build_preauthored_output(
                 args.model, header, fm_keys, instructions, launch_flags,
             )
@@ -925,12 +450,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.model, header, fm_keys, body_headers, instructions, launch_flags,
             )
     else:
-        # Skeleton mode.
         content = build_skeleton_output(
             args.model, header, fm_keys, body_headers, launch_flags,
         )
 
-    # --- Write ---
     try:
         output_path.write_text(content, encoding="utf-8")
     except OSError as exc:

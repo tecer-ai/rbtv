@@ -77,7 +77,7 @@ Every task names the five fields the worker returns — the SAME schema the disp
 
 ## 8. Per-model contract plug-in seam
 
-This file is the GENERIC contract — model-independent. (This seam is forward-wiring: the model packages it plugs into land in P3 — until a given `orchestration/models/{model}/` package ships, the generic contract §1–§7 stands alone and a task is model-bound at routing time without a delta.) Each model package (`orchestration/models/{model}/`) extends it with a model delta that adds ONLY what that worker needs on top of §1–§7: required frontmatter fields, invocation-specific constraints (workdir, commit policy, swarm policy), and binding dispatch addenda (e.g., the Kimi root-files ban + evidence-file mandate, `learnings-kimi-worker.md` §5). The delta NEVER restates the generic contract — it plugs in. The dispatch-wrapper composes generic contract + model delta at dispatch time. A task authored for a specific model satisfies §1–§7 AND its model delta; a model-agnostic task satisfies §1–§7 and is bound to a model at routing time.
+This file is the GENERIC contract — model-independent. Historical: the models-tree delta seam (`orchestration/models/{model}/`) is retired; manuals and deltas no longer extend this contract. A task authored today satisfies §1–§7 and is bound to a worker at routing time via `cast route`. The dispatch-wrapper composes the generic contract + the `cast` argv at dispatch time.
 
 ## 9. Execution-level feasibility
 

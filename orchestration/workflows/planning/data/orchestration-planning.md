@@ -23,7 +23,7 @@ DEEP mode generalizes the validated Kimi-aware pre-resolution list (`4-archives/
 
 | Pre-resolution item | Where it lands | Router/orchestrator consumes it as |
 |---------------------|----------------|------------------------------------|
-| **Per-task executor (model, variant)** | Task frontmatter | The pin is resolved by CALLING `route.py` (routing card §2a) over the task's profile — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). A `halt_seam` verdict is resolved WITH the user. The orchestrator then reads the assigned (model, variant) rather than re-scoring it |
+| **Per-task executor (harness, model, effort, carrier)** | Task frontmatter | The pin is resolved by CALLING `cast route` (routing card §2a) over the task's profile — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE command, NO LLM middleman). A `halt_seam` verdict is resolved WITH the user. The orchestrator then reads the assigned `(harness, model)` plus `effort` plus `carrier` rather than re-scoring it |
 | **Per-task reviewer pin** | Task frontmatter | The reviewer-floor pin (routing §3) is pre-named; orchestrator enforces, does not pick |
 | **File allowlist per task** | Task frontmatter + body (✚ create / ✎ modify / ✗ delete) | The dispatcher's post-run diff-vs-allowlist contract (task-file-contract §4) |
 | **Validation commands per task** | Task body (exact command + expected EXIT) | The return-gate tripwire checks (verification card §1b) |
@@ -32,7 +32,7 @@ DEEP mode generalizes the validated Kimi-aware pre-resolution list (`4-archives/
 
 LIGHT mode emits only the critical subset the user chooses to resolve; the rest are left model-bound-at-routing-time (the task is authored to the generic contract and the router scores boundedness as usual). Both modes still author every task to the **shared task-file contract** (`{rbtv_path}/orchestration/workflows/_shared/authoring/task-file-contract.md`) — orchestration-awareness adds the pre-resolution fields, it does not replace the contract.
 
-**Worker-contract frontmatter for a pinned executor.** When the router pins an executor whose model ships a per-model contract delta (kimi, claude-cli, codex, opencode, …), the generated task file's frontmatter + body MUST satisfy that model's contract. The operative procedure — dispatch-scaffold skeleton mode, pre-flight STOP on an uninstalled model package, merge of the derived skeleton — is owned by § Worker-Contract Frontmatter for a Pinned Executor (step-04 body) below; follow it there, it is not restated here.
+**Worker-contract frontmatter for a pinned executor.** When the router pins an executor, the generated task file's frontmatter + body MUST satisfy the generic contract plus the `cast` argv the dispatch-wrapper names. The operative procedure — dispatch-scaffold skeleton mode, pre-flight STOP when the catalog does not name the pair, merge of the derived skeleton — is owned by § Worker-Contract Frontmatter for a Pinned Executor (step-04 body) below; follow it there, it is not restated here.
 
 ---
 
@@ -40,12 +40,12 @@ LIGHT mode emits only the critical subset the user chooses to resolve; the rest 
 
 If step-02 set `orchestrated: true` with **DEEP** mode, resolve the pre-resolution set WITH the user and plan where each field lands so the router reads fields, never re-derives them (§ Orchestration-Aware Modes — DEEP-mode pre-resolution set):
 
-- Per-task **executor (model, variant)** and **reviewer pin** → task frontmatter
+- Per-task **executor (harness, model, effort, carrier)** and **reviewer pin** → task frontmatter
 - Per-task **file allowlist** (✚/✎/✗) and **validation commands** (+ expected EXIT) → task frontmatter/body
 - **Batching / serialization order** per shared file and parallel-wave grouping → plan body
 - **Hard-halt registry** (checkpoints non-overridable in autonomous mode) → plan body
 
-**Pin the per-task executor by CALLING the router — never reason it WITH the user.** The executor `(model, variant)` is a deterministic pure function of the task's profile, NOT a judgment pick. For EACH task: assemble its JSON task profile (`boundedness`, `task_type`, `inlined_context_size`, plus the optional fields the leaf needs — `stakes`/`stakes_tier`, `cross_strategy`, `needs_process_boundary`, `reviews_external_cli_code`, `delegation_map_allows_haiku`) and call `route.py` — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE script, NO LLM middleman). The router CLI, profile field set, and verdict shapes are in the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) — call it as that card names; do NOT restate the algorithm here. Record the returned `(model, variant)` as the task's `executor` pin; the reviewer pin (router-derivable too — floor sonnet, ≥ executor+1) lands the same way. A `halt_seam` verdict (`stakes` or `cross-strategy`) is a genuine judgment seam — resolve it WITH the user, as today, then re-run; never let the script decide it.
+**Pin the per-task executor by CALLING the router — never reason it WITH the user.** The executor `(harness, model)` plus `effort` plus `carrier` is a deterministic pure function of the task's profile, NOT a judgment pick. For EACH task: assemble its JSON task profile (`boundedness`, `task_type`, `inlined_context_size`, plus the optional fields the leaf needs — `stakes`/`stakes_tier`, `cross_strategy`, `needs_process_boundary`, `reviews_external_cli_code`, `delegation_map_allows_haiku`) and call `cast route` — the SAME router the conductor calls at run time, so plan-time and run-time routing can never disagree (locked: ONE command, NO LLM middleman). The router CLI, profile field set, and verdict shapes are in the routing card (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) — call it as that card names; do NOT restate the algorithm here. Record the returned `(harness, model, effort, carrier)` as the task's `executor` pin; the reviewer pin (router-derivable too — floor sonnet, ≥ executor+1) lands the same way. A `halt_seam` verdict (`stakes` or `cross-strategy`) is a genuine judgment seam — resolve it WITH the user, as today, then re-run; never let the command decide it.
 
 **Emit `known_input_size` for known-corpus tasks.** When a task's required read-set is an enumerable `[FULL READ]` allowlist (every file to be read is named up front — a known corpus), the planner MUST measure that read-set and emit `known_input_size` in the task-profile JSON alongside `inlined_context_size`, so the router GATE (`{rbtv_path}/orchestration/skills/orchestrating/cards/routing.md` §2a) receives the total known input and can size the worker correctly.
 
@@ -64,13 +64,13 @@ An **open-ended** task — one whose read-set is NOT enumerable up front — MUS
 
 ## Task-Frontmatter Pre-Resolution (step-04 body)
 
-**Orchestration pre-resolution frontmatter (conditional).** When the plan is `orchestrated: true` and step-03 §6c resolved the pre-resolution fields for this task (DEEP mode, or the critical subset under LIGHT), add them to the task frontmatter so the router reads fields rather than re-deriving them: `executor: {model, variant}`, `reviewer: {pin}`, and the file allowlist (✚ create / ✎ modify / ✗ delete — repeated in the body per the task-file contract). A plain (non-orchestrated) plan omits these — the task is bound to a worker at routing time. See § Orchestration-Aware Modes.
+**Orchestration pre-resolution frontmatter (conditional).** When the plan is `orchestrated: true` and step-03 §6c resolved the pre-resolution fields for this task (DEEP mode, or the critical subset under LIGHT), add them to the task frontmatter so the router reads fields rather than re-deriving them: `executor: {harness, model, effort, carrier}`, `reviewer: {pin}`, and the file allowlist (✚ create / ✎ modify / ✗ delete — repeated in the body per the task-file contract). A plain (non-orchestrated) plan omits these — the task is bound to a worker at routing time. See § Orchestration-Aware Modes.
 
 ---
 
 ## Worker-Contract Frontmatter for a Pinned Executor (step-04 body)
 
-**Worker-contract frontmatter for a pinned executor (conditional).** When a task's `executor` pin names a model that ships a per-model contract delta (kimi, claude-cli, codex, opencode, …), the generated frontmatter AND body MUST satisfy that model's Required-frontmatter and Required-body-sections — so a plan-time pin and the run-time dispatch can never disagree about the contract the worker is held to. Do NOT hand-copy a model's skeleton: obtain it by calling the dispatch-scaffold generator in **skeleton mode** (the run with NO `--instructions`), which DERIVES the per-model frontmatter keys + body-section headers from that model's delta on disk. The scaffold CLI, its skeleton-vs-complete modes, and its pre-flight gates live in its spec — call it as the spec names; do NOT restate the contract here. Merge the scaffold's derived skeleton into this task file, then fill the task-specific values (Goal/Context/Implementation/allowlist). A pin whose model package is NOT installed → the scaffold's pre-flight fails: flag it at generation time and STOP; NEVER silently emit generic frontmatter for a worker whose real contract you could not derive. A workspace without the orchestration module installed has no scaffold and no per-model deltas — such a plan carries no executor pin (step-03 §6c skipped), so this step does not fire.
+**Worker-contract frontmatter for a pinned executor (conditional).** When a task's `executor` pin names a catalog pair, the generated frontmatter AND body MUST satisfy the generic contract plus the `cast` argv the dispatch-wrapper names — so a plan-time pin and the run-time dispatch can never disagree about the contract the worker is held to. Do NOT hand-copy a skeleton: obtain it by calling the dispatch-scaffold generator in **skeleton mode** (the run with NO `--instructions`), which DERIVES the frontmatter keys + body-section headers from the dispatch-wrapper card + the `cast` argv. The scaffold CLI, its skeleton-vs-complete modes, and its pre-flight gates live in its spec — call it as the spec names; do NOT restate the contract here. Merge the scaffold's derived skeleton into this task file, then fill the task-specific values (Goal/Context/Implementation/allowlist). A pin whose pair the catalog does not name → the scaffold's pre-flight fails: flag it at generation time and STOP; NEVER silently emit generic frontmatter for a worker whose pair you could not confirm. A workspace without the orchestration module installed has no scaffold — such a plan carries no executor pin (step-03 §6c skipped), so this step does not fire.
 
 ---
 
@@ -78,15 +78,15 @@ An **open-ended** task — one whose read-set is NOT enumerable up front — MUS
 
 ```yaml
 # Orchestration pre-resolution fields (ONLY when orchestrated: true and step-03 §6c resolved them — DEEP, or the LIGHT critical subset). Omitted on a plain interactive plan.
-executor: { model: {model}, variant: {variant}, carrier: {carrier} }   # router-pinned (route.py) — NOT reasoned with the user
-reviewer: { model: {model}, variant: {variant} }                       # reviewer pin: ≥ executor+1, floor sonnet, never haiku
+executor: { harness: {harness}, model: {model}, effort: {effort}, carrier: {carrier} }   # router-pinned (cast route) — NOT reasoned with the user
+reviewer: { harness: {harness}, model: {model}, effort: {effort}, carrier: {carrier} }   # reviewer pin: ≥ executor+1, floor sonnet, never haiku
 allowlist:
   create: []
   modify: []
   delete: []
 ```
 
-**Orchestration pre-resolution shape:** `executor`/`reviewer`/`allowlist` are the standing pre-resolution frontmatter the planner emits for an orchestrated DEEP plan (and the LIGHT critical subset). `executor.{model, variant, carrier}` is the router pin (resolved by calling `route.py`, never reasoned with the user); `reviewer.{model, variant}` is the reviewer-floor pin; `allowlist.{create, modify, delete}` is the file-operation allowlist (✚/✎/✗ — also restated in the body per the task-file contract). When the executor pin names a model that ships a per-model contract delta, the model-specific frontmatter keys + body sections are DERIVED from that delta via the dispatch-scaffold in skeleton mode — see § Worker-Contract Frontmatter for a Pinned Executor (step-04 body). A plain (non-orchestrated) plan omits all three blocks.
+**Orchestration pre-resolution shape:** `executor`/`reviewer`/`allowlist` are the standing pre-resolution frontmatter the planner emits for an orchestrated DEEP plan (and the LIGHT critical subset). `executor.{harness, model, effort, carrier}` is the router pin (resolved by calling `cast route`, never reasoned with the user); `reviewer.{harness, model, effort, carrier}` is the reviewer-floor pin; `allowlist.{create, modify, delete}` is the file-operation allowlist (✚/✎/✗ — also restated in the body per the task-file contract). The dispatch-scaffold in skeleton mode DERIVES the frontmatter keys + body sections from the dispatch-wrapper card + the `cast` argv — see § Worker-Contract Frontmatter for a Pinned Executor (step-04 body). A plain (non-orchestrated) plan omits all three blocks.
 
 ---
 

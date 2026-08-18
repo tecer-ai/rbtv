@@ -58,7 +58,7 @@ If step-02 flagged the plan code-bearing, identify the **features** — each a b
 
 ### 6c. DEEP-mode Pre-Resolution (orchestrated plans)
 
-**Orchestrated plans only.** READ `../data/orchestration-planning.md` § DEEP-Mode Pre-Resolution (step-03 §6c body) and execute it — it carries the pre-resolution field-landing set and the mandatory "pin the executor by CALLING route.py, never reason it" rule. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely.
+**Orchestrated plans only.** READ `../data/orchestration-planning.md` § DEEP-Mode Pre-Resolution (step-03 §6c body) and execute it — it carries the pre-resolution field-landing set and the mandatory "pin the executor by CALLING `cast route`, never reason it" rule. A plain (non-orchestrated) plan — or a workspace without the orchestration module installed — skips this step and the router call entirely.
 
 ### 7. Generate Checkpoints
 
