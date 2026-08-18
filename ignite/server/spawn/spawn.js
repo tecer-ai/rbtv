@@ -2229,6 +2229,10 @@ module.exports = {
   resolveSandbox,
   ensureLogPath,
   appendRowEnsuringHeader,
+  // `resolvePidStarttime` joins the same delete-copies list: `live-sessions.js#recordSitting`
+  // needs the identical two-step identity resolution the at-dispatch record performs, and a
+  // second spelling of it there is how pid-less rows were born.
+  resolvePidStarttime,
   // Exported for `launch-profiles/probes/probe-binding-catalog.js`: the seat-cast resolution is
   // the half of the D19 fix that reads a REAL descriptor, and a probe that stubs the descriptor
   // read would prove the catalog and not the fix.

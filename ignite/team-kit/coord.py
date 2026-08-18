@@ -15200,11 +15200,17 @@ def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
     # launch spec named, and the harness predicate answers DEAD for processes that are plainly
     # alive — which would close a RUNNING seat's row. An UNREADABLE pair is not evidence of death
     # either, so it refuses (fail-closed) rather than assuming the exit it exists to record.
-    if not pid or not pid_starttime:
+    if getattr(args, "force_dead", False):
+        # The caller witnessed the death directly; the flag IS the evidence, whether or not the
+        # row happens to carry a pid pair to corroborate it. The warm chat-bridge door writes
+        # rows with NO pair at all — requiring one here made the engine's own `--force-dead`
+        # closer the one verb that could never close the rows only it creates (2026-08-18).
+        pass
+    elif not pid or not pid_starttime:
         why.append("(b) the row carries no pid/pid-starttime pair, so this arm cannot establish "
                    "that the process is gone — and an absence of evidence is not evidence of an "
                    "exit. The engine caller passes `--force-dead` when IT witnessed the death")
-    elif not getattr(args, "force_dead", False) and ident_is_live_process((pid, pid_starttime)):
+    elif ident_is_live_process((pid, pid_starttime)):
         why.append(f"(b) pid {pid} (starttime {pid_starttime}) is STILL ALIVE — the process this "
                    f"row names has not exited, and closing its row would end a live session on "
                    f"paper while it keeps working")
@@ -31530,6 +31536,33 @@ def _selftest_checks(args, failures, names):
               "asserted-launch bound reports the uncorroborated claim as DATA and is wired at "
               "`launch` alone, so it neither admits nor refuses this close",
               resolve_agent(_dl5_ns) == "ignite-daemon" and _dl5_claim == "ignite-daemon")
+
+        # (6) A PID-LESS ROW — the warm chat-bridge door's shape (2026-08-18, `canvas-live-prober`:
+        #     `recordSitting` wrote pid='' / pid-starttime='' on every warm resume). BARE still
+        #     refuses (no identity pair, nothing witnessed — fail-closed unchanged), but
+        #     `--force-dead` closes: the flag IS the caller's witnessed-death claim, and the old
+        #     branch order consulted it only AFTER requiring the very pid pair the row never had —
+        #     while the refusal text itself named `--force-dead` as the way out. That dead-end left
+        #     29 OPEN rows nothing could close.
+        _dl6 = _dl_make("dl6", rows=[
+            {"session-id": "oc2-sid", "seat": "oc2", "started": "2026-07-29 10:00",
+             "pid": "", "pid-starttime": ""}])
+        _dl6_bare_out, _, _dl6_bare_code = _ae(_dl6, session="oc2-sid", go=True,
+                                               as_agent="ignite-daemon")
+        _dl6_after_bare = _dl_rows(_dl6)[0]
+        _dl6_fd_out, _, _dl6_fd_code = _ae(_dl6, session="oc2-sid", force_dead=True, go=True,
+                                           as_agent="ignite-daemon")
+        _dl6_closed = _dl_rows(_dl6)[0]
+        check("W1: A PID-LESS ROW REFUSES BARE AND CLOSES UNDER `--force-dead`. Bare, there is no "
+              "identity pair to re-check and the caller witnessed nothing, so the refusal names "
+              "term (b) and writes nothing — fail-closed exactly as before. With `--force-dead` "
+              "the caller's witnessed-death claim is honored the same way it already is on a "
+              "pid-BEARING row: requiring a pid to corroborate a claim that exists precisely for "
+              "rows the pid never reached made the engine's own closer the one verb that could "
+              "never close the rows only it creates",
+              _dl6_bare_code == 1 and "carries no pid/pid-starttime" in _dl6_bare_out
+              and not _dl6_after_bare["ended"]
+              and _dl6_fd_code is None and _dl6_closed["ended"])
 
 
         # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================

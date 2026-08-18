@@ -43,8 +43,8 @@ const { buildBwrapArgv } = require('./bwrap');
 // `resolveSandbox`/`ensureLogPath` are IMPORTED (7.637). Copies of both stood here only because
 // `spawn.js` was another session's dirty file at build time. A live session's cage and its
 // transcript mode ARE the dispatch door's — now inexpressibly so, rather than by discipline.
-const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, launchSpecForSeat } = require('./spawn');
-const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir } = require('./carrier');
+const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, launchSpecForSeat, resolvePidStarttime, closeSeatSessionRow } = require('./spawn');
+const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir, systemdStatus } = require('./carrier');
 const { parseSeatPath, parseServiceSeatPath } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
 const { SpawnError, E_UNKNOWN_LAUNCH_SPEC, E_BAD_REQUEST, E_CARRIER_FAILED } = require('./errors');
@@ -281,22 +281,38 @@ function createLiveSessions({
     child.on('error', (err) => finish(s, `carrier-error:${err.message}`));
     child.on('exit', (code, signal) => finish(s, `exited:${code == null ? signal : code}`));
 
-    recordSitting(s);
+    // Held on `s` so `finish()` can order its close AFTER the row exists — a close that outran
+    // the append would leave the very open row it exists to prevent.
+    s.recorded = recordSitting(s);
     return s;
   }
 
   // ONE sessions.csv row per live PROCESS (design §1 Accounting), by the SAME writer the dispatch
   // door uses — never a second spelling of the schema. Failure is loud and never fatal: a process
   // is already running by the time this is reached.
-  function recordSitting(s) {
+  //
+  // The identity pair is resolved the SAME way the at-dispatch record resolves it (spawn.js:
+  // `systemdStatus` → `resolvePidStarttime`), not hard-coded '' — a pid-less row is one no closer
+  // can independently verify. The unit races systemd-run's own startup here (the raw childSpawn
+  // returns before the unit exists), so the ExecMainPID read is retried briefly; a process that
+  // dies before it resolves leaves the pair blank, and `finish()`'s close still lands under
+  // `--force-dead`.
+  async function recordSitting(s) {
     try {
+      let pid = null;
+      for (let i = 0; i < 10 && !pid && !s.dead; i++) {
+        const info = systemdStatus(s.unitName, userManager);
+        pid = info.pid || null;
+        if (!pid) await new Promise((r) => setTimeout(r, 200));
+      }
+      const pidStarttime = pid ? await resolvePidStarttime('systemd', pid, s.unitName) : null;
       const written = appendRow(s.seat.sessionsCsv, {
         seat: s.seat.seat,
         'session-id': s.sessionId,
         harness: s.harness || '',
         workdir: s.workdir,
-        pid: '',
-        'pid-starttime': '',
+        pid: pid || '',
+        'pid-starttime': pidStarttime || '',
         tty: '',
         'worktree-path': '',
         started: isoNow(),
@@ -372,6 +388,14 @@ function createLiveSessions({
     }
     try { s.logStream.end(); } catch {}
     log('info', 'live session ended', { conversationId: s.conversationId, sessionId: s.sessionId, reason, turns: s.turns, orphanedTurns: orphaned.length, ageMs: Date.now() - s.startedAt });
+    // Close the sitting row this module opened. Nobody else can: a live session writes no
+    // execution row BY DESIGN (header ⚑), so the ticker's status-keyed sweep never reaches it,
+    // and a row left OPEN blocks `rule-disposition` on the whole seat (2026-08-18 incident).
+    // Same closer, same `--force-dead` witnessed-death claim as the ticker's own sweep — ordered
+    // after `recordSitting`'s append so a fast death cannot close a row that isn't written yet.
+    Promise.resolve(s.recorded).catch(() => {}).then(() => {
+      try { closeSeatSessionRow({ workdir: s.workdir, sessionId: s.sessionId, log }); } catch {}
+    });
   }
 
   function close(s, reason) {
@@ -546,7 +570,10 @@ function createLiveSessions({
     }));
   }
 
-  return { feed, eligible, list, reapIdle, reapAll, stop, size: () => sessions.size, config: { idleMs, maxSessions, turnTimeoutMs } };
+  // `_record`/`_finish` are exposed for fixtures/probes ONLY — they drive the real sitting-row
+  // open/close pair against a scratch seat without spawning a harness. Nothing in the daemon
+  // calls them from outside this module.
+  return { feed, eligible, list, reapIdle, reapAll, stop, size: () => sessions.size, config: { idleMs, maxSessions, turnTimeoutMs }, _record: recordSitting, _finish: finish };
 }
 
 module.exports = { createLiveSessions, seatIsHumanInteractive, DEFAULT_IDLE_MS, DEFAULT_MAX, LIVE_INPUT_FLAGS };
