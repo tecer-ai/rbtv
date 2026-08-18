@@ -28,8 +28,8 @@ const path = require('node:path');
 // wrote. Verified by running the verb, not by counting the segments.
 const IGNITE_SRC = process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..', '..', '..');
 const { executeAttached, statusAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
-// `--relaunch` no longer builds a process-local Set: it MINTS the grant into the goal folder's own
-// `relaunch-grants` file, which is the one home both lanes read (engine/relaunch-grants.js). The
+// `--relaunch` no longer builds a process-local Set: it MINTS the grant into the goal folder's
+// `coordination/relaunch-grants` file, which is the one home both lanes read (engine/relaunch-grants.js). The
 // flag keeps its name and its meaning to an operator — what changed is that the grant survives this
 // process, so the DAEMON lane can spend one too.
 const { grantRelaunch, GRANT_FILE } = require(path.join(IGNITE_SRC, 'engine', 'relaunch-grants.js'));
@@ -71,7 +71,7 @@ function help() {
     '                          work gets run twice. This is the explicit act that runs it again, once.',
     '                          It hides nothing and rewrites nothing: the failed attempt stays on record,',
     '                          and a seat that FINISHED is never re-run by a grant.',
-    `                          THE GRANT PERSISTS: it is written to <goal-folder>/${GRANT_FILE} (one`,
+     `                          THE GRANT PERSISTS: it is written to <goal-folder>/coordination/${GRANT_FILE} (one`,
     '                          bare seat name per line) and is spent by whichever lane launches the',
     '                          seat — this run, a later run, or the DAEMON. A grant that could not be',
     '                          launched this pass survives to the pass that can. `rbtv goal relaunch`',

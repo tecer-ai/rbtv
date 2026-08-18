@@ -30,7 +30,7 @@ THE THREE PROPERTIES:
   reason. A flag quietly coming back is exactly what nothing else would notice.
 
 Arm G covers the sibling verb: `relaunch` grants ONE more attempt at a named seat, writing one
-bare seat name per line to `<goal>/relaunch-grants` — the file a seeding pass reads and spends.
+bare seat name per line to `<goal>/coordination/relaunch-grants` — the file a seeding pass reads and spends.
 
 ⚠ THE GREEN AND RED ARMS DISCRIMINATE EACH OTHER. "It refused" is also what a tool that refuses
 everything produces (arms C, E, F, G require creation and exact bytes); "it accepted" is what a
@@ -204,7 +204,7 @@ def main():
                   f"scaffolded={marker(dg)!r} moved={marker(mg)!r}")
 
         # ── G. relaunch — the operator's one-more-attempt grant ────────────────────────────────
-        grants = cg / "relaunch-grants"
+        grants = cg / "coordination" / "relaunch-grants"
         (cg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,alpha,,claude,claude-opus-5,medium,50,m1\n"

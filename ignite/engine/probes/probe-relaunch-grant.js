@@ -236,8 +236,8 @@ async function main() {
 
   grantsApi.grantRelaunch(g2, SEAT);
   check('LEG 2 the grant file is the CONTRACT SHAPE — one bare seat name per line, no header',
-    fs.readFileSync(path.join(g2, grantsApi.GRANT_FILE), 'utf8') === `${SEAT}\n`,
-    JSON.stringify(fs.readFileSync(path.join(g2, grantsApi.GRANT_FILE), 'utf8')));
+    fs.readFileSync(grantsApi.grantPath(g2), 'utf8') === `${SEAT}\n`,
+    JSON.stringify(fs.readFileSync(grantsApi.grantPath(g2), 'utf8')));
 
   const granted2 = daemonPass(g2, 'grant-daemon');
   check('LEG 2 the DAEMON LANE enqueues the seat off the file alone — `seedGoal` was passed no relaunch key',
@@ -249,7 +249,7 @@ async function main() {
   say('LEG 3 — SPEND: the grant is consumed by the pass that used it');
   check('LEG 3 the grant file no longer names the seat',
     !grantsApi.readGrants(g2).has(SEAT),
-    `on disk: ${JSON.stringify(fs.existsSync(path.join(g2, grantsApi.GRANT_FILE)) ? fs.readFileSync(path.join(g2, grantsApi.GRANT_FILE), 'utf8') : '(no file)')}`);
+    `on disk: ${JSON.stringify(fs.existsSync(grantsApi.grantPath(g2)) ? fs.readFileSync(grantsApi.grantPath(g2), 'utf8') : '(no file)')}`);
   // …and BEHAVIOURALLY. The queue row this pass wrote would hold the seat on its own, so it is
   // removed first: without that, a second pass declines for a reason that has nothing to do with
   // the grant and the arm would pass whether or not the grant was ever spent.
@@ -392,7 +392,7 @@ async function main() {
   const job7 = seeding.jobIdFor(SEAT, 'grant-unreadable');
   withDaemonStore((s) => synthTerminalAttempt(s, g7, { jobId: job7, storeStatus: 'blocked' }));
   grantsApi.grantRelaunch(g7, SEAT);
-  fs.chmodSync(path.join(g7, grantsApi.GRANT_FILE), 0o000);
+  fs.chmodSync(grantsApi.grantPath(g7), 0o000);
   let readThrew = null;
   let readBack = null;
   try { readBack = grantsApi.readGrants(g7); } catch (err) { readThrew = err.message; }
@@ -403,7 +403,7 @@ async function main() {
   check('LEG 7 …so the pass holds the seat exactly as it would with no file at all — an I/O error '
     + 'can never synthesize an authorization',
     unreadablePass.pickup.enqueued.length === 0, JSON.stringify(unreadablePass.pickup.enqueued));
-  fs.chmodSync(path.join(g7, grantsApi.GRANT_FILE), 0o644);
+  fs.chmodSync(grantsApi.grantPath(g7), 0o644);
   // NOT VACUOUS: with the SAME file readable the seat runs. Without this arm a hold from any other
   // cause would pass the arm above, and a fail-closed claim nothing could falsify is not a claim.
   const readablePass = daemonPass(g7, 'grant-unreadable');
@@ -574,7 +574,7 @@ main().then(() => {
   say('');
   say(exitCode
     ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
-    : 'RESULT: PASS — a failed seat on the DAEMON lane is retryable off `<goal>/relaunch-grants`, '
+    : 'RESULT: PASS — a failed seat on the DAEMON lane is retryable off `<goal>/coordination/relaunch-grants`, '
       + 'the CONSOLE lane answers from the same file, the grant is spent exactly once, survives a '
       + 'pass that could not launch, can never re-open a finished seat, and an unreadable file is no '
       + 'grant at all.');

@@ -498,7 +498,7 @@ async function main() {
   // that the grant re-opens a seat already finished (owner ruling 2026-08-12, `concepts/loop.md`).
   // Since W2 that fixture's finishedness is its `sessions.csv` CHECK-OUT, and a `done` check-out
   // makes `coord.py ready-seats` answer `DONE` — a verdict the engine's own grant cannot lift,
-  // because the loop re-fire is a TWO-STORE act: `<goal>/relaunch-grants` (engine) AND
+  // because the loop re-fire is a TWO-STORE act: `<goal>/coordination/relaunch-grants` (engine) AND
   // `coordination/relaunch-grants.csv` (coord's, which is what flips the verdict). `--relaunch`
   // argv writes only the first, so the arm could only be restored by hand-minting a row into a
   // schema coord owns — a second copy of another surface's file format, in a fixture.

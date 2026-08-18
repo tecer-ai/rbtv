@@ -928,11 +928,16 @@ def cmd_resume(args) -> int:
 RELAUNCH_GRANTS_FILE = "relaunch-grants"
 
 
+def relaunch_grants_path(goal_dir: Path) -> Path:
+    """`<goal>/coordination/relaunch-grants` — D6: same directory as the CSV twin."""
+    return goal_dir / "coordination" / RELAUNCH_GRANTS_FILE
+
+
 def read_relaunch_grants(goal_dir: Path) -> list[str]:
     """The seats holding an UNSPENT grant. Absent file = none — the same shape `read_lane`
     gives its own missing marker."""
     try:
-        raw = (goal_dir / RELAUNCH_GRANTS_FILE).read_text(encoding="utf-8")
+        raw = relaunch_grants_path(goal_dir).read_text(encoding="utf-8")
     except OSError:
         return []
     return [ln.strip() for ln in raw.splitlines() if ln.strip()]
@@ -957,18 +962,20 @@ def cmd_relaunch(args) -> int:
             f"{', '.join(seats) or '(none)'}.", "seat-absent")
 
     granted = read_relaunch_grants(goal_dir)
+    target = relaunch_grants_path(goal_dir)
     if seat in granted:
         raise Refusal(
             f"--seat {seat}: an unspent relaunch grant for this seat is already standing in "
-            f"{goal_dir / RELAUNCH_GRANTS_FILE}. One grant buys one attempt; it is spent when the "
+            f"{target}. One grant buys one attempt; it is spent when the "
             "seat runs, and only then does a second one mean anything.", "grant-duplicate")
 
     # tmp + rename for `write_lane_raw`'s reason, on a file read by the same kind of unlocked
     # reader: a truncate-then-write leaves a window where this file reads EMPTY, and empty here
     # means "no grant" — the seat would be skipped and the operator's act silently lost.
-    tmp = goal_dir / f"{RELAUNCH_GRANTS_FILE}.tmp"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f"{RELAUNCH_GRANTS_FILE}.tmp")
     tmp.write_text("".join(f"{s}\n" for s in [*granted, seat]), encoding="utf-8", newline="\n")
-    tmp.replace(goal_dir / RELAUNCH_GRANTS_FILE)
+    tmp.replace(target)
 
     lane, _profile = read_lane(goal_dir)
     happens = ("the daemon will run this seat again on its next pass" if lane == "daemon"
@@ -976,10 +983,10 @@ def cmd_relaunch(args) -> int:
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "goal": name, "seat": seat, "lane": lane,
                           "granted": [*granted, seat],
-                          "file": str(goal_dir / RELAUNCH_GRANTS_FILE)}, indent=2))
+                          "file": str(relaunch_grants_path(goal_dir))}, indent=2))
     else:
         print(f"{name}/{seat}: relaunch GRANTED — {happens}. The grant is spent by that run; a "
-              f"further attempt needs a further grant ({goal_dir / RELAUNCH_GRANTS_FILE})")
+              f"further attempt needs a further grant ({relaunch_grants_path(goal_dir)})")
     return 0
 
 

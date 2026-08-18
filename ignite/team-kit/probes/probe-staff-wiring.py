@@ -363,7 +363,7 @@ def main():
     payload = mod.read_route_payload(base, "sibling")
     check("R3: a valid route grants the relaunch in BOTH stores and writes the PAYLOAD file",
           code == 0 and "step 3 contradicts step 1" in payload
-          and "sibling" in (Path(pkg) / "relaunch-grants").read_text(encoding="utf-8"), out)
+          and "sibling" in (Path(pkg) / "coordination" / "relaunch-grants").read_text(encoding="utf-8"), out)
     prompt, _e, _c2 = mod.harness_outcome(
         mod.cmd_boot_prompt, ns(pkg, seat="sibling", lane="daemon"))
     check("R3b: …and the payload reaches the relaunched sitting's BOOT PROMPT, which is what "

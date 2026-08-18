@@ -17,11 +17,14 @@
 // SECOND place that decides whether a grant applies, and a future third caller of `seedGoal` would
 // silently get none, which is exactly how this gap was born.
 //
-//   <goal-folder>/relaunch-grants   ONE BARE SEAT NAME PER LINE. No header, no CSV, no columns.
+//   <goal-folder>/coordination/relaunch-grants   ONE BARE SEAT NAME PER LINE. No header, no CSV,
+//                                               no columns. (D6, 2026-08-18: moved off the goal
+//                                               root — every cage ro-binds that — into the
+//                                               `coordination/` hole bus-write seats already hold.)
 //
 // ⚠ NOT `coordination/relaunch-grants.csv`. That is the team-kit's tmux-lifecycle grant (a leader
-// minting a pane relaunch, `coord.py#relaunch_grants_csv`) — a different act on a different
-// surface. Same word, different file, and neither reads the other's.
+// minting a pane relaunch, `coord.py#relaunch_grants_csv`) — a different act. Same directory,
+// different name (`relaunch-grants` vs `relaunch-grants.csv`), and neither reads the other's.
 //
 // FAIL-CLOSED, in both directions:
 //   · an ABSENT or UNREADABLE file yields an EMPTY set and never throws. A grant is an act of
@@ -36,7 +39,7 @@ const path = require('node:path');
 const GRANT_FILE = 'relaunch-grants';
 
 function grantPath(goalFolder) {
-  return path.join(goalFolder, GRANT_FILE);
+  return path.join(goalFolder, 'coordination', GRANT_FILE);
 }
 
 function readLines(goalFolder) {
@@ -55,8 +58,10 @@ function readGrants(goalFolder) {
 // Append one seat. `appendFileSync` opens O_APPEND, so a concurrent minter's line cannot land
 // inside ours and no window ever shows the file short of what it held.
 function grantRelaunch(goalFolder, seat) {
-  fs.appendFileSync(grantPath(goalFolder), `${String(seat).trim()}\n`, 'utf8');
-  return grantPath(goalFolder);
+  const file = grantPath(goalFolder);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${String(seat).trim()}\n`, 'utf8');
+  return file;
 }
 
 // Remove every line naming `seat`. Returns true when the file changed.

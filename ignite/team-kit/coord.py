@@ -10603,7 +10603,7 @@ def on_fail_relaunch_route(base, seat):
 def mint_loop_refire(base, sender, route, anchor):
     """Grant ONE relaunch to each route seat, in BOTH grant stores — coord's
     `coordination/relaunch-grants.csv` (flips DONE→READY on the ready surface, 7.776) and the
-    engine's `<goal>/relaunch-grants` (hides the seat's finished history from the eligibility
+    engine's `coordination/relaunch-grants` (hides the seat's finished history from the eligibility
     reader). Two writes because the two lanes deliberately read different files; a loop that
     re-fires on one lane only is a loop that stalls on the other. The csv grant carries NO
     session-id, so it is surfaced unconditionally; the anchor records WHICH fail minted it.
@@ -10632,7 +10632,7 @@ def mint_loop_refire(base, sender, route, anchor):
             continue
         mint_relaunch_grant(base, seat, latest.get(seat, ""), anchor, sender)
         granted.append(seat)
-    grant_file = Path(base).parent / "relaunch-grants"
+    grant_file = engine_grants_file(base)
     try:
         existing = {ln.strip() for ln in grant_file.read_text(encoding="utf-8").splitlines()
                     if ln.strip()}
@@ -15291,7 +15291,7 @@ def close_session_seat(args, sid, seat):
 #      mail, so no agent can decide not to.
 #   2. THE WAKE                     — the mail alone wakes nothing on the daemon lane. The chair is
 #      a `taskforce.csv` row, so its wake is the row becoming READY, and that is written into BOTH
-#      grant stores (coord's `relaunch-grants.csv` and the engine's `<goal>/relaunch-grants`) in
+#      grant stores (coord's `relaunch-grants.csv` and the engine's `coordination/relaunch-grants`) in
 #      one act, because the two lanes deliberately read different files.
 #   3. `route-fail`                 — a FAIL verdict with a declared route goes to the AUTHOR of the
 #      instruction; an undeclared one goes to the leader. Never a void.
@@ -15315,13 +15315,20 @@ PERMISSION_EDITS_COLS = ["stamped-at", "seat", "path", "reason", "edited-by"]
 
 
 def engine_grants_file(base):
-    """`<goal>/relaunch-grants` — the ENGINE's grant store, the twin of `relaunch-grants.csv`.
+    """`{package}/coordination/relaunch-grants` — the ENGINE's grant store, the twin of
+    `relaunch-grants.csv`. Same directory, different name (D6, 2026-08-18).
 
     Two files because the two lanes read different ones: coord's CSV flips the seat's `ready-seats`
     verdict (the daemon's door) and this one hides the seat's finished history from the engine's own
     eligibility reader (`seeding.js#executionsByJob`). A wake written to one only is a wake that
-    stalls on the other — `mint_loop_refire` already learned this and writes both."""
-    return Path(base).parent / "relaunch-grants"
+    stalls on the other — `mint_loop_refire` already learned this and writes both.
+
+    ⚠ BOTH HALVES LIVE IN `coordination/`. The engine half used to sit at the goal root, which
+    every cage ro-binds; a caged seat's `mint_staff_wake` then died EROFS on the engine-first write
+    and armed nothing. `coordination/` is the one rw hole the cage already grants (`spawn.js`
+    `#resolveBusWriteGrants`). Co-locating the engine half adds no authority a bus-write seat
+    lacked — it can already flip `ready-seats` via the CSV twin."""
+    return Path(base) / "relaunch-grants"
 
 
 def append_engine_grant(base, seat):
@@ -27611,13 +27618,36 @@ def _selftest_checks(args, failures, names):
             def _f5_grants(seat):
                 return [g for _i, g in read_relaunch_grants(_f5_base) if g["seat"] == seat]
 
-            # ---- (a) THE HALF-WRITE FAILS LOUD, and leaves NOTHING that suppresses -------------
-            # The goal root is made unwritable (mode 0500), which is the EROFS the forge goal's
-            # ro-bound root produced, exercised through the REAL `append_engine_grant` — the CSV
-            # half's own directory stays writable, so the only thing that can fail is the store
-            # that failed in the incident.
-            # RED mutation: restore `append_engine_grant`'s swallowed `return True, ""` on the
-            # OSError arm — the mint reports a wake it does not have and every conjunct falls.
+            # ---- (a-order) ENGINE-FIRST ORDERING STILL HOLDS when the engine path itself refuses
+            # Occupy the engine path as a directory so append raises IsADirectoryError (an
+            # OSError). The CSV half's own file stays writable, so the only thing that can fail
+            # is the store that is written first. RED mutation: restore `append_engine_grant`'s
+            # swallowed `return True, ""` on the OSError arm — the mint reports a wake it does
+            # not have and every conjunct falls.
+            _f5_hw_sid = _f5_seat("f5hw")
+            engine_grants_file(_f5_base).mkdir()
+            try:
+                _f5_hw_ok, _f5_hw_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5hw",
+                                                         STAFF_WAKE_ANCHOR, "kit")
+            finally:
+                if engine_grants_file(_f5_base).is_dir():
+                    engine_grants_file(_f5_base).rmdir()
+            check("F5 (a-order) silent-freeze: a wake whose ENGINE half cannot be written reports "
+                  "FAILURE and NAMES that store — and mints NO coordination half, so the "
+                  "half-written grant that suppressed every later re-mint on the forge goal is "
+                  "unreachable rather than rolled back",
+                  _f5_hw_ok is False and "ENGINE store" in _f5_hw_note
+                  and "NOT armed" in _f5_hw_note
+                  and _f5_grants("f5hw") == []
+                  and not engine_grants_file(_f5_base).is_file())
+
+            # ---- (a) D6: THE CAGED ROOT IS NO LONGER A REFUSAL --------------------------------
+            # chmod 0500 on the goal root is the cage shape that used to EACCES the engine-first
+            # write (the forge goal's ro-bound root). After D6 the engine half lives in
+            # `coordination/` — the dir the cage already grants rw on — so the mint succeeds and
+            # both halves land there. RED mutation: restore `engine_grants_file` to
+            # `Path(base).parent / "relaunch-grants"` — the mint reports FAILURE and the SUCCESS
+            # / coordination-path conjuncts fall.
             _f5_ro_sid = _f5_seat("f5ro")
             os.chmod(_f5_pkg, 0o500)
             try:
@@ -27625,14 +27655,16 @@ def _selftest_checks(args, failures, names):
                                                          STAFF_WAKE_ANCHOR, "kit")
             finally:
                 os.chmod(_f5_pkg, 0o700)
-            check("F5 (a) silent-freeze: a wake whose ENGINE half cannot be written reports "
-                  "FAILURE and NAMES that store — and mints NO coordination half, so the "
-                  "half-written grant that suppressed every later re-mint on the forge goal is "
-                  "unreachable rather than rolled back",
-                  _f5_ro_ok is False and "ENGINE store" in _f5_ro_note
-                  and "NOT armed" in _f5_ro_note
-                  and _f5_grants("f5ro") == []
-                  and not engine_grants_file(_f5_base).exists())
+            _f5_eng = engine_grants_file(_f5_base)
+            check("F5 (a) D6: a wake minted from a caged goal-root (mode 0500) SUCCEEDS — "
+                  "both halves land in `coordination/`, and the goal-root file is NOT created",
+                  _f5_ro_ok is True and _f5_ro_sid in _f5_ro_note
+                  and _f5_eng == _f5_base / "relaunch-grants"
+                  and _f5_eng.is_file()
+                  and "f5ro" in _f5_eng.read_text(encoding="utf-8")
+                  and not (_f5_pkg / "relaunch-grants").exists()
+                  and len(_f5_grants("f5ro")) == 1
+                  and grant_is_live(_f5_grants("f5ro")[0]))
 
             # ---- (b) THE REFUSAL IS DURABLE, AND BOUNDED --------------------------------------
             # RED mutation: drop the (seat, session-id, reason) match in `record_wake_refusal` and
@@ -27825,6 +27857,28 @@ def _selftest_checks(args, failures, names):
             """({seat: verdict}, exit) read off the JSON — no row parses the human text."""
             _o, _e, _c = _rs(pkg, json=True, **kw)
             return {r["seat"]: r["verdict"] for r in json.loads(_o)}, (0 if _c is None else _c)
+
+        # ---- D6: a caged HAS-SAT staff chair's wake is visible on ready-seats --------------
+        # The CSV half is what flips DONE→READY; this arm drives the REAL mint (both stores)
+        # from a 0500 goal-root and reads the verdict off `cmd_ready_seats`, not off the note.
+        _d6_pkg = _rs_make("d6wake", [("leader", "")], sessions=[("leader", "exited")])
+        os.chmod(_d6_pkg, 0o500)
+        try:
+            _d6_ok, _d6_note = mint_staff_wake(None, _d6_pkg / "coordination", _d6_pkg, "leader",
+                                              STAFF_WAKE_ANCHOR, "kit")
+        finally:
+            os.chmod(_d6_pkg, 0o700)
+        _d6_v, _d6_c = _rs_v(_d6_pkg)
+        _d6_o, _d6_e, _ = _rs(_d6_pkg)
+        check("F5 (d) D6: `ready-seats` sees the armed grant — leader is READY off the "
+              "coordination/ engine+CSV pair, minted while the goal root was mode 0500",
+              _d6_ok is True and _d6_v.get("leader") == "READY"
+              and _d6_c == 0
+              and "UNSPENT RELAUNCH GRANT" in _d6_o
+              and (engine_grants_file(_d6_pkg / "coordination")).is_file()
+              and "leader" in (engine_grants_file(_d6_pkg / "coordination")).read_text(
+                  encoding="utf-8")
+              and not (_d6_pkg / "relaunch-grants").exists())
 
         # ---- RS-1: the disposition decides, not the mere existence of a record ----
         _rs1_done = _rs_make("1done", [("a", ""), ("b", "a")], sessions=[("a", "done")])

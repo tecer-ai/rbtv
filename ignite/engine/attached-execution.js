@@ -46,7 +46,7 @@ const {
   // same goals (`#d-abolish-profile-names` sub-ruling 3).
   uncastSeats,
 } = require('./seeding');
-// THE RELAUNCH GRANT'S ONE HOME — `<goal-folder>/relaunch-grants`, the same file the daemon lane
+// THE RELAUNCH GRANT'S ONE HOME — `<goal-folder>/coordination/relaunch-grants`, the same file the daemon lane
 // reads inside the shared seeding functions. This lane used to keep the grant in a process-local
 // `Set` built from argv, which is why the other lane could never be given one at all.
 const { readGrants, grantRelaunch, spendGrant } = require('./relaunch-grants');
