@@ -4131,13 +4131,39 @@ def session_disposition(pkg, seat):
     THIS symbol rather than re-implementing it, and is now retired with the rest of the second
     readiness evaluator (`one-readiness-predicate`); the bound stands for whatever calls it next.
 
-    ⚠ `sessions.csv` IS STILL FIRST AND THE RECORD NEVER OVERRIDES IT. The fallback is reached
-    ONLY on the `or None` branch above. A CONSEQUENCE, stated rather than buried: a seat whose LAST
-    ENDED row carries a stale non-empty value (it renewed, then a later caged session failed to
-    close) reads as that STALE value and its fresh record is never consulted — the record is a
-    fallback for SILENCE, not a freshness rule. Making it a freshness rule would be an override,
-    which this task's contract forbids and which would move existing verdicts.
-    ponytail: stale-ended-row beats fresh-record; revisit when 7.57 rebuilds this surface.
+    7.481: `sessions.csv` IS STILL FIRST, AND A DEMONSTRABLY NEWER RECORD OVERRIDES IT. Where the
+    ended cell is SILENT the record answers alone — the 7.475 fallback above, unchanged. Where BOTH
+    speak, the ended cell still wins UNLESS the record's `ended` stamp is STRICTLY LATER than the
+    `ended` cell of the very row `sessions_last_ended` selected; then the record wins, because it is
+    the seat's own account of a LATER sitting and the row is a superseded one.
+
+    WHY BOTH ANCHORS, AND WHAT EACH ONE PROVES ON ITS OWN. IDENTITY comes free from the open-row
+    guard below, which is UNCHANGED on the override path and is what makes the comparison mean
+    anything: the record may speak ONLY for the seat's currently OPEN session, and the row selected
+    here is an ENDED one, so on this path the two ALWAYS name different sessions. What identity
+    CANNOT establish is DIRECTION — rows are appended in OPEN order (`sessions_last_ended` says so),
+    so an orphaned open row can sit BEFORE a later session that opened, ran and ended, and an
+    identity-only rule would let that stale record beat the newer row. The two `ended` stamps are
+    what say which ending came second. Neither anchor alone would do; both are required.
+
+    ⚠ EVERY TIE AND EVERY UNREADABLE COMPARISON GOES TO `sessions.csv`. Equal stamps (the two are
+    INDEPENDENT clock readings at minute precision — `write_seat_disposition` states that in full),
+    a missing or unparseable `ended` on either side, a row `session_row_by_id` cannot find, no
+    `session-id` column to find it by: every one of them reads NOT NEWER and the ended cell stands.
+    The record overrides only where it is DEMONSTRABLY later, because a freshness rule that fires on
+    AMBIGUITY is a spoofing surface — `coordination/` is shared and unsigned (see the guard note
+    below), and "I could not compare them" must never resolve in the writer's favour.
+
+    WHAT THIS CLOSED, MEASURED 2026-08-18. A caged seat cannot write `sessions.csv` at all, so its
+    ending lands only on the record. On `meet-transcript-summarizer` the leader's last ENDED row was
+    `98b6bcf1` / `exited` / `2026-08-17 23:05` while its own record said `done` / `2026-08-18 01:22`;
+    this reader returned the STALE `exited`, `terminal_disposition` cross-checked it against a live
+    `awaiting-close.json` of `done` and reported SKEW, `ready-seats` exited non-zero, and the goal
+    stopped seeding for ~4 hours — 1,704 refusals, no owner-facing signal. Reporting SKEW on a real
+    disagreement is correct and is not what changed; the two records here did not genuinely
+    disagree, one was superseded and this reader had no way to say so.
+    ponytail: two extra reads on the both-speak path (the record, then its row by id); hoist them
+    into the caller's per-command read if a profile ever shows it.
 
     ⚠ THE GUARD IS NOT A FORGERY-PROOF AUTHENTICATOR AND CANNOT BE ON THIS SURFACE. `coordination/`
     is shared and unsigned; any party that can write it can write this file, exactly as it can
@@ -4154,24 +4180,39 @@ def session_disposition(pkg, seat):
 
     EVERY refusal below returns `None`, never a value: the asymmetry above is the whole safety
     argument and the fallback does not get to weaken it."""
-    durable = (sessions_last_ended(pkg).get(seat) or ("", ""))[1] or None
-    if durable is not None:
-        return durable
-    # ---- 7.475 (CW11): the fallback, reached ONLY where `sessions.csv` said nothing ----
+    row_sid, cell = sessions_last_ended(pkg).get(seat) or ("", "")
+    durable = cell or None
+    # ---- 7.475 (CW11): the seat's OWN record. THE FOUR GUARDS ARE UNCHANGED and every one of them
+    #      still yields `""` — never a value — so the 7.481 override below can only ever be offered
+    #      a record that already cleared the same bar the SILENCE fallback clears.
+    value, rec_ended = "", ""
     try:
         rec = json.loads(seat_disposition_path(Path(pkg) / "coordination", seat)
                          .read_text(encoding="utf-8"))
     except (OSError, ValueError):     # absent, unreadable, or not JSON — all UNKNOWN
-        return None
-    if not isinstance(rec, dict) or rec.get("seat") != seat:
-        return None
-    if rec.get("disposition-writer") != DISPOSITION_WRITER_SEAT:
-        return None
-    value = (rec.get("disposition") or "").strip()
-    if DISPOSITION_WRITER_SEAT not in RECORD_DISPOSITION_WRITER.get(value, frozenset()):
-        return None
-    sid = str(rec.get("session-id") or "").strip()
-    return value if sid and sid == sessions_open_ids(pkg).get(seat, "") else None
+        rec = None
+    if (isinstance(rec, dict) and rec.get("seat") == seat
+            and rec.get("disposition-writer") == DISPOSITION_WRITER_SEAT):
+        _v = (rec.get("disposition") or "").strip()
+        _sid = str(rec.get("session-id") or "").strip()
+        if (DISPOSITION_WRITER_SEAT in RECORD_DISPOSITION_WRITER.get(_v, frozenset())
+                and _sid and _sid == sessions_open_ids(pkg).get(seat, "")):
+            value, rec_ended = _v, str(rec.get("ended") or "").strip()
+    if durable is None:
+        return value or None          # SILENCE — the 7.475 fallback, byte-for-byte its old answer
+    if not value:
+        return durable                # nothing admissible beside it — the cell stands
+    # ---- 7.481: BOTH surfaces speak. The cell wins unless the record is DEMONSTRABLY LATER. The
+    #      row's own stamp is FETCHED BY THE SESSION-ID `sessions_last_ended` ALREADY RETURNED — a
+    #      field read on the row that one selector chose, never a second row-selection rule reaching
+    #      a different row while reading as though it agreed (`sessions_last_ended`'s own argument).
+    row_ended = (session_row_by_id(pkg, row_sid) or ("", "", "", ""))[1] if row_sid else ""
+    try:
+        fresher = (datetime.strptime(rec_ended, "%Y-%m-%d %H:%M")
+                   > datetime.strptime(row_ended, "%Y-%m-%d %H:%M"))
+    except ValueError:                # either stamp absent or unparseable — NOT demonstrable
+        fresher = False
+    return value if fresher else durable
 
 
 # ---------- per-seat statusline (task 7.69, statusline half) ----------
@@ -26321,18 +26362,23 @@ def _selftest_checks(args, failures, names):
               "unreadable: written, correct, and invisible to every caller",
               session_disposition(pkg, "d9caged") == "done")
 
-        # (b) `sessions.csv` STAYS FIRST — and the control is DISCRIMINATING, not decorative: this
-        #     seat's record is fully VALID (right seat, right writer, sid matching its open row) so
-        #     the fallback WOULD fire if it were ever reached. It is not reached, because the
-        #     ended row answered. An order swap turns this row red on its own.
+        # (b) `sessions.csv` STAYS FIRST ON A TIE — and the control is DISCRIMINATING, not
+        #     decorative: this seat's record is fully VALID (right seat, right writer, sid matching
+        #     its open row) so the fallback WOULD fire if the cell were silent. It does not fire:
+        #     the ended row answered, and the record is NOT strictly later — both stamps are
+        #     `now()`, the same minute. 7.481 turned this row into the TIE arm of the freshness
+        #     rule rather than a claim that no record may ever override; the OVERRIDE arm is
+        #     7.481's own row below. An order swap, or a comparison that admits equality, turns
+        #     this row red on its own.
         _d9_seed("d9first", ended=now(), disposition="renew")
         _d9_seed("d9first")
         write_seat_disposition(_d9_cbase, "d9first", "d9first-sid", "done", now())
-        check("7.475 (CW11): `sessions.csv` REMAINS THE FIRST SOURCE and the record NEVER "
-              "overrides it — a seat whose ended row says `renew` still reads `renew`, with a "
-              "valid record beside it saying `done` that the reader must not reach. The fallback "
-              "is for SILENCE, never a freshness rule: a rule that preferred the newer surface "
-              "would MOVE existing verdicts, which is a different change than this one",
+        check("7.475 (CW11) / 7.481: `sessions.csv` REMAINS THE FIRST SOURCE AND WINS EVERY TIE — "
+              "a seat whose ended row says `renew`, with an equally-stamped VALID record beside it "
+              "saying `done`, still reads `renew`. The record overrides only where it is "
+              "DEMONSTRABLY later; equal stamps, an unparseable stamp and a missing one all read "
+              "NOT NEWER, because a freshness rule that fires on AMBIGUITY is a spoofing surface "
+              "and `coordination/` is shared and unsigned",
               session_disposition(pkg, "d9first") == "renew")
 
         # (c) RED 1 — the WRITER guard. Emitted by the real writer at a writer the enum admits
@@ -26384,6 +26430,60 @@ def _selftest_checks(args, failures, names):
               "reader re-asks the WRITE-boundary question at the READ boundary rather than "
               "trusting that only the writer ever produced the file",
               session_disposition(pkg, "d9exited") is None)
+
+        # ---- 7.481: A FRESH RECORD BEATS A STALE ENDED ROW ------------------------------------
+        # THE 2026-08-18 INCIDENT, REPRODUCED. Synthetic package of its own — the live goals are
+        # production state and the `leader` seat name is already taken in the shared fixture above.
+        # TWO ASSERTIONS IN ONE ROW BECAUSE THEY ARE ONE CLAIM: the reader must return the record's
+        # `done`, AND the SKEW that halted the goal must be GONE at `terminal_disposition`. Proving
+        # only the first would leave the thing the owner actually saw unmeasured.
+        _frr_pkg = Path(td) / "frr-pkg"
+        _frr_base = _frr_pkg / "coordination"
+        _frr_base.mkdir(parents=True)
+
+        def _frr_seed(seat, sid, started, ended, disposition):
+            """One session row in a named state, written through the file's OWN header — never a
+            hand-built line, so a schema change reaches this fixture instead of passing it by."""
+            _p = sessions_csv(_frr_pkg)
+            _h, _r = read_csv_table(_p, SESSIONS_COLS)
+            _h, _w = widen_header(_h, SESSIONS_COLS)
+            if _w:
+                _r = [pad_row(_x, _h) for _x in _r]
+            _i = {c: n for n, c in enumerate(_h)}
+            _new = ["" for _ in _h]
+            _new[_i["session-id"]] = sid
+            _new[_i["seat"]] = seat
+            _new[_i["started"]] = started
+            _new[_i["ended"]] = ended
+            _new[_i["disposition"]] = disposition
+            _r.append(_new)
+            write_csv_table(_p, _h, _r)
+
+        # The row that froze the goal: a PREVIOUS sitting the kit stamped `exited` at 23:05. It is
+        # this seat's LAST ENDED row, and by 01:22 it is STALE.
+        _frr_seed("leader", "98b6bcf1", "2026-08-17 21:40", "2026-08-17 23:05", "exited")
+        # The caged sitting that superseded it: still OPEN, because `session_close`'s `sessions.csv`
+        # write took EROFS and the row was never stamped `ended` AT ALL. Its ending exists on the
+        # two surfaces a cage leaves open, and nowhere else.
+        _frr_seed("leader", "c1a9e70d", "2026-08-17 23:06", "", "")
+        write_seat_disposition(_frr_base, "leader", "c1a9e70d", "done", "2026-08-18 01:22")
+        set_awaiting(_frr_base, "leader", "", "", False, disposition="done")
+        _frr_value = session_disposition(_frr_pkg, "leader")
+        _frr_term = terminal_disposition(_frr_pkg, _frr_base, "leader")
+        check("7.481: A SEAT'S FRESH DISPOSITION RECORD BEATS A STALE ENDED ROW, AND THAT IS WHAT "
+              "UN-MANUFACTURES THE SKEW. `leader` renewed and its old row was stamped `exited` at "
+              "2026-08-17 23:05; the caged sitting that replaced it could write neither an `ended` "
+              "cell nor a disposition, so its `done` at 2026-08-18 01:22 landed only on the record "
+              "and on `awaiting-close.json`. The reader used to answer with the older `exited`, "
+              "`terminal_disposition` cross-checked live `done` against durable `exited` and "
+              "reported SKEW, `ready-seats` exited non-zero and the whole goal stopped seeding for "
+              "~4 hours across 1,704 refusals with no owner-facing signal. It now answers `done` "
+              "and the cross-check agrees — the SKEW report is unchanged and still correct for a "
+              "GENUINE disagreement; what is gone is the reader manufacturing one out of a "
+              "superseded row. The TIE and AMBIGUITY direction is row (b) above",
+              _frr_value == "done"
+              and _frr_term[2] is None
+              and _frr_term == ("done", "awaiting-close.json", None))
 
         # ---- LG-9: the two surfaces are written from ONE value ----
         # STRUCTURAL, off the module's own AST, and that is deliberate: the BEHAVIOURAL twin is
