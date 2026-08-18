@@ -63,7 +63,6 @@
 #   · hooks/context-monitor.py — a hook payload the harness fires, no agent invokes it;
 #   · models/mirror/mirror.py — RETIRED refusal + shared library primitive
 #     (`d-hard-guard-retire-model-mirror`), not a command surface;
-#   · capabilities/dispatch-resolve/ — a require()'d library (index.js/resolve.js), no tool/;
 #   · probe/test runners (capabilities/*/probes/*, models/_api/tests/, hooks/tests/,
 #     models/test_route.py, models/mirror/tests/) — not command surfaces.
 # ENTRY POINTS ARE MODULE-RELATIVE, matching the pre-existing row (module-root placement; the
