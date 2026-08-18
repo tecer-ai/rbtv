@@ -5998,12 +5998,26 @@ def clear_closing(base, seat):
 # REAL `checkout` inside a REAL composed cage: a caged seat cannot write `{runDir}/sessions.csv` AT
 # ALL. `write_csv_table` is temp-file + `os.replace`, and the CREATE of `sessions.csv.tmp` in the
 # read-only run dir is REFUSED `errno 30 EROFS` — so the refusal is TOTAL, never partial.
-# `session_close` therefore takes `session_trace_safe`'s except arm and THE ROW IS NEVER STAMPED
-# `ended`. Not an empty cell — NO ENDED ROW AT ALL, which is worse than the empty cell in three
-# ways: `None` is not terminal so nothing advances and nothing is refused; `undeclared_endings`
-# keys on ENDED rows and is BLIND to it, so the one detector built for exactly this cannot see it;
-# and the declared-output check is never reached, so the OTHER wall cannot even be measured until
-# this one is closed.
+# `session_close` therefore takes `session_trace_safe`'s except arm and THE ROW IS NOT STAMPED
+# `ended` AT CHECK-OUT TIME. As CW9 measured it that was the whole story — not an empty cell but NO
+# ENDED ROW AT ALL, which is worse than the empty cell in three ways: `None` is not terminal so
+# nothing advances and nothing is refused; `undeclared_endings` keys on ENDED rows and is BLIND to
+# it, so the one detector built for exactly this cannot see it; and the declared-output check is
+# never reached, so the OTHER wall cannot even be measured until this one is closed.
+#
+# ⚠ WHAT CHANGED SINCE, AND WHY THIS BLOCK NO LONGER DESCRIBES A PERMANENT HOLE. The row IS
+# completed — afterwards, from OUTSIDE the cage. The seat writes its ending to `awaiting-close.json`
+# and to the record below; the session-closer's `attest-exit` then runs uncaged and
+# `close_session_row_by_id` stamps `ended` plus the disposition pair onto that same row, CARRYING
+# the seat's own declared value under the `kit-for-seat` writer token rather than re-deciding it.
+# So the three costs above are paid for the WINDOW between a caged check-out and that close, and
+# carrying the seat's value across that window intact is exactly what this surface is for.
+#
+# ⚠ AND `cmd_checkout`'S WARNING NAMES THAT CHAIN, for the same reason this paragraph exists. The
+# earlier wording said only that the row was NOT completed; a seat read it as TOTAL loss of its
+# session record and filed that verdict, whose proposed fix was a read-write bind — the one patch
+# the anti-spoofing carve exists to refuse. Describing the hole without its closer is how that
+# misreading gets manufactured, in a warning or in a comment.
 #
 # ⚠ IT CARRIES `ended`, AND THAT IS THE WHOLE POINT OF THE FIELD. `session_disposition` reads
 # `sessions_last_ended`, which selects on the ENDED cell FIRST. A record carrying a disposition and
@@ -8603,7 +8617,8 @@ def cmd_checkin(args):
     nat, nerr = session_trace_safe(session_backfill_native, args, args.agent)
     if nerr:
         print(c(f"WARNING sessions.csv native-session-id NOT backfilled — {nerr}. Your checkin "
-                f"stands.", C_DEAD), file=sys.stderr)
+                f"stands, but NO fallback surface carries this id and nothing backfills it later "
+                f"— unlike the check-out warning, this loss is real.", C_DEAD), file=sys.stderr)
     elif nat.startswith("!unresolved"):
         print(c(f"WARNING sessions.csv: this seat has an OPEN session row and its "
                 f"native-session-id could NOT be resolved — {nat[12:]}. Task 7.32's native resume "
@@ -9502,8 +9517,19 @@ def cmd_checkout(args):
                                    disposition=checkout_disposition,
                                    writer=DISPOSITION_WRITER_SEAT)
     if cerr:
-        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands.",
-                C_DEAD), file=sys.stderr)
+        # ⚠ THIS WARNING NAMES ITS FALLBACK CHAIN, AND THAT CLAUSE IS LOAD-BEARING. Inside a cage
+        # this write is EROFS by design (the anti-spoofing carve), so this is the arm a caged seat
+        # ALWAYS takes. Saying only "row NOT completed" read as TOTAL loss of the session record,
+        # and a seat filed that verdict — whose proposed fix was a read-write bind, the one patch
+        # this carve exists to refuse. The loss is PARTIAL: the closer chain below completes the
+        # row. `cmd_depart`'s twin of this warning is deliberately NOT given these words — that
+        # path writes no disposition record, so it has no chain to name.
+        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands. NOT "
+                f"loss of your session record: your ending is on `awaiting-close.json` + the "
+                f"disposition record written below, and the out-of-cage session-closer "
+                f"(`attest-exit` -> `close_session_row_by_id`, writer "
+                f"`{DISPOSITION_WRITER_KIT_FOR_SEAT}`) backfills `ended`, `disposition` and "
+                f"`disposition-writer` onto this row afterwards.", C_DEAD), file=sys.stderr)
     elif sid:
         print(f"sessions.csv: {sid} ended")
     # 7.474 (CW10): THE SEAT-SIDE DURABLE RECORD. It is written AFTER the two lines above ON
