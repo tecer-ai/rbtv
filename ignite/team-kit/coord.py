@@ -14392,6 +14392,49 @@ def grant_is_live(g):
     return not grant_is_spent(g) and not grant_is_revoked(g)
 
 
+# ── THE UNSPENT GRANT'S LIFETIME (silent-freeze sub-fix c) ─────────────────────────────────────
+#
+# A grant had NONE, in either store — no TTL, no expiry, no sweep. One minted at 01:25 on
+# 2026-08-18 was still standing, and still SUPPRESSING every later wake mint by `mint_staff_wake`'s
+# case 4, at 06:05 — four hours and forty minutes — with nothing anywhere that would ever retire it.
+#
+# ⚠ THE TTL IS LONG ON PURPOSE, AND SHORT IS THE DANGEROUS DIRECTION. The one-grant rule exists so
+# a SECOND grant cannot authorize a second sitting for mail the first will already have drained
+# (case 4), and a grant minted MID-SITTING is inert until that sitting ends — `ready_seat_rows`
+# drops any unspent grant whose session-id is not the seat's last-ended one — so it is legitimately
+# standing for as long as the sitting runs (case 2, and the 2026-08-15 orphan it cites). An expiry
+# shorter than the longest legitimate sitting re-mints underneath a live one and buys back exactly
+# the double-sitting the rule prevents, which is worse than the freeze. 24h is chosen against that
+# bound, not against the freeze: a sitting still running a full day later is itself an incident.
+#
+# ⚠ AN UNREADABLE `minted-at` IS NOT EXPIRED — the fail-open direction, because a malformed stamp
+# must never silently retire an authorization.
+#
+# ⚠ AND IT IS DELIBERATELY *NOT* A TERM OF `grant_is_live`. Wiring it there would change what
+# `match_relaunch_grant` admits without editing it, and that function's `why` ladder would then
+# report an expired row as `spent` — five legs, five different remedies, and the caller sent to the
+# wrong one. So the expiry is evaluated at ONE read (the mint's case-4 check, the read that froze)
+# and MATERIALIZED as a revoke: every other reader already honours `revoked-at`, so one predicate
+# stays one predicate and no second opinion about liveness enters the file.
+GRANT_TTL_MIN = 24 * 60
+GRANT_EXPIRY_REASON = "expired-unspent"
+
+
+def grant_is_expired(g, now_str=None):
+    """True when the row was minted more than `GRANT_TTL_MIN` ago. Unreadable stamp → False.
+
+    `now_str` (the file's own `"%Y-%m-%d %H:%M"` form) lets a check supply the reference instant
+    rather than sleep for it — `lifecycle_age_min`'s convention, for its reason."""
+    try:
+        ref = (datetime.strptime(str(now_str).strip(), "%Y-%m-%d %H:%M") if now_str
+               else datetime.now())
+        age = (ref - datetime.strptime((g.get("minted-at") or "").strip(),
+                                       "%Y-%m-%d %H:%M")).total_seconds() / 60
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return age > GRANT_TTL_MIN
+
+
 def relaunch_grants_csv(base):
     """`{package}/coordination/relaunch-grants.csv` — under the dir this run's single-writer map
     reserves to scripts.
@@ -15250,20 +15293,33 @@ def engine_grants_file(base):
 
 
 def append_engine_grant(base, seat):
-    """Append `seat` to the engine's grant file unless it is already there. True when written."""
+    """`(ok, why)` — `seat` IS in the engine's grant file when `ok`. Appended unless already there.
+
+    ⚠ THE OUTCOME IS THE CALLER'S TO CONSUME, and it did not used to be. This returned a bare
+    `False` that meant BOTH "already present" (a success — the engine sees the grant either way)
+    and "the write was refused", and every `OSError` was swallowed on both arms. Measured on the
+    forge goal, 2026-08-18: the goal root is ro-bound in-cage, the append died EROFS, the caller
+    discarded the `False`, and `mint_staff_wake` reported an armed wake in BOTH stores that existed
+    in ONE. Already-present is `(True, "")` now; only a refused write is `False`, and it NAMES the
+    store and the reason so the caller can say which half is missing.
+
+    ⚠ AN UNREADABLE FILE IS NOT AN EMPTY ONE, but the append is the authoritative act: a read that
+    fails falls through to it and lets the WRITE decide, rather than reporting a failure the store
+    may not have."""
     path = engine_grants_file(base)
     try:
         existing = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
     except OSError:
         existing = set()
     if seat in existing:
-        return False
+        return True, ""
     try:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(seat + "\n")
-    except OSError:
-        return False
-    return True
+    except OSError as exc:
+        return False, (f"the ENGINE store `{path}` REFUSED the write "
+                       f"({type(exc).__name__}: {exc.strerror or exc})")
+    return True, ""
 
 
 def sessions_sitting_id(pkg, seat):
@@ -15286,6 +15342,71 @@ def sessions_sitting_id(pkg, seat):
     if not pid or not pid_starttime:
         return ""
     return sid if ident_is_live_process((pid, pid_starttime)) else ""
+
+
+# ── THE WAKE REFUSAL'S DURABLE RECORD (silent-freeze sub-fix b) ────────────────────────────────
+#
+# A refused wake used to exist ONLY as a returned string somebody printed. On the two frozen goals
+# of 2026-08-18 the case-4 refusal fired on every seeding pass for four hours — ~3,028 times, once
+# every ten seconds, across a daemon restart — and the sole record of any of it was stdout nobody
+# was reading. The freeze was silent because the refusal was.
+#
+# ⚠ A FILE ON THE COORDINATION SIDE, NOT A BUS ROW, and the reason is reflexivity rather than cost.
+# The refusal fires INSIDE the wake path a piece of mail just opened; minting a `note` about it
+# would put more mail on the same chair's queue, which mints the next wake attempt, which refuses,
+# which writes the next note — the loop runs at the tick rate. A bus row also costs a message id
+# per refusal on the one surface every seat reads. The coordination directory is where coord's own
+# half of the two-store doctrine already lives (`relaunch-grants.csv`, same directory, same
+# single-writer map) and it is READ-WRITE in-cage, which the goal root is not.
+#
+# ⚠ BOUNDED BY CONSTRUCTION: ONE ROW PER (seat, session-id, reason), bumped. 1,400 refusals are one
+# row with `count: 1400` and a moving `last-at`, never 1,400 rows — the file records the STATE of a
+# standing refusal, not its event stream, so it cannot become the next unbounded surface.
+#
+# ⚠ NOBODY READS A FILE NOBODY KNOWS ABOUT, so the mint's printed note NAMES THIS PATH on every
+# refusal. The printed line stays the pointer; this file is what survives the scrollback.
+WAKE_REFUSAL_COLS = ["seat", "session-id", "reason", "first-at", "last-at", "count", "detail"]
+
+
+def wake_refusals_csv(base):
+    """`{package}/coordination/wake-refusals.csv` — the durable half of a refused wake."""
+    return Path(base) / "wake-refusals.csv"
+
+
+def record_wake_refusal(base, seat, session_id, reason, detail=""):
+    """Bump (or open) this refusal's ONE row. `(ok, path-or-why)`. NEVER RAISES.
+
+    The mint's contract is that it never raises and its callers depend on that, so a persistence
+    surface that could break it would be worse than the silence it replaces: every failure here
+    degrades to the printed-only behaviour this record was added to, and says so."""
+    path = wake_refusals_csv(base)
+    try:
+        with coord_lock(base):
+            header, rows = read_csv_table(path, WAKE_REFUSAL_COLS)
+            header, _ = widen_header(header, WAKE_REFUSAL_COLS)
+            rows = [pad_row(r, header) for r in rows]
+            idx = {col: i for i, col in enumerate(header)}
+            stamp = now()
+            for r in rows:
+                if (r[idx["seat"]].strip() == seat
+                        and r[idx["session-id"]].strip() == session_id
+                        and r[idx["reason"]].strip() == reason):
+                    try:
+                        n = int(r[idx["count"]].strip() or "0")
+                    except ValueError:
+                        n = 0
+                    r[idx["count"]] = str(n + 1)
+                    r[idx["last-at"]] = stamp
+                    r[idx["detail"]] = detail
+                    break
+            else:
+                rec = {"seat": seat, "session-id": session_id, "reason": reason,
+                       "first-at": stamp, "last-at": stamp, "count": "1", "detail": detail}
+                rows.append([rec.get(col, "") for col in header])
+            write_csv_table(path, header, rows)
+        return True, str(path)
+    except Exception as exc:                                   # noqa: BLE001 — see the docstring
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
@@ -15336,14 +15457,48 @@ def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
         return False, ("no session row for this chair yet — it has never sat, so it reads "
                        "READY on its own account as soon as mail exists and needs no grant")
     try:
-        if any(g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)
-               for _i, g in read_relaunch_grants(base)):
+        standing = next((g for _i, g in read_relaunch_grants(base)
+                         if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)),
+                        None)
+        if standing is not None and grant_is_expired(standing):
+            # (c) — THE EXPIRY, EVALUATED AT THIS READ AND MATERIALIZED AS A REVOKE. A grant that
+            # has stood unspent past `GRANT_TTL_MIN` outlived every sitting it could have bound to,
+            # and leaving it is what made the freeze self-sustaining. Revoking rather than merely
+            # ignoring it keeps ONE live grant per (seat, session) and keeps every other reader
+            # agreeing with this one — they all honour `revoked-at` already.
+            revoke_relaunch_grant(base, seat, standing["anchor"], GRANT_EXPIRY_REASON)
+            standing = None
+        if standing is not None:
+            _rec_ok, _rec_where = record_wake_refusal(
+                base, seat, sid, "unspent-grant-stands",
+                f"anchor `{standing['anchor']}` minted {standing['minted-at']} "
+                f"by {standing['minted-by']}")
             return False, ("an UNSPENT wake grant already stands for this chair's session — "
-                           "one sitting drains the whole queue")
+                           "one sitting drains the whole queue"
+                           + (f" (refusal recorded in {_rec_where})" if _rec_ok else
+                              f" (and the refusal could NOT be recorded — {_rec_where} — so this "
+                              f"line is the only record of it)"))
+        # (a) — THE FRAGILE STORE FIRST, AND NOTHING IS MINTED IF IT REFUSES. The two halves used
+        # to be written CSV-first with the engine half's outcome discarded, so an EROFS on the
+        # ro-bound goal root left a CSV-ONLY grant standing — which is worse than no grant at all,
+        # because a standing grant SUPPRESSES every later re-mint by the case-4 rule above while
+        # authorizing nothing. Rollback was the other candidate and was rejected: a caller that
+        # retries every ten seconds would mint-and-revoke a row per attempt, trading a silent
+        # freeze for an unbounded grant file. Ordering makes the suppressing partial state
+        # UNREACHABLE instead: the store that can fail is written first, and the CSV half — the
+        # one that suppresses — is only minted once the engine half is known present. The reverse
+        # partial (engine written, CSV mint raises) is inert: the engine file only HIDES finished
+        # history from `seeding.js#executionsByJob`, the daemon's door is the `ready-seats` verdict
+        # the CSV half flips, and a re-attempt dedupes on the line already there.
+        ok, why = append_engine_grant(base, seat)
+        if not ok:
+            return False, (f"NOTHING was minted — {why}. The coordination half was deliberately "
+                           f"NOT written, so no unspendable grant is left standing to suppress the "
+                           f"next attempt. The wake is NOT armed — SAY SO")
         mint_relaunch_grant(base, seat, sid, anchor, minted_by)
     except Exception as exc:                                   # noqa: BLE001
-        return False, f"the wake grant could NOT be minted ({type(exc).__name__}: {exc}) — SAY SO"
-    append_engine_grant(base, seat)
+        return False, (f"the COORDINATION half of the wake grant could NOT be minted "
+                       f"({type(exc).__name__}: {exc}) — the wake is NOT armed, SAY SO")
     return True, f"session {sid}, anchor `{anchor}`"
 
 
@@ -15427,8 +15582,13 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
                      f"recorded and NOBODY WAS TOLD; say so.")
         return steps
     woken, note = mint_staff_wake(args, base, pkg, to, STAFF_WAKE_ANCHOR, DISPOSITION_WRITER_KIT)
+    # `woken` MEANS BOTH STORES NOW, which is why the true arm may still say so: the mint writes
+    # the engine half first and refuses to mint the coordination half without it, so a partial
+    # write can no longer reach this line as a success. The false arm stopped claiming "no grant
+    # written" — on the coordination-half failure an engine line DID land — and says only what is
+    # true of every failure arm: the wake is not armed, and the note names which store is missing.
     steps.append(f"staff wake: `{to}` granted a relaunch in BOTH stores — {note}" if woken
-                 else f"staff wake: no grant written — {note}")
+                 else f"staff wake: NOT ARMED — {note}")
     return steps
 
 
@@ -27389,6 +27549,136 @@ def _selftest_checks(args, failures, names):
                   [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0])
               and not grant_is_spent(
                   [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0]))
+
+        # ============ F5: THE WAKE MINT — the half-write, the refusal record, the lifetime =======
+        # silent-freeze sub-fixes (a), (b) and (c). Every arm drives the REAL `mint_staff_wake` on
+        # ONE package whose seats differ in exactly one fact, and reads the result off DISK — never
+        # off the returned note, which certifies nothing about the two stores it claims.
+        with tempfile.TemporaryDirectory() as _f5_td:
+            _f5_pkg = Path(_f5_td) / "goal"
+            _f5_base = _f5_pkg / "coordination"
+            _f5_base.mkdir(parents=True)
+
+            def _f5_seat(seat):
+                """One ENDED row — the HAS-SAT case, the only one of the four that mints."""
+                _p = sessions_csv(_f5_pkg)
+                _h, _r = read_csv_table(_p, SESSIONS_COLS)
+                _h, _w = widen_header(_h, SESSIONS_COLS)
+                _r = [pad_row(_x, _h) for _x in _r]
+                _i = {c: n for n, c in enumerate(_h)}
+                _new = ["" for _ in _h]
+                _new[_i["session-id"]] = f"{seat}-sid"
+                _new[_i["seat"]] = seat
+                _new[_i["started"]] = now()
+                _new[_i["ended"]] = now()
+                _new[_i["disposition"]] = "exited"
+                _r.append(_new)
+                write_csv_table(_p, _h, _r)
+                return f"{seat}-sid"
+
+            def _f5_grants(seat):
+                return [g for _i, g in read_relaunch_grants(_f5_base) if g["seat"] == seat]
+
+            # ---- (a) THE HALF-WRITE FAILS LOUD, and leaves NOTHING that suppresses -------------
+            # The goal root is made unwritable (mode 0500), which is the EROFS the forge goal's
+            # ro-bound root produced, exercised through the REAL `append_engine_grant` — the CSV
+            # half's own directory stays writable, so the only thing that can fail is the store
+            # that failed in the incident.
+            # RED mutation: restore `append_engine_grant`'s swallowed `return True, ""` on the
+            # OSError arm — the mint reports a wake it does not have and every conjunct falls.
+            _f5_ro_sid = _f5_seat("f5ro")
+            os.chmod(_f5_pkg, 0o500)
+            try:
+                _f5_ro_ok, _f5_ro_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5ro",
+                                                         STAFF_WAKE_ANCHOR, "kit")
+            finally:
+                os.chmod(_f5_pkg, 0o700)
+            check("F5 (a) silent-freeze: a wake whose ENGINE half cannot be written reports "
+                  "FAILURE and NAMES that store — and mints NO coordination half, so the "
+                  "half-written grant that suppressed every later re-mint on the forge goal is "
+                  "unreachable rather than rolled back",
+                  _f5_ro_ok is False and "ENGINE store" in _f5_ro_note
+                  and "NOT armed" in _f5_ro_note
+                  and _f5_grants("f5ro") == []
+                  and not engine_grants_file(_f5_base).exists())
+
+            # ---- (b) THE REFUSAL IS DURABLE, AND BOUNDED --------------------------------------
+            # RED mutation: drop the (seat, session-id, reason) match in `record_wake_refusal` and
+            # append unconditionally — three refusals become three rows.
+            _f5_dup_sid = _f5_seat("f5dup")
+            mint_relaunch_grant(_f5_base, "f5dup", _f5_dup_sid, "prior-anchor", "leader")
+            _f5_dup = [mint_staff_wake(None, _f5_base, _f5_pkg, "f5dup", STAFF_WAKE_ANCHOR, "kit")
+                       for _ in range(3)]
+            _f5_rh, _f5_rr = read_csv_table(wake_refusals_csv(_f5_base), WAKE_REFUSAL_COLS)
+            _f5_ri = {c: n for n, c in enumerate(_f5_rh)}
+            _f5_mine = [r for r in _f5_rr if r[_f5_ri["seat"]].strip() == "f5dup"]
+            check("F5 (b) silent-freeze: a refused wake leaves a DURABLE row in "
+                  "`coordination/wake-refusals.csv` naming the grant that stands, the printed note "
+                  "points at that file, and THREE identical refusals are ONE row with `count: 3` "
+                  "— the bound that keeps a refusal firing every ten seconds for four hours from "
+                  "becoming the next unbounded surface",
+                  all(_w is False for _w, _n in _f5_dup)
+                  and all(str(wake_refusals_csv(_f5_base)) in _n for _w, _n in _f5_dup)
+                  and len(_f5_mine) == 1
+                  and _f5_mine[0][_f5_ri["count"]].strip() == "3"
+                  and _f5_mine[0][_f5_ri["reason"]].strip() == "unspent-grant-stands"
+                  and "prior-anchor" in _f5_mine[0][_f5_ri["detail"]]
+                  and len(_f5_grants("f5dup")) == 1)
+
+            # ---- (c) AN EXPIRED GRANT STOPS SUPPRESSING ---------------------------------------
+            # The stamp is the predicate's only term, so the row is aged by hand rather than slept
+            # for. RED mutation: delete the expiry branch in `mint_staff_wake` (the
+            # `grant_is_expired` → revoke → `standing = None` lines) — the stale grant suppresses
+            # forever, exactly as it did from 01:25 to 06:05 on 2026-08-18.
+            _f5_old_sid = _f5_seat("f5old")
+            mint_relaunch_grant(_f5_base, "f5old", _f5_old_sid, "stale-anchor", "leader")
+            _f5_gp = relaunch_grants_csv(_f5_base)
+            _f5_gh, _f5_gr = read_csv_table(_f5_gp, RELAUNCH_GRANT_COLS)
+            _f5_gi = {c: n for n, c in enumerate(_f5_gh)}
+            for _r in _f5_gr:
+                pad_row(_r, _f5_gh)
+                if _r[_f5_gi["seat"]].strip() == "f5old":
+                    _r[_f5_gi["minted-at"]] = (datetime.now() - timedelta(
+                        minutes=GRANT_TTL_MIN + 60)).strftime("%Y-%m-%d %H:%M")
+            write_csv_table(_f5_gp, _f5_gh, _f5_gr)
+            _f5_old_ok, _f5_old_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5old",
+                                                       STAFF_WAKE_ANCHOR, "kit")
+            _f5_old_rows = _f5_grants("f5old")
+            check("F5 (c) silent-freeze: an UNSPENT grant older than `GRANT_TTL_MIN` no longer "
+                  "suppresses the re-mint — it is REVOKED with reason `expired-unspent` and a "
+                  "fresh grant is minted in BOTH stores, so exactly ONE live grant stands for the "
+                  "session and no second opinion about liveness enters the file",
+                  _f5_old_ok is True and _f5_old_sid in _f5_old_note
+                  and len(_f5_old_rows) == 2
+                  and grant_is_revoked(_f5_old_rows[0])
+                  and _f5_old_rows[0]["revoke-reason"] == GRANT_EXPIRY_REASON
+                  and len([g for g in _f5_old_rows if grant_is_live(g)]) == 1
+                  and "f5old" in engine_grants_file(_f5_base).read_text(encoding="utf-8"))
+
+            # ---- (c) THE OTHER DIRECTION: within its lifetime it STILL SUPPRESSES --------------
+            # The double-sitting guard, observably intact — case 4 of the mint's own docstring.
+            # RED mutation: widen the boundary by two minutes (`age > GRANT_TTL_MIN - 2`) — the
+            # just-inside conjunct flips while the aged row above stays expired and the
+            # minted-just-now rows above stay live, so this row reds ALONE.
+            _f5_new_sid = _f5_seat("f5new")
+            mint_relaunch_grant(_f5_base, "f5new", _f5_new_sid, "fresh-anchor", "leader")
+            _f5_new_ok, _f5_new_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5new",
+                                                       STAFF_WAKE_ANCHOR, "kit")
+            _f5_t0 = datetime(2026, 8, 18, 1, 25)
+            _f5_row0 = {"minted-at": _f5_t0.strftime("%Y-%m-%d %H:%M")}
+            check("F5 (c) control: a grant still INSIDE its lifetime suppresses the re-mint exactly "
+                  "as before (one sitting drains the whole queue), and the boundary is where the "
+                  "TTL says: one minute short of `GRANT_TTL_MIN` is NOT expired, one minute past "
+                  "it is, and an unreadable `minted-at` never expires",
+                  _f5_new_ok is False and "already stands" in _f5_new_note
+                  and len([g for g in _f5_grants("f5new") if grant_is_live(g)]) == 1
+                  and grant_is_expired(_f5_row0, now_str=(
+                      _f5_t0 + timedelta(minutes=GRANT_TTL_MIN - 1)).strftime(
+                          "%Y-%m-%d %H:%M")) is False
+                  and grant_is_expired(_f5_row0, now_str=(
+                      _f5_t0 + timedelta(minutes=GRANT_TTL_MIN + 1)).strftime(
+                          "%Y-%m-%d %H:%M")) is True
+                  and grant_is_expired({"minted-at": ""}) is False)
 
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
