@@ -12,7 +12,8 @@ throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is rea
   2. EVERY CATALOG ROW SURVIVES THE GATE MATERIALIZE APPLIES — each castable pair is re-run through
      `coord.py#validate_seat`, the same predicate `materialize-seats.py`'s F6 gate imports. A pair
      this tool offers and materialize then refuses is the one failure that would reach a real goal
-     creation. `kimi` and `test-sleep` must be REPORTED not-castable, not silently dropped.
+     creation. The retired `kimi` harness is ABSENT (not a castable pair). `test-sleep` is ABSENT
+     (moved into `jobs:`). Opencode-hosted kimi-for-coding models remain castable.
   3. THE EFFORT NUMBER IS AN INDEX INTO THE NATIVE LADDER, AND THE FILE STORES THE STRING — `set …
      4` on claude writes `xhigh`, read back FROM THE FILE. `xhigh` is exactly the rung the profile's
      four-level translation table does not carry, so this check also discriminates "native ladder"
@@ -148,11 +149,15 @@ with tempfile.TemporaryDirectory() as td:
           "not-castable from inside `profiles:`; a seat can no longer name it at all, which is "
           "sub-ruling 1 made structural rather than reported",
           not any(r["spec"] == "test-sleep" or r["harness"] == "sleep" for r in base))
-    check("kimi is CASTABLE — it was reported not-castable only because `coord.py#HARNESSES` did "
-          "not carry it, so `validate_seat` refused `unknown harness` before its fully authored "
-          "profile was ever reached. This row moves with that predicate, which is the whole reason "
-          "the catalog is gated on it rather than on a list kept here",
-          any(r["harness"] == "kimi" and r["castable"] for r in base))
+    check("kimi is NOT castable — the harness is retired (`coord.py#HARNESSES` and spawn-profiles "
+          "carry no `kimi:` key). This row still moves with that predicate: a reappearing castable "
+          "`kimi` pair fires it. The models survive on opencode — next row",
+          not any(r["harness"] == "kimi" for r in base))
+    check("opencode-hosted kimi-for-coding models remain CASTABLE — retiring the harness must never "
+          "read as retiring the models",
+          any(r["harness"] == "opencode" and str(r["model"]).startswith("kimi-for-coding/")
+              and r["castable"] for r in base),
+          f"{sum(1 for r in base if r['harness'] == 'opencode' and str(r['model']).startswith('kimi-for-coding/'))} kimi-for-coding rows")
     vs = mod._coord_validate_seat()
     bad = [f"{r['harness']}/{r['model']}" for r in base if r["castable"]
            and vs({"agent": r["spec"], "harness": r["harness"], "model": r["model"]})]

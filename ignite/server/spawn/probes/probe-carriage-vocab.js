@@ -10,9 +10,10 @@
 //   (4) headed  `tui.prompt: stdin`    -> config-LOAD failure (structurally absent, unchanged)
 //   (5) a {prompt} slot in headed.tui.argv -> config-LOAD failure (E_UNKNOWN_SLOT — the slot
 //       itself is retired)
-//   (6) POSITIVE: the SHIPPED config/spawn-profiles.yaml still loads cleanly — the 14-profile
-//       exec-only roster (r-seats-only-architecture: one profile per harness+model), every one
-//       `prompt: stdin`, none declaring a headed prompt carriage.
+//   (6) POSITIVE: the SHIPPED config/spawn-profiles.yaml still loads cleanly — every exec-lane
+//       entry `prompt: stdin`, none declaring a headed prompt carriage. Roster SIZE is not
+//       this probe's subject (it rots on every ladder refresh); the split, the harness set,
+//       and the carriage are.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -100,7 +101,7 @@ capture('probe-carriage-vocab', async (lines) => {
     const shippedStripped = path.join(tmp, 'shipped-stripped.yaml');
     fs.writeFileSync(shippedStripped, yaml.dump(raw));
     const cfg = loadConfig(shippedStripped);
-    // 7.787: the shipped roster is TWO blocks now — 13 (harness, model)-keyed launch specs plus
+    // 7.787: the shipped roster is TWO blocks — (harness, model)-keyed launch specs plus
     // the one name-keyed `jobs:` stand-in (`test-sleep`, D52). Both are swept, because the leg's
     // subject is the CARRIAGE every shipped entry declares, and a `jobs:` entry launches through
     // the same composer.
@@ -109,23 +110,39 @@ capture('probe-carriage-vocab', async (lines) => {
     const all = [...specNames.map((n) => [n, cfg.launchSpecs[n]]), ...jobNames.map((n) => [n, cfg.jobs[n]])];
     // ── r-seats-only-architecture (2) — ONE SPEC PER HARNESS+MODEL, EXEC LANE ONLY. The
     // 7.86 command lane (`command: { caged, portable }`) RETIRED with the daemon's sub-agent
-    // dispatch lane; the shipped roster is the owner-ruled 13 casts (2026-08-06): claude fable/
-    // opus/sonnet/haiku, codex gpt-5.5, kimi, opencode glm-5.2/deepseek-flash/deepseek-pro/fugu/
-    // fugu-ultra/gemini-flash/gemini-pro, plus test-sleep (D52) in `jobs:`. The lane filter is kept
-    // so a command-lane entry REAPPEARING is caught by the equality below, never TypeError'd.
+    // dispatch lane. The lane filter is kept so a command-lane entry REAPPEARING is caught
+    // by the equality below, never TypeError'd. Roster SIZE is not asserted as a magic
+    // number: it jumped 15→25 when the ladders refreshed (699a78fc) and will jump again.
+    // What does not rot: the split (launch-specs vs exactly one `test-sleep` job), the
+    // harness set (claude|codex|opencode — no `kimi:` key), and every carriage being stdin.
     const execLane = all.filter(([, p]) => p.exec).map(([n]) => n);
     const commandLane = all.filter(([, p]) => !p.exec).map(([n]) => n);
     const byName = Object.fromEntries(all);
     const carriages = execLane.map((n) => `${n}=${byName[n].exec.prompt}`);
     lines.push(`(6) shipped config loads cleanly: ${all.length} entries (${specNames.length} launch-specs + ${jobNames.length} jobs) = ${execLane.length} exec-lane [${carriages.join(', ')}] + ${commandLane.length} command-lane [${commandLane.join(', ')}]`);
-    // ⚠⚠ DO NOT RELAX EITHER COUNT TO A `>=`. This leg exists to notice an entry appearing in
-    // (or vanishing from) the shipped config; a floor would stop noticing exactly that.
-    if (execLane.length !== 15) throw new Error(`(6) expected the 15 exec-lane shipped entries, found ${execLane.length}: ${execLane.join(', ')}`);
-    // ⚠ AND THE SPLIT ITSELF IS ASSERTED (7.787): 14 castable pairs and exactly one name-keyed job.
-    // Without this, a job row silently migrating back into `launch-specs:` — the ambiguity
-    // `#d-abolish-profile-names` sub-ruling 1 removed — would keep the total at 15 and go unseen.
-    if (specNames.length !== 14 || jobNames.length !== 1) {
-      throw new Error(`(6) expected 14 launch-specs + 1 job, found ${specNames.length} + ${jobNames.length}`);
+    if (specNames.length === 0) {
+      throw new Error('(6) launch-specs is empty — a load that produced no casts cannot certify carriage');
+    }
+    const harnesses = [...new Set(specNames.map((n) => n.split('/')[0]))];
+    const allowed = new Set(['claude', 'codex', 'opencode']);
+    const badHarness = harnesses.filter((h) => !allowed.has(h));
+    if (badHarness.length) {
+      throw new Error(`(6) launch-specs harnesses must be claude|codex|opencode, found ${badHarness.join(', ')}`);
+    }
+    if (specNames.some((n) => n === 'kimi' || n.startsWith('kimi/'))) {
+      throw new Error(`(6) kimi reappeared as a launch-specs harness key: ${specNames.filter((n) => n === 'kimi' || n.startsWith('kimi/')).join(', ')}`);
+    }
+    const kimiModels = specNames.filter((n) => n.startsWith('opencode/kimi-for-coding/'));
+    if (kimiModels.length === 0) {
+      throw new Error('(6) no opencode-hosted kimi-for-coding specs — harness retirement must not drop the models');
+    }
+    // ⚠ THE SPLIT ITSELF IS ASSERTED (7.787): every cast is a launch-spec; exactly one
+    // name-keyed job, and that job is `test-sleep`. Without this, a job row silently
+    // migrating back into `launch-specs:` — the ambiguity `#d-abolish-profile-names`
+    // sub-ruling 1 removed — would go unseen. The job NAME is the invariant, not a count
+    // of launch-specs (that count is what rotted at 15).
+    if (jobNames.length !== 1 || jobNames[0] !== 'test-sleep') {
+      throw new Error(`(6) expected exactly one job named test-sleep, found ${jobNames.length}: ${jobNames.join(', ')}`);
     }
     // Zero command-lane entries is a POSITIVE assertion, not an omission: the command lane
     // retired with the daemon's sub-agent lane, and one reappearing must fire this leg.
