@@ -63,6 +63,17 @@ function emptyMaskSource() {
   return p;
 }
 
+// Interpreter code files are EXEMPT from the pattern FLOOR (owner ruling 2026-08-18, amending
+// `#d-cage-seed-ratified`): `**/*token*` was masking PyYAML's `tokens.py` in every tool venv —
+// `import yaml` fatal in every cage (`G-plan-interviewer-0818-0213`), same for oauthlib's token
+// modules and google.oauth2.id_token. The floor hunts secret FILES; a `.py`/`.pyc`/`.so` is code.
+// The exemption binds ONLY the pattern floor: explicit `deny` entries mask regardless of
+// extension, and a floor-matching DIRECTORY (`credentials/`, `.git`) still masks whole — code
+// under it included. Both floor matchers (the walk and `refusesPath`) MUST consult this same
+// predicate, or the wall and the refusal disagree.
+const CODE_FILE_RE = /\.(py|pyc|so)$/;
+function isInterpreterCodeFile(name) { return CODE_FILE_RE.test(name); }
+
 function globToRe(g) {
   const base = g.replace(/^\*\*\//, '').replace(/\/$/, '');
   return new RegExp('^' + base.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
@@ -178,7 +189,8 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
         const p = path.join(dir, ent.name);
         if (scope.allow.has(p)) continue;
         if (seeded.has(p)) continue;                          // already denied by a seed entry
-        if (scope.patterns.some((re) => re.test(ent.name))) { entries.push(p); continue; }
+        if (scope.patterns.some((re) => re.test(ent.name))
+            && (ent.isDirectory() || !isInterpreterCodeFile(ent.name))) { entries.push(p); continue; }
         if (ent.isDirectory() && !ent.isSymbolicLink()) walk(p);
       }
     })(root);
@@ -335,8 +347,14 @@ function refusesPath(workspaceRoot, target) {
   // The pattern FLOOR, matched against the target's own basename and every ancestor basename up to
   // the workspace root — the same basename matching `composePrivateScope`'s walk applies, so a NEW
   // secret file is refused the day it appears rather than the day someone enumerates it.
+  let rtIsDir = false;
+  try { rtIsDir = fs.statSync(rt).isDirectory(); } catch { /* absent -> treat as file */ }
   for (let p = rt; p && p !== root && inside(root, p); p = path.dirname(p)) {
     const b = path.basename(p);
+    // The target's OWN basename gets the interpreter-code exemption the walk applies (a code
+    // file is never floor-masked, so refusing it here would refuse a path with no wall behind
+    // it); ancestor basenames are directories and keep matching.
+    if (p === rt && !rtIsDir && isInterpreterCodeFile(b)) continue;
     if (scope.patterns.some((re) => re.test(b))) {
       return `\`${p}\` matches the private-scope pattern FLOOR (basename \`${b}\`) — fail-closed for secrets nobody has enumerated yet`;
     }

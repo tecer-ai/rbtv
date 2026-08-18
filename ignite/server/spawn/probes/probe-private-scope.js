@@ -28,7 +28,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { capture } = require('./lib');
 const { composeSeatCage, composeAncestorMasks, specToBwrapFlags } = require('../cage');
-const { composePrivateScope } = require('../private-scope');
+const { composePrivateScope, refusesPath } = require('../private-scope');
 const { buildBwrapArgv } = require('../bwrap');
 
 // The shipped stack's shape, cut to the lines these claims depend on. The read-root floor FIRST
@@ -67,6 +67,13 @@ function fixture() {
   // The pattern floor's targets — never enumerated, denied by shape alone.
   fs.writeFileSync(path.join(ws, 'stray.env'), `${CANARY}-STRAY-ENV\n`);
 
+  // The interpreter-code exemption's targets (owner ruling 2026-08-18): a floor-matching code
+  // file (the yaml/tokens.py shape), a floor-matching non-code file, and a deny-listed code file.
+  fs.mkdirSync(path.join(ws, 'lib', 'yaml'), { recursive: true });
+  fs.writeFileSync(path.join(ws, 'lib', 'yaml', 'tokens.py'), `${CANARY}-CODE-TOKENS\n`);
+  fs.writeFileSync(path.join(ws, 'stray-token.json'), `${CANARY}-TOKJSON\n`);
+  fs.writeFileSync(path.join(ws, 'denied-code.py'), `${CANARY}-DENYPY\n`);
+
   // The two hardcodes, and the ONE non-entry beside them (adv C55).
   fs.mkdirSync(path.join(ws, '.rbtv', 'config'), { recursive: true });
   fs.writeFileSync(path.join(ws, '.rbtv', 'config', '.env'), `${CANARY}-PROVIDER-KEYS\n`);
@@ -77,7 +84,7 @@ function fixture() {
   fs.symlinkSync(path.join(areas, 'finance'), alias);
 
   fs.writeFileSync(path.join(ws, '.rbtv', 'config', 'private.json'), JSON.stringify({
-    deny: ['2-areas/', 'secrets.md'],
+    deny: ['2-areas/', 'secrets.md', 'denied-code.py'],
     patterns: ['**/*.env', '**/credentials/', '**/*token*', '**/*.key', '**/.git'],
   }, null, 2));
   return { root, ws, goalDir, seatDir, peerDir, areas, secretFile, alias };
@@ -231,6 +238,26 @@ capture('probe-private-scope', async (lines) => {
     leg('9', 'peer seat folders stay absent under the read root; the seat keeps its own folder',
       !new RegExp(`peerfile=\\[.*${CANARY}`).test(nine) && /peerfile=\[\]/.test(nine) && /own=\[readable\]/.test(nine),
       `in-cage: ${JSON.stringify(nine.trim())}`);
+
+    // ── 10 — INTERPRETER CODE IS EXEMPT FROM THE PATTERN FLOOR, AND ONLY FROM THE FLOOR ──────
+    // (owner ruling 2026-08-18, amending #d-cage-seed-ratified — G-plan-interviewer-0818-0213:
+    // `**/*token*` masked PyYAML's tokens.py, killing `import yaml` in every cage.) Non-vacuous
+    // by construction: remove the walk's exemption and the code read goes dark; remove
+    // refusesPath's and the first refusal fires; widen either past the floor and the deny-listed
+    // .py lights up.
+    const ten = inCage(f,
+      `echo "code=[$(cat ${f.ws}/lib/yaml/tokens.py 2>/dev/null)]"; ` +
+      `echo "tokjson=[$(cat ${f.ws}/stray-token.json 2>/dev/null)]"; ` +
+      `echo "denypy=[$(cat ${f.ws}/denied-code.py 2>/dev/null)]"`);
+    const tenRefusals = [
+      refusesPath(f.ws, 'lib/yaml/tokens.py'),      // null — the floor exempts code
+      refusesPath(f.ws, 'stray-token.json'),        // refused — floor, non-code
+      refusesPath(f.ws, 'denied-code.py'),          // refused — deny arm, extension irrelevant
+    ];
+    leg('10', 'a *token* code file reads in-cage and is not refused; a *token* non-code file and a deny-listed .py stay masked and refused',
+      new RegExp(`code=\\[${CANARY}-CODE-TOKENS\\]`).test(ten) && /tokjson=\[\]/.test(ten) && /denypy=\[\]/.test(ten)
+      && tenRefusals[0] === null && Boolean(tenRefusals[1]) && Boolean(tenRefusals[2]),
+      `in-cage: ${JSON.stringify(ten.trim())}; refused=${JSON.stringify(tenRefusals.map((r) => Boolean(r)))}`);
 
     lines.push('');
     lines.push(fails.length === 0 ? 'ALL LEGS PASS' : `FAILED LEGS: ${fails.join(', ')}`);
