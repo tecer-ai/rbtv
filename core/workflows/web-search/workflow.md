@@ -5,6 +5,12 @@ description: Navigate the web — preview link metadata, extract clean content f
 
 # Web Search
 
+> **DEPRECATED (2026-08-18).** Superseded in rbtv2 by the `web/` module — Research Mode and
+> `data/web-research-standards.md` live on as the `web/research` component's reference; Preview and
+> Extract modes are covered by the `web/browse` component's routing capability. Do not extend this
+> workflow. It stays functional until its referrers are repointed (a tracked Phase-6 retirement
+> task); see the deprecation note in `core/skills/web-searching/SKILL.md` for the referrer list.
+
 Single workflow for all web interaction. Three modes based on intent.
 
 ## Mode Selection

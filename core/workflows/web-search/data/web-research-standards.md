@@ -1,5 +1,11 @@
 # Web Research Standards
 
+> **DEPRECATED (2026-08-18).** Superseded in rbtv2 by the `web/` module — this file lives on as the
+> `web/research` component's reference, which carries the research procedure alongside these
+> standards. Do not extend this reference. It stays functional until its referrers are repointed (a
+> tracked Phase-6 retirement task); see the deprecation note in `core/skills/web-searching/SKILL.md`
+> for the referrer list.
+
 Reference data for rigorous research, source evaluation, and citation.
 
 ---

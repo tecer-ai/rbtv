@@ -50,6 +50,7 @@ const {
 // reads inside the shared seeding functions. This lane used to keep the grant in a process-local
 // `Set` built from argv, which is why the other lane could never be given one at all.
 const { readGrants, grantRelaunch, spendGrant } = require('./relaunch-grants');
+const { createBoard, snapshotFrom } = require('./run-board');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
 // `processOutcome` is the store-status → PROCESS-word map both close sites share, so this lane and
@@ -164,79 +165,8 @@ function machineStateRoot(goalFolder) {
   }
 }
 
-// ── THE PER-TICK STATUS BLOCK (owner request 2026-08-12) ─────────────────────────────────────────
-//
-// The attached run owns a real terminal, and "tick N start / tick N end" was all it said while a
-// seat ran for minutes — the operator could not tell running from queued from held without a second
-// terminal and `--status`. This block is DERIVED per pass from the same post-tick reads the exit
-// decision uses (the pre-tick view is stale by exactly the thing that just happened — same hazard
-// evaluateExit's re-read comment documents), so it can never disagree with the verdict printed
-// after it. It prints on STATE change, with a paced re-print while something runs so the elapsed
-// column stays honest — never every tick, which would bury the engine's own lines.
-function elapsedSince(iso) {
-  if (!iso) return '?';
-  const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  return h ? `${h}h${String(m % 60).padStart(2, '0')}m` : m ? `${m}m${String(s % 60).padStart(2, '0')}s` : `${s}s`;
-}
-
-function renderStatusBlock(heartStore, rows, isHeld, view, ready) {
-  const castOf = (r) => [r.harness, r.model, r.effort].filter(Boolean).join('/') || '(uncast)';
-  const running = new Map();
-  for (const status of ['launching', 'running']) {
-    for (const ex of heartStore.listExecutionsByStatus(status)) {
-      const m = /^seat-(.+)$/.exec(ex.job_id || '');
-      if (m) running.set(m[1], ex.started_at || ex.fired_at || null);
-    }
-  }
-  const finished = rows.filter((r) => view.finished.has(r.seat)).map((r) => r.seat);
-  const finishedSet = new Set(finished);
-  const pending = rows.filter((r) => !finishedSet.has(r.seat) && !running.has(r.seat));
-  const heldCount = pending.filter((r) => isHeld && isHeld(r.seat)).length;
-
-  const lines = [];
-  const keyParts = [];
-  lines.push(`── ${running.size} running · ${pending.length} queued/waiting · ${heldCount} interactive held for you · ${finished.length}/${rows.length} done ──`);
-  if (running.size) {
-    lines.push('Running');
-    for (const r of rows) {
-      if (!running.has(r.seat)) continue;
-      lines.push(`  ${r.seat}  ${castOf(r)}  up ${elapsedSince(running.get(r.seat))}`);
-      keyParts.push(`run:${r.seat}`);
-    }
-  }
-  if (pending.length) {
-    lines.push('Queue');
-    const pendingSet = new Set(pending.map((r) => r.seat));
-    const afterList = (r) => (r.after || '').split(',').map((s) => s.trim()).filter(Boolean);
-    // Display nesting only: a seat hangs under its FIRST still-pending predecessor; the full
-    // `after` list is printed on the row, so a multi-predecessor edge loses nothing.
-    const children = new Map();
-    const roots = [];
-    for (const r of pending) {
-      const parent = afterList(r).find((a) => pendingSet.has(a)) || null;
-      if (parent) {
-        if (!children.has(parent)) children.set(parent, []);
-        children.get(parent).push(r);
-      } else roots.push(r);
-    }
-    const printRow = (r, depth) => {
-      const state = ready && ready.has(r.seat) ? 'ready' : 'waiting';
-      const mark = isHeld && isHeld(r.seat) ? ' · interactive' : '';
-      const after = afterList(r).length ? `  after: ${afterList(r).join(', ')}` : '';
-      lines.push(`  ${'   '.repeat(depth)}${depth ? '└─ ' : ''}${r.seat}  ${castOf(r)}  [${state}]${after}${mark}`);
-      keyParts.push(`${state}:${r.seat}`);
-      for (const c of children.get(r.seat) || []) printRow(c, depth + 1);
-    };
-    for (const r of roots) printRow(r, 0);
-  }
-  if (finished.length) lines.push(`Done  ${finished.join(', ')}`);
-  keyParts.push(`done:${finished.join(',')}`);
-  // `key` deliberately carries NO elapsed times: equality means "same picture", so the caller can
-  // re-print on change and merely refresh (paced) while the picture holds.
-  return { block: lines.join('\n'), key: keyParts.join('|') };
-}
+// The live board (`engine/run-board.js`) is the human surface for this lane: three columns
+// (blocked / live / finished) and a happening log. Empty ticks move only the tick number.
 
 // ── S-18 · THE CROSS-LANE REFUSAL, v1 — RETIRED (owner ruling #d-s23-single-execution-record-now)
 //
@@ -1034,6 +964,9 @@ async function executeAttached({
   // REAL path stays the default, and a probe substitutes a scripted child.
   relaunch = [],
   spawnForeground = spawnForegroundInTerminal,
+  // `board` is the human live view (three columns + happening). The CLI always asks for it
+  // except under `--json`. Library callers and probes leave it off.
+  display = null,
 }) {
   // THE SEAM, FIRST — before any POSIX construct is reachable. A non-POSIX host is refused with a
   // typed error naming all four degraded sites and the row that owns their bodies (task 7.84),
@@ -1075,6 +1008,19 @@ async function executeAttached({
   // migrated a store behind a live runner's back.
   const runLock = acquireRunLock(goalFolder);
 
+  const board = display === 'board'
+    ? createBoard({
+      goal: path.basename(goalFolder),
+      stream: process.stdout,
+      tty: Boolean(process.stdout.isTTY),
+      now,
+    })
+    : null;
+  const engineLogger = (m) => {
+    if (board) board.ingestLog(m);
+    else if (logger) logger(m);
+  };
+
   const engine = createEngine({
     dbPath: storePath,
     tools: spawnConfig.tools || {},
@@ -1085,7 +1031,7 @@ async function executeAttached({
     tickerConfig: tickIntervalMs ? { tick_interval_ms: tickIntervalMs } : {},
     feedPath: path.join(goalFolder, 'feed.jsonl'),
     logPath: path.join(goalFolder, 'ticker.log'),
-    logger,
+    logger: engineLogger,
   });
 
   // The run dies with the terminal, by design — "resumable, not survivable" is the ruling's own
@@ -1093,6 +1039,7 @@ async function executeAttached({
   let closedBySignal = false;
   const onSignal = () => {
     closedBySignal = true;
+    try { if (board) board.close(); } catch { /* restore the cursor before we die */ }
     try { engine.close(); } catch { /* the run is ending; a close error must not mask the signal */ }
     runLock.release();
     process.exit(130);
@@ -1109,7 +1056,7 @@ async function executeAttached({
     // What the run guarantees instead, and what the probe measures: after any run, the goal's
     // record carries this store's outcomes — one tick later than a boot publish would have, which
     // costs nothing because the only reader that could care is the other lane.
-    const rows = seedTaskforce(engine.heartStore, goalFolder, { logger });
+    const rows = seedTaskforce(engine.heartStore, goalFolder, { logger: engineLogger });
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
     const isHeld = heldSeatPredicate(goalFolder);
@@ -1121,12 +1068,10 @@ async function executeAttached({
     for (const seat of relaunch) grantRelaunch(goalFolder, seat);
     const grants = readGrants(goalFolder);
     // BEFORE the first pass: a foreground row left non-terminal belongs to a runner that is gone.
-    const reconciled = reconcileForegroundOrphans(engine.heartStore, { logger });
+    const reconciled = reconcileForegroundOrphans(engine.heartStore, { logger: engineLogger });
     const foreground = [];
 
     let ticks = 0;
-    let lastStatusKey = null;
-    let lastStatusTick = 0;
     for (;;) {
       // THE FOREGROUND CARRIER, ahead of the enqueue pass and BLOCKING: while this seat's session
       // owns the terminal nothing else in this run advances, which is the design's own sentence.
@@ -1146,8 +1091,8 @@ async function executeAttached({
       // hold, so a view built before them would answer "nothing is done" for the whole pass.
       const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder);
       let view = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows });
-      if (!ready && logger) {
-        logger({
+      if (!ready) {
+        engineLogger({
           level: 'warn',
           message: 'readiness NOT computed this pass — `coordinate ready-seats` refused, so nothing is carried or '
             + 'enqueued and the run cannot advance. A partial pass off a refused computation is worse than none.',
@@ -1167,16 +1112,21 @@ async function executeAttached({
         // The second half is what stops a re-run of `rbtv run` (or the daemon's next pass) finding
         // the same grant still standing and carrying the seat a second time.
         if (grants.delete(held.seat)) spendGrant(goalFolder, held.seat);
-        foreground.push(runForegroundSeat({
-          heartStore: engine.heartStore,
-          seat: held.seat,
-          goalFolder,
-          launchSpecs: spawnConfig.launchSpecs,   // the seat's own cast selects from it (D19 · 7.787)
-          tick: engine.getTickNumber(),
-          now: now(),
-          spawnForeground,
-          logger,
-        }));
+        if (board) board.suspend(held.seat);
+        try {
+          foreground.push(runForegroundSeat({
+            heartStore: engine.heartStore,
+            seat: held.seat,
+            goalFolder,
+            launchSpecs: spawnConfig.launchSpecs,   // the seat's own cast selects from it (D19 · 7.787)
+            tick: engine.getTickNumber(),
+            now: now(),
+            spawnForeground,
+            logger: engineLogger,
+          }));
+        } finally {
+          if (board) board.resume();
+        }
         // ⚠ RE-READ, because the carriage above BLOCKED for the whole of that seat's session and
         // then wrote its outcome to the record. The view built before it is stale by construction,
         // and the enqueue pass below would decide this seat's dependents against a picture from
@@ -1188,7 +1138,7 @@ async function executeAttached({
       }
 
       enqueueEligible(engine.heartStore, rows, {
-        goalFolder, logger, isHeld, relaunch: grants, view, ready, readyRows,
+        goalFolder, logger: engineLogger, isHeld, relaunch: grants, view, ready, readyRows,
       });
       await engine.tick(now());
       ticks += 1;
@@ -1208,20 +1158,19 @@ async function executeAttached({
       // (~0.4 s) against a decision that terminates the run.
       // ⚠ ONE post-tick `ready-seats`, and the VIEW is built FROM IT (W2) rather than beside it.
       // The frontier and the record's view now share one source for done-ness, so the exit decision
-      // and the status block cannot disagree about a seat that checked out inside this tick.
+      // and the live board cannot disagree about a seat that checked out inside this tick.
       const post = readySeats(goalFolder);
       const postView = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows: post.rows });
       const postReady = post.ready;
-      // The status block, from the SAME post-tick reads the exit decision is about to use.
-      const status = renderStatusBlock(engine.heartStore, rows, isHeld, postView, postReady);
-      const refreshDue = status.block.includes('Running') && (ticks - lastStatusTick) * intervalMs >= 60000;
-      if (status.key !== lastStatusKey || refreshDue) {
-        lastStatusKey = status.key;
-        lastStatusTick = ticks;
-        // STDERR, not stdout: under `--json` stdout carries ONLY the machine-readable result, and
-        // this write is not gated by the caller's json flag. The CLI already routes every other
-        // operator line (the `logger`) to stderr, so a terminal shows this exactly as before.
-        process.stderr.write(`${status.block}\n`);
+      if (board) {
+        board.update(snapshotFrom(engine.heartStore, rows, {
+          isHeld,
+          view: postView,
+          ready: postReady,
+          tick: engine.getTickNumber(),
+          goal: path.basename(goalFolder),
+          asks: unansweredAsks(engine.heartStore.dump().messages),
+        }));
       }
       const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady);
       if (verdict.done) {
@@ -1254,11 +1203,20 @@ async function executeAttached({
           grantable: [], foreground, reconciled,
         };
       }
-      await sleep(intervalMs);
+      if (board && board.tty) {
+        const deadline = Date.now() + intervalMs;
+        while (Date.now() < deadline) {
+          board.repaint();
+          await sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
+        }
+      } else {
+        await sleep(intervalMs);
+      }
     }
   } finally {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
+    if (board) board.close();
     if (!closedBySignal) engine.close();
     runLock.release();
   }

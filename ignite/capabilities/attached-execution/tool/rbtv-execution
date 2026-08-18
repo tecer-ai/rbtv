@@ -47,6 +47,8 @@ function help() {
     '',
     'Boot the ignite engine IN THIS TERMINAL and advance the goal. The engine is the daemon\'s —',
     'same queue, same tick algorithm, same fire path — attached instead of detached.',
+    'The live view is a three-column seat board (blocked / live / finished) and a happening log.',
+    'Empty ticks only move the tick number.',
     '',
     'ARGUMENTS',
     '  <goal-folder>           .rbtv/goals/<goal>/ — the goal to advance. Its seats come from',
@@ -189,11 +191,8 @@ async function main(argv) {
       maxTicks: Number.isFinite(opts.maxTicks) ? opts.maxTicks : null,
       // The seat and the evidence ride the line — a held/skipped seat log without its seat name
       // is unactionable at the one surface a human is watching (owner feedback 2026-08-12).
-      logger: opts.json ? null : (m) => {
-        const seat = m.seat ? ` [${m.seat}]` : '';
-        const why = m.evidence ? ` — ${String(m.evidence).split('\n')[0].slice(0, 160)}` : '';
-        process.stderr.write(`${m.level || 'info'}: ${m.message}${seat}${why}\n`);
-      },
+      display: opts.json ? null : 'board',
+      logger: null,
     });
   } catch (err) {
     // The substrate refusal and the store refusals are TEACHING refusals — they carry the ruling,

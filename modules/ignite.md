@@ -103,7 +103,9 @@ QUOTED verbatim:
   ruling `d-attached-run-embedded-engine`: ONE implementation of workflow advancement, TWO
   attachments — the same engine (`ignite/engine/`) the daemon runs, attached to the calling
   terminal instead of a systemd unit; store at `<goal-folder>/heart.db`, dies with the terminal,
-  recovery is the owner re-running the verb. Carries `--status` (the read-only orientation
+  recovery is the owner re-running the verb. The live view is a three-column seat board
+  (blocked / live / finished) plus a happening log — empty ticks only move the tick number.
+  Carries `--status` (the read-only orientation
   surface — derived-only, never creates the store, works before a first run) and the foreground
   carrier (a held human-interactive seat runs as a foreground child of the runner; the tick loop
   blocks while it runs). Exit codes `0` complete or tick-bound · `1` refused or cannot advance

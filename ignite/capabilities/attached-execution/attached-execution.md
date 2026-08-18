@@ -77,6 +77,22 @@ Guarded by `ignite/engine/probes/probe-attached-status.js` (both gates measured 
 open; the read-only claim measured as a before/after directory listing; both arms proven red by
 mutation).
 
+## The live board
+
+The human surface while a goal is running. No flag: `rbtv run <goal>` *is* this view. `--json`
+stays the machine surface and never paints.
+
+Two sections, redrawn in place (same family as `acct usage --posh`):
+
+| Section | What it shows |
+|---|---|
+| **seats** | three columns — **BLOCKED** (with `← dependency`, or `← you` when held for an owner-ask), **LIVE** (running + elapsed; ready-but-not-started is here, dim, marked `ready`; queued the same way), **FINISHED** (done, or failed/killed marked `✕`) |
+| **happening** | a rolling log of things that happened. Empty ticks do not append. The tick number lives in the header and just increments. |
+
+A seat start / finish / fail / ask / unblock / stall is an event. Engine `tick N start` / `tick N
+end` lines are swallowed. Interactive seats still steal the terminal; the board yields, then
+returns when the seat exits. Guarded by `ignite/engine/probes/probe-run-board.js`.
+
 ## The foreground carrier — a seat that runs in YOUR terminal
 
 **Console-run wave B, item B1** (design ruling 1). The engine stays the **only** DAG-advancer. What
