@@ -75,9 +75,9 @@ This moves upstream the discipline the reviewer-side catch-net enforces at revie
 
 Every task names the five fields the worker returns — the SAME schema the dispatch-wrapper fixes (`orchestration/skills/orchestrating/cards/dispatch-wrapper.md` §3 is the single source for the exact field names): `status` · `landed` (files changed + commit hash if committed) · `validation` (commands + EXIT + WALL_MS + skips with reasons) · `concerns` · `open_questions` (the precise blocker/doubt when halting). Use those exact field names — do not rename them. The return MESSAGE is a hint; disk state is the truth — the dispatcher reconciles the message against the repo before trusting it (`learnings-kimi-worker.md` §S3.2).
 
-## 8. Per-model contract plug-in seam
+## 8. Worker binding
 
-This file is the GENERIC contract — model-independent. Historical: the models-tree delta seam (`orchestration/models/{model}/`) is retired; manuals and deltas no longer extend this contract. A task authored today satisfies §1–§7 and is bound to a worker at routing time via `cast route`. The dispatch-wrapper composes the generic contract + the `cast` argv at dispatch time.
+This file is the GENERIC contract — model-independent. A task authored today satisfies §1–§7 and is bound to a worker at routing time via `cast route`. The dispatch-wrapper composes the generic contract + the `cast` argv at dispatch time.
 
 ## 9. Execution-level feasibility
 

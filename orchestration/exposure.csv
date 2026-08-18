@@ -55,16 +55,14 @@
 # BOUNDARY — same mechanical rule as `ignite/exposure.csv`'s worked example: a first-party
 # invocable with its own agent-facing command surface. That admits the three capability `tool/`
 # wrappers (rows sit at the WRAPPER, per the one-tool-one-row rule), the unwrapped `acct` CLI,
-# the router, the manual renderer, the mirror-driver CLI, the shared API runner, the dispatch
-# scaffolder, and the three source-mining workflow scripts agents run by hand.
+# the dispatch scaffolder, and the three source-mining workflow scripts agents run by hand.
+# Live router / API / catalog live under the providers `cast` surfaces (`cast`, `cast route`,
+# `cast api`) — this module file does not inventory those deleted models-tree tools.
 # It EXCLUDES, each for a stated reason and none by oversight:
 #   · cli/teamview/teamview.py, cli/team-monitor/team_monitor.py, cli/ctx-monitor/ctx_monitor.py —
 #     implementations the capability wrappers above exec (one tool, one row, at the wrapper);
 #   · hooks/context-monitor.py — a hook payload the harness fires, no agent invokes it;
-#   · models/mirror/mirror.py — RETIRED refusal + shared library primitive
-#     (`d-hard-guard-retire-model-mirror`), not a command surface;
-#   · probe/test runners (capabilities/*/probes/*, models/_api/tests/, hooks/tests/,
-#     models/test_route.py, models/mirror/tests/) — not command surfaces.
+#   · probe/test runners (capabilities/*/probes/*, hooks/tests/) — not command surfaces.
 # ENTRY POINTS ARE MODULE-RELATIVE, matching the pre-existing row (module-root placement; the
 # prefixes drop when the CMP-5 component tree materializes, same as the ignite file).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
@@ -72,10 +70,6 @@ source-mining,workflow,sub-agent,,workflows/source-mining/workflow.md,,
 rbtv-teamview,tool,path,,capabilities/teamview/tool/rbtv-teamview,,
 rbtv-team-monitor,tool,path,,capabilities/team-monitor/tool/rbtv-team-monitor,,
 rbtv-ctx-monitor,tool,path,,capabilities/team-monitor/tool/rbtv-ctx-monitor,,
-route,tool,path,,models/route.py,,
-render-manuals,tool,path,,models/render-manuals.py,,
-mirror-driver,tool,path,,models/mirror/driver/cli.py,,
-api-runner,tool,path,,models/_api/run.py,,
 dispatch-scaffold,tool,path,,skills/orchestrating/scripts/scaffold.py,,
 source-mining-slice,tool,path,,workflows/source-mining/scripts/slice.py,,
 source-mining-detect-handback,tool,path,,workflows/source-mining/scripts/detect-handback.py,,

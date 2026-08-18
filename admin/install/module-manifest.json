@@ -105,7 +105,7 @@
       }
     ],
     "tools": {
-      "description": "Runnable tool packages shipped in the RBTV source and run in place from {rbtv_path} — NOT installed into .claude/. The installer ignores this inventory key (admin/install/installer/manifest.py reads only skills/commands/rules/subagents per module), exactly like orchestration's model_packages/hooks; agents discover and invoke a tool via its owning skill loader. This block is a component-inventory record kept per the 'keep docs in sync' hard rule.",
+      "description": "Runnable tool packages shipped in the RBTV source and run in place from {rbtv_path} — NOT installed into .claude/. The installer ignores this inventory key (admin/install/installer/manifest.py reads only skills/commands/rules/subagents per module), exactly like orchestration's hooks; agents discover and invoke a tool via its owning skill loader. This block is a component-inventory record kept per the 'keep docs in sync' hard rule.",
       "source_dir": "core/tools",
       "entries": [
         {
@@ -251,52 +251,6 @@
         "description": "Native-lane sub-agent constraints (CMP-10 § Enforcement classes, decisions.md#d-sub-agent-exposure-enforcement) — the judgment-honored cage for any dispatch through a harness's own native sub-agent tool: native-first (prefer the native tool; CLI dispatch capability only for another model family/harness or a capability the native tool lacks), no bus access, dispatcher-owned lifecycle, no seat impersonation. Native-lane half only — never restates the CLI-lane dispatch capability's machine-enforced checks (task 7.43)"
       }
     ],
-    "model_packages": {
-      "description": "Retiring per-model dispatch DOC packages (D18) under orchestration/models/ — NOT installed into .claude/. The installer no longer elects packages and does not read leftover rbtv.json model_packages / model_variants keys; the routable set is the cast catalog intersect availability. Tree-delete owns removal of this block. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages). The shared API-worker engine at orchestration/models/_api/ (run.py runner + clients/) is infra — read JIT like _fixture/mirror, no manifest.yaml, not a model package.",
-      "source_dir": "orchestration/models",
-      "packages": [
-        {
-          "name": "kimi-code-cli",
-          "manifest": "orchestration/models/kimi-code-cli/manifest.yaml",
-          "description": "Kimi CLI bounded-code executor (validated) — writes/runs code, commits locally; resume via session id"
-        },
-        {
-          "name": "codex-cli",
-          "manifest": "orchestration/models/codex-cli/manifest.yaml",
-          "description": "OpenAI Codex CLI worker (codex exec, probe-pending) — separate-process code execution"
-        },
-        {
-          "name": "claude-code-cli",
-          "manifest": "orchestration/models/claude-code-cli/manifest.yaml",
-          "description": "Claude headless worker (claude -p, validated) — native cwd-CLAUDE.md load; CLI-driven sub-conductor (process boundary clears the nesting wall)"
-        },
-        {
-          "name": "deepseek-api",
-          "manifest": "orchestration/models/deepseek-api/manifest.yaml",
-          "description": "DeepSeek API chat / text-synthesis worker (probe-pending) — cheapest text, OpenAI-compatible JSON mode; runs via the shared models/_api/run.py runner, keys resolved from rbtv.json env_file"
-        },
-        {
-          "name": "gemini-api",
-          "manifest": "orchestration/models/gemini-api/manifest.yaml",
-          "description": "Gemini API chat worker (probe-pending) — light web grounding; runs via the shared models/_api/run.py runner"
-        },
-        {
-          "name": "claude-code-native",
-          "manifest": "orchestration/models/claude-code-native/manifest.yaml",
-          "description": "Agent-tool Claude tiers opus/sonnet modeled as a routable package (validated) — sibling to claude-code-cli; in-session carrier, no native CLAUDE.md load, cannot spawn sub-agents (nesting wall)"
-        },
-        {
-          "name": "manus-api",
-          "manifest": "orchestration/models/manus-api/manifest.yaml",
-          "description": "Manus agentic-web worker (probe-pending) — autonomous server-side browser/tool loop; per-task cost; raw-dump return only (no JSON envelope, no code cold-verify); runs via the shared models/_api/run.py runner"
-        },
-        {
-          "name": "opencode",
-          "manifest": "orchestration/models/opencode/manifest.yaml",
-          "description": "OpenCode CLI multi-provider worker (opencode run, validated) — OSS harness serving four backends: z1 (zai-coding-plan/glm-5.2), sakana (fugu-ultra), deepseek-flash + deepseek-pro (deepseek/deepseek-v4-flash|pro, code roles only); NO native sandbox — worktree-mandatory confinement"
-        }
-      ]
-    },
     "hooks": {
       "description": "PostToolUse hook(s) the orchestration install wires into the workspace's .claude/settings.local.json when the orchestration module is elected — read in-place from the RBTV source, never copied into .claude/. The wiring is performed in code by admin/install/installer/orchestration.py (sync_hook_entry on election, remove_hook_entry on de-election/cleanup), which identifies the rbtv-managed entry by sentinel (__rbtv__ == 'rbtv:context-monitor') OR command-path-signature (a command containing 'orchestration/hooks/context-monitor.py'), never a key alone — so the entry survives a Claude Code settings round-trip; hand-added hooks are preserved. This block is a component-inventory record; the wiring constants live in orchestration.py, not here.",
       "source_dir": "orchestration/hooks",

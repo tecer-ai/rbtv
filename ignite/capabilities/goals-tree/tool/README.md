@@ -353,12 +353,11 @@ citation** of `orchestration/workflows/_shared/authoring/decisions-discipline.md
 its rules. This is the same convention the vault's `.rbtv/goals/CLAUDE.md` § decision-ledger states
 (`r-decision-ledger-contract`); the template agrees with it rather than re-legislating it.
 
-`ROUTER_FILENAMES` is **measured, not assumed**: it is the distinct set of `guidance_file.convention`
-values across every model package manifest (`orchestration/models/*/manifest.yaml`) — `CLAUDE.md`
-(claude-code-cli) and `AGENTS.md` (codex-cli, kimi-code-cli, opencode). The API packages and
-claude-code-native omit `guidance_file` deliberately: those workers load no workspace guidance file,
-so no router of any name reaches them. A package adopting a third convention adds its filename to
-that tuple and nothing else changes.
+`ROUTER_FILENAMES` is **measured, not assumed**: it is the distinct set of guidance-file conventions
+across the cast catalog harnesses (`cast route --catalog` / `cast.md`) — `CLAUDE.md` (claude) and
+`AGENTS.md` (codex, opencode; kimi models only via opencode). API-carrier and agent-tool rows load
+no workspace guidance file, so no router of any name reaches them. The tuple is frozen. A harness
+adopting a third convention adds its filename to that tuple and nothing else changes.
 
 The router also carries the **tooling-gap filing rule** (owner ruling 2026-08-10, issue
 `i-wrote-outside-own-seat-first`): a defect found in a TOOL goes to the `issues.md` of the goal that

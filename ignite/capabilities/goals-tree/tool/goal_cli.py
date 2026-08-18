@@ -214,15 +214,14 @@ CREATE INDEX IF NOT EXISTS threads_reply_to_idx  ON threads (reply_to);
 # in this file: fixed text one verb emits. A template FILE would add a path to resolve, a
 # shipping surface, and a second place the router's table could disagree with the file set.
 #
-# ROUTER_FILENAMES IS MEASURED, NOT ASSUMED. It is the distinct set of `guidance_file.convention`
-# values across every model package manifest (`orchestration/models/*/manifest.yaml`, the
-# enumerator for "which harnesses this system serves"):
-#     CLAUDE.md  — claude-code-cli
-#     AGENTS.md  — codex-cli, kimi-code-cli, opencode
-# The three API packages (deepseek/gemini/manus) and claude-code-native OMIT `guidance_file`
-# DELIBERATELY — those workers load no workspace guidance file at all, so no router of any name
-# would reach them. TWO is therefore the whole measured set as of 2026-08-09; a package that
-# adopts a third convention adds its filename to this tuple and nothing else changes.
+# ROUTER_FILENAMES IS MEASURED, NOT ASSUMED. It is the distinct set of guidance-file
+# conventions across the cast catalog harnesses (`cast route --catalog` / cast.md):
+#     CLAUDE.md  — claude
+#     AGENTS.md  — codex, opencode (kimi models only via opencode)
+# API-carrier and agent-tool rows load no workspace guidance file, so no router of any
+# name would reach them. TWO is therefore the whole measured set as of 2026-08-09; a
+# harness that adopts a third convention adds its filename to this tuple and nothing
+# else changes. This tuple is frozen.
 ROUTER_FILENAMES = ("CLAUDE.md", "AGENTS.md")
 
 # The FIVE write-if-something files, filename -> what an agent has when it writes there. R21 named

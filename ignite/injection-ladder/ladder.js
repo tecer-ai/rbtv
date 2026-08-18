@@ -53,7 +53,7 @@ const HARNESSES = Object.freeze({
         available: true,
         // Re-launchable: the JSON envelope emits a session id and `--resume <id>` continues it.
         resumable: true,
-        basis: 'orchestration/models/claude-code-cli/delta.md § invocation (probe p3-6, verdict HELD)',
+        basis: 'Historical (dated probe citation, 2026-06 p3-6 HELD): orchestration/models/claude-code-cli/delta.md § invocation — tree retired 2026-08-18; live invocation source is the cast catalog / cast.md',
       }),
       hooks: Object.freeze({
         available: true,
@@ -77,7 +77,7 @@ const HARNESSES = Object.freeze({
         // ⚠ The one-shot form is the `exec` SUBCOMMAND, and its help is per-subcommand. G-145's
         // exact shape: `codex exec --help` carries flags `codex --help` does not, so reading the
         // top-level help refuses valid profiles while looking authoritative.
-        basis: 'orchestration/models/codex-cli/delta.md § invocation (CLI 0.137.0, p5-2 smoke)',
+        basis: 'Historical (dated probe citation, CLI 0.137.0 p5-2 smoke): orchestration/models/codex-cli/delta.md § invocation — tree retired 2026-08-18; live invocation source is the cast catalog / cast.md',
       }),
       hooks: Object.freeze({
         available: true,

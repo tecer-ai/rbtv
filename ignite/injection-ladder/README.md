@@ -115,10 +115,10 @@ verification (`G-13`, a real dispatch on deepseek and glm-5.2) rather than on a 
 the correct evidence class for a harness whose help cannot be read.
 
 ⚠ **Version drift, found in passing and NOT this task's to fix:** the box runs **codex-cli 0.144.5**
-while `orchestration/models/codex-cli/delta.md` pins its flag verification to **0.137.0**. The flags
-this ladder relies on are present at 0.144.5 (checked above), so nothing here is broken — but the
-orchestration delta's pinned-flag evidence is 7 minor versions stale, and that surface retires at
-task 7.54. Recorded so it is not re-discovered.
+while a now-retired models-tree delta (Historical: `orchestration/models/codex-cli/delta.md`) pinned
+its flag verification to **0.137.0**. The flags this ladder relies on are present at 0.144.5
+(checked above), so nothing here is broken — live invocation source is the cast catalog / `cast.md`.
+Recorded so it is not re-discovered.
 
 ## Probe
 
@@ -176,10 +176,11 @@ are not re-derived — see the file itself, which is the source of truth for whe
    destination. Inventing the runtime-root catalog inside 7.45 would mint a structural convention
    by accident; the orphaned ruling is filed for routing instead.
 2. **The repo still holds more than one per-harness method table, BY DESIGN at this task.**
-   `orchestration/`'s cards and model manifests/deltas retire at **task 7.54**, whose own criteria
-   claim the whole-repo one-copy property; `ignite/team-kit/coord.py`'s `harness_command()` is
-   **`G-146`**, explicitly carved out of 7.45's scope. Neither was retired here — a grep made clean
-   by deleting another task's work is a falsified criterion, not a met one. See § One copy below.
+    `orchestration/`'s cards remain and CALL `cast`. Model manifests/deltas retired with the models
+    tree (2026-08-18). Historical: those files lived under `orchestration/models/`. Live roster is
+    the cast catalog. `ignite/team-kit/coord.py`'s `harness_command()` is
+    **`G-146`**, explicitly carved out of 7.45's scope. Neither was retired here — a grep made clean
+    by deleting another task's work is a falsified criterion, not a met one. See § One copy below.
 3. ~~**`kimi` is in the orchestration model catalog but NOT in this table.**~~ **CLOSED 2026-08-07**
    — kimi was driven through a consumer and added with a measured basis per rung (see the table
    above): headless verified live on kimi 1.48.0, hooks declared UNAVAILABLE-because-unmeasured
@@ -200,5 +201,5 @@ work.** The carve-outs, each named with why:
 | Copy | Why it stands |
 |------|---------------|
 | `ignite/injection-ladder/` | this module — the one home |
-| `orchestration/skills/orchestrating/cards/` + `orchestration/models/*/{manifest.yaml,delta.md}` | **task 7.54's to retire.** Its criteria state that 7.54's work is what satisfies "7.45's one-copy criterion across the WHOLE repo". |
+| `orchestration/skills/orchestrating/cards/` (call `cast`) | Cards remain and CALL `cast` / `cast route`. Historical: `orchestration/models/*/{manifest.yaml,delta.md}` retired with the tree 2026-08-18. |
 | `ignite/team-kit/coord.py` `harness_command()` | **`G-146`**, explicitly out of 7.45's scope by the run leader's directive. Custody of that file is held elsewhere; it was neither read into this module nor edited. |
