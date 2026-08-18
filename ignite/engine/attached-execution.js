@@ -764,10 +764,15 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
     // has not discharged, or its own last session ended UNDECLARED. No `after` grammar is read in
     // JavaScript, so this loop and the enqueue pass can no longer disagree about what a cell means.
     //
-    // ⚠ NO COORD ANSWER (a refusal, a SKEW, no python) MAKES EVERY UNFINISHED SEAT STUCK, and the
+    // ⚠ NO COORD ANSWER (a refusal, no python) MAKES EVERY UNFINISHED SEAT STUCK, and the
     // run ENDS `blocked` naming them rather than spinning every 10s on a computation that is
     // refusing. That is the same direction the refusal takes in the seeding pass: never proceed off
     // an answer nobody has.
+    //
+    // ⚠ A DISPOSITION SKEW IS NO LONGER SUCH A CASE (Q2a, owner-ruled 2026-08-18). coord answers
+    // with a complete frontier and marks the disputed seat `SKEW` (its dependents `BLOCKED`), so
+    // exactly those seats fall to this line and every other seat of the goal advances. That is the
+    // ruling, on this lane too: a contradiction about ONE seat's ending stalls that seat, not 65.
     return !(ready && ready.has(r.seat));
   });
   // WHICH OF THEM A GRANT COULD ACTUALLY RELEASE, computed here because this is where the holds are
@@ -870,8 +875,10 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   // `done`/`live`. With no store, nothing in the record is ours, which is exactly what is true.
   // THE READINESS ANSWER IS COORD'S HERE TOO (§ D1), and asking it is safe on this surface:
   // `ready-seats` launches nothing, writes nothing and messages nobody, which is exactly the bound
-  // this verb holds itself to. A refusal (no python, a SKEW) degrades every unfired seat to
-  // `waiting` rather than inventing a frontier — the same direction every other consumer takes.
+  // this verb holds itself to. A refusal (no python, an unreadable package) degrades every unfired
+  // seat to `waiting` rather than inventing a frontier — the same direction every other consumer
+  // takes. A disposition SKEW is not a refusal since Q2a (2026-08-18): the answer comes back whole
+  // and only the disputed seat, with its dependents, reads as unready.
   // ⚠ READ BEFORE THE VIEW SINCE W2: `recordView` sources done-ness and the `HELD` hold from these
   // rows, so a view built before them would report every seat unfinished.
   const { ready, rows: statusReadyRows } = readySeats(goalFolder);

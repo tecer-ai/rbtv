@@ -376,11 +376,20 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
       continue;
     }
 
-    // READINESS REFUSED (§ D1): `coordinate ready-seats` exited non-zero — a SKEW, or a package it
-    // could not read. `seedGoal` already logged it at `warn` with the evidence and wrote NOTHING;
-    // this pass must not go on to report the goal as "seeded". Recorded as a skip so the pass's own
-    // return says which goals were left alone and why, and retried next cadence like every other
-    // transient here.
+    // READINESS REFUSED (§ D1): `coordinate ready-seats` exited non-zero — no python, a package it
+    // could not read, a timeout, output that is not the documented array. `seedGoal` already logged
+    // it at `warn` with the evidence and wrote NOTHING; this pass must not go on to report the goal
+    // as "seeded". Recorded as a skip so the pass's own return says which goals were left alone and
+    // why, and retried next cadence like every other transient here.
+    //
+    // ⚠ THE FAIL-CLOSE LIVES IN `seeding.js#seedGoal`, NOT HERE — this only logs and skips what it
+    // was handed. A prior report placed it in this file and sent an investigation to the wrong one.
+    //
+    // ⚠ AND A DISPOSITION SKEW NO LONGER ARRIVES HERE AT ALL (Q2a, owner-ruled 2026-08-18). It used
+    // to: `ready-seats` exited 1 on any SKEW row, so ONE disputed seat refused the WHOLE goal and
+    // froze 65 healthy siblings for 4.5 hours. coord now exits 0 and carries the dispute on the
+    // rows, `seedGoal` seeds every unaffected seat and `warn`s the skew by name, and this branch is
+    // left to the refusals it was always about.
     if (pickup.readinessRefused) {
       skipped.push({ goal, reason: 'readiness-refused', evidence: pickup.readinessRefused });
       continue;

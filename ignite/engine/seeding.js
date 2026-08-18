@@ -112,12 +112,21 @@ function readCsv(file) {
 // `config/spawn-profiles.yaml` and `workflow_launcher.py#launch_argv` states. The repo file is the
 // address; `requirePythonCmd` is the one interpreter resolver (task 7.700).
 //
-// ⚠ A NON-ZERO EXIT SEEDS NOTHING FOR THIS GOAL THIS PASS. `ready-seats` exits 1 on SKEW (the
-// durable and live surfaces disagree about one seat) and that is the one outcome a consumer must
-// not be able to sweep past. Every other failure — no python, an unreadable package, a timeout,
-// output that is not the documented array — lands in the same place, for the same reason: a
-// refused computation may never be PARTIALLY seeded off. `null` is the refusal; it is never an
-// empty ready set, because "nothing is ready" and "I could not ask" are different claims.
+// ⚠ A NON-ZERO EXIT SEEDS NOTHING FOR THIS GOAL THIS PASS. No python, an unreadable package, a
+// timeout, output that is not the documented array — all land in the same place, for the same
+// reason: a refused computation may never be PARTIALLY seeded off. `null` is the refusal; it is
+// never an empty ready set, because "nothing is ready" and "I could not ask" are different claims.
+//
+// ⚠ A DISPOSITION SKEW IS NOT ONE OF THEM ANY MORE (Q2a, owner-ruled 2026-08-18). It used to be:
+// `ready-seats` exited 1 on any SKEW row, that exit landed in the catch below, and the COMPLETE
+// answer was discarded — so ONE disputed seat on `meet-transcript-summarizer` froze 65 healthy
+// siblings for 4.5 hours across 1,704 refusals, one every ~10s, with no owner-facing signal. coord
+// now exits 0 and carries the dispute ON THE ROWS: the disputed seat reads `SKEW`, everything with
+// an `after` path to it reads `BLOCKED`, and every other seat is offered as usual. Nothing here
+// filters for it — a `SKEW` row is simply not `READY`, which the loop below already handles — and
+// `seedGoal` says it out loud every pass so shrinking the blast radius does not silence the alarm.
+// The old whole-goal fail-close is still available to a caller that asks by name
+// (`ready-seats --fail-on-skew`); this consumer deliberately does not.
 //
 // ponytail: one python invocation per daemon-assigned goal per cadence. At the current scale that
 // is noise; if it stops being noise, batch the VERB (`ready-seats` over N packages) — never
@@ -134,7 +143,6 @@ function readySeats(goalFolder) {
     });
   } catch (err) {
     return refuse(`\`ready-seats --json\` did not answer (${err.code || err.message})`
-      + `${err.status === 1 ? ' — exit 1 is SKEW: the durable and live surfaces disagree about a seat, and coord refuses to pick a winner' : ''}`
       + `${err.stderr ? `: ${String(err.stderr).trim().slice(0, 400)}` : ''}`);
   }
   let rows;
@@ -1063,6 +1071,23 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       goalFolder, goal, seats, enqueued: [], seeds: {}, skippedAsFinished: [],
       heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {}, readinessRefused: reason,
     };
+  }
+  // Q2a — THE SKEW IS STILL LOUD; IT JUST NO LONGER STOPS THE GOAL (owner-ruled 2026-08-18).
+  // Before the ruling a skew reached a human (if at all) as the refusal above, which got a `warn`
+  // with its evidence. It now arrives as an ordinary row and the goal seeds around it — so without
+  // this line the one thing on the pass that a human MUST adjudicate would be the only thing
+  // nothing says out loud, and "quieter" was never part of the ruling. Every pass, naming the
+  // seats: it is a standing condition that lifts only when someone rules on the row.
+  const skewed = (readyRows || []).filter((r) => r && r.verdict === 'SKEW');
+  if (skewed.length && logger) {
+    logger({
+      level: 'warn',
+      message: 'seat disposition SKEW — the two records of that seat\'s own ending DISAGREE, so it and its '
+        + 'dependents advance on neither until a human rules. The REST of the goal is seeded normally.',
+      goal,
+      goalFolder,
+      evidence: skewed.map((r) => `${r.seat}: ${r.reason}`).join('  ·  '),
+    });
   }
   // THE RETRY PASS, between coord's answer and anything this store writes (task 7.776). It mints
   // against the record `recordView` reads, so the two agree by construction about which seats are

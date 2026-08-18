@@ -13176,9 +13176,14 @@ def terminal_disposition(pkg, base, seat, awaiting=None):
     executor CLEARS on success. The durable one is the `disposition` column on `sessions.csv`,
     which survives that clear. Picking a winner between two disagreeing records would be this
     tool deciding a question only a human can: which of two contradictory statements about a
-    seat's own ending is the true one. It reports SKEW instead, prints both with their sources,
-    and exits non-zero — the same cross-verify discipline the lifecycle executor already
-    requires of itself ("fail loud on mismatch — never silently proceed on a skew").
+    seat's own ending is the true one. It reports SKEW instead and prints both with their
+    sources — the same cross-verify discipline the lifecycle executor already requires of itself
+    ("fail loud on mismatch — never silently proceed on a skew").
+
+    ⚠ THE REFUSAL IS THE SEAT'S, NOT THE GOAL'S (Q2a, owner-ruled 2026-08-18). The disputed row
+    reads `SKEW` and everything with an `after` path to it reads `BLOCKED`; every OTHER seat of
+    the goal keeps computing and keeps seeding. `ready-seats` therefore exits 0 on a per-seat skew
+    unless asked for the old whole-goal fail-close by name — see `cmd_ready_seats`' § Q2a.
 
     The awaiting-close read goes through `entry.get("disposition", "done")`, which is
     `load_awaiting`'s DOCUMENTED contract and not a guess: a record exists only because a
@@ -15833,9 +15838,26 @@ def cmd_ready_seats(args):
             print(f"granted={len(_granted)}: {', '.join(_granted)}"
                   f"   ⚠ unspent relaunch grant(s) — each seat's reason names its anchor and the "
                   f"exact spend command")
-    if any(r["verdict"] == "SKEW" for r in rows):
-        # NON-ZERO, and it is the only non-zero this command has. A skew is the one outcome a
-        # caller must not be able to sweep past on exit status alone.
+    # ── Q2a — A SKEW BLOCKS ITS OWN SEAT, NEVER THE WHOLE GOAL (owner-ruled 2026-08-18) ───────
+    #
+    # THE DEFECT THIS CLOSES, measured 2026-08-18. This was an unconditional `sys.exit(1)` on any
+    # SKEW row, and the one JS consumer (`engine/seeding.js#readySeats`) runs the verb under
+    # `execFileSync` — where a non-zero exit lands in the catch and the COMPLETE answer is thrown
+    # away. ONE disputed seat on `meet-transcript-summarizer` therefore froze 65 healthy siblings
+    # for 4.5 hours across 1,704 refusals, one every ~10s, with zero owner-facing signal.
+    #
+    # ⚠ THE SKEW IS UNCHANGED AND JUST AS LOUD. `terminal_disposition` still refuses to pick a
+    # winner, the row still reads `SKEW` carrying both values with their sources, the dependents
+    # still read `BLOCKED`, and the census still counts it. Only the BLAST RADIUS shrank: the
+    # per-seat containment already lived on the ROWS, and the exit status was a second, goal-wide
+    # copy of it that no row asked for.
+    #
+    # ⚠ AND THIS IS NOT A GENERAL LOOSENING. Every `refuse(...)` on this path still exits non-zero,
+    # because "I could not ask" (an unreadable package, bad argv, a crash) and "one seat of many is
+    # disputed" are different claims — a consumer that cannot tell them apart is the defect above
+    # in reverse. A caller that genuinely wants the old whole-goal fail-close asks for it BY NAME
+    # with `--fail-on-skew`; the rows say the same thing to anyone reading the JSON.
+    if getattr(args, "fail_on_skew", False) and any(r["verdict"] == "SKEW" for r in rows):
         sys.exit(1)
 
 
@@ -27131,10 +27153,10 @@ def _selftest_checks(args, failures, names):
             return p
 
         def _rs(pkg, **kw):
-            """(stdout, stderr, exit) — stdout kept SEPARATE so `--json` output stays parseable
-            even on the SKEW path, which prints the rows and then exits non-zero."""
+            """(stdout, stderr, exit) — stdout kept SEPARATE so `--json` output stays parseable on
+            the SKEW path, which prints every row and (with `fail_on_skew`) then exits non-zero."""
             _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": None,
-                  "force": False, "json": False, "explain": None}
+                  "force": False, "json": False, "explain": None, "fail_on_skew": False}
             _d.update(kw)
             return harness_outcome(cmd_ready_seats, argparse.Namespace(**_d))
 
@@ -27231,25 +27253,40 @@ def _selftest_checks(args, failures, names):
               "b" in known_recipients(_rs4_ns, _rs4 / "coordination")
               and "ghost" not in known_recipients(_rs4_ns, _rs4 / "coordination"))
 
-        # ---- RS-5: a skew is REPORTED, never resolved ----
-        _rs5 = _rs_make("5", [("a", ""), ("b", "a")],
+        # ---- RS-5: a skew is REPORTED, never resolved — and it holds ITS OWN SEAT, not the goal
+        # ⚠ `c` IS THE ROW THIS EXISTS FOR (Q2a, owner-ruled 2026-08-18). A THIRD seat, a root
+        # depending on nothing, in the SAME package as the skew: it must read READY and the command
+        # must exit 0, because the one JS consumer discards the whole answer on a non-zero exit and
+        # one disputed seat froze 65 healthy siblings for 4.5 hours on 2026-08-18. Without this
+        # member the fixture cannot tell per-seat containment from a whole-goal fail-close — every
+        # other seat in it is downstream of `a`, so both behaviours look identical.
+        _rs5 = _rs_make("5", [("a", ""), ("b", "a"), ("c", "")],
                         awaiting=[("a", "renew")], sessions=[("a", "done")])
         _rs5_v, _rs5_code = _rs_v(_rs5)
         _rs5_out, _rs5_err, _ = _rs(_rs5)
+        # The OPT-IN back to the old whole-goal fail-close, on the SAME package: the rows are
+        # identical and only the exit status moves, which is the whole of what the flag promises.
+        _rs5_fv, _rs5_fcode = _rs_v(_rs5, fail_on_skew=True)
         _rs5_match = _rs_make("5m", [("a", ""), ("b", "a")],
                               awaiting=[("a", "done")], sessions=[("a", "done")])
         _rs5_mv, _rs5_mcode = _rs_v(_rs5_match)
-        check("dag-10 RS-5: DISPOSITION SKEW IS REPORTED, NOT RESOLVED. When the live surface says "
-              "`renew` and the durable one says `done` for the same seat, the verdict is SKEW — "
-              "never `done`, never `not-done` — BOTH values are printed WITH THEIR SOURCES, the "
-              "exit status is non-zero, and the successor does not advance. Picking a winner would "
-              "be this tool ruling on which of two contradictory records of a seat's own ending is "
-              "true, which is a human's call. Control: the same package with the two values "
-              "AGREEING gives a clean verdict and exit 0",
-              _rs5_v.get("a") == "SKEW" and _rs5_code != 0
+        check("dag-10 RS-5: DISPOSITION SKEW IS REPORTED, NOT RESOLVED — AND IT BLOCKS THE DISPUTED "
+              "SEAT, NOT THE GOAL. When the live surface says `renew` and the durable one says "
+              "`done` for the same seat, the verdict is SKEW — never `done`, never `not-done` — "
+              "BOTH values are printed WITH THEIR SOURCES and the successor does not advance. "
+              "Picking a winner would be this tool ruling on which of two contradictory records of "
+              "a seat's own ending is true, which is a human's call. ⚠ AN UNRELATED THIRD SEAT IN "
+              "THE SAME PACKAGE STILL READS READY AND THE EXIT STATUS IS 0 (Q2a): the containment "
+              "lives on the rows, and a goal-wide exit status computed off one row is what froze 65 "
+              "healthy seats for 4.5 hours on 2026-08-18. `--fail-on-skew` returns 1 on the SAME "
+              "rows for a caller that wants the old fail-close. Control: the same package with the "
+              "two values AGREEING gives a clean verdict and exit 0",
+              _rs5_v.get("a") == "SKEW" and _rs5_code == 0
               and "awaiting-close.json=renew" in _rs5_out
               and "sessions.csv=done" in _rs5_out
               and _rs5_v.get("b") == "BLOCKED"
+              and _rs5_v.get("c") == "READY"
+              and _rs5_fv == _rs5_v and _rs5_fcode == 1
               and _rs5_mv == {"a": "DONE", "b": "READY"} and _rs5_mcode == 0)
 
         # ---- RS-6: the command writes NOTHING ----
@@ -36288,8 +36325,10 @@ def build_parser():
         "the successor BLOCKED. A GUARDED member `<seat>[<key>=<value>]` needs that `done` AND a\n"
         "matching recorded value (coordinate rule-guard); an ALTERNATE `a|b` is satisfied when ANY\n"
         "ONE member is. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
-        "last two disagree about one seat it reports SKEW and exits 1 rather than picking a\n"
-        "winner. READ-ONLY: launches nothing, writes nothing, messages nobody.",
+        "last two disagree about one seat it reports SKEW for THAT seat rather than picking a\n"
+        "winner — that seat and its dependents are held, the rest of the goal keeps advancing,\n"
+        "and the exit status stays 0 (Q2a). READ-ONLY: launches nothing, writes nothing,\n"
+        "messages nobody.",
         "example:\n"
         "  coordinate ready-seats\n"
         "  coordinate ready-seats --json\n"
@@ -36302,6 +36341,14 @@ def build_parser():
                         "consumer never parses the reason text")
     s.add_argument("--explain", metavar="SEAT",
                    help="print the full predicate evaluation for ONE seat, term by term")
+    # Q2a: the OPT-IN back to the pre-2026-08-18 whole-goal fail-close, for a caller that reads the
+    # exit status and not the rows. Opt-IN and not opt-out because the default it replaced froze 65
+    # healthy seats over one disputed one, and a shell caller that never heard of skew must not
+    # inherit that. Refusals (unreadable package, bad argv, a crash) exit non-zero either way.
+    s.add_argument("--fail-on-skew", action="store_true",
+                   help="exit 1 when ANY seat reports SKEW, instead of reporting it per-seat and "
+                        "exiting 0. The rows are identical either way — this only changes the "
+                        "exit status, for a caller that cannot parse them")
     s.set_defaults(func=cmd_ready_seats)
 
     s = command(
