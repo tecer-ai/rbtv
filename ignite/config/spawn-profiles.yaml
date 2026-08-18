@@ -373,12 +373,12 @@ launch-specs:
   #
   # ONE SPEC PER HARNESS+MODEL (r-seats-only-architecture (2)) — nothing else is identity.
   # The set is the owner-ruled roster (2026-08-06, live at console): claude fable/opus/sonnet/
-  # haiku, codex gpt-5.5 only, kimi, opencode glm-5.2/deepseek-flash/deepseek-pro/fugu/
-  # fugu-ultra/gemini-flash/gemini-pro. Effort translation tables are the retired cli-*
+  # haiku, codex gpt-5.5 + gpt-5.6 family, opencode glm/deepseek/fugu/gemini/grok plus
+  # opencode-hosted kimi-for-coding models (k2.7/k3). The kimi harness is retired.
   # profiles' MEASURED values, carried unchanged.
   #
   # exec argvs carry the caged posture (claude bypassPermissions, codex danger-full-access,
-  # opencode run --auto, kimi bare): under r-seats-only-architecture the bwrap seat cage is ALWAYS the
+  # opencode run --auto): under r-seats-only-architecture the bwrap seat cage is ALWAYS the
   # boundary — the portable/caged halves retire with the flat lane, and a host with no cage
   # refuses to spawn rather than running wall-less (the E_NO_PORTABLE_HALF direction, kept).
   #
@@ -521,16 +521,14 @@ launch-specs:
 
 
   codex:
-    # ── codex (1 model) ──────────────────────────────────────────────────────────────────────────
+    # ── codex (4 models) ─────────────────────────────────────────────────────────────────────────
     # codex POLICY-blocks .git writes under workspace-write regardless of config, so the exec runs
     # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
     # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
-    # one machine at one moment. Effort: codex spells the dial `thinking` and its manifest declares
-    # depths [low, medium, high] — THREE rungs, and since the numeric-rung ruling that is simply what
-    # this profile's LADDER IS. ⚠ The note that stood here — "the abstract `max` maps to `high`, a
-    # LOSSY but honest collapse" — described the RETIRED four-level vocabulary and is gone with it:
-    # rung 3 is codex's top, and asking for rung 4 is a refusal naming 1..3, never a silent
-    # downgrade. The dial rides a `-c` config override (`codex exec --help`: "-c, --config
+    # one machine at one moment. Effort: codex spells the dial `thinking`. gpt-5.5's live ladder
+    # is [low, medium, high, xhigh] (cast list 2026-08-18); the gpt-5.6 family adds `max`.
+    # Asking past a model's own top is a refusal naming 1..N, never a silent downgrade.
+    # The dial rides a `-c` config override (`codex exec --help`: "-c, --config
     # <key=value>"), which is why the fragment is two tokens and not a flag. The same `-c`
     # fragment is legal on the TUI (`codex --help` exposes `-c` as a root option); `headed.tui`
     # pins the model (B1i) and does NOT carry `--dangerously-bypass-hook-trust`.
@@ -551,42 +549,66 @@ launch-specs:
         tui: { argv: ["codex", "-m", "gpt-5.5"] }
       effort:
         dialect: thinking
-        rungs: [low, medium, high]                 # 1..3 — codex's own depths; there is no fourth
+        rungs: [low, medium, high, xhigh]          # 1..4 — cast list 2026-08-18 (xhigh is live)
         argv: ["-c", "model_reasoning_effort={effort}"]
         headed: true
       session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
 
-
-  kimi:
-    # ── kimi (1 model) ───────────────────────────────────────────────────────────────────────────
-    # `kimi --help` declares no sandbox and no permission mode (measured) — containment is entirely
-    # the seat cage's. `--yolo` deliberately ABSENT: `--quiet` implies `--print`, which already
-    # auto-approves tool calls for the invocation. ⚠ THE MODEL PIN IS THE MANIFEST'S, VERIFIED
-    # AGAINST THIS BOX, NOT READ OFF IT: a machine whose kimi config does not carry this id refuses
-    # loudly at dispatch rather than silently running another model. Effort: a BINARY dial, measured
-    # on this box 2026-08-11 (`kimi --help`: "--thinking / --no-thinking   Enable thinking"). So the
-    # ladder is TWO rungs and each rung IS the flag — the argv fragment is a bare `{effort}`.
-    # ⚠ The note that stood here ("the four abstract levels collapse two-and-two, lossy and stated")
-    # described the RETIRED four-level vocabulary. Nothing collapses now: rung 2 is kimi's top and
-    # rung 3 is a refusal naming 1..2.
-
-    kimi-code/kimi-for-coding:
+    gpt-5.6-sol:
       exec:
-        argv: ["kimi", "--quiet", "-m", "kimi-code/kimi-for-coding", "--work-dir", "{workdir}"]
-        prompt: stdin
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-sol",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-sol"] }
       effort:
-        dialect: thinking-toggle
-        rungs: ["--no-thinking", "--thinking"]     # 1..2 — the rung IS the flag; the fragment is bare
-        argv: ["{effort}"]
-      session_ref: { source: cwd-implicit }
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
       toolset_ceiling: full
       workdir_root: .rbtv/goals
 
+    gpt-5.6-terra:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-terra",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-terra"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    gpt-5.6-luna:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-luna",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-luna"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
 
   opencode:
-    # ── opencode (8 models; grok-4.6 joined 2026-08-14, `35414c89`) ──────────────────────────────
+    # ── opencode (16 models; kimi-for-coding rides this harness, 2026-08-18) ─────────────────────
     # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
     # unprompted) — containment is entirely the seat cage's. Headless exec is
     # `opencode run --auto -m <model>` (G-49 / r-seats-launch-auto-mode): without `--auto`
@@ -744,6 +766,124 @@ launch-specs:
       effort:
         dialect: variant
         rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    zai-coding-plan/glm-5.2-highspeed:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-5.2-highspeed"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2-highspeed"] }
+      effort:
+        dialect: variant
+        rungs: [high, max]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    zai-coding-plan/glm-4.7:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-4.7"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-4.7"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-3.6-flash:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-3.6-flash"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-3.6-flash"] }
+      effort:
+        dialect: variant
+        rungs: [minimal, low, medium, high]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    xai/grok-4.6-fast:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.6-fast"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "xai/grok-4.6-fast"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/kimi-for-coding:
+      # k2.7 — opencode-hosted; the kimi harness is retired. Pin is the catalog id.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/kimi-for-coding"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/kimi-for-coding"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/kimi-for-coding-highspeed:
+      # k2.7-highspeed — opencode-hosted; the kimi harness is retired.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/kimi-for-coding-highspeed"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/kimi-for-coding-highspeed"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/k3:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/k3"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/k3"] }
+      effort:
+        dialect: variant
+        rungs: [low, high, max]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/k3-256k:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/k3-256k"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/k3-256k"] }
+      effort:
+        dialect: variant
+        rungs: [low, high, max]   # cast list 2026-08-18
         argv: ["--variant", "{effort}"]
         headed: false
       session_ref: { source: cwd-implicit }

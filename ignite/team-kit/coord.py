@@ -52,7 +52,6 @@ VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"
 CLAUDE_BIN = os.environ.get("COORD_CLAUDE_BIN", "claude")
 CODEX_BIN = os.environ.get("COORD_CODEX_BIN", "codex")
 OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
-KIMI_BIN = os.environ.get("COORD_KIMI_BIN", "kimi")
 # T1/7.400: every launched seat's tmp writes (harness captures, session state, startup
 # extraction) redirect here — off the quota'd usr-quota tmpfs backing `/tmp`, onto `/dev/sda1`.
 # Bound into `identity_prefix()`, the one env-prefix door every harness command passes through
@@ -60,7 +59,7 @@ KIMI_BIN = os.environ.get("COORD_KIMI_BIN", "kimi")
 # a process to one tmux SERVER and is untouched by this (coord.py:5502).
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
 DEFAULT_EFFORT = "high"
-HARNESSES = ("claude", "codex", "opencode", "kimi")
+HARNESSES = ("claude", "codex", "opencode")
 CLOSER_MODEL = "claude-sonnet-5"
 CLOSERS_WINDOW = "closers"  # every closer pane lands here, never in the control-panel window
 # tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
@@ -15940,7 +15939,7 @@ def validate_seat(w):
     reason (used to refuse a launch BEFORE any pane opens).
 
     ⚠ IT IS A TYPO-CATCHER, NEVER A SECURITY GATE, and it was owner-ruled NOT tightened when
-    the claude branch's raw `model` interpolation was quoted (2026-08-12): codex and kimi have
+    the claude branch's raw `model` interpolation was quoted (2026-08-12): codex has
     NO model rule here at all — any string, the empty one included, is accepted — so
     `shlex.quote` at the COMPOSITION SITE in `harness_command` is the only thing that has ever
     made those two branches safe, and is now the only thing making claude's safe. NEVER treat a
@@ -16016,18 +16015,6 @@ def harness_command(w, prompt=None, prompt_path=None):
     eff = f" {eff}" if eff else ""
     if w["harness"] == "claude":
         return f"{env}{CLAUDE_BIN} --model {shlex.quote(w['model'])}{eff} {arg}", ""
-    if w["harness"] == "kimi":
-        # Mirrors this profile's `exec:` argv in `config/spawn-profiles.yaml` (`kimi`), verified
-        # against `kimi --help` on this box rather than read off the profile alone — G-13 is the
-        # standing lesson that a launch line nobody executed end to end is not a launch line.
-        # `--quiet` is kimi's own alias for `--print --output-format text --final-message-only`,
-        # so it imposes the SAME ONE-SHOT SHAPE the opencode branch documents below: the seat runs
-        # its prompt and exits, cannot be woken later, and must read its own messages before it
-        # finishes. `-p` is the prompt flag (`--prompt/--command/-p/-c`); kimi has no positional
-        # prompt, so the G-11 file form rides `-p` here instead of a bare argument.
-        model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
-        return (f"{env}{KIMI_BIN} --quiet{model} "
-                f"--work-dir {shlex.quote(str(w.get('cwd') or '.'))}{eff} -p {arg}"), ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
         # 7.612 / `d-codex-hook-trust-bypass` (2026-08-09): codex trust-gates hooks BY HASH,
@@ -19909,39 +19896,35 @@ def _selftest_checks(args, failures, names):
         cmd, err = harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
 
-        # ---- the other two harnesses' dialects, and kimi's door at all ----
-        # Neither is a fixture seat: codex's pinned model and kimi's whole profile are cast by the
-        # bindings sheet, not by hand-written frontmatter. The point of these two rows is that ONE
-        # lookup serves four harnesses — the fragment is authored per profile in
+        # ---- the other harness dialect, and the retired kimi door ----
+        # Codex is not a fixture seat: its pinned model is cast by the bindings sheet, not by
+        # hand-written frontmatter. The point of the first row is that ONE lookup serves the
+        # remaining harnesses — the fragment is authored per profile in
         # `config/spawn-profiles.yaml`, so nothing here spells any of them.
         _cx = {"agent": "cx", "harness": "codex", "model": "gpt-5.5", "effort": "high",
                "cwd": "/tmp"}
         _cx_cmd, _ = harness_command(_cx, "P")
         check("the codex seat's effort reaches its command line as `-c "
-              "model_reasoning_effort=high` — codex owns a real 3-rung ladder and this branch never "
+              "model_reasoning_effort=high` — codex owns a real ladder and this branch never "
               "read effort at all, so every codex seat ever launched from this kit ran at the "
               "binary's own default while its descriptor said otherwise",
               "-c model_reasoning_effort=high" in _cx_cmd and validate_seat(_cx) == ""
               and "--effort" not in _cx_cmd)
-        # kimi's rung IS the flag (`rungs: ["--no-thinking", "--thinking"]`, `argv: ["{effort}"]`) —
-        # the one dialect where the fragment carries no flag of its own, which is why a hardcoded
-        # `--<name> {word}` shape could never have expressed it.
+        # The kimi-code-cli harness is retired (2026-08-18). A cast naming it must refuse as
+        # unknown-harness — never compose a `kimi` binary line, never treat it as on-ladder.
         _km = {"agent": "km", "harness": "kimi", "model": "kimi-code/kimi-for-coding",
                "effort": "--thinking", "cwd": "/tmp/kimi-cwd"}
         _km_cmd, _km_err = harness_command(_km, "P")
-        check("kimi is a KNOWN harness with a launch line: it was absent from HARNESSES, so a kimi "
-              "seat was refused `unknown harness` before this function was ever reached, although "
-              "its profile is fully authored. The line mirrors that profile's `exec:` argv and its "
-              "bare rung lands as `--thinking` with no flag name in front of it",
-              "kimi" in HARNESSES and _km_cmd and validate_seat(_km) == ""
-              and " --thinking " in _km_cmd
-              and f"-m {shlex.quote('kimi-code/kimi-for-coding')}" in _km_cmd
-              and "--work-dir /tmp/kimi-cwd" in _km_cmd and _km_cmd.endswith("-p P"))
-        check("kimi: a word off ITS ladder is refused by name with the ladder NUMBERED, and no "
-              "fragment is composed for it — claude's `high` is not a kimi rung, and the refusal "
-              "says so rather than letting the binary meet a flag it does not have",
-              "1=--no-thinking, 2=--thinking" in validate_seat(dict(_km, effort="high"))
-              and "--thinking" not in harness_command(dict(_km, effort="high"), "P")[0])
+        check("kimi is an UNKNOWN harness: the kimi-code-cli door is retired, so a kimi "
+              "seat is refused `unknown harness` and no launch line is composed. kimi models "
+              "ride opencode now",
+              "kimi" not in HARNESSES and _km_cmd is None
+              and "unknown harness" in validate_seat(_km)
+              and "unknown harness" in (_km_err or ""))
+        check("kimi: a retired-harness cast is refused as unknown-harness, never as an "
+              "off-ladder word — the ladder check is unreachable once the harness itself is gone",
+              "unknown harness" in validate_seat(dict(_km, effort="high"))
+              and harness_command(dict(_km, effort="high"), "P")[0] is None)
 
         # ---- PROP-8: pre-flight harness/model validation (local knowledge only) ----
         check("PROP-8: every fixture seat's launch config validates clean",

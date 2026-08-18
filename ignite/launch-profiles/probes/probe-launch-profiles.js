@@ -225,11 +225,11 @@ check('(8) a rung round-trips through the claude ladder (rung 4 = xhigh, the 5-r
   if (r.effort.of !== 5) throw new Error(`ladder size ${r.effort.of}`);
   return `dialect=${r.effort.dialect} rung=${r.effort.rung}/${r.effort.of} argv-tail=${r.argv.slice(-2).join(' ')}`;
 });
-check('(9) …and through a SECOND, differently-spelled dialect (codex: a -c override, 3 rungs)', () => {
+check('(9) …and through a SECOND, differently-spelled dialect (codex: a -c override, 4 rungs)', () => {
   const r = lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 3, slots: { workdir: '/tmp' } });
   const tail = r.argv.slice(-2).join(' ');
   if (!tail.includes('model_reasoning_effort=high')) throw new Error(tail);
-  if (r.effort.dialect !== 'thinking' || r.effort.of !== 3) throw new Error(`${r.effort.dialect}/${r.effort.of}`);
+  if (r.effort.dialect !== 'thinking' || r.effort.of !== 4) throw new Error(`${r.effort.dialect}/${r.effort.of}`);
   return `dialect=${r.effort.dialect} rung=${r.effort.rung}/${r.effort.of} argv-tail=${tail}`;
 });
 check('(9b) ONE rung number, three harness spellings — and each ladder has its OWN top', () => {
@@ -243,7 +243,7 @@ check('(9b) ONE rung number, three harness spellings — and each ladder has its
   // The tops DIFFER — which is the whole reason the closed four-level vocabulary was retired: it
   // could only be as wide as its narrowest member, so claude's `xhigh` was unspellable through it.
   const tops = three.map(([n, r]) => `${n}:${r.effort.of}`).join(' ');
-  if (tops !== 'claude/claude-sonnet-5:5 codex/gpt-5.5:3 opencode/zai-coding-plan/glm-5.2:2') throw new Error(tops);
+  if (tops !== 'claude/claude-sonnet-5:5 codex/gpt-5.5:4 opencode/zai-coding-plan/glm-5.2:2') throw new Error(tops);
   return `${rendered.join(' ')} | ladder sizes ${tops}`;
 });
 check('(10) an INERT dial is STATED, never silently dropped', () => {
@@ -292,8 +292,8 @@ check('(11b) an unknown effort-block key is a LOAD failure (KNOWN_EFFORT_KEYS mu
 });
 
 check('(11) a rung outside THIS profile\'s range is refused, and the refusal NAMES the range', () => {
-  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 4, slots: { workdir: '/tmp' } }));
-  if (!/range 1\.\.3/.test(err.message)) throw new Error(err.message);
+  const err = expectCode('E_UNKNOWN_EFFORT', () => lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 5, slots: { workdir: '/tmp' } }));
+  if (!/range 1\.\.4/.test(err.message)) throw new Error(err.message);
   // The CONTROL that makes it a range check rather than a ceiling: the same rung composes on a
   // profile whose ladder is longer, so nothing about "4" is refused — only "4 on codex".
   const ok = lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 4, slots: { session_ref: SESSION_REF } });
