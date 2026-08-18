@@ -1,15 +1,14 @@
 """Tests for the installer plan-size CLOBBER WARNING (D14 — multi-model harness).
 
 Covers the pure clobber detector (orchestration.clobbered_variants / read_variant_windows)
-over the REAL claude-code-native manifest, and the interactive plan-size flow
+over the REAL cast catalog's claude CLI rows, and the interactive plan-size flow
 (cli._resolve_model_plan_caps) driven with fed menu answers against a scratch target —
 asserting a sub-largest cap WARNS (naming the shrunk variants) while "no cap" and an
 at-ceiling cap do not, and the chosen cap is still written either way (advisory, never blocks).
 
-The expected windows come from the REAL manifest and MUST track it: sonnet moved 200K→1M by
-owner ruling D76 (rbtv 3d91443, 2026-07-18) and `fable` was re-added (8b40cfe), which is what
-these assertions were updated for. When a variant's window changes in the manifest, update the
-expectations here — never loosen the assertions, since catching exactly this drift is the point.
+The expected windows come from the catalog and MUST track it: fable/opus/sonnet = 1M,
+haiku = 200K. When a model's window changes in the catalog, update the expectations
+here — never loosen the assertions, since catching exactly this drift is the point.
 
 Stdlib + pytest only. No network / clock / randomness.
 """
@@ -35,15 +34,14 @@ from installer.orchestration import (  # noqa: E402
     read_variant_windows,
 )
 
-PKG = "claude-code-native"
+PKG = "claude"
 PLANS_REL = ".user/config/orchestration/model-plans.yaml"
 
 
-# --- pure detector over the REAL claude-code-native manifest ------------------------------
+# --- pure detector over the REAL cast catalog's claude CLI rows ---------------------------
 
 def test_read_variant_windows_real_manifest():
-    # Windows track the manifest, which is the authority: sonnet moved 200K→1M by owner
-    # ruling D76 (rbtv 3d91443, 2026-07-18) and `fable` was re-added (8b40cfe). haiku is
+    # Windows track the catalog: fable/opus/sonnet = 1M, haiku = 200K. haiku is
     # now the ONLY sub-1M variant — the asymmetry the clobber tests below turn on.
     w = dict(read_variant_windows(RBTV_ROOT, PKG))
     assert w.get("fable") == 1_000_000
@@ -88,7 +86,7 @@ def _drive(tmp_path: Path, *answers: str):
     """Run the REAL _resolve_model_plan_caps interactively with fed menu answers against a
     scratch target. Returns (stdout, stderr, caps_dict). Patching builtins.input supplies the
     keystroke the test can't type into a non-tty; the warning logic runs for real on the real
-    manifest, and the cap is written to the scratch target (never the live vault)."""
+    catalog, and the cap is written to the scratch target (never the live vault)."""
     out, err = io.StringIO(), io.StringIO()
     fed = iter(answers)
     saved_input = builtins.input
@@ -109,7 +107,7 @@ def _drive(tmp_path: Path, *answers: str):
     return out.getvalue(), err.getvalue(), caps
 
 
-# Menu for claude-code-native (ceiling 1M): 1)No cap 2)128K 3)200K 4)256K 5)512K 6)1M
+# Menu for claude (ceiling 1M): 1)No cap 2)128K 3)200K 4)256K 5)512K 6)1M
 
 def test_interactive_sub_largest_cap_warns_and_still_writes(tmp_path):
     out, err, caps = _drive(tmp_path, "3")  # pick 200K

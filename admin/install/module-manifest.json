@@ -252,7 +252,7 @@
       }
     ],
     "model_packages": {
-      "description": "Per-model dispatch DOC packages (D18) for rbtv-orchestrating — NOT installed into .claude/; read just-in-time from orchestration/models/<model>/ in the RBTV source. install.py elects packages per workspace (--model-packages or the interactive picker) and records the selection in rbtv.json model_packages — the single election authority route.py reads; the orchestrating skill recalls it on demand via `python {rbtv_path}/orchestration/models/route.py --availability`. Nothing is baked into the shared repo. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages). The shared API-worker engine at orchestration/models/_api/ (run.py runner + clients/) is infra — read JIT like _fixture/mirror, no manifest.yaml, not a model package; the API chat packages (deepseek, gemini) and the Agent-tool package (claude) run via it.",
+      "description": "Retiring per-model dispatch DOC packages (D18) under orchestration/models/ — NOT installed into .claude/. The installer no longer elects packages and does not read leftover rbtv.json model_packages / model_variants keys; the routable set is the cast catalog intersect availability. Tree-delete owns removal of this block. A directory is a model package iff it carries manifest.yaml (_fixture and mirror are infra, not packages). The shared API-worker engine at orchestration/models/_api/ (run.py runner + clients/) is infra — read JIT like _fixture/mirror, no manifest.yaml, not a model package.",
       "source_dir": "orchestration/models",
       "packages": [
         {

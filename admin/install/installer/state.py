@@ -7,16 +7,10 @@ rbtv.json records:
   - modules: list of installed module names
   - installed_files: sorted list of all files written by the installer
   - excluded_components: target paths the user chose to skip (optional)
-  - model_packages: orchestration model packages elected for this workspace
-    (optional — the single election authority route.py reads; the orchestrating skill
-    recalls it on demand via route.py --availability, never baked into the shared repo)
-  - model_variants: per-package backend-subset election for CONFIGURABLE packages
-    (optional). Shape: {package_id: [variant_id, ...]}. Present ONLY when a proper
-    subset of a configurable package's native backends is elected (e.g.
-    {"opencode": ["z1", "deepseek-flash"]}); a fully-elected or
-    non-configurable package records no entry. The router (route.py) confines an
-    elected package to these variants; an absent entry => all variants (back-compat).
-  - model_mirror: mirror-driver state for elected worker packages (optional).
+  - model_packages / model_variants: leftover inert keys. Never written as live
+    inputs. If already present on disk they are carried forward unchanged and
+    unread. The routable set is the cast catalog intersect availability.
+  - model_mirror: mirror-driver state for worker packages (optional).
     Shape: {excluded_paths: list[str], managed_files: list[{path, kind, owner}],
     last_run: ISO timestamp}.  Written by the driver after a full install or a
     --mirror run; preserved verbatim on any write path that does not update it.
@@ -68,8 +62,6 @@ def write_state(
     modules: tuple[str, ...],
     installed_files: list[str],
     excluded_components: set[str] | None = None,
-    model_packages: list[str] | None = None,
-    model_variants: dict[str, list[str]] | None = None,
     model_mirror: dict[str, Any] | None = None,
     env_file: str | None = None,
     model_plans_file: str | None = None,
@@ -78,31 +70,31 @@ def write_state(
 
     All installer-owned keys are rebuilt from the supplied arguments.  When
     *model_mirror* is provided (the driver's returned records), it is included
-    in the payload as the ``model_mirror`` block so the file carries both
-    ``model_packages`` and ``model_mirror`` in one pass.
+    in the payload as the ``model_mirror`` block.
 
     Preserves the ``model_mirror`` block from a previous state file when the
     caller omits the argument (``None``): the existing block is read from disk
     and re-emitted unchanged, so a reinstall that does not invoke the driver
     does not silently drop mirror state.
+
+    Leftover ``model_packages`` / ``model_variants`` keys (if already on disk)
+    are carried forward unchanged and never rewritten as live inputs.
     """
     path = state_path(target_root)
+    existing = read_state(target_root)
 
     # Carry forward any existing model_mirror if the caller does not supply one.
     if model_mirror is None:
-        existing = read_state(target_root)
         if existing is not None and "model_mirror" in existing:
             model_mirror = existing["model_mirror"]
 
     # Carry forward any existing env_file if the caller does not supply one.
     if env_file is None:
-        existing = read_state(target_root)
         if existing is not None and "env_file" in existing:
             env_file = existing["env_file"]
 
     # Carry forward any existing model_plans_file if the caller does not supply one.
     if model_plans_file is None:
-        existing = read_state(target_root)
         if existing is not None and "model_plans_file" in existing:
             model_plans_file = existing["model_plans_file"]
 
@@ -119,10 +111,11 @@ def write_state(
         payload["model_plans_file"] = model_plans_file
     if excluded_components:
         payload["excluded_components"] = sorted(excluded_components)
-    if model_packages is not None:
-        payload["model_packages"] = list(model_packages)
-    if model_variants:
-        payload["model_variants"] = {k: list(v) for k, v in model_variants.items()}
+    # Leftover inert keys: carry forward unchanged, never newly written.
+    if existing is not None and "model_packages" in existing:
+        payload["model_packages"] = existing["model_packages"]
+    if existing is not None and "model_variants" in existing:
+        payload["model_variants"] = existing["model_variants"]
     if model_mirror is not None:
         payload["model_mirror"] = model_mirror
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

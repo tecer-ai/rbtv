@@ -32,27 +32,19 @@ from .generator import (
 )
 from .manifest import Module, load_manifest
 from .orchestration import (
-    build_electable_entries,
     build_plan_size_presets,
-    check_manual_render,
     clobbered_variants,
-    discover_model_displays,
-    discover_model_packages,
-    normalize_model_variants,
     read_manifest_context_ceiling,
     read_model_plan_caps,
     read_model_plan_models,
     remove_hook_entry,
-    resolve_selected_packages,
-    resolve_selection_from_entry_ids,
     sync_hook_entry,
     sync_permission_rules,
     write_model_plan_caps,
 )
 from .state import find_state_upward, read_state, update_mirror_state, write_state
 
-# The module that owns the model packages — package selection is offered only
-# when this module is installed.
+# Orchestration module: permission-rule sync, hook wire, plan-cap pointer.
 ORCHESTRATION_MODULE = "orchestration"
 
 
@@ -277,149 +269,6 @@ def _prompt_custom_components(
     return excluded
 
 
-def _prompt_model_selection(
-    rbtv_root: Path,
-    previous_packages: list[str] | None,
-    previous_variants: dict[str, list[str]] | None,
-) -> tuple[list[str], dict[str, list[str]]]:
-    """Interactive checkbox over the electable worker entries (build_electable_entries).
-
-    A configurable package (e.g. opencode) contributes one row PER native backend,
-    each provider-path labeled so a both-paths model (DeepSeek via opencode vs via a
-    direct-API package) is unambiguous; every other package is a single row. On a
-    re-install the previous election is pre-checked; on a first install everything is
-    pre-checked (full install is the default). Returns (packages, model_variants) via
-    resolve_selection_from_entry_ids (model_variants carries only proper-subset
-    configurable packages).
-    """
-    from .tui import checkbox
-
-    entries = build_electable_entries(rbtv_root)
-    previous_variants = previous_variants or {}
-    items: list[dict[str, Any]] = []
-    for e in entries:
-        pkg = e["package"]
-        if previous_packages is None:
-            pre = True
-        elif pkg not in previous_packages:
-            pre = False
-        elif e["variant"] is None:
-            pre = True
-        else:
-            restricted = previous_variants.get(pkg)
-            pre = restricted is None or e["variant"] in restricted
-        item: dict[str, Any] = {"label": e["label"], "selected": pre}
-        if e["hint"]:
-            item["hint"] = e["hint"]
-        items.append(item)
-
-    selected_indices = checkbox(
-        "\nSelect orchestration model workers / backends to make available in this "
-        "workspace\n  (a configurable CLI lists each native backend separately, "
-        "provider-path labeled):",
-        items,
-    )
-    selected_ids = [str(entries[i]["id"]) for i in selected_indices]
-    return resolve_selection_from_entry_ids(rbtv_root, selected_ids)
-
-
-def _carry_variants(
-    previous_variants: dict[str, list[str]] | None, elected_packages: list[str] | None
-) -> dict[str, list[str]]:
-    """Carry forward a previous model_variants map, dropping entries for packages no
-    longer elected. Used on the scripted (non-interactive / --modules) path and when
-    --model-packages is given without --model-variants — a re-install preserves the
-    recorded backend subset for still-elected configurable packages."""
-    if not previous_variants:
-        return {}
-    elected = set(elected_packages or [])
-    return {p: list(vs) for p, vs in previous_variants.items() if p in elected}
-
-
-def _resolve_model_packages(
-    rbtv_root: Path,
-    chosen_modules: tuple[str, ...],
-    requested_packages: tuple[str, ...] | None,
-    requested_variants: dict[str, list[str]] | None,
-    non_interactive: bool,
-    used_modules_flag: bool,
-    existing_state: dict[str, Any] | None,
-) -> tuple[list[str], list[str], list[str] | None, dict[str, list[str]] | None]:
-    """Resolve which model packages — and, for configurable packages, which native
-    backends — this workspace elects.
-
-    Returns (installed, absent, persisted_packages, persisted_variants):
-      - installed / absent feed the permission-allowlist reconcile (package granularity),
-      - persisted_packages is written to rbtv.json `model_packages` (None => key omitted:
-        the orchestration module is not installed so packages do not apply),
-      - persisted_variants is written to rbtv.json `model_variants` (None => key omitted:
-        no proper-subset restriction on any configurable package).
-
-    Selection precedence mirrors module resolution:
-      --model-packages / --model-variants flags > non-interactive(prev state or all)
-      > interactive picker.
-    """
-    if ORCHESTRATION_MODULE not in chosen_modules:
-        return [], [], None, None
-
-    available = discover_model_packages(rbtv_root)
-    if not available:
-        # Orchestration installed but no packages shipped yet — nothing to elect.
-        return [], [], [], None
-
-    prev_packages: list[str] | None = None
-    prev_variants: dict[str, list[str]] | None = None
-    if existing_state is not None:
-        if "model_packages" in existing_state:
-            prev_packages = list(existing_state["model_packages"])
-        if isinstance(existing_state.get("model_variants"), dict):
-            prev_variants = {
-                k: list(v) for k, v in existing_state["model_variants"].items()
-            }
-
-    variants_map: dict[str, list[str]]
-    if requested_packages is not None or requested_variants is not None:
-        # Flag path.
-        if requested_packages is not None:
-            req_pkgs = list(dict.fromkeys(requested_packages))
-        else:
-            req_pkgs = list(prev_packages) if prev_packages is not None else list(available)
-        # A package named only in --model-variants is implicitly elected.
-        if requested_variants:
-            for p in requested_variants:
-                if p in available and p not in req_pkgs:
-                    req_pkgs.append(p)
-        if requested_variants is not None:
-            variants_map, warns = normalize_model_variants(rbtv_root, requested_variants)
-            for w in warns:
-                print(f"\n  WARNING — {w}", file=sys.stderr)
-        else:
-            variants_map = _carry_variants(prev_variants, req_pkgs)
-        requested: tuple[str, ...] | None = tuple(req_pkgs)
-    elif non_interactive or used_modules_flag:
-        # Scripted path: reuse prior selection if any, else elect all available.
-        requested = tuple(prev_packages) if prev_packages is not None else None
-        variants_map = _carry_variants(
-            prev_variants, prev_packages if prev_packages is not None else available
-        )
-    else:
-        packages, variants_map = _prompt_model_selection(
-            rbtv_root, prev_packages, prev_variants
-        )
-        requested = tuple(packages)
-
-    installed, absent, unknown = resolve_selected_packages(available, requested)
-    if unknown:
-        print(
-            f"\n  WARNING — unknown model package(s) ignored: {', '.join(unknown)} "
-            f"(available: {', '.join(available)})",
-            file=sys.stderr,
-        )
-    # Confine model_variants to actually-installed packages; empty => None (omit the key).
-    variants_map = {p: vs for p, vs in variants_map.items() if p in installed}
-    return installed, absent, installed, (variants_map or None)
-
-
 def _resolve_env_file(
     requested_flag: str | None,
     existing_state: dict[str, Any] | None,
@@ -608,7 +457,7 @@ def _resolve_model_plan_caps(
 
     plans_path = (target_root / model_plans_file).resolve()
     prior_caps = read_model_plan_caps(plans_path)
-    displays = discover_model_displays(rbtv_root)
+    displays: dict[str, str] = {}
 
     # Scripted path: preserve every prior cap verbatim, prompt for nothing. A package
     # with no prior cap stays uncapped. Re-confirms by re-writing the same values, so a
@@ -729,8 +578,10 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     except Exception:
         configless = set()
         assets_subdir = {}
+    # No election: an empty caller list means "every package the driver knows".
+    pkgs = list(elected) if elected else sorted(set(configless) | set(assets_subdir))
     mirrorable: list[str] = []
-    for pkg in elected:
+    for pkg in pkgs:
         if pkg == "claude-code-cli":
             continue  # native, mirror-less — silently skipped
         if pkg in configless:
@@ -807,7 +658,18 @@ def _check_plugin_prereqs() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Install RBTV into a target workspace.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Install RBTV into a target workspace. Leftover model_packages / "
+            "model_variants keys in an existing rbtv.json are left in place and unread."
+        ),
+        epilog=(
+            "Leftover rbtv.json keys: model_packages and model_variants in an "
+            "existing rbtv.json are left in place and unread. The installer no "
+            "longer elects model packages; the routable set is the cast catalog "
+            "intersect availability."
+        ),
+    )
     parser.add_argument(
         "--target",
         type=Path,
@@ -824,52 +686,6 @@ def main(argv: list[str] | None = None) -> int:
         "--non-interactive",
         action="store_true",
         help="Skip all prompts; use existing rbtv.json + --modules only.",
-    )
-    parser.add_argument(
-        "--model-packages",
-        type=str,
-        default=None,
-        help=(
-            "Comma-separated orchestration model packages to make available "
-            "(folder-safe ids, e.g. kimi-code-cli, codex-cli, claude-code-cli, "
-            "opencode). Omit to keep the previous selection "
-            "or elect all available packages. Empty string elects none. Only "
-            "applies when the orchestration module is installed."
-        ),
-    )
-    parser.add_argument(
-        "--model-variants",
-        type=str,
-        default=None,
-        help=(
-            "Restrict CONFIGURABLE packages to a backend subset, as "
-            "'package=variant,variant' groups separated by ';' "
-            "(e.g. 'opencode=deepseek-flash,deepseek-pro'). A package named here is "
-            "implicitly elected. Recorded in rbtv.json 'model_variants'; the router then "
-            "routes only the listed backends of that package. Omit to keep the previous "
-            "subset (re-installs preserve it); a package not listed keeps ALL its backends. "
-            "Only applies when the orchestration module is installed."
-        ),
-    )
-    parser.add_argument(
-        "--list-model-packages",
-        action="store_true",
-        help=(
-            "Print every available orchestration model package as "
-            "'<id>\\t<display label>' (one per line) and exit. Non-interactive view "
-            "of the same id→label rendering the worker pick-menu shows."
-        ),
-    )
-    parser.add_argument(
-        "--list-model-backends",
-        action="store_true",
-        help=(
-            "Print every independently-electable worker ROW as "
-            "'<id>\\t<label>\\t<provider-path>' (one per line) and exit — the exact "
-            "rows the interactive picker shows, with each configurable CLI expanded into "
-            "its native backends (id '<pkg>:<variant>'). Non-interactive view of the "
-            "backend-election menu."
-        ),
     )
     parser.add_argument(
         "--env-file",
@@ -899,9 +715,10 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Mirror-only mode: refresh the mirror artifacts (the shared .agents/ "
-            "library and per-model config dirs) for the packages already recorded "
-            "in rbtv.json, without running target/module/component prompts or "
-            "reinstalling components. Guidance files (AGENTS.md/QWEN.md) are NOT "
+            "library and per-model config dirs) for every package the driver "
+            "knows, without running target/module/component prompts or "
+            "reinstalling components. Does not read leftover model_packages / "
+            "model_variants keys. Guidance files (AGENTS.md/QWEN.md) are NOT "
             "rendered — that leg is retired. Resolves the target via --target or "
             "the nearest rbtv.json."
         ),
@@ -938,10 +755,9 @@ def main(argv: list[str] | None = None) -> int:
             "With --mirror: remove ALL generated mirror artifacts for the target "
             "(the shared .agents/ library, per-model config dirs, and any guidance "
             "file still recorded from a pre-retirement install) and clear the "
-            "model_mirror block from rbtv.json. A full mirror "
-            "teardown for every currently-elected package. A worker dir emptied of "
-            "rbtv's files is removed; one still holding files rbtv did not create "
-            "is named (not deleted) so you can remove it by hand."
+            "model_mirror block from rbtv.json. A full mirror teardown. A worker "
+            "dir emptied of rbtv's files is removed; one still holding files rbtv "
+            "did not create is named (not deleted) so you can remove it by hand."
         ),
     )
     args = parser.parse_args(argv)
@@ -980,50 +796,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         raise SystemExit(2)
 
-    # Parse the model-packages flag: None (omitted) vs an explicit (possibly empty) set.
-    requested_model_packages: tuple[str, ...] | None = None
-    if args.model_packages is not None:
-        requested_model_packages = tuple(
-            m.strip() for m in args.model_packages.split(",") if m.strip()
-        )
-
-    # Parse the model-variants flag: None (omitted) vs an explicit map. Format:
-    # 'pkg=v1,v2;pkg2=v3'. An empty string parses to {} (clears any recorded subset).
-    requested_model_variants: dict[str, list[str]] | None = None
-    if args.model_variants is not None:
-        requested_model_variants = {}
-        for chunk in args.model_variants.split(";"):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            if "=" not in chunk:
-                raise SystemExit(
-                    "--model-variants: expected 'package=variant,variant' groups "
-                    f"separated by ';', got '{chunk}'"
-                )
-            pkg, _, vars_str = chunk.partition("=")
-            pkg = pkg.strip()
-            if pkg:
-                requested_model_variants[pkg] = [
-                    v.strip() for v in vars_str.split(",") if v.strip()
-                ]
-
     rbtv_root = _find_rbtv_root()
-
-    # --list-model-packages: non-interactive view of the worker pick-menu's id→label
-    # rendering (the same display read the interactive picker uses). Print and exit.
-    if args.list_model_packages:
-        displays = discover_model_displays(rbtv_root)
-        for pkg in discover_model_packages(rbtv_root):
-            print(f"{pkg}\t{displays.get(pkg, pkg)}")
-        return 0
-
-    # --list-model-backends: non-interactive view of the backend-election menu (each
-    # configurable package expanded into its native backends with provider-path labels).
-    if args.list_model_backends:
-        for e in build_electable_entries(rbtv_root):
-            print(f"{e['id']}\t{e['label']}\t{e['hint'] or ''}")
-        return 0
 
     defaults = _load_defaults(rbtv_root)
 
@@ -1051,15 +824,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
             mirror_target, mirror_state = found
 
-        # Read model_packages BEFORE any write so deselect computation is correct.
-        elected_workers: list[str] = list(mirror_state.get("model_packages") or [])
-        mirrorable = _split_mirrorable(rbtv_root, elected_workers)
+        # Installer no longer elects: refresh every package the driver knows.
+        # Leftover model_packages / model_variants keys are unread.
+        mirrorable = _split_mirrorable(rbtv_root, [])
 
         # --- --mirror --uninstall: full mirror teardown for the target ---------
         if args.uninstall:
             try:
                 _mirror_render, mirror_uninstall = _import_mirror_driver(rbtv_root)
-                # Tear down EVERY currently-elected package (remaining_elected
+                # Tear down every driver-known package (remaining_elected
                 # empty) so the driver deletes all generated artifacts and drops
                 # the model_mirror block from rbtv.json.
                 un = mirror_uninstall(
@@ -1086,11 +859,9 @@ def main(argv: list[str] | None = None) -> int:
             print("\nMirror uninstall complete.")
             return 0
 
-        # Deselect computation: --mirror reads from the SAME rbtv.json, so there
-        # is no prior-vs-new divergence — deselection does not apply on a
-        # mirror-only run (the election is identical to the recorded state).
+        # Deselection does not apply on a mirror-only run (no election).
         # We still call the driver in the same render/uninstall order as the full
-        # install for consistency, but deselected is always empty here.
+        # install for consistency.
         try:
             mirror_render, _mirror_uninstall = _import_mirror_driver(rbtv_root)
 
@@ -1143,7 +914,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 noun = "check" if args.check else "render"
-                print(f"  Mirror: no mirrorable packages elected — nothing to {noun}.")
+                print(f"  Mirror: no mirrorable packages — nothing to {noun}.")
         except Exception as exc:
             verb = "check" if args.check else "refresh"
             raise SystemExit(
@@ -1219,18 +990,6 @@ def main(argv: list[str] | None = None) -> int:
         excluded_components = _prompt_custom_components(
             manifest, chosen_modules, previous_excluded
         )
-
-    # --- Resolve orchestration model packages (D18) --------------------------
-
-    mp_installed, mp_absent, mp_persisted, mv_persisted = _resolve_model_packages(
-        rbtv_root=rbtv_root,
-        chosen_modules=chosen_modules,
-        requested_packages=requested_model_packages,
-        requested_variants=requested_model_variants,
-        non_interactive=args.non_interactive,
-        used_modules_flag=bool(args.modules),
-        existing_state=existing_state,
-    )
 
     env_file_value = _resolve_env_file(
         requested_flag=args.env_file,
@@ -1324,7 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
     if stale_count:
         print(f"  ({stale_count} stale component(s) retired — not installed)")
 
-    # --- Orchestration: permission sync + hook wire + plan caps + render check (D18) -
+    # --- Orchestration: permission sync + hook wire + plan caps (D18) --------
 
     # model_mirror block to persist in write_state. None => preserve any prior
     # block (write_state carries it forward from disk). Set to the driver-written
@@ -1332,26 +1091,20 @@ def main(argv: list[str] | None = None) -> int:
     model_mirror_block: dict[str, Any] | None = None
 
     if ORCHESTRATION_MODULE in chosen_modules:
-        if mp_installed or mp_absent:
-            # Permission allowlist reconcile (D17): elected CLI packages get
-            # their manifest-declared entries in the target's
-            # .claude/settings.local.json; non-elected packages' entries are
-            # removed. Only manifest-declared strings are touched.
-            _, perm_msg = sync_permission_rules(
-                ctx.target_root, rbtv_root, mp_installed, mp_absent
-            )
-            print(f"  {perm_msg}")
-        # Wire the context-monitor PostToolUse hook (p2-1). Runs for any
-        # orchestration-elected install regardless of model-package selection,
-        # because the hook is module-scoped (not package-scoped).
+        # Permission allowlist sync (D17): union of catalog-declared rules for
+        # launchable CLI workers into the target's .claude/settings.local.json.
+        # No elected/absent split. Only catalog-declared strings are touched.
+        _, perm_msg = sync_permission_rules(ctx.target_root, rbtv_root)
+        print(f"  {perm_msg}")
+        # Wire the context-monitor PostToolUse hook (p2-1). Module-scoped.
         _, hook_msg = sync_hook_entry(ctx.target_root, ctx.rbtv_relative)
         print(f"  {hook_msg}")
         # Per-model plan-size presets → write the chosen context-window caps into
         # model-plans.yaml (D14, p4-3). The effective pointer is the freshly-resolved
         # value or the carried-forward one from rbtv.json. A prior cap is re-confirmed
         # (offered as the default), never silently wiped. Only context_window is
-        # written — cost is board-derived in the manifests (D11). Advisory: a None
-        # result means the step did not apply (no pointer / no elected packages).
+        # written. Advisory: a None result means the step did not apply (no pointer
+        # / no packages passed — the installer no longer elects a package set).
         effective_plans_file = model_plans_file_value
         if effective_plans_file is None and existing_state is not None:
             recorded = existing_state.get("model_plans_file")
@@ -1361,56 +1114,29 @@ def main(argv: list[str] | None = None) -> int:
             rbtv_root=rbtv_root,
             target_root=ctx.target_root,
             model_plans_file=effective_plans_file,
-            installed_packages=mp_installed,
+            installed_packages=[],
             non_interactive=args.non_interactive,
             used_modules_flag=bool(args.modules),
         )
         if plan_caps_result is not None:
             print(f"  {plan_caps_result[1]}")
-        # Render-freshness check is advisory (WARN, never abort) — matches the
-        # plugin-prereq convention. A stale manual degrades gracefully (manuals
-        # are read JIT from the source repo; the routing card reads the live
-        # folder, not a stored copy).
-        status, render_msg = check_manual_render(rbtv_root)
-        if status in ("stale", "error"):
-            print(f"\n  WARNING — {render_msg}", file=sys.stderr)
-            print(
-                "  Manuals are read just-in-time from the RBTV source — re-render "
-                "with:\n    python "
-                + str(rbtv_root / "orchestration" / "models" / "render-manuals.py"),
-                file=sys.stderr,
-            )
-        else:
-            print(f"  {render_msg}")
 
-        # --- Mirror render-on-elect / delete-on-deselect (driver-owned) ------
+        # --- Mirror render (driver-owned) ------------------------------------
         # Runs ONLY inside the orchestration block, AFTER components are written.
-        # The elected worker set is mp_installed (elected AND present). The driver
-        # renders each elected worker's artifacts and ref-counted-deletes those a
-        # worker DESELECTED since the prior rbtv.json no longer needs (the shared
-        # .agents/ library survives while another worker needs it). No guidance
+        # No election: refresh every package the driver knows. Leftover
+        # model_packages keys are unread — no deselection from them. No guidance
         # file is ever rendered — retired by d-hard-guard-retire-model-mirror.
-        elected_workers = list(mp_installed)
-        mirrorable = _split_mirrorable(rbtv_root, elected_workers)
-
-        # Deselection: packages in the prior rbtv.json's model_packages that are
-        # no longer elected. claude-code-cli is native (never mirrored) so its presence
-        # or absence in either set is inert to the driver.
-        prior_packages: list[str] = []
-        if existing_state is not None and "model_packages" in existing_state:
-            prior_packages = list(existing_state["model_packages"])
-        deselected = [p for p in prior_packages if p not in set(elected_workers)]
+        mirrorable = _split_mirrorable(rbtv_root, [])
+        deselected: list[str] = []
 
         try:
             mirror_render, mirror_uninstall = _import_mirror_driver(rbtv_root)
 
             # 1. Uninstall first so ref-counting frees only artifacts no remaining
-            #    elected worker needs; covers the "elected none" case too (the
-            #    deselection path removes now-unelected workers' artifacts even
-            #    when nothing is rendered).
+            #    worker needs. Deselection is empty (no election).
             if deselected:
                 un = mirror_uninstall(
-                    ctx.target_root, deselected, remaining_elected=elected_workers
+                    ctx.target_root, deselected, remaining_elected=mirrorable
                 )
                 print(
                     f"\n  Mirror: deselected [{', '.join(sorted(deselected))}] — "
@@ -1425,7 +1151,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 _print_leftover_worker_dirs(un)
 
-            # 2. Render the elected (mirrorable) worker set. Re-running changes
+            # 2. Render the driver-known worker set. Re-running changes
             #    nothing; the driver records the canonical managed-file set in
             #    rbtv.json's model_mirror block. excluded_paths: passing
             #    --exclude REPLACES the recorded list; omitting it (None) lets the
@@ -1445,24 +1171,22 @@ def main(argv: list[str] | None = None) -> int:
             # model_mirror is claimed for a failed render (spec edge case). The
             # driver writes rbtv.json itself in two sub-steps (uninstall, then
             # render); if the uninstall sub-step already committed before the
-            # failure, its model_mirror is on disk while model_packages is left
-            # stale (write_state is skipped). The workspace is therefore in a
-            # known-recoverable partial state, not a false success — re-running
-            # the installer with the intended election heals it fully.
+            # failure, its model_mirror is on disk (write_state is skipped).
+            # The workspace is therefore in a known-recoverable partial state,
+            # not a false success — re-running the installer heals it fully.
             raise SystemExit(
                 f"\nERROR — mirror reconcile failed: {exc}\n"
-                "  The workspace's mirror artifacts may be incomplete and "
-                "rbtv.json's model_packages / model_mirror may disagree. No "
+                "  The workspace's mirror artifacts may be incomplete. No "
                 "success model_mirror was written for the failed render. Re-run "
-                "the installer with the intended worker set once the cause is "
-                "resolved — the re-run reconciles the workspace fully."
+                "the installer once the cause is resolved — the re-run "
+                "reconciles the workspace fully."
             ) from exc
 
         # The driver wrote the final model_mirror block to rbtv.json (render runs
         # last, so the on-disk block reflects the post-uninstall+render truth).
         # Read it back and hand it to write_state so the block — carrying the
         # driver's records — persists in the SAME single payload as the installer
-        # keys. Absent (elected none / block dropped) => None => no key written.
+        # keys. Absent (block dropped) => None => no key written.
         post_state = read_state(ctx.target_root)
         if post_state is not None and isinstance(post_state.get("model_mirror"), dict):
             model_mirror_block = post_state["model_mirror"]
@@ -1476,8 +1200,6 @@ def main(argv: list[str] | None = None) -> int:
         modules=chosen_modules,
         installed_files=installed_paths,
         excluded_components=excluded_components,
-        model_packages=mp_persisted,
-        model_variants=mv_persisted,
         model_mirror=model_mirror_block,
         env_file=env_file_value,
         model_plans_file=model_plans_file_value,

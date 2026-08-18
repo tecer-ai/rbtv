@@ -26,16 +26,16 @@ Mirror-only mode (refresh worker artifacts, no component install):
     python install.py --mirror --uninstall [--target /path/to/workspace]
 
     --mirror re-renders the mirror artifacts (the shared .agents/ library and
-    per-model config dirs) for the model packages already recorded in rbtv.json,
-    skipping the target/module/component prompts. The target resolves from
-    --target, else the nearest rbtv.json walking upward from the current
-    directory.
+    per-model config dirs) for every package the driver knows, skipping the
+    target/module/component prompts. It does not read leftover model_packages /
+    model_variants keys. The target resolves from --target, else the nearest
+    rbtv.json walking upward from the current directory.
 
     GUIDANCE FILES ARE RETIRED. This installer no longer renders AGENTS.md /
     QWEN.md beside any CLAUDE.md — owner ruling d-hard-guard-retire-model-mirror
-    (2026-08-10); the modern installer owns guidance files. A --mirror run prints
-    a one-line skip and renders the artifacts above; no election can bring the
-    guidance render back.
+    (2026-08-10); the modern installer owns guidance files. A --mirror run
+    renders the artifacts above; leftover model_packages / model_variants keys
+    cannot bring the guidance render back.
 
     --check applies ONLY with --mirror: a read-only drift probe that writes
     NOTHING. It names every managed file that is missing or has fallen behind

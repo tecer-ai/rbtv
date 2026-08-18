@@ -1,78 +1,70 @@
-"""Orchestration model-package install behavior (D18).
+"""Orchestration install behavior: permission-rules sync, plan-cap IO, hook wire.
 
-The `rbtv-orchestrating` skill ships per-model DOC PACKAGES under
-`orchestration/models/<model>/` (manifest, delta, rendered manual, mirror
-config). Unlike skills/commands, these packages are NOT copied into the target
-`.claude/` — they are read just-in-time from the RBTV source repo (`{rbtv_path}`),
-exactly like the cards. "Installing a model package" therefore means TWO things:
+The routable worker set is the cast catalog intersect availability — the
+installer does not elect it. Leftover rbtv.json keys model_packages /
+model_variants are left in place and unread.
 
-  1. Recording which packages the workspace elects (persisted in rbtv.json), so a
-     re-install remembers the selection — the per-model conditional install flag.
-
-Plus a render-freshness check: the rendered manuals are generated from the
-dispatch-wrapper template + each delta; this verifies they are not stale relative
-to their sources (it calls `render-manuals.py --check`).
-
-No external dependencies — Python 3.11+ only (the manifest read is a single line
-scan, not a YAML parse).
+Permission-rule strings and per-model context windows are read from the cast
+catalog (catalog.js), not from orchestration/models manifests.
 """
 from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 
-# Where the model packages live, relative to the RBTV repo root.
-MODELS_RELATIVE = Path("orchestration") / "models"
-# The render script whose --check reports manual drift.
-RENDER_SCRIPT_RELATIVE = MODELS_RELATIVE / "render-manuals.py"
-
-# A directory under orchestration/models/ is a MODEL PACKAGE iff it carries a
-# manifest.yaml. Infra dirs (_fixture, mirror) are not packages and are skipped.
-PACKAGE_MARKER_FILE = "manifest.yaml"
+# Vault-relative path to the one catalog. Walked from rbtv_root toward filesystem
+# root so a scratch target still resolves the workspace catalog.
+_CATALOG_RELATIVE = (
+    Path(".rbtv") / "mirror" / "meta" / "providers" / "capabilities" / "cast" / "tool" / "catalog.js"
+)
 
 
-def discover_model_packages(rbtv_root: Path) -> list[str]:
-    """Return the sorted names of every model package present in the repo.
+def find_catalog_js(start: Path) -> Path | None:
+    """Walk from *start* toward the filesystem root for the cast catalog.js."""
+    current = start.resolve()
+    for directory in [current] + list(current.parents):
+        candidate = directory / _CATALOG_RELATIVE
+        if candidate.is_file():
+            return candidate
+    return None
 
-    A package = a directory under orchestration/models/ that carries a
-    manifest.yaml. Returns [] if the models folder is absent (the orchestration
-    module may be installed before any package ships).
+
+def load_catalog(rbtv_root: Path) -> dict:
+    """Read catalog.js as data via node: {rows, permission_rules}.
+
+    Soft-empty on a missing catalog or a failed node invoke — callers treat
+    that as 'no rules / no windows', never an install abort.
     """
-    models_dir = rbtv_root / MODELS_RELATIVE
-    if not models_dir.is_dir():
-        return []
-    return sorted(
-        d.name
-        for d in models_dir.iterdir()
-        if d.is_dir() and (d / PACKAGE_MARKER_FILE).is_file()
+    catalog = find_catalog_js(rbtv_root)
+    if catalog is None:
+        return {"rows": [], "permission_rules": {}}
+    script = (
+        "const c=require(process.argv[1]);"
+        "process.stdout.write(JSON.stringify({"
+        "rows:c.ROWS,"
+        "permission_rules:c.PERMISSION_RULES||{}"
+        "}))"
     )
-
-
-def read_model_display(rbtv_root: Path, pkg: str) -> str:
-    """Return a package's human-facing display label (its manifest `display:` field).
-
-    Falls back to the package folder name when the field is absent. Single-line
-    scan, no YAML parse — matches discover_model_packages' stdlib-only posture.
-    """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
     try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("display:"):
-                val = stripped[len("display:"):].strip()
-                if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
-                    val = val[1:-1]
-                return val or pkg
+        proc = subprocess.run(
+            ["node", "-e", script, str(catalog)],
+            capture_output=True,
+            text=True,
+        )
     except OSError:
-        pass
-    return pkg
-
-
-def discover_model_displays(rbtv_root: Path) -> dict[str, str]:
-    """Map every model package folder name → its display label (manifest `display:`)."""
-    return {pkg: read_model_display(rbtv_root, pkg) for pkg in discover_model_packages(rbtv_root)}
+        return {"rows": [], "permission_rules": {}}
+    if proc.returncode != 0:
+        return {"rows": [], "permission_rules": {}}
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"rows": [], "permission_rules": {}}
+    if not isinstance(data, dict):
+        return {"rows": [], "permission_rules": {}}
+    rows = data.get("rows") if isinstance(data.get("rows"), list) else []
+    rules = data.get("permission_rules") if isinstance(data.get("permission_rules"), dict) else {}
+    return {"rows": rows, "permission_rules": rules}
 
 
 def _scalar_value(raw: str) -> str:
@@ -88,166 +80,54 @@ def _scalar_value(raw: str) -> str:
     return raw.split("#", 1)[0].strip()
 
 
-def is_package_configurable(rbtv_root: Path, pkg: str) -> bool:
-    """True when a package manifest declares a configurable backend set
-    (``configurable_model.is_configurable: true`` on any variant).
-
-    A configurable package's individual backends are surfaced as separately-electable
-    rows in the installer; a non-configurable package is a single row. Line scan, no
-    YAML parse — matches read_model_display's posture.
-    """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
-    try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("is_configurable:"):
-                if _scalar_value(stripped[len("is_configurable:"):]).lower() == "true":
-                    return True
-    except OSError:
-        pass
-    return False
+def _model_family(model: str) -> str:
+    """Short family label: ``fable-5`` → ``fable``, ``haiku-4-5`` → ``haiku``."""
+    return (model or "").split("-", 1)[0]
 
 
-def read_variant_displays(rbtv_root: Path, pkg: str) -> list[tuple[str, str]]:
-    """Return a package's variants as ordered ``(variant_id, display_label)`` pairs.
-
-    The label is the variant's ``display:`` field; absent, it falls back to the
-    variant id. Order follows the manifest. Only the FIRST ``display:`` after each
-    ``- variant:`` (and before the next) is taken. Line scan, no YAML parse.
-    """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
-    pairs: list[tuple[str, str]] = []
-    current_id: str | None = None
-    current_display: str | None = None
-    in_variants = False
-    try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not in_variants:
-                if stripped == "variants:":
-                    in_variants = True
-                continue
-            if stripped.startswith("- variant:"):
-                if current_id is not None:
-                    pairs.append((current_id, current_display or current_id))
-                current_id = _scalar_value(stripped[len("- variant:"):])
-                current_display = None
-            elif (
-                current_id is not None
-                and current_display is None
-                and stripped.startswith("display:")
-            ):
-                current_display = _scalar_value(stripped[len("display:"):])
-    except OSError:
-        return []
-    if current_id is not None:
-        pairs.append((current_id, current_display or current_id))
-    return pairs
+def _cli_rows_for_harness(rbtv_root: Path, harness: str) -> list[dict]:
+    return [
+        row
+        for row in load_catalog(rbtv_root).get("rows") or []
+        if isinstance(row, dict)
+        and row.get("harness") == harness
+        and row.get("carrier") == "cli"
+    ]
 
 
 def read_variant_windows(rbtv_root: Path, pkg: str) -> list[tuple[str, int]]:
-    """Return a package's variants as ordered ``(variant_label, context_window)`` pairs.
+    """Return a harness's CLI catalog rows as ``(family_label, context_window)`` pairs.
 
-    For each ``- variant:`` block under ``variants:``, pairs the variant's ``display:``
-    (falling back to the variant id) with its integer ``context_window:`` (the FIRST one
-    after the variant header). Variants declaring no integer ``context_window`` are skipped.
-    Order follows the manifest. Line scan, no YAML parse — mirrors read_variant_displays.
+    ``pkg`` is a catalog harness (``claude``, ``codex``, ``opencode``). Order
+    follows the catalog. Rows with no integer ``context_window`` are skipped.
+    Duplicate family labels keep the first (CLI) window.
 
-    Backs the plan-cap clobber warning (clobbered_variants): a package whose variants carry
-    DIFFERENT windows (e.g. claude-code-native: opus 1M, sonnet/haiku 200K) is exactly where a
-    single per-package cap silently shrinks the bigger variant below its native window.
+    Backs the plan-cap clobber warning (clobbered_variants): a harness whose
+    models carry DIFFERENT windows (e.g. claude: opus 1M, haiku 200K) is exactly
+    where a single cap silently shrinks the bigger model below its native window.
     """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
     pairs: list[tuple[str, int]] = []
-    current_id: str | None = None
-    current_display: str | None = None
-    current_window: int | None = None
-    in_variants = False
-
-    def _commit(cid: str | None, cdisp: str | None, cwin: int | None) -> None:
-        if cid is not None and cwin is not None:
-            pairs.append((cdisp or cid, cwin))
-
-    try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not in_variants:
-                if stripped == "variants:":
-                    in_variants = True
-                continue
-            if stripped.startswith("- variant:"):
-                _commit(current_id, current_display, current_window)
-                current_id = _scalar_value(stripped[len("- variant:"):])
-                current_display = None
-                current_window = None
-            elif (
-                current_id is not None
-                and current_display is None
-                and stripped.startswith("display:")
-            ):
-                current_display = _scalar_value(stripped[len("display:"):])
-            elif (
-                current_id is not None
-                and current_window is None
-                and stripped.startswith("context_window:")
-            ):
-                raw = _scalar_value(stripped[len("context_window:"):])
-                try:
-                    current_window = int(raw)
-                except (TypeError, ValueError):
-                    current_window = None
-    except OSError:
-        return []
-    _commit(current_id, current_display, current_window)
+    seen: set[str] = set()
+    for row in _cli_rows_for_harness(rbtv_root, pkg):
+        label = _model_family(str(row.get("model") or ""))
+        win = row.get("context_window")
+        if not label or not isinstance(win, int) or label in seen:
+            continue
+        seen.add(label)
+        pairs.append((label, win))
     return pairs
 
 
-def read_provider_label(rbtv_root: Path, pkg: str) -> str:
-    """Return a configurable package's provider-path label for backend election rows.
-
-    Reads ``configurable_model.provider_label`` when present; otherwise derives it
-    from the package ``display`` by dropping the trailing parenthetical
-    (e.g. ``"opencode (CLI)"`` → ``"opencode"``). Line scan, no YAML parse.
-    """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
-    try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("provider_label:"):
-                val = _scalar_value(stripped[len("provider_label:"):])
-                if val:
-                    return val
-    except OSError:
-        pass
-    display = read_model_display(rbtv_root, pkg)
-    base = display.split("(", 1)[0].strip()
-    return base or display
-
-
 def read_manifest_context_ceiling(rbtv_root: Path, pkg: str) -> int | None:
-    """Return a package's largest manifest `context_window` (its true ceiling, in tokens).
+    """Return a harness's largest catalog ``context_window`` (its true ceiling).
 
-    Scans every `context_window: <int>` line under the package manifest and returns
-    the MAX (a package's variants may differ; the ceiling is the most permissive). The
-    per-user plan cap (model-plans.yaml) caps AT this ceiling — a preset above it has no
-    effect (route.py uses min(manifest, cap)). Returns None when no integer value is
-    found. Line scan, no YAML parse — matches read_model_display's stdlib-only posture.
+    The per-user plan cap (model-plans.yaml) caps AT this ceiling — a preset
+    above it has no effect. Returns None when no integer value is found.
     """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
     best: int | None = None
-    try:
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped.startswith("context_window:"):
-                raw = _scalar_value(stripped[len("context_window:"):])
-                try:
-                    val = int(raw)
-                except (TypeError, ValueError):
-                    continue
-                if best is None or val > best:
-                    best = val
-    except OSError:
-        pass
+    for _label, win in read_variant_windows(rbtv_root, pkg):
+        if best is None or win > best:
+            best = win
     return best
 
 
@@ -291,11 +171,11 @@ def clobbered_variants(
 
     Empty when ``cap`` is None ("no cap") or no variant's window exceeds it (a cap at or
     above the largest native window — no clobber). A NON-EMPTY result is the multi-model
-    foot-gun: route.py applies one per-package cap as ``min(window, cap)`` to EVERY variant, so
-    a sub-largest cap silently shrinks the bigger variant (e.g. cap 200K on claude-code-native
-    clobbers opus's 1M while sonnet/haiku, native 200K, are untouched). The installer WARNS,
-    naming these variants, so the owner tells a deliberate uniform-subscription ceiling from an
-    accidental clobber. Order follows the manifest (read_variant_windows).
+    foot-gun: one per-harness cap applies as ``min(window, cap)`` to EVERY model, so
+    a sub-largest cap silently shrinks the bigger model (e.g. cap 200K on claude
+    clobbers opus's 1M while haiku, native 200K, is untouched). The installer WARNS,
+    naming these models, so the owner tells a deliberate uniform-subscription ceiling from an
+    accidental clobber. Order follows the catalog (read_variant_windows).
     """
     if cap is None:
         return []
@@ -457,199 +337,50 @@ def write_model_plan_caps(
     return True, f"model plans: wrote caps to {plans_path.as_posix()} ({detail})"
 
 
-def build_electable_entries(rbtv_root: Path) -> list[dict[str, str | None]]:
-    """The ordered list of independently-electable worker rows the installer offers.
-
-    A NON-configurable package contributes ONE entry (id = the package id). A
-    configurable package (is_package_configurable) contributes ONE entry PER native
-    backend (id = ``"{pkg}:{variant}"``) so the owner elects any subset, each row
-    labeled with its provider path so a both-paths model (e.g. DeepSeek, reachable
-    via opencode AND via a direct-API package) is unambiguous.
-
-    Each entry: ``{id, package, variant, label, hint}`` — ``variant`` is None for a
-    whole-package row; ``hint`` carries the provider-path label for backend rows.
-    Shared by the interactive picker AND ``--list-model-backends`` so both render
-    identically.
-    """
-    entries: list[dict[str, str | None]] = []
-    for pkg in discover_model_packages(rbtv_root):
-        if is_package_configurable(rbtv_root, pkg):
-            provider = read_provider_label(rbtv_root, pkg)
-            for variant_id, v_display in read_variant_displays(rbtv_root, pkg):
-                entries.append(
-                    {
-                        "id": f"{pkg}:{variant_id}",
-                        "package": pkg,
-                        "variant": variant_id,
-                        "label": v_display,
-                        "hint": f"via {provider}",
-                    }
-                )
-        else:
-            entries.append(
-                {
-                    "id": pkg,
-                    "package": pkg,
-                    "variant": None,
-                    "label": read_model_display(rbtv_root, pkg),
-                    "hint": "",
-                }
-            )
-    return entries
-
-
-def resolve_selection_from_entry_ids(
-    rbtv_root: Path, selected_ids: list[str]
-) -> tuple[list[str], dict[str, list[str]]]:
-    """Map a set of selected electable-entry ids to (packages, model_variants).
-
-    - packages: ordered, de-duplicated package ids with >=1 selected entry.
-    - model_variants: for each configurable package, the elected backend ids — but
-      ONLY when a PROPER SUBSET is elected. A configurable package with ALL its
-      backends elected records no entry (so a backend added later is auto-included,
-      and pre-variant installs stay back-compatible: an absent entry => all backends).
-    """
-    selected = set(selected_ids)
-    packages: list[str] = []
-    chosen_by_pkg: dict[str, list[str]] = {}
-    for e in build_electable_entries(rbtv_root):
-        if e["id"] not in selected:
-            continue
-        pkg = e["package"]
-        assert pkg is not None
-        if pkg not in packages:
-            packages.append(pkg)
-        if e["variant"] is not None:
-            chosen_by_pkg.setdefault(pkg, []).append(e["variant"])
-    variants_map: dict[str, list[str]] = {}
-    for pkg, chosen in chosen_by_pkg.items():
-        all_ids = [v for v, _ in read_variant_displays(rbtv_root, pkg)]
-        if set(chosen) != set(all_ids):
-            variants_map[pkg] = [v for v in all_ids if v in set(chosen)]
-    return packages, variants_map
-
-
-def normalize_model_variants(
-    rbtv_root: Path, requested: dict[str, list[str]]
-) -> tuple[dict[str, list[str]], list[str]]:
-    """Validate a requested ``{package: [variants]}`` restriction against the manifests.
-
-    Returns (variants_map, warnings). Drops unknown packages / unknown variants (each
-    warned), keeps manifest order, and applies omit-when-all (a package with ALL its
-    backends listed records no entry). Only configurable packages are eligible; a
-    non-configurable package named here is warned and ignored.
-    """
-    variants_map: dict[str, list[str]] = {}
-    warnings: list[str] = []
-    available = discover_model_packages(rbtv_root)
-    for pkg, req_vars in requested.items():
-        if pkg not in available:
-            warnings.append(f"unknown model package '{pkg}' in --model-variants — ignored")
-            continue
-        if not is_package_configurable(rbtv_root, pkg):
-            warnings.append(
-                f"'{pkg}' has no electable backends (not configurable) — --model-variants ignored for it"
-            )
-            continue
-        all_ids = [v for v, _ in read_variant_displays(rbtv_root, pkg)]
-        chosen_set = set(req_vars)
-        chosen = [v for v in all_ids if v in chosen_set]
-        for u in req_vars:
-            if u not in all_ids:
-                warnings.append(
-                    f"unknown backend '{pkg}:{u}' — ignored (available: {', '.join(all_ids)})"
-                )
-        if chosen and set(chosen) != set(all_ids):
-            variants_map[pkg] = chosen
-    return variants_map, warnings
-
-
-def resolve_selected_packages(
-    available: list[str], requested: tuple[str, ...] | None
-) -> tuple[list[str], list[str], list[str]]:
-    """Split the available packages into (installed, absent, unknown).
-
-    - requested is None  -> elect ALL available packages (default: full install).
-    - requested is a set -> elect only the named ones that actually exist;
-      names that do not exist are returned as `unknown` (caller warns).
-
-    `installed` = elected AND present; `absent` = present but NOT elected (so the
-    permission reconcile can drop a non-elected package's rules in this workspace).
-    """
-    if requested is None:
-        return list(available), [], []
-    requested_set = list(dict.fromkeys(requested))  # de-dup, preserve order
-    installed = [m for m in available if m in requested_set]
-    absent = [m for m in available if m not in requested_set]
-    unknown = [m for m in requested_set if m not in available]
-    return installed, absent, unknown
-
-
-def read_permission_rules(rbtv_root: Path, pkg: str) -> list[str]:
-    """Return a package manifest's top-level `permission_rules:` list.
+def read_permission_rules(rbtv_root: Path, harness: str | None = None) -> list[str]:
+    """Return the catalog's permission-rule strings for launchable CLI workers.
 
     These are the literal permission-allowlist strings (e.g. "Bash(opencode:*)")
     the target workspace needs so a conductor session may spawn this CLI
-    worker in-session (D17). Packages without the field (API workers, the
-    native carrier) return []. Line scan, no YAML parse — matches
-    read_model_display's stdlib-only posture. Only a TOP-LEVEL (column-0)
-    `permission_rules:` key is honored; nested keys of the same name (e.g.
-    under a variant) are ignored.
+    worker in-session (D17). API / agent-tool carriers declare none. When
+    *harness* is None, returns the union across every harness the catalog
+    exports, in catalog order. A named harness with no export returns [].
     """
-    manifest = rbtv_root / MODELS_RELATIVE / pkg / PACKAGE_MARKER_FILE
-    rules: list[str] = []
-    try:
-        in_block = False
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            if not in_block:
-                if line.startswith("permission_rules:"):
-                    in_block = True
-                continue
-            stripped = line.strip()
-            if stripped.startswith("- "):
-                val = stripped[2:].split("#", 1)[0].strip()
-                if len(val) >= 2 and val[0] in "\"'" and val[-1] == val[0]:
-                    val = val[1:-1]
-                if val:
-                    rules.append(val)
-            elif stripped == "" or stripped.startswith("#"):
-                continue
-            else:
-                break  # next top-level key — the list is closed
-    except OSError:
-        pass
-    return rules
+    rules_map = load_catalog(rbtv_root).get("permission_rules") or {}
+    if not isinstance(rules_map, dict):
+        return []
+    if harness is not None:
+        raw = rules_map.get(harness) or []
+        return [r for r in raw if isinstance(r, str) and r]
+    wanted: list[str] = []
+    for raw in rules_map.values():
+        if not isinstance(raw, list):
+            continue
+        for rule in raw:
+            if isinstance(rule, str) and rule and rule not in wanted:
+                wanted.append(rule)
+    return wanted
 
 
 def sync_permission_rules(
-    target_root: Path, rbtv_root: Path, installed: list[str], absent: list[str]
+    target_root: Path, rbtv_root: Path
 ) -> tuple[bool, str]:
     """Reconcile the target's `.claude/settings.local.json` permission allowlist
-    with the elected model packages (D17).
+    with the catalog's launchable-CLI rules (D17).
 
-    - ELECTED package  -> its manifest's `permission_rules` strings are ensured
-      present in `permissions.allow`.
-    - NON-ELECTED package (present in the repo but not elected) -> its declared
-      strings are removed.
-
-    Touches ONLY the exact strings the manifests declare — hand-added entries
-    are never modified. Idempotent. Fails soft (returns False + message) on a
-    malformed settings file rather than clobbering it.
+    Ensures every string the catalog declares for launchable CLI workers is
+    present in `permissions.allow`. There is no elected/absent split — the
+    union is synced. Touches ONLY those catalog-declared strings — hand-added
+    entries are never modified. Idempotent. Fails soft (returns False +
+    message) on a malformed settings file rather than clobbering it.
     """
     settings_path = target_root / ".claude" / "settings.local.json"
 
-    wanted: list[str] = []
-    for pkg in installed:
-        for rule in read_permission_rules(rbtv_root, pkg):
-            if rule not in wanted:
-                wanted.append(rule)
+    wanted = read_permission_rules(rbtv_root)
     unwanted: set[str] = set()
-    for pkg in absent:
-        unwanted.update(read_permission_rules(rbtv_root, pkg))
-    unwanted -= set(wanted)  # a rule shared with an elected package stays
 
     if not wanted and not unwanted:
-        return False, "permission sync: no model package declares permission rules"
+        return False, "permission sync: catalog declares no permission rules"
 
     settings: dict = {}
     if settings_path.is_file():
@@ -987,36 +718,4 @@ def remove_hook_entry(target_root: Path) -> tuple[bool, str]:
     )
 
 
-def check_manual_render(rbtv_root: Path) -> tuple[str, str]:
-    """Run the render-freshness check (render-manuals.py --check).
 
-    Returns (status, message) where status is one of:
-      - 'fresh'   : all manuals consistent with template + deltas (render exit 0)
-      - 'stale'   : at least one manual is stale relative to its sources (exit 1)
-      - 'error'   : the render check could not run / malformed markers (exit 2+)
-      - 'skipped' : the render script is not present
-
-    NON-FATAL by design (matches the installer's _check_plugin_prereqs warn-not-
-    abort convention): the caller WARNS on 'stale'/'error' and proceeds. Manuals
-    are read JIT from {rbtv_path}, so a stale manual is corrected on the next render
-    rather than blocking the install.
-    """
-    script = rbtv_root / RENDER_SCRIPT_RELATIVE
-    if not script.is_file():
-        return "skipped", f"render check skipped: {RENDER_SCRIPT_RELATIVE.as_posix()} not found"
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(script), "--check"],
-            cwd=str(rbtv_root),
-            capture_output=True,
-            text=True,
-        )
-    except OSError as exc:  # pragma: no cover - environment failure
-        return "error", f"render check could not run: {exc}"
-
-    detail = (proc.stdout + proc.stderr).strip()
-    if proc.returncode == 0:
-        return "fresh", "render check: all manuals fresh"
-    if proc.returncode == 1:
-        return "stale", "render check: STALE manual(s) — manuals are out of date with their sources:\n" + detail
-    return "error", f"render check: ERROR (exit {proc.returncode}) — manuals could not be verified:\n" + detail
