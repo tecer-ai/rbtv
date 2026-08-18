@@ -1136,7 +1136,79 @@ tools:
       - --coord
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
+  # ── D7 / unblock-goals-plan selfheal-arm — one frozen argv, every goal ─────
+  # fire-tool already crosses `args.workdir` as cwd. The wrapper derives session
+  # (= goal folder name), package (= goal folder), and --seat (leader or first
+  # taskforce seat). New goals need ZERO yaml edits: register+schedule with
+  # tool=selfheal-room-goal and workdir=<goal-dir>. Per-room keys below are the
+  # live-goal arm (baked argv; no workdir needed). Existing selfheal-room and
+  # selfheal-room-throwaway above are byte-untouched (D39 revert is task 13).
+  selfheal-room-goal:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room-for-goal.py
+      - --budget-s
+      - "600"
+      - --require-cmd
+      - claude
+      - --require-cmd
+      - opencode
+      - --require-cmd
+      - codex
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
+  selfheal-room-meet-transcript-summarizer:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
+      - --session
+      - meet-transcript-summarizer
+      - --require-cmd
+      - claude
+      - --require-cmd
+      - opencode
+      - --require-cmd
+      - codex
+      - --budget-s
+      - "600"
+      - --
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
+      - --session
+      - meet-transcript-summarizer
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/meet-transcript-summarizer
+      - --seat
+      - leader
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
+
+  selfheal-room-stools-canvas-audio-elevenlabs:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/selfheal-room.py
+      - --session
+      - stools-canvas-audio-elevenlabs
+      - --require-cmd
+      - claude
+      - --require-cmd
+      - opencode
+      - --require-cmd
+      - codex
+      - --budget-s
+      - "600"
+      - --
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/jobs/recover-room.py
+      - --session
+      - stools-canvas-audio-elevenlabs
+      - --package
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/stools-canvas-audio-elevenlabs
+      - --seat
+      - leader
+      - --coord
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/coord.py
 
   # ── task 7.32 (settle ledger R24/R32) — the goal-watcher-job ───────────────
   # STAGED DAEMON EXPOSURE (leader #628, integrator note — the only lines here NOT authored by
