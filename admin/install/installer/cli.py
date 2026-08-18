@@ -670,18 +670,19 @@ def _resolve_model_plan_caps(
 def _import_mirror_driver(rbtv_root: Path):
     """Import the mirror driver's ``render`` / ``uninstall`` entry points.
 
-    The driver package lives at ``orchestration/models/mirror/driver/`` and is
-    imported as a top-level ``driver`` package — the same reachability shim the
-    driver's own ``cli.py`` uses for loose-script invocation: insert the PARENT
-    of ``driver/`` onto ``sys.path`` (it has no ancestor ``__init__.py`` chain to
-    the installer package) and import by name. The import is lazy (called only
-    when the orchestration module is installed) so a non-orchestration install
-    never pays the cost and a driver-import failure surfaces only when a mirror is
-    actually requested.
+    The driver package lives at ``ignite/team-kit/mirror/driver/`` (team-kit
+    owns the one implementation; per decision 5 / W4 of the 2026-08-18
+    models-tree-retirement build) and is imported as a top-level ``driver``
+    package — the same reachability shim the driver's own ``cli.py`` uses for
+    loose-script invocation: insert the PARENT of ``driver/`` onto ``sys.path``
+    (it has no ancestor ``__init__.py`` chain to the installer package) and
+    import by name. The import is lazy (called only when the orchestration
+    module is installed) so a non-orchestration install never pays the cost and
+    a driver-import failure surfaces only when a mirror is actually requested.
 
     Returns ``(render, uninstall)`` callables.
     """
-    driver_parent = rbtv_root / "orchestration" / "models" / "mirror"
+    driver_parent = rbtv_root / "ignite" / "team-kit" / "mirror"
     if str(driver_parent) not in sys.path:
         sys.path.insert(0, str(driver_parent))
     from driver import (  # type: ignore[import-not-found]
@@ -698,37 +699,48 @@ def _split_mirrorable(rbtv_root: Path, elected: list[str]) -> list[str]:
     ``claude-code-cli`` loads its guidance natively and is mirror-less — it is dropped
     silently (never a missing-assets warning). A package the driver knows as
     CONFIG-LESS (``PackageFacts.config_dir is None``, e.g. opencode — no
-    ``mirror-assets/`` seed by design) is mirrorable WITHOUT an assets tree (it
+    config assets seed by design) is mirrorable WITHOUT an assets tree (it
     renders only the shared ``.agents/`` library). Any
-    OTHER elected package whose ``orchestration/models/<pkg>/mirror-assets/`` tree is
-    absent is skipped with a NAMED warning (matches the spec's "ships no mirror-assets"
+    OTHER elected package whose ``ignite/team-kit/mirror/assets/`` subtree is
+    absent is skipped with a NAMED warning (matches the spec's "ships no assets"
     edge case — a skip, never a crash), because the driver's config renderer raises on
     a missing assets tree. The driver itself further drops ids it does not know.
     """
-    models_dir = rbtv_root / "orchestration" / "models"
-    # Config-less driver-known packages: mirrorable with no assets.
+    mirror_dir = rbtv_root / "ignite" / "team-kit" / "mirror"
+    assets_dir = mirror_dir / "assets"
+    # Config-less driver-known packages: mirrorable with no assets. Also derive
+    # each config-bearing package's assets-subdir name from its config_dir
+    # (".codex" -> "codex") so the existence check below tracks the driver's own
+    # assets layout without duplicating its per-package mapping here.
     # Lazy import with the same reachability shim as _import_mirror_driver; on any
-    # import failure fall back to the assets-dir-only rule (never crash the install).
+    # import failure fall back to treating every non-native package as unmirrorable
+    # (never crash the install).
     try:
-        driver_parent = rbtv_root / "orchestration" / "models" / "mirror"
+        driver_parent = mirror_dir
         if str(driver_parent) not in sys.path:
             sys.path.insert(0, str(driver_parent))
         from driver import PACKAGE_FACTS  # type: ignore[import-not-found]
         configless = {p for p, f in PACKAGE_FACTS.items() if f.config_dir is None}
+        assets_subdir = {
+            p: f.config_dir.lstrip(".")
+            for p, f in PACKAGE_FACTS.items()
+            if f.config_dir is not None
+        }
     except Exception:
         configless = set()
+        assets_subdir = {}
     mirrorable: list[str] = []
     for pkg in elected:
         if pkg == "claude-code-cli":
             continue  # native, mirror-less — silently skipped
         if pkg in configless:
             mirrorable.append(pkg)  # config-less package — no assets tree needed
-        elif (models_dir / pkg / "mirror-assets").is_dir():
+        elif pkg in assets_subdir and (assets_dir / assets_subdir[pkg]).is_dir():
             mirrorable.append(pkg)
         else:
             print(
-                f"\n  WARNING — mirror skipped for '{pkg}': no mirror-assets "
-                f"shipped at orchestration/models/{pkg}/mirror-assets/ "
+                f"\n  WARNING — mirror skipped for '{pkg}': no config assets "
+                f"shipped at ignite/team-kit/mirror/assets/ "
                 f"(its artifacts will not be rendered).",
                 file=sys.stderr,
             )
