@@ -507,6 +507,97 @@ function main() {
         mlw.skipped.map((s) => s.reason).join(', '));
       }
     }
+
+    // ── E2 — THE UNBUILT ROW WHOSE SEAT IS AN INSTANCE NAME (live stall, 2026-08-17) ─────────
+    //
+    // THE MEASURED FAILURE: goal `meet-transcript-summarizer` carried two rows —
+    // `plan-6-plan-dod-judge`, `plan-6-plan-unblock-checker` — with no folder, and the repair
+    // above refused BOTH every 10 s tick, so the WHOLE goal went unseeded (the lane watch
+    // `continue`s past an unbuilt goal), including a seat that was ready to run. Two things
+    // stacked, and this arm pins both:
+    //   · the sheet was looked for ONLY at `bindings/<first-name-segment>.json` — `plan.json` —
+    //     but a seat that belongs to NO WORKFLOW carries its own `bindings/<seat>.json` (the
+    //     standing-seat spelling), and it is DELIBERATELY absent from the workflow sheet;
+    //   · the entry inside that sheet is keyed by the BASE seat, because a composed instance
+    //     name is a disk name and never a catalog or bindings key.
+    // The fixture reproduces exactly that shape: the base seat's cast is MOVED out of `plan.json`
+    // into its own sheet, so nothing but the per-seat sheet can cast the row.
+    {
+      const { runLaneWatch, failedOn } = require('../lane-watch');
+      const tfPath = path.join(fx.goal, 'taskforce.csv');
+      const sheetJson = JSON.parse(fs.readFileSync(fx.sheet, 'utf8'));
+      const base = 'plan-planner';
+      const entry = (sheetJson.seats || {})[base];
+      if (!entry) check('E2 FIXTURE: the live sheet casts the base seat', false, base);
+      else {
+        delete sheetJson.seats[base];
+        fs.writeFileSync(fx.sheet, JSON.stringify(sheetJson, null, 1));
+        fs.writeFileSync(path.join(path.dirname(fx.sheet), `${base}.json`),
+          JSON.stringify({ defaults: sheetJson.defaults || {}, seats: { [base]: entry } }, null, 1));
+        const seat = `plan-6-${base}`;
+        // `tf-3` — a SECOND bare taskforce-id, as the live registry carries. The row's own id is
+        // what the completion reads; nothing here guesses one.
+        const row = `tf-3,${seat},,${entry.harness},${entry.model},${entry.effort},`
+          + `${entry['ctx-refresh']},\n`;
+        fs.writeFileSync(tfPath, before.tf + row);
+        const seatDir2 = path.join(fx.goal, 'seats', seat);
+        fs.rmSync(seatDir2, { recursive: true, force: true });
+        check('E2 CONTROL: the row exists, its folder does NOT, and the WORKFLOW sheet cannot '
+          + 'cast it — only the per-seat sheet can', !fs.existsSync(seatDir2)
+          && !JSON.parse(fs.readFileSync(fx.sheet, 'utf8')).seats[base]);
+        failedOn.clear();
+        const engineStub2 = { seedGoal: () => { throw new Error('E2: seedGoal must NOT be reached'); } };
+        const lw2 = runLaneWatch({ goalsRoot: fx.goalsRoot, engine: engineStub2, logger: logger([]) });
+        check('E2 the lane watch BUILT the instance-named unbuilt seat off its per-seat sheet',
+          fs.existsSync(path.join(seatDir2, 'seat.md')),
+          JSON.stringify((lw2.skipped.find((s) => s.reason === 'unbuilt-seats') || {}).failed || []).slice(0, 500));
+        check('E2 the descriptor carries the COMPOSED name, not the base it was cast under',
+          fs.existsSync(path.join(seatDir2, 'seat.md'))
+          && fs.readFileSync(path.join(seatDir2, 'seat.md'), 'utf8').includes(`seat: ${seat}`));
+        check('E2 the registry row was NOT rewritten — the completion adds the folder and nothing '
+          + 'else', fs.readFileSync(tfPath, 'utf8') === before.tf + row);
+
+        // MUTATION 1 — the sheet search drops back to the workflow-code candidate alone. That is
+        // the pre-fix reader, and it is the half that made the live goal stall.
+        fs.rmSync(seatDir2, { recursive: true, force: true });
+        failedOn.clear();
+        const m1 = withMutant('[...new Set([seat, base, code].filter(Boolean))]',
+          '[...new Set([code].filter(Boolean))]',
+          (mod) => mod.buildUnbuiltSeats({
+            goalFolder: fx.goal,
+            goalsRoot: fx.goalsRoot,
+            rows: [{ seat, after: '', 'milestone-id': '' }],
+            unbuilt: [seat],
+            say: () => {},
+          }));
+        if (m1) {
+          check('E2 MUTANT (workflow-code sheet only) -> the seat is NEVER built: the live stall, '
+            + 'reproduced', !fs.existsSync(seatDir2) && m1.built.length === 0 && m1.failed.length === 1,
+          JSON.stringify(m1).slice(0, 300));
+        }
+
+        // MUTATION 2 — the sheet resolves, but the ENTRY is looked up under the composed name
+        // only. The second half of the stack, and it fails on its own.
+        failedOn.clear();
+        const m2 = withMutant('? seat : instanceBaseSeat(seat);', '? seat : \'\';',
+          (mod) => mod.buildUnbuiltSeats({
+            goalFolder: fx.goal,
+            goalsRoot: fx.goalsRoot,
+            rows: [{ seat, after: '', 'milestone-id': '' }],
+            unbuilt: [seat],
+            say: () => {},
+          }));
+        if (m2) {
+          check('E2 MUTANT (entry keyed by the composed name only) -> `unbuilt-seat-not-in-sheet`: '
+            + 'a sheet is keyed by CATALOG ids and a composed name is never one',
+          !fs.existsSync(seatDir2) && m2.built.length === 0
+            && (m2.failed[0] || {}).code === 'unbuilt-seat-not-in-sheet',
+          JSON.stringify(m2).slice(0, 300));
+        }
+        check('E2 the live build is UNMUTATED',
+          fs.readFileSync(QR_PATH, 'utf8').includes('[...new Set([seat, base, code].filter(Boolean))]'));
+      }
+    }
   }
 
   // ── R — R9's GENERALIZATION: A THIRD `planning-mode` VALUE CANNOT SLIP THROUGH ─────────────

@@ -1364,12 +1364,30 @@ def resolve_added(args, catalog_root: Path,
                 "kebab-case) — nothing materialized",
             )
         if args.seat not in seats_catalog:
-            raise Refuse(
-                "seat-unknown",
-                f"seat '{args.seat}' resolves to no row in any seats.csv "
-                f"under {catalog_root} — nothing materialized",
-                str(catalog_root),
-            )
+            # ⚠ THE INSTANCE-NAMED COMPLETION, and it is the ONLY lane that
+            # completes one. A composed name (`plan-6-plan-dod-judge`) is a
+            # DISK name and never a catalog key (§ the two-name model above),
+            # so a row already carrying one has no lane back to its
+            # definition: `--nested` mints the NEXT ordinal, so it cannot
+            # complete an EXISTING plan-6 row, and this refusal was what left
+            # the daemon's unbuilt-seat repair (`queue-request.js`) unable to
+            # build any nested-instance row at all. Under --force-partial —
+            # the flag that means "the row exists, complete its missing half"
+            # — the catalog row is resolved through the BASE name and ALIASED
+            # onto the composed one, exactly as the `--nested` path aliases
+            # its own rename map. Everything downstream (folder, descriptor,
+            # registry byte-match) then carries the composed name unchanged.
+            parsed = parse_instance_seat_name(args.seat)
+            base = parsed[2] if parsed else ""
+            if not (getattr(args, "force_partial", False)
+                    and base and base in seats_catalog):
+                raise Refuse(
+                    "seat-unknown",
+                    f"seat '{args.seat}' resolves to no row in any seats.csv "
+                    f"under {catalog_root} — nothing materialized",
+                    str(catalog_root),
+                )
+            seats_catalog[args.seat] = seats_catalog[base]
         return [args.seat], {args.seat: []}, {args.seat: ""}
 
     wf = args.workflow
@@ -4278,6 +4296,15 @@ def render_taskforce_rows(plan: dict) -> None:
     # descriptor half. This is what the W7 goal-local lane does on EVERY
     # invocation, and refusing it left the flagship's own authored seats
     # unbuildable over a value written in the very file being read.
+    # ⚠ AND IT IS NOT GATED ON THE SET BEING AMBIGUOUS. It once fired only when
+    # `len(ids) != 1`, which read as "only step in where the guess is
+    # impossible" and was wrong in the other direction: a registry carrying ONE
+    # bare id plus nested ones (`tf-1` + `tf-2-plan1`) fell through to the
+    # single-id `else` and completed a NESTED row under the bare id — a
+    # `partial-row-mismatch` on a run that had the right answer written in the
+    # row it was completing. A seat that already has a row never guesses,
+    # whatever the rest of the file carries; where the two agree the value is
+    # identical either way, so the narrower gate bought nothing.
     ids = {(r.get("taskforce-id") or "").strip() for r in existing_rows}
     ids.discard("")
     ids = {i for i in ids if not NESTED_TF_RE.fullmatch(i)}
@@ -4290,7 +4317,7 @@ def render_taskforce_rows(plan: dict) -> None:
     elif len(ids) > 1 and set(plan["added_seats"]) <= set(_coord_staff_seats()):
         tf_id = next(i for r in existing_rows
                      if (i := (r.get("taskforce-id") or "").strip()) in ids)
-    elif (len(ids) != 1 and plan["force_partial"]
+    elif (plan["force_partial"]
           and set(plan["added_seats"]) <= set(tf_by_seat)):
         # ⚠ THE PURE COMPLETION — NOT A SECOND LIFT OF THE GATE. Every seat of
         # this run ALREADY has a registry row, so the run appends NOTHING: the
@@ -4998,6 +5025,16 @@ def run(args) -> dict:
                 else bindings_from_descriptors(package, added))
     if nested:
         rekey_bindings(bindings, nested["rename"])
+    elif args.seat and args.seat not in bindings["seats"]:
+        # The instance-named completion resolved in `resolve_added`: the sheet
+        # that CASTS the seat is keyed by the base name (that is what the real
+        # per-seat sheets — `bindings/plan-dod-judge.json`, the standing-seat
+        # spelling — carry), and the run is keyed by the composed one. Same
+        # re-key, same single function; a sheet already keyed by the composed
+        # name is untouched because the branch never fires for it.
+        parsed = parse_instance_seat_name(args.seat)
+        if parsed and parsed[2] in bindings["seats"]:
+            rekey_bindings(bindings, {parsed[2]: args.seat})
     # `whole_set` is FALSE on a single-seat run: the sheet that casts one seat
     # is its WORKFLOW's sheet, so its other seats are not stray keys.
     check_bindings_cover(bindings, added, whole_set=not args.seat)
@@ -5099,7 +5136,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "goal folder, design-lock item 8). Never inferred.")
     what = p.add_mutually_exclusive_group(required=True)
     what.add_argument("--seat",
-                      help="materialize ONE cataloged seat (seats.csv row)")
+                      help="materialize ONE cataloged seat (seats.csv row). "
+                           "With --force-partial it also accepts an INSTANCE "
+                           "name (<four-letters>-<n>-<seat>) to COMPLETE the "
+                           "missing folder of a row that already carries one: "
+                           "the catalog row and the bindings entry resolve "
+                           "through the BASE seat, the folder and descriptor "
+                           "carry the composed name. Minting a NEW instance "
+                           "stays --nested's act")
     what.add_argument("--workflow",
                       help="materialize a whole workflow "
                            "(<component>/workflows/<W>/<W>.csv manifest)")
@@ -7484,6 +7528,9 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
                ("NEST-1 red",)),
     # The SINGLE-SEAT nested variant — W7's collapsed planning mode.
     "NEST-2": (("NEST-2 green",), ("NEST-2 red",)),
+    # Completing an EXISTING instance-named row — the daemon's unbuilt-seat
+    # repair lane, which `--nested` (which mints the NEXT ordinal) cannot serve.
+    "INST-1": (("INST-1 green",), ("INST-1 red",)),
     # The goal-local seat input lane and the checks component-lint never makes.
     "GL-1": (("GL-1 green",), ("GL-1 red",)),
     # The staff chairs minted with the goal (W3) — ONE row over SM-1..SM-5:
@@ -8513,6 +8560,57 @@ def run_selftest() -> int:
               "series IS that workflow, so a second, different name there is a "
               "contradiction and never a silent winner",
               code(nest("--nested", "scramble-flow")) == "nested-workflow-mismatch")
+
+        # ---- INST-1: COMPLETING an EXISTING instance-named row ------------
+        # The daemon's unbuilt-seat repair (`queue-request.js#buildUnbuiltSeats`)
+        # meets rows whose seat is a COMPOSED name and whose folder is missing —
+        # the registry half landed, the folder half did not. `--nested` cannot
+        # serve it: it mints the NEXT ordinal, so it can never complete an
+        # EXISTING demo-3 row. Measured live 2026-08-17 on the flagship goal:
+        # two `plan-6-*` rows with no folder, the whole goal unseeded every
+        # 10 s tick. NEST-2 above just built `demo-3-alpha` — deleting its
+        # FOLDER reproduces the half-state exactly.
+        inst_tf = (npkg / TASKFORCE_NAME).read_bytes()
+        shutil.rmtree(npkg / "seats" / "demo-3-alpha")
+
+        def inst(seat, *extra) -> subprocess.CompletedProcess:
+            return _invoke(["--package", nfx["pkg"], "--seat", seat,
+                            "--catalog-root", nfx["catalog"], "--bindings",
+                            nfx["b_alpha"], "--milestone-id", "m1", "--after",
+                            "chief", "--force-partial", "--json", *extra],
+                           clean_env)
+
+        cp = inst("demo-3-alpha")
+        check("INST-1 green: `--seat demo-3-alpha --force-partial` COMPLETES "
+              "the existing row — the catalog row is resolved through the BASE "
+              "seat, the sheet keyed by that base casts it, the folder is "
+              "built under the COMPOSED name, and NOT ONE BYTE of the registry "
+              "moves (the id is read off the row being completed)",
+              cp.returncode == 0
+              and (npkg / "seats" / "demo-3-alpha" / "seat.md").is_file()
+              and (npkg / TASKFORCE_NAME).read_bytes() == inst_tf,
+              f"rc={cp.returncode} {(cp.stdout + cp.stderr).strip()[:300]}")
+        check("INST-1 green: the completed descriptor names the COMPOSED seat, "
+              "never the base it was cataloged and cast under",
+              "seat: demo-3-alpha" in (npkg / "seats" / "demo-3-alpha"
+                                       / "seat.md").read_text(encoding="utf-8"))
+        shutil.rmtree(npkg / "seats" / "demo-3-alpha")
+        check("INST-1 red: WITHOUT --force-partial the same composed name is "
+              "`seat-unknown` — this is a COMPLETION lane and nothing else; a "
+              "composed name is not a catalog key, and minting a new instance "
+              "is `--nested`'s act",
+              code(_invoke(["--package", nfx["pkg"], "--seat", "demo-3-alpha",
+                            "--catalog-root", nfx["catalog"], "--bindings",
+                            nfx["b_alpha"], "--milestone-id", "m1", "--after",
+                            "chief", "--json"], clean_env)) == "seat-unknown")
+        check("INST-1 red: a composed name whose BASE is in no seats.csv is "
+              "still `seat-unknown` — the base is RESOLVED against the "
+              "catalog, never assumed from the shape of the name",
+              code(inst("demo-3-nosuchseat")) == "seat-unknown")
+        check("INST-1 red: a sheet carrying neither the composed name nor the "
+              "base REFUSES (bindings-missing-seat) — the re-key finds a cast "
+              "or the run stops; a missing binding is never defaulted",
+              code(inst("demo-3-beta")) == "bindings-missing-seat")
 
     print("GL-1 the GOAL-LOCAL seat input lane (W7 R7, adv C75)")
     with tempfile.TemporaryDirectory() as gl_td:

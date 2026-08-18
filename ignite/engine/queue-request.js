@@ -352,23 +352,55 @@ function readdirSafe(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return []; }
 }
 
+// ⚠ THE WORKFLOW SHEET IS NOT THE ONLY SPELLING, AND TWO SEAT CLASSES LIVE OUTSIDE IT.
+//   · A seat belonging to NO workflow — meta/planning's eval pool (`plan-dod-judge`,
+//     `plan-unblock-checker`), a staff chair — is DELIBERATELY absent from its component's
+//     workflow sheet (`check_bindings_cover` refuses it there as `bindings-extra-seat`) and
+//     carries its OWN sheet at `bindings/<seat>.json`: the standing-seat spelling
+//     (`materialize-seats.py#staff_sheet_path`), owner-ruled 2026-08-15 in the sheets themselves.
+//   · An INSTANCE-NAMED seat (`plan-6-plan-dod-judge`) is a composed DISK name whose sheet entry
+//     is keyed by its BASE seat — a composed name is never a catalog or bindings key
+//     (`materialize-seats.py` § the two-name model).
+// So the candidates are tried MOST SPECIFIC FIRST — the seat's own sheet, then its base seat's,
+// then the workflow code's — and the "exactly one hit or refuse" discipline holds WITHIN each
+// candidate: a class that resolves 2 sheets is still a question with no honest guess. Trying them
+// in one flat set instead would make `plan-dod-judge.json` + `plan.json` read as ambiguity when
+// one of them is simply more specific than the other.
+const INSTANCE_SEAT_RE = /^[a-z]{4}-[2-9][0-9]*-([a-z0-9][a-z0-9-]*)$/;
+
+// The BASE seat of a composed instance name, or '' — the JS twin of
+// `materialize-seats.py#parse_instance_seat_name`, narrowed to the shape that carries an EXPLICIT
+// ordinal. The bare first-instance shape (`plan-researcher`) is indistinguishable from an ordinary
+// seat id, so reading a base out of it would invent one for every seat in the tree.
+function instanceBaseSeat(seat) {
+  const m = INSTANCE_SEAT_RE.exec(String(seat || ''));
+  return m ? m[1] : '';
+}
+
 function sheetForSeat(workspace, seat) {
   const code = String(seat || '').split('-')[0];
+  const base = instanceBaseSeat(seat);
   const modulesRoot = path.join(workspace, '.rbtv', 'config', 'modules');
-  const hits = [];
-  for (const mod of readdirSafe(modulesRoot)) {
-    for (const comp of readdirSafe(path.join(modulesRoot, mod))) {
-      const sheet = path.join(modulesRoot, mod, comp, 'bindings', `${code}.json`);
-      if (fs.existsSync(sheet)) hits.push({ sheet, catalogRoot: path.join(workspace, '.rbtv', 'mirror', mod) });
+  const tried = [];
+  for (const name of [...new Set([seat, base, code].filter(Boolean))]) {
+    const hits = [];
+    for (const mod of readdirSafe(modulesRoot)) {
+      for (const comp of readdirSafe(path.join(modulesRoot, mod))) {
+        const sheet = path.join(modulesRoot, mod, comp, 'bindings', `${name}.json`);
+        if (fs.existsSync(sheet)) hits.push({ sheet, catalogRoot: path.join(workspace, '.rbtv', 'mirror', mod) });
+      }
     }
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) {
+      throw new Refusal('unbuilt-seat-sheet-unresolvable',
+        `seat '${seat}' resolves ${hits.length} casting sheets named ${name}.json under `
+        + `${modulesRoot} — a seat is built from exactly one sheet and there is no honest guess: `
+        + hits.map((h) => h.sheet).join(', '));
+    }
+    tried.push(`${name}.json`);
   }
-  if (hits.length !== 1) {
-    throw new Refusal('unbuilt-seat-sheet-unresolvable',
-      `seat '${seat}' has code '${code}' and ${hits.length} casting sheet(s) named ${code}.json `
-      + `under ${modulesRoot} — a seat is built from exactly one sheet and there is no honest guess`
-      + (hits.length ? `: ${hits.map((h) => h.sheet).join(', ')}` : ''));
-  }
-  return hits[0];
+  throw new Refusal('unbuilt-seat-sheet-unresolvable',
+    `seat '${seat}' resolves NO casting sheet under ${modulesRoot} — tried ${tried.join(', ')}`);
 }
 
 // ⚠ `--force-partial` IS WHAT MAKES THIS LEGAL AT ALL. The row already exists, so a plain
@@ -537,7 +569,13 @@ function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {
     let scoped = null;
     try {
       const full = JSON.parse(fs.readFileSync(where.sheet, 'utf8'));
-      const entry = ((full && full.seats) || {})[seat];
+      // Keyed by the seat, else by its BASE seat when the name is a composed instance name — a
+      // sheet is keyed by CATALOG ids and a composed name is never one, so the base is where a
+      // nested instance's cast actually lives. The key that FOUND it is the key the scoped sheet
+      // is written under: the materializer accepts either and re-keys the base itself, so the one
+      // it is handed is the one it was found under, never a translated third spelling.
+      const key = ((full && full.seats) || {})[seat] ? seat : instanceBaseSeat(seat);
+      const entry = ((full && full.seats) || {})[key];
       if (!entry) {
         throw new Refusal('unbuilt-seat-not-in-sheet',
           `${where.sheet}: carries no entry for seat '${seat}' — a missing binding is a refusal, `
@@ -545,7 +583,7 @@ function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {
       }
       scoped = path.join(require('node:os').tmpdir(),
         `rbtv-unbuilt-${seat}-${process.pid}-${Date.now()}.json`);
-      fs.writeFileSync(scoped, JSON.stringify({ defaults: full.defaults || {}, seats: { [seat]: entry } }));
+      fs.writeFileSync(scoped, JSON.stringify({ defaults: full.defaults || {}, seats: { [key]: entry } }));
       execFileSync(requirePythonCmd(), materializeUnbuiltSeatArgv({
         goalFolder, seat, after: (row.after || '').trim(), milestone: (row['milestone-id'] || '').trim(),
         catalogRoot: where.catalogRoot, sheet: scoped,
