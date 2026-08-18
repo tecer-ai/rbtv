@@ -6329,6 +6329,111 @@ def lifecycle_stale(entry, now_str=None):
     return not ident_is_live_process((ident["pid"], ident["starttime"]))
 
 
+# ---------- THE RENEW GATE: `renew` is not a failure, and "no successor" is not silence ---------
+#
+# A seat that checks out `--renew` is saying "I am coming back; my successor is pending". Every
+# `after` gate read that as a crash — `ready_seat_rows` gave it the same `DONE` verdict `exited`
+# gets, and `goal-watcher-job.py`'s shadow backstop decided WOULD-ENQUEUE in FAILURE MODE off the
+# same equality. Measured on the forge instance 2026-08-18: a paneless seat declared `--renew`, no
+# successor could be forked, and its dependents were held exactly as if it had died, with nothing
+# in any surface distinguishing "coming back" from "gone".
+#
+# TWO STATES, AND THEY ARE DISTINGUISHABLE FROM EACH OTHER AND FROM FAILURE:
+#   `successor-pending` — a successor is coming or has been placed. IN PROGRESS. It advances NO
+#       edge (the work genuinely is not finished, and `after_member_state` still reads the raw
+#       `renew` value, which is not `done`), but it is NOT the failure class: it routes to no
+#       leader as a crash and it reads as an ending nobody ruled on nowhere.
+#   `no-successor`      — no successor is possible. A REAL HALT, and it must LOOK like one, with a
+#       reason a reader can act on.
+#
+# THE SIGNAL IS `paneless-renew`'s (commit ea56f75c) AND THERE IS NO SECOND ONE: the seat's entry
+# in `coordination/lifecycle-inflight.json`, which `fork_lifecycle_renewal` stamps on the way in
+# and `lifecycle_no_successor` flips FAILED on every arm that forks nothing.
+#
+# ⚠ AN ABSENT ENTRY IS `no-successor`, NOT `successor-pending`. `renew` on the durable record with
+# no marker at all means the renewal never got as far as stamping — which is precisely the forge
+# shape before `lifecycle_no_successor` existed. The fail-safe direction here is the LOUD one: a
+# wrongly-loud row costs a reader one look, a wrongly-quiet one costs the lineage.
+#
+# ⚠ IT DOES NOT BECOME ABSORBING, and the two arms answer that differently because they are
+# different claims. `in-flight` is bounded by `lifecycle_stale` — the executor died or the stamp
+# aged past `LIFECYCLE_STALE_MIN` and the row flips to `no-successor` on its own, in TIME. `done`
+# means the successor was PLACED, and its pendency is then superseded by the successor's OWN
+# session row: the moment that session ends, `terminal_disposition` stops reading `renew` at all
+# and this classifier is never consulted again. A successor that was placed and never opened a row
+# is `undeclared_endings`' subject, not this one's.
+RENEW_PENDING = "successor-pending"
+RENEW_NO_SUCCESSOR = "no-successor"
+
+
+def renewal_from_entry(entry, now_str=None):
+    """(state, why) for a seat whose durable disposition is `renew`, off its lifecycle entry.
+
+    NOT PURE, and saying so matters: the `in-flight` arms below reach `lifecycle_stale`, which
+    reads `/proc` for the executor's liveness. Everything else is a function of the entry and a
+    reference instant. `now_str` (the `"%Y-%m-%d %H:%M"` form `lifecycle_age_min` takes) lets a
+    check supply the instant instead of sleeping for it. NEVER raises: every unreadable shape
+    answers `no-successor` with a `why` that says what was actually found."""
+    if not isinstance(entry, dict):
+        return RENEW_NO_SUCCESSOR, ("no `lifecycle-inflight.json` entry — this seat's renewal "
+                                    "never recorded a start, so no successor was ever forked")
+    disposition, state = entry.get("disposition", ""), entry.get("state")
+    if disposition != "renew":
+        return RENEW_NO_SUCCESSOR, (
+            f"its lifecycle entry records disposition `{disposition or '(none)'}`, not `renew` — "
+            f"the marker is about a different act and asserts no successor for this check-out")
+    if state == "FAILED":
+        return RENEW_NO_SUCCESSOR, (entry.get("failure")
+                                    or "its lifecycle entry is FAILED with no reason recorded")
+    if state == "done":
+        return RENEW_PENDING, ("its lifecycle entry is `done` — the successor was PLACED. It "
+                               "reports through its own session row from here")
+    if state != "in-flight":
+        return RENEW_NO_SUCCESSOR, (
+            f"its lifecycle entry carries the unenumerated state `{state or '(none)'}` — only "
+            f"`in-flight`, `done` and `FAILED` are written, so nothing here reads it as a "
+            f"successor")
+    if lifecycle_stale(entry, now_str):
+        _age = lifecycle_age_min(entry, now_str)
+        return RENEW_NO_SUCCESSOR, (
+            f"its lifecycle entry is STILL `in-flight` {_age}min after the stamp (bound "
+            f"{LIFECYCLE_STALE_MIN}min) and its executor is NOT a live process — the fork never "
+            f"completed and no successor is coming")
+    _age = lifecycle_age_min(entry, now_str)
+    # ⚠ THE ARM THAT KEEPS `successor-pending` FROM BEING ABSORBING, and `lifecycle_stale` cannot
+    # be it. That predicate needs a READABLE executor ident (its conjunct 3) and answers False
+    # without one FOREVER — its own docstring states that cost and accepts it, because firing the
+    # REVIVAL actuator on an unprovable case double-launches a seat. This classifier decides the
+    # opposite question with the opposite fail-safe: `fork_lifecycle_renewal` stamps `caller` and
+    # deliberately NO `executor` (the child writes its own pair as its first act), so an entry
+    # still identless well past the bound is a child that never announced itself — nothing is
+    # coming, and a reader who is told `successor-pending` waits forever. Aged out, said out loud.
+    if _age is not None and _age > LIFECYCLE_STALE_MIN and not lifecycle_ident(
+            entry.get("executor")):
+        return RENEW_NO_SUCCESSOR, (
+            f"its lifecycle entry is STILL `in-flight` {_age}min after the stamp (bound "
+            f"{LIFECYCLE_STALE_MIN}min) and NO EXECUTOR EVER RECORDED ITSELF — the detached "
+            f"executor writes its own pid pair as its first act, so a marker this old without one "
+            f"names a fork that never got that far. No successor is coming")
+    return RENEW_PENDING, (
+        f"its lifecycle entry is `in-flight`, stamped "
+        f"{str(_age) + 'min ago' if _age is not None else 'unreadably'} — a successor IS being "
+        f"forked. It flips to `no-successor` on its own once the stamp ages past "
+        f"{LIFECYCLE_STALE_MIN}min with a dead executor — or with none ever recorded")
+
+
+def renewal_state(base, seat, now_str=None, lifecycle=None):
+    """(state, why) — `renewal_from_entry` against the marker on disk. THE ONE READER of the
+    successor-pending signal, and both `after` gates call it: `ready_seat_rows` here and
+    `goal-watcher-job.py`'s shadow backstop across the import it already makes. Two gates
+    re-deriving one seat's state from one file is how they come to disagree about it.
+
+    `lifecycle` lets a caller that already loaded the marker (`ready_seat_rows` hoists it once for
+    N seats) spend that read instead of making a second one."""
+    return renewal_from_entry(
+        (load_lifecycle(base) if lifecycle is None else lifecycle).get(seat), now_str)
+
+
 def sweep_lifecycle(base):
     """`close-run`'s marker sweep. Returns `(cleared, survivors)`: `cleared` is the sorted seats
     removed, `survivors` is `[(seat, why)]` for every entry this REFUSES to touch. Never fatal —
@@ -13464,6 +13569,15 @@ def ready_seat_rows(args):
                THAT THE WORK IS DONE: the reason string and the json `disposition` field always
                name the actual value, and for `exited` the reason carries the routing in full.
                Nothing here maps `exited` to `done`.
+      RENEWING / RENEW-BLOCKED  (THE RENEW GATE, 2026-08-18) the two halves `renew` splits into,
+               AT `DONE`'S RUNG AND NOWHERE ELSE — this pair moved nothing above it, so `SKEW`
+               and `HELD` still decide first and a contradiction about this seat's ending is
+               still masked by neither. `renew` used to read `DONE` beside `exited`, which made
+               "I am coming back" and "my harness died" one word. `RENEWING` is IN PROGRESS and
+               is NOT the failure class; `RENEW-BLOCKED` is a halt with the marker's own reason
+               in the string. ⚠ NEITHER ADVANCES AN EDGE — `after_member_state` reads the raw
+               `renew` VALUE, which is not `done` — so the split is the REPORT axis only. The
+               source is `renewal_state`, the ONE reader of the successor signal.
       RUNNING  an ACTIVE roster row — the seat is occupied; launching it again double-launches it
       UNBUILT  name in neither register (taskforce.csv ∪ sessions.csv) — not a missing folder
       UNDECLARED  (7.237) this seat's LAST ENDED session declared NO disposition — its work
@@ -13562,6 +13676,10 @@ def ready_seat_rows(args):
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
+    # THE RENEW GATE'S SIGNAL, hoisted ONCE for the same reason every hoist above is — N seats must
+    # cost one read of `lifecycle-inflight.json`, not N. It is spent through `renewal_state`, which
+    # is the ONE reader of it (see that function's own note); nothing here re-derives its arms.
+    lifecycle = load_lifecycle(base)
     # W2: THE OWNER-ASK HOLD'S ONE READ OF THE BUS, hoisted for the same reason as every hoist
     # above — N seats must cost ONE `messages.md` parse, not N. `open_asks` is the room's OWN
     # settling predicate (`pending`'s, and the check-out gate's): it already drops superseded asks
@@ -13741,6 +13859,8 @@ def ready_seat_rows(args):
         # pair, already emitted on EVERY row, with `terminal(S)` deriving the `DONE` verdict from
         # it. `engine/seeding.js#recordView` is the consumer. Stated here because the obvious W2
         # move is to add a field for what these two have always carried.
+        _rn_state, _rn_why = (renewal_state(base, seat, lifecycle=lifecycle)
+                              if value == "renew" else (None, ""))
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
                # rule and the same reason as `undeclared-session`, `row-outcome`, `unmet-after` and
@@ -13797,6 +13917,15 @@ def ready_seat_rows(args):
                # so a consumer reads the anchor and mint stamp rather than re-parsing the reason
                # string. ⚠ IT CARRIES NO VERDICT AND LIFTS NOTHING.
                "relaunch-grant": grants.get(seat),
+               # THE RENEW GATE. `{state, why}` on a row whose disposition is `renew`, `None` on
+               # every other row — present on EVERY row for the same rule and the same reason
+               # `unmet-after`, `row-outcome` and `undeclared-session` are: a key that appears
+               # only when it fires cannot be read as a term, and an ABSENT key raises in a
+               # consumer where a null decides. It IS a term — `deferral_class`'s disposition limb
+               # reads it to split `renewing` from `renew-blocked`, and that classifier is a pure
+               # function of the row, so the state has to live ON the row.
+               "renewal": ({"state": _rn_state, "why": _rn_why}
+                           if value == "renew" else None),
                # 7.383: {raw member token -> its rendered state}, present on EVERY row for the
                # same reason `unmet-after` is — `{}` on a root, never a key that appears only when
                # it fires. It is what `--explain` prints, so the explain view and the reason
@@ -13823,7 +13952,41 @@ def ready_seat_rows(args):
         elif value is not None:
             rec["verdict"] = "DONE"
             rec["reason"] = f"check-out `{value}` ({source})"
-            if value != "done":
+            if value == "renew":
+                # ── THE RENEW GATE (2026-08-18) ────────────────────────────────────────────────
+                # `renew` USED TO READ `DONE` HERE, beside `exited`, and that is the defect: a
+                # seat saying "I am coming back" and a seat whose harness died were one word to
+                # every reader of this surface. The two states now have their own verdicts, and
+                # the split is `renewal_state`'s — the ONE reader of the successor signal.
+                #
+                # ⚠ NEITHER VERDICT ADVANCES AN EDGE, and neither needs to be prevented from
+                # doing so: `after_member_state` reads the raw `renew` VALUE off `edge_term`, and
+                # `renew` is not `done` in any of its arms. The verdict word is the REPORT axis.
+                #
+                # ⚠ BELOW `SKEW` AND `HELD`, exactly where the old `DONE` sat, and this branch
+                # moved nothing above it. A renew is a claim about this seat's own ending, and a
+                # contradiction about that ending (`SKEW`) or an unanswered owner ask (`HELD`)
+                # still decides first — the ladder's order is untouched by this change.
+                _rn_pending = rec["renewal"]["state"] == RENEW_PENDING
+                rec["verdict"] = "RENEWING" if _rn_pending else "RENEW-BLOCKED"
+                rec["reason"] += (
+                    f" — IN PROGRESS, NOT AN ENDING. This seat asked to come back and a SUCCESSOR "
+                    f"IS PENDING: {rec['renewal']['why']}. It advances NO edge (the work is not "
+                    f"finished) and it is NOT a failure: nothing routes it to the leader as a "
+                    f"crash and nothing reads it as an ending nobody ruled on. It leaves this "
+                    f"verdict when the successor's OWN session row records an ending — or, if the "
+                    f"successor stops being possible, by flipping to `RENEW-BLOCKED`, which is "
+                    f"how a renewal that never arrives stops looking like one in progress"
+                    if _rn_pending else
+                    f" — ⚠ RENEWAL BLOCKED, AND THIS ROW IS THE ALARM. This seat asked to come "
+                    f"back and NO SUCCESSOR IS POSSIBLE: {rec['renewal']['why']}. The lineage has "
+                    f"HALTED — nothing will run under this seat's name on its own, so a reader "
+                    f"who waits waits forever. NOT a clean check-out and NOT a harness death: it "
+                    f"is a renewal that could not be placed, and it needs a human. Either relaunch "
+                    f"the seat (`rule-relaunch <seat> <anchor>` then `launch --only {seat} "
+                    f"--relaunch-ruled <anchor>`) or rule the ending (`rule-disposition {seat} "
+                    f"done --go`) if the work in fact concluded. It advances NO edge meanwhile")
+            elif value != "done":
                 rec["reason"] += (f" — this seat advances NO edge; only `done` does"
                                   if value != "exited" else
                                   " — THE HARNESS TERMINATED; whether the work is done is NOT "
@@ -13969,7 +14132,15 @@ _DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
 # by a human who types `launch --only <seat>`, which is a human overriding a hold in front of him,
 # not the automatic advance the hold exists to stop. Making it a limb means an eighth limb and a
 # 28-pair coverage set; do that only when a measured case needs it.
-CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE", "renewing": "DONE",
+CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE",
+                    # THE RENEW GATE (2026-08-18). `renewing` read `DONE` and `renew-blocked` did
+                    # not exist, so a seat coming back and a seat whose harness died were one word
+                    # here too. `renewing` is IN PROGRESS — not terminal, not the failure class —
+                    # and `renew-blocked` is a HALT that must look like one. Both still defer the
+                    # launch: `conjunction_admits`' clause B is a single null test on
+                    # `disposition`, and `renew` is not null, so NO admission moved with this
+                    # split. What moved is the REPORT axis, which is what the class is for.
+                    "renewing": "RENEWING", "renew-blocked": "RENEW-BLOCKED",
                     "revived": "DONE", "exit-unruled": "DONE", "terminal-unenumerated": "DONE",
                     # 7.676: `DONE` here is the ADMISSION verdict — "this row's session ENDED, so
                     # it is not a launch candidate" — and never a statement that the WORK is done;
@@ -13988,9 +14159,17 @@ ADMISSION_LIMBS = ("skew", "disposition", "active", "built", "undeclared", "stop
 # transposition check and the coverage counter, so a limb cannot be defined three ways.
 _LIMB_CLASS = {
     "skew":        lambda r: "records-disagree" if r["skew"] is not None else None,
-    "disposition": lambda r: (_DEFERRAL_BY_DISPOSITION.get(r["disposition"],
-                                                           "terminal-unenumerated")
-                              if r["disposition"] is not None else None),
+    # THE RENEW GATE'S SPLIT lives here rather than in `_DEFERRAL_BY_DISPOSITION`, and that is
+    # deliberate: that table's key set is asserted EQUAL to `RECORD_DISPOSITION_WRITER`'s, so
+    # splitting a value there would be a silent widening of the closed set a seat may WRITE. No
+    # disposition value is added by this change; one READ of `renew` becomes two classes, off the
+    # row's own `renewal` field. A row predating the field (`.get`, not `[...]`) reads `None` and
+    # takes the loud arm — the same fail-safe direction `renewal_from_entry` takes.
+    "disposition": lambda r: (
+        (("renewing" if (r.get("renewal") or {}).get("state") == RENEW_PENDING
+          else "renew-blocked") if r["disposition"] == "renew"
+         else _DEFERRAL_BY_DISPOSITION.get(r["disposition"], "terminal-unenumerated"))
+        if r["disposition"] is not None else None),
     "active":      lambda r: "occupied" if r["active"] is True else None,
     "built":       lambda r: "unbuilt" if r["built"] is not True else None,
     "undeclared":  lambda r: "undeclared-ending" if r["undeclared-session"] is not None else None,
@@ -27218,7 +27397,7 @@ def _selftest_checks(args, failures, names):
         # that shares a package with its neighbours cannot isolate which term it moved.
         def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
                      store=None, store_ids=None, guards=None, outputs=None, fallbacks=None,
-                     at=None):
+                     at=None, lifecycle=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
             `sessions` are [(seat, disposition)] on the live and durable surfaces.
 
@@ -27241,6 +27420,12 @@ def _selftest_checks(args, failures, names):
             trailing comment included, if the caller writes one — so the D8 rows below assert the
             same reading the ferry makes off the same bytes. Omitted ⇒ no key, which is every
             fixture above and is why the check-out hold cannot touch them.
+
+            THE RENEW GATE: `lifecycle` is {seat: entry} written VERBATIM to
+            `coordination/lifecycle-inflight.json` — the successor signal `paneless-renew` stamps
+            and `renewal_state` reads. Omitted ⇒ NO FILE AT ALL, which is every fixture above and
+            is why their `renew` rows read `RENEW-BLOCKED`: a renewal with no marker recorded no
+            start.
 
             D8: `at` puts the package somewhere OTHER than the suite's flat temp root — the D8 rows
             need `<ws>/.rbtv/goals/<goal>`, because the delivery gates they exercise resolve the
@@ -27295,6 +27480,9 @@ def _selftest_checks(args, failures, names):
                                    "started": "2026-07-29 14:00", "ended": "2026-07-29 15:02",
                                    "disposition": d}.get(_c2, "") for _c2 in SESSIONS_COLS]
                                  for s, d in sessions])
+            if lifecycle is not None:
+                (p / "coordination" / "lifecycle-inflight.json").write_text(
+                    json.dumps(lifecycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             if guards is not None:
                 write_csv_table(p / "coordination" / GUARD_VALUES_FILE, GUARD_VALUES_COLS,
                                 [[{"seat": s, "key": k, "value": v, "source": "fixture §1",
@@ -27328,7 +27516,12 @@ def _selftest_checks(args, failures, names):
               "notices A ROW EXISTS — and the second is the whole class of defect that lets a "
               "context refresh advance a workflow",
               _rs1_dv == {"a": "DONE", "b": "READY"}
-              and _rs1_rv == {"a": "DONE", "b": "BLOCKED"})
+              # THE RENEW GATE moved `a`'s own verdict from `DONE` to `RENEW-BLOCKED` — this
+              # fixture writes NO lifecycle marker, so nothing records a successor and the row is
+              # a HALT said out loud instead of a word `exited` also carries. What this arm has
+              # always been about is UNMOVED and is the second conjunct: `b` is still BLOCKED, so
+              # a `renew` predecessor still advances NO edge.
+              and _rs1_rv == {"a": "RENEW-BLOCKED", "b": "BLOCKED"})
 
         # ---- RS-2: EVERY predecessor, not any ----
         _rs2 = _rs_make("2", [("a", ""), ("b", ""), ("c", "a,b")], sessions=[("a", "done")])
@@ -27534,6 +27727,106 @@ def _selftest_checks(args, failures, names):
               "RS-3's, RS-4's and RS-5's subject, and pinning it here red all three of "
               "their red arms along with this row",
               len(_rs8_verdict_lines) == 6 and _rs8_bare == [])
+
+        # ---- RG-1/2/3 (THE RENEW GATE, 2026-08-18): `renew` is TWO states, and neither is a
+        # failure ending. Three packages differing in ONE surface — the lifecycle marker — because
+        # the whole claim is that the marker, and nothing else, separates a seat coming back from
+        # a lineage that has halted. Before this change all three rows read the SAME word (`DONE`)
+        # and a reader had no way to tell them apart.
+        _rg_pend = _rs_make("rg-pending", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
+                            lifecycle={"a": {"state": "in-flight", "disposition": "renew",
+                                             "stamped-at": now(), "failure": "",
+                                             "steps-completed": []}})
+        _rg_none = _rs_make("rg-nosucc", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
+                            lifecycle={"a": {"state": "FAILED", "disposition": "renew",
+                                             "stamped-at": now(),
+                                             "failure": "no pane and no paneless lane: "
+                                                        "lifecycle_fork_target refused",
+                                             "steps-completed": []}})
+        _rg_exit = _rs_make("rg-exited", [("a", ""), ("b", "a")], sessions=[("a", "exited")])
+
+        def _rg_by(pkg):
+            return {r["seat"]: r for r in json.loads(_rs(pkg, json=True)[0])}
+
+        _rg_p, _rg_n, _rg_e = _rg_by(_rg_pend), _rg_by(_rg_none), _rg_by(_rg_exit)
+        check("RG-1 THE RENEW GATE — A `renew` WHOSE SUCCESSOR IS PENDING IS IN PROGRESS, NOT A "
+              "FAILURE, AND IT ADVANCES NOTHING. Three claims, and all three are needed. (i) It "
+              "reads `RENEWING` and classes `renewing` — its own verdict, off the `in-flight` "
+              "lifecycle entry `paneless-renew` stamps, and NOT the `DONE` it shared with `exited` "
+              "before. (ii) It is NOT the failure class, asserted negatively as well as "
+              "positively: the class is not `exit-unruled`, the verdict is neither `DONE` nor "
+              "`UNDECLARED`, and the harness-terminated routing that sends a reader to the leader "
+              "with a crash is ABSENT from the reason. (iii) It still advances NO edge — `b` stays "
+              "BLOCKED naming `a=renew` — because in-progress is not finished, and a gate that "
+              "fixed (i) by releasing the DAG would be a worse defect than the one it fixed",
+              _rg_p["a"]["verdict"] == "RENEWING"
+              and deferral_class(_rg_p["a"]) == "renewing"
+              and _rg_p["a"]["renewal"]["state"] == RENEW_PENDING
+              and "IN PROGRESS, NOT AN ENDING" in _rg_p["a"]["reason"]
+              and _rg_p["a"]["verdict"] not in ("DONE", "UNDECLARED")
+              and deferral_class(_rg_p["a"]) != "exit-unruled"
+              and "THE HARNESS TERMINATED" not in _rg_p["a"]["reason"]
+              and _rg_p["b"]["verdict"] == "BLOCKED"
+              and "a=renew" in _rg_p["b"]["reason"])
+        check("RG-2 THE RENEW GATE — A `renew` WITH NO SUCCESSOR POSSIBLE IS A DISTINGUISHABLE "
+              "BLOCKED STATE CARRYING AN ACTIONABLE REASON. This is the forge shape of 2026-08-18: "
+              "a seat asked to come back, nothing could fork it, and every gate read that as an "
+              "ordinary ending. It now reads `RENEW-BLOCKED` — its own word, not `RENEWING` and "
+              "not `DONE` — classes `renew-blocked`, and the reason CARRIES THE MARKER'S OWN "
+              "FAILURE TEXT rather than a generic word, plus the two commands that resolve it. A "
+              "halt that does not name what broke and what to type is a halt a reader cannot act "
+              "on, which is how this one stayed silent for four hours",
+              _rg_n["a"]["verdict"] == "RENEW-BLOCKED"
+              and _rg_n["a"]["verdict"] != "RENEWING"
+              and deferral_class(_rg_n["a"]) == "renew-blocked"
+              and _rg_n["a"]["renewal"]["state"] == RENEW_NO_SUCCESSOR
+              and "RENEWAL BLOCKED" in _rg_n["a"]["reason"]
+              and ("no pane and no paneless lane: lifecycle_fork_target refused"
+                   in _rg_n["a"]["reason"])
+              and "rule-relaunch" in _rg_n["a"]["reason"]
+              and "rule-disposition" in _rg_n["a"]["reason"]
+              and _rg_n["b"]["verdict"] == "BLOCKED")
+        check("RG-3 THE RENEW GATE'S REGRESSION GUARD — AN `exited` ROW CLASSIFIES EXACTLY AS IT "
+              "DID BEFORE. The change splits ONE disposition and must move no other: `exited` "
+              "still reads `DONE`, still classes `exit-unruled`, still carries the "
+              "harness-terminated routing to the leader, and still leaves its dependent BLOCKED. "
+              "⚠ AND IT CARRIES NO `renewal` — the field is present on every row and NULL on every "
+              "row that is not a `renew`, which is the contract `deferral_class`' disposition limb "
+              "reads. A field that leaked onto other rows would put a renewal state on seats that "
+              "never renewed",
+              _rg_e["a"]["verdict"] == "DONE"
+              and deferral_class(_rg_e["a"]) == "exit-unruled"
+              and _rg_e["a"]["renewal"] is None
+              and "THE HARNESS TERMINATED" in _rg_e["a"]["reason"]
+              and _rg_e["b"]["verdict"] == "BLOCKED")
+
+        # ---- RG-4: `successor-pending` IS NOT ABSORBING. The one shape RG-1's `in-flight` entry
+        # can rot into: the parent stamped the marker, the child never wrote its own pid pair, and
+        # `lifecycle_stale` — which REQUIRES a readable executor ident — answers False on it
+        # forever. The stamp is dated 2026-01-01, so the age conjunct holds against any real clock
+        # without this suite sleeping for it or pointing at a live process.
+        _rg_rot = _rs_make("rg-rotted", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
+                           lifecycle={"a": {"state": "in-flight", "disposition": "renew",
+                                            "stamped-at": "2026-01-01 00:00", "failure": "",
+                                            "steps-completed": []}})
+        _rg_r = _rg_by(_rg_rot)
+        check("RG-4 THE RENEW GATE — A PENDING SUCCESSOR THAT NEVER ARRIVES STOPS READING AS ONE. "
+              "`in-progress` must not be ABSORBING, and the arm that bounds it cannot be "
+              "`lifecycle_stale`: that predicate's third conjunct needs a readable executor ident "
+              "and answers False without one FOREVER (its own docstring accepts that cost, "
+              "because firing the REVIVAL actuator on an unprovable case double-launches a seat). "
+              "`fork_lifecycle_renewal` stamps NO executor — the child writes its own pair as its "
+              "first act — so a marker still identless well past the bound is a fork that never "
+              "got that far. Same `in-flight` state as RG-1 and the SAME missing executor; only "
+              "the stamp's AGE differs, which is the claim: pendency expires in TIME and the row "
+              "says so out loud instead of promising a successor no reader will ever get",
+              lifecycle_stale({"state": "in-flight", "disposition": "renew",
+                               "stamped-at": "2026-01-01 00:00"}) is False
+              and _rg_r["a"]["renewal"]["state"] == RENEW_NO_SUCCESSOR
+              and _rg_r["a"]["verdict"] == "RENEW-BLOCKED"
+              and deferral_class(_rg_r["a"]) == "renew-blocked"
+              and "NO EXECUTOR EVER RECORDED ITSELF" in _rg_r["a"]["reason"]
+              and _rg_r["b"]["verdict"] == "BLOCKED")
 
         # ---- RS-12: `exited` never advances the DAG ----
         _rs12 = _rs_make("12", [("a", ""), ("b", "a")], sessions=[("a", "exited")])
@@ -27869,7 +28162,10 @@ def _selftest_checks(args, failures, names):
               "the record of what was ruled first survives the ruling that replaced it — a "
               "first-row-wins implementation would freeze every guard at its first, possibly "
               "wrong, value and could only be corrected by editing history",
-              _rs21_pv == {"a": "DONE", "g": "BLOCKED", "bare": "BLOCKED"}
+              # `a` reads `RENEW-BLOCKED` rather than `DONE` for THE RENEW GATE's reason (see
+              # RS-1) — this fixture writes no lifecycle marker either. The guard arithmetic this
+              # row is about is untouched: both dependents stay BLOCKED.
+              _rs21_pv == {"a": "RENEW-BLOCKED", "g": "BLOCKED", "bare": "BLOCKED"}
               and _rs21_sv == {"a": "DONE", "g": "READY", "bare": "READY"}
               and "a[safe=yes]=renew" in {r["seat"]: r for r in json.loads(
                   _rs(_rs21_pend, json=True)[0])}["g"]["reason"])
@@ -28651,6 +28947,11 @@ def _selftest_checks(args, failures, names):
             # row — so a disposition minted without this fixture row reds 1C rather than shipping
             # a class nothing ever produced.
             ("s12", ("disposition",), "incomplete"),
+            # THE RENEW GATE's second sub-class. `s03` above is a `renew` with NO marker and
+            # classes `renew-blocked`; THIS row carries a pending successor and classes
+            # `renewing`. Both are needed: with only one of them arm 1C reds, which is exactly
+            # how a class that nothing ever produces is caught.
+            ("s13", ("disposition",), "renew"),
             ("s07", ("active",), ""), ("s08", ("built",), ""), ("s09", ("undeclared",), ""),
             ("s10", ("stop",), ""), ("s11", ("unmet",), ""),
             # the CLEAN row — READY, class None, admitted by the conjunction
@@ -28681,7 +28982,16 @@ def _selftest_checks(args, failures, names):
                 _a3_sessions.append((_s, ""))
         _a3_pkg = _rs_make("a3-classmap", _a3_tf, built=_a3_built, active=_a3_active,
                            awaiting=_a3_awaiting, sessions=_a3_sessions,
-                           store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids)
+                           store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids,
+                           # `s13` alone gets a marker — stamped NOW, so `lifecycle_stale`'s age
+                           # conjunct cannot hold and the row is a live pending renewal without
+                           # this suite needing a live process to point at.
+                           # `state: done` — the successor was PLACED. That arm rather than the
+                           # `in-flight` one deliberately: RG-1 below owns `in-flight`, so a
+                           # mutation of either arm reds exactly one check instead of two.
+                           lifecycle={"s13": {"state": "done", "disposition": "renew",
+                                              "stamped-at": now(), "failure": "",
+                                              "steps-completed": []}})
         _a3_rows = ready_seat_rows(argparse.Namespace(
             package=str(_a3_pkg), base=None, workers_dir=None, as_agent=None, force=False))
         _a3_by = {r["seat"]: r for r in _a3_rows}
@@ -28698,13 +29008,13 @@ def _selftest_checks(args, failures, names):
                       for _s, cls, v in _a3_arm1))
         # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
         check("7.274 row P arm 1C: every REACHABLE class is exercised by some fixture "
-              "row — set equality, not a count. Seven limbs produce twelve classes (the "
-              "`disposition` limb alone produces six since 7.676's `declared-incomplete`); "
-              "`unbuilt` is no longer reachable for a taskforce row (existence is the CSV "
-              "registers, and every such row is registered)",
+              "row — set equality, not a count. Seven limbs produce thirteen classes (the "
+              "`disposition` limb alone produces seven since THE RENEW GATE split `renewing` "
+              "from `renew-blocked`); `unbuilt` is no longer reachable for a taskforce row "
+              "(existence is the CSV registers, and every such row is registered)",
               {deferral_class(r) for r in _a3_rows} - {None}
               == set(CLASS_TO_VERDICT) - {"unbuilt"}
-              and len(CLASS_TO_VERDICT) == 12)
+              and len(CLASS_TO_VERDICT) == 13)
         # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
         _a3_cov = covered_limb_pairs(_a3_rows)
         check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "

@@ -375,6 +375,19 @@ SHADOW_TRAIL_KEEP = 500
 # member, for the same reason: `renew`, `revive` and `exited` each name a seat that has NOT
 # finished. (`edge-runner-job.py`'s ADVANCES_EDGE was the third holder of it; it is deleted.)
 CLEAN_CHECKOUT = "done"
+# THE RENEW GATE (2026-08-18). NOT FINISHED AND FAILED ARE NOT THE SAME CLAIM, and this file used
+# to make only one of them: `renew` fell to `shadow_decide`'s catch-all arm and decided
+# WOULD-ENQUEUE — the FAILURE-MODE workflow-edge job — so a seat saying "I am coming back" was
+# read exactly as a seat that crashed. `renew` STILL never satisfies an `after` member (see
+# `CLEAN_CHECKOUT` above; that equality is unchanged and this constant does not widen it); what
+# changed is that a renewal WITH a successor pending is no longer the failure class.
+#
+# ⚠ THE CLASSIFICATION IS `coord.renewal_state`'S AND THIS FILE HOLDS NO COPY OF IT — the same
+# single-reader discipline `declared_dispositions` states one screen up, and for the same reason:
+# two gates deciding one seat's renewal state from one file is how they come to disagree about it.
+# coord's `ready_seat_rows` reads the identical answer for its `RENEWING` / `RENEW-BLOCKED`
+# verdicts, so the two `after` gates classify a `renew` the same way by construction.
+RENEW_DISPOSITION = "renew"
 # The act this arm COMPUTES and DOES NOT PERFORM, written out in full because the record's
 # `act_not_taken` field is this constant and nothing else — there is deliberately no code path
 # by which a trail record can carry an act that WAS performed.
@@ -902,6 +915,26 @@ def declared_dispositions(args, seats):
         return {s: None for s in seats}
 
 
+def declared_renewal(args, seat):
+    """coord's renewal class for ONE seat whose durable disposition is `renew` — `successor-pending`
+    or `no-successor`. `None` when nothing could be read.
+
+    ONE READER, and it is `coord.renewal_state`, imported from the `--coord` path this job already
+    requires — the same discipline and the same import `declared_dispositions` above uses. A second
+    implementation here would be free to disagree with coord's own `after` gate about whether one
+    seat is coming back, and that disagreement is the whole thing THE RENEW GATE closes.
+
+    An unreadable trace yields `None`, which `shadow_decide` reads as NO successor. That is the
+    conservative direction and it matches `declared_dispositions`' own: this arm exists for the
+    seat that did not come back, so an absent record must never read as a renewal in progress."""
+    try:
+        sys.path.insert(0, str(Path(args.coord).resolve().parent))
+        import coord  # noqa: E402 — the renewal signal's single reader; see this docstring
+        return coord.renewal_state(Path(args.package) / "coordination", seat)[0]
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
 def declared_door_seats(args):
     """The seats whose pane is a DOOR to a human role — those declaring `relays:` in their OWN
     seat descriptor. Declaration, not sensing: a descriptor is a file the run wrote about itself.
@@ -1023,23 +1056,44 @@ def caged_out_of_room(args, seats):
         return {}
 
 
-def shadow_decide(disposition):
+def shadow_decide(disposition, renewal=None):
     """PURE. (decision, why) — the would-be FAILURE-MODE enqueue, COMPUTED, never performed.
 
     This function is the detection predicate's decision half and it is the thing a C-3 red arm
     mutates: with it neutered the trail goes silent, which is what proves the trail is driven by
-    the reading rather than by the pass happening at all."""
+    the reading rather than by the pass happening at all.
+
+    `renewal` is `coord.renewal_state`'s answer for this seat, supplied by the caller (this stays
+    PURE — it reads no disk). It DECIDES only on a `renew` disposition and is ignored on every
+    other value; `None` there reads as NO successor, the conservative direction."""
     if disposition == CLEAN_CHECKOUT:
         return "WOULD-NOT-ENQUEUE", (
             f"durable disposition is `{CLEAN_CHECKOUT}` — this seat checked out CLEANLY, so the "
             f"check-out fast path already advanced its edges. The backstop is the backstop TO "
             f"that path and has nothing to do here.")
+    if disposition == RENEW_DISPOSITION:
+        # THE RENEW GATE. Same split, same words and same source as coord's `RENEWING` /
+        # `RENEW-BLOCKED` verdicts — see the constant block above.
+        if renewal == "successor-pending":
+            return "WOULD-NOT-ENQUEUE", (
+                f"durable disposition is `{RENEW_DISPOSITION}` and coord reports "
+                f"`successor-pending` (its `RENEWING` verdict) — this seat asked to COME BACK and "
+                f"a successor is being placed. IN PROGRESS, NOT A FAILURE: it has not finished, "
+                f"so it advances no edge, but a failure-mode enqueue would report a crash that "
+                f"did not happen and route a live lineage to the leader as a dead one.")
+        return "WOULD-ENQUEUE", (
+            f"durable disposition is `{RENEW_DISPOSITION}` and coord reports "
+            f"`{renewal or 'no-successor (nothing readable)'}` (its `RENEW-BLOCKED` verdict) — "
+            f"this seat asked to come back and NO SUCCESSOR IS POSSIBLE. The lineage has HALTED "
+            f"and nothing will run under this seat's name on its own; the run's own "
+            f"`lifecycle-inflight.json` entry carries the reason.")
     shown = "UNKNOWN (no ended row, no disposition column, or an empty cell)" \
         if disposition is None else f"`{disposition}`"
     return "WOULD-ENQUEUE", (
         f"the seat is out of the room and its durable disposition is {shown} — NOT "
         f"`{CLEAN_CHECKOUT}`. UNKNOWN is never read as clean (coord's own asymmetry), and "
-        f"`renew`/`revive`/`exited` each name a seat that has NOT finished. This is the "
+        f"`revive`/`exited` each name a seat that has NOT finished. (`renew` has its own two arms "
+        f"above — THE RENEW GATE — and never reaches this one.) This is the "
         f"finished-or-dead-WITHOUT-clean-check-out condition CMP-21's backstop row keys on.")
 
 
@@ -1410,7 +1464,10 @@ def evaluate(snap, args, state, dispositions, now):
         s_cls = "DEAD" if r.get("liveness") == "absent" else (
             "COMPLETED" if harness and harness in one_shot else "GHOSTROW")
         s_disp = dispositions.get(name)
-        s_decision, s_why = shadow_decide(s_disp)
+        # THE RENEW GATE's term, resolved ONLY for the disposition it decides — a `renew` is rare,
+        # so the common pass makes no extra read at all.
+        s_decision, s_why = shadow_decide(
+            s_disp, declared_renewal(args, name) if s_disp == RENEW_DISPOSITION else None)
         trail.append(shadow_record(name, s_cls, pane, s_disp, s_decision, s_why, snap))
         decisions.append(decision(
             "SHADOW-BACKSTOP", name, f"none — SHADOW: {s_decision}, the act is NOT taken",
@@ -2482,6 +2539,43 @@ def selftest():
               "reader, on the one surface a caged seat can write",
               _disp.get("cg-done") == CLEAN_CHECKOUT
               and shadow_decide(_disp["cg-done"])[0] == "WOULD-NOT-ENQUEUE")
+        # ---- THE RENEW GATE (2026-08-18): the two renew arms, driven off a REAL marker file
+        # through the REAL `coord.renewal_state`. Hand-typed renewal values would test this
+        # file's idea of the signal rather than the one coord publishes, and the whole claim
+        # being made is that the two gates read ONE answer.
+        _c.write_seat_disposition(_pkg / "coordination", "cg-killed", "sid-cg-killed",
+                                  "renew", "2026-08-18 09:30")
+        (_pkg / "coordination" / "lifecycle-inflight.json").write_text(json.dumps({
+            "cg-killed": {"state": "in-flight", "disposition": "renew",
+                          "stamped-at": _c.now(), "failure": "", "steps-completed": []}},
+            indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _rn_pend = declared_renewal(_ca, "cg-killed")
+        _rn_pend_d = shadow_decide(declared_dispositions(_ca, ["cg-killed"])["cg-killed"],
+                                   _rn_pend)
+        (_pkg / "coordination" / "lifecycle-inflight.json").write_text(json.dumps({
+            "cg-killed": {"state": "FAILED", "disposition": "renew", "stamped-at": _c.now(),
+                          "failure": "no pane and no paneless lane", "steps-completed": []}},
+            indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _rn_none = declared_renewal(_ca, "cg-killed")
+        _rn_none_d = shadow_decide(declared_dispositions(_ca, ["cg-killed"])["cg-killed"],
+                                   _rn_none)
+        check("RENEW GATE: a `renew` WHOSE SUCCESSOR IS PENDING is NOT the failure class — the "
+              "backstop decides WOULD-NOT-ENQUEUE and says why. Before this, `renew` fell to the "
+              "catch-all arm and a seat coming back was computed as a crash. The renewal class "
+              "is read through `coord.renewal_state` off the run's own `lifecycle-inflight.json`, "
+              "which is the SAME answer coord's `after` gate spends for its `RENEWING` verdict",
+              _rn_pend == "successor-pending"
+              and _rn_pend_d[0] == "WOULD-NOT-ENQUEUE"
+              and "IN PROGRESS, NOT A FAILURE" in _rn_pend_d[1])
+        check("RENEW GATE: a `renew` WITH NO SUCCESSOR POSSIBLE stays a halt the backstop would "
+              "act on — WOULD-ENQUEUE, naming `no-successor` and coord's `RENEW-BLOCKED` verdict. "
+              "ONE CELL apart from the row above and only the MARKER moved, which is the claim: "
+              "the durable disposition is `renew` in both and it is the successor signal, not the "
+              "disposition, that separates coming back from a lineage that has stopped",
+              _rn_none == "no-successor"
+              and _rn_none_d[0] == "WOULD-ENQUEUE"
+              and "NO SUCCESSOR IS POSSIBLE" in _rn_none_d[1]
+              and "RENEW-BLOCKED" in _rn_none_d[1])
     # RIDER 1, ASSERTED RATHER THAN CLAIMED: every SHADOW-BACKSTOP row this file can emit — ROW
     # 6's and the caged arm's alike — carries an action the delivery loop SKIPS (`none`). A row
     # that ever named a real act would be delivered, and this is what makes "shadow-only" a check.
@@ -2724,7 +2818,8 @@ def main():
             _cage_disp = declared_dispositions(args, sorted(caged_absent))
             for _seat in sorted(caged_absent):
                 _d = _cage_disp.get(_seat)
-                _decision, _why = shadow_decide(_d)
+                _decision, _why = shadow_decide(
+                    _d, declared_renewal(args, _seat) if _d == RENEW_DISPOSITION else None)
                 # `pane` and `class` say IN THE RECORD that this row came from the coordination
                 # surface rather than from a roster row — the trail is compared against predicted
                 # decisions, so where a reading came from has to survive into it.
