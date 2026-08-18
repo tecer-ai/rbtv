@@ -59,7 +59,7 @@ function setup() {
           // An effort ladder, so the SEAT door's rung composition is exercisable (probe-tmux-seat
           // leg 9b). Inert for every caller that passes no rung — resolveEffort composes nothing
           // on a null — so no existing leg's argv changes.
-          effort: { dialect: 'probe', rungs: ['0.1', '0.2'], argv: ['-t', '{effort}'] },
+          effort: { dialect: 'probe', rungs: ['0.1', '0.2'], argv: ['-t', '{effort}'], headed: true },
           workdir_root: workRoot,
           caps: { memory_max: '64M', runtime_max: '1h' },
         },
