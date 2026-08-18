@@ -6740,6 +6740,61 @@ def lifecycle_record_undelivered(base, text, reason):
         return False
 
 
+def lifecycle_recipient_live(args, base, name):
+    """(alive, why) — is anybody SITTING IN `name` right now? Never raises.
+
+    ⚠ ADDRESSABILITY IS NOT LIVENESS, and the gap between them is the forge instance's whole
+    silence. `lifecycle_alarm_recipient` answers "does this package RESOLVE the name" — a roster
+    row, a briefing, a group, a relay token. On 2026-08-18 that answered YES for a leader chair
+    that had been EMPTY FOR NINE MINUTES: the refused-renewal remedy was posted to it, the post
+    succeeded, and the lineage ended with nobody reading. A send that lands in an empty chair is
+    not a delivery, and this predicate is what lets the alarm SAY SO instead of reporting "sent".
+
+    It does NOT suppress the send — mail persists and the chair's NEXT sitting drains it. It adds
+    the escalation: an empty chair also gets an `undelivered-flags.md` row, which `status` and
+    `workers` surface to every OTHER seat through `undelivered_line`.
+
+    Both identity kinds, because the seat this fires for is usually the paneless one: a `%N` row is
+    live when tmux still has the pane; a `sid:` row (F1, the daemon lane) is live when that session
+    is still OPEN in `sessions.csv`. Any read failure is NOT live — the fail-safe direction here is
+    "assume the chair is empty", because the cost of being wrong is one extra durable flag and the
+    cost of the other error is the silence this exists to end."""
+    try:
+        _, _, rows = load_workers(base)
+        row = current_row(rows, name)
+    except Exception as exc:                                   # noqa: BLE001
+        return False, (f"this package's roster could not be read at all "
+                       f"({type(exc).__name__}: {exc}), so nothing vouches that anyone is sitting "
+                       f"in '{name}'")
+    if row is None:
+        return False, (f"'{name}' holds NO roster row on this package — it resolves as an ADDRESS "
+                       f"(a briefing, a group or a relay token) but no session has ever checked in "
+                       f"under it")
+    if str(row.get("active") or "") != "yes":
+        return False, (f"'{name}''s roster row is NOT ACTIVE — its last sitting checked out, so "
+                       f"the chair is empty until it is launched again")
+    pane = str(row.get("pane") or "")
+    if is_tmux_pane(pane):
+        if pane in live_panes():
+            return True, ""
+        return False, (f"'{name}' is rostered ACTIVE in {pane}, but tmux no longer has that pane "
+                       f"— the session died without checking out")
+    if pane.startswith(SID_PANE_PREFIX):
+        sid = pane[len(SID_PANE_PREFIX):]
+        try:
+            still_open = sessions_open_ids(package_dir(args)).get(name, "")
+        except Exception as exc:                               # noqa: BLE001
+            return False, (f"'{name}' is PANELESS (rostered against session {sid}) and this "
+                           f"package's open-session set could not be read "
+                           f"({type(exc).__name__}: {exc})")
+        if still_open == sid:
+            return True, ""
+        return False, (f"'{name}' is a PANELESS seat rostered ACTIVE against session {sid}, and "
+                       f"that session is no longer open in sessions.csv")
+    return False, (f"'{name}''s roster row carries neither a tmux pane nor a `{SID_PANE_PREFIX}` "
+                   f"token, so there is no identity to test liveness against")
+
+
 def lifecycle_raise_alarm(layer, msg, base, args):
     """STEPS 2-3 — raise the bus alarm. Returns `(outcome, line)`; NEVER raises, NEVER exits.
 
@@ -6800,8 +6855,28 @@ def lifecycle_raise_alarm(layer, msg, base, args):
         if prior is not None:
             os.environ["TMUX_PANE"] = prior
     if not reason:
-        return "sent", (f"ALARM RAISED: a `type: note` from `lifecycle-exec` is on this package's "
-                        f"bus, addressed to '{to}'.")
+        # THE ADDRESSEE'S LIVENESS, CHECKED — never assumed from the fact that the send succeeded.
+        # `cmd_send` accepts any RESOLVABLE name; the forge instance posted its remedy to a leader
+        # nine minutes dead and reported success. The send still stands (mail persists and the
+        # chair's next sitting drains it) — what is ADDED is the escalation and the honest wording.
+        alive, why_empty = lifecycle_recipient_live(args, base, to)
+        raised = (f"ALARM RAISED: a `type: note` from `lifecycle-exec` is on this package's bus, "
+                  f"addressed to '{to}'.")
+        if alive:
+            return "sent", raised + " That chair is LIVE."
+        # ⚠ "ALARM RAISED" IS STILL THE FIRST CLAUSE, and deliberately so: the note DID leave this
+        # process, which is the fact the executor's self-report exists to state and the fact a
+        # reader of the detached log needs. What is ADDED is that landing is not reading.
+        landed = lifecycle_record_undelivered(
+            base, body, f"posted to '{to}' but THAT CHAIR IS EMPTY — {why_empty}")
+        return "sent", (
+            raised + f" ⚠ BUT NOBODY IS SITTING IN IT: {why_empty}. The note stays on the bus for "
+            f"that chair's next sitting, and "
+            + (f"it is ALSO recorded in {Path(base) / 'undelivered-flags.md'}, where `status` and "
+               f"`workers` surface it to every OTHER seat through `undelivered_line`."
+               if landed else
+               f"⚠⚠ the undelivered flag could NOT be appended either, so no OTHER reader will "
+               f"reach it."))
     landed = lifecycle_record_undelivered(base, body, reason)
     if landed:
         return "undelivered", (
@@ -6963,13 +7038,39 @@ def lifecycle_fork_target(seat, pane):
         live room believing it is repairing a dead one is worse than no recovery at all.
         — ignite/jobs/recover-room.py:13-19
 
-    So the answer here is a target or a REFUSAL, never a blank a caller might pass on. The two
-    tmux measurements are skipped when the pane is dead, which cannot change the verdict:
+    So the answer here is a target or a REFUSAL, never a blank a caller might pass on.
+
+    AND THE PANELESS LANE REFUSES BY ITS OWN NAME, FIRST. Every arm below needs a `%N`; a
+    daemon-launched seat's roster row carries `sid:<session-id>` (F1) and never has one, so the
+    `is_tmux_pane` arm at the top answers it before any tmux call is made. That is ALSO what makes
+    the empty return structurally unreachable from the two SUCCESS arms: past that guard `pane` is
+    a `%N` (the in-place arm returns it verbatim), and the window arm returns `window` only when
+    `tmux_session_name(window)` has already resolved it. `fork_lifecycle_renewal` re-checks
+    `if not target` regardless — belt and braces, not a substitute.
+
+    The two tmux measurements are skipped when the pane is dead, which cannot change the verdict:
     `renew_in_place` short-circuits on `pane_live` and a dead pane has no window to read. That is
     an elision of unreachable work, not a second rule.
     """
-    if not pane:
-        return "", "its roster row carries no pane, so there is nothing to measure a target from"
+    if not is_tmux_pane(pane):
+        # ⚠ THE PANELESS LANE, ANSWERED FIRST AND BY ITS OWN NAME (2026-08-18). This arm used to
+        # read `if not pane`, which a paneless row does not satisfy: F1 puts the seat's OPEN
+        # session id in the pane cell, prefixed — `sid:<uuid>` is TRUTHY, so a daemon-lane seat
+        # fell through to the `not pane_live` arm below and was told "its pane sid:… is NOT LIVE",
+        # naming a pane that never existed and pointing its reader at tmux. `is_tmux_pane` is the
+        # SAME predicate every tmux wrapper in this file already guards with, so this arm is the
+        # structural statement that the three measurements below cannot answer for this row:
+        # `live_panes`, `tmux_pane_window` and `tmux_session_name` all take a `%N` and nothing else.
+        # It is also what makes the empty target IMPOSSIBLE rather than merely refused — past this
+        # line `pane` IS a `%N`, so the in-place arm returns a real pane id, and the window arm is
+        # guarded on `tmux_session_name(window)` resolving.
+        # ⚠ SHORT ON PURPOSE. This text is carried into `lifecycle_alarm_body`, which `cmd_send`
+        # refuses at 2000 chars — measured: a fuller wording made the ALARM ITSELF undeliverable,
+        # which is this whole change's failure mode arriving through its own fix.
+        return "", (f"its roster row carries "
+                    + (f"the PANELESS token {pane!r}" if pane else "no pane at all")
+                    + ", not a tmux pane id — a DAEMON-launched seat has never been in a tmux "
+                      "room, so no pane, window or session can be measured from it")
     pane_live = pane in live_panes()
     if renew_in_place(seat, pane, pane_live, tmux_pane_window_name(pane) if pane_live else None):
         return pane, ""
@@ -6982,6 +7083,70 @@ def lifecycle_fork_target(seat, pane):
     return "", (f"its pane {pane} is not in the window its descriptor asks for (so the pane "
                 f"cannot be respawned in place) and tmux names no session for the window "
                 f"{window or '(none)'} that pane sits in")
+
+
+def lifecycle_no_successor(args, base, seat_name, pane, why, remedy, layer="state"):
+    """THE CALLER-SIDE REFUSAL CHOKEPOINT: a renew that produces NO successor, recorded LOUDLY.
+
+    ⚠⚠ WHAT THIS REPLACES IS THE DEFECT. Every arm of `fork_lifecycle_renewal` used to leave
+    through a bare `refuse(...)` — text on the CHECKING-OUT SEAT'S STDERR and nothing else. That
+    seat is about to stop existing. So on 2026-08-18 a paneless `checkout --renew` printed a
+    refusal into a dying session, wrote NOTHING to disk about the missing successor, and routed
+    its remedy to a leader that had been dead for nine minutes. The lineage ended and no reader
+    anywhere could tell. `coordinate`'s own `checkout` epilog promises "renew: the same seat comes
+    back"; when it cannot, the BREAKING of that promise has to be as durable as the promise.
+
+    THREE SURFACES, and each is one a DIFFERENT reader actually reaches:
+      1. `lifecycle-inflight.json` — the seat's entry flips to `state: FAILED` with the reason in
+         `failure`. This is the SUCCESSOR-PENDING SIGNAL, and it is the whole point of stamping on
+         a path that forks nothing: `state == "in-flight"` means a successor is coming,
+         `"FAILED"` means NO successor is possible, and NO ENTRY means no renew was ever attempted.
+         `status` and `workers` already render it through `lifecycle_line`.
+      2. the BUS — `lifecycle_alarm` posts a `type: note` to this run's alarm chair, and
+         `lifecycle_recipient_live` now says out loud when that chair is EMPTY and adds an
+         `undelivered-flags.md` row that `status`/`workers` surface to every OTHER seat.
+      3. the refusal itself, unchanged in substance, on the caller's inherited stderr.
+
+    Everything after step 1 is `lifecycle_alarm`'s, verbatim — the executor's own chokepoint,
+    reused rather than re-implemented, so the caller side and the executor side can never drift
+    into raising different alarms for the same fact (PRIN-11).
+
+    THE STAMP IS CONDITIONAL, and that is not a micro-optimisation: the log-open and spawn arms
+    below fire AFTER a real stamp landed, carrying the caller identity, the resolved target and
+    the log path. Re-stamping would blank exactly the evidence a reader needs, so a seat that
+    already has an entry keeps it and only its terminal state is written.
+
+    `args` here is `cmd_checkout`'s, which carries no `seat` and no `disposition` — the two fields
+    `lifecycle_alarm` reads to mark the record and to head the alarm. The shim below supplies them
+    and nothing else; it is NOT a fabricated identity (the send still goes out as the machinery
+    token `lifecycle-exec`, per `lifecycle_alarm_namespace`).
+
+    ⚠ THE LAYER IS SPELLED AS A LITERAL AT TWO CALL SITES BELOW RATHER THAN FORWARDED AS A NAME,
+    and that is not style. `_selftest_checks`' s3-05 (L) row walks this file's AST, collects the
+    string constants in every `lifecycle_alarm` call's FIRST argument, and refuses any site whose
+    layer it cannot READ — because s12-03's own L-a scan already skips call sites whose first
+    argument is a Name, so a chokepoint forwarding `layer` would route these refusals straight out
+    of the file's five-layer bound. One extra branch buys the bound back.
+
+    NEVER RETURNS — `lifecycle_alarm` exits through `refuse` with code 2."""
+    if seat_name not in load_lifecycle(base):
+        stamp_lifecycle(base, seat_name, {"disposition": "renew", "pane": str(pane or ""),
+                                          "tmux-target": "", "log": ""})
+    rest = (
+        f"NO EXECUTOR WAS FORKED for '{seat_name}': {why} YOUR CHECKOUT STANDS — handoff written, "
+        f"transcript exported, roster flipped, debt recorded; only the RELAUNCH did not happen, "
+        f"and the marker and the alarm are what record that.\n"
+        f"Leader brings the seat back by hand: {remedy}",
+        2, base,
+        argparse.Namespace(package=getattr(args, "package", None),
+                           base=getattr(args, "base", None),
+                           workers_dir=getattr(args, "workers_dir", None),
+                           seat=seat_name, disposition="renew"),
+        why)
+    if layer == "environment":
+        lifecycle_alarm("environment", *rest)
+    else:
+        lifecycle_alarm("state", *rest)
 
 
 def fork_lifecycle_renewal(args, base, seat_name, pane):
@@ -7018,39 +7183,29 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
     """
     seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == seat_name]
     if not seats:
-        refuse(
-            "state",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': no briefing in {workers_dir(args)} "
-            f"carries `agent: {seat_name}`, so its placement cannot be read and no tmux target "
-            f"can be computed for the successor. YOUR CHECKOUT STANDS — the handoff is written, "
-            f"the roster flipped, the debt recorded. What did not happen is the relaunch.\n"
-            f"Leader brings the seat back by hand once the briefing exists: "
-            f"{coord_invocation(args)} launch --only {seat_name}",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"no briefing in {workers_dir(args)} carries `agent: {seat_name}`, so its placement "
+            f"cannot be read and no target can be computed for the successor.",
+            f"{coord_invocation(args)} launch --only {seat_name} (once the briefing exists)")
     target, why = lifecycle_fork_target(seats[0], pane)
     if not target:
-        refuse(
-            "state",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': its tmux target could not be computed — "
-            f"{why}. This process refuses to fork without one rather than passing an empty target "
-            f"down: with no target tmux resolves to the MOST RECENT session, measured to be the "
-            f"live room, so the successor would open wherever tmux happened to point. YOUR "
-            f"CHECKOUT STANDS — handoff written, transcript exported, roster flipped, "
-            f"awaiting-close debt recorded.\n"
-            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
-            f"{seat_name} --renew",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"its tmux target could not be computed — {why}. Refusing rather than passing an "
+            f"empty target down: tmux resolves an empty target to the MOST RECENT session, "
+            f"measured to be the LIVE room.",
+            f"{coord_invocation(args)} close-seat {seat_name} --renew")
     caller_start = proc_stat(os.getpid())[1]
     if not caller_start:
-        refuse(
-            "environment",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': this process cannot read its own "
-            f"/proc/{os.getpid()}/stat, so it has no (pid, starttime) pair to hand over. The PAIR "
-            f"is what lets the executor tell 'my caller exited' from 'a recycled pid landed on "
-            f"its number'; a pid alone is not an identity. YOUR CHECKOUT STANDS.\n"
-            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
-            f"{seat_name} --renew",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"this process cannot read its own /proc/{os.getpid()}/stat, so it has no "
+            f"(pid, starttime) pair to hand over. The PAIR is what lets the executor tell 'my "
+            f"caller exited' from 'a recycled pid landed on its number'; a pid alone is not an "
+            f"identity.",
+            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            layer="environment")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = Path(base) / f"lifecycle-exec-{seat_name}-{stamp}.log"
     # THE CALLER'S RECORD, AND ONLY THE CALLER'S. `executor` is deliberately ABSENT: the child
@@ -7064,15 +7219,14 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             "pane": str(pane or ""),
             "tmux-target": target,
             "log": str(log_path)}):
-        refuse(
-            "environment",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': the in-flight marker at "
-            f"{lifecycle_path(base)} could NOT be written. Forking anyway would leave a renewal "
-            f"running that nothing on disk records — invisible to `status`, and invisible to the "
-            f"revival arm, which reads exactly this file. YOUR CHECKOUT STANDS.\n"
-            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
-            f"{seat_name} --renew",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"the in-flight marker at {lifecycle_path(base)} could NOT be written. Forking anyway "
+            f"would leave a renewal running that nothing on disk records — invisible to `status`, "
+            f"and invisible to the revival arm, which reads exactly this file. ⚠ THE ALARM BELOW "
+            f"IS THE ONLY DURABLE SURFACE LEFT on this arm: the marker write is what just failed.",
+            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            layer="environment")
     argv = ["setsid", sys.executable, str(Path(__file__).resolve()), "lifecycle-exec",
             "--package", str(package_dir(args)),
             "--seat", seat_name,
@@ -7092,15 +7246,14 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
         finish_lifecycle(base, seat_name, "FAILED",
                          f"the executor log {log_path} could not be opened ({exc}); nothing was "
                          f"forked")
-        refuse(
-            "environment",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': its log {log_path} could not be opened "
-            f"({exc}). A detached executor whose output goes nowhere is the exact failure this "
-            f"room has already paid for once, so it is not started at all. The marker is flipped "
-            f"FAILED so nothing reads this as a renewal in progress. YOUR CHECKOUT STANDS.\n"
-            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
-            f"{seat_name} --renew",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"its log {log_path} could not be opened ({exc}). A detached executor whose output "
+            f"goes nowhere is the exact failure this room has already paid for once, so it is not "
+            f"started at all. The marker is flipped FAILED so nothing reads this as a renewal in "
+            f"progress.",
+            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            layer="environment")
     try:
         subprocess.Popen(argv, stdout=handle, stderr=handle,
                          start_new_session=True, env=child_env)
@@ -7108,14 +7261,12 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
         finish_lifecycle(base, seat_name, "FAILED",
                          f"the detached executor could not be spawned ({exc})")
         handle.close()
-        refuse(
-            "environment",
-            f"NO EXECUTOR WAS FORKED for '{seat_name}': the spawn itself failed ({exc}). The "
-            f"marker is flipped FAILED so nothing reads this as a renewal in progress. YOUR "
-            f"CHECKOUT STANDS.\n"
-            f"Leader brings the seat back by hand: {coord_invocation(args)} close-seat "
-            f"{seat_name} --renew",
-            2)
+        lifecycle_no_successor(
+            args, base, seat_name, pane,
+            f"the spawn itself failed ({exc}). The marker is flipped FAILED so nothing reads this "
+            f"as a renewal in progress.",
+            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            layer="environment")
     handle.close()
     print(f"lifecycle: detached executor forked for '{seat_name}' — target {target}, evidence "
           f"{log_path}")
@@ -32001,6 +32152,12 @@ def _selftest_checks(args, failures, names):
 
         # ---- (8) WHEN THE ALARM CANNOT BE RAISED AT ALL, IT SAYS SO.
         _s8_before8 = len(load_messages(_s8_base)[1])
+        # THE FLAG BASELINE IS SNAPSHOT, NOT ASSUMED EMPTY. This row's subject is that GUARD 2
+        # leaves NO trace; `== []` also asserted that nothing EARLIER in the block ever flagged,
+        # which is not this row's subject and stopped being true when a send into an ADDRESSABLE
+        # BUT EMPTY chair began escalating (row (1)'s leader holds no roster row). Measured as a
+        # delta, the row asserts exactly what it names and keeps its full strength.
+        _s8_flags8 = list(undelivered_flags(_s8_base))
         _s8_ng_out, _s8_ng_code = _s8_exec(_s8_pkg, seat="s8-notarget", tmux_target="")
         check("s3-08 (8) A REFUSAL THAT CANNOT REACH THE BUS SAYS SO, OUT LOUD: guard 2 refuses "
               "BEFORE the package is resolved — deliberately, so a guard claiming it acted on "
@@ -32011,7 +32168,7 @@ def _selftest_checks(args, failures, names):
               _s8_ng_code == 2 and "ALARM NOT RAISED" in _s8_ng_out
               and "no package was resolved" in _s8_ng_out
               and len(load_messages(_s8_base)[1]) == _s8_before8
-              and undelivered_flags(_s8_base) == [])
+              and undelivered_flags(_s8_base) == _s8_flags8)
 
         calling_pane["v"], wake_ok["v"] = _s8_prior_pane, _s8_prior_wake
 
@@ -33028,6 +33185,97 @@ def _selftest_checks(args, failures, names):
               "G-134 design and the only state `close-seat`'s relay-door refusal can protect",
               _f9_done_code is None and _f9_pop == []
               and "awaiting close" in _f9_done_out)
+
+        # ---- (7) THE PANELESS LANE: no successor is possible, and IT NEVER ENDS IN SILENCE. ----
+        # THE DEFECT THIS ROW PINS (forge instance, 2026-08-18). `coordinate`'s own `checkout`
+        # epilog promises "renew: the same seat comes back". For a DAEMON-LAUNCHED seat it could
+        # not: F1 puts the seat's open session id in the pane cell (`sid:<uuid>`), every arm of
+        # `lifecycle_fork_target` needs a `%N`, so the fork was refused — onto the stdout of a
+        # session that was already over, with NOTHING written to disk about the missing successor
+        # and the remedy addressed to a leader chair that had been dead for nine minutes. The
+        # lineage ended and no reader anywhere could tell.
+        #
+        # THE ROW ASSERTS THE ACCEPTANCE PROPERTY, NOT THE REFUSAL TEXT: a paneless renew either
+        # places a successor or leaves a DURABLY VISIBLE, ESCALATING refusal. Four surfaces, and
+        # each is one a DIFFERENT reader reaches — the marker (`renew-gate`'s successor-pending
+        # signal), the bus note, the empty-chair escalation, and the caller's own stderr.
+        #
+        # THE ALARM CHAIR IS ADDRESSABLE AND EMPTY BY CONSTRUCTION, which is what makes the
+        # liveness half able to go red at all: a `leader` BRIEFING makes `lifecycle_alarm_recipient`
+        # resolve the name (it reads `known_recipients`), and no roster row means nobody is sitting
+        # in it. A fixture whose leader was simply unresolvable would exercise the OLD
+        # no-recipient fallback and prove nothing about liveness.
+        _f9_pop.clear()
+        _f9_who["v"] = "r9pl"
+        for _f9_pl_name, _f9_pl_brief in (("r9pl", "brief"), ("leader", "the alarm chair")):
+            _f9_pl_dir = _f9_pkg / "workers" / _f9_pl_name
+            _f9_pl_dir.mkdir()
+            (_f9_pl_dir / "agent.md").write_text(
+                f"---\nagent: {_f9_pl_name}\nmodel: opus\n---\n{_f9_pl_brief}\n",
+                encoding="utf-8")
+            (_f9_pl_dir / "memory.md").write_text(f"# {_f9_pl_name} — seat memory\nprior\n",
+                                                  encoding="utf-8")
+        write_csv_table(sessions_csv(_f9_pkg), SESSIONS_COLS,
+                        [[{"session-id": "pl-9", "seat": "r9pl",
+                           "started": "2026-08-18 06:00"}.get(_f9_c, "")
+                          for _f9_c in SESSIONS_COLS]])
+        # `pane=None` with an EMPTY calling pane is the daemon lane's real shape — the seat is not
+        # in tmux at all, so check-in binds it to its own open sessions.csv row (F1).
+        run(cmd_checkin, package=str(_f9_pkg), agent="r9pl", pane=None, force=True,
+            summary="s3-09 paneless (daemon-lane) fixture — no tmux pane anywhere")
+        _f9_pl_row = current_row(load_workers(_f9_base)[2], "r9pl") or {}
+        _f9_msgs_before = len(load_messages(_f9_base)[1])
+        _f9_pl_out, _f9_pl_code = _f9_checkout("r9pl")
+        _f9_pl_mark = dict(load_lifecycle(_f9_base).get("r9pl") or {})
+        _f9_pl_flagfile = Path(_f9_base) / "undelivered-flags.md"
+        _f9_pl_flags = (_f9_pl_flagfile.read_text(encoding="utf-8")
+                        if _f9_pl_flagfile.exists() else "")
+        _f9_pl_msgs = [_m for _m in load_messages(_f9_base)[1][_f9_msgs_before:]
+                       if "lifecycle-exec" in str(_m) and "r9pl" in str(_m)]
+        check("s3-09 (7) A PANELESS `checkout --renew` NEVER ENDS THE LINEAGE SILENTLY: the seat's "
+              "roster row is the F1 `sid:` token, so NO tmux target exists and nothing is forked "
+              "— and the refusal is DURABLE, ADDRESSED, and ESCALATED rather than printed into a "
+              "session that is already over. (a) `lifecycle-inflight.json` carries the seat at "
+              "`state: FAILED` with `disposition: renew` and a non-empty `failure` — THIS is the "
+              "successor-pending signal a reader answers `does this renewed seat have a successor "
+              "coming?` with, and before this change no entry was written at all; (b) a "
+              "`lifecycle-exec` note naming the seat is on the package's bus; (c) the addressee's "
+              "LIVENESS was checked, not assumed from the send succeeding — the leader chair "
+              "resolves as an address and NOBODY IS SITTING IN IT, so the alarm is ALSO written "
+              "to `undelivered-flags.md`, where `status` and `workers` surface it to every other "
+              "seat; (d) the refusal names the PANELESS token rather than reporting a dead tmux "
+              "pane the seat never had",
+              _f9_pl_code == 2 and _f9_pop == []
+              and _f9_pl_row.get("pane") == SID_PANE_PREFIX + "pl-9"
+              and _f9_pl_mark.get("state") == "FAILED"
+              and _f9_pl_mark.get("disposition") == "renew"
+              and bool(_f9_pl_mark.get("failure"))
+              and len(_f9_pl_msgs) >= 1
+              and "LIFECYCLE-EXEC ALARM" in _f9_pl_flags
+              and "THAT CHAIR IS EMPTY" in _f9_pl_flags
+              and "NOBODY IS SITTING IN IT" in _f9_pl_out
+              and "NO EXECUTOR WAS FORKED for 'r9pl'" in _f9_pl_out
+              and "YOUR CHECKOUT STANDS" in _f9_pl_out
+              and f"the PANELESS token '{SID_PANE_PREFIX}pl-9'" in _f9_pl_out
+              and "is NOT LIVE" not in _f9_pl_out)
+
+        # ---- (7b) THE DRY-RUN PROOF: what the paneless lane COMPOSES, without launching. -------
+        # `lifecycle_fork_target` is pure w.r.t. the tmux surface it is refused BY, so the composed
+        # answer is readable directly. Printed so the seat's evidence is the tool's own words.
+        _f9_pl_tgt, _f9_pl_why = lifecycle_fork_target(
+            {"agent": "r9pl", "dir": _f9_pkg / "workers" / "r9pl"}, _f9_pl_row.get("pane", ""))
+        print(f"  paneless dry-run: lifecycle_fork_target -> target={_f9_pl_tgt!r} "
+              f"why={_f9_pl_why}")
+        check("s3-09 (7b) AND THE EMPTY TARGET IS STRUCTURALLY UNREACHABLE, not merely refused: "
+              "for the `sid:` token the answer is ('', reason) BEFORE any tmux call is made, and "
+              "the two arms that CAN return a target are past an `is_tmux_pane` guard (the "
+              "in-place arm returns that same `%N`) or past a resolved `tmux_session_name` (the "
+              "window arm). There is no path from a non-`%N` roster cell to a non-empty target, "
+              "which is what stops tmux resolving an empty target to the MOST RECENT session — "
+              "measured to be the LIVE room",
+              _f9_pl_tgt == "" and "PANELESS token" in _f9_pl_why
+              and lifecycle_fork_target({"agent": "x"}, "")[0] == ""
+              and lifecycle_target_live("")[0] is False)
 
         subprocess.Popen = _f9_real_popen
         fork_lifecycle_renewal = _f9_real_fork
