@@ -378,7 +378,7 @@ launch-specs:
   # profiles' MEASURED values, carried unchanged.
   #
   # exec argvs carry the caged posture (claude bypassPermissions, codex danger-full-access,
-  # opencode/kimi bare): under r-seats-only-architecture the bwrap seat cage is ALWAYS the
+  # opencode run --auto, kimi bare): under r-seats-only-architecture the bwrap seat cage is ALWAYS the
   # boundary — the portable/caged halves retire with the flat lane, and a host with no cage
   # refuses to spawn rather than running wall-less (the E_NO_PORTABLE_HALF direction, kept).
   #
@@ -588,7 +588,11 @@ launch-specs:
   opencode:
     # ── opencode (8 models; grok-4.6 joined 2026-08-14, `35414c89`) ──────────────────────────────
     # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
-    # unprompted) — containment is entirely the seat cage's. session_ref cwd-implicit:
+    # unprompted) — containment is entirely the seat cage's. Headless exec is
+    # `opencode run --auto -m <model>` (G-49 / r-seats-launch-auto-mode): without `--auto`
+    # after `run`, headless mode auto-rejects its internal external_directory permission
+    # asks; the bwrap cage is the real confinement (`opencode --auto run` silently no-ops).
+    # session_ref cwd-implicit:
     # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
     # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
     # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
@@ -619,7 +623,7 @@ launch-specs:
 
     zai-coding-plan/glm-5.2:
       exec:
-        argv: ["opencode", "run", "-m", "zai-coding-plan/glm-5.2"]
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-5.2"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
@@ -635,7 +639,7 @@ launch-specs:
 
     deepseek/deepseek-v4-flash:
       exec:
-        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-flash"]
+        argv: ["opencode", "run", "--auto", "-m", "deepseek/deepseek-v4-flash"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
@@ -651,7 +655,7 @@ launch-specs:
 
     deepseek/deepseek-v4-pro:
       exec:
-        argv: ["opencode", "run", "-m", "deepseek/deepseek-v4-pro"]
+        argv: ["opencode", "run", "--auto", "-m", "deepseek/deepseek-v4-pro"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
@@ -667,7 +671,7 @@ launch-specs:
 
     xai/grok-4.6:
       exec:
-        argv: ["opencode", "run", "-m", "xai/grok-4.6"]
+        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.6"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "xai/grok-4.6"] }
@@ -683,7 +687,7 @@ launch-specs:
 
     sakana/fugu:
       exec:
-        argv: ["opencode", "run", "-m", "sakana/fugu"]
+        argv: ["opencode", "run", "--auto", "-m", "sakana/fugu"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "sakana/fugu"] }
@@ -699,7 +703,7 @@ launch-specs:
 
     sakana/fugu-ultra:
       exec:
-        argv: ["opencode", "run", "-m", "sakana/fugu-ultra"]
+        argv: ["opencode", "run", "--auto", "-m", "sakana/fugu-ultra"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
@@ -716,7 +720,7 @@ launch-specs:
     google/gemini-flash-latest:
       # `gemini-flash-latest` is a FLOATING alias — the model identity floats with Google's latest; owner chose it knowingly.
       exec:
-        argv: ["opencode", "run", "-m", "google/gemini-flash-latest"]
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-flash-latest"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
@@ -733,7 +737,7 @@ launch-specs:
     google/gemini-3.1-pro-preview:
       # PREVIEW model ID — Google may retire `gemini-3.1-pro-preview`; expect a re-pin when it graduates or disappears.
       exec:
-        argv: ["opencode", "run", "-m", "google/gemini-3.1-pro-preview"]
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-3.1-pro-preview"]
         prompt: stdin
       headed:
         tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
