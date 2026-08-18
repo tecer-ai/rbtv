@@ -211,7 +211,9 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   //     this per entry; this is the backstop for every grant class that does not.
   // A merely-BROADER opening (the read-root floor, a parent directory grant) is not a pierce: it
   // CONTAINS the entry rather than sitting inside it, so it never matches and the entry stays
-  // masked.
+  // masked. EXCEPTION (D4, 2026-08-18): an opening of the `exposedCliCode` grant class that
+  // CONTAINS an enumerated deny entry DOES pierce — applied in TIER 2b by skipping the mask,
+  // not here (this loop matches openings inside entries, the inverse direction).
   const pierced = [];
   const refused = [];
   const pierceOpenings = [];
@@ -250,6 +252,24 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   const maskedPaths = [];
   for (const e of entries) {
     if (!visible(e)) continue;
+    // D4 (2026-08-18): an exposedCliCode opening that CONTAINS an ENUMERATED deny
+    // entry pierces it — the CLI's own tree, config/credentials included, becomes
+    // readable to seats that CLI is exposed to. Pattern-floor entries (`**/.git`,
+    // `**/*.env`, …) share `entries` and MUST stay masked (gate on `seeded`).
+    // `3-resources/tools/stools/credentials/` is an ENUMERATED entry, so it pierces
+    // under an exposed stools CLI — that is D4's accepted tradeoff, not a bug.
+    // Hardcodes stay unoverrulable (adv C53). ONLY this grant class: a generic
+    // ro-bind must NOT pierce (the merely-broader rule stays for every other class).
+    if (seeded.has(e) && !scope.hardcoded.has(e)) {
+      const grantor = spec.find((opening) =>
+        opening.grantClass === 'exposedCliCode' && inside(opening.path, e));
+      if (grantor) {
+        const cli = grantor.exposedCliName || grantor.path;
+        pierced.push(`exposedCliCode:${e} via ${cli}`);
+        log('info', 'private-scope PIERCE', { entry: e, grantingCli: cli, grantClass: 'exposedCliCode' });
+        continue;
+      }
+    }
     let st;
     try { st = fs.statSync(e); } catch { continue; }
     if (st.isDirectory()) {

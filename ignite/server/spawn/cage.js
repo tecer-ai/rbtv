@@ -161,7 +161,14 @@ function composeSeatCage({ seatBinds = [], values = {}, grants = [] } = {}) {
     }
     for (const grant of grants) {
       if (!grantFields.some((f) => f in grant)) continue; // not this entry's grant kind
-      spec.push({ verb, path: normalize(substituteGrant(scalarResolved, grant, i), i) });
+      const opening = { verb, path: normalize(substituteGrant(scalarResolved, grant, i), i) };
+      if (typeof grant.grantClass === 'string' && grant.grantClass) {
+        opening.grantClass = grant.grantClass;
+        if (typeof grant.exposedCliName === 'string' && grant.exposedCliName) {
+          opening.exposedCliName = grant.exposedCliName;
+        }
+      }
+      spec.push(opening);
     }
   }
   return spec;

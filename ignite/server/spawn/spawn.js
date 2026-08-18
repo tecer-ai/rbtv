@@ -1067,7 +1067,7 @@ function resolveExposedCliGrants(seatPath, log) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) { refuse(`invalid part-id '${name}'`); continue; }
     if (!path.isAbsolute(target)) { refuse('entry point is not absolute — the materializer resolves it'); continue; }
     if (!fs.existsSync(target)) { refuse(`entry point does not exist: ${target}`); continue; }
-    grants.push({ exposedCliName: name, exposedCliEntry: target, exposedCliCode: path.dirname(target) });
+    grants.push({ exposedCliName: name, exposedCliEntry: target, exposedCliCode: path.dirname(target), grantClass: 'exposedCliCode' });
   }
   return grants;
 }
