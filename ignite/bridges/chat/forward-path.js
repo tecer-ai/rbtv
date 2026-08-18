@@ -45,9 +45,31 @@ const CMP8_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'q
 const DECLINE_NOTICE = "⚠ couldn't route your reply to the running work — please try again shortly";
 
 // The same mechanics for the OTHER honest refusal: goal-channel traffic that has no
-// goal-master seat to land in. Fixed string, no internals — it names the human act that
-// fixes it, because the owner reading it in Slack is the one who can.
-const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — ask the run's owner to seat one";
+// goal-master seat to land in. The refusal is unchanged (nothing enqueued). The notice
+// tells the owner WHERE to reply — an agent thread already open in this channel — because
+// "seat a goal-master" is not an act this workspace has. Empty-channel fallback is fixed
+// text; live threads are enumerated (agent name + Slack permalink), no internals.
+const NO_GOAL_SEAT_NOTICE = "⚠ no goal-master seat is open for this goal — no agent thread is open yet in this channel — an agent will open one when it needs you";
+
+function slackThreadPermalink(channelId, threadTs) {
+  const p = String(threadTs).replace('.', '');
+  return `https://slack.com/archives/${channelId}/p${p}`;
+}
+
+function formatNoGoalSeatNotice({ channelId, threads } = {}) {
+  const live = [];
+  for (const t of threads || []) {
+    if (!t || !t.agent || !t.threadTs) continue;
+    live.push({ agent: String(t.agent), threadTs: String(t.threadTs) });
+  }
+  live.sort((a, b) => a.agent.localeCompare(b.agent));
+  if (live.length === 0) return NO_GOAL_SEAT_NOTICE;
+  const lines = live.map((t) => {
+    const url = channelId ? slackThreadPermalink(channelId, t.threadTs) : null;
+    return url ? `• *${t.agent}* — <${url}|thread>` : `• *${t.agent}*`;
+  });
+  return `⚠ no goal-master seat is open for this goal — reply in an agent thread:\n${lines.join('\n')}`;
+}
 
 // The THIRD notice, same mechanics again — and since `on_seat_busy: 'queue'` (P2) it is no longer
 // a REFUSAL. The seat is busy with a live turn, so the daemon puts this message in its persistent
@@ -135,7 +157,7 @@ function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   return { ok: true, seatDir, seat: String(seatName) };
 }
 
-function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null }) {
+function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null, listAgentThreads = null }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -326,12 +348,16 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   async function forwardSessionCreate({ chatThreadId, text, route }) {
     const home = workdirFor(route);
     if (!home.ok) {
-      // Nothing is enqueued. The owner gets a fixed notice on the surface he typed on, because
-      // the fix — seating a goal-master on the goal, or accepting that an agent's seat is
-      // gone — is a human act. The two surfaces get DIFFERENT notices: they name different acts.
+      // Nothing is enqueued. The owner gets a notice on the surface he typed on. Agent-thread
+      // traffic names the missing seat; goal-channel traffic names the live agent threads he
+      // can reply into (or says none are open). Refusal is unchanged.
       const isAgent = Boolean(route && route.kind === 'agent');
       log('warn', 'goal-surface session-create refused: no seat resolved', { chatThreadId, kind: route && route.kind, goalId: route && route.goalId, agent: route && route.agent, reason: home.reason });
-      await postDeclineNotice(chatThreadId, isAgent ? NO_AGENT_SEAT_NOTICE : NO_GOAL_SEAT_NOTICE);
+      const threads = (!isAgent && typeof listAgentThreads === 'function' && route && route.goalId)
+        ? listAgentThreads(route.goalId)
+        : [];
+      const notice = isAgent ? NO_AGENT_SEAT_NOTICE : formatNoGoalSeatNotice({ channelId: chatThreadId, threads });
+      await postDeclineNotice(chatThreadId, notice);
       return { forwarded: false, leg: 'session-create', reason: `${isAgent ? 'no-agent-seat' : 'no-goal-master-seat'}:${home.reason}`, goalId: (route && route.goalId) || null };
     }
     // WHICH CHAT THREAD THIS SITTING IS — the ONE prefix the bare-prompt ruling admits
@@ -594,4 +620,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, formatNoGoalSeatNotice, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };

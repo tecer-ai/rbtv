@@ -568,10 +568,11 @@ sitting from it — the question returning to its own thread.
 
 If `workspace_root` is unset, `runs.csv` is missing, no run is open, or the
 `goal-master` seat directory does not exist, the bridge enqueues **nothing** and posts
-the fixed notice `⚠ no goal-master seat is open for this goal — ask the run's owner to
-seat one` on the goal's channel. There is deliberately **no fallback workdir**: a
-session launched outside its seat would run with no descriptor and no goal identity at
-all, which is worse than not running.
+a decline on the goal's channel: it lists each live agent thread in that channel
+(agent name + Slack permalink) so the owner can reply there, or says `no agent thread
+is open yet in this channel — an agent will open one when it needs you`. There is
+deliberately **no fallback workdir**: a session launched outside its seat would run
+with no descriptor and no goal identity at all, which is worse than not running.
 
 ⚠ **Both rows above are SHARED seats, so a returned queue id is NOT delivery.** The
 daemon's idempotent door (ruling `d-q9-door`) dedups `launch-agent` enqueues on a

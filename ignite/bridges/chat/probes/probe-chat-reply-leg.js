@@ -55,6 +55,9 @@
 //       is never revived;
 //   (l) a COMPACTION spawn is WATCHED but never POSTED — its output is the chain's
 //       short-term memory, and not a byte of it reaches Slack;
+//   (r4) a late spawn AFTER the revive-no-spawn tombstone is reaped is re-armed
+//       and delivered into the same thread (2026-08-18: 7.5 min relaunch) — the
+//       dead-air notice stays; the real answer follows; nothing is silently dropped;
 //   (s) the 2026-08-12 SILENT DEAD END replayed: the revive's corrective turn was
 //       dispatched AS a compaction turn, the leg (which then skipped compact spawns)
 //       watched nothing, the chain crashed inside it, and the conversation sat silent
@@ -91,7 +94,8 @@
 //   • drop the `tickerOk` gate from the spawn-wait rung → (s4) fails (a blind pass
 //     disarms a live conversation);
 //   • pin `slow` to false in the delivery log → (t1) fails (a 40 s reply logs at info);
-//   • put the corrective rung back on `windowMs` → s3/s4 fail (the short window is gone).
+//   • put the corrective rung back on `windowMs` → s3/s4 fail (the short window is gone);
+//   • drop the recoverable-stash / re-arm on late spawn → (r4) fails (reaped, then dropped).
 // Run each mutation → probe FAILS → restore byte-exact → passes. All five above were RUN
 // on 2026-08-12: each went red exactly as listed, and the restored control went green.
 //
@@ -593,6 +597,20 @@ async function main() {
     record('r3:a tombstone whose grace expires with nothing watched is reaped — never a leak',
       !pend() && sent.length === sentAfterR,
       { stillPending: Boolean(pend()), sentNow: sent.length });
+    // ── (r4) A LATE SPAWN AFTER THAT REAP IS RE-ARMED AND DELIVERED, NOT DROPPED ──────────────
+    // Measured 2026-08-18: an API connection drop delayed the corrective relaunch 7.5 minutes
+    // — past the tombstone grace — so the entry was reaped and the answer had nowhere to land.
+    // Dead-air stays posted; the real answer follows into the same thread.
+    state.recentTicks = [{ tick: 99, actions: [{ action: 'spawn', execId: 49, queueId: 458, thread: 'exec-26' }] }];
+    state.status.set(49, { live: false, status: 'done', profile: 'claude/claude-opus-5' });
+    state.logs.set(49, [resultLine('the late corrective answer')]);
+    await leg().tick();
+    record('r4:a late spawn after a revive-no-spawn reap is re-armed and delivered into the same thread',
+      Boolean(pend()) && pend().disarmedAt === null && pend().delivered.has(49)
+      && sent.length === sentAfterR + 1 && lastText() === 'the late corrective answer'
+      && postedTo(sent[sent.length - 1]),
+      { stillPending: Boolean(pend()), sentAfterR, sentNow: sent.length, text: lastText(),
+        chainThread: bridgeH.threadMap.get(CHAT) && bridgeH.threadMap.get(CHAT).chainThread });
     // ── (s) A COMPACTION TURN IS WATCHED, NOT IGNORED — AND A CHAIN THAT DIES INSIDE ONE ────────
     // Measured live 2026-08-12 (thread D0BJ50Y1DC6:1786501607, sessions 88136051→178e7b3d): the
     // revive's corrective send-message DID dispatch (queue 458, tick 235206) and the daemon woke

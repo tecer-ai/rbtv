@@ -658,6 +658,13 @@ async function main() {
     check('a bogus arm renders NO marker and no prototype text — `constructor`, `toString`, `__proto__` and friends all produce the plain unmarked header',
       spoofed.every((t) => t.split('\n')[0] === '*🧵 x* — g · ask · #9'),
       { headers: spoofed.map((t) => t.split('\n')[0]) });
+    const asked = formatMessage({ from: 'x', type: 'ask', id: 1, body: 'q' },
+      { goalId: 'g', stamp: 's', relPath: 'p', agentLead: true, ownerUser: USER });
+    const noted = formatMessage({ from: 'x', type: 'note', id: 2, body: 'n' },
+      { goalId: 'g', stamp: 's', relPath: 'p', agentLead: true, ownerUser: USER });
+    check('an ask in the agent thread pings the owner; a non-ask does not',
+      asked.includes(`<@${USER}>`) && !noted.includes(`<@${USER}>`),
+      { asked: asked.split('\n')[0], noted: noted.split('\n')[0] });
 
     // FRONTMATTER ONLY, `seatIsHumanInteractive`'s rule for the same reason: a briefing line that
     // QUOTES the arm must not be able to silence a seat nobody declared silent.

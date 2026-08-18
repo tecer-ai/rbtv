@@ -367,9 +367,14 @@ function createReplyLeg({
   //                      //   delivery, which is what ends a turn.
   //   disarmedAt,        // ms or null — the spawn-wait rung fired and the owner was told. The
   //                      //   entry is KEPT for one more corrective window so a late spawn can
-  //                      //   still be captured and delivered (§ TOMBSTONE), then reaped.
+  //                      //   still be captured and delivered (§ TOMBSTONE), then reaped into
+  //                      //   `recoverable` (not forgotten) so a still-later spawn can re-arm.
   // }
   const pending = new Map();
+  // chatThreadId -> stashed pending fields. A revive-no-spawn tombstone whose grace
+  // expired is removed from `pending` (r3: not a leak of the hot watch loop) but
+  // remembered here so a late spawn on the same chain is re-armed instead of dropped.
+  const recoverable = new Map();
   let timer = null;
   let ticking = false;
 
@@ -379,6 +384,7 @@ function createReplyLeg({
   // the same queue). Re-arming refreshes the spawn-wait window for the new turn.
   function arm(chatThreadId) {
     const id = String(chatThreadId);
+    recoverable.delete(id); // a new owner turn supersedes a stashed revive-no-spawn reap
     const entry = threadMap.get(id);
     const queueId = entry ? entry.queueId : null;
     let p = pending.get(id);
@@ -459,7 +465,10 @@ function createReplyLeg({
     if (ticking) return;
     ticking = true;
     try {
-      if (pending.size === 0) return;
+      // `recoverable` keeps the tick alive past an empty `pending`: a reaped
+      // revive-no-spawn conversation is re-armed from the stash below, and that
+      // code is unreachable if an empty map short-circuits the pass.
+      if (pending.size === 0 && recoverable.size === 0) return;
 
       // 1. Capture new execIds from ticker spawn actions, per conversation. A
       //    conversation may see MULTIPLE execs over its life (one per turn) — every
@@ -486,6 +495,43 @@ function createReplyLeg({
       const tickerOk = Boolean(tickerRes && tickerRes.ok && tickerRes.result);
       if (tickerOk) {
         const ticks = Array.isArray(tickerRes.result.recent_ticks) ? tickerRes.result.recent_ticks : [];
+        // A spawn whose queue/thread matches a REAPED revive-no-spawn conversation
+        // has nowhere to land in `pending`. Re-arm from the stash so the capture
+        // loop below attaches it. Dead-air was already posted; the real answer
+        // following it is the accepted UX (measured 2026-08-18: 7.5 min relaunch).
+        if (recoverable.size > 0) {
+          for (const t of ticks) {
+            const actions = Array.isArray(t.actions) ? t.actions : [];
+            for (const a of actions) {
+              if (!a || a.action !== 'spawn' || a.execId == null) continue;
+              for (const [id, saved] of Array.from(recoverable.entries())) {
+                const mapped = threadMap.get(id);
+                const queueId = (saved && saved.queueId) ?? (mapped && mapped.queueId);
+                const chainThread = (mapped && mapped.chainThread)
+                  || (mapped && mapped.sessionExecId != null ? `exec-${mapped.sessionExecId}` : null);
+                const byQueue = queueId != null && Number(a.queueId) === Number(queueId);
+                const byThread = chainThread !== null && a.thread === chainThread;
+                if (!byQueue && !byThread) continue;
+                pending.set(id, {
+                  queueId,
+                  armedAt: Date.now(),
+                  turnStartedAt: (saved && saved.turnStartedAt) || Date.now(),
+                  watching: new Map(),
+                  delivered: (saved && saved.delivered) || new Set(),
+                  statusErrors: 0,
+                  revives: (saved && saved.revives) || 0,
+                  compacted: Boolean(saved && saved.compacted),
+                  disarmedAt: null,
+                  slowNoticed: Boolean(saved && saved.slowNoticed),
+                });
+                recoverable.delete(id);
+                log('info', 'reply leg re-armed a reaped conversation — late spawn arrived after revive-no-spawn', {
+                  chatThreadId: id, execId: Number(a.execId), matchedBy: byQueue ? 'queue-id' : 'chain-thread',
+                });
+              }
+            }
+          }
+        }
         for (const [id, p] of pending) {
           const entry = threadMap.get(id);
           const chainThread = (entry && entry.chainThread) || null;
@@ -767,9 +813,19 @@ function createReplyLeg({
         }
         // A TOMBSTONED conversation has already been declared dead to the owner; it is kept only
         // so a LATE spawn can still be captured and delivered (below, § tombstone). Once the grace
-        // is spent with nothing watched, the entry is reaped — a tombstone is not a leak.
+        // is spent with nothing watched, the entry leaves the hot loop — but is STASHED, not
+        // forgotten: a spawn that arrives after the grace (measured 2026-08-18: 7.5 min) re-arms
+        // from `recoverable` instead of being dropped.
         if (p.disarmedAt && p.watching.size === 0 && (now - p.disarmedAt) > correctiveWindowMs) {
           log('info', 'reply leg reaped a tombstoned conversation — no late reply arrived', { chatThreadId: id, graceMs: correctiveWindowMs });
+          recoverable.set(id, {
+            queueId: p.queueId,
+            delivered: p.delivered,
+            revives: p.revives,
+            turnStartedAt: p.turnStartedAt,
+            compacted: p.compacted,
+            slowNoticed: p.slowNoticed,
+          });
           pending.delete(id);
           continue;
         }

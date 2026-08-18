@@ -457,7 +457,7 @@ const FALLBACK_MARK = {
   'default-and-disclose': ' · ℹ proceeding on its default',
 };
 
-function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false, arm = null }) {
+function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false, arm = null, ownerUser = null }) {
   // `Object.hasOwn`, never a truthiness test on the lookup: `arm` reaches an EXPORTED function's
   // parameter, and `constructor` is a legal kebab-case word that walks the prototype chain — a bare
   // `FALLBACK_MARK[arm]` renders `function Object() { [native code] }` into the owner's Slack header.
@@ -466,13 +466,19 @@ function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX
   const header = (agentLead
     ? `*🧵 ${row.from}* — ${goalId} · ${row.type} · #${row.id}`
     : `*bus → you* — ${goalId}/${stamp} · from ${row.from} · ${row.type} · #${row.id}`) + mark;
+  // ⚑ ASK-IN-THREAD PINGS THE OWNER. A channel post without `<@id>` is silent on his phone
+  // (measured 2026-08-18). Only type=ask on the agent-thread header; status/FYI/answer stay
+  // unmentioned. Unset id → no ping, never a throw.
+  const ping = (agentLead && row.type === 'ask' && typeof ownerUser === 'string' && ownerUser)
+    ? `<@${ownerUser}> `
+    : '';
   let body = row.body;
   if (body.length > maxBodyChars) {
     const cut = body.slice(0, maxBodyChars);
     const nl = cut.lastIndexOf('\n');
     body = (nl > 0 ? cut.slice(0, nl) : cut) + `\n… (truncated — full text: ${relPath} #${row.id})`;
   }
-  return body ? `${header}\n${body}` : header;
+  return ping + (body ? `${header}\n${body}` : header);
 }
 
 // THIS GOAL'S CURRENT EXECUTION STAMP (7.607 design-lock item 5), read from the marker
@@ -552,6 +558,7 @@ function createBusFerry({
   // path), never the pre-ruling behaviour (any named thread obeyed). A wiring omission must not
   // silently restore the surface the ruling closed.
   knowsThread = () => false,
+  ownerUser = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -855,7 +862,7 @@ function createBusFerry({
             // `resolveChannel` has re-asked Slack — chat-bridge.js), and at NOTICE_AT_ATTEMPT the
             // owner is told the CHANNEL is missing, with none of the row's content.
             if (!chatThread && routeToAgentThread) {
-              const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm });
+              const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser });
               res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
               // ⚑ `if (res)`, never a bare `else`: an injected `routeToAgentThread` that
               // returns nothing at all (an embedder's stub, a forgotten `return`) falls through to

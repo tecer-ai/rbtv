@@ -30,7 +30,18 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // deliver is the bridge's own outbound delivery (deliverToOwner, hoisted below) —
   // injected so the forward path can post an honest decline notice (D111 part 2) on
   // a MAPPED conversation whose follow-up cannot reach the running work, never silence.
-  const forwardPath = createForwardPath({ forwarder, threadMap, allowlist, config, logger, deliver: (args) => deliverToOwner(args) });
+  const forwardPath = createForwardPath({
+    forwarder, threadMap, allowlist, config, logger,
+    deliver: (args) => deliverToOwner(args),
+    listAgentThreads: (goalId) => {
+      const prefix = `${goalId}#`;
+      const out = [];
+      for (const [k, v] of agentThreads) {
+        if (k.startsWith(prefix) && v && v.threadTs) out.push({ agent: k.slice(prefix.length), threadTs: String(v.threadTs) });
+      }
+      return out;
+    },
+  });
 
   // The WARM leg (live-session-design.md §1/§4). Tried BEFORE the forward path on every owner
   // turn; a refusal is the normal case and falls straight through to the cold path below. It
@@ -333,6 +344,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     routeToMaster: (args) => routeBusRowToMaster(args),
     routeToAgentThread: (args) => routeToAgentThread(args),
     knowsThread: (t) => knowsThread(t),
+    ownerUser: (config && config.ownerUser) || null,
     ...busFerryOptions,
   });
 

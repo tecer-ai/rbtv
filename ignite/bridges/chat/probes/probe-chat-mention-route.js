@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
-const { NO_GOAL_SEAT_NOTICE } = require('../forward-path');
+const { NO_GOAL_SEAT_NOTICE, formatNoGoalSeatNotice } = require('../forward-path');
 
 const OUT = path.join(__dirname, 'probe-chat-mention-route.out');
 const SRC_DIR = path.join(__dirname, '..');
@@ -249,6 +249,29 @@ async function main() {
       && slack.posted.some((p) => p.text === NO_GOAL_SEAT_NOTICE),
       { reason: res.reason });
     bridge.stop();
+
+    {
+      const { bridge, forwarder, slack } = makeBridge({ goals: { 'goal-threaded': { seat: false } } });
+      await bridge.start();
+      const reg = await bridge.registerGoal('goal-threaded');
+      bridge._agentThreads.set('goal-threaded#leader', { threadTs: '12.1' });
+      bridge._agentThreads.set('goal-threaded#engineer', { threadTs: '12.2' });
+      const resT = await bridge.onChatMessage(msg({ channel: reg.channelId, ts: '6.3', channelType: 'channel', text: 'status?' }));
+      const postT = slack.posted[slack.posted.length - 1];
+      const expected = formatNoGoalSeatNotice({
+        channelId: reg.channelId,
+        threads: [{ agent: 'leader', threadTs: '12.1' }, { agent: 'engineer', threadTs: '12.2' }],
+      });
+      check('goal traffic refused with live agent threads — nothing enqueued, notice lists permalinks',
+        resT.forwarded === false && String(resT.reason).startsWith('no-goal-master-seat:')
+        && forwarder.enqueued.length === 0
+        && postT && postT.text === expected && postT.channel === reg.channelId
+        && expected.includes('*engineer*') && expected.includes('*leader*')
+        && expected.includes(`https://slack.com/archives/${reg.channelId}/p122`)
+        && expected.includes(`https://slack.com/archives/${reg.channelId}/p121`),
+        { reason: resT.reason, post: postT, expected });
+      bridge.stop();
+    }
   }
 
   // 6 — THE PROMPT IS THE BARE USER TEXT (ruling 2). Behaviour travels with the seat
