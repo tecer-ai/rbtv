@@ -236,14 +236,14 @@ check('(9b) ONE rung number, three harness spellings — and each ladder has its
   const three = [
     ['claude/claude-sonnet-5', lp.resolveLaunchSpec(shipped, { harness: 'claude', model: 'claude-sonnet-5' }, { effort: 2, slots: { session_ref: SESSION_REF } })],
     ['codex/gpt-5.5', lp.resolveLaunchSpec(shipped, { harness: 'codex', model: 'gpt-5.5' }, { effort: 2, slots: { workdir: '/tmp' } })],
-    ['kimi/kimi-code/kimi-for-coding', lp.resolveLaunchSpec(shipped, { harness: 'kimi', model: 'kimi-code/kimi-for-coding' }, { effort: 2, slots: { workdir: '/tmp' } })],
+    ['opencode/zai-coding-plan/glm-5.2', lp.resolveLaunchSpec(shipped, { harness: 'opencode', model: 'zai-coding-plan/glm-5.2' }, { effort: 2 })],
   ];
   const rendered = three.map(([n, r]) => `${n}:${r.effort.value}`);
-  if (rendered.join(' ') !== 'claude/claude-sonnet-5:medium codex/gpt-5.5:medium kimi/kimi-code/kimi-for-coding:--thinking') throw new Error(rendered.join(' '));
+  if (rendered.join(' ') !== 'claude/claude-sonnet-5:medium codex/gpt-5.5:medium opencode/zai-coding-plan/glm-5.2:max') throw new Error(rendered.join(' '));
   // The tops DIFFER — which is the whole reason the closed four-level vocabulary was retired: it
   // could only be as wide as its narrowest member, so claude's `xhigh` was unspellable through it.
   const tops = three.map(([n, r]) => `${n}:${r.effort.of}`).join(' ');
-  if (tops !== 'claude/claude-sonnet-5:5 codex/gpt-5.5:3 kimi/kimi-code/kimi-for-coding:2') throw new Error(tops);
+  if (tops !== 'claude/claude-sonnet-5:5 codex/gpt-5.5:3 opencode/zai-coding-plan/glm-5.2:2') throw new Error(tops);
   return `${rendered.join(' ')} | ladder sizes ${tops}`;
 });
 check('(10) an INERT dial is STATED, never silently dropped', () => {
