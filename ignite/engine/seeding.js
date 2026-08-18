@@ -1070,6 +1070,9 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     return {
       goalFolder, goal, seats, enqueued: [], seeds: {}, skippedAsFinished: [],
       heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {}, readinessRefused: reason,
+      // A refusal computed no rows, so it names no skewed seat. The owner alarm reads
+      // `readinessRefused` for this arm — see the `skewed` note on the success return below.
+      skewed: [],
     };
   }
   // Q2a — THE SKEW IS STILL LOUD; IT JUST NO LONGER STOPS THE GOAL (owner-ruled 2026-08-18).
@@ -1125,6 +1128,12 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     goal,
     seats,
     readinessRefused: null,
+    // ⚠ THE SAME `skewed` THE WARN ABOVE NAMED, RETURNED RATHER THAN RE-DERIVED (owner alarm,
+    // Q3a). The daemon's owner alarm (`server/ticker/goal-stall-alarm.js`) fires on an unresolved
+    // SKEW, and it must fire on the set THIS pass acted on. A second filter over `readyRows` in
+    // the caller would be free to disagree with the one that decided what to dispatch — the defect
+    // class this codebase has closed twice. One computation, one consumer per surface.
+    skewed,
     // The predecessors' declared outputs coord resolved for each seat this pass launched (§ D4).
     // Reported rather than submitted — see the enqueue call's note on the door's registered keys.
     seeds: Object.fromEntries(enqueued.map((s) => [s, ready.get(s) || []])),

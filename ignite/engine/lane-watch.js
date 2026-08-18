@@ -48,6 +48,7 @@ const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('./attached-executi
 // `heldSeatPredicate` reads both gates from. A second parser of that frontmatter is a lane that
 // disagrees with the ferry about what a seat declared (7.626 criterion 2).
 const { seatFallback } = require('../bridges/chat/bus-ferry');
+const { stallAlarmDecision } = require('../server/ticker/goal-stall-alarm');
 // WHICH SEATS ARE NOT CAST — the ONE predicate every door refuses on. `rbtv run` and
 // `rbtv-goal lane` ask the same function, so this pass and the CLI that writes the marker can
 // never disagree about which goals may be assigned to the daemon.
@@ -184,6 +185,67 @@ function ensureGoalChannelOnce({ goal, goalFolder, engine, say }) {
       'lane watch: goal-channel ensure threw — the goal is seeded, its channel is not ensured',
       { goal, error: err && err.message }));
   return true;
+}
+
+// ── THE OWNER ALARM — A FROZEN GOAL REACHES THE OWNER IN ITS OWN CHANNEL (Q3a, 2026-08-18) ────
+//
+// THE MEASURED SILENCE: two daemon-lane goals refused to seed 3,028 times over 4+ hours, across a
+// daemon restart, and nothing told the owner — the one watchdog built for it (`goal-watcher-job.py
+// run_stall`) had been dequeued the day before, and every other surface keys on `heart.db`
+// execution status, which read CLEAN because a goal that is never seeded produces no unhealthy
+// execution row. This pass is where that silence ends: it is the ONE place per cadence that holds
+// the goal, its folder, and `seedGoal`'s own answer about it.
+//
+// ⚠ THE CONDITION IS NOT COMPUTED HERE — `goal-stall-alarm.js` derives it from `pickup`, the same
+// return this pass logs from, and nothing re-reads coord. ⚠ NOR IS THE DEDUP: the condition is
+// re-evaluated every ~10 s forever, and this pass is exactly where an undeduplicated alarm would
+// reproduce the 3,028-refusal loop as 3,028 Slack messages.
+//
+// ⚠ THE CHANNEL IS ENSURED WHENEVER THE CONDITION HOLDS, NOT ONLY WHEN THE ALARM FIRES — and that
+// is load-bearing, not defensive. `goal-channel-cli.js post` exits 1 with `no channel bound for
+// goal X` when the goal has none, and a goal frozen on `readinessRefused` NEVER reaches the
+// adoption below, so it never got one. Arming the (memoized, once-per-goal) ensure the moment the
+// condition first appears puts the channel in place a full threshold before the post is composed,
+// rather than racing it. A goal that is merely stuck is a goal that will need its channel.
+//
+// The performer is `ticker.js#ensureGoalChannel` — the same one the ensure uses, reached the same
+// way, because the credential-carrying half must stay singular. It is handed a decision rather
+// than a subject; the ticker's header carries that argument.
+function alarmOnStall({ goal, goalFolder, pickup, engine, say }) {
+  const decision = stallAlarmDecision({ goal, goalDir: goalFolder, pickup });
+  // No signature means no condition at all — the ordinary, healthy case, and silent by design.
+  if (!decision.signature) return decision;
+  ensureGoalChannelOnce({ engine, goal, goalFolder, say });
+  if (decision.action !== 'post') return decision;
+
+  const perform = engine && engine.ticker && engine.ticker.ensureGoalChannel;
+  // ⚠ LOUD IN THE JOURNAL EITHER WAY, and BEFORE the launch outcome is known. The journal line is
+  // not the alarm — the ruling is explicit that a log line is not an owner alarm — but a Slack
+  // post that failed to launch must never be able to erase the record that the daemon decided the
+  // goal was frozen. That erasure is the shape of the original defect.
+  say('warn', 'lane watch: OWNER ALARM — this goal is FROZEN and it is being said in its own channel',
+    { goal, signature: decision.signature, stuckMs: decision.stuckMs, argv: decision.argv });
+  if (typeof perform !== 'function') return decision;
+
+  let pending;
+  try {
+    pending = perform({ decision });
+  } catch (err) {
+    say('warn', 'lane watch: owner alarm threw — the goal is frozen and NOTHING told the owner',
+      { goal, error: err && err.message });
+    return decision;
+  }
+  Promise.resolve(pending)
+    .then((actions) => {
+      for (const a of actions || []) {
+        say(String(a.action || '').endsWith('-failed') ? 'warn' : 'info',
+          `lane watch: owner alarm — ${a.action}`, { goal, ...a });
+      }
+    })
+    .catch((err) => say('warn',
+      'lane watch: owner alarm threw — the goal is frozen and NOTHING told the owner',
+      { goal, error: err && err.message }));
+  return decision;
 }
 
 // A LIVE console run owns this goal — do not even seed against it.
@@ -390,6 +452,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
     // froze 65 healthy siblings for 4.5 hours. coord now exits 0 and carries the dispute on the
     // rows, `seedGoal` seeds every unaffected seat and `warn`s the skew by name, and this branch is
     // left to the refusals it was always about.
+    // ⚠ ABOVE THE REFUSAL BRANCH, AND THAT PLACEMENT IS THE POINT. A `readinessRefused` goal
+    // `continue`s here having seeded nothing — which is EXACTLY the state that went unreported for
+    // 4+ hours — so an alarm wired below this line would be blind to the measured incident. Both
+    // freezes (refused-outright, and seeded-but-nothing-moving) reach it from this one call.
+    alarmOnStall({ goal, goalFolder, pickup, engine, say });
+
     if (pickup.readinessRefused) {
       skipped.push({ goal, reason: 'readiness-refused', evidence: pickup.readinessRefused });
       continue;
@@ -464,5 +532,5 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
 module.exports = {
   LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
-  ensureGoalChannelOnce, channelEnsured,
+  ensureGoalChannelOnce, channelEnsured, alarmOnStall,
 };

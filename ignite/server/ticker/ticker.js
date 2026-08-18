@@ -1127,15 +1127,28 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   //
   // `actions` defaults to its own array so the daemon-lane caller, which has no tick to attach to,
   // gets the same records back and can log them. It is returned for exactly that reason.
+  //
+  // ⚠ IT ALSO PERFORMS A DECISION IT DID NOT MAKE, and that is the whole of what the owner alarm
+  // (Q3a, 2026-08-18) added here. `server/ticker/goal-stall-alarm.js` composes a
+  // `goal-channel-cli.js post <goal> <text>` argv for a FROZEN goal; the credential-carrying half —
+  // the env file, the systemd-only carrier, the log/exit files, the containment — is this
+  // function's and must stay singular, so a caller with a decision in hand passes it as
+  // `{ decision }` instead of a subject and falls into the identical body below. A second
+  // performer would be a second place the daemon could grow a chat credential, which is the one
+  // thing `goal-channel-design.md` forbids. The GO/NO-GO test is `decision.argv`, not the action
+  // WORD: `ensure` and `post` are different acts and an argv-less decision is a skip in both.
   async function ensureGoalChannel(subject, actions = []) {
-    const decision = channelEnsureDecision({
+    const decision = (subject && subject.decision) || channelEnsureDecision({
       ...subject,
       resolveRoot: () => resolveWorkspaceRoot(heartStore.dbPath),
     });
-    if (decision.action !== 'ensure') {
+    // The tick-log label rides the decision, defaulting to the one this function was born with, so
+    // an alarm post is never recorded in the journal as a channel that was created.
+    const act = decision.act || 'channel-ensure';
+    if (!decision.argv) {
       actions.push({
         phase: 'dispatch',
-        action: 'channel-ensure-skipped',
+        action: `${act}-skipped`,
         goal: decision.goal,
         kind: decision.kind,
         reason: decision.reason,
@@ -1147,7 +1160,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     if (!envFile) {
       actions.push({
         phase: 'dispatch',
-        action: 'channel-ensure-skipped',
+        action: `${act}-skipped`,
         goal: decision.goal,
         kind: decision.kind,
         reason: 'no-chat-env-file (RBTV_IGNITE_CHAT_ENV_FILE unset — no chat credential to give the child)',
@@ -1183,7 +1196,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       if (carrier !== 'systemd') {
         actions.push({
           phase: 'dispatch',
-          action: 'channel-ensure-skipped',
+          action: `${act}-skipped`,
           goal: decision.goal,
           kind: decision.kind,
           reason: `carrier-cannot-carry-credential (${carrier} — EnvironmentFile is a systemd property; a ${carrier} child would run the ensure with no chat token)`,
@@ -1196,7 +1209,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       const exitFile = ensureExitFile(cc.dataRoot, sessionId);
       actions.push({
         phase: 'dispatch',
-        action: 'channel-ensure',
+        action: act,
         goal: decision.goal,
         kind: decision.kind,
         argv: decision.argv,
@@ -1217,7 +1230,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       }, log);
       actions.push({
         phase: 'dispatch',
-        action: 'channel-ensure-launched',
+        action: `${act}-launched`,
         goal: decision.goal,
         sessionId,
         carrier,
@@ -1232,7 +1245,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       // in the preparation rather than in the carrier.
       actions.push({
         phase: 'dispatch',
-        action: 'channel-ensure-failed',
+        action: `${act}-failed`,
         goal: decision.goal,
         sessionId,
         error: err.message,
