@@ -1262,11 +1262,11 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // whose every seat is finished is an honest empty answer and stays silent. `ready-seats`' own
   // exit behavior is deliberately untouched (backlog task 3's producer side).
   const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
-  const pendingUnseeded = (readyRows.length || moving) ? [] : seats.filter((s) => states[s] !== 'done');
+  const pendingUnseeded = (ready.size || moving) ? [] : seats.filter((s) => states[s] !== 'done');
   if (pendingUnseeded.length && logger) {
     logger({
       level: 'warn',
-      message: 'goal frozen AT seeding — `ready-seats` answered ZERO rows (exit 0) for a goal whose '
+      message: 'goal frozen AT seeding — `ready-seats` ruled NO seat READY for a goal whose '
         + 'taskforce registers pending seats, so nothing was seeded and nothing ever will be until '
         + 'the goal state is repaired',
       goal, goalFolder, seats: pendingUnseeded,
@@ -1313,7 +1313,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     frozen: pendingUnseeded.length ? {
       kind: 'seeding-empty',
       seats: pendingUnseeded,
-      detail: '`ready-seats` exited 0 with ZERO rows while these taskforce seats are pending — coord ruled on nothing, so nothing can be seeded',
+      detail: '`ready-seats` ruled NO seat READY (of ' + readyRows.length + ' row(s) answered) while these taskforce seats are pending — coord ruled on nothing dispatchable, so nothing can be seeded',
     } : null,
     states,
   };
