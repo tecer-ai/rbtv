@@ -36,11 +36,12 @@ absence cannot change a goal-relative verdict, and check #1 above re-derives eve
 real composer rather than trusting this comment.
 
 THE READING IS `cage.js`'s OWN AND MUST STAY IT: input order is output order, and the LAST entry
-covering a path decides what that path IS — `assertGroundTruthUnwritable`'s reading. A `tmpfs` or a
-`ro-bind` placed after an opening takes it back. That is why ground truth needs no list here:
-`sessions.csv` and `state.csv` are carved back read-only immediately after the `goal-writes` line,
-peer seat folders sit under the `seats` tmpfs, and `seat.md` under its own carve — each answers
-"not writable" by POSITION, with nobody restating it.
+covering a path decides what that path IS — later wins, the same reading bwrap takes. A `tmpfs` or
+a `ro-bind` placed after an opening takes it back. D3 (2026-08-19): the goal folder is RW, so
+`sessions.csv` / `state.csv` / ledgers / planning / coordination are writable via that one
+opening. Peer seat folders sit under the `seats` tmpfs, and `seat.md` under its own carve. The
+two remaining file-level ro-binds are wall-control surfaces (`seat.md`, `permission-edits.csv`),
+not record-forgery prevention.
 
 No yaml, no node, no filesystem: this module is pure so both hosts can call it from wherever they
 already loaded the template. `python3 cagespec.py` runs its own asserts.
@@ -88,7 +89,11 @@ GOAL_WRITE_GRANT = "goalWrite"
 #                             `bind:{goalDir}/coordination` line already opens; every OTHER goal is
 #                             outside this goal folder.
 #   goalsWrite              — `resolveGoalsWriteGrants` EXCLUDES the seat's own goal, so every
-#   goalsWriteGroundTruth     opening of this class (and its carve) lies outside this goal folder.
+#                             opening of this class lies outside this goal folder. The former
+#                             `goalsWriteGroundTruth` carve is deleted (D3: record forgery is a
+#                             non-goal).
+#   rbtvRoot · rbtvMirror   — D3 item 4: the rbtv repo and <ws>/.rbtv/mirror, READ, outside
+#                             the goal folder by construction.
 #   worktree · repoGit      — worktrees, git plumbing, harness credentials, `~/.local/bin` and
 #   worktreeGitDir            tmux's socket dir are outside the goals tree by construction.
 #   harnessCreds · localBin
@@ -104,7 +109,8 @@ GOAL_WRITE_GRANT = "goalWrite"
 #                             direction. So a CLI-derived write root can never reach a goal folder,
 #                             for exactly the reason the row above gives, enforced by exactly the
 #                             same function.
-DROPPED_GRANTS = ("readRoot", "busWrite", "goalsWrite", "goalsWriteGroundTruth",
+DROPPED_GRANTS = ("readRoot", "busWrite", "goalsWrite",
+                  "rbtvRoot", "rbtvMirror",
                   "worktree", "repoGit", "worktreeGitDir", "harnessCreds",
                   "localBin", "tmuxSocketDir", "rwPath", "cliWriteRoot")
 
@@ -232,10 +238,9 @@ def evaluate(seat_binds, token, *, seat, goal_writes=()):
     """`(verdict, deciding-entry)` for ONE goal-relative token. THE CAGE'S OWN READING, as code.
 
     Verdict is `writable` | `readonly` | `absent` | `undecided`. The LAST entry covering the token
-    decides — `cage.js#assertGroundTruthUnwritable`'s reading, and the reason a `ro-bind-try` carve
-    placed after the `goal-writes` grant takes that grant back BY POSITION rather than by a second
-    list. Nothing covering the token means nothing bound it: `absent`, which is not writable and not
-    readable.
+    decides — later wins, the same reading bwrap takes, and the reason a `ro-bind` carve placed
+    after an opening takes that opening back BY POSITION rather than by a second list. Nothing
+    covering the token means nothing bound it: `absent`, which is not writable and not readable.
 
     The deciding entry is returned in the template's own vocabulary (`bind:{goalDir}/coordination`)
     so a refusal carrying it needs no second document to be read against."""

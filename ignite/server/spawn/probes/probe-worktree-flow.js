@@ -35,7 +35,7 @@ const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 const { capture } = require('./lib');
 const { requirePythonCmd } = require('../../../lib/python-cmd');
-const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags } = require('../cage');
+const { composeSeatCage, specToBwrapFlags } = require('../cage');
 const { buildBwrapArgv } = require('../bwrap');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -136,7 +136,6 @@ function cageFlags(f) {
     values: { workdir: f.seatDir, seatDir: f.seatDir, goalDir: f.goalDir, runDir: f.runDir },
     grants: grantsFor(f, MINE),
   });
-  assertGroundTruthUnwritable(spec, path.join(f.runDir, 'sessions.csv'));
   return { spec, flags: specToBwrapFlags(spec) };
 }
 

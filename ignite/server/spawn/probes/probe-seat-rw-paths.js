@@ -133,8 +133,9 @@ capture('probe-seat-rw-paths', async (lines) => {
       !granted.includes(f.outside), `outside path present in flags: ${granted.includes(f.outside)}`);
     leg('R2b', 'an absolute entry composes nothing',
       !hasFlag(granted, '--bind', f.outside), `--bind ${f.outside}: ${hasFlag(granted, '--bind', f.outside)}`);
-    leg('R2c', 'an entry covering the run folder (sessions.csv + seat.md) composes no rw opening',
-      !hasFlag(granted, '--bind', f.runDir), `--bind ${f.runDir}: ${hasFlag(granted, '--bind', f.runDir)}`);
+    leg('R2c', 'an rw-paths entry covering the run folder is still REFUSED (logged); D3 bind:{goalDir} is a different opening',
+      logs.some((l) => l.includes('rw-paths entry REFUSED') && l.includes('.rbtv/goals')),
+      `runDir bound via template (D3): ${hasFlag(granted, '--bind', f.runDir)}; goals refusal logged: ${logs.some((l) => l.includes('.rbtv/goals'))}`);
     leg('R2d', 'an entry CONTAINING the whole .rbtv/goals subtree composes nothing',
       !granted.includes(path.join(f.ws, '.rbtv')), `.rbtv present in flags: ${granted.includes(path.join(f.ws, '.rbtv'))}`);
     leg('R2e', 'a nonexistent entry is skipped and NEVER created',
@@ -163,9 +164,9 @@ capture('probe-seat-rw-paths', async (lines) => {
 
     const before = bytes(f.sessionsCsv);
     const w2 = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.sessionsCsv}`);
-    leg('R5b', 'the run-level sessions.csv is STILL unwritable under rw-paths',
-      bytes(f.sessionsCsv) === before,
-      `on-disk bytes ${bytes(f.sessionsCsv) === before ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${w2.exit}, not the evidence)`);
+    leg('R5b', 'the run-level sessions.csv IS writable (D3: ledgers writable; rw-paths does not carve it back)',
+      bytes(f.sessionsCsv) !== before && bytes(f.sessionsCsv).includes('imposter,999,999,999'),
+      `on-disk bytes ${bytes(f.sessionsCsv) === before ? 'UNCHANGED — FENCE TOO TIGHT' : 'GREW'} (in-cage exit ${w2.exit}, not the evidence)`);
 
     const outsideFile = path.join(f.outside, 'reached.txt');
     inCage(f.mineDir, granted, `echo reached > ${outsideFile}`);

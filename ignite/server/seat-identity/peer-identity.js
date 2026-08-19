@@ -4,10 +4,11 @@
 //
 // §4b answers "who is sitting in this seat" for a process asking ABOUT ITSELF: it reads its own
 // cwd and its own /proc ancestry. The gateway cannot do that. It is a different process, on the
-// other side of a socket, and — once the cage is applied — on the other side of a PID NAMESPACE
-// as well. `bwrap --unshare-all` gives a caged seat its own /proc, in which the HOST pid the
-// daemon recorded can never appear. Measured: a caged caller sees itself as `pid=2`, ancestry
-// `2<-1`. That is G-124, and it is not patchable from inside the cage.
+// other side of a socket. The PID namespace is gone (D3, 2026-08-19 redesign): in-cage /proc is
+// now the host's, so a caged seat sees real host pids. That does not make this module optional.
+// A caller must never be able to assert who it is — receiver-measured identity is still the
+// right design, still not an assertion channel, and every refusal stays. The old pid=2 /
+// ancestry 2<-1 measurement was true under `--unshare-all`; it is no longer the world.
 //
 // THE MOVE THIS MODULE MAKES: stop asking the caller. A TCP peer does not get to choose which
 // process owns its socket — the kernel does — so the RECEIVER can measure the caller instead:

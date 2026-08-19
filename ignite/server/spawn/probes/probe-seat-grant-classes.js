@@ -326,14 +326,13 @@ capture('probe-seat-grant-classes', async (lines) => {
       !plain.includes(f.betaCoord) && !plain.includes(LOCAL_BIN) && !plain.includes('--setenv') && plain.includes(f.ws),
       `beta coord: ${plain.includes(f.betaCoord)}; local-bin: ${plain.includes(LOCAL_BIN)}; setenv: ${plain.includes('--setenv')}; universal read root present: ${plain.includes(f.ws)}`);
 
-    // ── G5 — THE INVARIANT SURVIVES. sessions.csv stays unwritable in a bus-write composition,
-    // proven on disk from outside the cage; and the cross-goal bus really is writable, proven the
-    // same way — the wall and the opening measured by the same instrument.
+    // ── G5 — D3: sessions.csv IS writable (record forgery is a non-goal). The cross-goal
+    // bus really is writable, proven the same way.
     const before = bytes(f.sessionsCsv);
     const w = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.sessionsCsv}`);
-    leg('G5a', 'the run-level sessions.csv is STILL unwritable under bus-write',
-      bytes(f.sessionsCsv) === before,
-      `on-disk bytes ${bytes(f.sessionsCsv) === before ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${w.exit}, not the evidence)`);
+    leg('G5a', 'the run-level sessions.csv IS writable under the fence (D3: ledgers writable)',
+      bytes(f.sessionsCsv) !== before && bytes(f.sessionsCsv).includes('imposter,999,999,999'),
+      `on-disk bytes ${bytes(f.sessionsCsv) === before ? 'UNCHANGED — FENCE TOO TIGHT' : 'GREW'} (in-cage exit ${w.exit}, not the evidence)`);
 
     const peerFile = path.join(f.betaCoord, 'messages.md');
     inCage(f.mineDir, granted, `echo "a cross-goal message" >> ${peerFile}`);
@@ -343,12 +342,18 @@ capture('probe-seat-grant-classes', async (lines) => {
     // ── G6 — goals-write: the seat materializer's write set, and the two narrowings that bound it.
     leg('G6a', "a declaring seat gets RW on another goal's OPEN RUN FOLDER (not just its coordination dir)",
       hasFlag(granted, '--bind', f.betaRun), `--bind ${f.betaRun}: ${hasFlag(granted, '--bind', f.betaRun)}`);
-    leg('G6b', "the seat's OWN goal folder is NEVER granted — the peer-seat tmpfs and seat.md carve stay unshadowed",
-      !hasFlag(granted, '--bind', f.runDir), `--bind own runDir: ${hasFlag(granted, '--bind', f.runDir)}`);
-    leg('G6c', "each granted goal's sessions.csv is carved back READ-ONLY, after the rw opening",
-      hasFlag(granted, '--ro-bind', f.betaSessions)
-      && granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun),
-      `--ro-bind ${f.betaSessions}: ${hasFlag(granted, '--ro-bind', f.betaSessions)}; carve after bind: ${granted.lastIndexOf(f.betaSessions) > granted.lastIndexOf(f.betaRun)}`);
+    const ownSeats = path.join(f.runDir, 'seats');
+    const ownSeatMd = path.join(f.mineDir, 'seat.md');
+    leg('G6b', "own goal IS bound (D3 bind:{goalDir}); seats tmpfs + seat.md carve come AFTER it",
+      hasFlag(granted, '--bind', f.runDir)
+      && hasFlag(granted, '--tmpfs', ownSeats)
+      && hasFlag(granted, '--ro-bind', ownSeatMd)
+      && granted.lastIndexOf(ownSeats) > granted.lastIndexOf(f.runDir)
+      && granted.lastIndexOf(ownSeatMd) > granted.lastIndexOf(f.runDir),
+      `--bind own=${hasFlag(granted, '--bind', f.runDir)} tmpfs seats after=${granted.lastIndexOf(ownSeats) > granted.lastIndexOf(f.runDir)} seat.md after=${granted.lastIndexOf(ownSeatMd) > granted.lastIndexOf(f.runDir)}`);
+    leg('G6c', "goalsWriteGroundTruth carve is GONE (D3: no file-level ro-bind of records)",
+      !hasFlag(granted, '--ro-bind', f.betaSessions),
+      `--ro-bind ${f.betaSessions}: ${hasFlag(granted, '--ro-bind', f.betaSessions)}`);
     // THE SET, not a spot check. Asserting "beta is present" cannot tell an open-run resolver
     // from an every-run one — beta has a single run. The exact set can: it fails if a CLOSED run
     // is granted (alpha/run-0, delta/run-1), if the OWN run leaks in (alpha/run-1), or if an open
@@ -367,14 +372,14 @@ capture('probe-seat-grant-classes', async (lines) => {
     // (narrowing 1), and a resolver that grants nothing at all.
     const allGoalDirs = [f.runDir, f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun];
     const grantedRunDirs = allGoalDirs.filter((d) => hasFlag(granted, '--bind', d));
-    const expected = [f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun].sort();
-    leg('G6d', 'the granted GOAL-FOLDER set is EVERY other goal in the workspace, live or not (7.778 removed the liveness conjunct) — and never the own goal',
+    const expected = [f.runDir, f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun].sort();
+    leg('G6d', 'D3 bind:{goalDir} opens the own goal; goals-write opens EVERY other goal (live or not)',
       JSON.stringify([...new Set(grantedRunDirs)].sort()) === JSON.stringify(expected),
-      `granted ${JSON.stringify([...new Set(grantedRunDirs)].sort())} vs expected ${JSON.stringify(expected)} `
-      + `(alpha own absent; historical roomless and ghost unoccupied both PRESENT — the loosening)`);
-    leg('G6h', 'a seat declaring nothing gets no goal folder at all',
-      allGoalDirs.every((d) => !hasFlag(plain, '--bind', d)),
-      `plain seat goal-folder openings: ${JSON.stringify(allGoalDirs.filter((d) => hasFlag(plain, '--bind', d)))}`);
+      `granted ${JSON.stringify([...new Set(grantedRunDirs)].sort())} vs expected ${JSON.stringify(expected)}`);
+    const plainOthers = [f.betaRun, f.gammaRun, f.historicalRun, f.ghostRun];
+    leg('G6h', 'a seat declaring nothing gets its OWN goal folder (D3) and no OTHER goal folder',
+      hasFlag(plain, '--bind', f.runDir) && plainOthers.every((d) => !hasFlag(plain, '--bind', d)),
+      `plain own=${hasFlag(plain, '--bind', f.runDir)} others=${JSON.stringify(plainOthers.filter((d) => hasFlag(plain, '--bind', d)))}`);
 
     // The materializer's two writes, proven ON DISK from outside the cage — and the carve proven
     // the same way, by the bytes of the file the grant must NOT have opened.
@@ -389,9 +394,9 @@ capture('probe-seat-grant-classes', async (lines) => {
       bytes(f.betaTaskforce).includes('tf-1,seated'), `taskforce.csv now: ${JSON.stringify(bytes(f.betaTaskforce).trim())}`);
     const betaBefore = bytes(f.betaSessions);
     const spoof = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.betaSessions}`);
-    leg('G6g', "the GRANTED goal's sessions.csv is still unwritable — no cross-goal identity spoofing",
-      bytes(f.betaSessions) === betaBefore,
-      `on-disk bytes ${bytes(f.betaSessions) === betaBefore ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${spoof.exit}, not the evidence)`);
+    leg('G6g', "the GRANTED goal's sessions.csv IS writable (D3: record forgery is a non-goal)",
+      bytes(f.betaSessions) !== betaBefore && bytes(f.betaSessions).includes('imposter,999,999,999'),
+      `on-disk bytes ${bytes(f.betaSessions) === betaBefore ? 'UNCHANGED — FENCE TOO TIGHT' : 'GREW'} (in-cage exit ${spoof.exit}, not the evidence)`);
 
     const envRead = inCage(f.mineDir, granted, 'printf %s "$IGNITE_GATEWAY_ADDR"');
     leg('G5c', 'IGNITE_GATEWAY_ADDR arrives in the caged session',

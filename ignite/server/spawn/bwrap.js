@@ -3,10 +3,10 @@
 // D59 — the filesystem containment layer. On this box `systemd-run --user` enforces cgroup
 // caps but its filesystem sandbox is a SILENT no-op (workers can write anywhere). The fix is
 // bubblewrap (`bwrap`) nested INSIDE the systemd-run --user transient unit: systemd keeps the
-// cgroup caps + unit lifecycle; bwrap adds a mount namespace in which ONLY the session dir and
-// the launch's declared editable paths exist writable, and the vault, `.rbtv/heart/`, the rbtv
-// source tree, and the daemon data_root are UNREACHABLE — not merely read-only, simply never
-// bound. Absence IS the mechanism; there is no deny list to drift.
+// cgroup caps + unit lifecycle; bwrap adds a mount namespace that is the fence (D3, 2026-08-19):
+// the goal folder, the seat's own folder (except seat.md), worktrees, and coordination ledgers
+// are writable; repos that are not `goals/` stay unwritable or absent; env/secret files are
+// simply never bound. Absence IS the mechanism; there is no deny list to drift.
 //
 // This module is a pure argv composer — it builds `[bwrapPath, ...flags, '--', ...argv]`. It
 // never spawns anything itself; spawn.js hands the wrapped argv to the carrier, which sees an
@@ -154,8 +154,17 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
 
   const out = [
     '--die-with-parent',
-    '--unshare-all',
-    '--share-net',                       // workers need the LLM APIs; only mount/pid/ipc/uts/cgroup ns are private
+    // D3/D8 (2026-08-19): unshare user/ipc/uts/cgroup, NOT pid. `--unshare-all` included a
+    // PID namespace, so a caged seat's /proc showed only itself (measured: pid=2, ancestry
+    // 2<-1). coord.py's sessions_sitting_id / ident_is_live_process then read every other
+    // seat as dead — structurally, always — and a caged wake bound the last-ENDED session.
+    // Shared PID ns + `--proc /proc` mounts host pids; in-cage liveness reads become TRUE.
+    // Accepted consequence: a seat can see and signal host processes. Threat model is
+    // filesystem writes outside goals/, not process isolation. Net stays shared (LLM APIs).
+    '--unshare-user',
+    '--unshare-ipc',
+    '--unshare-uts',
+    '--unshare-cgroup',
     '--proc', '/proc',
     '--dev', '/dev',
     '--tmpfs', '/tmp',
@@ -197,8 +206,7 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
   if (seatBinds && seatBinds.length > 0) {
     // 7.11 SEAT PATH — the composed stack, in the order cage.js produced it. Emitted verbatim:
     // this function does not sort, dedupe or "fix" the sequence, because every reordering here is
-    // a silent change to what the seat can write, and the sequence has already been asserted
-    // against the ground-truth invariant by the composer.
+    // a silent change to what the seat can write. Last-bind-wins is the whole mechanism.
     out.push(...seatBinds);
   } else {
     // v1 / ticker path, unchanged. The ONE unconditional RW wall opening — the per-execution

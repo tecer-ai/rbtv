@@ -437,11 +437,10 @@ def _cage_rw_covers(rel: str) -> bool:
 
     The reading is cage.js's own and must stay it: input order is output order,
     and the LAST entry covering a path decides what that path IS — so a `tmpfs`
-    or a `ro-bind` placed after an opening takes it back. This is why the
-    ground-truth files need no list here: `sessions.csv` and `state.csv` are
-    covered only by the read-only goal floor, peer seat folders by the `seats`
-    tmpfs, and `seat.md` by its own ro carve, so each one answers False without
-    anybody restating it.
+    or a `ro-bind` placed after an opening takes it back. D3 (2026-08-19): the
+    goal folder is RW, so `sessions.csv` / `state.csv` / ledgers / planning /
+    coordination answer True via `bind:{goalDir}`. Peer seat folders stay
+    absent under the `seats` tmpfs; `seat.md` stays RO under its carve.
 
     ⚠ THE READING ITSELF LIVES IN `cagespec.py` SINCE IPH-2, not here. This gate
     keeps only its own load of the live template. (The enqueue-time admission
@@ -470,20 +469,10 @@ def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
     """The goal-relative paths this seat's cage actually opens READ-WRITE, in
     template order — DERIVED, never restated.
 
-    `_cage_rw_covers` above answers "is the DECLARED path writable" and that
-    gate has held since 2026-08-09. It is one question short of what an
-    occupant needs, and the shortfall cost the plan-interviewer a second night
-    (2026-08-11): every RW opening over a FILE sits inside `ro-bind:{goalDir}`,
-    so the file is writable and its DIRECTORY is not — and `Write`/`Edit`, like
-    every atomic writer, create `<file>.tmp.<hash>` as a sibling before
-    renaming. The kernel answers EROFS naming the temp path, the occupant reads
-    it as "I have no write access", and re-tests by touching a probe file in
-    the goal root, which is read-only by design and therefore refuses forever.
-
-    Shadowing is respected because each candidate goes back through
-    `cagespec.evaluate`: a path this template opens and a later `ro-bind` carve
-    takes back (`sessions.csv`, `state.csv`) must not appear here. Filtering
-    `spec` on the RW verbs alone would list exactly those two.
+    `_cage_rw_covers` above answers "is the DECLARED path writable". D3 made the
+    whole goal folder RW, so the old file-inside-ro-directory EROFS trap is
+    gone for records. Shadowing is still respected: a later `ro-bind` carve
+    (`seat.md`, `permission-edits.csv`) must not appear here.
 
     Openings that compose OUTSIDE the goal folder (worktrees, `~/.local/bin`,
     the tmux socket) are absent by construction — `cagespec` drops them — which
@@ -496,8 +485,12 @@ def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
     binds = _seat_binds() if binds is None else binds
     spec = cagespec.compose(binds, seat=seat, goal_writes=goal_writes) or []
     out: list = []
-    for _verb, rel in spec:
-        if not rel or rel in out:
+    for verb, rel in spec:
+        if rel == "":
+            if verb in cagespec.RW_VERBS and "." not in out:
+                out.append(".")
+            continue
+        if rel in out:
             continue
         if cagespec.evaluate(binds, rel, seat=seat,
                              goal_writes=goal_writes)[0] == cagespec.WRITABLE:
@@ -520,31 +513,16 @@ _WRITE_SURFACE_BLOCK = """\
 
 ## Your write surface — what the kernel will actually answer
 
-Read-write inside your goal folder. Everything else THERE is read-only, including the
-goal folder itself:
+Read-write inside your goal folder (D3, 2026-08-19 — the whole folder, including
+ledgers, planning, coordination, sessions.csv). `.` is the goal folder itself.
+Peer seat folders are absent. `seat.md` and `coordination/permission-edits.csv`
+stay read-only — those are wall-control surfaces, not records:
 
 {rows}
 
 This list is scoped to your goal folder and is not your whole grant: openings that compose
 OUTSIDE it — a worktree, another goal's coordination dir, `~/.local/bin`, the tmux socket —
 are granted separately by your `seat.md` frontmatter and are not enumerated here.
-
-⚠ **A path above that is a FILE is bound file-by-file inside a read-only directory.**
-`Write` and `Edit` — and every other atomic writer — create a sibling temp file
-`<yourfile>.tmp.<hash>` and rename it over the target, so they fail with:
-
-    EROFS: read-only file system, open '<yourfile>.tmp.<hash>'
-
-**That error means your file IS writable and your tool is not.** It is not a missing
-permission and nobody needs to grant you anything. Write in place instead:
-
-    cat > <path> <<'EOF'
-    …file content…
-    EOF
-
-⚠ **Never test your write rights by creating a probe file in the goal folder.** That
-folder is read-only by design and refuses whatever your grants are — the probe measures
-the floor, never your grant. Test the actual path you mean to write.
 
 ## Your read surface — the workspace, minus the private scope
 
@@ -2992,19 +2970,12 @@ the cage makes peer seat folders ABSENT, so an attempt fails rather than lands.
 ## Writing into the GOAL folder — read this BEFORE you conclude you lack permission
 
 `seat.md`'s "Your write surface" section lists the paths your cage opens read-write; it is
-derived from the cage itself, so it beats any prose that disagrees with it. One property of
-that list decides whether your first write succeeds:
+derived from the cage itself, so it beats any prose that disagrees with it.
 
-**Every one of those paths that is a FILE is bound file-by-file inside a read-only
-directory.** `Write` and `Edit` — and every atomic writer — create a sibling temp file
-`<yourfile>.tmp.<hash>` and rename it over the target, so they fail with
-`EROFS: read-only file system, open '<yourfile>.tmp.<hash>'`. **That error means your file
-IS writable and your tool is not.** Nobody needs to grant you anything. Write in place:
-`cat > <path> <<'EOF' … EOF`.
-
-And never test your write rights by creating a probe file in the goal folder — that folder
-is read-only by design, so the probe refuses whatever your grants are. It measures the
-floor, not your grant. Test the path you actually mean to write.
+**The whole folder is writable** (D3, 2026-08-19) — ledgers, planning, coordination,
+sessions.csv included. Atomic writers (`Write` / `Edit`) work. `seat.md` and
+`coordination/permission-edits.csv` stay read-only (wall-control surfaces). Peer seat
+folders are absent.
 """
 
 # The forced-read preamble for rule exposure (d-materializer-seat-loaders;
@@ -7701,7 +7672,7 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "RF-1": (("RF-1 green",), ("RF-1 red",)),
     # The seat-cage declaration (owner-ruled 2026-08-10).
     "CG-1": (("CG-1 green",), ("CG-1 red",)),
-    # The derived write surface + the temp-file EROFS trap (2026-08-11).
+    # The derived write surface (D3: goal folder RW).
     "CG-2": (("CG-2 green",), ("CG-2 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
@@ -9727,12 +9698,12 @@ def run_selftest() -> int:
         # day the ledger carve, the goal-writes line or the ground-truth carve
         # leaves that file — which is the one way the gate could start passing
         # seats the sandbox will refuse.
-        gw_writable = [*WRITE_IF_SOMETHING, "goal.md", "taskforce.csv"]
-        gw_refused = ["sessions.csv", "state.csv", "seats/peer/seat.md",
-                      "seats/peer/outputs/x.md"]
-        check("CG-1 green: the preflight reads the live cage template — the five "
-              "ledgers and a role's declared output are read-write, while the "
-              "identity ground truth and a peer seat's folder are NOT",
+        gw_writable = [*WRITE_IF_SOMETHING, "goal.md", "taskforce.csv",
+                       "sessions.csv", "state.csv", "coordination/messages.md"]
+        gw_refused = ["seats/peer/seat.md", "seats/peer/outputs/x.md"]
+        check("CG-1 green: the preflight reads the live cage template — D3: the "
+              "goal folder (ledgers, sessions.csv, coordination) is RW; a peer "
+              "seat's folder is still ABSENT",
               all(_cage_rw_covers(p) for p in gw_writable)
               and not any(_cage_rw_covers(p) for p in gw_refused),
               str([p for p in gw_writable if not _cage_rw_covers(p)])
@@ -9772,45 +9743,29 @@ def run_selftest() -> int:
         pointer = agents_md.read_text(encoding="utf-8") \
             if agents_md.is_file() else ""
         surface = _cage_write_surface("exp-seat", [])
-        check("CG-2 green: seat.md carries the DERIVED write surface — the five "
-              "ledgers, the planning workspace and the seat's own folder, read "
-              "out of the live cage template",
-              all(p in surface for p in
-                  (*WRITE_IF_SOMETHING, "planning", "seats/exp-seat"))
+        check("CG-2 green: seat.md carries the DERIVED write surface — D3: the "
+              "goal folder itself (`.`) and the seat's own folder, read out of "
+              "the live cage template",
+              all(p in surface for p in (".", "seats/exp-seat"))
               and all(f"- `{p}`" in body for p in surface),
               str(surface))
-        check("CG-2 green: ...and the identity ground truth is NOT on it — the "
-              "`ro-bind-try` carves shadow the openings above them, so what the "
-              "occupant reads is what the kernel will answer",
-              not any(p in surface for p in ("sessions.csv", "state.csv")),
+        check("CG-2 green: ...and sessions.csv IS writable via the goal-folder "
+              "opening (D3: record forgery is a non-goal)",
+              _cage_rw_covers("sessions.csv") and _cage_rw_covers("state.csv"),
               str(surface))
-        trap = "EROFS: read-only file system, open '<yourfile>.tmp.<hash>'"
-        check("CG-2 green: BOTH surfaces name the temp-file EROFS and say what "
-              "it means — the descriptor claude gets in its system prompt, and "
-              "the AGENTS.md pointer every other harness reads from its cwd",
-              trap in body
-              and "IS writable and your tool is not" in body
-              and "IS writable and your tool is not" in pointer,
-              f"seat.md={trap in body} AGENTS.md={'tmp.<hash>' in pointer}")
-        # The two controls. Without them the arms above are satisfied by a
-        # template that never covered ground truth at all, and by a formatter
-        # that can only ever emit a non-empty list.
-        # ⚠ The control FLIPS the carve's VERB — it does not delete the line.
-        # Deleting it was the first spelling and it passed for the wrong
-        # reason: the carve entry is the only thing that puts `sessions.csv`
-        # into the candidate set at all, so removing it made the path absent
-        # rather than writable, and the arm above would have read green against
-        # a surface that could never have listed it. The verb IS the decision
-        # (last covering entry wins), so the verb is what the control moves.
-        flipped = [e.replace("ro-bind-try:{goalDir}/sessions.csv",
-                             "bind-try:{goalDir}/sessions.csv")
-                   for e in _seat_binds()]
-        check("CG-2 red: flip the sessions.csv carve to a READ-WRITE verb and "
-              "sessions.csv APPEARS on the surface — so its absence above is "
-              "caused by that verb, and the arm can go red",
-              "sessions.csv" in _cage_write_surface("exp-seat", [],
-                                                    binds=flipped),
-              str(_cage_write_surface("exp-seat", [], binds=flipped))[:200])
+        check("CG-2 green: BOTH surfaces name the D3 goal-folder opening — the "
+              "descriptor and the AGENTS.md pointer",
+              "whole folder" in body
+              and "whole folder" in pointer,
+              f"seat.md={'whole folder' in body} "
+              f"AGENTS.md={'whole folder' in pointer}")
+        carved = list(_seat_binds()) + ["ro-bind-try:{goalDir}/sessions.csv"]
+        carved_verdict = cagespec.evaluate(carved, "sessions.csv",
+                                           seat="exp-seat")[0]
+        check("CG-2 red: a sessions.csv ro-carve AFTER the goal-folder bind "
+              "takes the write back — last-bind-wins still holds",
+              carved_verdict != cagespec.WRITABLE,
+              str(carved_verdict))
         check("CG-2 red: a template that composes nothing yields an EMPTY "
               "surface — the 'nothing' branch is reachable, so a non-empty "
               "list above is a measurement and not the only possible output",

@@ -171,9 +171,9 @@ capture('probe-cli-write-roots', async (lines) => {
 
     const beforeSessions = bytes(f.sessionsCsv);
     const w4 = inCage(f.mineDir, granted, `echo "imposter,999,999,999" >> ${f.sessionsCsv}`);
-    leg('C5d', 'the goal sessions.csv is STILL unwritable under cli-write-roots',
-      bytes(f.sessionsCsv) === beforeSessions,
-      `${bytes(f.sessionsCsv) === beforeSessions ? 'UNCHANGED' : 'CHANGED — WALL BREACHED'} (in-cage exit ${w4.exit}, not the evidence)`);
+    leg('C5d', 'the goal sessions.csv IS writable (D3: ledgers writable; cli-write-roots does not carve it back)',
+      bytes(f.sessionsCsv) !== beforeSessions && bytes(f.sessionsCsv).includes('imposter,999,999,999'),
+      `${bytes(f.sessionsCsv) === beforeSessions ? 'UNCHANGED — FENCE TOO TIGHT' : 'GREW'} (in-cage exit ${w4.exit}, not the evidence)`);
 
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);

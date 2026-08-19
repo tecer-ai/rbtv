@@ -13,7 +13,7 @@ const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCaged
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
-const { composeSeatCage, assertGroundTruthUnwritable, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
+const { composeSeatCage, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
@@ -384,9 +384,8 @@ function ensureExitFile(dataRoot, sessionId) {
 // pays nothing: no subprocess, no python, no change in behaviour at all.
 //
 // AND IT IS WRITTEN IN PLACE. `writeFileSync` truncates an existing file; it does not replace the
-// inode. That matters because `composeCageFor` pre-creates this file for a SERVICE seat and then
-// RO-BINDS it into the cage: a header written by replacing the inode would be correct outside the
-// cage and invisible inside it, which no row-level check could see.
+// inode. That matters because `composeCageFor` pre-creates this file for a SERVICE seat: a header
+// written by replacing the inode would be a different file than the one already open.
 const SESSIONS_HEADER_ARGV = ['-c',
   'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))'];
 
@@ -703,6 +702,17 @@ function resolveReadRootGrant(seatPath) {
   return [{ readRoot: seatPath.workspaceRoot }];
 }
 
+// D3 item 4 — rbtv repo + workspace mirror, READ, every seat. Paths resolve from this
+// module's location and the seat's workspaceRoot, never a hardcoded install path
+// (#d-no-hardcoded-paths). Grant-shaped so callers of composeSeatCage that do not
+// pass them (engine/cage-admission.js, out of this seat's custody) skip the lines
+// rather than throw on a missing scalar slot.
+function resolveFenceReadGrants(seatPath) {
+  const rbtvRoot = path.resolve(__dirname, '..', '..', '..');
+  const rbtvMirror = path.join(seatPath.workspaceRoot, '.rbtv', 'mirror');
+  return [{ rbtvRoot }, { rbtvMirror }];
+}
+
 // ── Owner ruling "1a" (2026-08-06) — the three CROSS-GOAL INSTRUMENT grants ──────────────────
 //
 // A service seat (the channel-master is the first) is promised instruments the cage blocks: the
@@ -818,13 +828,10 @@ function leasedGoals(workspaceRoot) {
 //   1. THE SEAT'S OWN GOAL FOLDER IS NEVER GRANTED. A seat would otherwise re-open its own
 //      goal dir read-write ON TOP of `tmpfs:{goalDir}/seats` and the `ro-bind:{seatDir}/seat.md`
 //      carve — un-erasing peer seat folders and handing the occupant its own permission record.
-//      (The ground-truth assertion would then refuse the whole spawn; failing closed is correct
-//      but useless. Excluding the own goal keeps the grant usable AND the carves intact.)
-//   2. EVERY GRANTED GOAL'S `sessions.csv` IS CARVED BACK READ-ONLY, by the second grant field
-//      below and the template line that consumes it. The identity gate reads that file to decide
-//      who is sitting in a goal; a cross-goal writer of it could spoof any seat's identity.
-//      `assertGroundTruthUnwritable` only guards THIS seat's own sessions.csv — it cannot see the
-//      other goals this grant opens, so the carve is what keeps them shut.
+//      Excluding the own goal keeps those two wall-control carves intact. The own goal is
+//      already RW via the template's `bind:{goalDir}` (D3).
+//   2. The former `goalsWriteGroundTruth` carve (other goals' sessions.csv back to RO) is
+//      DELETED. D3: record forgery is a non-goal; coordination ledgers are writable.
 //
 // The walk is the goals root directly rather than `leasedGoals`, because a lease is now the wrong
 // question here — and it never creates a directory. Order is readdirSync's, sorted, so the
@@ -843,10 +850,6 @@ function resolveGoalsWriteGrants(seatPath) {
     const pkgDir = path.join(goalsDir, goal);
     if (contains(pkgDir, seatPath.seatDir)) continue;  // narrowing 1 — never the seat's own home
     grants.push({ goalsWrite: pkgDir });
-    const sessions = path.join(pkgDir, 'sessions.csv');
-    // narrowing 2 — a SEPARATE grant so the carve line composes only where the file exists;
-    // a goal with no sessions.csv yet has no ground truth to carve back.
-    if (fs.existsSync(sessions)) grants.push({ goalsWriteGroundTruth: sessions });
   }
   return grants;
 }
@@ -1066,10 +1069,9 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // point, from the SEAT'S OWN records: the folder gives goal/run/seat, the grants come from the
 // seat's records (worktrees + harness-credential entitlements), never from caller input (CMP-17).
 //
-// `assertGroundTruthUnwritable` REFUSES any composition in which the run-level sessions.csv —
-// the file the identity gate reads to decide who is sitting here — would be writable from
-// inside. Checked on EVERY spawn rather than once in a probe: a probe proves one composition
-// sound, an assertion proves all of them (design §1).
+// D3 (2026-08-19): coordination ledgers including sessions.csv are WRITABLE. The superseded
+// anti-forgery assertion (`assertGroundTruthUnwritable`) is deleted — record forgery is a
+// non-goal. The fence's allow-list is the SeatBinds template plus private-scope masks.
 //
 // `gatewayAddr` (owner ruling "1a", `gateway-env: true`) is NOT a mount: it is emitted as a bwrap
 // `--setenv` on the same flag list, because bwrap is the only layer both doors share — the headed
@@ -1094,19 +1096,15 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
 
   if (seatPath.service) {
     // Service-seat home (r-master-seat-homes): goalDir==seatDir. Pre-create the bind
-    // sources the template expects of a run folder, and carve the IN-FOLDER ground truth
-    // read-only — an ordinary seat's sessions.csv lives outside its rw seatDir; here it is
-    // inside, and without this carve assertGroundTruthUnwritable below correctly refuses.
-    // Appended LAST so it shadows the rw {seatDir} bind (order is the mechanism, as in the
-    // template's own seat.md carve).
+    // sources the template expects. The former `ro-bind:{seatDir}/sessions.csv` carve
+    // existed only to satisfy assertGroundTruthUnwritable — deleted with that assertion
+    // (D3: ledgers are writable; record forgery is a non-goal).
     fs.mkdirSync(path.join(seatPath.goalDir, 'coordination'), { recursive: true });
     // …and the tmpfs MOUNTPOINTS: bwrap cannot mkdir them once the read-root grant has made
     // the folder ro (measured: exec 19427). tmpfs over an existing empty dir is the same
     // absence the template intends.
-    //
     fs.mkdirSync(path.join(seatPath.goalDir, 'seats'), { recursive: true });
     if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
-    template = [...template, 'ro-bind:{seatDir}/sessions.csv'];
   }
   // Resolved ONCE: the same grant decides the mount below and the PATH entry after it. Two
   // resolutions would be two answers the first time either gained a case.
@@ -1114,9 +1112,9 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // Same rule, same reason: the ONE resolution decides the mount, the symlink AND the PATH entry.
   const exposedClis = resolveExposedCliGrants(seatPath, log);
   if (exposedClis.length > 0) {
-    // Appended in code rather than added to `config/spawn-profiles.yaml`'s SeatBinds, exactly as
-    // the service seat's `ro-bind:{seatDir}/sessions.csv` line above is: the line has no meaning
-    // for a seat with no grant, and cage.js skips a `{grant:…}` line whose grant list is empty.
+    // Appended in code rather than added to `config/spawn-profiles.yaml`'s SeatBinds: the line
+    // has no meaning for a seat with no grant, and cage.js skips a `{grant:…}` line whose grant
+    // list is empty.
     // LAST, and that ORDER IS THE SAFE ONE — but not for the reason a first reading suggests:
     // in bwrap the LATER argument WINS (measured: `--bind sub` then `--ro-bind tree` leaves
     // `tree/sub` read-only; the reverse order leaves it writable). So appending last means this
@@ -1141,6 +1139,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveSeatGrants(seatPath),
       ...resolveHarnessCredGrants(),
       ...resolveReadRootGrant(seatPath),
+      ...resolveFenceReadGrants(seatPath),
       ...resolveBusWriteGrants(seatPath),
       ...resolvePermissionEditsRoGrant(seatPath),
       ...resolveGoalsWriteGrants(seatPath),
@@ -1160,7 +1159,6 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveCliWriteRootGrants(seatPath, log),
     ],
   });
-  assertGroundTruthUnwritable(spec, seatPath.sessionsCsv);
   const flags = specToBwrapFlags(spec);
   // ── r-seat-context-cut-at-launch-folder — the ANCESTOR MASK, appended LAST ────────────────
   // Last is the mechanism, exactly as it is for every other line of this stack: the mask must

@@ -127,9 +127,21 @@ cage:
   # (the second belt). The KERNEL set is SeatBinds below — it REPLACES the flat workdir opening
   # in bwrap, it does not add to it.
   ReadWritePaths: ["{workdir}"]
-  # ── THE WRITABLE SET (r-711-write-bounds, verbatim: own seat folder + own worktree + that
-  # repo's git plumbing, and NOTHING else). ORDER IS LOAD-BEARING — each line deliberately
-  # shadows the one above it, and cage.js emits them in exactly this sequence.
+  # ── THE FENCE (D3, 2026-08-19). ORDER IS LOAD-BEARING — each line deliberately shadows the
+  # one above it, and cage.js emits them in exactly this sequence. Later wins.
+  #
+  # Allow-list: (1) the goal's worktree branches, RW; (2) the goal folder, read, and goal-folder
+  # artifacts, write; (3) the seat's own folder, RW, except seat.md; (4) rbtv/ and
+  # <ws>/.rbtv/mirror, read; (5) coordination ledgers, WRITABLE; (6) env/secret files, simply
+  # not present (private-scope.js — do not pierce).
+  #
+  # A file-level ro-bind of a RECORD is gone: records are what seats must write, and denying
+  # them is the EROFS class. A file-level ro-bind of a WALL-CONTROL SURFACE stays: `seat.md`
+  # (it is the permission record the NEXT session's cage is derived from) and
+  # `coordination/permission-edits.csv` (it is both the audit of cage widenings and the
+  # mechanism that applies them — spawn.js#resolvePermissionEditGrants reads it as a grant
+  # source). Those two are not forgery-prevention; they are the fence holding its own posts.
+  # D3 item 3 names `seat.md` explicitly. Record forgery is a NON-goal (D3).
   #
   # ⚠ W5 (owner ruling D-1, 2026-08-13) EXTENDS THAT ORDER WITH TWO TIERS BELOW THIS LIST, and
   # both are load-bearing in the same way. After every line here, spawn.js appends
@@ -150,130 +162,36 @@ cage:
     # ABSENT for ordinary seats, exactly as the pre-registered probes assert.
     # FIRST deliberately: every later line layers its narrower opening over this ro floor.
     - "ro-bind:{grant:readRoot}"
-    # READ the goal's own record — decisions.md, issues.md, doubts.md.
-    - "ro-bind:{goalDir}"
-    # THE FIVE WRITE-IF-SOMETHING LEDGERS, READ-WRITE (owner ruling D2/D9, 2026-08-10). The goal
-    # folder above is read-only, so until now a seat that hit a defect could not file it: the
-    # router told every seat "a tooling gap goes in issues.md", the cage answered EROFS, and the
-    # finding went to the message bus where nothing collected it (the plan-interviewer session,
-    # 2026-08-09). Five literal lines rather than one wider opening — the goal root also holds
-    # `sessions.csv`, `state.csv`, `taskforce.csv` and `goal.md`, and those stay under the ro floor.
-    # ⚠ APPEND-ONLY IS THE INTENT, READ-WRITE IS THE GRANT: bwrap has no append-only mount, so the
-    # bound is the FILE SET, not the operation. The five names are goal_cli.py's
-    # `WRITE_IF_SOMETHING` keys — the same dictionary that creates them and renders the router
-    # table that sends seats here. `bind-try` (not `bind`): a goal folder missing one of the five
-    # must lose that ledger, never fail to spawn.
-    - "bind-try:{goalDir}/issues.md"
-    - "bind-try:{goalDir}/decisions.md"
-    - "bind-try:{goalDir}/doubts.md"
-    - "bind-try:{goalDir}/gotchas.md"
-    - "bind-try:{goalDir}/ideas.md"
-    # THE PLANNING WORKSPACE, READ-WRITE FOR EVERY SEAT (owner ruling
-    # d-s31-planning-workspace-shared-rw, 2026-08-11). A multi-seat phase needs a surface its seats
-    # can hand artifacts ACROSS, and until this line there was none: the planning units name "the
-    # milestone's planning workspace" and no mount composed it, so the assembler's draft landed in
-    # its own seat folder — which `tmpfs:{goalDir}/seats` below hides from all seven checkers — and
-    # every findings file landed the same way.
-    # ⚠ A DIRECTORY, NOT A FILE — the reason this is a cage line and not a `goal-writes` declaration:
-    # goal-writes is ONE path and `spawn.js#resolveGoalWriteGrants` creates it with
-    # `writeFileSync(target, '')` — a FILE; the assembler's output is a manifest plus one prompt+task
-    # pair per seat, inexpressible in that column.
-    # NO WRITE ISOLATION BETWEEN SEATS, RULED (owner, 2026-08-11): the planning phase is cooperative.
-    # Per-pass containment is the growth path and needs no rework of this line — a pass folder is a
-    # SUBDIRECTORY of what this opens.
-    # `bind-try` (not `bind`): a goal predating this line has no `planning/` and must lose the
-    # workspace, never fail to spawn. `goal_cli.py#cmd_scaffold` creates it from now on.
-    # ORDER: after the read-only goal floor above (which would re-cover it); nothing below covers
-    # `planning/` — the seats tmpfs, the seat.md carve and the coordination bind are all disjoint
-    # from it.
-    - "bind-try:{goalDir}/planning"
-    # GOAL-WRITES grant (owner ruling D9): the ONE goal-folder path this seat's role PRODUCES —
-    # the interviewer's `goal.md`, the structurer's `milestones.csv`. Declared in the seat
-    # catalogue's `goal-writes` column, emitted by `team-kit/materialize-seats.py` into seat.md's
-    # frontmatter (ro-bound inside the cage, so an occupant cannot widen it), and refused at
-    # MATERIALIZATION if this template would not open it read-write — the generation-time preflight
-    # reads THIS list to decide, so the gate and the wall can never disagree.
-    # ⚠ Ground truth stays refused by ORDER, not by a second list: `sessions.csv`/`state.csv` are
-    # covered only by the ro floor above, peer seat folders by the tmpfs below, and `seat.md` by its
-    # own ro carve — so a declaration naming any of them is not RW-covered and the gate refuses it.
-    - "bind-try:{grant:goalWrite}"
-    # …and the CARVE that makes the line above safe, in the same shape the goalsWrite grant's
-    # `goalsWriteGroundTruth` carve takes: the two GOAL-ROOT files no seat may ever rewrite, back
-    # to read-only IMMEDIATELY AFTER the opening that could otherwise have covered them. Order is
-    # the whole mechanism — a declaration naming either one composes to an opening this line then
-    # takes back, so the preflight above computes `not writable` and refuses to materialize it.
-    # ⚠ `taskforce.csv` is deliberately NOT carved: appending its rows is the binder seat's actual
-    # role output, and it is the materializer's surface, not the identity gate's ground truth.
-    - "ro-bind-try:{goalDir}/sessions.csv"
-    - "ro-bind-try:{goalDir}/state.csv"
-    # ⚠ 7.607 E2b: `tmpfs:{goalDir}/runs` and `ro-bind:{runDir}` are DELETED with the run layer
-    # (design-lock item 8 — the package IS the goal folder). The `{runDir}` SLOT is retired with
-    # them, and so is `spawn.js#composeCageFor`'s mkdir of the runs mountpoint (E2a §5.1: with
-    # `{goalDir}` ro-bound, bwrap refuses a tmpfs whose mountpoint is missing, so E2a had to
-    # CREATE the very directory this epic deletes — that mkdir goes in the same change as these
-    # two lines, which is exactly the condition E2a stated for its removal).
-    # The `ro-bind:{goalDir}` line above already grants what `ro-bind:{runDir}` granted: the goal
-    # folder IS the run folder now, so sessions.csv / state.csv / CLAUDE.md / conduct.md are all
-    # under it. Nothing is lost; one line covers what two did.
-    # ⚑ PEER SEAT FOLDERS: ABSENT. This is "never read another seat's folder" moved out of
-    # the conduct manual and into the kernel — the one rule in this run that was, until now,
-    # enforced entirely by every agent choosing to obey it.
+    # D3 items 2+5 in ONE line — the goal folder RW. Replaces the five ledger bind-try lines,
+    # planning/, settings-requests/, coordination/, {grant:goalWrite}, and the
+    # sessions.csv / state.csv ro carves. (D3: record forgery is a non-goal; ledgers are
+    # writable. Fewer knobs is the point — each deleted line was an EROFS repair.)
+    - "bind:{goalDir}"
+    # ⚑ PEER SEAT FOLDERS: ABSENT. Costs nothing, already works, keep (D3 does not ask for
+    # peer-folder isolation, but this line is free and already green).
     - "tmpfs:{goalDir}/seats"
-    # W1 — the seat's own folder, READ-WRITE: launch home, sessions/{session-id}/ artifacts,
-    # and the box-① work-in-progress memory the KG membership test's fourth prong names
-    # (memory*, conventions.md).
+    # W1 — the seat's own folder, READ-WRITE (D3 item 3).
     - "bind:{seatDir}"
-    # RO carve-IN inside W1. seat.md is the identity + permissions surface; its writers are
-    # goal-materialize and the staffer, never the sitting occupant. The cage is fixed at spawn,
-    # so editing it could not widen THIS session's walls — but it would rewrite the permission
-    # record the NEXT session's cage and the gate's permission-attach step derive from.
+    # RO carve-IN inside W1. seat.md is the permission record the NEXT session's cage is
+    # derived from — a wall-control surface, not a record. D3 item 3 names this exception.
+    # Order is the mechanism: AFTER the {seatDir} bind, last-bind-wins.
     - "ro-bind:{seatDir}/seat.md"
-    # S1 INTERIM, RETIRES AT TASK 7.57 — leader-ruled, recorded, deliberately narrow. Under
-    # the pre-bound set a caged seat could not write the kit's coordination files, and the
-    # target model routes that through the gateway (7.57/7.59, unbuilt). Nothing wider: the
-    # goal-root ledgers and vault task files stay OUT, routed through uncaged stewards.
-    - "bind:{goalDir}/coordination"
-    # SETTINGS-REQUEST INBOXES, READ-WRITE (regression fix, 2026-08-15). The two-part capability
-    # pattern (`master-profile.md`) has the SEAT stage a request file into
-    # `{goalDir}/settings-requests/<capability>` and the daemon's `fire-tool` drain it — the whole
-    # design exists BECAUSE the seat cannot write what `--repass` rewrites. But the SeatBinds
-    # narrowing that replaced the flat workdir opening never carried the inbox itself, so
-    # `request`'s write died EROFS and a sitting improvised its payload into `coordination/`,
-    # where nothing drains it (two stranded model-change requests, 2026-08-15). `bind-try`: only
-    # a goal that HAS the inbox tree gets the opening; today that is `_channel-master` alone.
-    # ORDER: after the read-only goal floor, disjoint from every carve below.
-    - "bind-try:{goalDir}/settings-requests"
+    # D3 item 4 — rbtv repo root and <ws>/.rbtv/mirror, READ. Grant-resolved from spawn.js
+    # (this module's location / the seat's workspaceRoot), never a hardcoded install path
+    # (#d-no-hardcoded-paths). ro-bind-try: a missing mirror must cost the mirror, never spawn.
+    - "ro-bind-try:{grant:rbtvRoot}"
+    - "ro-bind-try:{grant:rbtvMirror}"
     # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every EXECUTING goal,
-    # READ-WRITE, one opening per grant. Placed HERE, immediately after the line above, for
-    # the ordering reason that survives the run layer's death: it must come AFTER the
-    # read-root ro floor (which would otherwise re-cover it read-only). The old second reason
-    # — after `tmpfs:{goalDir}/runs`, which erased this goal's own coordination dir — is GONE
-    # with that line (7.607 E2b). A grant for the seat's OWN goal resolves
-    # to the same path as the line above — deliberately NOT deduped: two identical RW binds
-    # in sequence are harmless under the same shadow rule that makes this whole stack work,
-    # and a dedupe would be a second place where bind order is reasoned about.
+    # READ-WRITE, one opening per grant. Must come AFTER the read-root ro floor.
     - "bind:{grant:busWrite}"
-    # W3 (adv, C34) — …and the CARVE that keeps the AUDIT file an audit file. `permission-edits.csv`
-    # is the leader's audited widenings AND the mechanism that applies them (spawn.js
-    # #resolvePermissionEditGrants reads it as a second rw-grant source), so it sits inside the
-    # coordination dir the two lines above open READ-WRITE to every seat — i.e. writable by every
-    # party it audits, and by every seat whose cage it can widen. Carved back to read-only here, in
-    # the same shape and for the same reason as the `sessions.csv` carve above: order is the whole
-    # mechanism, so it must come AFTER both openings. The grant resolves to the path only for a seat
-    # that is NOT the permission editor, so the leader's own cage still opens it read-write.
+    # W3 (adv, C34) — the WALL-CONTROL SURFACE carve. permission-edits.csv is the leader's
+    # audited widenings AND the mechanism that applies them. Stays RO (D3: fence holding
+    # its own posts). Must come AFTER the goal-folder bind and the busWrite opening.
     - "ro-bind-try:{grant:permissionEditsRo}"
-    # GOALS-WRITE grant (owner ruling, 2026-08-07): the GOAL FOLDER of every EXECUTING goal,
-    # READ-WRITE, one opening per grant — the materializer's write set (seats/<seat>/seat.md,
-    # plus the atomic tmp-and-rename that appends taskforce.csv IN the goal dir). Same placement
-    # reasoning as busWrite: after the read-root ro floor. The seat's
-    # OWN goal is never a grant (resolveGoalsWriteGrants excludes it), so the two carves above —
-    # peer-seat tmpfs and the seat.md ro-bind — are never shadowed by this line.
+    # GOALS-WRITE grant: the GOAL FOLDER of every EXECUTING goal other than this seat's own.
+    # The own goal is already RW via bind:{goalDir} above. The goalsWriteGroundTruth carve
+    # is DELETED (D3: record forgery is a non-goal).
     - "bind:{grant:goalsWrite}"
-    # …and the CARVE that makes it safe: each granted run's sessions.csv back to READ-ONLY.
-    # It is the identity gate's ground truth for the seats of THAT run; the compose-time
-    # assertion guards only the spawning seat's own copy, so this line is the wall for the
-    # others. Immediately after, because order is what makes a carve win.
-    - "ro-bind:{grant:goalsWriteGroundTruth}"
     # W2 — the seat's own worktree(s), one opening per grant (task 7.38). No grants -> no
     # openings; another seat's worktree is never a grant of this seat.
     - "bind:{grant:worktree}"
@@ -321,11 +239,13 @@ cage:
     # ⚠ The private-scope masks are appended AFTER this whole stack, so a deny always wins over one
     # of these grants — a CLI-derived root is never a pierce.
     - "bind:{grant:cliWriteRoot}"
-  # ⚑ ABSENT BY CONSTRUCTION, each one a pre-registered probe: the run folder's files for
-  # WRITE (the identity gate's ground truth — refused at compose time by cage.js, not merely
-  # unlisted here), peer seat folders even for READ, other seats' worktrees, the goal
-  # integration worktree, main repo WORKING trees, the vault root, .rbtv/heart/,
-  # .rbtv/sessions/ (the retired flat launch path), and the rbtv source checkout.
+  # ⚑ ABSENT / UNWRITABLE BY CONSTRUCTION (D3): peer seat folders even for READ, other
+  # seats' worktrees, main repo WORKING trees outside the seat's own worktree, vault
+  # 2-areas/ and other repos that are not goals/, .rbtv/heart/, env/secret files
+  # (private-scope.js). The rbtv source checkout and <ws>/.rbtv/mirror are now READ
+  # (D3 item 4). Goal-folder records including sessions.csv are WRITABLE (D3 item 5;
+  # record forgery is a non-goal). seat.md and permission-edits.csv stay RO (wall-
+  # control surfaces).
 
 # ── THE GLOBAL CAPS DEFAULT (r-seats-only-architecture (2)) ────────────────────────────────────
 # One default block; a profile-level `caps:` carries ONLY the keys it overrides, and only by

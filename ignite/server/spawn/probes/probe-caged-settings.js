@@ -13,10 +13,10 @@
 //   3. NO PER-SPEC SPECIAL CASE: no model literal appears anywhere in server/spawn/. Fired
 //      POSITIVE CONTROL — the same search run against the config file, where the names DO live,
 //      so an empty result is a measurement rather than a broken pattern.
-//   4. THE WALL IS UNCHANGED: composed against a scratch seat, the cage spec contains NO opening
-//      covering the ignite config tree, while it DOES contain the RW opening covering the
-//      materialized copy. Both halves asserted together — "the file is reachable" and "the tree
-//      is still not" are different claims and the fix must produce both.
+//   4. THE WALL: composed against a scratch seat WITH the D3 fence-read grants, the cage spec
+//      may cover the ignite config tree READ-ONLY via `{grant:rbtvRoot}` (D3 item 4 — the rbtv
+//      repo is readable). It must NOT open that tree READ-WRITE. The materialized `--settings`
+//      copy stays the RW opening.
 //
 // Run: node server/spawn/probes/probe-caged-settings.js
 
@@ -121,7 +121,7 @@ const spec = composeSeatCage({
   // 7.607 E2b — the `{runDir}` cage slot is RETIRED (design-lock item 8); what it named is the
   // disclosed alias), so the fixture supplies exactly what parseSeatPath would.
   values: { workdir: seatDir, seatDir, goalDir },
-  grants: [],                                  // no read-root, no worktree — an ordinary seat
+  grants: [{ rbtvRoot: path.resolve(IGNITE, '..') }],
 });
 if (!Array.isArray(template) || template.length === 0 || spec.length === 0) {
   check('the composed cage spec is NON-EMPTY (else both wall checks below are vacuous)', false,
@@ -132,9 +132,11 @@ if (!Array.isArray(template) || template.length === 0 || spec.length === 0) {
 check('the composed cage spec is NON-EMPTY (else both wall checks below are vacuous)', true,
   `${template.length} template entries -> ${spec.length} openings`);
 const opensConfigTree = spec.filter((e) => e.verb !== 'tmpfs' && contains(e.path, CONFIG_TREE));
+const opensConfigRw = opensConfigTree.filter((e) => e.verb === 'bind' || e.verb === 'bind-try');
 const opensTheCopy = spec.filter((e) => e.verb === 'bind' && contains(e.path, haikuArgv[haikuArgv.indexOf('--settings') + 1]));
-check('the cage opens NO path covering the ignite config tree (SeatBinds NOT widened)',
-  opensConfigTree.length === 0, opensConfigTree.map((e) => `${e.verb}:${e.path}`).join(', ') || 'none');
+check('the cage covers the ignite config tree READ-ONLY via rbtvRoot (D3 item 4), never RW',
+  opensConfigTree.length > 0 && opensConfigRw.length === 0,
+  opensConfigTree.map((e) => `${e.verb}:${e.path}`).join(', ') || 'none');
 check('the cage DOES open the materialized copy read-write',
   opensTheCopy.length > 0, opensTheCopy.map((e) => `${e.verb}:${e.path}`).join(', ') || 'NONE');
 

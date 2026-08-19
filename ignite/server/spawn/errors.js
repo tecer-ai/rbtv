@@ -52,10 +52,6 @@ const E_TMUX_NAME_INVALID = 'E_TMUX_NAME_INVALID';
 // A malformed bind template: unknown verb, unknown slot, a slot with no value, a relative path.
 // Loud at compose time, because the alternative is a literal `{seatDir}` reaching bwrap.
 const E_CAGE_TEMPLATE = 'E_CAGE_TEMPLATE';
-// The composed cage would leave the identity gate's ground truth (`sessions.csv`) writable from
-// inside. Refused unconditionally — a seat that can rewrite the log saying who sits where can
-// name itself, and under auto-approval harnesses the cage is the only remaining boundary.
-const E_CAGE_GROUND_TRUTH = 'E_CAGE_GROUND_TRUTH';
 // W5 / ruling D-1 — a cage opening whose REALPATH lands inside a private entry that it does not
 // NAME. The mask cannot close that hole (the alias is a separate mountpoint carrying the real
 // content), so the composition is refused outright: a grant reaches a private path only by
@@ -132,7 +128,6 @@ module.exports = {
   E_BAD_REQUEST,
   E_TMUX_NAME_INVALID,
   E_CAGE_TEMPLATE,
-  E_CAGE_GROUND_TRUTH,
   E_CAGE_PRIVATE_ALIAS,
   E_GOAL_NOT_LIVE,
   E_NOT_A_SEAT_FOLDER,

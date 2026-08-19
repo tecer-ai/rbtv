@@ -1,52 +1,39 @@
 'use strict';
 
-// Task 7.11 — the SEAT CAGE: the redesigned writable set for the seat-folder launch split.
+// Task 7.11 — the SEAT FENCE: an ORDERED, TYPED bind stack for the seat-folder launch split.
 //
-// v1's wall had ONE RW opening (the flat session dir) and one input shape: a flat list of paths,
-// every one of them `--bind` (RW). The seat split needs something the flat list cannot express —
-// an ORDERED, TYPED stack, where a read-only bind of a parent, a tmpfs that erases a subtree, and
-// a read-write bind of a leaf all land in a specific sequence and each one deliberately shadows
-// what came before it:
+// D3 (2026-08-19) is the allow-list. The threat model is agents writing in repos that are not
+// `goals/`. Rogue writes on another seat's folder or on the wrong file inside the goal folder
+// are not a concern for now. Record forgery is a NON-goal — the fence does not enforce it.
 //
-//   ro-bind  <goalDir>          decisions.md / issues.md / doubts.md / sessions.csv / state.csv
-//                                / CLAUDE.md / conduct READABLE  (7.607 E2b: the goal folder IS
-//                                the package, so the old `tmpfs:<goalDir>/runs` +
-//                                `ro-bind:<runDir>` pair is gone and this one line covers both)
-//   tmpfs    <goalDir>/seats    PEER SEAT FOLDERS ABSENT  <- kernel-enforces "never read another
-//   bind     <seatDir>                                       seat's folder"; the seat's own folder
-//   ro-bind  <seatDir>/seat.md                                is then punched back through it
-//   bind     <worktree>        (per grant)
-//   ro-bind  <repo>/.git       + bind objects/refs/logs/worktrees/<name>  (per grant)
+//   bind     <goalDir>          the goal folder RW (ledgers, planning, coordination, sessions.csv)
+//   tmpfs    <goalDir>/seats    PEER SEAT FOLDERS ABSENT
+//   bind     <seatDir>          the seat's own folder RW
+//   ro-bind  <seatDir>/seat.md  the masked file inside the RW folder (wall-control surface)
+//   ro-bind  <rbtvRoot>         rbtv repo + <ws>/.rbtv/mirror, READ
+//   bind     <worktree>         (per grant) + the repo git plumbing trio
+//
+// A file-level ro-bind of a RECORD is gone (denying them was the EROFS class). A file-level
+// ro-bind of a WALL-CONTROL SURFACE stays: seat.md and coordination/permission-edits.csv.
+// Those are not forgery-prevention; they are the fence holding its own posts.
 //
 // Absence IS the mechanism here exactly as it is in bwrap.js: nothing is denied, things are simply
-// never bound. What this module adds is that the ORDER of the bindings is itself load-bearing, so
-// the composition is a first-class artifact that can be asserted about before any process exists.
-//
-// THE STRUCTURAL INVARIANT (design §1). The identity gate's ground truth is the run-level
-// `sessions.csv`, which sits ABOVE `seats/`. A gate whose ground truth the caged process can
-// rewrite is decoration — and under `r-launch-automode-all-harnesses` (the harness permission
-// layer is off; the kernel sandbox IS the safety boundary) decoration is all that would be left.
-// So `assertGroundTruthUnwritable` below REFUSES to compose a spec in which any RW opening
-// contains that file. It is an ASSERTION over the composed spec, deliberately, not an inference
-// from an observed outcome: G-107's lesson is that checking an outcome and concluding a property
-// is how a guard comes to be enforced by nothing but the operator's habits.
+// never bound. ORDER of the bindings is load-bearing — later wins — so the composition is a
+// first-class artifact. The superseded anti-forgery assertion (`assertGroundTruthUnwritable`)
+// is deleted: D3 rules coordination ledgers writable.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { SpawnError, E_CAGE_TEMPLATE, E_CAGE_GROUND_TRUTH } = require('./errors');
+const { SpawnError, E_CAGE_TEMPLATE } = require('./errors');
 const { composePrivateScope } = require('./private-scope');
 
 // The bind verbs a template may declare. Deliberately NOT the whole bwrap vocabulary: these three
 // compose every opening `r-711-write-bounds` allows, and an unknown verb is a template error
 // rather than a silently-dropped line.
-// `bind-try` is `bind` that TOLERATES A MISSING SOURCE (bwrap's own `--bind-try`). It exists for
-// the goal-root ledger carve: those five files are created at goal creation, so binding them
-// plainly would be correct on every goal the scaffolder made — and would make a goal folder
-// PREDATING one of the five (or one an operator deleted) unspawnable, because bwrap fails the
-// whole namespace on a missing bind source. A ledger that is absent should cost that ledger, never
-// the seat. It counts as an RW verb below: when the source IS there the opening is read-write, and
-// the ground-truth assertion must read it that way or the wall drifts.
+// `bind-try` is `bind` that TOLERATES A MISSING SOURCE (bwrap's own `--bind-try`). It counts as
+// an RW verb: when the source IS there the opening is read-write. Used by grant lines whose
+// source may be absent (a worktree, a bus, a permission-edits carve).
 const BIND_VERBS = new Set(['ro-bind', 'ro-bind-try', 'bind', 'bind-try', 'tmpfs']);
 const RW_VERBS = new Set(['bind', 'bind-try']);
 
@@ -175,8 +162,7 @@ function composeSeatCage({ seatBinds = [], values = {}, grants = [] } = {}) {
 }
 
 // Every path in a composed spec is absolute and lexically normal. A relative path would be
-// resolved by bwrap against whatever cwd the daemon happens to hold; a `..` segment would make
-// the ground-truth assertion below answerable only by accident.
+// resolved by bwrap against whatever cwd the daemon happens to hold.
 function normalize(p, index) {
   if (!path.isAbsolute(p)) {
     throw new SpawnError(E_CAGE_TEMPLATE, `sandbox.SeatBinds[${index}] resolved to a relative path: ${p}`, { index, path: p });
@@ -191,39 +177,6 @@ function contains(dir, file) {
   const d = path.normalize(dir);
   const f = path.normalize(file);
   return f === d || f.startsWith(d.endsWith(path.sep) ? d : d + path.sep);
-}
-
-// THE STRUCTURAL INVARIANT, asserted over the composed spec (design §1; G5 bar P8c).
-//
-// A later RW opening shadows an earlier read-only one, so the question is not "does some entry
-// mention this path" but "does the LAST entry covering it make it writable". That is what the
-// caged process actually sees, and it is the only reading that stays correct when someone appends
-// a line to the template a year from now.
-//
-// Refusing here rather than at probe time is the point: a probe proves this composition is sound,
-// an assertion proves EVERY composition is. G-115 is tonight's demonstration of the difference —
-// a guard that held only because operators typed relative names.
-function assertGroundTruthUnwritable(spec, groundTruthPath) {
-  if (!groundTruthPath) {
-    throw new SpawnError(E_CAGE_GROUND_TRUTH, 'seat cage requires the identity ground-truth path to assert against', {});
-  }
-  const target = path.normalize(groundTruthPath);
-  let writable = null;
-  for (const entry of spec) {
-    if (!contains(entry.path, target)) continue;
-    // A tmpfs over an ancestor makes the target ABSENT, which is not writable ground truth —
-    // it is no ground truth at all, and the gate fails closed on a missing file (§4b step 2).
-    writable = RW_VERBS.has(entry.verb) ? entry : null;
-  }
-  if (writable) {
-    throw new SpawnError(
-      E_CAGE_GROUND_TRUTH,
-      `seat cage would leave the identity ground truth ${target} WRITABLE via "${writable.verb}:${writable.path}" — ` +
-      'the gate reads that file to decide who is sitting here; a seat that can rewrite it can name itself (design §1)',
-      { groundTruth: target, opening: writable },
-    );
-  }
-  return spec;
 }
 
 // Flatten to bwrap flags. SRC == DEST throughout, the same property bwrap.js composes for: the
@@ -291,9 +244,9 @@ const MASK_CONFIG_DIRS = ['.claude', '.codex', '.opencode', '.agents', '.kimi'];
 const GOALS_SUBTREE = path.join('.rbtv', 'goals');
 
 // What the caged process ACTUALLY sees at a path is decided by the LAST spec entry covering it —
-// the same reading assertGroundTruthUnwritable takes, and for the same reason. Nothing covering
-// it means the path is already absent (no read-root grant, no vault), so masking it would only
-// make bwrap mkdir a mountpoint into a namespace where nothing was there to hide.
+// later wins, the same reading bwrap takes. Nothing covering it means the path is already absent
+// (no read-root grant, no vault), so masking it would only make bwrap mkdir a mountpoint into a
+// namespace where nothing was there to hide.
 function lastCovering(spec, target) {
   let hit = null;
   for (const entry of spec) if (contains(entry.path, target)) hit = entry;
@@ -387,7 +340,6 @@ module.exports = {
   MASK_INSTRUCTION_FILES,
   MASK_CONFIG_DIRS,
   composeSeatCage,
-  assertGroundTruthUnwritable,
   specToBwrapFlags,
   validateSeatBindTemplate,
   BIND_VERBS,
