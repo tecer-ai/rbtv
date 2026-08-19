@@ -13781,6 +13781,129 @@ def after_member_state(member, term, guards):
     return "done+guard-ruled", None, [pname]
 
 
+# ---------- D22: THE DERIVED `dead` STATE — a branch that CAN NEVER RUN is not pending ----------
+#
+# THE DEFECT THIS CLOSES, measured 2026-08-19 on both production goals. A goal's `taskforce.csv`
+# registers ONE SEAT PER `planning-mode` VARIANT — `plan-task-definer` behind
+# `plan-dag-structurer[planning-mode=full]` and `plan-planner` behind the `collapsed` twin — copied
+# verbatim from the workflow manifest at materialization. The lane's structurer rules ONE value, so
+# the other variant, and every seat downstream of it, is BLOCKED FOREVER BY CONSTRUCTION. Nothing
+# said so: `engine/seeding.js`' frozen-at-seeding guard counted "not `done`" as pending and fired a
+# goal-frozen alarm on a healthy goal (14 of stools' 16 non-done rows, 13 of meet's 31). An alarm
+# that fires on healthy goals is an alarm the owner learns to ignore, which reinstates the failure
+# mode the whole redesign exists to close. Root-cause record:
+# `1-projects/build-ignite/build/root-cause-unblock-goals/dead-branch-mode-guards-2026-08-19.md`.
+#
+# ⚠ IT IS DERIVED AT READ TIME AND NEVER STORED (owner ruling D22, option a of three). No ledger
+# write, no new file, no migration, nothing that can drift from the rows it describes.
+#
+# ⚠ THE FORK IS DISCHARGED BY `guard-values.csv` AND BY NOTHING ELSE — never by
+# `planning/current/planning-mode.json`, which has zero consumers BY DESIGN (goal-side ruling
+# `d-guard-values-is-the-fork-mechanism`). That is not a preference: the polarity is PER LANE, not
+# per goal. On `meet-transcript-summarizer` the unprefixed lane runs `collapsed` while the `plan-3`
+# lane runs `full`, so a fix reading ONE goal-level mode value gets one of the two lanes backwards.
+# Resolving each guarded member against ITS OWN `(predecessor, key)` ruling row gives per-lane
+# correctness for free, because each lane's structurer owns its own row.
+#
+# ⚠ AND IT READS THE ONE EVALUATOR'S ANSWER, NEVER A SECOND PARSE. The input is
+# `after_member_state`'s structured `unmet-after` entry — the same computation the reason string
+# and `--explain` spend. A reachability notion built on a fresh read of the `after` cell would be
+# the second decomposition 7.424 collapsed, rebuilt one layer up (PRIN-11).
+#
+# WHAT IS DEAD, EXACTLY, and every clause is load-bearing:
+#   guard mismatch   the predecessor is `done`, a ruling for `(predecessor, key)` EXISTS, and its
+#                    value differs from the member's required one. A ruling for a FINISHED seat
+#                    does not change, so the member can never be met.
+#   NOT unruled      `<guard k unruled>` stays ordinary pending — the structurer has not run yet,
+#                    and calling that dead would bury every guarded edge in every young goal.
+#   NOT pending      a predecessor that has not reached `done` has ruled nothing to judge against.
+#   alternates OR    `a|b` is dead only when EVERY limb is dead — one live limb keeps it alive.
+#   conjuncts AND    a seat is dead when ANY ONE of its members is dead; the cell is a conjunction.
+#   transitive       a member whose named predecessor is a DEAD SEAT is dead, iterated to a
+#                    fixpoint — without it the 11 rows downstream of a dead variant keep the false
+#                    positive alive on their own, rendering the indistinguishable `<no check-out>`.
+
+
+def dead_after_entry(entry, dead):
+    """True when this UNMET `after` member entry can NEVER become met. `dead` is the seat set.
+
+    The entry is `after_member_state`'s own structured answer, not a re-reading of the `after`
+    cell — see the block above. Every state it does not name (`no-check-out`, `skew`, a raw
+    disposition, `guard-unruled`) is ALIVE unless the predecessor it names is itself dead, which
+    is the fail-safe direction: an unrecognised state must never be counted dead, because a dead
+    seat is a seat the freeze alarm stops watching."""
+    if not entry:
+        return False
+    state = entry.get("state")
+    if state == "guard-mismatch":
+        return True
+    if state == "alternate-unmet":
+        limbs = entry.get("limbs") or []
+        # `all([])` is True — an alternate with no limbs would read DEAD on an empty list, which is
+        # the one input this predicate must never accept on faith.
+        return bool(limbs) and all(dead_after_entry(e, dead) for e in limbs)
+    return entry.get("seat") in dead
+
+
+def dead_entry_why(entry):
+    """WHY this member is dead, in the words the reason string prints."""
+    if entry.get("state") == "guard-mismatch":
+        g = entry.get("guard") or {}
+        return (f"`{entry['seat']}[{g.get('key')}={g.get('required')}]` needs "
+                f"`{g.get('key')}={g.get('required')}` and `{entry['seat']}` FINISHED having "
+                f"ruled `{g.get('key')}={g.get('ruled')}`")
+    if entry.get("state") == "alternate-unmet":
+        return f"EVERY alternate of `{entry['seat']}` is itself dead"
+    return f"its predecessor `{entry['seat']}` is itself dead"
+
+
+def mark_dead_rows(rows):
+    """Set `dead` on EVERY row (True/False, never absent) and name it in the dead rows' reason.
+
+    Returns the dead seat names. Present on every row for the same rule and the same reason
+    `unmet-after`, `row-outcome` and `undeclared-session` are: a key that appears only when it
+    fires cannot be read as a term, and an ABSENT key raises in a consumer where a false decides.
+
+    ⚠ IT IS A FIELD, NOT A VERDICT VALUE, and that is a measured choice rather than a taste. The
+    launch-admission predicate's class map (`CLASS_TO_VERDICT`) is asserted row-by-row against this
+    home's verdicts by the self-test's arm 1, and a dead row's admission class is
+    `unmet-predecessor` — whose verdict IS `BLOCKED`. A new `DEAD` verdict word would therefore
+    have to land in the admission predicate too, which reads FIELDS and deliberately never reads
+    `verdict` (`no-class-clause`). A dead seat IS blocked; `dead` says the block is permanent. Every
+    existing consumer — `seeding.js`' `verdict === 'READY'` door, its `HELD` and `SKEW` filters,
+    `team_monitor.py`'s READY count — is untouched by construction, and a consumer that has never
+    heard of `dead` keeps the answer it has today.
+
+    ⚠ ONLY A `BLOCKED` ROW IS A CANDIDATE. Every verdict above `BLOCKED` in the ladder is a fact
+    about the seat ITSELF (a check-out, a skew, an owner ask, an occupied roster row), and none of
+    them is made permanent by an unsatisfiable predecessor.
+
+    The fixpoint is a re-sweep per newly-dead seat — O(seats × dead) on a graph of tens of rows,
+    against `unmet-after` lists already in memory. Nothing here re-reads a file."""
+    dead = set()
+    changed = True
+    while changed:
+        changed = False
+        for r in rows:
+            if r["seat"] in dead or r["verdict"] != "BLOCKED":
+                continue
+            if any(dead_after_entry(e, dead) for e in r["unmet-after"]):
+                dead.add(r["seat"])
+                changed = True
+    for r in rows:
+        r["dead"] = r["seat"] in dead
+        if not r["dead"]:
+            continue
+        _why = next((dead_entry_why(e) for e in r["unmet-after"]
+                     if dead_after_entry(e, dead)), "an unsatisfiable `after` member")
+        r["reason"] += (
+            f"   ⚠ DEAD, NOT PENDING — this seat can NEVER run: {_why}. It is a mode-variant "
+            f"branch the lane did not take (or something downstream of one), so it is not owed "
+            f"work and NOTHING is waiting on it. Do not count it as pending, do not retry it, do "
+            f"not alarm on it. DERIVED at read time from `guard-values.csv`, never stored")
+    return dead
+
+
 def ready_seat_rows(args):
     """[{seat, verdict, reason, ...}] for every `taskforce.csv` row, in file order.
 
@@ -14326,6 +14449,11 @@ def ready_seat_rows(args):
                                                       for p in preds)) if preds \
                     else "after: (root — no predecessors)"
         out.append(rec)
+    # D22: THE `dead` TERM, AFTER the loop because it is a FIXPOINT OVER THE ROWS — a member is
+    # dead when the seat it names is dead, and that seat's own row may be built after this one.
+    # It reads `unmet-after` and `verdict`, which every row above now carries, and re-parses
+    # nothing. See the block above `dead_after_entry` for what `dead` means and why it is a field.
+    mark_dead_rows(out)
     return out
 
 
@@ -16668,6 +16796,12 @@ def cmd_ready_seats(args):
             _m = (rec.get("after-render") or {}).get(p) or {"state": "<no check-out>",
                                                             "met": False}
             print(f"  after `{p}` = {_m['state']}   -> {_m['met']}")
+        # D22: rendered on EVERY seat, `-> True` being the term CLEARING — same rule as the
+        # `undeclared-session` and owner-ask lines above. `dead` is derived from the ruling rows in
+        # `guard-values.csv` at read time and is never stored anywhere.
+        print(f"  its `after` can still become satisfied                -> {not rec.get('dead')}"
+              + ("   ⚠ DEAD — this seat can NEVER run and is NOT pending work. See the reason"
+                 if rec.get("dead") else ""))
         print(f"  {c('reason:', C_LABEL)} {rec['reason']}")
         return
     if getattr(args, "json", False):
@@ -16690,6 +16824,16 @@ def cmd_ready_seats(args):
             print(f"granted={len(_granted)}: {', '.join(_granted)}"
                   f"   ⚠ unspent relaunch grant(s) — each seat's reason names its anchor and the "
                   f"exact spend command")
+        # D22: NAMED, and OMITTED when zero — same rule and same reason as `granted=` above, and a
+        # second line for the same reason: `dead` is NOT a verdict (a dead seat is also counted in
+        # `BLOCKED`), so folding it into the census would make the census sum wrong.
+        _dead = [r["seat"] for r in rows if r.get("dead")]
+        if _dead:
+            print(f"dead={len(_dead)}: {', '.join(_dead)}"
+                  f"   ⚠ these are BLOCKED FOREVER, not pending — a mode-variant branch the lane "
+                  f"did not take, or something downstream of one. They are NOT owed work: no "
+                  f"consumer may count them pending, retry them or alarm on them. Each row's "
+                  f"reason names why")
     # ── Q2a — A SKEW BLOCKS ITS OWN SEAT, NEVER THE WHOLE GOAL (owner-ruled 2026-08-18) ───────
     #
     # THE DEFECT THIS CLOSES, measured 2026-08-18. This was an unconditional `sys.exit(1)` on any
@@ -29221,6 +29365,86 @@ def _selftest_checks(args, failures, names):
               _rs29_rows["both"]["verdict"] == "BLOCKED"
               and _rs29_rows["both"]["seed"] == [str(Path(_rs29) / "seats" / "p" / "plan.md")])
 
+        # ============ D22: THE DERIVED `dead` STATE ==============================================
+        # Design of record: `1-projects/build-ignite/build/redesign-plan/decisions.md#D22`, and the
+        # measurement it rests on:
+        # `build/root-cause-unblock-goals/dead-branch-mode-guards-2026-08-19.md`.
+        #
+        # ⚠ THE FOUR ARMS DIFFER FROM EACH OTHER IN ONE CELL, for RS-21's reason: an implementation
+        # that called EVERY unmet guarded edge dead would green a single mismatch arm and would
+        # bury every young goal's unruled edges — so `unruled` is asserted ALIVE beside the
+        # mismatch, on the same taskforce, differing only in the ruling row.
+        _rs30_tf = [("struct", ""), ("full", "struct[mode=full]"), ("coll", "struct[mode=collapsed]"),
+                    ("down", "full"), ("deeper", "down"), ("alt", "full|coll"), ("bare", "struct")]
+        # RULED `collapsed` — so `full` (and everything after it) is dead and `coll` is READY.
+        _rs30_ruled = _rs_make("30r", _rs30_tf, sessions=[("struct", "done")],
+                               guards=[("struct", "mode", "collapsed")])
+        # The SAME package with NO ruling at all: nothing is dead — the structurer has not ruled.
+        _rs30_unruled = _rs_make("30u", _rs30_tf, sessions=[("struct", "done")])
+        # The SAME ruling with the predecessor NOT done: nothing is dead — there is no ruling for a
+        # finished seat to judge against, and this is the arm the `plan-4` lane of
+        # `meet-transcript-summarizer` is in live (both variants pending, neither dead).
+        _rs30_pend = _rs_make("30p", _rs30_tf, sessions=[("struct", "renew")],
+                              guards=[("struct", "mode", "collapsed")])
+        _rs30_R = {r["seat"]: r for r in json.loads(_rs(_rs30_ruled, json=True)[0])}
+        _rs30_U = {r["seat"]: r for r in json.loads(_rs(_rs30_unruled, json=True)[0])}
+        _rs30_P = {r["seat"]: r for r in json.loads(_rs(_rs30_pend, json=True)[0])}
+        check("dag-10 RS-30 (D22) A MISMATCHED GUARD ON A FINISHED PREDECESSOR IS `dead`, AND IT "
+              "PROPAGATES TRANSITIVELY. `struct` ruled `mode=collapsed` and finished, so "
+              "`full[struct[mode=full]]` can never be met — and `down` and `deeper` behind it "
+              "render the ordinary `<no check-out>`, indistinguishable from a seat merely waiting "
+              "its turn, which is exactly why the fixpoint is required: without it 11 of the 12 "
+              "dead rows measured on `stools-canvas-audio-elevenlabs` would still be counted "
+              "pending by the freeze alarm. The MATCHING variant `coll` is READY in the same "
+              "package, which is what makes the ruling the thing that moved",
+              _rs30_R["full"]["verdict"] == "BLOCKED" and _rs30_R["full"].get("dead") is True
+              and _rs30_R["down"].get("dead") is True and _rs30_R["deeper"].get("dead") is True
+              and _rs30_R["coll"]["verdict"] == "READY" and _rs30_R["coll"].get("dead") is False
+              and _rs30_R["bare"].get("dead") is False
+              # the FIELD IS ON EVERY ROW, never only the rows it fires on — a key that appears
+              # only when it fires cannot be read as a term, and an absent key raises in a JS
+              # consumer where a false decides
+              and all("dead" in r for r in _rs30_R.values())
+              and _rs30_R["struct"].get("dead") is False
+              # ...and the reason NAMES the permanence, so a human reading the table is not left
+              # to infer it from a boolean he cannot see
+              and "DEAD, NOT PENDING" in _rs30_R["full"]["reason"]
+              and "mode=collapsed" in _rs30_R["full"]["reason"])
+        check("dag-10 RS-31 (D22) AN UNRULED GUARD IS NOT DEAD, AND NEITHER IS AN UNFINISHED "
+              "PREDECESSOR. Both are the fail-safe direction and both are the COMMON case: a "
+              "young goal whose structurer has not run yet carries an unruled guard on every mode "
+              "variant, and a lane whose structurer is still pending carries `<no check-out>` on "
+              "both. Calling either dead would delete the freeze alarm's whole subject — the "
+              "alarm stops watching a dead seat, so a false `dead` is strictly worse than the "
+              "false `pending` this change fixes. Same taskforce as RS-30, differing in ONE cell "
+              "(the ruling row / the predecessor's disposition), so nothing but that cell can "
+              "explain the flip",
+              _rs30_U["full"]["verdict"] == "BLOCKED" and _rs30_U["full"].get("dead") is False
+              and _rs30_U["coll"].get("dead") is False and _rs30_U["down"].get("dead") is False
+              and "<guard mode unruled>" in _rs30_U["full"]["reason"]
+              and _rs30_P["full"].get("dead") is False and _rs30_P["coll"].get("dead") is False
+              and _rs30_P["down"].get("dead") is False)
+        check("dag-10 RS-32 (D22) AN ALTERNATE IS DEAD ONLY WHEN EVERY LIMB IS. `alt` depends on "
+              "`full|coll`: `full` is dead and `coll` is satisfiable, so the alternate is ALIVE — "
+              "an OR read as a conjunction here would kill `plan-check-mechanization` on both "
+              "production goals, which is a seat the run genuinely owes. The conjunct direction is "
+              "the opposite and is asserted by RS-30's `down`: a cell is an AND, so ONE dead "
+              "member kills the seat",
+              _rs30_R["alt"].get("dead") is False
+              and any(e.get("state") == "alternate-unmet"
+                      for e in _rs30_R["alt"]["unmet-after"]))
+        # THE DEAD-ALTERNATE arm, on its own package: BOTH limbs guarded, BOTH mismatched.
+        _rs33 = _rs_make("33", [("struct", ""), ("both", "struct[mode=full]|struct[mode=hybrid]")],
+                         sessions=[("struct", "done")],
+                         guards=[("struct", "mode", "collapsed")])
+        _rs33_rows = {r["seat"]: r for r in json.loads(_rs(_rs33, json=True)[0])}
+        check("dag-10 RS-33 (D22) ...AND IT IS DEAD WHEN EVERY LIMB IS. `struct[mode=full]|"
+              "struct[mode=hybrid]` against a ruled `mode=collapsed`: no limb can ever carry it. "
+              "Without this arm the alternate branch could return a flat `False` and green RS-32",
+              _rs33_rows["both"]["verdict"] == "BLOCKED"
+              and _rs33_rows["both"].get("dead") is True
+              and "EVERY alternate" in _rs33_rows["both"]["reason"])
+
         # ---- D3: A `done` CHECK-OUT IS REFUSED WHILE THE SEAT OWES AN UNWRITTEN GUARD ----------
         # Driven through the REAL `cmd_checkout`, on a real package, in the order a seat meets it:
         # check in, try to finish, be refused, write the value, finish. The refusal arm and the
@@ -37919,8 +38143,21 @@ def build_parser():
         "ONE member is. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
         "last two disagree about one seat it reports SKEW for THAT seat rather than picking a\n"
         "winner — that seat and its dependents are held, the rest of the goal keeps advancing,\n"
-        "and the exit status stays 0 (Q2a). READ-ONLY: launches nothing, writes nothing,\n"
-        "messages nobody.",
+        "and the exit status stays 0 (Q2a).\n"
+        "\n"
+        "DEAD vs BLOCKED (D22) — every row also carries a boolean `dead`, and the census names\n"
+        "the dead seats. BLOCKED means an `after` member is unsatisfied TODAY. DEAD means it can\n"
+        "NEVER be satisfied: a guarded member whose predecessor already FINISHED having ruled a\n"
+        "different value (`coordinate rule-guard` writes that ruling, and a finished seat's\n"
+        "ruling does not change), or anything downstream of such a seat. That is the ordinary\n"
+        "shape of a `planning-mode` fork — a taskforce registers BOTH variants and the lane runs\n"
+        "one, so the other branch is dead BY DESIGN and is not a defect. An UNRULED guard is NOT\n"
+        "dead (the structurer has not run), nor is a predecessor that has not finished; an\n"
+        "alternate `a|b` is dead only when EVERY limb is. ⚠ A DEAD SEAT IS NOT PENDING WORK: no\n"
+        "consumer may count it toward a frozen/stalled goal, retry it, or alarm on it. It is\n"
+        "DERIVED at read time and stored nowhere.\n"
+        "\n"
+        "READ-ONLY: launches nothing, writes nothing, messages nobody.",
         "example:\n"
         "  coordinate ready-seats\n"
         "  coordinate ready-seats --json\n"
@@ -37929,8 +38166,10 @@ def build_parser():
     s.add_argument("--json", action="store_true",
                    help="the same rows as JSON, each carrying its verdict, reason, disposition, "
                         "source and `seed` (the resolved absolute paths of the declared outputs "
-                        "of the predecessors that satisfied it; [] on a root) — so a machine "
-                        "consumer never parses the reason text")
+                        "of the predecessors that satisfied it; [] on a root) and `dead` (D22: "
+                        "true when its `after` can NEVER be satisfied, so it is blocked forever "
+                        "and is NOT pending work) — so a machine consumer never parses the reason "
+                        "text")
     s.add_argument("--explain", metavar="SEAT",
                    help="print the full predicate evaluation for ONE seat, term by term")
     # Q2a: the OPT-IN back to the pre-2026-08-18 whole-goal fail-close, for a caller that reads the
