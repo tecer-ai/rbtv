@@ -5236,6 +5236,21 @@ def is_staff_seat(name):
     return name in STAFF_SEATS
 
 
+# D24 (owner, 2026-08-19): a minted `goal-master` must NOT answer READY. It waits to be
+# summoned (a goal-channel message or `@rbtv` bot tag — D11) rather than launching itself
+# the moment it is materialized. This is a READINESS exclusion only.
+#
+# ⚠ NOT `STAFF_SEATS`. That tuple is read at four sites (`is_staff_seat`, the staff-mail
+# arm, launch admission, `--route` choices). Widening it to buy this one exclusion would
+# change staff mail, admission and routing at once. The owner rejected that (D24 option
+# (c)). `goal-master` stays in `STAFF_CLAIM_IDENTITIES` and out of `STAFF_SEATS`.
+SUMMONED_SEATS = ("goal-master",)
+
+
+def is_summoned_seat(name):
+    return name in SUMMONED_SEATS
+
+
 def is_permission_editor(name):
     """Who may run the audited permission-edit verb (`widen-cage`): the `leader`, and nobody else.
 
@@ -14180,6 +14195,18 @@ def ready_seat_rows(args):
                 f"the moment anything is addressed to `{seat}` (the session-closer's staff mail, a "
                 f"routed FAIL, a seat's ask, a lifecycle alarm), and after its first sitting it "
                 f"wakes through the UNSPENT GRANT its wake mints. It advances NO edge meanwhile")
+        elif is_summoned_seat(seat):
+            # D24 · THE SUMMONED SEAT, NOT OFFERED. Narrower than the staff-chair branch
+            # above: mail is NOT a wake term. The daemon's `verdict == "READY"` filter must
+            # never spawn this seat; a bot-tag / forward-path enqueue (which does not read
+            # this verdict) is the summon. Conjunction admission is untouched — an explicit
+            # `launch --only goal-master` still admits.
+            rec["verdict"] = "IDLE"
+            rec["reason"] = (
+                f"ON-DEMAND summoned seat — this seat holds no workflow node and is spawned "
+                f"only when the owner addresses it (a goal-channel message or `@rbtv` bot "
+                f"tag). NOT OFFERED: minting it must not launch a sitting. It advances NO "
+                f"edge meanwhile")
         else:
             # 7.273: `unmet` is built ONCE at the top of this iteration, for every row and not
             # only the ones that reach here — see the hoist above. The membership, the order and
@@ -27967,6 +27994,24 @@ def _selftest_checks(args, failures, names):
               # always been about is UNMOVED and is the second conjunct: `b` is still BLOCKED, so
               # a `renew` predecessor still advances NO edge.
               and _rs1_rv == {"a": "RENEW-BLOCKED", "b": "BLOCKED"})
+
+        # ---- D24: a minted goal-master is NOT READY (summoned, not seeded) ----
+        check("D24: STAFF_SEATS is not widened — goal-master is summoned, not a staff chair",
+              STAFF_SEATS == ("leader", "consultant")
+              and "goal-master" not in STAFF_SEATS
+              and is_summoned_seat("goal-master")
+              and not is_summoned_seat("leader")
+              and not is_summoned_seat("alpha")
+              and not is_staff_seat("goal-master"))
+        _d24_pkg = _rs_make("d24summon", [("goal-master", ""), ("alpha", "")])
+        _d24_v, _d24_c = _rs_v(_d24_pkg)
+        check("D24: a minted `goal-master` reads IDLE — it waits to be summoned and is "
+              "NOT offered to the daemon's READY filter. CONTROL: an ordinary root "
+              "`alpha` on the same taskforce still reads READY, so the exclusion is "
+              "the named seat, not a blanket suppression of roots",
+              _d24_c == 0
+              and _d24_v.get("goal-master") == "IDLE"
+              and _d24_v.get("alpha") == "READY")
 
         # ---- LE-10: `renewal-state` — the verb IS `renewal_state`'s answer, verbatim ----
         # A fresh in-flight `renew` marker reads `successor-pending`; a seat with NO marker reads
