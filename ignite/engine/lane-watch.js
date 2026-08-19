@@ -337,6 +337,15 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     const goalFolder = path.join(goalsRoot, goal);
     const { lane, legacy, raw } = readLane(goalFolder);
 
+    // D1 watcher: honour pause via the ONE reader. A paused marker flattens to
+    // console below, so without this call maybeReconcile never sees the goal and
+    // the skip would be an accident of the console-flatten (two readings of one
+    // state). Call it here; reconcileGoal returns skipped:'paused' before
+    // ready-seats. Seeding still uses the existing lane !== DAEMON path.
+    if (!goal.startsWith('_') && laneIsPaused(goalFolder)) {
+      maybeReconcile({ goal, goalFolder, engine, say });
+    }
+
     if (lane !== DAEMON) {
       // A LEGACY two-token marker is reported, not silently treated as a console assignment: it
       // was written to say `daemon` and this grammar cannot honour it, which is a state only a

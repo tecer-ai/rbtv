@@ -288,6 +288,43 @@ say('── count durable across store close/reopen ──');
   }
 }
 
+say('── paused goal is not reconciled ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureA();
+    fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
+    const logs = [];
+    const r = reconcileGoal({
+      goal: 'fx-pause', goalFolder, engine: { heartStore: store },
+      say: (level, message) => { logs.push({ level, message }); },
+      force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.strictEqual(r.skipped, 'paused', JSON.stringify(r));
+    assert.strictEqual(store.listQueue().length, 0, 'paused goal must not enqueue');
+    assert.ok(logs.some((l) => l.message === 'reconcile: skipped — goal is paused'),
+      JSON.stringify(logs));
+    say('ok  paused console → skipped:paused, queue empty, skip log fired');
+
+    fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
+    const unpaused = reconcileGoal({
+      goal: 'fx-pause', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    const enq = unpaused.actions && unpaused.actions.find((a) => a.kind === 'enqueue');
+    assert.ok(enq, JSON.stringify(unpaused.actions));
+    assert.ok(enq.enq && !enq.enq.deduped, JSON.stringify(enq.enq));
+    say(`ok  control: same folder unpaused enqueued ${enq.jobId || enq.seat}`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
 say('── cadence skip ──');
 {
   const store = openStore();
@@ -339,6 +376,36 @@ say('── red arm: mutation of the strike guard ──');
     }
     assert.strictEqual(sent.length, 0, `mutated guard still emitted ${sent.length} stuck`);
     say('ok  red: deleting the strike emit guard yields 0 stuck after 4 refusals');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── red arm: mutation of the pause gate ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = 'if (goalFolder && laneIsPaused(goalFolder))';
+  assert.ok(src.includes(ANCHOR), 'pause gate anchor missing');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, 'if (false && goalFolder && laneIsPaused(goalFolder))'), mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureA();
+    fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
+    const r = mut.exports.reconcileGoal({
+      goal: 'fx-pause-red', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'x',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.notStrictEqual(r.skipped, 'paused', JSON.stringify(r));
+    const enq = r.actions && r.actions.find((a) => a.kind === 'enqueue');
+    assert.ok(enq, `mutated pause gate did not enqueue: ${JSON.stringify(r.actions)}`);
+    say('ok  red: deleting the pause gate enqueues a paused goal');
   } finally {
     store.close();
     closeHeartStore();
