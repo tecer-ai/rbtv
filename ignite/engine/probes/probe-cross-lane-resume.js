@@ -225,12 +225,21 @@ async function main() {
     traceRows.length > 1, `${Math.max(0, traceRows.length - 1)} row(s)`);
   // ⚑ THE PATTERN IS A QUOTED PATH, not the bare word: a match on prose would fire on the sentences
   // that merely NAME the trace. The control proves the pattern finds a real reader where one exists.
+  // D3 (2026-08-19): `server/spawn/spawn.js` no longer quotes `'sessions.csv'`. The quoted
+  // mentions were the file-level ro-carve and `assertGroundTruthUnwritable` — the anti-forgery
+  // rule D3 retired. The at-dispatch writer remains; it addresses the file via
+  // `dispatchSeat.sessionsCsv`, never a quoted basename. The attached carrier still quotes the
+  // path because it opens the file by name.
   const TRACE_READ = /['"]sessions\.csv['"]/;      // quotes only — a backticked mention is prose
   const traceReadersAnywhere = filesMatching(TRACE_READ);
-  check('D1 …and the ENGINE both writes and reads it — the foreground carrier opens and closes a row',
+  check('D1 …and the ATTACHED carrier writes and reads the quoted path',
     traceReadersAnywhere.includes('engine/attached-execution.js')
-      && traceReadersAnywhere.includes('server/spawn/spawn.js'),
-    `readers: ${traceReadersAnywhere.join(', ')}`);
+      && !traceReadersAnywhere.includes('server/spawn/spawn.js'),
+    `quoted-path readers: ${traceReadersAnywhere.join(', ')}`);
+  const spawnSrc = fs.readFileSync(path.join(IGNITE_SRC, 'server', 'spawn', 'spawn.js'), 'utf8');
+  check('D1 …and the DAEMON spawn path still writes the at-dispatch row via sessionsCsv (D3: no file-level carve)',
+    /sessionsCsv/.test(spawnSrc) && /appendRowEnsuringHeader/.test(spawnSrc) && !TRACE_READ.test(spawnSrc),
+    'spawn.js must keep the writer and must not re-introduce a quoted sessions.csv carve');
   // S-20 (owner ruling #d-s20-foreground-seat-writes-session-row) FLIPPED THIS ARM, and the flip is
   // the acceptance: a terminal-carried seat IS a launched session, so BOTH carriages of one run now
   // appear in the one trace. The pre-ruling finding (D1b, "the carrier leaves no row") is retired,

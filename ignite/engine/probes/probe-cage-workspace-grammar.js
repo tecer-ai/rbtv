@@ -14,8 +14,10 @@
 //   2. ADMIT on a `permission-edits.csv` row — the leader's audited widen lane.
 //   3. REFUSE with `no-workspace-grant` (naming BOTH grant classes, never the goal bind) when
 //      both classes are absent.
-//   4. The GOAL grammar is untouched: a `goal-writes`-covered token still admits, and an
-//      in-goal unwritable token still refuses `producer-cannot-write`.
+//   4. The GOAL grammar follows D3 (2026-08-19): a `goal-writes`-covered token still admits;
+//      an ordinary in-goal token now also admits (the whole goal folder is RW). A wall-control
+//      surface (`seat.md`) still refuses `producer-cannot-write` — those ro-binds are the fence
+//      holding its posts, not the retired anti-forgery rule.
 //
 // Plus the refusal->bus wire: `seeding.js#surfaceCageRefusal` -> `coord.py surface-refusal`
 // lands EXACTLY ONE row per (seat, reason) on the fixture goal's messages.md, however many
@@ -122,14 +124,20 @@ function main() {
     check('arm 3: the refusal is NOT the misdiagnosed `producer-cannot-write` quoting the goal bind',
       !r3.includes('producer-cannot-write'), r3.slice(0, 300));
 
-    // 4 — the goal grammar is untouched by the new lane.
+    // 4 — the goal grammar follows D3: the whole goal folder is RW. The former
+    // `producer-cannot-write` on an ordinary in-goal path was the cage's anti-forgery /
+    // narrow-opening rule; D3 retired it. Wall-control surfaces still refuse.
     const f4 = make({ rwPaths: true, outputs: [`coordination/${SEAT}-report.md`] });
     check('arm 4a: a `goal-writes`-covered goal-relative token still ADMITS',
       admit(f4, seatBinds) === null, `refused: ${admit(f4, seatBinds)}`);
     const f5 = make({ rwPaths: false, outputs: ['outputs/product.md'] });
-    const r5 = admit(f5, seatBinds) || '';
-    check('arm 4b: an in-goal unwritable token still refuses `producer-cannot-write` (never misrouted to the workspace lane)',
-      r5.includes('producer-cannot-write') && !r5.includes('no-workspace-grant'), r5.slice(0, 300) || 'admitted');
+    const r5 = admit(f5, seatBinds);
+    check('arm 4b: an ordinary in-goal token now ADMITS (D3: the goal folder is RW; never misrouted to the workspace lane)',
+      r5 === null, r5 ? r5.slice(0, 300) : 'admitted');
+    const f5b = make({ rwPaths: false, outputs: [`seats/${SEAT}/seat.md`] });
+    const r5b = admit(f5b, seatBinds) || '';
+    check('arm 4c: a wall-control surface (`seat.md`) still refuses `producer-cannot-write` (D3: the fence holding its posts)',
+      r5b.includes('producer-cannot-write') && !r5b.includes('no-workspace-grant'), r5b.slice(0, 300) || 'admitted');
 
     // 5 — the refusal->bus wire: once per (seat, reason), however many passes repeat it.
     const f6 = make({ rwPaths: false, outputs: [MIRROR_TOKEN] });
@@ -159,8 +167,8 @@ say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
   : 'RESULT: PASS — the admission gate admits workspace-grammar outputs on either spawner grant '
     + 'class (shared resolvers, so the two sides agree by construction), refuses grantless ones '
-    + 'naming the missing grant, leaves the goal grammar untouched, and lands each refusal on '
-    + 'the goal bus exactly once.');
+    + 'naming the missing grant, admits ordinary in-goal tokens (D3: goal folder is RW), still '
+    + 'refuses a wall-control surface (`seat.md`), and lands each refusal on the goal bus exactly once.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
 fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');
