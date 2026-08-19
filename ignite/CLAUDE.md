@@ -203,7 +203,7 @@ pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other scripts in the fo
 
 ## Deploy model — last commit, never the live tree (owner-ruled D6, 2026-08-19)
 
-**History.** On 2026-08-17 the owner ruled the daemon ran in place from the source tree, with no
+**History.** On 2026-08-17 the owner ruled the daemon ran from the working copy, with no
 deploy gate, "and by owner ruling … none is built". That ruling is superseded.
 
 **Now (D6, 2026-08-19):** single daemon instance, running from the last COMMIT, never the live
