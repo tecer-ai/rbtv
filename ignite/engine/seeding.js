@@ -56,7 +56,11 @@ const { readExecutionRecord, CLEAN, PROCESS_OUTCOME_OF } = require('./execution-
 // The ONE interpreter resolver this repo already has (`python3` is a Microsoft-Store LIE on
 // Windows — it is on PATH, is executable, and runs no python).
 const { requirePythonCmd } = require('../lib/python-cmd');
-const { admitDeclaredOutputs } = require('./cage-admission');
+const { admitDeclaredOutputs, admitLaneReach } = require('./cage-admission');
+// D9 (seed-gates, 2026-08-19): the goal-live check's ONE liveness reading — the same
+// `deriveLease` the launch-time gate (`spawn.js` -> `checkGoalExecuting`) reads, at the same
+// ROOM threshold, so the pre-spend refusal and the launch refusal can never disagree.
+const { deriveLease } = require('../server/lease/lease');
 // THE RELAUNCH GRANT'S ONE HOME — a file in the goal folder, read HERE rather than threaded in by
 // each caller. See `relaunch-grants.js`'s header for why the parameter was the defect: the daemon
 // lane's only call (`lane-watch.js#runLaneWatch` -> `seedGoal`) passes no relaunch key and never
@@ -980,6 +984,22 @@ function enqueueEligible(heartStore, rows, {
       surfaceCageRefusal(goalFolder, row.seat, refusal, logger);
       continue;
     }
+    // ── D5 (seed-gates, 2026-08-19): LANE REACH, the refusal beside the one above ──────────────
+    // Could this seat's declared probe lane RUN once caged? The stools DoD judge burned two waves
+    // landing in cages where `stools workspaces` exited 127 — the requirement was written in four
+    // prose surfaces and read by nothing. It is now machine-readable in the seat's io-spec
+    // (`## Requires-reach`) and refused HERE, through the same log + bus surfacing as its sibling.
+    // The gate checks REACH (declaration/bind present), never behavior (`exit 0`) — see
+    // `cage-admission.js#admitLaneReach` for the honest limit.
+    const reachRefusal = admitLaneReach({
+      seatBinds: seatBindsFor(row.seat), goalFolder, seat: row.seat,
+      workspaceRoot: heartStore.config?.workspaceRoot || null,
+    });
+    if (reachRefusal) {
+      if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — its declared lane reach is not satisfied by the composed cage', seat: row.seat, evidence: reachRefusal });
+      surfaceCageRefusal(goalFolder, row.seat, reachRefusal, logger);
+      continue;
+    }
     // ── THE BOOT PROMPT, THE LAST PRE-QUEUE REFUSAL ──────────────────────────────────────────
     // Composed by coord, for THIS seat, from THIS goal's package — never here. Ordered after the
     // cage test and BEFORE the relaunch grant is spent: a seat that cannot be composed for is not
@@ -1072,12 +1092,49 @@ function enqueueEligible(heartStore, rows, {
 // unreachable from a flag — and answering it by, say, seeding every goal folder the daemon can see
 // would be a policy this build was not asked to invent. `engine.seedGoal()` is the seam; the caller
 // that fires it is named in the contract as the follow-on.
-function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, relaunch = null }) {
+function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, relaunch = null, readLease = deriveLease }) {
   if (!goal) {
     throw new Error(
       'seedGoal requires the goal NAME: it namespaces the job ids so two goals with a seat of the ' +
       'same name cannot share one job row in a store that holds every goal (the daemon\'s).'
     );
+  }
+  // ── D9 (seed-gates, 2026-08-19): THE GOAL-LIVE CHECK, BEFORE ANYTHING IS SPENT ──────────────
+  // The measured failure (G-leader-0818-1830, meet-transcript-summarizer): two relaunch grants
+  // burned with no session row to show for them. The spend lives in this function's ready-row
+  // loop (`seat-retry --spend`, then `spendGrant`) while the goal-live refusal (`E_GOAL_NOT_LIVE`)
+  // fired LATER and elsewhere — at the ticker's dispatch, in `spawn.js` — so every pass paid the
+  // one-shot grant for a launch the spawn door was always going to refuse. The SAME lease, at the
+  // SAME threshold, is therefore read HERE FIRST: `deriveLease().live` is the ROOM's existence
+  // (never the stricter occupant set — a room mid-relaunch between seat boots must still seed).
+  // Not live → one log line, one bus row (the D2 surfacing, keyed by the goal name), and a return
+  // with NOTHING enqueued and NOTHING spent; the next cadence retries for free.
+  //
+  // `readLease` is the probes' injection point, `checkGoalExecuting`'s own pattern. The workspace
+  // root is the composition root's ONE resolution threaded via the store (D2); absent (a bare
+  // test store with no spawn manager behind it), the check cannot be derived and seeding proceeds
+  // as before — the daemon and the attached lane always thread one.
+  const wsRoot = heartStore.config?.workspaceRoot || null;
+  if (wsRoot) {
+    const lease = readLease({ workspaceRoot: wsRoot, goal });
+    const notLive = !lease.ok
+      ? `the lease of goal ${goal} is UNREADABLE (${lease.reason}) — refused on ignorance rather than spent on a fact it could not measure`
+      : (lease.live ? null : `goal ${goal} has NO live room (tmux session named \`${goal}\`) — the spawn door would refuse every launch E_GOAL_NOT_LIVE, so nothing is enqueued and no relaunch grant is spent. Start the room (\`rbtv run\`) and the next seed pass proceeds`);
+    if (notLive) {
+      if (logger) {
+        logger({
+          level: 'warn',
+          message: 'goal NOT seeded this pass — the goal is not LIVE, and seeding it would spend grants on launches the spawn door refuses',
+          goal, goalFolder, evidence: notLive,
+        });
+      }
+      surfaceCageRefusal(goalFolder, goal, notLive, logger);
+      return {
+        goalFolder, goal, seats: readTaskforce(goalFolder).map((r) => r.seat), enqueued: [], seeds: {},
+        skippedAsFinished: [], heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {},
+        readinessRefused: null, goalNotLive: notLive, skewed: [],
+      };
+    }
   }
   try {
     const { ensureRoomSelfheal } = require('./ensure-room-selfheal');

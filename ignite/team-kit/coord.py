@@ -14989,8 +14989,11 @@ def cmd_surface_refusal(args):
         if dup is None:
             num = _append_message_unlocked(
                 base, sender, "owner", "note",
-                f"{marker}\n\nseat NOT enqueued — a declared output is inadmissible for a caged "
-                f"launch. The daemon repeats this check every seed pass; this row is written "
+                # D5/D9 (seed-gates, 2026-08-19): the body line is GENERIC — this verb now
+                # carries every seed-pass refusal class (declared-output admission, lane
+                # reach, goal-not-live), and the verbatim reason below names which one.
+                f"{marker}\n\nNOT seeded — the seeding pass refused it before the queue. "
+                f"The daemon repeats this check every seed pass; this row is written "
                 f"once. The refusal, verbatim:\n\n{reason}")
             status = "surfaced"
         else:

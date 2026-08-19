@@ -165,9 +165,11 @@ function createEngine({
     // the goal's execution record says is finished — whichever lane finished it. The attached lane
     // does its own seeding inline (it also carries held seats in the terminal, which this does not);
     // this is the entry a SHARED store uses, and it is what the daemon lane never had.
-    seedGoal: ({ goalFolder, goal, isHeld = null }) => {
+    // `readLease` is the D9 goal-live check's injection point (probes supply a fixture lease
+    // reading; production callers pass nothing and get the real `deriveLease`).
+    seedGoal: ({ goalFolder, goal, isHeld = null, readLease = undefined }) => {
       publishToRecord(heartStore, { logger });
-      return seedGoal({ heartStore, goalFolder, goal, isHeld, logger });
+      return seedGoal({ heartStore, goalFolder, goal, isHeld, logger, ...(readLease ? { readLease } : {}) });
     },
 
     // Idempotent: an attached run closes on its own exit path AND on a signal, and the second

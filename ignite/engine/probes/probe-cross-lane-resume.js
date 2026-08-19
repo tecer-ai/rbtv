@@ -59,6 +59,10 @@ const record = require('../execution-record');
 const { createEngine } = require('../index');
 const { openHeartStore } = require('../../server/heart/heart-store');
 const { requirePythonCmd } = require('../../lib/python-cmd');
+// D9 (seed-gates, 2026-08-19): the goal-live injection — the real `deriveLease` over a fixture
+// tmux reading whose one session IS the goal's room, so fixture goals seed as live ones do.
+const { deriveLease } = require('../../server/lease/lease');
+const fixtureLiveLease = ({ workspaceRoot, goal }) => deriveLease({ workspaceRoot, goal, tmuxProbe: () => ({ sessions: goal, panes: '' }) });
 
 // Every .js/.py under the module, minus vendored code — the enumerator a structural claim must go
 // through, because a hand-glob's wrong answer and right answer are the same empty result.
@@ -274,7 +278,7 @@ async function main() {
   });
   let pickup;
   try {
-    pickup = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane' });
+    pickup = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane', readLease: fixtureLiveLease });
   } finally {
     daemonEngine.close();
   }
@@ -524,7 +528,7 @@ async function main() {
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pick;
-    try { pick = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane' }); }
+    try { pick = daemonEngine.seedGoal({ goalFolder, goal: 'lane-goal', profile: 'probe-lane', readLease: fixtureLiveLease }); }
     finally { daemonEngine.close(); }
     check('F2 …and THAT is what the other lane reads: the daemon skips alpha off the republished record',
       pick.skippedAsFinished.includes('alpha') && !pick.enqueued.includes('alpha'),

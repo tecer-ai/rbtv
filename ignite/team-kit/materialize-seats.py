@@ -742,6 +742,15 @@ _FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 # disagreeing is a seat that materializes and then cannot pass its own lint.
 _BLOCK_RE = SECTION_RE
 
+# D5 (seed-gates, 2026-08-19) — a done-contract line NAMING a probe lane the
+# seat must be able to run once caged: `probe lane: `<command …>`` (hyphen or
+# space, optional list dash, command backticked). The first word of the
+# command is the CLI the lane needs on PATH; render_descriptors derives a
+# `## Requires-reach` io-spec entry from it (see the emission site).
+_PROBE_LANE_RE = re.compile(
+    r"^[ \t]*(?:[-*][ \t]*)?probe[ -]lane:[ \t]*`([^`\n]+)`",
+    re.IGNORECASE | re.MULTILINE)
+
 # d-run3-assembled-shape (i) — a `Reference: <id>@latest` line INSIDE a unit
 # body (the io-spec mandate references; written with or without backticks,
 # with an optional list dash and trailing period). The assembly lockfile only
@@ -2391,6 +2400,56 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
             # assembler's relative order (unlisted kinds after the listed).
             blocks = sorted(
                 blocks, key=lambda kt: kind_rank.get(kt[0], len(KIND_ORDER)))
+
+        # D5 (seed-gates, 2026-08-19): REQUIRES-REACH, derived from the
+        # done-contract's NAMED probe lane. A contract line
+        # `probe lane: `<command …>`` names a lane the seat must be able to
+        # RUN once caged; the stools DoD judge burned two waves because that
+        # requirement lived in prose and nothing that admits a launch read
+        # it. The first word of each named lane becomes a machine-readable
+        # `- cli `<name>`` entry in the io-spec's `## Requires-reach`
+        # section — the D3 single-surface idiom — which the pre-enqueue gate
+        # (`engine/cage-admission.js#admitLaneReach`) checks against the
+        # seat's `exposed-clis:` declarations. `path` entries are authorable
+        # in the io-spec unit directly; nothing here derives them. A
+        # hand-authored section is respected: derivation only ADDS entries
+        # whose cli name is not already declared in it.
+        lane_cmds = []
+        for kind, text in blocks:
+            if kind == "done-contract":
+                lane_cmds += _PROBE_LANE_RE.findall(text)
+        lane_clis = []
+        for cmd in lane_cmds:
+            first = cmd.strip().split()[0] if cmd.strip() else ""
+            if first and first not in lane_clis:
+                lane_clis.append(first)
+        if lane_clis:
+            io_idx = next((i for i, kt in enumerate(blocks)
+                           if kt[0] == "io-spec"), None)
+            io_text = blocks[io_idx][1] if io_idx is not None else ""
+            if io_idx is None or "</io-spec>" not in io_text:
+                plan["warnings"].append(
+                    f"seat '{seat}': requires-reach underivable — its done "
+                    f"contract names probe lane(s) {lane_cmds!r} but the "
+                    "seat resolves no io-spec block to carry the "
+                    "`## Requires-reach` section; the pre-enqueue gate "
+                    "cannot check the lane (D5, 2026-08-19)")
+            else:
+                fresh = [c for c in lane_clis
+                         if f"cli `{c}`" not in io_text]
+                if fresh:
+                    if "## Requires-reach" in io_text:
+                        section = "".join(f"- cli `{c}`\n" for c in fresh)
+                        new_text = io_text.replace(
+                            "## Requires-reach\n",
+                            "## Requires-reach\n" + section, 1)
+                    else:
+                        section = ("\n## Requires-reach\n"
+                                   + "".join(f"- cli `{c}`\n"
+                                             for c in fresh))
+                        new_text = io_text.replace(
+                            "</io-spec>", section + "</io-spec>", 1)
+                    blocks[io_idx] = (blocks[io_idx][0], new_text)
 
         # The assembly-lockfile refs (frozen `<unit-id>@<version>` values)
         # carry over from the assembler's frontmatter, after the scalars.
@@ -6214,6 +6273,28 @@ def run_dag04_acceptance(check, env: dict) -> None:
                       for w in _d3_prose["warnings"])
               and render_mutated(lambda a: a)[0]["warnings"] == [],
               str(_d3_prose["warnings"])[:200])
+
+        # D5 (seed-gates, 2026-08-19): a done-contract NAMING a probe lane
+        # (`probe lane: `stools workspaces``) emits a machine-readable
+        # `- cli `stools`` entry under `## Requires-reach` INSIDE the io-spec
+        # block — the surface `engine/cage-admission.js#admitLaneReach` reads
+        # at the pre-enqueue gate — and the unmutated control emits none.
+        _d5_plan, _d5_code = render_mutated(lambda a: a.replace(
+            "Outputs exist and are non-empty.",
+            "Outputs exist and are non-empty.\n"
+            "probe lane: `stools workspaces`"))
+        _d5_text = ("" if _d5_code is not None
+                    else _d5_plan["descriptors"]["alpha"])
+        _d5_io = next((m.group(0) for m in _BLOCK_RE.finditer(_d5_text)
+                       if m.group(1) == "io-spec"), "")
+        check("D5: a done-contract `probe lane:` line emits `- cli "
+              "`stools`` under `## Requires-reach` inside the io-spec "
+              "block, and the lane-less control emits no section",
+              _d5_code is None and "## Requires-reach" in _d5_io
+              and "- cli `stools`" in _d5_io
+              and "## Requires-reach" not in
+              render_mutated(lambda a: a)[0]["descriptors"]["alpha"],
+              (_d5_io[-260:] if _d5_io else f"refused {_d5_code}"))
 
         check("emitted key set opens in the ruled order "
               "(seat..description..cwd..agent_type..triple..mode)",

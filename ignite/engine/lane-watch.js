@@ -288,7 +288,9 @@ function consoleRunIsLive(goalFolder) {
 // ponytail: O(goals) `readdir` + one small read per goal per cadence, and `engine.seedGoal`
 // publishes the record once per adopted goal. At tens of goals and a 10 s cadence that is noise;
 // if the tree ever reaches thousands, watch mtimes instead of re-reading every pass.
-function runLaneWatch({ goalsRoot, engine, logger = null }) {
+// `readLease` is the D9 goal-live check's injection point, forwarded verbatim to
+// `engine.seedGoal` — production passes nothing and seeding reads the real lease.
+function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined }) {
   const say = (level, message, extra = {}) => { if (logger) logger({ level, message, ...extra }); };
   const adopted = [];
   const skipped = [];
@@ -430,7 +432,7 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
     let pickup;
     try {
-      pickup = engine.seedGoal({ goalFolder, goal });
+      pickup = engine.seedGoal({ goalFolder, goal, ...(readLease ? { readLease } : {}) });
     } catch (err) {
       skipped.push({ goal, reason: 'seed-failed', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'error' : 'debug',
@@ -460,6 +462,14 @@ function runLaneWatch({ goalsRoot, engine, logger = null }) {
 
     if (pickup.readinessRefused) {
       skipped.push({ goal, reason: 'readiness-refused', evidence: pickup.readinessRefused });
+      continue;
+    }
+
+    // D9 (seed-gates): the goal is not LIVE — `seedGoal` refused before anything was enqueued or
+    // any relaunch grant spent, and already logged + surfaced it. A skip, not an adoption: a goal
+    // with no room must not be reported "seeded" nor have a channel ensured for it.
+    if (pickup.goalNotLive) {
+      skipped.push({ goal, reason: 'goal-not-live', evidence: pickup.goalNotLive });
       continue;
     }
 

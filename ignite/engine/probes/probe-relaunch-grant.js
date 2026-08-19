@@ -142,6 +142,13 @@ function synthTerminalAttempt(store, goalFolder, { jobId, storeStatus }) {
   return sessionId;
 }
 
+// D9 (seed-gates, 2026-08-19): the goal-live check's injection point — the REAL `deriveLease`
+// over a fixture tmux reading whose one session IS the goal's room. A probe supplies real
+// measurables, never a verdict; without this, fixture goals (no real room) would refuse the seed
+// before any grant arm could be measured.
+const { deriveLease } = require('../../server/lease/lease');
+const fixtureLiveLease = ({ workspaceRoot, goal }) => deriveLease({ workspaceRoot, goal, tmuxProbe: () => ({ sessions: goal, panes: '' }) });
+
 // ONE daemon-lane seeding pass, through the exact call `lane-watch.js` makes — no relaunch key.
 function daemonPass(goalFolder, goal) {
   const logs = [];
@@ -154,7 +161,7 @@ function daemonPass(goalFolder, goal) {
   });
   let pickup;
   try {
-    pickup = engine.seedGoal({ goalFolder, goal, profile: PROFILE });
+    pickup = engine.seedGoal({ goalFolder, goal, profile: PROFILE, readLease: fixtureLiveLease });
   } finally {
     engine.close();
   }

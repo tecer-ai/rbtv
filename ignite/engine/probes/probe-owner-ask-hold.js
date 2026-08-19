@@ -173,7 +173,11 @@ function runSession(engine, goal, goalDir, seat, { status = 'done', during = nul
 
 const rowsOf = (dir) => record.readExecutionRecord(dir).rows.map((r) => `${r.seat}=${r.outcome || 'open'}`);
 const viewOf = (dir) => withEngine((e) => seeding.recordView(e.heartStore, dir, { readyRows: readyRowsOf(dir) }));
-const seed = (dir, goal) => withEngine((e) => e.seedGoal({ goalFolder: dir, goal, profile: 'probe-hold' }));
+// D9 (seed-gates, 2026-08-19): the goal-live injection — the real `deriveLease` over a fixture
+// tmux reading whose one session IS the goal's room, so fixture goals seed as live ones do.
+const { deriveLease } = require('../../server/lease/lease');
+const fixtureLiveLease = ({ workspaceRoot, goal }) => deriveLease({ workspaceRoot, goal, tmuxProbe: () => ({ sessions: goal, panes: '' }) });
+const seed = (dir, goal) => withEngine((e) => e.seedGoal({ goalFolder: dir, goal, profile: 'probe-hold', readLease: fixtureLiveLease }));
 
 async function main() {
   say('probe-owner-ask-hold — coord\'s HELD verdict reaching the engine\'s seeding decision (W2)');

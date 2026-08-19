@@ -247,6 +247,118 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
     + 'been marked against the seat\'s work rather than against its declaration.';
 }
 
+// ── D5 (seed-gates, 2026-08-19): THE LANE-REACH GATE ──────────────────────────────────────────
+//
+// The measured failure (G-plan-3-plan-dod-judge-0818-2130, G-canvas-live-prober-0818-1955,
+// G-leader-0818-1936): a goal burned two waves and three seats because its DoD judge kept landing
+// in a cage where its probe lane could not run (`stools workspaces` → exit 127; `.git` masked).
+// The lane requirement was written into a plan, a handoff, a completion message and a seed — and
+// NOTHING that admits a launch read any of them. This gate is that reader: the requirement lives
+// MACHINE-READABLE in the seat's own io-spec (`## Requires-reach`, the same D3 single-surface
+// idiom `## Outputs` uses), and a seat whose composed cage cannot satisfy it is refused at the
+// door instead of after a wasted seat.
+//
+// The grammar, one entry per line, backticked argument (the materializer derives `cli` entries
+// from the done-contract's named probe lane; `path` entries are authorable):
+//   - cli `<name>`               satisfied when the seat's `exposed-clis:` declares <name>
+//   - path `<workspace-relative>` satisfied when the composed cage (goal-writes + the two
+//                                 workspace rw-grant classes, the SAME extension D2 taught
+//                                 `admitDeclaredOutputs`) covers it readable-or-writable
+//
+// ⚠ LIMIT, stated honestly: this gate checks REACH — the declaration/bind is PRESENT — never
+// BEHAVIOR (`exit 0`). A file masked to /dev/null that is technically readable passes; the D4
+// tool-secrets pierce is what fixes that class. And an UNCAGED launch is not refused, exactly as
+// `admitDeclaredOutputs` above: D5 ruled the caged gate only.
+const REACH_ENTRY = /^\s*[-*]?\s*(cli|path)[ \t]+`([^`]+)`\s*$/;
+
+function parseRequiresReach(text) {
+  const block = /<io-spec\b[\s\S]*?<\/io-spec>/.exec(text || '');
+  if (!block) return { declared: false, entries: [], malformed: [] };
+  const section = /##[ \t]*Requires-reach[ \t]*([\s\S]*?)(?=\n##[ \t]|$)/.exec(block[0]);
+  if (!section) return { declared: false, entries: [], malformed: [] };
+  const entries = [];
+  const malformed = [];
+  for (const line of section[1].split('\n')) {
+    if (!line.trim() || line.includes('</io-spec>')) continue;
+    const m = REACH_ENTRY.exec(line);
+    if (m) entries.push({ verb: m[1], arg: m[2] });
+    else malformed.push(line.trim());
+  }
+  return { declared: true, entries, malformed };
+}
+
+// `null` to admit, else the refusal text. Fail-closed like everything in this module: a malformed
+// entry refuses (a requirement that cannot be read is not a requirement that was met), and a
+// `path` entry with no threaded workspace root refuses (an unjudgeable reach never defaults to
+// reachable).
+function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
+  if (!Array.isArray(seatBinds) || seatBinds.length === 0) return null;   // uncaged: not refused
+  const goalDir = path.resolve(goalFolder);
+  const seatDir = path.join(goalDir, 'seats', seat);
+  let text;
+  try { text = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8'); } catch { return null; }
+  const { entries, malformed } = parseRequiresReach(text);
+  if (!entries.length && !malformed.length) return null;
+
+  const bad = malformed.map((line) => `\`${line}\` — undecided: not a requires-reach entry (the grammar is `
+    + '`cli <name>` | `path <workspace-relative>`, argument backticked); an unreadable requirement is never a met one');
+  const cliNames = new Set(seatDeclaresList(seatDir, 'exposed-clis')
+    .map((e) => (e.indexOf(' ') > 0 ? e.slice(0, e.indexOf(' ')) : e)));
+  let produced = null;
+  for (const { verb, arg } of entries) {
+    if (verb === 'cli') {
+      if (!cliNames.has(arg)) {
+        bad.push(`\`cli ${arg}\` — no-cli-grant: the lane needs the \`${arg}\` CLI on PATH inside the cage, and `
+          + `${seat}'s \`exposed-clis:\` declares ${cliNames.size ? `only [${[...cliNames].join(', ')}]` : 'nothing'}. `
+          + 'The materializer writes that block from the seat\'s `exposes: path:` parts — declare the part and re-materialize');
+      }
+      continue;
+    }
+    if (!workspaceRoot) {
+      bad.push(`\`path ${arg}\` — undecided: no workspace root threaded, so a workspace-relative reach cannot be judged`);
+      continue;
+    }
+    if (path.isAbsolute(arg)) {
+      bad.push(`\`path ${arg}\` — undecided: a reach path is WORKSPACE-RELATIVE; an absolute one names a place this gate cannot place`);
+      continue;
+    }
+    const target = path.resolve(workspaceRoot, arg);
+    if (!contains(workspaceRoot, target) || target === workspaceRoot) {
+      bad.push(`\`path ${arg}\` — undecided: it resolves OUTSIDE the workspace root (${target})`);
+      continue;
+    }
+    if (produced === null) {
+      try {
+        const noLog = () => {};
+        const grantSeatPath = { workspaceRoot, goalDir, seatDir, seat };
+        const wsGrants = [...resolveRwPathGrants(grantSeatPath, noLog), ...resolvePermissionEditGrants(grantSeatPath, noLog)];
+        produced = cageFor({
+          seatBinds, goalDir, seatDir,
+          goalWrites: seatDeclaresList(seatDir, 'goal-writes'), extraGrants: wsGrants,
+        });
+      } catch (err) {
+        return `undecided: the live cage template does not compose for this seat (${err.message}). An underivable `
+          + 'wall NEVER defaults to reachable — teach `server/spawn/cage.js` the shape, never admit past it.';
+      }
+    }
+    const v = coverVerdict(produced, target);
+    if (v.verdict === 'absent') {
+      bad.push(`\`path ${arg}\` — lane-cannot-reach: ${target} is ABSENT in ${seat}'s composed cage — no bind covers it. `
+        + `Grant it through an \`rw-paths:\` entry in ${seat}'s seat.md frontmatter or a \`coordination/permission-edits.csv\` `
+        + 'row (the leader\'s `widen-cage` verb writes the audited csv row) and the next seed pass admits it');
+    }
+  }
+  if (!bad.length) return null;
+  return 'LANE REACH REQUIREMENT NOT SATISFIED BY THE COMPOSED CAGE: ' + bad.join('; ')
+    + '. THE RULE: a `## Requires-reach` entry is satisfied iff `cli <name>` is declared in the seat\'s `exposed-clis:` '
+    + 'block, and `path <p>` is covered readable-or-writable by the seat\'s composed cage (goal-writes + `rw-paths:` + '
+    + '`permission-edits.csv`). LIMIT: this gate checks REACH (the bind is present), never BEHAVIOR (`exit 0`) — a '
+    + 'masked-but-readable file passes; the D4 tool-secrets pierce is the fix for that class. This launch was refused '
+    + 'BEFORE it was queued, because the seat\'s probe lane could not have run once caged; the failure would otherwise '
+    + 'have surfaced mid-milestone as a blocked seat and burned the wave.';
+}
+
 module.exports = {
-  admitDeclaredOutputs, declaredOutputs, parseDeclaredOutputs, cageFor, coverVerdict, PEER_SEAT,
+  admitDeclaredOutputs, admitLaneReach, declaredOutputs, parseDeclaredOutputs, parseRequiresReach,
+  cageFor, coverVerdict, PEER_SEAT,
 };
