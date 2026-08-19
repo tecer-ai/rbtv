@@ -467,6 +467,36 @@ const MIGRATION_MESSAGE_TYPES_EIGHT = {
 // and the rider forbids the half-landed state where a write site depends on an unarmed migration.
 MIGRATIONS.push(MIGRATION_MESSAGE_TYPES_EIGHT);
 
+// ── watcher (2026-08-19) · durable 3-strike counts for the reconciliation loop ───────────────
+//
+// Additive CREATE TABLE IF NOT EXISTS — same shape as migration 6. Safe to ARM: migrate()
+// runs at daemon start, and a count that reset on restart would never bind (D15).
+const MIGRATION_RECONCILE_ATTEMPTS = {
+  version: 8,
+  name: 'reconcile-attempts',
+  up(db) {
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS reconcile_attempts (\n'
+      + '  goal          TEXT NOT NULL,\n'
+      + '  seat          TEXT NOT NULL,\n'
+      + '  reason        TEXT NOT NULL,\n'
+      + '  attempts      INTEGER NOT NULL DEFAULT 0,\n'
+      + '  stuck_emitted INTEGER NOT NULL DEFAULT 0 CHECK (stuck_emitted IN (0,1)),\n'
+      + '  signature     TEXT,\n'
+      + '  updated_at    TEXT NOT NULL,\n'
+      + '  PRIMARY KEY (goal, seat, reason)\n'
+      + ');'
+    );
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS reconcile_pass (\n'
+      + '  goal    TEXT PRIMARY KEY,\n'
+      + '  last_at TEXT NOT NULL\n'
+      + ');'
+    );
+  },
+};
+MIGRATIONS.push(MIGRATION_RECONCILE_ATTEMPTS);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -583,4 +613,5 @@ module.exports = {
   // enqueue-record. Exported by name AND registered above — Arm E of probe-enqueue-record drives
   // migrate() on a pre-v6 store and compares sqlite_master sql against a fresh schema.sql store.
   MIGRATION_ENQUEUE_LOG,
+  MIGRATION_RECONCILE_ATTEMPTS,
 };

@@ -203,6 +203,8 @@ function composeText({ goal, condition, stuckMs }) {
     'ready-no-live': `*Ready, undispatched* — these seats are dispatchable and no seat in the goal is live or queued.`,
     'periodic-job-failing': `*Periodic job repeatedly failing* — a recovery/maintenance job for this goal has failed its last several consecutive runs and is not recovering on its own.`,
     'enqueue-unfired': `*Enqueued, never fired* — an enqueue was recorded and no execution ever fired for it. Look at \`enqueue_log\` (outcome / because) and whether a live turn is still holding the seat.`,
+    'frozen-frontier': `*Frozen frontier* — \`ready-seats\` returned 0 READY while pending seats exist and nothing in the goal is live or queued. Detection only; the watcher does not try to unstick it.`,
+    'reconcile-stuck': `*Watcher stuck* — the reconciliation loop exhausted its mechanical retries and the leader could not clear it.`,
   }[condition.kind]
     // Every OTHER kind is a pre/at-seeding freeze (LE-13: taskforce-unreadable, unbuilt-seats,
     // cast-unreadable, uncast-seats, seed-failed, seeding-empty — and whatever the producers name

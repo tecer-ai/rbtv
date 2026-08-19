@@ -53,6 +53,7 @@ const { stallAlarmDecision } = require('../server/ticker/goal-stall-alarm');
 // `rbtv-goal lane` ask the same function, so this pass and the CLI that writes the marker can
 // never disagree about which goals may be assigned to the daemon.
 const { uncastSeats } = require('./seeding');
+const { maybeReconcile } = require('./reconcile');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -334,6 +335,18 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);
+    // D1 watcher: one reconciliation pass per goal, cadence-gated inside maybeReconcile.
+    // `_`-prefixed folders are not goals (selfheal's own skip). A folder with neither a
+    // taskforce nor a sessions ledger has nothing to derive. A live console run is
+    // detect-only — launching against it would fight the attached lane.
+    if (!goal.startsWith('_')
+        && (fs.existsSync(path.join(goalFolder, 'taskforce.csv'))
+            || fs.existsSync(path.join(goalFolder, 'sessions.csv')))) {
+      maybeReconcile({
+        goal, goalFolder, engine, say,
+        dryRun: consoleRunIsLive(goalFolder),
+      });
+    }
     const { lane, legacy, raw } = readLane(goalFolder);
 
     if (lane !== DAEMON) {
@@ -619,4 +632,5 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
 module.exports = {
   LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
   ensureGoalChannelOnce, channelEnsured, alarmOnStall, goalPeriodicFailureStreaks,
+  maybeReconcile,
 };

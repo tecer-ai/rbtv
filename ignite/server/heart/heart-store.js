@@ -1488,6 +1488,43 @@ class HeartStore {
   // across time, see the note above `deregisterJob`), so a small bounded read is what makes that
   // irrelevant: the caller only ever needs to know whether the CURRENT streak reaches K, never the
   // job's whole history.
+  getReconcileAttempt(goal, seat, reason) {
+    return this._prepare(
+      'SELECT * FROM reconcile_attempts WHERE goal = ? AND seat = ? AND reason = ?'
+    ).get(goal, seat, reason) || null;
+  }
+
+  upsertReconcileAttempt({ goal, seat, reason, attempts, stuckEmitted, signature, updatedAt }) {
+    this._prepare(`
+      INSERT INTO reconcile_attempts (goal, seat, reason, attempts, stuck_emitted, signature, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(goal, seat, reason) DO UPDATE SET
+        attempts = excluded.attempts,
+        stuck_emitted = excluded.stuck_emitted,
+        signature = excluded.signature,
+        updated_at = excluded.updated_at
+    `).run(goal, seat, reason, attempts, stuckEmitted ? 1 : 0, signature || null, updatedAt);
+    return this.getReconcileAttempt(goal, seat, reason);
+  }
+
+  clearReconcileAttempt(goal, seat, reason) {
+    this._prepare(
+      'DELETE FROM reconcile_attempts WHERE goal = ? AND seat = ? AND reason = ?'
+    ).run(goal, seat, reason);
+  }
+
+  getReconcilePass(goal) {
+    return this._prepare('SELECT * FROM reconcile_pass WHERE goal = ?').get(goal) || null;
+  }
+
+  setReconcilePass(goal, lastAt) {
+    this._prepare(`
+      INSERT INTO reconcile_pass (goal, last_at) VALUES (?, ?)
+      ON CONFLICT(goal) DO UPDATE SET last_at = excluded.last_at
+    `).run(goal, lastAt);
+    return this.getReconcilePass(goal);
+  }
+
   consecutiveFailures(jobId, limit) {
     const stmt = this._prepare('SELECT status FROM jobs_log WHERE job_id = ? ORDER BY exec_id DESC LIMIT ?');
     let n = 0;

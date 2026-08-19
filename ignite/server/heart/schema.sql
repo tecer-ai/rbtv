@@ -202,3 +202,23 @@ CREATE TABLE IF NOT EXISTS warnings (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_warnings_standing_kind_subject
   ON warnings(kind, subject) WHERE cleared_at_tick IS NULL;
+
+-- reconcile_attempts — durable 3-strike counts for the goal watcher (D15, 2026-08-19).
+-- Keyed on (goal, seat, reason), never a session id. A daemon restart must not reset the
+-- bound: the measured freeze survived one. stuck_emitted suppresses repeat `stuck` rows
+-- while the signature stands; a changed or cleared signature starts from zero.
+CREATE TABLE IF NOT EXISTS reconcile_attempts (
+  goal          TEXT NOT NULL,
+  seat          TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  stuck_emitted INTEGER NOT NULL DEFAULT 0 CHECK (stuck_emitted IN (0,1)),
+  signature     TEXT,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (goal, seat, reason)
+);
+
+CREATE TABLE IF NOT EXISTS reconcile_pass (
+  goal    TEXT PRIMARY KEY,
+  last_at TEXT NOT NULL
+);
