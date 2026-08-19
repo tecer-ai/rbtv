@@ -64,6 +64,28 @@ const { seatDeclaresList } = require('../server/spawn/spawn');
 // with that file — a MOVE, not a second reader.
 const PATHISH = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]{1,6})`/g;
 
+// D3 (outputs-unify, 2026-08-18): THE SHARED DECLARED-OUTPUTS RESOLVER — the io-spec
+// `## Outputs` block is the ONE declared-outputs surface, and this parse is its JS half.
+// `team-kit/coord.py#iospec_outputs` is the Python half (seed computation + done-contract
+// grading read it); the two are TWO PARSERS OF ONE GRAMMAR — a cross-language subprocess call
+// was refused because coord.py's runtime path (probes, caged runs) carries no node — held
+// equivalent by `team-kit/outputs-resolver-fixtures.json`, exercised by BOTH sides' scheduled
+// checks (`engine/probes/probe-outputs-resolver.js`; coord.py selftest). Change the grammar in
+// both files and the fixtures in the same commit, or one side's check goes red.
+//
+// `declared` is whether an `## Outputs` section EXISTS inside an `<io-spec>` block — carried
+// separately from the tokens because a PROSE section yielding zero tokens is its own loud
+// condition on the grading side (`outputs-undeclarable`), and a resolver that collapsed the two
+// would rebuild the silent `none-declared` this ruling retires. This gate itself needs only the
+// tokens: zero tokens is zero admission questions either way.
+function parseDeclaredOutputs(text) {
+  const block = /<io-spec\b[\s\S]*?<\/io-spec>/.exec(text || '');
+  if (!block) return { declared: false, tokens: [] };
+  const section = /##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \t]|$)/.exec(block[0]);
+  if (!section) return { declared: false, tokens: [] };
+  return { declared: true, tokens: [...section[1].matchAll(PATHISH)].map((m) => m[1]) };
+}
+
 // THE DISTINCT-SUCCESSOR OCCUPANT. "Readable by a successor" is the SAME composition asked with a
 // different occupant, not a second table. The space is deliberate: a seat name can never contain
 // one, so this can never collide with a real seat (`cagespec.PEER`'s own sentinel).
@@ -74,11 +96,7 @@ const PEER_SEAT = ' peer';
 function declaredOutputs(goalFolder, seat) {
   let text;
   try { text = fs.readFileSync(path.join(goalFolder, 'seats', seat, 'seat.md'), 'utf8'); } catch { return []; }
-  const block = /<io-spec\b[\s\S]*?<\/io-spec>/.exec(text);
-  if (!block) return [];
-  const section = /##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \t]|$)/.exec(block[0]);
-  if (!section) return [];
-  return [...section[1].matchAll(PATHISH)].map((m) => m[1]);
+  return parseDeclaredOutputs(text).tokens;
 }
 
 // The cage this occupant composes for this goal — the REAL composer, over the LIVE template.
@@ -172,4 +190,6 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
     + 'been marked against the seat\'s work rather than against its declaration.';
 }
 
-module.exports = { admitDeclaredOutputs, declaredOutputs, cageFor, coverVerdict, PEER_SEAT };
+module.exports = {
+  admitDeclaredOutputs, declaredOutputs, parseDeclaredOutputs, cageFor, coverVerdict, PEER_SEAT,
+};

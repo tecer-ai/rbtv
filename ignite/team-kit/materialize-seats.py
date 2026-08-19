@@ -1973,6 +1973,25 @@ def _coord_validate_seat():
     return validate_seat
 
 
+def _coord_iospec_outputs():
+    """coord.py's shared declared-outputs resolver (D3, outputs-unify) — imported for F6's
+    reason: the io-spec `## Outputs` block is graded at check-out by `iospec_outputs`, and a
+    materialize-time reading made by a SECOND parser is how a seat materializes clean and then
+    refuses at its own ending. NEVER re-implement the grammar here."""
+    kit_dir = Path(__file__).resolve().parent
+    if str(kit_dir) not in sys.path:
+        sys.path.insert(0, str(kit_dir))
+    try:
+        from coord import iospec_outputs
+    except Exception as exc:  # loud, machine-readable — never a crash
+        raise Refuse(
+            "coord-import",
+            f"cannot import iospec_outputs from coord.py — {exc}; refusing "
+            "rather than re-implementing the resolver (D3)",
+        ) from exc
+    return iospec_outputs
+
+
 def _resolve_inline_refs(text: str, units: dict, seat: str) -> str:
     """Inline every `Reference: <id>@latest` line inside a block body with the
     referenced unit's body (d-run3-assembled-shape (i)); iterate so a
@@ -2388,6 +2407,22 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
                 continue
             fm[key] = val
 
+        # D3 (outputs-unify, 2026-08-18): the `outputs:` frontmatter key is RETIRED — the
+        # io-spec `## Outputs` block is the ONE declared-outputs surface. The bindings door
+        # already refuses it as an unknown key; this closes the one hole left, the assembled-
+        # frontmatter carry-over above. Refused LOUDLY, never emitted, never dropped silently:
+        # a descriptor materialized with the key would be refused again at its own check-out
+        # (`coord.declared_outputs`), one seat too late.
+        if "outputs" in fm:
+            raise Refuse(
+                "outputs-key-retired",
+                f"seat '{seat}' would materialize with an `outputs:` frontmatter key — "
+                "RETIRED (D3, 2026-08-18). Declare each output in the io-spec `## Outputs` "
+                "block as a backticked goal-relative token carrying a `/` and an extension "
+                "(`seats/<seat>/plan.md`, or `./plan.md`); the block is the one surface both "
+                "the cage-admission gate and the done-contract grading read",
+            )
+
         # The seat's harness-materialized instruments, grouped by method
         # (d-seat-exposes-frontmatter) — already validated against
         # exposure.csv by resolve_seat_exposes, emitted so the descriptor
@@ -2485,6 +2520,20 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         plan["descriptors"][seat] = substitute_pass(
             header + intro + "\n\n".join(text for _, text in blocks)
             + "\n" + tail, seat, folder, tag)
+
+        # D3 planner extension: a ZERO-TOKEN `## Outputs` block is a LOUD condition at
+        # materialize — the seat's `done` will grade `outputs-undeclarable` (nothing
+        # verifiable), and the author is told NOW, while the block is still cheap to fix.
+        # A WARNING rather than a refusal, deliberately: live workflow io-specs are prose
+        # today, and refusing them would freeze every existing definition to unblock a
+        # grading nicety — the loud check-out classification is the enforcing half.
+        _decl, _toks = _coord_iospec_outputs()(plan["descriptors"][seat])
+        if _decl and not _toks:
+            plan["warnings"].append(
+                f"seat '{seat}': outputs-undeclarable — its io-spec `## Outputs` section "
+                f"yields ZERO resolvable path tokens (a token is backticked, carries a `/` "
+                f"and an extension: `seats/<seat>/plan.md`). Its `done` will be recorded "
+                f"`outputs-undeclarable`, i.e. NOTHING VERIFIED (D3, 2026-08-18)")
 
 
 # ---------------------------------------------------------------- plan
@@ -5401,7 +5450,7 @@ def build_fixture(tmp: Path) -> dict:
     # d-run3-assembled-shape (i) resolution target (SC-20).
     unit("prompts/cognitive-units/io-specs/alpha-io.md", "alpha-io",
          "<io-spec>\n## Input\nRun inputs.\n## Outcome\n"
-         "- Reference: `alpha-outcome@latest`.\n## Output\nalpha-notes.md\n"
+         "- Reference: `alpha-outcome@latest`.\n## Outputs\n`./alpha-notes.md`\n"
          "</io-spec>")
     unit("prompts/cognitive-units/outcomes/alpha-outcome.md", "alpha-outcome",
          "<outcome>\nNotes that let beta act without re-reading the run.\n"
@@ -6063,6 +6112,20 @@ def run_dag04_acceptance(check, env: dict) -> None:
               "alpha" not in found_red, str(sorted(found_red)))
         alpha_md.write_text(atext, encoding="utf-8")
 
+        # D3 (outputs-unify, 2026-08-18): the emitted descriptor carries NO
+        # `outputs:` frontmatter key (retired surface), its io-spec
+        # `## Outputs` block is the one declared-outputs surface, and coord's
+        # OWN grading parse (discover_workers -> iospec_outputs) reads the
+        # token off the emitted BODY — the whole-pipeline agreement, not a
+        # regex hope.
+        check("D3: emitted descriptor carries the `## Outputs` block, no "
+              "`outputs:` key, and coord's grading parse reads the token",
+              "outputs" not in afm and "## Outputs" in atext
+              and found["alpha"]["outputs"] == ["./alpha-notes.md"]
+              and found["alpha"]["outputs_declared"] is True
+              and found["alpha"]["outputs_defect"] == "",
+              f"outputs={found['alpha'].get('outputs')!r}")
+
         check("SC-18: every emitted frontmatter parses via yaml.safe_load",
               isinstance(afm, dict) and isinstance(bfm, dict))
         try:
@@ -6114,6 +6177,43 @@ def run_dag04_acceptance(check, env: dict) -> None:
                                 "procedure", "done-contract", "scope",
                                 "task-goal"],
               str(red_order))
+
+        # D3 red + warn arms, in-process. The bindings door already refuses
+        # `outputs` as an unknown binding key; the assembled-frontmatter
+        # carry-over is the one hole left, so the red arm drives exactly it.
+        def render_mutated(mutate):
+            catalogs = load_catalogs(Path(fx["catalog"]))
+            normalize_seat_rows(catalogs[0])
+            units = index_units(Path(fx["catalog"]))
+            binding = effective_binding(load_bindings(Path(fx["b_both"])),
+                                        "alpha")
+            plan = {"package": fx["pkg"], "added_seats": ["alpha"],
+                    "bindings": {"alpha": binding}, "warnings": [],
+                    "force_partial": False,
+                    "assembled": {"alpha": mutate(assemble_seat(
+                        "alpha", binding, *catalogs, units))}}
+            try:
+                render_descriptors(plan, catalogs[0], units)
+            except Refuse as exc:
+                return plan, exc.code
+            return plan, None
+
+        check("D3 red: assembled frontmatter smuggling the RETIRED "
+              "`outputs:` key is refused `outputs-key-retired` at "
+              "materialize — loudly, by name, before any write",
+              render_mutated(lambda a: a.replace(
+                  "---\n", "---\noutputs: plan.md\n", 1))[1]
+              == "outputs-key-retired")
+        _d3_prose, _d3_pcode = render_mutated(lambda a: a.replace(
+            "`./alpha-notes.md`", "prose only, no path token"))
+        check("D3 warn: a ZERO-TOKEN `## Outputs` block warns LOUDLY at "
+              "materialize (`outputs-undeclarable` — the check-out will "
+              "verify nothing), and a token-bearing block does not",
+              _d3_pcode is None
+              and any("outputs-undeclarable" in w
+                      for w in _d3_prose["warnings"])
+              and render_mutated(lambda a: a)[0]["warnings"] == [],
+              str(_d3_prose["warnings"])[:200])
 
         check("emitted key set opens in the ruled order "
               "(seat..description..cwd..agent_type..triple..mode)",
@@ -6596,6 +6696,11 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # artifact, never from checkout's own success line.
         coord(["--package", fx["pkg"], "--as", "alpha", "checkin", "alpha",
                "SC-1 fixture predecessor"])
+        # D3: alpha's descriptor DECLARES `./alpha-notes.md` (io-spec
+        # `## Outputs`), so its `done` check-out verifies it — produce it
+        # first, which is the contract doing its job, not a workaround.
+        (Path(fx["pkg"]) / "seats" / "alpha" / "alpha-notes.md").write_text(
+            "SC-1 fixture notes\n", encoding="utf-8")
         coord(["--package", fx["pkg"], "--as", "alpha", "checkout"])
         # Read DEFENSIVELY: an absent artifact must RED this check, never raise
         # out of the suite — a check that aborts the run takes every row after

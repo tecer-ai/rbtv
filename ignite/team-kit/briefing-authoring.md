@@ -38,32 +38,37 @@ can actually run). Both are decided once, per run, and the briefings below only 
   (`none` | `all` | a type list — which `to: all` types reach this seat; absent keeps the default),
   `senders:` (a comma-separated allow-list of the ONLY seats whose messages reach this one; absent
   means unbounded), and `ctx-refresh: N` (this seat's own context-refresh threshold %, enforced by
-  the deterministic watch layer), and `outputs:` (the done contract — next bullet). Observer status is for seats whose
+  the deterministic watch layer). Observer status is for seats whose
   job is watching, never a convenience for a worker.
-- **`outputs:` — the seat's done contract (7.676).** Shape: `outputs: plan.md, build/report.json` —
-  ONE line, comma-separated paths, on the seat's own descriptor frontmatter. Semantics: these are
-  the paths the seat must have PRODUCED. PRESENT means a directory that exists, or a file that
-  exists AND is non-empty (a zero-byte file is what a crashed writer leaves, and does not count);
-  relative paths resolve against `cwd:` — the seat's own folder in folder form.
+- **Declared outputs — the seat's done contract (7.676/D3).** The ONE surface is the io-spec
+  `## Outputs` block in the briefing BODY — `<io-spec>` … `## Outputs` … `</io-spec>` — read by
+  BOTH readers through one shared resolver: the done-contract grading at `checkout`
+  (`coord.py#iospec_outputs`) and the caged-launch admission gate
+  (`engine/cage-admission.js#parseDeclaredOutputs`). A declared output is a BACKTICKED
+  goal-relative token carrying a `/` and an extension: `` `seats/<seat>/plan.md` ``, or
+  `` `./plan.md` `` for a file in the seat's own cwd. Semantics: these are the paths the seat
+  must have PRODUCED. PRESENT means a file that exists AND is non-empty (a zero-byte file is
+  what a crashed writer leaves, and does not count); relative tokens resolve against `cwd:` —
+  the seat's own folder in folder form.
   Checkout consequence: a plain `checkout` computes it and REFUSES to record `done` while any
-  declared path is absent or empty — it names each missing path, and nothing is written, nothing
+  declared token is absent or empty — it names each missing path, and nothing is written, nothing
   exported, the roster row still ACTIVE. The seat either produces them and re-runs `checkout`, or
   ends honestly with `checkout --incomplete "<why they are unmet>"`. `--incomplete` and `--renew`
-  skip the check (neither asserts completion). Omitting the key is allowed and never refused: the
-  seat's disposition record then reads `none-declared` and that `done` is unverified — declare the
-  key whenever the seat has a checkable artifact.
-  ⚠ **NO INLINE `#` COMMENT ON THIS KEY, and it is the only one (7.711).** Its siblings capture
-  `(\S+)` and drop the rest of the line, so a trailing comment is harmless on them; `outputs:`
-  captures the WHOLE line, so the comment becomes part of the path. The asymmetry is kept rather
-  than removed: stripping a comment would mean guessing which `#` in a line is a comment and which
-  is a legal character in a path, and a guess in a path parser is exactly what produced this
-  defect. It is REFUSED BY NAME instead — as are the two other shapes reflex reaches for, an
-  indented YAML block list and a bracket list `[a.md, b.md]`. Put the note on its own line above
-  the key.
-  ⚠ **`outputs:` is NOT `surfaces:`.** The briefing's owned-surfaces claim is what a seat may WRITE
-  (a permission, single-writer arbitration — still prose; the `surfaces:` key is unbuilt, G-57).
-  `outputs:` is what a seat must have PRODUCED (a debt, checked at the ending). Often the same
-  paths, never the same question.
+  skip the check (neither asserts completion). Omitting the block is allowed and never refused:
+  the seat's disposition record then reads `none-declared` and that `done` is unverified.
+  ⚠ **A PROSE `## Outputs` section is LOUDLY ungradeable.** A section that names no backticked
+  path token yields ZERO declared outputs; the check-out records `outputs-undeclarable: zero
+  tokens` (measured 2026-08-18: 23 of 26 meet-transcript-summarizer dones were graded against
+  nothing because their prose blocks declared nothing a machine could check), and
+  materialize-seats.py warns at materialize. Write the token, not a description of it.
+  ⚠ **The `outputs:` FRONTMATTER KEY IS RETIRED (D3, 2026-08-18).** A descriptor still carrying
+  it — any shape — is REFUSED BY NAME at its check-out and at materialize, never read, never
+  silently dropped. Two surfaces with two readers is the defect the retirement closes: a seat
+  declaring on one was invisible to the other.
+  ⚠ **Declared outputs are NOT `surfaces:`.** The briefing's owned-surfaces claim is what a seat
+  may WRITE (a permission, single-writer arbitration — still prose; the `surfaces:` key is
+  unbuilt, G-57). A declared output is what a seat must have PRODUCED (a debt, checked at the
+  ending). Often the same paths, never the same question.
 - Every briefing states: mission, owned surfaces, pre-reads (paths only), execution contract,
   done gate (pre-declared criteria a checker can judge against), and what the agent must never do.
 - Factual claims a briefing makes about the target system are the FIRST thing its worker verifies

@@ -300,18 +300,16 @@ FM_KEY = {
     # arrives. Absent means UNDECLARED, which is NOT `one-shot`: the arm refuses rather than
     # assuming, so no existing seat becomes attestable by having said nothing.
     "mode": re.compile(r"^mode:\s*(\S+)\s*$", re.MULTILINE),
-    # 7.676: THE SEAT'S DECLARED OUTPUTS — a comma-separated list of paths this seat must have
-    # PRODUCED before its check-out may assert `done`. ⚠ NOT `.+?` by accident: unlike every key
-    # above it captures a list with spaces in it, so `(\S+)` would take the first path and drop
-    # the rest SILENTLY — the exact half-read that would make a two-output seat verifiable on one.
-    # ABSENT MEANS UNDECLARED, never "nothing to produce" — `declared_outputs` carries that
-    # distinction all the way onto the durable record rather than collapsing it to a bool.
-    # ⚠ `[ \t]*`, NEVER `\s*` (7.711). `\s` matches the NEWLINE, so `^outputs:\s*(.+?)\s*$` reached
-    # PAST an empty `outputs:` and captured the NEXT LINE — `outputs:` + an indented `- plan.md`
-    # block parsed to the single value `- plan.md`, and a bare `outputs:` before `cwd:` parsed to
-    # `cwd: /x`. Both declare a path that can never exist, and a declared-but-absent output
-    # HARD-BLOCKS the seat's `done` forever. The docstring below promises `[]` for a key with
-    # nothing after it; only a horizontal-space class keeps that promise.
+    # 7.676 -> D3 (unblock-goals-plan, 2026-08-18): RETIRED. Declared outputs live in ONE
+    # surface — the seat.md BODY's io-spec `## Outputs` block, read by `iospec_outputs` (the
+    # shared resolver, held equivalent to `engine/cage-admission.js#parseDeclaredOutputs` by
+    # `outputs-resolver-fixtures.json`). This regex survives ONLY as the retirement TRIPWIRE:
+    # a descriptor still carrying the key is refused LOUDLY (`_fm_outputs_defect` ->
+    # `declared_outputs` at check-out; materialize-seats.py at materialize) — never read as a
+    # declaration and never ignored, because a silently-dropped key is an author who believes
+    # a contract the kit no longer grades. The two-surface split this closes is the measured
+    # 2026-08-18 defect: seats declared in the block were INVISIBLE to this key's readers, and
+    # 23 of 26 meet-transcript-summarizer dones graded against nothing.
     "outputs": re.compile(r"^outputs:[ \t]*(.+?)[ \t]*$", re.MULTILINE),
     "observer": re.compile(r"^observer:\s*(\S+)\s*$", re.MULTILINE),
     "auto-wake": re.compile(r"^auto-wake:\s*(\S+)\s*$", re.MULTILINE),
@@ -560,43 +558,65 @@ def _fm_window(fm):
     return v
 
 
-def _fm_outputs(fm):
-    """`outputs: a.md, b/c.json` -> ["a.md", "b/c.json"]. `[]` when the key is ABSENT.
+# ---- D3 (2026-08-18): THE ONE DECLARED-OUTPUTS RESOLVER ----------------------------------------
+# The io-spec `## Outputs` block in the seat.md BODY is the single declared-outputs surface.
+# Two readers consume it: this function (D4 seed computation + 7.676 done-contract grading) and
+# `engine/cage-admission.js#parseDeclaredOutputs` (the caged-launch admission gate). They are TWO
+# PARSERS OF ONE GRAMMAR, deliberately — a cross-language subprocess call would put node on
+# coord.py's runtime path (probes and caged runs execute without it) and a per-checkout process
+# spawn on the hot path — held equivalent by ONE shared fixture set,
+# `outputs-resolver-fixtures.json` beside this file, exercised by BOTH sides' scheduled checks
+# (this file's selftest; `engine/probes/probe-outputs-resolver.js`). Change the grammar in both
+# files and the fixtures in the same commit, or one side's check goes red — that is the
+# anti-drift mechanism, and it is mechanical, not a prose promise.
+_IOSPEC_BLOCK = re.compile(r"<io-spec\b[\s\S]*?</io-spec>")
+_IOSPEC_OUTPUTS_SECTION = re.compile(r"##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \t]|\Z)")
+# A backticked token that looks like a path: contains a `/` and carries an extension —
+# `edge-runner-job.py#_PATHISH`'s grammar, the same BYTES the JS gate matches. ⚠ Deliberately NOT
+# widened to slashless tokens (`plan.md`) or bare directories (`build/`): every widening here
+# widens the admission gate's refusal surface identically (a token this matches is a token the
+# cage gate must place), and prose blocks backtick file NAMES that are not outputs. A slashless
+# declaration is written `./plan.md`; a directory is declared by a file inside it.
+_IOSPEC_PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
 
-    ⚠ AN EMPTY LIST FROM AN ABSENT KEY AND AN EMPTY LIST FROM `outputs:` WITH NOTHING AFTER IT ARE
-    THE SAME VALUE HERE, DELIBERATELY: both mean the descriptor declared no checkable output, and
-    the check-out records `none-declared` for both. Distinguishing them would put the kit in the
-    business of grading how a briefing was WRITTEN, which is the author's business, not the
-    check-out's."""
-    m = FM_KEY["outputs"].search(fm)
-    return [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
+
+def iospec_outputs(text):
+    """(declared, tokens) for ONE seat.md's full text — the shared resolver's Python half.
+
+    `declared` is whether an `## Outputs` section EXISTS inside an `<io-spec>` block, carried
+    separately from the tokens because a PROSE section yielding ZERO tokens is its own loud
+    condition — the check-out records `outputs-undeclarable`, never a silent `none-declared`
+    (D3 planner extension: 23 of 26 meet-transcript-summarizer dones read `none-declared`
+    while their seats carried prose `## Outputs` blocks the retired frontmatter key's readers
+    could not see). No file, no block, no section -> (False, [])."""
+    block = _IOSPEC_BLOCK.search(text or "")
+    if not block:
+        return False, []
+    section = _IOSPEC_OUTPUTS_SECTION.search(block.group(0))
+    if not section:
+        return False, []
+    return True, _IOSPEC_PATHISH.findall(section.group(1))
 
 
-# 7.711: the key is read off ONE line as a bare comma-separated list, so the three shapes an author
-# reaches for by reflex — an indented YAML block list, a flow/bracket list, and the inline `#`
-# comment every SIBLING key tolerates (they capture `(\S+)` and drop the rest; this one captures the
-# whole line) — all parse to paths that CANNOT EXIST. That is strictly worse than declaring nothing:
-# an absent key is admitted and recorded `none-declared`, while a malformed one hard-blocks the
-# seat's `done` with a "MISSING: - plan.md" the author cannot act on. Named refusal instead.
+# The retirement tripwire's second shape: the indented YAML block-list spelling of the same
+# retired key (7.711's old malformed class) — still detected, so it refuses as RETIRED rather
+# than silently declaring nothing.
 _OUTPUTS_BLOCK_YAML = re.compile(r"^outputs:[ \t]*\r?\n[ \t]*-[ \t]", re.MULTILINE)
 
 
 def _fm_outputs_defect(fm):
-    """Why this descriptor's `outputs:` cannot be a path list — "" when there is nothing wrong.
+    """Why this descriptor's frontmatter is refused on the outputs surface — "" when clean.
 
-    Detected on the descriptor, not on the check-out, because the value is WRONG the moment it is
-    written; the check-out is merely where it becomes unsatisfiable."""
-    if _OUTPUTS_BLOCK_YAML.search(fm):
-        return ("it is an INDENTED YAML BLOCK LIST. This key is read off ONE line — "
-                "`outputs: plan.md, build/report.json`")
-    for v in _fm_outputs(fm):
-        if v.startswith("[") or v.endswith("]"):
-            return (f"the entry `{v}` carries YAML flow-list punctuation. This key is a BARE "
-                    f"comma-separated list, not YAML — `outputs: plan.md, build/report.json`")
-        if "#" in v:
-            return (f"the entry `{v}` carries an inline `#` comment. Unlike its sibling keys this "
-                    f"one captures the REST OF THE LINE, so the comment becomes part of the path — "
-                    f"put the note on its own line above the key")
+    D3: the ONLY defect left is carrying the RETIRED `outputs:` frontmatter key at all, in any
+    shape. Detected on the descriptor because the key is wrong the moment it is written; refused
+    LOUDLY at `declared_outputs` (the seat's own check-out) and at materialize-seats.py's
+    materialize gate — never read as a declaration, never dropped silently."""
+    if FM_KEY["outputs"].search(fm) or _OUTPUTS_BLOCK_YAML.search(fm):
+        return ("it carries the RETIRED `outputs:` frontmatter key (D3, 2026-08-18: the io-spec "
+                "`## Outputs` block in the seat.md body is the ONE declared-outputs surface). "
+                "Declare each output there as a backticked goal-relative token carrying a `/` "
+                "and an extension — `seats/<seat>/plan.md`, or `./plan.md` for a file in the "
+                "seat's own cwd — and DELETE the key")
     return ""
 
 
@@ -8992,24 +9012,27 @@ def deliver_handoff(args, base, seat):
 # was supposed to have produced. The two halves are one defect: a tool that cannot express failure
 # and does not look is a tool whose `done` carries no information at all.
 #
-# THE DECLARATION IS `outputs:` ON THE SEAT'S OWN DESCRIPTOR FRONTMATTER, and it is the first
-# machine-checkable half of a done gate this kit has had. G-57's standing note (on
-# `descriptor_findings`) records why: the descriptor's owned-surfaces claim and its done gate are
-# PROSE, "and that stays open until a `surfaces:` frontmatter key makes the claim a field". This is
-# that field for the OUTPUT half. ⚠ It is deliberately NOT named `surfaces:` and does not settle
-# G-57: `surfaces:` would be what a seat may WRITE (a permission, single-writer arbitration);
-# `outputs:` is what a seat must have PRODUCED (a debt, checked at the ending). Same paths, often;
-# never the same question. The day `surfaces:` lands it lands beside this one, not over it.
+# THE DECLARATION IS THE io-spec `## Outputs` BLOCK IN THE SEAT'S OWN seat.md BODY (D3,
+# 2026-08-18 — the `outputs:` frontmatter key is RETIRED and refused on sight; the block is the
+# ONE surface, read through `iospec_outputs`, the shared resolver the admission gate mirrors).
+# It is the first machine-checkable half of a done gate this kit has had. G-57's standing note
+# (on `descriptor_findings`) records why: the descriptor's owned-surfaces claim and its done gate
+# are PROSE, "and that stays open until a `surfaces:` frontmatter key makes the claim a field".
+# This is that field for the OUTPUT half. ⚠ It does not settle G-57: `surfaces:` would be what a
+# seat may WRITE (a permission, single-writer arbitration); a declared OUTPUT is what a seat must
+# have PRODUCED (a debt, checked at the ending). Same paths, often; never the same question.
 #
-# ⚠⚠ UNDECLARED IS NOT VERIFIED, AND IS NOT REFUSED EITHER. No descriptor in this workspace carries
-# the key yet, so refusing an undeclared seat would refuse the ENTIRE POPULATION at its check-out —
-# the one act R-8 says must always be available to a finishing seat. It is admitted, and the
-# durable record says `none-declared` IN THOSE WORDS. That is the honest reading the task asked
-# for: where the briefing declared no contract, the kit records that it had nothing to check
-# rather than inventing a contract nobody wrote, and a reader can tell a CHECKED `done` from an
-# asserted one BY READING THE RECORD instead of by trusting it.
+# ⚠⚠ UNDECLARED IS NOT VERIFIED, AND IS NOT REFUSED EITHER. Refusing an undeclared seat would
+# refuse most of the POPULATION at its check-out — the one act R-8 says must always be available
+# to a finishing seat. It is admitted, and the durable record says `none-declared` IN THOSE
+# WORDS. Between declared and undeclared sits the D3 planner extension's third state: a seat
+# whose `## Outputs` section EXISTS but yields ZERO resolvable tokens (a prose block) records
+# `outputs-undeclarable` — declared-but-ungradeable, said out loud, because the silent
+# `none-declared` those seats used to get is exactly how 23 of 26 dones graded against nothing.
+# A reader can tell a CHECKED `done` from an asserted one BY READING THE RECORD.
 def resolved_outputs(w):
-    """[(declared token, RESOLVED absolute path)] for ONE seat descriptor's `outputs:`.
+    """[(declared token, RESOLVED absolute path)] for ONE seat's declared outputs (D3: the
+    io-spec `## Outputs` tokens, parsed once at `discover_workers`).
 
     THE ONE RESOLUTION OF A DECLARED OUTPUT IN THIS MODULE, and it is split out of
     `declared_outputs` because D4's seed needs the SAME resolution from a different place: the
@@ -9025,7 +9048,10 @@ def resolved_outputs(w):
 
 
 def declared_outputs(args, seat):
-    """(declared, missing) — the seat's OWN `outputs:`, and which of them are not on disk.
+    """(declared, missing, has_block) — the seat's OWN declared outputs (io-spec `## Outputs`
+    tokens), which of them are not on disk, and whether an `## Outputs` section exists at all
+    (D3: a section yielding ZERO tokens is `outputs-undeclarable`, a distinct loud state the
+    check-out records — never collapsed into `none-declared`).
 
     `declared` is the raw list as the descriptor wrote it; `missing` holds RESOLVED paths, because
     a seat told `plan.md is missing` when it is looking straight at a `plan.md` has been told
@@ -9037,9 +9063,9 @@ def declared_outputs(args, seat):
     stop. Relative paths resolve against the seat's `cwd`, already absolutized by `discover_workers`
     at the ONE parse point (a relative `cwd:` otherwise resolves against nothing).
 
-    A seat with no descriptor at all returns `([], [])` — undeclared, like a descriptor with no
-    key. It is the same answer for the same reason: nothing was declared, so nothing is checkable,
-    and this function does not get to invent the difference."""
+    A seat with no descriptor at all returns `([], [], False)` — undeclared, like a descriptor
+    with no block. It is the same answer for the same reason: nothing was declared, so nothing is
+    checkable, and this function does not get to invent the difference."""
     for w in discover_workers(workers_dir(args)):
         if w["agent"] != seat:
             continue
@@ -9049,12 +9075,13 @@ def declared_outputs(args, seat):
         # the one caller for which the value is load-bearing.
         if w["outputs_defect"]:
             refuse("input",
-                   f"'{seat}' has a MALFORMED `outputs:` declaration and this check-out cannot be "
-                   f"satisfied as written: {w['outputs_defect']}.\n"
+                   f"'{seat}' has a RETIRED `outputs:` frontmatter declaration and this "
+                   f"check-out will not read it: {w['outputs_defect']}.\n"
                    f"  descriptor: {w['briefing']}\n"
-                   f"Rewrite it on one line, or DELETE the key — an absent `outputs:` is admitted "
-                   f"and the record says `none-declared`. Refusing here costs the re-run only: "
-                   f"nothing was written, nothing was exported, your roster row is still ACTIVE.",
+                   f"Move the declaration, then re-run checkout. A seat with no `## Outputs` "
+                   f"section is admitted and the record says `none-declared`. Refusing here "
+                   f"costs the re-run only: nothing was written, nothing was exported, your "
+                   f"roster row is still ACTIVE.",
                    1)
         missing = []
         for _d, _resolved in resolved_outputs(w):
@@ -9065,8 +9092,8 @@ def declared_outputs(args, seat):
                 present = False      # unreadable is NOT produced — the seat is told the path
             if not present:
                 missing.append(str(p))
-        return w["outputs"], missing
-    return [], []
+        return w["outputs"], missing, w["outputs_declared"]
+    return [], [], False
 
 
 def cmd_checkout(args):
@@ -9214,10 +9241,18 @@ def cmd_checkout(args):
     _outputs_note = ("not-checked (renew — no completion asserted)" if renew
                      else "not-checked (seat declared incomplete)")
     if not renew and not incomplete:
-        _declared, _missing = declared_outputs(args, me)
+        _declared, _missing, _has_block = declared_outputs(args, me)
+        # D3's three honest answers, in words: verified (tokens declared and present),
+        # `outputs-undeclarable` (an `## Outputs` section EXISTS but is prose — zero resolvable
+        # tokens; loud, never a silent nothing), `none-declared` (no section at all).
         _outputs_note = (f"{len(_declared)} declared output(s) verified present" if _declared
-                         else "none-declared — this `done` asserts completion NOTHING VERIFIED "
-                              "(the descriptor carries no `outputs:` key)")
+                         else ("outputs-undeclarable: zero tokens — the io-spec `## Outputs` "
+                               "section yields no resolvable path token (backticked, with a `/` "
+                               "and an extension), so this `done` asserts completion NOTHING "
+                               "VERIFIED" if _has_block
+                               else "none-declared — this `done` asserts completion NOTHING "
+                                    "VERIFIED (the seat.md carries no io-spec `## Outputs` "
+                                    "section)"))
         if _missing:
             refuse(
                 "state",
@@ -12673,6 +12708,7 @@ def discover_workers(wdir):
         cwd = mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT)
         if not os.path.isabs(cwd):
             cwd = os.path.join(VAULT_ROOT, cwd)
+        out_declared, out_tokens = iospec_outputs(text)
         found.append({
             "agent": m.group(1), "briefing": p, "harness": harness,
             # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
@@ -12697,12 +12733,15 @@ def discover_workers(wdir):
                      if FM_KEY["mode"].search(fm) else ""),
             "folder": folder,
             "mechanical_close": _fm_mechanical_close(fm),
-            # 7.676: additive, like 7.278's `agent_type` — no existing key changes, and it is read
-            # HERE rather than by a second frontmatter pass in `declared_outputs`, because `cwd`
-            # is absolutized at THIS parse point and a declared output is resolved against it.
-            # Parsing the descriptor twice would be two readers of one file (PRIN-11).
-            "outputs": _fm_outputs(fm),
-            # 7.711: read at the SAME parse point for the same reason — one reader of one file.
+            # 7.676/D3: declared outputs are read off the BODY's io-spec `## Outputs` block via
+            # `iospec_outputs` (the shared resolver), at THIS one parse point because `cwd` is
+            # absolutized here and a declared output resolves against it. Parsing the descriptor
+            # twice would be two readers of one file (PRIN-11). The tuple unpacks below:
+            # `outputs_declared` carries the block-exists bit separately so a ZERO-TOKEN prose
+            # block classifies loudly (`outputs-undeclarable`) instead of reading `none-declared`.
+            "outputs": out_tokens,
+            "outputs_declared": out_declared,
+            # 7.711/D3: the RETIRED-key tripwire, read at the same parse point.
             "outputs_defect": _fm_outputs_defect(fm),
         })
     return found
@@ -13868,9 +13907,10 @@ def ready_seat_rows(args):
             for _name in met_names:
                 _w = seat_desc.get(_name)
                 # A predecessor with no descriptor contributes nothing (a dangling edge the leader
-                # ruled `done`), and so does one whose `outputs:` is MALFORMED: its tokens do not
-                # resolve to paths at all, and seeding a successor with garbage is worse than
-                # seeding it with less. `declared_outputs` REFUSES that descriptor at the seat's own
+                # ruled `done`), and so does one carrying the RETIRED `outputs:` frontmatter key
+                # (D3): its declaration surface is refused, and seeding a successor off a refused
+                # descriptor is worse than seeding it with less. `declared_outputs` REFUSES that
+                # descriptor at the seat's own
                 # `done` check-out, so the only way one reaches here is a leader's `rule-disposition`
                 # over an `exited` row — which does not open the descriptor. Hence the check.
                 if _w is None or _w["outputs_defect"]:
@@ -17119,6 +17159,7 @@ def seats_by_name(args, names=None):
             "folder": None,
             "mechanical_close": False,
             "outputs": [],
+            "outputs_declared": False,
             "outputs_defect": False,
         })
         have.add(name)
@@ -27765,10 +27806,12 @@ def _selftest_checks(args, failures, names):
             writes NO FILE AT ALL — the shape every package predating this change has, and the one
             the "absent means no rulings, never an error" arm is asserted on.
 
-            D4: `outputs` is {seat: "a.md, b/"} written as the descriptor's `outputs:` key, with
-            `cwd:` pinned to that seat's own folder so a RELATIVE declaration resolves somewhere
-            this suite can predict. Omitted ⇒ no key, which is what every fixture above carries and
-            is why their `seed` is `[]`.
+            D4/D3: `outputs` is {seat: "./a.md, sub/b.md"} written as backticked tokens in a
+            BODY io-spec `## Outputs` block — the D3 canonical surface (the `outputs:`
+            frontmatter key is retired and refused) — with `cwd:` pinned to that seat's own
+            folder so a RELATIVE declaration resolves somewhere this suite can predict. Tokens
+            carry a `/` because the shared resolver's PATHISH grammar requires one. Omitted ⇒ no
+            block, which is what every fixture above carries and is why their `seed` is `[]`.
 
             D8: `fallbacks` is {seat: arm} written as the descriptor's `fallback:` key VERBATIM —
             trailing comment included, if the caller writes one — so the D8 rows below assert the
@@ -27814,9 +27857,14 @@ def _selftest_checks(args, failures, names):
                     _fb = (fallbacks or {}).get(s)
                     (p / "seats" / s / "seat.md").write_text(
                         f"---\nagent: {s}\nmodel: opus\n"
-                        + (f"cwd: {p / 'seats' / s}\noutputs: {_out}\n" if _out else "")
+                        + (f"cwd: {p / 'seats' / s}\n" if _out else "")
                         + (f"human-interactive: yes\nfallback: {_fb}\n" if _fb else "")
-                        + "---\nbrief\n", encoding="utf-8")
+                        + "---\nbrief\n"
+                        + (("\n<io-spec>\n## Outputs\n"
+                            + " ".join(f"`{t.strip()}`"
+                                       for t in _out.split(",") if t.strip())
+                            + "\n</io-spec>\n") if _out else ""),
+                        encoding="utf-8")
             (p / "coordination" / "workers.md").write_text(
                 WORKERS_HEADER + "".join(
                     row_text({"agent": s, "active": "yes", "pane": "%1", "summary": "working",
@@ -28818,10 +28866,11 @@ def _selftest_checks(args, failures, names):
                     ("nodecl", "q"), ("both", "p,q")]
         _rs28 = _rs_make("28", _rs28_tf, sessions=[("p", "done"), ("q", "done")],
                          guards=[("p", "safe", "yes")],
-                         outputs={"p": "plan.md, build/", "q": ""})
+                         outputs={"p": "./plan.md, build/report.json", "q": ""})
         _rs28_rows = {r["seat"]: r for r in json.loads(_rs(_rs28, json=True)[0])}
         _rs28_seat = Path(_rs28) / "seats" / "p"
-        _rs28_want = [str(_rs28_seat / "plan.md"), str(_rs28_seat / "build")]
+        _rs28_want = [str(_rs28_seat / "plan.md"),
+                      str(_rs28_seat / "build" / "report.json")]
         check("dag-10 RS-28 (D4) EVERY ROW CARRIES `seed` — THE RESOLVED ABSOLUTE PATHS OF ITS "
               "SATISFIED PREDECESSORS' DECLARED OUTPUTS — AND IT IS RESOLVED ON THE CLEAN "
               "PREDECESSOR NAME. ⚠ THE GUARDED ROW AND THE BARE ROW SHARE ONE PREDECESSOR AND "
@@ -28850,7 +28899,8 @@ def _selftest_checks(args, failures, names):
         # predecessor that did NOT satisfy it. Without this arm a `seed` built from `after`
         # membership rather than from the member's VERDICT passes every arm above.
         _rs29 = _rs_make("29", [("p", ""), ("q", ""), ("both", "p,q")],
-                         sessions=[("p", "done")], outputs={"p": "plan.md", "q": "other.md"})
+                         sessions=[("p", "done")],
+                         outputs={"p": "./plan.md", "q": "./other.md"})
         _rs29_rows = {r["seat"]: r for r in json.loads(_rs(_rs29, json=True)[0])}
         check("dag-10 RS-29 (D4) THE SEED FOLLOWS THE MEMBER'S VERDICT, NOT ITS MEMBERSHIP. On a "
               "BLOCKED row with two predecessors — one `done`, one with no check-out — the seed "
@@ -28930,6 +28980,78 @@ def _selftest_checks(args, failures, names):
               "or one that refused none, reds one of the two. The successor's verdict is asserted "
               "as well as the exit code: the point of writing the value is that an edge advances",
               _d3_c2 is None and _d3_v2["gp"] == "DONE" and _d3_v2["s1"] == "READY")
+
+        # ---- D3 (outputs-unify, 2026-08-18): ONE DECLARED-OUTPUTS SURFACE, ONE SHARED RESOLVER -
+        # `iospec_outputs` and `engine/cage-admission.js#parseDeclaredOutputs` are two parsers of
+        # ONE grammar, held equivalent by the shared fixture set BOTH sides' scheduled checks run
+        # (this arm; `engine/probes/probe-outputs-resolver.js`). A grammar edit reddens whichever
+        # side was not updated with it — that is the anti-drift mechanism, so this arm READS the
+        # file rather than re-typing its cases: a case typed here twice would be two contracts.
+        _ou_fixtures = json.loads(
+            (Path(__file__).resolve().parent / "outputs-resolver-fixtures.json")
+            .read_text(encoding="utf-8"))
+        check("D3(outputs-unify) THE PYTHON RESOLVER MATCHES THE SHARED FIXTURE SET — every "
+              "(declared, tokens) pair, including the ZERO-TOKEN prose block (declared, no "
+              "tokens — the live seam-author shape), the slashless backticked filename (the "
+              "live channel-smith shape: declared, no tokens), and the key-only descriptor "
+              "(nothing declared: the retired frontmatter key is not a declaration surface). "
+              "The JS gate runs the SAME file in its own probe; equivalence lives in the "
+              "fixtures, not in a prose promise",
+              len(_ou_fixtures) >= 8
+              and all(iospec_outputs(f["text"]) == (f["declared"], f["tokens"])
+                      for f in _ou_fixtures))
+        # THE THREE SEAT SHAPES THE RULING SEPARATES, on one package, through the REAL grading
+        # path: `blocky` declares ONLY the io-spec block (graded, verified); `keyed` carries
+        # ONLY the retired frontmatter key (refused LOUDLY, never read, never ignored); `prose`
+        # carries a block with ZERO path tokens (classified `outputs-undeclarable` on the durable
+        # record — the D3 planner extension: 23 of 26 meet-transcript-summarizer dones read
+        # `none-declared` while their seats carried prose blocks the retired key's readers could
+        # not see).
+        _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", "")],
+                           outputs={"blocky": "./out/report.md"})
+        (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
+            "---\nagent: keyed\nmodel: opus\noutputs: deliverable.md\n---\nbrief\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "prose" / "seat.md").write_text(
+            "---\nagent: prose\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "blocky" / "out").mkdir()
+        (Path(_ou_pkg) / "seats" / "blocky" / "out" / "report.md").write_text(
+            "the work\n", encoding="utf-8")
+        for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97")):
+            _d3_checkin(_ou_pkg, _ou_s, _ou_p)
+        _ou_bo, _ou_be, _ou_bc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="blocky"))
+        _ou_ko, _ou_ke, _ou_kc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="keyed"))
+        _ou_po, _ou_pe, _ou_pc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="prose"))
+
+        def _ou_rec(s):
+            return json.loads((Path(_ou_pkg) / "coordination" / f"disposition-{s}.json")
+                              .read_text(encoding="utf-8"))
+        check("D3(outputs-unify) THE BLOCK IS THE ONE GRADED SURFACE: a seat declaring ONLY the "
+              "io-spec `## Outputs` block — no frontmatter key anywhere — is graded against its "
+              "tokens and its `done` records them verified. This is the seat shape that was "
+              "INVISIBLE to the grading reader before the unification",
+              _ou_bc is None and _ou_rec("blocky")["disposition"] == "done"
+              and "verified" in _ou_rec("blocky")["outputs-verified"])
+        check("D3(outputs-unify) THE RETIRED `outputs:` FRONTMATTER KEY REFUSES LOUDLY at the "
+              "grading path — named as RETIRED, pointed at the `## Outputs` block, roster row "
+              "untouched, nothing recorded. Silent ignoring is the one outcome barred: an "
+              "ignored retired key is an author who believes a contract nobody grades",
+              _ou_kc == 1 and "RETIRED" in (_ou_ko + _ou_ke)
+              and "## Outputs" in (_ou_ko + _ou_ke)
+              and not (Path(_ou_pkg) / "coordination"
+                       / "disposition-keyed.json").exists())
+        check("D3(outputs-unify, planner extension) A ZERO-TOKEN PROSE `## Outputs` BLOCK IS "
+              "CLASSIFIED `outputs-undeclarable` ON THE DURABLE RECORD — declared-but-"
+              "ungradeable, said in those words, distinct from `none-declared` (no section at "
+              "all). Without this state D3's 'none-declared impossible for a conforming seat' "
+              "promise is false for every prose block",
+              _ou_pc is None and _ou_rec("prose")["disposition"] == "done"
+              and _ou_rec("prose")["outputs-verified"].startswith("outputs-undeclarable"))
 
         # ---- D8: A `done` IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS UNANSWERED -------
         # Driven through the REAL `cmd_checkout` and the REAL `cmd_send`, on one package, in the

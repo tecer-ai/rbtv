@@ -98,15 +98,21 @@ def load_coord(path, name):
 
 
 def make_package(root, seats):
-    """A minimal run package: `coordination/` plus one descriptor per (seat, outputs) pair."""
+    """A minimal run package: `coordination/` plus one descriptor per (seat, outputs) pair.
+
+    D3 (outputs-unify, 2026-08-18): `outputs` is a comma-separated token list written as a BODY
+    io-spec `## Outputs` block — the ONE declared-outputs surface. Tokens carry a `/` (the shared
+    resolver's PATHISH grammar requires one), so a file beside the descriptor is `./x.md`."""
     pkg = Path(root)
     (pkg / "coordination").mkdir(parents=True, exist_ok=True)
     for seat, outputs in seats.items():
         d = pkg / "workers" / seat
         d.mkdir(parents=True, exist_ok=True)
-        decl = f"outputs: {outputs}\n" if outputs else ""
+        decl = ("\n<io-spec>\n## Outputs\n"
+                + " ".join(f"`{t.strip()}`" for t in outputs.split(",") if t.strip())
+                + "\n</io-spec>\n") if outputs else ""
         (d / "agent.md").write_text(
-            f"---\nagent: {seat}\n{decl}cwd: {d}\n---\n\n# {seat}\nbrief\n", encoding="utf-8")
+            f"---\nagent: {seat}\ncwd: {d}\n---\n\n# {seat}\nbrief\n{decl}", encoding="utf-8")
     return pkg
 
 
@@ -181,7 +187,7 @@ def main():
         mod = load_coord(COORD, "coord_subject")
 
         # ---- A1 + A2: the live subject -------------------------------------------------------
-        pkg = make_package(tmp / "live", {"produced": "deliverable.md", "barren": "deliverable.md"})
+        pkg = make_package(tmp / "live", {"produced": "./deliverable.md", "barren": "./deliverable.md"})
         (pkg / "workers" / "produced" / "deliverable.md").write_text("the work\n", encoding="utf-8")
 
         checkin(mod, pkg, "produced", "%1")
@@ -227,7 +233,7 @@ def main():
             check(f"A3(red): the mutant could not be built — {merr}", False)
         else:
             mut = load_coord(mpath, "coord_mutant")
-            mpkg = make_package(tmp / "mutant-run", {"barren": "deliverable.md"})
+            mpkg = make_package(tmp / "mutant-run", {"barren": "./deliverable.md"})
             checkin(mut, mpkg, "barren", "%3")
             out_m, code_m = checkout(mut, mpkg, "barren")
             rec_m = disposition_of(mpkg, "barren")
@@ -277,23 +283,30 @@ def main():
               "map is what routes this ending to the leader",
               set(mod._DEFERRAL_BY_DISPOSITION.values()) <= set(mod.CLASS_TO_VERDICT)
               and "declared-incomplete" in mod.CLASS_TO_VERDICT)
-        # ---- A6 (7.711): a MALFORMED `outputs:` is refused by name, not left unsatisfiable -------
-        # The pre-7.711 program had no arm here and none of the 16 above reach it: every one of them
-        # declares a WELL-FORMED value. The three shapes below all parsed to a path that can never
-        # exist, so the seat was hard-blocked out of `done` forever — and the block-YAML case is the
-        # cruel one, because the author DID produce the file the block declares.
-        for shape, decl, produced in (
-                ("block-YAML",     "\n  - plan.md", "plan.md"),
-                ("bracket-list",   "[a.md, b.md]",  "a.md"),
-                ("inline-comment", "plan.md  # the plan", "plan.md")):
-            mp = make_package(tmp / f"malformed-{shape}", {"author": decl})
-            (mp / "workers" / "author" / produced).write_text("delivered\n", encoding="utf-8")
+        # ---- A6 (7.711 -> D3, 2026-08-18): the RETIRED `outputs:` key is refused by name ---------
+        # D3 retired the frontmatter key: the io-spec `## Outputs` block is the ONE declared-
+        # outputs surface, and a descriptor still carrying the key — in ANY shape, the old
+        # malformed classes included — is refused LOUDLY at its check-out, pointed at the block.
+        # Silent ignoring is the outcome barred: an ignored key is an author who believes a
+        # contract nobody grades. The one-line and block-YAML shapes below are both spellings of
+        # the same retired key; both must refuse as RETIRED, and neither may be read as a
+        # declaration (no "MISSING" list for a file the author already produced).
+        for shape, decl in (("one-line", "outputs: plan.md"),
+                            ("block-YAML", "outputs:\n  - plan.md")):
+            mp = make_package(tmp / f"retired-{shape}", {})
+            d = mp / "workers" / "author"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "agent.md").write_text(
+                f"---\nagent: author\n{decl}\ncwd: {d}\n---\n\n# author\nbrief\n",
+                encoding="utf-8")
+            (d / "plan.md").write_text("delivered\n", encoding="utf-8")
             checkin(mod, mp, "author", "%9")
             out_x, code_x = checkout(mod, mp, "author")
-            check(f"A6({shape}): the descriptor is REFUSED BY NAME at check-out — the author is "
-                  f"told the declaration is malformed, not handed an unsatisfiable missing-path "
-                  f"list for a file they already produced",
+            check(f"A6({shape}): the RETIRED `outputs:` frontmatter key is REFUSED BY NAME at "
+                  f"check-out — named RETIRED, pointed at the io-spec `## Outputs` block, never "
+                  f"read as a declaration and never silently dropped",
                   code_x != 0 and "refused [coord input]" in out_x and "outputs:" in out_x
+                  and "RETIRED" in out_x and "## Outputs" in out_x
                   and "MISSING (or empty)" not in out_x
                   and active(mod, mp, "author") and disposition_of(mp, "author") is None)
 

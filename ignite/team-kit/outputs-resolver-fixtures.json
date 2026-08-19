@@ -1,0 +1,65 @@
+[
+  {
+    "name": "block-with-tokens",
+    "why": "the canonical shape: an io-spec ## Outputs section declaring backticked path tokens",
+    "text": "---\nagent: blocky\nmodel: opus\n---\n\n# blocky\n\n<io-spec>\n## Inputs\n- Schema: the seeded task.\n\n## Outputs\n- Schema: the report at `seats/blocky/out/report.md` plus the log `./run.log`.\n  Description: the finished artifacts.\n</io-spec>\n",
+    "declared": true,
+    "tokens": ["seats/blocky/out/report.md", "./run.log"]
+  },
+  {
+    "name": "no-io-spec",
+    "why": "a seat.md with no io-spec block at all — undeclared, never an error",
+    "text": "---\nagent: bare\nmodel: opus\n---\n\n# bare\n\nProse briefing, no io-spec.\n",
+    "declared": false,
+    "tokens": []
+  },
+  {
+    "name": "io-spec-without-outputs",
+    "why": "an io-spec whose sections are Inputs/Outcome only — undeclared (## Output singular does NOT count)",
+    "text": "---\nagent: partial\n---\n\n<io-spec>\n## Input\nRun inputs.\n## Outcome\nA good outcome.\n## Output\nalpha-notes.md\n</io-spec>\n",
+    "declared": false,
+    "tokens": []
+  },
+  {
+    "name": "zero-token-prose-block",
+    "why": "the live seam-author shape: an ## Outputs section that names no path token — DECLARED but zero tokens (outputs-undeclarable, the loud classification)",
+    "text": "---\nagent: prose\n---\n\n<io-spec>\n## Outputs\n- Schema: the authored contract set at the task-declared home — index, schema files,\n  reference instances — plus the probe's passing machine verdict.\n</io-spec>\n",
+    "declared": true,
+    "tokens": []
+  },
+  {
+    "name": "backticked-but-slashless",
+    "why": "the live channel-smith shape: a backticked bare filename fails the PATHISH grammar (a token needs a `/`); the section still counts as declared",
+    "text": "---\nagent: smith\n---\n\n<io-spec>\n## Outputs\nThe exposure table `exposure.csv` at the component home.\n</io-spec>\n",
+    "declared": true,
+    "tokens": []
+  },
+  {
+    "name": "outputs-section-bounded-by-next-heading",
+    "why": "tokens after the NEXT ## heading must not leak into the Outputs section",
+    "text": "---\nagent: bounded\n---\n\n<io-spec>\n## Outputs\nThe plan at `./out/plan.md`.\n## Notes\nNever `./other/leak.md`.\n</io-spec>\n",
+    "declared": true,
+    "tokens": ["./out/plan.md"]
+  },
+  {
+    "name": "key-only-frontmatter",
+    "why": "the RETIRED surface: an outputs: frontmatter key declares NOTHING to either reader (it is refused loudly elsewhere — coord declared_outputs, materialize-seats)",
+    "text": "---\nagent: keyed\nmodel: opus\noutputs: deliverable.md\n---\n\n# keyed\nbrief\n",
+    "declared": false,
+    "tokens": []
+  },
+  {
+    "name": "tokens-outside-io-spec-ignored",
+    "why": "an ## Outputs heading OUTSIDE an io-spec block is not the surface",
+    "text": "---\nagent: stray\n---\n\n## Outputs\nA stray `./stray/file.md` heading outside any io-spec.\n\n<io-spec>\n## Inputs\nThe seed.\n</io-spec>\n",
+    "declared": false,
+    "tokens": []
+  },
+  {
+    "name": "section-at-end-of-file",
+    "why": "an Outputs section closing the block/file (no following heading) still parses — the \\Z / $ boundary",
+    "text": "---\nagent: tail\n---\n\n<io-spec>\n## Inputs\nThe seed.\n## Outputs\nThe verdict at `coordination/tail-verdict.json`\n</io-spec>",
+    "declared": true,
+    "tokens": ["coordination/tail-verdict.json"]
+  }
+]

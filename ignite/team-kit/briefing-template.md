@@ -33,15 +33,9 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
                            # persistent seat is flagged to leader, who relays it — renewal is
                            # YOUR act: `checkout --renew`, then the second call it prints,
                            # carrying `--handoff "<what your next session must do>"`
-outputs: plan.md, build/report.json
-                           # optional; comma-separated paths this seat must have PRODUCED.
-                           # Plain `checkout` REFUSES to record `done` while any of them is
-                           # missing or zero-byte. Relative paths resolve against `cwd:`
-                           # (folder form: the seat's own folder). Omit the key and the
-                           # check-out records `none-declared` — the `done` is unverified.
-                           # NOT the "Surfaces you own" claim below — that is what a seat may
-                           # WRITE; this is what it must have PRODUCED. Often the same paths,
-                           # never the same question. Details: `briefing-authoring.md`
+                           # ⚠ NO `outputs:` key here — RETIRED (D3, 2026-08-18) and REFUSED
+                           # on sight at check-out and at materialize. Declared outputs live
+                           # in the body's io-spec `## Outputs` block below.
 ---
 
 # {agent-name} — {one-line role}
@@ -51,6 +45,19 @@ outputs: plan.md, build/report.json
 ## Mission
 
 {What this agent exists to produce, in 2–5 sentences. Outcome, not activity.}
+
+<io-spec>
+## Outputs
+{The seat's done contract (7.676/D3) — the ONE declared-outputs surface, read by BOTH the
+ done-contract grading at `checkout` and the caged-launch admission gate. Each output is a
+ backticked goal-relative token carrying a `/` and an extension — `seats/{agent-name}/plan.md`,
+ or `./plan.md` for a file in the seat's own cwd (relative tokens resolve against `cwd:`; folder
+ form: the seat's own folder). Plain `checkout` REFUSES to record `done` while any declared
+ token is missing or zero-byte. A section with NO such token records `outputs-undeclarable`
+ (nothing verified — loud); omit the whole block and the record says `none-declared`. NOT the
+ "Surfaces you own" claim below — that is what a seat may WRITE; this is what it must have
+ PRODUCED. Details: `briefing-authoring.md`.}
+</io-spec>
 
 ## Surfaces you own (single-writer)
 
