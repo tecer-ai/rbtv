@@ -911,12 +911,18 @@ def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
             # (workdir = goal dir). Idempotent — an existing id / queue row is left
             # alone. A failure here does not refuse the scaffold.
 
-            _arm_path = Path(__file__).resolve().parents[3] / "jobs" / "ensure_room_selfheal.py"
-            _spec = importlib.util.spec_from_file_location("ensure_room_selfheal", _arm_path)
-            _arm_mod = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(_arm_mod)
-            armed = _arm_mod.ensure_room_selfheal(ignite_bin, goal, str(goal_dir), dry_run=dry_run)
-            steps.extend(armed.get("steps") or [])
+            # Best-effort MEANS best-effort: a raise here (module missing, ignite_bin not
+            # executable) must be recorded as a failed step, never escape and refuse the
+            # scaffold the goal was already born from.
+            try:
+                _arm_path = Path(__file__).resolve().parents[3] / "jobs" / "ensure_room_selfheal.py"
+                _spec = importlib.util.spec_from_file_location("ensure_room_selfheal", _arm_path)
+                _arm_mod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_arm_mod)
+                armed = _arm_mod.ensure_room_selfheal(ignite_bin, goal, str(goal_dir), dry_run=dry_run)
+                steps.extend(armed.get("steps") or [])
+            except Exception as exc:  # noqa: BLE001 — recorded on the step, not swallowed
+                steps.append({"step": "selfheal-arm", "rc": -1, "error": repr(exc)})
 
             failed = [s for s in steps if s.get("rc", 0) != 0
                       and not str(s.get("step") or "").startswith("selfheal-")]
