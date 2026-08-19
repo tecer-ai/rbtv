@@ -340,7 +340,15 @@ capture('probe-trace-header', async (lines) => {
   // raw total, so a unit spawned by a concurrent probe neither fails this leg nor hides a leak.
   // Read IMMEDIATELY after teardown: waiting out the `sleep 3600` would make the check vacuous.
   const unitsAfter = unitCensus();
-  const leaked = unitsAfter.filter((u) => !unitsBefore.includes(u));
+  // The comment above is the CONTRACT; a raw census diff was not it. Any unit the live daemon
+  // (or a parallel seat) starts inside this probe's ~1.6s window landed in `unitsAfter` and read
+  // as this run's leak — observed 2026-08-19 00:11, `before=1 after=2 spawned=4` naming a unit
+  // that had self-terminated by the time it was inspected, which a leaked fixture unit holding a
+  // `sleep 3600` cannot do. Intersecting with what this run actually spawned is what the leg
+  // always claimed to measure, and it keeps a REAL leak visible: a unit we spawned and failed to
+  // reap is still in `mine`.
+  const mine = new Set(spawnedIds.map((sid) => `rbtv-worker-${sid}`));
+  const leaked = unitsAfter.filter((u) => !unitsBefore.includes(u) && mine.has(u));
   leg('T7', 'TEARDOWN — every rbtv-worker-* unit this run created is gone the moment the run ends (no unit outlives its fixture)',
     leaked.length === 0,
     `before=${unitsBefore.length} after=${unitsAfter.length} spawned=${spawnedIds.length} leaked=${JSON.stringify(leaked)}`);
