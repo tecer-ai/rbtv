@@ -534,11 +534,22 @@ function goalLocalLint({ goalFolder, catalogRoot, sheet, milestone }) {
   }
 }
 
+// ── CIRCUIT NOTE (D16, dag-hardening) — a refusal that repeats every ~10s cadence for the SAME
+// set of seats, for the SAME reason, is said once at `warn` and thereafter at `debug`. The
+// measured shape (LE-13, `unbuilt-seats`): N seats refusing every cadence for a day is N × 8,640
+// identical lines, and the refusal itself is unchanged either way — only the LOG LEVEL moves. Keyed
+// on the goal folder, deliberately its OWN Map and never `lane-watch.js`'s `failedOn` (keyed on the
+// lane MARKER, not this refusal set — sharing it would let one silence the other). A goal that
+// starts failing on a DIFFERENT seat set, a different code, or that stops failing entirely is loud
+// again the very next pass. ponytail: process-lifetime, re-armed by a daemon restart.
+const unbuiltRefusalMemo = new Map();  // goalFolder -> last-shouted signature
+
 // Build every registered-but-unbuilt seat of one goal. Returns `{built, failed}`; NEVER throws —
 // the caller is a watch pass over the whole tree.
 function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {} }) {
   const built = [];
   const failed = [];
+  const toLog = [];   // buffered per-seat refusals — the level is decided once the full SET is known
   const workspace = path.resolve(goalsRoot, '..', '..');
   // The goal-local half runs ONCE for the whole goal, not once per seat: the lane is the goal's
   // manifest, and one materialize of it builds every goal-authored seat in one atomic append.
@@ -555,9 +566,9 @@ function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {
     let where;
     try { where = sheetForSeat(workspace, seat); } catch (err) {
       failed.push({ seat, code: err.code, error: err.message });
-      say('warn', 'lane watch: a taskforce row has NO seat folder and its casting sheet could not '
+      toLog.push(['lane watch: a taskforce row has NO seat folder and its casting sheet could not '
         + 'be resolved — the seat cannot be built and this goal cannot advance past it',
-      { seat, code: err.code, error: err.message });
+      { seat, code: err.code, error: err.message }]);
       continue;
     }
     // ⚠ A SCOPED, ONE-SEAT SHEET, written OUTSIDE the goal folder — the same act
@@ -592,12 +603,19 @@ function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {
     } catch (err) {
       const evidence = (String(err.stdout || '') + String(err.stderr || '')).trim().slice(0, 400);
       failed.push({ seat, code: err.code, error: evidence || err.message });
-      say('warn', 'lane watch: a taskforce row has NO seat folder and MATERIALIZING it refused — '
-        + 'the goal stalls at this seat until it is built', { seat, evidence: evidence || err.message });
+      toLog.push(['lane watch: a taskforce row has NO seat folder and MATERIALIZING it refused — '
+        + 'the goal stalls at this seat until it is built', { seat, evidence: evidence || err.message }]);
     } finally {
       if (scoped) fs.rmSync(scoped, { force: true });
     }
   }
+  // The refusal set's SIGNATURE — seat + code/evidence, sorted so seat ORDER is not a state change.
+  // Unchanged from the last pass ⇒ every buffered line above drops to `debug`; changed (a different
+  // seat, a different reason, or empty because everything built) ⇒ loud, and the memo re-arms.
+  const sig = failed.map((f) => `${f.seat}:${f.code || f.error || ''}`).sort().join('|');
+  const alreadyShouted = sig !== '' && unbuiltRefusalMemo.get(goalFolder) === sig;
+  if (sig) unbuiltRefusalMemo.set(goalFolder, sig); else unbuiltRefusalMemo.delete(goalFolder);
+  for (const [message, extra] of toLog) say(alreadyShouted ? 'debug' : 'warn', message, extra);
   if (built.length) {
     say('info', 'lane watch: built registered-but-unbuilt seat(s) — the rows existed and their '
       + 'folders did not, which is the state nothing else in this system repairs', { seats: built });
