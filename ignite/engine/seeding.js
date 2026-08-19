@@ -459,6 +459,126 @@ function taskforcePath(goalFolder) {
   return path.join(goalFolder, TASKFORCE);
 }
 
+// ── VALIDATE AT LOAD (D16, dag-hardening) ──────────────────────────────────────────────────────
+//
+// THE MEASURED INCIDENT: `readCsv` above is header-driven and forgiving BY DESIGN (a short row
+// reads `''` for its missing tail, a long row drops the overflow) — the 08-14/15 stall was a
+// malformed `taskforce.csv` row the reader absorbed silently, refusing every seat, every 10 s, for
+// a day, with no owner signal, until an owner-ruled hand edit ended it (root-cause-archaeology
+// §2). D16's whole scope: a malformed row becomes a REFUSAL here, naming the file, the row, and
+// the defect — not a change to what a well-formed row MEANS.
+//
+// Two checks are local (no subprocess, no second grammar): a data row whose CELL COUNT disagrees
+// with the header's, and two rows naming the SAME seat. The graph — cycles, dangling `after`,
+// guard/alternate grammar — is NOT re-walked here: `goal_cli.py#check_acyclic` is "the room's ONLY
+// sanctioned acyclicity check" (its own docstring, Rule 9) and is INVOKED, never re-implemented.
+const GOAL_CLI_PY = path.join(__dirname, '..', 'capabilities', 'goals-tree', 'tool', 'goal_cli.py');
+const CHECK_ACYCLIC_TIMEOUT_MS = 60000;
+
+// The two local checks. Line numbers are 1-based FILE lines (blank lines skipped, same filter
+// `readCsv` applies), so a defect message points at the exact row an editor would open. Cells are
+// split with `splitRow` — the same RFC-4180 splitter `readCsv` uses — so a legitimately quoted
+// multi-predecessor `after` cell is never miscounted as extra columns.
+function validateTaskforceRows(tfPath) {
+  const text = fs.readFileSync(tfPath, 'utf8');
+  const numbered = [];
+  text.split('\n').forEach((line, idx) => { if (line.trim().length) numbered.push({ n: idx + 1, line }); });
+  if (!numbered.length) return null;
+  const header = splitRow(numbered[0].line).map((c) => c.trim());
+  const seatIdx = header.indexOf('seat');
+  const seenAt = new Map();
+  for (const { n, line } of numbered.slice(1)) {
+    const cells = splitRow(line);
+    if (cells.length !== header.length) {
+      const shown = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+      return `${tfPath}:${n}: row has ${cells.length} cell(s), header has ${header.length} — ${shown}`;
+    }
+    if (seatIdx < 0) continue;
+    const seat = (cells[seatIdx] || '').trim();
+    if (!seat) continue;
+    if (seenAt.has(seat)) {
+      return `${tfPath}: seat '${seat}' is named on lines ${seenAt.get(seat)} and ${n} — duplicate seat row`;
+    }
+    seenAt.set(seat, n);
+  }
+  return null;
+}
+
+// The graph check, PERFORMED by invoking `check-acyclic`, exactly as `queue-request.js#goalLocalLint`
+// invokes the materializer's own lint rather than re-deciding its verdict (R7). Returns one of:
+//   'clean'              the after-graph is acyclic, every edge resolves, every guard/alternate parses
+//   { defect }           a genuine FINDING — the load refuses
+//   'no-after-column'    this taskforce carries no `after` column at all — nothing to check (NOT a
+//                        defect: some fixtures/manifests legitimately carry none)
+//   { checkFailed }      the check itself could not run — no python, a timeout, undocumented output
+function checkAcyclicViaCli(tfPath) {
+  try {
+    execFileSync(requirePythonCmd(), [GOAL_CLI_PY, 'check-acyclic', tfPath],
+      { encoding: 'utf8', timeout: CHECK_ACYCLIC_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    return 'clean';
+  } catch (err) {
+    const stdout = String(err.stdout || '');
+    const stderr = String(err.stderr || '');
+    const findingLines = stdout.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('FINDING'));
+    if (findingLines.length) return { defect: findingLines.join('  ·  ').slice(0, 400) };
+    // A `Refusal` naming the missing `after` column (`goal_cli.py#check_acyclic`'s own docstring:
+    // "column absent -> Refusal ... cell empty -> a finding") is not a malformed file — it is a file
+    // this check was never meant to walk. Anything ELSE non-zero (no python, a timeout, junk output)
+    // is the check failing to answer, which is not evidence about the file either way.
+    if (/no '.*' column/.test(stderr)) return 'no-after-column';
+    return { checkFailed: (stderr || stdout || (err && err.message) || 'unknown error').trim().slice(0, 400) };
+  }
+}
+
+// ── THE MEMO — serves both the subprocess cost and the "quiet must never mean forgotten" property
+// (`lane-watch.js#shouldShout`'s own doctrine, keyed here on the FILE rather than the lane marker:
+// a taskforce fix does not touch the marker, so a marker-keyed memo would never re-arm). Keyed on
+// the file's mtime+size — cheap, no hashing — so the SAME bytes never re-spawn the subprocess or
+// re-print the trap-1/trap-2 notices, and a CHANGED file always revalidates and is loud again.
+//
+// ponytail: process-lifetime Maps, one small entry per goal, cleared by nothing and re-armed only
+// by a daemon restart — the same conservative direction `goal-stall-alarm.js`'s own dedup Map
+// discloses (a duplicate notice after a restart beats a freeze the memo silently remembers past
+// the life of the process that decided it).
+const taskforceValidationMemo = new Map();  // tfPath -> { key, error: string|null }
+const graphCheckNoticed = new Map();        // tfPath -> key already reported (trap 1 / trap 2)
+
+function taskforceFileKey(tfPath) {
+  const st = fs.statSync(tfPath);
+  return `${st.mtimeMs}:${st.size}`;
+}
+
+// `readTaskforce`'s validation gate. Throws a row-precise `Error` for a genuine defect; otherwise
+// returns having spawned nothing (memo hit) or having run the two local checks plus (at most once
+// per file version) the graph check. NEVER refuses on a check that could not run — see
+// `checkAcyclicViaCli` above; `console.error` is used for those two trap notices because
+// `readTaskforce` has no logger threaded to it (many callers, no shared umbrella) and this still
+// lands in the daemon's journal, which is what "logged loudly" requires here.
+function validateTaskforce(tfPath) {
+  const key = taskforceFileKey(tfPath);
+  const cached = taskforceValidationMemo.get(tfPath);
+  if (cached && cached.key === key) {
+    if (cached.error) throw new Error(cached.error);
+    return;
+  }
+  let error = validateTaskforceRows(tfPath);
+  if (!error) {
+    const graph = checkAcyclicViaCli(tfPath);
+    if (graph && graph.defect) {
+      error = `${tfPath}: after-graph malformed — ${graph.defect}`;
+    } else if (graph === 'no-after-column' || (graph && graph.checkFailed)) {
+      if (graphCheckNoticed.get(tfPath) !== key) {
+        graphCheckNoticed.set(tfPath, key);
+        console.error(graph === 'no-after-column'
+          ? `readTaskforce: ${tfPath} carries no 'after' column — the acyclicity check is SKIPPED, not refused`
+          : `readTaskforce: the acyclicity check could not run for ${tfPath} — proceeding WITHOUT it (${graph.checkFailed})`);
+      }
+    }
+  }
+  taskforceValidationMemo.set(tfPath, { key, error: error || null });
+  if (error) throw new Error(error);
+}
+
 function readTaskforce(goalFolder) {
   const tfPath = taskforcePath(goalFolder);
   if (!fs.existsSync(tfPath)) {
@@ -467,6 +587,7 @@ function readTaskforce(goalFolder) {
       `where they are declared (CMP-4 goals tree). Nothing to run.`
     );
   }
+  validateTaskforce(tfPath);
   const rows = readCsv(tfPath).filter((r) => r.seat);
   if (!rows.length) throw new Error(`${tfPath}: no seat rows`);
   return rows;

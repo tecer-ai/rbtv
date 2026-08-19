@@ -304,6 +304,73 @@ async function main() {
 
   say('');
 
+  // ── L0e · VALIDATE AT LOAD (D16, dag-hardening) — a malformed row REFUSES, once, by name ──────
+  //
+  // THE MEASURED INCIDENT: a malformed `taskforce.csv` row (root-cause-archaeology-2026-08-19.md
+  // §2, stall row `08-14/15`) was absorbed silently by the forgiving, header-driven `readCsv`
+  // above — refusing every seat, every 10 s, for a day, with no owner signal, ended only by an
+  // owner-ruled hand edit. `readTaskforce` now REFUSES for four defect classes: a ragged row (cell
+  // count != header), a dangling `after`, a cycle, and a duplicate seat — naming the file, the row
+  // (or the locating seat), and the defect. A header carrying NO `after` column is deliberately NOT
+  // one of them (some fixtures/manifests carry none) and is proven a REGRESSION control alongside a
+  // real well-formed row.
+  say('L0e — validate at load: a malformed row REFUSES by name; a well-formed one is unaffected');
+  const l0eDir = path.join(tmp, 'l0e');
+  fs.mkdirSync(l0eDir, { recursive: true });
+  const HEADER8 = 'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id';
+  const l0eCases = {
+    healthy: `${HEADER8}\ntf-e,alpha,,bash,probe-lane,high,,\ntf-e,bravo,alpha,bash,probe-lane,high,,\n`,
+    ragged: `${HEADER8}\ntf-e,alpha,,bash,probe-lane,high,,\ntf-e,bravo,alpha,bash,probe-lane\n`,
+    dangling: `${HEADER8}\ntf-e,alpha,ghost,bash,probe-lane,high,,\n`,
+    cycle: `${HEADER8}\ntf-e,alpha,bravo,bash,probe-lane,high,,\ntf-e,bravo,alpha,bash,probe-lane,high,,\n`,
+    dupe: `${HEADER8}\ntf-e,alpha,,bash,probe-lane,high,,\ntf-e,alpha,,bash,probe-lane,high,,\n`,
+    'no-after-col': 'taskforce-id,seat\ntf-e,alpha\n',
+  };
+  const l0ePaths = {};
+  for (const [name, body] of Object.entries(l0eCases)) {
+    const dir = path.join(l0eDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'taskforce.csv'), body);
+    l0ePaths[name] = dir;
+  }
+  function l0eThrow(seedingImpl, name) {
+    try { seedingImpl.readTaskforce(l0ePaths[name]); return null; } catch (err) { return err.message; }
+  }
+  check('L0e a healthy row loads clean', l0eThrow(seeding, 'healthy') === null, String(l0eThrow(seeding, 'healthy')));
+  check('L0e a header with NO `after` column loads clean too — nothing to check, not a defect (regression control)',
+    l0eThrow(seeding, 'no-after-col') === null, String(l0eThrow(seeding, 'no-after-col')));
+  const l0eRagged = l0eThrow(seeding, 'ragged');
+  check('L0e a RAGGED row (cell count != header) REFUSES, naming the file, the line, and the count',
+    Boolean(l0eRagged) && /:3:/.test(l0eRagged) && /5 cell\(s\), header has 8/.test(l0eRagged), l0eRagged);
+  const l0eDangling = l0eThrow(seeding, 'dangling');
+  check('L0e a DANGLING `after` REFUSES via the INVOKED `check-acyclic` finding, not a hand-rolled walk',
+    Boolean(l0eDangling) && /after edge resolves/.test(l0eDangling) && /'ghost'/.test(l0eDangling), l0eDangling);
+  const l0eCycle = l0eThrow(seeding, 'cycle');
+  check('L0e a CYCLE REFUSES via `check-acyclic`, naming the cycle path',
+    Boolean(l0eCycle) && /after graph acyclic/.test(l0eCycle) && /alpha -> bravo -> alpha/.test(l0eCycle), l0eCycle);
+  const l0eDupe = l0eThrow(seeding, 'dupe');
+  check('L0e a DUPLICATE seat REFUSES, naming BOTH line numbers',
+    Boolean(l0eDupe) && /duplicate seat row/.test(l0eDupe) && /lines 2 and 3/.test(l0eDupe), l0eDupe);
+
+  // The RED arm — the SAME six fixtures against `seeding.js` with the validation call REMOVED (the
+  // pre-change reader), compiled in memory under its own filename so its relative requires resolve
+  // exactly as the original's do. The anchor is asserted present first: a mutation that matched
+  // nothing is a green arm measuring nothing.
+  const VALIDATE_ANCHOR = 'validateTaskforce(tfPath);';
+  if (check('L0e mutation anchor present in seeding.js — the RED arm measures the real call site',
+    SEEDING_SRC.includes(VALIDATE_ANCHOR))) {
+    const redM = new Module(SEEDING_PATH, null);
+    redM.filename = SEEDING_PATH;
+    redM.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
+    redM._compile(SEEDING_SRC.replace(VALIDATE_ANCHOR, '/* RED ARM (probe-daemon-lane-watch L0e): validation removed */'), SEEDING_PATH);
+    for (const name of ['ragged', 'dangling', 'cycle', 'dupe']) {
+      check(`L0e RED — without validation, '${name}' is absorbed SILENTLY (no throw) — the measured incident`,
+        l0eThrow(redM.exports, name) === null, String(l0eThrow(redM.exports, name)));
+    }
+  }
+
+  say('');
+
   // ── L1 · THE READER'S GRAMMAR ───────────────────────────────────────────────────────────────
   say('L1 — the lane marker\'s grammar: absent, junk and `console` are ONE answer');
   const lanePath = (dir) => path.join(dir, laneWatch.LANE_FILE);

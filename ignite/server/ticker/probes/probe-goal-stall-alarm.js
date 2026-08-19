@@ -301,6 +301,68 @@ alarm.alarmState.clear();
 hs.close();
 fs.rmSync(dbRoot, { recursive: true, force: true });
 
+// ── ARM 8 · A REAL MALFORMED `taskforce.csv` REACHES THE SAME WIRE (D16, dag-hardening) ────────
+//
+// Every condition above is STAGED via `engine.seedGoal`. This arm is the one exception: a REAL
+// malformed `taskforce.csv` (a cycle) drives the REAL `readTaskforce` (`engine/seeding.js`,
+// invoking `goal_cli.py#check-acyclic` — the room's only sanctioned acyclicity check). Its throw is
+// caught by `runLaneWatch`'s own pre-seeding branch and handed to `alarmOnStall` as
+// `pickup.frozen.kind = 'taskforce-unreadable'` — the measured incident's own condition
+// (root-cause-archaeology-2026-08-19.md §2, stall row `08-14/15`), reusing the existing catch-all
+// `why`/`head` text rather than minting a new kind.
+say('── ARM 8 · a REAL malformed taskforce.csv reaches the same wire ──────────────────────────');
+const G_MALFORMED = 'frozen-malformed-taskforce';
+const malformedDir = makeGoal(G_MALFORMED);
+fs.writeFileSync(path.join(malformedDir, 'taskforce.csv'),
+  'taskforce-id,seat,after\ntf-m,alpha,bravo\ntf-m,bravo,alpha\n');   // a cycle: alpha -> bravo -> alpha
+alarm.alarmState.delete(G_MALFORMED);
+
+const p8a = pass();
+check('ARM 8 first sight: NOT yet alarmed (below threshold), but the goal IS logged (WARN, first '
+  + 'sight) with the row-precise `check-acyclic` finding',
+  p8a.alarms.every((d) => d.goal !== G_MALFORMED)
+  && logged.some((r) => r.goal === G_MALFORMED && r.level === 'warn'
+    && /after graph acyclic.*alpha -> bravo -> alpha/.test(r.error || '')),
+  JSON.stringify(logged.filter((r) => r.goal === G_MALFORMED)));
+
+advance(OVER);
+const p8b = pass();
+const d8 = p8b.alarms.find((d) => d.goal === G_MALFORMED);
+check('ARM 8 past threshold: `action: post`, the condition kind is `taskforce-unreadable`, and the '
+  + 'composed TEXT quotes the row-precise cycle finding — the owner reads the SAME evidence the '
+  + 'journal line carries',
+  Boolean(d8) && /cycle: alpha -> bravo -> alpha/.test(d8.text) && d8.argv[2] === 'post' && d8.argv[3] === G_MALFORMED,
+  d8 ? JSON.stringify({ argv: d8.argv, text: d8.text }) : 'no alarm fired');
+say(`  ARGV  ${d8 ? JSON.stringify(d8.argv) : 'n/a'}`);
+say(`  TEXT  ${d8 ? JSON.stringify(d8.text) : 'n/a'}`);
+
+// The RED counterpart — a DEDICATED mutant, because ARM 6's anchor targets a DIFFERENT
+// `alarmOnStall` call site (the post-`seedGoal` one; `refusedAt`/ARM 5). This is the
+// PRE-seeding call — LE-13's own fix, and the exact gap the measured incident sat in (§ header
+// comment above `alarmOnStall` at this call site: "the ONE `alarmOnStall` call sat below these
+// `continue`s, so a goal frozen before `seedGoal` never reached it"). `readTaskforce` still throws
+// for this malformed file — the validation itself is proven at L0e
+// (`engine/probes/probe-daemon-lane-watch.js`) — but with THIS wire cut, the same malformed goal
+// must alarm NEVER, even past threshold twice.
+const TF_ALARM_ANCHOR = "alarmOnStall({\n        goal, goalFolder, engine, say,\n        pickup: { frozen: { kind: 'taskforce-unreadable', seats: [], detail: `taskforce.csv could not be read: ${err.message}` } },\n      });";
+check('ARM 8 mutation anchor present — the RED arm measures the real (pre-seeding) call site',
+  laneSrc.includes(TF_ALARM_ANCHOR));
+const mut8 = new Module(LANE_PATH, null);
+mut8.filename = LANE_PATH;
+mut8.paths = Module._nodeModulePaths(path.dirname(LANE_PATH));
+mut8._compile(laneSrc.replace(TF_ALARM_ANCHOR, '/* RED ARM 8: the taskforce-unreadable alarmOnStall call removed */'), LANE_PATH);
+alarm.alarmState.delete(G_MALFORMED);
+performed = []; logged = [];
+for (let i = 0; i < 2; i += 1) { advance(OVER); mut8.exports.runLaneWatch({ goalsRoot, engine, logger }); }
+const redAlarms8 = performed.filter((sub) => sub.decision && sub.decision.act === 'goal-alarm' && sub.decision.goal === G_MALFORMED);
+check('ARM 8 RED — without THIS wire, the SAME malformed taskforce.csv alarms NEVER, even past '
+  + 'threshold twice — the measured 4-hour silence, reproduced and closed',
+  redAlarms8.length === 0, `alarms=${redAlarms8.length}`);
+check('ARM 8 RED CONTROL — the mutant pass still ran and still saw the goal (still logged it)',
+  logged.some((r) => r.goal === G_MALFORMED));
+alarm.alarmState.delete(G_MALFORMED);
+say('');
+
 const verdict = failures.length ? 'FAIL' : 'PASS';
 say('');
 say(`SUMMARY: ${lines.filter((l) => l.startsWith('PASS')).length}/${lines.filter((l) => /^(PASS|FAIL)/.test(l)).length} passed`);
