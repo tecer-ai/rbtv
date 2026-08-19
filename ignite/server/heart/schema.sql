@@ -53,11 +53,13 @@ CREATE INDEX IF NOT EXISTS idx_queue_due ON queue(run_at);
 
 CREATE TABLE IF NOT EXISTS messages (
   msg_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-  -- W4: the vocabulary is CLOSED AT SEVEN. Unlike jobs_log.status below, this CHECK IS moved on
-  -- migrated stores too (migration 5, `message-types-seven-w4`) — a table rebuild, because SQLite
-  -- cannot alter a CHECK. Fresh and migrated therefore enforce the SAME constraint, which is the
-  -- property the jobs_log note below could not buy and had to reason around.
-  type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note','queue-request','escalation')),
+  -- W4 closed the vocabulary at SEVEN; D2's routed types (owner ruling, 2026-08-19) make it EIGHT
+  -- with `stuck`. Unlike jobs_log.status below, this CHECK IS moved on migrated stores too
+  -- (migration 5 `message-types-seven-w4`, then migration 7 `message-types-eight-stuck`) — a table
+  -- rebuild each time, because SQLite cannot alter a CHECK. Fresh and migrated therefore enforce
+  -- the SAME constraint, which is the property the jobs_log note below could not buy and had to
+  -- reason around.
+  type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note','queue-request','escalation','stuck')),
   sender       TEXT NOT NULL,
   thread       TEXT NOT NULL,
   corpus       TEXT NOT NULL,

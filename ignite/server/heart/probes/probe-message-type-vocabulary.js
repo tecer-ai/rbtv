@@ -1,20 +1,26 @@
 'use strict';
 
-// probe-message-type-vocabulary — the closed message-type enum is COPIED at seven sites, and this
-// probe is the only thing that makes them one object.
+// probe-message-type-vocabulary — the closed message-type enum is COPIED at eight sites, and this
+// probe is the only thing that makes them one object. (SEVEN until the D2 change swept the tree
+// and found the goal-scaffold `threads.sql` template carrying a ninth-hand copy of its own.)
+//
+// ⚠ THE COUNT MOVES WITH THE VOCABULARY, NOT WITH THE SITES. W4 closed the enum at seven types;
+// D2's routed types (owner ruling, 2026-08-19) widened it to EIGHT by adding `stuck`. EXPECTED
+// below is still spelled out by hand and still compared EXACTLY — widening it is the deliberate,
+// reviewable act that a vocabulary change is supposed to cost.
 //
 // ⚠ WHY THE COPIES EXIST AND WHY THEY MUST NOT BE UNIFIED. Each copy is deliberate and documented
 // at its own site: the gateway holds no store import by design (DEC-4), the core re-validates
 // independently of gateway origin (DEC-3), the chat bridge is a separate process, and `coord.py` is
 // a different LANGUAGE on a different substrate. The store's CHECK is SQL. So the vocabulary cannot
-// live in one place — which leaves exactly one honest guard: read all seven and compare them.
+// live in one place — which leaves exactly one honest guard: read all of them and compare.
 //
-// ⚠ THE FAILURE THIS CATCHES IS SILENT AT EVERY SITE. A type added at six of seven is not a syntax
-// error anywhere: the sender writes the row into its append-only log, the seventh door refuses it,
+// ⚠ THE FAILURE THIS CATCHES IS SILENT AT EVERY SITE. A type added at seven of eight is not a
+// syntax error anywhere: the sender writes the row into its append-only log, the seventh door refuses it,
 // the sender exits non-zero, and the row is permanent. That is the D3 silent class the W4 package
 // exists to close, rebuilt by the change that closed it.
 //
-// ⚠ NON-VACUITY IS ASSERTED, NOT ASSUMED. Every site must yield a NON-EMPTY set, and the union must
+// ⚠ NON-VACUITY IS ASSERTED, NOT ASSUMED. Every site must yield a NON-EMPTY set, and each must
 // match the expected vocabulary EXACTLY. A regex that stops matching (a reformat, a rename, a moved
 // file) yields an empty set and turns this probe RED rather than green-by-absence — the failure
 // mode a "does every site contain 'escalation'?" scan has.
@@ -26,7 +32,7 @@ const IGNITE = path.resolve(__dirname, '..', '..', '..');
 
 // The vocabulary, spelled out. Deliberately NOT read from any of the seven sites: an expectation
 // that reads one of the things under test moves with it and passes every change to it.
-const EXPECTED = ['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation'];
+const EXPECTED = ['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation', 'stuck'];
 
 // Each site: where it lives, and the pattern that isolates its enum literal. The pattern captures
 // the LIST TEXT; the values are then pulled out of it, so a site is free to reformat its own
@@ -41,6 +47,12 @@ const SITES = [
   // TYPE_COLOR is the seventh site and the one a partial move breaks LOUDLY but late: a view
   // rendering a colourless type raises KeyError on the row a reader most needs to see.
   ['team-kit/coord.py', /^TYPE_COLOR = \{([^}]*)\}/m, 'TYPE_COLOR'],
+  // The EIGHTH copy, found by a tree sweep during the D2 change and named by no site list before
+  // it: the goal-scoped `threads.sql` schema TEMPLATE that `goal scaffold` writes. Nothing opens
+  // that file as a database today, so it is inert — which is exactly why it drifted unnoticed and
+  // exactly why it belongs here rather than in a comment. Its own pattern, because the literal is
+  // wrapped across lines and `CHECK (type IN (` is not contiguous there.
+  ['capabilities/goals-tree/tool/goal_cli.py', /CHECK \(type IN\s*\(([^)]*)\)\)/, 'threads.sql template'],
 ];
 
 const outPath = path.join(__dirname, 'probe-message-type-vocabulary.out');

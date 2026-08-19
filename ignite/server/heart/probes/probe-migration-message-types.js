@@ -1,8 +1,11 @@
 'use strict';
 
-// probe-migration-message-types — W4. Proves the seven-value message-type CHECK reaches a store
-// that ALREADY EXISTS, and that the table REBUILD it needs does not break the one foreign key
-// pointing INTO `messages`.
+// probe-migration-message-types — W4, extended by D2. Proves the message-type CHECK reaches a
+// store that ALREADY EXISTS, and that the table REBUILD it needs does not break the one foreign
+// key pointing INTO `messages`. TWO rebuilds are now chained on one fixture: migration 5 widens
+// five -> seven, migration 7 widens seven -> EIGHT (`stuck`, D2's routed type). The pre-migration
+// fixture is populated and carries a live `jobs_log.completion_msg_id`, so the FK is re-hooked
+// twice in one `migrate()` call — the case a single-rebuild fixture could not reach.
 //
 // ⚠ THE FIXTURE IS THE PROBE, for G-135's reason restated by schema.sql's own jobs_log note: a
 // CHECK change is invisible on a fresh store (schema.sql already carries it) and is the whole
@@ -21,7 +24,7 @@ const { DatabaseSync } = require('node:sqlite');
 
 const HEART = path.join(__dirname, '..');
 const SCHEMA_SQL = fs.readFileSync(path.join(HEART, 'schema.sql'), 'utf8');
-const { migrate, MIGRATION_MESSAGE_TYPES_SEVEN, MIGRATIONS, LATEST } =
+const { migrate, MIGRATION_MESSAGE_TYPES_SEVEN, MIGRATION_MESSAGE_TYPES_EIGHT, MIGRATIONS, LATEST } =
   require(path.join(HEART, 'migrations.js'));
 
 const outPath = path.join(__dirname, 'probe-migration-message-types.out');
@@ -39,10 +42,15 @@ function check(name, pass, detail) {
 // literally what production had — only the one constraint under test differs.
 const FIVE = "type IN ('completion','ask','answer','verdict','note')";
 const SEVEN = "type IN ('completion','ask','answer','verdict','note','queue-request','escalation')";
-const PRE_W4_SQL = SCHEMA_SQL.replace(SEVEN, FIVE);
+// ⚠ THIS CONSTANT IS THE FIXTURE'S DERIVATION KEY and it MOVES WITH schema.sql's CHECK. It read
+// SEVEN until D2 added `stuck`; the moment it drifts, the `replace` below is a no-op and the guard
+// under it fires rather than letting every arm test the same shape twice.
+const CURRENT = "type IN ('completion','ask','answer','verdict','note','queue-request','escalation','stuck')";
+const PRE_W4_SQL = SCHEMA_SQL.replace(CURRENT, FIVE);
 if (PRE_W4_SQL === SCHEMA_SQL) {
-  out('FAIL  fixture — schema.sql no longer carries the seven-value CHECK verbatim, so the pre-W4 '
-    + 'fixture could not be derived and every arm below would test the same shape twice');
+  out('FAIL  fixture — schema.sql no longer carries the current message-type CHECK verbatim (this '
+    + "probe's CURRENT constant), so the pre-W4 fixture could not be derived and every arm below "
+    + 'would test the same shape twice');
   out('EXIT: 1');
   process.exit(1);
 }
@@ -87,16 +95,22 @@ try {
     `${beforeRows} rows seeded under the five-value CHECK`);
   check('arm 1 · pre-W4 store REFUSES `queue-request`',
     refused(() => ins.run('queue-request', 'engine', 'exec-1', 'next wave', null, 'x')) !== null);
+  check('arm 1 · pre-W4 store REFUSES `stuck` (D2)',
+    refused(() => ins.run('stuck', 'alpha', 'exec-1', 'blocked on the data root', null, 'x')) !== null);
 
   // ---- arm 2: the migration runs on THAT store, in place --------------------------------------
   const res = migrate(db, { migrations: MIGRATIONS });
   check('arm 2 · migration applied to an EXISTING store',
     res.applied.includes(MIGRATION_MESSAGE_TYPES_SEVEN.version),
     `applied ${JSON.stringify(res.applied)}, now at user_version ${res.to} (LATEST ${LATEST})`);
+  check('arm 2 · the D2 EIGHT-value rebuild ran on that same store, in the same pass',
+    res.applied.includes(MIGRATION_MESSAGE_TYPES_EIGHT.version),
+    `applied ${JSON.stringify(res.applied)}`);
 
   const sqlNow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'").get().sql;
-  check('arm 2 · the MIGRATED store carries the seven-value CHECK',
-    sqlNow.includes("'escalation'") && sqlNow.includes("'queue-request'"));
+  check('arm 2 · the MIGRATED store carries the eight-value CHECK',
+    sqlNow.includes("'escalation'") && sqlNow.includes("'queue-request'")
+    && sqlNow.includes("'stuck'"));
 
   // ---- arm 3: the two new types are now writable, the old rows survived -----------------------
   const insNow = db.prepare(
@@ -106,6 +120,8 @@ try {
     refused(() => insNow.run('escalation', 'leader', 'exec-1', 'halted', null, 'z')) === null);
   check('arm 3 · `queue-request` accepted after the migration',
     refused(() => insNow.run('queue-request', 'engine', 'exec-1', 'next wave', null, 'z')) === null);
+  check('arm 3 · `stuck` accepted after the migration (D2)',
+    refused(() => insNow.run('stuck', 'alpha', 'exec-1', 'blocked on the data root', null, 'z')) === null);
   check('arm 3 · a bogus type is STILL refused (the CHECK was widened, not dropped)',
     refused(() => insNow.run('correction', 'someone', 'exec-1', 'x', null, 'z')) !== null);
   const kept = db.prepare('SELECT count(*) AS n FROM messages WHERE msg_id <= ?').get(completionId + 1).n;
@@ -128,8 +144,11 @@ try {
   // ---- arm 5: idempotent — a second run changes nothing ----------------------------------------
   const before2 = db.prepare('SELECT count(*) AS n FROM messages').get().n;
   MIGRATION_MESSAGE_TYPES_SEVEN.up(db);
+  MIGRATION_MESSAGE_TYPES_EIGHT.up(db);
   const after2 = db.prepare('SELECT count(*) AS n FROM messages').get().n;
-  check('arm 5 · re-running the migration is a NO-OP', before2 === after2,
+  const sql2 = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'").get().sql;
+  check('arm 5 · re-running BOTH rebuilds is a NO-OP — each reads the live table\'s own SQL and '
+    + 'returns when its own value is already there', before2 === after2 && sql2.includes("'stuck'"),
     `${before2} -> ${after2} rows`);
   db.close();
 
@@ -138,7 +157,10 @@ try {
   const freshSql = fresh.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'").get().sql;
   const norm = (s) => s.replace(/--[^\n]*\n/g, ' ').replace(/\s+/g, ' ').trim();
   check('arm 6 · fresh and migrated stores enforce the SAME messages CHECK',
-    norm(freshSql).includes(SEVEN) && norm(sqlNow).includes(SEVEN));
+    norm(freshSql).includes(CURRENT) && norm(sqlNow).includes(CURRENT)
+    // The seven-value text must NOT survive anywhere: if it did, one of the two stores stopped a
+    // rebuild short and the two shapes agree only by both being wrong.
+    && !norm(freshSql).includes(SEVEN + ')') && !norm(sqlNow).includes(SEVEN + ')'));
   fresh.close();
 } catch (e) {
   check('probe', false, `threw: ${e && e.stack ? e.stack : e}`);

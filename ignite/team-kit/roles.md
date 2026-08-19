@@ -50,6 +50,12 @@ entries below cite.
   no node, no checkin/checkout): the same judgment surface MINUS the authorities — no close gate, no
   acceptance, no permission or relaunch verb, no owner contact. It answers GUIDANCE-shaped questions
   a seat cannot settle from its own scope and routes anything needing authority to the `leader`.
+  **It is the FIRST STOP for every routed question** (owner ruling D2, 2026-08-19): a seat sends
+  `--type ask` to the reserved token `auto` and the system resolves it — the `consultant` where one
+  is staffed, else the `leader`; a seat whose own `seat.md` says `human-interactive:` reaches the
+  owner directly instead. The seat never picks. (`--type stuck` routes the same way and always
+  lands on the `leader`, which escalates to the owner what it cannot solve — see
+  `communication.md` §4 for the whole table.)
   **Whether a goal staffs one is declared by CASTING it:** a chair is minted at materialize only
   where a casting sheet exists at `.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`,
   so an absent `consultant.json` is the workspace stating it staffs none — mail and check-out routes

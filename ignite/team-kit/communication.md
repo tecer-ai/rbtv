@@ -32,6 +32,18 @@ diverged · a number the requester acts on changed · you noticed something nobo
 **4 · Address the seat that must ACT. [HAND]** The leader is a recipient for rulings, lifecycle,
 and milestone decisions — not as a witness. Peer work goes to the peer; the leader learns in one clause of your next report.
 Carve-outs: an `ask` still goes to the leader; so does any disclosure the leader may override.
+**For TWO types you do not address anyone at all — you send to `auto` and the system routes it. [TOOL]**
+(owner ruling D2, 2026-08-19: no agent should have to discover who to contact.)
+
+| you send | recipient the system picks | escalates when |
+|---|---|---|
+| `--type stuck` | the **leader**, always | the leader escalates to the owner what it cannot solve |
+| `--type ask` | the **consultant** where this goal staffs one, else the **leader** | the consultant routes to the leader anything needing authority |
+| `--type ask`, and your own `seat.md` says `human-interactive:` | the **owner**, directly | — |
+
+`send auto "<what you are blocked on>" --type stuck --inline` is the WHOLE of being stuck: say it,
+say what on. Naming a recipient on a `stuck` is REFUSED and there is no `--force`. `auto` on any
+other type is refused too — everything else addresses the seat that must act, by name.
 **`owner` is not an address you may pick. [TOOL]** Unless your own `seat.md` says
 `human-interactive: yes`, an `ask` you address to `owner` is REFUSED AT SEND — you keep the text, and
 the refusal prints the `send leader … --type ask` line to use instead. It is a refusal, not a park:
@@ -65,7 +77,8 @@ sends one message per pass, never per flag; answer a batch once, per-item.
 pointer plus ONLY what changed.
 
 **10 · Obey the tool; never `--force`. [HAND]** Types YOURS to send:
-`completion|ask|answer|verdict|note`. The enum is CLOSED and carries two further types that are
+`completion|ask|answer|verdict|note|stuck` (`stuck` goes to `auto` — see §4 — and only there).
+The enum is CLOSED and carries two further types that are
 not yours — the writer refuses them from your identity; do not reach for one. `--why` (`milestone|retraction|roster|ruling`) only on broadcast and required on one;
 `--re` required on `answer`, only against an `ask` (**[TOOL]**: every gate in that sentence is
 refused at send — but the cap, the guard, the bounded inbox and most of these answer to `--force`

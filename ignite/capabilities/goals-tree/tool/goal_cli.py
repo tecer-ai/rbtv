@@ -194,9 +194,11 @@ CREATE TABLE IF NOT EXISTS threads (
     sender      TEXT NOT NULL,   -- a seat, set by the identity gate
     recipient   TEXT NOT NULL,
     corpus      TEXT NOT NULL,
+    -- The closed message-type vocabulary, EIGHTH copy. Held with the other seven by
+    -- `server/heart/probes/probe-message-type-vocabulary.js`; move them in ONE change.
     type        TEXT NOT NULL CHECK (type IN
                   ('completion','ask','answer','verdict','note',
-                   'queue-request','escalation')),
+                   'queue-request','escalation','stuck')),
     sent_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS threads_recipient_idx ON threads (recipient);

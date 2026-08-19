@@ -90,14 +90,17 @@ function jobFireability(job) {
   }
   return { fireable: true, reason: null };
 }
-// W4 — the vocabulary is CLOSED AT SEVEN. `queue-request` (engine-internal: a judged milestone
-// PASS asking for the next wave) and `escalation` (owner-directed: a halt the leader could not
-// fix) joined the original five. All SEVEN copies of this set move in ONE change — this one,
-// `internal-api/dispatch.js`, `gateway/parse.js`, `bridges/chat/forward-path.js`, `coord.py`'s
-// `MESSAGE_TYPES` + `TYPE_COLOR`, and `schema.sql`'s CHECK (rebuilt by migration 5). A partial
-// move is the D3 silent class rebuilt: the sender writes locally, the daemon door refuses, and
-// the sender exits non-zero with the row already permanent in the append-only log.
-const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation']);
+// W4 — the vocabulary was CLOSED AT SEVEN; the D2 routed-types change (owner ruling, 2026-08-19)
+// makes it EIGHT. `queue-request` (engine-internal: a judged milestone PASS asking for the next
+// wave) and `escalation` (owner-directed: a halt the leader could not fix) joined the original
+// five; `stuck` joins them as the SYSTEM-ROUTED blocked signal — an agent emits it typed and the
+// routing table, not the agent, picks the recipient (always the `leader`). All EIGHT copies of
+// this set move in ONE change — this one, `internal-api/dispatch.js`, `gateway/parse.js`,
+// `bridges/chat/forward-path.js`, `coord.py`'s `MESSAGE_TYPES` + `TYPE_COLOR`, and `schema.sql`'s
+// CHECK (rebuilt by migration 5, widened again by migration 7). A partial move is the D3 silent
+// class rebuilt: the sender writes locally, the daemon door refuses, and the sender exits
+// non-zero with the row already permanent in the append-only log.
+const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation', 'stuck']);
 const SESSION_MODES = new Set(['headless', 'headed']);
 
 // ── Task 7.46 · the two levels, as two enums that share no value.

@@ -146,8 +146,9 @@ const DEFAULT_PAGE = 200;
 // independently of gateway origin — the same defense-in-depth copy EXEC_STATUSES above is.
 // Verified 2026-08-10 identical to the coordination client's own type vocabulary
 // (`d-team-kit-realization` protocol rule P2), which is what lets one message cross both substrates.
-// W4 — CLOSED AT SEVEN (see heart-store.js MESSAGE_TYPES for the whole site list).
-const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation']);
+// W4 closed it at seven; D2's routed types make it EIGHT (`stuck`). See heart-store.js
+// MESSAGE_TYPES for the whole site list.
+const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation', 'stuck']);
 
 const SENDER_KINDS = new Set(['owner', 'agent', 'bridge']);
 

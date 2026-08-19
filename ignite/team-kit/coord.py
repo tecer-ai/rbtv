@@ -109,19 +109,27 @@ REAP_MIN_AGE_MIN = 15
 REAP_MIN_PASS_GAP_MIN = 5
 # P2 — the registry's canonical message types (concepts/message.md): the SOLE vocabulary.
 #
-# ⚠ CLOSED AT SEVEN (W4). The original five gained two, and each has ONE consumer that justifies it:
+# ⚠ CLOSED AT EIGHT (W4 closed it at seven; D2 added the eighth). Each addition past the original
+# five has ONE consumer that justifies it:
 #   queue-request  ENGINE-INTERNAL. A judged milestone PASS asking for the next wave to be seeded.
 #                  Its consumer arrives in W7; until then `_append_message_unlocked` REFUSES it, so
 #                  the type exists on every door before anything can write a row nobody drains.
 #   escalation     OWNER-DIRECTED. A halt the leader (or the two-strikes judge) could not fix. It
 #                  succeeds the `type: verdict` + ESCALATION_MARKER encoding, which is dual-read
 #                  for rows already on live buses.
+#   stuck          SYSTEM-ROUTED (owner ruling D2, 2026-08-19). An agent — or the watcher — says it
+#                  is blocked and does NOT say to whom: the routing table below picks the recipient
+#                  (always the `leader`, which escalates to the owner what it cannot solve). Its
+#                  consumer EXISTS TODAY and is why the type is not writer-held: a staff chair
+#                  spawns a sitting on unread mail, and `stuck` is addressed to the leader.
 # The enum is copied at SEVEN sites and they move in ONE change (adv, C39): here, `TYPE_COLOR`
 # below, both argparse `--type` sites, `server/heart/heart-store.js`, `server/internal-api/
 # dispatch.js`, `gateway/parse.js`, `bridges/chat/forward-path.js`, plus `heart/schema.sql`'s CHECK
-# (a table REBUILD — migration 5, `message-types-seven-w4`). A partial move recreates the D3 silent
-# class: the row lands in this append-only log and the daemon door then refuses it.
-MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note", "queue-request", "escalation"]
+# (a table REBUILD — migration 5 `message-types-seven-w4`, then migration 7
+# `message-types-eight-stuck`). A partial move recreates the D3 silent class: the row lands in this
+# append-only log and the daemon door then refuses it.
+MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note", "queue-request", "escalation",
+                 "stuck"]
 
 # The types this file will not WRITE yet, for want of a consumer. Enforced at
 # `_append_message_unlocked` — the one writer — so no verb can route around it.
@@ -132,6 +140,10 @@ MESSAGE_TYPES = ["completion", "ask", "answer", "verdict", "note", "queue-reques
 # that consumer (the engine's queue-request pass + the `queue-requests` read verb below) and empties
 # the tuple in the same change, which is the whole contract. Keep the tuple — the next type admitted
 # ahead of its consumer re-uses this exact hold; do NOT delete it as unused flexibility.
+#
+# ⚠ `stuck` IS NOT HELD, decided explicitly rather than by default (D2): it has a consumer TODAY —
+# a staff chair spawns a sitting on unread mail, and every `stuck` is addressed to the `leader` —
+# so holding the writer would suppress a signal something is already waiting to read.
 #
 # ⚠ `gateway_send_leg`'s skip-list spells `queue-request` as a LITERAL and is NOT derived from this
 # tuple (see its note at the `("completion", "queue-request")` test). The two are independent on
@@ -158,6 +170,38 @@ WRITER_HELD_TYPES = ()
 # human on every bus, and a seat holding it would silently capture owner-bound traffic. Refused at
 # check-in (the roster's own door, below) so the name can never enter the roster in the first
 # place.
+# ---- the ROUTED TYPES (owner ruling D2, 2026-08-19) — the agent NEVER DECIDES WHO TO CONTACT ---
+#
+# The rule above says WHERE an address is legal. This one says the agent does not pick an address
+# at all for two types: it emits a TYPED message to the reserved token `auto` and the SYSTEM routes
+# it. The owner's reason is the whole of it — communication is complex, and no agent should have to
+# discover who to contact — so the table is encoded HERE, once, and in `team-kit/communication.md`
+# §4 + `team-kit/roles.md`. It is NEVER written into an agent prompt.
+#
+#   type     sender                                       -> resolved recipient
+#   ------   ------------------------------------------   -------------------------------------
+#   stuck    ANY (a seat, or the reconciliation watcher)   `leader`, ALWAYS. The leader escalates
+#                                                          to the owner what it cannot solve.
+#   ask      a seat whose seat.md says                     `owner`. Its question needs no relay,
+#            `human-interactive: yes|true`                 and the existing owner gate below then
+#                                                          admits it on its own merits.
+#   ask      anyone else                                   the `consultant` where this goal STAFFS
+#                                                          one, else the `leader` — resolved by
+#                                                          `staff_route_target`, the ONE ladder.
+#   *        anyone                                        `auto` is REFUSED. The token is defined
+#                                                          only for the routed types; every other
+#                                                          type addresses a seat BY NAME.
+#
+# ⚠ `stuck` IS AUTO-ONLY: naming any recipient but the resolved one is refused, with no `--force`,
+# for the same reason the gates below carry none. `ask` KEEPS explicit addressing legal — live
+# goals, the kit's own transports and a large number of selftest arms address `ask` by name today,
+# and refusing that is a blast radius this change is not scoped to absorb (D8: simplicity over
+# completeness). `auto` is taught as THE path in the help text and in the refusals.
+#
+# ⚠ `auto` IS RESERVED AS A SEAT NAME, exactly as `owner` is and for the same reason: a seat called
+# `auto` would silently capture every routed row. Refused at check-in, at the roster's own door.
+AUTO_TOKEN = "auto"
+ROUTED_TYPES = ("stuck", "ask")
 OWNER_TOKEN = "owner"
 MASTER_TOKEN = "master"
 SUMMARY_MAX = 560
@@ -179,12 +223,13 @@ WAKE_PARALLEL_MAX = 8
 # too, so a TTY check would hand them the human mode by default (owner ruling, 2026-07-25).
 PRETTY = {"on": False}
 # W4: an escalation borrows C_RETRACT's bright red — it is the other thing a reader must not miss;
-# `queue-request` is engine plumbing and stays dim. This dict is the SEVENTH copy of the closed
-# vocabulary and moves with the other six: a view meeting a type with no colour here raises
-# KeyError on the one row a reader most needs to see. Held closed by
+# `queue-request` is engine plumbing and stays dim. D2's `stuck` takes BOLD YELLOW — a reader must
+# not miss it, and it must not read as an escalation, which owns the bright red. This dict is the
+# SEVENTH copy of the closed vocabulary and moves with the other six: a view meeting a type with no
+# colour here raises KeyError on the one row a reader most needs to see. Held closed by
 # `server/heart/probes/probe-message-type-vocabulary.js`, which reads all seven and compares them.
 TYPE_COLOR = {"ask": "33", "verdict": "35", "completion": "32", "answer": "36", "note": "2",
-              "escalation": "1;31", "queue-request": "2"}
+              "escalation": "1;31", "queue-request": "2", "stuck": "1;33"}
 C_ALIVE, C_DEAD, C_DONE = "32", "31", "2"   # roster states
 C_RETRACT = "1;31"    # supersession markers — the one thing a reader must not miss
 C_LOGNOTE = "2;31"    # delivery-failure trailers: the log speaking, not the sender
@@ -2930,15 +2975,15 @@ def cmd_execution(args):
 # 7.608 deadlock is rebuilt one file over. The lease answers "is it executing"; the finish event
 # answers "was it declared done" — two questions, two surfaces, no overlap.
 #
-# ⚠ NO TYPE `finish`, AND THE VOCABULARY IS CLOSED AT SEVEN. This block read "NO SIXTH MESSAGE
+# ⚠ NO TYPE `finish`, AND THE VOCABULARY IS CLOSED AT EIGHT. This block read "NO SIXTH MESSAGE
 # TYPE" until W4, and the correction is worth stating rather than deleting: the rule was never
 # "five", it was that MINTING A TYPE FROM THE CODE is a registry edit made in the wrong place
-# (P2, `concepts/message.md`). W4 added two — `queue-request` and `escalation` — through the
-# registry, with a named consumer for each, moving all seven enum sites plus the store's CHECK in
-# one change. `finish` is still not among them and still must not be: the event is a `completion`
-# whose body OPENS with `FINISH_MARKER`, exactly the first-line convention `VERDICT_CLAUSE`
-# established — findable by a scan, excluded from every other walk, expressible in the settled
-# vocabulary.
+# (P2, `concepts/message.md`). W4 added two — `queue-request` and `escalation` — and D2 a third,
+# `stuck`, each through the registry with a named consumer, moving every enum site plus the
+# store's CHECK in one change. `finish` is still not among them and still must not be: the event
+# is a `completion` whose body OPENS with `FINISH_MARKER`, exactly the first-line convention
+# `VERDICT_CLAUSE` established — findable by a scan, excluded from every other walk, expressible
+# in the settled vocabulary.
 #
 # ⚠ `ESCALATION_MARKER` is the one first-line convention W4 retired AS AN IDENTITY: the two-strikes
 # halt is a `type: escalation` row now (D-8). The marker string survives on the body because it is
@@ -8438,6 +8483,20 @@ def cmd_checkin(args):
             f"'{OWNER_TOKEN}' would receive every row meant for the person.\n"
             f"Pick another name and check in again.",
             1)
+    # ⚠ `auto` IS RESERVED TOO (D2, 2026-08-19), one clause at this same door and for the same
+    # reason: it is the routed types' recipient token, so a seat holding it would silently capture
+    # every `stuck` and every routed `ask` in this run, and the capture would look like delivery.
+    if args.agent == AUTO_TOKEN:
+        refuse(
+            "input",
+            f"'{AUTO_TOKEN}' is a RESERVED bus address — the token a ROUTED message is sent to "
+            f"when the sender does not pick a recipient:\n"
+            f"  {coord_invocation(args)} send {AUTO_TOKEN} \"<what you are blocked on>\" "
+            f"--type stuck --inline\n"
+            f"No seat may carry it: a seat named '{AUTO_TOKEN}' would silently receive every "
+            f"routed row in this run.\n"
+            f"Pick another name and check in again.",
+            1)
     base.mkdir(parents=True, exist_ok=True)
     summary = " ".join(args.summary.split()).replace("|", "/")
     if len(summary) > SUMMARY_MAX:
@@ -11394,6 +11453,12 @@ def known_recipients(args, base):
     # under gates that are the BRIDGE's to apply. It is admitted unconditionally — an agent must
     # never be told "unknown recipient" for the one address the ruling tells it to initiate to.
     names.add(OWNER_TOKEN)
+    # `auto` IS ALWAYS A LEGAL ADDRESS TOO (D2), for the same reason and with a shorter life: it is
+    # the routed types' reserved token, RESOLVED at the top of `cmd_send` into a real recipient
+    # before any gate sees it, so no row is ever addressed to it. Admitted here so a `--type note`
+    # sent to `auto` meets D2's own teaching refusal rather than "unknown recipient — did you mean
+    # …", and so the token appears in the `known:` list every refusal prints.
+    names.add(AUTO_TOKEN)
     # THE ONE GRANT. An addressable non-member joins the recipient set and NOTHING else: it gains
     # no row above, so it is absent from the census, the sweep, every lifecycle command, the pane
     # cap, `to: all` fan-out and the wake pass — each of those reads the roster, not this set.
@@ -11409,6 +11474,50 @@ def cmd_send(args):
     force = getattr(args, "force", False)
     body = message_body(args)
     _, blocks = load_messages(base)
+
+    # ── D2 (owner ruling, 2026-08-19) · THE SENDER DOES NOT CHOOSE — `auto` and the routed types ─
+    #
+    # ⚠ IT RESOLVES FIRST, BEFORE EVERY GATE BELOW, and that ordering is the design rather than a
+    # detail: `args.to` is rewritten to a REAL recipient here, so every existing gate — the
+    # unknown-recipient refusal, the departed warning, the owner-ask gate, the master rule — sees
+    # the resolved name and judges it on its own merits, and the resolved name is what the row
+    # records. A human-interactive seat's `auto` ask therefore resolves to `owner` and then passes
+    # the owner gate because it deserves to; an ordinary seat's resolves to a chair and never
+    # reaches that gate at all. Nothing below had to learn about `auto`.
+    #
+    # The table itself is `routed_recipient`, and it is the ONE place it exists in code.
+    _routed_to, _routed_why = ((None, None) if args.type not in ROUTED_TYPES
+                               else routed_recipient(args, base, args.type, sender))
+    if args.to == AUTO_TOKEN:
+        if args.type not in ROUTED_TYPES:
+            refuse(
+                "input",
+                f"`{AUTO_TOKEN}` is not a recipient — it is the token that says THE SYSTEM PICKS "
+                f"the recipient, and it is defined only for the ROUTED types "
+                f"({', '.join(f'`{x}`' for x in ROUTED_TYPES)}). `--type {args.type}` is not one "
+                f"of those: address the seat that must ACT, by name.\n"
+                f"  {coord_invocation(args)} send <seat> \"<your message>\" --type note --inline\n"
+                f"  — with `{args.type}` where that line says `note`.",
+                1)
+        args.to = _routed_to
+        print(c(f"routed: `{AUTO_TOKEN}` -> `{args.to}` — {_routed_why}", C_HINT))
+    # ⚠ `stuck` IS AUTO-ONLY. A brand-new type with zero legacy senders, so there is nothing to
+    # break by closing it, and closing it is the whole ruling: an agent that picks a recipient for
+    # a blocked signal is an agent deciding who to contact. No `--force`, same idiom and same
+    # reason as the two closed gates further down — the escape hatch is the routed send.
+    if args.type == "stuck" and args.to != _routed_to:
+        refuse(
+            "state",
+            f"a `--type stuck` message does not choose its recipient — THE SYSTEM ROUTES IT, and "
+            f"on this goal that is `{_routed_to}` ({_routed_why}). You addressed `{args.to}`.\n"
+            f"Send it routed instead:\n"
+            f"  {coord_invocation(args)} send {AUTO_TOKEN} \"<what you are blocked on>\" "
+            f"--type stuck --inline\n"
+            f"That is the whole rule for this type: say you are STUCK and say what on. Who reads "
+            f"it, and who it escalates to if they cannot solve it, is not yours to work out.\n"
+            f"There is no --force for this one: the ruling exists to delete exactly the judgment "
+            f"an override would reintroduce.",
+            1)
 
     # F5 — a typo'd recipient was accepted silently: the message landed under a name nobody
     # reads and the only signal was one "wake skipped" line the sender scrolled past.
@@ -12498,6 +12607,11 @@ def gateway_send_leg(args, base, to, mtype, body):
     #     nobody drains on a second substrate.
     #   · `escalation` CROSSES. It is owner-directed, and the daemon plane is how it reaches a
     #     human; that is why the four JS enum copies had to move in this same change.
+    # D2 decides its own type the same way, EXPLICITLY:
+    #   · `stuck` CROSSES — it is a health signal, and the daemon plane and the heart store are
+    #     where a reconciliation loop and an operator view can see one. It is therefore ABSENT from
+    #     this skip list on purpose, and that is why the four JS enum copies and the store CHECK
+    #     move in D2's change too: a door refusing a type this leg carries is the D3 silent class.
     # Spelled as a literal, NOT derived from WRITER_HELD_TYPES: that tuple empties when W7 lands a
     # consumer, and the skip is a permanent routing decision that must not empty with it.
     if mtype in ("completion", "queue-request"):
@@ -15657,28 +15771,59 @@ def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
     return True, f"session {sid}, anchor `{anchor}`"
 
 
-def staff_route_target(args, base, flag):
-    """`(chair, why)` — WHICH staff chair an ending's mail goes to.
+def staff_route_target(args, base, flag, who="the check-out"):
+    """`(chair, why)` — WHICH staff chair an ending's mail (or a routed `ask`) goes to.
 
-    The ladder, and it is three lines because the ruling is three lines: the check-out's route flag
+    The ladder, and it is three lines because the ruling is three lines: the caller's route flag
     when it names a chair this goal actually staffs; the `consultant` only where one is staffed;
     the `leader` otherwise. The leader is the DEFAULT because it is the unblocker — the chair that
     holds the goal's authority — and a guidance-shaped question reaching it costs a hop, while an
-    authority-shaped one reaching the consultant reaches a seat that cannot act on it."""
+    authority-shaped one reaching the consultant reaches a seat that cannot act on it.
+
+    ⚠ ONE LADDER, TWO CALLERS (D2). The session-closer's staff mail passes the check-out's `--route`
+    flag; `routed_recipient` passes a fixed `consultant` for a `--type ask` sent to `auto`. `who`
+    names the caller in the `why` string and changes NOTHING else — a second ladder free to
+    disagree with this one is the defect class the routed types exist to close."""
     try:
         known = known_recipients(args, base)
     except Exception:                                          # noqa: BLE001
         known = set()
     want = (flag or "").strip()
     if want and is_staff_seat(want) and want in known:
-        return want, f"the check-out named `{want}` and this goal staffs it"
+        return want, f"{who} named `{want}` and this goal staffs it"
     if want and is_staff_seat(want):
-        return "leader", (f"the check-out named `{want}`, which this goal does NOT staff — falling "
+        return "leader", (f"{who} named `{want}`, which this goal does NOT staff — falling "
                           f"back to the unblocker rather than mailing a chair that does not exist")
     if want:
-        return "leader", (f"the check-out's route flag `{want}` names no staff chair — the flag is "
+        return "leader", (f"{who}'s route flag `{want}` names no staff chair — the flag is "
                           f"a HINT, never an authority, so this falls back to the unblocker")
     return "leader", "no route flag — the default is the unblocker"
+
+
+def routed_recipient(args, base, mtype, sender):
+    """`(to, why)` — WHO a ROUTED type reaches, when the sender did not choose (owner ruling D2).
+
+    THE TABLE IS HERE AND NOWHERE ELSE IN CODE. It is stated for humans in the `ROUTED TYPES`
+    comment beside `AUTO_TOKEN`, in `team-kit/communication.md` §4 and in `team-kit/roles.md`'s
+    `consultant` entry — and in NO agent prompt, which is the point of the ruling: an agent emits a
+    TYPE and never has to discover who to contact.
+
+    Callers must only reach this for a type in `ROUTED_TYPES`; anything else is a caller bug and
+    raises rather than inventing a default."""
+    if mtype == "stuck":
+        # ALWAYS the leader — no branch, no goal-shape question, nothing for a sender to get wrong.
+        # The leader escalates to the owner what it cannot solve, which is one filter more than the
+        # seat crossing that door itself (the same reasoning the owner-ask gate carries).
+        return "leader", "`stuck` always reaches the `leader` — the chair that unblocks"
+    if mtype == "ask":
+        # THE ONE EXCEPTION the ruling names: a seat the descriptor declares may talk to a human
+        # asks the human. Read by PATH, the ferry's own read, so this answers the same question the
+        # ferry will answer about delivery (see `seat_is_human_interactive`).
+        if seat_is_human_interactive(package_dir(args), sender):
+            return OWNER_TOKEN, (f"`{sender}` declares `human-interactive:` in its seat.md, so its "
+                                 f"questions go STRAIGHT to the owner")
+        return staff_route_target(args, base, "consultant", who="the routed-`ask` table")
+    raise ValueError(f"routed_recipient called for non-routed type {mtype!r}")
 
 
 def staff_mail_body(args, seat, value, entry, sid):
@@ -36050,6 +36195,148 @@ def _selftest_checks(args, failures, names):
               and isinstance(_payload_all, list) and len(_payload_all) == 4
               and not (baseW7 / "workers.md").exists())
 
+    # ---- D2 (owner ruling, 2026-08-19): THE ROUTED TYPES — the agent never decides who to contact -
+    #
+    # Every arm is red-first against the pre-D2 file: `stuck` was not a type, `auto` was not an
+    # address, and `routed_recipient` did not exist. TWO fixture packages are built because the
+    # consultant arm is only discriminating with both — one that STAFFS a consultant and one that
+    # does not — and they are driven in the SAME run so the fallback cannot pass by there being no
+    # cast arm to compare it against.
+    with tempfile.TemporaryDirectory() as tdD2:
+        def _mk_d2_pkg(root, consultant):
+            pkg = Path(root)
+            (pkg / "coordination").mkdir(parents=True)
+            (pkg / "workers").mkdir()
+            for _a in ("leader", "alpha", "hi"):
+                (pkg / "workers" / f"{_a}.md").write_text(f"---\nagent: {_a}\n---\nbrief\n",
+                                                          encoding="utf-8")
+            for _a, _flag in (("alpha", False), ("hi", True)):
+                (pkg / "seats" / _a).mkdir(parents=True)
+                (pkg / "seats" / _a / "seat.md").write_text(
+                    f"---\nseat: {_a}\n"
+                    + ("human-interactive: yes\n" if _flag else "") + "---\nbrief\n",
+                    encoding="utf-8")
+            if consultant:
+                # HOW A GOAL STAFFS A CHAIR, as the materializer records it: a `taskforce.csv` row,
+                # which is what `registered_seats` (and so `known_recipients`) reads. The casting
+                # SHEET under `.rbtv/config/…/bindings/consultant.json` is what mints that row on a
+                # real goal — driven here from the package it produces, because a selftest that
+                # wrote into the live config would be casting a role, which this change may not do.
+                (pkg / "taskforce.csv").write_text("seat,node\nconsultant,\n", encoding="utf-8")
+                (pkg / "seats" / "consultant").mkdir(parents=True)
+                (pkg / "seats" / "consultant" / "seat.md").write_text(
+                    "---\nseat: consultant\n---\nbrief\n", encoding="utf-8")
+            return pkg
+
+        _d2_none = _mk_d2_pkg(Path(tdD2) / "none" / "runs" / "run-1", consultant=False)
+        _d2_cast = _mk_d2_pkg(Path(tdD2) / "cast" / "runs" / "run-1", consultant=True)
+        pD2 = build_parser()
+
+        def _d2_send(pkg, sender, to, body, *extra):
+            ns = pD2.parse_args(["--package", str(pkg), "--as", sender, "send", to, body,
+                                 "--inline", *extra])
+            out, err, code = harness_outcome(ns.func, ns)
+            return out + err, code
+
+        def _d2_rows(pkg):
+            return load_messages(pkg / "coordination")[1]
+
+        for _pkg in (_d2_none, _d2_cast):
+            for _a in ("leader", "alpha", "hi"):
+                _ns = pD2.parse_args(["--package", str(_pkg), "checkin", _a, "x"])
+                harness_outcome(_ns.func, _ns)
+
+        # arm 1 — the whole ruling in one send: a seat says it is STUCK, names NOBODY, and the row
+        # lands addressed to the chair the TABLE picked. RED mutation: change the `stuck` branch of
+        # `routed_recipient` to return any other chair.
+        _d2_s_out, _d2_s_code = _d2_send(_d2_none, "alpha", AUTO_TOKEN,
+                                         "blocked: the data root is outside my cage", "--type",
+                                         "stuck")
+        _d2_s_row = _d2_rows(_d2_none)[-1] if _d2_rows(_d2_none) else None
+        check("D2 arm 1 (owner ruling, 2026-08-19): a seat sends `--type stuck` to the reserved "
+              "token `auto` — naming NO recipient — and the SYSTEM addresses it to the `leader`, "
+              "the chair that unblocks. The row reads back typed `stuck` with `to: leader`, and "
+              "the resolution is PRINTED so the sender learns the table it did not have to know",
+              _d2_s_code is None and _d2_s_row is not None
+              and _d2_s_row["type"] == "stuck" and _d2_s_row["to"] == "leader"
+              and f"routed: `{AUTO_TOKEN}` -> `leader`" in _d2_s_out)
+
+        # arm 2 — `stuck` is AUTO-ONLY, and the refusal APPENDS NOTHING. The count is the arm: a
+        # refusal that had already written the row would leave permanent residue in an append-only
+        # log and still print a teaching message. RED mutation: delete the `args.to != _routed_to`
+        # refusal — the first two conjuncts go false while arm 1 stays green.
+        _d2_n2 = len(_d2_rows(_d2_none))
+        _d2_pick_out, _d2_pick_code = _d2_send(_d2_none, "alpha", "hi", "blocked on the same thing",
+                                               "--type", "stuck")
+        _d2_frc_out, _d2_frc_code = _d2_send(_d2_none, "alpha", "hi", "blocked on the same thing",
+                                             "--type", "stuck", "--force")
+        check("D2 arm 2: a `--type stuck` that NAMES a recipient other than the routed one is "
+              "REFUSED, taught the `send auto … --type stuck` line, and appends NOTHING — and it "
+              "is FORCE-PROOF, like every other closed gate in `cmd_send`: an override would "
+              "reintroduce exactly the who-do-I-contact judgment the ruling deletes",
+              _d2_pick_code == 1 and _d2_frc_code == 1
+              and "does not choose its recipient" in _d2_pick_out
+              and f"send {AUTO_TOKEN}" in _d2_pick_out
+              and len(_d2_rows(_d2_none)) == _d2_n2)
+
+        # arm 3 — THE CONSULTANT LADDER, BOTH ARMS IN ONE RUN. No live goal staffs a consultant
+        # today, by design, so the fallback is the only behaviour a single-package arm could ever
+        # observe — and a fallback nothing contrasts with is a check that cannot tell routing from
+        # a hardcoded `leader`. RED mutation: replace the `staff_route_target` call in
+        # `routed_recipient` with a bare `"leader"` — the cast arm goes false, the fallback stays
+        # true, and exactly this row reds.
+        _d2_a_out, _d2_a_code = _d2_send(_d2_none, "alpha", AUTO_TOKEN, "which format do I emit?",
+                                         "--type", "ask")
+        _d2_ac_out, _d2_ac_code = _d2_send(_d2_cast, "alpha", AUTO_TOKEN, "which format do I emit?",
+                                           "--type", "ask")
+        _d2_a_row, _d2_ac_row = _d2_rows(_d2_none)[-1], _d2_rows(_d2_cast)[-1]
+        check("D2 arm 3: an `--type ask` to `auto` from an ORDINARY seat resolves through the ONE "
+              "staff ladder — the `consultant` on the package that STAFFS one, the `leader` on the "
+              "package that staffs none. Both packages are driven in this same run: the fallback "
+              "alone cannot distinguish a routing table from a hardcoded chair",
+              _d2_a_code is None and _d2_ac_code is None
+              and (_d2_a_row["type"], _d2_a_row["to"]) == ("ask", "leader")
+              and (_d2_ac_row["type"], _d2_ac_row["to"]) == ("ask", "consultant")
+              and "does NOT staff" in _d2_a_out and "staffs it" in _d2_ac_out)
+
+        # arm 4 — THE ONE EXCEPTION the ruling names, with its control one fact away on the SAME
+        # package: `hi` declares `human-interactive:` and its routed ask reaches the owner; `alpha`
+        # does not and its identical send reaches a chair (arm 3's row). The owner-ask gate below
+        # is NOT bypassed — the resolved `owner` meets it and is admitted on its own merits, which
+        # is why resolution happens before every gate rather than after them.
+        # RED mutation: drop the `seat_is_human_interactive` branch from `routed_recipient`.
+        _d2_hi_out, _d2_hi_code = _d2_send(_d2_none, "hi", AUTO_TOKEN, "may I ship without review?",
+                                           "--type", "ask")
+        _d2_hi_row = _d2_rows(_d2_none)[-1]
+        check("D2 arm 4: a routed `ask` from a seat flagged `human-interactive:` resolves STRAIGHT "
+              "to the owner and lands `to: owner` — while the unflagged seat's identical send on "
+              "the same package resolved to a chair. The resolved name then passes the D-7 "
+              "owner-ask gate ON ITS MERITS: resolution runs BEFORE every gate, so no gate had to "
+              "learn about `auto` and none is bypassed",
+              _d2_hi_code is None and _d2_hi_row["type"] == "ask"
+              and _d2_hi_row["to"] == OWNER_TOKEN
+              and f"-> `{OWNER_TOKEN}`" in _d2_hi_out
+              and _d2_a_row["to"] == "leader")
+
+        # arm 5 — the token is CLOSED at both ends. `auto` is not a general address (it is refused
+        # on any non-routed type, with the by-name line), and it can never become a seat that
+        # silently captures every routed row. RED mutation: delete either clause — this row goes
+        # red and nothing else does.
+        _d2_n5 = len(_d2_rows(_d2_none))
+        _d2_note_out, _d2_note_code = _d2_send(_d2_none, "alpha", AUTO_TOKEN, "fyi", "--type",
+                                               "note")
+        _d2_ci = pD2.parse_args(["--package", str(_d2_none), "checkin", AUTO_TOKEN, "x"])
+        _d2_ci_out, _d2_ci_err, _d2_ci_code = harness_outcome(_d2_ci.func, _d2_ci)
+        check("D2 arm 5: `auto` is closed at BOTH ends — it is refused as a recipient on every "
+              "type outside ROUTED_TYPES (with the address-by-name line, and nothing appended), "
+              "and it is refused as a SEAT NAME at check-in exactly as `owner` is, because a seat "
+              "holding it would silently capture every routed row in the run",
+              _d2_note_code == 1 and "is not a recipient" in _d2_note_out
+              and len(_d2_rows(_d2_none)) == _d2_n5
+              and _d2_ci_code == 1
+              and "RESERVED bus address" in (_d2_ci_out + _d2_ci_err)
+              and set(ROUTED_TYPES) == {"stuck", "ask"})
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -36255,7 +36542,16 @@ def advice_coached_sends(path=None):
             to = m.group("to")
             # `all` is NEVER normalised to a seat name: it is the recipient the owner hint was
             # refused for, and rewriting it would lose the only case a flag cannot fix.
-            if to != "all":
+            #
+            # ⚠ NOR IS `auto` (D2), for EXACTLY that reason. It is the reserved token a ROUTED type
+            # is addressed to, and `cmd_send` refuses a `--type stuck` that names any seat — so
+            # rewriting `auto` to `beta` turns every line teaching the ruling into the one shape
+            # the ruling forbids, and reports the correct advice as an offender. Measured: it did,
+            # on the change that added the type. The `{AUTO_TOKEN}` SLOT form is resolved too,
+            # because advice writes the constant rather than the literal.
+            if to in (AUTO_TOKEN, "{AUTO_TOKEN}"):
+                to = AUTO_TOKEN
+            elif to != "all":
                 to = "beta"
             body = m.group("body") or "body"
             if _ADVICE_PLACEHOLDER.match(body.strip()):
@@ -36674,10 +36970,10 @@ def build_parser():
         "example:\n"
         "  coordinate send leader \"views build green; 12/12 pages render\" --type completion --inline\n"
         "next: coordinate pending — after an ask, it shows whether anyone settled it")
-    s.add_argument("to", help="recipient: an agent name, a group name, or 'all' — validated against the roster, the briefings and the groups, so a typo is refused")
+    s.add_argument("to", help="recipient: an agent name, a group name, 'all', 'owner' — or 'auto', which means THE SYSTEM PICKS (owner ruling D2): `auto` is the only address for --type stuck, and on --type ask it resolves to the consultant this goal staffs, else the leader (or straight to the owner if your seat.md says `human-interactive:`). Everything else is validated against the roster, the briefings and the groups, so a typo is refused")
     s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
     s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
-                   help="completion (my briefing/milestone is done) | ask (I need an answer) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal: the pass-opener asking the daemon to seed the next wave — first body line is `queue-request: <milestone-id>/<verdict-id>/<pass-kind>`; the engine drains it, no seat is woken)")
+                   help="completion (my briefing/milestone is done) | ask (I need an answer — send it to `auto` and the system routes it: the consultant where one is staffed, else the leader; from a `human-interactive:` seat, straight to the owner) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | stuck (I am BLOCKED and cannot proceed — address it to `auto` and the system routes it: it always reaches the leader, who escalates to the owner what it cannot solve. You never pick the recipient, and naming one is refused) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal: the pass-opener asking the daemon to seed the next wave — first body line is `queue-request: <milestone-id>/<verdict-id>/<pass-kind>`; the engine drains it, no seat is woken)")
     # W4 (adv, C42) — the two chat-routing sigils, promoted from body text to header mechanics.
     s.add_argument("--chat-thread", dest="chat_thread", metavar="ID",
                    help="route this row into a chat thread you already know: `<CHANNEL>:<ts>`, the plain `chat-thread:` line at the top of your prompt. Without it the row takes the owner's DM")

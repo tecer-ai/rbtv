@@ -380,6 +380,93 @@ const MIGRATION_ENQUEUE_LOG = {
 };
 MIGRATIONS.push(MIGRATION_ENQUEUE_LOG);
 
+// ── D2 (owner ruling, 2026-08-19) · the message vocabulary widened to EIGHT — `stuck` ───────────
+//
+// THE SAME SHAPE AS MIGRATION 5, for the same reason: SQLite cannot ALTER a CHECK, so widening one
+// is a documented table REBUILD, and `jobs_log.completion_msg_id REFERENCES messages(msg_id)`
+// points INTO the table being rebuilt. Read MIGRATION_MESSAGE_TYPES_SEVEN's comment block above
+// before touching this one — it records the THREE plausible sequences that were MEASURED to fail
+// (`PRAGMA foreign_keys=OFF` is a no-op inside migrate()'s transaction; `legacy_alter_table` does
+// not help; `defer_foreign_keys` passes `foreign_key_check` and still fails at COMMIT). The
+// sequence below is the one that works, and it is deliberately a copy rather than a shared helper:
+// a rebuild names its OWN column list, and a helper parameterized over two table shapes would be
+// the abstraction that silently mis-maps the third.
+//
+// IDEMPOTENT the same way: it reads the live table's own SQL and returns immediately when the
+// CHECK already carries `stuck` — so it is a NO-OP on a store built from today's `schema.sql`.
+const MIGRATION_MESSAGE_TYPES_EIGHT = {
+  version: 7,
+  name: 'message-types-eight-stuck',
+  up(db) {
+    const row = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+    ).get();
+    if (!row || String(row.sql).includes("'stuck'")) return;
+
+    const links = db.prepare(
+      'SELECT exec_id, completion_msg_id FROM jobs_log WHERE completion_msg_id IS NOT NULL'
+    ).all();
+    db.exec('UPDATE jobs_log SET completion_msg_id = NULL WHERE completion_msg_id IS NOT NULL;');
+
+    db.exec(`
+      CREATE TABLE messages_d2 (
+        msg_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        type         TEXT NOT NULL CHECK (type IN ('completion','ask','answer','verdict','note','queue-request','escalation','stuck')),
+        sender       TEXT NOT NULL,
+        thread       TEXT NOT NULL,
+        corpus       TEXT NOT NULL,
+        status       TEXT,
+        created_at   TEXT NOT NULL,
+        routed_at_tick    INTEGER,
+        broadcast_at_tick INTEGER,
+        CHECK ((type = 'completion') = (status IS NOT NULL)),
+        CHECK (status IS NULL OR status IN ('done','blocked','failed'))
+      );
+    `);
+    // Columns named explicitly: a bare `SELECT *` would silently mis-map if the two shapes ever
+    // drifted, and msg_id is carried so the re-hooked `completion_msg_id` still resolves.
+    db.exec(`
+      INSERT INTO messages_d2
+        (msg_id, type, sender, thread, corpus, status, created_at, routed_at_tick, broadcast_at_tick)
+      SELECT
+         msg_id, type, sender, thread, corpus, status, created_at, routed_at_tick, broadcast_at_tick
+      FROM messages;
+    `);
+    // ⚠ THE `DROP` IS THE ENTIRE COST OF THIS MIGRATION, and the cause is a MISSING CHILD INDEX,
+    // not the row count. With `foreign_keys` ON, dropping a referenced table runs an implicit
+    // DELETE and, per deleted row, looks for children pointing at it — and `jobs_log` indexes only
+    // `status`, so each of the parent's rows scanned the whole child table. MEASURED on the LIVE
+    // store (2026-08-19, 32,351 messages / 29,721 jobs_log rows): `DROP TABLE messages` alone took
+    // 163.3s of a 168.8s migration, every other phase under half a second. A throwaway index on
+    // the child column takes it to 0.07s — whole migration 0.92s. That is the difference between a
+    // daemon whose gateway is unanswerable for three minutes at boot (the watchdog alarms on it,
+    // three passes running) and one that starts normally.
+    //
+    // Created AFTER the column is nulled and dropped IMMEDIATELY after, inside the one transaction
+    // `migrate()` opens: nothing outside this migration inherits an index `schema.sql` does not
+    // declare, and a failure anywhere rolls it back with everything else.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tmp_d2_jobslog_completion ON jobs_log(completion_msg_id);');
+    db.exec('DROP TABLE messages;');
+    db.exec('DROP INDEX IF EXISTS idx_tmp_d2_jobslog_completion;');
+    // jobs_log's clause names `messages`, NOT `messages_d2`, so this rename does not touch it — it
+    // simply finds its parent again.
+    db.exec('ALTER TABLE messages_d2 RENAME TO messages;');
+    // The indexes went with the dropped table and are recreated on the new one, byte-identical to
+    // schema.sql's — a fresh and a migrated store must not differ in what they index either.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_messages_unrouted    ON messages(msg_id) WHERE routed_at_tick IS NULL;');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_messages_unbroadcast ON messages(msg_id) WHERE broadcast_at_tick IS NULL;');
+    db.exec("CREATE INDEX IF NOT EXISTS idx_messages_unrouted_completion ON messages(msg_id) WHERE routed_at_tick IS NULL AND type = 'completion';");
+
+    const relink = db.prepare('UPDATE jobs_log SET completion_msg_id = ? WHERE exec_id = ?');
+    for (const l of links) relink.run(l.completion_msg_id, l.exec_id);
+  },
+};
+
+// ARMED WITH ITS WRITE SITES — `r-746-schema-pregrant`'s ARMING RIDER, exactly as W4 satisfied it:
+// the four JS enum copies that let a `stuck` row reach `recordMessage` land in THIS same change,
+// and the rider forbids the half-landed state where a write site depends on an unarmed migration.
+MIGRATIONS.push(MIGRATION_MESSAGE_TYPES_EIGHT);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -489,6 +576,10 @@ module.exports = {
   // the REBUILD works on a store that already holds rows (the fresh-vs-migrated split schema.sql
   // documents), which is a separate claim from it being registered.
   MIGRATION_MESSAGE_TYPES_SEVEN,
+  // D2 (2026-08-19). Exported BY NAME as well as being in MIGRATIONS, for the same reason
+  // MIGRATION_MESSAGE_TYPES_SEVEN is: `probe-migration-message-types` injects it directly to prove
+  // the widening and the re-run no-op on a store it built itself.
+  MIGRATION_MESSAGE_TYPES_EIGHT,
   // enqueue-record. Exported by name AND registered above — Arm E of probe-enqueue-record drives
   // migrate() on a pre-v6 store and compares sqlite_master sql against a fresh schema.sql store.
   MIGRATION_ENQUEUE_LOG,
