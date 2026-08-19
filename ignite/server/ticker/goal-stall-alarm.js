@@ -160,6 +160,23 @@ function conditionOf(pickup) {
       detail: held.length ? `held by the execution record: ${held.join(', ')}` : 'nothing was dispatched',
     };
   }
+  // LE-13 CHANGE 2 (2026-08-19) — K CONSECUTIVE PERIODIC-JOB FAILURES. Placed LAST: a goal frozen
+  // at seeding, or holding an unresolved SKEW, or with ready work nobody dispatched, is a MORE
+  // actionable fact than "one of its periodic jobs keeps failing" and keeps the signature when
+  // both hold. Measured by `engine/lane-watch.js#alarmOnStall` (the caller that holds the store
+  // handle) and handed in on `pickup.periodicFailureJobs` — this module still derives, never
+  // measures. The `seats` field carries JOB IDS here, not seats — `condition.detail` says so
+  // plainly because `composeText` renders `condition.seats` as a bullet list.
+  const failure = pickup.periodicFailureJobs || {};
+  const failingJobs = failure.jobs || [];
+  if (failingJobs.length) {
+    const jobs = [...failingJobs].sort();
+    return {
+      kind: 'periodic-job-failing',
+      seats: jobs,
+      detail: `periodic job id(s) — NOT seats — with ${failure.k}+ consecutive \`jobs_log\` failures: ${jobs.join(', ')}`,
+    };
+  }
   return null;
 }
 
@@ -172,6 +189,7 @@ function composeText({ goal, condition, stuckMs }) {
     skew: `*Seat disposition SKEW* — the two records of that seat's own ending disagree, so it and its dependents advance on neither until a human rules.`,
     'readiness-refused': `*Readiness could not be computed* — \`coordinate ready-seats\` refused, so NOTHING in this goal was seeded this pass.`,
     'ready-no-live': `*Ready, undispatched* — these seats are dispatchable and no seat in the goal is live or queued.`,
+    'periodic-job-failing': `*Periodic job repeatedly failing* — a recovery/maintenance job for this goal has failed its last several consecutive runs and is not recovering on its own.`,
   }[condition.kind]
     // Every OTHER kind is a pre/at-seeding freeze (LE-13: taskforce-unreadable, unbuilt-seats,
     // cast-unreadable, uncast-seats, seed-failed, seeding-empty — and whatever the producers name
@@ -183,7 +201,9 @@ function composeText({ goal, condition, stuckMs }) {
     ? `:warning: *${goal} is frozen* — work is ready and nothing is running (${mins}m).`
     : (condition.kind === 'skew' || condition.kind === 'readiness-refused')
       ? `:warning: *${goal} is frozen* — it is waiting on a ruling, not on work (${mins}m).`
-      : `:warning: *${goal} is frozen* — it cannot even be seeded (${mins}m).`;
+      : condition.kind === 'periodic-job-failing'
+        ? `:warning: *${goal}* has a periodic job stuck failing (${mins}m).`
+        : `:warning: *${goal} is frozen* — it cannot even be seeded (${mins}m).`;
   const who = condition.seats.length ? `\n${condition.seats.map((s) => `• \`${s}\``).join('\n')}` : '';
   return `${head}\n${why}${who}\n_${condition.detail}_\nThis will not clear on its own.`;
 }

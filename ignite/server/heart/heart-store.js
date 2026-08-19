@@ -122,6 +122,13 @@ const TURN_STATUSES = new Set(['launching', 'running', 'done', 'blocked', 'faile
 // so a stalled row stays in the crash sweep's swept set exactly as it always did.
 const TERMINAL_TURN_STATUSES = new Set(['done', 'blocked', 'failed', 'killed']);
 
+// LE-13 Change 2 (2026-08-19) — the K in "K consecutive periodic-job failures escalates". Five
+// consecutive misses of a 300 s (5 min) periodic job is 25 minutes of a recovery mechanism that is
+// not recovering — long past a transient blip, short of the multi-hour silences this rule exists
+// to catch (121 consecutive recorded `selfheal` failures, never escalated). A PROPOSAL, not a
+// ruling — tune it here if it proves too eager or too slow in practice.
+const PERIODIC_FAILURE_STREAK_K = 5;
+
 // The session state implied by a ONE-SHOT session whose turn ended this way. Exported because the
 // derivation belongs to the store rather than to whoever happened to observe the end: recordMessage
 // uses it below, and the ticker's crash sweep uses it when it finds a process gone under a turn
@@ -1425,6 +1432,23 @@ class HeartStore {
     return withThread ? rows.map((r) => this._attachThread(r)) : rows;
   }
 
+  // LE-13 Change 2 (2026-08-19) — THE ONE COUNTER, both escalation consumers call this and neither
+  // re-implements it (PRIN-11). How many of `jobId`'s MOST RECENT `jobs_log` rows are consecutively
+  // `status = 'failed'`, newest first, stopping at the first row that is not. Bounded to `limit`
+  // rows — `jobs_log.job_id` is a plain, denormalized column (the same id can name a DIFFERENT job
+  // across time, see the note above `deregisterJob`), so a small bounded read is what makes that
+  // irrelevant: the caller only ever needs to know whether the CURRENT streak reaches K, never the
+  // job's whole history.
+  consecutiveFailures(jobId, limit) {
+    const stmt = this._prepare('SELECT status FROM jobs_log WHERE job_id = ? ORDER BY exec_id DESC LIMIT ?');
+    let n = 0;
+    for (const row of stmt.all(jobId, limit)) {
+      if (row.status !== 'failed') break;
+      n += 1;
+    }
+    return n;
+  }
+
   // ────────────────────────────────────────────────────────────────────────────────────────────
   // Task 7.46 · SESSIONS — the second level. A session is the spawned process; a turn (a jobs_log
   // row) is one unit of work inside it. Today they are 1:1 for every session the daemon spawns
@@ -2043,4 +2067,8 @@ module.exports = {
   // The reserved args key the seat shard is stamped under, exported for the same reason: a probe or
   // a reader that needs to see a row's shard reads THE name, never a second spelling of it.
   SEAT_SHARD_ARG,
+  // LE-13 Change 2 — the ONE tunable both escalation consumers (`engine/lane-watch.js`'s
+  // `alarmOnStall`, `server/ticker/warnings-check.js`'s unhomed fallback) read rather than each
+  // carrying its own guess.
+  PERIODIC_FAILURE_STREAK_K,
 };

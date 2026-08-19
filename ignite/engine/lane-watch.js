@@ -211,7 +211,34 @@ function ensureGoalChannelOnce({ goal, goalFolder, engine, say }) {
 // The performer is `ticker.js#ensureGoalChannel` — the same one the ensure uses, reached the same
 // way, because the credential-carrying half must stay singular. It is handed a decision rather
 // than a subject; the ticker's header carries that argument.
+//
+// LE-13 CHANGE 2 (2026-08-19) — K CONSECUTIVE PERIODIC-JOB FAILURES, MEASURED HERE. `jobs_log`
+// durably recorded 121 consecutive `selfheal` failures and nothing ever escalated: persistence
+// exists, escalation does not. `goal-stall-alarm.js`'s own doctrine is "derives, does not measure"
+// — so the streak is measured HERE, the one caller that already holds `engine.heartStore`, and
+// handed to `pickup` shaped exactly like `frozen` before `stallAlarmDecision` ever sees it.
+function goalPeriodicFailureStreaks(heartStore, goal) {
+  const { PERIODIC_FAILURE_STREAK_K } = require('../server/heart/heart-store');
+  if (!heartStore || !goal) return { jobs: [], k: PERIODIC_FAILURE_STREAK_K };
+  const periodicJobIds = new Set(
+    heartStore.listQueue().filter((q) => q.trigger_kind === 'periodic').map((q) => q.job_id),
+  );
+  const jobs = [];
+  for (const job of heartStore.listJobs()) {
+    // `jobs.goal_name` is the job→goal pointer (schema.sql) — NEVER a job-id substring match,
+    // which is a convention (`selfheal-room-<goal>`) and not a contract.
+    if (job.goal_name !== goal || !periodicJobIds.has(job.job_id)) continue;
+    if (heartStore.consecutiveFailures(job.job_id, PERIODIC_FAILURE_STREAK_K + 1) >= PERIODIC_FAILURE_STREAK_K) {
+      jobs.push(job.job_id);
+    }
+  }
+  return { jobs, k: PERIODIC_FAILURE_STREAK_K };
+}
+
 function alarmOnStall({ goal, goalFolder, pickup, engine, say }) {
+  if (pickup && !pickup.periodicFailureJobs) {
+    pickup.periodicFailureJobs = goalPeriodicFailureStreaks(engine && engine.heartStore, goal);
+  }
   const decision = stallAlarmDecision({ goal, goalDir: goalFolder, pickup });
   // No signature means no condition at all — the ordinary, healthy case, and silent by design.
   if (!decision.signature) return decision;
@@ -591,5 +618,5 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
 
 module.exports = {
   LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
-  ensureGoalChannelOnce, channelEnsured, alarmOnStall,
+  ensureGoalChannelOnce, channelEnsured, alarmOnStall, goalPeriodicFailureStreaks,
 };

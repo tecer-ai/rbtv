@@ -246,6 +246,61 @@ check('CONTROL — the mutant pass still RAN and still saw the goals (it seeded 
   performed.length > 0 && logged.length > 0,
   `performed=${performed.length} logged=${logged.length}`);
 
+// ── ARM 7 · LE-13 CHANGE 2 — K CONSECUTIVE PERIODIC-JOB FAILURES ────────────────────────────────
+//
+// `jobs_log` durably recorded 121 consecutive `selfheal` failures and nothing ever escalated
+// (root-cause-archaeology-2026-08-19.md §7 item 2). The counter (`heart-store.js#consecutiveFailures`)
+// and its one producer (`lane-watch.js#goalPeriodicFailureStreaks`) are driven here over a REAL
+// tmp `heart.db` with REAL `jobs`/`queue`/`jobs_log` rows — a hand-typed streak number would prove
+// only the arithmetic, not the SQL.
+say('');
+say('── ARM 7 · K consecutive periodic-job failures — the counter, over REAL jobs_log rows ───────');
+const { openHeartStore, PERIODIC_FAILURE_STREAK_K } = require('../../heart/heart-store');
+const { goalPeriodicFailureStreaks } = require('../../../engine/lane-watch');
+const G7 = 'job-failure-goal';
+const JOB7 = 'selfheal-room-job-failure-goal';
+const dbRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-goal-stall-alarm-jobs-'));
+const hs = openHeartStore({ dbPath: path.join(dbRoot, 'heart.db') });
+const now7 = new Date().toISOString();
+hs._prepare(`INSERT INTO jobs (job_id, action_type, function, args_schema, enabled, created_at, updated_at, goal_name, seat_name)
+  VALUES (?, 'fire-tool', 'noop', '{}', 1, ?, ?, ?, 'selfheal-seat')`).run(JOB7, now7, now7, G7);
+hs._prepare(`INSERT INTO queue (job_id, args, session_mode, trigger_kind, run_at, interval_seconds, enqueued_by, enqueued_at)
+  VALUES (?, '{}', 'headless', 'periodic', ?, 300, 'probe', ?)`).run(JOB7, now7, now7);
+function fireFailed(n) {
+  const stmt = hs._prepare(`INSERT INTO jobs_log (job_id, action_type, args, enqueued_by, fired_tick, fired_at, status)
+    VALUES (?, 'fire-tool', '{}', 'probe', ?, ?, 'failed')`);
+  for (let i = 0; i < n; i += 1) stmt.run(JOB7, i, now7);
+}
+
+fireFailed(PERIODIC_FAILURE_STREAK_K - 1);
+const belowK = goalPeriodicFailureStreaks(hs, G7);
+check(`K-1 (${PERIODIC_FAILURE_STREAK_K - 1}) consecutive REAL failed rows: the job is NOT in the failing set`,
+  belowK.jobs.length === 0, JSON.stringify(belowK));
+
+fireFailed(1); // now K consecutive
+const atK = goalPeriodicFailureStreaks(hs, G7);
+check(`K (${PERIODIC_FAILURE_STREAK_K}) consecutive REAL failed rows: the job IS in the failing set`,
+  atK.jobs.length === 1 && atK.jobs[0] === JOB7, JSON.stringify(atK));
+
+// Threaded through the SAME alarm decision path as every other condition — staged `pickup`,
+// real `stallAlarmDecision`, real dedup state, nothing spawned.
+alarm.alarmState.clear();
+const pickupBelowK = { ...base(G7), periodicFailureJobs: belowK };
+check('K-1 fed to the alarm: no condition at all — `conditionOf` returns null',
+  alarm.conditionOf(pickupBelowK) === null);
+const pickupAtK = { ...base(G7), periodicFailureJobs: atK };
+const d7a = alarm.stallAlarmDecision({ goal: G7, pickup: pickupAtK });
+check('K fed to the alarm, first sight: condition HOLDS but has not persisted — `below-threshold`',
+  d7a.action === 'skip' && d7a.reason === 'below-threshold', JSON.stringify(d7a));
+for (const e of alarm.alarmState.values()) e.since -= OVER;
+const d7b = alarm.stallAlarmDecision({ goal: G7, pickup: pickupAtK });
+check('K fed to the alarm, past threshold: `action: post`, signature carries the JOB id (not a seat)',
+  d7b.action === 'post' && d7b.signature === `periodic-job-failing:${JOB7}`, JSON.stringify(d7b));
+say(`  TEXT  ${JSON.stringify(d7b.text)}`);
+alarm.alarmState.clear();
+hs.close();
+fs.rmSync(dbRoot, { recursive: true, force: true });
+
 const verdict = failures.length ? 'FAIL' : 'PASS';
 say('');
 say(`SUMMARY: ${lines.filter((l) => l.startsWith('PASS')).length}/${lines.filter((l) => /^(PASS|FAIL)/.test(l)).length} passed`);
