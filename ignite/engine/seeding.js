@@ -1419,15 +1419,35 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // and a goal with anything `live`/`queued` is a goal in motion, never frozen. `[]` over a goal
   // whose every seat is finished is an honest empty answer and stays silent. `ready-seats`' own
   // exit behavior is deliberately untouched (backlog task 3's producer side).
+  // ── D22 (2026-08-19): A DEAD MODE-VARIANT BRANCH IS NOT PENDING WORK ───────────────────────
+  // A goal's taskforce registers ONE SEAT PER `planning-mode` variant and the lane runs exactly
+  // one, so the other — and everything downstream of it — is BLOCKED FOREVER BY DESIGN. LE-13's
+  // filter above counted those rows and fired `goal frozen AT seeding` on two HEALTHY production
+  // goals on the day it shipped (14 of stools' 16 non-done rows; the same shape on meet). An
+  // alarm that fires on healthy goals is an alarm the owner learns to ignore, which reinstates
+  // the failure mode this whole guard exists to catch.
+  //
+  // ⚠ THE ANSWER IS COORD'S OWN `dead` FIELD, NEVER A JS RE-DERIVATION. Reachability is decided
+  // by one predicate in one language (`coord.py#mark_dead_rows`, D22 / PRIN-11); a second reader
+  // here would need the `after` grammar, the guard-ruling file and the alternate/conjunct
+  // arithmetic — which is exactly the duplication `readySeats`' own `seed` note refuses. An
+  // ABSENT field reads FALSE, which is the pre-D22 behaviour: an older coord.py degrades to the
+  // false positive, never to a silent hole in the alarm.
+  //
+  // ⚠ `ready.size` IS UNTOUCHED — it is `freeze-alarm`'s landed fix (it replaced
+  // `readyRows.length`, which counted rows coord ANSWERED rather than rows coord ruled READY, so
+  // the guard could never fire on the real freeze). Nothing here weakens it.
+  const deadSeats = new Set((readyRows || []).filter((r) => r && r.dead).map((r) => r.seat));
   const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
-  const pendingUnseeded = (ready.size || moving) ? [] : seats.filter((s) => states[s] !== 'done');
+  const pendingUnseeded = (ready.size || moving) ? []
+    : seats.filter((s) => states[s] !== 'done' && !deadSeats.has(s));
   if (pendingUnseeded.length && logger) {
     logger({
       level: 'warn',
       message: 'goal frozen AT seeding — `ready-seats` ruled NO seat READY for a goal whose '
         + 'taskforce registers pending seats, so nothing was seeded and nothing ever will be until '
         + 'the goal state is repaired',
-      goal, goalFolder, seats: pendingUnseeded,
+      goal, goalFolder, seats: pendingUnseeded, deadExcluded: deadSeats.size,
     });
   }
   return {
@@ -1473,7 +1493,11 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     frozen: pendingUnseeded.length ? {
       kind: 'seeding-empty',
       seats: pendingUnseeded,
-      detail: '`ready-seats` ruled NO seat READY (of ' + readyRows.length + ' row(s) answered) while these taskforce seats are pending — coord ruled on nothing dispatchable, so nothing can be seeded',
+      // D22: THE EXCLUDED-DEAD COUNT IS PART OF THE ALARM, not a debug line — this string is what
+      // reaches the owner over Slack (`server/ticker/goal-stall-alarm.js`), and a reader who
+      // cannot see how many rows were discounted cannot audit the alarm that discounted them.
+      detail: '`ready-seats` ruled NO seat READY (of ' + readyRows.length + ' row(s) answered, '
+        + deadSeats.size + ' of them DEAD by design and excluded) while these taskforce seats are pending — coord ruled on nothing dispatchable, so nothing can be seeded',
     } : null,
     states,
   };

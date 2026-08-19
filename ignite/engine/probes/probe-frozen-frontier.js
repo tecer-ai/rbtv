@@ -140,10 +140,14 @@ say('');
 // ── THE RED ARM — the SAME frozen fixture, driven through the PRE-FIX guard ───────────────────
 say('── the red arm — the frozen fixture, through the code as it stood before the one-token fix ──');
 const src = fs.readFileSync(SEEDING_PATH, 'utf8');
-const ANCHOR = "const pendingUnseeded = (ready.size || moving) ? [] : seats.filter((s) => states[s] !== 'done');";
+// ⚠ RE-ANCHORED BY D22 (2026-08-19), MUTATION UNCHANGED. The call site gained a second line
+// (`&& !deadSeats.has(s)`), so the old whole-statement anchor no longer matched and this arm
+// silently stopped measuring anything. The anchor is now the guard's FIRST line and the mutation
+// is still the same one token — `ready.size` -> `readyRows.length`.
+const ANCHOR = "const pendingUnseeded = (ready.size || moving) ? []";
 check('the mutation anchor is present — the red arm is measuring the real call site',
   src.includes(ANCHOR));
-const PRE_FIX = "const pendingUnseeded = (readyRows.length || moving) ? [] : seats.filter((s) => states[s] !== 'done');";
+const PRE_FIX = "const pendingUnseeded = (readyRows.length || moving) ? []";
 const mut = new Module(SEEDING_PATH, null);
 mut.filename = SEEDING_PATH;
 mut.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
@@ -175,6 +179,136 @@ say(`  pre-fix frozen: ${JSON.stringify(redPickup.frozen)}`);
 const redControl = runFixtureWithSeedGoal(false, mut.exports.seedGoal);
 check('CONTROL — the pre-fix guard still leaves a genuinely-ready fixture unfrozen (this fixture never distinguished either way)',
   redControl.frozen === null, JSON.stringify(redControl.frozen));
+
+// ── D22 (2026-08-19): A DEAD MODE-VARIANT BRANCH IS NOT PENDING WORK ──────────────────────────
+//
+// THE DEFECT THIS FILE SHIPPED GREEN OVER. The pair above proves the guard FIRES; it had no arm
+// for what the guard COUNTS. A goal's taskforce registers ONE SEAT PER `planning-mode` variant
+// and the lane runs exactly one, so the other variant and everything downstream of it is BLOCKED
+// FOREVER BY DESIGN — and `pendingUnseeded` counted them, firing `goal frozen AT seeding` on two
+// HEALTHY production goals seconds after the one-token fix above landed (measured: 14 of 16
+// non-done rows on `stools-canvas-audio-elevenlabs`, the same shape on meet).
+//
+// THE DISCRIMINATING PAIR, and it is the whole point: an implementation that excluded too much
+// would delete the alarm this file exists to protect.
+//   DEAD-ONLY — `struct` finished having ruled `mode=collapsed`, so `full[struct[mode=full]]` can
+//               never be met and `down` behind it inherits it. Nothing else is pending. `frozen`
+//               must be NULL: there is no owed work here, only a branch the lane did not take.
+//   PLUS-ONE  — the SAME package plus ONE genuinely pending seat (`stuck`, behind a real row whose
+//               session ENDED with no declared disposition — the FROZEN fixture's own shape).
+//               `frozen` must be NON-NULL, must name `stuck`, and its detail must state how many
+//               dead rows were discounted, or a reader cannot audit the alarm that discounted
+//               them.
+// The two fixtures differ in TWO ROWS and in nothing else, so nothing but those rows can explain
+// the flip. The RED arm drives DEAD-ONLY through the pre-D22 filter and confirms it alarms — the
+// false positive, reproduced on a controlled fixture.
+
+// `struct` checks out `done` and rules `mode=collapsed`; `full`/`down` are the dead branch.
+// `withPending` adds the genuinely-owed pair. `guard-values.csv` is the ONLY fork mechanism —
+// nothing here writes `planning/current/planning-mode.json`, which has no consumers by design.
+function fixtureDead(withPending) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-frozen-dead-'));
+  const ws = path.join(root, 'ws');
+  const goalFolder = path.join(ws, '.rbtv', 'goals', 'fx');
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  const rows = [['struct', ''], ['full', 'struct[planning-mode=full]'], ['down', 'full']];
+  if (withPending) rows.push(['undeclared-dep', ''], ['stuck', 'undeclared-dep']);
+  for (const [seat] of rows) {
+    fs.mkdirSync(path.join(goalFolder, 'seats', seat), { recursive: true });
+    fs.writeFileSync(path.join(goalFolder, 'seats', seat, 'seat.md'),
+      `---\nseat: ${seat}\nharness: bash\nmodel: probe-frozen\n---\n\nbody\n`);
+  }
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+    'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
+    + rows.map(([s, a]) => `tf,${s},"${a}",bash,probe-frozen,high,35,\n`).join(''));
+  // THE RULING — coord's `rule-guard` surface, as the lane's own structurer writes it.
+  fs.writeFileSync(path.join(goalFolder, 'coordination', 'guard-values.csv'),
+    'seat,key,value,source,ruled-by,stamp\n'
+    + 'struct,planning-mode,collapsed,probe,struct,2026-08-19T00:00:00Z\n');
+  const cols = require('node:child_process').execFileSync(requirePythonCmd(),
+    ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
+      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+  const now = new Date().toISOString();
+  const sess = [{ 'session-id': 'sess-struct', seat: 'struct', harness: 'bash',
+    workdir: path.join(goalFolder, 'seats', 'struct'), started: now, ended: now,
+    disposition: 'done', 'disposition-writer': 'probe' }];
+  // The genuinely-pending half: a REAL row (D16 forbids a dangling `after`) that CONCLUDED without
+  // declaring how — coord rules it UNDECLARED, so neither it nor `stuck` behind it reads READY.
+  if (withPending) {
+    sess.push({ 'session-id': 'sess-undeclared-dep', seat: 'undeclared-dep', harness: 'bash',
+      workdir: path.join(goalFolder, 'seats', 'undeclared-dep'), started: now, ended: now });
+  }
+  fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
+    `${cols.join(',')}\n${sess.map((r) => cols.map((c) => r[c] || '').join(',')).join('\n')}\n`);
+  return { root, ws, goalFolder };
+}
+
+function runDead(withPending, seedGoalFn) {
+  const { root, ws, goalFolder } = fixtureDead(withPending);
+  try {
+    const dbPath = path.join(ws, '.rbtv', 'heart', 'heart.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const { openHeartStore } = require('../../server/heart/heart-store');
+    const heartStore = openHeartStore({ dbPath });
+    try {
+      return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
+    } finally {
+      heartStore.close();
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+say('');
+say('── D22: the dead mode-variant pair, driven through the REAL patched seedGoal ─────────────');
+const { seedGoal: realSeedGoal } = require('../seeding.js');
+const deadOnly = runDead(false, realSeedGoal);
+check('DEAD-ONLY fixture (every not-done seat is a dead mode-variant row or downstream of one): `frozen` is NULL',
+  deadOnly.frozen === null, JSON.stringify(deadOnly.frozen));
+say(`  frozen: ${JSON.stringify(deadOnly.frozen)}`);
+// The exclusion above is only as good as WHO decided it. Read coord's own answer off the same
+// `readySeats` transport `seedGoal` uses: `dead` must be coord's ruling, never a JS re-derivation.
+const { readySeats } = require('../seeding.js');
+const deadWire = (() => {
+  const fx = fixtureDead(false);
+  try { return readySeats(fx.goalFolder).rows || []; }
+  finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
+})();
+check('...and it is COORD that ruled them dead, not this file — both rows carry `dead: true` on the wire, verdict BLOCKED',
+  ['full', 'down'].every((s) => deadWire.some((r) => r.seat === s && r.dead === true && r.verdict === 'BLOCKED'))
+  && deadWire.some((r) => r.seat === 'struct' && r.dead === false),
+  JSON.stringify(deadWire.map((r) => [r.seat, r.verdict, r.dead])));
+
+const plusOne = runDead(true, realSeedGoal);
+check('PLUS-ONE fixture (the same dead branch plus ONE genuinely pending seat): `frozen` is NON-NULL and names it',
+  Boolean(plusOne.frozen) && plusOne.frozen.kind === 'seeding-empty'
+  && plusOne.frozen.seats.includes('stuck'),
+  JSON.stringify(plusOne.frozen));
+check('...and the dead rows are NOT in the alarm\'s seat list — the alarm names owed work only',
+  Boolean(plusOne.frozen) && !plusOne.frozen.seats.includes('full')
+  && !plusOne.frozen.seats.includes('down'),
+  JSON.stringify(plusOne.frozen && plusOne.frozen.seats));
+check('...and the detail STATES how many dead rows were discounted, so the owner-facing alarm is auditable',
+  Boolean(plusOne.frozen) && /2 of them DEAD by design and excluded/.test(plusOne.frozen.detail),
+  JSON.stringify(plusOne.frozen && plusOne.frozen.detail));
+say(`  frozen: ${JSON.stringify(plusOne.frozen)}`);
+
+say('');
+say('── the D22 red arm — the DEAD-ONLY fixture, through the filter as it stood before D22 ────');
+const D22_ANCHOR = "    : seats.filter((s) => states[s] !== 'done' && !deadSeats.has(s));";
+check('the D22 mutation anchor is present — this arm is measuring the real call site',
+  src.includes(D22_ANCHOR));
+const D22_PRE = "    : seats.filter((s) => states[s] !== 'done');";
+const mutD22 = new Module(SEEDING_PATH, null);
+mutD22.filename = SEEDING_PATH;
+mutD22.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
+mutD22._compile(src.replace(D22_ANCHOR, D22_PRE), SEEDING_PATH);
+const redDead = runDead(false, mutD22.exports.seedGoal);
+check('WITHOUT the D22 exclusion, the DEAD-ONLY fixture ALARMS — the measured false positive, reproduced',
+  Boolean(redDead.frozen) && redDead.frozen.seats.includes('full'),
+  JSON.stringify(redDead.frozen));
+say(`  pre-D22 frozen: ${JSON.stringify(redDead.frozen)}`);
 
 const verdict = failures.length ? 'FAIL' : 'PASS';
 say('');
