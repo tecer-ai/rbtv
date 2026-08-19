@@ -290,7 +290,7 @@ Defaults confirmed: doc home `ignite/bridges/chat/live-session-design.md`, idle 
   queue was not built; only a responder queue exists.
 - **Stale in-session state** (files/rulings changed under a warm session) → reaper on profile
   apply; seats' own read-before-write discipline unchanged; 10-min ceiling bounds staleness.
-- **Memory** (240–600MB per warm process, 8GB box) → `live_session_max` LRU cap + reaper.
+- **Memory** (240–600MB per warm process; box has 32GB — the cap bounds staleness, not RAM) → `live_session_max` LRU cap + reaper.
 - **Live daemon** — code changes activate only on daemon restart; deploy/restart policy is an
   owner ruling (open question at review).
 

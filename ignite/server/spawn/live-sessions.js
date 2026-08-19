@@ -51,7 +51,7 @@ const { SpawnError, E_UNKNOWN_LAUNCH_SPEC, E_BAD_REQUEST, E_CARRIER_FAILED } = r
 
 // The design's defaults (owner-confirmed 2026-08-10, live-session-design.md § Deploy policy).
 const DEFAULT_IDLE_MS = 600000; // 10 minutes after the LAST OWNER MESSAGE, not the last reply
-const DEFAULT_MAX = 4;          // LRU cap — 240-600MB per warm process on an 8GB box
+const DEFAULT_MAX = 4;          // LRU cap — 240-600MB per warm process (box has 32GB; cap is staleness-driven, not RAM-driven)
 const DEFAULT_TURN_TIMEOUT_MS = 300000;
 
 // ⚑ THE ONE HARNESS THIS IS BUILT FOR, AND THE REFUSAL IS THE POINT. `--input-format stream-json`
