@@ -2506,6 +2506,13 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 #           UNMET and it is saying so. No advancement (only `done` advances an edge) and no
 #           successor (only `renew`/`revive` bring one back): the seat ENDS, and the row it leaves
 #           routes to the leader carrying the seat's own reason.
+#           D5 (2026-08-19): ALSO the owed state of a `done` whose outputs cannot be VERIFIED.
+#           Checkout refuses the WORD `done` (`done` = verified claim, always) and records
+#           `incomplete` with incomplete-reason stamped `outputs-unverified: <the undeclarable
+#           note>`. Writer stays `seat` — this is still the occupant's check-out path; the kit
+#           witnessed the undeclarable surface and attached the reason rather than putting a
+#           silent `done` on the DAG. No new enum value: `incomplete` already advances no edge,
+#           already routes to the leader, already is admitted from a seat.
 #
 # ⚠⚠ WHY A FIFTH VALUE EXISTS AT ALL, MEASURED: until 7.676 THIS ENUM HAD NO HONEST ENDING. A seat
 # whose work was unfinished had exactly two words available — `done` (a lie that ADVANCES THE DAG)
@@ -9081,14 +9088,20 @@ def deliver_handoff(args, base, seat):
 # seat may WRITE (a permission, single-writer arbitration); a declared OUTPUT is what a seat must
 # have PRODUCED (a debt, checked at the ending). Same paths, often; never the same question.
 #
-# ⚠⚠ UNDECLARED IS NOT VERIFIED, AND IS NOT REFUSED EITHER. Refusing an undeclared seat would
-# refuse most of the POPULATION at its check-out — the one act R-8 says must always be available
-# to a finishing seat. It is admitted, and the durable record says `none-declared` IN THOSE
-# WORDS. Between declared and undeclared sits the D3 planner extension's third state: a seat
-# whose `## Outputs` section EXISTS but yields ZERO resolvable tokens (a prose block) records
-# `outputs-undeclarable` — declared-but-ungradeable, said out loud, because the silent
-# `none-declared` those seats used to get is exactly how 23 of 26 dones graded against nothing.
-# A reader can tell a CHECKED `done` from an asserted one BY READING THE RECORD.
+# ⚠⚠ UNDECLARED IS NOT VERIFIED, AND IS NOT REFUSED EITHER (D5 default, 2026-08-19). A seat
+# with no `## Outputs` section at all makes no output claim; D5's spirit ("done = verified
+# claim") plus RC-A both point at claims that were MADE and cannot be verified. Refusing an
+# undeclared seat would refuse most of the POPULATION at its check-out — the one act R-8 says
+# must always be available to a finishing seat. Its `done` STANDS, recorded with `none-declared`
+# IN THOSE WORDS.
+#
+# ⚠ D5 DOES REFUSE THE THIRD STATE. Between declared and undeclared sits the D3 planner
+# extension's `outputs-undeclarable`: a seat whose `## Outputs` section EXISTS but yields ZERO
+# resolvable tokens (a prose block). That IS a claim, and it cannot be verified — the
+# stools/meet leader freeze of 2026-08-19. Checkout refuses the WORD `done` and records
+# `incomplete` with incomplete-reason `outputs-unverified: <the undeclarable note>`; the
+# `outputs-verified` field still carries the undeclarable text. A reader can tell a CHECKED
+# `done` from an unverifiable claim BY THE DISPOSITION, not only by reading the note.
 def resolved_outputs(w):
     """[(declared token, RESOLVED absolute path)] for ONE seat's declared outputs (D3: the
     io-spec `## Outputs` tokens, parsed once at `discover_workers`).
@@ -9282,11 +9295,21 @@ def cmd_checkout(args):
     # the contract is unmet — checking a claim nobody made would refuse the honest ending, which
     # is the one arm that must never be harder to reach than the dishonest one.
     #
-    # ⚠ IT REFUSES; IT DOES NOT DOWNGRADE. Silently rewriting the seat's `done` into `incomplete`
-    # would have the KIT declare a fact about work only the SEAT can witness — the same misgrading
-    # the writer bound bars, and it would land the seat's ending with no reason attached, since the
-    # kit has none to give. The seat is told exactly which declared paths are absent and handed the
-    # two honest endings; which one is true is its call, not this function's.
+# ⚠ IT REFUSES; IT DOES NOT DOWNGRADE — for the three questions below (missing outputs, unwritten
+# guard, open owner-ask). Silently rewriting the seat's `done` into `incomplete` would have the
+# KIT declare a fact about work only the SEAT can witness — the same misgrading the writer bound
+# bars, and it would land the seat's ending with no reason attached, since the kit has none to
+# give. The seat is told exactly which declared paths are absent and handed the two honest
+# endings; which one is true is its call, not this function's.
+#
+# ⚠ D5 (2026-08-19) IS THE ONE DOWNGRADE, AND IT IS LOUD. An `outputs-undeclarable` answer is a
+# fact the KIT DID witness (it looked at the declared `## Outputs` surface and found nothing
+# gradeable). A hard refuse+exit-1 would loop the seat: its cage denies write access to its own
+# seat.md, so it cannot add the missing tokens. Recording nothing is the 08-19 freeze made worse.
+# So the WORD `done` is refused on stderr in this same register, the ending is recorded as
+# `incomplete` with incomplete-reason stamped `outputs-unverified: <the note>`, and
+# `outputs-verified` still carries the undeclarable text. (ii) of the paragraph above is
+# answered by construction: the reason IS attached. (i) is answered by being loud, not silent.
     #
     # ⚠ AND IT RUNS BEFORE THE EXPORT AND BEFORE THE ROSTER FLIP. A refusal here costs the seat
     # nothing but the re-run — its session is untouched, its transcript uncaptured, its row still
@@ -9303,7 +9326,8 @@ def cmd_checkout(args):
         _declared, _missing, _has_block = declared_outputs(args, me)
         # D3's three honest answers, in words: verified (tokens declared and present),
         # `outputs-undeclarable` (an `## Outputs` section EXISTS but is prose — zero resolvable
-        # tokens; loud, never a silent nothing), `none-declared` (no section at all).
+        # tokens; loud, never a silent nothing; D5 refuses the WORD `done` on this answer),
+        # `none-declared` (no section at all — D5 default: the `done` STANDS).
         _outputs_note = (f"{len(_declared)} declared output(s) verified present" if _declared
                          else ("outputs-undeclarable: zero tokens — the io-spec `## Outputs` "
                                "section yields no resolvable path token (backticked, with a `/` "
@@ -9450,11 +9474,34 @@ def cmd_checkout(args):
                 f"Look — {coord_invocation(args)} pending — and if nothing is listed under \"your "
                 f"asks nobody has answered\", re-run a plain checkout and it passes. (An answer "
                 f"settles an ask only when it carries `--re <#>`.)\n"
-                f"⚠ YOUR QUESTION WAS DELIVERED — this seat is `human-interactive:` and this goal "
-                f"is in `interactive` execution mode, which is what puts it in front of the owner. "
-                f"Retracting it to get past this gate would discard a question he can still answer; "
-                f"the parked case, where nobody could be told, does not reach this refusal at all.",
-                1)
+                 f"⚠ YOUR QUESTION WAS DELIVERED — this seat is `human-interactive:` and this goal "
+                 f"is in `interactive` execution mode, which is what puts it in front of the owner. "
+                 f"Retracting it to get past this gate would discard a question he can still answer; "
+                 f"the parked case, where nobody could be told, does not reach this refusal at all.",
+                 1)
+        # ---- D5 (2026-08-19): AN UNVERIFIABLE `done` IS NOT `done` ------------------------------
+        #
+        # `outputs-undeclarable` used to pass this gate freely and still record `done` — the
+        # stools/meet leader freeze (RC-A). D5: `done` = verified claim, always. The note is
+        # already computed (do not overwrite it with "not-checked (seat declared incomplete)");
+        # setting the local `incomplete` reason here makes `checkout_disposition` resolve to
+        # `incomplete` at the one place it is computed, so all three surfaces agree.
+        if _outputs_note.startswith("outputs-undeclarable"):
+            incomplete = f"outputs-unverified: {_outputs_note}"
+            print(refusal_text(
+                "state",
+                f"'{me}' asked to record `done` but its io-spec `## Outputs` section yields no "
+                f"resolvable path token, so this check-out will not record `done`. `done` is a "
+                f"VERIFIED claim (D5, 2026-08-19) and this seat's declared outputs cannot be "
+                f"verified — the section exists and is prose. The ending is recorded as "
+                f"`incomplete` with reason stamped `outputs-unverified:`; no DAG edge advances.\n"
+                f"  LOOKED AT: the io-spec `## Outputs` block in this seat's descriptor\n"
+                f"  FOUND: zero resolvable path tokens (backticked, with a `/` and an extension)\n"
+                f"Declare real path tokens in that `## Outputs` block (a seat cannot edit its own "
+                f"seat.md from inside the cage — that is the leader's / materializer's act), or "
+                f"end with an explicit `--incomplete \"<why>\"` next time so the record carries "
+                f"YOUR reason rather than this kit-stamped one."),
+                  file=sys.stderr)
     if renew:
         if handoff is None:
             checkout_renew_arm(args, base, me)
@@ -9594,7 +9641,9 @@ def cmd_checkout(args):
     # what made this widening a one-line edit: every surface below reads THIS name, so the third
     # ending reached all four of them without a fourth place to compute it. `done` is no longer the
     # default-by-elimination it was — it is the arm the check above VERIFIED, and `incomplete` is
-    # the arm the seat asked for by name.
+    # the arm the seat asked for by name. D5 (2026-08-19): `incomplete` is ALSO the arm the kit
+    # records when a requested `done` cannot be verified (`outputs-unverified:`); same variable,
+    # same three surfaces, no fourth place to compute it.
     checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
                     disposition=checkout_disposition, handoff_stamp=handoff_stamp,
@@ -9706,12 +9755,25 @@ def cmd_checkout(args):
         # 7.676: the closing line names the ENDING THAT WAS ACTUALLY RECORDED. Telling a seat that
         # declared itself unfinished "this session is DONE" would hand it, at the last line it ever
         # reads, the very word its check-out just refused to write.
+        # D5: the kit-stamped `outputs-unverified:` path must NOT say "the run records that you
+        # said so" — the seat did not say so. That lie is the class of record this gate exists
+        # to delete.
         if incomplete:
-            print(c(f"next: nothing on your side — this session ended INCOMPLETE and the run "
-                    f"records that you said so. Leader frees the pane "
-                    f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; no "
-                    f"successor of this seat is booted and NO DAG EDGE ADVANCED on this ending.",
-                    C_HINT))
+            if incomplete.startswith("outputs-unverified:"):
+                print(c(f"next: nothing on your side — this session's `done` was REFUSED "
+                        f"(outputs unverified) and the run records `incomplete` with that "
+                        f"reason. You did NOT declare this ending; the kit did, because `done` "
+                        f"is a verified claim (D5). Leader frees the pane "
+                        f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; "
+                        f"no successor of this seat is booted and NO DAG EDGE ADVANCED on this "
+                        f"ending.",
+                        C_HINT))
+            else:
+                print(c(f"next: nothing on your side — this session ended INCOMPLETE and the run "
+                        f"records that you said so. Leader frees the pane "
+                        f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; no "
+                        f"successor of this seat is booted and NO DAG EDGE ADVANCED on this ending.",
+                        C_HINT))
         else:
             print(c(f"next: nothing on your side — this session is DONE and leader frees the pane "
                     f"(`{coord_invocation(args)} close-seat {me}`). Renewing a seat is the SEAT's "
@@ -29295,12 +29357,19 @@ def _selftest_checks(args, failures, names):
               and not (Path(_ou_pkg) / "coordination"
                        / "disposition-keyed.json").exists())
         check("D3(outputs-unify, planner extension) A ZERO-TOKEN PROSE `## Outputs` BLOCK IS "
-              "CLASSIFIED `outputs-undeclarable` ON THE DURABLE RECORD — declared-but-"
-              "ungradeable, said in those words, distinct from `none-declared` (no section at "
-              "all). Without this state D3's 'none-declared impossible for a conforming seat' "
-              "promise is false for every prose block",
-              _ou_pc is None and _ou_rec("prose")["disposition"] == "done"
-              and _ou_rec("prose")["outputs-verified"].startswith("outputs-undeclarable"))
+              "CLASSIFIED `outputs-undeclarable` ON THE DURABLE RECORD AND ITS `done` IS REFUSED "
+              "(D5) — recorded as `incomplete` with `outputs-unverified:` stamped on "
+              "incomplete-reason; outputs-verified still starts `outputs-undeclarable`. "
+              "declared-but-ungradeable, said in those words, distinct from `none-declared` "
+              "(no section at all). Without this state D3's 'none-declared impossible for a "
+              "conforming seat' promise is false for every prose block; without the D5 "
+              "refusal the stools/meet leader shape would still advance the DAG on NOTHING "
+              "VERIFIED",
+              _ou_pc is None and _ou_rec("prose")["disposition"] == "incomplete"
+              and _ou_rec("prose")["incomplete-reason"].startswith("outputs-unverified:")
+              and _ou_rec("prose")["outputs-verified"].startswith("outputs-undeclarable")
+              and "will not record `done`" in (_ou_po + _ou_pe)
+              and "you said so" not in (_ou_po + _ou_pe))
 
         # ---- D8: A `done` IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS UNANSWERED -------
         # Driven through the REAL `cmd_checkout` and the REAL `cmd_send`, on one package, in the
