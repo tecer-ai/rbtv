@@ -125,6 +125,11 @@ def ns(mod, pkg, **kw):
 def checkin(mod, pkg, seat, pane):
     mod.harness_outcome(mod.cmd_checkin,
                         ns(mod, pkg, agent=seat, summary="probe pass", pane=pane, force=False))
+    seat_dir = Path(pkg) / "workers" / seat
+    mod.session_open(ns(mod, pkg),
+                     {"agent": seat, "harness": "probe", "model": "opus",
+                      "cwd": str(seat_dir)},
+                     since=__import__("time").time(), wait=0.0)
 
 
 def checkout(mod, pkg, seat, **kw):
@@ -136,13 +141,19 @@ def checkout(mod, pkg, seat, **kw):
     return out + err, (0 if code is None else code)
 
 
-def disposition_of(pkg, seat):
-    """The seat's durable disposition record, or None when the check-out wrote none."""
-    p = Path(pkg) / "coordination" / f"disposition-{seat}.json"
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+def disposition_of(mod, pkg, seat):
+    """The seat's last ended sessions.csv row as a dict, or None when none exists."""
+    p = Path(pkg) / "sessions.csv"
+    if not p.exists():
         return None
+    header, rows = mod.read_csv_table(p, mod.SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    hit = None
+    for r in rows:
+        mod.pad_row(r, header)
+        if r[idx["seat"]].strip() == seat and r[idx["ended"]].strip():
+            hit = {c: r[idx[c]] for c in header}
+    return hit
 
 
 def active(mod, pkg, seat):
@@ -192,13 +203,15 @@ def main():
 
         checkin(mod, pkg, "produced", "%1")
         out_p, code_p = checkout(mod, pkg, "produced")
-        rec_p = disposition_of(pkg, "produced")
+        rec_p = disposition_of(mod, pkg, "produced")
         check("A1(green): a seat whose DECLARED output exists checks out cleanly and records "
               "`done` — the fix does not break the path that was already honest",
-              code_p == 0 and rec_p is not None and rec_p["disposition"] == "done")
-        check("A1(green): and the record SAYS the outputs were verified, so a reader can tell a "
-              "CHECKED `done` from an asserted one without trusting it",
-              rec_p is not None and "verified" in rec_p.get("outputs-verified", ""))
+              code_p == 0 and rec_p is not None and rec_p["disposition"] == "done"
+              and rec_p.get("disposition-writer") == "seat")
+        check("A1(green): and the durable row is written by the seat itself at checkout, "
+              "complete (`ended` filled) with no kit-for-seat proxy",
+              rec_p is not None and bool(rec_p.get("ended"))
+              and rec_p.get("disposition-writer") == "seat")
 
         checkin(mod, pkg, "barren", "%2")
         out_b, code_b = checkout(mod, pkg, "barren")
@@ -210,17 +223,20 @@ def main():
               "deliverable.md" in out_b and "--incomplete" in out_b)
         check("A1: and the refusal COSTS THE SEAT NOTHING — its roster row is still ACTIVE and NO "
               "disposition record was written, so a refused check-out is re-runnable",
-              active(mod, pkg, "barren") and disposition_of(pkg, "barren") is None)
+              active(mod, pkg, "barren") and disposition_of(mod, pkg, "barren") is None)
 
         out_i, code_i = checkout(mod, pkg, "barren", incomplete="the spec I was to review "
                                                                "was never written")
-        rec_i = disposition_of(pkg, "barren")
+        rec_i = disposition_of(mod, pkg, "barren")
         check("A2: the same seat's `--incomplete \"<reason>\"` SUCCEEDS and records disposition "
               "`incomplete` — the honest ending EXISTS and is what the record carries",
-              code_i == 0 and rec_i is not None and rec_i["disposition"] == "incomplete")
-        check("A2: the seat's REASON is on the durable record, not only on its screen — an ending "
-              "whose reason lives in a terminal nobody read is an ending nobody can act on",
-              rec_i is not None and "never written" in rec_i.get("incomplete-reason", ""))
+              code_i == 0 and rec_i is not None and rec_i["disposition"] == "incomplete"
+              and rec_i.get("disposition-writer") == "seat")
+        check("A2: the durable sessions.csv row is `incomplete` written by the seat — "
+              "the honest ending is on the ledger, not on a retired interim json",
+              rec_i is not None and rec_i.get("disposition") == "incomplete"
+              and rec_i.get("disposition-writer") == "seat"
+              and bool(rec_i.get("ended")))
         check("A2: and the roster row is CLOSED by it — the honest ending really ends the seat "
               "rather than leaving it half-checked-out",
               not active(mod, pkg, "barren"))
@@ -236,7 +252,7 @@ def main():
             mpkg = make_package(tmp / "mutant-run", {"barren": "./deliverable.md"})
             checkin(mut, mpkg, "barren", "%3")
             out_m, code_m = checkout(mut, mpkg, "barren")
-            rec_m = disposition_of(mpkg, "barren")
+            rec_m = disposition_of(mut, mpkg, "barren")
             check("A3(RED): against the pre-7.676 seams the SAME barren seat — no declared output "
                   "on disk — checks out SUCCESSFULLY and records `done`. This is the measured "
                   "2026-08-09 behaviour, run rather than described, and it is what makes every "
@@ -257,16 +273,13 @@ def main():
         # file that held it, so there is no mirror left to guard.
 
         # ---- A5: the closure properties the Windows-aborted self-test cannot reach --------------
-        check("A5: `incomplete` is admitted from the SEAT, and from the kit ONLY under "
-              "`kit-for-seat` — the token that transcribes a value the seat itself declared (W1, "
-              "`dc2b3f149`). The kit may still not put this word in a seat's mouth under its own "
-              "name, because only the occupant witnesses it",
+        check("A5: `incomplete` is admitted from the SEAT alone — the kit-for-seat transcription "
+              "token is retired; the kit may not put this word in a seat's mouth, because only "
+              "the occupant witnesses it",
               # The expected side is spelled out as LITERALS, never as coord's own constants: the
-              # two writer tokens are written into the durable `disposition-writer` column, so
-              # their spelling is a data contract an operator reads years later. Building the
-              # expected set from `mod.DISPOSITION_WRITER_*` would move with any rename and score
-              # membership only — green through a value change this arm exists to catch.
-              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset({"seat", "kit-for-seat"}))
+              # writer token is written into the durable `disposition-writer` column, so
+              # its spelling is a data contract an operator reads years later.
+              mod.RECORD_DISPOSITION_WRITER["incomplete"] == frozenset({"seat"}))
         refused = []
         for writer in (mod.DISPOSITION_WRITER_KIT, mod.DISPOSITION_WRITER_LEADER):
             try:
@@ -308,7 +321,7 @@ def main():
                   code_x != 0 and "refused [coord input]" in out_x and "outputs:" in out_x
                   and "RETIRED" in out_x and "## Outputs" in out_x
                   and "MISSING (or empty)" not in out_x
-                  and active(mod, mp, "author") and disposition_of(mp, "author") is None)
+                  and active(mod, mp, "author") and disposition_of(mod, mp, "author") is None)
 
         bridge = [v for vs in mod.LIFECYCLE_INTENT_OF.values()
                   if vs is not mod.LIFECYCLE_INTENT_ABSENT for v in vs]

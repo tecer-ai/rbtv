@@ -2516,8 +2516,6 @@ def selftest():
                 _row.update({"session-id": f"sid-{_s}", "seat": _s, "harness": "claude",
                              "pid": "0", "pid-starttime": "1"})
                 _w.writerow([_row[_col] for _col in _c.SESSIONS_COLS])
-        _c.write_seat_disposition(_pkg / "coordination", "cg-done", "sid-cg-done",
-                                  "done", "2026-08-11 09:30")
         _ca = _ns(coord=str(_real_coord), package=str(_pkg))
         _caged = caged_seats(_ca)
         check(f"CAGED (7.751) DETECTION: cagedness is read off the seat's OWN descriptor "
@@ -2534,17 +2532,34 @@ def selftest():
         check("CAGED (7.751) SHADOW: a KILLED caged seat — open row, dead ident, no durable "
               "disposition — decides WOULD-ENQUEUE",
               shadow_decide(_disp.get("cg-killed"))[0] == "WOULD-ENQUEUE")
-        check("CAGED (7.751) SHADOW: a caged seat whose own `coordination/` record says `done` "
+        _h, _rs = _c.read_csv_table(_pkg / "sessions.csv", _c.SESSIONS_COLS)
+        _i = {c: n for n, c in enumerate(_h)}
+        for _x in _rs:
+            _c.pad_row(_x, _h)
+            if _x[_i["seat"]].strip() == "cg-done":
+                _x[_i["ended"]] = "2026-08-11 09:30"
+                _x[_i["disposition"]] = "done"
+                _x[_i["disposition-writer"]] = "seat"
+        _c.write_csv_table(_pkg / "sessions.csv", _h, _rs)
+        _disp = declared_dispositions(_ca, sorted(_out))
+        check("CAGED (7.751) SHADOW: a caged seat whose sessions.csv row says `done` "
               "decides WOULD-NOT-ENQUEUE — read through `coord.session_disposition`, the ONE "
-              "reader, on the one surface a caged seat can write",
+              "reader",
               _disp.get("cg-done") == CLEAN_CHECKOUT
               and shadow_decide(_disp["cg-done"])[0] == "WOULD-NOT-ENQUEUE")
         # ---- THE RENEW GATE (2026-08-18): the two renew arms, driven off a REAL marker file
         # through the REAL `coord.renewal_state`. Hand-typed renewal values would test this
         # file's idea of the signal rather than the one coord publishes, and the whole claim
         # being made is that the two gates read ONE answer.
-        _c.write_seat_disposition(_pkg / "coordination", "cg-killed", "sid-cg-killed",
-                                  "renew", "2026-08-18 09:30")
+        _h, _rs = _c.read_csv_table(_pkg / "sessions.csv", _c.SESSIONS_COLS)
+        _i = {c: n for n, c in enumerate(_h)}
+        for _x in _rs:
+            _c.pad_row(_x, _h)
+            if _x[_i["seat"]].strip() == "cg-killed":
+                _x[_i["ended"]] = "2026-08-18 09:30"
+                _x[_i["disposition"]] = "renew"
+                _x[_i["disposition-writer"]] = "seat"
+        _c.write_csv_table(_pkg / "sessions.csv", _h, _rs)
         (_pkg / "coordination" / "lifecycle-inflight.json").write_text(json.dumps({
             "cg-killed": {"state": "in-flight", "disposition": "renew",
                           "stamped-at": _c.now(), "failure": "", "steps-completed": []}},

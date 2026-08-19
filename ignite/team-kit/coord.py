@@ -2558,41 +2558,16 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 DISPOSITION_WRITER_SEAT = "seat"
 DISPOSITION_WRITER_KIT = "kit"
 DISPOSITION_WRITER_LEADER = "leader"
-# ⚠⚠ W1 — THE FOURTH WRITER: THE KIT TRANSCRIBING A DECLARATION THE SEAT ALREADY MADE.
-#
-# It exists for ONE measured shape, the DAEMON LANE. A daemon-lane seat's check-out reaches
-# `awaiting-close.json` (a writable path) and its `sessions.csv` stamp fails EROFS-soft — the run
-# package's session trace is carved READ-ONLY into every cage on purpose (anti-spoofing, and that
-# carve STAYS). So the live surface carries the seat's own `incomplete` and the durable one is
-# empty, and the moment the lifecycle executor clears the live entry the honest ending is GONE.
-# The session-closer's job is to copy the value across before that happens.
-#
-# ⚠ IT IS A TRANSCRIPTION, NEVER A JUDGMENT, and every use of it must read the value off
-# `awaiting-close.json`. `kit` proper attests to what the KIT witnessed (a harness terminated →
-# `exited`); this token attests to what the SEAT DECLARED, carried by the kit because the seat
-# could not reach the durable surface itself. A caller that INVENTS a value under this token has
-# put words in a seat's mouth — the misgrading R-6 bars — and the writer column would then record
-# a lie with a provenance attached, which is worse than no column.
-#
-# ⚠ ITS THREE VALUES ARE EXACTLY THE SEAT-DECLARABLE ONES (`done`, `renew`, `incomplete`) and it
-# is admitted for NEITHER `exited` NOR `revive`. Those two are the kit's own attestations and are
-# reached under `kit`, which the closer still uses when NOBODY declared anything. Narrowing this
-# token to `incomplete` alone was considered and refused: the same transcription is needed for
-# `done` and `renew` (a daemon-lane seat declares those on the same broken surface), and a carve
-# that admits one third of one act would need re-widening on its first real use.
-#
-# ⚠ AUDITABILITY IS THE WHOLE PRICE OF ADMITTING IT. The `disposition-writer` column records
-# `kit-for-seat` and NOT `seat`, so an operator can always tell a value the occupant wrote itself
-# from one the kit carried on its behalf. Reusing `seat` here would have been a smaller diff and
-# would have made the two indistinguishable forever.
+# Historical token only. Pre-D3 rows carry `kit-for-seat` in `disposition-writer` (the EROFS
+# proxy transcribed a seat declaration the cage could not stamp). Readers must still parse
+# that spelling; the writer is gone. Seats now write `sessions.csv` themselves via checkout.
 DISPOSITION_WRITER_KIT_FOR_SEAT = "kit-for-seat"
 RECORD_DISPOSITION_WRITER = {
-    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER,
-                       DISPOSITION_WRITER_KIT_FOR_SEAT}),
-    "renew": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_KIT_FOR_SEAT}),
+    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
+    "renew": frozenset({DISPOSITION_WRITER_SEAT}),
     "revive": frozenset({DISPOSITION_WRITER_KIT}),
     "exited": frozenset({DISPOSITION_WRITER_KIT}),
-    "incomplete": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_KIT_FOR_SEAT})}
+    "incomplete": frozenset({DISPOSITION_WRITER_SEAT})}
 
 
 def validate_disposition(disposition, writer):
@@ -4193,98 +4168,10 @@ def session_disposition(pkg, seat):
     question about the SAME selected row (was an ending declared AT ALL?) without a second copy of
     the selection drifting away from this one.
 
-    7.475 (CW11): WIDENED TO A SECOND SURFACE, AND STILL ONE READER. Where `sessions.csv` is
-    SILENT — no ended row for this seat, or an ended row whose cell is empty — this now consults
-    the seat's OWN durable record on `coordination/` (`write_seat_disposition`, 7.474), the one
-    surface a CAGED seat can write when its `sessions.csv` write is refused by the sandbox. The
-    widening is here, INSIDE the one reader, and nowhere else: a sibling function answering the
-    same question on a different surface is the two-readers-disagree shape (`G-301`) that this
-    file's `sessions_last_ended` comment already argues against. Its out-of-tree consumer called
-    THIS symbol rather than re-implementing it, and is now retired with the rest of the second
-    readiness evaluator (`one-readiness-predicate`); the bound stands for whatever calls it next.
-
-    7.481: `sessions.csv` IS STILL FIRST, AND A DEMONSTRABLY NEWER RECORD OVERRIDES IT. Where the
-    ended cell is SILENT the record answers alone — the 7.475 fallback above, unchanged. Where BOTH
-    speak, the ended cell still wins UNLESS the record's `ended` stamp is STRICTLY LATER than the
-    `ended` cell of the very row `sessions_last_ended` selected; then the record wins, because it is
-    the seat's own account of a LATER sitting and the row is a superseded one.
-
-    WHY BOTH ANCHORS, AND WHAT EACH ONE PROVES ON ITS OWN. IDENTITY comes free from the open-row
-    guard below, which is UNCHANGED on the override path and is what makes the comparison mean
-    anything: the record may speak ONLY for the seat's currently OPEN session, and the row selected
-    here is an ENDED one, so on this path the two ALWAYS name different sessions. What identity
-    CANNOT establish is DIRECTION — rows are appended in OPEN order (`sessions_last_ended` says so),
-    so an orphaned open row can sit BEFORE a later session that opened, ran and ended, and an
-    identity-only rule would let that stale record beat the newer row. The two `ended` stamps are
-    what say which ending came second. Neither anchor alone would do; both are required.
-
-    ⚠ EVERY TIE AND EVERY UNREADABLE COMPARISON GOES TO `sessions.csv`. Equal stamps (the two are
-    INDEPENDENT clock readings at minute precision — `write_seat_disposition` states that in full),
-    a missing or unparseable `ended` on either side, a row `session_row_by_id` cannot find, no
-    `session-id` column to find it by: every one of them reads NOT NEWER and the ended cell stands.
-    The record overrides only where it is DEMONSTRABLY later, because a freshness rule that fires on
-    AMBIGUITY is a spoofing surface — `coordination/` is shared and unsigned (see the guard note
-    below), and "I could not compare them" must never resolve in the writer's favour.
-
-    WHAT THIS CLOSED, MEASURED 2026-08-18. A caged seat cannot write `sessions.csv` at all, so its
-    ending lands only on the record. On `meet-transcript-summarizer` the leader's last ENDED row was
-    `98b6bcf1` / `exited` / `2026-08-17 23:05` while its own record said `done` / `2026-08-18 01:22`;
-    this reader returned the STALE `exited`, `terminal_disposition` cross-checked it against a live
-    `awaiting-close.json` of `done` and reported SKEW, `ready-seats` exited non-zero, and the goal
-    stopped seeding for ~4 hours — 1,704 refusals, no owner-facing signal. Reporting SKEW on a real
-    disagreement is correct and is not what changed; the two records here did not genuinely
-    disagree, one was superseded and this reader had no way to say so.
-    ponytail: two extra reads on the both-speak path (the record, then its row by id); hoist them
-    into the caller's per-command read if a profile ever shows it.
-
-    ⚠ THE GUARD IS NOT A FORGERY-PROOF AUTHENTICATOR AND CANNOT BE ON THIS SURFACE. `coordination/`
-    is shared and unsigned; any party that can write it can write this file, exactly as it can
-    already write `awaiting-close.json` — whose reader treats an ABSENT disposition key as `done`,
-    a strictly weaker bar than the four checks below. What the guard DOES bound is every failure
-    this fallback can produce by accident: a record for another seat, a record whose declared
-    writer is not the seat, a value outside what `RECORD_DISPOSITION_WRITER` admits FROM a seat
-    (so `exited` and `revive` are refused by construction, and the closed enum is not widened), and
-    — the load-bearing one — a record from a session that is not the seat's currently OPEN one. A
-    caged check-out leaves its row OPEN because `session_close` never completed
-    (`p-the-caged-checkout-leaves-NO-ended-row-at-all-which-is-worse-than-an-empty-cell`), so
-    "matches an open row" is precisely the state this fallback exists for; every other state — a
-    closed session, a superseded session, no session — falls through to `None`.
-
-    EVERY refusal below returns `None`, never a value: the asymmetry above is the whole safety
-    argument and the fallback does not get to weaken it."""
-    row_sid, cell = sessions_last_ended(pkg).get(seat) or ("", "")
-    durable = cell or None
-    # ---- 7.475 (CW11): the seat's OWN record. THE FOUR GUARDS ARE UNCHANGED and every one of them
-    #      still yields `""` — never a value — so the 7.481 override below can only ever be offered
-    #      a record that already cleared the same bar the SILENCE fallback clears.
-    value, rec_ended = "", ""
-    try:
-        rec = json.loads(seat_disposition_path(Path(pkg) / "coordination", seat)
-                         .read_text(encoding="utf-8"))
-    except (OSError, ValueError):     # absent, unreadable, or not JSON — all UNKNOWN
-        rec = None
-    if (isinstance(rec, dict) and rec.get("seat") == seat
-            and rec.get("disposition-writer") == DISPOSITION_WRITER_SEAT):
-        _v = (rec.get("disposition") or "").strip()
-        _sid = str(rec.get("session-id") or "").strip()
-        if (DISPOSITION_WRITER_SEAT in RECORD_DISPOSITION_WRITER.get(_v, frozenset())
-                and _sid and _sid == sessions_open_ids(pkg).get(seat, "")):
-            value, rec_ended = _v, str(rec.get("ended") or "").strip()
-    if durable is None:
-        return value or None          # SILENCE — the 7.475 fallback, byte-for-byte its old answer
-    if not value:
-        return durable                # nothing admissible beside it — the cell stands
-    # ---- 7.481: BOTH surfaces speak. The cell wins unless the record is DEMONSTRABLY LATER. The
-    #      row's own stamp is FETCHED BY THE SESSION-ID `sessions_last_ended` ALREADY RETURNED — a
-    #      field read on the row that one selector chose, never a second row-selection rule reaching
-    #      a different row while reading as though it agreed (`sessions_last_ended`'s own argument).
-    row_ended = (session_row_by_id(pkg, row_sid) or ("", "", "", ""))[1] if row_sid else ""
-    try:
-        fresher = (datetime.strptime(rec_ended, "%Y-%m-%d %H:%M")
-                   > datetime.strptime(row_ended, "%Y-%m-%d %H:%M"))
-    except ValueError:                # either stamp absent or unparseable — NOT demonstrable
-        fresher = False
-    return value if fresher else durable
+    `sessions.csv` is the only source. Leftover `coordination/disposition-{seat}.json` files
+    (the retired EROFS interim surface) are inert."""
+    _sid, cell = sessions_last_ended(pkg).get(seat) or ("", "")
+    return cell or None
 
 
 # ---------- per-seat statusline (task 7.69, statusline half) ----------
@@ -6059,106 +5946,6 @@ def clear_closing(base, seat):
                 return False
             del data[seat]
             atomic_write(closing_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-        return True
-    except (OSError, ValueError):
-        return False
-
-
-# ---- 7.474 (CW10): the SEAT-SIDE DURABLE DISPOSITION RECORD ------------------------------------
-#
-# ⚠ WHY A THIRD SURFACE EXISTS AT ALL — MEASURED, not reasoned. `CW9` (7.473, 2026-08-07) ran a
-# REAL `checkout` inside a REAL composed cage: a caged seat cannot write `{runDir}/sessions.csv` AT
-# ALL. `write_csv_table` is temp-file + `os.replace`, and the CREATE of `sessions.csv.tmp` in the
-# read-only run dir is REFUSED `errno 30 EROFS` — so the refusal is TOTAL, never partial.
-# `session_close` therefore takes `session_trace_safe`'s except arm and THE ROW IS NOT STAMPED
-# `ended` AT CHECK-OUT TIME. As CW9 measured it that was the whole story — not an empty cell but NO
-# ENDED ROW AT ALL, which is worse than the empty cell in three ways: `None` is not terminal so
-# nothing advances and nothing is refused; `undeclared_endings` keys on ENDED rows and is BLIND to
-# it, so the one detector built for exactly this cannot see it; and the declared-output check is
-# never reached, so the OTHER wall cannot even be measured until this one is closed.
-#
-# ⚠ WHAT CHANGED SINCE, AND WHY THIS BLOCK NO LONGER DESCRIBES A PERMANENT HOLE. The row IS
-# completed — afterwards, from OUTSIDE the cage. The seat writes its ending to `awaiting-close.json`
-# and to the record below; the session-closer's `attest-exit` then runs uncaged and
-# `close_session_row_by_id` stamps `ended` plus the disposition pair onto that same row, CARRYING
-# the seat's own declared value under the `kit-for-seat` writer token rather than re-deciding it.
-# So the three costs above are paid for the WINDOW between a caged check-out and that close, and
-# carrying the seat's value across that window intact is exactly what this surface is for.
-#
-# ⚠ AND `cmd_checkout`'S WARNING NAMES THAT CHAIN, for the same reason this paragraph exists. The
-# earlier wording said only that the row was NOT completed; a seat read it as TOTAL loss of its
-# session record and filed that verdict, whose proposed fix was a read-write bind — the one patch
-# the anti-spoofing carve exists to refuse. Describing the hole without its closer is how that
-# misreading gets manufactured, in a warning or in a comment.
-#
-# ⚠ IT CARRIES `ended`, AND THAT IS THE WHOLE POINT OF THE FIELD. `session_disposition` reads
-# `sessions_last_ended`, which selects on the ENDED cell FIRST. A record carrying a disposition and
-# no ending is UNREACHABLE by the one reader that exists — it would sit on disk, correct and
-# ignored (leader, run `decisions.md`
-# `#p-the-caged-checkout-leaves-NO-ended-row-at-all-which-is-worse-than-an-empty-cell`).
-#
-# ⚠ S1 INTERIM, AND THE RETIREMENT IS IN THE RECORD, NOT ONLY IN THIS COMMENT. `coordination/` is
-# the one write-opening a caged seat has, and that opening is scheduled to RETIRE AT 7.57. A
-# retirement recorded only beside the WRITER is invisible to everyone who only ever READS, so
-# `surface` carries it in every file this writes.
-#
-# ⚠ IT REPLACES NOTHING. `sessions.csv` stays the FIRST source and is still attempted first; this
-# is the fallback for the one case that write cannot reach. Both surfaces take their disposition
-# from the SAME variable at the SAME call site (`cmd_checkout`'s `checkout_disposition`) — computing
-# it twice is precisely the skew the comment block above `set_awaiting`'s call site names, and it is
-# not re-introduced here.
-SEAT_DISPOSITION_SURFACE_NOTE = (
-    "S1 INTERIM — this record sits on the `coordination/` write-opening, which RETIRES AT 7.57. "
-    "`sessions.csv` remains the first source; this is the fallback a caged seat can actually write.")
-
-
-def seat_disposition_path(base, seat):
-    """`{coordination}/disposition-{seat}.json` — the address, DERIVED FROM THE SEAT'S NAME ALONE.
-
-    No peer folder is read, and none could be: a cage `tmpfs`s away `{runDir}/seats` and the seat
-    sees only its own (`CW9` §4 listed it: `["mc-w17-root"]`). Same shape as the
-    `lifecycle-exec-{seat}-{stamp}.log` written beside it — one naming rule on this surface, not
-    two."""
-    return Path(base) / f"disposition-{seat}.json"
-
-
-def write_seat_disposition(base, seat, session_id, disposition, ended,
-                           writer=DISPOSITION_WRITER_SEAT, outputs="", reason=""):
-    """Write the seat's OWN durable disposition record. Returns True when it landed.
-
-    Best-effort in the same sense `set_awaiting` is — bookkeeping ABOUT a checkout must never become
-    a gate ON it (7.37's ruling) — but its failure is ANNOUNCED by the caller rather than swallowed,
-    because on the caged path this is the ONLY surface left and a silent miss loses the seat's
-    ending outright.
-
-    `validate_disposition` is called OUTSIDE the try for the reason `set_awaiting` states in full:
-    an out-of-enum value, or a writer reaching across the bound, is a CALLER CONTRACT BREACH that
-    only an edit to this file can introduce, and swallowing it into a `False` would make it read
-    exactly like a full disk. `exited` is refused here by construction on the seat's own path, the
-    same way it is on the two surfaces above.
-
-    ⚠ `ended` IS THE CALLER'S CLOCK READING AND NOT A COPY OF THE `sessions.csv` CELL. The two are
-    independent readings at minute precision and can disagree by a minute when they straddle a
-    boundary. Stated rather than buried: on the path this record MATTERS there is no cell to copy —
-    `session_close` never ran to completion. Unifying them would mean widening `session_close`'s
-    signature, and this task's contract requires that write to stay unchanged.
-    ponytail: two clock readings, minute precision; unify when 7.57 rebuilds this surface.
-
-    NO `coord_lock`. This file is keyed by seat and its only writer is that seat's own check-out, so
-    there is no read-modify-write to serialize — unlike `awaiting-close.json`, one shared dict every
-    seat mutates. It is also why the address needs no peer read: one seat, one file, one writer."""
-    validate_disposition(disposition, writer)
-    try:
-        atomic_write(seat_disposition_path(base, seat), json.dumps(
-            {"seat": seat, "session-id": str(session_id or ""), "ended": ended,
-             "disposition": disposition, "disposition-writer": writer,
-             # 7.676: both keys are ALWAYS PRESENT, `""` when they say nothing. A key that appears
-             # only on the interesting path makes its ABSENCE ambiguous — a reader cannot tell a
-             # record written before this field existed from one whose check found nothing to say,
-             # which is the exact ambiguity `outputs-verified` was added to remove.
-             "outputs-verified": str(outputs or ""),
-             "incomplete-reason": str(reason or ""),
-             "surface": SEAT_DISPOSITION_SURFACE_NOTE}, indent=2, sort_keys=True) + "\n")
         return True
     except (OSError, ValueError):
         return False
@@ -9485,7 +9272,7 @@ def cmd_checkout(args):
         # stools/meet leader freeze (RC-A). D5: `done` = verified claim, always. The note is
         # already computed (do not overwrite it with "not-checked (seat declared incomplete)");
         # setting the local `incomplete` reason here makes `checkout_disposition` resolve to
-        # `incomplete` at the one place it is computed, so all three surfaces agree.
+        # `incomplete` at the one place it is computed, so both remaining surfaces agree.
         if _outputs_note.startswith("outputs-undeclarable"):
             incomplete = f"outputs-unverified: {_outputs_note}"
             print(refusal_text(
@@ -9502,6 +9289,10 @@ def cmd_checkout(args):
                 f"end with an explicit `--incomplete \"<why>\"` next time so the record carries "
                 f"YOUR reason rather than this kit-stamped one."),
                   file=sys.stderr)
+    # ONE variable, computed ONCE after the verify gate (D5 may flip `incomplete`). Both
+    # remaining writers (`session_close` then `set_awaiting`) read this name.
+    checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
+    _checkout_landed = []
     if renew:
         if handoff is None:
             checkout_renew_arm(args, base, me)
@@ -9578,6 +9369,7 @@ def cmd_checkout(args):
                 f"again, tell leader and end with `{coord_invocation(args)} checkout`.",
                 1)
         print(f"handoff written: {memory_path}")
+        _checkout_landed.append(f"handoff at {memory_path}")
         # ⚠ TAUGHT AT THE MOMENT IT IS TRUE, NEVER ONLY IN A DOC. The seat has just replaced its
         # own memory and this is the last instant at which it can still add to the note; a rule
         # stated anywhere else is read long before or long after the one act it governs.
@@ -9598,6 +9390,23 @@ def cmd_checkout(args):
                     f"the narrative. Tighten it before your next renewal: state what is IN FLIGHT, "
                     f"what comes NEXT, and what was RULED OUT — not what happened.", C_DEAD),
                   file=sys.stderr)
+    # Durable ledger FIRST (after the verify gate; after the handoff write on call 2, which
+    # has its own must-land-first contract). A failed sessions.csv write REFUSES the checkout
+    # — a failed ledger write is not a done (D5). No swallow, no kit-for-seat proxy.
+    try:
+        sid = session_close(args, me, disposition=checkout_disposition,
+                            writer=DISPOSITION_WRITER_SEAT)
+    except Exception as exc:
+        _already = "; ".join(_checkout_landed) if _checkout_landed else "none"
+        refuse(
+            "state",
+            f"sessions.csv write FAILED — {type(exc).__name__}: {exc}. Checkout REFUSED; "
+            f"the durable ledger is the first mutating write of this act after the verify "
+            f"gate (and after a call-2 handoff, when one landed). Surfaces already landed: "
+            f"{_already}.",
+            1)
+    if sid:
+        print(f"sessions.csv: {sid} ended")
     # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
     # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
     out, err = "", "--no-export"
@@ -9622,29 +9431,13 @@ def cmd_checkout(args):
     # not an assertion. `handoff_stamp` is call 2's stamp, byte-identical to the block's `stamped=`
     # because both come from one clock reading through one formatter; the done path passes "".
     #
-    # It goes in THIS record, never a second file. A second surface would force `cmd_reap` and
-    # `watch.py` to reconcile two of them, re-importing the re-derivation hazard the comment block
-    # at the top of this section exists to name.
-    #
     # dag-08: `writer` is declared EXPLICITLY, and this is the seat's OWN path — the occupant is
     # reporting a fact about itself. Declaring it here is what puts this call under the writer
-    # bound, so `exited` (the kit attesting that a harness terminated — a fact no seat can
-    # witness about itself) is refused on this path by construction rather than by nobody ever
-    # passing it.
+    # bound, so `exited` is refused on this path by construction.
     #
     # dag-09 (LG-9): ONE VARIABLE, READ BY BOTH SURFACES. `awaiting-close.json` is the live
     # declaration and `sessions.csv` is the durable copy the executor's `clear_awaiting` cannot
-    # erase — and the ready arithmetic cross-verifies the two and reports a disagreement as SKEW.
-    # Computing the value independently at the two write sites is what would MANUFACTURE that
-    # skew, from one branch discriminant, in one function, twelve lines apart.
-    # 7.676: THREE ARMS NOW, AND STILL ONE VARIABLE. The dag-09 argument above is unchanged and is
-    # what made this widening a one-line edit: every surface below reads THIS name, so the third
-    # ending reached all four of them without a fourth place to compute it. `done` is no longer the
-    # default-by-elimination it was — it is the arm the check above VERIFIED, and `incomplete` is
-    # the arm the seat asked for by name. D5 (2026-08-19): `incomplete` is ALSO the arm the kit
-    # records when a requested `done` cannot be verified (`outputs-unverified:`); same variable,
-    # same three surfaces, no fourth place to compute it.
-    checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
+    # erase. Both take `checkout_disposition`.
     if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
                     disposition=checkout_disposition, handoff_stamp=handoff_stamp,
                     writer=DISPOSITION_WRITER_SEAT,
@@ -9654,52 +9447,6 @@ def cmd_checkout(args):
                     route=(getattr(args, "route", None) or "")):
         print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
               f"`{coord_invocation(args)} close-seat {me}`")
-    # 7.37: checkout ends the session as surely as a close does. dag-09: and it carries the SAME
-    # `checkout_disposition` the record above got — the same name, on the same line of sight.
-    sid, cerr = session_trace_safe(session_close, args, me,
-                                   disposition=checkout_disposition,
-                                   writer=DISPOSITION_WRITER_SEAT)
-    if cerr:
-        # ⚠ THIS WARNING NAMES ITS FALLBACK CHAIN, AND THAT CLAUSE IS LOAD-BEARING. Inside a cage
-        # this write is EROFS by design (the anti-spoofing carve), so this is the arm a caged seat
-        # ALWAYS takes. Saying only "row NOT completed" read as TOTAL loss of the session record,
-        # and a seat filed that verdict — whose proposed fix was a read-write bind, the one patch
-        # this carve exists to refuse. The loss is PARTIAL: the closer chain below completes the
-        # row. `cmd_depart`'s twin of this warning is deliberately NOT given these words — that
-        # path writes no disposition record, so it has no chain to name.
-        print(c(f"WARNING sessions.csv row NOT completed — {cerr}. The close itself stands. NOT "
-                f"loss of your session record: your ending is on `awaiting-close.json` + the "
-                f"disposition record written below, and the out-of-cage session-closer "
-                f"(`attest-exit` -> `close_session_row_by_id`, writer "
-                f"`{DISPOSITION_WRITER_KIT_FOR_SEAT}`) backfills `ended`, `disposition` and "
-                f"`disposition-writer` onto this row afterwards.", C_DEAD), file=sys.stderr)
-    elif sid:
-        print(f"sessions.csv: {sid} ended")
-    # 7.474 (CW10): THE SEAT-SIDE DURABLE RECORD. It is written AFTER the two lines above ON
-    # PURPOSE — `sessions.csv` is the FIRST source, is still attempted first exactly as it was, and
-    # its warning still prints. Nothing above this line moved.
-    #
-    # ⚠ IT RUNS ON BOTH OUTCOMES, NEVER ONLY ON `cerr`, and that is a correctness choice rather than
-    # a simplification. Keyed on the failure, the record would become a FAILURE MARKER whose ABSENCE
-    # a reader cannot tell from a package written before this writer existed — and the write path
-    # would then be exercised ONLY inside a cage, the one place no verifier in this system can watch
-    # it. Unconditional, it is the same path every uncaged check-out already walks.
-    #
-    # `checkout_disposition` is the SAME variable the two surfaces above took — never recomputed
-    # (the `dag-09` argument, applied to a third surface). The session-id is the row `session_close`
-    # just closed; when that write FAILED the row is still OPEN, so `session_id_open` names that
-    # same row — both apply the last-open-row rule, so the two arms cannot select different
-    # sessions. `''` when neither can answer: an empty id is honest and a reader can see it, where a
-    # fabricated one binds this record to the wrong session.
-    if not write_seat_disposition(base, me, sid or session_id_open(args, me),
-                                  checkout_disposition, now(),
-                                  outputs=_outputs_note, reason=incomplete):
-        print(c(f"WARNING seat disposition record NOT written — "
-                f"{seat_disposition_path(base, me)}. The close itself stands, but if the "
-                f"sessions.csv line above also warned, this seat's ending is now recorded on NO "
-                f"durable surface: tell leader.", C_DEAD), file=sys.stderr)
-    else:
-        print(f"disposition record: {seat_disposition_path(base, me)}")
     if renew:
         # ---- STAGE 3 (s3-09): THE FORK. The seam s12-06 left greppable here is DISCHARGED. -----
         # Everything above ran in-pane and is safe in-pane; the renewal is not, so it leaves with a
@@ -15527,14 +15274,12 @@ def attest_exit_seat(args, seat):
 # for that name RIGHT NOW, which under concurrent sittings is a LIVE one: F4's race, performed by
 # the mechanism built to close F3.
 #
-# ⚠⚠ THE VALUE IS READ, NEVER CHOSEN (adv, C2). `awaiting-close.json` is the LIVE declaration and
-# on the daemon lane it is the ONLY surface a seat's own check-out can reach — the session trace is
-# carved read-only into every cage (anti-spoofing; that carve STAYS). A closer that tested only the
-# session row's cell would see it empty on EVERY daemon-lane seat, write `exited` on top of a
-# declared `incomplete`, and manufacture DISPOSITION SKEW — which parks the row until a human
-# adjudicates and makes every honest `incomplete` unrelaunchable. So: declaration present → that
-# value, carried under `kit-for-seat`; declaration absent → `exited`, the kit's own attestation.
-# BOTH SURFACES, ONE VALUE, DURABLE FIRST (`cmd_rule_disposition`'s rule, unchanged).
+# ⚠⚠ THE VALUE IS ORIGINATED, NEVER TRANSCRIBED. Checkout writes `sessions.csv` itself. This
+# closer runs only when the process died without checking out (or died mid-checkout before the
+# ledger write). It stamps `exited` under `kit` — the harness terminated, nothing about the work.
+# A declaration sitting on `awaiting-close.json` with an OPEN row is an unverified mid-checkout
+# death; `exited` is the honest answer (D5). `daemon_close_blockers` (a) refuses to re-stamp a
+# row checkout already closed.
 
 
 def session_row_by_id(pkg, sid):
@@ -15650,25 +15395,15 @@ def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
 def close_session_seat(args, sid, seat):
     """Perform the daemon-lane close for ONE session-id. Returns the list of step strings.
 
-    THE VALUE IS DECIDED HERE, ONCE, and both surfaces receive it — see the block at the head of
-    this section for why reading `awaiting-close.json` rather than the row is the whole design."""
+    Always originates `exited` under `kit`. Checkout already wrote any seat-declared value;
+    this path is the crash-stamp for a process that died without a complete checkout."""
     base = base_dir(args, register=False)
     pkg = package_dir(args, register=False)
     steps = []
     entry = load_awaiting(base).get(seat)
-    declared = (entry.get("disposition", "done") or "").strip() if isinstance(entry, dict) else ""
-    if declared and declared in RECORD_DISPOSITION_WRITER and (
-            DISPOSITION_WRITER_KIT_FOR_SEAT in RECORD_DISPOSITION_WRITER[declared]):
-        value, writer = declared, DISPOSITION_WRITER_KIT_FOR_SEAT
-        steps.append(f"declaration: '{seat}' declared `{declared}` in awaiting-close.json — "
-                     f"CARRIED, not overridden (writer `{writer}`)")
-    else:
-        # `exited` is the honest answer when NOBODY declared anything, and it is the only value
-        # this arm ever originates. A declared `exited`/`revive` lands here too: those are the
-        # kit's own attestations and are re-stated under the kit's own token, not transcribed.
-        value, writer = "exited", DISPOSITION_WRITER_KIT
-        steps.append(f"declaration: none this arm may carry ({declared or 'no entry'}) — "
-                     f"attesting `exited`, THE HARNESS TERMINATED and nothing more")
+    value, writer = "exited", DISPOSITION_WRITER_KIT
+    steps.append("declaration: ignored — closer originates `exited` under `kit` "
+                 "(crash-stamp; checkout writes seat-declared values itself)")
     # DURABLE FIRST — it is the surface that survives the lifecycle executor's clear.
     closed_seat, cerr = close_session_row_by_id(pkg, base, sid, value, writer)
     steps.append(f"sessions.csv: {sid} ended, disposition `{value}` by `{writer}`" if not cerr
@@ -19289,12 +19024,10 @@ def cmd_close_seat(args):
     # the record lie in the opposite direction.
     # W1/F3 — THE `incomplete` ENTRY SURVIVES A PLAIN CLOSE, and it is the only value that does.
     #
-    # WHAT THE WIPE COST. `incomplete` is the seat's own statement that its work is unfinished, and
-    # on the daemon lane `awaiting-close.json` is the ONLY surface that carries it (the session row
-    # is EROFS-empty inside the cage). Clearing it here erased the honest ending and left the seat
-    # indistinguishable from one that never checked out — so every recovery door that reads a
-    # disposition read nothing, and the manual pattern then had to write `done` about work that
-    # fail-blocked. The debt settlement was correct about PANES and wrong about the RECORD.
+    # WHAT THE WIPE COST. `incomplete` is the seat's own statement that its work is unfinished.
+    # Clearing the live entry here used to erase it while the durable row was still empty; the
+    # ledger is now written at checkout, but the live entry still carries route/handoff/debt
+    # the closer and `close-seat` read, so an `incomplete` is kept until relaunch.
     #
     # ⚠ THE RENEW ARM STILL WIPES, AND THE EXCEPTION IS LOAD-BEARING (adv, C5, G-134's own reason).
     # A renew brings the seat straight BACK: the successor is live, checked in and working, and a
@@ -24899,7 +24632,7 @@ def _selftest_checks(args, failures, names):
         # WHY `refuse` AND NOT `run`: it captures STDERR — where the warning goes by design, so a
         # bookkeeping failure is never mistaken for the act's own output — and it returns the exit
         # code, and THAT CODE BEING 0 IS THE CLAIM "the close itself stands".
-        def _sc_boom(_a, _seat):
+        def _sc_boom(_a, _seat, **_k):
             raise OSError("sessions.csv is read-only")
 
         _sc_real = session_close
@@ -24932,6 +24665,23 @@ def _selftest_checks(args, failures, names):
                       f"cannot pass for a verb that did nothing",
                       _scode == 0 and _sid != "" and f"sessions.csv: {_sid} ended" in _sout
                       and current_row(_rows_sc, _seat)["active"] == "no")
+                if _verb == "checkout":
+                    _d9h, _d9r = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
+                    _d9i = {c: n for n, c in enumerate(_d9h)}
+                    _d9hit = None
+                    for _x in _d9r:
+                        pad_row(_x, _d9h)
+                        if _x[_d9i["seat"]].strip() == _seat and _x[_d9i["ended"]].strip():
+                            _d9hit = _x
+                    _d9writers = [_x[_d9i["disposition-writer"]].strip()
+                                  for _x in _d9r if "disposition-writer" in _d9i]
+                    check("7.474 (CW10): checkout writes `sessions.csv` DIRECTLY, complete at "
+                          "checkout time — `ended` filled, `disposition` filled, "
+                          "`disposition-writer` = `seat`, no closer and no `kit-for-seat`",
+                          _d9hit is not None
+                          and _d9hit[_d9i["disposition"]].strip() == "done"
+                          and _d9hit[_d9i["disposition-writer"]].strip() == DISPOSITION_WRITER_SEAT
+                          and "kit-for-seat" not in _d9writers)
                 run(cmd_checkin, agent=_seat, summary=f"session-trace probe: {_verb} again",
                     pane=_pane)
                 session_open(ns(), _srec, since=time.time(), wait=0.0)
@@ -24939,44 +24689,24 @@ def _selftest_checks(args, failures, names):
                 _bout, _bcode = _call(_seat)
                 session_close = _sc_real
                 _, _, _rows_b = load_workers(base_dir(ns()))
-                check(f"7.37/{_verb}: and when the trace write FAILS the act STILL STANDS and the "
-                      f"failure is ANNOUNCED — bookkeeping ABOUT a close must never become a gate "
-                      f"ON it (7.37's own ruling), so `session_trace_safe` swallows the exception. "
-                      f"A swallow nobody reports is a session trace that goes quietly incomplete, "
-                      f"and the only thing standing between those two is this line printing",
-                      _bcode == 0 and "sessions.csv row NOT completed" in _bout
-                      and "The close itself stands" in _bout
-                      and current_row(_rows_b, _seat)["active"] == "no")
-                # 7.474 (CW10): and the SEAT-SIDE record is on the writable surface ANYWAY. This
-                # rides the boom arm deliberately — `_sc_boom` raises the exact exception a caged
-                # `sessions.csv` write raises, so this is the closest UNCAGED analogue of the state
-                # CW9 measured, and it is the only state in which this record is the seat's only
-                # ending. `ended` and `session-id` are asserted individually because they are the
-                # two the reader binds on and an absent one reads as a truthful blank, not an error.
-                # ⚠ Its vantage is UNCAGED — it establishes that the writer runs and what it writes,
-                # NEVER that a caged seat can land it. That claim is CW12's, from inside a cage.
                 if _verb == "checkout":
-                    _dp = seat_disposition_path(base_g, _seat)
-                    _drec = json.loads(_dp.read_text(encoding="utf-8")) if _dp.exists() else {}
-                    check("7.474 (CW10): when the sessions.csv write fails, the SEAT-SIDE durable "
-                          "disposition record still lands on the writable coordination surface, "
-                          "carrying `ended` — without which `session_disposition` (which selects on "
-                          "sessions_last_ENDED) can never reach it — plus the session-id it binds "
-                          "to and `disposition-writer` declaring the SEAT wrote it. Addressed from "
-                          "the seat's NAME alone, so nothing under `seats/` is read to compose it",
-                          _dp.name == f"disposition-{_seat}.json"
-                          and _drec.get("seat") == _seat
-                          and _drec.get("disposition") == "done"
-                          and _drec.get("disposition-writer") == DISPOSITION_WRITER_SEAT
-                          and bool(_drec.get("ended"))
-                          and _drec.get("session-id", "") != ""
-                          and "7.57" in _drec.get("surface", ""))
-                    # `missing_ok` because the RED arm of this row is a candidate that does not
-                    # write the file at all: a bare `unlink` there raises INSIDE the suite and
-                    # turns a clean FAIL into an ABORT, which marks every one of the ~450 checks
-                    # after it UNKNOWN. Measured — the first mutant run did exactly that. A control
-                    # that takes the suite down when it goes red is a control nobody can read.
-                    _dp.unlink(missing_ok=True)
+                    check("7.37/checkout: a failed ledger write REFUSES the checkout — "
+                          "non-zero exit, the OSError named, roster still ACTIVE (nothing "
+                          "else mutated; session_close is the first mutating write of the "
+                          "common body)",
+                          _bcode != 0 and "sessions.csv is read-only" in _bout
+                          and "Checkout REFUSED" in _bout
+                          and current_row(_rows_b, _seat)["active"] == "yes")
+                else:
+                    check(f"7.37/{_verb}: and when the trace write FAILS the act STILL STANDS and "
+                          f"the failure is ANNOUNCED — bookkeeping ABOUT a close must never become "
+                          f"a gate ON it (7.37's own ruling), so `session_trace_safe` swallows the "
+                          f"exception. A swallow nobody reports is a session trace that goes "
+                          f"quietly incomplete, and the only thing standing between those two is "
+                          f"this line printing",
+                          _bcode == 0 and "sessions.csv row NOT completed" in _bout
+                          and "The close itself stands" in _bout
+                          and current_row(_rows_b, _seat)["active"] == "no")
                 clear_awaiting(base_g, _seat)
                 _sh_sc.rmtree(pkg / "workers" / _seat)
         finally:
@@ -27211,47 +26941,26 @@ def _selftest_checks(args, failures, names):
         # BY HAND, with its justification written into the row's own prose. That is the only way a
         # pair may ever enter this set — never by deriving it from the mapping, which would retire
         # the tripwire on the first widening it was built to catch.
-        # ⚠ THE LITERAL HAS BEEN PAID A SECOND TIME (W1, the session-closer). This row went RED on
-        # the three `kit-for-seat` pairs exactly as designed, and each was added BY HAND with its
-        # justification here. `kit-for-seat` is the kit TRANSCRIBING a value the seat itself
-        # declared into a surface the seat could not reach (the daemon lane's `sessions.csv` is
-        # carved read-only into every cage), so it is admitted for the three SEAT-DECLARABLE values
-        # and for neither `exited` nor `revive` — those are the kit's OWN attestations, reached
-        # under `kit` proper. The `disposition-writer` column keeps the two tellable apart forever,
-        # which is the whole price of admitting the token at all.
+        # The `kit-for-seat` triples were retired with the EROFS proxy (direct-ledger-writes).
+        # The token string stays readable on old rows; it is no longer an admitted writer.
         _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
-                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat"),
-                          ("done", "kit-for-seat"), ("renew", "kit-for-seat"),
-                          ("incomplete", "kit-for-seat")}
-        _w154_domain = ({"seat", "kit", "leader", "auditor"}
+                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat")}
+        _w154_domain = ({"seat", "kit", "leader", "auditor", "kit-for-seat"}
                         | set().union(*RECORD_DISPOSITION_WRITER.values()))
         _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
                           if _d8_val(_d, _w) is None}
         _w154_leader_exited = _d8_val("exited", DISPOSITION_WRITER_LEADER) or ""
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
               "full cross product of the enum and a writer domain WIDER than the model's own, the "
-              "admitted set is EXACTLY {done<-seat, done<-leader, done<-kit-for-seat, "
-              "renew<-seat, renew<-kit-for-seat, incomplete<-kit-for-seat, revive<-kit, "
-              "exited<-kit, incomplete<-seat} — six pairs, compared against a literal so this row "
-              "cannot move with the mapping it grades. The leader is admitted for `done` "
+              "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
+              "exited<-kit, incomplete<-seat} — compared against a literal so this row "
+              "cannot move with the mapping it grades. `kit-for-seat` is NOT admitted: seats "
+              "write the ledger themselves. The leader is admitted for `done` "
               "(`d-exited-row-closure`: investigate the routed row, and where the work had "
               "CONCLUDED switch it to `done`) and is REFUSED for `exited` by name — a leader "
               "writing `exited` would attest to a termination it did not witness, which is the "
-              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` is the "
-              "sixth pair and it is the SEAT'S ALONE, admitted on the same test the other five "
-              "answer to — WHO SAW IT. A seat's own done-contract being UNMET is a fact the "
-              "occupant holds and nothing else observes: `cmd_checkout` reaches the value only "
-              "through the seat's own `--incomplete <REASON>`, refuses that flag EMPTY because the "
-              "reason IS the value, and writes it with `DISPOSITION_WRITER_SEAT` on the same three "
-              "surfaces `done` takes. `declared_outputs` proves the bound from the other side: "
-              "when a seat's declared paths are absent the kit REFUSES the `done` and hands the "
-              "seat this word to say for itself, and it deliberately does NOT downgrade `done` to "
-              "`incomplete` on the seat's behalf — a downgrade would have the KIT assert a fact "
-              "about work only the SEAT witnessed, and would land the ending carrying no reason, "
-              "since the kit has none to give. So the LEADER is refused `incomplete` for the same "
-              "reason it is refused `exited`: a leader who believes a seat unfinished has "
-              "`exited`'s investigation path, never a word to put in the seat's mouth — and this "
-              "is the one value whose entire purpose is that it was SELF-declared. Control arms "
+              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` is "
+              "the SEAT'S ALONE. Control arms "
               "both directions: `done<-leader` must be ADMITTED and `exited<-leader` must RAISE, "
               "so a model that granted nothing and a model that granted everything both red this "
               "row",
@@ -27354,155 +27063,44 @@ def _selftest_checks(args, failures, names):
               _d9_legacy is None and _d9_filled == "done"
               and session_disposition(pkg, "no-such-seat-anywhere") is None)
 
-        # ---- 7.475 (CW11): THE ONE READER, WIDENED TO THE SEAT-SIDE RECORD ----
-        # SIX ROWS, ONE FIXTURE FAMILY, and each row is a SEPARATE `check` so each one is provable
-        # RED on its own mutant — a single conjunction would go red on any mutation and so could
-        # not tell which guard did the refusing.
-        #
-        # ⚠ THIS SUITE BRINGS ITS OWN DISCRIMINATOR ON PURPOSE (leader,
-        # `#p-a-guard-STUCK-RED-is-as-uninformative-as-one-stuck-GREEN-and-CW11-must-bring-its-own-discriminator`).
-        # The out-of-tree `check_reads_match_coord_reader` — then the standing guard over exactly
-        # this drift — had been STUCK RED since 7.237 moved the row selection out of
-        # `session_disposition` (it grepped `idx["<col>"]` from that function's own bytes and found
-        # none), so it read identically before and after this change and could signal nothing about
-        # it. A check that cannot change state is not evidence. These rows can change state, and
-        # they are now the ONLY guard over this drift — that file went with `one-readiness-predicate`.
+        # ---- 7.475 / 7.481: leftover disposition-*.json is INERT; sessions.csv is the sole source
         _d9_cbase = Path(pkg) / "coordination"
         _d9_cbase.mkdir(parents=True, exist_ok=True)
-
-        # (a) THE STATE THIS EXISTS FOR: a caged check-out whose `sessions.csv` write was refused,
-        #     so its row is still OPEN and its only ending is the record on `coordination/`.
         _d9_seed("d9caged")
-        write_seat_disposition(_d9_cbase, "d9caged", "d9caged-sid", "done", now())
-        check("7.475 (CW11): where `sessions.csv` is SILENT for a seat — no ended row at all, the "
-              "state a CAGED check-out leaves because `session_close` never completed — the ONE "
-              "reader now resolves from that seat's OWN durable record on `coordination/`, the "
-              "single surface a caged seat can write. Before this row the seat's ending was "
-              "unreadable: written, correct, and invisible to every caller",
-              session_disposition(pkg, "d9caged") == "done")
-
-        # (b) `sessions.csv` STAYS FIRST ON A TIE — and the control is DISCRIMINATING, not
-        #     decorative: this seat's record is fully VALID (right seat, right writer, sid matching
-        #     its open row) so the fallback WOULD fire if the cell were silent. It does not fire:
-        #     the ended row answered, and the record is NOT strictly later — both stamps are
-        #     `now()`, the same minute. 7.481 turned this row into the TIE arm of the freshness
-        #     rule rather than a claim that no record may ever override; the OVERRIDE arm is
-        #     7.481's own row below. An order swap, or a comparison that admits equality, turns
-        #     this row red on its own.
+        atomic_write(_d9_cbase / "disposition-d9caged.json", json.dumps(
+            {"seat": "d9caged", "session-id": "d9caged-sid", "ended": now(),
+             "disposition": "done", "disposition-writer": DISPOSITION_WRITER_SEAT}) + "\n")
+        check("7.475 (CW11): a leftover `disposition-{seat}.json` beside a SILENT sessions.csv "
+              "row is INERT — `session_disposition` answers UNKNOWN. The interim surface retired; "
+              "checkout writes the ledger itself",
+              session_disposition(pkg, "d9caged") is None)
         _d9_seed("d9first", ended=now(), disposition="renew")
-        _d9_seed("d9first")
-        write_seat_disposition(_d9_cbase, "d9first", "d9first-sid", "done", now())
-        check("7.475 (CW11) / 7.481: `sessions.csv` REMAINS THE FIRST SOURCE AND WINS EVERY TIE — "
-              "a seat whose ended row says `renew`, with an equally-stamped VALID record beside it "
-              "saying `done`, still reads `renew`. The record overrides only where it is "
-              "DEMONSTRABLY later; equal stamps, an unparseable stamp and a missing one all read "
-              "NOT NEWER, because a freshness rule that fires on AMBIGUITY is a spoofing surface "
-              "and `coordination/` is shared and unsigned",
+        atomic_write(_d9_cbase / "disposition-d9first.json", json.dumps(
+            {"seat": "d9first", "session-id": "d9first-sid", "ended": now(),
+             "disposition": "done", "disposition-writer": DISPOSITION_WRITER_SEAT}) + "\n")
+        check("7.481: `sessions.csv` is the SOLE source — an ended `renew` row still reads "
+              "`renew` even with a leftover record saying `done`",
               session_disposition(pkg, "d9first") == "renew")
-
-        # (c) RED 1 — the WRITER guard. Emitted by the real writer at a writer the enum admits
-        #     (`leader` may record `done`), so this is a LEGITIMATE record that is simply not the
-        #     seat's own. Hand-forging it would prove less: the arm must refuse a record the kit
-        #     itself can produce.
-        _d9_seed("d9wwriter")
-        write_seat_disposition(_d9_cbase, "d9wwriter", "d9wwriter-sid", "done", now(),
-                               writer=DISPOSITION_WRITER_LEADER)
-        check("7.475 (CW11) RED 1/3 — WRONG WRITER: a record whose `disposition-writer` is not "
-              "the SEAT reads `unknown`, never `done`. The fallback speaks only for the seat's "
-              "own declaration; any other party's ending reaches the DAG through the surface that "
-              "party writes, not through this one",
-              session_disposition(pkg, "d9wwriter") is None)
-
-        # (d) RED 2 — the SESSION guard. The record names a session that is not this seat's open
-        #     one: a leftover from a session already superseded, or a value naming nothing at all.
-        _d9_seed("d9badsid")
-        write_seat_disposition(_d9_cbase, "d9badsid", "some-other-session", "done", now())
-        check("7.475 (CW11) RED 2/3 — UNKNOWN SESSION-ID: a record whose `session-id` matches no "
-              "open row for this seat reads `unknown`. A by-seat key with no session check reads a "
-              "STALE record as the current ending — the seat renews, the old record survives, and "
-              "the DAG advances on a session that ended long ago",
-              session_disposition(pkg, "d9badsid") is None)
-
-        # (e) RED 3 — NO OPEN ROW AT ALL. This is also the F1-protective arm: it is state (b) from
-        #     `undeclared_endings` (ended, cell empty) with a record beside it, and the entire
-        #     back-catalogue of every existing run package sits in a shape like it.
-        _d9_seed("d9noopen", ended=now(), disposition="")
-        write_seat_disposition(_d9_cbase, "d9noopen", "d9noopen-sid", "done", now())
-        check("7.475 (CW11) RED 3/3 — NO MATCHING OPEN ROW: a seat whose sessions are ALL closed "
-              "reads `unknown` even with a record on disk naming its own last session-id. The "
-              "record speaks for a session still OPEN — the caged state — and for no other; a "
-              "seat that ended with an empty cell stays the DEFECT `undeclared_endings` reports "
-              "and is not converted into a clean `done` by this widening",
-              session_disposition(pkg, "d9noopen") is None)
-
-        # (f) THE CLOSED ENUM IS NOT WIDENED. `write_seat_disposition` refuses `exited` from a
-        #     seat by construction, so this record can only exist as a FORGERY — written here by
-        #     hand for exactly that reason, since no kit path emits it.
-        _d9_seed("d9exited")
-        atomic_write(seat_disposition_path(_d9_cbase, "d9exited"), json.dumps(
-            {"seat": "d9exited", "session-id": "d9exited-sid", "ended": now(),
-             "disposition": "exited", "disposition-writer": DISPOSITION_WRITER_SEAT,
-             "surface": SEAT_DISPOSITION_SURFACE_NOTE}, indent=2, sort_keys=True) + "\n")
-        check("7.475 (CW11): the CLOSED enum is not widened at the read either — a record "
-              "carrying a value `RECORD_DISPOSITION_WRITER` does not admit FROM a seat (`exited` "
-              "is the kit's alone) reads `unknown`, even though every other guard passes. The "
-              "reader re-asks the WRITE-boundary question at the READ boundary rather than "
-              "trusting that only the writer ever produced the file",
-              session_disposition(pkg, "d9exited") is None)
-
-        # ---- 7.481: A FRESH RECORD BEATS A STALE ENDED ROW ------------------------------------
-        # THE 2026-08-18 INCIDENT, REPRODUCED. Synthetic package of its own — the live goals are
-        # production state and the `leader` seat name is already taken in the shared fixture above.
-        # TWO ASSERTIONS IN ONE ROW BECAUSE THEY ARE ONE CLAIM: the reader must return the record's
-        # `done`, AND the SKEW that halted the goal must be GONE at `terminal_disposition`. Proving
-        # only the first would leave the thing the owner actually saw unmeasured.
         _frr_pkg = Path(td) / "frr-pkg"
         _frr_base = _frr_pkg / "coordination"
         _frr_base.mkdir(parents=True)
-
-        def _frr_seed(seat, sid, started, ended, disposition):
-            """One session row in a named state, written through the file's OWN header — never a
-            hand-built line, so a schema change reaches this fixture instead of passing it by."""
-            _p = sessions_csv(_frr_pkg)
-            _h, _r = read_csv_table(_p, SESSIONS_COLS)
-            _h, _w = widen_header(_h, SESSIONS_COLS)
-            if _w:
-                _r = [pad_row(_x, _h) for _x in _r]
-            _i = {c: n for n, c in enumerate(_h)}
-            _new = ["" for _ in _h]
-            _new[_i["session-id"]] = sid
-            _new[_i["seat"]] = seat
-            _new[_i["started"]] = started
-            _new[_i["ended"]] = ended
-            _new[_i["disposition"]] = disposition
-            _r.append(_new)
-            write_csv_table(_p, _h, _r)
-
-        # The row that froze the goal: a PREVIOUS sitting the kit stamped `exited` at 23:05. It is
-        # this seat's LAST ENDED row, and by 01:22 it is STALE.
-        _frr_seed("leader", "98b6bcf1", "2026-08-17 21:40", "2026-08-17 23:05", "exited")
-        # The caged sitting that superseded it: still OPEN, because `session_close`'s `sessions.csv`
-        # write took EROFS and the row was never stamped `ended` AT ALL. Its ending exists on the
-        # two surfaces a cage leaves open, and nowhere else.
-        _frr_seed("leader", "c1a9e70d", "2026-08-17 23:06", "", "")
-        write_seat_disposition(_frr_base, "leader", "c1a9e70d", "done", "2026-08-18 01:22")
+        _frr_p = sessions_csv(_frr_pkg)
+        _frr_h, _ = read_csv_table(_frr_p, SESSIONS_COLS)
+        _frr_h, _frr_w = widen_header(_frr_h, SESSIONS_COLS)
+        _frr_i = {c: n for n, c in enumerate(_frr_h)}
+        _frr_row = ["" for _ in _frr_h]
+        _frr_row[_frr_i["session-id"]] = "98b6bcf1"
+        _frr_row[_frr_i["seat"]] = "leader"
+        _frr_row[_frr_i["started"]] = "2026-08-17 21:40"
+        _frr_row[_frr_i["ended"]] = "2026-08-17 23:05"
+        _frr_row[_frr_i["disposition"]] = "exited"
+        write_csv_table(_frr_p, _frr_h, [_frr_row])
         set_awaiting(_frr_base, "leader", "", "", False, disposition="done")
-        _frr_value = session_disposition(_frr_pkg, "leader")
         _frr_term = terminal_disposition(_frr_pkg, _frr_base, "leader")
-        check("7.481: A SEAT'S FRESH DISPOSITION RECORD BEATS A STALE ENDED ROW, AND THAT IS WHAT "
-              "UN-MANUFACTURES THE SKEW. `leader` renewed and its old row was stamped `exited` at "
-              "2026-08-17 23:05; the caged sitting that replaced it could write neither an `ended` "
-              "cell nor a disposition, so its `done` at 2026-08-18 01:22 landed only on the record "
-              "and on `awaiting-close.json`. The reader used to answer with the older `exited`, "
-              "`terminal_disposition` cross-checked live `done` against durable `exited` and "
-              "reported SKEW, `ready-seats` exited non-zero and the whole goal stopped seeding for "
-              "~4 hours across 1,704 refusals with no owner-facing signal. It now answers `done` "
-              "and the cross-check agrees — the SKEW report is unchanged and still correct for a "
-              "GENUINE disagreement; what is gone is the reader manufacturing one out of a "
-              "superseded row. The TIE and AMBIGUITY direction is row (b) above",
-              _frr_value == "done"
-              and _frr_term[2] is None
-              and _frr_term == ("done", "awaiting-close.json", None))
+        check("7.481: LIVE-vs-DURABLE SKEW still fires when awaiting-close.json and "
+              "sessions.csv disagree — awaiting-close stays as the live-debt surface",
+              _frr_term[2] == ("done", "exited")
+              and session_disposition(_frr_pkg, "leader") == "exited")
 
         # ---- LG-9: the two surfaces are written from ONE value ----
         # STRUCTURAL, off the module's own AST, and that is deliberate: the BEHAVIOURAL twin is
@@ -27518,11 +27116,7 @@ def _selftest_checks(args, failures, names):
             if not isinstance(_d9_n, _d8_ast.Call):
                 continue
             _d9_fn = getattr(_d9_n.func, "id", "")
-            _d9_names_in = [getattr(a, "id", "") for a in _d9_n.args]
-            # `session_close` reaches the file through `session_trace_safe(session_close, ...)`,
-            # so it is matched as an ARGUMENT of that wrapper, never as the callee.
-            if _d9_fn == "set_awaiting" or (_d9_fn == "session_trace_safe"
-                                            and "session_close" in _d9_names_in):
+            if _d9_fn in ("set_awaiting", "session_close"):
                 for _d9_k in _d9_n.keywords:
                     if _d9_k.arg == "disposition":
                         _d9_args[_d9_fn] = getattr(_d9_k.value, "id", "<not-a-plain-name>")
@@ -29556,6 +29150,10 @@ def _selftest_checks(args, failures, names):
             "the work\n", encoding="utf-8")
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
+            session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
+                         {"agent": _ou_s, "harness": "probe", "model": "opus",
+                          "cwd": str(Path(_ou_pkg) / "seats" / _ou_s)},
+                         since=time.time(), wait=0.0)
         _ou_bo, _ou_be, _ou_bc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="blocky"))
         _ou_ko, _ou_ke, _ou_kc = harness_outcome(
@@ -29564,34 +29162,37 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="prose"))
 
         def _ou_rec(s):
-            return json.loads((Path(_ou_pkg) / "coordination" / f"disposition-{s}.json")
-                              .read_text(encoding="utf-8"))
+            _h, _r = read_csv_table(sessions_csv(_ou_pkg), SESSIONS_COLS)
+            _i = {c: n for n, c in enumerate(_h)}
+            _hit = None
+            for _x in _r:
+                pad_row(_x, _h)
+                if _x[_i["seat"]].strip() == s and _x[_i["ended"]].strip():
+                    _hit = {c: _x[_i[c]] for c in _h}
+            return _hit or {}
         check("D3(outputs-unify) THE BLOCK IS THE ONE GRADED SURFACE: a seat declaring ONLY the "
               "io-spec `## Outputs` block — no frontmatter key anywhere — is graded against its "
               "tokens and its `done` records them verified. This is the seat shape that was "
               "INVISIBLE to the grading reader before the unification",
-              _ou_bc is None and _ou_rec("blocky")["disposition"] == "done"
-              and "verified" in _ou_rec("blocky")["outputs-verified"])
+              _ou_bc is None and _ou_rec("blocky").get("disposition") == "done"
+              and _ou_rec("blocky").get("disposition-writer") == DISPOSITION_WRITER_SEAT)
         check("D3(outputs-unify) THE RETIRED `outputs:` FRONTMATTER KEY REFUSES LOUDLY at the "
               "grading path — named as RETIRED, pointed at the `## Outputs` block, roster row "
               "untouched, nothing recorded. Silent ignoring is the one outcome barred: an "
               "ignored retired key is an author who believes a contract nobody grades",
               _ou_kc == 1 and "RETIRED" in (_ou_ko + _ou_ke)
               and "## Outputs" in (_ou_ko + _ou_ke)
-              and not (Path(_ou_pkg) / "coordination"
-                       / "disposition-keyed.json").exists())
+              and not _ou_rec("keyed"))
         check("D3(outputs-unify, planner extension) A ZERO-TOKEN PROSE `## Outputs` BLOCK IS "
-              "CLASSIFIED `outputs-undeclarable` ON THE DURABLE RECORD AND ITS `done` IS REFUSED "
-              "(D5) — recorded as `incomplete` with `outputs-unverified:` stamped on "
-              "incomplete-reason; outputs-verified still starts `outputs-undeclarable`. "
+              "CLASSIFIED `outputs-undeclarable` AND ITS `done` IS REFUSED "
+              "(D5) — recorded as `incomplete` on sessions.csv. "
               "declared-but-ungradeable, said in those words, distinct from `none-declared` "
               "(no section at all). Without this state D3's 'none-declared impossible for a "
               "conforming seat' promise is false for every prose block; without the D5 "
               "refusal the stools/meet leader shape would still advance the DAG on NOTHING "
               "VERIFIED",
-              _ou_pc is None and _ou_rec("prose")["disposition"] == "incomplete"
-              and _ou_rec("prose")["incomplete-reason"].startswith("outputs-unverified:")
-              and _ou_rec("prose")["outputs-verified"].startswith("outputs-undeclarable")
+              _ou_pc is None and _ou_rec("prose").get("disposition") == "incomplete"
+              and _ou_rec("prose").get("disposition-writer") == DISPOSITION_WRITER_SEAT
               and "will not record `done`" in (_ou_po + _ou_pe)
               and "you said so" not in (_ou_po + _ou_pe))
 
@@ -29736,9 +29337,6 @@ def _selftest_checks(args, failures, names):
               _d8h_pc is None and _d8h_rows["bqp"]["disposition"] == "done"
               and "PARKED by the ferry at gate `human-interactive`" in (_d8h_po + _d8h_pe)
               and _d8h_p_still_open == [_d8h_ask["bqp"]]
-              and "PARKED by the ferry at gate" in json.loads(
-                  (_d8h_pkg / "coordination" / "disposition-bqp.json")
-                  .read_text(encoding="utf-8"))["outputs-verified"]
               # and the two verdicts come from ONE reader: the gate that released it is the gate
               # the mirror reports for that seat, not a second opinion computed at the check-out
               and ask_parked_at_gate(_d8h_pkg, "bqp") == "human-interactive"
@@ -32159,21 +31757,19 @@ def _selftest_checks(args, failures, names):
             return [{c: pad_row(r, _h)[_i[c]].strip() for c in
                      ("session-id", "ended", "disposition", "disposition-writer")} for r in _rs2]
 
-        # (1) THE WHOLE POINT: a declared `incomplete` is CARRIED, not overwritten.
+        # (1) A declared `incomplete` on an OPEN row is a mid-checkout death: closer
+        #     originates `exited` under `kit`, it does not transcribe (D5 — unverified).
         _dl1 = _dl_make("dl1", awaiting_dispo="incomplete")
         _dl1_out, _, _dl1_code = _ae(_dl1, session="oc2-sid", force_dead=True, go=True,
                                      as_agent="ignite-daemon")
         _dl1_row = _dl_rows(_dl1)[0]
         _dl1_aw = load_awaiting(_dl1 / "coordination").get("oc2") or {}
-        check("W1/C2: THE DAEMON-LANE CLOSER CARRIES THE SEAT'S OWN `incomplete` TO BOTH SURFACES, "
-              "under the `kit-for-seat` writer. The declaration lives on `awaiting-close.json` and "
-              "NOWHERE else on this lane — the run package is carved read-only into every cage, so "
-              "the seat's own `sessions.csv` stamp EROFSes. A closer that read the ROW's empty "
-              "cell instead would write `exited` over this and manufacture the disposition SKEW "
-              "that makes every honest `incomplete` unrelaunchable",
-              _dl1_code is None and _dl1_row["ended"] and _dl1_row["disposition"] == "incomplete"
-              and _dl1_row["disposition-writer"] == DISPOSITION_WRITER_KIT_FOR_SEAT
-              and _dl1_aw.get("disposition") == "incomplete")
+        check("W1/C2: THE DAEMON-LANE CLOSER ORIGINATES `exited` UNDER `kit` even when "
+              "awaiting-close.json declared `incomplete`. Transcription retired with the EROFS "
+              "proxy; a process that died with an open row did not complete checkout (D5)",
+              _dl1_code is None and _dl1_row["ended"] and _dl1_row["disposition"] == "exited"
+              and _dl1_row["disposition-writer"] == DISPOSITION_WRITER_KIT
+              and _dl1_aw.get("disposition") == "exited")
 
         # (2) NOBODY declared -> `exited` under the KIT's own token, plus the interim pre-W3 note.
         _dl2 = _dl_make("dl2")
