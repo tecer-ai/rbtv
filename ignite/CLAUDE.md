@@ -201,23 +201,37 @@ pinned by `jobs/probes/probe-jobcontain-degrade.py`. The other scripts in the fo
 (`recover-room.py`, `agent-tmp-clean.py`) do not import
 `jobcontain` and already load anywhere.
 
-## Deploy model — in place, gated by ordering (owner-ruled 2026-08-17)
+## Deploy model — last commit, never the live tree (owner-ruled D6, 2026-08-19)
 
-The daemon runs **in place from the source tree**: the systemd units' `ExecStart` points straight at
-the working copy, so there is no build artifact, no staging copy, and no deploy gate — and by owner
-ruling (2026-08-17, accepting the in-place shape as designed) none is built. Two consequences bind
-every agent committing changes here:
+**History.** On 2026-08-17 the owner ruled the daemon ran in place from the source tree, with no
+deploy gate, "and by owner ruling … none is built". That ruling is superseded.
 
-- **Per-invocation scripts** (team-kit CLIs, job scripts, probes, goal tooling) are live the moment
-  they are saved — **a build commit IS a deploy of its per-invocation half.** Say so in the report.
-- **Long-lived daemon JS** goes live only at the next restart of the unit that requires it — *any*
-  restart, including a watchdog's or an OOM recovery, fires whatever has landed.
+**Now (D6, 2026-08-19):** single daemon instance, running from the last COMMIT, never the live
+working tree. Deploying = committing. No staging. A restart mid-edit deploys nothing half-finished.
 
-**The ordering rule that replaces a deploy gate: a wave's build commits must land only inside its
-landing window** — the window that ends with the restart that arms them. A commit landed outside its
-window sits armed, waiting to ride an unrelated restart, and per-invocation halves skew against the
-running daemon in the meantime (measured: ~14 min of engine/coord skew when a coordination CLI went
-live at its build commit while the daemon held the prior engine).
+The installed units' `ExecStart` and `RBTV_IGNITE_CONFIG_PATH` point at a detached git worktree
+(`$XDG_STATE_HOME/rbtv-deploy`, default `~/.local/state/rbtv-deploy`). `RBTV_IGNITE_SRC` still names
+the live repo — it is the per-invocation tree (team-kit, `coord.py`), not the booted one.
+
+| Surface | Verdict |
+|---|---|
+| Daemon JS require-closure (`server/`, `engine/`, `launch-profiles/`, everything `server/index.js` requires) | **PINNED** — what `ExecStart` resolves |
+| `ignite/config/spawn-profiles.yaml` (boot-read by the daemon) | **PINNED** via `RBTV_IGNITE_CONFIG_PATH` |
+| `bridges/chat/` (the chat-bridge unit) | **PINNED** — same worktree, same commit |
+| `team-kit/coord.py` + team-kit scripts | **LIVE TREE** — re-read on every invocation; path composed from `RBTV_IGNITE_SRC` |
+| `ignite/jobs/*.py` (spawned per firing) | **LIVE TREE** — argv in `config/spawn-profiles.yaml` still name the live repo |
+| attached execution (`rbtv run`) | **LIVE TREE by design** — it runs what the console holds |
+| probes, `deploy/probe-suite.js`, hand-run scripts | **LIVE TREE** — per-invocation, from the repo |
+
+**Deploy verb:** `rbtv ignite daemon deploy` (also `rbtv-ignite-daemon deploy`). Refuses a missing
+or dirty deploy tree; checks the worktree out detached to the tip of `ignite/core-daemon`; ensures
+`ignite/node_modules`; restarts the unit. `RBTV_IGNITE_UNIT=rbtv-chat-bridge.service … deploy`
+re-pins the bridge onto the same refreshed tree.
+
+**What the daemon booted:** `.rbtv/runtime/daemon-code.json` (`root` is under the deploy tree;
+`code.digest` hashes the loaded bytes). The watchdog's `daemon_code_state` re-hashes those files
+under the marker's carried `root`. **STALE CODE** now means "the deploy tree moved and the unit
+has not restarted", not "somebody saved a file".
 
 ## Installation model
 
