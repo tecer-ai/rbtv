@@ -451,29 +451,10 @@ function reconcileGoal({
   }
 
   if (derived.readyRefused) {
-    if (engine && say) {
-      const { alarmOnStall } = require('./lane-watch');
-      alarmOnStall({
-        goal, goalFolder, engine, say,
-        pickup: { readinessRefused: derived.readyRefused },
-      });
-    }
-    actions.push({ kind: 'alarm', why: 'ready-seats-refused' });
+    actions.push({ kind: 'detect', why: 'ready-seats-refused', detail: derived.readyRefused });
   }
-
-  if (derived.classE && engine && say) {
-    const { alarmOnStall } = require('./lane-watch');
-    alarmOnStall({
-      goal, goalFolder, engine, say,
-      pickup: pickup && pickup.frozen ? pickup : {
-        frozen: {
-          kind: 'frozen-frontier',
-          seats: derived.classE.pending,
-          detail: 'ready-seats returned 0 READY while pending seats exist and nothing is live or queued',
-        },
-      },
-    });
-    actions.push({ kind: 'alarm', why: 'frozen-frontier', seats: derived.classE.pending });
+  if (derived.classE) {
+    actions.push({ kind: 'detect', why: 'frozen-frontier', seats: derived.classE.pending });
   }
 
   const launchTargets = [];

@@ -335,18 +335,6 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);
-    // D1 watcher: one reconciliation pass per goal, cadence-gated inside maybeReconcile.
-    // `_`-prefixed folders are not goals (selfheal's own skip). A folder with neither a
-    // taskforce nor a sessions ledger has nothing to derive. A live console run is
-    // detect-only — launching against it would fight the attached lane.
-    if (!goal.startsWith('_')
-        && (fs.existsSync(path.join(goalFolder, 'taskforce.csv'))
-            || fs.existsSync(path.join(goalFolder, 'sessions.csv')))) {
-      maybeReconcile({
-        goal, goalFolder, engine, say,
-        dryRun: consoleRunIsLive(goalFolder),
-      });
-    }
     const { lane, legacy, raw } = readLane(goalFolder);
 
     if (lane !== DAEMON) {
@@ -381,6 +369,17 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
       // `rbtv-goal materialize`, not a fault. Quiet.
       skipped.push({ goal, reason: 'no-taskforce-yet' });
       continue;
+    }
+
+    // D1 watcher: after the folder is a real goal with a taskforce, so ready-seats has a
+    // package to read. Placed HERE so an unreadable/absent taskforce still reaches the
+    // existing alarmOnStall continues below — a reconcile that called ready-seats first
+    // would spend COORD_TIMEOUT_MS on probe fixtures and starve the stall alarm.
+    if (!goal.startsWith('_')) {
+      maybeReconcile({
+        goal, goalFolder, engine, say,
+        dryRun: consoleRunIsLive(goalFolder),
+      });
     }
 
     // ── REGISTERED BUT UNBUILT: A ROW WITH NO `seats/<seat>/` FOLDER (adv, C71 / D5 defect 1) ─
