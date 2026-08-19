@@ -15003,6 +15003,30 @@ def cmd_surface_refusal(args):
           f"{seat}: {status} as bus row #{num} (key {key})")
 
 
+# ---------- LE-10 (2026-08-19): the renewal answer, exported read-only (`renewal-state`) ----------
+#
+# WHY A VERB EXISTS FOR A ONE-LINE ANSWER: `evaluateExit` (ignite/engine/attached-execution.js) was
+# the last reader collapsing stuck-vs-unfinished — it could end a console run `blocked` on a seat
+# whose `--renew` successor was mid-hand-over. The single source of renewal truth is
+# `renewal_state` (rbtv 3b43bda1), a PYTHON function with, by doctrine, no JS reader
+# (`jobs/goal-watcher-job.py` § ONE READER): JS may TRANSPORT the answer, never re-derive it. This
+# verb is that transport's far end — a thin print over `renewal_state`, no logic of its own, so the
+# reader count stays at one.
+#
+# READ-ONLY, and `register=False` says so structurally: resolving the package normally
+# (re-)registers the run tag, which is a write, and this verb's whole contract is that it makes
+# none (dag-10's own pattern, `base_dir`'s note). No identity gate for `ready-seats`' reason: an
+# answer about the run's own recorded state, computable by anyone who can read the package.
+def cmd_renewal_state(args):
+    """(engine) ONE seat's renewal answer — READ-ONLY, verbatim from `renewal_state`."""
+    state, why = renewal_state(base_dir(args, register=False), args.seat)
+    if getattr(args, "json", False):
+        print(json.dumps({"seat": args.seat, "state": state, "why": why},
+                         indent=2, sort_keys=True))
+    else:
+        print(f"{args.seat}: {state} — {why}")
+
+
 # ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
 #
 # THE MEASURED FAILURE THIS CLOSES (F1, 2026-07-28, seat `oc2`). The seat DID THE WORK — `done.txt`
@@ -27999,6 +28023,34 @@ def _selftest_checks(args, failures, names):
               # a `renew` predecessor still advances NO edge.
               and _rs1_rv == {"a": "RENEW-BLOCKED", "b": "BLOCKED"})
 
+        # ---- LE-10: `renewal-state` — the verb IS `renewal_state`'s answer, verbatim ----
+        # A fresh in-flight `renew` marker reads `successor-pending`; a seat with NO marker reads
+        # `no-successor`. The CLI row is compared against the FUNCTION's own answer on the same
+        # package, which is the verb's whole contract: a thin transport, zero logic of its own —
+        # a divergence here means a second classifier grew where the one-reader doctrine
+        # (`goal-watcher-job.py` § ONE READER) forbids one.
+        _le10 = _rs_make("le10", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
+                         lifecycle={"a": {"disposition": "renew", "state": "in-flight",
+                                          "stamped-at": now(), "steps-completed": [],
+                                          "caller": {"pid": 1, "starttime": "0"}}})
+
+        def _rn(pkg, seat):
+            return harness_outcome(cmd_renewal_state, argparse.Namespace(
+                package=str(pkg), run=None, base=None, workers_dir=None, seat=seat, json=True))
+        _rn_o, _rn_e, _rn_c = _rn(_le10, "a")
+        _rn_j = json.loads(_rn_o)
+        _rn_fn_state, _rn_fn_why = renewal_state(_le10 / "coordination", "a")
+        _rn2_o, _rn2_e, _rn2_c = _rn(_le10, "b")
+        _rn2_j = json.loads(_rn2_o)
+        check("LE-10: `renewal-state` prints `renewal_state`'s OWN answer verbatim — an in-flight "
+              "`renew` marker is `successor-pending` over the CLI and the function alike (state "
+              "AND why byte-equal), a seat with NO marker is `no-successor`, and both exit 0",
+              (_rn_c or 0) == 0 and (_rn2_c or 0) == 0
+              and _rn_j["state"] == "successor-pending" == _rn_fn_state
+              and _rn_j["why"] == _rn_fn_why
+              and _rn_j["seat"] == "a"
+              and _rn2_j["state"] == "no-successor")
+
         # ---- RS-2: EVERY predecessor, not any ----
         _rs2 = _rs_make("2", [("a", ""), ("b", ""), ("c", "a,b")], sessions=[("a", "done")])
         _rs2_v, _ = _rs_v(_rs2)
@@ -36110,7 +36162,10 @@ details + examples: coordinate <command> -h · --force overrides a refusal, wher
 # identity, never a seat verb.
 # `surface-refusal` is the seeding pass landing a cage-admission refusal on the bus (D2,
 # 2026-08-19) — the same daemon-only lane as `seat-retry`'s spend; no seat ever types it.
-HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants", "surface-refusal")
+# `renewal-state` is the engine's exit decision transporting `renewal_state`'s answer (LE-10,
+# 2026-08-19) — read-only, engine-consumed; no seat ever types it.
+HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants", "surface-refusal",
+                   "renewal-state")
 
 
 ADVICE_SEND = re.compile(
@@ -37028,6 +37083,22 @@ def build_parser():
                    help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
     add_identity_flags(s)
     s.set_defaults(func=cmd_surface_refusal)
+
+    s = command(
+        "renewal-state",
+        "(engine) ONE seat's renewal answer, verbatim from `renewal_state` — the one reader of\n"
+        "the successor-pending signal (LE-10). READ-ONLY: registers nothing, writes nothing,\n"
+        "messages nobody. `successor-pending` means a `--renew` hand-over is in flight (or the\n"
+        "successor was already placed) and the seat is NOT dead; `no-successor` means nothing is\n"
+        "coming and the seat's records mean what they say.",
+        "example:\n"
+        "  coordinate --package <goal-folder> renewal-state <seat> --json\n"
+        "next: nothing by hand — the engine's exit decision consumes this; a human reads the "
+        "same fact in `status`'s lifecycle block")
+    s.add_argument("seat", help="the seat whose renewal is being asked about")
+    s.add_argument("--json", action="store_true",
+                   help='{"seat", "state", "why"} — `state` is `successor-pending` or `no-successor`')
+    s.set_defaults(func=cmd_renewal_state)
 
     # ── W3 · the leader's two actuators ────────────────────────────────────────────────────────
     s = command(

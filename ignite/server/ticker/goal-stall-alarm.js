@@ -120,6 +120,20 @@ function composePostArgv({ goal, text, igniteSrc = IGNITE_SRC, nodeBin = process
 // treating it as still would alarm on the ordinary gap between this pass and the tick that follows
 // it, ~0 s later.
 function conditionOf(pickup) {
+  // A FREEZE NAMED BEFORE OR AT SEEDING (LE-13, 2026-08-19). The lane watch's pre-seeding
+  // branches and `seedGoal`'s empty-frontier classification hand it here ALREADY SHAPED
+  // (`{ kind, seats, detail }`), because the producer is the one holding the evidence — this
+  // module stays a deriver and re-measures nothing. First arm on purpose: a goal frozen before
+  // seeding has no rows for the arms below to read, and the measured 4-hour silence lived
+  // exactly in that gap.
+  const frozen = pickup.frozen;
+  if (frozen && frozen.kind) {
+    return {
+      kind: String(frozen.kind),
+      seats: (frozen.seats || []).map(String).sort(),
+      detail: String(frozen.detail || ''),
+    };
+  }
   const skewed = pickup.skewed || [];
   if (skewed.length) {
     const seats = skewed.map((r) => r.seat).sort();
@@ -154,14 +168,22 @@ function conditionOf(pickup) {
 // mark: this is a disclosure the owner acts on, and the acting happens outside Slack.
 function composeText({ goal, condition, stuckMs }) {
   const mins = Math.round(stuckMs / 60000);
-  const head = condition.kind === 'ready-no-live'
-    ? `:warning: *${goal} is frozen* — work is ready and nothing is running (${mins}m).`
-    : `:warning: *${goal} is frozen* — it is waiting on a ruling, not on work (${mins}m).`;
   const why = {
     skew: `*Seat disposition SKEW* — the two records of that seat's own ending disagree, so it and its dependents advance on neither until a human rules.`,
     'readiness-refused': `*Readiness could not be computed* — \`coordinate ready-seats\` refused, so NOTHING in this goal was seeded this pass.`,
     'ready-no-live': `*Ready, undispatched* — these seats are dispatchable and no seat in the goal is live or queued.`,
-  }[condition.kind];
+  }[condition.kind]
+    // Every OTHER kind is a pre/at-seeding freeze (LE-13: taskforce-unreadable, unbuilt-seats,
+    // cast-unreadable, uncast-seats, seed-failed, seeding-empty — and whatever the producers name
+    // next). One sentence covers them because the specifics already ride `condition.detail`,
+    // composed by the producer with the evidence in hand — a per-kind map here would be a second
+    // home for facts this module never measured.
+    || `*Frozen before seeding* (\`${condition.kind}\`) — the daemon re-reads this goal every cadence and hits the same refusal; nothing will be seeded until the cause is repaired.`;
+  const head = condition.kind === 'ready-no-live'
+    ? `:warning: *${goal} is frozen* — work is ready and nothing is running (${mins}m).`
+    : (condition.kind === 'skew' || condition.kind === 'readiness-refused')
+      ? `:warning: *${goal} is frozen* — it is waiting on a ruling, not on work (${mins}m).`
+      : `:warning: *${goal} is frozen* — it cannot even be seeded (${mins}m).`;
   const who = condition.seats.length ? `\n${condition.seats.map((s) => `• \`${s}\``).join('\n')}` : '';
   return `${head}\n${why}${who}\n_${condition.detail}_\nThis will not clear on its own.`;
 }

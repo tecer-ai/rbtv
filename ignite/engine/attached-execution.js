@@ -41,7 +41,7 @@ const { loadConfig } = require('../server/spawn/config');
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
-  seatState, SEAT_STATES, enqueueEligible, recordView, readySeats,
+  seatState, SEAT_STATES, enqueueEligible, recordView, readySeats, renewalState,
   // WHICH SEATS ARE NOT CAST. Shared with the daemon lane's watch pass so both doors refuse the
   // same goals (`#d-abolish-profile-names` sub-ruling 3).
   uncastSeats,
@@ -715,7 +715,11 @@ function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new D
 // status verb already does (greedy thread pairing in msg_id order), and one correlation shared by
 // the surface that REPORTS a question and the loop that STOPS on it is the only way the two can
 // agree about what is open.
-function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = null) {
+// `goalFolder` (LE-10, 2026-08-19) is OPTIONAL and gates one act only: asking coord whether a
+// stuck seat's renewal is still in flight before ending the run `blocked`. Absent (a bare store
+// driven by a probe, a caller with no goal on disk), nothing is asked and every verdict is
+// byte-identical to before.
+function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = null, goalFolder = null) {
   const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
@@ -783,6 +787,21 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
   const grantable = (rs) => rs.filter((r) => (foreign && foreign.has(r.seat))
     || (notFinished && notFinished.has(r.seat))).map((r) => r.seat);
   if (stuck.length === unfinished.length) {
+    // ── A STUCK SEAT MID-RENEWAL IS NOT A DEAD SEAT (LE-10; the 04:52 forge symptom) ──────────
+    // A `--renew` hand-over has a window in which the seat reads exactly like death from here:
+    // no live turn, no queue row, coord not offering it — and this function was the LAST reader
+    // collapsing that stuck into `blocked`, ending a console run on a seat whose successor was
+    // being forked. The single source of renewal truth is `coord.renewal_state` (rbtv 3b43bda1);
+    // `renewalState` transports its answer and no JS re-derives it. Asked ONLY on this path —
+    // the one about to terminate the run — so a healthy run pays no subprocess. `null` (no
+    // answer) reads as no-successor: the run still ends `blocked` rather than waiting forever on
+    // a question nobody answered, and a genuinely dead seat ends exactly as before.
+    if (goalFolder) {
+      const renewing = stuck
+        .filter((r) => renewalState(goalFolder, r.seat) === 'successor-pending')
+        .map((r) => r.seat);
+      if (renewing.length) return { done: false, live: 0, renewalPending: renewing };
+    }
     return {
       done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat),
       grantable: grantable(unfinished),
@@ -1179,7 +1198,7 @@ async function executeAttached({
           asks: unansweredAsks(engine.heartStore.dump().messages),
         }));
       }
-      const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady);
+      const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady, goalFolder);
       if (verdict.done) {
         return {
           host,

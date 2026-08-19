@@ -170,6 +170,32 @@ function readySeats(goalFolder) {
   return { ready, granted, rows, reason: null };
 }
 
+// ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
+//
+// `coord.renewal_state` (team-kit/coord.py) is THE ONE READER of the successor-pending signal —
+// its own header says so, and `jobs/goal-watcher-job.py` § ONE READER states the doctrine: nothing
+// else parses `lifecycle-inflight.json`, in any language. This transports that answer through the
+// read-only `renewal-state` verb exactly as `readySeats` above transports the frontier: JS carries
+// the value, never the computation.
+//
+// Returns coord's `state` word (`successor-pending` | `no-successor`) or `null` when there is no
+// answer at all (no python, a refused verb, junk output). ⚠ EVERY CALLER MUST TREAT `null` AS
+// no-successor — the conservative direction, because the ONLY thing a caller does with
+// `successor-pending` is KEEP WAITING, and waiting forever on a question nobody answered is the
+// absorbing state this signal exists to prevent.
+function renewalState(goalFolder, seat) {
+  let raw;
+  try {
+    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'renewal-state', seat, '--json'], {
+      encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch { return null; }
+  try {
+    const answer = JSON.parse(raw);
+    return (answer && typeof answer.state === 'string') ? answer.state : null;
+  } catch { return null; }
+}
+
 // ── THE DAEMON'S OWN RETRY GRANT — minted by coord, spent by coord, decided here (task 7.776) ──
 //
 // THE DEFECT THIS CLOSES, measured live 2026-08-11 on goal `forge-reference-seat-id-naming`. Seat
@@ -1132,7 +1158,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       return {
         goalFolder, goal, seats: readTaskforce(goalFolder).map((r) => r.seat), enqueued: [], seeds: {},
         skippedAsFinished: [], heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {},
-        readinessRefused: null, goalNotLive: notLive, skewed: [],
+        readinessRefused: null, goalNotLive: notLive, skewed: [], frozen: null,
       };
     }
   }
@@ -1172,7 +1198,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {}, readinessRefused: reason,
       // A refusal computed no rows, so it names no skewed seat. The owner alarm reads
       // `readinessRefused` for this arm — see the `skewed` note on the success return below.
-      skewed: [],
+      skewed: [], frozen: null,
     };
   }
   // Q2a — THE SKEW IS STILL LOUD; IT JUST NO LONGER STOPS THE GOAL (owner-ruled 2026-08-18).
@@ -1223,6 +1249,29 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // fixed for `skippedAsFinished`.
   const byJob = executionsByJob(heartStore, relaunch, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
+  // Hoisted off the return (LE-13 below reads it): the per-seat state map, unchanged.
+  const states = Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished, ready })]));
+  // ── LE-13 (2026-08-19): AN EMPTY FRONTIER OVER PENDING SEATS IS A FREEZE, NOT HEALTH ────────
+  // `readySeats`' three refusal arms all land in the `!ready` return above — but a ZERO-EXIT `[]`
+  // is a valid array, so it walks past them as an empty ready map with no refusal. On a goal
+  // whose taskforce still registers PENDING seats that is a goal nothing will ever seed: coord
+  // ruled on none of its rows, so no pass, ever, has anything to dispatch. "Pending" is read off
+  // `states` — the ONE classifier this return already reports — not a second predicate: a seat
+  // neither `done` (its disposition, or this store's own finished turn) nor moving is pending,
+  // and a goal with anything `live`/`queued` is a goal in motion, never frozen. `[]` over a goal
+  // whose every seat is finished is an honest empty answer and stays silent. `ready-seats`' own
+  // exit behavior is deliberately untouched (backlog task 3's producer side).
+  const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
+  const pendingUnseeded = (readyRows.length || moving) ? [] : seats.filter((s) => states[s] !== 'done');
+  if (pendingUnseeded.length && logger) {
+    logger({
+      level: 'warn',
+      message: 'goal frozen AT seeding — `ready-seats` answered ZERO rows (exit 0) for a goal whose '
+        + 'taskforce registers pending seats, so nothing was seeded and nothing ever will be until '
+        + 'the goal state is repaired',
+      goal, goalFolder, seats: pendingUnseeded,
+    });
+  }
   return {
     goalFolder,
     goal,
@@ -1259,7 +1308,14 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     // budget runs out, which is a state this design GUARANTEES will be reached.
     heldByStore,
     enqueued,
-    states: Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished, ready })])),
+    // LE-13, computed above: the empty-frontier freeze, shaped for the owner alarm
+    // (`goal-stall-alarm.js#conditionOf` reads it first). `null` is the ordinary case.
+    frozen: pendingUnseeded.length ? {
+      kind: 'seeding-empty',
+      seats: pendingUnseeded,
+      detail: '`ready-seats` exited 0 with ZERO rows while these taskforce seats are pending — coord ruled on nothing, so nothing can be seeded',
+    } : null,
+    states,
   };
 }
 
@@ -1269,6 +1325,7 @@ module.exports = {
   SEAT_STATES,
   readCsv,
   readySeats,
+  renewalState,
   seatBootPrompt,
   successorReads,
   taskforcePath,

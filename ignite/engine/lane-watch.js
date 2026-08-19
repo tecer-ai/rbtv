@@ -369,6 +369,16 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
       skipped.push({ goal, reason: 'taskforce-unreadable', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
         'lane watch: could not read this goal\'s taskforce — not seeded', { goal, error: err.message });
+      // ── LE-13: A PRE-SEEDING FREEZE IS ALARMABLE (this branch and every one below that
+      // `continue`s on a state only a human clears). The measured incident sat in exactly this
+      // gap: the ONE `alarmOnStall` call sat below these `continue`s, so a goal frozen before
+      // `seedGoal` never reached it — 4+ hours, journal-only. The condition crosses as a
+      // producer-shaped `pickup.frozen`; the threshold, dedup and channel arming are all still
+      // `goal-stall-alarm.js`'s, unchanged.
+      alarmOnStall({
+        goal, goalFolder, engine, say,
+        pickup: { frozen: { kind: 'taskforce-unreadable', seats: [], detail: `taskforce.csv could not be read: ${err.message}` } },
+      });
       continue;
     }
     const unbuilt = unbuiltRows
@@ -384,6 +394,22 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
         say: (level, message, extra = {}) => say(level, message, { goal, ...extra }),
       });
       skipped.push({ goal, reason: 'unbuilt-seats', built: outcome.built, failed: outcome.failed });
+      // LE-13: a REFUSED build is a freeze — the same refusal repeats every cadence until a human
+      // repairs the sheet (measured: `exposes-ref-dangling`, 4h journal-only). A build that
+      // SUCCEEDED is progress and stays out of the alarm's sight: the next cadence rules on the
+      // tree as it now is, and a healthy pass clears any prior entry.
+      if (outcome.failed.length) {
+        alarmOnStall({
+          goal, goalFolder, engine, say,
+          pickup: {
+            frozen: {
+              kind: 'unbuilt-seats',
+              seats: outcome.failed.map((f) => f.seat),
+              detail: outcome.failed.map((f) => `${f.seat}: ${f.error}`).join('  ·  '),
+            },
+          },
+        });
+      }
       // Not seeded THIS cadence either way: a build that succeeded changed the tree the checks
       // below read, and a build that refused leaves the goal in exactly the state that made the
       // uncast branch lie about it. The next cadence rules on the tree as it now is.
@@ -409,6 +435,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
       skipped.push({ goal, reason: 'cast-unreadable', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
         'lane watch: could not read this goal\'s casts — not seeded', { goal, error: err.message });
+      // LE-13: same freeze class as `taskforce-unreadable` above — re-read every cadence,
+      // cleared only by a human act.
+      alarmOnStall({
+        goal, goalFolder, engine, say,
+        pickup: { frozen: { kind: 'cast-unreadable', seats: [], detail: `the goal's casts could not be read: ${err.message}` } },
+      });
       continue;
     }
     if (uncast.length) {
@@ -421,6 +453,17 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
           seats: uncast,
           fix: `rbtv-bindings set <workflow.csv> <seat> <harness> <model> [effort], then rbtv goal materialize ${goal}`,
         });
+      // LE-13: an uncast seat is a NAMED refusal only a human clears — a freeze, alarmable.
+      alarmOnStall({
+        goal, goalFolder, engine, say,
+        pickup: {
+          frozen: {
+            kind: 'uncast-seats',
+            seats: uncast,
+            detail: `seat(s) with NO cast — rbtv-bindings set <workflow.csv> <seat> <harness> <model> [effort], then rbtv goal materialize ${goal}`,
+          },
+        },
+      });
       continue;
     }
 
@@ -437,6 +480,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
       skipped.push({ goal, reason: 'seed-failed', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'error' : 'debug',
         'lane watch: seeding a daemon-assigned goal FAILED — the tick continues', { goal, error: err.message });
+      // LE-13: a THROW from `seedGoal` leaves no pickup for the call below to rule on, so a goal
+      // that fails AT seeding every cadence is the same silence as one frozen before it.
+      alarmOnStall({
+        goal, goalFolder, engine, say,
+        pickup: { frozen: { kind: 'seed-failed', seats: [], detail: `seedGoal threw: ${err.message}` } },
+      });
       continue;
     }
 
