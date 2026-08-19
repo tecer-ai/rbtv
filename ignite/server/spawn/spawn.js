@@ -955,41 +955,64 @@ function resolveCliWriteRootGrants(seatPath, log) {
   return grants;
 }
 
-function resolveSeatGrants(seatPath) {
-  const worktreesDir = path.join(seatPath.workspaceRoot, '.rbtv', 'worktrees');
-  let entries;
+function readWorktreesSelfRootRel(workspaceRoot) {
+  const cfg = path.join(workspaceRoot, '.rbtv', 'config', 'worktrees-self-root');
   try {
-    entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
+    const line = fs.readFileSync(cfg, 'utf8').split(/\r?\n/)[0];
+    const rel = (line || '').trim();
+    return rel || null;
   } catch {
-    return [];
+    return null;
   }
+}
+
+function worktreeScanRoots(workspaceRoot) {
+  const roots = [path.join(workspaceRoot, '.rbtv', 'worktrees')];
+  const rel = readWorktreesSelfRootRel(workspaceRoot);
+  if (rel) {
+    const alt = path.resolve(workspaceRoot, rel);
+    if (alt !== roots[0]) roots.push(alt);
+  }
+  return roots;
+}
+
+function resolveSeatGrants(seatPath) {
   const suffix = `--${seatPath.goal}--${seatPath.seat}`;
   const grants = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.endsWith(suffix)) continue;
-    const worktree = path.join(worktreesDir, entry.name);
-    // repoGit/worktreeGitDir start EXPLICITLY null: since r-seats-only-architecture (5) the grant
-    // list is heterogeneous and cage.js skips a grant that does not DECLARE an entry's field — so
-    // a worktree grant must declare these keys even when degraded, to keep the loud path below.
-    const grant = { worktree, worktreeName: entry.name, repoGit: null, worktreeGitDir: null };
+  for (const worktreesDir of worktreeScanRoots(seatPath.workspaceRoot)) {
+    let entries;
     try {
-      const dotGit = fs.readFileSync(path.join(worktree, '.git'), 'utf8').trim();
-      const m = /^gitdir:\s*(.+)$/.exec(dotGit);
-      if (m) {
-        // <repo>/.git/worktrees/<name>  ->  <repo>/.git
-        const gitdir = m[1].trim();
-        const marker = `${path.sep}worktrees${path.sep}`;
-        const idx = gitdir.lastIndexOf(marker);
-        if (idx > 0) {
-          grant.repoGit = gitdir.slice(0, idx);
-          grant.worktreeGitDir = gitdir;
-        }
-      }
+      entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
     } catch {
-      // A worktree whose `.git` is unreadable keeps repoGit null, so every `{grant:repoGit}` entry
-      // for it fails loudly at compose time rather than opening a path derived from a guess.
+      // A missing self-root (or default) directory is the ordinary case, not an error.
+      continue;
     }
-    grants.push(grant);
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.endsWith(suffix)) continue;
+      const worktree = path.join(worktreesDir, entry.name);
+      // repoGit/worktreeGitDir start EXPLICITLY null: since r-seats-only-architecture (5) the grant
+      // list is heterogeneous and cage.js skips a grant that does not DECLARE an entry's field — so
+      // a worktree grant must declare these keys even when degraded, to keep the loud path below.
+      const grant = { worktree, worktreeName: entry.name, repoGit: null, worktreeGitDir: null };
+      try {
+        const dotGit = fs.readFileSync(path.join(worktree, '.git'), 'utf8').trim();
+        const m = /^gitdir:\s*(.+)$/.exec(dotGit);
+        if (m) {
+          // <repo>/.git/worktrees/<name>  ->  <repo>/.git
+          const gitdir = m[1].trim();
+          const marker = `${path.sep}worktrees${path.sep}`;
+          const idx = gitdir.lastIndexOf(marker);
+          if (idx > 0) {
+            grant.repoGit = gitdir.slice(0, idx);
+            grant.worktreeGitDir = gitdir;
+          }
+        }
+      } catch {
+        // A worktree whose `.git` is unreadable keeps repoGit null, so every `{grant:repoGit}` entry
+        // for it fails loudly at compose time rather than opening a path derived from a guess.
+      }
+      grants.push(grant);
+    }
   }
   return grants;
 }
@@ -2106,6 +2129,9 @@ module.exports = {
   rwPathRefusal,
   PERMISSION_EDITS_REL,
   PERMISSION_EDITOR_SEAT,
+  // Exported for server/spawn/probes/probe-resolve-seat-grants.js: the dual-root discovery
+  // (P3 self-root) must be driven, not re-read from this file.
+  resolveSeatGrants,
 };
 
 function validateSpawnRequest(req) {

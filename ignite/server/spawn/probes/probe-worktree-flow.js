@@ -80,6 +80,7 @@ function fixture() {
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: mine\n---\nbriefing\n');
   fs.writeFileSync(path.join(goalDir, 'decisions.md'), 'rulings\n');
+  fs.writeFileSync(path.join(goalDir, 'goal.md'), '---\nrepos:\n  - repo\n---\n');
 
   const repo = path.join(ws, 'repo');
   fs.mkdirSync(repo, { recursive: true });
