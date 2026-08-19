@@ -13,13 +13,19 @@
 // scope FILTERED READY map) in place of `readyRows.length`.
 //
 // THE DISCRIMINATING PAIR, and why it is the point: a probe that only asserts the frozen case would
-// pass on code that alarms unconditionally. Both fixtures are ONE real seat that coord (the real
+// pass on code that alarms unconditionally. Both fixtures are real seats that coord (the real
 // `team-kit/coord.py`, not a stub) rules on for real:
-//   FROZEN  — the seat's `after` names a dependency that never checked out. coord answers ONE row,
-//             verdict BLOCKED, zero READY. Taskforce has a pending seat, nothing built/queued/live.
-//             `frozen` must be non-null.
-//   CONTROL — the SAME seat with NO `after` at all. coord answers ONE row, verdict READY. `frozen`
-//             must be null — not because nothing is pending, but because there IS a ready seat.
+//   FROZEN  — `onlyseat`'s `after` names `missing-dep`, a REAL row (D16, dag-hardening, forbids a
+//             dangling reference) whose own session ENDED with no declared disposition — it exists
+//             as a seat but never checked out. coord rules `missing-dep` UNDECLARED (concluded, not
+//             offered — see `undeclared-session` in ready-seats' own output) and `onlyseat` BLOCKED
+//             behind it (unmet `after`). Two rows, zero READY. A bare second root row would itself
+//             read READY (nothing yet blocks it) — the undeclared-session shape is what keeps BOTH
+//             rows off the ready frontier without a dangling edge. Taskforce still has two pending
+//             seats, nothing built/queued/live. `frozen` must be non-null.
+//   CONTROL — `onlyseat` alone, with NO `after` at all. coord answers ONE row, verdict READY.
+//             `frozen` must be null — not because nothing is pending, but because there IS a ready
+//             seat.
 //
 // The RED arm proves the fixture is not vacuous: run the FROZEN case through the code AS IT STOOD
 // before the fix (mutated in memory, exact anchor matched) and confirm it stays silent — the
@@ -29,6 +35,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
+const { requirePythonCmd } = require('../../lib/python-cmd');
 
 const HERE = __dirname;
 const IGNITE_SRC = path.join(HERE, '..', '..');
@@ -45,19 +52,42 @@ function check(claim, ok, detail) {
   if (!ok) failures.push(claim);
 }
 
-// A minimal, real, coord-readable goal package: one seat, optionally blocked on a dependency that
-// never checks out. `hasAfter` is the ONLY variable between the two fixtures.
+// A minimal, real, coord-readable goal package: one seat, optionally blocked on a REAL predecessor
+// row (`missing-dep`) whose session ended without a declared disposition. `hasAfter` is the ONLY
+// variable between the two fixtures.
 function fixture(hasAfter) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-frozen-frontier-'));
   const ws = path.join(root, 'ws');
   const goalFolder = path.join(ws, '.rbtv', 'goals', 'fx');
   fs.mkdirSync(path.join(goalFolder, 'seats', 'onlyseat'), { recursive: true });
   fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
-  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
-    `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n`
-    + `tf,onlyseat,${hasAfter ? 'missing-dep' : ''},bash,probe-frozen,high,35,\n`);
   fs.writeFileSync(path.join(goalFolder, 'seats', 'onlyseat', 'seat.md'),
     '---\nseat: onlyseat\nharness: bash\nmodel: probe-frozen\n---\n\nbody\n');
+  if (!hasAfter) {
+    fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+      `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n`
+      + `tf,onlyseat,,bash,probe-frozen,high,35,\n`);
+    return { root, ws, goalFolder };
+  }
+  // `missing-dep` is a REAL taskforce row (D16 refuses a dangling `after`) that never checks out:
+  // its own `sessions.csv` row ENDED with an empty `disposition`, which coord rules UNDECLARED —
+  // concluded, not offered — rather than READY (a root row with no session history at all would be
+  // READY, defeating the freeze).
+  fs.mkdirSync(path.join(goalFolder, 'seats', 'missing-dep'), { recursive: true });
+  fs.writeFileSync(path.join(goalFolder, 'seats', 'missing-dep', 'seat.md'),
+    '---\nseat: missing-dep\nharness: bash\nmodel: probe-frozen\n---\n\nbody\n');
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+    `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n`
+    + `tf,missing-dep,,bash,probe-frozen,high,35,\n`
+    + `tf,onlyseat,missing-dep,bash,probe-frozen,high,35,\n`);
+  const cols = require('node:child_process').execFileSync(requirePythonCmd(),
+    ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
+      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+  const now = new Date().toISOString();
+  const row = { 'session-id': 'sess-missing-dep', seat: 'missing-dep', harness: 'bash',
+    workdir: path.join(goalFolder, 'seats', 'missing-dep'), started: now, ended: now };
+  fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
+    `${cols.join(',')}\n${cols.map((c) => row[c] || '').join(',')}\n`);
   return { root, ws, goalFolder };
 }
 
@@ -94,7 +124,7 @@ function runFixture(hasAfter) {
 
 say('── the discriminating pair, driven through the REAL patched seedGoal ─────────────────────');
 const frozenPickup = runFixture(true);
-check('FROZEN fixture (coord rules the one seat BLOCKED, zero READY): `frozen` is non-null',
+check('FROZEN fixture (coord rules missing-dep UNDECLARED and onlyseat BLOCKED, zero READY): `frozen` is non-null',
   Boolean(frozenPickup.frozen) && frozenPickup.frozen.kind === 'seeding-empty'
   && frozenPickup.frozen.seats.includes('onlyseat'),
   JSON.stringify(frozenPickup.frozen));
