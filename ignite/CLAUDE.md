@@ -4,6 +4,25 @@ Source of the **ignite daemon**: ONE Node.js service (one systemd unit) with a h
 
 Developed on branch `ignite/core-daemon`; design authority: the build specs under `1-projects/rbtv-sb-merge-refactor-core-build/build/phase-7-plan/specs/` (heart-store · ticker-engine · spawn-profiles · internal-api-contract · gateway-cli), governed by the `system-definition/` registry.
 
+## The fence (D3, 2026-08-19) — what a seated process can touch
+
+The sandbox is a **fence**, not a cage. Threat model: agents writing in **repos that are not `goals/`**. Rogue writes on another seat's folder or on the wrong file inside the goal folder are not a concern for now. **Record forgery is a NON-goal.**
+
+Allow-list (bwrap, fail-closed if `bwrap` is missing — D59):
+
+1. the goal's **worktree branches** — read/write
+2. the **goal folder** — read; **goal-folder artifacts — write/edit** (one `bind:{goalDir}` covers ledgers, planning, coordination, sessions.csv)
+3. the seat's **own seat folder** — read/write, **except `seat.md`**
+4. **`rbtv/` and `<ws>/.rbtv/mirror/`** — read
+5. **coordination ledgers — WRITABLE** (no file-level ro-bind of records, no proxy writers)
+6. **env/secret files — simply not present** (`private-scope.js` hardcoded denies + pattern floor; do not pierce)
+
+Wall-control surfaces stay file-level RO: `seat.md` and `coordination/permission-edits.csv`. Those are the fence holding its own posts, not forgery-prevention.
+
+**PID namespace is gone.** The fence unshares user/ipc/uts/cgroup, not pid. In-cage `/proc` shows **host pids**, so `coord.py`'s liveness reads (`sessions_sitting_id` / `ident_is_live_process`) are true. **Accepted consequence:** a seat can see and signal host processes. The threat model is filesystem writes outside `goals/`, not process isolation. Do not build a mitigation.
+
+**Secrets (D13).** The agent cannot read the key; the tool can. Env files are never bound into a fence. The launcher/daemon reads the env file and starts the **TOOL process** with `EnvironmentFile=` (`carrier.js#buildSystemdRunArgs`). `--setenv` is the never-secret channel (PATH / `IGNITE_GATEWAY_ADDR` only — F1). Agents never read envs. No broker, no gate, no capability-request dance. The fire-tool composition site currently hardcodes `envFile: null` (`server/ticker/ticker.js`); wiring a tool-declared env file onto that site is ticker custody, not this fence change.
+
 ## team-kit/ — the module's second component
 
 `ignite/team-kit/` holds the **team-kit**: reusable mechanics for coordinated parallel multi-agent team runs in tmux (`coord.py` coordination CLI, `protocol.md`, watcher/closer seats, briefing templates). Unlike the daemon it IS an installable component — the `rbtv-team-kit` skill (manifest module `ignite`) is a thin loader into it; the kit's scripts and docs are read/run in place from the repo, never copied into `.claude/`. Its rules live in `ignite/team-kit/CLAUDE.md` (including the owner-gated instance-coupling list to generalize before master). Promoted 2026-07-26 from the second-brain campaign workspace after three proving runs; docs: `modules/ignite.md`.
