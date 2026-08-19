@@ -23,6 +23,12 @@ Wall-control surfaces stay file-level RO: `seat.md` and `coordination/permission
 
 **Secrets (D13).** The agent cannot read the key; the tool can. Env files are never bound into a fence. The launcher/daemon reads the env file and starts the **TOOL process** with `EnvironmentFile=` (`carrier.js#buildSystemdRunArgs`). `--setenv` is the never-secret channel (PATH / `IGNITE_GATEWAY_ADDR` only — F1). Agents never read envs. No broker, no gate, no capability-request dance. The fire-tool composition site currently hardcodes `envFile: null` (`server/ticker/ticker.js`); wiring a tool-declared env file onto that site is ticker custody, not this fence change.
 
+## Ledger custody (D3, 2026-08-19)
+
+Seats write their own coordination ledgers directly through `coordinate checkout`. The kit originates `exited` for silent deaths and nothing else. There is no proxy writer.
+
+`ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read time from `coordination/guard-values.csv`; never stored.
+
 ## team-kit/ — the module's second component
 
 `ignite/team-kit/` holds the **team-kit**: reusable mechanics for coordinated parallel multi-agent team runs in tmux (`coord.py` coordination CLI, `protocol.md`, watcher/closer seats, briefing templates). Unlike the daemon it IS an installable component — the `rbtv-team-kit` skill (manifest module `ignite`) is a thin loader into it; the kit's scripts and docs are read/run in place from the repo, never copied into `.claude/`. Its rules live in `ignite/team-kit/CLAUDE.md` (including the owner-gated instance-coupling list to generalize before master). Promoted 2026-07-26 from the second-brain campaign workspace after three proving runs; docs: `modules/ignite.md`.
