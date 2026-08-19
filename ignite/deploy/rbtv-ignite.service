@@ -1,12 +1,17 @@
 # rbtv-ignite.service — machine-agnostic systemd USER unit template for the ignite daemon.
 #
-# The daemon runs in place from the ignite module source tree; no deploy-root copy
-# and no transport step.  Per-instance values are substituted at install time.
+# The daemon boots from a detached deploy worktree (D6, 2026-08-19): ExecStart and
+# RBTV_IGNITE_CONFIG_PATH resolve into @@DEPLOY_ROOT@@. RBTV_IGNITE_SRC still names
+# the live per-invocation tree (team-kit, coord.py), not the booted one.
+# Per-instance values are substituted at install time.
 #
 # Install-time substitution points (replace each @@NAME@@ with the instance value):
 #   @@WORKSPACE_ROOT@@    - workspace root: the folder that roots .rbtv/
 #   @@NODE_BIN@@          - absolute path to the Node.js 24 binary
-#   @@IGNITE_SRC@@        - absolute path to the ignite module source root
+#   @@IGNITE_SRC@@        - absolute path to the LIVE ignite module source root
+#                           (RBTV_IGNITE_SRC — per-invocation tree, not the booted one)
+#   @@DEPLOY_ROOT@@       - absolute path to the detached deploy worktree
+#                           (ExecStart + RBTV_IGNITE_CONFIG_PATH resolve here)
 #   @@WORKDIR_ROOT@@      - default workdir root every spawn falls back to (REQUIRED, D22:
 #                           the seed config ships only a placeholder for this, so the daemon
 #                           refuses to boot until a real per-instance value is supplied)
@@ -102,9 +107,10 @@ EnvironmentFile=-@@ENVIRONMENT_FILE@@
 # %h expands to the invoking user's home for a systemd USER unit — machine-agnostic,
 # no @@PLACEHOLDER@@ needed.
 Environment="PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+# RBTV_IGNITE_SRC names the live per-invocation tree (team-kit, coord.py), not the booted one.
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
-Environment="RBTV_IGNITE_CONFIG_PATH=@@IGNITE_SRC@@/config/spawn-profiles.yaml"
+Environment="RBTV_IGNITE_CONFIG_PATH=@@DEPLOY_ROOT@@/ignite/config/spawn-profiles.yaml"
 Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
 Environment="RBTV_IGNITE_DATA_ROOT=%S/rbtv-ignite"
 Environment="RBTV_IGNITE_USER_MANAGER=true"
@@ -118,7 +124,7 @@ Environment="RBTV_IGNITE_LOG_RETENTION_DAYS=90"
 StateDirectory=rbtv-ignite
 # 0700: the state root holds heart.db + logs; keep it unreadable to other local users (task 7.26).
 StateDirectoryMode=0700
-ExecStart=@@NODE_BIN@@ @@IGNITE_SRC@@/server/index.js
+ExecStart=@@NODE_BIN@@ @@DEPLOY_ROOT@@/ignite/server/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
