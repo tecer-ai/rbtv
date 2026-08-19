@@ -258,6 +258,42 @@ EOF
   printf 'selftest FAIL (%s failures)\n' "$fails"; return 1
 }
 
+# D6 (2026-08-19): deploying = committing. Refresh the detached deploy worktree to
+# the tip of ignite/core-daemon, then restart the unit so it boots those bytes.
+# Refuses a missing or dirty deploy tree. node_modules is recreated when absent
+# via `npm ci --omit=dev` (a symlink to the live tree dirties the worktree).
+DEPLOY="${RBTV_IGNITE_DEPLOY:-${XDG_STATE_HOME:-$HOME/.local/state}/rbtv-deploy}"
+REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
+
+v_deploy() {
+  local listed
+  listed="$(git -C "$REPO" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10)}')"
+  if ! printf '%s\n' "$listed" | awk -v d="$DEPLOY" 'BEGIN{f=0} $0==d{f=1} END{exit !f}'; then
+    printf 'refused: no deploy worktree at %s\n' "$DEPLOY" >&2
+    exit 1
+  fi
+  local dirty
+  dirty="$(git -C "$DEPLOY" status --porcelain)"
+  if [ -n "$dirty" ]; then
+    printf 'refused: deploy tree is dirty\n' >&2
+    printf '%s\n' "$dirty" >&2
+    exit 1
+  fi
+  local old new
+  old="$(git -C "$DEPLOY" rev-parse HEAD)" || { printf 'FAILED: cannot read deploy HEAD\n' >&2; exit 1; }
+  git -C "$DEPLOY" checkout --detach ignite/core-daemon \
+    || { printf 'FAILED: checkout --detach ignite/core-daemon refused\n' >&2; exit 1; }
+  new="$(git -C "$DEPLOY" rev-parse HEAD)" || { printf 'FAILED: cannot read new deploy HEAD\n' >&2; exit 1; }
+  if [ ! -e "$DEPLOY/ignite/node_modules/js-yaml" ]; then
+    npm ci --omit=dev --prefix "$DEPLOY/ignite" \
+      || { printf 'FAILED: npm ci in deploy tree refused\n' >&2; exit 1; }
+  fi
+  printf 'deploy: %s -> %s\n' "$old" "$new"
+  require_known_unit
+  sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused\n' >&2; exit 1; }
+  assert_running yes
+}
+
 # --service is a SELECTOR, not new control logic: every verb above is already unit-name
 # agnostic, and RBTV_IGNITE_UNIT has always steered them at any unit. This maps the three
 # fixed services to their units so a caller does not have to know the unit names.
@@ -284,13 +320,13 @@ while [ "$#" -gt 0 ]; do
                SERVICE="$2"; shift ;;
     --service=*) SERVICE="${1#--service=}" ;;
     -h|--help)
-      printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME] [--json]\n'
+      printf 'usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest|deploy [--service NAME] [--json]\n'
       printf '  --service ignite|chat-bridge|probe-suite   which service the verb acts on (default ignite)\n'
       printf '            probe-suite acts on rbtv-probe-suite.timer — the schedule IS the on/off switch.\n'
       printf '            (conductor default D3, provisional -- the owner may veto it).\n'
       printf '            fire one suite run now instead: RBTV_IGNITE_UNIT=rbtv-probe-suite.service ... start\n'
       printf '  env: RBTV_IGNITE_UNIT (default rbtv-ignite.service; WINS over --service) · RBTV_IGNITE_SETTLE_SECONDS\n'
-      printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS\n'
+      printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS · RBTV_IGNITE_DEPLOY\n'
       printf '  --json applies to `unit` only.\n'
       printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'
       printf '  the watch loop is NOT one of these: it has no fixed unit — see `rbtv ignite watch`.\n'; exit 0 ;;
@@ -314,10 +350,10 @@ if [ -n "$SERVICE" ]; then
   fi
 fi
 
-[ -n "$VERB" ] || die "usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME] [--json]"
+[ -n "$VERB" ] || die "usage: rbtv-ignite-daemon start|restart|stop|kill|unit|selftest|deploy [--service NAME] [--json]"
 
 case "$VERB" in
   start) v_start ;; restart) v_restart ;; stop) v_stop ;; kill) v_kill ;;
-  unit) v_unit ;; selftest) v_selftest ;;
-  *) die "unknown verb: $VERB (start|restart|stop|kill|unit|selftest)" ;;
+  unit) v_unit ;; selftest) v_selftest ;; deploy) v_deploy ;;
+  *) die "unknown verb: $VERB (start|restart|stop|kill|unit|selftest|deploy)" ;;
 esac

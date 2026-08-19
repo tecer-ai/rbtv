@@ -35,7 +35,7 @@ function topHelp() {
     '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
     '',
     'ACT (delegates — no second implementation)',
-    '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit',
+    '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit|deploy',
     '  rbtv ignite <command>      the ignite gateway client (jobs, queue, sessions)',
     '  rbtv goal <verb>           goals-tree: scaffold|reindex|lint|materialize|lane',
     '  rbtv run <run-folder>      advance a run ATTACHED to this terminal (the daemon\'s engine, in-process)',

@@ -41,7 +41,7 @@ const TICKER_VERBS = ['show', 'set-interval', 'history', 'selftest'];
 // named `status` — `ignite status` is the daemon's report of ITSELF and needs it
 // alive; `unit` is the machine's report ABOUT the daemon and works when it is
 // dead. No field appears in both, which is the only reason PRIN-11 is satisfied.
-const DAEMON_VERBS = ['start', 'restart', 'stop', 'kill', 'unit', 'selftest'];
+const DAEMON_VERBS = ['start', 'restart', 'stop', 'kill', 'unit', 'selftest', 'deploy'];
 
 
 // The gateway client's own command set. Kept here ONLY to route and to prove
@@ -92,7 +92,7 @@ const ROUTES = [
     target: DAEMON_OPERATOR,
     exec: 'direct',
     verbs: DAEMON_VERBS,
-    summary: 'ignite daemon lifecycle — start/restart/stop/kill/unit (systemd user unit; works when the daemon is DOWN)',
+    summary: 'ignite daemon lifecycle — start/restart/stop/kill/unit/deploy (systemd user unit; works when the daemon is DOWN)',
   },
   {
     prefix: ['ignite', 'ticker'],

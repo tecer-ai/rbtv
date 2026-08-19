@@ -1,7 +1,7 @@
 # daemon-operator — the ignite OPERATOR surface (v1 stand-in)
 
 A thin local wrapper over this machine's systemd **USER** unit ops for the ignite daemon:
-`tool/rbtv-ignite-daemon start|restart|stop|kill|unit|selftest [--service NAME]`.
+`tool/rbtv-ignite-daemon start|restart|stop|kill|unit|selftest|deploy [--service NAME]`.
 
 It never crosses the gateway, presents no `IGNITE_SENDER_TOKEN`, and works precisely when the
 daemon is **down** — which is why it is not an `ignite` subcommand. The full contract, reasoning
@@ -19,6 +19,7 @@ Not restated here (`PRIN-11`).
 | `kill` | Ungraceful, SIGKILL immediately. A **distinct verb, never a flag on `stop`**, so it cannot be reached by accident. | `systemctl --user kill --signal=SIGKILL` |
 | `unit` | The unit-level read: an explicit `health` verdict, load/active/sub state, main pid, active-since **and how many seconds the current active period has lasted**, last result and exec status, restart count, and the last journal lines. Answerable when the daemon is DOWN — which is when it is needed. `--json` for machine callers (the journal is text-only, deliberately: it is not escaped into the JSON). | `systemctl --user show` / `is-active` + `journalctl --user -u` |
 | `selftest` | Exercises every lifecycle verb against a **throwaway unit it creates and removes**. It never touches the configured unit. | — |
+| `deploy` | Refuses a missing or dirty deploy worktree; checks it out detached to the tip of `ignite/core-daemon`; ensures `ignite/node_modules`; prints old sha → new sha; restarts the unit and runs the survival check. Deploying = committing (D6). | `git checkout --detach` + `systemctl --user restart` |
 
 **`unit` is not `ignite status`.** `ignite status` is the *daemon's own* report of itself (tick
 number, live sessions, queue depth) and needs it alive; `unit` is the *machine's* report about the
@@ -75,7 +76,7 @@ type does not support process killing") rather than reporting a false success.
 
 **Environment:** `RBTV_IGNITE_UNIT` (default `rbtv-ignite.service`; wins over `--service`) · `RBTV_IGNITE_SETTLE_SECONDS`
 (default 3) · `RBTV_IGNITE_JOURNAL_LINES` (default 20) · `RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS`
-(default 300). The unit name is an override so a probe can
+(default 300) · `RBTV_IGNITE_DEPLOY` (default `$XDG_STATE_HOME/rbtv-deploy`, else `~/.local/state/rbtv-deploy`). The unit name is an override so a probe can
 always be pointed at a throwaway unit instead of the live daemon.
 
 ## Three behaviours that are not thin, and why they are here anyway
@@ -112,7 +113,7 @@ Discovery is not authorization: the surface is handed to every agent per `PRIN-8
 **This is a SECOND ARTIFACT that exists only because its home is unbuilt, and it retires — but
 the `rbtv` CLI landing is NOT what retires it. ⚠ THIS SCRIPT IS LOAD-BEARING RIGHT NOW.**
 
-- **Successor:** the `rbtv` CLI's daemon verb family, `rbtv ignite daemon start|restart|stop|kill|unit`
+- **Successor:** the `rbtv` CLI's daemon verb family, `rbtv ignite daemon start|restart|stop|kill|unit|deploy`
   (registry `concepts/rbtv-cli.md` § daemon verb family; owner-ruled `d-ignite-operator-surface`).
 - **Fold-in — DONE, and it WRAPS rather than moves** (core-build task 7.65, landed 2026-07-27).
   `rbtv ignite daemon <verb>` **execs this script**: same verbs, same names, same exit codes, no
