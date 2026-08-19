@@ -217,6 +217,18 @@ function seatKeyOf(job, args) {
   return trimmed ? `workdir:${trimmed}${shard}` : null;
 }
 
+// enqueue_log.goal / .seat come off the job row (job.goal_name / job.seat_name). seedTaskforce
+// registers seat jobs UNHOMED, so the workdir the seeding pass already submits
+// (`{goalFolder}/seats/{seat}`) is the fallback that still names the 08-19 path.
+function enqueueHomeOf(job, args) {
+  const goal = job && job.goal_name ? job.goal_name : null;
+  const seat = job && job.seat_name ? job.seat_name : null;
+  if (goal && seat) return { goal, seat };
+  const workdir = args && typeof args.workdir === 'string' ? args.workdir.replace(/\/+$/, '') : '';
+  const m = workdir.match(/\/\.rbtv\/goals\/([^/]+)\/seats\/([^/]+)$/);
+  return { goal: goal || (m && m[1]) || null, seat: seat || (m && m[2]) || null };
+}
+
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const VALID_PRIMITIVE_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'object', 'array']);
 
@@ -1158,6 +1170,7 @@ class HeartStore {
     // above, byte-identical. Queueing is safe only because the ticker's dispatch phase asks THIS
     // OBJECT's `findSeatHolder` before it launches, so two pending rows for one seat fire one
     // after the other rather than at once; the per-seat pending CAP is enforced at the bridge.
+    const home = enqueueHomeOf(job, parsedArgs);
     const onSeatBusy = req.onSeatBusy === undefined || req.onSeatBusy === null ? 'dedupe' : req.onSeatBusy;
     if (onSeatBusy !== 'dedupe' && onSeatBusy !== 'queue') {
       throw new HeartStoreError(E_BAD_ARGS, `on_seat_busy must be 'dedupe' or 'queue'`, { onSeatBusy });
@@ -1166,6 +1179,12 @@ class HeartStore {
     if (seatKey) {
       const holder = this.findSeatHolder(seatKey);
       if (holder) {
+        this._recordEnqueueLog({
+          jobId: req.jobId, goal: home.goal, seat: home.seat, seatKey,
+          outcome: 'suppressed', because: holder.because,
+          queueId: holder.queueId, execId: holder.execId, heldStatus: holder.status,
+          at: isoNow(),
+        });
         return {
           deduped: true,
           seat_key: seatKey,
@@ -1200,7 +1219,34 @@ class HeartStore {
       typeof req.enqueuingSeat === 'string' && req.enqueuingSeat.length > 0 ? req.enqueuingSeat : null,
       enqueuedAt
     );
-    return this.getQueueRow(Number(result.lastInsertRowid));
+    const queueId = Number(result.lastInsertRowid);
+    this._recordEnqueueLog({
+      jobId: req.jobId, goal: home.goal, seat: home.seat,
+      seatKey: req.onSeatBusy === 'queue' ? null : seatKeyOf(job, parsedArgs),
+      outcome: 'enqueued', because: null,
+      queueId, execId: null, heldStatus: null,
+      at: enqueuedAt,
+    });
+    return this.getQueueRow(queueId);
+  }
+
+  // enqueue_log is the enqueue→launch record. Written here, the single writer, so every caller
+  // is recorded and no caller can forget. A row clears itself from listEnqueueUnfired the moment
+  // a jobs_log fire exists at or after its `at` — no lifecycle column, no sweeper.
+  _recordEnqueueLog({ jobId, goal, seat, seatKey, outcome, because, queueId, execId, heldStatus, at }) {
+    this._prepare(`
+      INSERT INTO enqueue_log (job_id, goal, seat, seat_key, outcome, because, queue_id, exec_id, held_status, at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(jobId, goal, seat, seatKey, outcome, because, queueId, execId, heldStatus, at);
+  }
+
+  listEnqueueUnfired(goal, cutoffIso) {
+    return this._prepare(`
+      SELECT * FROM enqueue_log e
+       WHERE e.goal = ? AND e.at <= ?
+         AND NOT EXISTS (SELECT 1 FROM jobs_log j WHERE j.job_id = e.job_id AND j.fired_at >= e.at)
+       ORDER BY e.at
+    `).all(goal, cutoffIso);
   }
 
   getQueueRow(queueId) {

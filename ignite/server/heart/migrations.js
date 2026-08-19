@@ -347,6 +347,39 @@ const MIGRATION_MESSAGE_TYPES_SEVEN = {
 // halves ratify together or neither lands.
 MIGRATIONS.push(MIGRATION_MESSAGE_TYPES_SEVEN);
 
+// ── enqueue-record (2026-08-19) · the enqueue→launch sibling of jobs_log ──────────────────────
+//
+// jobs_log is fired executions only. A suppressed enqueue (the 08-19 silent vanish) wrote
+// nothing anywhere. This table is purely additive — CREATE TABLE IF NOT EXISTS + index, no
+// ALTER, no rebuild — so it is safe to ARM: migrate() runs at daemon start, and the durable
+// record is worthless on a store that lacks the table.
+//
+// ponytail: the table is never pruned. Upgrade path if it ever matters: delete rows older than
+// N days in the same pass. Do not build the pruner.
+const MIGRATION_ENQUEUE_LOG = {
+  version: 6,
+  name: 'enqueue-log',
+  up(db) {
+    db.exec(
+      'CREATE TABLE IF NOT EXISTS enqueue_log (\n'
+      + '  enq_id      INTEGER PRIMARY KEY AUTOINCREMENT,\n'
+      + '  job_id      TEXT NOT NULL,\n'
+      + '  goal        TEXT,\n'
+      + '  seat        TEXT,\n'
+      + '  seat_key    TEXT,\n'
+      + '  outcome     TEXT NOT NULL CHECK (outcome IN (\'enqueued\',\'suppressed\')),\n'
+      + '  because     TEXT,\n'
+      + '  queue_id    INTEGER,\n'
+      + '  exec_id     INTEGER,\n'
+      + '  held_status TEXT,\n'
+      + '  at          TEXT NOT NULL\n'
+      + ');'
+    );
+    db.exec('CREATE INDEX IF NOT EXISTS idx_enqueue_log_goal_at ON enqueue_log(goal, at);');
+  },
+};
+MIGRATIONS.push(MIGRATION_ENQUEUE_LOG);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -456,4 +489,7 @@ module.exports = {
   // the REBUILD works on a store that already holds rows (the fresh-vs-migrated split schema.sql
   // documents), which is a separate claim from it being registered.
   MIGRATION_MESSAGE_TYPES_SEVEN,
+  // enqueue-record. Exported by name AND registered above — Arm E of probe-enqueue-record drives
+  // migrate() on a pre-v6 store and compares sqlite_master sql against a fresh schema.sql store.
+  MIGRATION_ENQUEUE_LOG,
 };

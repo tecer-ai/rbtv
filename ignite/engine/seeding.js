@@ -137,6 +137,10 @@ function readCsv(file) {
 // reintroduce a JS reader.
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const COORD_TIMEOUT_MS = 60000;
+// Lane-watch cadence is ~10 s and a fire follows its queue row within one tick, so 60 s is
+// comfortably past "one full cadence" while the real thresholding is left to the alarm's
+// existing STALL_MS 5-minute persistence. Do not add a second timer.
+const ENQUEUE_UNFIRED_GRACE_MS = 60 * 1000;
 
 function readySeats(goalFolder) {
   const refuse = (reason) => ({ ready: null, rows: [], reason });
@@ -925,6 +929,7 @@ function surfaceCageRefusal(goalFolder, seat, refusal, logger) {
 function enqueueEligible(heartStore, rows, {
   goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
   ready = null, readyRows = [], granted = null, heldByStore = null,
+  suppressedEnqueues = null,
 }) {
   // The goal folder's own grant file, folded into whatever the caller supplied (see
   // `withFileGrants`). Every use of the grant below reads `grants`, never `relaunch`, so the
@@ -985,7 +990,16 @@ function enqueueEligible(heartStore, rows, {
       }
       continue;
     }
-    if (isHeld && isHeld(row.seat)) continue;
+    if (isHeld && isHeld(row.seat)) {
+      if (logger) {
+        logger({
+          level: 'info',
+          message: 'seat NOT enqueued — held for human-interactive detach (dispatched through the foreground carrier or not at all)',
+          seat: row.seat,
+        });
+      }
+      continue;
+    }
 
     // ── § D5 · CAGE ADMISSIBILITY, THE LAST PRE-QUEUE REFUSAL ────────────────────────────────
     //
@@ -1079,7 +1093,7 @@ function enqueueEligible(heartStore, rows, {
     const after = (row.after || '').trim();
     const seatDir = path.join(goalFolder, 'seats', row.seat);
     const seed = (ready && ready.get(row.seat)) || [];
-    heartStore.enqueue({
+    const enq = heartStore.enqueue({
       jobId,
       // ⚠ THE SEED IS NOT IN THIS OBJECT, AND THAT IS THE DOOR'S RULE, NOT A CHOICE. The registered
       // `args_schema` for a seat job is `{workdir, prompt}` (7.787 emptied its `required` half) and `heart-store.js`
@@ -1100,6 +1114,23 @@ function enqueueEligible(heartStore, rows, {
       runAt: isoNow(),
       enqueuedBy: 'attached-execution',
     });
+    if (enq && enq.deduped) {
+      if (suppressedEnqueues) {
+        suppressedEnqueues[row.seat] = `${enq.because} — queue_id=${enq.queue_id} exec_id=${enq.exec_id} held_status=${enq.held_status}`;
+      }
+      if (logger) {
+        logger({
+          level: 'warn',
+          message: 'store SUPPRESSED the enqueue — the seat was not queued',
+          seat: row.seat,
+          because: enq.because,
+          queue_id: enq.queue_id,
+          exec_id: enq.exec_id,
+          held_status: enq.held_status,
+        });
+      }
+      continue;
+    }
     enqueued.push(row.seat);
     if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null, seed });
   }
@@ -1159,6 +1190,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
         goalFolder, goal, seats: readTaskforce(goalFolder).map((r) => r.seat), enqueued: [], seeds: {},
         skippedAsFinished: [], heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {},
         readinessRefused: null, goalNotLive: notLive, skewed: [], frozen: null,
+        suppressedEnqueues: {}, enqueueUnfired: [],
       };
     }
   }
@@ -1198,7 +1230,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {}, readinessRefused: reason,
       // A refusal computed no rows, so it names no skewed seat. The owner alarm reads
       // `readinessRefused` for this arm — see the `skewed` note on the success return below.
-      skewed: [], frozen: null,
+      skewed: [], frozen: null, suppressedEnqueues: {}, enqueueUnfired: [],
     };
   }
   // Q2a — THE SKEW IS STILL LOUD; IT JUST NO LONGER STOPS THE GOAL (owner-ruled 2026-08-18).
@@ -1242,7 +1274,12 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   }
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
-  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore });
+  const suppressedEnqueues = {};
+  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore, suppressedEnqueues });
+  const unfiredCutoff = new Date(Date.now() - ENQUEUE_UNFIRED_GRACE_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const enqueueUnfired = heartStore.listEnqueueUnfired(goal, unfiredCutoff).map((r) => ({
+    seat: r.seat, because: r.because, at: r.at,
+  }));
   // WITH the grant set, since the loop re-fire (2026-08-12): the `states` report below must agree
   // with the enqueue decision above, and a granted `done` seat is dispatchable again — reporting
   // it `done` off a grant-blind read is the same one-report-contradicting-the-other defect F2
@@ -1307,6 +1344,8 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     // else. ⚠ NOT COSMETIC: this reproduces the identical invisible hold the moment the retry
     // budget runs out, which is a state this design GUARANTEES will be reached.
     heldByStore,
+    suppressedEnqueues,
+    enqueueUnfired,
     enqueued,
     // LE-13, computed above: the empty-frontier freeze, shaped for the owner alarm
     // (`goal-stall-alarm.js#conditionOf` reads it first). `null` is the ordinary case.

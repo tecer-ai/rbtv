@@ -163,6 +163,26 @@ CREATE TABLE IF NOT EXISTS jobs_log (
 );
 CREATE INDEX IF NOT EXISTS idx_jobslog_status ON jobs_log(status);
 
+-- enqueue_log — the enqueue→launch record (enqueue-record, 2026-08-19). jobs_log is fired
+-- executions only; a suppressed or not-yet-fired enqueue has no row there. This sibling is
+-- written inside heart-store.js#enqueue() for both outcomes so every caller is recorded.
+-- ponytail: the table is never pruned. Upgrade path if it ever matters: delete rows older
+-- than N days in the same pass. Do not build the pruner.
+CREATE TABLE IF NOT EXISTS enqueue_log (
+  enq_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id      TEXT NOT NULL,
+  goal        TEXT,
+  seat        TEXT,
+  seat_key    TEXT,
+  outcome     TEXT NOT NULL CHECK (outcome IN ('enqueued','suppressed')),
+  because     TEXT,
+  queue_id    INTEGER,
+  exec_id     INTEGER,
+  held_status TEXT,
+  at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_enqueue_log_goal_at ON enqueue_log(goal, at);
+
 CREATE TABLE IF NOT EXISTS ticks (
   tick         INTEGER PRIMARY KEY,
   ts           TEXT NOT NULL,

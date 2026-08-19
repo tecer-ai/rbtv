@@ -177,6 +177,18 @@ function conditionOf(pickup) {
       detail: `periodic job id(s) — NOT seats — with ${failure.k}+ consecutive \`jobs_log\` failures: ${jobs.join(', ')}`,
     };
   }
+  // enqueue-unfired LAST, after ready-no-live (and after periodic-job-failing). First-match-wins:
+  // a new arm placed earlier silently changes existing verdicts; placed last, every currently-
+  // firing condition keeps its exact behaviour.
+  const unfired = pickup.enqueueUnfired || [];
+  if (unfired.length) {
+    const seats = unfired.map((r) => String(r.seat)).sort();
+    return {
+      kind: 'enqueue-unfired',
+      seats,
+      detail: unfired.map((r) => `${r.seat}: ${r.because || 'unfired'} at ${r.at || '?'}`).join('  ·  '),
+    };
+  }
   return null;
 }
 
@@ -190,6 +202,7 @@ function composeText({ goal, condition, stuckMs }) {
     'readiness-refused': `*Readiness could not be computed* — \`coordinate ready-seats\` refused, so NOTHING in this goal was seeded this pass.`,
     'ready-no-live': `*Ready, undispatched* — these seats are dispatchable and no seat in the goal is live or queued.`,
     'periodic-job-failing': `*Periodic job repeatedly failing* — a recovery/maintenance job for this goal has failed its last several consecutive runs and is not recovering on its own.`,
+    'enqueue-unfired': `*Enqueued, never fired* — an enqueue was recorded and no execution ever fired for it. Look at \`enqueue_log\` (outcome / because) and whether a live turn is still holding the seat.`,
   }[condition.kind]
     // Every OTHER kind is a pre/at-seeding freeze (LE-13: taskforce-unreadable, unbuilt-seats,
     // cast-unreadable, uncast-seats, seed-failed, seeding-empty — and whatever the producers name
@@ -203,7 +216,9 @@ function composeText({ goal, condition, stuckMs }) {
       ? `:warning: *${goal} is frozen* — it is waiting on a ruling, not on work (${mins}m).`
       : condition.kind === 'periodic-job-failing'
         ? `:warning: *${goal}* has a periodic job stuck failing (${mins}m).`
-        : `:warning: *${goal} is frozen* — it cannot even be seeded (${mins}m).`;
+        : condition.kind === 'enqueue-unfired'
+          ? `:warning: *${goal}* recorded an enqueue that never launched (${mins}m).`
+          : `:warning: *${goal} is frozen* — it cannot even be seeded (${mins}m).`;
   const who = condition.seats.length ? `\n${condition.seats.map((s) => `• \`${s}\``).join('\n')}` : '';
   return `${head}\n${why}${who}\n_${condition.detail}_\nThis will not clear on its own.`;
 }
