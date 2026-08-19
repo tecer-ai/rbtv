@@ -100,6 +100,10 @@ function createEngine({
   // (`launch-specs.<harness>.<model>.sandbox.SeatBinds`) to run the pre-enqueue cage-admission test,
   // and it holds only the store. Assigned here rather than loaded a second time.
   heartStore.config.launchSpecs = spawnManager.config.launchSpecs || {};
+  // D2 (2026-08-19), same seam a third time: the admission gate must resolve WORKSPACE-grammar
+  // declared outputs (`.rbtv/mirror/…`) against the same workspace root the spawn manager
+  // resolves rw grants against — threaded, never re-derived inside the engine.
+  heartStore.config.workspaceRoot = spawnManager.workspaceRoot || null;
 
   // Ruling `d-0811-workdir-symlink-boot-resolve` — resolve the goals root ONCE, HERE, from the same
   // boot-read trusted value the line above threads. This is the seam because it is the one place

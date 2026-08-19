@@ -54,10 +54,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { composeSeatCage, specToBwrapFlags, contains, RW_VERBS } = require('../server/spawn/cage');
-// The ONE declaration reader for every seat-declared grant class — the spawner's own
-// (`spawn.js#seatDeclaresList`). A second parse of seat.md frontmatter would be a second definition
-// of what "declared" means, and this gate must reason about the grant the spawner will compose.
-const { seatDeclaresList } = require('../server/spawn/spawn');
+// The ONE declaration reader for every seat-declared grant class, AND the spawner's own two
+// workspace rw-grant resolvers (`rw-paths` frontmatter + `coordination/permission-edits.csv`) —
+// shared via `seat-grants.js` under ruling D2 (2026-08-19). A second parse of seat.md frontmatter
+// or a second reading of the widen csv would be a second definition of what "granted" means, and
+// this gate must reason about exactly the grants the spawner will compose.
+const {
+  seatDeclaresList, resolveRwPathGrants, resolvePermissionEditGrants,
+} = require('../server/spawn/seat-grants');
 
 // A backticked token that looks like a path: contains a `/` and carries an extension. Verbatim
 // from `edge-runner-job.py#_PATHISH`, the reader of the `<io-spec> ## Outputs` grammar that dies
@@ -100,17 +104,20 @@ function declaredOutputs(goalFolder, seat) {
 }
 
 // The cage this occupant composes for this goal — the REAL composer, over the LIVE template.
-// `grants` carries the seat's own `goal-writes` items and nothing else: every other grant class
-// composes OUTSIDE the goal folder by construction (worktrees, git plumbing, harness credentials,
-// `~/.local/bin`, the tmux socket dir), or re-covers it identically read-only (`read-root`), or is
-// excluded from the seat's own goal (`goals-write`), or is refused any overlap with `.rbtv/goals`
-// (`rw-paths`) — so none of them can change a verdict about a path inside this goal folder. A
-// `{grant:…}` entry with no matching grant composes to nothing, which is the composer's own rule.
-function cageFor({ seatBinds, goalDir, seatDir, goalWrites = [] }) {
+// `grants` carries the seat's own `goal-writes` items plus (D2, 2026-08-19) the resolved
+// WORKSPACE rw grants in `extraGrants` — `rw-paths` frontmatter entries and
+// `coordination/permission-edits.csv` rows, resolved by the spawner's own resolvers. The
+// workspace grants can never change a verdict about a path INSIDE the goal folder (both
+// resolvers refuse any entry overlapping `.rbtv/goals`); they exist to decide the
+// workspace-grammar tokens below. Every remaining grant class still composes outside the goal
+// folder by construction (worktrees, git plumbing, harness credentials, `~/.local/bin`, the tmux
+// socket dir), or re-covers it identically read-only (`read-root`). A `{grant:…}` entry with no
+// matching grant composes to nothing, which is the composer's own rule.
+function cageFor({ seatBinds, goalDir, seatDir, goalWrites = [], extraGrants = [] }) {
   return composeSeatCage({
     seatBinds,
     values: { workdir: seatDir, seatDir, goalDir },
-    grants: goalWrites.map((item) => ({ goalWrite: path.resolve(goalDir, item) })),
+    grants: [...goalWrites.map((item) => ({ goalWrite: path.resolve(goalDir, item) })), ...extraGrants],
   });
 }
 
@@ -131,9 +138,28 @@ function flagsOf(entry) {
   return entry ? specToBwrapFlags([entry]).join(' ') : 'nothing covers it — the path is ABSENT in this cage';
 }
 
+// D2 (2026-08-19): THE WORKSPACE GRAMMAR. Planning legitimately mints seats whose deliverable IS
+// a workspace mirror component (`.rbtv/mirror/…`), declared workspace-relative in `## Outputs`.
+// Resolved goal-relative such a token dodged the containment refusal (no leading `..`), landed
+// under `<goalDir>/.rbtv/…` and was refused `producer-cannot-write` quoting the goal ro-bind — a
+// permanent, misdiagnosed refusal loop no grant could flip (G-owner-console-0818-2030,
+// `audio-component-smith`). A token SPEAKS THE WORKSPACE GRAMMAR when its FIRST segment names
+// something that exists at the workspace root and not inside the goal folder — cheap, and exactly
+// the shape that separates `.rbtv/mirror/…` from `coordination/…`/`seats/…`. Undecidable shapes
+// (`.`/`..`, a first segment existing in neither place or in both) keep the goal-relative
+// reading, whose refusals already fail closed.
+function speaksWorkspaceGrammar(token, goalDir, workspaceRoot) {
+  const first = String(token).split('/')[0];
+  if (!first || first === '.' || first === '..') return false;
+  return fs.existsSync(path.join(workspaceRoot, first)) && !fs.existsSync(path.join(goalDir, first));
+}
+
 // `null` to admit, else the refusal text. `successorReads` is `yes` | `no` (anything else is
-// treated as undecided, which refuses wherever it decides).
-function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'no' }) {
+// treated as undecided, which refuses wherever it decides). `workspaceRoot` is THREADED from the
+// caller chain (seeding reads the composition root's resolution off `heartStore.config`) — this
+// module never resolves it itself; absent, workspace-grammar tokens keep the goal-relative
+// reading, which is the pre-D2 behaviour.
+function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'no', workspaceRoot = null }) {
   if (!Array.isArray(seatBinds) || seatBinds.length === 0) return null;   // uncaged: not refused
   const goalDir = path.resolve(goalFolder);
   const seatDir = path.join(goalDir, 'seats', seat);
@@ -143,7 +169,18 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
   let produced;
   let peer;
   try {
-    produced = cageFor({ seatBinds, goalDir, seatDir, goalWrites: seatDeclaresList(seatDir, 'goal-writes') });
+    // The workspace rw grants — the SAME two sources, resolved by the SAME functions, the spawner
+    // composes at launch (`spawn.js#composeCageFor`). Refusals of individual entries are the
+    // spawner's launch-time business to log; here a refused entry is simply not a grant.
+    const noLog = () => {};
+    const grantSeatPath = { workspaceRoot, goalDir, seatDir, seat };
+    const wsGrants = workspaceRoot
+      ? [...resolveRwPathGrants(grantSeatPath, noLog), ...resolvePermissionEditGrants(grantSeatPath, noLog)]
+      : [];
+    produced = cageFor({
+      seatBinds, goalDir, seatDir,
+      goalWrites: seatDeclaresList(seatDir, 'goal-writes'), extraGrants: wsGrants,
+    });
     peer = cageFor({ seatBinds, goalDir, seatDir: path.join(goalDir, 'seats', PEER_SEAT) });
   } catch (err) {
     return `undecided: the live cage template does not compose for this seat (${err.message}). An underivable `
@@ -154,6 +191,26 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
   for (const token of tokens) {
     if (path.isAbsolute(token)) {
       bad.push(`\`${token}\` — undecided: a declared output is GOAL-RELATIVE; an absolute token names a place this gate cannot place in the cage`);
+      continue;
+    }
+    if (workspaceRoot && speaksWorkspaceGrammar(token, goalDir, workspaceRoot)) {
+      const wsTarget = path.resolve(workspaceRoot, token);
+      if (!contains(workspaceRoot, wsTarget) || wsTarget === workspaceRoot) {
+        bad.push(`\`${token}\` — undecided: it resolves OUTSIDE the workspace root (${wsTarget})`);
+        continue;
+      }
+      const w = coverVerdict(produced, wsTarget);
+      if (w.verdict !== 'writable') {
+        bad.push(`\`${token}\` — no-workspace-grant: it names the WORKSPACE path ${wsTarget}, and no workspace `
+          + `write grant composes a writable bind over it — neither an \`rw-paths:\` entry in ${seat}'s seat.md `
+          + `frontmatter nor a \`coordination/permission-edits.csv\` row covering it. Grant one (the leader's `
+          + `\`widen-cage\` verb writes the audited csv row) and the next seed pass admits it`);
+        continue;
+      }
+      // Admitted, with NO successor-read test on this lane: a workspace path sits OUTSIDE the
+      // goal's `seats` tmpfs, persists on disk after the producer exits, and a successor reads it
+      // through its own cage's read-root floor or workspace grants — never through the peer
+      // composition the goal lane asks about.
       continue;
     }
     const target = path.resolve(goalDir, token);

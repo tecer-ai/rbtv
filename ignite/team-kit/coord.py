@@ -14951,6 +14951,55 @@ def cmd_seat_retry(args):
          f"anchor `{rec['anchor']}` minted-by `{rec['minted-by']}` at {rec['minted-at']}")
 
 
+# ---------- D2 (2026-08-19): the daemon's seed-refusal surfacing (`coordinate surface-refusal`) --
+#
+# WHAT IT IS: the ignite daemon lands ONE cage-admission refusal on the goal's own bus. The
+# measured failure (G-owner-console-0818-2030): a seat refused at every 10s seed pass for hours,
+# journal-only — no surface an operator reads ever said so. The engine may not write coordination
+# files itself (the runtime boundary: neither side reads or writes the other's files), so the
+# refusal crosses as a command, exactly as `seat-retry` crosses the grant join.
+#
+# IDEMPOTENT PER (seat, reason), and that is the whole verb: the seed pass repeats forever, so a
+# plain `send` would append one row per tick. The dedup marker (`seed-refusal: <seat> <key>`,
+# key = sha256 of the reason) rides the body's FIRST LINE; the scan and the append share one
+# `coord_lock` hold so two concurrent passes cannot both observe "not yet surfaced" and both
+# append — the same race `seat-retry --mint` closes the same way.
+def cmd_surface_refusal(args):
+    """(daemon) surface ONE seed-time refusal on the goal bus, once per (seat, reason)."""
+    gate(args, "surface-refusal", is_authorized_launcher,
+         "the leader's and the ignite daemon's — `is_authorized_launcher`, the same predicate the "
+         "other daemon-lane verb (`seat-retry`) carries: this verb reports the seeding pass's own "
+         "refusal, which only a launching party holds",
+         remedy="a seat reporting a problem sends a typed `note` to the leader with "
+                "`coordinate send` instead")
+    seat = args.seat
+    reason = (args.reason or "").strip()
+    if not reason:
+        refuse("input",
+               "--reason is the refusal text being surfaced; an empty one would append a bus row "
+               "that tells the operator nothing and dedup against every other empty refusal.", 2)
+    base = base_dir(args)
+    sender = resolve_agent(args)
+    key = hashlib.sha256(reason.encode("utf-8")).hexdigest()[:12]
+    marker = f"seed-refusal: {seat} {key}"
+    as_json = bool(getattr(args, "json", False))
+    with coord_lock(base):
+        _path, blocks = load_messages(base)
+        dup = next((b for b in blocks if any(marker in ln for ln in b["lines"])), None)
+        if dup is None:
+            num = _append_message_unlocked(
+                base, sender, "owner", "note",
+                f"{marker}\n\nseat NOT enqueued — a declared output is inadmissible for a caged "
+                f"launch. The daemon repeats this check every seed pass; this row is written "
+                f"once. The refusal, verbatim:\n\n{reason}")
+            status = "surfaced"
+        else:
+            num, status = dup["num"], "already-surfaced"
+    payload = {"status": status, "seat": seat, "key": key, "num": num}
+    print(json.dumps(payload, indent=2, sort_keys=True) if as_json else
+          f"{seat}: {status} as bus row #{num} (key {key})")
+
+
 # ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
 #
 # THE MEASURED FAILURE THIS CLOSES (F1, 2026-07-28, seat `oc2`). The seat DID THE WORK — `done.txt`
@@ -36056,7 +36105,9 @@ details + examples: coordinate <command> -h · --force overrides a refusal, wher
 # `save-coord.py`'s parser-build gate covers it and its own -h is held to the same example/next bar.
 # `apply-disposition-grants` is the ticker's drain of leader-minted disposition grants — daemon
 # identity, never a seat verb.
-HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants")
+# `surface-refusal` is the seeding pass landing a cage-admission refusal on the bus (D2,
+# 2026-08-19) — the same daemon-only lane as `seat-retry`'s spend; no seat ever types it.
+HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants", "surface-refusal")
 
 
 ADVICE_SEND = re.compile(
@@ -36955,6 +37006,25 @@ def build_parser():
                    help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
     add_identity_flags(s)
     s.set_defaults(func=cmd_seat_retry)
+
+    s = command(
+        "surface-refusal",
+        "(daemon) land ONE cage-admission seed refusal on this goal's bus, addressed `owner` —\n"
+        "IDEMPOTENT per (seat, reason). The daemon's seed pass repeats every cadence, and this\n"
+        "verb is what keeps a standing refusal from appending one row per tick: the dedup marker\n"
+        "is the body's first line (`seed-refusal: <seat> <sha256[:12] of reason>`), and the scan\n"
+        "and the append share one lock hold.",
+        "example:\n"
+        "  coordinate --as ignite-daemon surface-refusal audio-component-smith --reason \"...\" --json\n"
+        "next: nothing by hand — the daemon's seeding pass calls this; read the row with "
+        "coordinate read, fix the grant with widen-cage")
+    s.add_argument("seat", help="the refused seat — the row is ABOUT it, never FROM it")
+    s.add_argument("--reason", metavar="TEXT", default=None,
+                   help="the refusal text, verbatim from the admission gate — the dedup key is derived from it")
+    s.add_argument("--json", action="store_true",
+                   help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
+    add_identity_flags(s)
+    s.set_defaults(func=cmd_surface_refusal)
 
     # ── W3 · the leader's two actuators ────────────────────────────────────────────────────────
     s = command(

@@ -861,6 +861,30 @@ function seatState(row, byJob, queued, { done = null, goal = null, foreign = nul
   return ready && ready.has(row.seat) ? 'ready' : 'waiting';
 }
 
+// D2 (2026-08-19): a cage-admission refusal lands ONCE on the goal's own bus, not only in this
+// daemon's journal — the measured failure was a seat refused every 10s for hours with nothing an
+// operator-read surface saying so (G-owner-console-0818-2030). The engine reaches coord-side
+// surfaces through coord.py verbs only (the boundary stated above: neither runtime reads the
+// other's files); `surface-refusal` is idempotent per (seat, reason) under coord's own lock, so
+// calling it on every seed pass costs one read, never a duplicate row. Never fatal, and never a
+// verdict: a surfacing failure must not change whether the seat is enqueued.
+function surfaceCageRefusal(goalFolder, seat, refusal, logger) {
+  try {
+    const out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
+      '--as', 'ignite-daemon', 'surface-refusal', seat, '--reason', refusal, '--json'],
+    { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+    const res = JSON.parse(out);
+    if (res.status === 'surfaced' && logger) {
+      logger({ level: 'info', message: 'cage-admission refusal surfaced on the goal bus', seat, num: res.num });
+    }
+  } catch (err) {
+    if (logger) {
+      logger({ level: 'warn', message: 'cage-admission refusal NOT surfaced on the goal bus', seat,
+        error: String(err.stderr || err.message || '').trim().slice(0, 400) });
+    }
+  }
+}
+
 // Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
 // the seats enqueued this pass.
 //
@@ -945,9 +969,15 @@ function enqueueEligible(heartStore, rows, {
     // would have been declined for another reason is now declined for this one.
     const refusal = admitDeclaredOutputs({
       seatBinds: seatBindsFor(row.seat), goalFolder, seat: row.seat, successorReads: successorReads(readyRows, row.seat),
+      // D2 (2026-08-19): the composition root's ONE workspace-root resolution, threaded via the
+      // store (`engine/index.js` assigns it off the spawn manager) — the gate needs it to judge
+      // workspace-grammar declared outputs (`.rbtv/mirror/…`) against the same root the spawner
+      // resolves rw grants against.
+      workspaceRoot: heartStore.config?.workspaceRoot || null,
     });
     if (refusal) {
       if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — a declared output is inadmissible for a caged launch', seat: row.seat, evidence: refusal });
+      surfaceCageRefusal(goalFolder, row.seat, refusal, logger);
       continue;
     }
     // ── THE BOOT PROMPT, THE LAST PRE-QUEUE REFUSAL ──────────────────────────────────────────
@@ -1200,5 +1230,8 @@ module.exports = {
   // READY-via-grant verdict the leg discriminates on exists only between the two.
   mintRetryGrants,
   enqueueEligible,
+  // Exported for `engine/probes/probe-cage-workspace-grammar.js`: the refusal->bus wire, driven
+  // against a fixture goal without standing up the whole enqueue path.
+  surfaceCageRefusal,
   seedGoal,
 };
