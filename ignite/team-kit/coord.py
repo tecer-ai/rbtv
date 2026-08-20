@@ -623,24 +623,40 @@ _IOSPEC_OUTPUTS_SECTION = re.compile(r"##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \
 # cage gate must place), and prose blocks backtick file NAMES that are not outputs. A slashless
 # declaration is written `./plan.md`; a directory is declared by a file inside it.
 _IOSPEC_PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
+# D36 (2026-08-20): THE ONE TYPED NON-FILE OUTPUT. An `## Outputs` bullet whose SCHEMA is
+# literally `chat` declares a product that is CONVERSATION — a verdict row on the bus, an answer,
+# a queue-request — and therefore has no path to check. It is a DECLARATION, not an absence: the
+# seat said what it produces and the kit can read that claim. Both consumers treat it as declared
+# (the check-out admits the `done`; materialize's zero-token check stays quiet), while
+# `admitDeclaredOutputs` sees the same zero path tokens it always saw — unchanged.
+# ⚠ SCHEMA POSITION ONLY, deliberately: the word `chat` occurs in ordinary output prose all over
+# this catalog ("...posted to the chat bridge"), and matching it loose would silently exempt real
+# file producers. The bullet must OPEN with it — `- Schema: chat …`.
+# Mirrored in `engine/cage-admission.js#CHAT_SCHEMA` and pinned by the shared fixture set.
+_IOSPEC_CHAT = re.compile(r"^[ \t]*[-*][ \t]*\**Schema:?\**:?[ \t]*`?chat`?\b",
+                          re.MULTILINE)
 
 
 def iospec_outputs(text):
-    """(declared, tokens) for ONE seat.md's full text — the shared resolver's Python half.
+    """(declared, tokens, chat) for ONE seat.md's full text — the shared resolver's Python half.
 
     `declared` is whether an `## Outputs` section EXISTS inside an `<io-spec>` block, carried
     separately from the tokens because a PROSE section yielding ZERO tokens is its own loud
     condition — the check-out records `outputs-undeclarable`, never a silent `none-declared`
     (D3 planner extension: 23 of 26 meet-transcript-summarizer dones read `none-declared`
     while their seats carried prose `## Outputs` blocks the retired frontmatter key's readers
-    could not see). No file, no block, no section -> (False, [])."""
+    could not see). `chat` (D36, 2026-08-20) is the THIRD answer: a bullet opening
+    `- Schema: chat` declares a NON-FILE product, so ZERO tokens is the honest reading and not
+    an undeclarable one — the check-out admits that `done`. No file, no block, no section ->
+    (False, [], False)."""
     block = _IOSPEC_BLOCK.search(text or "")
     if not block:
-        return False, []
+        return False, [], False
     section = _IOSPEC_OUTPUTS_SECTION.search(block.group(0))
     if not section:
-        return False, []
-    return True, _IOSPEC_PATHISH.findall(section.group(1))
+        return False, [], False
+    return (True, _IOSPEC_PATHISH.findall(section.group(1)),
+            bool(_IOSPEC_CHAT.search(section.group(1))))
 
 
 # The retirement tripwire's second shape: the indented YAML block-list spelling of the same
@@ -8847,6 +8863,18 @@ def deliver_handoff(args, base, seat):
 # `unverified` (D32, 2026-08-20 — it was `incomplete` plus a stamped reason until then); the
 # `outputs-verified` field still carries the undeclarable text. A reader tells a CHECKED `done`
 # from an unverifiable claim BY THE DISPOSITION ALONE, with no note to read and no prefix to parse.
+def _declared_output_goal_dir(w):
+    """The GOAL FOLDER a BARE relative declared output names — `<goal>/seats/<seat>` and the
+    legacy `<goal>/workers/<seat>` are the only two shapes a descriptor folder takes
+    (`workers_dir`, which is where both spellings are decided). None when the descriptor sits
+    anywhere else: nothing to resolve against, so only the `cwd` base is read."""
+    folder = w.get("folder")
+    if folder is None:
+        return None
+    parent = Path(folder).parent
+    return parent.parent if parent.name in ("seats", "workers") else None
+
+
 def resolved_outputs(w):
     """[(declared token, RESOLVED absolute path)] for ONE seat's declared outputs (D3: the
     io-spec `## Outputs` tokens, parsed once at `discover_workers`).
@@ -8860,15 +8888,25 @@ def resolved_outputs(w):
     Relative paths resolve against the seat's `cwd`, already absolutized by `discover_workers` at
     the ONE parse point (a relative `cwd:` otherwise resolves against nothing). It reads the
     descriptor dict it is handed and touches no disk — the PRESENCE question is `declared_outputs`'
-    and stays there."""
+    and stays there.
+
+    ⚠ THE SECOND BASE IS `declared_outputs`', NOT THIS FUNCTION'S (D36 extension, 2026-08-20).
+    A BARE relative token means GOAL-RELATIVE to the other half of this grammar
+    (`engine/cage-admission.js#admitDeclaredOutputs`, in its own refusal words: "a declared output
+    is GOAL-RELATIVE") and to every task that writes one. This function keeps the `cwd` base
+    UNCHANGED because its second caller is D4's SEED, whose contract (RS-28) is that a
+    predecessor's relative output resolves against that predecessor's own `cwd` — a settled
+    ruling this is not the place to reopen. The PRESENCE check reads both bases; see there."""
     return [(d, str(Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d)) for d in w["outputs"]]
 
 
 def declared_outputs(args, seat):
-    """(declared, missing, has_block) — the seat's OWN declared outputs (io-spec `## Outputs`
-    tokens), which of them are not on disk, and whether an `## Outputs` section exists at all
-    (D3: a section yielding ZERO tokens is `outputs-undeclarable`, a distinct loud state the
-    check-out records — never collapsed into `none-declared`).
+    """(declared, missing, has_block, chat) — the seat's OWN declared outputs (io-spec
+    `## Outputs` tokens), which of them are not on disk, whether an `## Outputs` section exists
+    at all (D3: a section yielding ZERO tokens is `outputs-undeclarable`, a distinct loud state
+    the check-out records — never collapsed into `none-declared`), and whether that section
+    declares the typed NON-FILE output `chat` (D36, 2026-08-20 — a zero-token section that IS a
+    declaration, so the `done` stands).
 
     `declared` is the raw list as the descriptor wrote it; `missing` holds RESOLVED paths, because
     a seat told `plan.md is missing` when it is looking straight at a `plan.md` has been told
@@ -8880,8 +8918,8 @@ def declared_outputs(args, seat):
     stop. Relative paths resolve against the seat's `cwd`, already absolutized by `discover_workers`
     at the ONE parse point (a relative `cwd:` otherwise resolves against nothing).
 
-    A seat with no descriptor at all returns `([], [], False)` — undeclared, like a descriptor
-    with no block. It is the same answer for the same reason: nothing was declared, so nothing is
+    A seat with no descriptor at all returns `([], [], False, False)` — undeclared, like a
+    descriptor with no block. It is the same answer for the same reason: nothing was declared, so nothing is
     checkable, and this function does not get to invent the difference."""
     for w in discover_workers(workers_dir(args)):
         if w["agent"] != seat:
@@ -8900,17 +8938,40 @@ def declared_outputs(args, seat):
                    f"costs the re-run only: nothing was written, nothing was exported, your "
                    f"roster row is still ACTIVE.",
                    1)
+        # ⚠⚠ TWO BASES, AND THE MEASUREMENT THAT FORCED THEM (D36 extension, 2026-08-20).
+        # A BARE relative token (`planning/current/findings-clarity.md`) is GOAL-RELATIVE — that
+        # is what `engine/cage-admission.js#admitDeclaredOutputs` means by it in its own refusal
+        # text ("a declared output is GOAL-RELATIVE"), what every task's `<scope>` `Write:` clause
+        # says in words ("relative to the goal folder"), and what D36 projects. This check read
+        # ONLY the `cwd` base — the SEAT folder — so the two readers of ONE declaration looked in
+        # two different directories. Measured on the two production goals: all 17 declared tokens
+        # on live seats are bare and goal-relative; 16 exist at the goal folder and ONE at the
+        # seat folder. Without this, D36's projection would have turned a soft `unverified` into a
+        # HARD refusal ("MISSING: <seatdir>/planning/…") for ~50 seats that had done the work.
+        # BOTH bases count as present, and that is deliberate rather than a failure to choose:
+        # the `cwd` base is D4's seed contract (RS-28) and the `./plan.md` spelling this file
+        # documents, so dropping it would break declarations that are correct today. The widening
+        # it costs is a file of the SAME relative name under the seat's own scratchpad — which is
+        # the seat's own work either way. What is NOT widened: a token absent at both bases is
+        # still refused, and the refusal NAMES THE GOAL-RELATIVE PATH, the one the author meant.
+        _goal = _declared_output_goal_dir(w)
+
+        def _present(p):
+            try:
+                return p.is_dir() or (p.is_file() and p.stat().st_size > 0)
+            except OSError:
+                return False         # unreadable is NOT produced — the seat is told the path
+
         missing = []
         for _d, _resolved in resolved_outputs(w):
-            p = Path(_resolved)
-            try:
-                present = p.is_dir() or (p.is_file() and p.stat().st_size > 0)
-            except OSError:
-                present = False      # unreadable is NOT produced — the seat is told the path
-            if not present:
-                missing.append(str(p))
-        return w["outputs"], missing, w["outputs_declared"]
-    return [], [], False
+            _cands = [Path(_resolved)]
+            if (_goal is not None and not os.path.isabs(_d)
+                    and not _d.startswith(("./", "../"))):
+                _cands.insert(0, Path(_goal) / _d)   # the DECLARED meaning, checked first
+            if not any(_present(p) for p in _cands):
+                missing.append(str(_cands[0]))
+        return w["outputs"], missing, w["outputs_declared"], w["outputs_chat"]
+    return [], [], False, False
 
 
 def cmd_checkout(args):
@@ -9074,13 +9135,22 @@ def cmd_checkout(args):
     # every path rather than a value that exists only on one branch.
     outputs_unverified = False
     if not renew and not incomplete:
-        _declared, _missing, _has_block = declared_outputs(args, me)
+        _declared, _missing, _has_block, _chat = declared_outputs(args, me)
         # D3's three honest answers, in words: verified (tokens declared and present),
         # `outputs-undeclarable` (an `## Outputs` section EXISTS but is prose — zero resolvable
         # tokens; loud, never a silent nothing; D5 refuses the WORD `done` on this answer),
         # `none-declared` (no section at all — D5 default: the `done` STANDS).
+        # D36 (2026-08-20): the `chat` arm sits AHEAD of the undeclarable one and reads
+        # `none-declared` IN THOSE WORDS — a typed non-file output is a DECLARATION the kit can
+        # read, so there is nothing on disk to verify and nothing to refuse. It is the same
+        # admission `none-declared` has always carried (this `done` was not checked), with the
+        # reason named: the seat declared conversation, not files.
         _outputs_note = (f"{len(_declared)} declared output(s) verified present" if _declared
-                         else ("outputs-undeclarable: zero tokens — the io-spec `## Outputs` "
+                         else ("none-declared — this seat declares the typed `chat` output (a "
+                               "NON-FILE product, D36 2026-08-20): there is no path to check, "
+                               "so this `done` asserts completion NOTHING VERIFIED"
+                               if _has_block and _chat
+                               else "outputs-undeclarable: zero tokens — the io-spec `## Outputs` "
                                "section yields no resolvable path token (backticked, with a `/` "
                                "and an extension), so this `done` asserts completion NOTHING "
                                "VERIFIED" if _has_block
@@ -9251,7 +9321,22 @@ def cmd_checkout(args):
         # Keyed on `is_conversational_chair` (CONVERSATIONAL_CHAIRS), never a seat name at this
         # site; ordinary seats — including the 171 `agent_type: staff` PLANNING seats, which are
         # not chairs — remain bound by the `elif` below, unchanged.
-        if _outputs_note.startswith("outputs-undeclarable") and is_conversational_chair(me):
+        # ⚠ D36 (2026-08-20) — THE TYPED NON-FILE OUTPUT, and it is LOUD on the accepted path.
+        # A `- Schema: chat` bullet is a DECLARATION, so this branch never reaches the downgrade
+        # below at all (`_outputs_note` opens `none-declared`, not `outputs-undeclarable`) — but
+        # a `done` that was not checked must say so where a reader sees it, exactly as the chair
+        # exemption does. There is no `outputs-verified` COLUMN to carry it: `sessions.csv` holds
+        # the disposition and the writer, and the note has always lived on this output.
+        # The VERIFIED answer, said out loud for the same reason the three below are: the note
+        # is the only account of what this gate actually did, and `sessions.csv` has no column
+        # for it. A `done` a reader cannot tell from an unchecked one is the 2026-08-09 defect.
+        if _declared:
+            print(f"outputs check: {_outputs_note}")
+        elif _has_block and _chat:
+            print(f"outputs check: '{me}' declares the typed `chat` output (D36, 2026-08-20) — "
+                  f"a NON-FILE product, so there is no path on disk to check and this `done` "
+                  f"STANDS. Recorded `none-declared`: {_outputs_note}")
+        elif _outputs_note.startswith("outputs-undeclarable") and is_conversational_chair(me):
             print(f"outputs check: '{me}' is a conversational chair — exempt (D29, extended "
                   f"2026-08-20): a chair's product is conversation, not files, so this `done` "
                   f"STANDS with zero path tokens declared.")
@@ -12532,7 +12617,7 @@ def discover_workers(wdir):
         cwd = mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT)
         if not os.path.isabs(cwd):
             cwd = os.path.join(VAULT_ROOT, cwd)
-        out_declared, out_tokens = iospec_outputs(text)
+        out_declared, out_tokens, out_chat = iospec_outputs(text)
         found.append({
             "agent": m.group(1), "briefing": p, "harness": harness,
             # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
@@ -12565,6 +12650,9 @@ def discover_workers(wdir):
             # block classifies loudly (`outputs-undeclarable`) instead of reading `none-declared`.
             "outputs": out_tokens,
             "outputs_declared": out_declared,
+            # D36: the typed NON-FILE declaration, carried beside the block-exists bit so the
+            # check-out can tell "declared nothing checkable" from "declared conversation".
+            "outputs_chat": out_chat,
             # 7.711/D3: the RETIRED-key tripwire, read at the same parse point.
             "outputs_defect": _fm_outputs_defect(fm),
         })
@@ -27728,8 +27816,10 @@ def _selftest_checks(args, failures, names):
               "The JS gate runs the SAME file in its own probe; equivalence lives in the "
               "fixtures, not in a prose promise",
               len(_ou_fixtures) >= 8
-              and all(iospec_outputs(f["text"]) == (f["declared"], f["tokens"])
-                      for f in _ou_fixtures))
+              and all(iospec_outputs(f["text"])
+                      == (f["declared"], f["tokens"], bool(f.get("chat")))
+                      for f in _ou_fixtures)
+              and any(f.get("chat") for f in _ou_fixtures))
         # THE THREE SEAT SHAPES THE RULING SEPARATES, on one package, through the REAL grading
         # path: `blocky` declares ONLY the io-spec block (graded, verified); `keyed` carries
         # ONLY the retired frontmatter key (refused LOUDLY, never read, never ignored); `prose`
@@ -27738,6 +27828,8 @@ def _selftest_checks(args, failures, names):
         # `none-declared` while their seats carried prose blocks the retired key's readers could
         # not see).
         _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
+                                  ("chatty", ""), ("goalrel", ""), ("seatrel", ""),
+                                  ("norel", ""),
                                   ("goal-master", ""), ("consultant", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
@@ -27763,10 +27855,42 @@ def _selftest_checks(args, failures, names):
             "---\nagent: consultant\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
             "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
             encoding="utf-8")
+        # D36 (2026-08-20): the TYPED NON-FILE arm — an ORDINARY seat (no chair name, no
+        # exemption anywhere near it) whose `## Outputs` opens `- Schema: chat`. Same zero
+        # tokens as `prose`, opposite verdict, and the ONE textual difference between the two
+        # fixtures is that four-word schema — so a resolver that ignored it, or one that
+        # matched `chat` anywhere in the prose, reds one of the pair.
+        (Path(_ou_pkg) / "seats" / "chatty" / "seat.md").write_text(
+            "---\nagent: chatty\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: chat — one `verdict` row on the run's coordination bus. "
+            "Description: the trial record.\n</io-spec>\n",
+            encoding="utf-8")
+        # D36 extension (2026-08-20): THE BASE OF A BARE RELATIVE TOKEN. `goalrel` and
+        # `seatrel` declare the BYTE-IDENTICAL token `planning/out.md`; the only difference
+        # between them is WHERE THE FILE IS. Goal folder -> verified. Seat folder -> MISSING.
+        # That pair is the whole ruling: `engine/cage-admission.js` says in its own refusal
+        # text that a declared output is GOAL-RELATIVE, and this reader used to resolve every
+        # relative token against the seat folder — so the two halves of one grammar looked in
+        # two directories, and 16 of the 17 declared tokens on the live production goals were
+        # graded against a path that could not exist.
+        for _gr, _tok in (("goalrel", "planning/out.md"), ("seatrel", "planning/out.md"),
+                          ("norel", "planning/absent.md")):
+            (Path(_ou_pkg) / "seats" / _gr / "seat.md").write_text(
+                f"---\nagent: {_gr}\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+                f"- Schema: the record at `{_tok}`.\n</io-spec>\n",
+                encoding="utf-8")
+        (Path(_ou_pkg) / "planning").mkdir(exist_ok=True)
+        (Path(_ou_pkg) / "planning" / "out.md").write_text("goal-side\n", encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "seatrel" / "planning").mkdir()
+        (Path(_ou_pkg) / "seats" / "seatrel" / "planning" / "out.md").write_text(
+            "seat-side — the OLD base, and the one that must no longer satisfy the gate\n",
+            encoding="utf-8")
         (Path(_ou_pkg) / "seats" / "blocky" / "out").mkdir()
         (Path(_ou_pkg) / "seats" / "blocky" / "out" / "report.md").write_text(
             "the work\n", encoding="utf-8")
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
+                             ("chatty", "%94"), ("goalrel", "%92"), ("seatrel", "%93"),
+                             ("norel", "%91"),
                              ("goal-master", "%98"), ("consultant", "%99")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
@@ -27779,6 +27903,14 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="keyed"))
         _ou_po, _ou_pe, _ou_pc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="prose"))
+        _ou_to, _ou_te, _ou_tc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="chatty"))
+        _ou_ro, _ou_re, _ou_rc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="goalrel"))
+        _ou_so, _ou_se, _ou_sc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="seatrel"))
+        _ou_no, _ou_ne, _ou_nc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="norel"))
         _ou_go, _ou_ge, _ou_gc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
         _ou_co, _ou_ce, _ou_cc = harness_outcome(
@@ -27825,6 +27957,49 @@ def _selftest_checks(args, failures, names):
               # the LIVE surface carries the same value — one variable, both writers (LG-9).
               and (load_awaiting(base_dir(_d3_ns(_ou_pkg))).get("prose") or {}
                    ).get("disposition") == "unverified")
+        check("D36 (2026-08-20) A TYPED `chat` OUTPUT IS A DECLARATION, NOT AN ABSENCE — "
+              "`chatty` is an ORDINARY seat (no chair predicate reaches it) whose `## Outputs` "
+              "opens `- Schema: chat` and yields ZERO path tokens, exactly like the `prose` "
+              "control two rows up. `prose` records `unverified`; `chatty` records `done` and "
+              "says `none-declared` OUT LOUD on its own output — the words D36 ruled. The pair "
+              "differ in ONE schema word, so a resolver that dropped the `chat` bit, or one "
+              "that matched the word anywhere in the prose, reds one of these two rows",
+              _ou_tc is None and _ou_rec("chatty").get("disposition") == "done"
+              and _ou_rec("chatty").get("disposition-writer") == DISPOSITION_WRITER_SEAT
+              and "none-declared" in (_ou_to + _ou_te)
+              and "typed `chat` output" in (_ou_to + _ou_te)
+              and "will not record `done`" not in (_ou_to + _ou_te)
+              # the control, asserted in the SAME row: same zero tokens, opposite ending.
+              and _ou_rec("prose").get("disposition") == "unverified")
+        check("D36 extension (2026-08-20) A BARE RELATIVE DECLARED OUTPUT IS FOUND AT THE "
+              "GOAL FOLDER — the base `engine/cage-admission.js` has always meant by it (\"a "
+              "declared output is GOAL-RELATIVE\", its own refusal text), the base every "
+              "task's `Write:` clause states in words, and the base D36 projects into. "
+              "`goalrel` declares `planning/out.md` with the file ONLY at the goal folder and "
+              "its `done` records the output VERIFIED PRESENT. Before this ruling that same "
+              "seat was refused `MISSING: <seatdir>/planning/out.md` — the shape all 17 "
+              "declared tokens on the two live production goals carry",
+              _ou_rc is None and _ou_rec("goalrel").get("disposition") == "done"
+              and "1 declared output(s) verified present" in (_ou_ro + _ou_re))
+        check("D36 extension: THE `cwd` BASE STILL HOLDS — `seatrel` declares the "
+              "BYTE-IDENTICAL token with the file ONLY under its SEAT folder and is ALSO "
+              "verified. The second base is an ADDITION, not a move: D4's seed contract "
+              "(RS-28) and this file's own `./plan.md` spelling both resolve against `cwd`, "
+              "and breaking declarations that are correct today to fix ones that are not is "
+              "not a fix. `goalrel` and `seatrel` differ in exactly ONE fact — where the file "
+              "is — and BOTH must pass",
+              _ou_sc is None and _ou_rec("seatrel").get("disposition") == "done"
+              and "1 declared output(s) verified present" in (_ou_so + _ou_se))
+        check("D36 extension RED: `norel` declares the SAME token with the file at NEITHER "
+              "base and is REFUSED — and the refusal names the GOAL-RELATIVE path, the one "
+              "the author meant, not the seat-folder one this reader used to print. Widening "
+              "the presence check widened nothing about absence: this is the arm that goes "
+              "green if the two bases ever collapse into `present, whatever`",
+              _ou_nc == 1 and "NOT on disk" in (_ou_no + _ou_ne)
+              and f"{_ou_pkg}/planning/absent.md" in (_ou_no + _ou_ne)
+              and str(Path(_ou_pkg) / "seats" / "norel" / "planning") \
+              not in (_ou_no + _ou_ne)
+              and not _ou_rec("norel"))
         check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
               "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control "

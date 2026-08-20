@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn: childSpawn, execFileSync } = require('node:child_process');
+const { spawn: childSpawn, execFileSync, spawnSync } = require('node:child_process');
 const { requirePythonCmd } = require('../../lib/python-cmd');
 const { loadConfig, resolveTemplateSlots, resolveWorkdir, resolveWorkspaceRoot, resolveEffort } = require('./config');
 // The (harness, model) -> launch-spec table, from the ONE shared resolver (tasks 7.54 / 7.787). Reached
@@ -536,6 +536,82 @@ function launchSpecForSeat(launchSpecs, seatDir, log) {
     model: seatDeclaresValue(seatDir, 'model'),
   };
   return specForSeatCast(launchSpecs, binding, log, seatDir ? path.basename(seatDir) : null);
+}
+
+
+// ── D37 (2026-08-20): REFRESH-BEFORE-LAUNCH ───────────────────────────────────────────────────
+//
+// A seat-descriptor had exactly ONE lifecycle event — create. `render_descriptors` runs at
+// materialize; every reader after that (this file, `coord.py`'s check-out, the admission gate)
+// reads the bytes on disk; nothing re-rendered, nothing detected drift. Measured cost: meet's
+// chairs still carried pre-D30 "you have no checkout" prose, m4's 18 `plan-4-*` sheets predated
+// `delta-anchors`, 118 sheets carried EROFS-era prose, and D36's whole projection would have
+// reached NOTHING already on disk.
+//
+// The refresh verb was already proven; what it lacked was a moment. THIS is the moment, and it is
+// free: a seat being SPAWNED is provably not sitting, which is exactly the per-seat quiescence a
+// refresh needs (the check-out re-reads `## Outputs` from disk at check-out time, so a refresh
+// under a LIVE sitting would change what that sitting is graded against — goal-wide quiescence
+// was never the requirement, and pausing production was never the mechanism).
+//
+// ⚠⚠ IT MAY NEVER BLOCK A LAUNCH. Every failure — no python, no `component:` line, a refusal, a
+// non-zero exit, a timeout, an unparseable answer — is ONE journal line and the launch proceeds on
+// the sheet already on disk. A descriptor that is one pass stale is a working seat; a launch that
+// does not happen is a frozen goal, and freezing goals is the defect this whole plan exists to
+// end. The tool's own discipline makes that safe: every gate in `materialize-seats.py --refresh`
+// fires BEFORE any write, and the write itself is `_rewrite_in_place` (one `pwrite` under an
+// exclusive `flock`, same inode) — a refusal leaves the existing sheet byte-identical.
+const MATERIALIZE_PY = path.join(__dirname, '..', '..', 'team-kit', 'materialize-seats.py');
+const REFRESH_TIMEOUT_MS = 60000;   // measured cost of one seat's refresh: 0.34 s
+
+// The catalog root `--refresh` renders from, read off the seat's OWN `component:` line — the
+// descriptor records where its definition lives, and its MODULE root is that path's parent. Never
+// a hardcoded module: a seat of `meta/planning` and a seat of `office/meeting-summarizer` are both
+// refreshable, and guessing one module for both would re-render a seat against a catalog that
+// does not define it. A seat with no `component:` (the goal-local seats, whose definitions were
+// authored inside their own goal) simply has no catalog root here and is skipped.
+function catalogRootForSeat(seatDir) {
+  let text;
+  try { text = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8'); } catch { return null; }
+  const m = /^component:[ \t]*(.+?)[ \t]*$/m.exec(text);
+  if (!m) return null;
+  const component = m[1].replace(/\/+$/, '');
+  const root = path.dirname(component);
+  return root && root !== '.' && root !== path.sep ? root : null;
+}
+
+// Re-render THIS seat's descriptor from the catalog, in place. Returns nothing: the whole contract
+// is "the sheet on disk is as current as it can be, and the launch continues either way".
+function refreshSeatDescriptor(seatDir, log) {
+  const say = (reason) => log('warn', 'spawn: descriptor refresh skipped', {
+    seat: path.basename(seatDir), seatDir, reason: String(reason).slice(0, 400),
+  });
+  const seatPath = parseSeatPath(seatDir);
+  if (!seatPath) return say('not a canonical seat folder — nothing to refresh');
+  const catalogRoot = catalogRootForSeat(seatDir);
+  if (!catalogRoot) return say('the descriptor declares no `component:` — no catalog root to render from (goal-local seat)');
+  let res;
+  try {
+    res = spawnSync(requirePythonCmd(), [
+      MATERIALIZE_PY, '--package', seatPath.goalDir, '--seat', seatPath.seat,
+      '--catalog-root', catalogRoot, '--refresh', '--root', '--json',
+    ], { encoding: 'utf8', timeout: REFRESH_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    return say(`could not run the materializer — ${err.message}`);
+  }
+  if (res.error) return say(`could not run the materializer — ${res.error.message}`);
+  if (res.status !== 0) {
+    let code = '';
+    try { code = (JSON.parse(res.stdout).refusal || {}).code || ''; } catch { /* not JSON */ }
+    return say(`materialize-seats exited ${res.status}${code ? ` (${code})` : ''}: `
+      + String(res.stderr || res.stdout || '').trim().slice(0, 300));
+  }
+  let parsed;
+  try { parsed = JSON.parse(res.stdout); } catch { return say('materialize-seats answered non-JSON'); }
+  if (!parsed.ok) return say(`materialize-seats refused (${(parsed.refusal || {}).code || 'unnamed'})`);
+  log('info', 'spawn: descriptor refreshed from the catalog', {
+    seat: seatPath.seat, catalogRoot, warnings: parsed.warnings || [],
+  });
 }
 
 
@@ -1563,6 +1639,12 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // `seat.md` at all is not an uncast seat — it is not a seat, which is this door's own
     // `E_NOT_A_SEAT_FOLDER`, and it names the fix the operator actually has (materialize it, or
     // pass a real seat folder) instead of sending him to cast something that does not exist.
+    // D37 — BEFORE THE FIRST READ. `launchSpecForSeat` below reads `seat.md` for the cast and
+    // `seatEffortRung` reads it again for the effort rung; `composeArgv` later hands the same file
+    // to the harness. All three must see ONE version, and the current one — so the refresh runs
+    // here, ahead of every reader, and never after any of them.
+    // ⚠ A dryRun composes the argv for inspection and must leave the tree exactly as it found it.
+    if (!dryRun) refreshSeatDescriptor(seatDir, log);
     let profileName;
     let profile;
     try {
@@ -2046,6 +2128,10 @@ module.exports = {
   // read would prove the catalog and not the fix.
   seatDeclaresValue,
   launchSpecForSeat,
+  // D37 — exported for `probes/probe-spawn-refresh.js`, which drives the REAL materializer
+  // over a REAL catalog fixture; the spawn door itself calls it internally.
+  refreshSeatDescriptor,
+  catalogRootForSeat,
   // Exported for `engine/cage-admission.js` (§ D5): the pre-enqueue admission gate must reason
   // about the SAME `goal-writes` grant this spawner will compose, so it calls the one declaration
   // reader rather than parsing seat.md a second time.

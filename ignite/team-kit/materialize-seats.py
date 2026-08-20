@@ -720,6 +720,23 @@ _FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 # disagreeing is a seat that materializes and then cannot pass its own lint.
 _BLOCK_RE = SECTION_RE
 
+# D36 (2026-08-20) — ONE `Write:` BULLET of a task's `<scope>` block, from its dash to the next
+# top-level bullet (or the block's end). The `Read:` bullet beside it backticks input paths and
+# must never be harvested, which is why this matches the LABEL and not the block. Bold and plain
+# spellings both occur in the live catalog (`- Write:` and `- **Write:**`).
+# ⚠ THIS IS A BULLET FINDER, NOT A PATH GRAMMAR. Which backticked token inside the bullet counts
+# is decided by coord.py's own `_IOSPEC_PATHISH` (`_coord_iospec_grammar`) and by nothing here —
+# a token this file admitted and the check-out could not resolve would be a declaration the gate
+# still refuses, which is the whole defect D36 exists to close.
+_SCOPE_WRITE_RE = re.compile(
+    r"^[ \t]*[-*][ \t]*\**Write\**:[\s\S]*?(?=\n[ \t]*[-*][ \t]|\Z)", re.MULTILINE)
+
+# The projected bullet, verbatim. It says WHERE it came from because a reader of the rendered
+# descriptor must be able to tell prompt-authored schema (reusable, use-case-neutral) from
+# instance data the materializer computed — the KG's own split.
+_PROJECTED_OUTPUT_BULLET = (
+    "- Destination (projected from the task's scope Write clause): `{token}`")
+
 # D5 (seed-gates, 2026-08-19) — a done-contract line NAMING a probe lane the
 # seat must be able to run once caged: `probe lane: `<command …>`` (hyphen or
 # space, optional list dash, command backticked). The first word of the
@@ -1364,9 +1381,19 @@ def resolve_added(args, catalog_root: Path,
             # onto the composed one, exactly as the `--nested` path aliases
             # its own rename map. Everything downstream (folder, descriptor,
             # registry byte-match) then carries the composed name unchanged.
+            # ⚠ D37 (2026-08-20) ADDS THE REFRESH LANE TO THIS SAME ALIAS, and it is ONE
+            # PREDICATE, not a second branch. `--refresh` sets `repass=True`, and
+            # repass+force-partial is refused (`repass-with-force-partial`), so before this
+            # line NO argv combination reached a composed name with `--refresh`: every
+            # `plan-4-*` sheet on the two live goals was unrefreshable BY STRUCTURE, which is
+            # the whole of loose-end L133. The two flags mean the same thing HERE — "the row
+            # already exists under its composed name; resolve its DEFINITION through the base"
+            # — and differ only in what they then do with it, which this function does not
+            # decide. `refresh-would-drop-keys` and `repass-with-force-partial` are untouched.
             parsed = parse_instance_seat_name(args.seat)
             base = parsed[2] if parsed else ""
-            if not (getattr(args, "force_partial", False)
+            if not ((getattr(args, "force_partial", False)
+                     or getattr(args, "refresh", False))
                     and base and base in seats_catalog):
                 raise Refuse(
                     "seat-unknown",
@@ -1979,6 +2006,27 @@ def _coord_iospec_outputs():
     return iospec_outputs
 
 
+def _coord_iospec_grammar():
+    """coord.py's `## Outputs` SECTION regex and its path-token regex — the same two objects
+    `iospec_outputs` itself runs (D36, 2026-08-20). Imported for F6's reason and D3's: the
+    projection below has to find the section it appends to, and to decide which backticked
+    token in a `<scope>` `Write:` bullet is a token the GATE will resolve. A second copy of
+    either grammar here is a descriptor that projects what the check-out cannot read.
+    NEVER re-implement them."""
+    kit_dir = Path(__file__).resolve().parent
+    if str(kit_dir) not in sys.path:
+        sys.path.insert(0, str(kit_dir))
+    try:
+        from coord import _IOSPEC_OUTPUTS_SECTION, _IOSPEC_PATHISH
+    except Exception as exc:  # loud, machine-readable — never a crash
+        raise Refuse(
+            "coord-import",
+            f"cannot import the io-spec grammars from coord.py — {exc}; refusing "
+            "rather than re-implementing them (D3/D36)",
+        ) from exc
+    return _IOSPEC_OUTPUTS_SECTION, _IOSPEC_PATHISH
+
+
 def _resolve_inline_refs(text: str, units: dict, seat: str) -> str:
     """Inline every `Reference: <id>@latest` line inside a block body with the
     referenced unit's body (d-run3-assembled-shape (i)); iterate so a
@@ -2429,6 +2477,59 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
                             "</io-spec>", section + "</io-spec>", 1)
                     blocks[io_idx] = (blocks[io_idx][0], new_text)
 
+        # ---- D36 (2026-08-20): THE CONCRETE DESTINATION, PROJECTED FROM THE TASK ------------
+        #
+        # THE DEFECT, measured: the reusable PROMPT owns `<io-spec>` and MUST stay use-case
+        # neutral (`references/kind-io-spec.md` point 5 — one `checker.md` serves check-clarity,
+        # check-scope, check-edges…), so its `## Outputs` is schema prose. The per-instance TASK
+        # owns `<scope>` and names the real file (`Write: … at `planning/current/findings-
+        # clarity.md``). Both render into ONE seat.md — and the done gate reads only the first.
+        # Result: 94 of 101 live seats were real file producers whose `done` the D5 gate refused
+        # every sitting, and the catalog's own reference doc contradicted itself (point 2: "the
+        # Outputs section IS READ BY MACHINE — declare the artifact by its path").
+        #
+        # The fix is a PROJECTION, not an authoring campaign: schema + description stay the
+        # prompt's words verbatim; the concrete destination is INSTANCE data, so the renderer —
+        # the one actor that holds prompt and task at once — writes it into the surface the gate
+        # reads. KG-consistent (`concepts/output.md`): an i/o spec output is schema + purpose; a
+        # destination is a fact about THIS seat.
+        #
+        # ⚠ ADDITIVE, AND ONLY INTO A SECTION THAT RESOLVES NOTHING. A seat whose `## Outputs`
+        # already yields tokens is left byte-untouched (its author declared, and a projection
+        # beside a declaration is two authorities); a `chat` seat declares a non-file product
+        # and needs no destination; a scope with no `Write:` token projects nothing at all.
+        # ⚠ AND IT MAKES THE GATE STRONGER, NEVER WEAKER: every projected token is a path the
+        # check-out will now REQUIRE on disk. A seat that declared nothing and did nothing used
+        # to record `unverified` for want of a declaration; it now records `unverified` for want
+        # of the file — the honest reason.
+        io_idx = next((i for i, kt in enumerate(blocks) if kt[0] == "io-spec"), None)
+        if io_idx is not None:
+            io_text = blocks[io_idx][1]
+            _decl, _toks, _chat = _coord_iospec_outputs()(io_text)
+            _sect_re, _path_re = _coord_iospec_grammar()
+            _sect = _sect_re.search(io_text)
+            if _decl and not _toks and not _chat and _sect:
+                scope_text = next(
+                    (text for kind, text in blocks if kind == "scope"), "")
+                projected: list[str] = []
+                for bullet in _SCOPE_WRITE_RE.findall(scope_text):
+                    for tok in _path_re.findall(bullet):
+                        if tok not in projected:
+                            projected.append(tok)
+                if projected:
+                    rows = "\n".join(_PROJECTED_OUTPUT_BULLET.format(token=tok)
+                                     for tok in projected)
+                    body = _sect.group(1)
+                    # The LAST section of the block swallows the closing tag (its `\Z`
+                    # boundary); the bullets go INSIDE the block, never after it.
+                    cut = body.find("</io-spec>")
+                    head, tail = (body[:cut], body[cut:]) if cut != -1 else (body, "")
+                    new_body = (head.rstrip("\n") + "\n" + rows
+                                + ("\n" + tail if tail else ""))
+                    blocks[io_idx] = (
+                        blocks[io_idx][0],
+                        io_text[:_sect.start(1)] + new_body + io_text[_sect.end(1):])
+
         # The assembly-lockfile refs (frozen `<unit-id>@<version>` values)
         # carry over from the assembler's frontmatter, after the scalars.
         try:
@@ -2564,13 +2665,26 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         # A WARNING rather than a refusal, deliberately: live workflow io-specs are prose
         # today, and refusing them would freeze every existing definition to unblock a
         # grading nicety — the loud check-out classification is the enforcing half.
-        _decl, _toks = _coord_iospec_outputs()(plan["descriptors"][seat])
-        if _decl and not _toks:
+        # ⚠ D36 (2026-08-20) RE-RULED THIS AND IT IS STILL A WARNING, on MEASURED ground, not
+        # on the old habit. After the projection above, 63 of the 101 live seats of the two
+        # production goals resolve a token and 32 non-chair seats still do not — their tasks
+        # name their destinations SLASHLESS (`task-dag.md` under a separately-named
+        # `planning/current/`), which `_IOSPEC_PATHISH` does not resolve and this file will not
+        # guess at. A refusal would therefore refuse to re-render 32 LIVE descriptors and to
+        # mint m4's taskforce at all — freezing production to enforce a grading nicety, which
+        # is exactly the trade the D3 note already refused. The RED half lives in `--selftest`
+        # (`OUTPROJ-3`): the warning must FIRE, by name, on a seat that still resolves nothing.
+        # ⚠ A `chat` seat is DECLARED and silent here — the check-out admits its `done`.
+        _decl, _toks, _chat = _coord_iospec_outputs()(plan["descriptors"][seat])
+        if _decl and not _toks and not _chat:
             plan["warnings"].append(
                 f"seat '{seat}': outputs-undeclarable — its io-spec `## Outputs` section "
                 f"yields ZERO resolvable path tokens (a token is backticked, carries a `/` "
-                f"and an extension: `seats/<seat>/plan.md`). Its `done` will be recorded "
-                f"`outputs-undeclarable`, i.e. NOTHING VERIFIED (D3, 2026-08-18)")
+                f"and an extension: `seats/<seat>/plan.md`) and its task's `<scope>` "
+                f"`Write:` clause named none to project (D36, 2026-08-20). Its `done` will "
+                f"be recorded `outputs-undeclarable`, i.e. NOTHING VERIFIED (D3, "
+                f"2026-08-18) — unless this seat produces no file at all, in which case "
+                f"declare `- Schema: chat` in that block")
 
 
 # ---------------------------------------------------------------- plan
@@ -6265,6 +6379,70 @@ def run_dag04_acceptance(check, env: dict) -> None:
               and render_mutated(lambda a: a)[0]["warnings"] == [],
               str(_d3_prose["warnings"])[:200])
 
+        # ---- D36 (2026-08-20): THE PROJECTION, ITS CONTROL, AND ITS RED ------------------
+        # Four arms over ONE fixture, each one fact apart from the next, so no arm can pass
+        # for another arm's reason. `_op_scope` rewrites the fixture's `<scope>` body; the
+        # io-spec mutation decides what the block already declares.
+        def _op(io_mut, scope_body):
+            return render_mutated(
+                lambda a: io_mut(a).replace("The fixture tree only.", scope_body))
+        _OP_PROSE = lambda a: a.replace("`./alpha-notes.md`", "prose only, no path token")
+        _OP_CHAT = lambda a: a.replace(
+            "## Outputs\n`./alpha-notes.md`",
+            "## Outputs\n- Schema: chat — the answer, spoken on the bus.")
+        _op_read = _coord_iospec_outputs()
+
+        _op1, _op1c = _op(_OP_PROSE, "- Write: the notes at `./alpha-notes.md`.")
+        _op1_txt = "" if _op1c else _op1["descriptors"]["alpha"]
+        check("D36 (2026-08-20) THE DESTINATION IS PROJECTED FROM THE TASK'S `<scope>` INTO "
+              "THE ONE SURFACE THE GATE READS. The prompt's `## Outputs` is prose (schema, "
+              "no path — the shape 94 of 101 live seats carry); the task's `Write:` bullet "
+              "names the file; the rendered descriptor now declares it, coord's OWN resolver "
+              "reads the token off the emitted body, and the zero-token warning is silent. "
+              "This is the whole of RC-3: same two blocks, one of them finally machine-read",
+              _op1c is None
+              and "- Destination (projected from the task's scope Write clause): "
+                  "`./alpha-notes.md`" in _op1_txt
+              and _op_read(_op1_txt)[1] == ["./alpha-notes.md"]
+              and _op1["warnings"] == [],
+              str(_op1["warnings"])[:200] + _op1_txt[-300:] if _op1c is None else _op1c)
+
+        _op2, _op2c = _op(lambda a: a, "- Write: the log at `./other/run.log`.")
+        _op2_txt = "" if _op2c else _op2["descriptors"]["alpha"]
+        check("D36 NO SECOND AUTHORITY: a `## Outputs` block that ALREADY resolves a token is "
+              "left byte-untouched — the task's `Write:` bullet names a DIFFERENT file "
+              "(`./other/run.log`) and nothing is projected. An author who declared is the "
+              "authority; a projection beside a declaration would be two of them, and the "
+              "check-out would start demanding a file the seat never promised",
+              _op2c is None
+              and "Destination (projected" not in _op2_txt
+              and _op_read(_op2_txt)[1] == ["./alpha-notes.md"],
+              _op2_txt[-300:] if _op2c is None else _op2c)
+
+        _op3, _op3c = _op(_OP_PROSE, "- Write: somewhere on the run surface, unnamed.")
+        check("D36 RED (the zero-token check still bites): prose `## Outputs` AND a `Write:` "
+              "bullet naming no resolvable token warns `outputs-undeclarable` BY NAME — the "
+              "projection rescues nothing it cannot resolve, and this is the arm that would "
+              "go green if the warning were ever quietly dropped. It stays a WARNING and not "
+              "a refusal on measured ground: 26 non-chair live seats of the two production "
+              "goals still land here, and refusing them would freeze re-render and m4's mint",
+              _op3c is None
+              and any("outputs-undeclarable" in w for w in _op3["warnings"])
+              and "Destination (projected" not in _op3["descriptors"]["alpha"],
+              str(_op3["warnings"])[:200])
+
+        _op4, _op4c = _op(_OP_CHAT, "- Write: the notes at `./alpha-notes.md`.")
+        _op4_txt = "" if _op4c else _op4["descriptors"]["alpha"]
+        check("D36 THE TYPED `chat` OUTPUT IS A DECLARATION: a block opening `- Schema: chat` "
+              "declares a NON-FILE product, so NOTHING is projected into it (its `Write:` "
+              "bullet names a real token and is still ignored) and the zero-token warning "
+              "stays silent — the same fact coord's check-out reads to let that `done` stand",
+              _op4c is None
+              and "Destination (projected" not in _op4_txt
+              and _op_read(_op4_txt)[2] is True
+              and _op4["warnings"] == [],
+              str(_op4["warnings"])[:200])
+
         # D5 (seed-gates, 2026-08-19): a done-contract NAMING a probe lane
         # (`probe lane: `stools workspaces``) emits a machine-readable
         # `- cli `stools`` entry under `## Requires-reach` INSIDE the io-spec
@@ -8804,6 +8982,40 @@ def run_selftest() -> int:
               "base REFUSES (bindings-missing-seat) — the re-key finds a cast "
               "or the run stops; a missing binding is never defaulted",
               code(inst("demo-3-beta")) == "bindings-missing-seat")
+
+        # ---- INST-2 / D37 (2026-08-20): THE REFRESH LANE REACHES A COMPOSED NAME ---------
+        # BEFORE this ruling no argv combination did. `--refresh` sets repass=True, and
+        # repass + --force-partial is refused (`repass-with-force-partial`), while the alias
+        # above fired ONLY under --force-partial — so every `plan-4-*` sheet on the two live
+        # production goals was unrefreshable BY STRUCTURE (loose-end L133), which is also
+        # what would have made D37's refresh-before-launch a no-op on exactly the seats that
+        # needed it most. The alias is now ONE predicate over both flags: they agree that the
+        # row exists under its composed name and its DEFINITION lives under the base.
+        inst("demo-3-alpha")          # rebuild the folder the red arms above removed
+        _r37_tf = (npkg / TASKFORCE_NAME).read_bytes()
+        _r37 = _invoke(["--package", nfx["pkg"], "--seat", "demo-3-alpha",
+                        "--catalog-root", nfx["catalog"], "--refresh", "--root",
+                        "--json"], clean_env)
+        check("INST-2 green (D37): `--seat demo-3-alpha --refresh --root` RESOLVES the "
+              "composed name through its base row and re-renders the descriptor in place — "
+              "the seat keeps its composed name, the registry does not move a byte, and no "
+              "row is appended. Its control is the INST-1 red arm two rows up: the SAME "
+              "composed name with neither flag is still `seat-unknown`",
+              _r37.returncode == 0
+              and "seat: demo-3-alpha" in (npkg / "seats" / "demo-3-alpha"
+                                           / "seat.md").read_text(encoding="utf-8")
+              and (npkg / TASKFORCE_NAME).read_bytes() == _r37_tf
+              and json.loads(_r37.stdout).get("taskforce_rows_appended") == 0,
+              f"rc={_r37.returncode} {(_r37.stdout + _r37.stderr).strip()[:300]}")
+        check("INST-2 red (D37): `--refresh` AND `--force-partial` together are STILL "
+              "refused `repass-with-force-partial` — widening the alias to the refresh lane "
+              "did not merge the two flags. One REPLACES a descriptor deliberately, the "
+              "other refuses anything that does not byte-match; they agree about the NAME "
+              "and about nothing else",
+              code(_invoke(["--package", nfx["pkg"], "--seat", "demo-3-alpha",
+                            "--catalog-root", nfx["catalog"], "--refresh", "--root",
+                            "--force-partial", "--json"], clean_env))
+              == "repass-with-force-partial")
 
     print("GL-1 the GOAL-LOCAL seat input lane (W7 R7, adv C75)")
     with tempfile.TemporaryDirectory() as gl_td:

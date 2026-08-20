@@ -41,12 +41,21 @@ function main() {
   const fixtures = JSON.parse(fs.readFileSync(FIXTURES, 'utf8'));
   checkEq('the shared fixture set is non-trivial (>= 8 cases — a shrunken file is a shrunken contract)',
     fixtures.length >= 8, true);
+  // D36 (2026-08-20): the `chat` bit is asserted on EVERY case, not only the ones that carry it
+  // — `!!f.chat` reads absent as false, so a resolver that started reporting `chat: true`
+  // everywhere reds on the other nine rows, not just on the two that are about it.
   for (const f of fixtures) {
     const got = parseDeclaredOutputs(f.text);
     checkEq(`fixture ${f.name}: ${f.why}`,
-      { declared: got.declared, tokens: got.tokens },
-      { declared: f.declared, tokens: f.tokens });
+      { declared: got.declared, tokens: got.tokens, chat: !!got.chat },
+      { declared: f.declared, tokens: f.tokens, chat: !!f.chat });
   }
+  // The shared set must still CARRY the D36 pair — a fixture file that lost them would pass
+  // every row above vacuously.
+  checkEq('the shared set carries the D36 typed-`chat` case AND its prose negative control',
+    [fixtures.some((f) => f.chat === true),
+      fixtures.some((f) => f.name === 'chat-word-in-prose-is-not-a-declaration')],
+    [true, true]);
 
   // The FILE-LEVEL read, on a real tree: `declaredOutputs` is the admission gate's entry point
   // and must be exactly parseDeclaredOutputs over the seat.md bytes — including the two absences

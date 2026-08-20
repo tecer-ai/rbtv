@@ -82,12 +82,26 @@ const PATHISH = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]{1,6})`/g;
 // condition on the grading side (`outputs-undeclarable`), and a resolver that collapsed the two
 // would rebuild the silent `none-declared` this ruling retires. This gate itself needs only the
 // tokens: zero tokens is zero admission questions either way.
+// D36 (2026-08-20): the typed NON-FILE output. A bullet whose SCHEMA opens `chat` declares a
+// product that is CONVERSATION and therefore has no path to check — a DECLARATION, not an
+// absence. THIS gate is unchanged by it (zero path tokens is zero admission questions either
+// way); it is reported so the shared fixture set can hold both halves to one grammar, because
+// coord.py's checkout gate and materialize's zero-token check DO branch on it.
+// ⚠ SCHEMA POSITION ONLY — the word `chat` appears in ordinary Outputs prose ("...posted to the
+// chat bridge") and matching it loose would exempt real file producers. Mirror of
+// `team-kit/coord.py#_IOSPEC_CHAT`.
+const CHAT_SCHEMA = /^[ \t]*[-*][ \t]*\**Schema:?\**:?[ \t]*`?chat`?\b/m;
+
 function parseDeclaredOutputs(text) {
   const block = /<io-spec\b[\s\S]*?<\/io-spec>/.exec(text || '');
-  if (!block) return { declared: false, tokens: [] };
+  if (!block) return { declared: false, tokens: [], chat: false };
   const section = /##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \t]|$)/.exec(block[0]);
-  if (!section) return { declared: false, tokens: [] };
-  return { declared: true, tokens: [...section[1].matchAll(PATHISH)].map((m) => m[1]) };
+  if (!section) return { declared: false, tokens: [], chat: false };
+  return {
+    declared: true,
+    tokens: [...section[1].matchAll(PATHISH)].map((m) => m[1]),
+    chat: CHAT_SCHEMA.test(section[1]),
+  };
 }
 
 // THE DISTINCT-SUCCESSOR OCCUPANT. "Readable by a successor" is the SAME composition asked with a
@@ -360,5 +374,6 @@ function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
 
 module.exports = {
   admitDeclaredOutputs, admitLaneReach, declaredOutputs, parseDeclaredOutputs, parseRequiresReach,
+  CHAT_SCHEMA,
   cageFor, coverVerdict, PEER_SEAT,
 };

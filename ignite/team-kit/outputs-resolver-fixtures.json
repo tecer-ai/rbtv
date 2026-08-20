@@ -28,6 +28,22 @@
     "tokens": []
   },
   {
+    "name": "chat-schema-non-file",
+    "why": "D36 (2026-08-20): a bullet whose SCHEMA opens `chat` declares a NON-FILE product — declared, zero tokens, chat TRUE. The zero-token check and the checkout gate read it as a declaration, never as `outputs-undeclarable`",
+    "text": "---\nagent: judge\n---\n\n<io-spec>\n## Outputs\n- Schema: chat — one `verdict` message row on the run's coordination bus, addressed to the pass-opener. Description: the trial record; there is no result file.\n</io-spec>\n",
+    "declared": true,
+    "tokens": [],
+    "chat": true
+  },
+  {
+    "name": "chat-word-in-prose-is-not-a-declaration",
+    "why": "D36's negative control: the word `chat` in ordinary Outputs prose (a real FILE producer that happens to mention the chat bridge) does NOT declare a non-file output — only the SCHEMA position counts",
+    "text": "---\nagent: bridger\n---\n\n<io-spec>\n## Outputs\n- Schema: the digest at `seats/bridger/digest.md`, also posted to the chat bridge. Description: the summary.\n</io-spec>\n",
+    "declared": true,
+    "tokens": ["seats/bridger/digest.md"],
+    "chat": false
+  },
+  {
     "name": "backticked-but-slashless",
     "why": "the live channel-smith shape: a backticked bare filename fails the PATHISH grammar (a token needs a `/`); the section still counts as declared",
     "text": "---\nagent: smith\n---\n\n<io-spec>\n## Outputs\nThe exposure table `exposure.csv` at the component home.\n</io-spec>\n",
