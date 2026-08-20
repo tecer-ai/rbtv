@@ -793,8 +793,9 @@ class HeartStore {
     //
     // WHY AT THIS DOOR AND NOWHERE ELSE: the row does not fail loudly. It reports `enabled=1`
     // forever while being structurally incapable of firing, so nothing downstream ever contradicts
-    // it — the live catalogue carries two such rows (`goal-watcher`, `goal-watcher-throwaway`),
-    // registered with `{}` before this check existed. The door that accepts the schema is the last
+    // it — the live catalogue carried two such rows (`goal-watcher`, `goal-watcher-throwaway`),
+    // registered with `{}` before this check existed; both were purged when the reconciliation
+    // loop replaced the goal-watcher job (retire-health, 2026-08-20). The door that accepts the schema is the last
     // honest place to refuse it. The purge arm now makes such a row RECOVERABLE (deregister →
     // purge → re-register), which is a repair path, not a reason to admit the row.
     {

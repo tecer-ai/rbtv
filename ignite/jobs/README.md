@@ -8,11 +8,10 @@ recovery agent every period regardless of health — an unbounded paid path.
 
 | Script | Job | Judges | Acts when |
 |--------|-----|--------|-----------|
-| `selfheal-room.py` | 7.71 | a tmux session named as the room | the session does not exist |
-| `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK today, no live catalogue entry** |
+| `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK: no catalogue entry and no profile block** |
 | `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
 
-**Runs on: Linux only.** `goal-watcher-job.py`, `selfheal-room.py` and `restart-daemon.py` import
+**Runs on: Linux only.** `goal-watcher-job.py` and `restart-daemon.py` import
 `jobcontain.py`, whose containment ACTIONS need POSIX `fcntl`/`resource`. (This list read FOUR until
 2026-08-11, naming `selfheal-watch.py` — that script was deleted with its whole blast radius at task
 7.35, commit `c23c770c`, and its queue row deregistered 2026-08-11. Do not re-add it: the surviving
@@ -75,10 +74,10 @@ headless half, the recipient chain, the escalation, the exec allowlist, and the 
 retired role in every `decision(...)` this file can emit. A pass WITHOUT `--notify` is a full dry
 run: every row is decided and printed, nothing is delivered and no child process is spawned.
 
-⚠ **It is DARK. `config/spawn-profiles.yaml` carries only `goal-watcher-throwaway`; the live
-`goal-watcher` entry is deliberately absent** and arming it is a separate gated act. A live entry
-MUST set `--to` to the goal's actual leader seat — the throwaway's non-leader value exists only to
-exercise delivery.
+⚠ **It is DARK, and now unreachable: `config/spawn-profiles.yaml` carries NO `goal-watcher` entry
+and the catalogue carries no `goal-watcher*` row** — both were retired 2026-08-20 when the per-goal
+reconciliation loop (`engine/reconcile.js`, D1/D15) took over goal-level health. The program and its
+probes survive; whole-program retirement was not this change's scope.
 
 ## `edge-runner-job.py` — DELETED 2026-08-11, and nothing replaced it here
 
@@ -147,7 +146,8 @@ probe if node ever SURVIVES the cap (a green U2 could not otherwise be told from
   daemon-spawned *seats*; a room is a tmux session, and this one was kit-created. Routing its
   recovery through the daemon would widen that invariant, would be dead code tonight
   (`RBTV_IGNITE_TMUX_ROOM` is deliberately unset), and would be exactly the control-loop cutover
-  `r-cutover-gated` forbids. Full reasoning in `selfheal-room.py`'s docstring.
+  `r-cutover-gated` forbids. (`selfheal-room.py`, which carried that reasoning, was deleted
+  2026-08-20; `engine/reconcile.js` now detects the dead room and shells `recover-room.py`.)
 - **One catalogue entry per target.** Each detector's target is in its argv, not its cwd, so
   re-pointing a job at a live target requires a config edit plus a daemon restart rather than a
   different enqueue.
@@ -156,7 +156,7 @@ probe if node ever SURVIVES the cap (a green U2 could not otherwise be told from
   the fired tool's — dropping the PATH `carrier.js` `toolExecEnv()` composed for it
   (`d-owner-f1-carrier-env-0808`). Nothing about argv[0] was broken (systemd-run resolves that
   CLIENT-side against the caller's PATH); what was broken is what the detached process and its
-  descendants resolve BY NAME afterwards — `selfheal-room` → `recover-room.py` → `coord.py` boots
+  descendants resolve BY NAME afterwards — `recover-room.py` → `coord.py` boots
   the harness by the bare name `claude`, which lives in `~/.local/bin` and is absent from the
   manager PATH. So the helper emits `--setenv=PATH=<os.environ["PATH"]>`: **forwarded, never
   re-derived** (PRIN-11 — under the daemon that string IS `toolExecEnv()`'s output byte-for-byte;
