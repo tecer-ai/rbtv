@@ -483,6 +483,26 @@ function launchSitting({
   return { ok: true, enq, seat, jobId };
 }
 
+// D44 (owner ruling, 2026-08-20) — `stuck` IS A BRAKE, NOT ONLY A REPORT.
+//
+// ⚠ THIS CHANGES A SPEC BY OWNER RULING, and that is recorded here rather than glossed: the
+// report-only behaviour was BUILT AS SPECIFIED — `seats/resolve-watcher/seat.md:39` says in so
+// many words "A successful launch records the attempt; it does not clear it", and `strike` below
+// was written to record and escalate, never to gate. D44 supersedes that line. The gap it closes
+// is between D34/D40's prose ("bounded", "then typed `stuck` to the leader") and a low-level spec
+// that never gated the launch on `attempts`: measured on the live goal, `audio-component-smith`
+// was launched 17 times in 2h12m, one full `claude-opus-5` boot per ~5 min, on a row whose only
+// blocker was an unanswered owner escalation. Once `stuck` has been emitted the row is the
+// LEADER's, and the leader can relaunch it.
+//
+// KEYED ON THE SIGNATURE, which is what keeps D34/D40 intact: a CHANGED owed-set signature is
+// PROGRESS, so this predicate goes false, `strike` resets the counter to 1, and launching
+// re-arms in the same pass. Only a stuck-and-unchanged row is braked.
+function stuckStands(store, goal, seat, reason, signature) {
+  const prev = getAttempt(store, goal, seat, reason);
+  return !!(prev && prev.signature === signature && Number(prev.stuck_emitted));
+}
+
 function strike({
   store, goal, seat, reason, signature, goalFolder, say, sendFn, engine, pickup, now,
 }) {
@@ -648,6 +668,13 @@ function reconcileGoal({
     } else if (liveSet.has(t.seat) || queued.has(t.seat)) {
       seenTarget.add(t.seat);
       action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };
+    } else if (stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {
+      // D44 · the BRAKE. `stuck` already went to the leader for this exact (seat, reason,
+      // signature) — the mechanical relaunch stops here and the row is the leader's. `strike`
+      // still runs below, so the counter keeps advancing and the owner-alarm leg
+      // (STRIKE_LIMIT + OWNER_AFTER_STUCK) is untouched; what stops is the SPEND.
+      seenTarget.add(t.seat);
+      action = { kind: 'skip-stuck', seat: t.seat, reason: t.reason };
     } else {
       seenTarget.add(t.seat);
       const launched = launchSitting({

@@ -16754,6 +16754,36 @@ def _cap_admit_upto(workers, counted_types, allow):
 # `--force` DOES NOT CARRY IT. `--force` carries the ROLE gate and nothing else
 # (`p-override-split-is-safety-critical`); re-attaching a second gate to it is barred outright, and
 # an identity that could be forced would be an assertion again by another spelling.
+CARRIER_UNIT_PREFIX = "rbtv-worker-"
+
+
+def carrier_self_session(cgroup_text=None):
+    """The session id THIS PROCESS can prove is its own, or '' — D43's corroborator.
+
+    `spawn/carrier.js` mints one transient systemd unit per daemon-launched session, named
+    `rbtv-worker-<sessionId>`, and that sessionId is the SAME id `sessions.csv` carries and the
+    same one a paneless check-in writes into the roster as `sid:<id>` (F1). The cgroup line is
+    kernel-maintained: no env var, flag or config sets it, which is the whole reason F16 keys on
+    it. So this is the paneless twin of "the pane id tmux says you are in".
+
+    Reuses `daemon_worker_unit` rather than re-deriving the pattern — one regex, one anchor. The
+    parameter exists for the SELF-TEST only, the same seam `daemon_exec_identity` carries and for
+    the same reason: a probe supplies measurables, never a name. Nothing in argv and nothing in
+    the environment reaches it; the only caller in the tool passes nothing. Fails closed on every
+    unreadable or unmatched input — no cgroup, no identity.
+    """
+    if cgroup_text is None:
+        try:
+            with open("/proc/self/cgroup", "r", encoding="utf-8") as fh:
+                cgroup_text = fh.read()
+        except OSError:
+            return ""
+    unit = daemon_worker_unit(cgroup_text)
+    if not unit.startswith(CARRIER_UNIT_PREFIX):
+        return ""          # fails closed if the regex above ever stops carrying this prefix
+    return unit[len(CARRIER_UNIT_PREFIX):]
+
+
 def asserted_launch_claim(args):
     """The `--as` claim no roster row corroborates, with the pane it was made from — or ('', pane).
 
@@ -16771,7 +16801,39 @@ def asserted_launch_claim(args):
     pane = detect_pane(getattr(args, "pane", None))
     if pane and pane_agent(base_dir(args, register=False), pane):
         return "", pane
-    return claim, pane
+    # ---- D43 (owner, 2026-08-20) — THE PANELESS CORROBORATION LANE ---------------------------
+    # THE DEFECT D43 NAMES. A headless/caged leader has no TMUX_PANE, so the branch above can
+    # never fire and `--rerun` — the D42 instrument built FOR the leader chair — was refused at
+    # the one identity that holds the verb. Measured: meet's leader, checked in normally at
+    # 19:45Z holding roster row `sid:c22b6807-…`, refused.
+    #
+    # WHAT IT CORROBORATES AGAINST, and why it is not a name lookup. D43 refuses "some active
+    # `sid:` row bears this name" outright — that is G-111 impersonation by another spelling.
+    # This lane asks the OPPOSITE question: `carrier_self_session` reads THIS PROCESS's OWN
+    # `/proc/self/cgroup` and recovers the session id of the daemon-minted transient unit it is
+    # running inside (`spawn/carrier.js` mints `rbtv-worker-<sessionId>`, and that sessionId IS
+    # the `session-id` cell of the seat's `sessions.csv` row — measured 2026-08-20). The roster
+    # is then keyed ON THAT TOKEN, exactly as `pane_agent` is keyed on a pane id: it answers
+    # "which seat is THIS session registered as", and the claim is checked against the answer.
+    # A caller cannot type its cgroup, and the token never crosses argv or the environment —
+    # `carrier_self_session()` is called with no arguments, F16's `daemon_exec_identity` seam.
+    #
+    # ⚠ THE COMPARISON TO `claim` IS LOAD-BEARING AND IS *NOT* SYMMETRIC WITH THE PANE BRANCH
+    # ABOVE. The pane branch may return corroborated for ANY registered row because
+    # `resolve_agent` refuses a CONTRADICTING claim right after — but that contradiction check
+    # reads `pane_agent(base, pane) if pane else ""`, and a paneless caller has no `pane`, so it
+    # resolves to '' and fires on nothing. Nothing downstream would catch a mismatch here, so
+    # this lane must be the thing that does.
+    #
+    # RESIDUAL, recorded rather than glossed (the same caveat F16 records about link 1): a
+    # process that can run `systemd-run --user --unit=rbtv-worker-<sid>` could wear a unit name.
+    # It would have to name the EXACT session id of the target's currently-OPEN roster row, and
+    # anyone holding that capability can already spawn under the daemon's own scope. It is not a
+    # new hole and it is strictly narrower than the `--pane %N` override the branch above accepts.
+    sid = carrier_self_session()
+    if sid and pane_agent(base_dir(args, register=False), SID_PANE_PREFIX + sid) == claim:
+        return "", SID_PANE_PREFIX + sid
+    return claim, (SID_PANE_PREFIX + sid if (sid and not pane) else pane)
 
 
 # THE REFUSAL NAMES ALL THREE WAYS OUT, and that is a requirement rather than courtesy (leader
@@ -16795,6 +16857,25 @@ ASSERTED_LAUNCH_REFUSAL = (
     "  3. Add `--dry-run` to see what the launch would do — it opens nothing and spends nothing, "
     "so it is admitted on the claim alone.\n"
     "`--force` does NOT carry this bound: it carries the role gate and nothing else.")
+
+
+def asserted_launch_pane_state(pane):
+    """The `{pane_state}` clause of the refusal — WHAT was checked and came back empty.
+
+    Three states, because D43 added a third: a real pane with no row, a self-provable PANELESS
+    session whose roster row does not name the claim, and nothing at all. A caller told only
+    "no" cannot tell a bug from a missing step, which is the whole reason this refusal names
+    states rather than saying `--as` was rejected."""
+    if not pane:
+        return ("this process is not inside any tmux pane, and its own cgroup names no "
+                "daemon-minted session either, so there is no roster row to check it against at "
+                "all")
+    if pane.startswith(SID_PANE_PREFIX):
+        return (f"this process's OWN session ({pane}) carries no ACTIVE roster row under that "
+                f"claim — a paneless caller is corroborated only when the roster row registered "
+                f"against ITS OWN session id names the seat it is claiming")
+    return f"this pane ({pane}) carries NO active roster row"
+
 
 
 def cmd_session_open(args):
@@ -16871,10 +16952,7 @@ def cmd_launch(args):
         if _f17_claim:
             refuse("identity", ASSERTED_LAUNCH_REFUSAL.format(
                 claim=_f17_claim,
-                pane_state=(f"this pane ({_f17_pane}) carries NO active roster row"
-                            if _f17_pane else
-                            "this process is not inside any tmux pane, so there is no roster row "
-                            "to check it against at all"),
+                pane_state=asserted_launch_pane_state(_f17_pane),
                 invocation=coord_invocation(args)), 2)
     role_desc = "leader's and the ignite-daemon's (it opens seats and spends plan budget)"
     # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both

@@ -440,12 +440,21 @@ say('── D34: 2 strikes on a REFUSED launch, exactly one stuck ──');
     assert.strictEqual(refused[STRIKE_LIMIT - 1].attempts, STRIKE_LIMIT);
     assert.strictEqual(refused[STRIKE_LIMIT - 1].stuckEmitted, 1);
     assert.strictEqual(sent.length, 1, `stuck sends=${sent.length}`);
-    assert.strictEqual(refused[4].stuckEmitted, 1);
+    // D44 (owner, 2026-08-20) — THIS EXPECTATION MOVED, and it moved because the ruling moved it.
+    // Passes 3-5 used to be three more `launch-refused` rows: the launch was attempted every pass
+    // and only the SEND was suppressed. `stuck` is now a BRAKE, so from pass 3 on nothing is
+    // launched at all and the action is `skip-stuck`. The counter still advances (the row below
+    // still reads 5), which is what keeps the owner-alarm leg unchanged.
+    const braked = passes.slice(STRIKE_LIMIT).map((p) => p.actions.find(
+      (a) => a.seat === 'leader' && a.reason === 'nonterm'));
+    assert.deepStrictEqual(braked.map((a) => a.kind), ['skip-stuck', 'skip-stuck', 'skip-stuck'],
+      `D44: a launch was still attempted after stuck — ${JSON.stringify(braked)}`);
+    assert.strictEqual(braked[2].stuckEmitted, 1);
     assert.strictEqual(sent.length, 1);
     const row = store.getReconcileAttempt('fx-u', 'leader', 'nonterm');
     assert.strictEqual(Number(row.attempts), 5);
     assert.strictEqual(Number(row.stuck_emitted), 1);
-    say(`ok  one stuck after ${STRIKE_LIMIT} refusals, zero more on passes 3-5; store attempts=${row.attempts}`);
+    say(`ok  one stuck after ${STRIKE_LIMIT} refusals; D44: passes 3-5 issued NO launch (skip-stuck); store attempts=${row.attempts}`);
   } finally {
     store.close();
     closeHeartStore();
@@ -550,6 +559,117 @@ say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; change
     store.close();
     closeHeartStore();
   }
+}
+
+// ── D44 · `stuck` IS A BRAKE, NOT ONLY A REPORT ───────────────────────────────────────────────
+// The arm that would have caught the 17 live relaunches, and it observes the ACTION rather than
+// the counter: the counter was already correct while the spend continued. `brakePass` returns the
+// (leader, nonterm) ACTION of the pass, so "no launch" is a measurement, not an inference.
+//
+// ⚠ THE KIND IS ASSERTED EXACTLY, never "not enqueue": `skip-live-or-queued` is also not an
+// enqueue, so a pass braked by last pass's queue entry would read as a PASS for this arm while
+// proving nothing about D44. Asserting `skip-stuck` is what discriminates the brake from the
+// queue.
+function brakePass(store, goalFolder, sent) {
+  const res = reconcileGoal({
+    goal: 'fx-brake', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+    recoverFn: () => ({ ok: true }),
+  });
+  // ⚠ THE QUEUE IS DRAINED BETWEEN PASSES, and without it this arm measures NOTHING: last
+  // pass's enqueue is still pending, so `queuedSeats` short-circuits the next pass to
+  // `skip-live-or-queued` and every pass after pass 2 reads as "no launch" whether the brake
+  // exists or not. Draining models what the daemon actually does — it fires the queued sitting,
+  // the seat runs, gives up again, and the next reconcile pass finds an empty queue.
+  for (const q of store.listQueue()) store.removeQueueRow({ queueId: q.queue_id });
+  return {
+    act: res.actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm'),
+    row: store.getReconcileAttempt('fx-brake', 'leader', 'nonterm'),
+  };
+}
+
+say('── D44: once `stuck` is out, the SAME signature issues NO launch; a CHANGED one re-arms ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureBound();
+    const sent = [];
+
+    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    const p1 = brakePass(store, goalFolder, sent);
+    assert.strictEqual(p1.act.kind, 'enqueue', JSON.stringify(p1.act));
+    assert.strictEqual(Number(p1.row.stuck_emitted), 0);
+    say(`  pass 1: action=${p1.act.kind} attempts=${p1.row.attempts} stuck_emitted=${p1.row.stuck_emitted}`);
+
+    const p2 = brakePass(store, goalFolder, sent);
+    assert.strictEqual(Number(p2.row.attempts), STRIKE_LIMIT);
+    assert.strictEqual(Number(p2.row.stuck_emitted), 1, JSON.stringify(p2));
+    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
+    say(`  pass 2: action=${p2.act.kind} attempts=${p2.row.attempts} stuck_emitted=${p2.row.stuck_emitted} — stuck sent`);
+
+    // THE BRAKE. Same owed set, same signature, stuck already out: nothing may be launched.
+    const p3 = brakePass(store, goalFolder, sent);
+    assert.strictEqual(p3.act.kind, 'skip-stuck', `D44: a launch was issued after stuck — ${JSON.stringify(p3.act)}`);
+    const p4 = brakePass(store, goalFolder, sent);
+    assert.strictEqual(p4.act.kind, 'skip-stuck', JSON.stringify(p4.act));
+    assert.strictEqual(sent.length, 1, `stuck was re-sent: ${JSON.stringify(sent)}`);
+    say(`  pass 3-4 (SAME signature, stuck already out): action=${p3.act.kind}/${p4.act.kind} — NO launch, attempts=${p4.row.attempts}`);
+
+    // D34/D40 INTACT — the owed CONTENT changed, so this is PROGRESS: the counter resets to 1 and
+    // the launch is armed again in the very same pass.
+    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']]);
+    const p5 = brakePass(store, goalFolder, sent);
+    assert.strictEqual(Number(p5.row.attempts), 1, JSON.stringify(p5.row));
+    assert.strictEqual(Number(p5.row.stuck_emitted), 0, JSON.stringify(p5.row));
+    assert.notStrictEqual(p5.row.signature, p2.row.signature);
+    assert.strictEqual(p5.act.kind, 'enqueue', `D34 broken: a changed signature did not re-arm the launch — ${JSON.stringify(p5.act)}`);
+    say(`  pass 5 (CHANGED signature): action=${p5.act.kind} attempts=${p5.row.attempts} stuck_emitted=${p5.row.stuck_emitted} sig=${p5.row.signature}`);
+    say('ok  D44: stuck brakes the relaunch on an unchanged signature, and progress re-arms it (D34 intact)');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── RED arm: D44 — restore the UNCONDITIONAL launch (the pre-ruling code) ──');
+{
+  // The mutant drops the brake branch from a COPY of the live source. If the arm above does not
+  // discriminate, the mutant passes it too.
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const BRAKE_ANCHOR = `    } else if (stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {`;
+  assert.ok(src.includes(BRAKE_ANCHOR), 'D44 brake branch not found — the red arm has no anchor');
+  const mutated = src.replace(BRAKE_ANCHOR, `    } else if (false && stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {`);
+  assert.notStrictEqual(mutated, src);
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(mutated, mut.filename);
+  const store = openStore();
+  let red = null;
+  try {
+    const goalFolder = fixtureBound();
+    const sent = [];
+    const pass = () => mut.exports.reconcileGoal({
+      goal: 'fx-brake-red', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'BOOT',
+      sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+      recoverFn: () => ({ ok: true }),
+    }).actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm');
+    const drain = () => { for (const q of store.listQueue()) store.removeQueueRow({ queueId: q.queue_id }); };
+    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    pass(); drain(); pass(); drain();      // pass 2 emits stuck
+    red = pass();                         // pass 3 — braked in the live code
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+  assert.strictEqual(red.kind, 'enqueue',
+    `the D44 mutant did NOT relaunch after stuck, so the arm above proves nothing: ${JSON.stringify(red)}`);
+  say(`ok  RED: without the brake the same post-stuck pass issues action=${red.kind} — the arm discriminates`);
 }
 
 say('── RED arm: restore `clearAttempt` on launched.ok (and on skip-live-or-queued) ──');
