@@ -479,47 +479,14 @@ async function main() {
     attached.statusAttached({ goalFolder: openGoal }).live.includes('alpha')
       && !attached.statusAttached({ goalFolder: openGoal }).ready.includes('alpha'),
     JSON.stringify(attached.statusAttached({ goalFolder: openGoal }).seats.map((x) => `${x.seat}=${x.state}`)));
-  const openGranted = [];
-  await attached.executeAttached({
-    goalFolder: openGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
-    maxTicks: 1, relaunch: ['alpha'],
-    spawnForeground: (argv, cwd) => { openGranted.push(cwd); return { status: 0 }; },
-  });
-  check('F3 …and the EXPLICIT one-shot grant releases it — the same act a local failure requires',
-    openGranted.length === 1, JSON.stringify(openGranted));
-
   // ── F6 · A FOREIGN `crashed` OUTCOME IS HELD TOO, exactly like a local one ────────
   const failedGoal = mutantOf('lane-goal-2f', (rp) => {
     fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(BLANK_THE_OUTCOME, `,${record.CRASHED}`));
   });
   const failedRun = await runOn(failedGoal);
-  check('F6 a seat that FAILED in the other lane is held here, not silently re-run — the local path '
-    + 'needs a `--relaunch` grant and so does this one',
+  check('F6 a seat that FAILED in the other lane is held here, not silently re-run — exactly as a '
+    + 'LOCAL failure is held on this lane',
     failedRun.fired.length === 0, `foreground launches ${JSON.stringify(failedRun.fired)}`);
-  const failedGranted = [];
-  await attached.executeAttached({
-    goalFolder: failedGoal, profile: 'probe-lane', spawnConfigPath: configPath, tickIntervalMs: 200,
-    maxTicks: 1, relaunch: ['alpha'],
-    spawnForeground: (argv, cwd) => { failedGranted.push(cwd); return { status: 0 }; },
-  });
-  check('F6 …and the grant releases it — the same one-shot act the local failure path takes',
-    failedGranted.length === 1 && failedGranted[0] === path.join(failedGoal, 'seats', 'alpha'),
-    `granted-after-failure ${JSON.stringify(failedGranted)}`);
-  // ⚠ THE LOOP RE-FIRE'S SECOND HALF WAS **REMOVED** FROM THIS PROBE BY W2, AND ITS COVERAGE MOVED
-  // RATHER THAN VANISHED — do not restore it here without reading this. A `doneGoal` arm stood
-  // beside the one above: the UNMUTATED fixture, plus `--relaunch`, expecting a launch, pinning
-  // that the grant re-opens a seat already finished (owner ruling 2026-08-12, `concepts/loop.md`).
-  // Since W2 that fixture's finishedness is its `sessions.csv` CHECK-OUT, and a `done` check-out
-  // makes `coord.py ready-seats` answer `DONE` — a verdict the engine's own grant cannot lift,
-  // because the loop re-fire is a TWO-STORE act: `<goal>/coordination/relaunch-grants` (engine) AND
-  // `coordination/relaunch-grants.csv` (coord's, which is what flips the verdict). `--relaunch`
-  // argv writes only the first, so the arm could only be restored by hand-minting a row into a
-  // schema coord owns — a second copy of another surface's file format, in a fixture.
-  // The guard it targeted is `recordView`'s `finished.delete(seat)` — ONE function, shared by both
-  // lanes, so there was never an attached-lane copy of it to lose. It is pinned behaviourally at
-  // `probe-relaunch-grant.js` LEG 5 (control + granted pair, engine half) and the coord hop at that
-  // probe's LEG 10, which drives the REAL mint that writes both stores.
-
   // ── F2 · ADOPTION: a goal that ran BEFORE this record existed publishes its history ──────────
   //
   // The state every goal on disk was in the day this landed: a store full of outcomes, no record.

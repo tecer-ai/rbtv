@@ -330,9 +330,10 @@ second reading of these gates, is deleted with W2; the one surviving reader is `
 `execution-mode` between the ask and the seat's exit gets the mode in force at the close, and both
 directions are safe.
 
-⚠ **`--relaunch <seat>` releases a held seat whatever its earlier rows say**: a seat held on its
-second ask has already checked out `done` once, and while the grant's bound was spelled "has a done
-row" this escape was a **no-op** for exactly that seat (review F1 on this build).
+⚠ **THERE IS NO `--relaunch` ESCAPE ANY MORE (D12, 2026-08-20).** The one-shot grant that used to
+release a held seat is deleted with the rest of the grant machinery. A seat held on an unanswered
+owner ask is released by the ANSWER, and a seat nobody will answer is released by the leader ruling
+its row (`coordinate rule-disposition <seat> done --go`).
 
 ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED).** The revival still mints
 a second `executions.csv` row for the seat — and since W2 the two facts come from **different

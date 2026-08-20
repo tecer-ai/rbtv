@@ -20,9 +20,9 @@
 // meet-transcript-summarizer): two relaunch grants burned with no session row — `seedGoal`'s
 // ready-row loop spent them while the goal-live refusal (`E_GOAL_NOT_LIVE`) fired later, at the
 // spawn door. `seedGoal` now reads the SAME lease at the SAME room threshold FIRST:
-//   6. goal NOT live + armed grant → nothing enqueued, the grant file BYTE-IDENTICAL, the
+//   6. goal NOT live → nothing enqueued, the
 //      refusal surfaced on the goal bus.
-//   7. goal LIVE → the seat enqueues and the grant is spent.
+//   7. goal LIVE → the seat enqueues, and no grant file exists on either pass (D12).
 //
 // The lease is injected as `readLease` — the real `deriveLease` over a fixture tmux reading
 // (real measurables, never a verdict), `checkGoalExecuting`'s own injection pattern.
@@ -156,9 +156,6 @@ function goalLiveArms() {
   fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), 'taskforce-id,seat,after\ntf-g,alpha,\n');
   fs.writeFileSync(path.join(goalFolder, 'seats', 'alpha', 'seat.md'),
     '---\nseat: alpha\nharness: bash\nmodel: probe-live\n---\n\nbody\n');
-  const grantFile = path.join(goalFolder, 'coordination', 'relaunch-grants');
-  fs.writeFileSync(grantFile, 'alpha\n');
-
   // ⚠ THE STORE SITS UNDER THE FIXTURE WORKSPACE'S OWN `.rbtv/` — that is what threads the
   // FIXTURE workspace root into the D9 check (resolveWorkspaceRoot walks the db path), so the
   // arm never leans on RBTV_IGNITE_WORKSPACE_ROOT pointing anywhere.
@@ -177,14 +174,10 @@ function goalLiveArms() {
   };
 
   try {
-    const before = fs.readFileSync(grantFile, 'utf8');
     const dead = pass(deadLease);
-    const after = fs.readFileSync(grantFile, 'utf8');
     check('arm 6: goal NOT live → NOTHING enqueued and the pass says why (`goalNotLive`)',
       dead.pickup.enqueued.length === 0 && Boolean(dead.pickup.goalNotLive),
       JSON.stringify({ enqueued: dead.pickup.enqueued, goalNotLive: dead.pickup.goalNotLive || null }).slice(0, 300));
-    check('arm 6: the armed relaunch grant file is BYTE-IDENTICAL after the refused pass',
-      after === before, `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`);
     const bus = fs.readFileSync(path.join(goalFolder, 'coordination', 'messages.md'), 'utf8');
     check('arm 6: the refusal is SURFACED on the goal bus (one `seed-refusal` row keyed by the goal)',
       bus.split('\n').filter((l) => l.includes(`seed-refusal: ${goal}`)).length === 1
@@ -192,10 +185,14 @@ function goalLiveArms() {
     say(`arm 6 log line: ${JSON.stringify((dead.logs.find((l) => /not LIVE/.test(l.message)) || {}).message || null)}`);
 
     const live = pass(liveLease);
-    const spent = fs.readFileSync(grantFile, 'utf8');
-    check('arm 7: goal LIVE → the seat ENQUEUES and the grant is SPENT',
-      live.pickup.enqueued.includes('alpha') && spent.trim() === '',
-      JSON.stringify({ enqueued: live.pickup.enqueued, grantFile: spent }));
+    // D12: no grant file exists to spend. The discriminator is the LEASE alone — the same pass
+    // that refused above enqueues here, and the only thing that changed is the tmux reading.
+    check('arm 7: goal LIVE → the seat ENQUEUES',
+      live.pickup.enqueued.includes('alpha') && !live.pickup.goalNotLive,
+      JSON.stringify({ enqueued: live.pickup.enqueued, goalNotLive: live.pickup.goalNotLive || null }));
+    check('arm 7: and NO grant file was created by either pass — the stores are deleted (D12)',
+      fs.readdirSync(path.join(goalFolder, 'coordination')).filter((f) => /grant/.test(f)).length === 0,
+      JSON.stringify(fs.readdirSync(path.join(goalFolder, 'coordination'))));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -8,10 +8,13 @@
 // `{ deduped: true, because: 'live-turn' }` and inserted nothing. The return was discarded, the
 // seat was pushed onto pickup.enqueued, and zero durable trace existed. The goal froze for hours.
 //
-// This probe reproduces that shape: a READY seat whose prior turn is still non-terminal (the
-// live-turn arm of findSeatHolder), hidden from seatState by a relaunch grant — the 08-19
-// spend-then-enqueue ordering. It then asserts the six arms the seat named. The REAL seedGoal
-// and the REAL store are driven; conditionOf is never handed a hand-built pickup.
+// This probe reproduces that shape: a READY seat whose SEAT KEY is already held by a live,
+// non-terminal turn the seeding pass cannot see. D12 (2026-08-20) deleted the relaunch grant that
+// used to produce that split, so the holder is now a FOREIGN job over the SAME seat workdir —
+// which is the truer shape anyway: `findSeatHolder` keys on the seat (`seatKeyOf` -> the workdir),
+// `seatState` keys on the JOB (`jobIdFor(seat, goal)`), and the 08-19 freeze lived in exactly that
+// gap. It then asserts the arms the seat named. The REAL seedGoal and the REAL store are driven;
+// conditionOf is never handed a hand-built pickup.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -88,32 +91,43 @@ function main() {
   const { root, goalFolder, dbPath } = fixture();
   let store = null;
   try {
-    // ── set up the 08-19 shape: enqueue, fire (live-turn holder), grant, re-seed ──
-    say('── fixture: first seed (no holder) then fire, then grant+re-seed ─────────────');
-    const first = pass({ dbPath, goalFolder });
-    store = first.heartStore;
-    const queued = store.listQueue().filter((q) => q.job_id === `seat-${GOAL}-${SEAT}`);
-    say(`  first enqueued=${JSON.stringify(first.pickup.enqueued)} queue_rows=${queued.length}`);
-    if (!queued.length) {
-      check('fixture: first pass enqueued the seat (precondition for the live-turn holder)',
-        false, `enqueued=${JSON.stringify(first.pickup.enqueued)} logs=${JSON.stringify(first.logs.map((l) => l.message))}`);
-      return;
-    }
-    const fired = store.fireQueueRow({ queueId: queued[0].queue_id, now: new Date(), tick: 1 });
-    say(`  fired exec_id=${fired && fired.exec_id} status=${fired && fired.status}`);
-    fs.writeFileSync(path.join(goalFolder, 'coordination', 'relaunch-grants'), `${SEAT}\n`);
+    // ── set up the 08-19 shape: a FOREIGN live turn holding the seat key, then seed ──
+    // The holder is registered under its OWN job id, UNHOMED, with the seat's workdir as its
+    // args — so `seatKeyOf` resolves `workdir:<goalFolder>/seats/<SEAT>` (the exact key the
+    // seeding pass's own enqueue resolves) while `jobIdFor(SEAT, GOAL)` names a different job the
+    // record view has never seen. That is the split the freeze lived in.
+    say('── fixture: a FOREIGN live turn holds the seat key, then one seed pass ───────');
+    const seatDir = path.join(goalFolder, 'seats', SEAT);
+    const HOLDER_JOB = 'foreign-holder';
+    store = openHeartStore({ dbPath });
+    store.registerJob({
+      jobId: HOLDER_JOB,
+      actionType: 'launch-agent',
+      function: 'foreign live turn',
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string' } }),
+      description: 'a turn this goal\'s seeding pass cannot see',
+      createdAt: isoAgo(0),
+      updatedAt: isoAgo(0),
+    });
+    const fired = store.recordExecutionStart({
+      jobId: HOLDER_JOB,
+      actionType: 'launch-agent',
+      args: JSON.stringify({ workdir: seatDir }),
+      enqueuedBy: 'probe-foreign-lane',
+      sessionMode: 'headless',
+      firedTick: 1,
+      firedAt: new Date(),
+    });
+    say(`  foreign holder exec_id=${fired && fired.exec_id} status=${fired && fired.status}`);
     store.close();
     store = null;
 
     const second = pass({ dbPath, goalFolder });
     store = second.heartStore;
-    const grantAfter = fs.existsSync(path.join(goalFolder, 'coordination', 'relaunch-grants'))
-      ? fs.readFileSync(path.join(goalFolder, 'coordination', 'relaunch-grants'), 'utf8')
-      : '';
-    say(`  second enqueued=${JSON.stringify(second.pickup.enqueued)}`);
-    say(`  second suppressedEnqueues=${JSON.stringify(second.pickup.suppressedEnqueues || null)}`);
-    say(`  grant file after second pass: ${JSON.stringify(grantAfter)}`);
-    say(`  second logs: ${JSON.stringify(second.logs.map((l) => ({ level: l.level, message: l.message, because: l.because, seat: l.seat })))}`);
+    say(`  seed enqueued=${JSON.stringify(second.pickup.enqueued)}`);
+    say(`  seed suppressedEnqueues=${JSON.stringify(second.pickup.suppressedEnqueues || null)}`);
+    say(`  no grant file exists: ${JSON.stringify(fs.readdirSync(path.join(goalFolder, 'coordination')).filter((f) => /grant/.test(f)))}`);
+    say(`  seed logs: ${JSON.stringify(second.logs.map((l) => ({ level: l.level, message: l.message, because: l.because, seat: l.seat })))}`);
 
     // ── Arm A — the warn, not the lie ───────────────────────────────────────────
     const warn = second.logs.find((l) => l.level === 'warn' && l.seat === SEAT && l.because === 'live-turn');
@@ -147,6 +161,15 @@ function main() {
       // and the unfired predicate would clear the row.
       store.db.prepare('UPDATE jobs_log SET fired_at = ? WHERE exec_id = ?').run(isoAgo(120 * 1000), fired.exec_id);
       store.db.prepare('UPDATE enqueue_log SET at = ? WHERE enq_id = ?').run(isoAgo(90 * 1000), suppressed.enq_id);
+      // …and RE-HOME the holder's row onto the seat's own job. `conditionOf` is first-match-wins
+      // and `ready-no-live` sits ABOVE `enqueue-unfired`: while the holder is only reachable by
+      // seat KEY, `states[SEAT]` reads `ready` and the goal alarms as "ready, undispatched" — a
+      // true statement about a different condition. A cadence later the record HAS attributed the
+      // turn, which is the state this arm is about: the seat is LIVE, an enqueue for it was
+      // recorded, and nothing ever fired FOR THAT ENQUEUE. One UPDATE, so the arm keeps its
+      // subject instead of drifting onto its neighbour's.
+      store.db.prepare('UPDATE jobs_log SET job_id = ? WHERE exec_id = ?')
+        .run(`seat-${GOAL}-${SEAT}`, fired.exec_id);
     }
     store.close();
     store = null;

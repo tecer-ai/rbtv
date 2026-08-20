@@ -18,13 +18,12 @@
 //        absent for a seat with no descriptor.
 //   B1d  A PROFILE WITH NO `headed.tui` REFUSES, with a positive control in the same run.
 //   B1e  THE CRASH EDGE, DONE RATHER THAN APPROXIMATED: a real `rbtv run` subprocess is SIGKILLed
-//        while a foreground seat holds it, and the re-run must (1) reconcile that row, (2) REFUSE
-//        to advance past the seat rather than silently re-firing it, and (3) run it again — once —
-//        when, and only when, an explicit `--relaunch` grant is typed.
-//   B1f  THE GRANT'S BOUNDS AT THE VIEW IT CHANGES: it hides a granted seat's history WHOLE —
-//        finished rows included, since the loop re-fire (owner ruling 2026-08-12) moved the "must
-//        not re-run completed work" guard to the grant's MINT — and the ungranted view of the same
-//        store is the control.
+//        while a foreground seat holds it, and the re-run must (1) reconcile that row and (2)
+//        REFUSE to advance past the seat rather than silently re-firing it. D12 (2026-08-20)
+//        deleted the third leg with the `--relaunch` grant itself: what runs the seat again is the
+//        goal watcher on the daemon lane, off the LEDGER, not a flag typed at this door.
+//   B1f  THE FOREGROUND RECONCILIATION IS SCOPED to the foreground marker — a detached orphan is
+//        the ticker's crash sweep's business. (Its grant-view half died with D12.)
 //
 // ⚠ A PROBE CANNOT OWN A REAL TTY, and this one does not pretend to. Two substitutions, both
 // disclosed: the library-level arms inject `spawnForeground` (the real carriage stays the DEFAULT,
@@ -594,20 +593,6 @@ async function main() {
     afterKillRows.length === 1 && afterKillRows[0].status === 'failed',
     afterKillRows.map((r) => r.status).join());
 
-  const granted = runCli(['run', killGoal, '--config', configPath,
-    '--relaunch', 'alpha', '--tick-ms', '300', '--max-ticks', '40', '--json']);
-  check('B1e an EXPLICIT --relaunch runs the seat again, and the run then completes',
-    granted.status === 0 && granted.json && granted.json.outcome === 'complete'
-      && granted.json.foreground.map((f) => f.seat).join() === 'alpha',
-    granted.json ? `exit ${granted.status}, outcome ${granted.json.outcome}` : `exit ${granted.status}: ${granted.stderr.split('\n')[0]}`);
-  const grantedRows = rowsFor(killStore, 'alpha');
-  check('B1e the grant fired ONCE: two rows for the seat — the failed attempt and the good one',
-    grantedRows.length === 2 && grantedRows.filter((r) => r.status === 'done').length === 1
-      && grantedRows.filter((r) => r.status === 'failed').length === 1,
-    grantedRows.map((r) => r.status).join());
-
-  check('B1e …and once the grant has run it, nothing is interrupted any more',
-    attached.statusAttached({ goalFolder: killGoal }).interrupted.length === 0);
   check('B1e the stale lock did NOT brick the goal, and no lock is left behind',
     !fs.existsSync(path.join(killGoal, attached.RUN_LOCK)),
     'the crashed runner\'s lock was cleared by liveness, and both re-runs released their own');
@@ -693,53 +678,6 @@ async function main() {
   check('B1g a row already ended by another writer is NOT silently overwritten — it is surfaced',
     owResult.foreignTerminal === 'failed' && owResult.status === 'failed' && owRow.status === 'failed',
     `carrier reported ${JSON.stringify({ foreignTerminal: owResult.foreignTerminal, status: owResult.status })}, row=${owRow.status}`);
-
-  // ── B1f · the grant's own bounds, measured at the view it changes ───────────────────────────
-  say('');
-  say('B1f — a grant re-opens a DEAD seat, and since the loop re-fire a FINISHED one too');
-
-  const view = openHeartStore({ dbPath: killStore });
-  try {
-    const rows = [{ seat: 'alpha', after: '' }, { seat: 'bravo', after: 'alpha' }];
-    const plain = attached.executionsByJob(view);
-    const withGrant = attached.executionsByJob(view, new Set(['alpha', 'bravo']));
-    // This arm used to pin the OPPOSITE — "a grant can never re-open finished work". The loop
-    // re-fire (owner ruling 2026-08-12, `concepts/loop.md`) moved that guard to the grant's MINT —
-    // every writer of the grant is a deliberate act (the `--relaunch` CLI, the leader, the verdict
-    // verb's `on-fail-relaunch` route) — so a granted seat's history is now hidden WHOLE, finished
-    // rows included. LEG 5 of probe-relaunch-grant pins it on the daemon side (control + granted
-    // pair against one attested check-out); this is the VIEW FUNCTION itself, on a store a real
-    // killed-then-relaunched subprocess wrote. ⚠ The two OTHER citations this comment carried are
-    // gone and were not replaced silently: `P5 of probe-block-and-queue-hold` died with that probe
-    // (W2 deleted its subject), and probe-cross-lane-resume's F6 `done` half was removed in the
-    // same change — since W2 that fixture's finishedness is a coord CHECK-OUT, which the engine's
-    // own grant cannot lift, so restoring it would mean hand-minting into a schema coord owns.
-    check('B1f a FINISHED seat IS re-opened by naming it in a grant — the loop re-fire, at the view',
-      !withGrant.get(attached.jobIdFor('alpha'))
-        && !withGrant.get(attached.jobIdFor('bravo'))
-        && attached.seatState(rows[0], withGrant, new Set(), { ready: new Map([['alpha', []]]) }) === 'ready'
-        // …and WITHOUT the grant the very same store reads `done`, so the grant is the only
-        // difference between the two verdicts and this arm cannot pass on an empty view.
-        && Boolean(plain.get(attached.jobIdFor('alpha')))
-        && Boolean(plain.get(attached.jobIdFor('bravo')))
-        && attached.seatState(rows[0], plain, new Set()) === 'done',
-      `granted=${attached.seatState(rows[0], withGrant, new Set(), { ready: new Map([['alpha', []]]) })}`
-        + ` · ungranted=${attached.seatState(rows[0], plain, new Set())}`);
-    // …and the same call on a store where the seat is DEAD does re-open it. Measured on the
-    // failed-only view built from this store's own first attempt.
-    const deadOnly = new Map([[attached.jobIdFor('alpha'), plain.get(attached.jobIdFor('alpha')).filter((r) => r.status === 'failed')]]);
-    check('B1f POSITIVE CONTROL: with only the failed attempt on record the seat reads `live`…',
-      attached.seatState(rows[0], deadOnly, new Set()) === 'live');
-    deadOnly.delete(attached.jobIdFor('alpha'));
-    // ⚠ COORD'S TERM IS HANDED IN. `ready` is no longer derived from `after` here (§ D1), so this
-    // arm's subject — the STORE half, "the grant hides the history and the seat is offerable again"
-    // — is only reachable with the DAG half supplied. Its two neighbours above pin the other
-    // direction: a store term (`done`, `live`) outranks coord's answer whatever it says.
-    check('B1f …and the grant\'s view — its history hidden, nothing rewritten — reads `ready`',
-      attached.seatState(rows[0], deadOnly, new Set(), { ready: new Map([['alpha', []]]) }) === 'ready'
-        // …and WITHOUT coord's offer the very same view reads `waiting`: the store may decline, never promote.
-        && attached.seatState(rows[0], deadOnly, new Set()) === 'waiting');
-  } finally { view.close(); }
 
   // The reconciliation is SCOPED to the foreground marker: a detached row left non-terminal is the
   // ticker's crash sweep's business, and ending it here would race that sweep.
@@ -1054,8 +992,8 @@ main().then(() => {
   say(exitCode
     ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
     : 'RESULT: PASS — a held seat is carried in the terminal and never detached, both gates decide it, '
-      + 'the command is the profile\'s own headed template, and an interrupted seat is reconciled, refused, '
-      + 'and re-run only on an explicit grant.');
+      + 'the command is the profile\'s own headed template, and an interrupted seat is reconciled and '
+      + 'refused rather than silently re-fired.');
   say('');
   say('NOT PROVEN HERE, deliberately: nothing about a harness TUI on an inherited tty — the carriage is');
   say('substituted (an injected function, or `sleep`/`true` as the headed command). That is B2\'s, with a');

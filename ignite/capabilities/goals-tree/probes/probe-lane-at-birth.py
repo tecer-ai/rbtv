@@ -29,11 +29,12 @@ THE THREE PROPERTIES:
   RETIRED flag and requires argparse to refuse it, and D plants it on the console lane for the same
   reason. A flag quietly coming back is exactly what nothing else would notice.
 
-Arm G covers the sibling verb: `relaunch` grants ONE more attempt at a named seat, writing one
-bare seat name per line to `<goal>/coordination/relaunch-grants` — the file a seeding pass reads and spends.
+Arm G is DELETED (D12, 2026-08-20): `rbtv-goal relaunch` and the grant file it wrote are gone with
+the rest of the grant machinery. A seat comes back through the goal watcher's owed-work launch
+(`engine/reconcile.js`), which has no verb at this door.
 
 ⚠ THE GREEN AND RED ARMS DISCRIMINATE EACH OTHER. "It refused" is also what a tool that refuses
-everything produces (arms C, E, F, G require creation and exact bytes); "it accepted" is what a
+everything produces (arms C, E, F require creation and exact bytes); "it accepted" is what a
 tool with no gates produces (arms A, B, D require refusals over the same fixture).
 
 Run it through the suite — `node ignite/deploy/probe-suite.js --only lane-at-birth` — never by
@@ -202,36 +203,6 @@ def main():
                   "wrote — one composer, no second grammar",
                   marker(mg) is not None and marker(mg) == marker(dg),
                   f"scaffolded={marker(dg)!r} moved={marker(mg)!r}")
-
-        # ── G. relaunch — the operator's one-more-attempt grant ────────────────────────────────
-        grants = cg / "coordination" / "relaunch-grants"
-        (cg / "taskforce.csv").write_text(
-            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
-            "tf-1,alpha,,claude,claude-opus-5,medium,50,m1\n"
-            "tf-2,beta,alpha,claude,claude-opus-5,medium,50,m1\n",
-            encoding="utf-8", newline="")
-
-        rc, so, se = run(["--root", str(root), "relaunch", "console-goal", "--seat", "alpha"])
-        check("G. `relaunch --seat <known>` exits 0", rc == 0, f"exit={rc} {(so + se).strip()[:200]}")
-        check("G. …and `relaunch-grants` holds exactly one bare seat name on its own line",
-              grants.is_file() and grants.read_text(encoding="utf-8") == "alpha\n",
-              repr(grants.read_text(encoding="utf-8") if grants.is_file() else None))
-
-        rc, so, se = run(["--root", str(root), "relaunch", "console-goal", "--seat", "alpha"])
-        check("G. a DUPLICATE unspent grant is refused", rc != 0,
-              f"exit={rc} {(so + se).strip()[:200]}")
-        check("G. …and the file is unchanged by the refusal",
-              grants.read_text(encoding="utf-8") == "alpha\n",
-              repr(grants.read_text(encoding="utf-8")))
-
-        rc, so, se = run(["--root", str(root), "relaunch", "console-goal", "--seat", "gamma"])
-        said = so + se
-        check("G. an UNKNOWN seat is refused", rc != 0, f"exit={rc} {said.strip()[:200]}")
-        check("G. …and the refusal NAMES the seats that do exist, so the operator can retype it "
-              "without opening taskforce.csv",
-              "alpha" in said and "beta" in said, said.strip()[:300])
-        check("G. …and granted nothing", grants.read_text(encoding="utf-8") == "alpha\n",
-              repr(grants.read_text(encoding="utf-8")))
 
     failures = [lbl for ok, lbl in RESULTS if not ok]
     out("")

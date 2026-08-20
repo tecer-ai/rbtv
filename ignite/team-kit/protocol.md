@@ -73,8 +73,9 @@ Working seats declare `window: yes` and live in their own named windows (tabs).
 holding no workflow node. They CHECK IN when they sit and CHECK OUT when they rise, like every
 other seat (F1, 2026-08-17 — the former exclusion is retracted: it is what left the leader chair
 with no roster row, so its read cursor never persisted, `ready-seats` could not report it RUNNING,
-and one staff-wake grant opened two leader sittings 4 s apart). A send to one ALWAYS succeeds and is
-queued — a sitting is spawned to drain the mail and ends when it is drained — so `ready-seats`
+and one staff-wake grant opened two leader sittings 4 s apart — that grant is deleted, D12). A send
+to one ALWAYS succeeds and is queued — the goal watcher reconciles a chair's UNREAD MAIL into a
+sitting within one 5-minute cadence, and the sitting ends when the mail is drained — so `ready-seats`
 reporting a chair `IDLE` means it has no mail, never that it stalled. Which chairs a goal staffs is
 declared by CASTING them: a chair is minted only where a casting sheet exists at
 `.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`, and an absent `consultant.json`

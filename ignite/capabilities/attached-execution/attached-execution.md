@@ -214,27 +214,18 @@ would have ended it died with the child. This is what happens, and none of it is
 |---|---|
 | the seat's session exits **0** | turn `done`, session `closed` — the same exit-code rule the ticker's sweep applies to every other seat. The DAG advances on the next pass. |
 | the session exits **non-zero** | turn `failed`, session `crashed`. The run does not advance past the seat: it returns `seat-failed`, exit **1**, naming it. |
-| the seat **asked a question** and its session exited non-zero | both are true and both are reported: the run returns `question` / exit **3** (an unanswered ask is checked first), and the seat's row is already `failed` / `crashed`. Resuming therefore needs `--relaunch <seat>` as well as an answer. |
+| the seat **asked a question** and its session exited non-zero | both are true and both are reported: the run returns `question` / exit **3** (an unanswered ask is checked first), and the seat's row is already `failed` / `crashed`. Resuming therefore needs the answer AND a later sitting, which the goal watcher enqueues once the row is non-terminal (D12). |
 | **Ctrl-C / SIGKILL / a closed terminal** mid-seat | the row is left non-terminal. At the **next run's boot**, before the first pass, `reconcileForegroundOrphans` ends every non-terminal `attached-foreground` row as `failed` / `crashed` — a foreground child cannot outlive the terminal it was attached to, so this is an observation, not a guess. It is NOT the only guard against a ghost row: the ticker's crash sweep (`server/ticker/ticker.js`, `enforce()` ~:1537-1645) overlaps it — measured under a mutation that no-ops the reconciliation (review F5), the sweep still ends the row `failed` at the first tick. What the boot reconciliation uniquely buys: **(a)** the row is ended *before the first enqueue pass*, so eligibility never reads a live-looking row whose runner is gone; **(b)** the record carries an honest "runner is gone" reason instead of the sweep's fabricated `crash sweep: exit=...` completion message and its `slot halted` owner note. The run then behaves as the row above: it refuses, naming the seat. |
 
 **It NEVER blindly re-enqueues.** Seeding is create-only, and re-firing a seat because its row looks
-unfinished is exactly the false-relaunch that rule exists to prevent. Running it again is an explicit
-human act:
+unfinished is exactly the false-relaunch that rule exists to prevent.
 
-**`--relaunch <seat>` (repeatable) — a one-shot grant.** It presents that seat to the eligibility
-predicate *without its execution history*, so a dead seat reads `ready` again. Three bounds:
-nothing in the store is rewritten (the failed attempt stays on record); a seat that **finished** is
-never re-opened by a grant; and the grant is **spent at the launch**, so one invocation gives one
-attempt. There is no grant file and no new state — PRIN-11: the act is the typed flag.
-
-⚠ **"FINISHED" HERE MEANS THE RECORD'S LAST WORD, NOT "HAS A `done` ROW ANYWHERE"** — and the
-difference is not academic, it was review finding **F1** on this build. A seat can carry a `done`
-row *and* be held right now: answer a `block-and-queue` seat, let it work, let it ask again, and its
-record reads `blocked, done, blocked`. While the bound was spelled "has a done row", the grant
-**bailed before it did anything** for exactly that seat — the escape this document and three others
-point at was a **no-op**, and the only way out of a permanently held wave was hand-editing
-`executions.csv`. The bound now reads the last row, so a grant releases any seat that is not
-finished *now*, and still cannot re-open one that is.
+**`--relaunch <seat>` IS DELETED (D12, 2026-08-20), and so is every other grant.** The flag, its
+file store, the mint and the spend are gone: RC-B measured that single-use, session-bound
+authorizations latch in both directions, and the successor is the goal watcher
+(`engine/reconcile.js`), which derives owed work from the LEDGERS every 5 minutes and enqueues it
+directly. A seat whose last ended row is non-terminal, or a chair with unread mail, comes back
+because the ledger says so — there is nothing to mint, nothing to lose and nothing to suppress.
 
 ⚠ Killing the runner's **pid alone** (rather than signalling the process group, which is what Ctrl-C
 and a closed terminal do) leaves the foreground child running with no parent. The reconciliation
@@ -248,7 +239,7 @@ Everything above rests on one attached run owning a goal at a time. Nothing enfo
 happily. **Measured harm** (wave-B review): runner B read runner A's LIVE foreground row, applied the
 reconciliation's premise — *a non-terminal foreground row means its runner is gone*, true for one
 runner and no more — ended A's row, exited `seat-failed`, and told the operator to
-`--relaunch alpha`, which would start a **second session for a seat a human was working in**. A's own
+relaunch alpha, which would start a **second session for a seat a human was working in**. A's own
 turn-end then silently rewrote B's row. Loud in neither direction.
 
 So the premise is now a precondition. `rbtv run` takes `<goal>/.attached-run.lock` — created
@@ -347,9 +338,9 @@ at-dispatch row is written at all:
 
 | the record's row for this seat | what happens here |
 |---|---|
-| `outcome = done` | the seat is `done`. Nothing re-runs it, and no grant can re-open it. ⚠ **Unless a LATER row exists for the same seat** — see the fourth case. |
+| `outcome = done` | the seat is `done`. Nothing re-runs it. ⚠ **Unless a LATER row exists for the same seat** — see the fourth case. |
 | **still OPEN**, and no execution in THIS store owns its session id | the seat is **`live`** — somebody else is running it *right now*. Dispatching would be a concurrent double-run of one seat. |
-| ended **non-`done`** (failed / blocked / killed), same test | the seat is **`live`** — held until an explicit `--relaunch <seat>` grant, which is exactly what a LOCAL failure already requires. Without this the two lanes were asymmetric: a local failure needed the grant, the same failure elsewhere re-ran silently. |
+| ended **non-`done`** (failed / blocked / killed), same test | the seat is **`live`** — held on this lane. D12: the goal watcher relaunches it on the daemon lane, because a non-terminal ending with no later sitting IS owed work. |
 | the seat's **LAST** row is open or `blocked`, whoever owns it | the seat is **`live`**, and — the part that needed the `#d-block-and-queue-mechanical-hold` ruling — **an earlier `done` row does not override it, nor does this store's own `done` turn**. That is both the mechanical hold and the F6 fix: a `done` outranking a *later* open row is what reported a seat finished while its revived session was running. `done` still means "never re-run" for the cross-lane guarantee; "is it finished **now**" is the last word. |
 
 ⚠ **The membership test is the `session-id` join, not the `lane` column.** `lane` says which KIND of
@@ -359,9 +350,9 @@ call another machine's live seat "ours" and dispatch it twice.
 ⚠ **The disclosed bound, with its unstick path.** A foreign writer that CRASHED leaves its row open,
 and the seat stays held. That is not a dead end: that lane's next run publishes from its own store (a
 crashed foreground row reconciles to `failed`, a killed detached one to `failed`/`killed`), and the
-seat becomes grantable. If that lane will never run again, `--relaunch <seat>` is the operator's act —
-the same one a local failure requires. Holding is the safe direction; the unsafe one is running a seat
-somebody else may still be running.
+seat is offered again. If that lane will never run again, the goal watcher is what picks the seat
+up (D12 — there is no operator grant any more). Holding is the safe direction; the unsafe one is
+running a seat somebody else may still be running.
 
 **Every write takes a lock, and that is not belt-and-braces.** The close shipped as an unlocked
 read-modify-write in the first version of this build; measured in review, **300 appends racing 300
@@ -547,8 +538,9 @@ the bus by its one writer (`coord.py send --type answer --re <n>`, driven by
 `engine/bus-answer.js#recordBusAnswer`, which resolves the ask id via the surviving
 `execution-record.js#openOwnerAsks` pairing). Once the ask is answered `ready-seats` stops reporting
 `HELD`, and coord's `cmd_checkout` — which refuses a `done` while the seat's ask is open — admits
-the check-out that advances the successors' `after` members. `--relaunch` remains the operator's
-escape when no answer is coming.
+the check-out that advances the successors' `after` members. When no answer is coming, the escape
+is the owner ruling the row (`coordinate rule-disposition <seat> done --go`), not a grant: D12
+deleted `--relaunch`.
 
 ⚠ **ONLY AN `answer` RELEASES.** A `note` in the same direction does not count: the closed CMP-8
 vocabulary has a word for answering and a different word for remarking, and a peer's aside must not
@@ -687,7 +679,7 @@ held open; the enqueue pass's own bar measured where it stands; the `headed.tui`
 descriptor injection; the no-headed-block refusal with its control; and the crash edge done for real
 — a `rbtv run` subprocess SIGKILLed while a foreground seat holds it, then re-run. Every arm proven
 red by mutation (drop the enqueue bar · force the predicate true · no-op the reconciliation · let a
-grant re-open finished work · drop the `seat-failed` verdict · remove the run lock · treat a live
+re-open finished work · drop the `seat-failed` verdict · remove the run lock · treat a live
 holder as stale · treat a dead holder as live · overwrite a foreign terminal row). Sections **B1h**
 (S-20) and **B1i** (S-21) carry the two later rulings: the foreground row joins its own execution by
 session id, is schema-conformant against the file's OWN header, carries the runner's identity pair,
@@ -714,8 +706,9 @@ direction); its arms now measure the resume, behaviourally, in both:
   **Discriminating mutation:** delete alpha's ROW from the record and the same fixture re-runs the
   seat — so the skip tracks the recorded row, not the file's existence, the seat's name, or the trace.
 - **F3/F6 the holds.** An OPEN foreign row holds the seat (never dispatched twice, `--status` says
-  `live`, the run RETURNS `blocked` instead of spinning, an explicit grant releases it); a foreign
-  `failed` holds it the same way, and no grant can ever re-open a `done` seat.
+  `live`, the run RETURNS `blocked` instead of spinning); a foreign `failed` holds it the same way,
+  and nothing on this lane re-opens a `done` seat. D12 deleted the operator grant that used to be
+  the escape — the goal watcher is the successor, on the daemon lane.
 - **F2 adoption.** A goal whose record is deleted has its store's history republished by its next run,
   and the daemon then skips those seats off the republished record.
 - **D5 the two-writer race.** 300 appends racing 300 closes from two REAL processes: every row and
