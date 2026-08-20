@@ -1342,19 +1342,6 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       };
     }
   }
-  try {
-    const { ensureRoomSelfheal } = require('./ensure-room-selfheal');
-    ensureRoomSelfheal({ heartStore, goal, goalFolder, logger });
-  } catch (err) {
-    if (logger) {
-      logger({
-        level: 'warn',
-        message: 'room selfheal auto-arm failed — seeding continues',
-        goal,
-        error: err && err.message,
-      });
-    }
-  }
   const rows = readTaskforce(goalFolder);
   const seats = rows.map((r) => r.seat);
   // ⚠ COORD FIRST, AND BEFORE ANYTHING IS WRITTEN. A refused computation seeds NOTHING for this
