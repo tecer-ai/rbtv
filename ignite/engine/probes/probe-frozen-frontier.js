@@ -295,11 +295,11 @@ check('...and the detail STATES how many dead rows were discounted, so the owner
 say(`  frozen: ${JSON.stringify(plusOne.frozen)}`);
 
 say('');
-say('── the D22 red arm — the DEAD-ONLY fixture, through the filter as it stood before D22 ────');
-const D22_ANCHOR = "    : seats.filter((s) => states[s] !== 'done' && !deadSeats.has(s));";
+say('── the D22 red arm — the DEAD-ONLY fixture, through waitable-if-alive as if dead were ignored ────');
+const D22_ANCHOR = "if (kind === 'waitable-if-alive') return !row.dead;";
 check('the D22 mutation anchor is present — this arm is measuring the real call site',
   src.includes(D22_ANCHOR));
-const D22_PRE = "    : seats.filter((s) => states[s] !== 'done');";
+const D22_PRE = "if (kind === 'waitable-if-alive') return true;";
 const mutD22 = new Module(SEEDING_PATH, null);
 mutD22.filename = SEEDING_PATH;
 mutD22.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
@@ -309,6 +309,107 @@ check('WITHOUT the D22 exclusion, the DEAD-ONLY fixture ALARMS — the measured 
   Boolean(redDead.frozen) && redDead.frozen.seats.includes('full'),
   JSON.stringify(redDead.frozen));
 say(`  pre-D22 frozen: ${JSON.stringify(redDead.frozen)}`);
+
+// ── D25 (2026-08-20): IDLE CHAIRS ARE NOT PENDING WORK ──────────────────────────────────────
+//
+// THE THIRD FALSE POSITIVE. After D22, stools still had 4 BLOCKED-not-dead rows (real waitable
+// work). Roles then minted `goal-master` + `consultant` as IDLE standing chairs, and the
+// subtract-the-known-harmless filter counted them as pending-forever — `goal frozen AT seeding`
+// every 10s, naming the chairs. A chair waiting to be summoned is the opposite of a freeze.
+//
+//   IDLE-ONLY  — consultant + goal-master, nothing else pending. `frozen` must be NULL.
+//   PLUS-ONE   — the same chairs plus ONE genuinely pending seat (`stuck` behind an
+//                undeclared-session predecessor). `frozen` must name `stuck` and MUST NOT
+//                name either chair.
+// RED: drive IDLE-ONLY through the pre-D25 subtract-harmless filter; it must alarm.
+
+function fixtureIdle(withPending) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-frozen-idle-'));
+  const ws = path.join(root, 'ws');
+  const goalFolder = path.join(ws, '.rbtv', 'goals', 'fx');
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  const rows = [['consultant', ''], ['goal-master', '']];
+  if (withPending) rows.push(['undeclared-dep', ''], ['stuck', 'undeclared-dep']);
+  for (const [seat] of rows) {
+    fs.mkdirSync(path.join(goalFolder, 'seats', seat), { recursive: true });
+    fs.writeFileSync(path.join(goalFolder, 'seats', seat, 'seat.md'),
+      `---\nseat: ${seat}\nharness: bash\nmodel: probe-frozen\n---\n\nbody\n`);
+  }
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+    'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
+    + rows.map(([s, a]) => `tf,${s},"${a}",bash,probe-frozen,high,35,\n`).join(''));
+  if (withPending) {
+    const cols = require('node:child_process').execFileSync(requirePythonCmd(),
+      ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
+        path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+    const now = new Date().toISOString();
+    const sess = [{ 'session-id': 'sess-undeclared-dep', seat: 'undeclared-dep', harness: 'bash',
+      workdir: path.join(goalFolder, 'seats', 'undeclared-dep'), started: now, ended: now }];
+    fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
+      `${cols.join(',')}\n${sess.map((r) => cols.map((c) => r[c] || '').join(',')).join('\n')}\n`);
+  }
+  return { root, ws, goalFolder };
+}
+
+function runIdle(withPending, seedGoalFn) {
+  const { root, ws, goalFolder } = fixtureIdle(withPending);
+  try {
+    const dbPath = path.join(ws, '.rbtv', 'heart', 'heart.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const { openHeartStore } = require('../../server/heart/heart-store');
+    const heartStore = openHeartStore({ dbPath });
+    try {
+      return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
+    } finally {
+      heartStore.close();
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+say('');
+say('── D25: IDLE chairs are not pending work, driven through the REAL patched seedGoal ──────');
+const idleOnly = runIdle(false, realSeedGoal);
+check('IDLE-ONLY fixture (consultant + goal-master, no waitable work): `frozen` is NULL',
+  idleOnly.frozen === null, JSON.stringify(idleOnly.frozen));
+say(`  frozen: ${JSON.stringify(idleOnly.frozen)}`);
+const idleWire = (() => {
+  const fx = fixtureIdle(false);
+  try { return readySeats(fx.goalFolder).rows || []; }
+  finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
+})();
+check('...and it is COORD that ruled them IDLE — both chairs carry verdict IDLE on the wire',
+  ['consultant', 'goal-master'].every((s) => idleWire.some((r) => r.seat === s && r.verdict === 'IDLE')),
+  JSON.stringify(idleWire.map((r) => [r.seat, r.verdict, r.dead])));
+
+const idlePlus = runIdle(true, realSeedGoal);
+check('IDLE-PLUS-ONE fixture (the same chairs plus ONE genuinely pending seat): `frozen` is NON-NULL and names it',
+  Boolean(idlePlus.frozen) && idlePlus.frozen.kind === 'seeding-empty'
+  && idlePlus.frozen.seats.includes('stuck'),
+  JSON.stringify(idlePlus.frozen));
+check('...and the IDLE chairs are NOT in the alarm\'s seat list',
+  Boolean(idlePlus.frozen) && !idlePlus.frozen.seats.includes('consultant')
+  && !idlePlus.frozen.seats.includes('goal-master'),
+  JSON.stringify(idlePlus.frozen && idlePlus.frozen.seats));
+say(`  frozen: ${JSON.stringify(idlePlus.frozen)}`);
+
+say('');
+say('── the D25 red arm — IDLE-ONLY through the pre-D25 subtract-harmless filter ─────────────');
+const D25_ANCHOR = "    : waitableSeats;";
+check('the D25 mutation anchor is present — this arm is measuring the real call site',
+  src.includes(D25_ANCHOR));
+const D25_PRE = "    : seats.filter((s) => states[s] !== 'done' && !deadSeats.has(s));";
+const mutD25 = new Module(SEEDING_PATH, null);
+mutD25.filename = SEEDING_PATH;
+mutD25.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
+mutD25._compile(src.replace(D25_ANCHOR, D25_PRE), SEEDING_PATH);
+const redIdle = runIdle(false, mutD25.exports.seedGoal);
+check('WITHOUT the D25 invert, the IDLE-ONLY fixture ALARMS — the measured false positive, reproduced',
+  Boolean(redIdle.frozen) && redIdle.frozen.seats.includes('goal-master')
+  && redIdle.frozen.seats.includes('consultant'),
+  JSON.stringify(redIdle.frozen));
+say(`  pre-D25 frozen: ${JSON.stringify(redIdle.frozen)}`);
 
 const verdict = failures.length ? 'FAIL' : 'PASS';
 say('');

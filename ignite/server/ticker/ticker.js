@@ -41,6 +41,17 @@ const { createQueuedStartNotifier, ownerFeedDeliverer } = require('./queued-star
 // and for the same reason.
 const { channelEnsureDecision } = require('./goal-channel-start');
 
+// D25 — owner summons (chat-bridge `chat-agent*` rows) may take ONE extra live slot
+// past `max_live_agent_sessions`. Non-interactive rows never use it.
+const RESERVED_INTERACTIVE_SLOTS = 1;
+const CHAT_BRIDGE_ENQUEUED_BY = 'chat-bridge-slack';
+
+function isReservedInteractiveRow(queueRow, job) {
+  if (!queueRow || queueRow.enqueued_by !== CHAT_BRIDGE_ENQUEUED_BY) return false;
+  const id = (job && job.job_id) || queueRow.job_id || '';
+  return typeof id === 'string' && id.startsWith('chat-agent');
+}
+
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
   stall_warn_ticks: 12,
@@ -51,7 +62,7 @@ const DEFAULT_CONFIG = {
   // `0` disables the rung entirely; `stalled` keeps its meaning either way — it still pages, it is
   // still non-terminal, and it is still the owner's cue to look.
   stall_kill_ticks: 60,
-  max_live_agent_sessions: 2,
+  max_live_agent_sessions: 14,
   slot_max_repeats: 10,
   history_compact_chars: 60000,
   // How long a queue row deferred by the seat-busy gate may keep waiting. An hour-old chat
@@ -714,10 +725,30 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
 
     // 7.46: the cap counts live SESSIONS — it always did, in its own name; it just had to read
     // turn status to get the number. Now it reads the session table.
+    //
+    // D25 (2026-08-20): cap is 14 + 1 reserved interactive slot. Chat-bridge owner summons
+    // (`enqueued_by = chat-bridge-slack`, job `chat-agent*`) may use the +1 when the 14 are
+    // full; non-interactive rows never touch it. A second interactive past the +1 still
+    // defers `global-cap`. Reserved admission is a tick action so the log names it.
     const liveAgentSessions = liveSessionTurns().filter(r => r.action_type === 'launch-agent').length;
-    if (liveAgentSessions >= cfg.max_live_agent_sessions) {
-      actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'global-cap' });
-      return;
+    const cap = cfg.max_live_agent_sessions;
+    if (liveAgentSessions >= cap) {
+      const job = heartStore.getJob(queueRow.job_id);
+      const interactive = isReservedInteractiveRow(queueRow, job);
+      const reservedCeiling = cap + RESERVED_INTERACTIVE_SLOTS;
+      if (interactive && liveAgentSessions < reservedCeiling) {
+        actions.push({
+          phase: 'dispatch',
+          action: 'admit',
+          queueId: queueRow.queue_id,
+          reason: 'reserved-interactive-slot',
+          live: liveAgentSessions,
+          cap,
+        });
+      } else {
+        actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'global-cap' });
+        return;
+      }
     }
 
     // ── THE SEAT-BUSY GATE — what makes `on_seat_busy: 'queue'` safe ──────────────────────────

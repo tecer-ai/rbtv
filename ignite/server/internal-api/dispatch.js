@@ -724,7 +724,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       code: daemonLoadedCode,
       last_tick: lastTick ? lastTick.tick : null,
       live_agent_sessions: liveAgentSessions,
-      max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+      max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 14,
       queue_depth: queueRows.length,
       standing_warnings: warnings.map((w) => ({
         id: w.warning_id,
@@ -752,7 +752,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         // owner note. Seconds.
         seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
-        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 14,
         // Task 7.13 piece 3: the retention window, READ-ONLY, as a FIELD on this existing
         // config block — never a new intent (ce-5/D3: read-only queries extend `inspect`;
         // the closed intent set is not touched). 0 = never delete.
@@ -830,7 +830,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         // owner note. Seconds.
         seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,
         slot_max_repeats: configKnobs.slot_max_repeats ?? 10,
-        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 2,
+        max_live_agent_sessions: configKnobs.max_live_agent_sessions ?? 14,
       },
     };
   }

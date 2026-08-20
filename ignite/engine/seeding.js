@@ -72,6 +72,33 @@ const { splitRow } = require('../server/seat-identity/csv');
 
 const TASKFORCE = 'taskforce.csv';
 
+// D25 — the frozen-at-seeding classifier. Waitable work is ONLY what coord positively
+// names: READY, or BLOCKED and not dead. An unknown verdict is NOT waitable (falls OUT).
+// `probe-verdict-vocabulary.js` extracts coord's live vocabulary and asserts every value
+// is a key here — a new coord verdict becomes a commit-time failure, never a silent alarm.
+const CLASSIFIED_VERDICTS = Object.freeze({
+  READY: 'waitable',
+  BLOCKED: 'waitable-if-alive',
+  IDLE: 'not-waitable',
+  DONE: 'not-waitable',
+  HELD: 'not-waitable',
+  RUNNING: 'not-waitable',
+  SKEW: 'not-waitable',
+  RENEWING: 'not-waitable',
+  'RENEW-BLOCKED': 'not-waitable',
+  UNBUILT: 'not-waitable',
+  UNDECLARED: 'not-waitable',
+  STOPPED: 'not-waitable',
+});
+
+function isWaitableWork(row) {
+  if (!row || !row.verdict) return false;
+  const kind = CLASSIFIED_VERDICTS[row.verdict];
+  if (kind === 'waitable') return true;
+  if (kind === 'waitable-if-alive') return !row.dead;
+  return false;
+}
+
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -1437,10 +1464,20 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // ⚠ `ready.size` IS UNTOUCHED — it is `freeze-alarm`'s landed fix (it replaced
   // `readyRows.length`, which counted rows coord ANSWERED rather than rows coord ruled READY, so
   // the guard could never fire on the real freeze). Nothing here weakens it.
+  //
+  // ── D25 (2026-08-20): INVERT THE ARITHMETIC. Subtract-the-known-harmless (done, then dead)
+  // is what produced the THIRD false positive — minted IDLE chairs (`goal-master`, `consultant`)
+  // counted as pending-forever work and re-lit `goal frozen AT seeding` every 10s. Count as
+  // pending ONLY what coord POSITIVELY classifies as waitable work: verdict READY, or BLOCKED
+  // with `dead` false. Every other verdict (IDLE, DONE, HELD, RUNNING, SKEW, RENEWING,
+  // RENEW-BLOCKED, UNBUILT, UNDECLARED, STOPPED) and any future unknown class falls OUT of the
+  // alarm, never into it. `isWaitableWork` is the one classifier; the vocabulary probe fails
+  // if coord grows a verdict this table does not name.
   const deadSeats = new Set((readyRows || []).filter((r) => r && r.dead).map((r) => r.seat));
   const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
+  const waitableSeats = (readyRows || []).filter(isWaitableWork).map((r) => r.seat);
   const pendingUnseeded = (ready.size || moving) ? []
-    : seats.filter((s) => states[s] !== 'done' && !deadSeats.has(s));
+    : waitableSeats;
   if (pendingUnseeded.length && logger) {
     logger({
       level: 'warn',
@@ -1532,4 +1569,6 @@ module.exports = {
   // against a fixture goal without standing up the whole enqueue path.
   surfaceCageRefusal,
   seedGoal,
+  CLASSIFIED_VERDICTS,
+  isWaitableWork,
 };
