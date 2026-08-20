@@ -201,6 +201,41 @@ say('── class (a) ──');
   say('ok  incomplete plan-planner with no later sitting is class (a)');
 }
 
+say('── F-1: a sitting that starts and ends inside ONE minute is still class (a) ──');
+{
+  // coord writes `started` at second precision and `ended` at minute precision. Verbatim shape
+  // of the three meet rows that went invisible on 2026-08-20.
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'f1-'));
+  writeSeat(goalFolder, 'plan-3-plan-check-edges', true);
+  writeTaskforce(goalFolder, ['plan-3-plan-check-edges']);
+  writeSessions(goalFolder, [
+    { 'session-id': 'e1', seat: 'plan-3-plan-check-edges', started: '2026-08-20T05:38:40Z',
+      ended: '2026-08-20 05:38', disposition: 'exited', 'disposition-writer': 'kit' },
+  ]);
+  writeMessages(goalFolder, []);
+  const d = deriveOwed(goalFolder, { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  assert.deepStrictEqual(d.classA.map((x) => x.seat), ['plan-3-plan-check-edges'],
+    `same-minute sitting lost its class (a): ${JSON.stringify(d.classA)}`);
+  assert.strictEqual(d.owed, true);
+  say('ok  started 05:38:40Z / ended 05:38 is owed, not superseded by itself');
+
+  // RED arm: restore the deleted `laterSitting` guard, compiled from a COPY of the live source.
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = '    if (!ended) continue;';
+  assert.ok(src.includes(ANCHOR), 'F-1 anchor missing');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, `${ANCHOR}\n    if (sessions.some((r) => (r.seat || '').trim() === seat && tsAfter(r.started, ended))) continue;`), mut.filename);
+  const red = mut.exports.deriveOwed(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+  });
+  assert.deepStrictEqual(red.classA, [], `mutant kept the row: ${JSON.stringify(red.classA)}`);
+  assert.strictEqual(red.owed, false);
+  say('ok  RED: with laterSitting restored the same row vanishes (classA []), so the arm discriminates');
+}
+
 say('── class (b) ──');
 {
   const d = deriveOwed(fixtureB(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });

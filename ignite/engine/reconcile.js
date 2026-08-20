@@ -160,6 +160,15 @@ function pidAlive(pid) {
   try { return fs.existsSync(`/proc/${n}`); } catch { return false; }
 }
 
+// ⚠ NO SUPERSEDED-BY-A-LATER-SITTING CHECK, AND NEVER AGAIN (F-1). `lastBySeat` already
+// returns the row with the MAXIMUM `started`, so by construction no later sitting of that seat
+// can exist — the old `laterSitting(sessions, seat, row.ended)` guard could only ever match the
+// row against ITSELF. And it did: coord writes `started` at second precision
+// (`2026-08-20T05:38:40Z`) and `ended` at minute precision (`2026-08-20 05:38`), so the string
+// compare in `tsAfter` read a row's own `started` as AFTER its own `ended` whenever the sitting
+// fit inside one minute. Three meet rows (plan-3-plan-check-{consistency,edges,resources},
+// sat 2026-08-20 05:38-05:40) were invisible to the watcher, and a stools seat that gave up in
+// under 60 s dropped out of class (a) and swept its own strike counter.
 function lastBySeat(rows) {
   const last = new Map();
   for (const r of rows) {
@@ -169,11 +178,6 @@ function lastBySeat(rows) {
     if (!prev || tsAfter(r.started, prev.started) || (!prev.started && r.started)) last.set(seat, r);
   }
   return last;
-}
-
-function laterSitting(rows, seat, afterEnded) {
-  if (!afterEnded) return false;
-  return rows.some((r) => (r.seat || '').trim() === seat && tsAfter(r.started, afterEnded));
 }
 
 function liveSeatsFromLedgers(rows) {
@@ -268,7 +272,6 @@ function deriveOwed(goalFolder, {
     if (!isNonTerminal(disp)) continue;
     const ended = (row.ended || '').trim();
     if (!ended) continue;
-    if (laterSitting(sessions, seat, ended)) continue;
     // D33(a) · the word IS the split. `incomplete` → that seat, by name. Everything else
     // non-terminal → the leader, who is the only actor with a verb for it.
     classA.push({
