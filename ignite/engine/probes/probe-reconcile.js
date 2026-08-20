@@ -13,7 +13,7 @@ const r = spawnSync(process.execPath, [SELFTEST], {
   encoding: 'utf8', timeout: 120000, cwd: path.join(HERE, '..', '..'),
 });
 const body = [
-  'probe-reconcile — runs engine/reconcile.selftest.js (derivation, enqueue, 3-strikes, durability, pause gate, red arms)',
+  'probe-reconcile — runs engine/reconcile.selftest.js (derivation, the D33(a) word split, the D34 no-progress counter, D35 mail, durability, pause gate, red arms)',
   `exit: ${r.status}`,
   r.stdout || '',
   r.stderr ? `stderr:\n${r.stderr}` : '',

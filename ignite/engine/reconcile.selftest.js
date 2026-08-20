@@ -29,9 +29,11 @@ function writeTaskforce(goalFolder, seats) {
 }
 
 function writeSessions(goalFolder, rows) {
+  // coord.py SESSIONS_COLS, verbatim. There is no `incomplete-reason` column and never was —
+  // reconcile's old class-(c) parse read one, which is why it never fired (D32/D33a).
   const cols = ['session-id', 'seat', 'harness', 'native-session-id', 'workdir',
     'recorded', 'started', 'ended', 'pid', 'pid-starttime', 'tty', 'disposition',
-    'disposition-writer', 'execution', 'checkin', 'model', 'incomplete-reason'];
+    'disposition-writer', 'execution', 'checkin', 'model'];
   const linesOut = [cols.join(',')];
   for (const r of rows) {
     linesOut.push(cols.map((c) => (r[c] == null ? '' : String(r[c]).replace(/,/g, ' '))).join(','));
@@ -77,7 +79,7 @@ function fixtureB() {
   writeTaskforce(goalFolder, ['leader']);
   writeSessions(goalFolder, [
     { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 10:00',
-      ended: '2026-08-19 10:05', disposition: 'done', checkin: '0' },
+      ended: '2026-08-19 10:05', disposition: 'done', checkin: '2026-08-19 10:04' },
   ]);
   writeMessages(goalFolder, [
     { num: 1, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 11:00', body: 'please sit' },
@@ -85,15 +87,63 @@ function fixtureB() {
   return goalFolder;
 }
 
-function fixtureC() {
-  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'c-'));
-  writeSeat(goalFolder, 'leader', true);
-  writeSeat(goalFolder, 'worker', true);
-  writeTaskforce(goalFolder, ['leader', 'worker']);
+// D33(a) · the three endings side by side in ONE goal. `incomplete` is the SEAT'S word for
+// unfinished — the watcher relaunches that seat by name. `unverified` (checkout's D5 refusal,
+// D32) and `exited` (the harness died) are nobody's to close but the leader's.
+function fixtureSplit() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'split-'));
+  for (const s of ['leader', 'writer', 'checker', 'runner']) writeSeat(goalFolder, s, true);
+  writeTaskforce(goalFolder, ['leader', 'writer', 'checker', 'runner']);
   writeSessions(goalFolder, [
-    { 'session-id': 'w1', seat: 'worker', started: '2026-08-19 10:00',
-      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat',
-      'incomplete-reason': 'outputs-unverified: no declared output' },
+    { 'session-id': 'w1', seat: 'writer', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat' },
+    { 'session-id': 'c1', seat: 'checker', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:06', disposition: 'unverified', 'disposition-writer': 'seat' },
+    { 'session-id': 'r1', seat: 'runner', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:07', disposition: 'exited', 'disposition-writer': 'kit' },
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 09:00',
+      ended: '2026-08-19 09:30', disposition: 'done', 'disposition-writer': 'seat',
+      checkin: '2026-08-19 09:30' },
+  ]);
+  writeMessages(goalFolder, []);
+  return goalFolder;
+}
+
+// D34 · one owed row the LEADER owns, so the strike count for `nonterm` is unambiguous.
+// `rewrite` replays a leader ruling by rewriting the ledger between passes.
+function fixtureBound() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'bound-'));
+  for (const s of ['leader', 'worker-a', 'worker-b']) writeSeat(goalFolder, s, true);
+  writeTaskforce(goalFolder, ['leader', 'worker-a', 'worker-b']);
+  writeMessages(goalFolder, []);
+  return goalFolder;
+}
+
+function boundRows(goalFolder, rows) {
+  writeSessions(goalFolder, [
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 09:00',
+      ended: '2026-08-19 09:30', disposition: 'done', 'disposition-writer': 'seat',
+      checkin: '2026-08-19 09:30' },
+    ...rows.map(([seat, disposition], i) => ({
+      'session-id': `s${i}`, seat, started: '2026-08-19 10:00', ended: '2026-08-19 10:05',
+      disposition, 'disposition-writer': 'seat',
+    })),
+  ]);
+}
+
+// D35 · one chair, three messages, and the check-in stamp moved around them.
+function fixtureMail({ checkin, started = '2026-08-19 10:00', row = true }) {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'mail-'));
+  writeSeat(goalFolder, 'leader', true);
+  writeTaskforce(goalFolder, ['leader']);
+  writeSessions(goalFolder, row ? [
+    { 'session-id': 'ld1', seat: 'leader', started, ended: '2026-08-19 10:30',
+      disposition: 'done', 'disposition-writer': 'seat', checkin },
+  ] : []);
+  writeMessages(goalFolder, [
+    { num: 1, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 11:00' },
+    { num: 2, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 12:00' },
+    { num: 3, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 13:00' },
   ]);
   return goalFolder;
 }
@@ -105,7 +155,7 @@ function fixtureUncast() {
   writeTaskforce(goalFolder, ['leader', 'worker']);
   writeSessions(goalFolder, [
     { 'session-id': 'w1', seat: 'worker', started: '2026-08-19 10:00',
-      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat' },
+      ended: '2026-08-19 10:05', disposition: 'unverified', 'disposition-writer': 'seat' },
   ]);
   writeMessages(goalFolder, []);
   return goalFolder;
@@ -121,9 +171,11 @@ function fixtureSummoned() {
   writeTaskforce(goalFolder, ['leader', 'goal-master']);
   writeSessions(goalFolder, [
     { 'session-id': 'gm1', seat: 'goal-master', started: '2026-08-19 10:00',
-      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat', checkin: '0' },
+      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat',
+      checkin: '2026-08-19 10:04' },
     { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 10:00',
-      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat', checkin: '0' },
+      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat',
+      checkin: '2026-08-19 10:04' },
   ]);
   writeMessages(goalFolder, [
     { num: 1, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 11:00' },
@@ -158,13 +210,52 @@ say('── class (b) ──');
   say('ok  unread staff mail with no live sitting is class (b)');
 }
 
-say('── class (c) as class (a) ──');
+say('── D33(a): class (a) splits by WORD ──');
 {
-  const d = deriveOwed(fixtureC(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
-  assert.strictEqual(d.classA.length, 1);
-  assert.strictEqual(d.classC.length, 1);
-  assert.strictEqual(d.classC[0].outputsUnverified, true);
-  say('ok  outputs-unverified is tagged class (c) and still class (a)');
+  const d = deriveOwed(fixtureSplit(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  const byWord = Object.fromEntries(d.classA.map((x) => [x.seat, `${x.disposition}/${x.reason}`]));
+  assert.deepStrictEqual(byWord, {
+    writer: 'incomplete/incomplete',
+    checker: 'unverified/nonterm',
+    runner: 'exited/nonterm',
+  }, JSON.stringify(byWord));
+  assert.strictEqual(d.classC, undefined, 'classC survived the D33(a) delete');
+  say(`ok  ${JSON.stringify(byWord)} — and classC is gone`);
+}
+
+say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, with a NAMED payload ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureSplit();
+    const r = reconcileGoal({
+      goal: 'fx-split', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'BOOT-PROMPT-BODY',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    const enq = r.actions.filter((a) => a.kind === 'enqueue');
+    assert.deepStrictEqual(enq.map((a) => `${a.seat}:${a.reason}`).sort(),
+      ['leader:nonterm', 'writer:incomplete'], JSON.stringify(r.actions));
+    const q = Object.fromEntries(store.listQueue().map((row) => [row.job_id, JSON.parse(row.args)]));
+    assert.deepStrictEqual(Object.keys(q).sort(), ['seat-fx-split-leader', 'seat-fx-split-writer'],
+      JSON.stringify(Object.keys(q)));
+    // BY NAME: the sitting is enqueued into the stranded seat's OWN folder, not the leader's.
+    assert.ok(q['seat-fx-split-writer'].workdir.endsWith(`${path.sep}seats${path.sep}writer`),
+      q['seat-fx-split-writer'].workdir);
+    const payload = q['seat-fx-split-leader'].prompt;
+    assert.ok(payload.startsWith('BOOT-PROMPT-BODY'), 'the boot prompt is no longer FIRST');
+    for (const needle of ['checker', 'unverified', 'runner', 'exited', 'rule-disposition']) {
+      assert.ok(payload.includes(needle), `leader payload never names ${needle}: ${payload}`);
+    }
+    assert.ok(!/^- `writer`/m.test(payload), `the by-name seat leaked into the leader payload: ${payload}`);
+    say(`ok  writer workdir=…${q['seat-fx-split-writer'].workdir.slice(-20)}`);
+    say(`ok  leader payload (${payload.length} chars) names checker/unverified, runner/exited and rule-disposition`);
+    say(payload.split('\n').filter((l) => l.startsWith('- `') || l.includes('rule-disposition')).join('\n'));
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
 }
 
 say('── dead seats excluded ──');
@@ -182,7 +273,7 @@ say('── dead seats excluded ──');
   say('ok  dead:true seat is never owed');
 }
 
-say('── launch class (a) enqueues leader, not deduped ──');
+say('── launch class (a): the incomplete seat, not deduped ──');
 {
   const store = openStore();
   try {
@@ -198,11 +289,11 @@ say('── launch class (a) enqueues leader, not deduped ──');
     });
     const enq = r.actions.find((a) => a.kind === 'enqueue');
     assert.ok(enq, JSON.stringify(r.actions));
-    assert.strictEqual(enq.seat, 'leader');
+    assert.strictEqual(enq.seat, 'plan-planner');
     assert.ok(enq.enq && !enq.enq.deduped, JSON.stringify(enq.enq));
     const q = store.listQueue();
     assert.strictEqual(q.length, 1);
-    assert.strictEqual(q[0].job_id, 'seat-fx-a-leader');
+    assert.strictEqual(q[0].job_id, 'seat-fx-a-plan-planner');
     say(`ok  enqueued ${q[0].job_id} queue_id=${q[0].queue_id} deduped=${Boolean(enq.enq.deduped)}`);
   } finally {
     store.close();
@@ -234,7 +325,7 @@ say('── class (b) enqueues staff chair ──');
   }
 }
 
-say('── 3-strikes: exactly one stuck ──');
+say('── D34: 2 strikes on a REFUSED launch, exactly one stuck ──');
 {
   const store = openStore();
   try {
@@ -253,15 +344,16 @@ say('── 3-strikes: exactly one stuck ──');
     }
     const refused = passes.map((p) => p.actions.find((a) => a.kind === 'launch-refused'));
     assert.ok(refused[0] && refused[0].error === 'E_UNCAST_SEAT', JSON.stringify(refused[0]));
-    assert.strictEqual(refused[2].attempts, STRIKE_LIMIT);
-    assert.strictEqual(refused[2].stuckEmitted, 1);
+    assert.strictEqual(STRIKE_LIMIT, 2, `D34 says 2 mechanical attempts, got ${STRIKE_LIMIT}`);
+    assert.strictEqual(refused[STRIKE_LIMIT - 1].attempts, STRIKE_LIMIT);
+    assert.strictEqual(refused[STRIKE_LIMIT - 1].stuckEmitted, 1);
     assert.strictEqual(sent.length, 1, `stuck sends=${sent.length}`);
     assert.strictEqual(refused[4].stuckEmitted, 1);
     assert.strictEqual(sent.length, 1);
     const row = store.getReconcileAttempt('fx-u', 'leader', 'nonterm');
     assert.strictEqual(Number(row.attempts), 5);
     assert.strictEqual(Number(row.stuck_emitted), 1);
-    say(`ok  attempts 1-3 recorded, one stuck after ${STRIKE_LIMIT}, zero more on passes 4-5; store attempts=${row.attempts}`);
+    say(`ok  one stuck after ${STRIKE_LIMIT} refusals, zero more on passes 3-5; store attempts=${row.attempts}`);
   } finally {
     store.close();
     closeHeartStore();
@@ -307,6 +399,158 @@ say('── count durable across store close/reopen ──');
     try { store.close(); } catch { /* already */ }
     closeHeartStore();
   }
+}
+
+// ── D34 · the counter measures NO PROGRESS ────────────────────────────────────────────────────
+// This is the defect the redesign was built for: every one of these passes LAUNCHES fine (or is
+// skipped because last pass's launch is still queued), so under the old `clearAttempt` on
+// `launched.ok` the count reset every time, `reconcile_attempts` stayed empty and the loop never
+// ended. `pass()` returns the store row for (leader, nonterm) after each pass.
+function boundPass(store, goalFolder, sent, n) {
+  reconcileGoal({
+    goal: 'fx-bound', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+    recoverFn: () => ({ ok: true }),
+  });
+  return store.getReconcileAttempt('fx-bound', 'leader', 'nonterm');
+}
+
+say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; changed → reset; empty → cleared ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureBound();
+    const sent = [];
+
+    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    const p1 = boundPass(store, goalFolder, sent, 1);
+    assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
+    assert.strictEqual(Number(p1.stuck_emitted), 0);
+    assert.strictEqual(sent.length, 0, JSON.stringify(sent));
+    say(`  pass 1 (owed a=unverified): attempts=${p1.attempts} stuck_emitted=${p1.stuck_emitted} sig=${p1.signature}`);
+
+    const p2 = boundPass(store, goalFolder, sent, 2);
+    assert.strictEqual(Number(p2.attempts), 2, JSON.stringify(p2));
+    assert.strictEqual(Number(p2.stuck_emitted), 1, JSON.stringify(p2));
+    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
+    assert.ok(/stuck: nonterm on `leader`/.test(sent[0]), sent[0]);
+    say(`  pass 2 (owed UNCHANGED):   attempts=${p2.attempts} stuck_emitted=${p2.stuck_emitted}`);
+    say(`  stuck body: ${sent[0]}`);
+
+    // PROGRESS: the owed CONTENT changed (a second row appeared). Same seat, same reason.
+    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']]);
+    const p3 = boundPass(store, goalFolder, sent, 3);
+    assert.strictEqual(Number(p3.attempts), 1, JSON.stringify(p3));
+    assert.strictEqual(Number(p3.stuck_emitted), 0, JSON.stringify(p3));
+    assert.strictEqual(sent.length, 1, `a changed owed set re-sent stuck: ${JSON.stringify(sent)}`);
+    assert.notStrictEqual(p3.signature, p2.signature);
+    say(`  pass 3 (owed CHANGED):     attempts=${p3.attempts} stuck_emitted=${p3.stuck_emitted} sig=${p3.signature}`);
+
+    // The leader ruled both rows `done` — the owed set is empty and the row goes.
+    boundRows(goalFolder, [['worker-a', 'done'], ['worker-b', 'done']]);
+    const p4 = boundPass(store, goalFolder, sent, 4);
+    assert.ok(!p4, `owed set empty but the attempt row survived: ${JSON.stringify(p4)}`);
+    say('  pass 4 (owed EMPTY):       attempt row cleared');
+    say('ok  D34: launch success never clears; only a changed or empty owed set does');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── RED arm: restore `clearAttempt` on launched.ok (and on skip-live-or-queued) ──');
+{
+  // The pre-fix code, verbatim, compiled from a COPY of the live source. If clause 2's first arm
+  // does not discriminate, this mutant passes it too.
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const OK_ANCHOR = `      action = launched.ok
+        ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }`;
+  const SKIP_ANCHOR = `      action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };`;
+  assert.ok(src.includes(OK_ANCHOR), 'launched.ok anchor missing');
+  assert.ok(src.includes(SKIP_ANCHOR), 'skip-live-or-queued anchor missing');
+  const mutated = src
+    .replace(OK_ANCHOR, `      if (launched.ok) clearAttempt(heartStore, goal, t.seat, t.reason);
+${OK_ANCHOR}`)
+    .replace(SKIP_ANCHOR, `      clearAttempt(heartStore, goal, t.seat, t.reason);
+${SKIP_ANCHOR}`);
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(mutated, mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureBound();
+    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    const sent = [];
+    const seen = [];
+    for (let i = 0; i < 4; i += 1) {
+      mut.exports.reconcileGoal({
+        goal: 'fx-bound', goalFolder, engine: { heartStore: store },
+        say: () => {}, force: true, readyAnswer: readyEmpty,
+        live: new Set(), promptFn: () => 'BOOT',
+        sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+        recoverFn: () => ({ ok: true }),
+      });
+      const row = store.getReconcileAttempt('fx-bound', 'leader', 'nonterm');
+      seen.push(row ? Number(row.attempts) : null);
+    }
+    assert.strictEqual(sent.length, 0, `mutant emitted ${sent.length} stuck — the arm does not discriminate`);
+    assert.ok(seen.every((n) => n === null || n === 1), JSON.stringify(seen));
+    say(`ok  red: attempts across 4 passes = ${JSON.stringify(seen)}, stuck sends = 0 (the live defect)`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+// ── D35 · unread mail is what was RECORDED AFTER the chair's last check-in ────────────────────
+say('── D35: unread is a timestamp comparison, not a message number ──');
+{
+  const cases = [
+    ['checkin between #2 and #3', { checkin: '2026-08-19 12:30' }, 1],
+    ['checkin after #3', { checkin: '2026-08-19 13:30' }, 0],
+    ['no checkin, started after #1', { checkin: '', started: '2026-08-19 11:30' }, 2],
+    ['no row at all', { checkin: '', row: false }, 3],
+  ];
+  for (const [label, opts, want] of cases) {
+    const d = deriveOwed(fixtureMail(opts), {
+      readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+    });
+    const got = d.classB.length ? d.classB[0].unreadCount : 0;
+    assert.strictEqual(got, want, `${label}: want ${want} got ${got} — ${JSON.stringify(d.classB)}`);
+    say(`  ${label}: classB=${d.classB.length} unread=${got}`);
+  }
+  say('ok  D35: 1 / 0 / 2 / 3 — and an empty class (b) when the chair has read its mail');
+}
+
+say('── RED arm: restore the numeric mail cursor ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = '&& (!since || tsAfter(m.ts, since)));';
+  assert.ok(src.includes(ANCHOR), 'class (b) unread anchor missing');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, '&& m.num > (Number(since) || 0));'), mut.filename);
+  const d = mut.exports.deriveOwed(fixtureMail({ checkin: '2026-08-19 13:30' }), {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+  });
+  assert.strictEqual(d.classB.length, 1, JSON.stringify(d.classB));
+  assert.strictEqual(d.classB[0].unreadCount, 3, JSON.stringify(d.classB));
+  say('ok  red: Number(checkin) → NaN → cursor 0 → all 3 messages "unread" forever (238 on meet)');
+}
+
+say('── the dead class-(c) column is gone from the module ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  assert.ok(!src.includes('incomplete-reason'), 'reconcile.js still reads incomplete-reason');
+  assert.ok(!src.includes('outputsUnverified'), 'reconcile.js still carries outputsUnverified');
+  assert.ok(!/\bclassC\b/.test(src), 'reconcile.js still derives classC');
+  say('ok  no `incomplete-reason`, no `outputsUnverified`, no `classC` in reconcile.js');
 }
 
 say('── paused goal is not reconciled ──');

@@ -13,8 +13,14 @@
 // ⚠ SUMMONED SEATS ARE NEVER OWED (D24). See `summonedSeats` below.
 // ⚠ GRANTS ARE NOT TOUCHED. Launch is heartStore.enqueue({ onSeatBusy: 'queue' }).
 //    delete-grants has nothing to remove here.
-// Class (c) `outputs-unverified` is routed as class (a): verified-done records it as
-// `incomplete`, which is already non-terminal. One mechanism.
+// ⚠ CLASS A SPLITS BY WORD (D33a). `incomplete` is SEAT-written and means one thing — the seat
+//   said unfinished — so the watcher relaunches THAT seat by name. `unverified` (checkout's D5
+//   refusal, D32), `exited` and an empty cell are nobody's to close but the leader's: ONE leader
+//   wake per pass, carrying a payload that NAMES the rows and the act that closes them. The old
+//   class (c) parsed a per-row reason column `sessions.csv` never had, so it never fired — deleted.
+// ⚠ THE STRIKE COUNTER MEASURES NO PROGRESS, NEVER LAUNCH SUCCESS (D34). A pass whose owed
+//   signature is unchanged is one attempt, however well the launch went; the count clears only
+//   when that signature changes or the (seat, reason) drops out of the owed set.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,7 +34,7 @@ const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const RECOVER_ROOM = path.join(__dirname, '..', 'jobs', 'recover-room.py');
 
 const CADENCE_MS = 5 * 60 * 1000;
-const STRIKE_LIMIT = 3;
+const STRIKE_LIMIT = 2; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
 const OWNER_AFTER_STUCK = 3;
 
 const RECORD_DISPOSITIONS = Object.freeze(['done', 'renew', 'revive', 'exited', 'incomplete']);
@@ -181,10 +187,15 @@ function liveSeatsFromLedgers(rows) {
   return live;
 }
 
+// D35 · A CHAIR'S UNREAD MAIL IS WHAT WAS RECORDED AFTER ITS LAST CHECK-IN. `checkin` is a
+// TIMESTAMP column (coord `SESSIONS_COLS`); the old `Number()` here made it NaN → cursor 0 →
+// every message the chair ever received read "unread" forever (238 on meet, 72 on stools), and
+// class (b) fired on every pass. Fallback `started`; a chair with NO row at all — or a row
+// carrying neither stamp — is owed ALL its mail, which is the pre-D35 behaviour, not a hole.
 function checkinOf(lastRow) {
-  const raw = lastRow && lastRow.checkin;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  if (!lastRow) return '';
+  const ci = String(lastRow.checkin || '').trim();
+  return ci || String(lastRow.started || '').trim();
 }
 
 function leaderSeat(goalFolder) {
@@ -258,21 +269,23 @@ function deriveOwed(goalFolder, {
     const ended = (row.ended || '').trim();
     if (!ended) continue;
     if (laterSitting(sessions, seat, ended)) continue;
-    const reason = String(row['incomplete-reason'] || row.reason || '');
-    const outputsUnverified = disp === 'incomplete' && /outputs-unverified/.test(reason);
+    // D33(a) · the word IS the split. `incomplete` → that seat, by name. Everything else
+    // non-terminal → the leader, who is the only actor with a verb for it.
     classA.push({
-      seat, disposition: disp, ended, outputsUnverified,
-      reason: outputsUnverified ? 'outputs-unverified' : 'nonterm',
+      seat, disposition: disp, ended,
+      reason: disp === 'incomplete' ? 'incomplete' : 'nonterm',
     });
   }
+  classA.sort((x, y) => (x.seat < y.seat ? -1 : x.seat > y.seat ? 1 : 0));
 
   const classB = [];
   for (const chair of STAFF_CHAIRS) {
     if (dead.has(chair)) continue;
     if (summonedSet.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
-    const cursor = checkinOf(last.get(chair));
-    const unread = messages.filter((m) => m.to === chair && m.num > cursor && m.sender !== chair);
+    const since = checkinOf(last.get(chair));
+    const unread = messages.filter((m) => m.to === chair && m.sender !== chair
+      && (!since || tsAfter(m.ts, since)));
     if (!unread.length) continue;
     classB.push({
       seat: chair,
@@ -293,8 +306,8 @@ function deriveOwed(goalFolder, {
     summonedSeats: [...summonedSet],
     classA,
     classB,
-    classC: classA.filter((x) => x.outputsUnverified),
     classE,
+    seats: [...last.keys()],
     live: [...liveSet],
     queued: [...queuedSet],
     owed: classA.length > 0 || classB.length > 0,
@@ -353,6 +366,32 @@ function recoverRoom({ goal, goalFolder, seat, recoverFn }) {
     '--coord', COORD_PY,
   ], { encoding: 'utf8', timeout: 120000 });
   return { ok: r.status === 0, status: r.status, out: (r.stdout || '') + (r.stderr || '') };
+}
+
+// D33(a) · THE LEADER IS NEVER WOKEN BLIND. Until now class (a) produced ONE target — the
+// leader, launched on its plain boot prompt, with nothing naming what it had been woken FOR
+// (144/144 passes on both live goals). The boot prompt stays FIRST and UNCHANGED — if it cannot
+// be built the launch fails exactly as it did before, and nothing is invented in its place —
+// and this block is APPENDED after it.
+function nontermPayload(rows) {
+  return [
+    '',
+    '',
+    '---',
+    '',
+    `## The watcher woke you for ${rows.length} owed session-log row(s)`,
+    '',
+    ...rows.map((r) => `- \`${r.seat}\` — last row \`${r.disposition || '(empty)'}\`, ended ${r.ended}`),
+    '',
+    'Each of those rows ended with an ending nothing can advance on, and no seat can close',
+    'its own. You are the only actor with a verb for them (D33b):',
+    '',
+    '    rule-disposition <seat> done --anchor <p-*/d-* or message ref> --go',
+    '    rule-disposition <seat> "" --anchor <p-*/d-* or message ref> --go   # CLEAR → ordinary relaunch',
+    '',
+    'A `done` ruling\'s anchor must quote the on-disk evidence. Rule them or this wake repeats.',
+    '',
+  ].join('\n');
 }
 
 function launchSitting({
@@ -501,7 +540,6 @@ function reconcileGoal({
       goal,
       classA: derived.classA.map((x) => x.seat),
       classB: derived.classB.map((x) => x.seat),
-      classC: derived.classC.map((x) => x.seat),
       classE: derived.classE ? derived.classE.pending : null,
       readyRefused: derived.readyRefused,
       deadExcluded: derived.deadSeats.length,
@@ -523,12 +561,28 @@ function reconcileGoal({
   }
 
   const launchTargets = [];
-  if (derived.classA.length) {
+  // D33(a) · `incomplete` is the seat's own word for "unfinished" — relaunch THAT seat, by name.
+  for (const item of derived.classA.filter((x) => x.reason === 'incomplete')) {
+    launchTargets.push({
+      seat: item.seat,
+      reason: 'incomplete',
+      signature: `incomplete:${item.seat}:${item.ended}`,
+      source: 'a',
+    });
+  }
+  // The rest is the leader's judgment, in ONE wake that NAMES the rows. The signature is the
+  // owed CONTENT, so a ruling that removes or changes a row IS progress (D34).
+  const nonterm = derived.classA.filter((x) => x.reason !== 'incomplete');
+  if (nonterm.length) {
     launchTargets.push({
       seat: leader,
       reason: 'nonterm',
-      signature: `nonterm:${derived.classA.map((x) => x.seat).sort().join(',')}`,
+      signature: `nonterm:${nonterm.map((x) => `${x.seat}=${x.disposition}`).sort().join(',')}`,
       source: 'a',
+      promptFn: (gf, seat) => {
+        const head = promptFn ? promptFn(gf, seat) : seatBootPrompt(gf, seat).prompt;
+        return (head === null || head === undefined) ? null : head + nontermPayload(nonterm);
+      },
     });
   }
   for (const item of derived.classB) {
@@ -542,30 +596,38 @@ function reconcileGoal({
 
   const liveSet = new Set(derived.live);
   const seenTarget = new Set();
+  // Every (seat, reason) this pass still owes. Anything absent from it is progress, and the
+  // end-of-pass sweep clears it (D34).
+  const owedKeys = new Set();
   for (const t of launchTargets) {
-    if (seenTarget.has(t.seat)) continue;
-    seenTarget.add(t.seat);
-    if (liveSet.has(t.seat) || queued.has(t.seat)) {
-      clearAttempt(heartStore, goal, t.seat, t.reason);
-      actions.push({ kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason });
-      continue;
-    }
-    const launched = launchSitting({
-      heartStore, goal, goalFolder, seat: t.seat, promptFn, say,
-    });
-    if (launched.ok) {
-      clearAttempt(heartStore, goal, t.seat, t.reason);
-      actions.push({ kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId });
+    owedKeys.add(`${t.seat}\u0000${t.reason}`);
+    let action;
+    if (seenTarget.has(t.seat)) {
+      // One launch per seat per pass; the OTHER reason still counts its own attempt.
+      action = { kind: 'skip-already-targeted', seat: t.seat, reason: t.reason };
+    } else if (liveSet.has(t.seat) || queued.has(t.seat)) {
+      seenTarget.add(t.seat);
+      action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };
     } else {
-      const struck = strike({
-        store: heartStore, goal, seat: t.seat, reason: t.reason,
-        signature: t.signature, goalFolder, say, sendFn, engine, pickup, now,
+      seenTarget.add(t.seat);
+      const launched = launchSitting({
+        heartStore, goal, goalFolder, seat: t.seat, promptFn: t.promptFn || promptFn, say,
       });
-      actions.push({
-        kind: 'launch-refused', seat: t.seat, reason: t.reason,
-        error: launched.error, attempts: struck.attempts, stuckEmitted: struck.stuckEmitted,
-      });
+      action = launched.ok
+        ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }
+        : { kind: 'launch-refused', seat: t.seat, reason: t.reason, error: launched.error };
     }
+    // D34 · THE ATTEMPT IS THE PASS, NOT THE LAUNCH. `clearAttempt` used to fire right here on
+    // `launched.ok`, so a wake that enqueued cleanly reset the counter every pass and the loop
+    // was unbounded (`reconcile_attempts` empty after hundreds of passes on both live goals).
+    // `strike` resets to 1 by itself when the signature differs — that IS the progress test.
+    const struck = strike({
+      store: heartStore, goal, seat: t.seat, reason: t.reason,
+      signature: t.signature, goalFolder, say, sendFn, engine, pickup, now,
+    });
+    action.attempts = struck.attempts;
+    action.stuckEmitted = struck.stuckEmitted;
+    actions.push(action);
   }
 
   if (derived.owed) {
@@ -574,9 +636,9 @@ function reconcileGoal({
       const recSeat = leader;
       const rec = recoverRoom({ goal, goalFolder, seat: recSeat, recoverFn });
       if (rec.ok) {
-        clearAttempt(heartStore, goal, recSeat, 'room');
         actions.push({ kind: 'room-rebuilt', seat: recSeat });
       } else {
+        owedKeys.add(`${recSeat}\u0000room`);
         const struck = strike({
           store: heartStore, goal, seat: recSeat, reason: 'room',
           signature: `room:${room.exists ? 'empty' : 'dead'}`,
@@ -590,10 +652,16 @@ function reconcileGoal({
     }
   }
 
-  if (!derived.owed) {
-    clearAttempt(heartStore, goal, leader, 'nonterm');
-    clearAttempt(heartStore, goal, leader, 'room');
-    for (const chair of STAFF_CHAIRS) clearAttempt(heartStore, goal, chair, 'unread');
+  // D34 · the counter clears when the owed set changes or empties, and nowhere else. Sweeping
+  // by (every seat this goal has ever seated) × (this module's four reasons) needs no new store
+  // method and no new column; a DELETE of an absent row costs nothing. When nothing is owed
+  // there are no keys, so every row goes — which is the old `!derived.owed` block, generalised.
+  const sweepSeats = new Set([...derived.seats, ...STAFF_CHAIRS, leader]);
+  for (const seat of sweepSeats) {
+    for (const reason of ['incomplete', 'nonterm', 'unread', 'room']) {
+      if (owedKeys.has(`${seat}\u0000${reason}`)) continue;
+      clearAttempt(heartStore, goal, seat, reason);
+    }
   }
 
   return { goal, derived, actions, leader };
