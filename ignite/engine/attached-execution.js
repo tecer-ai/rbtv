@@ -46,10 +46,6 @@ const {
   // same goals (`#d-abolish-profile-names` sub-ruling 3).
   uncastSeats,
 } = require('./seeding');
-// THE RELAUNCH GRANT'S ONE HOME — `<goal-folder>/coordination/relaunch-grants`, the same file the daemon lane
-// reads inside the shared seeding functions. This lane used to keep the grant in a process-local
-// `Set` built from argv, which is why the other lane could never be given one at all.
-const { readGrants, grantRelaunch, spendGrant } = require('./relaunch-grants');
 const { createBoard, snapshotFrom } = require('./run-board');
 // THE GOAL'S EXECUTION RECORD — the one place any lane's reader asks "did this seat finish"
 // (owner ruling decisions.md#d-s23-single-execution-record-now).
@@ -484,8 +480,8 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
   }
 }
 
-function nextHeldReadySeat(heartStore, rows, isHeld, relaunch, view = null, ready = null) {
-  const byJob = executionsByJob(heartStore, relaunch);
+function nextHeldReadySeat(heartStore, rows, isHeld, view = null, ready = null) {
+  const byJob = executionsByJob(heartStore);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   // `notFinished` rides along, or the carrier would pick up a seat the record holds (`blocked` on
   // the owner, or open in another lane) — the ONE predicate must answer the same way at every one
@@ -646,8 +642,8 @@ function runForegroundSeat({
 //
 // The row is ended `failed` / session `crashed` — the same pair the ticker writes for any process
 // it observed ending badly — and the run then treats that seat as it treats any failed seat: it
-// REFUSES to advance past it and names it. Running it again takes an explicit human act, the
-// one-shot relaunch grant (`--relaunch <seat>`).
+// REFUSES to advance past it and names it. Running it again is the goal watcher's act on the
+// daemon lane (`engine/reconcile.js`): a non-terminal ending with no later sitting is owed work.
 //
 // ── W1 (adv, C12) · THE TWO CLOSERS, AND WHY NEITHER SUBSUMES THE OTHER ───────────────────────
 //
@@ -679,10 +675,9 @@ function runForegroundSeat({
 // closes NO `sessions.csv` row, so an interrupted foreground seat leaks an open sitting forever —
 // F3 on the attached lane. The one-line fix (call `closeForegroundSessionRow` for each row before
 // ending it) was WRITTEN AND REVERTED inside W1's build: measured 2026-08-13, it turns
-// `probe-foreground-carrier` from PASS to FAIL on three checks (B1e's explicit `--relaunch`, B1f's
-// re-open-by-grant view), because stamping `ended`+`exited` on that row changes what coord's
-// readiness view says about the seat — a real behaviour change through the relaunch path that W1
-// neither scoped nor land-tests. It is a follow-up with its own acceptance, not a rider.
+// `probe-foreground-carrier` from PASS to FAIL on three checks, because stamping `ended`+`exited`
+// on that row changes what coord's readiness view says about the seat — a real behaviour change
+// that W1 neither scoped nor land-tests. It is a follow-up with its own acceptance, not a rider.
 function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new Date() } = {}) {
   const ended = [];
   for (const status of LIVE_TURN_STATUSES) {
@@ -719,7 +714,7 @@ function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new D
 // stuck seat's renewal is still in flight before ending the run `blocked`. Absent (a bare store
 // driven by a probe, a caller with no goal on disk), nothing is asked and every verdict is
 // byte-identical to before.
-function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = null, goalFolder = null) {
+function evaluateExit(heartStore, rows, view = null, ready = null, goalFolder = null) {
   const asks = unansweredAsks(heartStore.dump().messages);
   if (asks.length) {
     return { done: true, reason: 'question', asks };
@@ -729,7 +724,7 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
   if (live.length) return { done: false, live: live.length };
   if (heartStore.listQueue().length) return { done: false, live: 0 };
 
-  const byJob = executionsByJob(heartStore, relaunch);
+  const byJob = executionsByJob(heartStore);
   // FINISHED IS THE RECORD'S ANSWER, then this store's own — the same union `seatState` takes, so
   // "is this run complete" cannot disagree with "is this seat done" (a goal whose remaining seats
   // were finished in the OTHER lane is complete, and says so instead of reporting them unfinished).
@@ -779,13 +774,6 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
     // ruling, on this lane too: a contradiction about ONE seat's ending stalls that seat, not 65.
     return !(ready && ready.has(r.seat));
   });
-  // WHICH OF THEM A GRANT COULD ACTUALLY RELEASE, computed here because this is where the holds are
-  // already in hand. It is exactly the set `recordView`'s grant loop deletes from — a seat held by
-  // the record (somebody else's row, an open row, `blocked` on the owner) — and deliberately NOT
-  // every unfinished seat: a seat whose `after` is unmet is not offered by coord either way, so
-  // naming it in the remedy would send an operator to spend a grant that changes nothing.
-  const grantable = (rs) => rs.filter((r) => (foreign && foreign.has(r.seat))
-    || (notFinished && notFinished.has(r.seat))).map((r) => r.seat);
   if (stuck.length === unfinished.length) {
     // ── A STUCK SEAT MID-RENEWAL IS NOT A DEAD SEAT (LE-10; the 04:52 forge symptom) ──────────
     // A `--renew` hand-over has a window in which the seat reads exactly like death from here:
@@ -802,22 +790,19 @@ function evaluateExit(heartStore, rows, relaunch = null, view = null, ready = nu
         .map((r) => r.seat);
       if (renewing.length) return { done: false, live: 0, renewalPending: renewing };
     }
-    return {
-      done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat),
-      grantable: grantable(unfinished),
-    };
+    return { done: true, reason: 'blocked', unfinished: unfinished.map((r) => r.seat) };
   }
 
   // A seat that HAS RUN and did not finish — a failed detached child, or a foreground seat the
   // reconciliation above ended. Nothing is live, nothing is queued and its dependency is satisfied,
   // so no future tick can change its state: the loop would otherwise spin here every 10s forever,
-  // which is what it did. Returning is not a retry decision — the seat runs again only on an
-  // explicit `--relaunch`, never because the loop came back around.
+  // which is what it did. Returning is not a retry decision — D12 (2026-08-20) deleted the
+  // one-shot relaunch grant that used to be the operator's escape here, and the successor is the
+  // goal watcher: a seat whose last ended row is non-terminal is owed work and is relaunched by
+  // `engine/reconcile.js` on the daemon lane, with nothing to mint and nothing to lose.
   const failed = unfinished.filter((r) => seatHasRun(byJob.get(jobIdFor(r.seat))));
   if (failed.length) {
-    // Every one of these IS grantable: it has an execution row in THIS store and nothing else, so
-    // hiding that row is precisely what a grant does (`executionsByJob`).
-    return { done: true, reason: 'seat-failed', unfinished: failed.map((r) => r.seat), grantable: failed.map((r) => r.seat) };
+    return { done: true, reason: 'seat-failed', unfinished: failed.map((r) => r.seat) };
   }
   return { done: false, live: 0 };
 }
@@ -985,10 +970,8 @@ async function executeAttached({
   logger = null,
   now = () => new Date(),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  // The one-shot relaunch grants this invocation carries (`--relaunch <seat>`), and the carriage
-  // for a held seat. `spawnForeground` is injectable because a probe cannot own a real tty — the
-  // REAL path stays the default, and a probe substitutes a scripted child.
-  relaunch = [],
+  // The carriage for a held seat. `spawnForeground` is injectable because a probe cannot own a
+  // real tty — the REAL path stays the default, and a probe substitutes a scripted child.
   spawnForeground = spawnForegroundInTerminal,
   // `board` is the human live view (three columns + happening). The CLI always asks for it
   // except under `--json`. Library callers and probes leave it off.
@@ -1086,13 +1069,6 @@ async function executeAttached({
     const resumedAtTick = engine.getTickNumber();
     const intervalMs = tickIntervalMs || 10000;
     const isHeld = heldSeatPredicate(goalFolder);
-    // The grants this run may spend. A caller-supplied seat list (`relaunch`) is MINTED INTO THE
-    // FILE rather than kept in this process: one home means the seat a console run granted is the
-    // seat the daemon lane would also honour, and a grant that could not be spent this run survives
-    // the terminal closing. The seeding pass sources the same file for itself, so this set is only
-    // what THIS loop needs for its own carriage and exit decisions.
-    for (const seat of relaunch) grantRelaunch(goalFolder, seat);
-    const grants = readGrants(goalFolder);
     // BEFORE the first pass: a foreground row left non-terminal belongs to a runner that is gone.
     const reconciled = reconcileForegroundOrphans(engine.heartStore, { logger: engineLogger });
     const foreground = [];
@@ -1116,7 +1092,7 @@ async function executeAttached({
       // incidental: `recordView` takes these rows as the source of done-ness and of the `HELD`
       // hold, so a view built before them would answer "nothing is done" for the whole pass.
       const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder);
-      let view = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows });
+      let view = recordView(engine.heartStore, goalFolder, { readyRows });
       if (!ready) {
         engineLogger({
           level: 'warn',
@@ -1131,13 +1107,9 @@ async function executeAttached({
       // pass — a pathological repeat falls back to the old pacing instead of spinning the terminal.
       const carriedThisPass = new Set();
       for (;;) {
-        const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, grants, view, ready);
+        const held = nextHeldReadySeat(engine.heartStore, rows, isHeld, view, ready);
         if (!held || carriedThisPass.has(held.seat)) break;
         carriedThisPass.add(held.seat);
-        // The grant is SPENT at the launch, never re-read — in memory AND on disk, in one act.
-        // The second half is what stops a re-run of `rbtv run` (or the daemon's next pass) finding
-        // the same grant still standing and carrying the seat a second time.
-        if (grants.delete(held.seat)) spendGrant(goalFolder, held.seat);
         if (board) board.suspend(held.seat);
         try {
           foreground.push(runForegroundSeat({
@@ -1160,11 +1132,11 @@ async function executeAttached({
         // view still had no row for it, and the store's own `done` turn let its dependent start
         // anyway. One extra small read, on carriage passes only. It is ALSO what makes the next
         // turn of this loop correct: the seat this one just unblocked is visible to it.
-        view = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows });
+        view = recordView(engine.heartStore, goalFolder, { readyRows });
       }
 
       enqueueEligible(engine.heartStore, rows, {
-        goalFolder, logger: engineLogger, isHeld, relaunch: grants, view, ready, readyRows,
+        goalFolder, logger: engineLogger, isHeld, view, ready, readyRows,
       });
       await engine.tick(now());
       ticks += 1;
@@ -1186,7 +1158,7 @@ async function executeAttached({
       // The frontier and the record's view now share one source for done-ness, so the exit decision
       // and the live board cannot disagree about a seat that checked out inside this tick.
       const post = readySeats(goalFolder);
-      const postView = recordView(engine.heartStore, goalFolder, { relaunch: grants, readyRows: post.rows });
+      const postView = recordView(engine.heartStore, goalFolder, { readyRows: post.rows });
       const postReady = post.ready;
       if (board) {
         board.update(snapshotFrom(engine.heartStore, rows, {
@@ -1198,7 +1170,7 @@ async function executeAttached({
           asks: unansweredAsks(engine.heartStore.dump().messages),
         }));
       }
-      const verdict = evaluateExit(engine.heartStore, rows, grants, postView, postReady, goalFolder);
+      const verdict = evaluateExit(engine.heartStore, rows, postView, postReady, goalFolder);
       if (verdict.done) {
         return {
           host,
@@ -1211,10 +1183,6 @@ async function executeAttached({
           seats: rows.map((r) => r.seat),
           asks: verdict.asks || [],
           unfinished: verdict.unfinished || [],
-          // The seats a relaunch grant could actually release — what the CLI's remedy hint prints,
-          // so the hint is not a guess made from the outcome word (it used to be exactly that, and
-          // was therefore unreachable on the `blocked` verdict a cross-lane failed seat produces).
-          grantable: verdict.grantable || [],
           foreground,
           reconciled,
         };
@@ -1226,7 +1194,7 @@ async function executeAttached({
         return {
           host, outcome: 'max-ticks', goalFolder, storePath, resumedAtTick,
           tick: engine.getTickNumber(), ticks, seats: rows.map((r) => r.seat), asks: [], unfinished: [],
-          grantable: [], foreground, reconciled,
+          foreground, reconciled,
         };
       }
       if (board && board.tty) {

@@ -13,7 +13,6 @@ side and never on ignite):
     rbtv-goal lane <goal-name> [--set daemon | --set console]
     rbtv-goal pause <goal-name> --reason R # stash the lane assignment AND append the park ruling
     rbtv-goal resume <goal-name>           # owner-only unstash; appends the lift ruling
-    rbtv-goal relaunch <goal-name> --seat X # authorize ONE more attempt at a seat that failed
     rbtv-goal dag <goal-name>              # the graph + each seat's derived state
     rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]] --bindings SHEET
                                    --catalog-root DIR [--splice-only] [--dry-run]
@@ -913,82 +912,6 @@ def cmd_resume(args) -> int:
               + (" ⚠ (the restored marker uses the RETIRED two-token grammar and therefore reads "
                  "CONSOLE — re-run `lane --set daemon` to repair it)" if legacy else "")
               + f" ({goal_dir / LANE_FILE})")
-    return 0
-
-
-# ---------------------------------------------------------------- relaunch
-#
-# THE OPERATOR'S ACT THAT AUTHORIZES ONE MORE ATTEMPT (task 7.776). A seat that ended `failed` or
-# exited is not retried on its own — the grant is what buys it one more run, and it is spent by
-# the pass that acts on it, so a second failure needs a second grant.
-#
-# ⚠ ONE BARE SEAT NAME PER LINE, no header and no csv. The reader on the other side (the seeding
-# pass) parses exactly that; columns would be a schema two languages have to agree on, for a file
-# whose whole content is a list of names.
-
-
-RELAUNCH_GRANTS_FILE = "relaunch-grants"
-
-
-def relaunch_grants_path(goal_dir: Path) -> Path:
-    """`<goal>/coordination/relaunch-grants` — D6: same directory as the CSV twin."""
-    return goal_dir / "coordination" / RELAUNCH_GRANTS_FILE
-
-
-def read_relaunch_grants(goal_dir: Path) -> list[str]:
-    """The seats holding an UNSPENT grant. Absent file = none — the same shape `read_lane`
-    gives its own missing marker."""
-    try:
-        raw = relaunch_grants_path(goal_dir).read_text(encoding="utf-8")
-    except OSError:
-        return []
-    return [ln.strip() for ln in raw.splitlines() if ln.strip()]
-
-
-def cmd_relaunch(args) -> int:
-    """Grant ONE more attempt at a seat of this goal."""
-    _root, goal_dir, name = _lane_goal_dir(args)
-    seat = args.seat.strip()
-
-    # The seat must be one this goal HAS. A typo that lands in the file is a grant nothing will
-    # ever spend, and the operator's only signal would be the seat never running.
-    tf_path = goal_dir / "taskforce.csv"
-    if not tf_path.is_file():
-        raise Refusal(
-            f"{tf_path}: this goal has no taskforce yet, so it has no seat to relaunch — staff it "
-            f"first (`rbtv-goal materialize {name}`).", "taskforce-absent")
-    seats = [s for s in ((r.get("seat") or "").strip() for r in read_csv(tf_path)) if s]
-    if seat not in seats:
-        raise Refusal(
-            f"--seat {seat}: this goal has no such seat. Its seats are: "
-            f"{', '.join(seats) or '(none)'}.", "seat-absent")
-
-    granted = read_relaunch_grants(goal_dir)
-    target = relaunch_grants_path(goal_dir)
-    if seat in granted:
-        raise Refusal(
-            f"--seat {seat}: an unspent relaunch grant for this seat is already standing in "
-            f"{target}. One grant buys one attempt; it is spent when the "
-            "seat runs, and only then does a second one mean anything.", "grant-duplicate")
-
-    # tmp + rename for `write_lane_raw`'s reason, on a file read by the same kind of unlocked
-    # reader: a truncate-then-write leaves a window where this file reads EMPTY, and empty here
-    # means "no grant" — the seat would be skipped and the operator's act silently lost.
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(f"{RELAUNCH_GRANTS_FILE}.tmp")
-    tmp.write_text("".join(f"{s}\n" for s in [*granted, seat]), encoding="utf-8", newline="\n")
-    tmp.replace(target)
-
-    lane, _profile = read_lane(goal_dir)
-    happens = ("the daemon will run this seat again on its next pass" if lane == "daemon"
-               else f"the next `rbtv run {goal_dir}` will run this seat again")
-    if getattr(args, "json", False):
-        print(json.dumps({"ok": True, "goal": name, "seat": seat, "lane": lane,
-                          "granted": [*granted, seat],
-                          "file": str(relaunch_grants_path(goal_dir))}, indent=2))
-    else:
-        print(f"{name}/{seat}: relaunch GRANTED — {happens}. The grant is spent by that run; a "
-              f"further attempt needs a further grant ({relaunch_grants_path(goal_dir)})")
     return 0
 
 
@@ -5397,16 +5320,6 @@ def build_parser() -> argparse.ArgumentParser:
         "resume", help="unstash the lane assignment a `pause` put away, byte for byte"))
     p.add_argument("goal_name")
     p.set_defaults(func=cmd_resume)
-
-    # Task 7.776 — the operator's one-more-attempt act, in the lane family because it is the same
-    # kind of thing: a file in the goal folder that the next pass reads before it seeds.
-    p = add_common(sub.add_parser(
-        "relaunch",
-        help="authorize ONE more attempt at a seat that ended failed — spent by the run it buys"))
-    p.add_argument("goal_name")
-    p.add_argument("--seat", required=True,
-                   help="the seat, by name, exactly as this goal's taskforce.csv spells it")
-    p.set_defaults(func=cmd_relaunch)
 
     # IPH-11 — the escalation bar as CONFIGURATION. Bare, it is read-only: `retry-threshold
     # <goal>` is also the orientation verb ("what will the judge escalate at").

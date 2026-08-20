@@ -61,11 +61,6 @@ const { admitDeclaredOutputs, admitLaneReach } = require('./cage-admission');
 // `deriveLease` the launch-time gate (`spawn.js` -> `checkGoalExecuting`) reads, at the same
 // ROOM threshold, so the pre-spend refusal and the launch refusal can never disagree.
 const { deriveLease } = require('../server/lease/lease');
-// THE RELAUNCH GRANT'S ONE HOME — a file in the goal folder, read HERE rather than threaded in by
-// each caller. See `relaunch-grants.js`'s header for why the parameter was the defect: the daemon
-// lane's only call (`lane-watch.js#runLaneWatch` -> `seedGoal`) passes no relaunch key and never
-// will, so a grant sourced at the caller is a grant one lane can never receive.
-const { readGrants, spendGrant } = require('./relaunch-grants');
 // The ONE quote-aware row splitter this module already has (`execution-record.js` reads the goal's
 // record with it). Reusing it is the whole CSV fix — see below.
 const { splitRow } = require('../server/seat-identity/csv');
@@ -187,18 +182,12 @@ function readySeats(goalFolder) {
   // ⚠ AN ABSENT `seed` FIELD IS `[]` AND IS NEVER GUESSED AT HERE: resolving a predecessor's
   // declared outputs in JS would be the second reader this whole design deletes.
   const ready = new Map();
-  // seat -> its UNSPENT relaunch grant, as coord's own `relaunch-grant` field carries it. NO new
-  // computation and NO second subprocess: the field is already on every row of the wire, on the
-  // rows it fires on and the ones it does not. Built here rather than at each call site so the two
-  // maps come off ONE parse of one answer.
-  const granted = new Map();
   for (const r of rows) {
     if (!r || !r.seat) continue;
-    if (r['relaunch-grant']) granted.set(r.seat, r['relaunch-grant']);
     if (r.verdict !== 'READY') continue;
     ready.set(r.seat, Array.isArray(r.seed) ? r.seed : []);
   }
-  return { ready, granted, rows, reason: null };
+  return { ready, rows, reason: null };
 }
 
 // ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
@@ -227,201 +216,47 @@ function renewalState(goalFolder, seat) {
   } catch { return null; }
 }
 
-// ── THE DAEMON'S OWN RETRY GRANT — minted by coord, spent by coord, decided here (task 7.776) ──
+// ── Seeding: the taskforce IS the workflow ────────────────────────────────────────────────────
 //
-// THE DEFECT THIS CLOSES, measured live 2026-08-11 on goal `forge-reference-seat-id-naming`. Seat
-// `forg-intake` ran, its execution ended `failed` (exec 26274), and nothing ever ran it again: coord
-// says READY (the seat has no `sessions.csv` row at all, so it carries no disposition), while
-// `seatState` says `live` because `seatHasRun` sees the failed row in the store. `enqueueEligible`
-// then `continue`d with NO log line, so the goal sat still and every surface looked healthy. A
-// failed seat had exactly one escape — a HUMAN minting a ruled grant — and nobody was watching.
+// `taskforce.csv` already carries one row per seat with an `after` column naming the seat it
+// follows. That column IS the wave structure — nothing new is invented here, and no second
+// scheduler is written: seeding only decides WHICH seats are eligible now, and the ticker decides
+// what actually launches and how many run at once (`max_live_agent_sessions` — the parallel wave).
 //
-// ⚠ THE ENGINE AND COORD DO NOT READ EACH OTHER'S FILES, AND THIS PRESERVES THAT. `coord.py` never
-// opens `executions.csv` and this file never opens `relaunch-grants.csv`; the session-id and the
-// outcome cross as COMMAND-LINE ARGUMENTS. That is what makes the measured case solvable at all —
-// `forg-intake` has no session log, so there is no session-id coord could resolve on its own.
+// NOTHING PROFILE-SHAPED IS SEEDED HERE, and that is the pivot of `#d-abolish-profile-names`
+// (sub-ruling 2). A seat's launch spec is its own — resolved at spawn from its descriptor by
+// `launch-profiles/catalog.js#specForSeatCast`, keyed by the (harness, model) its bindings sheet
+// cast it as. A value carried on the queue row could only ever drift from that, which is exactly
+// what it did: `rbtv run --profile`, the lane marker's second token and the chat bridge's
+// `session_profile` all existed to fill ONE required argument, and every one of them was capable
+// of naming something the seat was not cast as.
 //
-// ⚠ IT MINTS ONLY ON THE SEAT'S **LAST** EXECUTION ROW, and only on a terminal non-`done` outcome
-// the retry set admits. `blocked` is excluded at coord's end BY DECISION (a blocked seat is waiting
-// on the owner); an OPEN row is excluded here, because a seat still running is not a seat to retry.
-// ── R3a — A STRUCTURALLY-UNFIXABLE REFUSAL STOPS BEING REISSUED (owner-ruled 2026-08-15) ───────
-//
-// THE DEFECT: the mint below is asked every 10s per goal, forever, with no bound anywhere. A seat
-// whose refusal can NEVER succeed (a garbage outcome word coord's vocabulary refuses; an unspent
-// grant already outstanding) was re-offered and refused ~8,600 times a day — one live seat measured
-// at ~20 points of a core continuously, 2026-08-13 → 2026-08-15.
-//
-// ⚠ THE STRUCTURAL/TRANSIENT SPLIT IS COORD'S OWN, NOT A SECOND CLASSIFIER. `coord.py`
-// § REFUSAL_LAYERS names the layer in every refusal's first line, and that text ALREADY crosses on
-// `err.stderr` — no new surface, no vocabulary duplicated in JS. `input` (the argv can never
-// satisfy the verb) and `state` (the run's recorded state forbids it) are unfixable by asking again
-// with the SAME argv, so they strike out. `environment` (a busy/contended world), `role gate`,
-// `identity`, a coord timeout and any UNLAYERED crash keep retrying forever, unchanged: a strike
-// limit that silently gave up on contention would be a worse defect than the loop it replaces, so
-// the cap is opt-IN by layer and an unrecognised refusal is treated as transient.
-const REFUSAL_STRIKE_LIMIT = 3;
-const STRUCTURAL_REFUSAL_LAYERS = new Set(['input', 'state']);
-// ⚠ THE KEY IS THE WHOLE INPUT, and that is what keeps this from being a permanent blacklist: a new
-// execution row, a different outcome word or a new session is a DIFFERENT key that retries from
-// zero. Only the identical unfixable ask is capped.
-// ponytail: process-lifetime Map, no eviction. One entry per distinct (goal, seat, outcome,
-// session) that was refused structurally, and each stops growing at the limit; if a box ever
-// accumulates enough distinct dead executions to matter, evict by insertion order.
-const structuralStrikes = new Map();
+// `rows` is the taskforce, optionally pre-read by a caller that already needed it (seedGoal reads
+// it before deciding whether to register anything at all). Default = read it here, as always.
+function seedTaskforce(heartStore, goalFolder, { logger, goal = null, rows = null }) {
+  rows = rows || readTaskforce(goalFolder);
 
-function refusalLayerOf(stderr) {
-  const m = /refused \[coord ([a-z ]+)\]/.exec(String(stderr || ''));
-  return m ? m[1] : null;
-}
-
-function mintRetryGrants(goalFolder, rows, { view, granted, logger = null }) {
-  const last = new Map();
-  for (const r of readExecutionRecord(goalFolder).rows) last.set(r.seat, r);
-  const minted = new Map();
+  // CREATE-ONLY, and that is what makes a re-run a RESUME rather than a replay. registerJob is
+  // create-only in the store (it throws E_JOB_EXISTS); a second boot finds every job already
+  // registered and registers nothing.
   for (const row of rows) {
-    const rec = last.get(row.seat);
-    const rawOutcome = ((rec && rec.outcome) || '').trim();
-    // ⚠ THE EMPTY CHECK COMES BEFORE THE TRANSLATION, AND THAT ORDER IS THE POINT. A row that never
-    // recorded an outcome at all is not a retry candidate; translating first would hand it to the
-    // `crashed` side of the map and mint against it forever.
-    if (!rec || !rawOutcome) continue;
-    // ⚠ W2 — THE COLUMN IS A PROCESS VOCABULARY (`clean|crashed|killed`, `execution-record.js`
-    // § THE SCHEMA) AND OLD ROWS ARE INERT BY MIGRATION: a seat whose last execution predates
-    // W2 (`f956f4c4`, 2026-08-14T01:33Z) still carries `done`/`blocked`/`failed` on disk, and
-    // those words are refused by coord's `DAEMON_RETRY_FROM_OUTCOMES`. So the legacy word is
-    // TRANSLATED ONCE, HERE, through the same map the writer uses — and the translated value is
-    // what BOTH the guard below and the mint argv see. Without it, a legacy `failed` row fell
-    // through this guard, reached the blocking `execFileSync` below and was refused by coord on
-    // every 10s tick, forever (2,621 refusals, 0 mints, measured 2026-08-14).
-    // An UNKNOWN word passes through UNCHANGED (`|| rawOutcome`) rather than defaulting to
-    // `crashed`: it is then refused once, visibly, instead of being silently retried as a crash.
-    const outcome = PROCESS_OUTCOME_OF[rawOutcome] || rawOutcome;
-    // THE GUARD IS `CLEAN`, NOT `done`. A clean exit is nothing to retry: whether the WORK finished
-    // is the seat's check-out, and that lives on `view.finished` below. `crashed`/`killed` are the
-    // whole retry domain and coord's `DAEMON_RETRY_FROM_OUTCOMES` is where that set is enforced —
-    // this line only declines to ASK about the rows that plainly are not it. Legacy `blocked` maps
-    // to `CLEAN` and is skipped here, which is the same ruling the comment below records.
-    if (outcome === CLEAN) continue;
-    if (view.finished.has(row.seat) || view.notFinished.has(row.seat)) continue;
-    // ⚠ NO AUTO-RETRY AGAINST A WAITING HUMAN — the exclusion TRANSFERRED HERE from coord's
-    // `DAEMON_RETRY_FROM_OUTCOMES` (adv, C18). That constant used to carry it by omitting `blocked`
-    // from the outcome vocabulary; `blocked` is not an outcome word any more, so the decision moved
-    // to the surface that now holds the fact: coord's `HELD` verdict, which `recordView` collects
-    // into `view.blocked`. Same ruling, same effect, one hop further up — a seat waiting on an
-    // owner-ask is the one terminal state whose remedy is a person, and an unattended retry would
-    // spin a wave against a question nobody answered.
-    if (view.blocked.has(row.seat)) {
-      if (logger) {
-        logger({
-          level: 'info',
-          message: 'seat NOT retried — it is HELD on an unanswered owner-ask, and the remedy for that '
-            + 'is a person. An automatic retry would spin the wave against a question nobody answered.',
-          seat: row.seat,
-          outcome,
-          evidence: String(view.blocked.get(row.seat) || '').slice(0, 400),
-        });
-      }
-      continue;
-    }
-    // ⚠ NEVER AUTO-MINT AGAINST ANOTHER LANE'S SEAT (owner ruling 2026-08-13). `foreign` is "this
-    // seat's last execution belongs to a DIFFERENT lane's own store" — the cross-lane
-    // never-double-dispatch guarantee. A grant RELEASES a foreign hold (`recordView`'s grant loop),
-    // which is correct for a HUMAN-granted relaunch and wrong here: this path is unattended, so a
-    // seat that crashed under the console lane, seen by nobody, would be retried by the daemon on
-    // its next pass. A cross-lane failure waits for a human instead. Measured red without this
-    // line: `probe-daemon-lane-watch.js` L5 (`held-goal`/alpha).
-    if (view.foreign.has(row.seat)) {
-      if (logger) {
-        logger({
-          level: 'info',
-          message: 'seat NOT retried — its last execution belongs to another lane; an unattended '
-            + 'auto-mint would release the cross-lane hold, so this one waits for a human',
-          seat: row.seat,
-          outcome,
-          evidence: String(view.foreign.get(row.seat) || '').slice(0, 400),
-        });
-      }
-      continue;
-    }
-    if (granted.has(row.seat)) continue;
-    const strikeKey = `${goalFolder} ${row.seat} ${outcome} ${rec['session-id'] || ''}`;
-    // STRUCK OUT — skipped silently, and the silence is deliberate here where it is a defect
-    // everywhere else: the strike-out itself was logged loudly once, naming this exact input, and
-    // re-logging it every 10s forever is half of what this fix exists to stop.
-    if ((structuralStrikes.get(strikeKey) || 0) >= REFUSAL_STRIKE_LIMIT) continue;
-    let out;
-    try {
-      // D4 — `--as ignite-daemon`, and it is not decoration. The daemon's MAIN process is not a
-      // daemon-fired exec, so coord's F16 lane (`daemon_exec_identity`, keyed on an
-      // `rbtv-worker-*` cgroup) resolves NOBODY here and `seat-retry`'s role gate refused every
-      // one of the 16,865 calls this line ever made. The claim is the documented equivalent of a
-      // check-in for a process that has no pane to check in from.
-      out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
-        '--as', 'ignite-daemon', 'seat-retry',
-        row.seat, '--mint', '--session', rec['session-id'] || '', '--outcome', outcome, '--json'],
-      { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      // EVERY refusal is reported, and at `info` rather than `warn`: the bound being reached, the
-      // outcome being one nobody retries, a grant already outstanding — these are the verb working.
-      // What must never happen again is the SILENT arm.
-      const layer = refusalLayerOf(err.stderr);
-      let struck = 0;
-      if (STRUCTURAL_REFUSAL_LAYERS.has(layer)) {
-        struck = (structuralStrikes.get(strikeKey) || 0) + 1;
-        structuralStrikes.set(strikeKey, struck);
-      }
-      if (logger) {
-        logger({
-          level: 'info',
-          message: struck >= REFUSAL_STRIKE_LIMIT
-            ? 'seat GIVEN UP ON — `coordinate seat-retry --mint` refused this exact input '
-              + `${REFUSAL_STRIKE_LIMIT} times at coord's \`${layer}\` layer, which asking again `
-              + 'cannot change. It will NOT be reissued or logged again until the seat records a '
-              + 'new execution; a human must clear it.'
-            : 'seat NOT retried — `coordinate seat-retry --mint` declined',
-          seat: row.seat,
-          outcome,
-          evidence: `${struck ? `structural strike ${struck}/${REFUSAL_STRIKE_LIMIT} · ` : ''}`
-            + String(err.stderr || err.message || '').trim().slice(0, 400),
-        });
-      }
-      continue;
-    }
-    let payload;
-    try { payload = JSON.parse(out); } catch { payload = null; }
-    // ⚠ THE ROW COMES BACK FROM THE MINT AND IS NOT RE-READ OFF `ready-seats`, and that is not an
-    // optimisation. coord's grant hoist filters a grant against `sessions_last_ended`, so a seat
-    // with NO session row NEVER carries its grant on the wire however many were minted for it —
-    // the exact `forg-intake` shape. Re-reading would return null and the seat would stay stuck
-    // with an unspendable grant. coord's own self-test states this limit as a row.
-    if (!payload || !payload.grant) {
-      // W1: NOT a silent `continue`. The mint SUCCEEDED (no throw) and still handed back no grant
-      // — the grant-hoist filter above is the known cause, and until this line existed the seat
-      // simply vanished from the pass with nothing anywhere saying why.
-      if (logger) {
-        logger({
-          level: 'info',
-          message: 'seat NOT retried — `coordinate seat-retry --mint` returned no grant on the wire',
-          seat: row.seat,
-          outcome,
-          evidence: `session ${rec['session-id'] || '(none)'} · payload ${JSON.stringify(payload)}`.slice(0, 400),
-        });
-      }
-      continue;
-    }
-    minted.set(row.seat, payload.grant);
-    if (logger) {
-      logger({
-        level: 'info',
-        message: 'seat RETRIED — the daemon minted its own single-use relaunch grant against the '
-          + 'execution record\'s failed outcome',
-        seat: row.seat,
-        outcome,
-        evidence: `session ${rec['session-id']} · attempt ${payload['minted-so-far']} of ${payload.bound}`,
-      });
-    }
+    const jobId = jobIdFor(row.seat, goal);
+    if (heartStore.getJob(jobId)) continue;
+    heartStore.registerJob({
+      jobId,
+      actionType: 'launch-agent',
+      function: `attached-execution seat ${row.seat}`,
+      // `required`/`optional` are OBJECTS of name -> type, not arrays — the store parses them
+      // that way (parseArgsSchema) and REFUSES an array. Registration is strict on purpose: a
+      // schema a future enqueue could never satisfy is what campaign issue S-2(a) was.
+      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string', prompt: 'string' } }),
+      description: `seat ${row.seat} of ${row.taskforce_id || row['taskforce-id'] || 'this run'}`,
+      createdAt: isoNow(),
+      updatedAt: isoNow(),
+    });
+    if (logger) logger({ level: 'info', message: 'registered seat job', jobId, seat: row.seat });
   }
-  return minted;
+  return rows;
 }
 
 // ── THE BOOT PROMPT — coord's, consumed here, composed nowhere ────────────────────────────────
@@ -755,7 +590,7 @@ function uncastSeats(goalFolder) {
 // re-run. Reading the stale column instead would advance a wave off a value the migration
 // deliberately left inert (adv, C-migration: old `outcome` values are inert, files are NOT
 // rewritten).
-function recordView(heartStore, goalFolder, { relaunch = null, readyRows = null } = {}) {
+function recordView(heartStore, goalFolder, { readyRows = null } = {}) {
   const rows = readExecutionRecord(goalFolder).rows;
   const done = new Set();
   const foreign = new Map();
@@ -774,16 +609,8 @@ function recordView(heartStore, goalFolder, { relaunch = null, readyRows = null 
   }
   if (!rows.length) {
     const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
-    for (const seat of withFileGrants(relaunch, goalFolder)) {
-      finished.delete(seat); done.delete(seat); notFinished.delete(seat); blocked.delete(seat);
-    }
     return { done, finished, foreign, notFinished, blocked };
   }
-  // THE GRANT IS SOURCED HERE, not handed in — see `relaunch-grants.js`. A caller-supplied set is
-  // still honoured (`--relaunch` argv, and any grant a caller minted for this pass); the goal
-  // folder's own file is FOLDED IN rather than used as a fallback, because a pass that already
-  // carries one kind of grant must not swallow the operator's.
-  const grants = withFileGrants(relaunch, goalFolder);
 
   // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
   // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
@@ -852,37 +679,6 @@ function recordView(heartStore, goalFolder, { relaunch = null, readyRows = null 
   // record row, or coord's `HELD`, is the seat's current state and `finished` above already
   // excluded it.
   for (const seat of finished) foreign.delete(seat);
-  // The one-shot relaunch grant releases a foreign hold exactly as it releases a local failure —
-  // and, exactly as there, it can never release a FINISHED seat. It releases the record's last-word
-  // hold too: an operator saying "run this seat again" is the same explicit act, and the answer
-  // that would otherwise release it is the one thing he is saying will not come.
-  // ⚠ THE `if` IS NOT DEAD FLEXIBILITY. It survives a history worth keeping: sourcing the grant from
-  // a file made the old `if (relaunch)` wrapper unnecessary, and dropping it re-indented these lines
-  // by two columns — which silently un-anchored the exact-text mutation site that then guarded them
-  // (`probe-block-and-queue-hold.js`, mutant `grant`). That mutant reported "0 file(s) carry the
-  // mutation site" and its arm went vacuous, which is the failure mode this note exists to name.
-  // ⚠ W2 RETIRED THAT PROBE WITH THE HOLD IT MEASURED, so THE INDENTATION IS NO LONGER LOAD-BEARING
-  // and nothing pins this line's exact text any more. What guards the BEHAVIOUR instead is
-  // `probe-relaunch-grant.js` LEG 5, as a control/treatment pair (ungranted vs granted) rather than
-  // as a source mutation — which is the sturdier anchor, because it cannot be un-anchored by
-  // reformatting. Do not re-introduce an exact-text pin here without also re-introducing the
-  // "0 file(s) carry the mutation site" check that would catch it going vacuous.
-  if (grants.size) {
-    for (const seat of grants) {
-      // Since the 2026-08-12 loop-re-fire ruling the grant releases a FINISHED seat too — the
-      // finished-guard that stood here (review F1's fix kept it on the last word) is gone,
-      // because "a grant must not re-run completed work" now holds at the MINT, not here: the
-      // file is written only by deliberate acts (the relaunch CLI, the leader, the verdict
-      // verb's route-back), and the loop's whole point is re-dispatching a done-but-FAILed seat
-      // on its slot (`concepts/loop.md`). Do not spell the old guard in this comment — the hold
-      // probe's mutation site is matched by exact text.
-      finished.delete(seat);
-      done.delete(seat);
-      foreign.delete(seat);
-      notFinished.delete(seat);
-      blocked.delete(seat);
-    }
-  }
   return { done, finished, foreign, notFinished, blocked };
 }
 
@@ -890,85 +686,15 @@ function jobIdFor(seat, goal = null) {
   return goal ? `seat-${goal}-${seat}` : `seat-${seat}`;
 }
 
-// THE ONE PLACE THE GRANT IS SOURCED, and the reason it is here rather than at each caller.
-//
-// The eligibility engine already honoured a grant; what it had no way to RECEIVE one from was the
-// daemon lane, because the grant's only source was an in-memory Set built from `rbtv-execution
-// --relaunch` argv and `lane-watch.js` calls `seedGoal({goalFolder, goal})` with no
-// relaunch key, ever. Threading a parameter down from `lane-watch.js` would have created a SECOND
-// place that decides whether a grant applies — so the third caller of `seedGoal`, whenever it is
-// written, would silently get none. That is exactly how this gap was born. Sourcing it inside the
-// shared functions means `lane-watch.js` needs NO edit at all, which is the proof the fix sits at
-// the right level.
-//
-// ⚠ FOLD, NOT FALLBACK. `relaunch ?? readGrants(...)` would be enough if the caller-supplied set
-// were only ever `--relaunch` argv — but `seedGoal` can now also arrive carrying grants minted for
-// this pass, and under `??` the presence of one of those would silently discard the operator's
-// file grant for the same pass. The union is the only merge where neither authorization can
-// swallow the other. The caller's own Set is mutated in place when there is one, deliberately: the
-// attached loop's spend (`grants.delete(seat)`) is what stops a spent grant surviving to the next
-// pass, and returning a fresh copy would leave that delete writing to an object nobody reads.
-function withFileGrants(relaunch, goalFolder) {
-  const grants = relaunch || new Set();
-  for (const seat of readGrants(goalFolder)) grants.add(seat);
-  return grants;
-}
-
-// ── Seeding: the taskforce IS the workflow ────────────────────────────────────────────────────
-//
-// `taskforce.csv` already carries one row per seat with an `after` column naming the seat it
-// follows. That column IS the wave structure — nothing new is invented here, and no second
-// scheduler is written: seeding only decides WHICH seats are eligible now, and the ticker decides
-// what actually launches and how many run at once (`max_live_agent_sessions` — the parallel wave).
-//
-// NOTHING PROFILE-SHAPED IS SEEDED HERE, and that is the pivot of `#d-abolish-profile-names`
-// (sub-ruling 2). A seat's launch spec is its own — resolved at spawn from its descriptor by
-// `launch-profiles/catalog.js#specForSeatCast`, keyed by the (harness, model) its bindings sheet
-// cast it as. A value carried on the queue row could only ever drift from that, which is exactly
-// what it did: `rbtv run --profile`, the lane marker's second token and the chat bridge's
-// `session_profile` all existed to fill ONE required argument, and every one of them was capable
-// of naming something the seat was not cast as.
-//
-// `rows` is the taskforce, optionally pre-read by a caller that already needed it (seedGoal reads
-// it before deciding whether to register anything at all). Default = read it here, as always.
-function seedTaskforce(heartStore, goalFolder, { logger, goal = null, rows = null }) {
-  rows = rows || readTaskforce(goalFolder);
-
-  // CREATE-ONLY, and that is what makes a re-run a RESUME rather than a replay. registerJob is
-  // create-only in the store (it throws E_JOB_EXISTS); a second boot finds every job already
-  // registered and registers nothing.
-  for (const row of rows) {
-    const jobId = jobIdFor(row.seat, goal);
-    if (heartStore.getJob(jobId)) continue;
-    heartStore.registerJob({
-      jobId,
-      actionType: 'launch-agent',
-      function: `attached-execution seat ${row.seat}`,
-      // `required`/`optional` are OBJECTS of name -> type, not arrays — the store parses them
-      // that way (parseArgsSchema) and REFUSES an array. Registration is strict on purpose: a
-      // schema a future enqueue could never satisfy is what campaign issue S-2(a) was.
-      argsSchema: JSON.stringify({ required: {}, optional: { workdir: 'string', prompt: 'string' } }),
-      description: `seat ${row.seat} of ${row.taskforce_id || row['taskforce-id'] || 'this run'}`,
-      createdAt: isoNow(),
-      updatedAt: isoNow(),
-    });
-    if (logger) logger({ level: 'info', message: 'registered seat job', jobId, seat: row.seat });
-  }
-  return rows;
-}
-
 // The execution picture, read ONCE per pass from the store's own partition of jobs_log.
 //
-// `relaunch` is the ONE-SHOT RELAUNCH GRANT (console-run B1): a seat named in it is presented to
-// the predicate WITHOUT its execution history, so a seat whose last attempt died reads `ready`
-// again. The grant hides the rows from THIS VIEW only — nothing in the store is rewritten, so the
-// failed attempt stays on the record it was written to. A FINISHED seat is never hidden: a grant
-// must not be able to re-run completed work, and that is enforced here rather than trusted to the
-// caller who typed the seat name. (Nor can a grant re-open a seat the RECORD calls done — that
-// check is in `seatState`, ahead of everything the grant can touch.)
+// D12 (2026-08-20): IT READS PLAIN LEDGER STATE. The `relaunch` parameter used to hide a granted
+// seat's execution history WHOLE so the predicate would re-offer it; that masking is deleted with
+// the grant stores. A seat comes back because the goal watcher derives it as owed work from the
+// ledgers (`engine/reconcile.js`), never because a reader was told to look away.
 const ALL_TURN_STATUSES = ['launching', 'running', 'done', 'blocked', 'failed', 'stalled', 'killed'];
 
-function executionsByJob(heartStore, relaunch = null, goal = null) {
+function executionsByJob(heartStore, goal = null) {
   const byJob = new Map();
   for (const status of ALL_TURN_STATUSES) {
     // `withThread: false` — see `recordView` above. No consumer of this map reads `thread`
@@ -978,17 +704,6 @@ function executionsByJob(heartStore, relaunch = null, goal = null) {
       const list = byJob.get(row.job_id) || [];
       list.push(row);
       byJob.set(row.job_id, list);
-    }
-  }
-  if (relaunch) {
-    for (const seat of relaunch) {
-      // A granted seat's history is hidden WHOLE — finished rows included (owner ruling
-      // 2026-08-12, the loop re-fire: a judge's FAIL verdict relaunches a builder whose row says
-      // `done`, per `concepts/loop.md` — "a fresh worker re-dispatched on the slot"). The guard
-      // that kept finished rows visible ("a grant must not re-run completed work") moved to the
-      // MINT: every writer of the grant file is a deliberate act (the relaunch CLI, the leader,
-      // the verdict verb's route-back), so admission rests on the act, not on this reader.
-      byJob.delete(jobIdFor(seat, goal));
     }
   }
   return byJob;
@@ -1075,17 +790,13 @@ function surfaceCageRefusal(goalFolder, seat, refusal, logger) {
 // all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
 // taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
 function enqueueEligible(heartStore, rows, {
-  goalFolder, logger, isHeld = null, relaunch = null, goal = null, view = null,
-  ready = null, readyRows = [], granted = null, heldByStore = null,
+  goalFolder, logger, isHeld = null, goal = null, view = null,
+  ready = null, readyRows = [], heldByStore = null,
   suppressedEnqueues = null,
 }) {
-  // The goal folder's own grant file, folded into whatever the caller supplied (see
-  // `withFileGrants`). Every use of the grant below reads `grants`, never `relaunch`, so the
-  // predicate answers the same way on both lanes with no caller having to know the file exists.
-  const grants = withFileGrants(relaunch, goalFolder);
-  const byJob = executionsByJob(heartStore, grants, goal);
+  const byJob = executionsByJob(heartStore, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { relaunch: grants, readyRows });
+  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { readyRows });
   const enqueued = [];
   // The LIVE cage template each launch composes against — never a re-read of the YAML and never a
   // transcribed snapshot (§ D5). ⚠ IT IS PER SEAT SINCE 7.787, and it always should have been: it
@@ -1189,9 +900,7 @@ function enqueueEligible(heartStore, rows, {
       continue;
     }
     // ── THE BOOT PROMPT, THE LAST PRE-QUEUE REFUSAL ──────────────────────────────────────────
-    // Composed by coord, for THIS seat, from THIS goal's package — never here. Ordered after the
-    // cage test and BEFORE the relaunch grant is spent: a seat that cannot be composed for is not
-    // launched, so its one-shot grant must survive to be spent on the pass that can.
+    // Composed by coord, for THIS seat, from THIS goal's package — never here.
     const { prompt, reason: promptReason } = seatBootPrompt(goalFolder, row.seat);
     if (prompt === null) {
       if (logger) {
@@ -1205,39 +914,6 @@ function enqueueEligible(heartStore, rows, {
       }
       continue;
     }
-    // ── THE GRANT IS SPENT HERE, AND NOWHERE EARLIER ─────────────────────────────────────────
-    // Ordered AFTER the cage test and AFTER the boot-prompt test on purpose, and the comment above
-    // states the rule it obeys: a seat that cannot be composed for is not launched, so its one-shot
-    // grant must survive to be spent on the pass that can. Fail-closed in the other direction too —
-    // an empty stamp means somebody else took the row, and this pass must NOT enqueue on an
-    // authorization it did not burn, or two lanes launch one seat off one grant.
-    const grant = granted && granted.get(row.seat);
-    if (grant) {
-      let stamp = '';
-      let why = `session ${grant['session-id']} · anchor ${grant.anchor} — no unspent row matched`;
-      try {
-        const out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
-          '--as', 'ignite-daemon',
-          'seat-retry', row.seat, '--spend', '--session', grant['session-id'] || '', '--json'],
-        { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-        stamp = (JSON.parse(out).stamp || '');
-      } catch (err) {
-        why = `\`coordinate seat-retry --spend\` failed: ${String(err.stderr || err.message || '').trim().slice(0, 400)}`;
-      }
-      if (!stamp) {
-        if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — its relaunch grant was NOT spent, and a launch off an unburnt grant is a replay window', seat: row.seat, evidence: why });
-        continue;
-      }
-    }
-    // THE SPEND, in the SAME instant the in-memory delete already happened — still after the cage
-    // test and the boot-prompt compose, still with no `continue` between here and the enqueue, so
-    // "grant spent" and "seat enqueued" remain ONE event. `Set.delete` answers whether this seat
-    // held a grant at all, so a seat that never had one costs no file write.
-    // BOTH spend points are needed: this one covers the seedGoal-only paths (lane-watch, the
-    // attached engine — no ticker, so spawn's `spendCoordTwin` never fires for them), and
-    // spawn-dispatch `spendCoordTwin` covers the ticker path as a dup-safe backstop.
-    if (grants.delete(row.seat)) spendGrant(goalFolder, row.seat);
-
     const after = (row.after || '').trim();
     const seatDir = path.join(goalFolder, 'seats', row.seat);
     const seed = (ready && ready.get(row.seat)) || [];
@@ -1297,7 +973,7 @@ function enqueueEligible(heartStore, rows, {
 // unreachable from a flag — and answering it by, say, seeding every goal folder the daemon can see
 // would be a policy this build was not asked to invent. `engine.seedGoal()` is the seam; the caller
 // that fires it is named in the contract as the follow-on.
-function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, relaunch = null, readLease = deriveLease }) {
+function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, readLease = deriveLease }) {
   if (!goal) {
     throw new Error(
       'seedGoal requires the goal NAME: it namespaces the job ids so two goals with a seat of the ' +
@@ -1348,7 +1024,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // goal this pass — not a partial enqueue, and not even the create-only job registration, which
   // would be store rows written off an answer nobody has. The next pass retries; missing any
   // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
-  let { ready, granted, rows: readyRows, reason } = readySeats(goalFolder);
+  const { ready, rows: readyRows, reason } = readySeats(goalFolder);
   if (!ready) {
     if (logger) {
       logger({
@@ -1385,41 +1061,16 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       evidence: skewed.map((r) => `${r.seat}: ${r.reason}`).join('  ·  '),
     });
   }
-  // THE RETRY PASS, between coord's answer and anything this store writes (task 7.776). It mints
-  // against the record `recordView` reads, so the two agree by construction about which seats are
-  // finished — and a fresh mint FLIPS that seat's coord verdict from `DONE` to `READY`, which is
-  // why `ready-seats` is asked a SECOND time when and only when something was minted. Once per
-  // pass, never in a loop: a mint that changes no verdict changes none on the second read either.
-  let view = recordView(heartStore, goalFolder, { relaunch, readyRows });
-  const minted = mintRetryGrants(goalFolder, rows, { view, granted, logger });
-  if (minted.size) {
-    const again = readySeats(goalFolder);
-    if (again.ready) ({ ready, granted, rows: readyRows } = again);
-    for (const [seat, grant] of minted) if (!granted.has(seat)) granted.set(seat, grant);
-  }
-  // ⚠ AN EXPLICIT CALLER-SUPPLIED SET STILL WINS. `--relaunch <seats>` is an operator saying "run
-  // these again", and folding grants into it would silently widen what he named. Nothing in the
-  // daemon lane passes one (`lane-watch.js` calls `seedGoal({ goalFolder, goal })`), so
-  // this is the branch that runs unattended; the other is the one a human is standing over.
-  // The view is recomputed WITH the set, because the grant's release of a record-level hold is
-  // `recordView`'s own act and re-deriving it here would be its second home.
-  if (!relaunch && granted.size) {
-    relaunch = new Set(granted.keys());
-    view = recordView(heartStore, goalFolder, { relaunch, readyRows });
-  }
+  const view = recordView(heartStore, goalFolder, { readyRows });
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
   const suppressedEnqueues = {};
-  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, relaunch, ready, readyRows, granted, heldByStore, suppressedEnqueues });
+  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues });
   const unfiredCutoff = new Date(Date.now() - ENQUEUE_UNFIRED_GRACE_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const enqueueUnfired = heartStore.listEnqueueUnfired(goal, unfiredCutoff).map((r) => ({
     seat: r.seat, because: r.because, at: r.at,
   }));
-  // WITH the grant set, since the loop re-fire (2026-08-12): the `states` report below must agree
-  // with the enqueue decision above, and a granted `done` seat is dispatchable again — reporting
-  // it `done` off a grant-blind read is the same one-report-contradicting-the-other defect F2
-  // fixed for `skippedAsFinished`.
-  const byJob = executionsByJob(heartStore, relaunch, goal);
+  const byJob = executionsByJob(heartStore, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
   // Hoisted off the return (LE-13 below reads it): the per-seat state map, unchanged.
   const states = Object.fromEntries(rows.map((r) => [r.seat, seatState(r, byJob, queued, { done: view.done, goal, foreign: view.foreign, notFinished: view.notFinished, ready })]));
@@ -1547,10 +1198,6 @@ module.exports = {
   seatHasRun,
   seatState,
   recordView,
-  // Exported for `probes/probe-relaunch-grant.js` LEG 10 ONLY: the mint has to be driven as its own
-  // step there, because the grant it writes is SPENT again inside the same `seedGoal` call — the
-  // READY-via-grant verdict the leg discriminates on exists only between the two.
-  mintRetryGrants,
   enqueueEligible,
   // Exported for `engine/probes/probe-cage-workspace-grammar.js`: the refusal->bus wire, driven
   // against a fixture goal without standing up the whole enqueue path.

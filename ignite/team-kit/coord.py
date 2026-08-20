@@ -3828,137 +3828,6 @@ def restarter_prompt(w, args, why):
 RULED_FLIP_FROM = "exited"
 RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")
 
-# ---------- the RULED-RELAUNCH GRANT's OWN admissible from-states (the fourth lane) ------------
-#
-# ⚠ A SEPARATE CONSTANT FROM THE TWO ABOVE, AND THE SEPARATION IS THE WHOLE POINT.
-# `RULED_FLIP_FROM` is read at THREE sites across TWO verbs — `session_rule_disposition` (the flip
-# verb), `rule-relaunch`'s mint precondition, and `cmd_launch`'s P3b leg. Widening THAT constant to
-# reach a `done` row would have widened the flip verb in the same edit, handing the leader a power
-# to REWRITE a `done` disposition its own writer declared — a power no ruling grants and nobody
-# asked for, arriving silently, with no line for a reviewer to see.
-# `p-fourth-lane-option-A-trade-owned` (leader, 2026-08-03) ruled the widening in and ruled this
-# separation BINDING: the grant's class widens, the flip verb's does not, and the self-test asserts
-# the non-leak BY EXERCISE rather than by intent.
-#
-# ⚠ THE MEMBERS ARE SPELLED OUT AS LITERALS, never derived from `RULED_FLIP_FROM`. A set written
-# `(RULED_FLIP_FROM, "done")` would move with the other constant and re-couple exactly what this
-# split exists to separate — the guard-that-reads-its-own-constant defect, in constant form.
-#
-# ⚠ THE EMPTY CELL IS NOT A MEMBER, and its absence is a decision rather than an oversight. An
-# ENDED row carrying no disposition is the UNDECLARED class, whose one instrument is
-# `launch --declare-only <leader-anchor>`; admitting it here would give one state two instruments.
-# `renew` and `revive` are not members either: those are LIVE lanes that relaunch their own row.
-#
-# ⚠ WHAT ADMITTING `done` COSTS, at the same volume as what it buys. A hold-exit `done` — this
-# run's `p-held-ephemeral-seats-exit-done-not-renew` convention, where a held ephemeral seat exits
-# by plain `done` for its LIFECYCLE effect — is BYTE-INDISTINGUISHABLE from a completion `done`: no
-# field, no writer value and no marker anywhere in the session trace separates the two. So this
-# class does not admit "the held seats"; it makes every `done` row grantable IN PRINCIPLE. What
-# discriminates is therefore not state: it is the leader's per-instance minting act — `is_leader`
-# -gated, seat- and session-bound, single-use, spent at admission, with the anchor recorded. The
-# trade was weighed and OWNED at that ruling; it is not being discovered here.
-# ⚠ W1/F4 — `incomplete` IS A MEMBER (owner-ruled). An honestly-unfinished seat is the ONE class
-# whose whole point is that it should come back, and before this widening all three recovery doors
-# were shut on it: the flip verb refuses it (correctly — a leader may not rewrite a seat's own
-# declaration), `--declare-only` is the EMPTY cell's instrument, and the grant refused it by state.
-#
-# ⚠ IT IS SAFE ON THE DAG BECAUSE NO AFTER-EDGE READS IT. Readiness gates on the LITERAL `done`;
-# an `incomplete` row advances nothing, so admitting a relaunch against it cannot hand a successor
-# a stale product. That is the property that makes this widening different in kind from widening
-# `RULED_FLIP_FROM_STATES`, WHICH IS NEVER DONE: the flip verb writes the DAG-advancing value.
-RELAUNCH_GRANT_FROM_STATES = ("exited", "done", "incomplete")
-
-# ⚠ (adv, C21) THE DAEMON'S OWN GRANTS DO NOT REACH `incomplete`, and the split is the guard.
-# `seat-retry` mints against the EXECUTION record's outcome and knows nothing about what the seat
-# declared; a daemon grant spent on an `incomplete` row would relaunch an honestly-held seat from
-# its stale seed, unattended, on a loop — the exact failure the honest ending exists to prevent.
-# The leader's per-instance minting act is what discriminates, so `incomplete` is admitted for
-# LEADER-minted grants only, keyed on the anchor (`DAEMON_RETRY_ANCHOR` is the recorded
-# discriminator by design — see its own block). Widens again when W3's payload carrier exists.
-LEADER_ONLY_GRANT_FROM_STATES = ("incomplete",)
-
-
-def grant_from_states_for(anchor):
-    """The from-states a grant carrying `anchor` admits. The daemon's automatic anchor gets the
-    pre-F4 pair; every other (leader-minted, per-instance, answered-for) anchor gets the full set.
-
-    DERIVED BY SUBTRACTION from the two constants above rather than spelled as a third literal
-    tuple: a later widening of `RELAUNCH_GRANT_FROM_STATES` must land in exactly one place, and a
-    third spelling is the drift the two-constant split above exists to prevent."""
-    if (anchor or "").strip() == DAEMON_RETRY_ANCHOR:
-        return tuple(s for s in RELAUNCH_GRANT_FROM_STATES
-                     if s not in LEADER_ONLY_GRANT_FROM_STATES)
-    return RELAUNCH_GRANT_FROM_STATES
-
-# ---- 7.776: THE DAEMON'S OWN RETRY BUDGET, AND WHY IT RANGES OVER A DIFFERENT VOCABULARY ------
-#
-# ⚠⚠ THESE CONSTANTS RANGE OVER THE EXECUTION RECORD'S `outcome` VOCABULARY — `clean|crashed|
-# killed` since W2, `engine/execution-record.js` § THE SCHEMA — AND **NOT** OVER THE DISPOSITION
-# VOCABULARY `RELAUNCH_GRANT_FROM_STATES` ABOVE RANGES OVER (`exited`/`done`/`renew`/`revive`/
-# `incomplete`, written into `sessions.csv` by a seat's own check-out). Two files, two runtimes, two
-# questions — and W2 NARROWED the outcome column to exactly that split, which is why the words
-# moved: an outcome is now a PROCESS FACT ONLY (did the run end cleanly, crash, or get killed), and
-# DONE-NESS lives nowhere in it. Done-ness is the seat's own check-out DISPOSITION, which
-# `ready-seats` reports. `crashed` and `killed` are not disposition values at all, and `exited` is
-# not an outcome value at all — the split holds exactly as before, on narrower words.
-#
-# ⚠ SO `RELAUNCH_GRANT_FROM_STATES` IS DELIBERATELY **NOT** WIDENED TO REACH THEM, and that is not
-# an oversight left for a later tidy-up. Widening it would move `rule-relaunch`'s mint precondition
-# and `cmd_launch`'s P3b leg — two sites that read `sessions.csv` and would then be comparing a
-# disposition cell against outcome words it can never hold. The measured case that forces the split:
-# goal `forge-reference-seat-id-naming`, seat `forg-intake`, 2026-08-11 — a daemon-lane execution
-# that ended `failed` in `executions.csv` and wrote NO `sessions.csv` AT ALL, so a disposition-keyed
-# constant cannot see it and never will.
-#
-# ⚠ THE MEMBERS ARE SPELLED OUT AS LITERALS, never derived from the constant above and never
-# imported from the engine's words — the same discipline stated three paragraphs up, for the same
-# reason: a set written in terms of another moves with it and re-couples what the split separates.
-#
-# ⚠ `blocked` IS NOT A MEMBER BECAUSE IT IS NO LONGER A VALUE — W2 removed it from the column, so
-# this is not an exclusion any more and cannot be asserted as one. THE DECISION IT ENCODED SURVIVES,
-# MOVED: "no automatic retry against a waiting human" is now enforced ENGINE-SIDE, where `seeding.js`
-# skips the mint for a seat `ready-seats` reports `HELD` (the universal owner-ask hold, below in
-# `ready_seat_rows`). Recorded here rather than dropped because the words that carried it are gone
-# from this file and a later reader would otherwise read the narrowing as the decision's repeal.
-# `clean` is not a member for the obvious reason — it absorbs the old `done` AND the old `blocked`,
-# and neither is work the daemon may re-run on its own — and that exclusion is still asserted BY
-# EXERCISE in the self-test, because "the daemon may not re-run work that ended cleanly" is the
-# property, not a side effect of a list.
-DAEMON_RETRY_FROM_OUTCOMES = ("crashed", "killed")
-
-# TWO automatic attempts per seat, then the seat waits for a human — the same number, chosen for the
-# same reason, as the gap-wave loop's own retry bar (`resolve_retry_threshold`'s absent-everywhere
-# default). A transient (a rate limit, a torn read, a harness that exited on empty input) clears on
-# the second attempt; a third attempt has never been the thing that fixed a real defect, it is the
-# thing that burns budget in a loop while nobody is watching.
-# ⚠ IT IS A BUDGET, NOT A LIVE-GRANT COUNT: the bound is checked against every row this seat carries
-# that the DAEMON minted, spent or not, so two retries is two retries for the life of the goal.
-DAEMON_RETRY_BOUND = 2
-
-# The policy citation a daemon-minted grant carries in its `anchor` cell, where a leader's grant
-# carries the leader's ruling anchor. A CONSTANT rather than a per-mint string, for two reasons: the
-# spend must present the anchor back verbatim (`match_relaunch_grant` checks it), and an operator
-# reading `relaunch-grants.csv` can tell an automatic retry from a ruled one by the cell alone.
-DAEMON_RETRY_ANCHOR = "p-daemon-self-grant-retry"
-
-
-def relaunch_grant_from_phrase(states=None):
-    """The grant's admissible from-states as one back-ticked phrase, DERIVED from the constant.
-
-    `states` overrides the default set for the ANCHOR-scoped refusal in `cmd_launch`'s P3b leg,
-    where the admissible set is narrower than the constant (`grant_from_states_for`). Passing the
-    set the caller actually tested is the same RD-EC-5 discipline the paragraph below states:
-    never render a set the code did not use.
-
-    Derived and not spelled, deliberately, and it is the opposite call from the constant above:
-    what a refusal must name is the SET as it currently stands, so a later widening cannot leave
-    the text describing a set the code no longer uses. The row's OWN cell is always interpolated
-    separately — RD-EC-5's lesson, where a report line printed a constant where the row's value
-    belonged and told the leader a row carried `exited` when it carried nothing at all."""
-    return " / ".join(f"`{s}`" for s in
-                      (RELAUNCH_GRANT_FROM_STATES if states is None else states))
-
-
 def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
     """Record a RULED disposition on `seat`'s LAST session row, which must ALREADY BE ENDED.
 
@@ -10555,51 +10424,6 @@ def on_fail_relaunch_route(base, seat):
     return out
 
 
-def mint_loop_refire(base, sender, route, anchor):
-    """Grant ONE relaunch to each route seat, in BOTH grant stores — coord's
-    `coordination/relaunch-grants.csv` (flips DONE→READY on the ready surface, 7.776) and the
-    engine's `coordination/relaunch-grants` (hides the seat's finished history from the eligibility
-    reader). Two writes because the two lanes deliberately read different files; a loop that
-    re-fires on one lane only is a loop that stalls on the other. The csv grant carries NO
-    session-id, so it is surfaced unconditionally; the anchor records WHICH fail minted it.
-    Returns the seat names granted.
-
-    ⚠ EACH CSV GRANT IS BOUND TO THE ROUTE SEAT'S LATEST SESSION — open or ended — because that
-    binding is what makes the grant ONE-SHOT on the ready surface with no spend path: the flip
-    skips a grant whose session-id is not the seat's last ended one, so a grant bound to the
-    builder's just-ended session (or the judge's own still-open one) surfaces exactly until that
-    seat's NEXT session ends, then reads stale. An unbound grant would flip the seat READY after
-    every later completion, forever — the loop that never converges."""
-    latest = {}
-    try:
-        with open(Path(base).parent / "sessions.csv", encoding="utf-8", newline="") as fh:
-            for r in csv.DictReader(fh):
-                s = (r.get("seat") or "").strip()
-                if s:
-                    latest[s] = (r.get("session-id") or "").strip()
-    except (OSError, csv.Error):
-        latest = {}
-    granted = []
-    for seat in route:
-        if not _ferry_safe_name(seat):
-            print(f"warning: {ON_FAIL_RELAUNCH_KEY} entry {seat!r} is not a valid seat name — "
-                  f"skipped", file=sys.stderr)
-            continue
-        mint_relaunch_grant(base, seat, latest.get(seat, ""), anchor, sender)
-        granted.append(seat)
-    grant_file = engine_grants_file(base)
-    try:
-        existing = {ln.strip() for ln in grant_file.read_text(encoding="utf-8").splitlines()
-                    if ln.strip()}
-    except OSError:
-        existing = set()
-    with open(grant_file, "a", encoding="utf-8") as fh:
-        for seat in granted:
-            if seat not in existing:
-                fh.write(seat + "\n")
-    return granted
-
-
 def cmd_verdict(args):
     """IPH-26 — the trial verdict as a VERB, and THE ONLY DOOR THAT CAN ARM THE ESCALATION GATE.
 
@@ -10690,26 +10514,6 @@ def cmd_verdict(args):
                        f"verdict: {args.clause}\n{message_body(args)}", why=want, milestone=mid)
     print(f"verdict {args.clause}: sent message #{n} ({sender} -> {args.to}, type: verdict, "
           f"why: {want})")
-    # THE LOOP RE-FIRE — see the helpers above. BELOW the bar, a FAIL from a judge whose seat.md
-    # declares `on-fail-relaunch:` mints one relaunch per route seat, deterministically, in the
-    # same act that recorded the verdict. AT the bar nothing is minted — the escalation appended
-    # by cmd_escalate below is the halt, and the owner's answer is what restarts the loop. The
-    # count/bar read here and the one inside `escalate_if_second_fail` may straddle a concurrent
-    # append; the benign race is the same one the lock-safety note above discloses.
-    if args.clause == "FAIL":
-        route = on_fail_relaunch_route(base, sender)
-        if route:
-            count = trailing_fail_verdicts(base, mid)
-            bar, _bsrc = resolve_retry_threshold(base, mid)
-            if count < bar:
-                granted = mint_loop_refire(base, sender, route, f"loop:{want}:fail-{count}")
-                if granted:
-                    print(f"loop re-fire: FAIL {count} of bar {bar} — relaunch granted to "
-                          f"{', '.join(granted)} in both grant stores; the next seeding pass "
-                          f"re-dispatches them on their slots")
-            else:
-                print(f"loop re-fire: WITHHELD — FAIL count {count} reaches bar {bar}; the "
-                      f"escalation row below is the halt, and the owner's answer restarts the loop")
     return cmd_escalate(args)
 
 
@@ -11862,28 +11666,6 @@ def cmd_send(args):
     # daemon being reachable.
     _g793_fail = gateway_send_leg(args, base, args.to, args.type, body)
     deliver_wakes(args, base, sender, args.to, n, args.type, origin)
-    # ── W8 (adv, C78) · MAIL TO AN ON-DEMAND CHAIR MINTS ITS WAKE ───────────────────────────────
-    #
-    # `deliver_wakes` nudges PANES, and a staff chair has none — a sitting is spawned when it has
-    # unread mail and ends when the mail is drained. For a chair that has NEVER SAT that is enough:
-    # `ready-seats` reads READY on the `staff_mail` term alone. FOR ONE THAT HAS SAT IT IS NOT —
-    # its last session row is ENDED, so it reads DONE, which is ABSORBING, and mail arriving after
-    # its first sitting wakes NOTHING without a grant. That is precisely the return leg's case: the
-    # owner's answer to an escalation reaches a chair that has, by construction, already sat (it
-    # sat to escalate). `mint_staff_wake` is that grant, and it is the same carrier `route-fail`
-    # and the session closer use — this is the third caller, not a third mechanism.
-    #
-    # ⚠ AT THE ONE DOOR, so every sender gets it: the owner's answer through `bus-answer.js`, a
-    # seat's ask routed here by the D-7 refusal above, a consultant routing what it cannot settle
-    # (C80). Idempotent by its own contract (an unspent grant for that session short-circuits), so
-    # ten messages before the sitting starts mint one wake. Never raises, and never blocks the
-    # send: the row is already on the log, and a chair that could not be granted a wake is a
-    # DISCLOSURE, never a lost message.
-    if is_staff_seat(args.to) and args.to != sender:
-        _sw_ok, _sw_note = mint_staff_wake(args, base, package_dir(args), args.to,
-                                           STAFF_WAKE_ANCHOR, sender)
-        print(c(f"  staff wake: `{args.to}` granted a sitting — {_sw_note}" if _sw_ok
-                else f"  staff wake: no grant written — {_sw_note}", C_HINT))
     if _g793_fail:
         # Loud, and non-zero. The message IS locally logged, so this is not a `refuse` — but a
         # contracted leg failed, and 7.94's whole finding is that a failed call must never read
@@ -13802,40 +13584,6 @@ def ready_seat_rows(args):
     # could straddle a concurrent append.
     last_ended = sessions_last_ended(pkg)
     undeclared = undeclared_endings(pkg, last_ended=last_ended)
-    # THE LEADER'S UNSPENT RELAUNCH GRANTS, hoisted ONCE for the same reason `awaiting`,
-    # `undeclared` and `outcomes` are — N seats must cost one read of the grant file, not N.
-    #
-    # WHY THIS SURFACE NEEDS THEM AT ALL. `DONE` is ABSORBING: once a seat's last ENDED row carries
-    # a terminal disposition, every later sweep reports `DONE` forever, and the grant that AUTHORIZES
-    # that seat's relaunch was written to a file NO read-side instrument opened — `read_relaunch_grants`
-    # was called only by the mint's own dup check and by `launch`'s spend. So a minted, unspent grant
-    # was invisible to every sweep. Measured on run-3: seat `execution-tactical-designer`, grant minted
-    # 17:54, launchable 18:24, launched 19:24.
-    #
-    # THE MATCH KEY IS (seat, session-id), BECAUSE THAT IS THE SPEND PATH'S OWN KEY
-    # (`match_relaunch_grant`, launch's P5): a grant naming a superseded session refuses there as
-    # `stale-session`, so surfacing one would advertise an authorization that CANNOT be spent — the
-    # exact false offer this whole surface exists to avoid. A grant record carrying NO session-id
-    # cell is surfaced unconditionally: the tool asserted no binding, so this reports rather than
-    # infers one. FIRST unspent match in file order wins, which is `match_relaunch_grant`'s rule too.
-    #
-    # ⚠⚠ IT IS A TERM OF THE VERDICT (7.776) — IT WAS "REPORT-ONLY" AND IS NOT ANY MORE. An UNSPENT
-    # grant found here FLIPS a `DONE` row to `READY` in the disposition branch below, because the
-    # ignite daemon's seeding pass is a `verdict == "READY"` filter and nothing else: a report it
-    # must parse out of a reason string is a report it does not read. THREE commands write the file
-    # now — `rule-relaunch` and `launch --relaunch-ruled` (the leader's ruled pair) and `seat-retry`
-    # (the daemon's automatic pair, 7.776).
-    # ⚠ WHAT IS STILL UNTOUCHED, stated because the sentence above used to cover it: the LAUNCH
-    # admission predicate reads FIELDS and never `verdict` (`no-class-clause`, below), so this flip
-    # admits nothing at `coordinate launch` — a hand launch of a flipped seat still needs
-    # `--relaunch-ruled <anchor>`. The flip moves the READY SURFACE, which is the daemon's door.
-    grants = {}
-    for _gi, _g in read_relaunch_grants(base):
-        if grant_is_spent(_g) or grant_is_revoked(_g):
-            continue
-        if _g["session-id"] and _g["session-id"] != (last_ended.get(_g["seat"]) or ("", ""))[0]:
-            continue
-        grants.setdefault(_g["seat"], _g)
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
@@ -13935,17 +13683,6 @@ def ready_seat_rows(args):
             if _name and _name not in term:
                 term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
 
-    # ── THE EDGE-VIEW OF `term` (loop re-fire, owner ruling 2026-08-12) ─────────────────────────
-    # A predecessor holding an UNSPENT surfaced grant is about to run AGAIN, so FOR ITS DEPENDENTS
-    # its old `done` check-out is superseded exactly as it is for its own admission below — the
-    # 7.776 flip moved the seat's OWN verdict to READY but left its dependents reading the stale
-    # `done`, so a judge routed back through `on-fail-relaunch` would re-fire CONCURRENTLY with
-    # the rebuild it exists to re-try. The seat's own row keeps the untouched `term` (the flip's
-    # reason must name the real check-out); only the member arithmetic reads this view.
-    edge_term = {name: (("relaunch-granted", "relaunch-grants.csv", None)
-                        if name in grants and t[0] == "done" else t)
-                 for name, t in term.items()}
-
     out = []
     for seat, preds in after.items():
         value, source, skew = term[seat]
@@ -13992,7 +13729,7 @@ def ready_seat_rows(args):
             # of the rendered word against a literal — a `met` derived by matching `state` against
             # `("done", "done+guard-ruled")` would be a second copy of that branch set, and would
             # silently go wrong the day a met rendering gains a third form (D6 added two).
-            state, entry, met_names = after_member_state(p, edge_term, guards)
+            state, entry, met_names = after_member_state(p, term, guards)
             render[p] = {"state": state, "met": entry is None}
             if entry is not None:
                 unmet.append(f"{p}={state}")
@@ -14075,12 +13812,6 @@ def ready_seat_rows(args):
                # check-out), so a second existence sweep here would be a second reader of the same
                # question, answering it later and from further away.
                "seed": seed,
-               # THE UNSPENT GRANT, present on EVERY row (`None` when there is none), never only on
-               # the rows it fires on — same rule and same reason as `undeclared-session`,
-               # `row-outcome` and `unmet-after` above. It is the grant ROW as the file carries it,
-               # so a consumer reads the anchor and mint stamp rather than re-parsing the reason
-               # string. ⚠ IT CARRIES NO VERDICT AND LIFTS NOTHING.
-               "relaunch-grant": grants.get(seat),
                # THE RENEW GATE. `{state, why}` on a row whose disposition is `renew`, `None` on
                # every other row — present on EVERY row for the same rule and the same reason
                # `unmet-after`, `row-outcome` and `undeclared-session` are: a key that appears
@@ -14124,7 +13855,7 @@ def ready_seat_rows(args):
                 # the split is `renewal_state`'s — the ONE reader of the successor signal.
                 #
                 # ⚠ NEITHER VERDICT ADVANCES AN EDGE, and neither needs to be prevented from
-                # doing so: `after_member_state` reads the raw `renew` VALUE off `edge_term`, and
+                # doing so: `after_member_state` reads the raw `renew` VALUE off `term`, and
                 # `renew` is not `done` in any of its arms. The verdict word is the REPORT axis.
                 #
                 # ⚠ BELOW `SKEW` AND `HELD`, exactly where the old `DONE` sat, and this branch
@@ -14146,10 +13877,11 @@ def ready_seat_rows(args):
                     f"back and NO SUCCESSOR IS POSSIBLE: {rec['renewal']['why']}. The lineage has "
                     f"HALTED — nothing will run under this seat's name on its own, so a reader "
                     f"who waits waits forever. NOT a clean check-out and NOT a harness death: it "
-                    f"is a renewal that could not be placed, and it needs a human. Either relaunch "
-                    f"the seat (`rule-relaunch <seat> <anchor>` then `launch --only {seat} "
-                    f"--relaunch-ruled <anchor>`) or rule the ending (`rule-disposition {seat} "
-                    f"done --go`) if the work in fact concluded. It advances NO edge meanwhile")
+                    f"is a renewal that could not be placed, and it needs a human. Rule the "
+                    f"ending (`rule-disposition {seat} done --go`) if the work in fact concluded; "
+                    f"otherwise the goal watcher relaunches this seat on its next pass, because a "
+                    f"non-terminal ending with no later sitting IS owed work. It advances NO edge "
+                    f"meanwhile")
             elif value != "done":
                 rec["reason"] += (f" — this seat advances NO edge; only `done` does"
                                   if value != "exited" else
@@ -14157,35 +13889,6 @@ def ready_seat_rows(args):
                                   "established. Routes to the leader, which investigates and "
                                   "either relaunches or flips the row to `done`. It advances "
                                   "NO edge meanwhile")
-            # 7.776: THE GRANT IS THE VERDICT NOW, NOT A WARNING BESIDE IT. It was a warning
-            # appended to a `DONE` reason, and that was measured to be worth nothing to the one
-            # consumer that matters: the daemon's seeding pass filters `verdict == "READY"` and
-            # reads no reason strings, so a minted grant sat unspent while every sweep said `DONE`
-            # (measured on run-3 — grant minted 17:54, launchable 18:24, launched 19:24 by hand).
-            #
-            # ⚠ IT FIRES ON ANY UNSPENT GRANT, NOT ONLY A DAEMON-MINTED ONE, and the absence of a
-            # `minted-by` condition here is an OWNER RULING (2026-08-12), not an omission: a grant
-            # the leader mints is acted on automatically too. The minter is REPORTED in the reason
-            # so an operator can tell the two apart; it decides nothing.
-            #
-            # ⚠ THIS BRANCH DOES NOT RE-TEST THE SEAT'S PREDECESSORS, and that is consistent rather
-            # than lax: an unspent grant is an instrument admitting ONE seat, and the launch
-            # ladder's clause I-prime already admits a granted seat past the `after` arithmetic. The
-            # `seed` this row carries is therefore the partial one the loop built — complete
-            # whenever the predecessors are in fact met, which is every case a `DONE` row reaches.
-            _rg = grants.get(seat)
-            if _rg:
-                rec["verdict"] = "READY"
-                rec["reason"] = (
-                    f"UNSPENT RELAUNCH GRANT — `{_rg['minted-by'] or '(unrecorded)'}` minted one "
-                    f"for this seat at {_rg['minted-at'] or '(unstamped)'} under anchor "
-                    f"`{_rg['anchor']}`, bound to session `{_rg['session-id'] or '(unbound)'}`, and "
-                    f"nothing has spent it. It SUPERSEDES this row's check-out `{value}` "
-                    f"({source}) FOR ADMISSION ONLY — the ended row is untouched and clears by "
-                    f"SUPERSESSION when the admitted session writes its own. The grant is "
-                    f"single-use and is stamped spent at admission. Spend it: "
-                    f"{coord_invocation(args)} launch --only {seat} "
-                    f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         elif active:
             rec["verdict"] = "RUNNING"
             rec["reason"] = f"roster: active since {row.get('checkin') or '(unstamped)'}"
@@ -14499,571 +14202,6 @@ def arm1_fails_under_transposition(rows, x, y):
         if not ok:
             return True
     return False
-
-
-# ---------- 7.274 (A3): THE RULED-RELAUNCH GRANT — exit 1 of `d-exited-row-closure` ------------
-#
-# THE PROBLEM IT SOLVES, stated as the finding that forced it (`C-2`). An `exited` row defers on
-# every launch shape a caller can type unaided — clause B is a single null test and gives
-# `done`/`renew`/`revive`/`exited` the same answer. Exit 2 of `d-exited-row-closure` (the work had
-# in fact concluded → `rule-disposition <seat> done --go`) is landed. Exit 1 — the leader RULES a
-# relaunch needed — had no carrier, and the shape that suggests itself (a flag meaning "a leader
-# ruled this") is refuted by construction: a flag's PRESENCE is caller-asserted and unfalsifiable,
-# so any authorized launcher could execute an attestation that a ruling existed when none did.
-#
-# SO THE AUTHORIZATION IS VERIFIED BY STATE, NOT BY THE SHAPE OF THE INVOCATION. The leader MINTS
-# a grant row with `rule-relaunch` (gated `is_leader`, the same predicate and the same exclusivity
-# as exit 2's own gate); `launch --relaunch-ruled <anchor>` then admits ONE seat only where a row
-# matching (seat, live last-ENDED session-id, anchor) exists and is UNSPENT. Values are checked
-# against the world, exactly as `--declare-only`'s P3 reads `undeclared_endings` and its P4 reads
-# occupancy.
-#
-# WHAT IS NOT CURED, at the same volume: a leader who mints carelessly is admitted. That is the
-# trust level owner ruling A-10 grants its ruler and it is exit 2's own residue — `rule-disposition`
-# likewise verifies that the leader PERFORMED the act, never that the investigation was diligent.
-# This builds exit 1 to exactly that level: no lower, and no higher.
-#
-# APPEND-AND-MARK ONLY. Rows are NEVER deleted, so the file is also the durable history of every
-# ruled relaunch — including after the `exited` state has left the row by supersession. It is not a
-# second home of an existing answer: the ledger anchor holds the ruling's RATIONALE, the grant row
-# holds its OPERATIVE authorization. Two facts, one home each.
-#
-# ---- THE FOURTH LANE (`p-fourth-lane-option-A-trade-owned`, leader, 2026-08-03) ----------------
-# The instrument above was built for the `exited` class alone. This run then produced a SECOND
-# class needing it: a held ephemeral seat exits by plain `done`
-# (`p-held-ephemeral-seats-exit-done-not-renew`, chosen for `done`'s LIFECYCLE effect — free the
-# pane, no memory, no respawn), so its row defers forever as `finished` while its work never
-# concluded, and NO verb can move it: `rule-disposition`'s from-states exclude `done` by design.
-# The ruled fix GENERALIZES THIS INSTRUMENT rather than relaxing the filter — the grant's
-# admissible class is now `RELAUNCH_GRANT_FROM_STATES`, a constant of its own, and everything else
-# of the ladder is unchanged: the `is_leader` mint gate, the recorded anchor, session-binding,
-# single-use, spend-before-pane, dry-run-unspent, and legs P2a/P2b/P3a/P3c/P4/P5.
-# ⚠ WHAT IS KNOWINGLY GIVEN UP, said once and plainly. On the `done` class the refusal stops
-# discriminating "the work concluded" from "the work was held" — those two rows are byte-identical
-# — so what stands between a ruled relaunch and a re-run of finished work is no longer state: it is
-# the leader's own minting act plus the trail it leaves. That is the v5 design's own stance
-# (admission rests on an instrument carrying a ruling, never on state alone), it was weighed
-# against the root-cause alternative (a distinct hold-exit disposition value, which cannot re-class
-# the rows ALREADY written `done`), and it was OWNED at the ruling. The attestation below is
-# CLASS-AWARE for exactly this reason: on a `done` admission the tool must claim the ruling act and
-# nothing about the work.
-RELAUNCH_GRANT_COLS = [
-    "seat", "session-id", "anchor", "minted-by", "minted-at", "spent-at",
-    "revoked-at", "revoke-reason",
-]
-
-_REVOKED_SPENT_RE = re.compile(r"^revoked-")
-
-
-def grant_is_revoked(g):
-    """True when the row carries `revoked-at`, or a legacy `spent-at` matching `^revoked-`."""
-    if (g.get("revoked-at") or "").strip():
-        return True
-    return bool(_REVOKED_SPENT_RE.match((g.get("spent-at") or "").strip()))
-
-
-def grant_is_spent(g):
-    """True when `spent-at` is a spend stamp — not a legacy revoke written into that cell."""
-    spent = (g.get("spent-at") or "").strip()
-    return bool(spent) and not _REVOKED_SPENT_RE.match(spent)
-
-
-def grant_is_live(g):
-    """Unspent and unrevoked — the only row `match_relaunch_grant` will admit."""
-    return not grant_is_spent(g) and not grant_is_revoked(g)
-
-
-# ── THE UNSPENT GRANT'S LIFETIME (silent-freeze sub-fix c) ─────────────────────────────────────
-#
-# A grant had NONE, in either store — no TTL, no expiry, no sweep. One minted at 01:25 on
-# 2026-08-18 was still standing, and still SUPPRESSING every later wake mint by `mint_staff_wake`'s
-# case 4, at 06:05 — four hours and forty minutes — with nothing anywhere that would ever retire it.
-#
-# ⚠ THE TTL IS LONG ON PURPOSE, AND SHORT IS THE DANGEROUS DIRECTION. The one-grant rule exists so
-# a SECOND grant cannot authorize a second sitting for mail the first will already have drained
-# (case 4), and a grant minted MID-SITTING is inert until that sitting ends — `ready_seat_rows`
-# drops any unspent grant whose session-id is not the seat's last-ended one — so it is legitimately
-# standing for as long as the sitting runs (case 2, and the 2026-08-15 orphan it cites). An expiry
-# shorter than the longest legitimate sitting re-mints underneath a live one and buys back exactly
-# the double-sitting the rule prevents, which is worse than the freeze. 24h is chosen against that
-# bound, not against the freeze: a sitting still running a full day later is itself an incident.
-#
-# ⚠ AN UNREADABLE `minted-at` IS NOT EXPIRED — the fail-open direction, because a malformed stamp
-# must never silently retire an authorization.
-#
-# ⚠ AND IT IS DELIBERATELY *NOT* A TERM OF `grant_is_live`. Wiring it there would change what
-# `match_relaunch_grant` admits without editing it, and that function's `why` ladder would then
-# report an expired row as `spent` — five legs, five different remedies, and the caller sent to the
-# wrong one. So the expiry is evaluated at ONE read (the mint's case-4 check, the read that froze)
-# and MATERIALIZED as a revoke: every other reader already honours `revoked-at`, so one predicate
-# stays one predicate and no second opinion about liveness enters the file.
-GRANT_TTL_MIN = 24 * 60
-GRANT_EXPIRY_REASON = "expired-unspent"
-
-
-def grant_is_expired(g, now_str=None):
-    """True when the row was minted more than `GRANT_TTL_MIN` ago. Unreadable stamp → False.
-
-    `now_str` (the file's own `"%Y-%m-%d %H:%M"` form) lets a check supply the reference instant
-    rather than sleep for it — `lifecycle_age_min`'s convention, for its reason."""
-    try:
-        ref = (datetime.strptime(str(now_str).strip(), "%Y-%m-%d %H:%M") if now_str
-               else datetime.now())
-        age = (ref - datetime.strptime((g.get("minted-at") or "").strip(),
-                                       "%Y-%m-%d %H:%M")).total_seconds() / 60
-    except (ValueError, AttributeError, TypeError):
-        return False
-    return age > GRANT_TTL_MIN
-
-
-def relaunch_grants_csv(base):
-    """`{package}/coordination/relaunch-grants.csv` — under the dir this run's single-writer map
-    reserves to scripts.
-
-    THREE commands write it, and the third is the one a reader will not guess (7.776): the `leader`
-    mints with `rule-relaunch` and spends with `launch --relaunch-ruled`; the `ignite-daemon` mints
-    AND spends with `seat-retry`, unattended, against the execution record's failed outcome. The
-    count was `two` here and in the hoist comment inside `ready_seat_rows` until 7.776 — a wrong
-    count in a docstring is what the next agent builds a "nothing else can touch this file"
-    assumption on.
-
-    ⚠ AND IT IS NO LONGER REPORT-ONLY. An UNSPENT row for a seat now FLIPS that seat's `ready-seats`
-    verdict from `DONE` to `READY` (see the DONE branch of `ready_seat_rows`), so this file is a term
-    of a verdict rather than a note beside one."""
-    return Path(base) / "relaunch-grants.csv"
-
-
-def read_relaunch_grants(base):
-    """[(row-index, {col: cell})] over the grant file, file order. `[]` when there is none."""
-    path = relaunch_grants_csv(base)
-    if not path.exists():
-        return []
-    header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
-    out = []
-    for i, r in enumerate(rows):
-        pad_row(r, header)
-        out.append((i, {col: (r[header.index(col)].strip() if col in header else "")
-                        for col in RELAUNCH_GRANT_COLS}))
-    return out
-
-
-def match_relaunch_grant(base, seat, session_id, anchor):
-    """(index, row, why) — the first UNSPENT grant matching all three cells.
-
-    `why` NAMES WHICH LEG FAILED rather than reporting a bare miss: `no-row`, `stale-session`,
-    `anchor-mismatch`, `spent`, `revoked`. A refusal that cannot say which of five conditions it
-    tripped sends the caller back to guess, and the five have five different remedies. The legs
-    are reported in the order of what the caller can most cheaply check. `revoked` is distinct
-    from `spent`: a retired grant is not a consumed authorization."""
-    rows = read_relaunch_grants(base)
-    for_seat = [(i, g) for i, g in rows if g["seat"] == seat]
-    if not for_seat:
-        return None, None, "no-row"
-    for i, g in for_seat:
-        if g["session-id"] == session_id and g["anchor"] == anchor and grant_is_live(g):
-            return i, g, ""
-    if not any(g["session-id"] == session_id for _, g in for_seat):
-        return None, None, "stale-session"
-    same_session = [(i, g) for i, g in for_seat if g["session-id"] == session_id]
-    if not any(g["anchor"] == anchor for _, g in same_session):
-        return None, None, "anchor-mismatch"
-    matched = [(i, g) for i, g in same_session if g["anchor"] == anchor]
-    if any(grant_is_revoked(g) for _, g in matched):
-        return None, None, "revoked"
-    return None, None, "spent"
-
-
-def _mint_relaunch_grant_unlocked(base, seat, session_id, anchor, minted_by):
-    """The append itself, WITHOUT taking the lock — for a caller already holding it.
-
-    Split out for `_append_message_unlocked`'s reason, and it is not stylistic: `coord_lock` is an
-    `fcntl.flock` on a fresh open of `{base}/.lock`, and flock records are per open-file-description,
-    so a second acquire INSIDE an outstanding hold blocks against itself in the same process. A
-    caller that must derive-then-append under ONE hold (`cmd_seat_retry`'s mint, exactly as
-    `escalate_if_second_fail` does) therefore cannot call the locking wrapper."""
-    path = relaunch_grants_csv(base)
-    header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
-    header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
-    rows = [pad_row(r, header) for r in rows]
-    rec = {"seat": seat, "session-id": session_id, "anchor": anchor,
-           "minted-by": minted_by, "minted-at": now(), "spent-at": "",
-           "revoked-at": "", "revoke-reason": ""}
-    rows.append([rec.get(col, "") for col in header])
-    write_csv_table(path, header, rows)
-    return rec
-
-
-def mint_relaunch_grant(base, seat, session_id, anchor, minted_by):
-    """Append one grant row. Returns the row as written."""
-    with coord_lock(base):
-        return _mint_relaunch_grant_unlocked(base, seat, session_id, anchor, minted_by)
-
-
-def spend_relaunch_grant(base, seat, session_id, anchor):
-    """Stamp `spent-at` on the matched unspent grant. Returns the stamp, or "" when none matched.
-
-    ⚠ THE DIRECTION IS CHOSEN FAIL-CLOSED. The grant is spent BEFORE any pane opens, so a launch
-    that admits and then aborts burns it LOUDLY — grant spent, no live pane, row still `exited` —
-    and the leader re-mints with one command. Spending AFTER the pane opened would leave an unspent
-    grant behind a crashed launch, which is a replay window: the exact class this check exists to
-    close."""
-    with coord_lock(base):
-        path = relaunch_grants_csv(base)
-        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
-        if "spent-at" not in header:
-            return ""
-        idx = {col: i for i, col in enumerate(header)}
-        stamp = now()
-        for r in rows:
-            pad_row(r, header)
-            if (r[idx["seat"]].strip() == seat
-                    and r[idx["session-id"]].strip() == session_id
-                    and r[idx["anchor"]].strip() == anchor
-                    and not r[idx["spent-at"]].strip()
-                    and not (r[idx["revoked-at"]].strip() if "revoked-at" in idx else "")
-                    and not _REVOKED_SPENT_RE.match(r[idx["spent-at"]].strip())):
-                r[idx["spent-at"]] = stamp
-                write_csv_table(path, header, rows)
-                return stamp
-    return ""
-
-
-def revoke_relaunch_grant(base, seat, anchor, reason):
-    """Stamp `revoked-at` + `revoke-reason` on the first live (seat, anchor) row. Returns the stamp."""
-    with coord_lock(base):
-        path = relaunch_grants_csv(base)
-        header, rows = read_csv_table(path, RELAUNCH_GRANT_COLS)
-        header, _ = widen_header(header, RELAUNCH_GRANT_COLS)
-        rows = [pad_row(r, header) for r in rows]
-        idx = {col: i for i, col in enumerate(header)}
-        stamp = now()
-        for r in rows:
-            g = {col: r[idx[col]].strip() if col in idx else "" for col in RELAUNCH_GRANT_COLS}
-            if g["seat"] == seat and g["anchor"] == anchor and grant_is_live(g):
-                r[idx["revoked-at"]] = stamp
-                r[idx["revoke-reason"]] = reason
-                write_csv_table(path, header, rows)
-                return stamp
-    return ""
-
-
-DISPOSITION_GRANT_COLS = [
-    "seat", "session-id", "from-state", "ruled", "writer", "anchor", "stamp", "spent-at",
-]
-
-
-def disposition_grants_csv(base):
-    """`{package}/coordination/disposition-grants.csv` — leader-minted rulings the daemon applies.
-
-    The leader cannot write `sessions.csv` (every cage ro-binds it). It mints here, on the
-    writable `coordination/` hole, the same way `relaunch-grants.csv` already works. The uncaged
-    daemon drains unspent rows through `session_rule_disposition`. An unspent row is NOT a
-    READY override and is invisible to after-edges until applied."""
-    return Path(base) / "disposition-grants.csv"
-
-
-def read_disposition_grants(base):
-    """[(row-index, {col: cell})] over the grant file, file order. `[]` when there is none."""
-    path = disposition_grants_csv(base)
-    if not path.exists():
-        return []
-    header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
-    out = []
-    for i, r in enumerate(rows):
-        pad_row(r, header)
-        out.append((i, {col: (r[header.index(col)].strip() if col in header else "")
-                        for col in DISPOSITION_GRANT_COLS}))
-    return out
-
-
-def mint_disposition_grant(base, seat, session_id, from_state, ruled, writer, anchor):
-    """Append one disposition grant row. Returns the row as written."""
-    with coord_lock(base):
-        path = disposition_grants_csv(base)
-        header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
-        header, _ = widen_header(header, DISPOSITION_GRANT_COLS)
-        rows = [pad_row(r, header) for r in rows]
-        rec = {"seat": seat, "session-id": session_id, "from-state": from_state,
-               "ruled": ruled, "writer": writer, "anchor": anchor,
-               "stamp": now(), "spent-at": ""}
-        rows.append([rec.get(col, "") for col in header])
-        write_csv_table(path, header, rows)
-        return rec
-
-
-def spend_disposition_grant(base, seat, session_id, anchor):
-    """Stamp `spent-at` on the matched unspent grant. Returns the stamp, or "" when none matched.
-
-    Spent only AFTER a successful apply (fail-closed): a grant that did not land stays
-    unspent so the next drain can retry. Spending first would burn the ruling with no
-    durable cell behind it."""
-    with coord_lock(base):
-        path = disposition_grants_csv(base)
-        header, rows = read_csv_table(path, DISPOSITION_GRANT_COLS)
-        if "spent-at" not in header:
-            return ""
-        idx = {col: i for i, col in enumerate(header)}
-        stamp = now()
-        for r in rows:
-            pad_row(r, header)
-            if (r[idx["seat"]].strip() == seat
-                    and r[idx["session-id"]].strip() == session_id
-                    and r[idx["anchor"]].strip() == anchor
-                    and not r[idx["spent-at"]].strip()):
-                r[idx["spent-at"]] = stamp
-                write_csv_table(path, header, rows)
-                return stamp
-    return ""
-
-
-def cmd_rule_relaunch(args):
-    """(leader) MINT the grant that admits ONE ruled relaunch of an ENDED row whose disposition is
-    in `RELAUNCH_GRANT_FROM_STATES` — exit 1 of `d-exited-row-closure` on the `exited` class, and
-    the fourth lane on the `done` class. BARE = report; `--go` = write.
-
-    THE EXIT-2 TWIN, and deliberately shaped like it. `rule-disposition <seat> done --go` records
-    the finding "the work had in fact concluded"; this records the OTHER finding — "this row needs
-    relaunching" — which no disposition value can express, because `RECORD_DISPOSITION_WRITER`
-    admits the leader for `done` and for nothing else. Both are records of a leader investigation
-    that already happened; neither performs one, and neither can check that one did."""
-    gate(args, "rule-relaunch", is_leader,
-         "the leader's alone — `d-exited-row-closure` grants the ruling to the leader, and this "
-         "command records that ruling. Performing the relaunch afterwards is a different act with "
-         "a different holder",
-         remedy="ask the leader to mint the grant; the launch then carries its anchor")
-    pkg = package_dir(args)
-    base = base_dir(args)
-    seat = args.seat
-    anchor = (args.anchor or "").strip()
-    go = bool(getattr(args, "go", False))
-    if not anchor:
-        refuse("input",
-               "--anchor is the leader's own ruling anchor and carries the trail; an empty one "
-               "would mint a grant citing nothing.", 2)
-    le = sessions_last_ended(pkg)
-    # Precondition 1 — there is an ENDED row to rule on.
-    if seat not in le:
-        refuse("state",
-               f"'{seat}' has no ENDED session row in this package, so there is no ruled relaunch "
-               f"to authorize — a seat that has not ended is an ordinary launch candidate.\n"
-               f"Read the row: {coord_invocation(args)} ready-seats --explain {seat}", 1)
-    sid, disp = le[seat]
-    # Precondition 2 — its last ENDED disposition is one THE GRANT admits.
-    # ⚠ NO LONGER THE MIRROR OF `session_rule_disposition`'s from-state check, and that is the
-    # fourth lane's whole content (`p-fourth-lane-option-A-trade-owned`). The two verbs shared ONE
-    # constant across three read sites; widening it here would also have let the leader rewrite a
-    # `done` disposition. The grant reads its OWN constant now; the flip verb still reads
-    # `RULED_FLIP_FROM_STATES`, byte-untouched.
-    if disp not in RELAUNCH_GRANT_FROM_STATES:
-        refuse("state",
-               f"'{seat}'s last ENDED row ({sid}) carries disposition "
-               f"`{disp or '(empty)'}`, and this verb mints a grant on "
-               f"{relaunch_grant_from_phrase()} rows ONLY. An EMPTY cell is the UNDECLARED class "
-               f"and its one instrument is `launch --declare-only <leader-anchor>`; `renew` and "
-               f"`revive` are live lanes that relaunch their own row and need no grant.\n"
-               f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE.", 1)
-    # Precondition 3 — no unspent grant already exists for this (seat, session-id).
-    existing = [g for _, g in read_relaunch_grants(base)
-                if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)]
-    if existing:
-        refuse("state",
-               f"'{seat}' already carries an UNSPENT grant for session {sid} "
-               f"(anchor `{existing[0]['anchor']}`, minted {existing[0]['minted-at']} by "
-               f"{existing[0]['minted-by']}). Minting a second would authorize two relaunches "
-               f"where one was ruled.\n"
-               f"Spend the existing one: {coord_invocation(args)} launch --only {seat} "
-               f"--relaunch-ruled {existing[0]['anchor']}", 1)
-    if not go:
-        print(f"{c(seat, C_LABEL)}  GRANTABLE — its last session row ({sid}) is ENDED and carries "
-              f"`{disp}`, and no unspent grant exists for it.")
-        print("    (report only — nothing was written. Re-run with --go to mint the grant.)")
-        return
-    rec = mint_relaunch_grant(base, seat, sid, anchor, DISPOSITION_WRITER_LEADER)
-    print(f"{c(seat, C_LABEL)}  GRANT MINTED for session {sid}")
-    print(f"    relaunch-grants.csv: seat `{seat}` session-id `{sid}` anchor `{anchor}` "
-          f"minted-by `{rec['minted-by']}` minted-at `{rec['minted-at']}` spent-at (unspent)")
-    # ⚠ THE ROW'S OWN CELL, NEVER A CONSTANT (RD-EC-5's lesson, and F1 made this line reachable on
-    # a second class). While the grant reached `exited` alone, a hardcoded `exited` here was
-    # accurate by construction; the widening made it a report about a row this mint may never have
-    # touched — the one command meant to be read before it is trusted, describing the wrong state.
-    print(c(f"\nThe grant is SINGLE-USE and SESSION-BOUND: it admits exactly one launch of this "
-            f"seat, for this ended session, carrying this anchor, and is stamped spent at that "
-            f"admission. It does not clear the `{disp}` row — that clears by SUPERSESSION when the "
-            f"admitted session writes its own ended row.\nnext: "
-            f"{coord_invocation(args)} launch --only {seat} --relaunch-ruled {anchor}", C_HINT))
-
-
-def cmd_revoke_relaunch(args):
-    """(leader) RETIRE a standing grant with its own stamp, distinct from spent.
-    BARE = report; `--go` = write. Keyed on (seat, anchor), never every unspent row."""
-    gate(args, "revoke-relaunch", is_leader,
-         "the leader's alone — minting and revoking are the same chair's ruling acts",
-         remedy="ask the leader to revoke the grant")
-    base = base_dir(args)
-    seat = args.seat
-    anchor = (args.anchor or "").strip()
-    reason = (args.reason or "").strip()
-    go = bool(getattr(args, "go", False))
-    if not anchor:
-        refuse("input",
-               "--anchor names WHICH grant to retire; an empty one would match every unspent row "
-               "for the seat, which is the near-miss that made this verb take (seat, anchor).", 2)
-    if not reason:
-        refuse("input",
-               "--reason is the revocation trail; an empty one would retire a grant citing nothing.", 2)
-    matches = [g for _, g in read_relaunch_grants(base)
-               if g["seat"] == seat and g["anchor"] == anchor]
-    if not matches:
-        refuse("state",
-               f"'{seat}' has no grant row with anchor `{anchor}`. "
-               f"Read the file: {relaunch_grants_csv(base)}", 1)
-    live = [g for g in matches if grant_is_live(g)]
-    if not live:
-        if any(grant_is_revoked(g) for g in matches):
-            refuse("state",
-                   f"'{seat}' anchor `{anchor}` is ALREADY REVOKED "
-                   f"(revoked-at `{matches[0].get('revoked-at') or matches[0].get('spent-at')}`). "
-                   f"A revoke is single-use; it does not re-stamp a retired row.", 1)
-        refuse("state",
-               f"'{seat}' anchor `{anchor}` is ALREADY SPENT "
-               f"(spent-at `{matches[0].get('spent-at')}`). Revoke retires a standing grant; "
-               f"a consumed authorization is a spend, not a revoke.", 1)
-    rec = live[0]
-    if not go:
-        print(f"{c(seat, C_LABEL)}  REVOCABLE — unspent grant for session {rec['session-id']} "
-              f"anchor `{anchor}`, minted {rec['minted-at']} by {rec['minted-by']}.")
-        print("    (report only — nothing was written. Re-run with --go to revoke.)")
-        return
-    stamp = revoke_relaunch_grant(base, seat, anchor, reason)
-    if not stamp:
-        refuse("state",
-               f"'{seat}' anchor `{anchor}` was not revoked — a concurrent spend or revoke "
-               f"took the row first.", 1)
-    print(f"{c(seat, C_LABEL)}  GRANT REVOKED at {stamp}")
-    print(f"    relaunch-grants.csv: seat `{seat}` session-id `{rec['session-id']}` "
-          f"anchor `{anchor}` revoked-at `{stamp}` revoke-reason `{reason}`")
-    print(c("\nThe grant is retired, not spent. `match_relaunch_grant` returns `revoked` "
-            "(not `spent`); the READY flip will not fire on this row.", C_HINT))
-
-
-# ---------- 7.776: THE DAEMON SELF-GRANT (`coordinate seat-retry`) ----------------------------
-#
-# WHAT IT IS: the ignite daemon mints its OWN single-use, session-bound relaunch grant against an
-# execution that ended badly, and spends it at the shared enqueue point. Same instrument, same file,
-# same single-use/session-bound/spent-at-admission semantics as the leader's ruled relaunch — a
-# different MINTER and a different ANCHOR, and a BOUND, because nobody is watching.
-#
-# WHY THE SESSION-ID ARRIVES AS AN ARGUMENT AND IS NOT RESOLVED HERE. This file never opens
-# `executions.csv` and the engine never opens `relaunch-grants.csv`: the engine owns the outcome
-# record, coord owns the grant record, and neither runtime reads the other's file. The join crosses
-# as a COMMAND-LINE ARGUMENT. That is what makes the case this closes solvable at all — the measured
-# seat (`forge-reference-seat-id-naming/forg-intake`) has a `failed` execution row and NO
-# `sessions.csv`, so there is no session-id coord could resolve on its own.
-#
-# ⚠ THE GATE IS `is_authorized_launcher` — THE EXISTING PREDICATE, not a new one. Owner ruling 7.738
-# already put `DAEMON_IDENTITY` in it, on the reasoning that a daemon-fired launch IS a launch; this
-# verb authorizes exactly one launch, so it belongs behind the same door. The `leader` is admitted
-# by the same predicate and that is deliberate: a human debugging the daemon's lane can drive this
-# verb by hand, and a second predicate for one caller is how a widening gets re-litigated.
-def cmd_seat_retry(args):
-    """(daemon) MINT or SPEND the daemon's own automatic relaunch grant for ONE seat's session.
-
-    TWO ARMS, ONE VERB, because they are two halves of one instrument and splitting them would put
-    the bound in one command and the burn in another. `--mint` appends the grant; `--spend` stamps
-    it. Both are keyed on (seat, session-id) — the spend path's own key.
-
-    ⚠ THE MINT'S DERIVE-SCAN-APPEND SHARE ONE `coord_lock` HOLD, exactly as `escalate_if_second_fail`
-    does and for the same race: two concurrent passes must not both observe "budget remains" or
-    "no unspent grant yet" and both append. The bound and the dup check are worth nothing outside
-    the hold that makes them atomic with the write they guard.
-
-    ⚠ THE BOUND COUNTS ONLY ROWS THIS DAEMON MINTED. A leader's grant is never charged against the
-    daemon's budget — the leader rules per instance and answers for it; the daemon spends
-    unattended and is the party the budget exists to bound."""
-    gate(args, "seat-retry", is_authorized_launcher,
-         "the leader's and the ignite daemon's — `is_authorized_launcher`, the SAME predicate "
-         "`launch` carries, because this verb authorizes exactly one launch (owner ruling 7.738)",
-         remedy="this is the daemon's unattended retry path; a human ruling one relaunch uses "
-                "`rule-relaunch` + `launch --relaunch-ruled`, which records WHO ruled it")
-    base = base_dir(args)
-    seat = args.seat
-    sid = (args.session or "").strip()
-    as_json = bool(getattr(args, "json", False))
-
-    def emit(payload, human):
-        print(json.dumps(payload, indent=2, sort_keys=True) if as_json else human)
-
-    if not sid:
-        refuse("input",
-               "--session is the EXECUTION's own session-id and it is the grant's binding; an "
-               "empty one would mint an authorization bound to nothing, which every later sweep "
-               "reads as unbound and offers unconditionally.", 2)
-
-    if args.spend:
-        # The row is read OUTSIDE the lock and its anchor handed to `spend_relaunch_grant`, which
-        # re-matches under its own hold. Deliberate, and fail-closed rather than sloppy: a
-        # concurrent spend that wins the race leaves this one matching nothing, and an empty stamp
-        # is exactly the answer the caller must act on. Reading the anchor rather than assuming
-        # `DAEMON_RETRY_ANCHOR` is what makes this arm spend a LEADER-minted grant too — the owner
-        # ruled the daemon acts on any unspent grant, not only its own.
-        row = next((g for _i, g in read_relaunch_grants(base)
-                    if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)), None)
-        stamp = spend_relaunch_grant(base, seat, sid, row["anchor"]) if row else ""
-        if not stamp:
-            emit({"status": "not-spent", "seat": seat, "session-id": sid, "stamp": "",
-                  "reason": "no-unspent-grant" if row is None else "raced",
-                  "grant": row},
-                 f"{seat}: NOT SPENT — no unspent grant for session {sid}"
-                 if row is None else
-                 f"{seat}: NOT SPENT — a concurrent spend took the row for session {sid} first")
-            return
-        emit({"status": "spent", "seat": seat, "session-id": sid, "stamp": stamp,
-              "grant": dict(row, **{"spent-at": stamp})},
-             f"{seat}: GRANT SPENT at {stamp} (session {sid}, anchor `{row['anchor']}`, "
-             f"minted by {row['minted-by'] or '(unrecorded)'})")
-        return
-
-    outcome = (args.outcome or "").strip()
-    if outcome not in DAEMON_RETRY_FROM_OUTCOMES:
-        refuse("state",
-               f"--outcome `{outcome or '(empty)'}` is not one this verb retries. It mints on "
-               f"{' / '.join('`%s`' % o for o in DAEMON_RETRY_FROM_OUTCOMES)} ONLY, and the value "
-               f"comes from the EXECUTION RECORD's outcome vocabulary "
-               f"(`clean|crashed|killed` since W2), never from a session's disposition cell.\n"
-               f"`clean` is not retried: it is a run that ENDED WITHOUT CRASHING, which covers both "
-               f"finished work and a seat that stopped to ask the owner. Whether the WORK is done "
-               f"is the seat's check-out disposition, not this column, and the hold against "
-               f"retrying a seat waiting on a human is `ready-seats`' `HELD` verdict.", 1)
-
-    with coord_lock(base):
-        rows = read_relaunch_grants(base)
-        spent_budget = sum(1 for _i, g in rows
-                           if g["seat"] == seat and g["minted-by"] == DAEMON_IDENTITY)
-        if spent_budget >= DAEMON_RETRY_BOUND:
-            refuse("state",
-                   f"'{seat}' has exhausted the daemon's retry budget: {spent_budget} of "
-                   f"{DAEMON_RETRY_BOUND} grants already minted by `{DAEMON_IDENTITY}` for this "
-                   f"seat (spent or not). The seat now waits for a human — that is the bound's "
-                   f"whole purpose, and raising it is a ruling, not a retry.\n"
-                   f"A human who has investigated relaunches it the ruled way: "
-                   f"{coord_invocation(args)} rule-relaunch {seat} --anchor <your-anchor> --go, "
-                   f"then launch --only {seat} --relaunch-ruled <your-anchor>. That grant is "
-                   f"minted by the `leader` and is NOT charged against this budget.", 1)
-        if any(g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)
-               for _i, g in rows):
-            refuse("state",
-                   f"'{seat}' already carries an UNSPENT grant for session {sid}. Minting a second "
-                   f"would authorize two relaunches where one execution failed — and would charge "
-                   f"the budget twice for one failure.\n"
-                   f"Spend the one that exists: {coord_invocation(args)} seat-retry {seat} "
-                   f"--spend --session {sid}", 1)
-        rec = _mint_relaunch_grant_unlocked(base, seat, sid, DAEMON_RETRY_ANCHOR, DAEMON_IDENTITY)
-
-    emit({"status": "minted", "seat": seat, "session-id": sid, "outcome": outcome,
-          "bound": DAEMON_RETRY_BOUND, "minted-so-far": spent_budget + 1, "grant": rec},
-         f"{seat}: GRANT MINTED for session {sid} on outcome `{outcome}` — "
-         f"{spent_budget + 1} of {DAEMON_RETRY_BOUND} automatic retries used. "
-         f"anchor `{rec['anchor']}` minted-by `{rec['minted-by']}` at {rec['minted-at']}")
 
 
 # ---------- D2 (2026-08-19): the daemon's seed-refusal surfacing (`coordinate surface-refusal`) --
@@ -15508,256 +14646,19 @@ def close_session_seat(args, sid, seat):
 #   1. THE CLOSER'S STAFF-MAIL ARM  — every terminal non-`done` ending mints one message to a staff
 #      chair, carrying the seat's own check-out reason. Mechanical: no agent decides whether to
 #      mail, so no agent can decide not to.
-#   2. THE WAKE                     — the mail alone wakes nothing on the daemon lane. The chair is
-#      a `taskforce.csv` row, so its wake is the row becoming READY, and that is written into BOTH
-#      grant stores (coord's `relaunch-grants.csv` and the engine's `coordination/relaunch-grants`) in
-#      one act, because the two lanes deliberately read different files.
+#   2. THE WAKE                     — D12 (2026-08-20): THE MAIL *IS* THE WAKE. There is no grant,
+#      no store and no latch. The goal watcher (`engine/reconcile.js`, cadence 300 s) derives a
+#      chair with UNREAD MAIL as owed work and launches the sitting itself. The three grant stores
+#      that used to carry this — `relaunch-grants.csv`, the bare `relaunch-grants`, and
+#      `disposition-grants.csv` — are deleted from the code; the files that exist in older goal
+#      folders are inert history no runtime path opens.
 #   3. `route-fail`                 — a FAIL verdict with a declared route goes to the AUTHOR of the
 #      instruction; an undeclared one goes to the leader. Never a void.
 #   4. `widen-cage`                 — the leader's one repair actuator, audited into the same file
 #      that applies it.
 #
-# ⚠ THE WAKE IS THE GRANT AND NOT A HEART MESSAGE, and that is a decided departure from the spec's
-# first sketch (adv, C27/C28 named the ticker's `hasNewSenderInputSinceEnd` redispatch as the
-# carrier). It was rejected on design: that path needs a SYNTHETIC bootstrap execution forged into
-# the daemon's `heart.db` — a `jobs_log` row with `thread` + `completion_msg_id`, plus a forged
-# completion message — and `heart.db` is PER-MACHINE state outside the workspace that coord.py
-# opens read-only for identity resolution and nothing else. Forging a lifecycle row there would put
-# a second writer on the store the server core is the sole writer of. The spec's own stated
-# fallback ("normal seeding with an explicit trigger") is what is built, and the TWO-STORE
-# requirement it says stands either way is met in full — both grant stores, one act, one helper.
-# The bus row remains the auditable record; the grant is the mechanism.
-
-STAFF_WAKE_ANCHOR = "staff-wake"
 ROUTE_PAYLOAD_DIR = "route-payloads"
 PERMISSION_EDITS_COLS = ["stamped-at", "seat", "path", "reason", "edited-by"]
-
-
-def engine_grants_file(base):
-    """`{package}/coordination/relaunch-grants` — the ENGINE's grant store, the twin of
-    `relaunch-grants.csv`. Same directory, different name (D6, 2026-08-18).
-
-    Two files because the two lanes read different ones: coord's CSV flips the seat's `ready-seats`
-    verdict (the daemon's door) and this one hides the seat's finished history from the engine's own
-    eligibility reader (`seeding.js#executionsByJob`). A wake written to one only is a wake that
-    stalls on the other — `mint_loop_refire` already learned this and writes both.
-
-    ⚠ BOTH HALVES LIVE IN `coordination/`. The engine half used to sit at the goal root, which
-    every cage ro-binds; a caged seat's `mint_staff_wake` then died EROFS on the engine-first write
-    and armed nothing. `coordination/` is the one rw hole the cage already grants (`spawn.js`
-    `#resolveBusWriteGrants`). Co-locating the engine half adds no authority a bus-write seat
-    lacked — it can already flip `ready-seats` via the CSV twin."""
-    return Path(base) / "relaunch-grants"
-
-
-def append_engine_grant(base, seat):
-    """`(ok, why)` — `seat` IS in the engine's grant file when `ok`. Appended unless already there.
-
-    ⚠ THE OUTCOME IS THE CALLER'S TO CONSUME, and it did not used to be. This returned a bare
-    `False` that meant BOTH "already present" (a success — the engine sees the grant either way)
-    and "the write was refused", and every `OSError` was swallowed on both arms. Measured on the
-    forge goal, 2026-08-18: the goal root is ro-bound in-cage, the append died EROFS, the caller
-    discarded the `False`, and `mint_staff_wake` reported an armed wake in BOTH stores that existed
-    in ONE. Already-present is `(True, "")` now; only a refused write is `False`, and it NAMES the
-    store and the reason so the caller can say which half is missing.
-
-    ⚠ AN UNREADABLE FILE IS NOT AN EMPTY ONE, but the append is the authoritative act: a read that
-    fails falls through to it and lets the WRITE decide, rather than reporting a failure the store
-    may not have."""
-    path = engine_grants_file(base)
-    try:
-        existing = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
-    except OSError:
-        existing = set()
-    if seat in existing:
-        return True, ""
-    try:
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(seat + "\n")
-    except OSError as exc:
-        return False, (f"the ENGINE store `{path}` REFUSED the write "
-                       f"({type(exc).__name__}: {exc.strerror or exc})")
-    return True, ""
-
-
-def sessions_sitting_id(pkg, seat):
-    """The session-id the seat is sitting on RIGHT NOW — `''` when it is not sitting.
-
-    An OPEN `sessions.csv` row is not by itself a sitting: a crashed session nobody closed leaves
-    one behind forever, and binding anything to that row is binding to a session that can never
-    become the seat's last-ended one. So the row's own identity pair decides — the same
-    `(pid, pid-starttime)` and the same `ident_is_live_process` predicate the session-closer's
-    term (b) uses, never a second liveness test. An unreadable or dead pair reads NOT SITTING,
-    which is the fail-safe direction here: the caller falls back to the last ENDED row, which is
-    exactly what it did before this function existed."""
-    sid = sessions_open_ids(pkg).get(seat, "")
-    if not sid:
-        return ""
-    row = session_row_by_id(pkg, sid)
-    if not row:
-        return ""
-    _seat, _ended, pid, pid_starttime = row
-    if not pid or not pid_starttime:
-        return ""
-    return sid if ident_is_live_process((pid, pid_starttime)) else ""
-
-
-# ── THE WAKE REFUSAL'S DURABLE RECORD (silent-freeze sub-fix b) ────────────────────────────────
-#
-# A refused wake used to exist ONLY as a returned string somebody printed. On the two frozen goals
-# of 2026-08-18 the case-4 refusal fired on every seeding pass for four hours — ~3,028 times, once
-# every ten seconds, across a daemon restart — and the sole record of any of it was stdout nobody
-# was reading. The freeze was silent because the refusal was.
-#
-# ⚠ A FILE ON THE COORDINATION SIDE, NOT A BUS ROW, and the reason is reflexivity rather than cost.
-# The refusal fires INSIDE the wake path a piece of mail just opened; minting a `note` about it
-# would put more mail on the same chair's queue, which mints the next wake attempt, which refuses,
-# which writes the next note — the loop runs at the tick rate. A bus row also costs a message id
-# per refusal on the one surface every seat reads. The coordination directory is where coord's own
-# half of the two-store doctrine already lives (`relaunch-grants.csv`, same directory, same
-# single-writer map) and it is READ-WRITE in-cage, which the goal root is not.
-#
-# ⚠ BOUNDED BY CONSTRUCTION: ONE ROW PER (seat, session-id, reason), bumped. 1,400 refusals are one
-# row with `count: 1400` and a moving `last-at`, never 1,400 rows — the file records the STATE of a
-# standing refusal, not its event stream, so it cannot become the next unbounded surface.
-#
-# ⚠ NOBODY READS A FILE NOBODY KNOWS ABOUT, so the mint's printed note NAMES THIS PATH on every
-# refusal. The printed line stays the pointer; this file is what survives the scrollback.
-WAKE_REFUSAL_COLS = ["seat", "session-id", "reason", "first-at", "last-at", "count", "detail"]
-
-
-def wake_refusals_csv(base):
-    """`{package}/coordination/wake-refusals.csv` — the durable half of a refused wake."""
-    return Path(base) / "wake-refusals.csv"
-
-
-def record_wake_refusal(base, seat, session_id, reason, detail=""):
-    """Bump (or open) this refusal's ONE row. `(ok, path-or-why)`. NEVER RAISES.
-
-    The mint's contract is that it never raises and its callers depend on that, so a persistence
-    surface that could break it would be worse than the silence it replaces: every failure here
-    degrades to the printed-only behaviour this record was added to, and says so."""
-    path = wake_refusals_csv(base)
-    try:
-        with coord_lock(base):
-            header, rows = read_csv_table(path, WAKE_REFUSAL_COLS)
-            header, _ = widen_header(header, WAKE_REFUSAL_COLS)
-            rows = [pad_row(r, header) for r in rows]
-            idx = {col: i for i, col in enumerate(header)}
-            stamp = now()
-            for r in rows:
-                if (r[idx["seat"]].strip() == seat
-                        and r[idx["session-id"]].strip() == session_id
-                        and r[idx["reason"]].strip() == reason):
-                    try:
-                        n = int(r[idx["count"]].strip() or "0")
-                    except ValueError:
-                        n = 0
-                    r[idx["count"]] = str(n + 1)
-                    r[idx["last-at"]] = stamp
-                    r[idx["detail"]] = detail
-                    break
-            else:
-                rec = {"seat": seat, "session-id": session_id, "reason": reason,
-                       "first-at": stamp, "last-at": stamp, "count": "1", "detail": detail}
-                rows.append([rec.get(col, "") for col in header])
-            write_csv_table(path, header, rows)
-        return True, str(path)
-    except Exception as exc:                                   # noqa: BLE001 — see the docstring
-        return False, f"{type(exc).__name__}: {exc}"
-
-
-def mint_staff_wake(args, base, pkg, seat, anchor, minted_by):
-    """Wake an ON-DEMAND staff chair: `(woken, note)`. Idempotent, and never raises.
-
-    FOUR CASES, and only two of them write anything:
-
-      the chair has NEVER SAT   no session row at all, so it carries no disposition and
-                                `ready-seats` reads READY on its own account the moment mail exists
-                                (the `staff_mail` term). A grant would be UNBOUND — session-id `''`
-                                — and an unbound grant can never be SPENT (`seat-retry --spend`
-                                refuses an empty `--session` by name), so it would flip the chair
-                                READY after every later completion, FOREVER. That is the exact
-                                shape this function exists not to write.
-      the chair IS SITTING RIGHT NOW
-                                its row is OPEN and the process that row names is ALIVE
-                                (`sessions_sitting_id`). The grant binds to THAT
-                                open session, not to the last ENDED one: the sitting is about to
-                                become the last-ended row, and `ready-seats` drops any unspent grant
-                                whose session-id is not the chair's last-ended id. Binding to the
-                                PREVIOUS sitting — which is what reading `sessions_last_ended` alone
-                                does here — writes a grant that is stale the instant the current
-                                sitting ends, so the mail wakes nobody and the chair sits at DONE
-                                with unread mail (measured on `meet-transcript-summarizer`,
-                                2026-08-15: grant `46d185eb…` minted 23:36 mid-sitting of
-                                `6a4a0ce4…`, orphaned at 23:41). The current sitting MAY drain this
-                                mail itself, in which case the grant buys one short empty sitting —
-                                the fail-open direction, and the same cost the HAS-SAT case already
-                                accepts.
-      the chair HAS SAT         its last row is ENDED and carries `exited`, so `ready-seats` reads
-                                DONE, which is ABSORBING. The wake is an unspent grant BOUND to
-                                that ended session — the DONE branch's own flip turns it READY, and
-                                the engine spends it at admission.
-      a wake is ALREADY PENDING one sitting drains the WHOLE queue, so a second grant for the same
-                                session would authorize a second sitting for mail the first will
-                                already have read.
-    """
-    try:
-        # THE LIVE SITTING FIRST — see the IS-SITTING case above. `sessions_sitting_id` answers
-        # with the row's own identity pair rather than with the mere absence of an `ended` cell, so
-        # a crashed session's abandoned open row does NOT capture the grant; that falls through to
-        # the last ENDED row, which is what this line always did.
-        sid = (sessions_sitting_id(pkg, seat)
-               or (sessions_last_ended(pkg).get(seat) or ("", ""))[0])
-    except Exception:                                          # noqa: BLE001
-        sid = ""
-    if not sid:
-        return False, ("no session row for this chair yet — it has never sat, so it reads "
-                       "READY on its own account as soon as mail exists and needs no grant")
-    try:
-        standing = next((g for _i, g in read_relaunch_grants(base)
-                         if g["seat"] == seat and g["session-id"] == sid and grant_is_live(g)),
-                        None)
-        if standing is not None and grant_is_expired(standing):
-            # (c) — THE EXPIRY, EVALUATED AT THIS READ AND MATERIALIZED AS A REVOKE. A grant that
-            # has stood unspent past `GRANT_TTL_MIN` outlived every sitting it could have bound to,
-            # and leaving it is what made the freeze self-sustaining. Revoking rather than merely
-            # ignoring it keeps ONE live grant per (seat, session) and keeps every other reader
-            # agreeing with this one — they all honour `revoked-at` already.
-            revoke_relaunch_grant(base, seat, standing["anchor"], GRANT_EXPIRY_REASON)
-            standing = None
-        if standing is not None:
-            _rec_ok, _rec_where = record_wake_refusal(
-                base, seat, sid, "unspent-grant-stands",
-                f"anchor `{standing['anchor']}` minted {standing['minted-at']} "
-                f"by {standing['minted-by']}")
-            return False, ("an UNSPENT wake grant already stands for this chair's session — "
-                           "one sitting drains the whole queue"
-                           + (f" (refusal recorded in {_rec_where})" if _rec_ok else
-                              f" (and the refusal could NOT be recorded — {_rec_where} — so this "
-                              f"line is the only record of it)"))
-        # (a) — THE FRAGILE STORE FIRST, AND NOTHING IS MINTED IF IT REFUSES. The two halves used
-        # to be written CSV-first with the engine half's outcome discarded, so an EROFS on the
-        # ro-bound goal root left a CSV-ONLY grant standing — which is worse than no grant at all,
-        # because a standing grant SUPPRESSES every later re-mint by the case-4 rule above while
-        # authorizing nothing. Rollback was the other candidate and was rejected: a caller that
-        # retries every ten seconds would mint-and-revoke a row per attempt, trading a silent
-        # freeze for an unbounded grant file. Ordering makes the suppressing partial state
-        # UNREACHABLE instead: the store that can fail is written first, and the CSV half — the
-        # one that suppresses — is only minted once the engine half is known present. The reverse
-        # partial (engine written, CSV mint raises) is inert: the engine file only HIDES finished
-        # history from `seeding.js#executionsByJob`, the daemon's door is the `ready-seats` verdict
-        # the CSV half flips, and a re-attempt dedupes on the line already there.
-        ok, why = append_engine_grant(base, seat)
-        if not ok:
-            return False, (f"NOTHING was minted — {why}. The coordination half was deliberately "
-                           f"NOT written, so no unspendable grant is left standing to suppress the "
-                           f"next attempt. The wake is NOT armed — SAY SO")
-        mint_relaunch_grant(base, seat, sid, anchor, minted_by)
-    except Exception as exc:                                   # noqa: BLE001
-        return False, (f"the COORDINATION half of the wake grant could NOT be minted "
-                       f"({type(exc).__name__}: {exc}) — the wake is NOT armed, SAY SO")
-    return True, f"session {sid}, anchor `{anchor}`"
 
 
 def staff_route_target(args, base, flag, who="the check-out"):
@@ -15872,14 +14773,12 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
         steps.append(f"staff mail: NOT minted — {type(exc).__name__}: {exc}. The ending is "
                      f"recorded and NOBODY WAS TOLD; say so.")
         return steps
-    woken, note = mint_staff_wake(args, base, pkg, to, STAFF_WAKE_ANCHOR, DISPOSITION_WRITER_KIT)
-    # `woken` MEANS BOTH STORES NOW, which is why the true arm may still say so: the mint writes
-    # the engine half first and refuses to mint the coordination half without it, so a partial
-    # write can no longer reach this line as a success. The false arm stopped claiming "no grant
-    # written" — on the coordination-half failure an engine line DID land — and says only what is
-    # true of every failure arm: the wake is not armed, and the note names which store is missing.
-    steps.append(f"staff wake: `{to}` granted a relaunch in BOTH stores — {note}" if woken
-                 else f"staff wake: NOT ARMED — {note}")
+    # D12 · THE MAIL *IS* THE WAKE. No grant is minted here and none exists to mint: the goal
+    # watcher (`engine/reconcile.js`) derives a chair with unread mail as owed work on every
+    # 5-minute pass and launches the sitting itself. The chair's own ENDED row no longer has to be
+    # superseded by anything — reconcile reads the mail, not a disposition.
+    steps.append(f"staff wake: none needed — `{to}` has unread mail, which the goal watcher "
+                 f"reconciles into a sitting on its next pass")
     return steps
 
 
@@ -16055,15 +14954,15 @@ def path_display(p):
 # known-but-UNSTAFFED `leader` chair and was silently swallowed. This is the verb that makes the
 # receiver mandatory.
 #
-# ⚠ IT DOES NOT REUSE `mint_loop_refire`, and the reason is in that function's own docstring. Its
-# grants bind to the route seat's LATEST session row; a staff chair with no session row yields an
-# EMPTY binding, an unbound grant is surfaced unconditionally by every later sweep, and no spend
-# path can ever burn it (`seat-retry --spend` refuses an empty `--session` by name). The result is
-# a chair that flips READY after every later completion, forever. So: MAIL is the leader's
-# actuator, `mint_staff_wake` is the chair's wake, and a route target with an empty session is
-# REFUSED LOUDLY rather than granted an unbindable authorization.
+# ⚠ D12 (2026-08-20) — IT GRANTS NOTHING. The verb used to mint a relaunch grant per route target
+# in both stores; those stores are deleted. What it writes now is the MAIL and the PAYLOAD, and
+# what makes the routed seat sit again is `engine/reconcile.js`: a chair is owed work while its
+# mail is unread, and an ordinary seat is owed work while its last ended row is non-terminal.
+# ⚠ A ROUTED SEAT WHOSE OWN ROW READS `done` IS NOT OWED WORK and will not come back on its own.
+# That is a REAL narrowing of this verb and it is stated rather than papered over — the `--go`
+# epilogue says it to the caller too.
 #
-# ⚠ THE PAYLOAD RIDES A FILE, NOT THE GRANT (D6's false-complete is the proof a bare grant re-runs
+# ⚠ THE PAYLOAD RIDES A FILE, NOT A GRANT (D6's false-complete is the proof a bare grant re-runs
 # the STALE SEED). Every in-cage write path to a target's boot seed is closed — `seat.md` is
 # ro-bound, the goal root is read-only — and the ONE shared writable surface is
 # `{goalDir}/coordination`. So the payload is written there and `boot_prompt` folds it into the
@@ -16117,10 +15016,9 @@ def cmd_route_fail(args):
         n = append_message(base, sender, to, "note",
                            f"ROUTED FAIL — '{sender}' failed and declares no "
                            f"`{ON_FAIL_RELAUNCH_KEY}` route.\n\n{body}")
-        woken, note = mint_staff_wake(args, base, pkg, to, STAFF_WAKE_ANCHOR, sender)
         print(f"    routed: message #{n} -> `{to}`")
-        print(f"    staff wake: `{to}` granted a relaunch in BOTH stores — {note}" if woken
-              else f"    staff wake: no grant written — {note}")
+        print(f"    staff wake: none needed — the goal watcher reconciles a chair's unread mail "
+              f"into a sitting on its next pass")
         return
     # A DECLARED route. Each target is checked for EXISTENCE and for a bindable session BEFORE
     # anything is written: `_ferry_safe_name` is SYNTAX ONLY, and D6's root cause was a TASK ID in
@@ -16140,21 +15038,12 @@ def cmd_route_fail(args):
                    f"nobody. Fix '{sender}'s `{ON_FAIL_RELAUNCH_KEY}` cell in its seat.md and in "
                    f"the workflow's seats.csv, or route this by hand to a seat that exists.", 1)
         sid = (sessions_last_ended(pkg).get(seat) or ("", ""))[0]
-        if not sid:
-            refuse("state",
-                   f"`{seat}` has NO ENDED SESSION ROW, so a relaunch grant for it would bind to "
-                   f"nothing — and an unbound grant is surfaced by every later sweep and can never "
-                   f"be spent, which flips that seat READY after every completion FOREVER.\n"
-                   f"If `{seat}` has never run, it is not a seat to RE-launch: let the DAG reach "
-                   f"it. If it is running now, wait for it to end. If it is a STAFF CHAIR, mail is "
-                   f"its actuator — {coord_invocation(args)} send {seat} \"<the fail>\" "
-                   f"--type note --inline.", 1)
         plans.append((seat, sid))
     print(f"{c(sender, C_LABEL)}  DECLARED ROUTE -> {', '.join(s for s, _ in plans)}")
     if not go:
         for seat, sid in plans:
-            print(f"    would grant `{seat}` a relaunch bound to session {sid}, write its payload "
-                  f"to {route_payload_path(base, seat)}, and message it")
+            print(f"    would write `{seat}`'s payload to {route_payload_path(base, seat)} "
+                  f"and message it (last ended session {sid or '(none)'})")
         print("    (report only — nothing was written. Re-run with --go to route it.)")
         return
     for seat, sid in plans:
@@ -16166,14 +15055,16 @@ def cmd_route_fail(args):
             f"## Routed FAIL from `{sender}` ({now()})\n\nYou are being relaunched because of "
             f"this, and it is NOT the seed you ran on last time — address it before anything "
             f"else.\n\n{body}\n")
-        mint_relaunch_grant(base, seat, sid, f"route-fail:{sender}", sender)
-        append_engine_grant(base, seat)
-        print(f"    `{seat}`: message #{n}, relaunch granted in BOTH stores (session {sid})")
+        print(f"    `{seat}`: message #{n}")
         told = f"written to {route_payload_path(base, seat)}" if ok else f"NOT written — {why}"
         print(f"    `{seat}`: payload {told}")
-    print(c("\nEach routed seat relaunches on its NEXT seeding pass, and its boot prompt carries "
-            "the payload above — a bare grant would re-run the STALE SEED, which is how a "
-            "false-complete is manufactured.", C_HINT))
+    print(c("\nD12 · THIS VERB GRANTS NOTHING. The payload and the message are RECORDS: the boot "
+            "prompt of the routed seat's NEXT sitting carries the payload, so it is never re-run "
+            "on the stale seed. WHAT MAKES THAT SITTING HAPPEN is the goal watcher "
+            "(`engine/reconcile.js`), which relaunches a seat whose last ended row is NON-TERMINAL "
+            "and a chair that has unread mail. A routed seat whose own row reads `done` is NOT "
+            "owed work to it and will NOT come back on its own — say so to the leader rather than "
+            "assuming this routed it.", C_HINT))
 
 
 # ── `send`'s recipient wrapper (adv, C33) ─────────────────────────────────────────────────────
@@ -16269,19 +15160,22 @@ def cmd_attest_exit(args):
 
 
 def cmd_rule_disposition(args):
-    """(leader) MINT a disposition grant for a RULED value on a session row that has ALREADY
-    ENDED — the second half of `d-exited-row-closure`. BARE = report; `--go` = mint.
+    """(leader) WRITE a RULED value onto a session row that has ALREADY ENDED — the second half of
+    `d-exited-row-closure`. BARE = report; `--go` = write.
 
     THE ACT, in full: the chief-of-staff's sweep routes an `exited` row to the leader; the leader
     INVESTIGATES whether the seat needs relaunching; where the work had in fact concluded, this is
     how that finding is recorded. The investigation is the leader's and happens before this command
     — the command records a ruling, it never makes one, and it reads nothing about the work.
 
-    ⚠ `--go` NEVER WRITES `sessions.csv`. Every cage, including the leader's, ro-binds that file
-    (anti-spoofing, and it STAYS). The grant lands on writable `coordination/`; the uncaged
-    daemon applies it through `session_rule_disposition`. An unspent grant is invisible to
-    after-edges — that is deliberate, so awaiting/sessions cannot skew off a file the DAG does
-    not read."""
+    ⚠ D12 (2026-08-20) — `--go` WRITES `sessions.csv` DIRECTLY. It used to mint a row into
+    `coordination/disposition-grants.csv` for the uncaged daemon to drain, for exactly one reason:
+    every cage ro-bound `sessions.csv`, so the leader could not write it (commit b0b41b18). THE D3
+    FENCE MADE THE LEDGERS WRITABLE and seats now write their own check-outs, so that reason is
+    gone and the store, its mint/spend pair, the `apply-disposition-grants` drain and the ticker's
+    per-tick call are all deleted. One writer, one act, no authorization to lose — which is the
+    whole of RC-B's fix. `validate_disposition` is still the boundary: WHO may write WHAT is
+    `RECORD_DISPOSITION_WRITER`'s answer and is not restated here."""
     gate(args, "rule-disposition", is_leader,
          "the leader's alone — `d-exited-row-closure` grants this act to the leader, and to no "
          "other side. Every other writer declares its own disposition at its own check-out",
@@ -16295,11 +15189,12 @@ def cmd_rule_disposition(args):
     if not anchor:
         refuse("input",
                "--anchor is the leader's own ruling anchor and carries the trail; an empty one "
-               "would mint a grant citing nothing.", 2)
+               "would record a ruling citing nothing.", 2)
     # The writer is DECLARED at this call site, exactly as `attest_exit_seat` declares the kit's.
     # Whether the leader may write the requested value is `RECORD_DISPOSITION_WRITER`'s answer,
     # read through `validate_disposition` inside the writer below — never re-stated here.
-    # ALWAYS dry: `--go` mints a grant; `session_rule_disposition` is the daemon drain's writer.
+    # THE DRY PASS RUNS EVERY CHECK the acting pass runs, so a `--go` can never accept what a bare
+    # run refused — one predicate, two callers.
     try:
         sid, from_state, why = session_rule_disposition(pkg, base, seat, disposition,
                                                         DISPOSITION_WRITER_LEADER, dry=True)
@@ -16308,14 +15203,6 @@ def cmd_rule_disposition(args):
                         f"the write — this command carries no copy of it.", 2)
     if why:
         refuse("state", f"{seat}: {why}", 1)
-    existing = [g for _, g in read_disposition_grants(base)
-                if g["seat"] == seat and g["session-id"] == sid]
-    if existing:
-        refuse("state",
-               f"'{seat}' already carries a grant for session {sid} "
-               f"(anchor `{existing[0]['anchor']}`, stamp {existing[0]['stamp']}, "
-               f"spent-at `{existing[0]['spent-at'] or '(unspent)'}`). Minting a second would "
-               f"authorize two rulings where one was made.", 1)
     if not go:
         # The row's OWN cell, as the predicate that admitted it read it — never the constant. A
         # report interpolating `RULED_FLIP_FROM` would tell a leader that an EMPTY row "carries"
@@ -16325,75 +15212,28 @@ def cmd_rule_disposition(args):
                    else "an EMPTY disposition cell (nobody declared one)")
         print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
               f"{carried}, and `{disposition}` is admitted from the leader.")
-        print("    (report only — nothing was written. Re-run with --go to mint the grant.)")
+        print("    (report only — nothing was written. Re-run with --go to write it.)")
         return
     try:
-        rec = mint_disposition_grant(base, seat, sid, from_state, disposition,
-                                     DISPOSITION_WRITER_LEADER, anchor)
-    except OSError as exc:
+        wrote_sid, _from_state, why = session_rule_disposition(
+            pkg, base, seat, disposition, DISPOSITION_WRITER_LEADER, dry=False)
+    except (ValueError, OSError) as exc:
         refuse("state",
-               f"{seat}: could not mint the disposition grant under coordination/ "
-               f"({exc.__class__.__name__}: {exc}). Nothing was written to sessions.csv.", 1)
-    print(f"{c(seat, C_LABEL)}  GRANT MINTED for session {sid}")
-    print(f"    disposition-grants.csv: seat `{seat}` session-id `{sid}` "
-          f"from-state `{rec['from-state']}` ruled `{rec['ruled']}` "
-          f"writer `{rec['writer']}` anchor `{anchor}` stamp `{rec['stamp']}` "
-          f"spent-at (unspent)")
-    print(c(f"\nThe grant is recorded. The uncaged daemon applies it to sessions.csv "
-            f"(`{coord_invocation(args)} apply-disposition-grants`); until then the durable "
-            f"cell is unchanged and after-edges do not advance "
-            f"({coord_invocation(args)} ready-seats).", C_HINT))
-
-
-def cmd_apply_disposition_grants(args):
-    """(daemon) Drain unspent disposition grants onto `sessions.csv` through
-    `session_rule_disposition`, then re-point `awaiting-close.json`. Writer cell stays `leader`.
-
-    Fail-closed: a grant is spent only after a successful apply. A row that cannot land is
-    left unspent for the next drain. An unspent grant is never treated as `done` by after-edges."""
-    gate(args, "apply-disposition-grants", is_daemon,
-         "the uncaged ignite daemon's — it is the hand that writes sessions.csv; the leader "
-         "mints the grant and is the ruler named in the writer cell",
-         remedy="the ticker drains this; a human does not type it")
-    pkg = package_dir(args)
-    base = base_dir(args)
-    applied = 0
-    for _i, g in read_disposition_grants(base):
-        if g["spent-at"]:
-            continue
-        seat = g["seat"]
-        sid = g["session-id"]
-        ruled = g["ruled"]
-        writer = g["writer"] or DISPOSITION_WRITER_LEADER
-        anchor = g["anchor"]
-        try:
-            got_sid, _from_state, why = session_rule_disposition(
-                pkg, base, seat, ruled, writer, dry=True)
-        except ValueError as exc:
-            print(f"{seat}: SKIP session {sid} — {exc}")
-            continue
-        if why or got_sid != sid:
-            print(f"{seat}: SKIP session {sid} — {why or ('last ended row is ' + (got_sid or '(none)'))}")
-            continue
-        try:
-            got_sid, _from_state, why = session_rule_disposition(
-                pkg, base, seat, ruled, writer, dry=False)
-        except (ValueError, OSError) as exc:
-            print(f"{seat}: SKIP session {sid} — apply failed ({exc.__class__.__name__}: {exc})")
-            continue
-        if why or got_sid != sid:
-            print(f"{seat}: SKIP session {sid} — {why or ('wrote ' + (got_sid or '(none)'))}")
-            continue
-        rule_awaiting_disposition(base, seat, ruled, writer)
-        stamp = spend_disposition_grant(base, seat, sid, anchor)
-        if not stamp:
-            print(f"{seat}: APPLIED session {sid} `{ruled}` but grant was NOT spent "
-                  f"(no matching unspent row)")
-            continue
-        applied += 1
-        print(f"{seat}: APPLIED `{ruled}` by {writer} on session {sid} — grant spent at {stamp}")
-    if not applied:
-        print("apply-disposition-grants: 0 applied")
+               f"{seat}: the ruling was NOT written to sessions.csv "
+               f"({exc.__class__.__name__}: {exc}). Nothing changed.", 1)
+    if why or wrote_sid != sid:
+        refuse("state",
+               f"{seat}: the ruling was NOT written — "
+               f"{why or ('the row moved under this command; it now ends at ' + (wrote_sid or '(none)'))}"
+               f". Nothing changed.", 1)
+    _rad = rule_awaiting_disposition(base, seat, disposition, DISPOSITION_WRITER_LEADER)
+    print(f"{c(seat, C_LABEL)}  RULED `{disposition}` on session {sid}")
+    print(f"    sessions.csv: disposition `{disposition}` from `{from_state or '(empty)'}`, "
+          f"writer `{DISPOSITION_WRITER_LEADER}`, anchor `{anchor}`")
+    print(f"    awaiting-close.json: {_rad}")
+    print(c(f"\nBOTH SURFACES, ONE VALUE — the durable cell is written and after-edges advance on "
+            f"it now ({coord_invocation(args)} ready-seats). The anchor is the leader's own "
+            f"trail; this command recorded a ruling, it did not make one.", C_HINT))
 
 
 def cmd_rule_guard(args):
@@ -16572,19 +15412,6 @@ def cmd_ready_seats(args):
         print(f"  no unanswered ask to the owner                        -> {not _ha}"
               + (f"   ⚠ OWNER-ASK HOLD: #{', #'.join(str(n) for n in _ha)} open — dependents WAIT "
                  f"until the owner answers with `--re <n>`" if _ha else ""))
-        # THE GRANT, printed where present. Rendered only when it exists, because a `-> True` line
-        # for "no grant is outstanding" would read as a term that held the seat.
-        # 7.776: it OVERRIDES the disposition term above rather than sitting beside it — this line
-        # said "Decides NO term above" while the flip was landing in the same change, which is the
-        # exact shape of a reader building against a dead spec.
-        _rg = rec.get("relaunch-grant")
-        if _rg:
-            print(f"  ⚠ UNSPENT RELAUNCH GRANT — anchor `{_rg['anchor']}`, minted "
-                  f"{_rg['minted-at'] or '(unstamped)'} by {_rg['minted-by'] or '(unrecorded)'}, "
-                  f"session `{_rg['session-id'] or '(unbound)'}`. It OVERRIDES the "
-                  f"`terminal(self)` term above: this seat reads READY on its account alone. "
-                  f"Spend it: {coord_invocation(args)} launch --only {rec['seat']} "
-                  f"--relaunch-ruled {shlex.quote(_rg['anchor'])}")
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
         # 7.383: READ FROM THE ROW, NOT RE-DERIVED. This loop used to look each member up in the
@@ -16616,18 +15443,10 @@ def cmd_ready_seats(args):
             counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
         print(f"\n{len(rows)} seat(s): "
               + " · ".join(f"{k}={counts[k]}" for k in sorted(counts)))
-        # NAMED, and OMITTED when zero — exactly as `counts` above omits a verdict no seat holds.
-        # It is a second line rather than a term of the verdict census because it is NOT a verdict:
-        # a granted seat is also counted in `DONE`, and folding it in would make the census sum
-        # wrong. The names are the point — a bare count sends the reader back through 400 rows.
-        _granted = [r["seat"] for r in rows if r.get("relaunch-grant")]
-        if _granted:
-            print(f"granted={len(_granted)}: {', '.join(_granted)}"
-                  f"   ⚠ unspent relaunch grant(s) — each seat's reason names its anchor and the "
-                  f"exact spend command")
-        # D22: NAMED, and OMITTED when zero — same rule and same reason as `granted=` above, and a
-        # second line for the same reason: `dead` is NOT a verdict (a dead seat is also counted in
-        # `BLOCKED`), so folding it into the census would make the census sum wrong.
+        # D22: NAMED, and OMITTED when zero — exactly as `counts` above omits a verdict no seat
+        # holds, and a second line rather than a term of the census because `dead` is NOT a
+        # verdict (a dead seat is also counted in `BLOCKED`), so folding it in would make the
+        # census sum wrong.
         _dead = [r["seat"] for r in rows if r.get("dead")]
         if _dead:
             print(f"dead={len(_dead)}: {', '.join(_dead)}"
@@ -17953,184 +16772,13 @@ def cmd_launch(args):
     # unfixable by placement, and out of this change's scope.
     _adm_rows = {r["seat"]: r for r in ready_seat_rows(args)}
 
-    # ---- clause I′: THE RULED-RELAUNCH INSTRUMENT (exit 1 of `d-exited-row-closure`) ----------
-    #
-    # NOT AN OVERRIDE, and not a member of the `--force` family. `--force` carries the ROLE gate
-    # alone, a memory refusal answers to `--force-memory` alone, and NO gate is ever re-attached to
-    # either — by this change or any successor. This is a THIRD independent parameter, exactly as
-    # `--declare-only` is a fourth.
-    #
-    # ⚠ THE FLAG EXPRESSES THE PURPOSE AND ARMS NOTHING BY ITSELF. Admission needs a row in a file
-    # this tool controls, written by an act only the `leader` can perform (`rule-relaunch`, gated
-    # `is_leader`). A caller supplying a fabricated anchor — or a real but unrelated one — refuses
-    # at P5 because no grant row matches. That is finding C-2's demand met: the carried
-    # authorization is verified against something the tool can CHECK, by state and never by the
-    # shape of the invocation.
-    #
-    # THE LADDER IS P2a → P2b → P3a → P3b → P3c → P4 → P5, each leg refusing PRE-BOOLEAN with its
-    # own named reason, and each refusal BY STATE — the same refusal whatever the caller intended.
-    _relaunch_anchor = (getattr(args, "relaunch_ruled", None) or "").strip()
-    _relaunch_ruled_admitted = False
-    _relaunch_target = ""
-    _relaunch_grant = None
-    if _relaunch_anchor:
-        _rl_pkg = package_dir(args, register=False)
-        _rl_base = base_dir(args, register=False)
-        _rl_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
-        # P2a — a seat must be named. The grant authorizes ONE seat's relaunch; a mass launch has
-        # no per-seat grant to spend.
-        if not _rl_only:
-            refuse("state",
-                   "P2a: no seat named. --relaunch-ruled spends a grant minted for ONE seat, so "
-                   "it cannot be applied to a set the caller did not name.\n"
-                   f"Name the seat: {coord_invocation(args)} launch --only <seat> "
-                   "--relaunch-ruled <leader-anchor>", 1)
-        # P2b — exactly one. Two names would spend one ruling on two relaunches.
-        if len(_rl_only) > 1:
-            refuse("state",
-                   f"P2b: more than one seat named (--only named {len(_rl_only)}: "
-                   f"{', '.join(_rl_only)}). One grant authorizes ONE relaunch; applying it to "
-                   "several would cite one ruling as authority for relaunches it never covered.\n"
-                   "Run it once per seat, each with that seat's own minted grant.", 1)
-        _rl_t = _rl_only[0]
-        _rl_le = sessions_last_ended(_rl_pkg)
-        # P3a — there is an ENDED row. Nothing to relaunch without an ending.
-        if _rl_t not in _rl_le:
-            refuse("state",
-                   f"P3a: no ENDED row. '{_rl_t}' has no ENDED session row in this package, so "
-                   "there is no terminated session for a ruled relaunch to supersede — such a "
-                   f"seat is an ordinary launch candidate: {coord_invocation(args)} launch "
-                   f"--only {_rl_t}", 1)
-        _rl_sid, _rl_disp = _rl_le[_rl_t]
-        # P3b — its last ENDED disposition is one THE GRANT admits. A SEPARATE CONSTANT from
-        # `RULED_FLIP_FROM`, and no longer the mirror of `session_rule_disposition`'s own check:
-        # `p-fourth-lane-option-A-trade-owned` widened THIS class to reach a hold-exit `done` row
-        # and ruled the flip verb's class byte-untouched, because one constant read across two
-        # verbs would have carried the widening into a power to rewrite a `done` disposition.
-        # (adv, C21) The admissible set is the ANCHOR's, not the constant's: a daemon-minted
-        # automatic grant does not reach `incomplete`. See `grant_from_states_for`.
-        _rl_admits = grant_from_states_for(_relaunch_anchor)
-        if _rl_disp not in _rl_admits:
-            refuse("state",
-                   f"P3b: last ENDED disposition is not one this instrument admits "
-                   f"({relaunch_grant_from_phrase(_rl_admits)}) — '{_rl_t}'s last ENDED row "
-                   f"({_rl_sid}) "
-                   f"carries `{_rl_disp or '(empty)'}`. An EMPTY cell is the UNDECLARED class, "
-                   "whose one instrument is `--declare-only <leader-anchor>`; `renew` and `revive` "
-                   "are live lanes that relaunch their own row and need no grant.\n"
-                   "THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
-                   "caller intended. On the classes it still refuses, that is what closes the "
-                   "re-run hole; on the classes it admits, what closes it is the GRANT — "
-                   "leader-minted, session-bound, single-use, and spent at the admission.", 1)
-        _rl_row = _adm_rows.get(_rl_t)
-        # P3c — the SKEW leg, and it refuses BEFORE the grant is read or spent. A skewed row reads
-        # `disposition: None` (the two records of its own ending disagree) while `sessions_last_ended`
-        # reads the DURABLE cell directly and can return `exited` — so P3b can pass on a row whose
-        # `skew` is non-None, and the conjunction's clause A never runs on this path. Refusing here
-        # means a skewed world never reaches the grant: nothing is spent and nothing needs re-minting.
-        # An UNJOINED row (`row is None`) passes this leg — clause J's fail-open shape is unchanged.
-        if _rl_row is not None and _rl_row["skew"] is not None:
-            refuse("state",
-                   f"P3c: skew present. '{_rl_t}'s two records of its own ending DISAGREE "
-                   f"(awaiting-close.json={_rl_row['skew'][0]} | sessions.csv={_rl_row['skew'][1]}). "
-                   "Nothing advances on either until a human rules, and a relaunch ruled against "
-                   "one of two contradictory records is a ruling made on a fact that is not "
-                   "established. NO grant was read and none was spent.\n"
-                   f"Adjudicate first: {coord_invocation(args)} ready-seats --explain {_rl_t}", 1)
-        # P4 — no LIVE pane already holds the name. Carried unchanged from `--declare-only`'s own
-        # P4 and BINDING: it re-provides clause C (`active is False`) on this path, where the
-        # conjunction is short-circuited.
-        _, _, _rl_rows = load_workers(base_dir(args))
-        _rl_prior = current_row(_rl_rows, _rl_t)
-        if (_rl_prior and _rl_prior.get("active") == "yes" and _rl_prior.get("pane")
-                and _rl_prior["pane"] in live_panes()):
-            refuse("state",
-                   f"P4: a live pane already holds the name — '{_rl_t}' is checked in on pane "
-                   f"{_rl_prior['pane']} and tmux says that pane is still ALIVE. Admitting a "
-                   "relaunch now would put two live sessions under one name (P37): neither would "
-                   "see the other's messages and only the newest pane would receive wakes.\n"
-                   f"Confirm the old session is dead first (`tmux capture-pane -p -t "
-                   f"{_rl_prior['pane']}`); if it is a zombie, kill it BY PANE ID, then retry.\n"
-                   "NO grant was spent and NO pane was opened.", 1)
-        # P5 — THE MECHANISM. A grant row matching (seat, live last-ENDED session-id, anchor), and
-        # UNSPENT. Each miss names WHICH leg failed, because the four have four different remedies.
-        _rl_i, _rl_g, _rl_why = match_relaunch_grant(_rl_base, _rl_t, _rl_sid, _relaunch_anchor)
-        if _rl_g is None:
-            _rl_leg = {
-                "no-row": (f"no grant row exists for '{_rl_t}' at all. The `leader` mints one "
-                           f"with `{coord_invocation(args)} rule-relaunch {_rl_t} --anchor "
-                           f"<leader-anchor> --go`; until it exists this seat's `exited` row "
-                           f"defers on every launch shape."),
-                "stale-session": (f"a grant exists for '{_rl_t}' but names a DIFFERENT ended "
-                                  f"session. The live last-ENDED session is `{_rl_sid}`; a grant "
-                                  f"minted for an earlier ending never admits a later one — the "
-                                  f"`leader` ruled on the row it investigated, not on this one."),
-                "anchor-mismatch": (f"a grant exists for '{_rl_t}' and session `{_rl_sid}`, but "
-                                    f"its anchor is not `{_relaunch_anchor}`. The anchor is the "
-                                    f"ruling this launch claims to execute; a mismatch means it "
-                                    f"is claiming a different one."),
-                "spent": (f"the matching grant for '{_rl_t}' session `{_rl_sid}` is ALREADY "
-                          f"SPENT. A grant is SINGLE-USE by design — it authorizes one relaunch, "
-                          f"and a second would be a replay. If another is warranted, the `leader` "
-                          f"mints a new one."),
-                "revoked": (f"the matching grant for '{_rl_t}' session `{_rl_sid}` is REVOKED. "
-                            f"A revocation is not a spend — the authorization was retired, not "
-                            f"consumed. The `leader` mints a new grant if a relaunch is still ruled."),
-            }[_rl_why]
-            refuse("state",
-                   f"P5: {_rl_why} — {_rl_leg}\n"
-                   "THIS REFUSAL IS BY STATE: the flag declares the purpose, and the grant file "
-                   "is what makes the authorization checkable. A flag alone admits nothing.", 1)
-        _relaunch_ruled_admitted = True
-        _relaunch_target = _rl_t
-        # W1/F3 — THE PRESERVED `incomplete` CLEARS HERE, at the admission that supersedes it.
-        # `close-seat` now keeps a seat's own `incomplete` entry alive so the honest ending is not
-        # erased; the moment a relaunch is ADMITTED that entry is about a session this launch
-        # replaces, and leaving it would hand the fresh sitting a live declaration of its
-        # predecessor's ending — read as SKEW the first time the successor checks out.
-        if clear_awaiting(base_dir(args), _rl_t):
-            print(f"awaiting close: '{_rl_t}' preserved `incomplete` entry CLEARED — this "
-                  f"admitted relaunch supersedes the session that declared it (the durable "
-                  f"`sessions.csv` row keeps the record).")
-        _relaunch_grant = dict(_rl_g)
-        # THE ATTESTATION — on stdout with the HINT colour, never a refusal's stream or colour, and
-        # it asserts ONLY what the tool verified. Its disclaimer is deliberately NOT
-        # `--declare-only`'s ("recorded not verified"): this one WAS verified, against the leader's
-        # own recorded ruling act.
-        #
-        # ⚠ IT IS CLASS-AWARE, AND THAT IS A CONTRACT TERM OF THE FOURTH LANE, NOT A COURTESY.
-        # On an `exited` row the tool KNOWS what the ending was: `attest-exit` wrote that cell and
-        # it means THE HARNESS TERMINATED, so naming `d-exited-row-closure`'s exit 1 is a true
-        # statement about the row in front of it. On a `done` row it knows nothing of the kind — a
-        # hold-exit `done` and a completion `done` are byte-indistinguishable — so the `exited`
-        # wording, reused, would tell every reader that the work did not conclude: a claim this
-        # tool cannot check and did not verify, printed in the voice of one it did. The `done`
-        # branch therefore claims the RULING ACT and nothing beyond it. The row's OWN cell is
-        # interpolated on both branches (RD-EC-5: never a constant where the row's value belongs).
-        if _rl_disp == RULED_FLIP_FROM:
-            _rl_basis = ("and the `leader`'s `d-exited-row-closure` exit-1 ruling is being "
-                         "executed.")
-        else:
-            _rl_basis = ("and the `leader` MINTED A GRANT on that row under the ruling below. "
-                         "What this tool verified is the RULING ACT and nothing beyond it: that "
-                         "cell was written by the seat's OWN check-out and no field of it records "
-                         "what the ending meant, so this admission makes NO claim in either "
-                         "direction about the work behind it.")
-        print(c(f"  {_rl_t}: ADMITTED by --relaunch-ruled — session `{_rl_sid}` ENDED with "
-                f"disposition `{_rl_disp}`, {_rl_basis} This admits a WORKING session which "
-                f"supersedes that ending only by writing its own ended row; the `{_rl_disp}` row "
-                f"is untouched and every reader still reports it.\n"
-                f"  trail (VERIFIED against the `leader`'s recorded ruling act — a grant row "
-                f"minted under `is_leader`): anchor `{_rl_g['anchor']}`, minted-by "
-                f"`{_rl_g['minted-by']}`, minted-at `{_rl_g['minted-at']}`, spent at this "
-                f"admission. What remains unverified is the anchor's CONTENT, which is the "
-                f"ledger's own trust model, as it is for every ledger entry.", C_HINT))
-
     # ---- the filter: ADMIT(w), one row-level boolean, evaluated per worker -------------------
     #
     # ADMIT(w) == clause I  (`--declare-only` admitted, the landed sibling instrument)
-    #          or clause I′ (this launch's ruled-relaunch grant, matched and unspent)
     #          or clause J  (no row joined — fail-OPEN where it is REACHED, and NAMED)
+    # D12 (2026-08-20): clause I′ — the ruled-relaunch GRANT — is DELETED. A checked-out seat comes
+    # back through the goal watcher's owed-work launch (`engine/reconcile.js`), which enqueues
+    # directly and needs no authorization to mint, lose or latch.
     #          or the A–G conjunction over named row fields.
     #
     # ⚠ CLAUSE J IS SUPERSEDED WHERE THE REGISTRY HAS ROWS — `d-registry-refusal-supersedes-clause-j`
@@ -18161,8 +16809,7 @@ def cmd_launch(args):
     _adm_kept = []
     for w in workers:
         _adm_row = _adm_rows.get(w["agent"])
-        _adm_by_grant = _relaunch_ruled_admitted and w["agent"] == _relaunch_target
-        if (_declare_only_admitted or _adm_by_grant or _adm_row is None
+        if (_declare_only_admitted or _adm_row is None
                 or conjunction_admits(_adm_row)):
             _adm_kept.append(w)
             # THE TWO ADMITTED DISCLOSURES. An admission nobody can see is the same defect as a
@@ -18172,10 +16819,6 @@ def cmd_launch(args):
                         f"row joins this seat, so no term of the admission predicate could be "
                         f"evaluated for it. Admitting is the deliberate fail-OPEN direction: "
                         f"deferring would turn a join gap into a launch outage.", C_HINT))
-            elif _adm_by_grant:
-                print(c(f"  {w['agent']}: ADMITTED by the ruled-relaunch grant — its row still "
-                        f"classes `{deferral_class(_adm_row) or 'clean'}` and stays that way "
-                        f"until this session writes its own ended row.", C_HINT))
             elif not _declare_only_admitted:
                 # 7.280 (O3) · S-2 — THE ORDINARY ADMISSION, AND IT IS THE CASE NOBODY TESTS.
                 # Every other outcome at this door already speaks: three disclosures for the
@@ -18232,10 +16875,10 @@ def cmd_launch(args):
             f"of it and minted the grant below; `records-disagree`, `exit-unruled`, "
             f"`terminal-unenumerated` and `undeclared-ending` route to the `leader`.\nNO OVERRIDE "
             f"FLAG CARRIES THIS: `--force` carries the ROLE gate and `--force-memory` the MEMORY "
-            f"gate, and neither reaches here. The `leader` has exactly two instruments, each "
-            f"admitting ONE named seat for ONE act: `--declare-only <leader-anchor>` for an "
-            f"undeclared ending, and `--relaunch-ruled <leader-anchor>` for an `exited` or `done` "
-            f"row it has ruled needs relaunching (minted first with `rule-relaunch`).\nSee: "
+            f"gate, and neither reaches here. The `leader` has exactly ONE instrument, admitting "
+            f"ONE named seat for ONE act: `--declare-only <leader-anchor>` for an undeclared "
+            f"ending. A seat that must simply RUN AGAIN is the goal watcher's business, not this "
+            f"door's — it enqueues owed work directly (D12).\nSee: "
             f"{coord_invocation(args)} ready-seats --explain <seat>")
         if not workers:
             refuse("state", _adm_detail + "\nNO pane was opened.", 1)
@@ -18620,20 +17263,6 @@ def cmd_launch(args):
                   file=sys.stderr)
             sys.exit(1)
         return
-
-    # 7.274 (A3) — P5's SPEND, and its placement is ruled, not incidental: BELOW the returning
-    # dry-run branch and ABOVE the pane-opening loop. Real-path-only BY CONSTRUCTION, so no
-    # `args.dry_run` test is needed at admission and the parity of the DECISION stays true by
-    # construction; and the design's fail-closed direction holds — the grant is spent before any
-    # pane opens, so a launch that admits and then aborts burns it LOUDLY rather than leaving an
-    # unspent grant behind a crashed launch, which is a replay window.
-    if _relaunch_grant is not None:
-        _rl_stamp = spend_relaunch_grant(base_dir(args), _relaunch_target,
-                                         _relaunch_grant["session-id"], _relaunch_anchor)
-        _rl_spend_note = _rl_stamp or ("(NOT STAMPED — the grant row moved under this launch; "
-                                       "re-read relaunch-grants.csv before minting another)")
-        print(c(f"  grant SPENT at {_rl_spend_note} — single-use, and no second launch of this "
-                f"ending is authorized by it.", C_HINT))
 
     # The memory gate is answered UP FRONT, beside the role gate, by `launch_gates` — both
     # verdicts in one message, neither flag carrying the other (#210/#230).
@@ -27303,51 +25932,34 @@ def _selftest_checks(args, failures, names):
                     _hit = _x
             return {c: _hit[_i[c]] for c in _h} if _hit else {}
 
-        # ---- ARM 1: the ENDED row mints a grant; sessions.csv is untouched until the drain ----
+        # ---- ARM 1 (D12): the ENDED row is RULED STRAIGHT ONTO sessions.csv, no grant hop ----
+        # There is no store, no drain and no second act. Both surfaces move in the one command,
+        # and the entry is RE-POINTED rather than rebuilt — `pids`/`pane`/`transcript`/`exported`
+        # stay byte-identical to what was seeded, which is what `rule_awaiting_disposition` is for.
         _r155_seed("r155ended", ended=now(), disposition="exited")
         _r155_out, _r155_err, _r155_code = harness_outcome(
             cmd_rule_disposition, _r155_ns(seat="r155ended"))
         _r155_after = _r155_row("r155ended")
         _r155_awa = load_awaiting(base_dir(_r155_ns())).get("r155ended") or {}
-        _r155_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
-                        if g["seat"] == "r155ended"]
-        check("7.155 (1) THE ENDED ARM MINTS A GRANT, AND SESSIONS.CSV IS UNTOUCHED. The seat's "
+        check("7.155 (1) D12 · THE ENDED ARM WRITES sessions.csv DIRECTLY, IN ONE ACT. The seat's "
               "last session row is ENDED and carries `exited` — the state `attest-exit` leaves and "
               "the state `d-exited-row-closure` routes to the leader. The verb exits clean, prints "
-              "`GRANT MINTED`, and the durable row still reads `exited` with no writer. The grant "
-              "names the leader as writer and `done` as the ruled value. `--go` never writes "
-              "sessions.csv (every cage ro-binds it)",
+              "`RULED`, the durable cell reads `done` with writer `leader`, awaiting-close is "
+              "re-pointed to the same value, and `terminal_disposition` agrees. NO grant is minted "
+              "and no drain runs — the disposition-grant store is deleted (the leader's cage no "
+              "longer ro-binds `sessions.csv`; D3 made the ledgers writable)",
               _r155_code is None
-              and "GRANT MINTED" in _r155_out
-              and _r155_after.get("disposition") == "exited"
-              and _r155_after.get("disposition-writer") == ""
-              and _r155_after.get("ended")
-              and len(_r155_grants) == 1
-              and _r155_grants[0]["ruled"] == "done"
-              and _r155_grants[0]["writer"] == "leader"
-              and _r155_grants[0]["session-id"] == "r155ended-sid"
-              and not _r155_grants[0]["spent-at"])
-        _r155_apply_out, _r155_apply_err, _r155_apply_code = harness_outcome(
-            cmd_apply_disposition_grants,
-            _r155_ns(seat="r155ended", as_agent="ignite-daemon", go=False))
-        _r155_after = _r155_row("r155ended")
-        _r155_awa = load_awaiting(base_dir(_r155_ns())).get("r155ended") or {}
-        _r155_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
-                        if g["seat"] == "r155ended"]
-        check("7.155 (2) THE DRAIN APPLIES BOTH SURFACES TOGETHER, AND THE ENTRY IS RE-POINTED "
-              "RATHER THAN REBUILT. After `--go` the grant exists and after-edges still see "
-              "`exited`. The daemon drain writes the durable cell through `session_rule_disposition` "
-              "(writer stays `leader`) and re-points awaiting-close. `pids`/`pane`/`transcript`/"
-              "`exported` stay byte-identical to what was seeded",
-              _r155_apply_code is None
+              and "RULED `done`" in _r155_out
+              and "GRANT" not in _r155_out
               and _r155_after.get("disposition") == "done"
               and _r155_after.get("disposition-writer") == "leader"
+              and _r155_after.get("ended")
               and _r155_awa.get("disposition") == "done"
               and _r155_awa.get("pids") == [[4242, "884118"]]
               and _r155_awa.get("pane") == "%466"
               and _r155_awa.get("transcript") == "/tmp/r155.txt"
               and _r155_awa.get("exported") is True
-              and _r155_grants and _r155_grants[0]["spent-at"]
+              and not (Path(base_dir(_r155_ns())) / "disposition-grants.csv").exists()
               and terminal_disposition(_r155_pkg, base_dir(_r155_ns()), "r155ended")
                   == ("done", "awaiting-close.json", None))
 
@@ -27464,28 +26076,22 @@ def _selftest_checks(args, failures, names):
         # its own — that defect is the reason this battery exists, and reproducing it here would
         # be the same bug in a new place.
 
-        # ---- RD-EC-1: class (a) — the empty-cell ENDED row is rulable, and the grant lands ----
+        # ---- RD-EC-1: class (a) — the empty-cell ENDED row is rulable, and the write lands ----
         _r155_seed("rdec1", ended=now(), disposition="")
         _rdec1_out, _rdec1_err, _rdec1_code = harness_outcome(
             cmd_rule_disposition, _r155_ns(seat="rdec1"))
         _rdec1_after = _r155_row("rdec1")
-        _rdec1_grants = [g for _, g in read_disposition_grants(base_dir(_r155_ns()))
-                         if g["seat"] == "rdec1"]
-        check("RD-EC-1 AN EMPTY-CELL ENDED ROW IS RULABLE AND THE GRANT LANDS, NAMING THE LEADER. "
+        check("RD-EC-1 AN EMPTY-CELL ENDED ROW IS RULABLE AND THE WRITE LANDS, NAMING THE LEADER. "
               "The row is ENDED and NOBODY DECLARED WHAT ITS SESSION MEANT — the state "
-              "`undeclared_endings` exists to report and the one the grant re-points the leader's "
-              "act at. It differs from 7.155 arm 1 in ONE cell, and that cell is the whole "
-              "change: the same caller, the same value, the same package. `--go` mints the grant "
-              "(writer `leader`, ruled `done`) and leaves the durable cell empty",
+              "`undeclared_endings` exists to report and the one this act re-points the leader's "
+              "ruling at. It differs from 7.155 arm 1 in ONE cell, and that cell is the whole "
+              "change: the same caller, the same value, the same package. `--go` writes the "
+              "durable cell `done` under writer `leader` (D12: one act, no grant)",
               _rdec1_code is None
-              and "GRANT MINTED" in _rdec1_out
-              and _rdec1_after.get("disposition") == ""
-              and _rdec1_after.get("disposition-writer") == ""
-              and _rdec1_after.get("ended")
-              and len(_rdec1_grants) == 1
-              and _rdec1_grants[0]["ruled"] == "done"
-              and _rdec1_grants[0]["writer"] == "leader"
-              and not _rdec1_grants[0]["spent-at"])
+              and "RULED `done`" in _rdec1_out
+              and _rdec1_after.get("disposition") == "done"
+              and _rdec1_after.get("disposition-writer") == "leader"
+              and _rdec1_after.get("ended"))
 
         # ---- RD-EC-2: classes (b)+(e) — a DECLARED cell stays unrewritable, bare and --force ----
         _r155_seed("rdec2done", ended=now(), disposition="done")
@@ -27597,280 +26203,29 @@ def _selftest_checks(args, failures, names):
               and _rdec5_after.get("disposition") == ""
               and _rdec5_after.get("disposition-writer") == "")
 
-        # ============ F3: DISPOSITION GRANTS (mint / spend / refuse-on-spent / OSError) ==========
-        _f3_base = base_dir(_r155_ns())
-        _f3_mint = mint_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "exited", "done",
-                                          "leader", "f3-anchor")
-        _f3_rows = [g for _, g in read_disposition_grants(_f3_base) if g["seat"] == "f3mint"]
-        check("F3 mint: mint_disposition_grant appends an unspent row with the ruled columns",
-              _f3_mint["ruled"] == "done"
-              and _f3_mint["writer"] == "leader"
-              and _f3_mint["anchor"] == "f3-anchor"
-              and not _f3_mint["spent-at"]
-              and len(_f3_rows) == 1
-              and _f3_rows[0]["session-id"] == "f3mint-sid")
-        _f3_spent = spend_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "f3-anchor")
-        _f3_spent_again = spend_disposition_grant(_f3_base, "f3mint", "f3mint-sid", "f3-anchor")
-        _f3_after_spend = [g for _, g in read_disposition_grants(_f3_base) if g["seat"] == "f3mint"]
-        check("F3 spend / refuse-on-spent: first spend stamps spent-at; a second spend returns empty",
-              bool(_f3_spent)
-              and _f3_spent_again == ""
-              and _f3_after_spend
-              and _f3_after_spend[0]["spent-at"] == _f3_spent)
-        _r155_seed("f3dup", ended=now(), disposition="exited")
-        _f3d1_out, _f3d1_err, _f3d1_code = harness_outcome(
-            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="f3-dup-a"))
-        _f3d2_out, _f3d2_err, _f3d2_code = harness_outcome(
-            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="f3-dup-b"))
-        check("F3 refuse-already-granted: a second --go for the same (seat, session-id) refuses",
-              _f3d1_code is None and "GRANT MINTED" in _f3d1_out
-              and _f3d2_code == 1
-              and "refused [coord state]" in (_f3d2_out + _f3d2_err)
-              and "already carries a grant" in (_f3d2_out + _f3d2_err)
-              and _r155_row("f3dup").get("disposition") == "exited")
-        _f3_empty_out, _f3_empty_err, _f3_empty_code = harness_outcome(
-            cmd_rule_disposition, _r155_ns(seat="f3dup", anchor="", go=False))
-        check("F3 empty-anchor: an empty --anchor is refused at input, even on the bare run",
-              _f3_empty_code == 2
-              and "refused [coord input]" in (_f3_empty_out + _f3_empty_err)
-              and "--anchor" in (_f3_empty_out + _f3_empty_err))
-        _r155_seed("f3err", ended=now(), disposition="exited")
-        _f3_orig_mint = mint_disposition_grant
-        def _f3_boom(*_a, **_k):
-            raise OSError(30, "Read-only file system")
-        globals()["mint_disposition_grant"] = _f3_boom
-        try:
-            _f3e_out, _f3e_err, _f3e_code = harness_outcome(
-                cmd_rule_disposition, _r155_ns(seat="f3err", anchor="f3-err"))
-        finally:
-            globals()["mint_disposition_grant"] = _f3_orig_mint
-        check("F3 OSError-refuse: mint OSError is a clean state refuse, no traceback, sessions "
-              "untouched",
-              _f3e_code == 1
-              and "refused [coord state]" in (_f3e_out + _f3e_err)
-              and "Traceback" not in (_f3e_out + _f3e_err)
-              and _r155_row("f3err").get("disposition") == "exited")
-        _f3_lead_out, _f3_lead_err, _f3_lead_code = harness_outcome(
-            cmd_apply_disposition_grants, _r155_ns(as_agent="leader"))
-        check("F3 apply is daemon-only: the leader is refused at the role gate",
-              _f3_lead_code == 2
-              and "refused [coord role gate]" in (_f3_lead_out + _f3_lead_err))
-
-        # ============ F4: revoke-relaunch (mint → revoke → revoked, not spent) ==================
-        _f4_base = base_dir(_r155_ns())
-        _r155_seed("f4rev", ended=now(), disposition="exited")
-        mint_relaunch_grant(_f4_base, "f4rev", "f4rev-sid", "p-f4-revoke", "leader")
-        _f4_bare_out, _f4_bare_err, _f4_bare_code = harness_outcome(
-            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
-                                          reason="park", go=False))
-        _f4_live_after_bare = [g for _, g in read_relaunch_grants(_f4_base)
-                               if g["seat"] == "f4rev" and grant_is_live(g)]
-        check("F4 bare revoke is a REPORT — it names the row and writes nothing",
-              _f4_bare_code is None and "REVOCABLE" in _f4_bare_out
-              and "report only" in _f4_bare_out
-              and len(_f4_live_after_bare) == 1)
-        _f4_go_out, _f4_go_err, _f4_go_code = harness_outcome(
-            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
-                                          reason="park", go=True))
-        _f4_idx, _f4_row, _f4_why = match_relaunch_grant(
-            _f4_base, "f4rev", "f4rev-sid", "p-f4-revoke")
-        _f4_after = [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4rev"]
-        check("F4 mint→revoke→match returns `revoked` (not `spent`); the row carries revoked-at",
-              _f4_go_code is None and "GRANT REVOKED" in _f4_go_out
-              and _f4_idx is None and _f4_row is None and _f4_why == "revoked"
-              and _f4_after and _f4_after[0]["revoked-at"]
-              and _f4_after[0]["revoke-reason"] == "park"
-              and not grant_is_spent(_f4_after[0])
-              and grant_is_revoked(_f4_after[0]))
-        _f4_again_out, _f4_again_err, _f4_again_code = harness_outcome(
-            cmd_revoke_relaunch, _r155_ns(seat="f4rev", anchor="p-f4-revoke",
-                                          reason="again", go=True))
-        check("F4 refuse already-revoked by name",
-              _f4_again_code == 1
-              and "refused [coord state]" in (_f4_again_out + _f4_again_err)
-              and "ALREADY REVOKED" in (_f4_again_out + _f4_again_err))
-        _r155_seed("f4spent", ended=now(), disposition="exited")
-        mint_relaunch_grant(_f4_base, "f4spent", "f4spent-sid", "p-f4-spent", "leader")
-        spend_relaunch_grant(_f4_base, "f4spent", "f4spent-sid", "p-f4-spent")
-        _f4s_out, _f4s_err, _f4s_code = harness_outcome(
-            cmd_revoke_relaunch, _r155_ns(seat="f4spent", anchor="p-f4-spent",
-                                          reason="too late", go=True))
-        check("F4 refuse already-spent by name",
-              _f4s_code == 1
-              and "refused [coord state]" in (_f4s_out + _f4s_err)
-              and "ALREADY SPENT" in (_f4s_out + _f4s_err))
-        _r155_seed("f4leg", ended=now(), disposition="exited")
-        mint_relaunch_grant(_f4_base, "f4leg", "f4leg-sid", "p-f4-legacy", "leader")
-        _f4leg_path = relaunch_grants_csv(_f4_base)
-        _f4leg_h, _f4leg_rows = read_csv_table(_f4leg_path, RELAUNCH_GRANT_COLS)
-        _f4leg_idx = {col: i for i, col in enumerate(_f4leg_h)}
-        for _r in _f4leg_rows:
-            pad_row(_r, _f4leg_h)
-            if _r[_f4leg_idx["seat"]].strip() == "f4leg":
-                _r[_f4leg_idx["spent-at"]] = "revoked-2026-08-17T13:09Z"
-        write_csv_table(_f4leg_path, _f4leg_h, _f4leg_rows)
-        _f4l_i, _f4l_g, _f4l_why = match_relaunch_grant(
-            _f4_base, "f4leg", "f4leg-sid", "p-f4-legacy")
-        check("F4 legacy spent-at matching ^revoked- reads as revoked, not spent",
-              _f4l_why == "revoked" and grant_is_revoked(
-                  [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0])
-              and not grant_is_spent(
-                  [g for _, g in read_relaunch_grants(_f4_base) if g["seat"] == "f4leg"][0]))
-
-        # ============ F5: THE WAKE MINT — the half-write, the refusal record, the lifetime =======
-        # silent-freeze sub-fixes (a), (b) and (c). Every arm drives the REAL `mint_staff_wake` on
-        # ONE package whose seats differ in exactly one fact, and reads the result off DISK — never
-        # off the returned note, which certifies nothing about the two stores it claims.
-        with tempfile.TemporaryDirectory() as _f5_td:
-            _f5_pkg = Path(_f5_td) / "goal"
-            _f5_base = _f5_pkg / "coordination"
-            _f5_base.mkdir(parents=True)
-
-            def _f5_seat(seat):
-                """One ENDED row — the HAS-SAT case, the only one of the four that mints."""
-                _p = sessions_csv(_f5_pkg)
-                _h, _r = read_csv_table(_p, SESSIONS_COLS)
-                _h, _w = widen_header(_h, SESSIONS_COLS)
-                _r = [pad_row(_x, _h) for _x in _r]
-                _i = {c: n for n, c in enumerate(_h)}
-                _new = ["" for _ in _h]
-                _new[_i["session-id"]] = f"{seat}-sid"
-                _new[_i["seat"]] = seat
-                _new[_i["started"]] = now()
-                _new[_i["ended"]] = now()
-                _new[_i["disposition"]] = "exited"
-                _r.append(_new)
-                write_csv_table(_p, _h, _r)
-                return f"{seat}-sid"
-
-            def _f5_grants(seat):
-                return [g for _i, g in read_relaunch_grants(_f5_base) if g["seat"] == seat]
-
-            # ---- (a-order) ENGINE-FIRST ORDERING STILL HOLDS when the engine path itself refuses
-            # Occupy the engine path as a directory so append raises IsADirectoryError (an
-            # OSError). The CSV half's own file stays writable, so the only thing that can fail
-            # is the store that is written first. RED mutation: restore `append_engine_grant`'s
-            # swallowed `return True, ""` on the OSError arm — the mint reports a wake it does
-            # not have and every conjunct falls.
-            _f5_hw_sid = _f5_seat("f5hw")
-            engine_grants_file(_f5_base).mkdir()
-            try:
-                _f5_hw_ok, _f5_hw_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5hw",
-                                                         STAFF_WAKE_ANCHOR, "kit")
-            finally:
-                if engine_grants_file(_f5_base).is_dir():
-                    engine_grants_file(_f5_base).rmdir()
-            check("F5 (a-order) silent-freeze: a wake whose ENGINE half cannot be written reports "
-                  "FAILURE and NAMES that store — and mints NO coordination half, so the "
-                  "half-written grant that suppressed every later re-mint on the forge goal is "
-                  "unreachable rather than rolled back",
-                  _f5_hw_ok is False and "ENGINE store" in _f5_hw_note
-                  and "NOT armed" in _f5_hw_note
-                  and _f5_grants("f5hw") == []
-                  and not engine_grants_file(_f5_base).is_file())
-
-            # ---- (a) D6: THE CAGED ROOT IS NO LONGER A REFUSAL --------------------------------
-            # chmod 0500 on the goal root is the cage shape that used to EACCES the engine-first
-            # write (the forge goal's ro-bound root). After D6 the engine half lives in
-            # `coordination/` — the dir the cage already grants rw on — so the mint succeeds and
-            # both halves land there. RED mutation: restore `engine_grants_file` to
-            # `Path(base).parent / "relaunch-grants"` — the mint reports FAILURE and the SUCCESS
-            # / coordination-path conjuncts fall.
-            _f5_ro_sid = _f5_seat("f5ro")
-            os.chmod(_f5_pkg, 0o500)
-            try:
-                _f5_ro_ok, _f5_ro_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5ro",
-                                                         STAFF_WAKE_ANCHOR, "kit")
-            finally:
-                os.chmod(_f5_pkg, 0o700)
-            _f5_eng = engine_grants_file(_f5_base)
-            check("F5 (a) D6: a wake minted from a caged goal-root (mode 0500) SUCCEEDS — "
-                  "both halves land in `coordination/`, and the goal-root file is NOT created",
-                  _f5_ro_ok is True and _f5_ro_sid in _f5_ro_note
-                  and _f5_eng == _f5_base / "relaunch-grants"
-                  and _f5_eng.is_file()
-                  and "f5ro" in _f5_eng.read_text(encoding="utf-8")
-                  and not (_f5_pkg / "relaunch-grants").exists()
-                  and len(_f5_grants("f5ro")) == 1
-                  and grant_is_live(_f5_grants("f5ro")[0]))
-
-            # ---- (b) THE REFUSAL IS DURABLE, AND BOUNDED --------------------------------------
-            # RED mutation: drop the (seat, session-id, reason) match in `record_wake_refusal` and
-            # append unconditionally — three refusals become three rows.
-            _f5_dup_sid = _f5_seat("f5dup")
-            mint_relaunch_grant(_f5_base, "f5dup", _f5_dup_sid, "prior-anchor", "leader")
-            _f5_dup = [mint_staff_wake(None, _f5_base, _f5_pkg, "f5dup", STAFF_WAKE_ANCHOR, "kit")
-                       for _ in range(3)]
-            _f5_rh, _f5_rr = read_csv_table(wake_refusals_csv(_f5_base), WAKE_REFUSAL_COLS)
-            _f5_ri = {c: n for n, c in enumerate(_f5_rh)}
-            _f5_mine = [r for r in _f5_rr if r[_f5_ri["seat"]].strip() == "f5dup"]
-            check("F5 (b) silent-freeze: a refused wake leaves a DURABLE row in "
-                  "`coordination/wake-refusals.csv` naming the grant that stands, the printed note "
-                  "points at that file, and THREE identical refusals are ONE row with `count: 3` "
-                  "— the bound that keeps a refusal firing every ten seconds for four hours from "
-                  "becoming the next unbounded surface",
-                  all(_w is False for _w, _n in _f5_dup)
-                  and all(str(wake_refusals_csv(_f5_base)) in _n for _w, _n in _f5_dup)
-                  and len(_f5_mine) == 1
-                  and _f5_mine[0][_f5_ri["count"]].strip() == "3"
-                  and _f5_mine[0][_f5_ri["reason"]].strip() == "unspent-grant-stands"
-                  and "prior-anchor" in _f5_mine[0][_f5_ri["detail"]]
-                  and len(_f5_grants("f5dup")) == 1)
-
-            # ---- (c) AN EXPIRED GRANT STOPS SUPPRESSING ---------------------------------------
-            # The stamp is the predicate's only term, so the row is aged by hand rather than slept
-            # for. RED mutation: delete the expiry branch in `mint_staff_wake` (the
-            # `grant_is_expired` → revoke → `standing = None` lines) — the stale grant suppresses
-            # forever, exactly as it did from 01:25 to 06:05 on 2026-08-18.
-            _f5_old_sid = _f5_seat("f5old")
-            mint_relaunch_grant(_f5_base, "f5old", _f5_old_sid, "stale-anchor", "leader")
-            _f5_gp = relaunch_grants_csv(_f5_base)
-            _f5_gh, _f5_gr = read_csv_table(_f5_gp, RELAUNCH_GRANT_COLS)
-            _f5_gi = {c: n for n, c in enumerate(_f5_gh)}
-            for _r in _f5_gr:
-                pad_row(_r, _f5_gh)
-                if _r[_f5_gi["seat"]].strip() == "f5old":
-                    _r[_f5_gi["minted-at"]] = (datetime.now() - timedelta(
-                        minutes=GRANT_TTL_MIN + 60)).strftime("%Y-%m-%d %H:%M")
-            write_csv_table(_f5_gp, _f5_gh, _f5_gr)
-            _f5_old_ok, _f5_old_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5old",
-                                                       STAFF_WAKE_ANCHOR, "kit")
-            _f5_old_rows = _f5_grants("f5old")
-            check("F5 (c) silent-freeze: an UNSPENT grant older than `GRANT_TTL_MIN` no longer "
-                  "suppresses the re-mint — it is REVOKED with reason `expired-unspent` and a "
-                  "fresh grant is minted in BOTH stores, so exactly ONE live grant stands for the "
-                  "session and no second opinion about liveness enters the file",
-                  _f5_old_ok is True and _f5_old_sid in _f5_old_note
-                  and len(_f5_old_rows) == 2
-                  and grant_is_revoked(_f5_old_rows[0])
-                  and _f5_old_rows[0]["revoke-reason"] == GRANT_EXPIRY_REASON
-                  and len([g for g in _f5_old_rows if grant_is_live(g)]) == 1
-                  and "f5old" in engine_grants_file(_f5_base).read_text(encoding="utf-8"))
-
-            # ---- (c) THE OTHER DIRECTION: within its lifetime it STILL SUPPRESSES --------------
-            # The double-sitting guard, observably intact — case 4 of the mint's own docstring.
-            # RED mutation: widen the boundary by two minutes (`age > GRANT_TTL_MIN - 2`) — the
-            # just-inside conjunct flips while the aged row above stays expired and the
-            # minted-just-now rows above stay live, so this row reds ALONE.
-            _f5_new_sid = _f5_seat("f5new")
-            mint_relaunch_grant(_f5_base, "f5new", _f5_new_sid, "fresh-anchor", "leader")
-            _f5_new_ok, _f5_new_note = mint_staff_wake(None, _f5_base, _f5_pkg, "f5new",
-                                                       STAFF_WAKE_ANCHOR, "kit")
-            _f5_t0 = datetime(2026, 8, 18, 1, 25)
-            _f5_row0 = {"minted-at": _f5_t0.strftime("%Y-%m-%d %H:%M")}
-            check("F5 (c) control: a grant still INSIDE its lifetime suppresses the re-mint exactly "
-                  "as before (one sitting drains the whole queue), and the boundary is where the "
-                  "TTL says: one minute short of `GRANT_TTL_MIN` is NOT expired, one minute past "
-                  "it is, and an unreadable `minted-at` never expires",
-                  _f5_new_ok is False and "already stands" in _f5_new_note
-                  and len([g for g in _f5_grants("f5new") if grant_is_live(g)]) == 1
-                  and grant_is_expired(_f5_row0, now_str=(
-                      _f5_t0 + timedelta(minutes=GRANT_TTL_MIN - 1)).strftime(
-                          "%Y-%m-%d %H:%M")) is False
-                  and grant_is_expired(_f5_row0, now_str=(
-                      _f5_t0 + timedelta(minutes=GRANT_TTL_MIN + 1)).strftime(
-                          "%Y-%m-%d %H:%M")) is True
-                  and grant_is_expired({"minted-at": ""}) is False)
+        # ============ D12: `rule-disposition`'s input gate and its role gate ====================
+        # What survives F3 (the deleted disposition-grant battery): the two refusals that are
+        # about the VERB rather than about the store it no longer has.
+        _r155_seed("d12dup", ended=now(), disposition="exited")
+        _d12_empty_out, _d12_empty_err, _d12_empty_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="d12dup", anchor="", go=False))
+        check("D12 empty-anchor: an empty --anchor is refused at INPUT, even on the bare run — "
+              "the anchor is the leader's own trail and a ruling citing nothing is not a ruling",
+              _d12_empty_code == 2
+              and "refused [coord input]" in (_d12_empty_out + _d12_empty_err)
+              and "--anchor" in (_d12_empty_out + _d12_empty_err))
+        _d12_role_out, _d12_role_err, _d12_role_code = harness_outcome(
+            cmd_rule_disposition, _r155_ns(seat="d12dup", as_agent="chief-of-staff"))
+        check("D12 role gate: `rule-disposition` is the LEADER'S ALONE and still is — deleting the "
+              "grant hop moved WHERE the value lands, never WHO may land it. The row is untouched",
+              _d12_role_code == 2
+              and "refused [coord role gate]" in (_d12_role_out + _d12_role_err)
+              and _r155_row("d12dup").get("disposition") == "exited")
+        _d12_store = Path(base_dir(_r155_ns())) / "disposition-grants.csv"
+        check("D12 NO STORE IS EVER CREATED: after every arm above — a successful ruling, a "
+              "refused one, a bare report — `coordination/disposition-grants.csv` does not exist. "
+              "This is the deletion asserted at the FILESYSTEM, where a leftover writer would show",
+              not _d12_store.exists())
 
         # ============ dag-10: THE READY-SEAT ARITHMETIC ==========================================
         # Spec: implementation-tasks/dag-10-ready-seats-command.md (RS-1…RS-8, RS-12).
@@ -27992,28 +26347,6 @@ def _selftest_checks(args, failures, names):
             """({seat: verdict}, exit) read off the JSON — no row parses the human text."""
             _o, _e, _c = _rs(pkg, json=True, **kw)
             return {r["seat"]: r["verdict"] for r in json.loads(_o)}, (0 if _c is None else _c)
-
-        # ---- D6: a caged HAS-SAT staff chair's wake is visible on ready-seats --------------
-        # The CSV half is what flips DONE→READY; this arm drives the REAL mint (both stores)
-        # from a 0500 goal-root and reads the verdict off `cmd_ready_seats`, not off the note.
-        _d6_pkg = _rs_make("d6wake", [("leader", "")], sessions=[("leader", "exited")])
-        os.chmod(_d6_pkg, 0o500)
-        try:
-            _d6_ok, _d6_note = mint_staff_wake(None, _d6_pkg / "coordination", _d6_pkg, "leader",
-                                              STAFF_WAKE_ANCHOR, "kit")
-        finally:
-            os.chmod(_d6_pkg, 0o700)
-        _d6_v, _d6_c = _rs_v(_d6_pkg)
-        _d6_o, _d6_e, _ = _rs(_d6_pkg)
-        check("F5 (d) D6: `ready-seats` sees the armed grant — leader is READY off the "
-              "coordination/ engine+CSV pair, minted while the goal root was mode 0500",
-              _d6_ok is True and _d6_v.get("leader") == "READY"
-              and _d6_c == 0
-              and "UNSPENT RELAUNCH GRANT" in _d6_o
-              and (engine_grants_file(_d6_pkg / "coordination")).is_file()
-              and "leader" in (engine_grants_file(_d6_pkg / "coordination")).read_text(
-                  encoding="utf-8")
-              and not (_d6_pkg / "relaunch-grants").exists())
 
         # ---- RS-1: the disposition decides, not the mere existence of a record ----
         _rs1_done = _rs_make("1done", [("a", ""), ("b", "a")], sessions=[("a", "done")])
@@ -28352,7 +26685,6 @@ def _selftest_checks(args, failures, names):
               and "RENEWAL BLOCKED" in _rg_n["a"]["reason"]
               and ("no pane and no paneless lane: lifecycle_fork_target refused"
                    in _rg_n["a"]["reason"])
-              and "rule-relaunch" in _rg_n["a"]["reason"]
               and "rule-disposition" in _rg_n["a"]["reason"]
               and _rg_n["b"]["verdict"] == "BLOCKED")
         check("RG-3 THE RENEW GATE'S REGRESSION GUARD — AN `exited` ROW CLASSIFIES EXACTLY AS IT "
@@ -29895,113 +28227,7 @@ def _selftest_checks(args, failures, names):
             _d.update(kw)
             return refuse(cmd_launch, **_d)
 
-        def _a3_admit(shape):
-            """(verdict, leg, output, code) for one launch shape — read off the REAL command's own
-            output, never re-implemented. The leg is matched on the SPELLED-OUT tag each refusal
-            prints, so a row cannot pass on a bare refusal that tripped some other guard."""
-            _o, _c = _a3l_run(**shape)
-            for _leg in ("P2a", "P2b", "P3a", "P3b", "P3c: skew present", "P4",
-                         "P5: no-row", "P5: stale-session", "P5: anchor-mismatch",
-                         "P5: spent", "P5: revoked"):
-                if _leg + (":" if ":" not in _leg else "") in _o or _leg in _o:
-                    return ("REFUSED pre-boolean", _leg, _o, _c)
-            if "ADMITTED by --relaunch-ruled" in _o:
-                return ("ADMITTED", "clause I-prime", _o, _c)
-            return ("(neither)", "(no leg named)", _o, _c)
-
-        def _a3_grants():
-            return [g for _i, g in read_relaunch_grants(_a3l_base)]
-
-        def _a3_write_grants(rows):
-            """Write the grant file directly — a FIXTURE of the file `rule-relaunch` mints into.
-            The minting command itself is exercised separately, below, against the real writer."""
-            write_csv_table(relaunch_grants_csv(_a3l_base), RELAUNCH_GRANT_COLS,
-                            [[r.get(_c3, "") for _c3 in RELAUNCH_GRANT_COLS] for r in rows])
-
-        # THE GUARD LADDER: ten refusal legs and ONE admitting shape. Each leg refuses on its OWN
-        # named reason — checked on the reason string and never on the bare refusal, because ten
-        # guards that all refuse are indistinguishable from one guard that refuses everything.
-        _a3_ladder = []
-        _a3_write_grants([])
-        _a3_ladder.append((dict(only=None, relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P2a")))
-        _a3_ladder.append((dict(only="ex1,done1", relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P2b")))
-        _a3_ladder.append((dict(only="noend", relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P3a")))
-        # F1: P3b's subject moved from `done1` to `rnw`. `done1` was this leg's subject while the
-        # grant reached `exited` alone; `p-fourth-lane-option-A-trade-owned` made `done` an
-        # ADMITTED class, so keeping it here would have asserted the leg on a row the design now
-        # lets through — a check passing for the wrong reason. `renew` is a state the widened
-        # grant still refuses, so the leg keeps a real subject.
-        _a3_ladder.append((dict(only="rnw", relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P3b")))
-        _a3_ladder.append((dict(only="ex2", relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P3c: skew present")))
-        _a3_ladder.append((dict(only="ex1", relaunch_ruled=_a3l_anchor),
-                           ("REFUSED pre-boolean", "P5: no-row")))
-        _a3_results = [( _a3_admit(_sh), _exp) for _sh, _exp in _a3_ladder]
-        # P4 needs a LIVE pane holding the name; `occ` carries an active roster row on `%1`.
-        _a3_prior_live = set(live_tmux_panes["v"])
-        live_tmux_panes["v"] = _a3_prior_live | {"%1"}
-        _a3_write_grants([{"seat": "occ", "session-id": sessions_last_ended(_a3l)["occ"][0],
-                           "anchor": _a3l_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _a3_results.append((_a3_admit(dict(only="occ", relaunch_ruled=_a3l_anchor)),
-                            ("REFUSED pre-boolean", "P4")))
-        live_tmux_panes["v"] = _a3_prior_live
-        # the three remaining P5 legs, each a different cell of the SAME matched-row question
-        _a3_write_grants([{"seat": "ex1", "session-id": "ex1-a-different-ending",
-                           "anchor": _a3l_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
-                            ("REFUSED pre-boolean", "P5: stale-session")))
-        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": "p-some-other-ruling",
-                           "minted-by": "leader", "minted-at": "2026-08-03 15:00",
-                           "spent-at": ""}])
-        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
-                            ("REFUSED pre-boolean", "P5: anchor-mismatch")))
-        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
-                           "minted-by": "leader", "minted-at": "2026-08-03 15:00",
-                           "spent-at": "2026-08-03 15:30"}])
-        _a3_results.append((_a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor)),
-                            ("REFUSED pre-boolean", "P5: spent")))
-        # and THE ONE ADMITTING SHAPE — a matched, unspent, leader-minted grant.
-        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
-                           "minted-by": "leader", "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _a3_admit_res = _a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor))
-        _a3_results.append((_a3_admit_res, ("ADMITTED", "clause I-prime")))
-        check("7.274 arm 3 (THE GUARD LADDER): all ELEVEN shapes — ten refusal legs and the one "
-              "admitting shape — produce the verdict AND the named leg the design assigns them. "
-              "P2a · P2b · P3a · P3b · P3c · P4 · P5's four cells · the admission. Matched on the "
-              "leg TAG rather than on a bare refusal: ten guards that all refuse without saying "
-              "which one fired are one guard wearing ten names",
-              len(_a3_results) == 11
-              and all(_res[:2] == _exp for _res, _exp in _a3_results))
-        check("7.274 arm 3 (every refusal leg opens NOTHING and exits 1): a pre-boolean refusal "
-              "is a refusal of the whole command, not a filter of one seat",
-              all(_res[3] == 1 for _res, _exp in _a3_results if _exp[0] != "ADMITTED"))
-        check("7.274 P3c (the SKEW leg refuses BEFORE the grant is read or spent): a skewed row "
-              "reads `disposition: None` while `sessions_last_ended` reads the DURABLE cell and "
-              "returns `exited`, so P3b passes and the conjunction's clause A never runs on this "
-              "path. Refusing at P3c means a skewed world never reaches the grant — nothing is "
-              "spent and nothing needs re-minting",
-              _a3_by is not None
-              and _a3_admit((lambda: dict(only="ex2", relaunch_ruled=_a3l_anchor))())[1]
-              == "P3c: skew present")
-        _a3_write_grants([{"seat": "ex2", "session-id": sessions_last_ended(_a3l)["ex2"][0],
-                           "anchor": _a3l_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _a3_skew_res = _a3_admit(dict(only="ex2", relaunch_ruled=_a3l_anchor))
-        check("7.274 P3c (SKEWED_EXITED_WITH_VALID_GRANT): the same skewed target carrying a "
-              "PERFECTLY VALID, UNSPENT grant is STILL refused at P3c, and the grant is STILL "
-              "UNSPENT afterwards. Without this row the leg could refuse after spending, which "
-              "burns an authorization on a launch that never happened",
-              _a3_skew_res[:2] == ("REFUSED pre-boolean", "P3c: skew present")
-              and all(not g["spent-at"] for g in _a3_grants() if g["seat"] == "ex2"))
-
         # ---- the FILTER, the NAMING, the EMPTY-SET refusal, the PARITY ------------------------
-        _a3_write_grants([])
         _a3_mixed, _a3_mixed_code = _a3l_run(only="okseat,done1,blk1")
         check("7.274 THE FILTER: a mixed launch keeps the admitted seat and DEFERS the rest — "
               "`launch` consults the readiness home at last. Before this the command read the "
@@ -30108,109 +28334,6 @@ def _selftest_checks(args, failures, names):
         # here rather than the leg matched more loosely — a leg matched on a bare refusal cannot
         # tell its own guard from any other, which is the property that whole ladder is built on.
         __import__("shutil").rmtree(_a3l / "seats" / "unjoined")
-
-        # ---- arm 4's instrument-path halves: ADMITTED while STILL CARRYING A CLASS ------------
-        _a3_write_grants([{"seat": "ex1", "session-id": _a3l_sid, "anchor": _a3l_anchor,
-                           "minted-by": "leader", "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _a3_g_out, _a3_g_code = _a3l_run(only="ex1", relaunch_ruled=_a3l_anchor)
-        _a3_ex1_row = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
-            package=str(_a3l), base=None, workers_dir=None, as_agent=None,
-            force=False))}["ex1"]
-        check("7.274 arm 4 (the INSTRUMENT path): a seat admitted by the ruled-relaunch grant is "
-              "launched WHILE ITS ROW STILL CLASSES `exit-unruled`. The biconditional is scoped to "
-              "the CONJUNCTION path and does not hold here — by design, and stated rather than "
-              "discovered: an instrument admits a row that still carries a class, exactly as "
-              "`--declare-only` admits one that still reads UNDECLARED",
-              _a3_g_code == 0 and "[dry-run] ex1" in _a3_g_out
-              and deferral_class(_a3_ex1_row) == "exit-unruled"
-              and not conjunction_admits(_a3_ex1_row))
-        check("7.274 THE ATTESTATION states only what the tool VERIFIED, and its disclaimer is "
-              "NOT `--declare-only`'s. That instrument prints `recorded not verified` because no "
-              "tool can check an anchor names a real investigation; this one verified the "
-              "authorization against the leader's own recorded ruling ACT — the grant row — and "
-              "says so, while naming the anchor's CONTENT as the part that remains the ledger's "
-              "trust model",
-              "ADMITTED by --relaunch-ruled" in _a3_g_out
-              and "VERIFIED against the `leader`'s recorded ruling act" in _a3_g_out
-              and "minted under `is_leader`" in _a3_g_out
-              and "recorded not verified" not in _a3_g_out
-              and _a3l_anchor in _a3_g_out)
-        check("7.274 THE SPEND IS REAL-PATH-ONLY (`--dry-run` VERIFIES and never SPENDS): the "
-              "admission decision is identical on both paths and the WRITE happens on neither at "
-              "the decision point. The dry run above admitted and the grant is still UNSPENT",
-              all(not g["spent-at"] for g in _a3_grants() if g["seat"] == "ex1"))
-        _a3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
-        _a3_prior_wake = wake_ok["v"]
-        os.environ["COORD_LAUNCH_TARGET"] = "%0"
-        wake_ok["v"] = True
-        try:
-            _a3_real_out, _a3_real_code = _a3l_run(only="ex1", relaunch_ruled=_a3l_anchor,
-                                                   dry_run=False)
-        finally:
-            wake_ok["v"] = _a3_prior_wake
-            if _a3_prior_target is None:
-                os.environ.pop("COORD_LAUNCH_TARGET", None)
-            else:
-                os.environ["COORD_LAUNCH_TARGET"] = _a3_prior_target
-        check("7.274 THE SPEND, ON THE REAL PATH: a real admitted launch stamps `spent-at` on the "
-              "matched row, and the row is NEVER deleted — the file is the durable history of "
-              "every ruled relaunch, including after the `exited` state has left the row by "
-              "supersession",
-              _a3_real_code == 0 and "grant SPENT at" in _a3_real_out
-              and len([g for g in _a3_grants() if g["seat"] == "ex1"]) == 1
-              and all(g["spent-at"] for g in _a3_grants() if g["seat"] == "ex1"))
-        _a3_replay = _a3_admit(dict(only="ex1", relaunch_ruled=_a3l_anchor))
-        check("7.274 SINGLE-USE: the SAME invocation immediately after refuses at `P5: spent`. A "
-              "grant authorizes ONE relaunch and a second is a replay — which is why the spend is "
-              "placed BELOW the returning dry-run branch and ABOVE the pane loop: fail-closed, so "
-              "a launch that admits and then aborts burns the grant loudly rather than leaving a "
-              "replay window open behind a crash",
-              _a3_replay[:2] == ("REFUSED pre-boolean", "P5: spent"))
-        # ---- the MINTING command, driven for real ----
-        _a3_rr_ns = dict(package=str(_a3l), base=None, workers_dir=None, force=False,
-                         as_agent=None, agent="leader")
-        _a3_rr_bare, _a3_rr_bare_code = refuse(cmd_rule_relaunch, seat="ex1",
-                                               anchor="p-second-ruling", go=False, **_a3_rr_ns)
-        check("7.274 `rule-relaunch` BARE is a REPORT — it says the row is grantable and writes "
-              "nothing, which is `rule-disposition`'s own shape and the reason both verbs can be "
-              "read before they are run",
-              _a3_rr_bare_code == 0 and "GRANTABLE" in _a3_rr_bare
-              and len([g for g in _a3_grants() if g["anchor"] == "p-second-ruling"]) == 0)
-        _a3_rr_go, _a3_rr_go_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-second-ruling",
-                                           go=True, **_a3_rr_ns)
-        check("7.274 `rule-relaunch --go` MINTS the row, stamping the LIVE last-ENDED session-id "
-              "and the leader as `minted-by`. The grant is SESSION-BOUND: one minted for ending N "
-              "never admits ending N+1, so a ruling cannot be silently re-used on an ending it "
-              "never examined",
-              _a3_rr_go_code == 0 and "GRANT MINTED" in _a3_rr_go
-              and [g for g in _a3_grants() if g["anchor"] == "p-second-ruling"][0]["session-id"]
-              == _a3l_sid
-              and [g for g in _a3_grants() if g["anchor"] == "p-second-ruling"][0]["minted-by"]
-              == "leader")
-        _a3_rr_dup, _a3_rr_dup_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-third",
-                                             go=True, **_a3_rr_ns)
-        check("7.274 `rule-relaunch` refuses a SECOND unspent grant for the same (seat, session): "
-              "minting two would authorize two relaunches where ONE was ruled",
-              _a3_rr_dup_code == 1 and "already carries an UNSPENT grant" in _a3_rr_dup)
-        _a3_rr_rnw, _a3_rr_rnw_code = refuse(cmd_rule_relaunch, seat="rnw", anchor="p-x",
-                                             go=True, **_a3_rr_ns)
-        _a3_rr_noend, _a3_rr_noend_code = refuse(cmd_rule_relaunch, seat="noend", anchor="p-x",
-                                                 go=True, **_a3_rr_ns)
-        check("7.274 `rule-relaunch` mints BY STATE: a row outside the grant's admissible set and "
-              "a seat with no ended row are both refused with their own reason. F1 moved this "
-              "row's subject from a `done` row to a `renew` one — `done` is an ADMITTED class "
-              "since `p-fourth-lane-option-A-trade-owned`, and asserting a refusal on it would be "
-              "asserting the old law against the new code",
-              _a3_rr_rnw_code == 1
-              and "mints a grant on `exited` / `done` / `incomplete` rows" in _a3_rr_rnw
-              and _a3_rr_noend_code == 1 and "no ENDED session row" in _a3_rr_noend)
-        _a3_rr_role, _a3_rr_role_code = refuse(cmd_rule_relaunch, seat="ex1", anchor="p-x",
-                                               go=True, **dict(_a3_rr_ns, agent="chief-of-staff"))
-        check("7.274 `rule-relaunch` IS THE LEADER'S ALONE — the chief-of-staff is refused by the "
-              "role gate itself, the same predicate and the same exclusivity as exit 2's gate. "
-              "The chief-of-staff MAY launch; minting the authorization a launch spends is a "
-              "ruling, and rulings are not the operational lane's",
-              _a3_rr_role_code != 0 and "rule-relaunch" in _a3_rr_role)
 
         # ---- the STATIC rows: the block's own shape, asserted at the SOURCE -------------------
         import inspect as _a3_inspect
@@ -31026,463 +29149,6 @@ def _selftest_checks(args, failures, names):
               _c3_code.count("_cap_blind = ") == 1 and _f19_pred in _c3_code
               and "headroom" not in _f19_pred and "complete" not in _f19_pred)
 
-        # ============ F1 (7.317): THE FOURTH LANE — the grant's class widens, the FLIP's does not =
-        # Ruled at `runs/run-3/decisions.md#p-fourth-lane-option-A-trade-owned` (leader,
-        # 2026-08-03). A held ephemeral seat exits by plain `done`, so its row defers forever as
-        # `finished` and no verb can move that cell. The grant instrument above is generalized to
-        # reach it — and the hazard the whole lane exists to avoid is that `RULED_FLIP_FROM` is
-        # read at THREE sites across TWO verbs, so the obvious one-line widening would silently
-        # hand the leader a power to rewrite a `done` disposition. Every row below is written to
-        # go RED on that leak, on a mutation actually run.
-        #
-        # THE FIXTURE IS THE ONE ABOVE, extended by four seats — nothing here builds a second
-        # package, so a done-class result and an exited-class result are comparable by
-        # construction rather than by claim.
-        _f4_anchor = "p-fourth-lane-option-A-trade-owned"
-        _f4_src = Path(__file__).read_text(encoding="utf-8")
-        _f4_lines = _f4_src.splitlines()
-
-        # ---- criterion 1: the FLIP verb's two constants, byte-identical to the pre-lane baseline
-        # ⚠ THE EXPECTATION IS A SPELLED-OUT LITERAL PAIR, never `RULED_FLIP_FROM` itself. A guard
-        # written in terms of the symbol under change moves with the change and passes any edit to
-        # it — the defect this file already names at RD-EC and reproduces nowhere. Compared as
-        # WHOLE LINES rather than as a substring, so this check's own source cannot satisfy it.
-        _f4_flip_pair = ['RULED_FLIP_FROM = "exited"',
-                         'RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")']
-        _f4_flip_at = [_i for _i in range(len(_f4_lines) - 1)
-                       if _f4_lines[_i:_i + 2] == _f4_flip_pair]
-        check("F1 criterion 1 (BYTE-IDENTITY OF THE FLIP CONSTANTS, at the source): the two lines "
-              "defining `RULED_FLIP_FROM` and `RULED_FLIP_FROM_STATES` are present EXACTLY as the "
-              "pre-lane baseline wrote them, once, and their values are the spelled-out literals "
-              "`exited` and `(exited, '')`. The lane's binding constraint is that the relaunch "
-              "grant widens and this pair does not; asserting it by eye or by reading a diff is "
-              "what this row replaces",
-              len(_f4_flip_at) == 1
-              and RULED_FLIP_FROM == "exited"
-              and RULED_FLIP_FROM_STATES == ("exited", ""))
-
-        # ---- criterion 2: `rule-disposition`'s REACHABLE from-states, measured BY EXERCISE ----
-        # Not a source check. The leak this guards is behavioural — one constant swapped at
-        # `session_rule_disposition`'s own predicate — so the row DRIVES that predicate over every
-        # from-state the write boundary admits plus the empty cell, and compares the ADMITTED SET
-        # to a spelled-out literal. `dry=True` runs every check and writes nothing, so the fixture
-        # is reusable and the measurement cannot be confused with a write.
-        _f4_flip_pkg = Path(td) / "f4-flip"
-        (_f4_flip_pkg / "coordination").mkdir(parents=True)
-        _f4_flip_seed = (("fx", "exited"), ("fe", ""), ("fd", "done"),
-                         ("fn", "renew"), ("fv", "revive"))
-        write_csv_table(sessions_csv(_f4_flip_pkg), SESSIONS_COLS,
-                        [[{"session-id": f"{_s}-sid", "seat": _s, "started": "2026-08-03 10:00",
-                           "ended": "2026-08-03 11:00", "disposition": _d}.get(_c4, "")
-                          for _c4 in SESSIONS_COLS] for _s, _d in _f4_flip_seed])
-        _f4_flip_admits = {_d for _s, _d in _f4_flip_seed
-                           if session_rule_disposition(_f4_flip_pkg,
-                                                       _f4_flip_pkg / "coordination", _s, "done",
-                                                       DISPOSITION_WRITER_LEADER, dry=True)[2] == ""}
-        check("F1 criterion 2 (THE NON-LEAK, measured by exercise): `rule-disposition`'s reachable "
-              "from-states are STILL exactly {`exited`, empty} after the grant widened — driven "
-              "over all five ended-row shapes and compared to a literal set. This is the row that "
-              "goes RED the moment the widening reaches `session_rule_disposition`: one constant, "
-              "three read sites, two verbs, and the leak would have handed the `leader` a power to "
-              "rewrite a `done` disposition its own writer declared. It passes EVERY suite this "
-              "file had before this row existed",
-              _f4_flip_admits == {"exited", ""})
-
-        # ---- criterion 3 (mint) + criterion 5's RED CONTROL, on the real `done`-class row -----
-        _a3_write_grants([])
-        _f4_opened_before = len(opened)
-        _f4_nogrant, _f4_nogrant_code = _a3l_run(only="done1", dry_run=False)
-        check("F1 criterion 5 (THE RED CONTROL — the same invocation WITHOUT a grant still "
-              "DEFERS): `launch --only done1` with no grant in the file refuses, names the seat "
-              "with its class and the field value that decided it, and opens NO pane — asserted "
-              "on the pane ledger, not on the absence of a success line. Without this row every "
-              "admission below would be consistent with a widening that admitted `done` rows "
-              "unconditionally, which is precisely the failure the lane exists to avoid",
-              _f4_nogrant_code == 1
-              and "done1: NOT LAUNCHED — finished (disposition = 'done')" in _f4_nogrant
-              and "NO pane was opened" in _f4_nogrant
-              and len(opened) == _f4_opened_before)
-        _f4_mint_bare, _f4_mint_bare_code = refuse(cmd_rule_relaunch, seat="done1",
-                                                   anchor=_f4_anchor, go=False, **_a3_rr_ns)
-        _f4_mint_go, _f4_mint_go_code = refuse(cmd_rule_relaunch, seat="done1", anchor=_f4_anchor,
-                                               go=True, **_a3_rr_ns)
-        _f4_rvv, _f4_rvv_code = refuse(cmd_rule_relaunch, seat="rvv", anchor="p-x", go=True,
-                                       **_a3_rr_ns)
-        _f4_undec, _f4_undec_code = refuse(cmd_rule_relaunch, seat="undec", anchor="p-x", go=True,
-                                           **_a3_rr_ns)
-        check("F1 criterion 3 (THE MINT, on a last-ENDED `done` row): `rule-relaunch` reports the "
-              "row GRANTABLE naming ITS OWN cell, then mints session-bound with the leader as "
-              "`minted-by` — and still refuses `revive` and the EMPTY cell, each with its own "
-              "reason. The empty cell is deliberately NOT a member: it is the UNDECLARED class and "
-              "`--declare-only` is its one instrument, so one state never gets two. BOTH printed "
-              "surfaces are asserted to name the ROW's cell and not a constant — the report AND "
-              "the closing hint, whose `exited` was accurate by construction while the grant "
-              "reached one class and became a report about the wrong state the moment it reached "
-              "two",
-              _f4_mint_bare_code == 0 and "GRANTABLE" in _f4_mint_bare
-              and "carries `done`" in _f4_mint_bare
-              and _f4_mint_go_code == 0 and "GRANT MINTED" in _f4_mint_go
-              and "It does not clear the `done` row" in _f4_mint_go
-              and "It does not clear the `exited` row" not in _f4_mint_go
-              and [g for g in _a3_grants() if g["seat"] == "done1"][0]["session-id"]
-              == sessions_last_ended(_a3l)["done1"][0]
-              and [g for g in _a3_grants() if g["seat"] == "done1"][0]["minted-by"] == "leader"
-              and _f4_rvv_code == 1
-              and "mints a grant on `exited` / `done` / `incomplete` rows" in _f4_rvv
-              and _f4_undec_code == 1
-              and "mints a grant on `exited` / `done` / `incomplete` rows" in _f4_undec)
-
-        # ---- criterion 5: THE LADDER, hermetically, on the `done` class ------------------------
-        _f4_dry = _a3_admit(dict(only="done1", relaunch_ruled=_f4_anchor))
-        _f4_unspent_after_dry = all(not g["spent-at"] for g in _a3_grants()
-                                    if g["seat"] == "done1")
-        _f4_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
-        _f4_prior_wake = wake_ok["v"]
-        os.environ["COORD_LAUNCH_TARGET"] = "%0"
-        wake_ok["v"] = True
-        try:
-            _f4_real, _f4_real_code = _a3l_run(only="done1", relaunch_ruled=_f4_anchor,
-                                               dry_run=False)
-        finally:
-            wake_ok["v"] = _f4_prior_wake
-            if _f4_prior_target is None:
-                os.environ.pop("COORD_LAUNCH_TARGET", None)
-            else:
-                os.environ["COORD_LAUNCH_TARGET"] = _f4_prior_target
-        _f4_replay = _a3_admit(dict(only="done1", relaunch_ruled=_f4_anchor))
-        check("F1 criterion 5 (THE WHOLE LADDER ON A `done` ROW, one fixture, in order): mint → "
-              "`--dry-run` ADMITS and does NOT spend → the real launch ADMITS and STAMPS the "
-              "spend → the identical invocation immediately after refuses at `P5: spent`. Every "
-              "term of the instrument survives the widening unchanged: single-use, session-bound, "
-              "spend-BEFORE-pane, dry-run-unspent. The grant row is never deleted, so the file "
-              "stays the durable history of the relaunch",
-              _f4_dry[:2] == ("ADMITTED", "clause I-prime")
-              and _f4_unspent_after_dry
-              and _f4_real_code == 0 and "grant SPENT at" in _f4_real
-              and len([g for g in _a3_grants() if g["seat"] == "done1"]) == 1
-              and all(g["spent-at"] for g in _a3_grants() if g["seat"] == "done1")
-              and _f4_replay[:2] == ("REFUSED pre-boolean", "P5: spent"))
-
-        # ---- criterion 4: THE ATTESTATION IS CLASS-AWARE, asserted on the EMITTED STRING -------
-        # Both branches are read off the SAME fixture, and the exited-class output is the positive
-        # control: without it "the `done` text omits the exit-1 wording" would also be satisfied by
-        # a tool that never printed that wording at all.
-        _f4_att_end = "as it is for every ledger entry."
-
-        def _f4_attestation(text):
-            """The attestation BLOCK alone, sliced out of the command's WHOLE output — so a
-            negative conjunct below is a statement about the attestation and not about whatever
-            else that launch happened to print. `find`, never `index`: a missing marker must red
-            THIS row, not abort the suite and leave every row behind it unreported."""
-            _s = text.find("ADMITTED by --relaunch-ruled")
-            if _s < 0:
-                return ""
-            _e = text.find(_f4_att_end, _s)
-            return text[_s:] if _e < 0 else text[_s:_e + len(_f4_att_end)]
-
-        _f4_att_done = _f4_attestation(_f4_dry[2])
-        _f4_att_exited = _f4_attestation(_a3_g_out)
-        check("F1 criterion 4 (THE CLASS-AWARE ATTESTATION, on the emitted string): a `done`-class "
-              "admission names the row's OWN cell, claims the VERIFIED ruling act, and states in "
-              "as many words that it makes no claim about the work — while carrying NONE of the "
-              "`exited` branch's wording, which cites `d-exited-row-closure` exit 1. That citation "
-              "is TRUE of an `exited` row (`attest-exit` wrote that cell, and it means the harness "
-              "terminated) and FALSE of a `done` one, where a held ending and a concluded ending "
-              "are byte-indistinguishable. The exited-class output is asserted to still carry it, "
-              "so this row cannot be satisfied by a tool that stopped saying it everywhere",
-              _f4_att_done != "" and _f4_att_exited != ""
-              and "ENDED with disposition `done`" in _f4_att_done
-              and "VERIFIED against the `leader`'s recorded ruling act" in _f4_att_done
-              and "makes NO claim in either direction about the work behind it" in _f4_att_done
-              and "d-exited-row-closure" not in _f4_att_done
-              and "`exited`" not in _f4_att_done
-              and "d-exited-row-closure" in _f4_att_exited
-              and "ENDED with disposition `exited`" in _f4_att_exited)
-
-        # ---- criterion 6: the SIX legs the widening did NOT move, re-run on the `done` class ---
-        # P3a is unreachable on this class by construction (a `done` row IS an ended row), and is
-        # asserted on its own subject by arm 3 above. The other six are re-asserted HERE, on
-        # `done`-class targets, because "the widening moved exactly one leg" is a claim about all
-        # of them and arm 3 only ever drove `exited` ones.
-        _a3_write_grants([])
-        _f4_legs = [(dict(only=None, relaunch_ruled=_f4_anchor), "P2a"),
-                    (dict(only="done1,dskew", relaunch_ruled=_f4_anchor), "P2b"),
-                    (dict(only="done1", relaunch_ruled=_f4_anchor), "P5: no-row")]
-        _f4_leg_res = [(_a3_admit(_sh)[1], _exp) for _sh, _exp in _f4_legs]
-        _a3_write_grants([{"seat": "dskew", "session-id": sessions_last_ended(_a3l)["dskew"][0],
-                           "anchor": _f4_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _f4_leg_res.append((_a3_admit(dict(only="dskew",
-                                           relaunch_ruled=_f4_anchor))[1], "P3c: skew present"))
-        _f4_skew_unspent = all(not g["spent-at"] for g in _a3_grants() if g["seat"] == "dskew")
-        _f4_prior_live = set(live_tmux_panes["v"])
-        live_tmux_panes["v"] = _f4_prior_live | {"%1"}
-        _a3_write_grants([{"seat": "dlive", "session-id": sessions_last_ended(_a3l)["dlive"][0],
-                           "anchor": _f4_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _f4_leg_res.append((_a3_admit(dict(only="dlive", relaunch_ruled=_f4_anchor))[1], "P4"))
-        live_tmux_panes["v"] = _f4_prior_live
-        _a3_write_grants([{"seat": "done1", "session-id": "done1-a-different-ending",
-                           "anchor": _f4_anchor, "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _f4_leg_res.append((_a3_admit(dict(only="done1",
-                                           relaunch_ruled=_f4_anchor))[1], "P5: stale-session"))
-        _a3_write_grants([{"seat": "done1", "session-id": sessions_last_ended(_a3l)["done1"][0],
-                           "anchor": "p-some-other-ruling", "minted-by": "leader",
-                           "minted-at": "2026-08-03 15:00", "spent-at": ""}])
-        _f4_leg_res.append((_a3_admit(dict(only="done1",
-                                           relaunch_ruled=_f4_anchor))[1], "P5: anchor-mismatch"))
-        check("F1 criterion 6 (THE WIDENING MOVED EXACTLY ONE LEG): P2a, P2b, P3c, P4 and three of "
-              "P5's four cells all refuse on `done`-class targets (its `spent` cell is asserted by "
-              "the ladder row above, where the spend that produces it happens), each by its OWN "
-              "named tag — matched "
-              "on the tag and never on a bare refusal, because guards that all refuse without "
-              "saying which fired are one guard wearing several names. P3c is additionally "
-              "asserted to leave its PERFECTLY VALID grant UNSPENT: a leg that refused after "
-              "spending would burn an authorization on a launch that never happened",
-              [_r for _r, _e in _f4_leg_res] == [_e for _r, _e in _f4_leg_res]
-              and len(_f4_leg_res) == 7
-              and _f4_skew_unspent)
-
-        # ---- criterion 8: nothing was attached to `--force` or `--force-memory` ----------------
-        _f4_ladder_src = _a3_src[_a3_src.index("_relaunch_anchor = ("):
-                                 _a3_src.index("# ---- the filter: ADMIT(w)")]
-        _f4_mint_src = _a3_inspect.getsource(cmd_rule_relaunch)
-        _f4_mint_leg = _f4_mint_src[_f4_mint_src.index("# Precondition 2"):
-                                    _f4_mint_src.index("# Precondition 3")]
-        check("F1 criterion 8 (NOTHING IS ATTACHED TO `--force` / `--force-memory`, at the "
-              "source): the P-ladder does not read either flag, the widened mint precondition does "
-              "not, and `cmd_rule_relaunch` as a WHOLE does not — the grant is a THIRD independent "
-              "parameter and no gate is ever re-attached to the override family. Two positive "
-              "controls, because an absence proves nothing about text that was never there: the "
-              "enclosing `cmd_launch` demonstrably DOES read `force`, and each slice is asserted "
-              "to contain the predicate it is supposed to be showing",
-              "force" not in _f4_ladder_src
-              and "force" not in _f4_mint_leg
-              and "force" not in _f4_mint_src
-              and "force" in _a3_src
-              and "if _rl_disp not in _rl_admits:" in _f4_ladder_src
-              and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg)
-
-        # ---- the separation, asserted at the SOURCE of the verb that must not have moved -------
-        check("F1 (THE SEPARATION ITSELF): `session_rule_disposition` does not so much as NAME the "
-              "grant's constant, and the two verbs that now widen independently each read their "
-              "own — the flip verb `RULED_FLIP_FROM_STATES`, the grant's mint and P3b leg "
-              "`RELAUNCH_GRANT_FROM_STATES`. The behavioural row above catches the leak after it "
-              "happens; this one catches the edit that would cause it",
-              "RELAUNCH_GRANT_FROM_STATES"
-              not in _a3_inspect.getsource(session_rule_disposition)
-              and "RULED_FLIP_FROM_STATES" in _a3_inspect.getsource(session_rule_disposition)
-              and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
-              and "_rl_admits = grant_from_states_for(_relaunch_anchor)" in _f4_ladder_src
-              and "RELAUNCH_GRANT_FROM_STATES"
-              in _a3_inspect.getsource(grant_from_states_for))
-
-        # ---- W1/F4 (adv, C21): THE DAEMON'S GRANTS DO NOT REACH `incomplete` -------------------
-        check("W1/F4 (adv, C21) THE ANCHOR NARROWS THE CLASS: `incomplete` is admitted for a "
-              "LEADER-minted grant and REFUSED for the daemon's automatic one, resolved off the "
-              "anchor alone. Without this, `seeding.js` — which mints against an EXECUTION outcome "
-              "and can see no disposition at all — would relaunch an honestly-held seat from its "
-              "stale seed, unattended, every pass. Both directions are exercised so a resolver "
-              "that returned one set for everything reds either way, and the daemon's set is "
-              "asserted to be exactly the pre-F4 pair rather than merely `smaller`",
-              "incomplete" in grant_from_states_for("p-some-leader-ruling")
-              and grant_from_states_for("p-some-leader-ruling") == RELAUNCH_GRANT_FROM_STATES
-              and grant_from_states_for(DAEMON_RETRY_ANCHOR) == ("exited", "done")
-              and "incomplete" not in grant_from_states_for(DAEMON_RETRY_ANCHOR)
-              and LEADER_ONLY_GRANT_FROM_STATES == ("incomplete",))
-
-        # ============ 7.776: THE DAEMON SELF-GRANT (`seat-retry` + the DONE->READY flip) ========
-        # ITS OWN PACKAGE, not `_a3l`. This block MINTS repeatedly against the bound and SPENDS,
-        # and `_a3l` is reused by the O3 block below — a fixture whose grant file this block had
-        # been writing into would make those rows depend on how many times the bound was exercised
-        # here. Two seats, and the split is the whole design in fixture form: `failed` carries an
-        # EXECUTION-shaped failure and NO `sessions.csv` row at all (the measured
-        # `forge-reference-seat-id-naming/forg-intake` shape); `ruled` carries an ENDED session with
-        # disposition `exited`, which is what the LEADER's own mint needs.
-        _sr_pkg = _rs_make("7776-retry", [("failed", ""), ("blk", ""), ("ruled", "")],
-                           sessions=[("ruled", "exited")])
-        _sr_base = _sr_pkg / "coordination"
-
-        def _sr_run(**kw):
-            """(stdout, combined, exit) — stdout kept SEPARATE so `--json` stays parseable, exactly
-            as `_rs` does, because a refusal writes to stderr and would otherwise poison the parse."""
-            _d = dict(agent=DAEMON_IDENTITY, package=str(_sr_pkg), seat="failed",
-                      mint=False, spend=False, session=None, outcome=None, json=False)
-            _d.update(kw)
-            _o, _e, _c = harness_outcome(cmd_seat_retry, ns(**_d))
-            return _o, _o + _e, (0 if _c is None else _c)
-
-        def _sr_rows(seat):
-            return [g for _i, g in read_relaunch_grants(_sr_base) if g["seat"] == seat]
-
-        # ---- the BOUND, at N and at N+1, with its own positive control -----------------------
-        _sr_m1 = _sr_run(mint=True, session="s-1", outcome="crashed", json=True)
-        _sr_m2 = _sr_run(mint=True, session="s-2", outcome="killed", json=True)
-        _sr_m3 = _sr_run(mint=True, session="s-3", outcome="crashed", json=True)
-        check("7.776 THE RETRY BOUND HOLDS AT N+1, AND MINTS 1..N SUCCEED IN THE SAME RUN. The "
-              "control is the whole row: an arm that only asserts the third mint REFUSES is "
-              "satisfied by a verb whose minting is simply broken, and it would read green with "
-              "the bound deleted and the writer dead. Both earlier mints are asserted to have "
-              "MINTED and to have LANDED IN THE FILE, on two different admissible outcomes; the "
-              "third is refused BY THE BOUND, named in the text, with the file still carrying "
-              "exactly N rows. The bound is read from the constant, never re-typed as a literal",
-              _sr_m1[2] == 0 and _sr_m2[2] == 0 and _sr_m3[2] == 1
-              and json.loads(_sr_m1[0])["status"] == "minted"
-              and json.loads(_sr_m2[0])["status"] == "minted"
-              and json.loads(_sr_m2[0])["grant"]["minted-by"] == DAEMON_IDENTITY
-              and json.loads(_sr_m2[0])["grant"]["anchor"] == DAEMON_RETRY_ANCHOR
-              and "exhausted the daemon's retry budget" in _sr_m3[1]
-              and len(_sr_rows("failed")) == DAEMON_RETRY_BOUND == 2)
-
-        # ---- the OUTCOME domain: `clean` and the retired words are refused, `killed` is not ----
-        # W2 NARROWED the column to `clean|crashed|killed`, so this row's subject moved with it:
-        # `blocked` is no longer a VALUE and can only be exercised as a word off the vocabulary,
-        # which is what it is asserted as here.
-        _sr_cln = _sr_run(seat="blk", mint=True, session="s-b", outcome="clean")
-        _sr_blk = _sr_run(seat="blk", mint=True, session="s-b", outcome="blocked")
-        # THE DISJOINTNESS, BY EXERCISE — every disposition word fed to the outcome-keyed verb.
-        _sr_disp = [_sr_run(seat="blk", mint=True, session="s-b", outcome=_d)
-                    for _d in RELAUNCH_GRANT_FROM_STATES]
-        _sr_empty = _sr_rows("blk")
-        _sr_kil = _sr_run(seat="blk", mint=True, session="s-b", outcome="killed", json=True)
-        check("7.776/W2 THE OUTCOME DOMAIN, BY EXERCISE AND IN BOTH DIRECTIONS, ON W2's NARROWED "
-              "VOCABULARY. `clean` is refused: it is the value that ABSORBED both retired words — "
-              "the old `done` (finished work) and the old `blocked` (a human owes an answer) — and "
-              "neither is work the daemon may re-run on its own, so the exclusion the old `blocked` "
-              "arm asserted is asserted HERE now. `blocked` itself is refused as a word that names "
-              "nothing in the column any more. ⚠ AND THE DISJOINTNESS IS RE-STATED AS AN INVARIANT "
-              "RATHER THAN RE-PINNED: EVERY member of `RELAUNCH_GRANT_FROM_STATES` is fed to this "
-              "outcome-keyed verb and EVERY one is refused — so the two vocabularies are proved "
-              "disjoint BY THE VERB'S OWN BEHAVIOUR on whatever the disposition tuple happens to "
-              "hold, not by a literal that a widening of either side would leave stale. Everything "
-              "refused writes NOTHING, read back off disk rather than trusted from the refusal "
-              "text. The CONTROL is `killed` on the SAME seat and the SAME session immediately "
-              "after: it MINTS, so 'refuses correctly' cannot be confused with 'this verb cannot "
-              "mint'",
-              _sr_cln[2] == 1 and _sr_blk[2] == 1
-              and "`clean` is not retried" in _sr_cln[1]
-              and all(_r[2] == 1 for _r in _sr_disp)
-              and len(_sr_disp) == len(RELAUNCH_GRANT_FROM_STATES) >= 3
-              and _sr_empty == []
-              and _sr_kil[2] == 0 and json.loads(_sr_kil[0])["status"] == "minted"
-              and len(_sr_rows("blk")) == 1)
-
-        # ---- the DUP refusal and the SPEND, on the row the control just minted ---------------
-        _sr_dup = _sr_run(seat="blk", mint=True, session="s-b", outcome="crashed")
-        _sr_sp1 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
-        _sr_sp2 = _sr_run(seat="blk", spend=True, session="s-b", json=True)
-        check("7.776 ONE FAILURE BUYS ONE GRANT, AND A GRANT IS SPENT ONCE. A second mint for a "
-              "session that already carries an unspent grant is refused (it would authorize two "
-              "relaunches for one failure AND charge the budget twice); the spend then stamps that "
-              "row and reports the stamp; and the IDENTICAL spend immediately after reports "
-              "`not-spent` with an EMPTY stamp rather than re-stamping — the replay arm, asserted "
-              "on the file as well as on the output",
-              _sr_dup[2] == 1 and "already carries an UNSPENT grant" in _sr_dup[1]
-              and len(_sr_rows("blk")) == 1
-              and _sr_sp1[2] == 0 and json.loads(_sr_sp1[0])["status"] == "spent"
-              and json.loads(_sr_sp1[0])["stamp"]
-              and _sr_sp2[2] == 0 and json.loads(_sr_sp2[0])["status"] == "not-spent"
-              and json.loads(_sr_sp2[0])["stamp"] == ""
-              and all(g["spent-at"] for g in _sr_rows("blk")))
-
-        # ---- the VERDICT FLIP, driven by the LEADER's own mint --------------------------------
-        # The grant is minted by `rule-relaunch` — the REAL command, gated `is_leader` — for two
-        # reasons at once. It is the ONLY mint whose session-id matches `sessions_last_ended`, which
-        # is what `ready_seat_rows`' hoist filters on; and it makes this row assert the OWNER RULING
-        # that the flip fires on ANY unspent grant rather than only a daemon-minted one.
-        _sr_v_before = _rs_v(_sr_pkg)[0]
-        _sr_rr = refuse(cmd_rule_relaunch, seat="ruled", anchor="p-sr-ruled", go=True,
-                        **dict(package=str(_sr_pkg), base=None, workers_dir=None, force=False,
-                               as_agent=None, agent="leader"))
-        _sr_v_granted = _rs_v(_sr_pkg)[0]
-        _sr_row_granted = {r["seat"]: r for r in json.loads(_rs(_sr_pkg, json=True)[0])}["ruled"]
-        _sr_sp3 = _sr_run(seat="ruled", spend=True,
-                          session=sessions_last_ended(_sr_pkg)["ruled"][0], json=True)
-        _sr_v_spent = _rs_v(_sr_pkg)[0]
-        check("7.776 AN UNSPENT GRANT FLIPS `DONE` -> `READY`, AND ITS ABSENCE DOES NOT. The same "
-              "seat is measured THREE times on one package: `DONE` before any grant exists, `READY` "
-              "while one is unspent, `DONE` again the moment it is spent — so the arm measures the "
-              "GRANT and not the fixture. `DONE` is ABSORBING and that is exactly why this had to "
-              "become a verdict term: the daemon's seeding pass filters `verdict == \"READY\"` and "
-              "parses no reason strings, so the warning this replaces was worth nothing to the one "
-              "consumer it was written for (run-3: minted 17:54, launched by hand 19:24). ⚠ THE "
-              "GRANT IS THE `leader`'S, NOT THE DAEMON'S — owner ruling 2026-08-12: the flip fires "
-              "on ANY unspent grant, so no `minted-by` condition may be added to it. The reason "
-              "names the MINTER, the ANCHOR and the MINT STAMP, and the row still carries the grant "
-              "on the wire",
-              _sr_v_before["ruled"] == "DONE"
-              and _sr_rr[1] == 0
-              and _sr_v_granted["ruled"] == "READY"
-              and _sr_sp3[2] == 0 and json.loads(_sr_sp3[0])["status"] == "spent"
-              and _sr_v_spent["ruled"] == "DONE"
-              and "UNSPENT RELAUNCH GRANT" in _sr_row_granted["reason"]
-              and "leader" in _sr_row_granted["reason"]
-              and "p-sr-ruled" in _sr_row_granted["reason"]
-              and (_sr_row_granted["relaunch-grant"] or {}).get("anchor") == "p-sr-ruled"
-              and _sr_row_granted["disposition"] == "exited")
-
-        _f4_flip_pkg = _rs_make("f4-revoked-flip", [("rev1", "")],
-                                sessions=[("rev1", "exited")])
-        _f4_flip_base = _f4_flip_pkg / "coordination"
-        mint_relaunch_grant(_f4_flip_base, "rev1",
-                            sessions_last_ended(_f4_flip_pkg)["rev1"][0],
-                            "p-f4-no-flip", "leader")
-        _f4_flip_before, _ = _rs_v(_f4_flip_pkg)
-        harness_outcome(cmd_revoke_relaunch, argparse.Namespace(
-            package=str(_f4_flip_pkg), base=None, workers_dir=None, force=False,
-            as_agent=None, agent="leader", seat="rev1", anchor="p-f4-no-flip",
-            reason="park", go=True))
-        _f4_flip_after, _ = _rs_v(_f4_flip_pkg)
-        check("F4 a revoked grant does NOT flip DONE→READY — ready_seat_rows skips the row",
-              _f4_flip_before.get("rev1") == "READY"
-              and _f4_flip_after.get("rev1") == "DONE")
-
-        # ---- the DISCLOSED LIMIT the JS half is built against ---------------------------------
-        check("7.776 A GRANT WHOSE SESSION-ID MATCHES NO ENDED SESSION ROW IS NOT ON THE WIRE, AND "
-              "THE DAEMON'S SEEDING PASS IS WRITTEN AGAINST THAT. The hoist filters a grant against "
-              "`sessions_last_ended`, deliberately (a grant naming a superseded session refuses at "
-              "the spend as `stale-session`, so surfacing it would advertise an authorization that "
-              "cannot be spent). A seat with NO `sessions.csv` row AT ALL therefore never carries "
-              "its daemon-minted grant on `relaunch-grant`, however many were minted — which is the "
-              "measured `forg-intake` shape, and is why `seeding.js` merges the row its OWN mint "
-              "call returned instead of re-reading it here. Stated as a row so the next agent finds "
-              "it before rebuilding the JS half on an assumption this file does not hold",
-              len(_sr_rows("failed")) == 2
-              and {r["seat"]: r for r in json.loads(_rs(_sr_pkg, json=True)[0])}[
-                  "failed"]["relaunch-grant"] is None
-              and "failed" not in sessions_last_ended(_sr_pkg))
-
-        # ---- THE NON-LEAK, at the source and by exercise --------------------------------------
-        _sr_mint_src = _a3_inspect.getsource(cmd_seat_retry)
-        check("7.776 THE TWO VOCABULARIES DO NOT LEAK INTO EACH OTHER. `RELAUNCH_GRANT_FROM_STATES` "
-              "is BYTE-UNCHANGED at `('exited', 'done')` and the two tuples are DISJOINT — they "
-              "range over `sessions.csv`'s disposition cell and `executions.csv`'s outcome cell "
-              "respectively, two files written by two runtimes. Asserted at the SOURCE in both "
-              "directions: `cmd_rule_relaunch`'s mint leg still reads the disposition constant and "
-              "names the outcome one NOWHERE, and `cmd_seat_retry` is the mirror image. The "
-              "positive control is that each slice is asserted to CONTAIN the predicate it is "
-              "supposed to be showing, because an absence proves nothing about text that was never "
-              "there. The behavioural twin is the whole-tuple refusal sweep two rows up. W1/F4 and "
-              "then W2 RE-STATE the invariant rather than merely re-pinning the tuples, and W2 is "
-              "the harder case: BOTH SIDES MOVED — the disposition set gained `incomplete` (an "
-              "honestly-unfinished seat is the one class that must be able to come back), and the "
-              "outcome set was RE-KEYED WORD FOR WORD onto W2's process vocabulary "
-              "`clean|crashed|killed`, where `done` and `blocked` no longer exist as values at "
-              "all. DISJOINTNESS is the property that survives both moves — a disposition word "
-              "that ever equalled an outcome word would let one constant's edit silently move the "
-              "other file's readers — and note it was ALMOST LOST, not preserved by luck: before "
-              "W2 the outcome column carried the literal word `done`, which the disposition column "
-              "also carries, and the only thing keeping the two apart was that no retry constant "
-              "listed it. W2's narrowing removes the collision from the VALUE SPACE itself",
-              RELAUNCH_GRANT_FROM_STATES == ("exited", "done", "incomplete")
-              and DAEMON_RETRY_FROM_OUTCOMES == ("crashed", "killed")
-              and not (set(RELAUNCH_GRANT_FROM_STATES) & set(DAEMON_RETRY_FROM_OUTCOMES))
-              and "if disp not in RELAUNCH_GRANT_FROM_STATES:" in _f4_mint_leg
-              and "DAEMON_RETRY_FROM_OUTCOMES" not in _f4_mint_src
-              and "if outcome not in DAEMON_RETRY_FROM_OUTCOMES:" in _sr_mint_src
-              and "RELAUNCH_GRANT_FROM_STATES" not in _sr_mint_src)
-
         # ============ O3 (7.280): THE `--only` STATEMENT + THE CARVE-OUT CONSUMPTION ============
         # Spec: `planning/briefing-scoped-launch/only-statement-spec.md` (O1, sha256 c3113ec9…,
         # ACCEPTED) § `statement-shape` / `refusal-set` / `no-force-clause` / `dry-run-parity`, and
@@ -31521,7 +29187,6 @@ def _selftest_checks(args, failures, names):
         # (M-1 and M-2 red row O through its own `len(_o3_blk_verdicts) >= 2` positive control:
         #  the walk is asserted to FIND the statement's verdict reads, so "none outside a print"
         #  can never be satisfied by a build that stopped reading the verdict anywhere.)
-        _a3_write_grants([])
         _o3_ok = _a3l_run(only="okseat")[0]
         _o3_mixed, _o3_mixed_code = _a3l_run(only="okseat,done1,blk1")
 
@@ -32030,16 +29695,17 @@ def _selftest_checks(args, failures, names):
         # stays rejected; the arm reads `is_summoned_seat` directly.
         #
         # ⚠ TWO PACKAGES, ONE SHAPE, ONE DIFFERING FACT — the seat name. They are SEPARATE
-        # packages rather than two rows of one, because both surfaces this arm reads are
-        # CUMULATIVE and the mail arm's own act writes them: a mint on the first close leaves a
-        # note in `messages.md` and an ARMED grant that the second close's `mint_staff_wake`
-        # reports as already held. On one package the control's evidence would therefore move
-        # with the mutant, and `--expect-fail` would see two reds for one defect.
+        # packages rather than two rows of one, because the surface this arm reads is CUMULATIVE:
+        # a mint on the first close leaves a note in `messages.md`. On one package the control's
+        # evidence would therefore move with the mutant, and `--expect-fail` would see two reds
+        # for one defect.
         #
-        # ⚠ THE CLOSED `leader` ROW IN EACH IS LOAD-BEARING, not decoration: `mint_staff_wake`
-        # writes NO grant for a chair that has NEVER SAT (it already reads READY on its own
-        # account), so without it the wake half would be vacuously absent on both packages and
-        # the pair could not tell a SUPPRESSED wake from an UNNECESSARY one.
+        # ⚠ D12 (2026-08-20) — THE WAKE HALF IS GONE FROM BOTH ROWS, and `no_grant_file` replaces
+        # it as a STANDING assertion rather than as a term of the D24 ruling: neither package may
+        # grow a grant store of any name, on either branch, because no minter exists any more.
+        # The chair's wake is now `engine/reconcile.js` reading its UNREAD MAIL — so the mail
+        # count IS the discriminator between a suppressed chair and a mailed seat, which is what
+        # the pair was always measuring.
         def _dl7_make(name, seat, sid):
             return _dl_make(name, rows=[
                 {"session-id": "ld-sid", "seat": "leader", "started": "2026-07-29 09:00",
@@ -32053,12 +29719,10 @@ def _selftest_checks(args, failures, names):
             _msg = _b / "messages.md"
             return {"mail": _msg.read_text(encoding="utf-8").count("STAFF MAIL — seat")
                             if _msg.is_file() else 0,
-                    "csv_grant": relaunch_grants_csv(_b).is_file()
-                                 and "leader" in relaunch_grants_csv(_b).read_text(
-                                     encoding="utf-8"),
-                    "engine_grant": engine_grants_file(_b).is_file()
-                                    and "leader" in engine_grants_file(_b).read_text(
-                                        encoding="utf-8")}
+                    # D12: ANY file whose name carries `grant` under coordination/. Matched on the
+                    # NAME rather than on the three deleted spellings, so a re-invented store under
+                    # a fourth name reds this row too — which is the property the ruling is about.
+                    "no_grant_file": not [_p for _p in _b.glob("*grant*")]}
         _dl7 = _dl7_make("dl7-summoned", "goal-master", "gm-sid")
         _dl8 = _dl7_make("dl8-control", "alpha", "al-sid")
         _dl7_before, _dl8_before = _dl7_state(_dl7), _dl7_state(_dl8)
@@ -32070,28 +29734,30 @@ def _selftest_checks(args, failures, names):
         _dl7_row = {r["session-id"]: r for r in _dl_rows(_dl7)}["gm-sid"]
         _dl8_row = {r["session-id"]: r for r in _dl_rows(_dl8)}["al-sid"]
         check("D24 (kit side, 2026-08-20): A SUMMONED CHAIR'S `exited` ROW IS CLOSED SILENTLY — "
-              "no staff mail to the leader and NO WAKE in either grant store — AND THE CLOSURE "
+              "no staff mail to the leader at all, and no store of any kind — AND THE CLOSURE "
               "ITSELF SURVIVES: the row still ends `exited` under `kit`, because the seat did not "
               "declare its own ending and that is true. `goal-master` ends one row per owner turn "
               "of ONE resumed conversation (#140), so this arm burned a leader sitting per owner "
               "sentence while `engine/reconcile.js` already skipped the same seat in BOTH owed "
               "classes. Its CONTROL is the row below, on a package of the same shape",
-              _dl7_before == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              _dl7_before == {"mail": 0, "no_grant_file": True}
               and _dl7_code is None and "NOT minted" in _dl7_out
               and "SUMMONED chair" in _dl7_out
-              and _dl7_after == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              and _dl7_after == {"mail": 0, "no_grant_file": True}
               and _dl7_row["ended"] and _dl7_row["disposition"] == "exited"
               and _dl7_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
         check("D24 (kit side) THE DISCRIMINATING CONTROL: `alpha` — neither staff nor summoned — "
               "ends the SAME `exited` by the SAME command on a package of the SAME shape and "
-              "STILL mints its mail AND its wake in both stores. Without this row the arm above "
+              "STILL mints its mail, which IS the wake now. Without this row the arm above "
               "could not tell `suppressed the summoned chair` from `suppressed everything`, and a "
               "predicate widened to every seat would pass silently. It runs on its OWN package so "
-              "a mutation that reverts the summoned clause reds EXACTLY ONE row",
-              _dl8_before == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              "a mutation that reverts the summoned clause reds EXACTLY ONE row. ⚠ D12: it mints "
+              "MAIL AND NOTHING ELSE — `no_grant_file` stays True through the mint, so this row "
+              "is also the standing proof that the closer's staff arm writes no store",
+              _dl8_before == {"mail": 0, "no_grant_file": True}
               and _dl8_code is None and "staff mail: #" in _dl8_out
-              and "granted a relaunch in BOTH stores" in _dl8_out
-              and _dl8_after == {"mail": 1, "csv_grant": True, "engine_grant": True}
+              and "staff wake: none needed" in _dl8_out
+              and _dl8_after == {"mail": 1, "no_grant_file": True}
               and _dl8_row["ended"] and _dl8_row["disposition"] == "exited"
               and _dl8_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
 
@@ -36164,7 +33830,14 @@ def _selftest_checks(args, failures, names):
         # open ASK, and an escalation is not one — it opens no hold, C45). Two things must follow,
         # and neither did before W8: the chair is WOKEN, and the escalation stops being open.
         # The chair is given an ENDED session row first, which is the state a chair that has
-        # already sat is in — and the only state in which mail alone wakes nothing.
+        # already sat is in.
+        #
+        # ⚠ D12 (2026-08-20) — THE WAKE HALF MOVED OUT OF THIS FILE AND THE ROW SAYS SO. It used
+        # to assert a minted `staff wake` grant here. There is no minter: `engine/reconcile.js`
+        # derives a chair with UNREAD MAIL as owed work and launches the sitting. What this row
+        # can still measure is (a) the send LANDS THE MAIL, which is the wake term, and (b) the
+        # settle rule, which is coord's alone. Asserting a grant string here after the deletion
+        # would be asserting the absent mechanism, not the present one.
         _w8_srow = [""] * len(SESSIONS_COLS)
         _w8_srow[SESSIONS_COLS.index("session-id")] = "leader-0814-1000"
         _w8_srow[SESSIONS_COLS.index("seat")] = "leader"
@@ -36175,14 +33848,18 @@ def _selftest_checks(args, failures, names):
         _w8_ans_out, _w8_ans_code = sendW8("owner", "leader", "widen it — the path is fine",
                                            "--type", "answer", "--force")
         _w8_open_after = open_escalations(load_messages(baseW8)[1])
+        _w8_ans_n = len(load_messages(baseW8)[1])
         check("W8 arm 4 (adv, C78): the owner's reply — `type: answer` from `owner` to the chair, "
               "with NO `re:`, which is what the bus-answer transport can produce for a row that "
-              "opens no ask — WAKES the chair (a staff wake is granted against its last ended "
-              "session; mail alone wakes an already-sat chair not at all) and SETTLES exactly one "
-              "escalation, oldest first. Without this arm's settle rule `pending` would nag on an "
-              "answered halt forever, since `--re` never points at it",
-              _w8_ans_code is None and "staff wake" in _w8_ans_out
-              and "granted a sitting" in _w8_ans_out
+              "opens no ask — LANDS ON THE BUS addressed to the chair (D12: that unread row IS "
+              "the wake term `engine/reconcile.js` reconciles, and no grant is minted by anything "
+              "here) and SETTLES exactly one escalation, oldest first. Without this arm's settle "
+              "rule `pending` would nag on an answered halt forever, since `--re` never points at "
+              "it",
+              _w8_ans_code is None
+              and load_messages(baseW8)[1][-1]["to"] == "leader"
+              and load_messages(baseW8)[1][-1]["type"] == "answer"
+              and not [_p for _p in Path(baseW8).glob("*grant*")]
               and len(_w8_open_before) == 2 and len(_w8_open_after) == 1
               and _w8_open_after[0]["num"] == _w8_open_before[1]["num"])
 
@@ -36526,7 +34203,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / rule-relaunch / revoke-relaunch / seat-retry / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row (--go; reports bare) · mint the single-use grant that admits ONE ruled relaunch of an `exited`/`done` row (--go; reports bare) · retire a standing grant with its own stamp, distinct from spent (--go; reports bare) · (daemon) mint/spend that same grant AUTOMATICALLY against a `failed`/`killed` EXECUTION, bounded at two attempts per seat · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner       set owner presence: present | afk
@@ -36551,14 +34228,11 @@ details + examples: coordinate <command> -h · --force overrides a refusal, wher
 # `lifecycle-exec` (s3-05) is here because no seat ever types it: `s3-09`'s caller forks it as a
 # detached subprocess. It is still registered through `command()` like every other subcommand, so
 # `save-coord.py`'s parser-build gate covers it and its own -h is held to the same example/next bar.
-# `apply-disposition-grants` is the ticker's drain of leader-minted disposition grants — daemon
-# identity, never a seat verb.
 # `surface-refusal` is the seeding pass landing a cage-admission refusal on the bus (D2,
-# 2026-08-19) — the same daemon-only lane as `seat-retry`'s spend; no seat ever types it.
+# 2026-08-19) — a daemon-only lane; no seat ever types it.
 # `renewal-state` is the engine's exit decision transporting `renewal_state`'s answer (LE-10,
 # 2026-08-19) — read-only, engine-consumed; no seat ever types it.
-HIDDEN_COMMANDS = ("lifecycle-exec", "apply-disposition-grants", "surface-refusal",
-                   "renewal-state")
+HIDDEN_COMMANDS = ("lifecycle-exec", "surface-refusal", "renewal-state")
 
 
 ADVICE_SEND = re.compile(
@@ -37366,106 +35040,8 @@ def build_parser():
                         "stays UNDECLARED until its new session supersedes it, a seat with a "
                         "DECLARED ending is still refused, and --force/--force-memory are "
                         "untouched and carry no part of this")
-    # 7.274 (A3): exit 1 of `d-exited-row-closure`, and a FOURTH independent parameter — not an
-    # override and not a member of the --force family. The flag DECLARES the purpose; it arms
-    # nothing. Admission needs a grant row minted by `rule-relaunch` (the leader's alone) matching
-    # this seat, its live last-ENDED session-id and this anchor, and still unspent.
-    s.add_argument("--relaunch-ruled", metavar="LEADER-ANCHOR", default=None,
-                   help="admit ONE --only seat whose last session ENDED with disposition "
-                        "`exited` or `done`, executing the leader's ruled relaunch. Takes that "
-                        "ruling's anchor, which is VERIFIED against a grant row the leader minted "
-                        "with `rule-relaunch` (single-use, session-bound, spent at admission). "
-                        "NOT an override: a fabricated or unmatched anchor refuses, the ended row "
-                        "is untouched until this session supersedes it, and --force/--force-memory "
-                        "carry no part of this. On a `done` row the tool verifies the RULING ACT "
-                        "only — it cannot tell a held ending from a concluded one and claims "
-                        "neither")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
-
-    s = command(
-        "rule-relaunch",
-        "(leader) MINT the grant that admits ONE ruled relaunch of an ENDED row carrying `exited`\n"
-        "or `done` — exit 1 of `d-exited-row-closure`, and the twin of `rule-disposition`.\n"
-        "`attest-exit` writes `exited` (THE HARNESS TERMINATED, nothing more) and routes the row\n"
-        "to the leader; the leader investigates and either records that the work had concluded\n"
-        "(`rule-disposition <seat> done --go`) or rules that the seat must be relaunched — which\n"
-        "no disposition value can express. This records THAT ruling as a single-use,\n"
-        "session-bound authorization the launch path can VERIFY, so admission never rests on the\n"
-        "shape of an invocation. The `done` class is the fourth lane: a held seat exits by plain\n"
-        "`done` and no verb can move that cell, so the grant is its only door — and on it the\n"
-        "tool verifies YOUR ruling act, never that the work was unfinished. BARE = report only.",
-        "example:\n"
-        "  coordinate rule-relaunch oc2 --anchor p-oc2-relaunch-ruled        # report\n"
-        "  coordinate rule-relaunch oc2 --anchor p-oc2-relaunch-ruled --go   # mint the grant\n"
-        "next: coordinate launch --only <seat> --relaunch-ruled <anchor> — the one invocation the "
-        "grant admits, and it is spent there")
-    s.add_argument("seat", help="the TARGET seat whose ended row the ruling covers — never the caller")
-    s.add_argument("--anchor", default=None,
-                   help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
-                        "recorded as the trail and must be presented verbatim at launch")
-    s.add_argument("--go", action="store_true",
-                   help="ACT: append the grant row; without it nothing is written")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_rule_relaunch)
-
-    s = command(
-        "revoke-relaunch",
-        "(leader) RETIRE a standing relaunch grant with its own stamp and reason, distinct\n"
-        "from spent. Keyed on (seat, --anchor) — never every unspent row. BARE = report;\n"
-        "`--go` writes `revoked-at` + `revoke-reason`. Refuses already-spent and already-revoked\n"
-        "by name. A legacy `spent-at` matching `^revoked-` still reads as revoked, not spent.",
-        "example:\n"
-        "  coordinate revoke-relaunch plan-2 --anchor p-m2-relaunch --reason 'park'        # report\n"
-        "  coordinate revoke-relaunch plan-2 --anchor p-m2-relaunch --reason 'park' --go   # revoke\n"
-        "next: coordinate ready-seats — a revoked row does not flip DONE→READY")
-    s.add_argument("seat", help="the TARGET seat whose grant is being retired — never the caller")
-    s.add_argument("--anchor", default=None,
-                   help="the grant's own ruling anchor; required, and it selects ONE row")
-    s.add_argument("--reason", default=None,
-                   help="why this grant is being retired; recorded on the row")
-    s.add_argument("--go", action="store_true",
-                   help="ACT: stamp revoked-at + revoke-reason; without it nothing is written")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_revoke_relaunch)
-
-    s = command(
-        "seat-retry",
-        "(daemon) MINT or SPEND the ignite daemon's OWN automatic relaunch grant — the same\n"
-        "single-use, session-bound instrument `rule-relaunch` mints, minted unattended against an\n"
-        "EXECUTION that ended `failed`/`killed` and bounded at two attempts per seat.\n"
-        "\n"
-        "⚠ THE OUTCOME COMES FROM THE EXECUTION RECORD (`<goal>/executions.csv`), NOT from a\n"
-        "session's disposition — the two vocabularies are disjoint, and a seat can carry a failed\n"
-        "outcome with no `sessions.csv` row at all. This file never opens that record: the caller\n"
-        "reads it and passes the session-id and the outcome as arguments.\n"
-        "\n"
-        "NOT AN OVERRIDE. `--mint` refuses a third attempt, an outcome outside the retry set\n"
-        "(`blocked` means a human owes an answer), and a second grant for a session that already\n"
-        "carries one. `--spend` stamps whatever unspent grant the pair names — a LEADER-minted one\n"
-        "included, per owner ruling: an unspent grant is acted on whoever minted it.",
-        "example:\n"
-        "  coordinate seat-retry forg-intake --mint --session 317b947d-… --outcome failed\n"
-        "  coordinate seat-retry forg-intake --spend --session 317b947d-… --json\n"
-        "next: nothing by hand — the daemon's seeding pass mints, re-reads `ready-seats` and "
-        "spends at the enqueue. Read the trail in coordination/relaunch-grants.csv")
-    s.add_argument("seat", help="the TARGET seat whose failed execution is being retried — never the caller")
-    _sr = s.add_mutually_exclusive_group(required=True)
-    _sr.add_argument("--mint", action="store_true",
-                     help="append the grant row for (seat, --session), subject to the retry bound")
-    _sr.add_argument("--spend", action="store_true",
-                     help="stamp `spent-at` on the unspent grant for (seat, --session); prints an "
-                          "empty stamp and a reason when there is none to spend")
-    s.add_argument("--session", metavar="ID", default=None, required=True,
-                   help="the EXECUTION's session-id, as `executions.csv` carries it — the grant's "
-                        "binding, and the join key back to the evidence")
-    s.add_argument("--outcome", metavar="WORD", default=None,
-                   help="required with --mint: that execution's own outcome cell. Only `failed` "
-                        "and `killed` mint; `blocked` and `done` are refused by state")
-    s.add_argument("--json", action="store_true",
-                   help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_seat_retry)
 
     s = command(
         "surface-refusal",
@@ -37877,20 +35453,20 @@ def build_parser():
 
     s = command(
         "rule-disposition",
-        "(leader) MINT a disposition grant for a RULED value on a session row that has ALREADY\n"
-        "ENDED — the second half of `d-exited-row-closure`. `attest-exit` writes `exited` (THE\n"
-        "HARNESS TERMINATED, nothing more) and routes the row to the leader; the leader\n"
-        "investigates, and where the work had in fact concluded this is how that finding is\n"
-        "recorded. `--go` mints `coordination/disposition-grants.csv`; it never writes\n"
-        "`sessions.csv` (every cage ro-binds that file). The uncaged daemon applies the grant.\n"
+        "(leader) RECORD a RULED disposition on a session row that has ALREADY ENDED — the\n"
+        "second half of `d-exited-row-closure`. `attest-exit` writes `exited` (THE HARNESS\n"
+        "TERMINATED, nothing more) and routes the row to the leader; the leader investigates,\n"
+        "and where the work had in fact concluded this is how that finding is recorded. `--go`\n"
+        "writes `sessions.csv` and re-points `awaiting-close.json` IN ONE ACT — D12 deleted the\n"
+        "disposition-grant store and its daemon drain; the D3 fence made the ledgers writable.\n"
         "It admits ENDED rows ONLY — a row still open is its occupant's to end — and only one\n"
         "sitting on `exited`. The value is validated against the SAME writer model every other\n"
         "disposition is. BARE = report only. `--anchor` is mandatory.",
         "example:\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done          # report\n"
-        "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # mint the grant\n"
-        "next: the daemon drains the grant onto sessions.csv; then coordinate ready-seats — a "
-        "ruled `done` advances its successors' edges like any other `done`")
+        "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # write the ruling\n"
+        "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
+        "other `done`, and it does so immediately: there is no drain to wait for")
     s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
     s.add_argument("disposition",
                    help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
@@ -37899,21 +35475,10 @@ def build_parser():
                    help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
                         "recorded as the trail and an empty one is refused")
     s.add_argument("--go", action="store_true",
-                   help="ACT: mint the disposition grant under coordination/; without it nothing "
-                        "is written. Does not write sessions.csv")
+                   help="ACT: write the ruling onto sessions.csv (and re-point "
+                        "awaiting-close.json); without it nothing is written")
     add_identity_flags(s)
     s.set_defaults(func=cmd_rule_disposition)
-
-    s = command(
-        "apply-disposition-grants",
-        "(daemon) Drain unspent rows of coordination/disposition-grants.csv onto sessions.csv\n"
-        "through session_rule_disposition (writer cell stays `leader`) and re-point\n"
-        "awaiting-close.json. Spends a grant only after a successful apply. Seats never type this.",
-        "example:\n"
-        "  coordinate --as ignite-daemon apply-disposition-grants\n"
-        "next: coordinate ready-seats — a just-applied `done` advances its successors")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_apply_disposition_grants)
 
     s = command(
         "rule-guard",

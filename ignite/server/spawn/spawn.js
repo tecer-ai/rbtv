@@ -17,7 +17,6 @@ const { composeSeatCage, specToBwrapFlags, contains, composeAncestorMasks } = re
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
-const { spendCoordTwin } = require('../../engine/relaunch-grants');
 // The ONE symlink-aware containment rule (fA-4 D-1), parameterized by root and shared with the
 // fire-tool workdir guard rather than respelled here — `path.resolve` + a lexical prefix test
 // answers where a path POINTS, never where it LANDS.
@@ -457,62 +456,6 @@ function closeSeatSessionRow({ workdir, sessionId, log }) {
     if (log) log('info', 'session-closer: the seat session row was NOT closed', { sessionId: sid, goalDir: seatPath.goalDir, seat: seatPath.seat, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
     return { closed: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) };
   }
-}
-
-// F3 — drain leader-minted disposition grants onto sessions.csv. The leader mints on
-// writable coordination/; this uncaged call is the apply. Next to closeSeatSessionRow
-// because both are coord.py execs the ticker fires; the closer itself is too late (it
-// has already attested exited/kit before the leader investigates).
-//
-// ⚠ THE DRAIN IS KEYED OFF THE GRANT FILE, NOT OFF A LIVE EXEC. F3 first hung this call inside
-// the crash sweep's loop over `liveBeforeCrash`, which reaches a goal only while something of
-// that goal still ticks. The state the whole grant mechanism exists for is the OPPOSITE one —
-// the leader rules on a seat AFTER it died, and on a fully dead goal nothing of it ticks, so the
-// ruling was minted and never applied. The grant file is the only honest trigger: it exists
-// exactly where there is something to drain, live exec or not.
-//
-// NEVER THROWS. One `coord.py` exec per goal that actually carries an unspent grant — normally
-// zero, so the per-tick cost is a readdir plus one small read per goal.
-function goalsWithUnspentGrants(workspaceRoot) {
-  const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
-  let entries;
-  try { entries = fs.readdirSync(goalsRoot, { withFileTypes: true }); } catch { return []; }
-  const out = [];
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    const goalDir = path.join(goalsRoot, e.name);
-    let text;
-    try {
-      text = fs.readFileSync(path.join(goalDir, 'coordination', 'disposition-grants.csv'), 'utf8');
-    } catch { continue; }
-    // `spent-at` is the LAST column (coord.py DISPOSITION_GRANT_COLS), so an unspent row is a
-    // line whose final field is empty. Reading the flag rather than parsing the CSV keeps this
-    // side free of a second reader of coord's schema; the cost of being wrong is asymmetric and
-    // this errs the safe way — a false positive is one no-op drain, a false negative is the
-    // defect above.
-    if (text.split('\n').slice(1).some((l) => l.trim() && l.trimEnd().endsWith(','))) out.push(goalDir);
-  }
-  return out;
-}
-
-function applyDispositionGrants({ workspaceRoot, log }) {
-  if (!workspaceRoot) return { drained: [], reason: 'no workspace root' };
-  const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
-    'team-kit', 'coord.py');
-  const drained = [];
-  for (const goalDir of goalsWithUnspentGrants(workspaceRoot)) {
-    try {
-      const out = execFileSync(requirePythonCmd(), [coordPy, '--package', goalDir,
-        '--as', 'ignite-daemon', 'apply-disposition-grants'],
-      { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-      if (log) log('info', 'disposition-grants: drain ran', { goalDir, evidence: out.trim().slice(0, 600) });
-      drained.push({ goalDir, applied: true, output: out });
-    } catch (err) {
-      if (log) log('info', 'disposition-grants: drain did not apply', { goalDir, evidence: String(err.stdout || err.stderr || err.message || '').trim().slice(0, 600) });
-      drained.push({ goalDir, applied: false, reason: String(err.stderr || err.message || '').trim().slice(0, 400) });
-    }
-  }
-  return { drained, reason: '' };
 }
 
 // Task 7.11 §2 W2/W3 — the seat's worktree grants, DERIVED from the seat's own identity.
@@ -1559,18 +1502,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           log('warn', 'at-dispatch session row NOT recorded — this headless session will be UNATTRIBUTABLE', {
             seat: dispatchSeat.seat, sessionsCsv: dispatchSeat.sessionsCsv, sessionId, reason: written.reason,
           });
-        } else {
-          // ⚠ THE DISPATCH HOLDS NO GRANT BINDING, AND `sessionId` ABOVE IS NOT IT. A coord grant's
-          // `session-id` names the seat's PREVIOUS, ENDED sitting — the one whose ending authorizes
-          // the relaunch — while `sessionId` here is the session being STARTED. Handing it over
-          // would match nothing, ever, and turn this call into a silent no-op. So no binding is
-          // claimed: `spendCoordTwin` refuses on `no-binding` and, when a LIVE grant is left
-          // standing for this seat, says so through this same `log`. That warning is the signal
-          // that did not exist on 2026-08-18 at 02:42Z, when this call stamped the seat's
-          // session-stale grant and left its live one standing, suppressing every later wake mint.
-          // Whoever teaches this door the seat's grant (coord's own `relaunch-grant` field on a
-          // `ready-seats` row carries all three cells) passes them here and nothing else changes.
-          spendCoordTwin(dispatchSeat.goalDir, dispatchSeat.seat, null, null, log);
         }
         if (written.appended && written.dropped.length > 0) {
           log('warn', 'session log lacks columns; they were dropped, not invented (task 7.37 owns the schema)', {
@@ -2097,7 +2028,6 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
 // The schema still has one owner (`coord.py SESSIONS_COLS`); what unifies here is the mechanism.
 module.exports = {
   closeSeatSessionRow,
-  applyDispositionGrants,
   createSpawnManager,
   validateSpawnRequest,
   exitFilePath,

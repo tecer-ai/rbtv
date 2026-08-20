@@ -9,7 +9,7 @@ const {
   generateSessionId,
   toolExecEnv,
 } = require('../spawn/carrier');
-const { exitFilePath, ensureExitFile, closeSeatSessionRow, applyDispositionGrants } = require('../spawn/spawn');
+const { exitFilePath, ensureExitFile, closeSeatSessionRow } = require('../spawn/spawn');
 const { runWarningCheck } = require('./warnings-check');
 // Constants only — the ticker's store is INJECTED (`heartStore`), and this require never
 // constructs or opens one. Imported rather than re-spelled so the crash sweep's notion of "the
@@ -1873,12 +1873,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // instead of stopping the heart for one; the rows that do not fit this tick are still there
     // next tick, because nothing else clears them.
     let closerBudget = CLOSER_MAX_PER_TICK;
-    // F3 — drain leader-minted disposition grants, ONCE per tick, over every goal that carries
-    // an unspent one. It hangs beside the sweep rather than inside it because the grant is a
-    // fact about a GOAL's coordination folder, not about any exec: the goal it is minted on is
-    // typically one whose seats are all dead, and a drain keyed off the swept execs never
-    // reached it. The helper never throws.
-    applyDispositionGrants({ workspaceRoot: resolveWorkspaceRoot(heartStore.dbPath), log });
     for (const exec of liveBeforeCrash) {
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
