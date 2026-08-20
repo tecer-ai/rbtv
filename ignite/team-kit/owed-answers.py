@@ -9,9 +9,13 @@ set by EXPLORATION: full-vault `rg` sweeps, a `find` for every goal, three `sqli
 ~120 s of a ~131 s turn, before the first word of an answer. The set itself is one predicate that
 was already built. This script is the missing NAME for it.
 
-⚑ IT RE-IMPLEMENTS NOTHING. `coord.open_asks(..., to="owner")` IS the derivation — the same
-predicate `pending` and the check-out hold both run, carrying supersede handling and `re:` closure.
-This file only ENUMERATES the packages and merges their results (PRIN-11: one implementation).
+⚑ IT RE-IMPLEMENTS NOTHING. The derivation is the UNION of the store's two owner-debt predicates:
+`coord.open_asks(..., to="owner")` — the same predicate `pending` and the check-out hold both run —
+and `coord.open_escalations`, whose rows are halts and are shown as such. Both carry supersede
+handling and `re:` closure. The union lives HERE, never in `open_asks`: ruling `p-owed-answers-locus`
+forbids widening that predicate, because four hold gates read it and a widened one self-deadlocks the
+escalating seat. This file only ENUMERATES the packages and merges their results (PRIN-11: one
+implementation).
 
 ⚑ THE ENUMERATOR IS `goals.csv` PLUS EACH GOAL'S `runs.csv` — never a glob of the goals tree. A
 glob walks into seat scratch folders holding throwaway fixture packages (a dozen under one run of
@@ -30,6 +34,7 @@ reader can tell "nothing is owed" from "this did not run".
 import argparse
 import importlib.util
 import pathlib
+import shutil
 import sys
 import time
 
@@ -60,7 +65,9 @@ def packages(workspace, only=None):
     if index.exists():
         for line in index.read_text(encoding="utf-8").splitlines()[1:]:
             name = line.split(",")[0].strip()
-            if name:
+            # `_channel-master` is seeded above AND now carries a `goals.csv` row — enumerating it
+            # twice double-counts every debt row in that package (caught by the `--package` arm).
+            if name and name not in names:
                 names.append(name)
 
     found = []
@@ -101,15 +108,24 @@ def age_minutes(age):
 
 
 def collect(coord, workspace, only=None):
-    """Every open ask addressed to the owner, oldest first, plus the packages that could not be
-    read. An unreadable package is COUNTED and disclosed, never dropped: an absence that reads as
-    "no debt" when it really means "could not look" is the one wrong answer this must not give."""
+    """Every open ask OR unanswered escalation addressed to the owner, halts first then oldest
+    first, plus the packages that could not be read. An unreadable package is COUNTED and
+    disclosed, never dropped: an absence that reads as "no debt" when it really means "could not
+    look" is the one wrong answer this must not give."""
     rows, unreadable = [], []
     for label, base in packages(workspace, only):
         try:
             _, blocks = coord.load_messages(base)
-            for b in coord.open_asks(blocks, to=OWNER):
+            # An escalation is owner debt too — and it HALTS the run, so it is not the ask
+            # predicate's business (`p-owed-answers-locus`: `coord.open_asks` must NOT be widened;
+            # four hold gates read it, and widening self-deadlocks the escalating seat). The union
+            # lives here. The two sets cannot overlap: `type == "ask"` vs `type == "escalation"`.
+            owed = ([("ask", b) for b in coord.open_asks(blocks, to=OWNER)]
+                    + [("halt", b) for b in coord.open_escalations(blocks)
+                       if b["to"] == OWNER])
+            for kind, b in owed:
                 rows.append({
+                    "kind": kind,
                     "label": label,
                     "num": b["num"],
                     "sender": b["sender"],
@@ -118,7 +134,10 @@ def collect(coord, workspace, only=None):
                 })
         except Exception as exc:                      # noqa: BLE001 — one bad package never hides the rest
             unreadable.append(f"{label}: {exc}")
-    rows.sort(key=lambda r: age_minutes(r["age"]), reverse=True)
+    # Halts FIRST, then oldest-first within each kind — reverse makes True (halt) lead and the
+    # larger age lead. Without this a halt can be pushed off the CAP-5 list by five older asks,
+    # which is the one row that must never be the one truncated away.
+    rows.sort(key=lambda r: (r["kind"] == "halt", age_minutes(r["age"])), reverse=True)
     return rows, unreadable
 
 
@@ -132,7 +151,8 @@ def render(rows, unreadable):
             head += f" — oldest {CAP} shown"
         lines.append(head)
         for r in rows[:CAP]:
-            lines.append(f"- {r['age']} old · {r['sender']} ({r['label']}) · {r['body']} "
+            tag = "⛔ RUN HALTED · " if r["kind"] == "halt" else ""
+            lines.append(f"- {tag}{r['age']} old · {r['sender']} ({r['label']}) · {r['body']} "
                          f"· answer in thread: {r['label']} #{r['num']}")
     for u in unreadable:
         lines.append(f"⚠ package unreadable, this list may be SHORT — {u}")
@@ -171,6 +191,32 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
         f"filtered digest is malformed: {first_filtered!r}"
     assert not packages(workspace, "no-such-goal"), \
         "an unmatched --package enumerated something — main's refusal would never fire"
+
+    # THE ESCALATION ARM (G-owed-answers-0820-0345). An escalation to the owner HALTS the goal and
+    # is not an `ask`, so the ask predicate cannot see it — this digest printed "no owed answers"
+    # while #523 held `meet-transcript-summarizer`. Driven on a throwaway workspace so it
+    # discriminates regardless of what the live tree happens to hold.
+    import tempfile
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="owed-answers-selfcheck-"))
+    pkg = tmp / ".rbtv" / "goals" / "fixture" / "coordination"
+    pkg.mkdir(parents=True)
+    (tmp / ".rbtv" / "goals" / "goals.csv").write_text("goal\nfixture\n", encoding="utf-8")
+    esc = ("## 1 | from: leader | to: owner | type: escalation | exec: e | 2026-08-20 03:34\n"
+           "\nescalation: a ruling the run is halted on\n")
+    ask = ("## 2 | from: leader | to: owner | type: ask | exec: e | 2026-08-20 03:40\n"
+           "\nan ordinary ask\n")
+    ans = ("## 3 | from: goal-master | to: leader | type: answer | re: 1 | exec: e | "
+           "2026-08-20 04:12\n\nruled\n")
+
+    def kinds(text):
+        (pkg / "messages.md").write_text(text, encoding="utf-8")
+        return [r["kind"] for r in collect(coord, str(tmp), "fixture")[0]]
+
+    assert kinds(esc) == ["halt"], "an OPEN escalation to the owner is not owed debt"
+    assert kinds(esc + "\n" + ans) == [], "an ANSWERED escalation is still reported owed"
+    assert kinds(ask) == ["ask"], "the ask path changed"
+    assert kinds(esc + "\n" + ask)[0] == "halt", "a halt did not sort above an ask"
+    shutil.rmtree(tmp, ignore_errors=True)
     return f"OK — {len(pkgs)} package(s), {elapsed_ms} ms"
 
 
