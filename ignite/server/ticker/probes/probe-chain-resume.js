@@ -34,6 +34,11 @@ const ECHO = 'printf \'\\173"type":"result","result":"MODE-%s-REF-%s"\\175\\n\' 
 const HARNESS_DIR = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'claude-shim-'));
 const CLAUDE_SHIM = path.join(HARNESS_DIR, 'claude');
 try { fs.symlinkSync('/bin/bash', CLAUDE_SHIM); } catch { /* already there */ }
+// Arm F's SECOND harness: a shim NAMED `opencode` so `harnessOf`/`bindingOf` classify its spec
+// under a genuinely different harness than the claude one — the cross-harness re-cast is the
+// scenario, so the two families must really differ where the code looks.
+const OPENCODE_SHIM = path.join(HARNESS_DIR, 'opencode');
+try { fs.symlinkSync('/bin/bash', OPENCODE_SHIM); } catch { /* already there */ }
 
 function makeCtx(configOverrides = {}) {
   return setup(configOverrides, {}, ({ workRoot }) => ({
@@ -51,6 +56,16 @@ function makeCtx(configOverrides = {}) {
       // Not resumable: a ref on record (cwd-implicit) but NO resume template.
       'test-no-resume': {
         exec: { argv: [CLAUDE_SHIM, '-c', ECHO, 'exec', '{workdir}', '--model', 'test-no-resume'], prompt: 'stdin' },
+        session_ref: { source: 'cwd-implicit' },
+        workdir_root: workRoot,
+        caps: { memory_max: '64M', runtime_max: '1h' },
+      },
+    },
+    // Arm F's foreign family: a DIFFERENT harness whose ref is the seat FOLDER (cwd-implicit) —
+    // exactly what a real opencode spec records, and exactly what a claude `--resume` chokes on.
+    opencode: {
+      'test-cwd': {
+        exec: { argv: [OPENCODE_SHIM, '-c', ECHO, 'exec', '{workdir}', '--model', 'test-cwd'], prompt: 'stdin' },
         session_ref: { source: 'cwd-implicit' },
         workdir_root: workRoot,
         caps: { memory_max: '64M', runtime_max: '1h' },
@@ -91,8 +106,8 @@ function assertExcludes(label, hay, needle) {
 // Turn 1 of a chain: enqueue, run to `end`, return its exec row.
 // `model` names which of the fixture's launch specs the seat this turn homes at is CAST to — the
 // only way a launch selects one since `#d-abolish-profile-names`. It is not a value on the wire.
-async function firstTurn(ctx, model, prompt) {
-  enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness: 'claude', model }, prompt, runAt: new Date() });
+async function firstTurn(ctx, model, prompt, harness = 'claude') {
+  enqueueLaunchAgent(ctx, { jobId: 'chat-agent', cast: { harness, model }, prompt, runAt: new Date() });
   const acts = await tickUntil(ctx, (all) => findAll(all, 'end').length >= 1);
   return ctx.store.getExecution(findAll(acts, 'spawn')[0].execId);
 }
@@ -271,6 +286,48 @@ capture('probe-chain-resume', async (lines) => {
     assertIncludes('retry prompt', prompt2, `[owner] ${Q1}`);
     assertIncludes('retry prompt', prompt2, `[owner] ${R1}`);
     lines.push('E PASS: a carrier-level resume failure retried ONCE as the fresh transcript spawn, same exec row, chain alive');
+  } finally {
+    teardown(ctx);
+  }
+
+  // ── F · a ref minted by a FOREIGN harness never reaches the resume argv (D28) ─
+  // Measured 2026-08-20 (exec 30110, goal stools-canvas-audio-elevenlabs): turn N ran opencode
+  // (`session_ref: cwd-implicit` — the ref IS the seat folder), the seat was then RE-CAST to
+  // claude (D26/D27), and the chained turn fed that folder to `claude -p --resume` — exit 1 in
+  // 11s, chain swept `failed` (owner-halted), owner got the reply-leg fallback stub. The chained
+  // turn must instead take the TRANSCRIPT path (a fresh session that embeds the conversation),
+  // with a reason naming why.
+  ctx = makeCtx({ history_compact_chars: 100000 });
+  try {
+    registerLaunchAgentJob(ctx, 'chat-agent');
+    const Q1 = 'Q1-foreign-ref-scenario';
+    const exec1 = await firstTurn(ctx, 'test-cwd', Q1, 'opencode');
+    // The premise: the foreign turn's ref is the SEAT FOLDER, and the profile column records the
+    // foreign spec key — exactly the live rows' shape (exec 30033).
+    assertEq('F premise: cwd-implicit ref is the workdir', exec1.session_ref, exec1.workdir);
+    assertEq('F premise: profile records the foreign key', exec1.profile, 'opencode/test-cwd');
+
+    // The RE-CAST: the same seat now declares the resumable claude spec (what D26/D27 did live).
+    const seatName = path.basename(exec1.workdir);
+    fs.writeFileSync(path.join(exec1.workdir, 'seat.md'),
+      `---\nseat: ${seatName}\nharness: claude\nmodel: test-resumable\n---\n`);
+
+    const R1 = 'REPLY-1-after-recast';
+    const { spawn2 } = await replyAndWake(ctx, exec1, R1);
+    const exec2 = ctx.store.getExecution(spawn2.execId);
+    assertEq('F chain path', spawn2.chain, 'transcript');
+    assertEq('F reason', spawn2.chainReason, 'session-ref-foreign-harness');
+    // The EXEC argv ran with a FRESH assigned ref — the workdir never reached a resume slot.
+    assertEq('F template', ctx.store.getMessage(exec2.completion_msg_id).corpus, `MODE-exec-REF-${exec2.session_id}`);
+    assertExcludes('F corpus never carries the workdir as a ref',
+      ctx.store.getMessage(exec2.completion_msg_id).corpus, exec1.workdir);
+    // …and the conversation SURVIVES: transcript-embed prompt, chain intact.
+    const prompt2 = promptFileOf(ctx, exec2.exec_id);
+    assertIncludes('F prompt', prompt2, 'You are continuing an ongoing conversation');
+    assertIncludes('F prompt', prompt2, `[owner] ${R1}`);
+    assertEq('F parent', exec2.parent_exec_id, exec1.exec_id);
+    lines.push('F PASS: a foreign-harness session_ref (opencode cwd-implicit → claude re-cast) never resumed — '
+      + 'transcript path, reason session-ref-foreign-harness, chain alive');
   } finally {
     teardown(ctx);
   }

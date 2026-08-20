@@ -25,6 +25,11 @@ const { expandArgv, checkFireToolWorkdir } = require('../heart/argv-template');
 // spelling here would be a second definition that drifts (that module's own opening argument).
 const { resolveSeatHome } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
+// `bindingOf` — the resume-ref foreign-harness gate below (D28) needs "which harness will this
+// spec run?". It is answered by the SAME reader `profiles.js#validateSpecKey` trusts to keep a
+// spec's key honest (basename of exec.argv[0]) — NOT `injection-ladder#harnessOf`, which matches
+// the bare binary name exactly and returns null for any pathed argv0.
+const { bindingOf } = require('../../launch-profiles/catalog');
 // Task 7.129 (7.77 / R9) — the one-live-execution rule. The DECISION lives in its own module and
 // the liveness EVIDENCE in `server/lease/lease.js` (7.607 E1; the register read that used to sit in
 // seat-folder.js is gone with the layer); dispatch below only obeys the decision. Keeping the rule
@@ -828,6 +833,14 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // A chained turn RESUMES the predecessor's harness session and carries only the new
     // message(s); transcript-embed respawn is the FALLBACK. `resumeRef` non-null selects it, and
     // `chainPath` records WHICH path ran and WHY, per launch, in the tick log.
+    // The D28 foreign-ref gate's predicate (see the `why` chain below for the full story).
+    function sessionRefIsForeign(parentProfile, spec) {
+      const ran = spec ? bindingOf(spec) : null;
+      const specHarness = (ran && ran.harness) || null;
+      const seg = String(parentProfile || '').split('/')[0];
+      if (!specHarness || !seg) return false;
+      return seg !== specHarness && !seg.startsWith(`${specHarness}-`);
+    }
     let resumeRef = null;
     let chainPath = null;   // 'resume' | 'transcript' — null on a first (unchained) execution
     let chainReason = null;
@@ -865,6 +878,17 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         const why = !parentRow ? 'no-parent-row'
           : !parentRow.session_ref ? 'no-session-ref'
           : !(profile && profile.resume) ? 'no-resume-template'
+          // ── D28 (2026-08-20): a resume ref is only as good as the harness that MINTED it ────
+          // `session_ref` is harness-vocabulary: claude's `assigned` ref is a session UUID,
+          // opencode's `cwd-implicit` ref is the seat FOLDER. A seat re-cast between turns
+          // (D26/D27 re-casts) hands the successor harness its predecessor's ref — measured
+          // 2026-08-20, exec 30110: `claude -p --resume …/seats/goal-master` exited 1 in 11s,
+          // the crash sweep marked the chain failed (owner-halted) and the owner got the
+          // reply-leg fallback stub. The minting harness is the recorded spec KEY's first `/`
+          // segment (structural — catalog.js#specKey); a legacy slashless name matches on a
+          // `-` boundary (`claude-sonnet` minted claude refs). An UNKNOWN minting harness
+          // (NULL profile — a pre-key row) keeps the pre-D28 posture and is not foreign.
+          : sessionRefIsForeign(parentRow.profile, profile) ? 'session-ref-foreign-harness'
           : safeJsonParse(parentRow.args, {})[COMPACT_MARKER] === true ? 'parent-compaction'
           : !newMessages ? 'no-new-messages'
           : null;

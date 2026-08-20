@@ -340,6 +340,71 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     }
   }
 
+  // ── D28 (2026-08-20): IS THIS CHAIN OWNER-HALTED? ────────────────────────────────────────────
+  //
+  // A follow-up's note is DELIVERED by the daemon, not by this file: a `done` tail wakes on the
+  // new sender row (ticker wake-redispatch) and a `blocked` tail has its own redispatch loop. But
+  // a `failed` tail is OWNER-HALTED — nothing will ever read the note (measured 2026-08-20:
+  // msgs 33266/33306 on exec-30028 rotted with routed_at_tick NULL after exec 30110 crashed).
+  // The tail's verdict is the LAST completion row on the chain thread; a chain with no completion
+  // yet is a live first turn, not a halt. Every read failure answers "not halted" — a summon is a
+  // spawn, and a blind reader must not mint one.
+  async function chainHalted(chainThread) {
+    try {
+      const first = await forwarder.inspect('messages', { thread: chainThread, offset: 0, limit: 1 });
+      if (!first || !first.ok || !first.result) return { halted: false, reason: 'inspect-failed' };
+      const total = Number(first.result.total) || 0;
+      if (!total) return { halted: false, reason: 'no-messages' };
+      const page = await forwarder.inspect('messages', { thread: chainThread, offset: Math.max(0, total - 50), limit: 50 });
+      const rows = (page && page.ok && page.result && Array.isArray(page.result.rows)) ? page.result.rows : [];
+      let lastCompletion = null;
+      for (const r of rows) if (r && r.type === 'completion') lastCompletion = r;
+      if (!lastCompletion) return { halted: false, reason: 'no-completion-in-tail' };
+      return { halted: lastCompletion.status === 'failed', status: lastCompletion.status };
+    } catch (err) {
+      return { halted: false, reason: err.message };
+    }
+  }
+
+  // ── D28: A NOTE ON A HALTED CHAIN ALSO SUMMONS A SITTING (owner/chat routes only) ────────────
+  //
+  // The note write above it is the message's PERSISTENCE and stays. This is its DELIVERY when the
+  // daemon's own wake machinery cannot fire: the chain's tail is `failed` (owner-halted — no wake,
+  // ever) and no live sitting holds the seat. Then, and only then, the stale mapping is dropped
+  // and the ordinary queued session-create runs — a fresh sitting spawns with the owner's text as
+  // its prompt, and the caller's `forwarded: true` arms the reply leg for it (chat-bridge.js arms
+  // on every forwarded outcome, reading the remapped queueId).
+  //
+  // Three deliberate refusals, each measured elsewhere:
+  //   · agent route — NEVER summoned from here (the caller gates it): an owner reply in an
+  //     agent's thread keeps its ratified semantics untouched.
+  //   · a LIVE sitting at the seat — the live-holder branch owns that case (commit 63413504;
+  //     probe-chat-live-holder / dedup-refusal arm7: one launch-agent, never a second).
+  //   · a session-create for this conversation ALREADY in the daemon queue — the same
+  //     `chat-thread:` marker the reply leg's stillQueued reads; a second row would double-answer.
+  async function summonHaltedChain({ chatThreadId, text, route, chainThread }) {
+    const halted = await chainHalted(chainThread);
+    if (!halted.halted) return null;
+    const home = workdirFor(route);
+    if (!home.ok) return null; // no seat to summon at — the note still stands
+    const holder = await findLiveHolder(home);
+    if (holder) return null;
+    try {
+      const q = await forwarder.inspect('queue');
+      const rows = q && q.ok && q.result && Array.isArray(q.result.rows) ? q.result.rows : null;
+      if (rows && rows.some((r) => String((r && r.args) || '').includes(`chat-thread: ${chatThreadId}`))) {
+        log('info', 'halted chain already has a queued session-create for this conversation — not summoning a second', { chatThreadId, chainThread });
+        return { summoned: false, reason: 'create-already-queued' };
+      }
+    } catch { /* a blind queue read does not block the summon — the dedupe door still guards */ }
+    log('warn', 'follow-up landed on an owner-HALTED chain with no live sitting — summoning a fresh sitting', {
+      chatThreadId, chainThread, route: route && route.kind, goalId: route && route.goalId, tailStatus: halted.status,
+    });
+    threadMap.drop(chatThreadId);
+    const created = await forwardSessionCreate({ chatThreadId, text, route });
+    return { summoned: created.forwarded === true, ...created };
+  }
+
   // A first message that STARTS work → a session-creating launch-agent job.
   //
   // ⚠ THE `retry` PARAMETER IS GONE (P2). It existed for ONE caller — `chat-bridge.js#retryPending`
@@ -617,7 +682,14 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const busAnswer = !corrective && !(res.result && res.result.deduped)
       ? await recordBusAnswer({ route, text })
       : null;
-    return { forwarded: true, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null, ...(busAnswer ? { busAnswer } : {}) };
+    // ── D28: the note is persisted; now make sure something will READ it ──────────────────────
+    // Owner/chat routes only — a corrective turn is the bridge's own redispatch (the owner sent
+    // nothing), and the agent route's follow-up semantics are ratified and untouched. See
+    // summonHaltedChain for the full gate (halted tail + no live sitting + no queued create).
+    const summon = (!corrective && route && route.kind !== 'agent' && !(res.result && res.result.deduped))
+      ? await summonHaltedChain({ chatThreadId, text, route, chainThread: resolved.chainThread })
+      : null;
+    return { forwarded: true, leg: 'follow-up', corrective, intent: 'enqueue-job', replyType, thread: resolved.chainThread, queueId: res.result && res.result.jobId, route: route && route.kind, goalId: (route && route.goalId) || null, ...(busAnswer ? { busAnswer } : {}), ...(summon ? { summon } : {}) };
   }
 
   // The single entry: an inbound chat message. Admission FIRST (chat-bridge-spec.md
