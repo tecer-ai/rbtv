@@ -335,7 +335,13 @@ def main():
           "(the chair never checks out), so without the exclusion the closer would mail the leader "
           "about the leader forever, each mail minting the wake for the sitting that writes the "
           "next one. Its row is still CLOSED, silently",
-          n_after == n_before and "IS a staff chair" in " | ".join(steps_l), steps_l)
+          # ⚠ THE STEP LINE MERGED (D24 kit side, 2026-08-20): one silence gate now covers the
+          # staff chair AND the summoned chair, so the old `IS a staff chair` literal is gone.
+          # The substring asserted here NAMES THE SEAT, which is what keeps it discriminating —
+          # it cannot be satisfied by the summoned half of the same message.
+          n_after == n_before
+          and "staff mail: NOT minted — 'leader' is closed silently" in " | ".join(steps_l),
+          steps_l)
 
     # ── R1..R3 · route-fail ───────────────────────────────────────────────────────────────────
     (Path(pkg) / "seats" / "builder" / "seat.md").write_text(

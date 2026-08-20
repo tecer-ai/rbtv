@@ -5251,6 +5251,31 @@ def is_summoned_seat(name):
     return name in SUMMONED_SEATS
 
 
+# THE CONVERSATIONAL CHAIRS — the seats whose PRODUCT IS CONVERSATION (messages, rulings on a
+# ledger, an answer to a seat) rather than files at declared paths. Read at ONE site: the D5
+# outputs gate in `cmd_checkout`. It confers nothing else.
+#
+# ⚠ DERIVED, NEVER A THIRD NAME LIST. It is the union of the two tuples above, so a future
+# summoned chair or staff chair inherits the exemption with no second place to edit.
+#
+# ⚠ AND IT WIDENS NEITHER SOURCE, WHICH IS THE WHOLE POINT OF ITS EXISTING. `STAFF_SEATS` is
+# read at four sites (`is_staff_seat`, the staff-mail arm, launch admission, `--route` choices)
+# — D24 rejected widening it to buy one behaviour. `SUMMONED_SEATS` is worse: the daemon's
+# `engine/reconcile.js` EXECS THIS MODULE and reads `SUMMONED_SEATS` by that exact name to
+# decide who is NEVER OWED. Putting `leader`/`consultant` there would stop reconcile waking a
+# chair on its unread mail (its class B) — the chair's only wake term.
+#
+# ⚠ IT IS A NAME LIST BECAUSE THE DESCRIPTOR CANNOT ANSWER THE QUESTION. `agent_type: staff` is
+# carried by 171 live seats, of which two are chairs and the rest are planning workers that
+# declare real outputs (measured 2026-08-20). Keying on `agent_type` would exempt that whole
+# population and reopen the defect D5 exists to close.
+CONVERSATIONAL_CHAIRS = SUMMONED_SEATS + STAFF_SEATS
+
+
+def is_conversational_chair(name):
+    return name in CONVERSATIONAL_CHAIRS
+
+
 def is_permission_editor(name):
     """Who may run the audited permission-edit verb (`widen-cage`): the `leader`, and nobody else.
 
@@ -9288,14 +9313,18 @@ def cmd_checkout(args):
         # already computed (do not overwrite it with "not-checked (seat declared incomplete)");
         # setting the local `incomplete` reason here makes `checkout_disposition` resolve to
         # `incomplete` at the one place it is computed, so both remaining surfaces agree.
-        # ⚠ D29 (2026-08-20): a SUMMONED chair is EXEMPT from this one downgrade — its
-        # product is conversation, not files, so its `done` STANDS without path tokens.
-        # Keyed on `is_summoned_seat` (SUMMONED_SEATS), never a seat name at this site;
-        # staff and ordinary seats remain bound by the `elif` below, unchanged.
-        if _outputs_note.startswith("outputs-undeclarable") and is_summoned_seat(me):
-            print(f"outputs check: '{me}' is a summoned chair — exempt (D29, 2026-08-20): "
-                  f"a chair's product is conversation, not files, so this `done` STANDS "
-                  f"with zero path tokens declared.")
+        # ⚠ D29 (2026-08-20), EXTENDED 2026-08-20 by the owner's `r-owner-122-b` (a): a
+        # CONVERSATIONAL CHAIR is EXEMPT from this one downgrade — its product is conversation,
+        # not files, so its `done` STANDS without path tokens. D29 named the summoned chair;
+        # the extension adds the staff chairs (`leader`, `consultant`), whose `## Outputs` is
+        # prose for the identical reason of NATURE, not by an authoring oversight.
+        # Keyed on `is_conversational_chair` (CONVERSATIONAL_CHAIRS), never a seat name at this
+        # site; ordinary seats — including the 171 `agent_type: staff` PLANNING seats, which are
+        # not chairs — remain bound by the `elif` below, unchanged.
+        if _outputs_note.startswith("outputs-undeclarable") and is_conversational_chair(me):
+            print(f"outputs check: '{me}' is a conversational chair — exempt (D29, extended "
+                  f"2026-08-20): a chair's product is conversation, not files, so this `done` "
+                  f"STANDS with zero path tokens declared.")
         elif _outputs_note.startswith("outputs-undeclarable"):
             incomplete = f"outputs-unverified: {_outputs_note}"
             print(refusal_text(
@@ -15811,12 +15840,12 @@ def staff_mail_body(args, seat, value, entry, sid):
 def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     """The closer's staff-mail arm: mint the mail AND the wake for ONE ended seat. Steps, as a list.
 
-    ⚠ STAFF SEATS ARE EXCLUDED BY AN EXPLICIT PREDICATE (adv, C30), and the exclusion is structural
-    rather than defensive: a staff chair never checks out, so EVERY staff sitting ends kit-`exited`
-    — the very class this arm mails on. Without the predicate the closer would mail the leader about
-    the leader, forever, and each of those mails would mint the wake for the sitting that writes the
-    next one. WHAT CLOSES A STAFF SITTING'S SESSION ROW is this same closer, silently: the row is
-    ended and stamped `exited` exactly as any other, the roster is flipped, and NO mail is minted.
+    ⚠ STAFF SEATS ARE EXCLUDED BY AN EXPLICIT PREDICATE (adv, C30). A chair MAY check out — since
+    the 2026-08-20 extension of D29 it may even record `done` — and it is excluded here regardless:
+    mailing a chair about its own row would mail the chair about itself, and each such mail would
+    mint the wake for the sitting that writes the next one. Its row is closed silently. WHAT CLOSES
+    A STAFF SITTING'S SESSION ROW is this same closer, silently: the row is ended and stamped
+    `exited` exactly as any other, the roster is flipped, and NO mail is minted.
 
     ⚠ IT MAILS ON EVERY TERMINAL NON-`done` ENDING and reads no further into the value. `incomplete`
     is the seat's own honest declaration and reaches the chair IMMEDIATELY; `exited` is the kit's
@@ -15825,11 +15854,13 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     steps = []
     if value == "done":
         return steps
-    if is_staff_seat(seat):
-        steps.append(f"staff mail: NOT minted — '{seat}' IS a staff chair. A staff sitting ends "
+    if is_staff_seat(seat) or is_summoned_seat(seat):
+        steps.append(f"staff mail: NOT minted — '{seat}' is closed silently. A staff chair ends "
                      f"`{value}` by construction (it never checks out), so mailing here would mail "
-                     f"the chair about itself forever. Its row is closed silently, which is the "
-                     f"whole of what this ending means.")
+                     f"the chair about itself forever; a SUMMONED chair ends one row PER OWNER "
+                     f"TURN of a single resumed conversation, and D24 rules that mail is not a "
+                     f"wake term for it. Its row is closed silently, which is the whole of what "
+                     f"this ending means.")
         return steps
     to, why = staff_route_target(args, base, (entry or {}).get("route") if isinstance(entry, dict)
                                  else "")
@@ -28010,7 +28041,19 @@ def _selftest_checks(args, failures, names):
               and is_summoned_seat("goal-master")
               and not is_summoned_seat("leader")
               and not is_summoned_seat("alpha")
-              and not is_staff_seat("goal-master"))
+              and not is_staff_seat("goal-master")
+              # r-owner-122-b (a): the DERIVED union, and the guard that neither SOURCE tuple was
+              # widened to buy it. Widening `SUMMONED_SEATS` would stop `engine/reconcile.js` —
+              # which execs this module and reads that name — from ever waking a chair on its
+              # unread mail; widening `STAFF_SEATS` would change mail, admission and routing at
+              # once. Spelled out as LITERALS, never re-read off the constants under test.
+              and CONVERSATIONAL_CHAIRS == SUMMONED_SEATS + STAFF_SEATS
+              and is_conversational_chair("leader")
+              and is_conversational_chair("consultant")
+              and is_conversational_chair("goal-master")
+              and not is_conversational_chair("alpha")
+              and STAFF_SEATS == ("leader", "consultant")
+              and SUMMONED_SEATS == ("goal-master",))
         _d24_pkg = _rs_make("d24summon", [("goal-master", ""), ("alpha", "")])
         _d24_v, _d24_c = _rs_v(_d24_pkg)
         check("D24: a minted `goal-master` reads IDLE — it waits to be summoned and is "
@@ -29190,7 +29233,7 @@ def _selftest_checks(args, failures, names):
         # `none-declared` while their seats carried prose blocks the retired key's readers could
         # not see).
         _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
-                                  ("goal-master", "")],
+                                  ("goal-master", ""), ("consultant", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
             "---\nagent: keyed\nmodel: opus\noutputs: deliverable.md\n---\nbrief\n",
@@ -29206,11 +29249,20 @@ def _selftest_checks(args, failures, names):
             "---\nagent: goal-master\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
             "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
             encoding="utf-8")
+        # r-owner-122-b (a), the STAFF-CHAIR arm — the SAME zero-token shape again, on a
+        # STAFF chair this time. `consultant` and not `leader`: the leader is the default
+        # `staff_route_target`, so a leader row would drag the mail/route machinery into an
+        # outputs fixture for no gain. Three rows now share ONE `## Outputs` string and differ
+        # in exactly ONE fact — who is checking out.
+        (Path(_ou_pkg) / "seats" / "consultant" / "seat.md").write_text(
+            "---\nagent: consultant\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
+            encoding="utf-8")
         (Path(_ou_pkg) / "seats" / "blocky" / "out").mkdir()
         (Path(_ou_pkg) / "seats" / "blocky" / "out" / "report.md").write_text(
             "the work\n", encoding="utf-8")
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
-                             ("goal-master", "%98")):
+                             ("goal-master", "%98"), ("consultant", "%99")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
                          {"agent": _ou_s, "harness": "probe", "model": "opus",
@@ -29224,6 +29276,8 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="prose"))
         _ou_go, _ou_ge, _ou_gc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
+        _ou_co, _ou_ce, _ou_cc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="consultant"))
 
         def _ou_rec(s):
             _h, _r = read_csv_table(sessions_csv(_ou_pkg), SESSIONS_COLS)
@@ -29270,6 +29324,16 @@ def _selftest_checks(args, failures, names):
               and _ou_rec("goal-master").get("disposition-writer") == DISPOSITION_WRITER_SEAT
               and "exempt (D29" in (_ou_go + _ou_ge)
               and "will not record `done`" not in (_ou_go + _ou_ge))
+        check("r-owner-122-b (2026-08-20) A STAFF CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
+              "DOWNGRADE ITS `done` — `consultant` (`is_conversational_chair`, never the name at "
+              "the exemption site) checks out the SAME zero-token shape the `prose` control is "
+              "refused on, and is ACCEPTED. The `prose` row is this row's control: delete the "
+              "exemption and this arm reds while `prose` holds; widen the predicate to "
+              "`agent_type` and `prose` reds",
+              _ou_cc is None and _ou_rec("consultant").get("disposition") == "done"
+              and _ou_rec("consultant").get("disposition-writer") == DISPOSITION_WRITER_SEAT
+              and "exempt (D29" in (_ou_co + _ou_ce)
+              and "will not record `done`" not in (_ou_co + _ou_ce))
 
         # ---- D8: A `done` IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS UNANSWERED -------
         # Driven through the REAL `cmd_checkout` and the REAL `cmd_send`, on one package, in the
@@ -31952,6 +32016,84 @@ def _selftest_checks(args, failures, names):
               _dl6_bare_code == 1 and "carries no pid/pid-starttime" in _dl6_bare_out
               and not _dl6_after_bare["ended"]
               and _dl6_fd_code is None and _dl6_closed["ended"])
+
+        # (7) D24 AT THE SECOND ENFORCER: a SUMMONED chair's row is closed SILENTLY.
+        #
+        # MEASURED SHAPE (2026-08-20, goal `stools-canvas-audio-elevenlabs`, issue #140): one
+        # owner conversation with `goal-master` runs as a CHAIN of per-owner-turn executions, each
+        # opening its own `sessions.csv` row; a chained turn carries no seat boot preamble, so it
+        # never checks in and every row is closed by the kit as `exited`. Seven of those endings
+        # each minted a `note` to the `leader` AND a staff wake — a leader sitting burned per
+        # owner sentence. `engine/reconcile.js` already honours D24 ("mail is not a wake term for
+        # a summoned chair", commit `61ce15d9`, both owed classes); this arm is the KIT-side
+        # closer catching up to the same ruling. `STAFF_SEATS` is NOT widened — D24's option (c)
+        # stays rejected; the arm reads `is_summoned_seat` directly.
+        #
+        # ⚠ TWO PACKAGES, ONE SHAPE, ONE DIFFERING FACT — the seat name. They are SEPARATE
+        # packages rather than two rows of one, because both surfaces this arm reads are
+        # CUMULATIVE and the mail arm's own act writes them: a mint on the first close leaves a
+        # note in `messages.md` and an ARMED grant that the second close's `mint_staff_wake`
+        # reports as already held. On one package the control's evidence would therefore move
+        # with the mutant, and `--expect-fail` would see two reds for one defect.
+        #
+        # ⚠ THE CLOSED `leader` ROW IN EACH IS LOAD-BEARING, not decoration: `mint_staff_wake`
+        # writes NO grant for a chair that has NEVER SAT (it already reads READY on its own
+        # account), so without it the wake half would be vacuously absent on both packages and
+        # the pair could not tell a SUPPRESSED wake from an UNNECESSARY one.
+        def _dl7_make(name, seat, sid):
+            return _dl_make(name, rows=[
+                {"session-id": "ld-sid", "seat": "leader", "started": "2026-07-29 09:00",
+                 "ended": "2026-07-29 09:30", "disposition": "exited",
+                 "disposition-writer": DISPOSITION_WRITER_KIT},
+                {"session-id": sid, "seat": seat, "started": "2026-07-29 10:00",
+                 "pid": "", "pid-starttime": ""}])
+
+        def _dl7_state(pkg):
+            _b = pkg / "coordination"
+            _msg = _b / "messages.md"
+            return {"mail": _msg.read_text(encoding="utf-8").count("STAFF MAIL — seat")
+                            if _msg.is_file() else 0,
+                    "csv_grant": relaunch_grants_csv(_b).is_file()
+                                 and "leader" in relaunch_grants_csv(_b).read_text(
+                                     encoding="utf-8"),
+                    "engine_grant": engine_grants_file(_b).is_file()
+                                    and "leader" in engine_grants_file(_b).read_text(
+                                        encoding="utf-8")}
+        _dl7 = _dl7_make("dl7-summoned", "goal-master", "gm-sid")
+        _dl8 = _dl7_make("dl8-control", "alpha", "al-sid")
+        _dl7_before, _dl8_before = _dl7_state(_dl7), _dl7_state(_dl8)
+        _dl7_out, _, _dl7_code = _ae(_dl7, session="gm-sid", force_dead=True, go=True,
+                                     as_agent="ignite-daemon")
+        _dl8_out, _, _dl8_code = _ae(_dl8, session="al-sid", force_dead=True, go=True,
+                                     as_agent="ignite-daemon")
+        _dl7_after, _dl8_after = _dl7_state(_dl7), _dl7_state(_dl8)
+        _dl7_row = {r["session-id"]: r for r in _dl_rows(_dl7)}["gm-sid"]
+        _dl8_row = {r["session-id"]: r for r in _dl_rows(_dl8)}["al-sid"]
+        check("D24 (kit side, 2026-08-20): A SUMMONED CHAIR'S `exited` ROW IS CLOSED SILENTLY — "
+              "no staff mail to the leader and NO WAKE in either grant store — AND THE CLOSURE "
+              "ITSELF SURVIVES: the row still ends `exited` under `kit`, because the seat did not "
+              "declare its own ending and that is true. `goal-master` ends one row per owner turn "
+              "of ONE resumed conversation (#140), so this arm burned a leader sitting per owner "
+              "sentence while `engine/reconcile.js` already skipped the same seat in BOTH owed "
+              "classes. Its CONTROL is the row below, on a package of the same shape",
+              _dl7_before == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              and _dl7_code is None and "NOT minted" in _dl7_out
+              and "SUMMONED chair" in _dl7_out
+              and _dl7_after == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              and _dl7_row["ended"] and _dl7_row["disposition"] == "exited"
+              and _dl7_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
+        check("D24 (kit side) THE DISCRIMINATING CONTROL: `alpha` — neither staff nor summoned — "
+              "ends the SAME `exited` by the SAME command on a package of the SAME shape and "
+              "STILL mints its mail AND its wake in both stores. Without this row the arm above "
+              "could not tell `suppressed the summoned chair` from `suppressed everything`, and a "
+              "predicate widened to every seat would pass silently. It runs on its OWN package so "
+              "a mutation that reverts the summoned clause reds EXACTLY ONE row",
+              _dl8_before == {"mail": 0, "csv_grant": False, "engine_grant": False}
+              and _dl8_code is None and "staff mail: #" in _dl8_out
+              and "granted a relaunch in BOTH stores" in _dl8_out
+              and _dl8_after == {"mail": 1, "csv_grant": True, "engine_grant": True}
+              and _dl8_row["ended"] and _dl8_row["disposition"] == "exited"
+              and _dl8_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
 
 
         # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================
