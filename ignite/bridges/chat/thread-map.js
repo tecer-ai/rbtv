@@ -116,6 +116,18 @@ function createThreadMap({ logger = null, onMutate = null } = {}) {
     return entry;
   }
 
+  // Forget a conversation so the next owner turn is a fresh session-create, not a
+  // follow-up on a chain that cannot be resolved. `onMutate` fires so a persisted
+  // state file does not restore the dead mapping across a restart.
+  function drop(chatThreadId) {
+    const id = String(chatThreadId);
+    if (!byChat.has(id)) return false;
+    byChat.delete(id);
+    log('info', 'chat thread unmapped — next turn is a fresh session-create', { chatThreadId: id });
+    touch();
+    return true;
+  }
+
   // Resolve the chain thread `exec-<first exec_id>` for a conversation, via the
   // gateway `inspect` intent (D69 — the bridge holds no store handle). Returns
   // { resolved, chainThread, reason }.
@@ -148,9 +160,10 @@ function createThreadMap({ logger = null, onMutate = null } = {}) {
   //      thread (reason 'derived-convention').
   // When NO first exec_id can be established at all (`exec-id-unknown` — nothing
   // dispatched yet, or the session ended AND the spawn aged out of the ticks
-  // window), resolution is honestly deferred, never fabricated: the caller
-  // declines rather than forward a wrong thread (fail loud). There is still
-  // nothing to derive FROM.
+  // window), resolution is honestly deferred, never fabricated. The caller
+  // (forwardFollowUp) falls back to a fresh session-create rather than forwarding
+  // a guessed thread or declining the owner's turn. There is still nothing to
+  // derive FROM.
   async function resolveChainThread(chatThreadId, forwarder) {
     const entry = get(chatThreadId);
     if (!entry) return { resolved: false, chainThread: null, reason: 'unknown-conversation' };
@@ -267,7 +280,7 @@ function createThreadMap({ logger = null, onMutate = null } = {}) {
   }
 
   return {
-    has, get, create,
+    has, get, create, drop,
     bindSessionExecId, bindChainThread, setPendingAsk,
     resolveChainThread, size,
     toJSON, load, setOnMutate,

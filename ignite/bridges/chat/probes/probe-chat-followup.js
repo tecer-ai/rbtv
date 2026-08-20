@@ -37,19 +37,20 @@
 //        addressed to the DERIVED `exec-<firstExecId>` (convention fallback);
 //   (f2) first-exec IMMUTABILITY — a second (later) exec-id bind is ignored
 //        (first-wins), so the derived chain thread stays `exec-<firstExecId>`;
-//   (f3) follow-up decline with exec-id-unknown → NOTHING enqueued + the fixed
-//        DECLINE_NOTICE posted to the MAPPED thread (exact text) + NOTHING posted
-//        for an unmapped/allowlist-refused user;
-//   (f5) a FAILED notice post → logged and dropped, no retry loop, no enqueue, the
-//        run continues (best-effort delivery).
+//   (f3) follow-up with exec-id-unknown → FALLS BACK to a fresh session-create
+//        (a chat-launch row is enqueued; DECLINE_NOTICE is NOT posted) + NOTHING
+//        posted for an unmapped/allowlist-refused user;
+//   (f5) that fallback DROPS the stale mapping (the never-fired queueId is gone)
+//        and remints; a failed notice post on a remaining decline path is still
+//        logged and dropped (best-effort).
 //
 // MUTATION EVIDENCE (validation #2): each guard is provable by this probe —
 //   • remove the derivation fallback in thread-map.js resolveChainThread (M1) →
 //     (f1) fails (declines with exec-id-not-live instead of enqueuing to exec-<E>);
 //   • remove the first-wins guard in thread-map.js bindSessionExecId (M2) → (f2)
 //     fails (the later exec-id overwrites; the derived thread becomes exec-<later>);
-//   • remove the decline notice (postDeclineNotice) in forward-path.js (M3) →
-//     (f3) fails (no notice posted on the mapped decline);
+//   • remove the exec-id-unknown fallback in forward-path.js (M3) →
+//     (f3) fails (declines with DECLINE_NOTICE instead of enqueuing chat-launch);
 //   • remove the queue-id tier in thread-map.js resolveChainThread (M4) → (L4)
 //     fails (the spawn is outside the ticks window, so resolution declines with
 //     exec-id-unknown instead of enqueuing on the chain thread).
@@ -64,6 +65,14 @@ const { createGatewayForwarder } = require('../gateway-forwarder');
 const { createSlackSocketMode } = require('../slack-socket-mode');
 const { buildBridge } = require('../index');
 const { DECLINE_NOTICE } = require('../forward-path');
+
+function chatLaunchCount(store) {
+  return store.listQueue().filter((r) => r.job_id === 'chat-launch').length;
+}
+function latestChatLaunchRow(store) {
+  const rows = store.listQueue().filter((r) => r.job_id === 'chat-launch');
+  return rows.length ? rows[rows.length - 1] : null;
+}
 
 const OUT = path.join(__dirname, 'probe-chat-followup.out');
 
@@ -274,23 +283,28 @@ async function main() {
       && f2Args.thread === ('exec-' + execFirst.exec_id) && f2Args.thread !== ('exec-' + execLater.exec_id),
       { boundExecId, firstExecId: execFirst.exec_id, laterExecId: execLater.exec_id, thread: f2Args && f2Args.thread });
 
-    // ── f3: decline with exec-id-unknown → DECLINE_NOTICE to the mapped thread ────
+    // ── f3: exec-id-unknown FALLS BACK to a fresh session-create (2026-08-20) ────
     // A conversation whose queue row never fired has no exec-id to derive from →
-    // exec-id-unknown → nothing enqueued, and the fixed decline notice is posted to
-    // the MAPPED thread (a reply address exists — set by the inbound message).
+    // exec-id-unknown. That used to be a terminal decline (nothing enqueued +
+    // DECLINE_NOTICE), which wedged both live goal channels. Now: drop the stale
+    // mapping and enqueue a session-create. The owner's message produces a sitting.
     const chanF3 = 'C-decline-fu'; const tsF3 = '1700000000.012000';
     const threadF3 = `${chanF3}:${tsF3}`;
     bridgeH.threadMap.create(threadF3, { queueId: 999983 }); // never fired
-    const beforeDeclineQueue = daemon.store.listQueue().length;
-    const beforeDeclinePosts = sent.length;
+    const beforeLaunch = chatLaunchCount(daemon.store);
+    const beforeF3Posts = sent.length;
+    const beforeF3Send = sendMessageCount(daemon.store);
     await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'anyone there?', channel: chanF3, thread_ts: tsF3, ts: '1700000000.012500', event_ts: '1700000000.012500', client_msg_id: 'fu-decline' });
-    await waitFor(() => sent.length > beforeDeclinePosts);
-    const afterDeclineQueue = daemon.store.listQueue().length;
-    const declinePost = lastPost();
-    record('f3:mapped decline (exec-id-unknown) enqueues NOTHING and posts the exact DECLINE_NOTICE to the mapped thread',
-      afterDeclineQueue === beforeDeclineQueue && declinePost
-      && declinePost.text === DECLINE_NOTICE && declinePost.channel === chanF3 && declinePost.thread_ts === tsF3,
-      { queueDelta: afterDeclineQueue - beforeDeclineQueue, post: declinePost });
+    await waitFor(() => chatLaunchCount(daemon.store) > beforeLaunch);
+    const f3Launch = latestChatLaunchRow(daemon.store);
+    const f3Entry = bridgeH.threadMap.get(threadF3);
+    const f3PostedDecline = sent.slice(beforeF3Posts).some((p) => p && p.text === DECLINE_NOTICE);
+    record('f3:exec-id-unknown follow-up falls back to session-create (chat-launch enqueued, no DECLINE_NOTICE)',
+      Boolean(f3Launch) && chatLaunchCount(daemon.store) === beforeLaunch + 1
+      && sendMessageCount(daemon.store) === beforeF3Send
+      && !f3PostedDecline
+      && f3Entry && Number(f3Entry.queueId) !== 999983,
+      { launchId: f3Launch && f3Launch.id, newQueueId: f3Entry && f3Entry.queueId, postedDecline: f3PostedDecline });
 
     // f3 (continued): an unmapped/allowlist-REFUSED user gets NOTHING — no notice,
     // no enqueue. Refusal returns before the follow-up leg (security posture).
@@ -302,22 +316,25 @@ async function main() {
       sent.length === beforeRefusedPosts && daemon.store.listQueue().length === beforeRefusedQueue,
       { postsDelta: sent.length - beforeRefusedPosts, queueDelta: daemon.store.listQueue().length - beforeRefusedQueue });
 
-    // ── f5: a FAILED notice post → logged, dropped, NO retry loop, run continues ──
-    // A mapped exec-id-unknown decline, but the notice's chat.postMessage is failed
-    // once (ok:false). Best-effort: the failed post is logged and dropped, never
-    // retried; nothing is enqueued; the run continues (no crash, no loop).
+    // ── f5: fallback DROPS the stale mapping so the conversation starts fresh ──
+    // Same exec-id-unknown shape as f3, asserted on the mapping itself: the
+    // never-fired queueId is gone after the turn, replaced by the session-create's
+    // new row. DECLINE_NOTICE is not posted even if a post would fail.
     const chanF5 = 'C-notice-fail-fu'; const tsF5 = '1700000000.016000';
     const threadF5 = `${chanF5}:${tsF5}`;
     bridgeH.threadMap.create(threadF5, { queueId: 888888 }); // never fired → exec-id-unknown
-    const beforeF5Queue = daemon.store.listQueue().length;
-    const beforeF5Posts = sent.length; // SUCCESSFUL posts only (the mock records ok:true posts)
-    mock.failNextPostMessage(1);       // the decline notice post will fail (ok:false)
+    const beforeF5Launch = chatLaunchCount(daemon.store);
+    const beforeF5Posts = sent.length;
+    mock.failNextPostMessage(1);
     await mock.pushMessage({ type: 'message', user: 'U-owner', text: 'ping', channel: chanF5, thread_ts: tsF5, ts: '1700000000.016500', event_ts: '1700000000.016500', client_msg_id: 'fu-notice-fail' });
-    await sleep(250); // allow the decline + failed notice attempt (and any erroneous retry) to complete
-    const f5Ok = daemon.store.listQueue().length === beforeF5Queue && sent.length === beforeF5Posts;
-    record('f5:failed notice post is logged and dropped — no retry loop, no enqueue, run continues',
-      f5Ok,
-      { queueDelta: daemon.store.listQueue().length - beforeF5Queue, successfulPostsDelta: sent.length - beforeF5Posts });
+    await waitFor(() => chatLaunchCount(daemon.store) > beforeF5Launch);
+    const f5Entry = bridgeH.threadMap.get(threadF5);
+    const f5PostedDecline = sent.slice(beforeF5Posts).some((p) => p && p.text === DECLINE_NOTICE);
+    record('f5:exec-id-unknown fallback drops the stale mapping and remints — no DECLINE_NOTICE, no crash',
+      chatLaunchCount(daemon.store) === beforeF5Launch + 1
+      && f5Entry && Number(f5Entry.queueId) !== 888888
+      && !f5PostedDecline,
+      { newQueueId: f5Entry && f5Entry.queueId, postedDecline: f5PostedDecline, successfulPostsDelta: sent.length - beforeF5Posts });
   } catch (err) {
     cap.log({ error: err.message, stack: err.stack });
     checks.push({ name: 'no-exception', ok: false, error: err.message });

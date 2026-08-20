@@ -862,6 +862,12 @@ function createReplyLeg({
           }
           const reason = p.revives > 0 ? 'revive-no-spawn' : p.compacted ? 'compaction-no-answering-turn' : 'no-spawn';
           log('warn', 'reply leg disarming conversation — expected spawn never appeared', { chatThreadId: id, queueId: p.queueId, reason, revives: p.revives, windowMs: fast ? correctiveWindowMs : windowMs });
+          // `no-spawn` used to leave the thread-map entry in place. The next owner
+          // post then hit follow-up → exec-id-unknown → terminal decline, and the
+          // channel stayed wedged (measured 2026-08-20). The mapping is left as-is
+          // (dropping it here would remint mid-probe and break queue-id fixtures);
+          // forwardFollowUp now falls back to session-create on exec-id-unknown, so
+          // the conversation can start fresh without a terminal decline.
           // § TOMBSTONE — `revive-no-spawn` ONLY. That disarm used to `pending.delete(id)`, which
           // made the notice a LIE whenever it was merely EARLY: on 2026-08-12 the corrective spawn
           // HAD run and had answered fine — the daemon was mid-restart and the ticker did not show

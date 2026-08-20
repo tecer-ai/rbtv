@@ -706,13 +706,19 @@ between turns). Deriving by that fixed convention is a resolution, not a guess;
 `sessionExecId` is **first-wins immutable** so the derived id always names the
 chain's real thread. Only when NO first exec-id can be established at all
 (`exec-id-unknown` — nothing dispatched, or the spawn aged out of the window) is
-resolution honestly deferred and the follow-up declined.
+resolution honestly deferred. The follow-up then FALLS BACK to a fresh
+session-create (the stale mapping is dropped) rather than declining: a dead
+mapping must not wedge the channel. Other unresolved reasons (`inspect-failed`)
+still decline.
 
 ### Honest owner notices (D111 part 2)
 
 The bridge never drops an owner-visible reply path in **silence** on a MAPPED
-conversation. When a follow-up cannot reach the running work — chain unresolved
-(`exec-id-unknown`) or the gateway refused the enqueue — the forward path posts a
+conversation. When a follow-up cannot reach the running work because the chain
+is unresolved with `exec-id-unknown`, the forward path falls back to a fresh
+session-create rather than declining — the owner's message must produce a sitting.
+When the gateway refused the enqueue, or resolution failed for a transient reason
+(`inspect-failed`), the forward path posts a
 fixed decline notice (`⚠ couldn't route your reply to the running work — please try
 again shortly`) via `deliverToOwner`. The same mechanics carry the goal-channel
 no-seat notice above. When the reply leg retires an exec undelivered
@@ -946,7 +952,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-live-session` | — | **the warm path against a REAL harness** (`live-session-design.md` §1/§4): a real `claude-haiku` profile, a real seat folder under a real `.rbtv/goals/` tree, the real seat cage, real `systemd-run --pipe` carriage — nothing about the launch is stubbed. Eligibility: the admission PAIRED against each refusal, including a SYNTHETIC non-claude profile that DOES carry a `resume:` template so the harness gate is the only thing left to refuse it (every shipped non-claude profile is refused one gate earlier, which would make the check vacuous), and gate 1 scoped to the frontmatter with a body-line control. The turns: a cold chain is SEEDED first, then the warm session answers a question only that chain can answer (continuity across the cold→warm boundary, not merely "a reply arrived"), and a SECOND message written **mid-turn** — asserted mid-turn by the registry's own `in-turn` state — is answered too, in order, by the SAME process. Accounting: exactly ONE `sessions.csv` row per live PROCESS (never one per turn) and the stream-json transcript teed to `logs/<session-id>.log` carrying BOTH results. The reaper closes the session and the unit is asserted GONE. A session `SIGKILL`ed **mid-turn** resolves its fed turn `unanswered: true` — never a hang, never a silent drop — and clears the registry so the next message takes the cold path. The wire: `live-feed` through the REAL gateway + internal API on a BRIDGE token, where an unwarm conversation is a SOFT `{fed:false}` (never an error, because the caller's response is the routine one) while a forged `session_ref` field and an empty prompt are both refused. **MUTATION ARM**: the feed's stdin write is cut out of an asserted-altered copy and the SAME feed arm 2 answers goes RED — a probe that cannot fail proves nothing |
 | `probe-chat-warm-post` | #4 | **the warm turn's POSTING path** — the half `probe-chat-live-session` does not reach (it proves the harness answers; this proves what the owner then reads). Both owner-reported defects of 2026-08-10, each with the mutation that reds it: a fenced warm reply posts **only** the fenced content — asserted on the WHOLE posted string, so a post that also carries the prose half and the sentinels cannot pass — while an UNFENCED reply is posted byte-for-byte (the extraction may only ever remove a duplication that is there); and the ⏳ read-receipt is stamped on the owner's OWN message **before** the feed and taken off when the answer lands, in that order, on the WARM turn as well as the cold one, marked exactly ONCE when a refused feed falls through to the cold path. Plus the negative claim only the bridge can carry: a warm-answered turn is posted ONCE and enqueues NOTHING — the cold leg did not also run |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
-| `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown DECLINES** (nothing enqueued) and posts the exact decline notice to the mapped thread while an allowlist-refused user gets nothing; a failed notice post is logged and dropped (no retry loop) |
+| `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown FALLS BACK to session-create** (chat-launch enqueued, stale mapping dropped, no decline notice) while an allowlist-refused user gets nothing |
 
 ## Flagged seams (task-7.5 / p7-checkpoint — surfaced, not resolved here)
 
@@ -970,11 +976,12 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
   3. **exec_id → thread via `live_sessions[]`** (reason `inspect-ticker`), else
      the `exec-<first exec_id>` convention derivation (reason
      `derived-convention`, D111).
-  The formerly-flagged initial-learning window now bites ONLY the narrow case of a
-  session that ENDED before the first follow-up AND whose spawn aged out of the
-  ticks window — then resolution is honestly deferred (`exec-id-unknown`), never
-  guessed. Once the first exec-id IS learned, it is remembered first-wins and
-  EVERY later turn resolves by derivation regardless of liveness.
+   The formerly-flagged initial-learning window now bites ONLY the narrow case of a
+   session that ENDED before the first follow-up AND whose spawn aged out of the
+   ticks window — then resolution is honestly deferred (`exec-id-unknown`), never
+   guessed, and the follow-up falls back to a fresh session-create. Once the first
+   exec-id IS learned, it is remembered first-wins and EVERY later turn resolves
+   by derivation regardless of liveness.
 - **Registry convergence.** The settled model is channel → (1:1) goal thread →
   per-slot sub-thread → session; the v1 chat-thread ↔ turn-chain map is the v1
   stand-in until goals/threads-store land.

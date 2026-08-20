@@ -509,11 +509,26 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const resolved = await threadMap.resolveChainThread(chatThreadId, forwarder);
     if (!resolved.resolved) {
       // No chain thread yet: the session has not been dispatched, or the exec-id
-      // is not yet known. Do NOT forward with a guessed thread (fail loud). The
-      // reply stays with the owner's conversation state; a later turn consumes it
-      // once the chain thread is resolvable.
+      // is not yet known. Do NOT forward with a guessed thread.
+      //
+      // `exec-id-unknown` used to be a TERMINAL decline (D111 notice, nothing
+      // enqueued). That wedged both live goal channels on 2026-08-20: a no-spawn
+      // disarm left the conversation mapped, every later owner post was read as a
+      // follow-up to a chain that could never resolve, and each was declined.
+      // A follow-up whose chain cannot be resolved now FALLS BACK to a fresh
+      // session-create. The owner's message must always produce a sitting.
+      // Other unresolved reasons (inspect-failed, unknown-conversation) still
+      // decline — those are transient or unattributable, not a dead mapping.
+      // A corrective turn is the reply-leg's own redispatch: the owner sent
+      // nothing, so it must not mint a sitting.
+      if (!corrective && resolved.reason === 'exec-id-unknown') {
+        log('warn', 'follow-up chain unresolved — falling back to a fresh session-create', { chatThreadId, reason: resolved.reason });
+        threadMap.drop(chatThreadId);
+        const created = await forwardSessionCreate({ chatThreadId, text, route });
+        return { ...created, fallback: 'exec-id-unknown' };
+      }
       log('warn', 'follow-up not forwarded: chain thread unresolved', { chatThreadId, corrective, reason: resolved.reason });
-      if (!corrective) await postDeclineNotice(chatThreadId); // D111: honest notice, never silence, on a mapped conversation
+      if (!corrective) await postDeclineNotice(chatThreadId);
       return { forwarded: false, leg: 'follow-up', corrective, reason: `chain-unresolved:${resolved.reason}` };
     }
 
