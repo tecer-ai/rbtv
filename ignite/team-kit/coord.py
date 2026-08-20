@@ -2468,9 +2468,10 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 #
 #   LIFECYCLE_DISPOSITIONS      `renew|close|revive` — executor ACTIONS, the argv vocabulary of
 #                               `lifecycle-exec`. What the detached executor DOES.
-#   RECORD_DISPOSITION_WRITER   `done|renew|revive|exited` — the RECORDED disposition, the value
-#   (here)                      stored on `awaiting-close.json` AND in the `disposition` column of
-#                               `sessions.csv` above (dag-09). What the DAG READS.
+#   RECORD_DISPOSITION_WRITER   `done|renew|revive|exited|incomplete|unverified` — the RECORDED
+#   (here)                      disposition, the value stored on `awaiting-close.json` AND in the
+#                               `disposition` column of `sessions.csv` above (dag-09). What the
+#                               DAG READS.
 #
 # ⚠ IT SITS HERE, BESIDE `SESSIONS_COLS`, AND NOT DOWN IN THE AWAITING-CLOSE SECTION WHERE dag-08
 # first put it. It stopped being one record's private enum the moment dag-09 gave it a second
@@ -2506,13 +2507,28 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 #           UNMET and it is saying so. No advancement (only `done` advances an edge) and no
 #           successor (only `renew`/`revive` bring one back): the seat ENDS, and the row it leaves
 #           routes to the leader carrying the seat's own reason.
-#           D5 (2026-08-19): ALSO the owed state of a `done` whose outputs cannot be VERIFIED.
-#           Checkout refuses the WORD `done` (`done` = verified claim, always) and records
-#           `incomplete` with incomplete-reason stamped `outputs-unverified: <the undeclarable
-#           note>`. Writer stays `seat` — this is still the occupant's check-out path; the kit
-#           witnessed the undeclarable surface and attached the reason rather than putting a
-#           silent `done` on the DAG. No new enum value: `incomplete` already advances no edge,
-#           already routes to the leader, already is admitted from a seat.
+#           ⚠ D5 (2026-08-19) ONCE ALSO PARKED THE UNVERIFIABLE `done` HERE. D32 (2026-08-20)
+#           TOOK IT BACK OUT: that state is `unverified` below, and `incomplete` is again the ONE
+#           thing it says — the seat declared its own work unfinished.
+#   unverified  the SEAT, at a check-out whose `done` the kit could NOT VERIFY (D32, 2026-08-20)
+#           — in full: THE SEAT CLAIMED DONE; THE GATE LOOKED AT THE DECLARED `## Outputs`
+#           SURFACE AND FOUND NOTHING GRADEABLE. D5's substance is unchanged (refuse the word
+#           `done`, record an owed ending, route it, keep it rulable); only the WORD moved.
+#           Writer stays `seat`: it is still the occupant's check-out path, and the kit witnessed
+#           the undeclarable SURFACE, never the work — which is exactly why it may not say
+#           `incomplete` on the seat's behalf.
+#           ⚠⚠ WHY A SIXTH VALUE RATHER THAN A REUSE, MEASURED. D5 shipped this state AS
+#           `incomplete` for ONE reason: the ruled word `exited` is kit-only-writable and a seat
+#           cannot write it. Measured cost, 2026-08-20: `incomplete` then meant two OPPOSITE
+#           things on one column — "the seat said unfinished" and "the seat claimed done and the
+#           gate could not check" — and 7 rows of genuinely FINISHED work (files on disk,
+#           md5-verified by the leader) carried the word for unfinished. THE WORD IS THE
+#           DISCRIMINATOR: no reason column, no side file, nothing for a reader to parse. It is
+#           the same argument 7.676 makes two paragraphs down — an ending nobody can express is
+#           an ending nobody records, and an ending recorded in ANOTHER ending's word is worse,
+#           because it reads as recorded.
+#           ⚠ IT IS THE SEAT'S ALONE, like `incomplete`: the leader's instrument on such a row is
+#           `rule-disposition` (D33(b)), which now admits it as a from-state.
 #
 # ⚠⚠ WHY A FIFTH VALUE EXISTS AT ALL, MEASURED: until 7.676 THIS ENUM HAD NO HONEST ENDING. A seat
 # whose work was unfinished had exactly two words available — `done` (a lie that ADVANCES THE DAG)
@@ -2567,7 +2583,8 @@ RECORD_DISPOSITION_WRITER = {
     "renew": frozenset({DISPOSITION_WRITER_SEAT}),
     "revive": frozenset({DISPOSITION_WRITER_KIT}),
     "exited": frozenset({DISPOSITION_WRITER_KIT}),
-    "incomplete": frozenset({DISPOSITION_WRITER_SEAT})}
+    "incomplete": frozenset({DISPOSITION_WRITER_SEAT}),
+    "unverified": frozenset({DISPOSITION_WRITER_SEAT})}
 
 
 def validate_disposition(disposition, writer):
@@ -2590,6 +2607,17 @@ def validate_disposition(disposition, writer):
     is a SET of admitted writers, so the derivation is a union rather than a collection of
     singletons — the property it exists for is unchanged: a writer nobody's value names does not
     exist here, and adding one is a single edit to the mapping."""
+    # ⚠ D33(b) (owner, 2026-08-20) — THE ONE VALUE OUTSIDE THE ENUM, AND IT IS A DESTINATION,
+    # NEVER A RECORDED ENDING. The leader's `rule-disposition` gained a second destination beside
+    # `done`: the EMPTY cell, which CLEARS a row back to "nobody declared an ending" and thereby
+    # re-arms an ordinary relaunch through seeding. It is admitted HERE, at the one boundary, and
+    # for the LEADER ALONE — never by a caller bypassing this function, which is the edit the whole
+    # boundary exists to prevent. It is deliberately NOT a key of `RECORD_DISPOSITION_WRITER`: that
+    # mapping is the space of ENDINGS a row may CARRY, its key set is asserted equal to
+    # `_DEFERRAL_BY_DISPOSITION`'s, and an empty cell is the ABSENCE of an ending — the state
+    # `undeclared_endings` already reports and `RULED_FLIP_FROM_STATES` already admits as a
+    # FROM-state. Adding it as a key would mint a deferral class for "no class".
+    # The writer check below still runs FIRST: an unknown writer clearing a row is not a clear.
     writers = set().union(*RECORD_DISPOSITION_WRITER.values())
     if writer not in writers:
         raise ValueError(
@@ -2597,6 +2625,8 @@ def validate_disposition(disposition, writer):
             f"{', '.join(sorted(writers))}. A writer is DECLARED by its call site so this "
             f"boundary can tell a seat's own check-out from an act of the kit; an undeclared "
             f"one cannot be checked against anything.")
+    if disposition == "" and writer == DISPOSITION_WRITER_LEADER:
+        return                                   # D33(b): the leader's CLEAR. See the note above.
     if disposition not in RECORD_DISPOSITION_WRITER:
         raise ValueError(
             f"{disposition!r} is not a recorded disposition. The enum is exactly "
@@ -3793,20 +3823,33 @@ def restarter_prompt(w, args, why):
 # printed an instruction whose only execution path was a human editing a CSV by hand, which is the
 # one edit the whole `validate_disposition` boundary exists to prevent.
 #
-# ⚠ THE SOURCE VALUE IS PINNED TO EXACTLY TWO STATES, AND THE NARROWNESS IS STILL THE POINT.
+# ⚠ THE SOURCE VALUE IS PINNED TO EXACTLY FOUR STATES, AND THE NARROWNESS IS STILL THE POINT.
 # `d-exited-row-closure` grants the leader ONE transition — an INVESTIGATED `exited` row becomes
 # what the investigation found — and `r-grant-47-done-via-gated-change` extends that SAME shape to
 # the row that carries no disposition at all: an ended row whose occupant never checked out, which
-# `session_close` above already records as the ABSENCE of a disposition rather than as a value. So
-# this verb admits two from-states and no third: `exited`, and an EMPTY cell.
+# `session_close` above already records as the ABSENCE of a disposition rather than as a value.
 #
-# ⚠ IT IS A TWO-MEMBER SET, NEVER "ANYTHING BUT DECLARED". The refusal that carries the whole
-# conservation is the one on a cell its own writer FILLED — a leader "correcting" a seat's own
-# `done` or `renew` is not the ruled act and has no ruling behind it. A predicate written as the
-# complement ("refuse only what is declared") would admit every state nobody enumerated, INCLUDING
-# any value a later `RECORD_DISPOSITION_WRITER` widening introduces, and it would admit it silently
-# — no edit here, no line for a reviewer to see. Enumerating costs one edit per ruling; the
-# complement costs a grant nobody made.
+# ⚠ D33(b) (owner, 2026-08-20) ADDS THE TWO OWED SEAT-WRITTEN WORDS, AND IT IS THE SAME SHAPE
+# AGAIN, NOT A NEW ONE. `unverified` (D32 — the seat claimed done and the gate could not grade it)
+# and `incomplete` (the seat said unfinished) are both ENDINGS NOBODY HAS RULED ON, and until this
+# ruling NO party had a verb for either: measured 2026-08-20, 11 rows on two live goals sat owed
+# with the watcher waking the leader about them every ~5 minutes and the leader's one instrument
+# refusing them. The transition is unchanged in kind — an INVESTIGATED row becomes what the
+# investigation found — and the DESTINATIONS are `done` (the anchor must quote the on-disk
+# evidence) and the EMPTY cell (CLEAR, which re-arms an ordinary relaunch through seeding).
+# So this verb admits four from-states and no fifth: `exited`, an EMPTY cell, `unverified`,
+# `incomplete`.
+#
+# ⚠ IT IS A FOUR-MEMBER SET, NEVER "ANYTHING BUT DECLARED". The refusal that carries the whole
+# conservation is the one on a cell whose writer's word STANDS — a leader "correcting" a seat's own
+# `done` or `renew` is not the ruled act and has no ruling behind it. (`unverified` and
+# `incomplete` are seat-WRITTEN and still admitted: what makes them admissible is not who typed
+# them but that they are OWED — no edge advanced, no successor booted, and the row was routed to
+# this very leader for a judgment. A `done` row's edge already advanced.) A predicate written as
+# the complement ("refuse only what is declared") would admit every state nobody enumerated,
+# INCLUDING any value a later `RECORD_DISPOSITION_WRITER` widening introduces, and it would admit
+# it silently — no edit here, no line for a reviewer to see. Enumerating costs one edit per ruling;
+# the complement costs a grant nobody made.
 #
 # ⚠ THE EMPTINESS TEST IS `.strip()`, AND IT IS THE ONE ALREADY BELOW. `current` is read stripped,
 # so a whitespace-only cell IS an empty cell and reaches the same admission. NOTHING ELSE is
@@ -3822,11 +3865,12 @@ def restarter_prompt(w, args, why):
 # it. NAMED IS NOT PREVENTED, and nothing here claims otherwise.
 #
 # The DESTINATION value is NOT pinned here: it is validated against `RECORD_DISPOSITION_WRITER`
-# like every other write, so what the leader may write is decided by the writer model and by
-# nothing this verb declares. A second copy of that decision here is the drift 7.154's split
-# exists to prevent (PRIN-11).
+# like every other write (plus D33(b)'s one out-of-enum destination, the leader's empty-cell
+# CLEAR, admitted at that same boundary and nowhere else), so what the leader may write is decided
+# by the writer model and by nothing this verb declares. A second copy of that decision here is
+# the drift 7.154's split exists to prevent (PRIN-11).
 RULED_FLIP_FROM = "exited"
-RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "")
+RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "", "unverified", "incomplete")
 
 def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
     """Record a RULED disposition on `seat`'s LAST session row, which must ALREADY BE ENDED.
@@ -3883,15 +3927,20 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
         current = target[idx["disposition"]].strip()
         if current not in RULED_FLIP_FROM_STATES:
             return "", current, (f"'{seat}'s last row carries disposition `{current}`, and this verb "
-                        f"admits exactly two from-states: `{RULED_FLIP_FROM}`, and an EMPTY cell "
-                        f"(no disposition declared at all). A cell its own writer FILLED is "
-                        f"neither. `d-exited-row-closure` grants the leader ONE transition — an "
+                        f"admits exactly four from-states: `{RULED_FLIP_FROM}`, an EMPTY cell "
+                        f"(no disposition declared at all), `unverified` and `incomplete`. "
+                        f"`d-exited-row-closure` grants the leader ONE transition — an "
                         f"INVESTIGATED `{RULED_FLIP_FROM}` row becomes what the investigation "
-                        f"found — and `r-grant-47-done-via-gated-change` extends that same shape "
-                        f"to the row that never got a disposition. Neither grants a power to "
-                        f"rewrite a disposition its own writer declared, which is what this row "
-                        f"carries. Both admitted from-states are gated on a RECORDED "
-                        f"INVESTIGATION of the row, and a row under a contrary standing anchor is "
+                        f"found — `r-grant-47-done-via-gated-change` extends that same shape "
+                        f"to the row that never got a disposition, and D33(b) (2026-08-20) "
+                        f"extends it again to the two OWED seat-written endings: `unverified` "
+                        f"(the seat claimed done and the gate could not grade it) and "
+                        f"`incomplete` (the seat said unfinished). What every admitted state has "
+                        f"in common is that NOTHING ADVANCED on it and nobody has ruled on it. "
+                        f"A `done` row is not that: its own writer's word stands and its edge "
+                        f"already advanced, and no ruling grants a power to rewrite it. Every "
+                        f"admitted from-state is gated on a RECORDED INVESTIGATION of the row, "
+                        f"and a row under a contrary standing anchor is "
                         f"outside the grant — this verb checks NEITHER of those: it reads a cell, "
                         f"not a judgment, and the leader carries both. Nothing was written")
         if dry:
@@ -8795,9 +8844,9 @@ def deliver_handoff(args, base, seat):
 # extension's `outputs-undeclarable`: a seat whose `## Outputs` section EXISTS but yields ZERO
 # resolvable tokens (a prose block). That IS a claim, and it cannot be verified — the
 # stools/meet leader freeze of 2026-08-19. Checkout refuses the WORD `done` and records
-# `incomplete` with incomplete-reason `outputs-unverified: <the undeclarable note>`; the
-# `outputs-verified` field still carries the undeclarable text. A reader can tell a CHECKED
-# `done` from an unverifiable claim BY THE DISPOSITION, not only by reading the note.
+# `unverified` (D32, 2026-08-20 — it was `incomplete` plus a stamped reason until then); the
+# `outputs-verified` field still carries the undeclarable text. A reader tells a CHECKED `done`
+# from an unverifiable claim BY THE DISPOSITION ALONE, with no note to read and no prefix to parse.
 def resolved_outputs(w):
     """[(declared token, RESOLVED absolute path)] for ONE seat's declared outputs (D3: the
     io-spec `## Outputs` tokens, parsed once at `discover_workers`).
@@ -9003,9 +9052,11 @@ def cmd_checkout(args):
 # gradeable). A hard refuse+exit-1 would loop the seat: its cage denies write access to its own
 # seat.md, so it cannot add the missing tokens. Recording nothing is the 08-19 freeze made worse.
 # So the WORD `done` is refused on stderr in this same register, the ending is recorded as
-# `incomplete` with incomplete-reason stamped `outputs-unverified: <the note>`, and
-# `outputs-verified` still carries the undeclarable text. (ii) of the paragraph above is
-# answered by construction: the reason IS attached. (i) is answered by being loud, not silent.
+# `unverified` (D32, 2026-08-20 — it was `incomplete` with a stamped reason until then), and
+# `outputs-verified` still carries the undeclarable text. (ii) of the paragraph above is answered
+# by the WORD: `unverified` says, on its own, which of the two questions the kit could not answer,
+# and it says it without a reason column, a side file or anything to parse. (i) is answered by
+# being loud, not silent.
     #
     # ⚠ AND IT RUNS BEFORE THE EXPORT AND BEFORE THE ROSTER FLIP. A refusal here costs the seat
     # nothing but the re-run — its session is untouched, its transcript uncaptured, its row still
@@ -9018,6 +9069,10 @@ def cmd_checkout(args):
     # because the briefing declared nothing to check. A reader can now tell the two apart.
     _outputs_note = ("not-checked (renew — no completion asserted)" if renew
                      else "not-checked (seat declared incomplete)")
+    # D32: the D5 gate's own flag, declared beside the note it is computed from. FALSE everywhere
+    # the gate does not run, so the `checkout_disposition` expression below reads one name on
+    # every path rather than a value that exists only on one branch.
+    outputs_unverified = False
     if not renew and not incomplete:
         _declared, _missing, _has_block = declared_outputs(args, me)
         # D3's three honest answers, in words: verified (tokens declared and present),
@@ -9180,8 +9235,14 @@ def cmd_checkout(args):
         # `outputs-undeclarable` used to pass this gate freely and still record `done` — the
         # stools/meet leader freeze (RC-A). D5: `done` = verified claim, always. The note is
         # already computed (do not overwrite it with "not-checked (seat declared incomplete)");
-        # setting the local `incomplete` reason here makes `checkout_disposition` resolve to
-        # `incomplete` at the one place it is computed, so both remaining surfaces agree.
+        # raising this flag here makes `checkout_disposition` resolve to `unverified` at the one
+        # place it is computed, so both remaining surfaces agree.
+        # ⚠ D32 (2026-08-20): THE FLAG IS ITS OWN NAME AND NOT THE `incomplete` REASON STRING.
+        # Until D32 this branch assigned `incomplete = "outputs-unverified: …"`, which recorded
+        # the kit's unverifiable-done in the SEAT'S OWN word for unfinished work — measured cost:
+        # 7 rows of finished work reading `incomplete`, and `incomplete` meaning two opposite
+        # things at once. The word is the discriminator now, so nothing downstream parses a
+        # prefix off a reason string to tell the two endings apart.
         # ⚠ D29 (2026-08-20), EXTENDED 2026-08-20 by the owner's `r-owner-122-b` (a): a
         # CONVERSATIONAL CHAIR is EXEMPT from this one downgrade — its product is conversation,
         # not files, so its `done` STANDS without path tokens. D29 named the summoned chair;
@@ -9195,14 +9256,15 @@ def cmd_checkout(args):
                   f"2026-08-20): a chair's product is conversation, not files, so this `done` "
                   f"STANDS with zero path tokens declared.")
         elif _outputs_note.startswith("outputs-undeclarable"):
-            incomplete = f"outputs-unverified: {_outputs_note}"
+            outputs_unverified = True
             print(refusal_text(
                 "state",
                 f"'{me}' asked to record `done` but its io-spec `## Outputs` section yields no "
                 f"resolvable path token, so this check-out will not record `done`. `done` is a "
                 f"VERIFIED claim (D5, 2026-08-19) and this seat's declared outputs cannot be "
                 f"verified — the section exists and is prose. The ending is recorded as "
-                f"`incomplete` with reason stamped `outputs-unverified:`; no DAG edge advances.\n"
+                f"`unverified` (D32, 2026-08-20) — NOT `incomplete`, which stays the word for a "
+                f"seat that declares its OWN work unfinished; no DAG edge advances.\n"
                 f"  LOOKED AT: the io-spec `## Outputs` block in this seat's descriptor\n"
                 f"  FOUND: zero resolvable path tokens (backticked, with a `/` and an extension)\n"
                 f"Declare real path tokens in that `## Outputs` block (a seat cannot edit its own "
@@ -9210,9 +9272,14 @@ def cmd_checkout(args):
                 f"end with an explicit `--incomplete \"<why>\"` next time so the record carries "
                 f"YOUR reason rather than this kit-stamped one."),
                   file=sys.stderr)
-    # ONE variable, computed ONCE after the verify gate (D5 may flip `incomplete`). Both
-    # remaining writers (`session_close` then `set_awaiting`) read this name.
-    checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")
+    # ONE variable, computed ONCE after the verify gate (D5/D32 may flip it to `unverified`).
+    # Both remaining writers (`session_close` then `set_awaiting`) read this name.
+    #
+    # ⚠ THE `unverified` ARM SITS AHEAD OF THE `incomplete` ONE AND CANNOT COMPETE WITH IT: the
+    # D5/D32 gate runs inside `if not renew and not incomplete`, so a seat that declared its own
+    # ending never reaches the flag. The order is stated rather than relied upon.
+    checkout_disposition = ("renew" if renew else "unverified" if outputs_unverified
+                            else "incomplete" if incomplete else "done")
     _checkout_landed = []
     if renew:
         if handoff is None:
@@ -9423,15 +9490,15 @@ def cmd_checkout(args):
         # 7.676: the closing line names the ENDING THAT WAS ACTUALLY RECORDED. Telling a seat that
         # declared itself unfinished "this session is DONE" would hand it, at the last line it ever
         # reads, the very word its check-out just refused to write.
-        # D5: the kit-stamped `outputs-unverified:` path must NOT say "the run records that you
-        # said so" — the seat did not say so. That lie is the class of record this gate exists
-        # to delete.
-        if incomplete:
-            if incomplete.startswith("outputs-unverified:"):
+        # D5: the kit-stamped `unverified` path must NOT say "the run records that you said so" —
+        # the seat did not say so. That lie is the class of record this gate exists to delete.
+        # D32: the discriminant is the FLAG, not a prefix parsed off the seat's reason string.
+        if outputs_unverified or incomplete:
+            if outputs_unverified:
                 print(c(f"next: nothing on your side — this session's `done` was REFUSED "
-                        f"(outputs unverified) and the run records `incomplete` with that "
-                        f"reason. You did NOT declare this ending; the kit did, because `done` "
-                        f"is a verified claim (D5). Leader frees the pane "
+                        f"(outputs unverified) and the run records `unverified` — the ending "
+                        f"whose whole meaning is THIS. You did NOT declare this ending; the kit "
+                        f"did, because `done` is a verified claim (D5/D32). Leader frees the pane "
                         f"(`{coord_invocation(args)} close-seat {me}`) and picks the work up; "
                         f"no successor of this seat is booted and NO DAG EDGE ADVANCED on this "
                         f"ending.",
@@ -14004,7 +14071,17 @@ _DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
                             # the KIT saying a harness died with the work UNKNOWN; `incomplete` is
                             # the SEAT saying the work is UNFINISHED. Same destination, opposite
                             # evidentiary weight, and only one of them has a reason attached.
-                            "incomplete": "declared-incomplete"}
+                            "incomplete": "declared-incomplete",
+                            # D32 (2026-08-20): its OWN class, never folded into
+                            # `declared-incomplete`. The 7.676 argument directly above applies
+                            # unchanged and is the reason two same-destination words must not
+                            # merge: both route to the leader, so folding would look free — and it
+                            # would erase the one distinction the word was minted to carry.
+                            # `declared-incomplete` is the SEAT saying its work is unfinished;
+                            # `claimed-unverified` is the SEAT claiming DONE with the kit unable to
+                            # grade the claim. Same destination, opposite evidentiary weight, and
+                            # only one of them is a statement about the WORK.
+                            "unverified": "claimed-unverified"}
 
 # The class → verdict mirror. It is a HAND-COPY of `ready_seat_rows`' own precedence, and it is
 # made SELF-DETECTING by the self-test's row-P fixture rather than trusted: the fixture covers every
@@ -14033,12 +14110,17 @@ CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE",
                     # `exit-unruled` has read `DONE` on the same grounds since dag-11. The work's
                     # state is the CLASS, which is why the class is the thing that routes.
                     "declared-incomplete": "DONE",
+                    # D32: `DONE` for the SAME reason `declared-incomplete` and `exit-unruled`
+                    # read it — the ADMISSION verdict, "this row's session ENDED, so it is not a
+                    # launch candidate". It says NOTHING about the work; the CLASS is what routes,
+                    # and this class routes to the leader's `rule-disposition` (D33(b)).
+                    "claimed-unverified": "DONE",
                     "occupied": "RUNNING", "unbuilt": "UNBUILT", "undeclared-ending": "UNDECLARED",
                     "row-stopped": "STOPPED", "unmet-predecessor": "BLOCKED"}
 
-# The seven defer LIMBS, in the home's own precedence order. SEVEN LIMBS, ELEVEN CLASSES — they are
-# not the same count and a reader computing `len(classes) == len(limbs)` gets every figure
-# downstream wrong: the `disposition` limb alone produces five.
+# The seven defer LIMBS, in the home's own precedence order. SEVEN LIMBS, FOURTEEN CLASSES — they
+# are not the same count and a reader computing `len(classes) == len(limbs)` gets every figure
+# downstream wrong: the `disposition` limb alone produces eight (D32 added `claimed-unverified`).
 ADMISSION_LIMBS = ("skew", "disposition", "active", "built", "undeclared", "stop", "unmet")
 
 # limb → the class it names on a row that trips it, or None. ONE table read by the classifier, the
@@ -14736,7 +14818,10 @@ def staff_mail_body(args, seat, value, entry, sid):
         "This is the failure path. Triage it on evidence YOU observe — an unclean exit says how a "
         "SESSION ended and nothing about whether the WORK finished — then take exactly one "
         "disposition: FIX AND RELAUNCH, ROUTE to the seat that authored the instruction, ANSWER, "
-        "or ESCALATE. Never relabel this row `done`.",
+        "or ESCALATE. Never relabel this row by hand or without an investigation — the ONE "
+        "sanctioned act is `rule-disposition " + seat + " done --anchor <anchor quoting the "
+        "on-disk evidence> --go` (or destination `\"\"` to CLEAR the row and re-arm an ordinary "
+        "relaunch), recorded as a ruling line (D33(b)).",
     ])
 
 
@@ -14752,8 +14837,10 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
 
     ⚠ IT MAILS ON EVERY TERMINAL NON-`done` ENDING and reads no further into the value. `incomplete`
     is the seat's own honest declaration and reaches the chair IMMEDIATELY; `exited` is the kit's
-    attestation after the retry chain is exhausted. Both are endings nobody has ruled on, which is
-    the only property this arm needs."""
+    attestation after the retry chain is exhausted; `unverified` (D32) is the seat's `done` the
+    gate could not grade. All three are endings nobody has ruled on, which is the only property
+    this arm needs — the value is passed through to the mail body and never branched on here, so
+    D32's sixth word reached this arm with no edit."""
     steps = []
     if value == "done":
         return steps
@@ -15165,10 +15252,18 @@ def cmd_rule_disposition(args):
     """(leader) WRITE a RULED value onto a session row that has ALREADY ENDED — the second half of
     `d-exited-row-closure`. BARE = report; `--go` = write.
 
-    THE ACT, in full: the chief-of-staff's sweep routes an `exited` row to the leader; the leader
-    INVESTIGATES whether the seat needs relaunching; where the work had in fact concluded, this is
-    how that finding is recorded. The investigation is the leader's and happens before this command
-    — the command records a ruling, it never makes one, and it reads nothing about the work.
+    THE ACT, in full: the goal watcher routes an OWED row to the leader; the leader INVESTIGATES
+    whether the seat needs relaunching; where the work had in fact concluded, this is how that
+    finding is recorded. The investigation is the leader's and happens before this command — the
+    command records a ruling, it never makes one, and it reads nothing about the work.
+
+    ⚠ D33(b) (owner, 2026-08-20) — FOUR FROM-STATES, TWO DESTINATIONS. The admitted from-states are
+    `exited`, an EMPTY cell, `unverified` and `incomplete`: every ending on which NOTHING ADVANCED
+    and nobody has ruled. The destinations are `done` — whose `--anchor` must QUOTE THE ON-DISK
+    EVIDENCE the investigation found — and `""` (the empty string), which CLEARS the row back to
+    "no ending declared" and thereby re-arms an ordinary relaunch through seeding. A `done` row
+    stays unrulable: its own writer filled it and its edge already advanced. Nothing grant-shaped
+    was added (D12 intact) and `--anchor` is still mandatory.
 
     ⚠ D12 (2026-08-20) — `--go` WRITES `sessions.csv` DIRECTLY. It used to mint a row into
     `coordination/disposition-grants.csv` for the uncaged daemon to drain, for exactly one reason:
@@ -15212,8 +15307,11 @@ def cmd_rule_disposition(args):
         # and one no assertion on this line could catch, because it moves with the constant.
         carried = (f"`{from_state}`" if from_state
                    else "an EMPTY disposition cell (nobody declared one)")
+        # D33(b): the CLEAR destination is the EMPTY STRING, and a bare `` in this line would
+        # read as a rendering bug. Named in words, exactly as the empty FROM-cell above is.
+        _dest = f"`{disposition}`" if disposition else "an EMPTY cell (CLEAR)"
         print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
-              f"{carried}, and `{disposition}` is admitted from the leader.")
+              f"{carried}, and {_dest} is admitted from the leader.")
         print("    (report only — nothing was written. Re-run with --go to write it.)")
         return
     try:
@@ -15229,7 +15327,8 @@ def cmd_rule_disposition(args):
                f"{why or ('the row moved under this command; it now ends at ' + (wrote_sid or '(none)'))}"
                f". Nothing changed.", 1)
     _rad = rule_awaiting_disposition(base, seat, disposition, DISPOSITION_WRITER_LEADER)
-    print(f"{c(seat, C_LABEL)}  RULED `{disposition}` on session {sid}")
+    print(f"{c(seat, C_LABEL)}  RULED "
+          f"{('`' + disposition + '`') if disposition else 'CLEAR (empty cell)'} on session {sid}")
     print(f"    sessions.csv: disposition `{disposition}` from `{from_state or '(empty)'}`, "
           f"writer `{DISPOSITION_WRITER_LEADER}`, anchor `{anchor}`")
     print(f"    awaiting-close.json: {_rad}")
@@ -16874,12 +16973,17 @@ def cmd_launch(args):
             f"class word says what to do: `unmet-predecessor` waits; `occupied` is already live; "
             f"`unbuilt` needs its descriptor materialized; `renewing`/`revived` belong to lanes "
             f"that own the row, and so does `finished`; `records-disagree`, `exit-unruled`, "
-            f"`terminal-unenumerated` and `undeclared-ending` route to the `leader`.\nNO OVERRIDE "
+            f"`claimed-unverified`, `terminal-unenumerated` and `undeclared-ending` route to the "
+            f"`leader`.\nNO OVERRIDE "
             f"FLAG CARRIES THIS: `--force` carries the ROLE gate and `--force-memory` the MEMORY "
-            f"gate, and neither reaches here. The `leader` has exactly ONE instrument, admitting "
-            f"ONE named seat for ONE act: `--declare-only <leader-anchor>` for an undeclared "
-            f"ending. A seat that must simply RUN AGAIN is the goal watcher's business, not this "
-            f"door's — it enqueues owed work directly (D12).\nSee: "
+            f"gate, and neither reaches here. A seat that must simply RUN AGAIN is the goal "
+            f"watcher's business, not this door's: it relaunches a seat-written "
+            f"`declared-incomplete` row BY NAME (D33(a)), and the LEADER resolves the rest with "
+            f"`rule-disposition <seat> done --anchor <anchor quoting the on-disk evidence> --go` "
+            f"(or destination `\"\"` to CLEAR the row, which re-arms an ordinary relaunch through "
+            f"seeding) on any row carrying `exited`, `unverified`, `incomplete` or no disposition "
+            f"at all — D33(b). `--declare-only <leader-anchor>` remains this door's own one-seat "
+            f"instrument for an undeclared ending.\nSee: "
             f"{coord_invocation(args)} ready-seats --explain <seat>")
         if not workers:
             refuse("state", _adm_detail + "\nNO pane was opened.", 1)
@@ -25522,14 +25626,15 @@ def _selftest_checks(args, failures, names):
         # row for a shape change rather than for the drift it exists to catch.
         _d8_bridge = [v for vs in LIFECYCLE_INTENT_OF.values() if vs is not LIFECYCLE_INTENT_ABSENT
                       for v in vs]
-        check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY `done|renew|revive|exited|incomplete`, EACH ACCEPTED "
-              "FROM ITS OWN WRITER, AND A FIFTH VALUE IS REFUSED BY NAME WITH THE LEGAL SET SPELLED "
+        check("dag-08 EX-1: THE RECORD ENUM IS EXACTLY "
+              "`done|renew|revive|exited|incomplete|unverified`, EACH ACCEPTED "
+              "FROM ITS OWN WRITER, AND A VALUE OUTSIDE IT IS REFUSED BY NAME WITH THE LEGAL SET SPELLED "
               "OUT — so a caller reading a detached log learns what it may pass instead of that "
               "something was wrong. The row also pins the BRIDGE to the OTHER enum: every "
               "non-ABSENT value of `LIFECYCLE_INTENT_OF` (whose keys are argv ACTIONS, a disjoint "
               "vocabulary) is a member of this one, so widening the executor's enum without "
               "widening this one cannot pass silently",
-              _d8_names == ["done", "exited", "incomplete", "renew", "revive"]
+              _d8_names == ["done", "exited", "incomplete", "renew", "revive", "unverified"]
               and all(v is None for v in _d8_each.values())
               and "harvest" in _d8_fifth
               and all(n in _d8_fifth for n in _d8_names)
@@ -25639,8 +25744,12 @@ def _selftest_checks(args, failures, names):
         # the tripwire on the first widening it was built to catch.
         # The `kit-for-seat` triples were retired with the EROFS proxy (direct-ledger-writes).
         # The token string stays readable on old rows; it is no longer an admitted writer.
+        # D32 (2026-08-20) added the SECOND hand-paid pair, `unverified<-seat`, by the same
+        # procedure 7.676's was: the widening reds this row, the owner's ruling (D32) admits it,
+        # and the pair is typed in HERE with its justification. Never derived from the mapping.
         _w154_expected = {("done", "seat"), ("done", "leader"), ("renew", "seat"),
-                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat")}
+                          ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat"),
+                          ("unverified", "seat")}
         _w154_domain = ({"seat", "kit", "leader", "auditor", "kit-for-seat"}
                         | set().union(*RECORD_DISPOSITION_WRITER.values()))
         _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
@@ -25649,14 +25758,16 @@ def _selftest_checks(args, failures, names):
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
               "full cross product of the enum and a writer domain WIDER than the model's own, the "
               "admitted set is EXACTLY {done<-seat, done<-leader, renew<-seat, revive<-kit, "
-              "exited<-kit, incomplete<-seat} — compared against a literal so this row "
+              "exited<-kit, incomplete<-seat, unverified<-seat} — compared against a literal so this row "
               "cannot move with the mapping it grades. `kit-for-seat` is NOT admitted: seats "
               "write the ledger themselves. The leader is admitted for `done` "
               "(`d-exited-row-closure`: investigate the routed row, and where the work had "
               "CONCLUDED switch it to `done`) and is REFUSED for `exited` by name — a leader "
               "writing `exited` would attest to a termination it did not witness, which is the "
-              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` is "
-              "the SEAT'S ALONE. Control arms "
+              "misgrading R-6 bars and which the ruling does not grant. `incomplete<-seat` and "
+              "`unverified<-seat` (D32) are the SEAT'S ALONE — the leader's instrument on such a "
+              "row is `rule-disposition`, which reads them as FROM-states and never writes them. "
+              "Control arms "
               "both directions: `done<-leader` must be ADMITTED and `exited<-leader` must RAISE, "
               "so a model that granted nothing and a model that granted everything both red this "
               "row",
@@ -26108,10 +26219,11 @@ def _selftest_checks(args, failures, names):
         _rdec2_d_after = _r155_row("rdec2done")
         _rdec2_v_after = _r155_row("rdec2revive")
         check("RD-EC-2 A DECLARED CELL STAYS UNREWRITABLE, AND `--force` DOES NOT MOVE IT. The "
-              "widening admits the EMPTY cell and the `exited` cell and NOTHING ELSE — never "
-              "\"anything but `exited`\" by accident. A row carrying `done` or `revive` carries "
-              "its own writer's word about its own work, and the grant confers no power to "
-              "overwrite one. Both values are asserted, and each is asserted TWICE — once bare "
+              "widening admits the EMPTY cell, `exited`, and (D33(b)) `unverified` and "
+              "`incomplete` — and NOTHING ELSE, never \"anything but `exited`\" by accident. A "
+              "row carrying `done` or `revive` carries "
+              "its own writer's word about its own work AND its edge already advanced, and the "
+              "grant confers no power to overwrite one. Both values are asserted, and each is asserted TWICE — once bare "
               "and once with `--force` — because the state refusals in this verb have never been "
               "force-carried and this change attaches nothing to that flag. (`renew` is the same "
               "conservation and is asserted by 7.155 arm 5, so that ONE mutation reds ONE row.)",
@@ -26203,6 +26315,66 @@ def _selftest_checks(args, failures, names):
               and "report only" in _rdec5_out
               and _rdec5_after.get("disposition") == ""
               and _rdec5_after.get("disposition-writer") == "")
+
+        # ============ D33(b): THE TWO OWED SEAT-WRITTEN FROM-STATES, AND THE CLEAR ==============
+        # Owner ruling D33(b), 2026-08-20. Same battery shape as RD-EC above and for the same
+        # reason: every row drives the REAL `cmd_rule_disposition` and reads the result off disk.
+        # ⚠ NO EXPECTATION HERE IS READ FROM `RULED_FLIP_FROM_STATES`. Spelled-out literals only —
+        # a guard written in terms of the tuple it grades moves with the change and can never go
+        # red, which is the defect the RD-EC battery above was built to avoid reproducing.
+        _r155_seed("d33unv", ended=now(), disposition="unverified")
+        _r155_seed("d33inc", ended=now(), disposition="incomplete")
+        _d33_u_bare = harness_outcome(cmd_rule_disposition,
+                                      _r155_ns(seat="d33unv", go=False))
+        _d33_u_go = harness_outcome(cmd_rule_disposition, _r155_ns(seat="d33unv"))
+        _d33_i_bare = harness_outcome(cmd_rule_disposition,
+                                      _r155_ns(seat="d33inc", go=False))
+        _d33_i_go = harness_outcome(cmd_rule_disposition, _r155_ns(seat="d33inc"))
+        check("D33(b) THE TWO OWED SEAT-WRITTEN ENDINGS ARE RULABLE, AND THE WRITE LANDS. "
+              "`unverified` (D32 — the seat claimed done and the gate could not grade it) and "
+              "`incomplete` (the seat said unfinished) are both endings NOTHING ADVANCED on and "
+              "NOBODY RULED. Until this ruling neither had an actor with a verb: measured "
+              "2026-08-20, 11 rows on two live goals sat owed while the watcher woke the leader "
+              "about them every ~5 minutes and this verb refused them. Each is asserted BARE "
+              "(RULABLE, nothing written) and then with `--go` (the durable cell reads `done` "
+              "under writer `leader`)",
+              _d33_u_bare[2] is None and "RULABLE" in _d33_u_bare[0]
+              and _d33_i_bare[2] is None and "RULABLE" in _d33_i_bare[0]
+              and _d33_u_go[2] is None and _d33_i_go[2] is None
+              and _r155_row("d33unv").get("disposition") == "done"
+              and _r155_row("d33unv").get("disposition-writer") == "leader"
+              and _r155_row("d33inc").get("disposition") == "done"
+              and _r155_row("d33inc").get("disposition-writer") == "leader"
+              # the LIVE surface moved with the durable one — never a manufactured SKEW
+              and (load_awaiting(base_dir(_r155_ns())).get("d33unv") or {}
+                   ).get("disposition") == "done"
+              and (load_awaiting(base_dir(_r155_ns())).get("d33inc") or {}
+                   ).get("disposition") == "done")
+        # ---- the SECOND destination: CLEAR ----
+        _r155_seed("d33clr", ended=now(), disposition="incomplete")
+        _d33_c_go = harness_outcome(cmd_rule_disposition,
+                                    _r155_ns(seat="d33clr", disposition=""))
+        _d33_c_kit = harness_outcome(cmd_rule_disposition,
+                                     _r155_ns(seat="d33unv", disposition="renew"))
+        check("D33(b) THE CLEAR IS THE SECOND DESTINATION, AND IT IS THE LEADER'S ALONE. Ruling a "
+              "row to the EMPTY STRING writes an EMPTY cell on BOTH surfaces — the row goes back "
+              "to `nobody declared an ending`, which is the state the leader's `--declare-only` "
+              "launch door admits, so a seat that must simply RUN AGAIN has a path that does not "
+              "require anybody to assert an ending they did not witness. The empty destination is "
+              "admitted at `validate_disposition` and NOWHERE ELSE (it is deliberately not a key "
+              "of `RECORD_DISPOSITION_WRITER`: that mapping is the space of endings a row may "
+              "CARRY, and an empty cell is the ABSENCE of one). Control: `renew` from the leader "
+              "is STILL refused at the input layer — the from-states widened and the destination "
+              "gained exactly one member; the writer model did not move",
+              _d33_c_go[2] is None
+              and "CLEAR" in _d33_c_go[0]
+              and _r155_row("d33clr").get("disposition") == ""
+              and _r155_row("d33clr").get("disposition-writer") == "leader"
+              and (load_awaiting(base_dir(_r155_ns())).get("d33clr") or {}
+                   ).get("disposition") == ""
+              and _d33_c_kit[2] == 2
+              and "refused [coord input]" in (_d33_c_kit[0] + _d33_c_kit[1])
+              and "may not write disposition" in (_d33_c_kit[0] + _d33_c_kit[1]))
 
         # ============ D12: `rule-disposition`'s input gate and its role gate ====================
         # What survives F3 (the deleted disposition-grant battery): the two refusals that are
@@ -27636,16 +27808,23 @@ def _selftest_checks(args, failures, names):
               and not _ou_rec("keyed"))
         check("D3(outputs-unify, planner extension) A ZERO-TOKEN PROSE `## Outputs` BLOCK IS "
               "CLASSIFIED `outputs-undeclarable` AND ITS `done` IS REFUSED "
-              "(D5) — recorded as `incomplete` on sessions.csv. "
+              "(D5) — recorded as `unverified` on sessions.csv (D32, 2026-08-20: it was "
+              "`incomplete` until then, which made ONE word mean both `the seat said unfinished` "
+              "and `the seat claimed done and the gate could not check`). "
               "declared-but-ungradeable, said in those words, distinct from `none-declared` "
               "(no section at all). Without this state D3's 'none-declared impossible for a "
               "conforming seat' promise is false for every prose block; without the D5 "
               "refusal the stools/meet leader shape would still advance the DAG on NOTHING "
               "VERIFIED",
-              _ou_pc is None and _ou_rec("prose").get("disposition") == "incomplete"
+              _ou_pc is None and _ou_rec("prose").get("disposition") == "unverified"
               and _ou_rec("prose").get("disposition-writer") == DISPOSITION_WRITER_SEAT
               and "will not record `done`" in (_ou_po + _ou_pe)
-              and "you said so" not in (_ou_po + _ou_pe))
+              # D32: the refusal NAMES the word it recorded, and names the one it did NOT.
+              and "recorded as `unverified`" in (_ou_po + _ou_pe)
+              and "you said so" not in (_ou_po + _ou_pe)
+              # the LIVE surface carries the same value — one variable, both writers (LG-9).
+              and (load_awaiting(base_dir(_d3_ns(_ou_pkg))).get("prose") or {}
+                   ).get("disposition") == "unverified")
         check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
               "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control "
@@ -28030,7 +28209,7 @@ def _selftest_checks(args, failures, names):
         # produces that. A guard whose redness depends on today's population is not a guard.
 
         # ---- the row-P fixture: every REACHABLE limb pair, plus one row per class -------------
-        # `disp` picks WHICH disposition class a disposition-tripping row lands in, so the five
+        # `disp` picks WHICH disposition class a disposition-tripping row lands in, so the eight
         # sub-classes of that one limb are each exercised by a row that names them.
         _a3_spec = [
             # (seat, limbs, disposition-value) — 19 REACHABLE pairs
@@ -28057,6 +28236,10 @@ def _selftest_checks(args, failures, names):
             # row — so a disposition minted without this fixture row reds 1C rather than shipping
             # a class nothing ever produced.
             ("s12", ("disposition",), "incomplete"),
+            # D32: the SIXTH disposition sub-class, added by the same rule the line above states —
+            # row S asserts every WRITE-boundary value has a class, arm 1C asserts every class is
+            # EXERCISED, so `claimed-unverified` cannot ship as a class nothing ever produces.
+            ("s14", ("disposition",), "unverified"),
             # THE RENEW GATE's second sub-class. `s03` above is a `renew` with NO marker and
             # classes `renew-blocked`; THIS row carries a pending successor and classes
             # `renewing`. Both are needed: with only one of them arm 1C reds, which is exactly
@@ -28118,13 +28301,14 @@ def _selftest_checks(args, failures, names):
                       for _s, cls, v in _a3_arm1))
         # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
         check("7.274 row P arm 1C: every REACHABLE class is exercised by some fixture "
-              "row — set equality, not a count. Seven limbs produce thirteen classes (the "
-              "`disposition` limb alone produces seven since THE RENEW GATE split `renewing` "
-              "from `renew-blocked`); `unbuilt` is no longer reachable for a taskforce row "
+              "row — set equality, not a count. Seven limbs produce fourteen classes (the "
+              "`disposition` limb alone produces eight since THE RENEW GATE split `renewing` "
+              "from `renew-blocked` and D32 added `claimed-unverified`); `unbuilt` is no longer "
+              "reachable for a taskforce row "
               "(existence is the CSV registers, and every such row is registered)",
               {deferral_class(r) for r in _a3_rows} - {None}
               == set(CLASS_TO_VERDICT) - {"unbuilt"}
-              and len(CLASS_TO_VERDICT) == 13)
+              and len(CLASS_TO_VERDICT) == 14)
         # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
         _a3_cov = covered_limb_pairs(_a3_rows)
         check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "
@@ -28159,7 +28343,12 @@ def _selftest_checks(args, failures, names):
               "only on the class axis, which is what writing the predicate on FIELDS buys",
               deferral_class(_a3_by["s05"]) == "exit-unruled"
               and _a3_by["s05"]["verdict"] == "DONE"
-              and deferral_class(_a3_by["s02"]) == "finished")
+              and deferral_class(_a3_by["s02"]) == "finished"
+              # D32: the same claim for the sixth word — its OWN class, NOT folded into
+              # `declared-incomplete`, both reading `DONE` at the verdict.
+              and deferral_class(_a3_by["s14"]) == "claimed-unverified"
+              and _a3_by["s14"]["verdict"] == "DONE"
+              and deferral_class(_a3_by["s12"]) == "declared-incomplete")
         check("7.274 row P arm 2N (NEGATIVE control): an `exited` row that is ALSO OCCUPIED "
               "classes on the HIGHER limb (`occupied`), never on `exit-unruled`. The predicate is "
               "a CONJUNCTION and no clause of it carries an admission exception — the classing of "
@@ -35457,18 +35646,23 @@ def build_parser():
         "and where the work had in fact concluded this is how that finding is recorded. `--go`\n"
         "writes `sessions.csv` and re-points `awaiting-close.json` IN ONE ACT — D12 deleted the\n"
         "disposition-grant store and its daemon drain; the D3 fence made the ledgers writable.\n"
-        "It admits ENDED rows ONLY — a row still open is its occupant's to end — and only one\n"
-        "sitting on `exited`. The value is validated against the SAME writer model every other\n"
-        "disposition is. BARE = report only. `--anchor` is mandatory.",
+        "It admits ENDED rows ONLY — a row still open is its occupant's to end — and, since\n"
+        "D33(b), FOUR from-states: `exited`, an EMPTY cell, `unverified` and `incomplete` — every\n"
+        "ending nothing advanced on and nobody ruled. A `done` row stays unrulable. Destinations:\n"
+        "`done` (the anchor must QUOTE the on-disk evidence) or `\"\"` to CLEAR the row, which\n"
+        "re-arms an ordinary relaunch through seeding. The value is validated against the SAME\n"
+        "writer model every other disposition is. BARE = report only. `--anchor` is mandatory.",
         "example:\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done          # report\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # write the ruling\n"
+        "  coordinate rule-disposition oc2 \"\" --anchor p-oc2-relaunch --go  # CLEAR: relaunchable\n"
         "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
         "other `done`, and it does so immediately: there is no drain to wait for")
     s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
     s.add_argument("disposition",
                    help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
-                        "from the leader")
+                        "from the leader — in practice `done`, or the EMPTY STRING to CLEAR the "
+                        "row back to no-ending-declared so seeding can relaunch it (D33(b))")
     s.add_argument("--anchor", default=None,
                    help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
                         "recorded as the trail and an empty one is refused")

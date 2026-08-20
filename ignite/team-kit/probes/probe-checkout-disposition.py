@@ -176,8 +176,15 @@ def build_mutant(dest_dir):
         # (1) the verification gate never runs — the pre-7.676 check-out opened nothing
         ("    if not renew and not incomplete:\n        _declared, _missing",
          "    if False:\n        _declared, _missing"),
-        # (2) the disposition collapses to the old two-arm expression
-        ('checkout_disposition = "renew" if renew else ("incomplete" if incomplete else "done")',
+        # (2) the disposition collapses to the old two-arm expression.
+        # ⚠ D32 (2026-08-20) RE-SHAPED THIS SEAM: the expression gained the `unverified`
+        # arm and was re-wrapped over two lines, so the old one-line literal stopped
+        # matching and this probe went RED with "mutation seam NOT FOUND" — which is the
+        # seam assertion doing its job. The literal is re-typed to today's text and is
+        # deliberately NOT loosened to a regex: a seam that matches loosely is a mutation
+        # nobody can point at.
+        ('checkout_disposition = ("renew" if renew else "unverified" if outputs_unverified\n'
+         '                            else "incomplete" if incomplete else "done")',
          'checkout_disposition = "renew" if renew else "done"'),
     ]
     for old, new in seams:
