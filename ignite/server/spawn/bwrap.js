@@ -156,7 +156,7 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
     '--die-with-parent',
     // D3/D8 (2026-08-19): unshare user/ipc/uts/cgroup, NOT pid. `--unshare-all` included a
     // PID namespace, so a caged seat's /proc showed only itself (measured: pid=2, ancestry
-    // 2<-1). coord.py's sessions_sitting_id / ident_is_live_process then read every other
+    // 2<-1). coord.py's `ident_is_live_process` then reads every other
     // seat as dead — structurally, always — and a caged wake bound the last-ENDED session.
     // Shared PID ns + `--proc /proc` mounts host pids; in-cage liveness reads become TRUE.
     // Accepted consequence: a seat can see and signal host processes. Threat model is

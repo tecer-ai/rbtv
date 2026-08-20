@@ -520,10 +520,10 @@ function uncastSeats(goalFolder) {
 // `ready` here and was dispatched a second time, concurrently. The at-dispatch row was being
 // written and read by nothing; the whole point of writing it at dispatch is that the other lane can
 // see the seat is taken. And on the terminal-non-`done` side the two lanes were ASYMMETRIC: a
-// locally failed seat needs an explicit `--relaunch` grant, while the same failure in the other
-// lane was invisible and re-ran silently — conferring the grant nobody gave. `foreign` makes both
-// cases behave like the local one: the seat is not `ready`, and an explicit grant is what releases
-// it.
+// locally failed seat was HELD here, while the same failure in the other lane was invisible and
+// re-ran silently. `foreign` makes both cases behave like the local one: the seat is not `ready`.
+// (What used to release either was the operator's `--relaunch` grant; D12 deleted it, and the
+// releasing act is now the goal watcher's owed-work launch off the ledgers.)
 //
 // ⚠ THE MEMBERSHIP TEST IS THE SESSION-ID JOIN, NOT THE `lane` COLUMN. `lane` says which KIND of
 // store wrote the row (CMP-2), and two attached runs on two machines share that value — so a lane
@@ -534,10 +534,10 @@ function uncastSeats(goalFolder) {
 // ⚠ THE DISCLOSED BOUND: a foreign writer that CRASHED leaves its row open, and this holds the seat
 // until that lane republishes. That is not a dead end — the other lane's next boot runs the
 // adoption pass, which stamps the row from its own store (a crashed foreground row reconciles to
-// `failed`, a killed detached one to `failed`/`killed`) and the seat becomes grantable. The operator
-// path when that lane will never run again: `--relaunch <seat>`, which is the same explicit act a
-// local failure already requires. Holding is the safe direction — the unsafe one is running a seat
-// somebody else may still be running.
+// `failed`, a killed detached one to `failed`/`killed`) and the seat is offerable again. When that
+// lane will never run again, the goal watcher is what picks the work up — D12 (2026-08-20) deleted
+// the `--relaunch` grant that used to be the operator's act here. Holding is the safe direction —
+// the unsafe one is running a seat somebody else may still be running.
 //
 // ── AND A THIRD: `notFinished` — THE RECORD'S LAST WORD (owner ruling
 // decisions.md#d-block-and-queue-mechanical-hold, which also closes the 7.626 review's F6) ─────
@@ -562,8 +562,7 @@ function uncastSeats(goalFolder) {
 //
 // Derived, not stored: the last row per seat, out of the same file `done` and `foreign` come from.
 // A LATER row clears it — which is exactly what the owner's answer mints (a revival session at the
-// seat's home), so the hold releases through machinery that already existed. A `--relaunch` grant
-// clears it for the same reason it clears `foreign`: an explicit human act.
+// seat's home), so the hold releases through machinery that already existed.
 // ── W2 — `done` AND `blocked` NO LONGER COME OUT OF THE RECORD ────────────────────────────────
 //
 // `readyRows` is coord's `ready-seats --json` answer, handed in by the caller that already paid for
@@ -614,8 +613,8 @@ function recordView(heartStore, goalFolder, { readyRows = null } = {}) {
 
   // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
   // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
-  // keep the behaviour they had (the seat is not done and an explicit grant re-runs it), so only
-  // the two non-finishes below are collected here.
+  // keep the behaviour they had (the seat is not done), so only the two non-finishes below are
+  // collected here.
   // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
   // its most recent execution. ⚠ ONLY THE **OPEN** CASE IS COLLECTED HERE NOW. The `blocked` arm
   // that stood beside it read the record's outcome column, and W2 deleted that word from this
@@ -665,13 +664,11 @@ function recordView(heartStore, goalFolder, { readyRows = null } = {}) {
   // to the owner still unanswered. Review findings F1 and F2 were both that gap, at the two call
   // sites below — the review's own words, a signature change that did not sweep its callers.
   //
-  //   F1 (HIGH): the relaunch grant bailed on `done.has(seat)`, so `--relaunch` was a NO-OP for a
-  //   seat held on its SECOND ask (`blocked, done, blocked`) — the documented escape did nothing
-  //   and hand-editing `executions.csv` was the only way out of a permanently stuck wave.
+  //   F1 (HIGH): the relaunch grant (since DELETED, D12) bailed on `done.has(seat)`, so the
+  //   documented escape did nothing for a seat held on its SECOND ask (`blocked, done, blocked`).
   //   F2: the `foreign` deletion did the same, so a crashed foreign revival (`done, open`) was
   //   reported by NOTHING while `skippedAsFinished` called it finished and `states` called it live.
-  //
-  // Computed BEFORE the grant's deletes, so a grant can never make a seat read finished.
+  //   F2's fix is what stands; F1's subject is gone with the grant.
   const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
 
   // An attested `done` clears a foreign hold — the seat IS finished, and the lane that ran it is
@@ -982,14 +979,15 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   }
   // ── D9 (seed-gates, 2026-08-19): THE GOAL-LIVE CHECK, BEFORE ANYTHING IS SPENT ──────────────
   // The measured failure (G-leader-0818-1830, meet-transcript-summarizer): two relaunch grants
-  // burned with no session row to show for them. The spend lives in this function's ready-row
-  // loop (`seat-retry --spend`, then `spendGrant`) while the goal-live refusal (`E_GOAL_NOT_LIVE`)
-  // fired LATER and elsewhere — at the ticker's dispatch, in `spawn.js` — so every pass paid the
-  // one-shot grant for a launch the spawn door was always going to refuse. The SAME lease, at the
-  // SAME threshold, is therefore read HERE FIRST: `deriveLease().live` is the ROOM's existence
+  // burned with no session row to show for them, because the spend ran in this function's ready-row
+  // loop while the goal-live refusal (`E_GOAL_NOT_LIVE`) fired LATER and elsewhere — at the
+  // ticker's dispatch, in `spawn.js`. THERE IS NOTHING LEFT TO SPEND (D12, 2026-08-20), and the
+  // gate STAYS: seeding a dead room still costs a pass of work the spawn door was always going to
+  // refuse, and the bus row is how an operator learns the room is gone. The SAME lease, at the
+  // SAME threshold, is read HERE FIRST: `deriveLease().live` is the ROOM's existence
   // (never the stricter occupant set — a room mid-relaunch between seat boots must still seed).
   // Not live → one log line, one bus row (the D2 surfacing, keyed by the goal name), and a return
-  // with NOTHING enqueued and NOTHING spent; the next cadence retries for free.
+  // with NOTHING enqueued; the next cadence retries for free.
   //
   // `readLease` is the probes' injection point, `checkGoalExecuting`'s own pattern. The workspace
   // root is the composition root's ONE resolution threaded via the store (D2); absent (a bare

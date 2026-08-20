@@ -13933,8 +13933,10 @@ def ready_seat_rows(args):
                 f"spawned only to drain messages addressed to it. NOT OFFERED, and that is the "
                 f"seat working: an empty sitting spends a launch to read an empty inbox. It wakes "
                 f"the moment anything is addressed to `{seat}` (the session-closer's staff mail, a "
-                f"routed FAIL, a seat's ask, a lifecycle alarm), and after its first sitting it "
-                f"wakes through the UNSPENT GRANT its wake mints. It advances NO edge meanwhile")
+                f"routed FAIL, a seat's ask, a lifecycle alarm): D12 — UNREAD MAIL IS THE WAKE, "
+                f"and the goal watcher (`engine/reconcile.js`, every 5 min) is what turns it into "
+                f"a sitting. Nothing is minted and nothing can be lost. It advances NO edge "
+                f"meanwhile")
         elif is_summoned_seat(seat):
             # D24 · THE SUMMONED SEAT, NOT OFFERED. Narrower than the staff-chair branch
             # above: mail is NOT a wake term. The daemon's `verdict == "READY"` filter must
@@ -14210,19 +14212,19 @@ def arm1_fails_under_transposition(rows, x, y):
 # measured failure (G-owner-console-0818-2030): a seat refused at every 10s seed pass for hours,
 # journal-only — no surface an operator reads ever said so. The engine may not write coordination
 # files itself (the runtime boundary: neither side reads or writes the other's files), so the
-# refusal crosses as a command, exactly as `seat-retry` crosses the grant join.
+# refusal crosses as a command — the daemon runs `coordinate surface-refusal`, it never
+# opens a coordination file itself.
 #
 # IDEMPOTENT PER (seat, reason), and that is the whole verb: the seed pass repeats forever, so a
 # plain `send` would append one row per tick. The dedup marker (`seed-refusal: <seat> <key>`,
 # key = sha256 of the reason) rides the body's FIRST LINE; the scan and the append share one
 # `coord_lock` hold so two concurrent passes cannot both observe "not yet surfaced" and both
-# append — the same race `seat-retry --mint` closes the same way.
+# append.
 def cmd_surface_refusal(args):
     """(daemon) surface ONE seed-time refusal on the goal bus, once per (seat, reason)."""
     gate(args, "surface-refusal", is_authorized_launcher,
-         "the leader's and the ignite daemon's — `is_authorized_launcher`, the same predicate the "
-         "other daemon-lane verb (`seat-retry`) carries: this verb reports the seeding pass's own "
-         "refusal, which only a launching party holds",
+         "the leader's and the ignite daemon's — `is_authorized_launcher`: this verb reports the "
+         "seeding pass's own refusal, which only a launching party holds",
          remedy="a seat reporting a problem sends a typed `note` to the leader with "
                 "`coordinate send` instead")
     seat = args.seat
@@ -16871,8 +16873,7 @@ def cmd_launch(args):
             f"seat is not a launch candidate, and until now this command never read it.\nThe "
             f"class word says what to do: `unmet-predecessor` waits; `occupied` is already live; "
             f"`unbuilt` needs its descriptor materialized; `renewing`/`revived` belong to lanes "
-            f"that own the row, and so does `finished` unless the `leader` has RULED a relaunch "
-            f"of it and minted the grant below; `records-disagree`, `exit-unruled`, "
+            f"that own the row, and so does `finished`; `records-disagree`, `exit-unruled`, "
             f"`terminal-unenumerated` and `undeclared-ending` route to the `leader`.\nNO OVERRIDE "
             f"FLAG CARRIES THIS: `--force` carries the ROLE gate and `--force-memory` the MEMORY "
             f"gate, and neither reaches here. The `leader` has exactly ONE instrument, admitting "
@@ -28192,11 +28193,9 @@ def _selftest_checks(args, failures, names):
         # ---- the LAUNCH package: the guard ladder, the filter, the naming, the parity ---------
         # A package of its own, because these rows drive the REAL `cmd_launch` and the classmap
         # fixture above is deliberately full of rows every one of which defers.
-        # F1 (the fourth lane) added four seats to this fixture and nothing else: `rnw`/`rvv` are
-        # the from-states the widened grant still REFUSES (so P3b keeps a subject after `done1`
-        # became grantable), and `dskew`/`dlive` are the `done` class carrying the P3c and P4
-        # conditions — without them the done-class ladder could only assert the leg the widening
-        # moved, never the six it left alone.
+        # The `rnw`/`rvv`/`dskew`/`dlive` seats are F1's, kept: their rows still exercise the
+        # deferral classifier and the filter below. F1's own ladder — the ruled-relaunch grant's
+        # from-state legs — is DELETED with the grant (D12, 2026-08-20).
         _a3l = _rs_make("a3-launch", [("ex1", ""), ("ex2", ""), ("occ", ""), ("done1", ""),
                                       ("noend", ""), ("okseat", ""), ("undec", ""),
                                       ("rnw", ""), ("rvv", ""), ("dskew", ""), ("dlive", ""),
@@ -28220,7 +28219,6 @@ def _selftest_checks(args, failures, names):
                 f"---\nbrief\n", encoding="utf-8")
         _a3l_base = _a3l / "coordination"
         _a3l_sid = sessions_last_ended(_a3l)["ex1"][0]
-        _a3l_anchor = "p-ex1-relaunch-ruled"
 
         def _a3l_run(**kw):
             _d = dict(agent="leader", package=str(_a3l), dry_run=True)
@@ -29538,7 +29536,7 @@ def _selftest_checks(args, failures, names):
         # which is a green that means "nothing exercised it", not "it works".
         #
         # ⚠ `--as ignite-daemon` RIDES ON EVERY ARM, because that is the claim the ENGINE makes
-        # (`spawn.js#closeSeatSessionRow`, `seeding.js`'s two seat-retry argv). It is verified here
+        # (`spawn.js#closeSeatSessionRow`). It is verified here
         # against the two identity rows that could have refused it: F16 (the daemon-exec lane) is
         # not consulted at all — an explicit claim outranks it in `resolve_agent`, which is what
         # keeps `r-gate-ships-with-its-own-key` intact — and F17's asserted-launch bound is

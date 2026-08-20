@@ -61,8 +61,8 @@
 // `sessions.csv`, and a word living in both vocabularies at once is exactly the BLOCKED/HELD
 // collision class this narrowing exists to remove. And a vocabulary with no crash bit gives the
 // daemon's retry trigger no honest predicate: it would either never fire on a crash or fire on
-// every clean exit. `crashed|killed` is that trigger's whole domain
-// (`coord.py#DAEMON_RETRY_FROM_OUTCOMES`).
+// every clean exit. (The trigger that read this pair — coord's daemon self-grant — is DELETED with
+// the rest of the grant machinery, D12 2026-08-20; the narrowing stands on its own.)
 //
 // ── WHERE DONE-NESS LIVES NOW (W2) ────────────────────────────────────────────────────────────
 //

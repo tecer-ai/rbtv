@@ -4327,7 +4327,7 @@ def render_taskforce_rows(plan: dict) -> None:
     # SEAT (D24 / roles sitting 3, 2026-08-20). A chair holds no workflow node,
     # so its id has NO mechanical consequence anywhere — nothing routes, wakes
     # or verdicts on it (`coord.py#is_staff_seat`, `staff_route_target`,
-    # `mint_staff_wake` all key on the seat NAME); the only other reader in the
+    # both key on the seat NAME); the only other reader in the
     # system is `coord.py#taskforce_ids`, a display accessor. Refusing the chair
     # over a value nothing reads left the flagship goal — two taskforces —
     # permanently unstaffable, which is the exact empty-chair defect the staff
