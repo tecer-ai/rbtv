@@ -19,7 +19,7 @@ Allow-list (bwrap, fail-closed if `bwrap` is missing — D59):
 
 Wall-control surfaces stay file-level RO: `seat.md` and `coordination/permission-edits.csv`. Those are the fence holding its own posts, not forgery-prevention.
 
-**PID namespace is gone.** The fence unshares user/ipc/uts/cgroup, not pid. In-cage `/proc` shows **host pids**, so `coord.py`'s liveness reads (`sessions_sitting_id` / `ident_is_live_process`) are true. **Accepted consequence:** a seat can see and signal host processes. The threat model is filesystem writes outside `goals/`, not process isolation. Do not build a mitigation.
+**PID namespace is gone.** The fence unshares user/ipc/uts/cgroup, not pid. In-cage `/proc` shows **host pids**, so `coord.py`'s liveness read (`ident_is_live_process`) is true. **Accepted consequence:** a seat can see and signal host processes. The threat model is filesystem writes outside `goals/`, not process isolation. Do not build a mitigation.
 
 **Secrets (D13).** The agent cannot read the key; the tool can. Env files are never bound into a fence. The launcher/daemon reads the env file and starts the **TOOL process** with `EnvironmentFile=` (`carrier.js#buildSystemdRunArgs`). `--setenv` is the never-secret channel (PATH / `IGNITE_GATEWAY_ADDR` only — F1). Agents never read envs. No broker, no gate, no capability-request dance. The fire-tool composition site currently hardcodes `envFile: null` (`server/ticker/ticker.js`); wiring a tool-declared env file onto that site is ticker custody, not this fence change.
 
