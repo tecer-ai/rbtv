@@ -108,8 +108,28 @@ capture('probe-spawn-refresh', async (lines) => {
     lines.push(`ok    ARM A: catalog edited after materialize -> seat.md md5 ${before.slice(0, 12)} -> ${after.slice(0, 12)}, `
       + `carries ${MARK}, and it landed BEFORE the first reader (the launch threw ${threw} out of launchSpecForSeat)`);
 
+    // ── ARM A2: THE HEADLESS DOOR, which is the one production actually uses ──
+    // D37 names `spawnSeat()` "the single launch route". MEASURED on the live daemon
+    // 2026-08-20 17:03/17:08: `server/index.js` routes to `spawnSeat` ONLY for
+    // `sessionMode === 'headed'`, and every reconcile/ticker seat launch on both production
+    // goals is HEADLESS — so a hook on `spawnSeat` alone fires on nothing. This arm is the one
+    // that would have caught that, and it is why it exists.
+    const MARK2 = 'REFRESHED-VIA-HEADLESS-DOOR';
+    fs.writeFileSync(rolePath, fs.readFileSync(rolePath, 'utf8').replace(MARK, MARK2));
+    const hBefore = md5(sheet);
+    let hThrew = null;
+    try {
+      await ctx.mgr.spawn('probe-refresh-h', 'headless', null, seatDir, 'probe');
+    } catch (err) { hThrew = err.code || err.message; }
+    const hMarked = fs.readFileSync(sheet, 'utf8').includes(MARK2);
+    if (md5(sheet) === hBefore || !hMarked) {
+      throw new Error(`ARM A2 FAILED — the HEADLESS door did not refresh (md5 unchanged=${md5(sheet) === hBefore}, mark=${hMarked}, threw ${hThrew})`);
+    }
+    lines.push(`ok    ARM A2: the HEADLESS door refreshes too — seat.md now carries ${MARK2} `
+      + `(the launch threw ${hThrew} out of its own first reader). This is the door every live seat launch takes.`);
+
     // ── ARM A-control: a DRY RUN refreshes nothing ──
-    fs.writeFileSync(rolePath, fs.readFileSync(rolePath, 'utf8').replace(MARK, 'DRYRUN-MARK-MUST-NOT-LAND'));
+    fs.writeFileSync(rolePath, fs.readFileSync(rolePath, 'utf8').replace(MARK2, 'DRYRUN-MARK-MUST-NOT-LAND'));
     const dryBefore = md5(sheet);
     try {
       await ctx.mgr.spawnSeat('probe-refresh-2', { room: null, seatName: 'alpha', seatDir, dryRun: true });

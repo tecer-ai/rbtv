@@ -586,8 +586,11 @@ function refreshSeatDescriptor(seatDir, log) {
   const say = (reason) => log('warn', 'spawn: descriptor refresh skipped', {
     seat: path.basename(seatDir), seatDir, reason: String(reason).slice(0, 400),
   });
-  const seatPath = parseSeatPath(seatDir);
-  if (!seatPath) return say('not a canonical seat folder — nothing to refresh');
+  // NOT APPLICABLE, and therefore SILENT: this door also carries dispatches whose workdir is
+  // not a seat folder at all, and a journal line per one of those is noise, not a signal.
+  const seatPath = seatDir ? parseSeatPath(path.resolve(seatDir)) : null;
+  if (!seatPath) return undefined;
+  if (!fs.existsSync(path.join(seatDir, 'seat.md'))) return undefined;
   const catalogRoot = catalogRootForSeat(seatDir);
   if (!catalogRoot) return say('the descriptor declares no `component:` — no catalog root to render from (goal-local seat)');
   let res;
@@ -1336,6 +1339,17 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
         { missingField: 'workdir', sessionMode },
       );
     }
+    // D37 — BEFORE THE FIRST READ, on THIS door too, and this door is the one production uses.
+    // The ruling names `spawnSeat()` "the single launch route"; MEASURED on the live daemon
+    // 2026-08-20 17:03/17:08, that is false — `server/index.js` routes to `spawnSeat` only when
+    // `sessionMode === 'headed'`, and every reconcile/ticker seat launch on both production goals
+    // is HEADLESS and lands here. This door reads `seat.md` three times below (the cast via
+    // `launchSpecForSeat`, the rung via `seatEffortRung`, and the file itself into the harness via
+    // `composeArgv`), so the refresh belongs ahead of all three exactly as it does at the other
+    // door. Same contract: never blocks, silent when the workdir is not a seat, and skipped on a
+    // dry run (this door has none — `dryRun` is `spawnSeat`'s parameter).
+    refreshSeatDescriptor(workdir, log);
+
     // ⚠ AND THE SEATLESS REFUSAL STILL OUTRANKS THE UNCAST ONE, on purpose. A workdir that is not
     // a seat folder AT ALL has no descriptor, so the cast resolution below would refuse it
     // `E_UNCAST_SEAT` — true, and the wrong thing to tell an operator: it sends him to cast a seat
