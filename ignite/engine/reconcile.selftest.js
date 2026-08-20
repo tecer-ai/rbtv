@@ -33,7 +33,7 @@ function writeSessions(goalFolder, rows) {
   // reconcile's old class-(c) parse read one, which is why it never fired (D32/D33a).
   const cols = ['session-id', 'seat', 'harness', 'native-session-id', 'workdir',
     'recorded', 'started', 'ended', 'pid', 'pid-starttime', 'tty', 'disposition',
-    'disposition-writer', 'execution', 'checkin', 'model'];
+    'disposition-writer', 'execution', 'checkin', 'model', 'hold-anchor'];
   const linesOut = [cols.join(',')];
   for (const r of rows) {
     linesOut.push(cols.map((c) => (r[c] == null ? '' : String(r[c]).replace(/,/g, ' '))).join(','));
@@ -284,8 +284,13 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     // the real coord.py flag spelling (`launch --only <seat> --declare-only <anchor>`), and must
     // no longer claim a CLEAR re-arms an ordinary relaunch.
     assert.ok(!/ordinary relaunch/.test(payload), `payload still promises an ordinary relaunch: ${payload}`);
+    // D42 · the payload must ALSO name the CRASHED row's own one-act door and the HOLD, and it
+    // keeps D39's CLEAR-is-two-acts text for cleared rows. A wake that offers only the cleared
+    // row's path is the F-3 defect: a tool advertising a return path that returns nothing.
     for (const needle of ['checker', 'unverified', 'runner', 'exited', 'rule-disposition',
-      'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH']) {
+      'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH',
+      'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT',
+      'rule-disposition <seat> --hold --anchor']) {
       assert.ok(payload.includes(needle), `leader payload never names ${needle}: ${payload}`);
     }
     assert.ok(!/^- `writer`/m.test(payload), `the by-name seat leaked into the leader payload: ${payload}`);
@@ -296,6 +301,53 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     store.close();
     closeHeartStore();
   }
+}
+
+// D42 · A RULED HOLD IS SKIPPED BY THE WATCHER, AND BY NOTHING ELSE.
+// `meet/issues.md#G-leader-0820-1748`: a held row was byte-identical to an unattended owed row,
+// so the leader was re-woken every 300s forever. The BEFORE/AFTER pair on ONE fixture is what
+// makes this a measurement — an arm that only ran the held case would pass against a scan that
+// dropped `unverified` rows for any reason at all.
+say('── D42: a leader HOLD leaves class A, and the row is otherwise untouched ──');
+{
+  const goalFolder = fixtureSplit();
+  const before = deriveOwed(goalFolder);
+  assert.ok(before.classA.some((r) => r.seat === 'checker' && r.disposition === 'unverified'),
+    `control: the unheld row is owed to start with: ${JSON.stringify(before.classA)}`);
+  assert.ok(before.classA.some((r) => r.seat === 'runner' && r.disposition === 'exited'),
+    'control: the crashed row is owed to start with');
+
+  // The ONE thing that moves: the hold cell on `checker`. Its disposition stays `unverified`.
+  const csv = path.join(goalFolder, 'sessions.csv');
+  const lines = fs.readFileSync(csv, 'utf8').split('\n');
+  const cols = lines[0].split(',');
+  const at = cols.indexOf('hold-anchor');
+  assert.ok(at >= 0, 'the fixture header carries hold-anchor');
+  for (let i = 1; i < lines.length; i += 1) {
+    if (!lines[i].trim()) continue;
+    const cells = lines[i].split(',');
+    if (cells[cols.indexOf('seat')] !== 'checker') continue;
+    while (cells.length < cols.length) cells.push('');
+    cells[at] = 'p-leader-0820-1748';
+    lines[i] = cells.join(',');
+  }
+  fs.writeFileSync(csv, lines.join('\n'));
+
+  const after = deriveOwed(goalFolder);
+  assert.ok(!after.classA.some((r) => r.seat === 'checker'),
+    `the HELD row is still owed: ${JSON.stringify(after.classA)}`);
+  assert.ok(after.classA.some((r) => r.seat === 'runner' && r.disposition === 'exited'),
+    `the hold leaked past its own row: ${JSON.stringify(after.classA)}`);
+  // The cell the hold must NOT have touched — `ready-seats` blocks the successors off this value.
+  const reread = fs.readFileSync(csv, 'utf8').split('\n').filter((l) => l.trim());
+  const rcols = reread[0].split(',');
+  const held = reread.slice(1).map((l) => Object.fromEntries(l.split(',').map((v, i) => [rcols[i], v])))
+    .find((r) => r.seat === 'checker');
+  assert.strictEqual(held.disposition, 'unverified');
+  assert.strictEqual(held['disposition-writer'], 'seat');
+  assert.strictEqual(held['hold-anchor'], 'p-leader-0820-1748');
+  say(`ok  checker HELD -> out of class A (${after.classA.length} owed, was ${before.classA.length}); `
+    + `disposition still '${held.disposition}'`);
 }
 
 say('── dead seats excluded ──');

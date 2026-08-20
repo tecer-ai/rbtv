@@ -2472,7 +2472,23 @@ def arm_pid_reaper(idents, delay=4):
 # "no model".
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
                  "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
-                 "disposition-writer", "execution", "checkin", "model"]
+                 "disposition-writer", "execution", "checkin", "model",
+                 # D42 (owner, 2026-08-20) — THE LEADER'S HOLD ANCHOR. APPENDED, NEVER INSERTED,
+                 # for `widen_header`'s own reason: a freshly-born file and a widened legacy file
+                 # must agree on column order.
+                 #
+                 # ⚠ IT IS NOT A GRANT AND NOT A LATCH, AND D12 IS INTACT. It authorizes nothing,
+                 # expires on nothing, suppresses no gate and nothing spends it. It records ONE
+                 # fact: that the `leader` INVESTIGATED this non-terminal row and ruled that it
+                 # STAYS AS IT IS. Written by `rule-disposition --hold`, RELEASED by the next real
+                 # ruling on the same row, and read by exactly one consumer — the goal watcher's
+                 # class-A owed scan (`engine/reconcile.js#deriveOwed`), which stops re-waking the
+                 # leader every cadence on a row that leader has already ruled on. `ready-seats`
+                 # still reports the row's REAL class and it still blocks its successors.
+                 "hold-anchor"]
+# The one name for that column. Three readers spell it, and a fourth spelling is how a hold
+# becomes invisible to the surface meant to show it.
+HOLD_ANCHOR_COL = "hold-anchor"
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -2627,7 +2643,11 @@ def validate_disposition(disposition, writer):
     # NEVER A RECORDED ENDING. The leader's `rule-disposition` gained a second destination beside
     # `done`: the EMPTY cell, which CLEARS a row back to "nobody declared an ending". A CLEAR does
     # NOT re-seed the row — the daemon reads UNDECLARED as not-waitable — so the leader brings it
-    # back itself with `launch --only <seat> --declare-only <anchor>` (D39: two acts, by design).
+    # back itself with `launch --only <seat> --declare-only <anchor>`, a session that DECLARES the
+    # ending (D39: two acts, by design). ⚠ D42: that is the CLEARED row's door and it is not a
+    # re-run. A CRASHED (`exited`) row is re-run in ONE act with `launch --only <seat> --rerun
+    # <anchor>` and is never cleared first — the CLEAR would destroy the `exited` word, which is
+    # the run's only record of how that session ended.
     # It is admitted HERE, at the one boundary, and
     # for the LEADER ALONE — never by a caller bypassing this function, which is the edit the whole
     # boundary exists to prevent. It is deliberately NOT a key of `RECORD_DISPOSITION_WRITER`: that
@@ -3855,8 +3875,11 @@ def restarter_prompt(w, args, why):
 # refusing them. The transition is unchanged in kind — an INVESTIGATED row becomes what the
 # investigation found — and the DESTINATIONS are `done` (the anchor must quote the on-disk
 # evidence) and the EMPTY cell (CLEAR, which records "no ending declared" — the daemon reads that
-# as UNDECLARED/not-waitable and never re-seeds it, so the leader relaunches the row itself with
-# `launch --only <seat> --declare-only <anchor>`: two acts, by design (D39)).
+# as UNDECLARED/not-waitable and never re-seeds it, so the leader brings the row back itself with
+# `launch --only <seat> --declare-only <anchor>` — a session that DECLARES the ending: two acts, by
+# design (D39). ⚠ D42: a CRASHED (`exited`) row does NOT go through a CLEAR at all. Its door is
+# `launch --only <seat> --rerun <anchor>`, ONE act, which opens an ordinary working session and
+# leaves the `exited` row standing to be superseded).
 # So this verb admits four from-states and no fifth: `exited`, an EMPTY cell, `unverified`,
 # `incomplete`.
 #
@@ -3892,7 +3915,7 @@ def restarter_prompt(w, args, why):
 RULED_FLIP_FROM = "exited"
 RULED_FLIP_FROM_STATES = (RULED_FLIP_FROM, "", "unverified", "incomplete")
 
-def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
+def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False, hold=None):
     """Record a RULED disposition on `seat`'s LAST session row, which must ALREADY BE ENDED.
 
     Returns `(session_id, from_state, "")` on a write and `("", from_state, reason)` on a refusal —
@@ -3911,11 +3934,23 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
     it from the mapping it is then checked against would be a guard that cannot fire. The CALL SITE
     declares which side is writing; `validate_disposition` — the ONE copy of the writer model —
     decides whether that side may. This function holds no copy of the model and no opinion about
-    which writers exist."""
+    which writers exist.
+
+    ⚠ D42 — `hold` IS A THIRD MODE OVER THE SAME PREDICATE, NEVER A SECOND COPY OF IT. Pass a
+    non-empty anchor string and this records the `leader`'s HOLD on the row: the SAME four
+    from-states are admitted, the SAME ENDED/open refusals run, and the `disposition` cell is
+    LEFT EXACTLY AS IT IS — the leader never retypes the row's current word, because retyping is
+    how a wrong value gets written. `hold=None` is the ordinary ruling, and it RELEASES any hold on
+    the row in the same act, so no stale hold can survive a ruling."""
     # FIRST, and before the file is even opened: an out-of-enum value or a writer reaching across
     # the bound is a caller contract breach, and it RAISES (R-8) rather than being reported as one
     # more refusable row state. The two failures are different in kind and must stay so.
-    validate_disposition(disposition, writer)
+    #
+    # D42: A HOLD WRITES NOTHING INTO THE DISPOSITION CELL, so there is no destination to validate
+    # and nothing for the writer model to have an opinion about. The boundary is not weakened — it
+    # is not REACHED, because no ending is being recorded.
+    if hold is None:
+        validate_disposition(disposition, writer)
     path = sessions_csv(pkg)
     if not path.exists():
         return "", "", (f"no `sessions.csv` under {pkg} — this run has no session trace at all, so "
@@ -3963,13 +3998,65 @@ def session_rule_disposition(pkg, base, seat, disposition, writer, dry=False):
                         f"and a row under a contrary standing anchor is "
                         f"outside the grant — this verb checks NEITHER of those: it reads a cell, "
                         f"not a judgment, and the leader carries both. Nothing was written")
+        if HOLD_ANCHOR_COL not in idx:
+            return "", current, (f"this `sessions.csv` carries no `{HOLD_ANCHOR_COL}` column and "
+                        f"the widen did not add one, so a hold could neither be recorded nor "
+                        f"released. Nothing was written")
         if dry:
             return target[idx["session-id"]].strip(), current, ""
-        target[idx["disposition"]] = disposition
-        if "disposition-writer" in idx:
-            target[idx["disposition-writer"]] = writer
+        if hold is not None:
+            # THE HOLD. The `disposition` and `disposition-writer` cells are NOT TOUCHED — that is
+            # the whole point: `ready-seats` must keep reporting the row's real class and keep
+            # blocking its successors, and only the WATCHER's re-wake changes.
+            target[idx[HOLD_ANCHOR_COL]] = hold
+        else:
+            target[idx["disposition"]] = disposition
+            if "disposition-writer" in idx:
+                target[idx["disposition-writer"]] = writer
+            # D42 — RULING THE ROW FOR REAL RELEASES THE HOLD, IN THE SAME ACT. A hold is a
+            # statement that the row stays as it is; the moment it does not, the statement is
+            # spent. Leaving it would leave a row the watcher ignores for a reason that no longer
+            # holds — which is the invisible-ruling defect the hold exists to fix, facing the
+            # other way.
+            target[idx[HOLD_ANCHOR_COL]] = ""
         write_csv_table(path, header, rows)
         return target[idx["session-id"]].strip(), current, ""
+
+
+def sessions_last_ended_rows(pkg):
+    """{seat: {column: value}} — every seat's LAST ENDED session row, WHOLE, in ONE read.
+
+    D42: THE ROW SELECTION MOVED HERE AND STAYED ONE COPY. `sessions_last_ended` (below) is now a
+    projection of this, so the "LAST IN FILE ORDER" rule argued in its docstring is stated once and
+    every caller that needs a column those two cells do not carry — `disposition-writer` for the
+    re-run door, `hold-anchor` for the hold — reads THE SAME selected row rather than re-selecting
+    it with a second, subtly different rule.
+
+    Cells are returned STRIPPED, exactly as the projection has always returned them. Same
+    can-not-answer contract: `{}` for no `sessions.csv` and for a header predating dag-09."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return {}
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", "ended", "disposition"} <= set(idx):
+        return {}
+    out = {}
+    for r in rows:
+        pad_row(r, header)
+        seat = r[idx["seat"]].strip()
+        if seat and r[idx["ended"]].strip():
+            out[seat] = {c: r[i].strip() for c, i in idx.items() if i < len(r)}
+    return out
+
+
+def last_ended_pairs(rows):
+    """{seat: (session-id, disposition)} from `sessions_last_ended_rows`' output.
+
+    ONE derivation, shared by `sessions_last_ended` and by `ready_seat_rows`' single hoisted read,
+    so the hoist can carry the WHOLE row without paying for a second read of the file — and without
+    the two answers being able to straddle a concurrent append."""
+    return {s: (r.get("session-id", ""), r.get("disposition", "")) for s, r in rows.items()}
 
 
 def sessions_last_ended(pkg):
@@ -3991,21 +4078,7 @@ def sessions_last_ended(pkg):
     Returns {} on every surface that cannot answer — no `sessions.csv`, or a header predating
     dag-09 with no `disposition` column — which keeps `None`/absent meaning UNKNOWN in both
     readers rather than manufacturing a value neither file asserted."""
-    path = sessions_csv(pkg)
-    if not path.exists():
-        return {}
-    header, rows = read_csv_table(path, SESSIONS_COLS)
-    idx = {c: i for i, c in enumerate(header)}
-    if not {"seat", "ended", "disposition"} <= set(idx):
-        return {}
-    out = {}
-    for r in rows:
-        pad_row(r, header)
-        seat = r[idx["seat"]].strip()
-        if seat and r[idx["ended"]].strip():
-            out[seat] = (r[idx["session-id"]].strip() if "session-id" in idx else "",
-                         r[idx["disposition"]].strip())
-    return out
+    return last_ended_pairs(sessions_last_ended_rows(pkg))
 
 
 def sessions_open_ids(pkg):
@@ -13741,7 +13814,10 @@ def ready_seat_rows(args):
     # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
     # `session_disposition` are answering about THE SAME selected row rather than two reads that
     # could straddle a concurrent append.
-    last_ended = sessions_last_ended(pkg)
+    # D42: the hoist now reads the WHOLE row and PROJECTS the pair, so the hold cell and the
+    # disposition cell come from THE SAME selected row and the file is still read exactly once.
+    last_ended_rows = sessions_last_ended_rows(pkg)
+    last_ended = last_ended_pairs(last_ended_rows)
     undeclared = undeclared_endings(pkg, last_ended=last_ended)
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
@@ -13922,6 +13998,13 @@ def ready_seat_rows(args):
         _rn_state, _rn_why = (renewal_state(base, seat, lifecycle=lifecycle)
                               if value == "renew" else (None, ""))
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
+               # D42: present on EVERY row (`""` when unheld), same rule and same reason as
+               # `undeclared-session` and `row-outcome` below — a key that appears only when it
+               # fires cannot be rendered as a term, and `--explain` must show the clean value too.
+               # ⚠ IT IS NOT A TERM OF THE VERDICT and must never become one: a held row keeps its
+               # real class and keeps blocking its successors. The ONE consumer is the goal
+               # watcher's owed scan.
+               HOLD_ANCHOR_COL: (last_ended_rows.get(seat, {}).get(HOLD_ANCHOR_COL) or "").strip(),
                # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
                # rule and the same reason as `undeclared-session`, `row-outcome`, `unmet-after` and
                # `relaunch-grant` below: a key that appears only when it fires cannot be read as a
@@ -14910,11 +14993,16 @@ def staff_mail_body(args, seat, value, entry, sid):
         "This is the failure path. Triage it on evidence YOU observe — an unclean exit says how a "
         "SESSION ended and nothing about whether the WORK finished — then take exactly one "
         "disposition: FIX AND RELAUNCH, ROUTE to the seat that authored the instruction, ANSWER, "
-        "or ESCALATE. Never relabel this row by hand or without an investigation — the ONE "
-        "sanctioned act is `rule-disposition " + seat + " done --anchor <anchor quoting the "
+        "or ESCALATE. Never relabel this row by hand or without an investigation — the sanctioned "
+        "acts are `rule-disposition " + seat + " done --anchor <anchor quoting the "
         "on-disk evidence> --go` (or destination `\"\"` to CLEAR the row back to no-ending-declared "
-        "— which does NOT re-seed it: you bring it back with `launch --only " + seat + " "
-        "--declare-only <anchor>`, D39), recorded as a ruling line (D33(b)).",
+        "— which does NOT re-seed it: you bring a CLEARED row back with `launch --only " + seat + " "
+        "--declare-only <anchor>`, a session that DECLARES the ending, D39), recorded as a ruling "
+        "line (D33(b)); `rule-disposition " + seat + " --hold --anchor <a> --go` if the row must "
+        "STAY AS IT IS for now (the cell keeps its value and the watcher stops re-waking you on "
+        "it, D42); and, where the harness simply DIED and the work must RUN AGAIN, "
+        "`launch --only " + seat + " --rerun <anchor>` — ONE act, an ordinary working session, "
+        "and the `exited` row stays on the record (D42).",
     ])
 
 
@@ -15355,10 +15443,20 @@ def cmd_rule_disposition(args):
     and nobody has ruled. The destinations are `done` — whose `--anchor` must QUOTE THE ON-DISK
     EVIDENCE the investigation found — and `""` (the empty string), which CLEARS the row back to
     "no ending declared". A CLEAR does NOT re-seed the row: the daemon reads UNDECLARED as
-    not-waitable, so the leader brings a cleared row back itself with
-    `launch --only <seat> --declare-only <anchor>` — two acts, by design (D39). A `done` row
+    not-waitable, so the leader brings a CLEARED row back itself with
+    `launch --only <seat> --declare-only <anchor>` — a session that DECLARES the ending: two acts,
+    by design (D39). ⚠ D42 — A CRASHED (`exited`) ROW IS NOT CLEARED AT ALL. Its door is
+    `launch --only <seat> --rerun <anchor>`: ONE act, an ordinary working session, and the
+    `exited` word stays on the record to be superseded. A `done` row
     stays unrulable: its own writer filled it and its edge already advanced. Nothing grant-shaped
-    was added (D12 intact) and `--anchor` is still mandatory.
+    was added (D12 intact) and `--anchor` is still mandatory on every act.
+
+    ⚠ D42 — `--hold`. A ruled HOLD used to be byte-identical to an unattended owed row, so the goal
+    watcher re-woke the leader on it every cadence forever (`meet/issues.md#G-leader-0820-1748`,
+    measured 17:37/17:43/17:48, identical output). `--hold` records the ruling WITHOUT changing the
+    disposition cell: the row keeps its class, keeps blocking its successors and stays rulable, and
+    only the watcher's re-wake stops. The next real ruling on the row releases the hold in the same
+    act.
 
     ⚠ D12 (2026-08-20) — `--go` WRITES `sessions.csv` DIRECTLY. It used to mint a row into
     `coordination/disposition-grants.csv` for the uncaged daemon to drain, for exactly one reason:
@@ -15375,9 +15473,49 @@ def cmd_rule_disposition(args):
     pkg = package_dir(args)
     base = base_dir(args)
     seat = args.seat
-    disposition = args.disposition
+    disposition = getattr(args, "disposition", None)
     go = bool(getattr(args, "go", False))
+    hold = bool(getattr(args, "hold", False))
     anchor = (getattr(args, "anchor", None) or "").strip()
+    # ⚠ D42 — `--hold` AND A DESTINATION ARE MUTUALLY EXCLUSIVE, and the positional became OPTIONAL
+    # for exactly that reason: a leader holding a row must NEVER have to retype the word the row
+    # already carries, because retyping is how a wrong value gets written into the one cell this
+    # whole verb exists to protect.
+    if hold and disposition is not None:
+        refuse("input",
+               f"--hold records that the row STAYS AS IT IS, so it takes no destination — and "
+               f"`{disposition}` is one. Retyping the row's current word is how a wrong value gets "
+               f"written, which is why the positional is optional here.\n"
+               f"Hold it:  {coord_invocation(args)} rule-disposition {seat} --hold "
+               f"--anchor <p-*/d-*> --go\n"
+               f"Rule it:  {coord_invocation(args)} rule-disposition {seat} {disposition} "
+               f"--anchor <p-*/d-*> --go",
+               2)
+    # D42 — NO DESTINATION AND NO `--hold` IS A PURE REPORT. It writes nothing, so it needs no
+    # anchor: `--anchor` is the trail on an ACT and there is no act here. It exists so that a HOLD
+    # IS VISIBLE TO A READER — a hold nobody can see is the same defect as the invisible ruling it
+    # was built to fix, facing the other way.
+    if not hold and disposition is None:
+        _rd_row = sessions_last_ended_rows(pkg).get(seat)
+        if _rd_row is None:
+            refuse("state",
+                   f"'{seat}' has no ENDED session row in this package, so there is nothing to "
+                   f"report on and nothing to rule.\n"
+                   f"Read the seat: {coord_invocation(args)} ready-seats --explain {seat}", 1)
+        _rd_cur = _rd_row.get("disposition", "")
+        _rd_hold = (_rd_row.get(HOLD_ANCHOR_COL) or "").strip()
+        _rd_carried = f"`{_rd_cur}`" if _rd_cur else "an EMPTY disposition cell (nobody declared one)"
+        _rd_held = (f"HELD by the leader, anchor `{_rd_hold}` — the goal watcher SKIPS this row, so "
+                    f"you are not re-woken on it. It still blocks its successors and it is still "
+                    f"rulable at any time"
+                    if _rd_hold else "none — this row is unheld")
+        print(f"{c(seat, C_LABEL)}  last ENDED row "
+              f"{_rd_row.get('session-id') or '(no session id)'} carries {_rd_carried} "
+              f"(writer `{_rd_row.get('disposition-writer') or '(none)'}`)")
+        print(f"    hold: {_rd_held}")
+        print("    (report only — nothing was written. Name a destination to rule it, or "
+              "`--hold --anchor <a> --go` to hold it.)")
+        return
     if not anchor:
         refuse("input",
                "--anchor is the leader's own ruling anchor and carries the trail; an empty one "
@@ -15388,8 +15526,10 @@ def cmd_rule_disposition(args):
     # THE DRY PASS RUNS EVERY CHECK the acting pass runs, so a `--go` can never accept what a bare
     # run refused — one predicate, two callers.
     try:
-        sid, from_state, why = session_rule_disposition(pkg, base, seat, disposition,
-                                                        DISPOSITION_WRITER_LEADER, dry=True)
+        sid, from_state, why = session_rule_disposition(pkg, base, seat,
+                                                        "" if hold else disposition,
+                                                        DISPOSITION_WRITER_LEADER, dry=True,
+                                                        hold=anchor if hold else None)
     except ValueError as exc:
         refuse("input", f"{exc}\nThat is the writer model's own refusal, read at the moment of "
                         f"the write — this command carries no copy of it.", 2)
@@ -15405,13 +15545,21 @@ def cmd_rule_disposition(args):
         # D33(b): the CLEAR destination is the EMPTY STRING, and a bare `` in this line would
         # read as a rendering bug. Named in words, exactly as the empty FROM-cell above is.
         _dest = f"`{disposition}`" if disposition else "an EMPTY cell (CLEAR)"
-        print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and carries "
-              f"{carried}, and {_dest} is admitted from the leader.")
+        if hold:
+            # D42: a HOLD names no destination, so the RULABLE sentence would have to invent one.
+            print(f"{c(seat, C_LABEL)}  HOLDABLE — its last session row ({sid}) is ENDED and "
+                  f"carries {carried}, and a leader HOLD is admitted on it. The disposition cell "
+                  f"KEEPS that value; the only thing that changes is that the goal watcher stops "
+                  f"re-waking you on this row.")
+        else:
+            print(f"{c(seat, C_LABEL)}  RULABLE — its last session row ({sid}) is ENDED and "
+                  f"carries {carried}, and {_dest} is admitted from the leader.")
         print("    (report only — nothing was written. Re-run with --go to write it.)")
         return
     try:
         wrote_sid, _from_state, why = session_rule_disposition(
-            pkg, base, seat, disposition, DISPOSITION_WRITER_LEADER, dry=False)
+            pkg, base, seat, "" if hold else disposition, DISPOSITION_WRITER_LEADER, dry=False,
+            hold=anchor if hold else None)
     except (ValueError, OSError) as exc:
         refuse("state",
                f"{seat}: the ruling was NOT written to sessions.csv "
@@ -15421,11 +15569,25 @@ def cmd_rule_disposition(args):
                f"{seat}: the ruling was NOT written — "
                f"{why or ('the row moved under this command; it now ends at ' + (wrote_sid or '(none)'))}"
                f". Nothing changed.", 1)
+    if hold:
+        # D42 — NOTHING ELSE MOVED. `awaiting-close.json` is NOT re-pointed: that surface carries
+        # the row's DISPOSITION, and a hold changed none.
+        print(f"{c(seat, C_LABEL)}  HELD on session {sid} — the disposition cell is UNCHANGED "
+              f"(`{from_state or '(empty)'}`)")
+        print(f"    sessions.csv: {HOLD_ANCHOR_COL} `{anchor}`; `disposition` and "
+              f"`disposition-writer` were NOT touched")
+        print(c(f"\nTHE ROW STAYS AS IT IS. `{coord_invocation(args)} ready-seats` still reports "
+                f"its real class and it still blocks its successors — what stops is the goal "
+                f"watcher waking you on this row every cadence. Rule it for real when the lifting "
+                f"condition fires (`{coord_invocation(args)} rule-disposition {seat} done "
+                f"--anchor <a> --go`); that ruling RELEASES the hold in the same act.", C_HINT))
+        return
     _rad = rule_awaiting_disposition(base, seat, disposition, DISPOSITION_WRITER_LEADER)
     print(f"{c(seat, C_LABEL)}  RULED "
           f"{('`' + disposition + '`') if disposition else 'CLEAR (empty cell)'} on session {sid}")
     print(f"    sessions.csv: disposition `{disposition}` from `{from_state or '(empty)'}`, "
-          f"writer `{DISPOSITION_WRITER_LEADER}`, anchor `{anchor}`")
+          f"writer `{DISPOSITION_WRITER_LEADER}`, anchor `{anchor}` "
+          f"(and any leader HOLD on this row is RELEASED by this ruling — D42)")
     print(f"    awaiting-close.json: {_rad}")
     print(c(f"\nBOTH SURFACES, ONE VALUE — the durable cell is written and after-edges advance on "
             f"it now ({coord_invocation(args)} ready-seats). The anchor is the leader's own "
@@ -15587,6 +15749,17 @@ def cmd_ready_seats(args):
         print(f"  last ended session declared an ending                -> {_u is None}"
               + (f"   ⚠ `{_u}` ENDED with an EMPTY disposition — work CONCLUDED, ending never "
                  f"declared. Defect -> `leader`, NOT a relaunch" if _u else ""))
+        # D42: rendered on EVERY seat, `-> True` being the term CLEARING — same rule as the line
+        # above. ⚠ IT IS NOT A TERM OF THE VERDICT: the line reports a FACT ABOUT THE ROW, and the
+        # verdict printed at the top is computed without it. A held row blocks exactly what it
+        # blocked before; what a hold changes is the goal watcher, which stops re-waking the leader.
+        _hold = (rec.get(HOLD_ANCHOR_COL) or "").strip()
+        print(f"  no leader HOLD on the last ended row                  -> {not _hold}"
+              + (f"   ⚠ HELD by the leader, anchor `{_hold}` — the leader INVESTIGATED this row "
+                 f"and ruled it STAYS AS IT IS, so the goal watcher skips it and stops re-waking "
+                 f"the leader on it. It still BLOCKS its successors and it is still rulable: "
+                 f"`rule-disposition {rec['seat']} <destination> --anchor <a> --go` releases the "
+                 f"hold in the same act" if _hold else ""))
         # 7.224: rendered on EVERY seat, not only the ones it trips — same rule as the line above,
         # same reason. The NOTE is always printed because "no stop-state" and "nothing was read"
         # are the two readings a reader must never have to guess between, and an unenumerated
@@ -16890,6 +17063,148 @@ def cmd_launch(args):
                 f"verified — no tool can check that an anchor names a real investigation): "
                 f"{_decl_anchor}", C_HINT))
 
+    # ⚠⚠ D42 (owner, 2026-08-20) — `--rerun <LEADER-ANCHOR>` IS A FOURTH, INDEPENDENT PARAMETER,
+    # AND IT IS NOT AN OVERRIDE. Everything the 7.251 wall above says about `--declare-only` says
+    # itself again here and is not repeated; what differs is the STATE it is bounded by and the ACT
+    # it admits, and those two differences are the whole instrument:
+    #
+    #   P3 (STATE) — the target's LAST ENDED row carries `exited` WRITTEN BY THE KIT. That is the
+    #       one ending nobody witnessed: `attest-exit` records THE HARNESS TERMINATED and nothing
+    #       about the work. `--declare-only`'s P3 is the opposite state (an EMPTY cell), so the two
+    #       instruments can never admit the same row and neither widens the other.
+    #   THE ACT — this admits an ORDINARY WORKING SESSION. The seat boots on its ordinary boot
+    #       prompt and does its job. That is legitimate here for the reason the 7.241 wall's harm
+    #       sentence gives and denies to every other class: "relaunching … re-runs work that
+    #       already CONCLUDED" — a crashed harness's work did NOT conclude, and no reader claims it
+    #       did. `exited` asserts termination, never completion, and NOTHING ANYWHERE MAPS IT TO
+    #       `done` (see `DISPOSITION_WRITER_SEAT`'s wall).
+    #
+    # ⚠ IT REWRITES NOTHING. The `exited` row is left exactly as it stands and is SUPERSEDED when
+    # the new session writes its own ended row — the same supersession model `--declare-only`
+    # already describes. No `rule-disposition` is required first, and that is deliberate (D42, on
+    # the live leader's own objection `meet/issues.md#G-leader-0820-1727`): a CLEAR would destroy
+    # the `exited` word, which is the run's ONLY record of how that session ended.
+    #
+    # ⚠ IT MINTS NO ROLE GATE. `launch` is already gated by `is_authorized_launcher` far above
+    # (the leader AND the ignite daemon); this act INHERITS that gate and adds no second one. The
+    # daemon simply never passes the flag. A second copy of the role model is the PRIN-11 defect
+    # this file argues against everywhere else.
+    #
+    # THE BARRED LIST IS UNTOUCHED AND STAYS UNTOUCHED: `--force` carries the ROLE gate alone,
+    # `--force-memory` the MEMORY gate alone, and neither admits an `exited` row — a reader who
+    # finds this parameter beside them and infers a family has inferred wrong. D12 is intact: no
+    # grant, no store, no flag file, no latch, no TTL, nothing to mint, lose or spend.
+    #
+    # ⚠ NO `--dry-run` TEST APPEARS ANYWHERE IN THIS BLOCK, for 7.251's reason and under its rule:
+    # the verdict, the text and the exit code are identical on both paths BY CONSTRUCTION. The
+    # 7.251 PARITY (construction) row slices this region out of the SOURCE and asserts the
+    # identifier is absent from it, so this block is held to that rule by the same assertion.
+    _rerun_raw = getattr(args, "rerun", None)
+    _rerun_anchor = (_rerun_raw or "").strip()
+    _rerun_admitted = False
+    if _rerun_raw is not None and not _rerun_anchor:
+        refuse(
+            "input",
+            "--rerun carries the `leader`'s own investigation anchor as its VALUE, and an empty "
+            "one would re-run a crashed seat citing nothing.\n"
+            f"Name it: {coord_invocation(args)} launch --only <seat> --rerun <leader-anchor>",
+            2)
+    if _rerun_anchor:
+        _rr_pkg = package_dir(args, register=False)
+        _rr_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
+        # P2 — exactly ONE seat, explicitly named. The anchor cites ONE investigation of ONE
+        # crashed session, so it cannot be spread over a set the caller did not name.
+        if not _rr_only:
+            refuse(
+                "state",
+                "--rerun admits ONE named seat, and no seat was named. It carries the `leader`'s "
+                "anchor for a SPECIFIC crashed session, so it cannot be applied to a set the "
+                "caller did not name.\n"
+                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                "--rerun <leader-anchor>",
+                1)
+        if len(_rr_only) > 1:
+            refuse(
+                "state",
+                f"--rerun admits ONE seat per invocation, and --only named {len(_rr_only)}: "
+                f"{', '.join(_rr_only)}.\nThe anchor you passed cites the `leader`'s "
+                "investigation of ONE crashed session; applying it to several would cite one "
+                "investigation as evidence for sessions it never examined.\n"
+                "Run it once per seat, each with that seat's own anchor.",
+                1)
+        _rt = _rr_only[0]
+        # P3 — THE STATE BOUND, and it is the branch that keeps this from being an override. It
+        # reads the ONE row-selection home (`sessions_last_ended_rows`) and adds no detector.
+        _rr_row = sessions_last_ended_rows(_rr_pkg).get(_rt)
+        if _rr_row is None:
+            refuse(
+                "state",
+                f"'{_rt}' has no ENDED session row in this package, so there is no crashed "
+                "session to re-run and --rerun has nothing to admit.\n"
+                f"A seat that has not ended is an ordinary launch candidate: "
+                f"{coord_invocation(args)} launch --only {_rt}\n"
+                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"ready-seats --explain {_rt}",
+                1)
+        _rr_disp = _rr_row.get("disposition", "")
+        _rr_writer = _rr_row.get("disposition-writer", "")
+        if _rr_disp != RULED_FLIP_FROM or _rr_writer != DISPOSITION_WRITER_KIT:
+            # ⚠ THE REFUSAL NAMES THE RIGHT DOOR FOR THE CLASS IT FOUND. Every other non-terminal
+            # ending already has an owner, and sending them all here would make this the fifth
+            # copy of a routing table the file already carries once.
+            _rr_door = {
+                "incomplete": ("the SEAT said its work is unfinished, and the goal watcher "
+                               "relaunches that class BY NAME on its own cadence (D33(a)) — this "
+                               "door is not it"),
+                "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
+                               f"That is a ruling, not a re-run: `{coord_invocation(args)} "
+                               f"rule-disposition {_rt} done --anchor <anchor quoting the on-disk "
+                               f"evidence> --go` (D33(b))"),
+                "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
+                     f"door's own instrument for it is `--declare-only <leader-anchor>`; the "
+                     f"ruling verb is `{coord_invocation(args)} rule-disposition {_rt} ... --go` "
+                     f"(D33(b))"),
+                "done": ("its own writer's word stands and its edge has already ADVANCED. There "
+                         "is nothing to re-run and no ruling grants a power to rewrite it"),
+            }.get(_rr_disp, f"`{_rr_disp}` is not a crashed ending and this door does not admit it")
+            refuse(
+                "state",
+                f"'{_rt}' last ENDED with disposition `{_rr_disp or '(empty)'}` written by "
+                f"`{_rr_writer or '(nobody)'}`, and --rerun admits EXACTLY ONE from-state: "
+                f"`{RULED_FLIP_FROM}` written by `{DISPOSITION_WRITER_KIT}` — the kit saying a "
+                f"harness TERMINATED with the work unknown.\n"
+                f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
+                f"caller intended. Here, {_rr_door}.\n"
+                f"Read the row: {coord_invocation(args)} ready-seats --explain {_rt}",
+                1)
+        # P4 — no LIVE pane already holds the name. `--declare-only`'s own composition, reused
+        # verbatim; this adds no detector and P37 remains the backstop at check-in.
+        _, _, _rr_rows = load_workers(base_dir(args))
+        _rr_prior = current_row(_rr_rows, _rt)
+        if (_rr_prior and _rr_prior.get("active") == "yes" and _rr_prior.get("pane")
+                and _rr_prior["pane"] in live_panes()):
+            refuse(
+                "state",
+                f"'{_rt}' is already checked in on pane {_rr_prior['pane']}, and tmux says that "
+                f"pane is still ALIVE — re-running it now would put two live sessions under one "
+                f"name (P37).\nNeither would see the other's messages (the unread filter is "
+                f"keyed on the name) and only the newest pane would receive wakes.\nConfirm the "
+                f"old session is dead first: inspect it with `tmux capture-pane -p -t "
+                f"{_rr_prior['pane']}`; if it is a zombie, kill it BY PANE ID (`tmux kill-pane -t "
+                f"{_rr_prior['pane']}`) — never by name — then retry.\n"
+                f"NO pane was opened.",
+                1)
+        # ADMITTED. P2 made the launch set exactly this one seat.
+        _rerun_admitted = True
+        print(c(f"  {_rt}: ADMITTED by --rerun — session `{_rr_row.get('session-id') or '?'}` "
+                f"ended `{RULED_FLIP_FROM}` (writer `{DISPOSITION_WRITER_KIT}`): the harness "
+                f"TERMINATED and the work is UNKNOWN, never finished. This admits an ORDINARY "
+                f"WORKING SESSION — the seat boots on its own boot prompt and does its job. The "
+                f"`{RULED_FLIP_FROM}` row is NOT rewritten, cleared or relabelled by this act: it "
+                f"stays on the record and is superseded when this session writes its own ended "
+                f"row.\n  trail (the `leader`'s anchor, recorded not verified — no tool can check "
+                f"that an anchor names a real investigation): {_rerun_anchor}", C_HINT))
+
     # ⚠⚠ BOUND BEFORE THE BRANCH, AND THE PLACEMENT IS THE FIX (`G-admission-predicate-prover-
     # 0803-0155`). The launch VERDICT far below reads `blocked` UNCONDITIONALLY —
     # `refused = refused + [w["agent"] for w in blocked]` — but the only assignment used to live
@@ -16924,10 +17239,13 @@ def cmd_launch(args):
                       f"investigate, NOT a relaunch instruction: only the occupant witnessed what "
                       f"its session meant, and no override flag expresses it — `--force` and "
                       f"`--force-memory` carry other gates and are barred from this one.\nThe "
-                      f"`leader` has exactly one instrument here, and it does not override this "
-                      f"verdict: `--declare-only <leader-anchor>` admits ONE named seat for a "
-                      f"session that DECLARES ITS OWN ENDING AND DOES NOTHING ELSE. It re-runs no "
-                      f"work, so the harm above does not apply to it.\nSee: "
+                      f"`leader` has exactly one instrument for THIS class, and it does not "
+                      f"override this verdict: `--declare-only <leader-anchor>` admits ONE named "
+                      f"seat so that the session it opens can DECLARE THAT ENDING. (D42: the "
+                      f"purpose is the caller's and the flag enforces nothing about it — what the "
+                      f"flag decides is ADMISSION of the UNDECLARED class. It is NOT the door for "
+                      f"a CRASHED seat: an `exited` row is re-run with `--rerun <leader-anchor>`.)"
+                      f"\nSee: "
                       f"{coord_invocation(args)} ready-seats --explain <seat>")
             if not workers:
                 refuse("state", detail + "\nNO pane was opened.", 1)
@@ -16971,6 +17289,9 @@ def cmd_launch(args):
     # ---- the filter: ADMIT(w), one row-level boolean, evaluated per worker -------------------
     #
     # ADMIT(w) == clause I  (`--declare-only` admitted, the landed sibling instrument)
+    #          or clause I2 (D42: `--rerun` admitted — the crashed-row door. It is the SAME shape
+    #                       as clause I and for the same reason: the boolean its own block already
+    #                       set is CONSULTED here, never re-tested, so one act keeps one mechanism)
     #          or clause J  (no row joined — fail-OPEN where it is REACHED, and NAMED)
     # D12 (2026-08-20): clause I′ — the ruled-relaunch GRANT — is DELETED. A checked-out seat comes
     # back through the goal watcher's owed-work launch (`engine/reconcile.js`), which enqueues
@@ -17005,7 +17326,7 @@ def cmd_launch(args):
     _adm_kept = []
     for w in workers:
         _adm_row = _adm_rows.get(w["agent"])
-        if (_declare_only_admitted or _adm_row is None
+        if (_declare_only_admitted or _rerun_admitted or _adm_row is None
                 or conjunction_admits(_adm_row)):
             _adm_kept.append(w)
             # THE TWO ADMITTED DISCLOSURES. An admission nobody can see is the same defect as a
@@ -17015,7 +17336,7 @@ def cmd_launch(args):
                         f"row joins this seat, so no term of the admission predicate could be "
                         f"evaluated for it. Admitting is the deliberate fail-OPEN direction: "
                         f"deferring would turn a join gap into a launch outage.", C_HINT))
-            elif not _declare_only_admitted:
+            elif not (_declare_only_admitted or _rerun_admitted):
                 # 7.280 (O3) · S-2 — THE ORDINARY ADMISSION, AND IT IS THE CASE NOBODY TESTS.
                 # Every other outcome at this door already speaks: three disclosures for the
                 # instrument and clause-J paths, one line per deferred seat, one refusal when the
@@ -17076,11 +17397,15 @@ def cmd_launch(args):
             f"`declared-incomplete` row BY NAME (D33(a)), and the LEADER resolves the rest with "
             f"`rule-disposition <seat> done --anchor <anchor quoting the on-disk evidence> --go` "
             f"(or destination `\"\"` to CLEAR the row back to no-ending-declared, which does NOT "
-            f"re-seed it — the leader relaunches a cleared row through this door's own "
-            f"`--declare-only <leader-anchor>`, D39) "
+            f"re-seed it — the leader brings a CLEARED row back through this door's own "
+            f"`--declare-only <leader-anchor>`, a session that DECLARES the ending, D39) "
             f"on any row carrying `exited`, `unverified`, `incomplete` or no disposition "
-            f"at all — D33(b). `--declare-only <leader-anchor>` remains this door's own one-seat "
-            f"instrument for an undeclared ending.\nSee: "
+            f"at all — D33(b). ⚠ `exit-unruled` HAS ITS OWN DOOR SINCE D42: a seat whose harness "
+            f"DIED mid-task is re-run here, in ONE act, with `--rerun <leader-anchor>` — an "
+            f"ordinary working session, no CLEAR first, and the `exited` row left standing. "
+            f"`--declare-only <leader-anchor>` remains this door's one-seat instrument for an "
+            f"UNDECLARED ending and is not a way back to WORK. A row that must simply WAIT is "
+            f"`rule-disposition <seat> --hold --anchor <a> --go`.\nSee: "
             f"{coord_invocation(args)} ready-seats --explain <seat>")
         if not workers:
             refuse("state", _adm_detail + "\nNO pane was opened.", 1)
@@ -22569,7 +22894,8 @@ def _selftest_checks(args, failures, names):
               "than placed beside `harness` so a freshly-born file and a widened legacy file agree "
               "on column order; the position is asserted because the whole append-only safety "
               "argument is what the placement buys",
-              SESSIONS_COLS.count("model") == 1 and SESSIONS_COLS[-1] == "model")
+              SESSIONS_COLS.count("model") == 1 and SESSIONS_COLS[-2:] == ["model",
+                                                                            HOLD_ANCHOR_COL])
         check("D19 ARM (b) — A LEGACY TRACE GAINS `model` THROUGH THE WIDEN, and the columns it "
               "already had DO NOT MOVE. Both halves are asserted: a widen that added the column by "
               "re-sorting into SESSIONS_COLS order would satisfy 'model is present' while "
@@ -24058,7 +24384,7 @@ def _selftest_checks(args, failures, names):
               "and run-2 already disagree on column ORDER, so a column placed 'logically' beside "
               "`started` would put a fresh file and a widened one on two different layouts",
               SESSIONS_COLS.count("checkin") == 1
-              and SESSIONS_COLS[-2:] == ["checkin", "model"])
+              and SESSIONS_COLS[-3:] == ["checkin", "model", "hold-anchor"])
 
         _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
         _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
@@ -24308,7 +24634,13 @@ def _selftest_checks(args, failures, names):
               "moment the admission landed, and a refusal that misdescribes its own tool is the "
               "lying-comment defect in the one place a blocked caller is looking",
               "--declare-only <leader-anchor>" in _do_plain
-              and "DECLARES ITS OWN ENDING AND DOES NOTHING ELSE" in _do_plain
+              # D42 (F-3): the old literal claimed the session "DOES NOTHING ELSE", which is the
+              # caller's PURPOSE and is enforced by nothing — the flag plumbs nothing into the
+              # pane. The refusal now states what the flag actually DECIDES, and it also names the
+              # crashed-row door so a blocked caller is not sent to the wrong instrument.
+              and "can DECLARE THAT ENDING" in _do_plain
+              and "--rerun <leader-anchor>" in _do_plain
+              and "DOES NOTHING ELSE" not in _do_plain
               and "are barred from this one" in _do_plain
               and "NO flag overrides it" not in _do_plain)
 
@@ -24491,6 +24823,333 @@ def _selftest_checks(args, failures, names):
               "after this block meets the state it was written against rather than inheriting "
               "an undeclared seat this block opened",
               "gamma" not in undeclared_endings(pkg))
+
+        # ==== D42: `--rerun` — THE CRASHED-ROW DOOR =========================================
+        # Escalation #655 (meet) measured SIX revival paths for a kit-written `exited` row and
+        # every one shut. These rows drive the seventh, and they are placed HERE because the
+        # 7.241/7.251 rows above already establish the two neighbouring states on the SAME seat in
+        # the SAME package — so each row below moves ONE thing against a proven control.
+        #
+        # ⚠ NO EXPECTED VALUE BELOW IS READ FROM THE CODE UNDER TEST: every substring is a
+        # spelled-out literal, so a check written in terms of the branch's own string cannot pass
+        # itself.
+        _d42_a = "p-655-crashy-investigated"
+
+        # ---- FROM-STATE REFUSALS FIRST, while the cell is still under this block's control. ----
+        # gamma is `done` right now (the postcondition above left it so).
+        _d42_done, _d42_done_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                           dry_run=True, rerun=_d42_a)
+        check("D42 R-DONE: `--rerun` on a `done` row is REFUSED — its own writer's word stands and "
+              "its edge has already advanced, so there is nothing to re-run. The door admits ONE "
+              "from-state and is not 'anything but done'",
+              _d42_done_code == 1
+              and "admits EXACTLY ONE from-state" in _d42_done
+              and "already ADVANCED" in _d42_done
+              and "[dry-run] gamma" not in _d42_done)
+        for _d42_w, _d42_disp, _d42_names, _d42_row in (
+                ("seat", "incomplete", "relaunches that class BY NAME", "R-INCOMPLETE"),
+                ("seat", "unverified", "rule-disposition gamma done", "R-UNVERIFIED"),
+                ("seat", "", "--declare-only <leader-anchor>", "R-EMPTY")):
+            session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+            session_close(ns(), "gamma", disposition=_d42_disp,
+                          writer=DISPOSITION_WRITER_SEAT)
+            _d42_o, _d42_c = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                    rerun=_d42_a)
+            check(f"D42 {_d42_row}: `--rerun` on a `{_d42_disp or '(empty)'}` row is REFUSED AND "
+                  f"NAMES THE RIGHT DOOR FOR THAT CLASS. Every non-terminal ending already has an "
+                  f"owner; a door that swallowed all four would be a fifth copy of a routing table "
+                  f"this file carries once",
+                  _d42_c == 1
+                  and "admits EXACTLY ONE from-state" in _d42_o
+                  and _d42_names in _d42_o
+                  and "[dry-run] gamma" not in _d42_o)
+
+        # ---- the two cardinality/existence refusals run while the registry is still EMPTY,
+        # ---- because `check_bindings` (G-51) refuses at exit 2 for a launched seat with no row
+        # ---- and would answer before this door ever did.
+        _d42_two, _d42_two_code = refuse(cmd_launch, agent="leader", only="gamma,beta",
+                                         dry_run=True, rerun=_d42_a)
+        check("D42 R-TWO: `--rerun` naming MORE THAN ONE seat is refused. One anchor cites ONE "
+              "investigation of ONE crashed session; applying it to several would cite that "
+              "investigation as evidence for sessions it never examined",
+              _d42_two_code == 1
+              and "admits ONE seat per invocation" in _d42_two
+              and "[dry-run] gamma" not in _d42_two)
+        # A descriptor minted for this one row and removed immediately: every other seat in this
+        # package has a session history by now, and "no ended row" is the state under test.
+        (pkg / "workers" / "d42norow.md").write_text(
+            "---\nagent: d42norow\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+        _d42_nr, _d42_nr_code = refuse(cmd_launch, agent="leader", only="d42norow",
+                                       dry_run=True, rerun=_d42_a)
+        (pkg / "workers" / "d42norow.md").unlink()
+        check("D42 R-NOROW: a target with NO ended session row is refused — there is no crashed "
+              "session to re-run, and the refusal routes to the ordinary launch instead of "
+              "inventing a state the file does not carry",
+              _d42_nr_code == 1 and "no ENDED session row" in _d42_nr)
+
+        # ---- the one admitted state: `exited`, WRITTEN BY THE KIT ----
+        # ⚠ THE REGISTRY IS WRITTEN FIRST, AND THAT IS WHAT MAKES THE PAIR BELOW NON-VACUOUS.
+        # With no `taskforce.csv` the admission filter's clause J fails OPEN on every seat, so a
+        # plain launch would admit the `exited` row and the CONTROL would be measuring nothing.
+        # The row states gamma's OWN descriptor bindings, so `check_bindings` agrees.
+        (pkg / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-d42,gamma,,opencode,zai-coding-plan/glm-5.2,high,,m0\n", encoding="utf-8")
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma", disposition="exited", writer=DISPOSITION_WRITER_KIT)
+        _d42_bytes_before = sessions_csv(pkg).read_bytes()
+
+        # ---- CONTROL: the plain launch of the SAME target STILL defers, with the class word.
+        _d42_plain, _d42_plain_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                             dry_run=True)
+        check("D42 R-CONTROL: with the instrument LANDED, the PLAIN relaunch of a kit-written "
+              "`exited` row STILL DEFERS with class `exit-unruled` and opens nothing. The general "
+              "gate is not weakened by the door, and the door is reachable only by asking for it — "
+              "without this row an instrument that quietly admitted everything would pass every "
+              "other check here",
+              _d42_plain_code == 1
+              and "NOT LAUNCHED — exit-unruled" in _d42_plain
+              and "[dry-run] gamma" not in _d42_plain)
+        _d42_f, _d42_f_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     force=True, force_memory=True)
+        check("D42 R-BARRED: and NO OVERRIDE CARRIES IT — `--force` AND `--force-memory` together "
+              "still leave the `exited` row deferred as `exit-unruled`. The barred list is "
+              "UNCHANGED by this addition (D12): `--rerun` is a FOURTH independent parameter and "
+              "confers nothing on either flag, nor they on it",
+              _d42_f_code == 1
+              and "NOT LAUNCHED — exit-unruled" in _d42_f
+              and "[dry-run] gamma" not in _d42_f)
+
+        # ---- the two cardinality refusals and the empty-anchor refusal ----
+        _d42_na, _d42_na_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                       rerun="   ")
+        check("D42 R-NOANCHOR: `--rerun` with an EMPTY value is refused at the INPUT layer (exit "
+              "2) and opens nothing. The anchor IS the instrument's trail, so an invocation "
+              "carrying none would re-run a crashed seat citing nothing",
+              _d42_na_code == 2
+              and "re-run a crashed seat citing nothing" in _d42_na
+              and "[dry-run] gamma" not in _d42_na)
+        # ---- R-1: THE ADMISSION, and the row it does NOT touch ----
+        _d42_ok, _d42_ok_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                       rerun=_d42_a)
+        check("D42 R-1: `--rerun <anchor>` ADMITS the crashed target and the launch proceeds. "
+              "Paired with R-CONTROL above the seat, the package and every other flag are "
+              "identical and the FLAG is the only thing that moved — so this admits a CLASS "
+              "rather than admitting everybody, and the control proves the gate still defers",
+              _d42_ok_code == 0
+              and "ADMITTED by --rerun" in _d42_ok
+              and "[dry-run] gamma" in _d42_ok)
+        check("D42 R-1 (TRAIL + ACT): the banner names the seat, quotes the leader's anchor, and "
+              "says in words that this is an ORDINARY WORKING SESSION — the F-3 defect was a tool "
+              "advertising a return path that returned nothing, and a banner that did not say "
+              "which of the two it opens would re-open it",
+              f"trail (the `leader`'s anchor" in _d42_ok
+              and _d42_a in _d42_ok
+              and "ORDINARY WORKING SESSION" in _d42_ok
+              and "is NOT rewritten, cleared or relabelled" in _d42_ok)
+        check("D42 R-1 (THE ROW IS UNTOUCHED): `sessions.csv` is BYTE-IDENTICAL across the admit. "
+              "The `exited` word is the run's ONLY record of how that session ended; an act that "
+              "cleared it to make room for the re-run would destroy the evidence the leader's "
+              "investigation was about. It is superseded later, by the new session's own ended row",
+              sessions_csv(pkg).read_bytes() == _d42_bytes_before)
+
+        # ---- R-PARITY: the REAL path, and it is IDENTICAL to the dry one ----
+        _d42_pt = os.environ.get("COORD_LAUNCH_TARGET")
+        _d42_pw = wake_ok["v"]
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"
+        wake_ok["v"] = True
+        _d42_real, _d42_real_code, _d42_exc = "", None, None
+        try:
+            _d42_real, _d42_real_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                               dry_run=False, rerun=_d42_a)
+        except Exception as _d42_e:               # noqa: BLE001
+            _d42_exc = f"{type(_d42_e).__name__}: {_d42_e}"
+        finally:
+            wake_ok["v"] = _d42_pw
+            if _d42_pt is None:
+                os.environ.pop("COORD_LAUNCH_TARGET", None)
+            else:
+                os.environ["COORD_LAUNCH_TARGET"] = _d42_pt
+        _d42_line = lambda t: next((l for l in t.splitlines()
+                                    if "ADMITTED by --rerun" in l), "")
+        check("D42 R-PARITY: the admission's verdict LINE and its exit code are IDENTICAL with "
+              "and without `--dry-run`, and the REAL path runs all the way to the launch verdict "
+              "without raising. The block contains no dry-run test at all, so parity holds BY "
+              "CONSTRUCTION; this row is the behavioural half, and it is also 7.251 CRASH's own "
+              "control re-run for the new door — `blocked` is read unconditionally at the verdict "
+              "and the admitted path skips its only assignment",
+              _d42_exc is None
+              and _d42_real_code == _d42_ok_code == 0
+              and _d42_line(_d42_real) != ""
+              and _d42_line(_d42_real) == _d42_line(_d42_ok)
+              and ("every seat above must appear there" in _d42_real
+                   or "launch INCOMPLETE" in _d42_real))
+        import inspect as _d42_inspect
+        _d42_src = _d42_inspect.getsource(cmd_launch)
+        _d42_blk = _d42_src[_d42_src.index("_rerun_raw = "):
+                            _d42_src.index("# ⚠⚠ BOUND BEFORE THE BRANCH")]
+        check("D42 R-PARITY (construction): the `--rerun` admission block contains ZERO `dry_run` "
+              "reads, asserted at the SOURCE so a later edit cannot re-introduce one silently. The "
+              "positive control is the enclosing function, which demonstrably does contain them",
+              "dry_run" not in _d42_blk and "dry_run" in _d42_src)
+        check("D42 ONE INSTRUMENT, NOT TWO: the admitted path prints the `--rerun` banner EXACTLY "
+              "ONCE and adds no second admission sentence beside it. Two sentences for one act is "
+              "how a carve-out becomes an override — the ordinary-admission branch CONSULTS the "
+              "boolean this block set and stays quiet, it does not re-test anything",
+              _d42_ok.count("ADMITTED by --rerun") == 1
+              and "ADMITTED — verdict" not in _d42_ok
+              and "ADMITTED by --declare-only" not in _d42_ok)
+
+        # ---- R-P4: a LIVE pane under the same name refuses, exactly as `--declare-only`'s does.
+        session_close(ns(), "gamma", disposition="exited", writer=DISPOSITION_WRITER_KIT)
+        run(cmd_checkin, agent="gamma", summary="the crashed seat's zombie pane", pane="%94")
+        live_tmux_panes["v"] = {"%94"}
+        _d42_p4, _d42_p4_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                       rerun=_d42_a)
+        check("D42 R-P4: `--rerun` is REFUSED while a LIVE pane already holds the name, and it "
+              "reuses `--declare-only`'s own composition rather than adding a second detector. "
+              "Without it the launch would succeed, a pane would open, and two live sessions "
+              "would sit under one name — mutually blind, with only the newest receiving wakes",
+              _d42_p4_code == 1
+              and "%94" in _d42_p4 and "kill-pane" in _d42_p4
+              and "never by name" in _d42_p4
+              and "[dry-run] gamma" not in _d42_p4)
+        live_tmux_panes["v"] = set()
+
+        # ---- restore: gamma leaves this block DECLARED, unoccupied and unregistered, as every
+        # ---- row after it expects. The registry this block wrote is REMOVED again: the package
+        # ---- carried none when the block opened.
+        def _d42_deactivate(_r):
+            _r["active"] = "no"
+            _r["checkout"] = f"closed {now()}"
+        update_row(base_dir(ns()), "gamma", _d42_deactivate)
+        session_open(ns(), _u46_g, since=time.time(), wait=0.0)
+        session_close(ns(), "gamma", disposition="done")
+        (pkg / "taskforce.csv").unlink()
+        _, _, _d42_rest = load_workers(base_dir(ns()))
+        check("D42 (fixture postcondition): gamma's ending is DECLARED again, its roster row is "
+              "inactive, no pane is left live and the fixture registry is gone — so every row "
+              "after this block meets the state it was written against rather than inheriting "
+              "this block's props",
+              "gamma" not in undeclared_endings(pkg)
+              and sessions_last_ended(pkg)["gamma"][1] == "done"
+              and (current_row(_d42_rest, "gamma") or {}).get("active") != "yes"
+              and live_panes() == set()
+              and not (pkg / "taskforce.csv").exists())
+
+        # ==== D42 part 3: `--hold` — AN ANCHORED HOLD THE WATCHER CAN SEE ===================
+        # `meet/issues.md#G-leader-0820-1748`, filed by the live leader: a ruled HOLD is
+        # byte-identical to an unattended owed row, so the watcher re-woke the leader every 300s
+        # forever (17:37/17:43/17:48, identical output). These rows run on their OWN package,
+        # because `--explain` needs a `taskforce.csv` row and the package above has none.
+        _d42h = Path(td) / "d42hold"
+        (_d42h / "seats" / "helder").mkdir(parents=True)
+        (_d42h / "seats" / "helder" / "seat.md").write_text(
+            "---\nseat: helder\nharness: claude\nmodel: opus\neffort: medium\n---\nbody\n",
+            encoding="utf-8")
+        (_d42h / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "1,helder,,claude,opus,medium,50,m1\n", encoding="utf-8")
+        _d42h_row = dict.fromkeys(SESSIONS_COLS, "")
+        _d42h_row.update({"session-id": "helder-1", "seat": "helder",
+                          "harness": "claude", "started": "2026-08-20 10:00",
+                          "ended": "2026-08-20 10:30", "disposition": "unverified",
+                          "disposition-writer": DISPOSITION_WRITER_SEAT})
+        write_csv_table(sessions_csv(_d42h), SESSIONS_COLS,
+                        [[_d42h_row[_c] for _c in SESSIONS_COLS]])
+
+        def _d42h_run(**kw):
+            d = {"package": str(_d42h), "agent": "leader", "seat": "helder",
+                 "disposition": None, "anchor": None, "go": False, "hold": False}
+            d.update(kw)
+            return refuse(cmd_rule_disposition, **d)
+
+        def _d42h_cell(col):
+            return sessions_last_ended_rows(_d42h).get("helder", {}).get(col, "")
+
+        _d42h_excl, _d42h_excl_code = _d42h_run(disposition="done", hold=True,
+                                                anchor="p-h", go=True)
+        check("D42 H-EXCL: `--hold` and a disposition VALUE are MUTUALLY EXCLUSIVE, refused at the "
+              "input layer, and nothing is written. The positional went optional for exactly this "
+              "reason: a leader holding a row must never retype the word the row already carries, "
+              "because retyping is how a wrong value gets written",
+              _d42h_excl_code == 2
+              and "takes no destination" in _d42h_excl
+              and _d42h_cell("disposition") == "unverified"
+              and _d42h_cell(HOLD_ANCHOR_COL) == "")
+        _d42h_bare = _d42h_run()[0]
+        check("D42 H-REPORT (before): a bare `rule-disposition <seat>` — no destination, no "
+              "`--hold` — REPORTS the row and writes nothing, and it needs no anchor because "
+              "there is no act to carry a trail. It reads `none` while the row is unheld: the "
+              "clean value must be visible or the held value proves nothing",
+              "carries `unverified`" in _d42h_bare
+              and "hold: none" in _d42h_bare
+              and "report only" in _d42h_bare)
+        _d42h_dry = _d42h_run(hold=True, anchor="p-leader-0820-1748")[0]
+        check("D42 H-DRY: the bare (no `--go`) hold reports HOLDABLE and writes NOTHING — the dry "
+              "pass runs every check the acting pass runs, so a `--go` can never accept what a "
+              "bare run refused",
+              "HOLDABLE" in _d42h_dry and "report only" in _d42h_dry
+              and _d42h_cell(HOLD_ANCHOR_COL) == "")
+        _d42h_go = _d42h_run(hold=True, anchor="p-leader-0820-1748", go=True)[0]
+        check("D42 H-1: `--hold --anchor <a> --go` records the leader's HOLD and the DISPOSITION "
+              "CELL IS UNCHANGED — still `unverified`, still written by the seat. That is the "
+              "whole instrument: the row keeps its class, so `ready-seats` keeps reporting it and "
+              "successors keep waiting, and only the watcher's re-wake stops",
+              "HELD on session helder-1" in _d42h_go
+              and _d42h_cell("disposition") == "unverified"
+              and _d42h_cell("disposition-writer") == DISPOSITION_WRITER_SEAT
+              and _d42h_cell(HOLD_ANCHOR_COL) == "p-leader-0820-1748")
+        _d42h_held = _d42h_run()[0]
+        check("D42 H-REPORT (after): the SAME bare report now shows the hold and quotes the "
+              "anchor. A hold nobody can see is the same defect as the invisible ruling it was "
+              "built to fix, facing the other way — and the before/after pair is what makes this "
+              "a measurement rather than a rendering that always prints something",
+              "HELD by the leader, anchor `p-leader-0820-1748`" in _d42h_held
+              and "hold: none" not in _d42h_held)
+        _d42h_rows = ready_seat_rows(argparse.Namespace(
+            package=str(_d42h), base=None, workers_dir=None, as_agent=None, force=False))
+        _d42h_rec = next((r for r in _d42h_rows if r["seat"] == "helder"), None)
+        check("D42 H-CLASS: the held row's own readiness verdict and deferral CLASS are unchanged "
+              "— it still reads `claimed-unverified` and it is still not admitted. The hold is a "
+              "fact ABOUT the row, never a term of the predicate: a hold that advanced an edge "
+              "would move unverified work forward, which is the exact harm this file refuses",
+              _d42h_rec is not None
+              and _d42h_rec[HOLD_ANCHOR_COL] == "p-leader-0820-1748"
+              and deferral_class(_d42h_rec) == "claimed-unverified"
+              and conjunction_admits(_d42h_rec) is False)
+        _d42h_exp = refuse(cmd_ready_seats, package=str(_d42h), agent="leader",
+                           explain="helder", json=False)[0]
+        check("D42 H-EXPLAIN: `ready-seats --explain <seat>` NAMES the hold and quotes the anchor, "
+              "beside the real blocking term it still reports. A reader who cannot see the hold "
+              "cannot tell a deliberately held row from an unattended one — which is the whole "
+              "defect",
+              "HELD by the leader, anchor `p-leader-0820-1748`" in _d42h_exp
+              and "still BLOCKS its successors" in _d42h_exp)
+        _d42h_rel = _d42h_run(disposition="done", anchor="d-lift-condition-fired", go=True)[0]
+        check("D42 H-RELEASE: ruling the row FOR REAL writes `done` AND releases the hold IN THE "
+              "SAME ACT. A hold says the row stays as it is; the moment it does not, the statement "
+              "is spent, and a stale hold would leave the watcher ignoring a row for a reason that "
+              "no longer holds",
+              "RULED `done`" in _d42h_rel
+              and _d42h_cell("disposition") == "done"
+              and _d42h_cell("disposition-writer") == DISPOSITION_WRITER_LEADER
+              and _d42h_cell(HOLD_ANCHOR_COL) == "")
+        _d42h_done, _d42h_done_code = _d42h_run(hold=True, anchor="p-too-late", go=True)
+        check("D42 H-FROMSTATES: `--hold` admits EXACTLY the four from-states `rule-disposition` "
+              "already admits and no fifth — a `done` row is not holdable for the same reason it "
+              "is not rulable. Asserted through the ONE predicate rather than a second copy: the "
+              "refusal is `RULED_FLIP_FROM_STATES`' own, word for word",
+              _d42h_done_code == 1
+              and "admits exactly four from-states" in _d42h_done
+              and _d42h_cell(HOLD_ANCHOR_COL) == "")
+        check("D42 H-NOT-A-GRANT (D12): the hold column carries an ANCHOR STRING and nothing else "
+              "— no expiry, no counter, no writer of its own, no store. It is written by one act "
+              "and released by the next ruling, and nothing anywhere spends it. Asserted at the "
+              "schema: `hold-anchor` is a single appended column, never a second file",
+              SESSIONS_COLS.count(HOLD_ANCHOR_COL) == 1
+              and HOLD_ANCHOR_COL == "hold-anchor"
+              and not (Path(_d42h) / "coordination" / "holds.json").exists())
 
         # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
         # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
@@ -26055,25 +26714,28 @@ def _selftest_checks(args, failures, names):
               "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT HAS NOW FIRED THREE TIMES: 7.155's "
               "`disposition-writer` reddened it, 7.607 E2b's `execution` (the dated execution "
               "stamp, design-lock item 5) reddened it again, `755b197e`'s `checkin` reddened it "
-              "a third time, and D19's `model` (the seat's launched cast) a fourth — which is "
+              "a third time, D19's `model` (the seat's launched cast) a fourth, and D42's "
+              "`hold-anchor` (the leader's HOLD on a non-terminal row) a FIFTH — which is "
               "exactly why the tail is "
               "asserted by NAME and by INDEX rather than as 'the last one'. A claim that moves "
               "with the file grades nothing, and each firing is a schema change being SEEN",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-5:] == ["disposition", "disposition-writer", "execution", "checkin",
-                                   "model"]
+              and _d9_hdr[-6:] == ["disposition", "disposition-writer", "execution", "checkin",
+                                   "model", "hold-anchor"]
               and _d9_idx["tty"] == 10
-              and _d9_idx["disposition"] == len(_d9_hdr) - 5
-              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 4
-              and _d9_idx["execution"] == len(_d9_hdr) - 3
-              and _d9_idx["checkin"] == len(_d9_hdr) - 2
-              and _d9_idx["model"] == len(_d9_hdr) - 1
+              and _d9_idx["disposition"] == len(_d9_hdr) - 6
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 5
+              and _d9_idx["execution"] == len(_d9_hdr) - 4
+              and _d9_idx["checkin"] == len(_d9_hdr) - 3
+              and _d9_idx["model"] == len(_d9_hdr) - 2
+              and _d9_idx["hold-anchor"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
               and "disposition-writer" not in _d9_positional
               and "execution" not in _d9_positional
               and "checkin" not in _d9_positional
               and "model" not in _d9_positional
+              and "hold-anchor" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
         check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
@@ -26456,8 +27118,11 @@ def _selftest_checks(args, failures, names):
         check("D33(b) THE CLEAR IS THE SECOND DESTINATION, AND IT IS THE LEADER'S ALONE. Ruling a "
               "row to the EMPTY STRING writes an EMPTY cell on BOTH surfaces — the row goes back "
               "to `nobody declared an ending`, which is the state the leader's `--declare-only` "
-              "launch door admits, so a seat that must simply RUN AGAIN has a path that does not "
-              "require anybody to assert an ending they did not witness. The empty destination is "
+              "launch door admits — a session that DECLARES that ending, so nobody has to assert "
+              "an ending they did not witness. ⚠ D42 (F-3), corrected here: that door does NOT "
+              "give a seat which must simply RUN AGAIN a path back to WORK. The crashed row's "
+              "door is `launch --only <seat> --rerun <anchor>`, ONE act, and it needs no CLEAR "
+              "first. The empty destination is "
               "admitted at `validate_disposition` and NOWHERE ELSE (it is deliberately not a key "
               "of `RECORD_DISPOSITION_WRITER`: that mapping is the space of endings a row may "
               "CARRY, and an empty cell is the ABSENCE of one). Control: `renew` from the leader "
@@ -35404,13 +36069,34 @@ def build_parser():
     # does nothing else. Its VALUE is the written trail, so the instrument cannot be invoked
     # without one — presence declares the purpose, the value carries the anchor.
     s.add_argument("--declare-only", metavar="LEADER-ANCHOR", default=None,
-                   help="admit ONE --only seat whose last session ended UNDECLARED, for a "
-                        "DECLARE-ONLY session (it declares its own ending and checks out; it "
-                        "does NO work). Takes the leader's investigation/acceptance anchor for "
-                        "that seat, which is recorded as the trail. NOT an override: the target "
-                        "stays UNDECLARED until its new session supersedes it, a seat with a "
-                        "DECLARED ending is still refused, and --force/--force-memory are "
-                        "untouched and carry no part of this")
+                   help="admit ONE --only seat whose last session ended UNDECLARED, so that the "
+                        "session it opens can DECLARE THAT ENDING and check out. ⚠ F-3, corrected "
+                        "D42: 'it does no work' was the caller's stated PURPOSE, enforced by "
+                        "nothing — this flag plumbs nothing into the pane and the session it "
+                        "opens is an ordinary one. What the flag actually decides is ADMISSION: "
+                        "it admits the UNDECLARED class and nothing else. It is NOT the way to "
+                        "bring a CRASHED seat back to work — an `exited` row's door is --rerun "
+                        "(D42). Takes the leader's investigation/acceptance anchor for that seat, "
+                        "which is recorded as the trail. NOT an override: the target stays "
+                        "UNDECLARED until its new session supersedes it, a seat with a DECLARED "
+                        "ending is still refused, and --force/--force-memory are untouched and "
+                        "carry no part of this")
+    # D42 (2026-08-20): NOT an override and NOT a member of the --force family. A FOURTH
+    # independent parameter. It admits ONE named seat whose last ENDED row carries `exited`
+    # written by the KIT — a harness that TERMINATED with the work unknown — for an ORDINARY
+    # WORKING SESSION. Its VALUE is the written trail, so the instrument cannot be invoked
+    # without one.
+    s.add_argument("--rerun", metavar="LEADER-ANCHOR", default=None,
+                   help="RE-RUN ONE --only seat whose last session ENDED `exited` (the kit's "
+                        "word: the harness terminated, the work is UNKNOWN — never finished). "
+                        "The seat boots on its ordinary boot prompt and DOES ITS JOB; this is a "
+                        "real working session, not a declaration. Takes the leader's "
+                        "investigation anchor for that seat, which is recorded as the trail. The "
+                        "`exited` row is NOT rewritten, cleared or relabelled — it stays on the "
+                        "record and is superseded when the new session writes its own ended row, "
+                        "so no `rule-disposition` is needed first. NOT an override: any other "
+                        "from-state is still refused, and --force/--force-memory are untouched "
+                        "and carry no part of this")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
 
@@ -35835,23 +36521,43 @@ def build_parser():
         "ending nothing advanced on and nobody ruled. A `done` row stays unrulable. Destinations:\n"
         "`done` (the anchor must QUOTE the on-disk evidence) or `\"\"` to CLEAR the row back to\n"
         "no-ending-declared. A CLEAR does NOT re-seed the row: the daemon reads UNDECLARED as\n"
-        "not-waitable. Bringing a cleared row back is YOUR second act —\n"
-        "`launch --only <seat> --declare-only <anchor>` (D39). The value is validated against the\n"
-        "SAME writer model every other disposition is. BARE = report only. `--anchor` is "
-        "mandatory.",
+        "not-waitable. Bringing a CLEARED row back is YOUR second act —\n"
+        "`launch --only <seat> --declare-only <anchor>`, a session that DECLARES the ending\n"
+        "(D39). ⚠ A CRASHED (`exited`) row needs NO clear: `launch --only <seat> --rerun\n"
+        "<anchor>` re-runs it as an ordinary working session in ONE act, and the `exited` word\n"
+        "stays on the record (D42). `--hold` records that a non-terminal row STAYS AS IT IS —\n"
+        "the cell keeps its value and the goal watcher stops re-waking you on it. The value is\n"
+        "validated against the SAME writer model every other disposition is. BARE = report only.\n"
+        "`--anchor` is mandatory on every act.",
         "example:\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done          # report\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # write the ruling\n"
+        "  coordinate rule-disposition oc2                                   # report the row + any hold\n"
+        "  coordinate rule-disposition oc2 --hold --anchor p-oc2-wait --go   # HOLD it; cell unchanged\n"
         "  coordinate rule-disposition oc2 \"\" --anchor p-oc2-relaunch --go  # CLEAR; then launch\n"
-        "  coordinate launch --only oc2 --declare-only p-oc2-relaunch        # ...bring it back\n"
+        "  coordinate launch --only oc2 --declare-only p-oc2-relaunch        # ...declare its ending\n"
+        "  coordinate launch --only crashy --rerun p-crashy-655              # RE-RUN a crashed seat\n"
         "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
         "other `done`, and it does so immediately: there is no drain to wait for")
     s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
-    s.add_argument("disposition",
+    s.add_argument("disposition", nargs="?", default=None,
                    help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
                         "from the leader — in practice `done`, or the EMPTY STRING to CLEAR the "
-                        "row back to no-ending-declared — which does NOT re-seed it; you relaunch "
-                        "it with `launch --only <seat> --declare-only <anchor>` (D33(b), D39)")
+                        "row back to no-ending-declared. A CLEAR does NOT re-seed the row: you "
+                        "bring a CLEARED row back with `launch --only <seat> --declare-only "
+                        "<anchor>` (D33(b), D39) — that is a session which DECLARES the ending. A "
+                        "CRASHED (`exited`) row needs no clear at all: re-run it in ONE act with "
+                        "`launch --only <seat> --rerun <anchor>` (D42). OPTIONAL since D42: omit "
+                        "it with --hold to hold the row, or omit both for a report of the row's "
+                        "state and any hold on it")
+    s.add_argument("--hold", action="store_true",
+                   help="D42: record that the leader has INVESTIGATED this non-terminal row and "
+                        "ruled that it STAYS AS IT IS. The disposition cell KEEPS its value — you "
+                        "never retype it — and the goal watcher stops re-waking you on the row. "
+                        "`ready-seats` still reports the row's real class and it still blocks its "
+                        "successors. Mutually exclusive with a disposition value; the next real "
+                        "ruling on the row RELEASES the hold in the same act. NOT a grant and not "
+                        "a latch: it authorizes nothing and expires on nothing (D12 intact)")
     s.add_argument("--anchor", default=None,
                    help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
                         "recorded as the trail and an empty one is refused")

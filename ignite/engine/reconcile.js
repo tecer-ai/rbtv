@@ -272,6 +272,19 @@ function deriveOwed(goalFolder, {
     if (!isNonTerminal(disp)) continue;
     const ended = (row.ended || '').trim();
     if (!ended) continue;
+    // D42 · A RULED HOLD IS SKIPPED, AND IT IS THE ONLY THING THE HOLD CHANGES.
+    // `meet/issues.md#G-leader-0820-1748`, filed by the live leader: a row the leader had
+    // INVESTIGATED and deliberately held was byte-identical to an unattended owed one, because
+    // the disposition cell must keep its value for `ready-seats` to keep blocking the successors
+    // — and this scan reads only that cell. So the leader was re-woken every cadence, forever,
+    // with identical output (17:37/17:43/17:48, measured).
+    //
+    // ⚠ THE SKIP IS THE WATCHER'S ALONE. `ready-seats` still reports the row's real class, the
+    // row still blocks its successors and it is still rulable at any time. Nothing here advances
+    // an edge and nothing reads this cell as authorization: it is an ANCHOR STRING written by
+    // `coord.py rule-disposition --hold` and released by the next real ruling on the same row.
+    // Not a grant, not a latch, no expiry, nothing to spend (D12 intact).
+    if ((row['hold-anchor'] || '').trim()) continue;
     // D33(a) · the word IS the split. `incomplete` → that seat, by name. Everything else
     // non-terminal → the leader, who is the only actor with a verb for it.
     classA.push({
@@ -394,9 +407,23 @@ function nontermPayload(rows) {
     '',
     'A `done` ruling\'s anchor must quote the on-disk evidence. Rule them or this wake repeats.',
     '',
-    'CLEARING IS NOT A RELAUNCH — they are TWO acts (D39). A cleared row reads UNDECLARED, the',
-    'daemon maps that to not-waitable, and NEVER re-seeds it. To bring a cleared seat back you',
-    'must then issue the second command yourself:',
+    'If a row must simply WAIT — you investigated it and ruled that it stays as it is — HOLD it',
+    'and this wake stops repeating on it (D42). The cell keeps its value, the row keeps blocking',
+    'its successors, and the next real ruling releases the hold in the same act:',
+    '',
+    '    rule-disposition <seat> --hold --anchor <p-*/d-* or message ref> --go',
+    '',
+    'A CRASHED SEAT IS RE-RUN IN ONE ACT (D42). A row reading `exited` is the KIT saying the',
+    'harness TERMINATED and the work is UNKNOWN — never that it finished. Do NOT clear it first:',
+    'the CLEAR destroys the `exited` word, which is the only record of how that session ended.',
+    'This opens an ORDINARY WORKING SESSION and leaves the row standing to be superseded:',
+    '',
+    '    launch --only <seat> --rerun <p-*/d-* or message ref>',
+    '',
+    'CLEARING IS NOT A RELAUNCH — they are TWO acts (D39), and it is the CLEARED row\'s path, not',
+    'the crashed one\'s. A cleared row reads UNDECLARED, the daemon maps that to not-waitable, and',
+    'NEVER re-seeds it. To bring a cleared seat back you must then issue the second command',
+    'yourself — a session that DECLARES the ending:',
     '',
     '    launch --only <seat> --declare-only <p-*/d-* or message ref>',
     '',
