@@ -328,14 +328,14 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       if (execId != null && Number.isInteger(Number(execId))) payload.exec_id = Number(execId);
       const res = await forwarder.forward('live-feed', payload);
       if (!res.ok || !(res.result && res.result.fed)) {
-        log('info', 'live-holder nudge did not feed a warm session — bus write still stands', {
+        log('warn', 'live-holder nudge did not feed a warm session — NOTHING was delivered; falling through to a queued session-create', {
           workdir, execId, reason: (res.result && res.result.reason) || (res.error && res.error.code) || 'not-fed',
         });
         return { nudged: false, reason: (res.result && res.result.reason) || 'not-fed' };
       }
       return { nudged: true };
     } catch (err) {
-      log('warn', 'live-holder nudge threw — bus write still stands', { workdir, error: err.message });
+      log('warn', 'live-holder nudge THREW — NOTHING was delivered; falling through to a queued session-create', { workdir, error: err.message });
       return { nudged: false, error: err.message };
     }
   }
@@ -378,26 +378,58 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     // `[chat-thread: …]` routes a row (`bus-ferry.js`). If a relay carried the bracketed
     // form, the ferry would read the outbound question as an inbound answer and mint a
     // sitting from it — the question returning to its own thread.
+    // ── A LIVE SITTING AT THIS SEAT: TRY TO FEED IT, AND FALL THROUGH IF IT CANNOT BE FED ──────
+    //
+    // ⚠ THIS BRANCH LOST AN OWNER MESSAGE (measured 2026-08-20 01:20:35Z, goal
+    // `meet-transcript-summarizer`). It used to call `recordBusAnswer` and then return
+    // `forwarded: true` whatever the nudge said, logging "bus write still stands". Two things were
+    // false at once. `recordBusAnswer` is `kind: 'agent'` ONLY — deliberately, see its header: a
+    // top-level post in a GOAL channel is the owner INITIATING, and recording an `answer` there
+    // would falsely clear goal-master's open ask — so on the goal route it returned `null` before
+    // writing anything. And the nudge only ever feeds a WARM session, while goal traffic rides the
+    // headless model, so `no-warm-session` is its ordinary answer. Nothing was written, nothing was
+    // enqueued, no thread was mapped — and the bridge logged a success. A whole-goal-folder scan
+    // found no trace of the owner's text anywhere.
+    //
+    // So the nudge is now an OPTIMISATION with two honest outcomes, and neither drops the message:
+    //   FED     → the live turn consumed the text. Map the thread and bind it to the holder's
+    //             exec-id, which is the chain-stable address (`exec-<exec_id>`) the reply leg
+    //             ferries the answer back on. Without this the owner got no reply path at all.
+    //   NOT FED → fall through to the ordinary session-create below. `on_seat_busy: 'queue'` makes
+    //             a busy seat LOSSLESS: the daemon holds the row and launches it when the seat
+    //             frees, which is the path that demonstrably delivered on the sibling goal the same
+    //             minute. A refusal there still posts the owner a notice.
     const holder = await findLiveHolder(home);
     if (holder) {
-      log('info', 'session-create skipped — live sitting at this seat; writing the bus and nudging', {
+      log('info', 'live sitting at this seat — trying to feed it before enqueueing', {
         chatThreadId, route: route && route.kind, goalId: route && route.goalId,
         workdir: home.workdir, execId: holder.exec_id, status: holder.status,
       });
-      const busAnswer = await recordBusAnswer({ route, text });
       const nudge = await nudgeLiveSitting({
         workdir: home.workdir, text, execId: holder.exec_id, chatThreadId,
       });
-      return {
-        forwarded: true,
-        liveHolder: true,
-        leg: 'session-create',
-        execId: holder.exec_id,
-        route: route && route.kind,
-        goalId: (route && route.goalId) || null,
-        ...(busAnswer ? { busAnswer } : {}),
-        ...(nudge ? { nudge } : {}),
-      };
+      const busAnswer = await recordBusAnswer({ route, text });
+      const delivered = { forwarded: true, liveHolder: true, leg: 'session-create', execId: holder.exec_id,
+        route: route && route.kind, goalId: (route && route.goalId) || null, nudge, ...(busAnswer ? { busAnswer } : {}) };
+      if (busAnswer && busAnswer.recorded === true) {
+        // AGENT route: the bus row IS the delivery — the seat reads its inbox at its next
+        // checkin — and the agent thread carries its own reply address, so nothing is mapped here.
+        return delivered;
+      }
+      if (nudge.nudged) {
+        // The live turn consumed the text. Map the thread and bind the holder's exec-id so the
+        // reply leg has the chain-stable address (`exec-<exec_id>`) to ferry the answer back on.
+        threadMap.create(chatThreadId, { queueId: null });
+        threadMap.bindSessionExecId(chatThreadId, holder.exec_id);
+        log('info', 'fed the live sitting and mapped the thread to its chain', {
+          chatThreadId, execId: holder.exec_id, route: route && route.kind, goalId: route && route.goalId,
+        });
+        return delivered;
+      }
+      log('warn', 'live sitting was NOT fed and no bus row was recorded — NOTHING delivered; falling through to a queued session-create', {
+        chatThreadId, execId: holder.exec_id, route: route && route.kind, goalId: route && route.goalId,
+        nudgeReason: nudge.reason || nudge.error || null,
+      });
     }
 
     const prompt = chatThreadId ? `chat-thread: ${chatThreadId}\n\n${text}` : text;
