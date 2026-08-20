@@ -2625,8 +2625,10 @@ def validate_disposition(disposition, writer):
     exist here, and adding one is a single edit to the mapping."""
     # ⚠ D33(b) (owner, 2026-08-20) — THE ONE VALUE OUTSIDE THE ENUM, AND IT IS A DESTINATION,
     # NEVER A RECORDED ENDING. The leader's `rule-disposition` gained a second destination beside
-    # `done`: the EMPTY cell, which CLEARS a row back to "nobody declared an ending" and thereby
-    # re-arms an ordinary relaunch through seeding. It is admitted HERE, at the one boundary, and
+    # `done`: the EMPTY cell, which CLEARS a row back to "nobody declared an ending". A CLEAR does
+    # NOT re-seed the row — the daemon reads UNDECLARED as not-waitable — so the leader brings it
+    # back itself with `launch --only <seat> --declare-only <anchor>` (D39: two acts, by design).
+    # It is admitted HERE, at the one boundary, and
     # for the LEADER ALONE — never by a caller bypassing this function, which is the edit the whole
     # boundary exists to prevent. It is deliberately NOT a key of `RECORD_DISPOSITION_WRITER`: that
     # mapping is the space of ENDINGS a row may CARRY, its key set is asserted equal to
@@ -3852,7 +3854,9 @@ def restarter_prompt(w, args, why):
 # with the watcher waking the leader about them every ~5 minutes and the leader's one instrument
 # refusing them. The transition is unchanged in kind — an INVESTIGATED row becomes what the
 # investigation found — and the DESTINATIONS are `done` (the anchor must quote the on-disk
-# evidence) and the EMPTY cell (CLEAR, which re-arms an ordinary relaunch through seeding).
+# evidence) and the EMPTY cell (CLEAR, which records "no ending declared" — the daemon reads that
+# as UNDECLARED/not-waitable and never re-seeds it, so the leader relaunches the row itself with
+# `launch --only <seat> --declare-only <anchor>`: two acts, by design (D39)).
 # So this verb admits four from-states and no fifth: `exited`, an EMPTY cell, `unverified`,
 # `incomplete`.
 #
@@ -14908,8 +14912,9 @@ def staff_mail_body(args, seat, value, entry, sid):
         "disposition: FIX AND RELAUNCH, ROUTE to the seat that authored the instruction, ANSWER, "
         "or ESCALATE. Never relabel this row by hand or without an investigation — the ONE "
         "sanctioned act is `rule-disposition " + seat + " done --anchor <anchor quoting the "
-        "on-disk evidence> --go` (or destination `\"\"` to CLEAR the row and re-arm an ordinary "
-        "relaunch), recorded as a ruling line (D33(b)).",
+        "on-disk evidence> --go` (or destination `\"\"` to CLEAR the row back to no-ending-declared "
+        "— which does NOT re-seed it: you bring it back with `launch --only " + seat + " "
+        "--declare-only <anchor>`, D39), recorded as a ruling line (D33(b)).",
     ])
 
 
@@ -15349,7 +15354,9 @@ def cmd_rule_disposition(args):
     `exited`, an EMPTY cell, `unverified` and `incomplete`: every ending on which NOTHING ADVANCED
     and nobody has ruled. The destinations are `done` — whose `--anchor` must QUOTE THE ON-DISK
     EVIDENCE the investigation found — and `""` (the empty string), which CLEARS the row back to
-    "no ending declared" and thereby re-arms an ordinary relaunch through seeding. A `done` row
+    "no ending declared". A CLEAR does NOT re-seed the row: the daemon reads UNDECLARED as
+    not-waitable, so the leader brings a cleared row back itself with
+    `launch --only <seat> --declare-only <anchor>` — two acts, by design (D39). A `done` row
     stays unrulable: its own writer filled it and its edge already advanced. Nothing grant-shaped
     was added (D12 intact) and `--anchor` is still mandatory.
 
@@ -17068,8 +17075,10 @@ def cmd_launch(args):
             f"watcher's business, not this door's: it relaunches a seat-written "
             f"`declared-incomplete` row BY NAME (D33(a)), and the LEADER resolves the rest with "
             f"`rule-disposition <seat> done --anchor <anchor quoting the on-disk evidence> --go` "
-            f"(or destination `\"\"` to CLEAR the row, which re-arms an ordinary relaunch through "
-            f"seeding) on any row carrying `exited`, `unverified`, `incomplete` or no disposition "
+            f"(or destination `\"\"` to CLEAR the row back to no-ending-declared, which does NOT "
+            f"re-seed it — the leader relaunches a cleared row through this door's own "
+            f"`--declare-only <leader-anchor>`, D39) "
+            f"on any row carrying `exited`, `unverified`, `incomplete` or no disposition "
             f"at all — D33(b). `--declare-only <leader-anchor>` remains this door's own one-seat "
             f"instrument for an undeclared ending.\nSee: "
             f"{coord_invocation(args)} ready-seats --explain <seat>")
@@ -35824,20 +35833,25 @@ def build_parser():
         "It admits ENDED rows ONLY — a row still open is its occupant's to end — and, since\n"
         "D33(b), FOUR from-states: `exited`, an EMPTY cell, `unverified` and `incomplete` — every\n"
         "ending nothing advanced on and nobody ruled. A `done` row stays unrulable. Destinations:\n"
-        "`done` (the anchor must QUOTE the on-disk evidence) or `\"\"` to CLEAR the row, which\n"
-        "re-arms an ordinary relaunch through seeding. The value is validated against the SAME\n"
-        "writer model every other disposition is. BARE = report only. `--anchor` is mandatory.",
+        "`done` (the anchor must QUOTE the on-disk evidence) or `\"\"` to CLEAR the row back to\n"
+        "no-ending-declared. A CLEAR does NOT re-seed the row: the daemon reads UNDECLARED as\n"
+        "not-waitable. Bringing a cleared row back is YOUR second act —\n"
+        "`launch --only <seat> --declare-only <anchor>` (D39). The value is validated against the\n"
+        "SAME writer model every other disposition is. BARE = report only. `--anchor` is "
+        "mandatory.",
         "example:\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done          # report\n"
         "  coordinate rule-disposition oc2 done --anchor p-oc2-done --go     # write the ruling\n"
-        "  coordinate rule-disposition oc2 \"\" --anchor p-oc2-relaunch --go  # CLEAR: relaunchable\n"
+        "  coordinate rule-disposition oc2 \"\" --anchor p-oc2-relaunch --go  # CLEAR; then launch\n"
+        "  coordinate launch --only oc2 --declare-only p-oc2-relaunch        # ...bring it back\n"
         "next: coordinate ready-seats — a ruled `done` advances its successors' edges like any "
         "other `done`, and it does so immediately: there is no drain to wait for")
     s.add_argument("seat", help="the TARGET seat whose ended row carries the ruling — never the caller")
     s.add_argument("disposition",
                    help="the ruled value; admitted only where RECORD_DISPOSITION_WRITER admits it "
                         "from the leader — in practice `done`, or the EMPTY STRING to CLEAR the "
-                        "row back to no-ending-declared so seeding can relaunch it (D33(b))")
+                        "row back to no-ending-declared — which does NOT re-seed it; you relaunch "
+                        "it with `launch --only <seat> --declare-only <anchor>` (D33(b), D39)")
     s.add_argument("--anchor", default=None,
                    help="the leader's own ruling anchor (`p-*`/`d-*`, or a message ref); it is "
                         "recorded as the trail and an empty one is refused")
