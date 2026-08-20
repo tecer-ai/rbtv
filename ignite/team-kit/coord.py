@@ -4842,7 +4842,8 @@ def daemon_exec_identity(cgroup_text=None, db_path=None):
 # ── W3 · THE `--as <staff seat>` SCOPE (ruling D-2) ───────────────────────────────────────────
 #
 # A staff chair is the run's AUTHORITY, so claiming to BE one is the widest claim on this bus. The
-# claim is admitted from three identities and no other:
+# claim is admitted from three identities, from an identity that resolves to nothing, and — since
+# D45 — from a caller that has CORROBORATED the claim against a fact it cannot forge. Nothing else:
 #
 #   channel-master / goal-master   the two MASTER seats — they staff, and they stand in for the
 #                                  owner's side of the room
@@ -4856,6 +4857,15 @@ def daemon_exec_identity(cgroup_text=None, db_path=None):
 # DAEMON-LANE HOLE: `ignite-daemon` is a resolved identity and is NOT in the admitted set, so the
 # absence of a CONTRADICTING pane row no longer admits the claim — which is all that stood between
 # any daemon-fired exec and acting as the leader.
+#
+# ⚠ AND FROM A CORROBORATED CALLER (D45, owner 2026-08-20) — the fourth admission, and the one
+# that is NOT an identity at all. A real caged leader IS `ignite-daemon` by the paragraph above, so
+# the paragraph above refused the one actor D42's `--rerun` was built for. `_staff_claim_gate` now
+# asks D43's question through the SAME call F17's launch bound reads (`carrier_corroborated_seat`):
+# does the roster row registered against the session id THIS PROCESS's own cgroup names name the
+# claimed seat. That is not a name lookup and cannot be typed; when it answers yes the claim has
+# stopped being an assertion, which is the only thing this gate exists to refuse. When it answers
+# anything else, the refusal below is unchanged — and `--force` still does not lift it.
 #
 # ⚠ NOT EVEN THE STAFF SEAT ITSELF. A leader sitting carries `COORD_AGENT=leader`, so it IS the
 # leader without claiming to be one — check-in (or the injected identity) confers it. `--as leader`
@@ -4873,25 +4883,62 @@ def _staff_claim_gate(args, claimed, pane, registered):
     would be if it stopped claiming."""
     actual = (registered or os.environ.get("COORD_AGENT", "").strip()
               or daemon_exec_identity())
+    corroborated = ""
     if actual and actual not in STAFF_CLAIM_IDENTITIES:
-        refuse(
-            "identity",
-            f"you claimed '{claimed}' (--as), and '{claimed}' is a STAFF CHAIR — the run's own "
-            f"authority. That claim is admitted from "
-            f"{', '.join(STAFF_CLAIM_IDENTITIES)} and from an uncaged console only; you resolve to "
-            f"'{actual}'.\n"
-            f"If you ARE '{claimed}', drop the claim — your injected identity already says so. If "
-            f"you need the chair to act, SEND to it: "
-            f"{coord_invocation(args)} send {claimed} \"<what you need>\" --type note --inline. "
-            f"A staff chair always accepts mail, live session or not; that is the whole point of "
-            f"it.\n"
-            f"There is no --force for this one: the emergency lever is the console, and the console "
-            f"is one of the three identities above.",
-            2)
+        # ---- D45 (owner, 2026-08-20) — A CORROBORATED CLAIM IS NOT AN ASSERTION ---------------
+        # THE DEFECT D45 NAMES. D43 taught the LAUNCH bound (F17) to corroborate a paneless
+        # caller, and this gate — a SECOND gate at the same door — still refused it. A real caged
+        # leader has no pane and carries no `COORD_AGENT` (the daemon injects none for headless
+        # seats), so it resolves through F16 to `ignite-daemon`, which is deliberately NOT in
+        # `STAFF_CLAIM_IDENTITIES`. Result: `--rerun`, the D42 instrument built FOR the leader
+        # chair, stayed unreachable by the actor holding the verb even after D43.
+        #
+        # WHY ADMITTING IT DOES NOT RE-OPEN THE HOLE. This gate exists to refuse an ASSERTED
+        # identity — someone TYPING "I am the leader". `carrier_corroborated_seat` answers a
+        # question no caller can type: which seat the roster registers against the session id
+        # THIS PROCESS's own cgroup names. Once that answer IS the claimed seat, the claim has
+        # been checked against a kernel-observable fact and the gate's own purpose is satisfied.
+        # It is keyed on the CORROBORATED LANE, never on a name lookup ("some active `sid:` row
+        # bears this name" is G-111 impersonation by another spelling, and D43 refuses it by
+        # name). An UNCORROBORATED caller cannot reach this admission: a process outside a
+        # daemon-minted carrier unit gets ('', '') from the kernel read and falls straight to the
+        # refusal below, exactly as today.
+        #
+        # ⚠ `--force` STILL DOES NOT LIFT IT: the refusal below is reached with no force check,
+        # and this admission consults nothing the caller passes.
+        _sid, _seat = carrier_corroborated_seat(args)
+        if _sid and _seat == claimed:
+            corroborated = SID_PANE_PREFIX + _sid
+        else:
+            if _sid and _seat:
+                _own = (f", and your own session {SID_PANE_PREFIX}{_sid} is registered to "
+                        f"'{_seat}'")
+            elif _sid:
+                _own = (f", and your own session {SID_PANE_PREFIX}{_sid} carries no ACTIVE "
+                        f"roster row")
+            else:
+                _own = ""
+            refuse(
+                "identity",
+                f"you claimed '{claimed}' (--as), and '{claimed}' is a STAFF CHAIR — the run's own "
+                f"authority. That claim is admitted from "
+                f"{', '.join(STAFF_CLAIM_IDENTITIES)}, from an uncaged console, and from a caller "
+                f"whose OWN daemon-minted session is registered to '{claimed}' in the roster "
+                f"(D45); you resolve to '{actual}'"
+                f"{_own}.\n"
+                f"If you ARE '{claimed}', drop the claim — your injected identity already says "
+                f"so. If you need the chair to act, SEND to it: "
+                f"{coord_invocation(args)} send {claimed} \"<what you need>\" --type note "
+                f"--inline. A staff chair always accepts mail, live session or not; that is the "
+                f"whole point of it.\n"
+                f"There is no --force for this one: the emergency lever is the console, and the "
+                f"console is one of the identities above.",
+                2)
     # ACCEPTED — and every accepted use is announced, never silent. An emergency lever nobody can
     # find in the log is an emergency lever nobody can audit.
     print(c(f"{CONSOLE_OVERRIDE_MARKER}: acting --as '{claimed}' (a STAFF CHAIR) from "
             f"'{actual or 'an uncaged console — no identity resolves'}'"
+            f"{f' · CORROBORATED (D45) by its own session {corroborated}' if corroborated else ''}"
             f"{f' · pane {pane}' if pane else ''}", C_HINT), file=sys.stderr)
 
 
@@ -16830,10 +16877,33 @@ def asserted_launch_claim(args):
     # It would have to name the EXACT session id of the target's currently-OPEN roster row, and
     # anyone holding that capability can already spawn under the daemon's own scope. It is not a
     # new hole and it is strictly narrower than the `--pane %N` override the branch above accepts.
-    sid = carrier_self_session()
-    if sid and pane_agent(base_dir(args, register=False), SID_PANE_PREFIX + sid) == claim:
+    sid, seat = carrier_corroborated_seat(args)
+    if sid and seat == claim:
         return "", SID_PANE_PREFIX + sid
     return claim, (SID_PANE_PREFIX + sid if (sid and not pane) else pane)
+
+
+def carrier_corroborated_seat(args):
+    """(sid, seat) — the session id THIS PROCESS can prove is its own, and the seat name the
+    roster registers AGAINST THAT SESSION. D43's lane, factored out as ONE call.
+
+    ('', '') when this process is not running inside a daemon-minted carrier unit — the ordinary
+    caged-seat and console cases, and the reason `base_dir` is reached only past that test: a
+    caller with no carrier unit is answered without resolving (or registering) any package.
+    (sid, '') when it IS inside one but no ACTIVE roster row carries the token.
+
+    ⚠ ONE CORROBORATION, TWO GATES (D45). Both gates that stand at the launch door read this:
+    F17's `asserted_launch_claim` above, and W3/D-2's `_staff_claim_gate`. A second copy of the
+    predicate is how two gates drift apart — and these would drift in OPPOSITE directions, one
+    admitting on the same claim, at the same command, that the other refuses.
+
+    `register=False` is load-bearing for the reason `asserted_launch_claim` records: a guard whose
+    whole claim is "it refused and acted on nothing" must not have written a registry entry first.
+    """
+    sid = carrier_self_session()
+    if not sid:
+        return "", ""
+    return sid, pane_agent(base_dir(args, register=False), SID_PANE_PREFIX + sid)
 
 
 # THE REFUSAL NAMES ALL THREE WAYS OUT, and that is a requirement rather than courtesy (leader
