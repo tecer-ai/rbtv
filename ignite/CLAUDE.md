@@ -210,13 +210,13 @@ either: a read-only check must not write into the goals workspace as the price o
 dispatch fenced against `.rbtv/**` can run the suite without breaching its own fence. A summary
 worth keeping is worth naming — pass `--summary <path>` and it is written verbatim there.
 
-## jobs/ — three scripts ACT on Linux only (author their briefs against the VPS)
+## jobs/ — two scripts ACT on Linux only (author their briefs against the VPS)
 
-`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Three of them —
-`goal-watcher-job.py`, `selfheal-room.py` and `restart-daemon.py` — import
+`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Two of them —
+`goal-watcher-job.py` and `restart-daemon.py` — import
 `jobcontain.py`, whose containment ACTIONS exist only on POSIX: `single_instance`'s `fcntl`
 double-run lock and `contain`/`child_preexec`'s `resource` memory cap. Since task 7.715 those
-imports are LAZY and keyed on `ImportError`, so the three scripts LOAD anywhere — they can be read
+imports are LAZY and keyed on `ImportError`, so both scripts LOAD anywhere — they can be read
 and statically checked on the Windows desktop — but they only ACT on Linux.
 
 **Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**
@@ -340,3 +340,23 @@ Canonical vocabulary for every spec, task, dispatch, review, and code file of th
 | `session-killed` | The audit record `kill-session` appends after a kill succeeds — attribution only (WHO killed WHICH session WHEN), never a payload. The one record kind this module still WRITES to a session's audit file. ⚠ A READER of that file may still meet three retired kinds on disk — `keys-accepted`, `screen-read`, `screen-read-summary` — written before task 7.29 retired the two pty intents; no code writes them now, and any tool that parses the file must still understand them. | Per-session audit file; `server/internal-api/keys-audit.js`, `server/internal-api/dispatch.js`; `probe-keys-audit.js` |
 
 Retired words — MUST NOT be used for this module: `heartbeat` (the engine is the ticker engine), `spawning` (use `launching`), `orphaned-dead` (use `failed` + discovery data), `requested_by` (use `enqueued_by` — owner-ruled 2026-07-14, decisions.md D26), **`launch profile`** (use `launch spec` — owner-ruled 2026-08-12, `#d-abolition-terminology`; the NAME layer that term implied is abolished outright by `#d-abolish-profile-names`, so the word now names nothing that exists). RETIRED SURFACES (task 7.29, the words stay legible for history but name nothing live): `send-to-session`, `capture-session-screen`, the `ignite send`/`ignite screen` wrappers, the web terminal and its ttyd surface, the in-unit dtach holder, the pty bridge — a headed session is a tmux pane and SSH is the human trust boundary.
+
+## The goal watcher is `engine/reconcile.js`, not a job (D1/D15, 2026-08-20)
+
+Goal-level health — non-terminal seat rows, unread staff mail, a dead or empty tmux room — is
+owned by ONE per-goal reconciliation pass (`engine/reconcile.js`, called from
+`engine/lane-watch.js`, cadence 300 s, 3 mechanical attempts then a typed `stuck` to the leader).
+It is armed structurally: every goal the watch pass sees is reconciled, with no per-goal job to
+register.
+
+What that retired (2026-08-20): the `selfheal-room*` jobs and their profile entries,
+`jobs/selfheal-room.py`, `jobs/selfheal-room-for-goal.py`, `jobs/ensure_room_selfheal.py`,
+`engine/ensure-room-selfheal.js` and both auto-arm call sites, plus every `goal-watcher*`
+catalogue row and profile block. `jobs/recover-room.py` STAYS — reconcile shells it directly
+(`RECOVER_ROOM` in `engine/reconcile.js`). `jobs/goal-watcher-job.py` stays on disk, dark and
+unreachable from the daemon; retiring the program itself was not in that change's scope.
+
+⚠ The ticker's per-execution silence ladder (`stall_warn_ticks` / `stall_halt_ticks` /
+`stall_kill_ticks`) is PROCESS plumbing, not goal health, and was deliberately left untouched:
+reconcile asks the GOAL's ledgers, never a process's log bytes or CPU time. The hung-kill rung is
+still the only thing that frees a seat held by a wedged process.
