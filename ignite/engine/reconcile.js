@@ -10,6 +10,7 @@
 // ⚠ READYNESS IS coord.py's. This module never re-derives DAG math. It calls
 // seeding.readySeats (the one subprocess) and reads the ledgers.
 // ⚠ DEAD SEATS ARE NEVER OWED (D22). ready-seats carries `dead` beside BLOCKED.
+// ⚠ SUMMONED SEATS ARE NEVER OWED (D24). See `summonedSeats` below.
 // ⚠ GRANTS ARE NOT TOUCHED. Launch is heartStore.enqueue({ onSeatBusy: 'queue' }).
 //    delete-grants has nothing to remove here.
 // Class (c) `outputs-unverified` is routed as class (a): verified-done records it as
@@ -37,6 +38,52 @@ const NON_TERMINAL_DISPOSITIONS = Object.freeze(
 );
 const EXTRA_NON_TERMINAL = Object.freeze(['renew-interrupted', 'unverified']);
 const STAFF_CHAIRS = Object.freeze(['leader', 'consultant', 'goal-master']);
+
+// D24 · A SUMMONED SEAT IS NEVER OWED. It is spawned ONLY when the owner summons it (a
+// goal-channel message or an `@rbtv` bot tag) — mail is NOT a wake term for it. Without this
+// guard reconcile derived class (b) from the chair's unread mail and relaunched meet's
+// `goal-master` on every cadence (jobs_log exec 30020/30026/30036/30042/30049/30056,
+// 2026-08-20), and the phantom sitting then registered as a live holder for the owner's post.
+//
+// ⚠ THE LIST IS COORD'S, READ OFF COORD. Hardcoding `goal-master` here would mint the second
+// list this program exists to remove. `ready-seats --json` cannot answer it: coord's D24
+// `IDLE` branch sits BELOW the disposition branch, so a chair that has checked out reads
+// `verdict: DONE` and carries no summoned term at all (measured on meet, 2026-08-20) — which
+// is precisely the state reconcile mis-derives.
+// ⚠ DEGRADATION IS TOWARD THE OLD BEHAVIOUR, NEVER A SILENT HOLE: an older coord with no such
+// tuple, or a read that fails, yields the EMPTY set — every seat stays owed exactly as before
+// this guard, and the miss is logged. Cached for the process: coord.py cannot change under a
+// running daemon without a deploy, and a deploy restarts it.
+const SUMMONED_PY = [
+  'import importlib.util, json, sys',
+  'spec = importlib.util.spec_from_file_location("coord_summoned", sys.argv[1])',
+  'm = importlib.util.module_from_spec(spec)',
+  'spec.loader.exec_module(m)',
+  'print(json.dumps(list(getattr(m, "SUMMONED_SEATS", []))))',
+].join('\n');
+
+let SUMMONED_CACHE = null;
+
+function summonedSeats(say) {
+  if (SUMMONED_CACHE) return SUMMONED_CACHE;
+  let names = [];
+  try {
+    const r = spawnSync(requirePythonCmd(), ['-c', SUMMONED_PY, COORD_PY], {
+      encoding: 'utf8', timeout: 30000,
+    });
+    if (r.status === 0) {
+      const parsed = JSON.parse(r.stdout);
+      if (Array.isArray(parsed)) names = parsed.map(String).filter(Boolean);
+    }
+  } catch {
+    names = [];
+  }
+  if (!names.length && say) {
+    say('warn', 'reconcile: coord names no SUMMONED_SEATS — the D24 exclusion is OFF', {});
+  }
+  SUMMONED_CACHE = new Set(names);
+  return SUMMONED_CACHE;
+}
 
 const MSG_HEADER = /^## (?<num>\d+) \| from: (?<sender>\S+)(?: \| from-pkg: (?<from_pkg>\S+))? \| to: (?<to>\S+) \| type: (?<type>\S+)(?: \| supersedes: (?<supersedes>\d+))?(?: \| re: (?<re>\d+))?(?: \| exec: (?<exec_id>\S+))?(?: \| milestone: (?<milestone>\S+))?(?: \| chat-thread: (?<chat_thread>\S+))?(?: \| deliver: (?<deliver>post|wake))?(?: \| why: (?<why>[^|]*?))? \| (?<ts>.+)$/;
 
@@ -176,12 +223,14 @@ function deriveOwed(goalFolder, {
   readyAnswer = null,
   live = null,
   queued = null,
+  summoned = null,
 } = {}) {
   const sessions = loadSessions(goalFolder);
   const messages = loadMessages(goalFolder);
   const last = lastBySeat(sessions);
   const liveSet = live || liveSeatsFromLedgers(sessions);
   const queuedSet = queued || new Set();
+  const summonedSet = summoned || new Set();
 
   const dead = new Set();
   let readyRefused = null;
@@ -203,6 +252,7 @@ function deriveOwed(goalFolder, {
   const classA = [];
   for (const [seat, row] of last) {
     if (dead.has(seat)) continue;
+    if (summonedSet.has(seat)) continue;
     const disp = (row.disposition || '').trim();
     if (!isNonTerminal(disp)) continue;
     const ended = (row.ended || '').trim();
@@ -219,6 +269,7 @@ function deriveOwed(goalFolder, {
   const classB = [];
   for (const chair of STAFF_CHAIRS) {
     if (dead.has(chair)) continue;
+    if (summonedSet.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
     const cursor = checkinOf(last.get(chair));
     const unread = messages.filter((m) => m.to === chair && m.num > cursor && m.sender !== chair);
@@ -239,6 +290,7 @@ function deriveOwed(goalFolder, {
   return {
     readyRefused,
     deadSeats: [...dead],
+    summonedSeats: [...summonedSet],
     classA,
     classB,
     classC: classA.filter((x) => x.outputsUnverified),
@@ -436,7 +488,9 @@ function reconcileGoal({
   }
 
   const queued = queuedSeats(heartStore, goal);
-  const derived = deriveOwed(goalFolder, { readyAnswer, live, queued });
+  const derived = deriveOwed(goalFolder, {
+    readyAnswer, live, queued, summoned: summonedSeats(say),
+  });
   const leader = leaderSeat(goalFolder);
 
   const actions = [];
@@ -451,6 +505,7 @@ function reconcileGoal({
       classE: derived.classE ? derived.classE.pending : null,
       readyRefused: derived.readyRefused,
       deadExcluded: derived.deadSeats.length,
+      summonedExcluded: derived.summonedSeats,
       leader,
       dryRun: Boolean(dryRun),
     });
@@ -564,6 +619,7 @@ module.exports = {
   NON_TERMINAL_DISPOSITIONS,
   STAFF_CHAIRS,
   deriveOwed,
+  summonedSeats,
   reconcileGoal,
   maybeReconcile,
   launchSitting,

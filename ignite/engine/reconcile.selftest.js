@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
 const {
-  deriveOwed, reconcileGoal, STRIKE_LIMIT, NON_TERMINAL_DISPOSITIONS,
+  deriveOwed, reconcileGoal, STRIKE_LIMIT, NON_TERMINAL_DISPOSITIONS, summonedSeats,
 } = require('./reconcile');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reconcile-selftest-'));
@@ -108,6 +108,27 @@ function fixtureUncast() {
       ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat' },
   ]);
   writeMessages(goalFolder, []);
+  return goalFolder;
+}
+
+// D24 · the summoned chair and a CONTROL staff chair in the IDENTICAL shape: both checked out
+// non-terminal with no later sitting, both carrying unread mail. Only the summoned one is
+// excluded — a leader relaunch on owed work is the watcher's whole purpose.
+function fixtureSummoned() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 's-'));
+  writeSeat(goalFolder, 'leader', true);
+  writeSeat(goalFolder, 'goal-master', true);
+  writeTaskforce(goalFolder, ['leader', 'goal-master']);
+  writeSessions(goalFolder, [
+    { 'session-id': 'gm1', seat: 'goal-master', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat', checkin: '0' },
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat', checkin: '0' },
+  ]);
+  writeMessages(goalFolder, [
+    { num: 1, sender: 'worker', to: 'leader', type: 'note', ts: '2026-08-19 11:00' },
+    { num: 2, sender: 'worker', to: 'goal-master', type: 'note', ts: '2026-08-19 11:01' },
+  ]);
   return goalFolder;
 }
 
@@ -410,6 +431,81 @@ say('── red arm: mutation of the pause gate ──');
     store.close();
     closeHeartStore();
   }
+}
+
+say('── D24: summoned seats are never owed ──');
+{
+  const summoned = summonedSeats();
+  assert.ok(summoned.has('goal-master'),
+    `coord names no summoned seat — read of SUMMONED_SEATS is broken: ${JSON.stringify([...summoned])}`);
+  say(`ok  summoned list read off coord.py: ${JSON.stringify([...summoned])}`);
+
+  const goalFolder = fixtureSummoned();
+
+  // RED: the same fixture with NO summoned set — the pre-fix behaviour, and the shape that
+  // relaunched meet's goal-master every cadence.
+  const red = deriveOwed(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: new Set(),
+  });
+  assert.ok(red.classA.some((x) => x.seat === 'goal-master'), JSON.stringify(red.classA));
+  assert.ok(red.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(red.classB));
+  say('  red (summoned set empty): goal-master derives in BOTH class (a) and class (b)');
+
+  const green = deriveOwed(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned,
+  });
+  assert.ok(!green.classA.some((x) => x.seat === 'goal-master'), JSON.stringify(green.classA));
+  assert.ok(!green.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(green.classB));
+  assert.ok(green.classA.some((x) => x.seat === 'leader'),
+    `CONTROL leader lost its class (a): ${JSON.stringify(green.classA)}`);
+  assert.ok(green.classB.some((x) => x.seat === 'leader'),
+    `CONTROL leader lost its class (b): ${JSON.stringify(green.classB)}`);
+  say('ok  green: goal-master in neither class; CONTROL leader still derives in both');
+}
+
+say('── D24: a full pass enqueues the leader and never the summoned chair ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureSummoned();
+    const r = reconcileGoal({
+      goal: 'fx-d24', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    const seats = r.actions.filter((a) => a.kind === 'enqueue').map((a) => a.seat);
+    assert.ok(!seats.includes('goal-master'), `enqueued the summoned chair: ${JSON.stringify(r.actions)}`);
+    assert.ok(seats.includes('leader'), `CONTROL leader was not enqueued: ${JSON.stringify(r.actions)}`);
+    const ids = store.listQueue().map((q) => q.job_id);
+    assert.deepStrictEqual(ids, ['seat-fx-d24-leader'], JSON.stringify(ids));
+    say(`ok  queue holds ${JSON.stringify(ids)} — no seat-fx-d24-goal-master`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent hole ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = "const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');";
+  assert.ok(src.includes(ANCHOR), 'COORD_PY anchor missing');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, "const COORD_PY = '/nonexistent/coord.py';"), mut.filename);
+  const warns = [];
+  const set = mut.exports.summonedSeats((level, message) => warns.push(`${level}:${message}`));
+  assert.strictEqual(set.size, 0, JSON.stringify([...set]));
+  assert.ok(warns.some((w) => w.startsWith('warn:')), JSON.stringify(warns));
+  const goalFolder = fixtureSummoned();
+  const d = mut.exports.deriveOwed(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: set,
+  });
+  assert.ok(d.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(d.classB));
+  say('ok  unreadable coord → empty set + a warn, and derivation falls back to the old behaviour');
 }
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
