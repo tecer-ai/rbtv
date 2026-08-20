@@ -714,6 +714,10 @@ function createReplyLeg({
                 p.revives = 0;          // the turn ended in a delivery; the next one starts fresh
                 p.compacted = false;
                 p.disarmedAt = null;    // a LATE reply arrived after all — the tombstone is lifted
+                p.slowNoticed = true;   // the turn is ANSWERED — spend the slow-notice budget so the
+                                        // P3 rung can never tell the owner "still working" AFTER his
+                                        // answer landed (owner-reported 2026-08-20 03:49Z, both goal
+                                        // channels). arm() re-opens it on the next real owner turn.
                 // THE LATENCY LINE — one per delivered reply, end to end: the owner's message
                 // being armed → this post landing. Everything the bridge does between those two
                 // stamps (dispatch, run, revives, compaction, retries) is inside it, which is

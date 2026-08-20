@@ -702,6 +702,18 @@ async function main() {
       && fastLine.bridge.latencyS < 30 && lastText() === 'the fast answer',
       { line: fastLine && fastLine.bridge, text: lastText() });
 
+    // ── (t3) AN ANSWERED TURN NEVER SAYS "STILL WORKING" (owner-reported 2026-08-20) ────────────
+    // Both goal channels got their replies at ~03:47Z and the ⏳ hourglass at ~03:50Z anyway:
+    // delivery reset armedAt/revives/disarmedAt but left the slow-notice budget live, so the P3
+    // rung fired on a turn the owner had already been answered on. Delivery must SPEND the budget.
+    const sentBeforeT3 = sent.length;
+    pend().turnStartedAt = nowMs() - (6 * 60 * 1000); // stale-clock the ALREADY-DELIVERED turn past the threshold
+    await leg().tick();
+    await leg().tick();
+    record('t3:a turn whose reply was already delivered posts NO still-working notice, however stale its clock',
+      sent.length === sentBeforeT3,
+      { sentBeforeT3, sentNow: sent.length, lastText: lastText(), slowNoticed: pend() && pend().slowNoticed });
+
     // ══ (u) THE THREE VISIBILITY NOTICES + THE QUEUE-AWARE DISARM (P2/P3) ═══════════════════════
     // Every silence the owner sees is indistinguishable from a broken bridge. The leg's own poll
     // already knows the difference between "stalled", "killed after stalling", "just slow" and
