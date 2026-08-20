@@ -9288,7 +9288,15 @@ def cmd_checkout(args):
         # already computed (do not overwrite it with "not-checked (seat declared incomplete)");
         # setting the local `incomplete` reason here makes `checkout_disposition` resolve to
         # `incomplete` at the one place it is computed, so both remaining surfaces agree.
-        if _outputs_note.startswith("outputs-undeclarable"):
+        # ⚠ D29 (2026-08-20): a SUMMONED chair is EXEMPT from this one downgrade — its
+        # product is conversation, not files, so its `done` STANDS without path tokens.
+        # Keyed on `is_summoned_seat` (SUMMONED_SEATS), never a seat name at this site;
+        # staff and ordinary seats remain bound by the `elif` below, unchanged.
+        if _outputs_note.startswith("outputs-undeclarable") and is_summoned_seat(me):
+            print(f"outputs check: '{me}' is a summoned chair — exempt (D29, 2026-08-20): "
+                  f"a chair's product is conversation, not files, so this `done` STANDS "
+                  f"with zero path tokens declared.")
+        elif _outputs_note.startswith("outputs-undeclarable"):
             incomplete = f"outputs-unverified: {_outputs_note}"
             print(refusal_text(
                 "state",
@@ -29181,7 +29189,8 @@ def _selftest_checks(args, failures, names):
         # record — the D3 planner extension: 23 of 26 meet-transcript-summarizer dones read
         # `none-declared` while their seats carried prose blocks the retired key's readers could
         # not see).
-        _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", "")],
+        _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
+                                  ("goal-master", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
             "---\nagent: keyed\nmodel: opus\noutputs: deliverable.md\n---\nbrief\n",
@@ -29190,10 +29199,18 @@ def _selftest_checks(args, failures, names):
             "---\nagent: prose\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
             "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
             encoding="utf-8")
+        # D29: the SUMMONED arm — byte-for-byte the `prose` seat's zero-token shape, on the
+        # one seat name `is_summoned_seat` admits, so the pair differs in exactly ONE fact
+        # (who is checking out) and a gate that exempted everybody or nobody reds a row.
+        (Path(_ou_pkg) / "seats" / "goal-master" / "seat.md").write_text(
+            "---\nagent: goal-master\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
+            encoding="utf-8")
         (Path(_ou_pkg) / "seats" / "blocky" / "out").mkdir()
         (Path(_ou_pkg) / "seats" / "blocky" / "out" / "report.md").write_text(
             "the work\n", encoding="utf-8")
-        for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97")):
+        for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
+                             ("goal-master", "%98")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
                          {"agent": _ou_s, "harness": "probe", "model": "opus",
@@ -29205,6 +29222,8 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="keyed"))
         _ou_po, _ou_pe, _ou_pc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="prose"))
+        _ou_go, _ou_ge, _ou_gc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
 
         def _ou_rec(s):
             _h, _r = read_csv_table(sessions_csv(_ou_pkg), SESSIONS_COLS)
@@ -29240,6 +29259,17 @@ def _selftest_checks(args, failures, names):
               and _ou_rec("prose").get("disposition-writer") == DISPOSITION_WRITER_SEAT
               and "will not record `done`" in (_ou_po + _ou_pe)
               and "you said so" not in (_ou_po + _ou_pe))
+        check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
+              "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
+              "the exemption site) checks out the SAME zero-token shape the `prose` control "
+              "above is refused on, and is ACCEPTED: disposition `done`, writer seat, the "
+              "exemption said out loud, no refusal text. A chair's product is conversation, "
+              "not files. The `prose` row is this row's control: delete the exemption and "
+              "this arm reds while every other arm holds",
+              _ou_gc is None and _ou_rec("goal-master").get("disposition") == "done"
+              and _ou_rec("goal-master").get("disposition-writer") == DISPOSITION_WRITER_SEAT
+              and "exempt (D29" in (_ou_go + _ou_ge)
+              and "will not record `done`" not in (_ou_go + _ou_ge))
 
         # ---- D8: A `done` IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS UNANSWERED -------
         # Driven through the REAL `cmd_checkout` and the REAL `cmd_send`, on one package, in the
