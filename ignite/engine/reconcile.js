@@ -387,9 +387,17 @@ function nontermPayload(rows) {
     'its own. You are the only actor with a verb for them (D33b):',
     '',
     '    rule-disposition <seat> done --anchor <p-*/d-* or message ref> --go',
-    '    rule-disposition <seat> "" --anchor <p-*/d-* or message ref> --go   # CLEAR → ordinary relaunch',
+    '    rule-disposition <seat> "" --anchor <p-*/d-* or message ref> --go   # CLEAR the row',
     '',
     'A `done` ruling\'s anchor must quote the on-disk evidence. Rule them or this wake repeats.',
+    '',
+    'CLEARING IS NOT A RELAUNCH — they are TWO acts (D39). A cleared row reads UNDECLARED, the',
+    'daemon maps that to not-waitable, and NEVER re-seeds it. To bring a cleared seat back you',
+    'must then issue the second command yourself:',
+    '',
+    '    launch --only <seat> --declare-only <p-*/d-* or message ref>',
+    '',
+    'Clear without that second command and the seat simply sits there.',
     '',
   ].join('\n');
 }
@@ -566,7 +574,9 @@ function reconcileGoal({
     launchTargets.push({
       seat: item.seat,
       reason: 'incomplete',
-      signature: `incomplete:${item.seat}:${item.ended}`,
+      // D40 · NO `:${item.ended}`. `ended` advances on every re-checkout, so an identical
+      // give-up read as new work and the attempt counter reset to 1 — D34's bound never fired.
+      signature: `incomplete:${item.seat}`,
       source: 'a',
     });
   }

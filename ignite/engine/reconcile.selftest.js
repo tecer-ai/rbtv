@@ -124,8 +124,8 @@ function boundRows(goalFolder, rows) {
     { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 09:00',
       ended: '2026-08-19 09:30', disposition: 'done', 'disposition-writer': 'seat',
       checkin: '2026-08-19 09:30' },
-    ...rows.map(([seat, disposition], i) => ({
-      'session-id': `s${i}`, seat, started: '2026-08-19 10:00', ended: '2026-08-19 10:05',
+    ...rows.map(([seat, disposition, ended], i) => ({
+      'session-id': `s${i}`, seat, started: '2026-08-19 10:00', ended: ended || '2026-08-19 10:05',
       disposition, 'disposition-writer': 'seat',
     })),
   ]);
@@ -245,13 +245,18 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
       q['seat-fx-split-writer'].workdir);
     const payload = q['seat-fx-split-leader'].prompt;
     assert.ok(payload.startsWith('BOOT-PROMPT-BODY'), 'the boot prompt is no longer FIRST');
-    for (const needle of ['checker', 'unverified', 'runner', 'exited', 'rule-disposition']) {
+    // D39 · clearing and relaunching are TWO acts. The payload MUST name the second one, with
+    // the real coord.py flag spelling (`launch --only <seat> --declare-only <anchor>`), and must
+    // no longer claim a CLEAR re-arms an ordinary relaunch.
+    assert.ok(!/ordinary relaunch/.test(payload), `payload still promises an ordinary relaunch: ${payload}`);
+    for (const needle of ['checker', 'unverified', 'runner', 'exited', 'rule-disposition',
+      'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH']) {
       assert.ok(payload.includes(needle), `leader payload never names ${needle}: ${payload}`);
     }
     assert.ok(!/^- `writer`/m.test(payload), `the by-name seat leaked into the leader payload: ${payload}`);
     say(`ok  writer workdir=…${q['seat-fx-split-writer'].workdir.slice(-20)}`);
     say(`ok  leader payload (${payload.length} chars) names checker/unverified, runner/exited and rule-disposition`);
-    say(payload.split('\n').filter((l) => l.startsWith('- `') || l.includes('rule-disposition')).join('\n'));
+    say(payload.slice(payload.indexOf('## The watcher woke you')));
   } finally {
     store.close();
     closeHeartStore();
@@ -500,6 +505,89 @@ ${SKIP_ANCHOR}`);
     assert.strictEqual(sent.length, 0, `mutant emitted ${sent.length} stuck — the arm does not discriminate`);
     assert.ok(seen.every((n) => n === null || n === 1), JSON.stringify(seen));
     say(`ok  red: attempts across 4 passes = ${JSON.stringify(seen)}, stuck sends = 0 (the live defect)`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+// ── D40 · the `incomplete` signature does NOT carry the row's end-time ───────────────────
+// `ended` advances on every re-checkout, so with it in the signature an IDENTICAL give-up read as
+// new work: attempts reset to 1 every sitting and D34's "2 tries then stuck" never fired.
+function incPass(store, goalFolder, sent) {
+  reconcileGoal({
+    goal: 'fx-inc', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+    recoverFn: () => ({ ok: true }),
+  });
+  return store.getReconcileAttempt('fx-inc', 'worker-a', 'incomplete');
+}
+
+say('── D40: same seat, same word, DIFFERENT `ended` → attempts still reach 2 and stuck fires ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureBound();
+    const sent = [];
+
+    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 10:05']]);
+    const p1 = incPass(store, goalFolder, sent);
+    assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
+    assert.strictEqual(Number(p1.stuck_emitted), 0, JSON.stringify(p1));
+    assert.strictEqual(sent.length, 0, JSON.stringify(sent));
+    say(`  pass 1 (ended 10:05): attempts=${p1.attempts} stuck_emitted=${p1.stuck_emitted} sig=${p1.signature}`);
+
+    // The seat was relaunched, worked, and gave up again: SAME word, a LATER `ended`.
+    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 14:47']]);
+    const p2 = incPass(store, goalFolder, sent);
+    assert.strictEqual(Number(p2.attempts), 2, JSON.stringify(p2));
+    assert.strictEqual(Number(p2.stuck_emitted), 1, JSON.stringify(p2));
+    assert.strictEqual(p2.signature, p1.signature, `signature moved with ended: ${p1.signature} -> ${p2.signature}`);
+    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
+    assert.ok(/stuck: incomplete on `worker-a`/.test(sent[0]), sent[0]);
+    say(`  pass 2 (ended 14:47): attempts=${p2.attempts} stuck_emitted=${p2.stuck_emitted} sig=${p2.signature}`);
+    say(`  stuck body: ${sent[0]}`);
+    say('ok  D40: the attempt count survives a changed `ended`');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── RED arm: restore `:${item.ended}` in the incomplete signature ──');
+{
+  // The pre-D40 line, verbatim, compiled from a COPY of the live source — the live file is never
+  // touched. If the D40 arm above does not discriminate, this mutant passes it too.
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = 'signature: `incomplete:${item.seat}`,';
+  assert.ok(src.includes(ANCHOR), 'D40 signature anchor missing');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, 'signature: `incomplete:${item.seat}:${item.ended}`,'), mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureBound();
+    const sent = [];
+    const seen = [];
+    for (const ended of ['2026-08-19 10:05', '2026-08-19 14:47', '2026-08-19 18:12']) {
+      boundRows(goalFolder, [['worker-a', 'incomplete', ended]]);
+      mut.exports.reconcileGoal({
+        goal: 'fx-inc', goalFolder, engine: { heartStore: store },
+        say: () => {}, force: true, readyAnswer: readyEmpty,
+        live: new Set(), promptFn: () => 'BOOT',
+        sendFn: (x) => { sent.push(x.body); return { ok: true }; },
+        recoverFn: () => ({ ok: true }),
+      });
+      const row = store.getReconcileAttempt('fx-inc', 'worker-a', 'incomplete');
+      seen.push(row ? Number(row.attempts) : null);
+    }
+    assert.strictEqual(sent.length, 0, `mutant emitted ${sent.length} stuck — the arm does not discriminate`);
+    assert.deepStrictEqual(seen, [1, 1, 1], JSON.stringify(seen));
+    say(`ok  red: attempts across 3 sittings = ${JSON.stringify(seen)}, stuck sends = 0 (the live defect)`);
   } finally {
     store.close();
     closeHeartStore();
