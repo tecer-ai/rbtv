@@ -128,7 +128,7 @@
     }
   },
   "office": {
-    "description": "Daily knowledge work — document export, legal advisory, meeting prep and summarization, client emails, and the problem-reframing + idea-sparring persona.",
+    "description": "Daily knowledge work — document export, legal advisory, meeting prep and summarization, and client emails.",
     "skills": [
       {
         "source_template": "office/skills/doc-export/SKILL.md",
@@ -161,12 +161,6 @@
         "target": ".claude/commands/rbtv-lawyer.md",
         "bake": ["rbtv_path"],
         "description": "Legal advisory persona for contract and compliance review"
-      },
-      {
-        "source_template": "office/commands/domcobb.md",
-        "target": ".claude/commands/rbtv-domcobb.md",
-        "bake": ["rbtv_path"],
-        "description": "Problem-solving persona that reframes challenges"
       }
     ]
   },

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The daily knowledge-work module — everything a founder, consultant, or PM does between strategy and execution. Covers turning narratives into polished documents, preparing for and capturing meetings, handling client communications, getting quick legal orientation, and structured thinking when you're not sure where to start. You reach for it every time work needs to leave your head and become something someone else will read, sign, or act on. (Formerly named `productivity`; visual design, design extraction, narrative strategy, and the studio loop entry — `/rbtv-strategist` — moved to the [studio module](./studio.md).)
+The daily knowledge-work module — everything a founder, consultant, or PM does between strategy and execution. Covers turning narratives into polished documents, preparing for and capturing meetings, handling client communications, and getting quick legal orientation. You reach for it every time work needs to leave your head and become something someone else will read, sign, or act on. (Formerly named `productivity`; visual design, design extraction, narrative strategy, and the studio loop entry — `/rbtv-strategist` — moved to the [studio module](./studio.md). The structured-thinking persona `/rbtv-domcobb` was retired 2026-08-21 — it lives on as the `brainstorm` function, Dom Cobb, in the mirror-format `core/functions` component.)
 
 ---
 
@@ -64,22 +64,8 @@ The daily knowledge-work module — everything a founder, consultant, or PM does
 
 ---
 
-### Thinking Partners
-
-#### `/rbtv-domcobb`
-
-- **What**: Dom Cobb is a Problem Architect — a former McKinsey consultant obsessed with converting vague needs into structured solutions using MECE, Pyramid Principle, and Problem Trees. Offers a menu: full Problem Structuring (`PS`), a quick PS Lite (`PL`) for simple problems, Idea Sparring (`IS`) — an adversarial idea→MVP stress-test in five moves: break the idea, research to eliminate, shrink to the atomic unit, grumpy-architect review, green-light gate — and three structured-thinking exercises: Pre-Mortem (`PM`), assume a committed project has already failed and work back to failure modes, causes, and mitigations; First-Principles Audit (`FP`), surface and classify assumptions, rewrite them as testable questions, and rebuild from what survives; and Six Thinking Hats (`6H`), walk a topic through De Bono's six perspectives in fixed order with a cross-hat summary.
-- **When to use**: When you want a structured problem deliverable — a `structured-problem.md` — that can be handed off or used in client work; quick conversational structuring via `PL` when you're not sure where to start; or `IS` when you have a raw product idea and want it broken, shrunk, and architect-reviewed BEFORE committing to build — the sparring ends in a BUILD verdict with a light MVP brief, or a KILL with recorded cause (a kill is a success: it saves the weeks the idea would have burned). Reach for `PM` when a project is already committed and you want to harden it against the ways it could fail; `FP` when a belief or plan rests on assumptions you want stress-tested from the ground up; `6H` when you want a single topic viewed from every angle — creativity, gut, upside, risk, and facts — before deciding.
-- **How to invoke**: `/rbtv-domcobb` (command). Menu appears. Type `PS`, `PL`, `IS`, `PM`, `FP`, or `6H`.
-- **What it produces**: A structured problem document (`structured-problem.md`) or an idea-sparring memo (`idea-sparring-{idea}-{date}.md`) carrying a BUILD/KILL verdict.
-- **Example**: `/rbtv-domcobb` → `PS` → "I'm not sure why our trial-to-paid conversion is dropping" → Cobb builds a MECE problem tree, structures the drivers via Pyramid Principle, and delivers a `structured-problem.md`. Or → `IS` → "app that does something with my screenshots" → Cobb captures the dump verbatim, breaks the assumptions, maps the graveyard, shrinks it to a reminder-engine atomic unit, and green-lights (or kills) it.
-
----
-
 ## How They Fit Together
 
-The module has two natural flows:
+The module's natural flow:
 
 **Meeting flow:** `rbtv-meeting-prep` the day before → attend the meeting → paste the transcript into `rbtv-meeting-summarizer` immediately after → use `rbtv-client-email` to send the follow-up the same day.
-
-**Thinking-to-artifact flow:** When the problem is unclear, start with `/rbtv-domcobb` — `PL` for quick conversational structuring, escalating to `PS` when complexity warrants → once the artifact is clear, pass it to the Strategist (`/rbtv-strategist`, studio module), the lawyer, or doc-export depending on what it becomes. When the input is a raw product idea rather than a problem, `IS` spars it to a verdict — green-lit ideas hand off to `/rbtv-innovator` M1-M2 or `/rbtv-product-discoverer` (innovation module), or to a product-lifecycle plugin for a full PRD.
