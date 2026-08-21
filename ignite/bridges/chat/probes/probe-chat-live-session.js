@@ -53,7 +53,7 @@ function check(name, pass, detail = {}) {
 // cast seat. `probe-nonclaude-with-resume` gained a `-m` pin for exactly this: a profile with no
 // model pin cannot be cast TO, so without one the harness gate is unreachable through a cast.
 const DEFAULT_CAST = 'harness: claude\nmodel: claude-sonnet-5\n';
-const NONCLAUDE_CAST = 'harness: kimi\nmodel: probe-kimi-model\n';
+const NONCLAUDE_CAST = 'harness: opencode\nmodel: probe-opencode-live\n';
 
 function scratchWorkspace({ humanInteractive = true, cast = DEFAULT_CAST } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-live-'));
@@ -86,22 +86,22 @@ function scratchWorkspace({ humanInteractive = true, cast = DEFAULT_CAST } = {})
   yamlText = yamlText.replace(/^default_workdir_root:.*$/m, `default_workdir_root: ${path.join(ws, '.rbtv', 'goals')}`);
   // A SYNTHETIC non-claude profile that DOES carry a resume template. Without it the harness gate
   // is untestable from this config: every shipped non-claude profile is refused one gate earlier
-  // (no `resume:`), so a `kimi` refusal would pass whether the harness gate existed or not — the
+  // (no `resume:`), so a harness refusal would pass whether the harness gate existed or not — the
   // check would be vacuous. This profile makes the harness the ONLY thing left to refuse it.
   // ⚠ INJECTED INTO `launch-specs:` UNDER ITS OWN HARNESS KEY (7.787). It used to be appended
   // just before `tools:`, which was the end of the flat `profiles:` map; that slot is the
   // name-keyed `jobs:` block now, and a `jobs:` entry can never be CAST to — the arm would go
   // vacuous in the one direction it exists to measure. The key is the pair, and it agrees with the
   // `-m` pin in the argv (`profiles.js#validateSpecKey`).
-  // Appended INSIDE the existing `kimi:` harness block rather than as a second one — a duplicate
-  // mapping key is a YAML parse error, and the shipped config already declares that harness.
-  yamlText = yamlText.replace(/^(  kimi:\n)/m,
-    '$1    probe-kimi-model:\n'
+  // Appended INSIDE the existing `opencode:` harness block (kimi is retired as a harness; kimi
+  // models ride opencode). A duplicate mapping key is a YAML parse error.
+  yamlText = yamlText.replace(/^(  opencode:\n)/m,
+    '$1    probe-opencode-live:\n'
     + '      exec:\n'
-    + '        argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--work-dir", "{workdir}"]\n'
+    + '        argv: ["opencode", "run", "--auto", "-m", "probe-opencode-live"]\n'
     + '        prompt: stdin\n'
     + '      resume:\n'
-    + '        argv: ["kimi", "--quiet", "-m", "probe-kimi-model", "--resume", "{session_ref}"]\n'
+    + '        argv: ["opencode", "run", "--auto", "-m", "probe-opencode-live", "--session", "{session_ref}"]\n'
     + '        prompt: stdin\n'
     + '      session_ref: { source: assigned }\n'
     + '      toolset_ceiling: full\n'
