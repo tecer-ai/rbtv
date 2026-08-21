@@ -325,6 +325,10 @@ function diagnose(probe, r) {
   push('stdout', r.stdout);
   push('stderr', r.stderr);
   const wroteThisRun = r.outAfter !== null && r.outAfter !== r.outBefore;
+  if (!wroteThisRun) {
+    lines.push('      capture not written by this run — prior .out is not evidence (TIMEOUT/INOPERATIVE/FAILED from the live child only)');
+    return lines;
+  }
   let body = null;
   try { body = fs.readFileSync(probe.outPath, 'utf8'); } catch { body = null; }
   if (body === null) {
@@ -715,17 +719,16 @@ function selftest() {
       if (!/written by THIS run/.test(d)) throw new Error('freshness not stated');
     });
 
-  t('S12 ⚠ a failing probe whose capture this run did NOT write is LABELLED as such — quoting an '
-    + 'earlier run\'s lines as this failure\'s evidence would rebuild G-171 inside the mechanism '
-    + 'that exists to make failures readable', () => {
+  t('S12 ⚠ a failing probe whose capture this run did NOT write must NOT quote that prior .out — '
+    + 'quoting an earlier run\'s PASS as this failure\'s evidence rebuilds G-171', () => {
       const r = run2(/probe-diagstale\.js$/);
       eq(r.rows[0].verdict, 'FAIL', 'verdict');
       const d = r.rows[0].diagnostic.join('\n');
-      if (!/NOT written by this run/.test(d)) {
-        throw new Error('a stale capture was quoted as this run\'s output');
+      if (!/not written by this run/.test(d)) {
+        throw new Error('a missing fresh capture was not labelled');
       }
-      if (!/an EARLIER run/.test(d)) {
-        throw new Error('fixture broken: the stale line should still be SHOWN, labelled');
+      if (/a line from an EARLIER run/.test(d)) {
+        throw new Error('a stale capture was quoted as this run\'s output');
       }
     });
 
