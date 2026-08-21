@@ -164,6 +164,12 @@ CREATE TABLE IF NOT EXISTS jobs_log (
   ended_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_jobslog_status ON jobs_log(status);
+-- (job_id, fired_at) serves the two per-cadence lookups that otherwise SCAN the whole table per
+-- probe row: listEnqueueUnfired's correlated NOT EXISTS (measured 1.5 s PER GOAL PER CADENCE at
+-- 31k rows on 2026-08-21 — half the event-loop stall that took the gateway down) and
+-- consecutiveFailures' newest-first walk. schema.sql runs at every boot, so an existing store
+-- gains it on the next restart.
+CREATE INDEX IF NOT EXISTS idx_jobslog_jobid_firedat ON jobs_log(job_id, fired_at);
 
 -- enqueue_log — the enqueue→launch record (enqueue-record, 2026-08-19). jobs_log is fired
 -- executions only; a suppressed or not-yet-fired enqueue has no row there. This sibling is
