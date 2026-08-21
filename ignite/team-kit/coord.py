@@ -19115,62 +19115,26 @@ def cmd_depart(args):
         print("no pane to kill (not inside tmux)")
 
 
-# ── D49.1 / D49.3 — `secret-add`: mediated append-only env write (masters only) ───────────────
+# ── D49.1 / D49.3 — `secret-add`: client of the out-of-cage daemon write ─────────────────────
 #
-# CLI surface is THIS verb, not a gateway intent: masters already type `coordinate` commands;
-# identity is stamped here by the F-8 ladder (pane / COORD_AGENT / cgroup→roster), never trusted
-# from `--as`; coord.py is live per invocation (a new gateway intent would be inert until deploy
-# and would key on sender tokens, not F-8). The receiver is this process: it reads the drop file
-# itself so the value never enters argv, the bus, or this command's output.
+# CLI surface stays this verb. Identity is stamped here by the F-8 ladder (pane / COORD_AGENT /
+# cgroup→roster), never trusted from `--as`. This process validates and authorizes, then POSTs
+# {NAME, drop-file PATH} — never the value — to gateway intent `secret-add`. The daemon (uncaged)
+# re-checks authority from receiver-stamped identity, reads the drop file, appends to the
+# canonical env file, deletes the drop on success, and never logs the value.
 #
-# Canonical target is `rbtv.json`'s `env_file` (workspace default `.rbtv/config/.env`), NOT
-# `.user/config/env/.env`. `--env-file` / COORD_SECRET_ENV_FILE are the fixture hatch.
+# No `--env-file` / COORD_SECRET_ENV_FILE hatch: a caller must not redirect the append. The
+# daemon may honour RBTV_IGNITE_SECRET_ENV_FILE on its OWN process env (scratch tests); a cage
+# cannot set the daemon's environment.
 
 SECRET_ADD_MASTERS = ("goal-master", "channel-master", "console-master")
 SECRET_ADD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-CANONICAL_ENV_FILE_REL = ".rbtv/config/.env"
-
-
-def canonical_secret_env_file():
-    """Workspace env file: rbtv.json `env_file`, else `.rbtv/config/.env`."""
-    root = Path(VAULT_ROOT)
-    rel = CANONICAL_ENV_FILE_REL
-    cfg = root / "rbtv.json"
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
-        got = data.get("env_file")
-        if isinstance(got, str) and got.strip():
-            rel = got.strip()
-    except (OSError, json.JSONDecodeError, TypeError):
-        pass
-    return (root / rel).resolve()
-
-
-def _secret_env_file(args):
-    override = (getattr(args, "env_file", None) or os.environ.get("COORD_SECRET_ENV_FILE", "")).strip()
-    if override:
-        return Path(override).expanduser().resolve()
-    return canonical_secret_env_file()
 
 
 def _drop_under_goals(path):
     parts = Path(path).resolve().parts
     for i in range(len(parts) - 1):
         if parts[i] == ".rbtv" and parts[i + 1] == "goals":
-            return True
-    return False
-
-
-def _env_file_has_name(text, name):
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        if line.split("=", 1)[0].strip() == name:
             return True
     return False
 
@@ -19215,7 +19179,7 @@ def _secret_add_authority(args):
 
 
 def cmd_secret_add(args):
-    """Append NAME=value to the workspace env file from a drop file. Value never printed."""
+    """Ask the daemon to append NAME from a drop file. Value never read here, never printed."""
     _secret_add_authority(args)
     name = (args.name or "").strip()
     if not SECRET_ADD_NAME_RE.match(name):
@@ -19230,56 +19194,39 @@ def cmd_secret_add(args):
         refuse("input",
                f"drop file is under .rbtv/goals/ — live goal ledgers are not a mailbox. "
                f"Leave the file where it is. path: {drop_res}", 2)
-    env_path = _secret_env_file(args)
-    if drop_res == env_path:
-        refuse("input", "drop file must not be the env file itself.", 2)
-    if not env_path.is_file():
+    target = gateway_transport_target(args)
+    if not target:
         refuse("environment",
-               f"env file does not exist: {env_path}. The owner creates it; this verb only appends.",
-               2)
+               "secret-add needs a running daemon serving this workspace (or IGNITE_GATEWAY_ADDR). "
+               "The write is performed out-of-cage by the daemon, never by this process.", 2)
+    host, port, token = target
     try:
-        existing = env_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        refuse("environment", f"cannot read env file {env_path}: {exc}", 2)
-    if _env_file_has_name(existing, name):
-        refuse("state",
-               f"NAME {name} already exists in {env_path}. Append-only: no update, no delete, "
-               f"no read-back. The drop file was left in place.", 2)
-    try:
-        raw = drop_res.read_text(encoding="utf-8")
-    except OSError as exc:
-        refuse("environment", f"cannot read drop file {drop_res}: {exc}", 2)
-    value = raw.strip()
-    if not value or "\n" in value or "\r" in value or "\x00" in value:
-        refuse("input",
-               f"drop file {drop_res} is empty or not a single-line value. File left in place.", 2)
-    try:
-        with open(env_path, "r+", encoding="utf-8") as fh:
-            if fcntl is not None:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            text = fh.read()
-            if _env_file_has_name(text, name):
-                refuse("state",
-                       f"NAME {name} already exists in {env_path}. Append-only: no update, no "
-                       f"delete, no read-back. The drop file was left in place.", 2)
-            if text and not text.endswith("\n"):
-                fh.write("\n")
-            fh.write(name + "=" + value + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-    except OSError as exc:
-        refuse("environment", f"cannot append to env file {env_path}: {exc}", 2)
-    deleted = False
-    try:
-        drop_res.unlink()
-        deleted = True
-    except OSError:
-        deleted = False
-    print(f"secret-add: appended {name} to {env_path}")
-    if deleted:
-        print(f"secret-add: consumed drop file {drop_res}")
-    else:
-        print(f"secret-add: appended, but failed to delete drop file {drop_res} — owner must remove it")
+        status, envelope = gateway_client.secret_add(
+            host, port, name, str(drop_res), token=token)
+    except gateway_client.GatewayTransportError as exc:
+        refuse("environment", f"secret-add could not reach the daemon: {exc}", 2)
+    if not isinstance(envelope, dict):
+        refuse("environment", f"secret-add: daemon returned a non-object envelope: {envelope!r}", 2)
+    if envelope.get("ok") is True:
+        result = envelope.get("result") or {}
+        env_path = result.get("env_file") or "the workspace env file"
+        print(f"secret-add: appended {name} to {env_path}")
+        if result.get("drop_consumed"):
+            print(f"secret-add: consumed drop file {drop_res}")
+        else:
+            print(f"secret-add: appended, but failed to delete drop file {drop_res} — owner must remove it")
+        return
+    err = envelope.get("error") or {}
+    code = err.get("code") if isinstance(err, dict) else None
+    msg = err.get("message") if isinstance(err, dict) else repr(err)
+    text = msg or f"daemon refused secret-add ({code or 'UNKNOWN'})"
+    if code == "UNAUTHORIZED_SENDER":
+        refuse("role gate", text, 2)
+    if "already exists" in text:
+        refuse("state", text, 2)
+    if ".rbtv/goals/" in text:
+        refuse("input", text, 2)
+    refuse("environment", text, 2)
 
 
 # ---------- selftest ----------
@@ -35516,51 +35463,29 @@ def _selftest_checks(args, failures, names):
               and "RESERVED bus address" in (_d2_ci_out + _d2_ci_err)
               and set(ROUTED_TYPES) == {"stuck", "ask"})
 
-    # ---- D49 secret-add (append-only, masters, drop-file; value never in output) ----
+    # ---- D49 secret-add (client gates; the write is daemon-side and is not this suite) ----
     with tempfile.TemporaryDirectory() as tdSec:
         pkgSec = Path(tdSec) / "pkg"
         (pkgSec / "coordination").mkdir(parents=True)
-        envSec = Path(tdSec) / "scratch.env"
-        envSec.write_text("# fixture — no real secrets\nEXISTING_MARK=keep\n", encoding="utf-8")
-        dropOk = Path(tdSec) / "ok.txt"
         dummyVal = "dummy-secret-add-selftest-value"
-        dropOk.write_text(dummyVal + "\n", encoding="utf-8")
         pSec = build_parser()
         saved_agent = os.environ.pop("COORD_AGENT", None)
         try:
-            os.environ["COORD_AGENT"] = "goal-master"
-            nsOk = pSec.parse_args([
-                "--package", str(pkgSec), "secret-add", "TEST_SECRET_SELFTEST",
-                "--from-file", str(dropOk), "--env-file", str(envSec)])
-            outOk, errOk, codeOk = harness_outcome(nsOk.func, nsOk)
-            textOk = envSec.read_text(encoding="utf-8")
-            check("D49 secret-add happy: master appends NAME, drop is consumed, value absent from "
-                  "stdout/stderr",
-                  codeOk is None and "appended TEST_SECRET_SELFTEST" in outOk
-                  and "consumed drop file" in outOk
-                  and not dropOk.exists()
-                  and "TEST_SECRET_SELFTEST=" + dummyVal in textOk
-                  and dummyVal not in outOk and dummyVal not in errOk)
-
-            dropDup = Path(tdSec) / "dup.txt"
-            dropDup.write_text(dummyVal + "\n", encoding="utf-8")
-            nsDup = pSec.parse_args([
-                "--package", str(pkgSec), "secret-add", "TEST_SECRET_SELFTEST",
-                "--from-file", str(dropDup), "--env-file", str(envSec)])
-            outDup, errDup, codeDup = harness_outcome(nsDup.func, nsDup)
-            check("D49 secret-add refuse existing NAME: typed state refusal, drop left, env "
-                  "unchanged length",
-                  codeDup == 2 and "already exists" in (outDup + errDup)
-                  and dropDup.exists()
-                  and dummyVal not in (outDup + errDup)
-                  and envSec.read_text(encoding="utf-8") == textOk)
+            hatch = False
+            try:
+                pSec.parse_args([
+                    "--package", str(pkgSec), "secret-add", "X",
+                    "--from-file", "/tmp/x", "--env-file", "/tmp/y"])
+            except SystemExit:
+                hatch = True
+            check("D49 secret-add --env-file hatch is closed (parser refuses the flag)", hatch)
 
             os.environ["COORD_AGENT"] = "alpha"
             dropW = Path(tdSec) / "worker.txt"
             dropW.write_text(dummyVal + "\n", encoding="utf-8")
             nsW = pSec.parse_args([
                 "--package", str(pkgSec), "secret-add", "TEST_SECRET_WORKER",
-                "--from-file", str(dropW), "--env-file", str(envSec)])
+                "--from-file", str(dropW)])
             outW, errW, codeW = harness_outcome(nsW.func, nsW)
             check("D49 secret-add refuse worker: role gate, drop left",
                   codeW == 2 and "Workers cannot add secrets" in (outW + errW)
@@ -35570,7 +35495,7 @@ def _selftest_checks(args, failures, names):
             dropAs.write_text(dummyVal + "\n", encoding="utf-8")
             nsAs = pSec.parse_args([
                 "--package", str(pkgSec), "--as", "goal-master", "secret-add",
-                "TEST_SECRET_AS", "--from-file", str(dropAs), "--env-file", str(envSec)])
+                "TEST_SECRET_AS", "--from-file", str(dropAs)])
             outAs, errAs, codeAs = harness_outcome(nsAs.func, nsAs)
             check("D49 secret-add refuse uncorroborated --as master: identity, drop left",
                   codeAs == 2 and "you claimed 'goal-master' (--as)" in (outAs + errAs)
@@ -35583,7 +35508,7 @@ def _selftest_checks(args, failures, names):
             dropG.write_text(dummyVal + "\n", encoding="utf-8")
             nsG = pSec.parse_args([
                 "--package", str(pkgSec), "secret-add", "TEST_SECRET_GOALS",
-                "--from-file", str(dropG), "--env-file", str(envSec)])
+                "--from-file", str(dropG)])
             outG, errG, codeG = harness_outcome(nsG.func, nsG)
             check("D49 secret-add refuse drop under .rbtv/goals/: input, drop left",
                   codeG == 2 and ".rbtv/goals/" in (outG + errG)
@@ -37129,20 +37054,19 @@ def build_parser():
         "secret-add",
         "Append ONE NAME to the workspace env file from a drop file. Masters only\n"
         "(goal-master, channel-master, console/owner). Identity is the proven F-8 ladder —\n"
-        "pane, COORD_AGENT, or cgroup→roster — never a bare --as. Append-only: an existing\n"
-        "NAME is refused. The value is read from --from-file and is never printed, logged, or\n"
-        "taken from argv. On success the drop file is deleted; on refusal it is left. Drop\n"
-        "files under .rbtv/goals/ are refused. No update, no delete, no read-back.",
+        "pane, COORD_AGENT, or cgroup→roster — never a bare --as. This process is the\n"
+        "CLIENT: it sends NAME and the drop-file PATH to the daemon, which (out of cage)\n"
+        "reads the value, appends, and deletes the drop. The value never enters argv, the\n"
+        "wire, logs, or this command's output. Append-only: an existing NAME is refused.\n"
+        "Drop files under .rbtv/goals/ are refused. No update, no delete, no read-back.",
         "example:\n"
-        "  coordinate secret-add GEMINI_API_KEY --from-file /tmp/gemini-key.txt\n"
+        "  coordinate secret-add GEMINI_API_KEY --from-file /path/in/the/workspace/gemini-key.txt\n"
         "next: nothing — the NAME is in the env file; the drop file is gone; there is no "
         "read-back verb")
     s.add_argument("name", metavar="NAME",
                    help="the env identifier to append (letters, digits, underscore)")
     s.add_argument("--from-file", dest="from_file", metavar="PATH", required=True,
                    help="drop file holding the value as a single line — never pass the value on argv")
-    s.add_argument("--env-file", dest="env_file", default="", metavar="PATH",
-                   help=argparse.SUPPRESS)
     add_identity_flags(s, force=False)
     s.set_defaults(func=cmd_secret_add)
 

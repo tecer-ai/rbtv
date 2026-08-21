@@ -448,7 +448,31 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, principalsOf, PRINCIPALS };
+  function canSecretAdd({ sender }) {
+    const SECRET_ADD_MASTERS = ['goal-master', 'channel-master', 'console-master'];
+    const bareSeat = (sender && typeof sender.seat === 'string' && sender.seat.length > 0)
+      ? (sender.seat.includes('/') ? sender.seat.split('/').pop() : sender.seat)
+      : '';
+    const owner = !!sender && sender.kind === 'owner';
+    const provenMaster = !!sender && sender.kind === 'agent' && SECRET_ADD_MASTERS.includes(bareSeat);
+    const agentApprox = !!sender && sender.kind === 'agent' && !bareSeat;
+    const allowed = !!(owner || provenMaster || agentApprox);
+    const seenAs = !sender ? 'no attested sender at all'
+      : (bareSeat
+        ? `a ${sender.kind || 'untyped'} token occupying proven seat '${bareSeat}'`
+        : (typeof sender.kind === 'string' && sender.kind
+          ? `a ${sender.kind} token`
+          : 'a sender carrying no attested kind'));
+    return {
+      allowed,
+      principals: allowed ? (owner ? ['owner'] : provenMaster ? ['secret-add-master'] : ['agent-approximation']) : [],
+      reason: allowed
+        ? `authorized as: ${owner ? 'owner' : provenMaster ? `proven master seat ${bareSeat}` : 'enrolled agent token (no proven seat)'}`
+        : `secret-add requires the owner, a proven master seat (${SECRET_ADD_MASTERS.join(', ')}), or an enrolled AGENT token with no proven seat; you are ${seenAs}`,
+    };
+  }
+
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canSecretAdd, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

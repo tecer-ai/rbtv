@@ -34,6 +34,7 @@ const { appendKillRecord } = require('./keys-audit');
 // The `record-bus-answer` act (task 7.771). Required rather than injected, like `appendKillRecord`
 // above and unlike `liveSessions`: it is a stateless call, not a manager holding processes.
 const { recordBusAnswer } = require('../../engine/bus-answer');
+const { applySecretAdd } = require('./secret-add');
 const path = require('path');
 
 const ENVELOPE_VERSION = 1;
@@ -97,7 +98,7 @@ const ENVELOPE_VERSION = 1;
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer',
+  'record-bus-answer', 'secret-add',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
@@ -1386,6 +1387,42 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { recorded: true, msg_id: out.msgId, re: out.re, goal: payload.goal, seat: payload.seat };
   }
 
+  function handleSecretAdd(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['name', 'from_file'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (typeof payload.name !== 'string' || payload.name.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'secret-add requires a NAME', { check: 'name-shape', field: 'name' });
+    }
+    if (typeof payload.from_file !== 'string' || payload.from_file.length === 0) {
+      throw new InternalApiError(VALIDATION_FAILED, 'secret-add requires from_file', { check: 'from_file-shape', field: 'from_file' });
+    }
+    const decision = authz.canSecretAdd({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    const out = applySecretAdd({
+      workspaceRoot,
+      name: payload.name,
+      fromFile: payload.from_file,
+    });
+    if (!out.ok) {
+      const code = out.wire === 'NOT_FOUND' ? NOT_FOUND
+        : out.wire === 'INTERNAL' ? INTERNAL
+        : VALIDATION_FAILED;
+      throw new InternalApiError(code, out.message, { check: out.check });
+    }
+    log('info', 'secret-add appended', {
+      name: out.result.name,
+      envFile: out.result.env_file,
+      dropConsumed: out.result.drop_consumed,
+      senderId: sender && sender.id,
+    });
+    return out.result;
+  }
+
   // Kill a session — expose the spawn module's EXISTING kill surface (TERM → grace →
   // KILL of the whole process tree, status → `killed`) on the wire (cli-expansion ruling
   // D2, ce-4). Kill is NOT headed-only — a session is "killable at any time" regardless
@@ -1540,6 +1577,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'live-feed': result = await handleLiveFeed(env.payload, env.sender); break;
         case 'send-message': result = handleSendMessage(env.payload, env.sender); break;
         case 'record-bus-answer': result = await handleRecordBusAnswer(env.payload, env.sender); break;
+        case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 
       // Outbound round-trip: the snapshot the gateway receives is DETACHED, so
