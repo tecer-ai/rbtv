@@ -21,7 +21,9 @@ INSTALL ROOT only. Python 3 stdlib only.
 COEXISTENCE. `install.py` + `admin/install/` are untouched and keep working.
 This tool never reads or writes their state file (`rbtv.json` at the target
 root); its own book is `{target}/.rbtv/config/install.json`. It tolerates files
-at the install root it did not write — see D6 and D12.
+at the install root it did not write — see D6 and D12. The two installers hold
+DISJOINT SETS: this one sees only new-standard component folders (D2), the old
+one keeps everything else.
 
 BOUNDARY (core-build `decisions.md#d-materializer-seat-loaders`). The installer
 exposes components at the INSTALL ROOT and NEVER writes under `.rbtv/goals/`.
@@ -37,13 +39,21 @@ D1  PLACEMENT — one file at the repo root. No package. The old installer's
     thin-entry + `admin/install/` split earns nothing at this size, and the
     later supersession is then a single `git mv install2.py install.py`.
 
-D2  WHAT A COMPONENT IS — a directory at depth 1 or 2 under a tree root that
-    holds `component.md` or `exposure.csv`. Its id is its tree-relative posix
-    path (`meta/planning`, `browse`); its module is the first segment. Depth 1
-    is not theoretical: today `.rbtv/mirror/browse/` is a component at a tree
-    root and `<repo>/ignite/exposure.csv` sits at a module root (both flagged
-    INTERIM in their own headers). `module.md` is NOT the marker — it exists
-    nowhere on either real tree.
+D2  WHAT A COMPONENT IS — THE NEW STANDARD ONLY (owner amendment, 2026-08-21)
+    — a `<module>/<component>` directory holding `component.md`: the component
+    folder the KG ratifies (`concepts/component.md` § component-first layout,
+    `d-component-first-layout`), whose id is its tree-relative posix path
+    (`meta/planning`) and whose module is the first segment. An exposure
+    manifest is NOT the marker and neither is `module.md`: a directory carrying
+    `exposure.csv` WITHOUT `component.md`, or carrying either at depth 1 (the
+    module-root manifests of `<repo>/core`, `<repo>/ignite`,
+    `<repo>/orchestration`, each flagged INTERIM in its own header) is the OLD
+    standard's shape and is invisible here — `install.py` + `admin/install/`
+    manage that tree, and the two installers are separate entities over
+    disjoint sets. A component.md-less folder is therefore never reported as
+    "no exposure manifest"; it is not a component of this installer's world at
+    all. When the CMP-5 component tree materializes in the repo, the folders it
+    mints carry `component.md` and become visible here with no code change.
 
 D3  TREES + PRECEDENCE — two roots, scanned together: `mirror` =
     `{target}/.rbtv/mirror`, `repo` = the directory holding this file. Both
@@ -179,6 +189,52 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     both its banner and its fenced block stripped before it is re-mirrored, so
     neither can stack across runs.
 
+D14 THE `.gitignore` BLOCK (owner ruling, 2026-08-21) — every per-component
+    artifact and the state file are MACHINE-LOCAL: a loader bakes an ABSOLUTE
+    entry-point path (D10) and the book records an absolute target, so a
+    committed copy is wrong on every other machine
+    (`decisions.md#d-s15-installer2-artifacts-machine-local`). Until 2026-08-21
+    the workspace enforced that with name patterns (`.claude/skills/rbtv2-*/`);
+    D12 retired the prefix, and git cannot match an in-file marker — so the
+    installer, which is the one thing that knows exactly what it wrote, carries
+    the list itself. It is an ORDINARY D7/D12 shared-file claim: one fenced
+    `# rbtv2:start … # rbtv2:end` block in `{target}/.gitignore`, recomputed
+    from the whole installed set on every install and uninstall, removed with
+    the last component, gated by the same collision rule as every other claim.
+    Bounds: only when the target is a GIT REPO (nothing mints a `.gitignore`
+    in a workspace that has no git); the GUIDANCE MIRROR is never listed (it
+    carries no absolute path and is authored-adjacent content the workspace
+    commits — install.py's mirrors always were); and a `.gitignore` that
+    already carries a fence we do not own refuses, like any other claim.
+    A file ALREADY TRACKED by git is not covered — `.gitignore` does not
+    reach one, and untracking it is the workspace owner's call, not ours; the
+    report names any such file so the human sees it.
+
+D15 `_skills/` — WHOLE-FOLDER SKILLS (owner ruling, 2026-08-21) — a tree-root
+    `_skills/` directory holds skills that are NOT rbtv parts: vendored or
+    third-party skill folders (`cli-creator/`, `improve-codebase-architecture/`)
+    that carry their own `SKILL.md` plus references, agents and licence files.
+    They have no component, no manifest and no entry point to point AT, so the
+    thin-loader realization of every other skill row is wrong for them: the
+    CONTENT is the skill, and it must land in the harness's skills directory
+    whole. Each `_skills/<name>/` is therefore its own installable unit, id
+    `_skills/<name>` — module `_skills`, component `<name>` — so `--component
+    _skills/cli-creator`, `--module _skills`, the book, the harness filter, the
+    collision gate and uninstall all work unchanged.
+
+    INSTALL copies the folder VERBATIM (bytes, so a binary reference survives)
+    into `MATRIX["skill"]`'s directory for each installed harness, skipping
+    `.git`, `node_modules` and `__pycache__`. UNINSTALL deletes every file it
+    copied and prunes the emptied directories — the folder goes as a whole.
+
+    OWNERSHIP is stamped ONCE, on the copied `SKILL.md` (`_mark`); the files
+    beside it stay byte-identical to the source, which is the point of a
+    verbatim copy. `_is_ours` therefore reads a file's OWN marker first and then
+    the marker of any ancestor directory's `SKILL.md` — so every file under a
+    marked skill folder is ours, and stripping the marker from that one
+    `SKILL.md` releases the WHOLE folder from the book (D12's release arm),
+    which is the human's way of taking a vendored skill over.
+
 D9  `path` ROWS MINT NOTHING — tool inventory only
     (`decisions.md#d-tool-inventory-exposure-rows`). Skipped, and counted in the
     report so the skip is visible.
@@ -192,18 +248,43 @@ D11 NO CATALOG ASSEMBLY — an entry-point of the form `prompts.csv#row-id` is a
     reference in the guidance index; assembling catalog rows is the assembler's
     and the materializer's job, not the installer's.
 
-D12 THE `rbtv2-` PREFIX (owner amendment, 2026-08-09) — every NAMED artifact
-    this installer creates carries the `rbtv2-` prefix, and every delete path
-    filters on that prefix AND the book, never on directory membership. The old
-    installer sweeps `.claude/{rules,commands,agents,skills}` for names starting
-    `rbtv-` (`admin/install/installer/generator.py::clear_previous_install`);
-    `"rbtv2-".startswith("rbtv-")` is False, so neither installer can sweep the
-    other's work. Files that CANNOT carry a prefix — the shared config files of
-    D7 — translate the rule to key/block ownership: a JSON file is edited at the
-    exact key paths the book records (`mcpServers.<name>`, `hooks.<event>`, …)
-    and a text file through a fenced `rbtv2:start … rbtv2:end` block; uninstall
-    removes exactly those keys or that block and deletes the file ONLY when
-    nothing at all is left in it.
+D12 OWNERSHIP IS MARKED IN THE FILE, NOT IN ITS NAME (owner amendment,
+    2026-08-21; supersedes the `rbtv2-` prefix of 2026-08-09) — a part is
+    realized under its OWN id (`.claude/skills/planning/SKILL.md`), and what
+    makes the file ours is the machine-readable `rbtv2-managed` marker its head
+    carries (`MANAGED_BANNER`, placed after any YAML frontmatter so a loader's
+    `---` block still parses). The book stays the primary record; the marker is
+    what lets the installer answer "may I edit this?" from the FILE, which the
+    book cannot do for a file the book never saw. Two consequences:
+
+      · ADOPTION — a planned path that exists outside our book but carries the
+        marker is overwritten and booked, exactly as a banner-carrying guidance
+        mirror already was (D13). Without the marker it still refuses (D6):
+        the collision gate protects hand-authored files, and a file whose own
+        head says this tool wrote it is not one.
+      · RELEASE — a booked file whose marker is GONE (a human took it over) is
+        never deleted. It is dropped from the book and reported instead.
+
+    NAME COLLISION WITH THE OLD INSTALLER. `install.py` sweeps
+    `.claude/{rules,commands,agents,skills}` for names starting `rbtv-`
+    (`admin/install/installer/generator.py::clear_previous_install`). Bare part
+    ids do not start with `rbtv-`, so that sweep still cannot reach our work —
+    and a manifest that DOES declare a `rbtv-*` part id is refused
+    (`part-id-reserved`) rather than minting a file the other installer would
+    delete behind our back.
+
+    LEGACY NAMES. Files earlier runs minted under the `rbtv2-` prefix carry no
+    marker (rules were verbatim copies). `LEGACY_PREFIX` keeps them recognized
+    as ours by the ownership test ALONE, so the first unprefixed run deletes
+    yesterday's prefixed files as stale instead of orphaning them. Nothing
+    mints that prefix any more.
+
+    Files that can carry neither a name nor a marker — the shared config files
+    of D7 — translate ownership to key/block ownership: a JSON file is edited at
+    the exact key paths the book records (`mcpServers.<name>`, `hooks.<event>`,
+    …) and a text file through a fenced `rbtv2:start … rbtv2:end` block;
+    uninstall removes exactly those keys or that block and deletes the file ONLY
+    when nothing at all is left in it.
 """
 from __future__ import annotations
 
@@ -219,9 +300,19 @@ import tempfile
 from pathlib import Path
 
 VERSION = "2.0.0-coexistence"
-PREFIX = "rbtv2-"                       # D12 — every named artifact carries it
+# D12 — ownership is a marker in the file, never a prefix on its name.
+MANAGED_MARK = "rbtv2-managed"
+MANAGED_BANNER = (f"<!-- {MANAGED_MARK} — generated by install2.py; edits are "
+                  "overwritten on the next run -->\n")
+# The prefix runs before 2026-08-21 minted. Nothing writes it; the ownership
+# test still recognizes it so the first unprefixed run cleans those files up.
+LEGACY_PREFIX = "rbtv2-"
 EXPOSURE_NAME = "exposure.csv"
 COMPONENT_NAME = "component.md"
+# D15 — the tree-root folder of WHOLE skill folders, copied verbatim.
+SKILLS_DIR = "_skills"
+SKILL_FILE = "SKILL.md"
+SKILL_FOLDER_SKIP = frozenset({".git", "node_modules", "__pycache__"})
 STATE_REL = Path(".rbtv") / "config" / "install.json"
 FENCE_ID = "rbtv2"
 
@@ -263,7 +354,7 @@ CANONICAL_METHODS = (
 )
 
 # Methods realized as ONE file per part, per harness. Target templates are
-# install-root-relative; `{name}` is the PREFIXED part-id (D12). None = this
+# install-root-relative; `{name}` is the bare part-id (D12). None = this
 # harness has no realization for this method — nothing is minted, nothing is
 # guessed.
 #
@@ -356,16 +447,21 @@ class Refuse(Exception):
 # ── discovery ───────────────────────────────────────────────────────────────
 
 def _is_component_dir(path: Path) -> bool:
-    return (path / COMPONENT_NAME).is_file() or (path / EXPOSURE_NAME).is_file()
+    """D2 — the NEW-STANDARD component folder: `component.md` present. An
+    `exposure.csv` alone is the old/interim shape and belongs to install.py."""
+    return (path / COMPONENT_NAME).is_file()
 
 
 def scan_tree(root: Path, tree: str) -> dict[str, dict]:
-    """Every component under one tree root, by id (D2). {} when the root is absent."""
+    """Every NEW-STANDARD component under one tree root, by id (D2) — a
+    `<module>/<component>` folder holding `component.md`. {} when the root is
+    absent. Old-standard folders (module-root manifests, `exposure.csv` with no
+    `component.md`) are invisible here by design: install.py manages those."""
     found: dict[str, dict] = {}
     if not root.is_dir():
         return found
 
-    def record(dir_path: Path) -> None:
+    def record(dir_path: Path, kind: str = "component") -> None:
         rel = dir_path.relative_to(root).as_posix()
         found[rel] = {
             "id": rel,
@@ -374,15 +470,21 @@ def scan_tree(root: Path, tree: str) -> dict[str, dict]:
             "module": rel.split("/")[0],
             "component": rel.split("/")[-1],
             "path": str(dir_path),
+            "kind": kind,
             "manifest": (dir_path / EXPOSURE_NAME).is_file(),
         }
 
     for top in sorted(root.iterdir()):
         if not top.is_dir() or top.name.startswith("."):
             continue
-        if _is_component_dir(top):
-            record(top)
+        if top.name == SKILLS_DIR:
+            # D15 — whole skill folders, not components: no manifest, no
+            # component.md, the content itself is the skill.
+            for sub in sorted(top.iterdir()):
+                if sub.is_dir() and (sub / SKILL_FILE).is_file():
+                    record(sub, kind="skill-folder")
             continue
+        # Depth 2 ONLY — a component folder lives inside a module folder (D2).
         for sub in sorted(top.iterdir()):
             if sub.is_dir() and not sub.name.startswith(".") and _is_component_dir(sub):
                 record(sub)
@@ -433,10 +535,55 @@ def _loader(part: str, desc: str, entry: str, what: str, named: bool) -> str:
             "instructions.\n")
 
 
+def _mark(text: str) -> str:
+    """Stamp *text* with the ownership marker (D12), AFTER any YAML frontmatter
+    — a marker above a loader's `---` block would stop that block parsing."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 3)
+        if end != -1:
+            cut = end + len("\n---\n")
+            return text[:cut] + "\n" + MANAGED_BANNER + text[cut:]
+    return MANAGED_BANNER + text
+
+
+def _marked(path: Path) -> bool:
+    """True when this one file's head carries a machine-readable owner mark —
+    ours, or a generated-mirror banner (D13 adoption). Unreadable proves
+    nothing."""
+    try:
+        head = path.read_text(encoding="utf-8")[:2000]
+    except (OSError, UnicodeDecodeError):
+        return False
+    return MANAGED_MARK in head or any(m in head for m in GENERATED_MARKERS)
+
+
+def _is_ours(target: Path, rel: str) -> bool:
+    """True when the FILE ITSELF proves this installer wrote it (D12): our
+    ownership marker, a generated-mirror banner, a legacy `rbtv2-` name from a
+    run that predates the marker, or — D15 — membership in a copied skill
+    folder whose `SKILL.md` carries the marker. A verbatim copy keeps its files
+    byte-identical to the source, so the FOLDER is what is owned, and one
+    stripped marker releases all of it."""
+    if (Path(rel).name.startswith(LEGACY_PREFIX)
+            or Path(rel).parent.name.startswith(LEGACY_PREFIX)):
+        return True
+    if _marked(target / rel):
+        return True
+    parts = Path(rel).parts
+    return any(_marked(target.joinpath(*parts[:i], SKILL_FILE))
+               for i in range(len(parts) - 1, 0, -1))
+
+
 def _content_for(rel: str, method: str, part: str, desc: str, entry: str,
                  comp_dir: Path, entry_rel: str) -> str:
+    return _mark(_body_for(rel, method, part, desc, entry, comp_dir, entry_rel))
+
+
+def _body_for(rel: str, method: str, part: str, desc: str, entry: str,
+              comp_dir: Path, entry_rel: str) -> str:
     if method == "rule":
-        # Verbatim copy — CMP-12's fallback row is a mirror, not a pointer.
+        # Verbatim copy — CMP-12's fallback row is a mirror, not a pointer. The
+        # ONE addition is the ownership marker `_content_for` stamps on (D12).
         return (comp_dir / entry_rel).read_text(encoding="utf-8")
     if method == "skill":
         return _loader(part, desc, entry, "skill", named=True)
@@ -635,17 +782,6 @@ def strip_generated_banner(body: str) -> tuple[str, bool]:
     return "\n".join(lines), True
 
 
-def _is_generated_file(path: Path) -> bool:
-    """True when the file on disk PROVES it is a generated mirror — its own
-    machine-readable DO-NOT-EDIT banner says so (ours or mirror.py's). An
-    unreadable file proves nothing and is never adopted."""
-    try:
-        return strip_generated_banner(
-            path.read_text(encoding="utf-8").lstrip("\n"))[1]
-    except (OSError, UnicodeDecodeError):
-        return False
-
-
 def plan_mirror(target: Path, basis: str | None, harnesses,
                 excludes: list[str] | tuple[str, ...] = (),
                 blocks: dict[str, str] | None = None
@@ -822,7 +958,8 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
     hook_harnesses: set[str] = set()
     agents_parts: list[tuple[str, str, str]] = []
     rule_parts: list[tuple[str, str]] = []
-    report: dict = {"skipped_inventory_rows": [], "no_realization": []}
+    report: dict = {"skipped_inventory_rows": [], "no_realization": [],
+                    "skill_folders": []}
 
     def claim_file(rel: str, content: str, cid: str) -> None:
         if rel in files and files[rel] != content:
@@ -836,6 +973,47 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
         files[rel] = content
         owners.setdefault(rel, []).append(cid)
 
+    def claim_skill_folder(comp: dict, cid: str, harnesses: list[str]) -> None:
+        """D15 — copy the whole folder into each harness's skills directory.
+
+        The root `SKILL.md` is the ONE file we stamp (`_mark`); everything else
+        is copied byte-for-byte, so a reference, a licence or a binary asset
+        arrives unchanged. Paths shared by several harnesses dedupe on the
+        template, exactly as the thin-loader `skill` row already does."""
+        comp_dir = Path(comp["path"])
+        named = comp["component"]
+        if named.startswith("rbtv-"):
+            raise Refuse(
+                "part-id-reserved",
+                f"{cid}: a skill folder named {named!r} would land under "
+                "`rbtv-*`, which the OLD installer sweeps out of "
+                "`.claude/skills/` on every run — rename the folder (D12)",
+                str(comp_dir))
+        members: list[tuple[str, str | bytes]] = []
+        for path in sorted(comp_dir.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            member = path.relative_to(comp_dir)
+            if any(part in SKILL_FOLDER_SKIP for part in member.parts):
+                continue
+            raw = path.read_bytes()
+            if member.as_posix() == SKILL_FILE:
+                body: str | bytes = _mark(raw.decode("utf-8"))
+            else:
+                try:
+                    body = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    body = raw               # a binary asset rides along whole
+            members.append((member.as_posix(), body))
+        roots = {MATRIX["skill"][h].rsplit("/", 1)[0].format(name=named)
+                 for h in harnesses if MATRIX["skill"].get(h)}
+        for root_rel in sorted(roots):
+            for member, body in members:
+                claim_file(f"{root_rel}/{member}", body, cid)
+        report["skill_folders"].append(
+            {"component": cid, "files": len(members),
+             "roots": sorted(roots)})
+
     for cid in sorted(records):
         rec = records[cid]
         comp = catalog.get(cid)
@@ -843,12 +1021,18 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
             raise Refuse(
                 "component-vanished",
                 f"component {cid!r} is recorded as installed but no longer "
-                f"exists under {rec.get('tree_root')!r} — restore the tree, or "
-                "uninstall it with the tree present, before this target can be "
-                "rebuilt",
+                f"exists under {rec.get('tree_root')!r} (renamed or deleted "
+                "upstream). Every run at this target refuses until the book "
+                "agrees with the trees. Recover with EITHER: restore the "
+                f"folder; or `uninstall --component {cid}`, which needs no "
+                "tree — the book holds its files",
                 str(rec.get("tree_root", "")))
         comp_dir = Path(comp["path"])
         harnesses = [h for h in HARNESSES if h in rec["harnesses"]]
+
+        if comp.get("kind") == "skill-folder":
+            claim_skill_folder(comp, cid, harnesses)
+            continue
 
         for row in exposure_rows(comp):
             pid = (row.get("part-id") or "").strip()
@@ -889,7 +1073,17 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
             entry_abs = str((comp_dir / entry_file).resolve())
             entry_ref = entry_abs + (("#" + entry_rel.split("#", 1)[1])
                                      if "#" in entry_rel else "")
-            named = PREFIX + pid
+            if pid.startswith("rbtv-"):
+                raise Refuse(
+                    "part-id-reserved",
+                    f"{cid}: exposure row {pid!r} starts with `rbtv-`, the "
+                    "prefix the OLD installer sweeps out of "
+                    "`.claude/{rules,commands,agents,skills}` on every run "
+                    "(generator.py::clear_previous_install) — a file minted "
+                    "under that name would be deleted behind this installer's "
+                    "back. Rename the part (D12)",
+                    str(comp_dir / EXPOSURE_NAME))
+            named = pid
 
             if method == "agents.md":
                 agents_parts.append((named, desc, entry_ref))
@@ -909,8 +1103,10 @@ def plan_files(records: dict[str, dict], catalog: dict[str, dict]
                         "(d-mcp-registration-is-config)",
                         str(comp_dir / entry_file))
                 for name, spec in decl.items():
-                    # D12: the server registration is a NAMED artifact.
-                    key = PREFIX + name
+                    # D12: the registration is claimed under its declared name;
+                    # a foreign key of the same name refuses (D6), it is never
+                    # renamed around.
+                    key = name
                     if key in servers and servers[key] != spec:
                         raise Refuse(
                             "config-server-conflict",
@@ -1030,7 +1226,7 @@ def write_state(target: Path, state: dict) -> None:
     state["schema"] = 1
     state["installer"] = "install2.py"
     state["version"] = VERSION
-    state["prefix"] = PREFIX
+    state["marker"] = MANAGED_MARK
     state["installed_at"] = _dt.datetime.now().isoformat(timespec="seconds")
     state["target"] = str(target.resolve())
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1063,18 +1259,16 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     ours_files = known_files(state)
     ours_claims = known_claims(state)
 
-    # D13 ADOPTION — a planned MIRROR path that exists, is not in our book, but
-    # carries a machine-readable GENERATED banner is provably some tool's
-    # output, not authored guidance. The collision refusal exists to protect
-    # hand-authored files; adopting a provably-generated one is what lets the
-    # old installer's mirror hand over without a human deleting anything. A
-    # mirror-named file WITHOUT a provable banner still refuses.
+    # D12/D13 ADOPTION — a planned path that exists and is not in our book, but
+    # whose own head PROVES a tool wrote it (our ownership marker, or a
+    # generated-mirror banner) is taken over and booked. The collision refusal
+    # exists to protect HAND-AUTHORED files; a file that says on its face it was
+    # generated is not one. Without that proof it still refuses.
     collisions, adopted = [], []
     for rel in files:
         if rel in ours_files or not (target / rel).exists():
             continue
-        if (rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES
-                and _is_generated_file(target / rel)):
+        if _is_ours(target, rel):
             adopted.append(rel)
             continue
         collisions.append(rel)
@@ -1133,23 +1327,35 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
             "write; move or remove it, or narrow --component/--harness",
             collisions[0])
 
-    stale_files = sorted(ours_files - set(files) - protect)
+    # D12 RELEASE — a booked file whose marker is gone was taken over by a
+    # human between runs. It leaves the book (`_rebook` recomputes from the
+    # plan) but is NEVER deleted; the caller reports it instead.
+    stale = sorted(ours_files - set(files) - protect)
+    released = [rel for rel in stale
+                if (target / rel).is_file() and not _is_ours(target, rel)]
+    stale_files = [rel for rel in stale if rel not in released]
     planned_claims = {_claim_id(c["path"], c["key"]) for c in claims}
     stale_claims = sorted(ours_claims - planned_claims)
 
     if dry_run:
         return {"written": [], "skipped": sorted(files), "deleted": stale_files,
                 "shared": sorted(planned_claims), "adopted": adopted,
+                "released": released,
                 "shared_removed": stale_claims, "dry_run": True}
 
     written, skipped = [], []
     for rel in sorted(files):
-        path = target / rel
-        if path.is_file() and path.read_text(encoding="utf-8") == files[rel]:
+        path, body = target / rel, files[rel]
+        # D15 — a copied skill folder may carry a binary asset, so a planned
+        # file is bytes OR text; everything else on this path is text.
+        if path.is_file() and _same(path, body):
             skipped.append(rel)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(files[rel], encoding="utf-8", newline="\n")
+        if isinstance(body, bytes):
+            path.write_bytes(body)
+        else:
+            path.write_text(body, encoding="utf-8", newline="\n")
         written.append(rel)
 
     deleted = []
@@ -1163,7 +1369,17 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
     _apply_shared(target, claims, stale_claims)
     return {"written": written, "skipped": skipped, "deleted": deleted,
             "shared": sorted(planned_claims), "shared_removed": stale_claims,
-            "adopted": adopted, "dry_run": False}
+            "adopted": adopted, "released": released, "dry_run": False}
+
+
+def _same(path: Path, body: str | bytes) -> bool:
+    """Is the file already exactly this content? Bytes compare as bytes; text
+    compares as text (an unreadable file is simply not equal)."""
+    try:
+        return (path.read_bytes() == body if isinstance(body, bytes)
+                else path.read_text(encoding="utf-8") == body)
+    except (OSError, UnicodeDecodeError):
+        return False
 
 
 def _apply_shared(target: Path, claims: list[dict],
@@ -1242,17 +1458,30 @@ def _prune(target: Path, directory: Path) -> None:
 # ── verbs ───────────────────────────────────────────────────────────────────
 
 def resolve_selection(catalog: dict[str, dict], components: list[str],
-                      modules: list[str]) -> list[str]:
+                      modules: list[str], book: dict[str, dict] | None = None
+                      ) -> list[str]:
+    """Resolve the selection against the trees — and, for UNINSTALL, against
+    the book as well (`book` = the state file's `components`).
+
+    A booked component whose folder was renamed or deleted upstream exists in
+    no catalog, and `plan_files` refuses `component-vanished` on it, blocking
+    EVERY later run at that target. Without this the refusal's own advice
+    ("uninstall it with the tree present") names a door that cannot be opened —
+    the tree copy is gone. Its files are in the book, so removing it needs no
+    tree at all."""
+    known = dict(catalog)
+    for cid, rec in (book or {}).items():
+        known.setdefault(cid, {"module": rec.get("module", cid.split("/")[0])})
     picked: list[str] = []
     for cid in components:
-        if cid not in catalog:
+        if cid not in known:
             raise Refuse(
                 "component-unknown",
                 f"no component {cid!r} on either tree — run `scan` to see what "
                 "is installable")
         picked.append(cid)
     for module in modules:
-        hits = [cid for cid, c in catalog.items() if c["module"] == module]
+        hits = [cid for cid, c in known.items() if c["module"] == module]
         if not hits:
             raise Refuse(
                 "module-unknown",
@@ -1262,21 +1491,34 @@ def resolve_selection(catalog: dict[str, dict], components: list[str],
     return sorted(set(picked))
 
 
+def is_installable(comp: dict) -> bool:
+    """A unit this installer can act on: a component with an exposure manifest,
+    or a D15 whole-skill folder (which has no manifest by construction)."""
+    return bool(comp["manifest"]) or comp.get("kind") == "skill-folder"
+
+
 def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
     entries = []
     for cid in sorted(catalog):
         c = catalog[cid]
+        folder = c.get("kind") == "skill-folder"
         rows = exposure_rows(c) if c["manifest"] else []
         entries.append({
             "id": cid, "tree": c["tree"], "module": c["module"],
+            "kind": c.get("kind", "component"),
             "manifest": c["manifest"],
-            "methods": sorted({(r.get("method") or "").strip() for r in rows
+            "methods": ["skill-folder"] if folder else
+                       sorted({(r.get("method") or "").strip() for r in rows
                                if (r.get("part-id") or "").strip()}),
-            "parts": len([r for r in rows if (r.get("part-id") or "").strip()]),
-            "note": "" if c["manifest"] else "component has no exposure manifest",
+            "parts": (sum(1 for q in Path(c["path"]).rglob("*") if q.is_file())
+                      if folder
+                      else len([r for r in rows
+                                if (r.get("part-id") or "").strip()])),
+            "note": "" if is_installable(c) else
+                    "component has no exposure manifest",
         })
     return {"ok": True, "components": entries, "shadowed": shadowed,
-            "no_manifest": [e["id"] for e in entries if not e["manifest"]]}
+            "no_manifest": [e["id"] for e in entries if e["note"]]}
 
 
 def _rebook(state: dict, records: dict, files: dict, owners: dict,
@@ -1336,6 +1578,53 @@ def _add_mirror(target: Path, state: dict, files: dict, owners: dict,
     return bases
 
 
+GITIGNORE_NOTE = (
+    "installer2 (install2.py) artifacts — MACHINE-LOCAL, never committed: the "
+    "loaders bake\nabsolute entry-point paths and the book records an absolute "
+    "target, so a committed copy\nis wrong on every other machine "
+    "(d-s15-installer2-artifacts-machine-local). Generated from\nthe book on "
+    "every install and uninstall — edit nothing between the fences; re-run the\n"
+    "installer instead. The guidance mirror is deliberately absent: it is "
+    "workspace content.")
+
+
+def _add_gitignore(target: Path, owners: dict[str, list], claims: list[dict],
+                   report: dict) -> None:
+    """Claim the `.gitignore` block that keeps our artifacts out of git (D14).
+
+    Listed: every per-component file (the `<aggregate>` owner is the guidance
+    mirror, which is workspace content and stays committable) plus the book.
+    Skipped entirely off a git repo. Files git ALREADY TRACKS are reported,
+    because no ignore rule reaches one."""
+    if not (target / ".git").exists():
+        report["gitignore"] = {"claimed": False, "reason": "not a git repo"}
+        return
+    paths = sorted([rel for rel, own in owners.items() if own != ["<aggregate>"]]
+                   + [STATE_REL.as_posix()])
+    if len(paths) == 1:                       # the book alone — nothing installed
+        report["gitignore"] = {"claimed": False, "reason": "nothing installed"}
+        return
+    claims.append({"path": ".gitignore", "fmt": "text", "comment": "#",
+                   "key": None,
+                   "value": "\n".join("# " + ln for ln in
+                                      GITIGNORE_NOTE.split("\n"))
+                            + "\n" + "\n".join(paths)})
+    report["gitignore"] = {"claimed": True, "count": len(paths),
+                           "tracked": _tracked(target, paths)}
+
+
+def _tracked(target: Path, paths: list[str]) -> list[str]:
+    """The listed paths git already tracks — `.gitignore` cannot reach those.
+    Empty when git is unavailable; this is a report, never a gate."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(target), "ls-files", "--", *paths],
+                             capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return sorted(set(out.stdout.split()) & set(paths))
+
+
 def installed_harnesses(records: dict[str, dict]) -> list[str]:
     """The harness set the whole installed set targets — the union across the
     book's records, in canonical order. This is what keys the guidance mirror
@@ -1358,6 +1647,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     files, owners, claims, report = plan_files(records, catalog)
     protect = _add_mirror(target, state, files, owners, report, guidance_basis,
                           installed_harnesses(records), guidance_excludes)
+    _add_gitignore(target, owners, claims, report)
     result = apply(target, files, claims, state, dry_run, protect)
     _clean_bases(target, report, dry_run)
     if not dry_run:
@@ -1400,6 +1690,7 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                 if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES)
             report["guidance_mirror"] = {"basis": None, "targets": [],
                                          "skipped": exc.code}
+    _add_gitignore(target, owners, claims, report)
     result = apply(target, files, claims, state, dry_run, protect)
     _clean_bases(target, report, dry_run)
     if not dry_run:
@@ -1421,7 +1712,7 @@ def do_list(target: Path) -> dict:
     state = read_state(target)
     return {"ok": True, "target": str(target.resolve()),
             "state_file": str(target / STATE_REL),
-            "prefix": PREFIX,
+            "marker": MANAGED_MARK,
             "guidance_basis": state.get("guidance_basis"),
             "components": state.get("components") or {},
             "guidance_files": state.get("guidance_files") or [],
@@ -1434,6 +1725,8 @@ def print_scan(data: dict) -> None:
     print(f"{'COMPONENT':<34} {'TREE':<7} {'PARTS':>5}  METHODS / NOTE")
     for e in data["components"]:
         note = e["note"] or ", ".join(e["methods"]) or "(manifest has no rows)"
+        if e.get("kind") == "skill-folder":
+            note = "skill-folder — whole folder copied verbatim (D15)"
         print(f"{e['id']:<34} {e['tree']:<7} {e['parts']:>5}  {note}")
     if data["no_manifest"]:
         print(f"\n{len(data['no_manifest'])} component(s) have NO exposure "
@@ -1455,8 +1748,12 @@ def print_result(data: dict) -> None:
     # Printed BEFORE the dry-run branch: a planned takeover of another tool's
     # file is exactly what a human needs to see while deciding to proceed.
     for rel in data.get("adopted") or []:
-        print(f"  ^ {rel} (adopted — it carries a GENERATED banner, so it is "
-              "another tool's mirror, not authored guidance; now ours)")
+        print(f"  ^ {rel} (adopted — its own head proves a tool generated it, "
+              "so it is not authored content; now ours)")
+    for rel in data.get("released") or []:
+        print(f"  ! {rel} (released — the `{MANAGED_MARK}` marker is gone, so "
+              "someone took this file over: dropped from the book, left on "
+              "disk, never deleted)")
     if data.get("dry_run"):
         print(f"DRY RUN — would write {len(data.get('skipped') or [])} file(s) "
               f"and hold {len(data.get('shared') or [])} shared-file claim(s):")
@@ -1469,6 +1766,7 @@ def print_result(data: dict) -> None:
         for rel in data.get("shared_removed") or []:
             print(f"  ~- {rel}")
         _print_report_rows(data.get("report") or {}, planned=True)
+        _print_gitignore(data.get("report") or {}, planned=True)
         _print_guidance(data.get("report") or {}, planned=True)
         return
     for rel in data.get("written") or []:
@@ -1483,6 +1781,7 @@ def print_result(data: dict) -> None:
         print(f"  ~- {rel}")
     report = data.get("report") or {}
     _print_report_rows(report, planned=False)
+    _print_gitignore(report, planned=False)
     _print_guidance(report, planned=False)
 
 
@@ -1498,9 +1797,30 @@ def _print_report_rows(report: dict, planned: bool) -> None:
         print(f"  · {verb} `{row['method']}` row {row['component']}/"
               f"{row['part']} ({row['entry_point']}) — inventory only, "
               "mints nothing")
+    for row in report.get("skill_folders") or []:
+        print(f"  · {'would copy' if planned else 'copied'} skill FOLDER "
+              f"{row['component']} whole — {row['files']} file(s) into "
+              + ", ".join(row["roots"]) + " (D15)")
     for row in report.get("no_realization") or []:
         print(f"  · {row['harness']} has no realization for method "
               f"{row['method']} ({row['component']}/{row['part']}) — {tail}")
+
+
+def _print_gitignore(report: dict, planned: bool) -> None:
+    """What the `.gitignore` block covers — and what it cannot (D14)."""
+    gi = report.get("gitignore")
+    if not gi:
+        return
+    if not gi.get("claimed"):
+        print(f"  · .gitignore: not claimed ({gi.get('reason')})")
+        return
+    print(f"  · .gitignore: {'would keep' if planned else 'keeps'} "
+          f"{gi['count']} artifact path(s) out of git, in one "
+          f"`{FENCE_ID}:start` block (D14)")
+    for rel in gi.get("tracked") or []:
+        print(f"    ⚠ {rel} is ALREADY TRACKED by git — no ignore rule reaches "
+              "a tracked file. Untrack it (`git rm --cached`) or accept that "
+              "it is committed.")
 
 
 def _print_guidance(report: dict, planned: bool) -> None:
@@ -1581,10 +1901,11 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     if not target.is_dir():
         raise Refuse("target-missing", f"target is not a directory: {target}")
 
-    installable = [cid for cid in sorted(catalog) if catalog[cid]["manifest"]]
+    installable = [cid for cid in sorted(catalog)
+                   if is_installable(catalog[cid])]
     if not installable:
         print("Nothing installable — no component on either tree carries an "
-              "exposure manifest.")
+              f"exposure manifest, and no {SKILLS_DIR}/ folder exists.")
         return 1
     installed = set(read_state(target).get("components") or {})
     print("\nComponents:\n")
@@ -1592,7 +1913,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         mark = "*" if cid in installed else " "
         print(f" {mark}{i:>3}. {cid}  [{catalog[cid]['tree']}]")
     for cid in sorted(catalog):
-        if not catalog[cid]["manifest"]:
+        if not is_installable(catalog[cid]):
             print(f"     ---  {cid}  — component has no exposure manifest")
     print("\n('*' = already installed)")
 
@@ -1690,6 +2011,40 @@ def _fixture(root: Path) -> None:
     (bare / COMPONENT_NAME).write_text("# barecomp — no manifest\n",
                                        encoding="utf-8")
 
+    res = root / "fixmod" / "reservedcomp"
+    res.mkdir(parents=True)
+    (res / COMPONENT_NAME).write_text("# reservedcomp\n", encoding="utf-8")
+    (res / "skill-entry.md").write_text("# the skill\n", encoding="utf-8")
+    (res / EXPOSURE_NAME).write_text(
+        "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
+        "rbtv-legacy,prompt,skill,,skill-entry.md,,\n", encoding="utf-8")
+
+    # THE OLD STANDARD (D2) — a module-root manifest and a component folder
+    # with a manifest but no `component.md`. Neither is visible to this
+    # installer; install.py manages that shape.
+    old = root / "oldmod"
+    (old / "oldcomp").mkdir(parents=True)
+    old_rows = ("part-id,part-kind,method,rbtv-cli,entry-point,description,"
+                "write-roots\nold,prompt,skill,,entry.md,,\n")
+    (old / EXPOSURE_NAME).write_text(old_rows, encoding="utf-8")
+    (old / "entry.md").write_text("# old\n", encoding="utf-8")
+    (old / "oldcomp" / EXPOSURE_NAME).write_text(old_rows, encoding="utf-8")
+    (old / "oldcomp" / "entry.md").write_text("# old\n", encoding="utf-8")
+
+    # D15 — a whole skill folder: SKILL.md + a nested reference + a binary
+    # asset + a directory the copier must skip.
+    vend = root / SKILLS_DIR / "vendored"
+    (vend / "references").mkdir(parents=True)
+    (vend / "__pycache__").mkdir()
+    (vend / SKILL_FILE).write_text(
+        "---\nname: vendored\ndescription: A vendored skill\n---\n\n"
+        "# Vendored\n\nRead references/deep.md.\n", encoding="utf-8")
+    (vend / "LICENSE.txt").write_text("MIT\n", encoding="utf-8")
+    (vend / "references/deep.md").write_text("# deep reference\n",
+                                             encoding="utf-8")
+    (vend / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n binary")
+    (vend / "__pycache__/junk.pyc").write_bytes(b"\x00junk")
+
     bad = root / "badmod" / "badcomp"
     bad.mkdir(parents=True)
     (bad / COMPONENT_NAME).write_text("# badcomp\n", encoding="utf-8")
@@ -1697,6 +2052,20 @@ def _fixture(root: Path) -> None:
     (bad / EXPOSURE_NAME).write_text(
         "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
         "boom,capability,telepathy,,x.md,,\n", encoding="utf-8")
+
+
+def _reserved_id_refuses(tmp: Path, catalog: dict[str, dict]) -> bool:
+    """A manifest declaring a `rbtv-*` part id refuses, and writes nothing —
+    the old installer's sweep would delete that file behind our back (D12)."""
+    ws = tmp / "ws-reserved-id"
+    ws.mkdir()
+    try:
+        do_install(ws, catalog, ["fixmod/reservedcomp"], list(HARNESSES),
+                   dry_run=False)
+        return False
+    except Refuse as exc:
+        return (exc.code == "part-id-reserved"
+                and not any(ws.rglob("*.md")))
 
 
 def selftest() -> int:
@@ -1719,17 +2088,37 @@ def selftest() -> int:
 
         print("scan")
         data = do_scan(catalog, shadowed)
-        check("discovers every component on the tree",
-              sorted(catalog) == ["badmod/badcomp", "fixmod/barecomp",
-                                  "fixmod/codexcomp", "fixmod/goodcomp"],
+        check("discovers every NEW-STANDARD component on the tree",
+              sorted(catalog) == ["_skills/vendored", "badmod/badcomp",
+                                  "fixmod/barecomp", "fixmod/codexcomp",
+                                  "fixmod/goodcomp", "fixmod/reservedcomp"],
               str(sorted(catalog)))
+        check("a _skills/ folder is discovered as a skill-folder unit (D15)",
+              catalog["_skills/vendored"]["kind"] == "skill-folder"
+              and catalog["_skills/vendored"]["module"] == SKILLS_DIR
+              and not catalog["_skills/vendored"]["manifest"],
+              str(catalog["_skills/vendored"]))
+        check("it is INSTALLABLE despite having no manifest, and says so",
+              is_installable(catalog["_skills/vendored"])
+              and "_skills/vendored" not in data["no_manifest"]
+              and [e for e in data["components"]
+                   if e["id"] == "_skills/vendored"][0]["methods"]
+              == ["skill-folder"], str(data["no_manifest"]))
         check("reports the manifest-less component",
               data["no_manifest"] == ["fixmod/barecomp"],
               str(data["no_manifest"]))
 
+        print("\nD2 — only NEW-STANDARD component folders are visible")
+        check("a module-root exposure.csv is NOT a component (old standard)",
+              "oldmod" not in catalog and "oldmod/oldcomp" not in catalog,
+              str(sorted(catalog)))
+        check("neither is a folder with a manifest but no component.md",
+              not any(cid.endswith("oldcomp") for cid in catalog),
+              str(sorted(catalog)))
+
         print("\nD12 — the old installer's sweep cannot reach our names")
-        check("'rbtv2-x'.startswith('rbtv-') is False",
-              not (PREFIX + "x").startswith("rbtv-"))
+        check("a `rbtv-` part id is REFUSED, never minted",
+              _reserved_id_refuses(tmp, catalog))
 
         # Pre-existing foreign content the run must preserve (D6/D12): an
         # old-installer `rbtv-` sibling in each swept folder, plus foreign keys
@@ -1756,43 +2145,57 @@ def selftest() -> int:
         res = do_install(target, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                          dry_run=False)
         expect = {
-            f".claude/skills/{PREFIX}fixskill/SKILL.md",
-            f".agents/skills/{PREFIX}fixskill/SKILL.md",
-            f".claude/commands/{PREFIX}fixcmd.md",
-            f".codex/prompts/{PREFIX}fixcmd.md",
-            f".opencode/commands/{PREFIX}fixcmd.md",
-            f".claude/rules/{PREFIX}fixrule.md",
-            f".agents/behavior-rules/{PREFIX}fixrule.md",
-            f".claude/agents/{PREFIX}fixagent.md",
-            f".opencode/agents/{PREFIX}fixagent.md",
+            ".claude/skills/fixskill/SKILL.md",
+            ".agents/skills/fixskill/SKILL.md",
+            ".claude/commands/fixcmd.md",
+            ".codex/prompts/fixcmd.md",
+            ".opencode/commands/fixcmd.md",
+            ".claude/rules/fixrule.md",
+            ".agents/behavior-rules/fixrule.md",
+            ".claude/agents/fixagent.md",
+            ".opencode/agents/fixagent.md",
         }
         shared = {".claude/settings.json", ".codex/hooks.json", ".mcp.json",
                   ".codex/config.toml", "opencode.json"}
         on_disk = {p.relative_to(target).as_posix()
                    for p in target.rglob("*") if p.is_file()}
         want = expect | shared | set(legacy) | {STATE_REL.as_posix()}
-        check("every CMP-12 realization landed, prefixed, and nothing else",
+        check("every CMP-12 realization landed under its BARE part id, and "
+              "nothing else",
               on_disk == want,
               f"missing={sorted(want - on_disk)} extra={sorted(on_disk - want)}")
-        check("every named artifact carries the rbtv2- prefix",
-              all(Path(rel).name.startswith(PREFIX)
-                  or Path(rel).parent.name.startswith(PREFIX)
-                  for rel in expect), str(sorted(expect)))
+        check("D12 — no artifact carries the retired rbtv2- prefix",
+              not any(Path(rel).name.startswith(LEGACY_PREFIX)
+                      or Path(rel).parent.name.startswith(LEGACY_PREFIX)
+                      for rel in expect), str(sorted(expect)))
+        check("D12 — every artifact carries the ownership marker instead",
+              all(MANAGED_MARK in (target / rel).read_text() for rel in expect)
+              and all(_is_ours(target, rel) for rel in expect),
+              str(sorted(rel for rel in expect
+                         if MANAGED_MARK not in (target / rel).read_text())))
+        check("D12 — the marker sits BELOW the frontmatter, which still parses",
+              (target / ".claude/skills/fixskill/SKILL.md")
+              .read_text().startswith("---\nname: fixskill\n")
+              and (target / ".claude/skills/fixskill/SKILL.md")
+              .read_text().split("---\n")[2].lstrip().startswith("<!--"),
+              (target / ".claude/skills/fixskill/SKILL.md").read_text()[:200])
         check("`path` and `pool` rows minted nothing",
-              not (target / f".claude/skills/{PREFIX}fixtool").exists()
-              and not (target / f".claude/skills/{PREFIX}fixpool").exists()
+              not (target / ".claude/skills/fixtool").exists()
+              and not (target / ".claude/skills/fixpool").exists()
               and sorted(r["method"] for r
                          in res["report"]["skipped_inventory_rows"])
               == ["path", "pool"],
               str(res["report"]["skipped_inventory_rows"]))
         check("skill loader carries a YAML-safe description",
               '"A fixture skill: with a colon"'
-              in (target / f".claude/skills/{PREFIX}fixskill/SKILL.md").read_text())
-        check("rule copied VERBATIM",
-              (target / f".claude/rules/{PREFIX}fixrule.md").read_text()
-              == (tree / "fixmod/goodcomp/rule-entry.md").read_text())
+              in (target / ".claude/skills/fixskill/SKILL.md").read_text())
+        check("rule copied VERBATIM under one marker line",
+              (target / ".claude/rules/fixrule.md").read_text()
+              == MANAGED_BANNER + (tree / "fixmod/goodcomp/rule-entry.md"
+                                   ).read_text(),
+              (target / ".claude/rules/fixrule.md").read_text()[:200])
         check("F3 — NO code path mints the retired .agents/rbtv2-exposure.md",
-              not (target / f".agents/{PREFIX}exposure.md").exists()
+              not (target / ".agents/rbtv2-exposure.md").exists()
               and not any("exposure.md" in rel for rel in expect),
               str(sorted(expect)))
         check("with no basis, the exposure block is REPORTED per guidance file "
@@ -1801,7 +2204,7 @@ def selftest() -> int:
                                                            "CLAUDE.md"]
               and "Step 0" in res["report"]["guidance_manual"]["AGENTS.md"]
               and "Step 0" not in res["report"]["guidance_manual"]["CLAUDE.md"]
-              and f"{PREFIX}fixguide"
+              and "fixguide"
               in res["report"]["guidance_manual"]["CLAUDE.md"],
               str(sorted(res["report"]["guidance_manual"])))
         check("root guidance file NEVER written (D8)",
@@ -1814,7 +2217,7 @@ def selftest() -> int:
                       {"type": "command", "command": "true"}]}]}})
         check("mcp.json gained the prefixed server beside the foreign one",
               sorted(json.loads((target / ".mcp.json").read_text())["mcpServers"])
-              == sorted([PREFIX + "fix", "foreign"]))
+              == sorted(["fix", "foreign"]))
         check("codex config.toml carries a fenced block with the url form",
               f"# {FENCE_ID}:start" in (target / ".codex/config.toml").read_text()
               and 'url = "https://example.invalid/mcp"'
@@ -1834,8 +2237,8 @@ def selftest() -> int:
                             ["enableAllProjectMcpServers"]),
                   _claim_id(".claude/settings.json", ["hooks", "PreToolUse"]),
                   _claim_id(".codex/hooks.json", ["hooks", "PreToolUse"]),
-                  _claim_id(".mcp.json", ["mcpServers", PREFIX + "fix"]),
-                  _claim_id("opencode.json", ["mcp", PREFIX + "fix"]),
+                  _claim_id(".mcp.json", ["mcpServers", "fix"]),
+                  _claim_id("opencode.json", ["mcp", "fix"]),
                   _claim_id(".codex/config.toml", None),
               ]), str(sorted(state["shared_claims"])))
         check("install.json books the source tree + harnesses",
@@ -1858,10 +2261,10 @@ def selftest() -> int:
         print("\nred arm — collision with content we did not write")
         fresh = tmp / "workspace2"
         (fresh / ".claude" / "rules").mkdir(parents=True)
-        (fresh / f".claude/rules/{PREFIX}fixrule.md").write_text(
+        (fresh / ".claude/rules/fixrule.md").write_text(
             "hand-placed\n", encoding="utf-8")
         (fresh / ".mcp.json").write_text(json.dumps(
-            {"mcpServers": {PREFIX + "fix": {"url": "https://squatter.invalid"}}}),
+            {"mcpServers": {"fix": {"url": "https://squatter.invalid"}}}),
             encoding="utf-8")
         before = {p.relative_to(fresh).as_posix(): p.read_text()
                   for p in fresh.rglob("*") if p.is_file()}
@@ -1872,8 +2275,8 @@ def selftest() -> int:
         except Refuse as exc:
             check("collision refuses", exc.code == "collision", exc.code)
             check("both the file AND the shared key are named",
-                  f".claude/rules/{PREFIX}fixrule.md" in exc.message
-                  and ".mcp.json::mcpServers." + PREFIX + "fix" in exc.message,
+                  ".claude/rules/fixrule.md" in exc.message
+                  and ".mcp.json::mcpServers." + "fix" in exc.message,
                   exc.message)
         after = {p.relative_to(fresh).as_posix(): p.read_text()
                  for p in fresh.rglob("*") if p.is_file()}
@@ -2308,9 +2711,9 @@ def selftest() -> int:
         check("H2 — the forced Step-0 read is IN the generated guidance file, "
               "at the ROOT only (F4)",
               "Step 0" in (h2 / "AGENTS.md").read_text()
-              and f"`.agents/behavior-rules/{PREFIX}fixrule.md`"
+              and "`.agents/behavior-rules/fixrule.md`"
               in (h2 / "AGENTS.md").read_text()
-              and f"{PREFIX}fixguide" in (h2 / "AGENTS.md").read_text()
+              and "fixguide" in (h2 / "AGENTS.md").read_text()
               and "Step 0" not in (h2 / "sub/AGENTS.md").read_text(),
               (h2 / "AGENTS.md").read_text()[:400])
         check("H2 — the generated body still ends with the basis body",
@@ -2329,7 +2732,7 @@ def selftest() -> int:
               (h4 / "AGENTS.md").is_file()
               and "Step 0" not in (h4 / "AGENTS.md").read_text()
               and not (h4 / ".agents/behavior-rules").exists()
-              and (h4 / f".claude/rules/{PREFIX}fixrule.md").is_file(),
+              and (h4 / ".claude/rules/fixrule.md").is_file(),
               str(sorted(q.relative_to(h4).as_posix()
                          for q in h4.rglob("*") if q.is_file())))
 
@@ -2343,7 +2746,7 @@ def selftest() -> int:
 
         print("\nH6 — the retired exposure index is cleaned by the machinery")
         h6, _ = _mk("ws-retire", ["claude", "codex"], "CLAUDE.md")
-        stale_rel = f".agents/{PREFIX}exposure.md"
+        stale_rel = f".agents/{LEGACY_PREFIX}exposure.md"
         (h6 / stale_rel).parent.mkdir(parents=True, exist_ok=True)
         (h6 / stale_rel).write_text("# the old invented index\n",
                                     encoding="utf-8")
@@ -2389,13 +2792,13 @@ def selftest() -> int:
                          dry_run=False)
         agents_md = (rf / "AGENTS.md").read_text()
         check("RF1 — the claude-only rule is NOT enumerated to codex",
-              f"{PREFIX}fixrule" not in agents_md
+              "fixrule" not in agents_md
               and ".claude/rules" not in agents_md,
               agents_md[:600])
         check("RF1 — codex's own rule IS enumerated, at the path written",
               "Step 0" in agents_md
-              and f"`.agents/behavior-rules/{PREFIX}codexrule.md`" in agents_md
-              and (rf / f".agents/behavior-rules/{PREFIX}codexrule.md").is_file(),
+              and "`.agents/behavior-rules/codexrule.md`" in agents_md
+              and (rf / ".agents/behavior-rules/codexrule.md").is_file(),
               agents_md[:600])
         check("RF1 — every path the Step-0 names EXISTS on disk",
               all((rf / line.split("`")[1]).is_file()
@@ -2403,8 +2806,8 @@ def selftest() -> int:
                   if line[:2] in ("1.", "2.", "3.") and "`" in line),
               agents_md[:600])
         check("RF1 — and the unrealized path was never created",
-              not (rf / f".agents/behavior-rules/{PREFIX}fixrule.md").exists()
-              and (rf / f".claude/rules/{PREFIX}fixrule.md").is_file())
+              not (rf / ".agents/behavior-rules/fixrule.md").exists()
+              and (rf / ".claude/rules/fixrule.md").is_file())
 
         print("\nRF2 — a DRY RUN still reports the block the human must place")
         buf = io.StringIO()
@@ -2528,6 +2931,269 @@ def selftest() -> int:
         check("7.623b — NON-interactive resolve_basis is unchanged: no retry "
               "exists there", direct == "guidance-basis-invalid", direct)
 
+        print("\nS — D15: a _skills/ folder is copied WHOLE, not thin-loaded")
+        sk = tmp / "ws-skill-folder"
+        sk.mkdir()
+        rsk = do_install(sk, catalog, ["_skills/vendored"],
+                         ["claude", "codex"], dry_run=False)
+        src = tree / SKILLS_DIR / "vendored"
+        want_sk = {f"{root}/{member}"
+                   for root in (".claude/skills/vendored",
+                                ".agents/skills/vendored")
+                   for member in ("SKILL.md", "LICENSE.txt",
+                                  "references/deep.md", "logo.png")}
+        on_disk = {q.relative_to(sk).as_posix()
+                   for q in sk.rglob("*") if q.is_file()} - {STATE_REL.as_posix()}
+        check("S1 — every member lands under every harness's skills dir",
+              on_disk == want_sk,
+              f"missing={sorted(want_sk - on_disk)} extra={sorted(on_disk - want_sk)}")
+        check("S1 — __pycache__ (and its junk) is never copied",
+              not any("__pycache__" in rel for rel in on_disk), str(on_disk))
+        check("S2 — non-SKILL.md members are BYTE-IDENTICAL to the source",
+              (sk / ".claude/skills/vendored/logo.png").read_bytes()
+              == (src / "logo.png").read_bytes()
+              and (sk / ".claude/skills/vendored/references/deep.md").read_text()
+              == (src / "references/deep.md").read_text(),
+              "a verbatim copy is not verbatim")
+        check("S2 — the copied SKILL.md is the ONE file we stamp",
+              MANAGED_MARK in (sk / ".claude/skills/vendored/SKILL.md").read_text()
+              and (sk / ".claude/skills/vendored/SKILL.md").read_text()
+              .startswith("---\nname: vendored\n")
+              and MANAGED_MARK not in (sk / ".claude/skills/vendored/"
+                                       "references/deep.md").read_text())
+        check("S3 — the whole folder is OURS through that one marker",
+              all(_is_ours(sk, rel) for rel in want_sk),
+              str(sorted(rel for rel in want_sk if not _is_ours(sk, rel))))
+        check("S3 — the source folder is never modified",
+              MANAGED_MARK not in (src / SKILL_FILE).read_text())
+        check("S4 — it is booked and reported like any other unit",
+              set(read_state(sk)["components"]["_skills/vendored"]["files"])
+              == want_sk
+              and rsk["report"]["skill_folders"][0]["files"] == 4,
+              str(rsk["report"]["skill_folders"]))
+        check("S5 — a re-install is idempotent, binary and all",
+              do_install(sk, catalog, ["_skills/vendored"],
+                         ["claude", "codex"], dry_run=False)["written"] == [])
+        rsk2 = do_uninstall(sk, catalog, ["_skills/vendored"], dry_run=False)
+        check("S6 — uninstall takes the WHOLE folder and prunes the dirs",
+              set(rsk2["deleted"]) == want_sk
+              and not (sk / ".claude/skills/vendored").exists()
+              and not (sk / ".agents/skills/vendored").exists(),
+              str(sorted(set(rsk2["deleted"]) ^ want_sk)))
+        # RELEASE, folder-wide: strip the one marker and the whole copy is the
+        # human's — uninstall must not delete any of it.
+        do_install(sk, catalog, ["_skills/vendored"], ["claude"],
+                   dry_run=False)
+        taken = (sk / ".claude/skills/vendored/SKILL.md").read_text().replace(
+            MANAGED_BANNER, "")
+        (sk / ".claude/skills/vendored/SKILL.md").write_text(taken,
+                                                             encoding="utf-8")
+        rsk3 = do_uninstall(sk, catalog, ["_skills/vendored"], dry_run=False)
+        check("S7 — stripping the one marker RELEASES the whole folder",
+              rsk3["deleted"] == []
+              and sorted(rsk3["released"]) == sorted(
+                  rel for rel in want_sk if rel.startswith(".claude/"))
+              and (sk / ".claude/skills/vendored/logo.png").exists(),
+              str(rsk3["released"]))
+
+        print("\nM — D12: the marker is what says `this file is mine`")
+        mk = tmp / "ws-marker"
+        mk.mkdir()
+        rule_rel = ".claude/rules/fixrule.md"
+        (mk / rule_rel).parent.mkdir(parents=True)
+        # An UNBOOKED file at a planned path, carrying OUR marker: provably a
+        # run of ours (a lost book, a copied workspace) — adopted, not refused.
+        (mk / rule_rel).write_text(MANAGED_BANNER + "# a stale body\n",
+                                   encoding="utf-8")
+        resm = do_install(mk, catalog, ["fixmod/goodcomp"], ["claude"],
+                          dry_run=False)
+        check("M1 — a marked file outside the book is ADOPTED and regenerated",
+              resm["adopted"] == [rule_rel]
+              and "a stale body" not in (mk / rule_rel).read_text()
+              and rule_rel in read_state(mk)["components"][
+                  "fixmod/goodcomp"]["files"],
+              str(resm.get("adopted")))
+
+        # The other side: the same path, hand-authored, no marker → refused.
+        mk2 = tmp / "ws-marker-hand"
+        (mk2 / ".claude/rules").mkdir(parents=True)
+        hand_rule = "# my own rule\n"
+        (mk2 / rule_rel).write_text(hand_rule, encoding="utf-8")
+        try:
+            do_install(mk2, catalog, ["fixmod/goodcomp"], ["claude"],
+                       dry_run=False)
+            check("M2 — an UNMARKED file at a planned path refuses", False,
+                  "no refusal raised — it was overwritten")
+        except Refuse as exc:
+            check("M2 — an UNMARKED file at a planned path refuses",
+                  exc.code == "collision"
+                  and (mk2 / rule_rel).read_text() == hand_rule, exc.code)
+
+        # RELEASE — a booked file a human took over (marker gone) is dropped
+        # from the book, never deleted.
+        (mk / rule_rel).write_text("# I own this now\n", encoding="utf-8")
+        resm2 = do_uninstall(mk, catalog, ["fixmod/goodcomp"], dry_run=False)
+        check("M3 — a booked file whose marker is gone is RELEASED, not deleted",
+              resm2["released"] == [rule_rel]
+              and (mk / rule_rel).read_text() == "# I own this now\n"
+              and rule_rel not in resm2["deleted"], str(resm2["released"]))
+
+        # MIGRATION — files a pre-marker run minted under the `rbtv2-` prefix
+        # carry no marker at all; the legacy-name clause keeps them ours, so
+        # the first unprefixed run cleans them up instead of orphaning them.
+        mk3 = tmp / "ws-legacy"
+        mk3.mkdir()
+        do_install(mk3, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        legacy_rel = f".claude/rules/{LEGACY_PREFIX}fixrule.md"
+        (mk3 / legacy_rel).write_text("# THE RULE\n\nAlways do the thing.\n",
+                                      encoding="utf-8")
+        st3 = read_state(mk3)
+        st3["components"]["fixmod/goodcomp"]["files"] = sorted(
+            st3["components"]["fixmod/goodcomp"]["files"] + [legacy_rel])
+        write_state(mk3, st3)
+        resm3 = do_install(mk3, catalog, ["fixmod/goodcomp"], ["claude"],
+                           dry_run=False)
+        check("M4 — yesterday's rbtv2- file is deleted as stale, not orphaned",
+              resm3["deleted"] == [legacy_rel]
+              and not (mk3 / legacy_rel).exists()
+              and resm3["released"] == [], str(resm3["deleted"]))
+
+        print("\nG — D14: the .gitignore block keeps our artifacts out of git")
+        gi = tmp / "ws-gitignore"
+        gi.mkdir()
+        (gi / ".git").mkdir()
+        (gi / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
+        (gi / ".gitignore").write_text("# theirs\nnode_modules/\n",
+                                       encoding="utf-8")
+        rgi = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
+                         dry_run=False, guidance_basis="CLAUDE.md")
+        body = (gi / ".gitignore").read_text()
+        booked = sorted(read_state(gi)["components"]["fixmod/goodcomp"]["files"])
+        check("G1 — every per-component artifact and the book are listed",
+              all(rel in body for rel in booked)
+              and STATE_REL.as_posix() in body
+              and rgi["report"]["gitignore"]["count"] == len(booked) + 1,
+              str(rgi["report"]["gitignore"]))
+        check("G1 — the guidance mirror is NOT listed (workspace content)",
+              "\nAGENTS.md" not in body, body)
+        check("G1 — the foreign lines survive, and the block is fenced",
+              "node_modules/" in body and f"# {FENCE_ID}:start" in body
+              and f"# {FENCE_ID}:end" in body, body)
+        check("G1 — the claim is booked like any other shared-file claim",
+              _claim_id(".gitignore", None)
+              in read_state(gi)["shared_claims"],
+              str(read_state(gi)["shared_claims"]))
+        check("G2 — a re-run is idempotent, block and all",
+              do_install(gi, catalog, ["fixmod/goodcomp"],
+                         ["claude", "codex"], dry_run=False)["written"] == []
+              and (gi / ".gitignore").read_text() == body)
+        # A shrinking set shrinks the block — the whole point of D14.
+        rgi2 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude"],
+                          dry_run=False)
+        check("G3 — dropping a harness drops its paths from the block",
+              ".agents/behavior-rules/fixrule.md"
+              not in (gi / ".gitignore").read_text()
+              and ".claude/rules/fixrule.md" in (gi / ".gitignore").read_text(),
+              str(rgi2["deleted"]))
+        do_uninstall(gi, catalog, ["fixmod/goodcomp"], dry_run=False)
+        check("G4 — the last uninstall takes the block, leaves their lines",
+              (gi / ".gitignore").read_text() == "# theirs\nnode_modules/\n",
+              (gi / ".gitignore").read_text())
+
+        ng = tmp / "ws-not-a-repo"
+        ng.mkdir()
+        rng = do_install(ng, catalog, ["fixmod/goodcomp"], ["claude"],
+                         dry_run=False)
+        check("G5 — off a git repo, no .gitignore is ever minted",
+              not (ng / ".gitignore").exists()
+              and rng["report"]["gitignore"] == {"claimed": False,
+                                                 "reason": "not a git repo"},
+              str(rng["report"]["gitignore"]))
+
+        gf = tmp / "ws-foreign-fence"
+        gf.mkdir()
+        (gf / ".git").mkdir()
+        foreign = f"# {FENCE_ID}:start\nsomething-else\n# {FENCE_ID}:end\n"
+        (gf / ".gitignore").write_text(foreign, encoding="utf-8")
+        try:
+            do_install(gf, catalog, ["fixmod/goodcomp"], ["claude"],
+                       dry_run=False)
+            check("G6 — a foreign rbtv2 fence refuses", False, "no refusal")
+        except Refuse as exc:
+            check("G6 — a foreign rbtv2 fence refuses",
+                  exc.code == "collision"
+                  and ".gitignore" in exc.message
+                  and (gf / ".gitignore").read_text() == foreign, exc.code)
+
+        gt = tmp / "ws-tracked"
+        gt.mkdir()
+        import subprocess
+        if subprocess.run(["git", "-C", str(gt), "init", "-q"],
+                          capture_output=True).returncode == 0:
+            (gt / ".claude" / "rules").mkdir(parents=True)
+            (gt / ".claude/rules/fixrule.md").write_text("theirs\n",
+                                                         encoding="utf-8")
+            subprocess.run(["git", "-C", str(gt), "add",
+                            ".claude/rules/fixrule.md"], capture_output=True)
+            (gt / ".claude/rules/fixrule.md").unlink()
+            rgt = do_install(gt, catalog, ["fixmod/goodcomp"], ["claude"],
+                             dry_run=False)
+            check("G7 — a path git ALREADY TRACKS is reported, not silently "
+                  "ignored",
+                  rgt["report"]["gitignore"]["tracked"]
+                  == [".claude/rules/fixrule.md"],
+                  str(rgt["report"]["gitignore"]))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                print_result(rgt)
+            check("G7 — and the human is told, with the fix",
+                  "ALREADY TRACKED" in buf.getvalue()
+                  and "git rm --cached" in buf.getvalue(), buf.getvalue()[-400:])
+
+        print("\nV — a VANISHED booked component is removable without the tree")
+        vn = tmp / "ws-vanished"
+        vn.mkdir()
+        do_install(vn, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        gone_rel = ".claude/rules/goner.md"
+        (vn / gone_rel).write_text(MANAGED_BANNER + "# from a folder now gone\n",
+                                   encoding="utf-8")
+        stv = read_state(vn)
+        stv["components"]["gonemod/gonecomp"] = {
+            "tree": "mirror", "tree_root": str(vn / ".rbtv/mirror"),
+            "module": "gonemod", "component": "gonecomp",
+            "harnesses": ["claude"], "files": [gone_rel]}
+        write_state(vn, stv)
+        try:
+            do_install(vn, catalog, ["fixmod/goodcomp"], ["claude"],
+                       dry_run=False)
+            check("V1 — a vanished component blocks the run", False,
+                  "no refusal raised")
+        except Refuse as exc:
+            check("V1 — a vanished component blocks the run",
+                  exc.code == "component-vanished", exc.code)
+            check("V1 — and the refusal names a door that actually opens",
+                  "uninstall --component gonemod/gonecomp" in exc.message,
+                  exc.message)
+        try:
+            resolve_selection(catalog, ["gonemod/gonecomp"], [])
+            catalog_only = "no refusal"
+        except Refuse as exc:
+            catalog_only = exc.code
+        check("V2 — the trees alone cannot name it (that was the trap)",
+              catalog_only == "component-unknown", catalog_only)
+        check("V2 — the BOOK can",
+              resolve_selection(catalog, ["gonemod/gonecomp"], [],
+                                book=read_state(vn)["components"])
+              == ["gonemod/gonecomp"])
+        resv = do_uninstall(vn, catalog, ["gonemod/gonecomp"], dry_run=False)
+        check("V3 — uninstalling it needs no tree, and takes its file",
+              resv["deleted"] == [gone_rel] and not (vn / gone_rel).exists()
+              and "gonemod/gonecomp" not in read_state(vn)["components"],
+              str(resv["deleted"]))
+        check("V3 — the target is unblocked: the next install runs clean",
+              do_install(vn, catalog, ["fixmod/goodcomp"], ["claude"],
+                         dry_run=False)["written"] == [])
+
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
         left = sorted(p.relative_to(target).as_posix()
@@ -2564,9 +3230,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="install2.py",
         description="Install rbtv components into a workspace from their "
                     "exposure manifests (CMP-12 adapter matrix). Coexists with "
-                    "install.py: every artifact is named `rbtv2-*`, state lives "
-                    "at {target}/.rbtv/config/install.json, and nothing outside "
-                    "that book is ever written or deleted.",
+                    "install.py: it manages ONLY new-standard component "
+                    "folders (`<module>/<component>/component.md`), every "
+                    "artifact it writes carries the `rbtv2-managed` marker, "
+                    "state lives at {target}/.rbtv/config/install.json, and "
+                    "nothing outside that book or marker is ever written or "
+                    "deleted.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="exit codes: 0 success · 1 refusal · 2 usage")
     def tree_flags(dest, *, on_verb: bool) -> None:
@@ -2665,7 +3334,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 comps = data["components"]
                 basis = data["guidance_basis"] or "(unset — no mirror)"
-                print(f"target: {data['target']}  prefix: {data['prefix']}  "
+                print(f"target: {data['target']}  marker: {data['marker']}  "
                       f"guidance basis: {basis}")
                 if not comps:
                     print("nothing installed by install2.py")
@@ -2680,7 +3349,10 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.component and not args.module:
             parser.error(f"{args.verb} needs --component or --module")
-        picked = resolve_selection(catalog, args.component, args.module)
+        picked = resolve_selection(
+            catalog, args.component, args.module,
+            book=(read_state(target).get("components")
+                  if args.verb == "uninstall" else None))
 
         if args.verb == "install":
             harnesses = _parse_harnesses(args.harness)

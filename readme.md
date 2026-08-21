@@ -13,7 +13,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 | Module | What it does | Doc |
 |---|---|---|
 | **core** (always installed) | Powering up AI use — guided git commits, web research, safe file/folder moves with automatic reference-fixing (`rbtv-safe-move`), session close, and the always-on behavioral rules | [modules/core.md](./modules/core.md) |
-| **office** | Daily knowledge work — document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, client emails, and the structured-thinking persona (problem structuring, idea sparring, plus pre-mortem, first-principles, and six-thinking-hats modes; formerly `productivity`) | [modules/office.md](./modules/office.md) |
+| **office** | Daily knowledge work — document export (PDF/DOCX with brand discovery), legal advisory, meeting prep, meeting summarization, and client emails (formerly `productivity`; the structured-thinking persona was retired — it lives on as the `brainstorm` function, Dom Cobb, in the mirror-format `core/functions` component) | [modules/office.md](./modules/office.md) |
 | **studio** | Design and communication module — the studio loop entry (`/rbtv-strategist` — opens the Strategist for message-lock, then hands off to design); the four-beat studio loop (message-lock · art-direction · generate · human-gate) covering deck, site, and app artifacts — every authored deck is role-token-conformant (library-ready + theme-switchable, no manual tokenization; convention-spec § 10.6); artifact forks for sites (`forks/site.md` — structure beat + responsive multi-page HTML contract) and apps (`forks/app.md` — goals/user-flow/UX discovery beats + plain-HTML designed-screens contract + coding-agent handoff package); the Strategist persona (four audience modes: investor · client · site-marketing · app-product); Vivian the Designer (`rbtv-designing`); the `rbtv-hypresent-comments` skill (a thin router over two self-contained procedures — respond to existing hypresent comments without deleting them — reconciling the pass and weighing each change against the whole deck (propagate entailed facts, surface the rest as new comments), reply inline and never resolve the human's thread; or author a new comment from scratch via `hypresent.py add-comment`, which drives the real runtime headlessly to anchor and save the comment — the agent passes only a CSS selector + text, never reading runtime code or hand-editing the comment island); standards bundle (ban-list + flaw-checklist + UX companion-docs contract); v1.1 comparative taxonomy-driven critic (never gates — improver + stopping rule, optional loop wiring via `critic: on`); design-state schema; reference-set scaffold; design-token extraction from live sites; reference-image forensics into regeneration prompts (`/rbtv-vision-to-json`); browser automation; AI image generation; exemplar-screenshot capture; motion/interaction reference extraction; the hypresent presentation engine; the slide-library engine (manifest with optional `status` column; multi-theme + role-token contract v2.0 support — per-theme contracts plus a generic no-literal-skin lint, engine v1.2); and in-app deck→library export (slide selection → `<section>`-only fragments + `status: to-review` rows) | [modules/studio.md](./modules/studio.md) |
 | **orchestration** | Long-horizon work — general multi-agent orchestration (route tasks to the right worker, dispatch self-contained artifacts, verify every return against disk, recover from halts; single front door incl. CLI-model dispatch via `cast`), the cast catalog + `cast route` selector (task profile → route/self_execute/halt_seam; algorithm authority is the routing card), a deterministic context-window monitor (a `PostToolUse` hook wired in when orchestration is elected) that emits tiered refresh advisories during a run, structured planning, plan execution via tiered sub-agents, and long-source mining | [modules/orchestration.md](./modules/orchestration.md) |
 | **builder** | Building RBTV itself — component creation (with a build-time efficiency gate), component token- and cognitive-load review, and the source-of-truth rule | [modules/builder.md](./modules/builder.md) |
@@ -37,10 +37,20 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > `.claude/`, state in `rbtv.json`, every artifact named `rbtv-*`.
 >
 > **`install2.py`** (repo root) is its **designated successor**, in a deliberate coexistence
-> period: it discovers components from their **exposure manifests** (`<module>/<component>/
-> exposure.csv`) on BOTH the workspace mirror (`{target}/.rbtv/mirror`) and this repo, and
-> realizes each row's canonical method for **four harnesses** (claude, codex, opencode, kimi)
-> through CMP-12's adapter matrix. Its artifacts are named `rbtv2-*` and its state lives at
+> period: it manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
+> directory holding `component.md` (the KG's `component folder`) — on BOTH the workspace
+> mirror (`{target}/.rbtv/mirror`) and this repo, discovering their parts from the
+> **exposure manifest** (`exposure.csv`) beside it, and realizes each row's canonical method
+> for **four harnesses** (claude, codex, opencode, kimi) through CMP-12's adapter matrix.
+> Everything else — module-root manifests, folders with no `component.md` — is the old
+> standard, and `install.py` alone manages it: the two installers cover disjoint sets.
+> One exception by design: a tree-root **`_skills/`** folder holds whole vendored skill
+> folders (`_skills/cli-creator/`), which are not rbtv parts and carry no manifest. Each is
+> its own installable unit (`--component _skills/cli-creator`, `--module _skills`) and is
+> **copied verbatim** into every installed harness's skills directory rather than thin-loaded
+> — installed and uninstalled as a whole folder.
+> Its artifacts are named after their bare part id, each carrying the machine-readable
+> `rbtv2-managed` marker that says the installer may rewrite it, and its state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
 > `install2.py uninstall` removes exactly what it wrote and nothing else. It exposes at the
@@ -58,7 +68,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > ```
 >
 > Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
-> `2` usage. Its design decisions (tree precedence, the `rbtv2-` prefix rule, the collision
+> `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
 > rule, the measured kimi realizations) are documented in the file's own module docstring —
 > that is their one home.
 >
@@ -195,6 +205,7 @@ Some components ship in this repo but are flagged `stale` in the module manifest
 | `context-preservation` (rule) | core | Did not reliably trigger; superseded by the session-close and compounding flows. |
 | `coding-discipline` (skill) | coding | **Deleted, not just flagged.** Its four guardrails were generalized into the always-on `reasoning` rule's *Execution Discipline* section (core) — they apply to all artifact work, not only code. |
 | `operator` (command + workflow) | office (then `productivity`) | **Deleted, not just flagged.** Shallow overlap with `domcobb` — its Structure move already delegated to [PS]/[PL]. Salvage: traction questions and one-question-at-a-time pacing moved into PS Lite (`step-01-converse`) and the [PS] question bank (`step-02-discover`). |
+| `domcobb` (persona + command) + its six workflows — `problem-structuring` (incl. PS Lite), `idea-sparring`, `pre-mortem`, `first-principles`, `six-thinking-hats` | office | **Deleted, not just flagged** (owner ruling 2026-08-21). Rebuilt as the `brainstorm` function (Dom Cobb) in the mirror-format `core/functions` component — every menu mode ([PS]/[PL]/[IS]/[PM]/[FP]/[6H]) lives on there. |
 | `build-for-agent-testability` (rule) | coding | **Deleted, not just flagged — merged, not dropped.** Its entire content (Contract-time drivability check, the three seam patterns, both anti-pattern sets) was folded into `rbtv-done-gate`, which the build-time check always fired alongside; the two formally-coupled rules became one. No protection lost. |
 | `qwen-code-cli` (model package) | orchestration | **Deleted, not just flagged** (owner ruling 2026-07-09). Its deepseek code-executor backends moved to the `opencode` package (`deepseek-flash`/`deepseek-pro`, code roles only — `deepseek-api` keeps the text roles); `qwen3.6-plus` and `glm-5.1` lost their routable rows (both remain reachable through opencode provider config; the opencode z.ai backend pins glm-5.2, the 1M-context successor). The mirror driver keeps the `qwen-md` owner tag recognized so a prior install's recorded `QWEN.md` still tears down (rendering of any guidance file is retired — see `d-hard-guard-retire-model-mirror`). |
 
