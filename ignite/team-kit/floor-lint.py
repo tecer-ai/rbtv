@@ -87,8 +87,9 @@ HOME_BASENAMES = {"budget.json"}
 # ⚠ EVERY ENTRY NEEDS A RULING. An allowlist without reasons is how a defect becomes permanent
 # furniture -- the next reader cannot tell an exclusion from an oversight, and re-litigates it.
 # (path_suffix, key_or_None, reason) where key is a LINE NUMBER or the line's exact stripped TEXT.
-# ⚠ PREFER THE TEXT KEY. A line number is a coordinate into a file the entry does not own: both
-# entries below moved (materialize-seats 5020 -> 5224, goal-watcher 1180 -> 1309) between the task
+# ⚠ PREFER THE TEXT KEY. A line number is a coordinate into a file the entry does not own: the
+# entry below, and a since-deleted goal-watcher one, both moved (materialize-seats 5020 -> 5224,
+# goal-watcher 1180 -> 1309) between the task
 # being written and being executed, and a stale coordinate silently stops excluding while the lint
 # reports a violation nobody ruled on. `None` excludes the whole file and is worse -- it blinds the
 # lint to a real literal added to that file later. The text keys the LINE ITSELF, so it survives
@@ -99,7 +100,6 @@ HOME_BASENAMES = {"budget.json"}
 # it was just taught to permit. Measured, again. So: the value sits on a line with no knob, the
 # template on a line with no value, and the two meet only at runtime.
 _CP5_DEFAULT = 1200
-_NS_DEFAULT = 2000
 
 EXCLUDED = [
     # STILL UNRULED, kept from when this list was empty: `watch.py`'s 500 default belongs here IF
@@ -107,21 +107,17 @@ EXCLUDED = [
     # because an entry here is a ruling's record, never a builder's convenience. (It reaches this
     # lint as FIXTURE today, so nothing is waiting on the ruling.)
     #
-    # Ruling record: task 7.103 (`#b/probe-fleet`), resolution (b). Both entries are FIXTURE-class
-    # literals that `_is_fixture` cannot see, because it walks back to the nearest top-level def and
-    # neither enclosing def carries a "selftest" token. The classifier gap is real; the literals are
-    # not defects.
+    # Ruling record: task 7.103 (`#b/probe-fleet`), resolution (b). This entry is a FIXTURE-class
+    # literal that `_is_fixture` cannot see, because it walks back to the nearest top-level def and
+    # the enclosing def carries no "selftest" token. The classifier gap is real; the literal is
+    # not a defect. (A second entry, for `goal-watcher-job.py`'s `_ns()` factory, was removed
+    # 2026-08-21 when that program was deleted — an allowlist entry for a file that no longer
+    # exists is itself dead code.)
     ("materialize-seats.py",
      'probe.add_argument("--mem-floor-mb", type=int, default=%d)' % _CP5_DEFAULT,
      "task 7.103 — dag-06's CP-5 CONTROL: the planted parser that proves the numeric-default "
      "detector CAN fire. Deleting the literal destroys the control's whole subject, so 'remove it' "
      "was not available. Enclosing def is `run_dag06_acceptance`, which FIXTURE_DEF cannot match"),
-    ("goal-watcher-job.py",
-     ('mem_floor_mb=%d, load_per_core=1.5, standby=[], '
-      'one_shot_harness=["opencode"],') % _NS_DEFAULT,
-     "task 7.103 — `_ns()`, the selftest's argparse.Namespace factory. Grepped: its only callers "
-     "are inside `selftest()` (no live caller), so this default determines no live behaviour. It "
-     "is a FIXTURE the classifier misses only because the helper def is named `_ns`, not `_selftest`"),
 ]
 
 # ⚠ MATCHED ON THE DEF NAME, CASE-INSENSITIVELY, NOT ON AN EXACT SPELLING. The three selftests in

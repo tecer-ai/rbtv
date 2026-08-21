@@ -15,7 +15,7 @@ the calling terminal, and it dies with that terminal.
 | entry | `rbtv ignite daemon start` | `rbtv run <goal-folder>` |
 | store | `{state_root}/heart.db` | `<goal-folder>/heart.db` |
 | lifetime | outlives the terminal | dies with it |
-| recovery | `goal-watcher-job` | **the owner re-runs the verb** — no watcher, ruled |
+| recovery | the daemon's per-goal reconcile pass (`engine/reconcile.js`) | **the owner re-runs the verb** — no watcher, ruled |
 | engine | `ignite/engine/` | `ignite/engine/` — the same one |
 
 ## Entry point

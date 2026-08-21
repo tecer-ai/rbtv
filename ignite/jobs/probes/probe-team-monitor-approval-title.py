@@ -18,7 +18,7 @@ rejected.
 ⚠ PLACEMENT. `team_monitor.py` lives under `orchestration/cli/team-monitor/`, which the probe
 runner's discovery root (`ignite/`) does not reach — a probe beside it would be outside the ONE
 denominator, which is the G-141 failure the runner exists to prevent. It therefore sits here,
-beside `probe-dead-room-sensor-session.py`, the existing sensor probe under `ignite/jobs/probes/`.
+beside the other sensor probes under `ignite/jobs/probes/`.
 
 RED-FIRST. Set `RBTV_PROBE_TREE` to an alternative rbtv repo root and every arm re-runs against
 THAT tree's `team_monitor.py`. Pointed at a pre-7.663 tree, R2/R3/R4 go red and C0/R1 stay green.

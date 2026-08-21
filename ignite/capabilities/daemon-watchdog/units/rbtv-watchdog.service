@@ -2,9 +2,9 @@
 #
 # What the timer runs. rbtv-watchdog.timer is what actually schedules it.
 #
-# ⚠⚠ NOT PART OF THE DAEMON, AND THAT IS THE WHOLE COMPONENT. The in-daemon goal-watcher
-# job (CMP-21) can watch everything EXCEPT ignite being down, because ignite is what fires
-# it. Until this unit existed, "the whole system is dead" was discoverable only by the
+# ⚠⚠ NOT PART OF THE DAEMON, AND THAT IS THE WHOLE COMPONENT. Any in-daemon health loop
+# (today: the per-goal reconcile pass in engine/reconcile.js) can watch everything EXCEPT
+# ignite being down, because ignite is what runs it. Until this unit existed, "the whole system is dead" was discoverable only by the
 # owner noticing silence. A watchdog inside the process tree it watches shares its failure
 # mode — same argument as rbtv-probe-suite.service, one layer down (liveness, not
 # correctness).
@@ -49,13 +49,11 @@ WorkingDirectory=@@WORKSPACE_ROOT@@
 # PATH breaks the spawns).
 Environment="PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="RBTV_WATCHDOG_WORKSPACE=@@WORKSPACE_ROOT@@"
-# `goal-watcher` is scoped OFF the pass ON PURPOSE (owner ruling 2026-08-17): the
-# goal-watcher-job periodic queue row was DEQUEUED — see the SUPERSEDED/DEQUEUED block at
-# the live goal-watcher entry in config/spawn-profiles.yaml. With no row by ruling, the
-# arm's no-row alarm would stand every pass about an accepted state. This line is the
-# recorded-disarm surface item 3 of daemon-watchdog.md rules for exactly this; the arm's
-# code and its probe are UNCHANGED. Re-arming the job = enqueue the periodic row AND
-# restore `goal-watcher` to this list — two acts, both named in the supersede block.
+# The three rows this tool has. The former fourth, `goal-watcher`, was scoped off here on
+# 2026-08-17 when its queue row was dequeued, and the whole arm was REMOVED on 2026-08-21
+# with the program it watched (`jobs/goal-watcher-job.py`, owner ruling "if the program is
+# dead, delete it"). This line is now redundant with the tool's own default and is kept
+# only as the recorded-disarm surface for whatever row is disarmed next.
 Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite"
 EnvironmentFile=@@ENV_FILE@@
 ExecStart=/usr/bin/python3 @@IGNITE_SRC@@/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog

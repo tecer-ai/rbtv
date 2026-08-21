@@ -212,12 +212,11 @@ worth keeping is worth naming — pass `--summary <path>` and it is written verb
 
 ## jobs/ — two scripts ACT on Linux only (author their briefs against the VPS)
 
-`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. Two of them —
-`goal-watcher-job.py` and `restart-daemon.py` — import
+`ignite/jobs/` holds the daemon's `fire-tool` detector scripts. `restart-daemon.py` imports
 `jobcontain.py`, whose containment ACTIONS exist only on POSIX: `single_instance`'s `fcntl`
 double-run lock and `contain`/`child_preexec`'s `resource` memory cap. Since task 7.715 those
-imports are LAZY and keyed on `ImportError`, so both scripts LOAD anywhere — they can be read
-and statically checked on the Windows desktop — but they only ACT on Linux.
+imports are LAZY and keyed on `ImportError`, so the script LOADS anywhere — it can be read
+and statically checked on the Windows desktop — but it only ACTS on Linux.
 
 **Author any brief that EXERCISES their real behaviour against the ignite VPS, not the desktop.**
 On a POSIX host the containment is byte-unchanged and REAL; degrading when the modules are absent
@@ -353,8 +352,10 @@ What that retired (2026-08-20): the `selfheal-room*` jobs and their profile entr
 `jobs/selfheal-room.py`, `jobs/selfheal-room-for-goal.py`, `jobs/ensure_room_selfheal.py`,
 `engine/ensure-room-selfheal.js` and both auto-arm call sites, plus every `goal-watcher*`
 catalogue row and profile block. `jobs/recover-room.py` STAYS — reconcile shells it directly
-(`RECOVER_ROOM` in `engine/reconcile.js`). `jobs/goal-watcher-job.py` stays on disk, dark and
-unreachable from the daemon; retiring the program itself was not in that change's scope.
+(`RECOVER_ROOM` in `engine/reconcile.js`). `jobs/goal-watcher-job.py` was left on disk, dark and
+unreachable — and DELETED on 2026-08-21 (owner ruling: *"if the program is dead, delete it —
+there must be no dead code"*), together with its 12 dedicated probes. Goal-level health is the
+per-goal reconcile pass alone.
 
 ⚠ The ticker's per-execution silence ladder (`stall_warn_ticks` / `stall_halt_ticks` /
 `stall_kill_ticks`) is PROCESS plumbing, not goal health, and was deliberately left untouched:

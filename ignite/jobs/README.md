@@ -8,16 +8,15 @@ recovery agent every period regardless of health — an unbounded paid path.
 
 | Script | Job | Judges | Acts when |
 |--------|-----|--------|-----------|
-| `goal-watcher-job.py` | 7.32 / B2 | the goal's `state.json` snapshot (CMP-20) and nothing raw | a threshold in CMP-21's Layout is crossed — see below; **DARK: no catalogue entry and no profile block** |
-| `jobcontain.py` | both | — | (library: self-cap, wall clock, single-instance lock) |
+| `jobcontain.py` | — | — | (library: self-cap, wall clock, single-instance lock) |
 
-**Runs on: Linux only.** `goal-watcher-job.py` and `restart-daemon.py` import
+**Runs on: Linux only.** `restart-daemon.py` imports
 `jobcontain.py`, whose containment ACTIONS need POSIX `fcntl`/`resource`. (This list read FOUR until
 2026-08-11, naming `selfheal-watch.py` — that script was deleted with its whole blast radius at task
 7.35, commit `c23c770c`, and its queue row deregistered 2026-08-11. Do not re-add it: the surviving
 mentions of the id elsewhere in this tree are HISTORY in prose, not a file that exists.)
 Since task 7.715 the module LOADS anywhere (lazy imports) but only ACTS on the VPS — author any
-brief that exercises their real behaviour against it (`ignite/CLAUDE.md § jobs/`).
+brief that exercises its real behaviour against it (`ignite/CLAUDE.md § jobs/`).
 
 (`restart-daemon.py` and `recover-room.py` are also in this folder and are NOT in the table above —
 noticed while adding the (since deleted) `edge-runner` row, left alone rather than back-filled from
@@ -34,50 +33,37 @@ a root that is `/tmp` or on tmpfs — the two locations the owner ruled off-limi
 `~/.config/systemd/user/` on the ignite VPS (`OnCalendar=daily`, `Persistent=true`, running with
 `--go`). Those unit files are per-machine runtime state and are deliberately NOT in this repo.
 
-## `goal-watcher-job.py` is the one that ACTS on a threshold, not only reports it (CMP-21)
+## `goal-watcher-job.py` — DELETED 2026-08-21, and the reconcile loop is what replaced it
 
-Owner ruling `decisions.md#d-watcher-deterministic-chain` (2026-08-08) settles CMP-21 and RETIRES
-the operational-recovery role and the closer this job used to escalate to. Its chain is now
-**detect → fix INLINE where the fix is mechanical → nudge the SEAT → nudge the LEADER**, and the
-alignment landed as work-list item B2. What a reader of the older docstrings must not carry over:
+3,053 lines plus 12 dedicated probes, removed under the owner ruling *"if the program is dead,
+delete it — there must be no dead code."* It was the ENFORCEMENT half of R24's observation
+architecture (task 7.32, CMP-21): it read the goal's `state.json` snapshot (CMP-20), thresholded
+it, performed the mechanical fixes inline (stale-sensor restart via team-monitor's idempotent
+`ensure`, the observe-only `reap` pass, ruled seat revival through `systemd-run`) and nudged the
+seat then the leader.
 
-- **It is no longer notify-only.** Two rows perform an inline mechanical fix under `--notify`:
-  the staleness row runs team-monitor's own idempotent `ensure`, and the reap row runs the kit's
-  observe-only `reap` pass over the awaiting-close debt. `run_inline` is the file's ONE exec door
-  and it refuses any program outside `INLINE_FIX_SCRIPTS` — which is what keeps the shadow
-  backstop's "no queue door is reachable from here" claim checkable now that the file spawns.
-- **The staleness row's `ensure` carries `--session`, and without it the row could not repair the
-  case it exists for** (task 7.561). team-monitor resolves the room's session from a ROSTER PANE
-  and REFUSES when none resolves (`SessionUnresolved`, `G-296`) — which is exactly a room whose
-  sensor died with its panes. The name is BANKED every pass from the snapshot's own `session`
-  field (`remember_session`) and NEVER derived from the package path, so the arm with no readable
-  snapshot — the dead-room arm — still has one. Both call sites build the argv through
-  `sensor_ensure`, so the remedy text the leader is told to run and the argv the job execs cannot
-  drift apart. A room whose session was never banked degrades to the sessionless call and the
-  failing exit reaches the leader, which is CMP-21 invariant 2's own "a sensor that will not come
-  back is the leader's". Proven end-to-end on a deliberately-built dead room by
-  `probes/probe-dead-room-sensor-session.py`.
-- **The recipient is per DECISION, not per pass.** `--to` now names the **LEADER** seat and takes
-  every judgment row; `QUIET` and `CONTEXT` go to the SUBJECT SEAT itself and escalate to the
-  leader after `--escalate-after` consecutive unresolved passes.
-- **The run-stall row reads FOUR terms, not three.** `run.live_executors` counts live *paned*
-  seats only, so the predicate also reads `headless[]` (a row whose `outcome` is `null` is an
-  executor still occupying work) — without it a healthy headless window reads as a stalled run.
-  Any term the sensor could not read makes the row **UNDECIDABLE**; a null is never read as `0`.
-- **The dirty-finish enqueue is still SHADOW** (owner-class bar, rider 1 of
-  `p-756-edge-consumption-true`), and **launch gating is still the launch door's** —
-  `coord.launch_gates` already refuses against the same `budget.json` floor, so this row supplies
-  the rising trend and the leader's nudge, never a second gate.
+**It had been dark since 2026-08-20**, when the per-goal reconciliation loop (`engine/reconcile.js`,
+D1/D15) took over goal-level health and every `goal-watcher*` catalogue row and profile block was
+retired. Measured before deletion on 2026-08-21: no systemd unit or timer, no cron entry, zero rows
+matching `%watcher%` in `heart.db`'s `jobs` and `queue` tables, last fire ever
+`2026-08-17T11:19:50Z` in `jobs_log`, and every remaining mention of the name across `ignite/` a
+comment rather than a call.
 
-`python3 goal-watcher-job.py --selftest` asserts the stall predicate's null discipline, the
-headless half, the recipient chain, the escalation, the exec allowlist, and the absence of a
-retired role in every `decision(...)` this file can emit. A pass WITHOUT `--notify` is a full dry
-run: every row is decided and printed, nothing is delivered and no child process is spawned.
+Deleted with it: `probes/probe-goal-watcher-{census-inrun,delivery-retry,door-exemption,
+ghostrow-debounce,homings,revival,selftest,worktree-watch-start}.py`,
+`probes/probe-dead-room-sensor-session.py`, `probes/probe-headless-retention-unknown.py`,
+`../capabilities/daemon-watchdog/probes/probe-watchdog-goal-watcher-arm.py` and
+`../team-kit/probes/probe-lifecycle-exec.py` — every one of them drives the deleted program as its
+subject. (`probe-headless-retention-unknown` also touched `team_monitor.headless()`'s retention
+closure, which keeps its own coverage inside `team_monitor.py`'s selftest.)
 
-⚠ **It is DARK, and now unreachable: `config/spawn-profiles.yaml` carries NO `goal-watcher` entry
-and the catalogue carries no `goal-watcher*` row** — both were retired 2026-08-20 when the per-goal
-reconciliation loop (`engine/reconcile.js`, D1/D15) took over goal-level health. The program and its
-probes survive; whole-program retirement was not this change's scope.
+**Nothing else lost a caller, and that was CHECKED, not assumed.** `coord.py`'s hidden
+`lifecycle-exec` command is still forked live by the RENEW checkout path (`coord.py` s3-09 builds
+`["setsid", sys.executable, coord.py, "lifecycle-exec", ...]`) and keeps its coverage in
+`../team-kit/probes/probe-lifecycle-idents.py`, which drives `cmd_lifecycle_exec` directly.
+`jobcontain.detach_argv` is still called by `restart-daemon.py` and covered by
+`probes/probe-detach-env.py`. What went dark is only the deleted program's own `run_revival`
+actuator, which fired `lifecycle-exec` through a second `systemd-run` hop.
 
 ## `edge-runner-job.py` — DELETED 2026-08-11, and nothing replaced it here
 
@@ -105,8 +91,8 @@ this job's alone:
 
 ## THE FALLBACKS — one command each, and they stay armed (`r-cutover-gated`)
 
-Neither job replaces the manual path; it only notices sooner. If a job misbehaves, disable
-its queue rows and run these by hand:
+No job replaces the manual path; it only notices sooner. If a job misbehaves, disable
+its queue rows and run this by hand:
 
 ```bash
 # room dead — relaunch it through the kit path that created it
@@ -132,7 +118,8 @@ would hand its 256 MB cap to the very sensor or recovery agent it is resurrectin
 
 ⚠ **`child_preexec()` only covers a child THIS SCRIPT EXECS.** A helper called IN-PROCESS spawns
 its own, and that grandchild inherits the cap. **node dies under it** — V8 reserves GBs of VIRTUAL
-address space at startup and aborts with SIGTRAP. Measured: `goal-watcher-job.py` →
+address space at startup and aborts with SIGTRAP. Measured on the since-deleted
+`goal-watcher-job.py` — the hazard is this library's, not that script's — where
 `coord.derive_lease()` → `server/lease/lease.js` read the lease as `unreadable (exit -5)` and the
 job REFUSED TO START on ~200 consecutive fires (2026-08-11 → 2026-08-15) while reporting IGNORANCE
 about a lease that is perfectly readable from a shell. Wrap any such call in

@@ -2,7 +2,7 @@
 """rbtv-ignite-watchdog — CMP-28, ONE bounded pass. Probe · restart · report.
 
 Runs OUTSIDE the daemon's process tree and job queue (a systemd user timer), because
-the one thing the in-daemon goal-watcher job can never see is the daemon being dead.
+the one thing an in-daemon health loop can never see is the daemon being dead.
 Deterministic only: it never escalates to an agent and never widens beyond
 probe/restart/report (CMP-28 invariant 2 / PRIN-7). ⚠ AMENDED 2026-08-14 (owner ruling,
 daemon-issues §2): the DAEMON row now INTERPRETS its own `down` verdict before acting —
@@ -37,8 +37,7 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
   RBTV_WATCHDOG_DAEMON_UNIT   default rbtv-ignite.service
   RBTV_WATCHDOG_BRIDGE_UNIT   default rbtv-chat-bridge.service
   RBTV_WATCHDOG_PROBE_TIMER   default rbtv-probe-suite.timer
-  RBTV_WATCHDOG_WATCH_JOB     goal-watcher job id  (default goal-watcher-job)
-  RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all four).
+  RBTV_WATCHDOG_TARGETS       comma list to scope the pass (default: all three).
                               The test-override hook, mirroring RBTV_IGNITE_UNIT —
                               a probe points this at a throwaway unit instead of
                               editing the real probe table.
@@ -98,7 +97,6 @@ GATEWAY = env("RBTV_WATCHDOG_GATEWAY", "http://127.0.0.1:7431/")
 DAEMON_UNIT = env("RBTV_WATCHDOG_DAEMON_UNIT", "rbtv-ignite.service")
 BRIDGE_UNIT = env("RBTV_WATCHDOG_BRIDGE_UNIT", "rbtv-chat-bridge.service")
 PROBE_TIMER = env("RBTV_WATCHDOG_PROBE_TIMER", "rbtv-probe-suite.timer")
-WATCH_JOB = env("RBTV_WATCHDOG_WATCH_JOB", "goal-watcher-job")
 TIMEOUT = float(env("RBTV_WATCHDOG_TIMEOUT_SECONDS", "10"))
 
 
@@ -232,57 +230,6 @@ def probe_probe_suite():
         return "alarm", ("suite is LIVE but produced no clean grade: verdict=%s%s — %s"
                          % (verdict, (" — %s" % why) if why else "", live))
     return "up", "%s, verdict=%s" % (live, verdict or "?")
-
-
-def probe_goal_watcher():
-    """The goal-watcher job (CMP-21) has NO systemd unit of its own — it is a
-    recurring entry in the daemon's job catalogue, fired by the ticker into a
-    TRANSIENT rbtv-worker-* unit each time. So its liveness is 'is its periodic
-    queue row still due on schedule', read from the queue itself, and the overdue
-    threshold is the row's OWN interval_seconds — never a number written here,
-    which would go stale in silence the moment anyone retuned the cadence.
-
-    ⚠ THIS MEASURES SCHEDULING, NOT OUTCOME, AND THAT IS A RULING — not an oversight.
-    `goal-watcher-job` failed on ~200 consecutive fires (2026-08-11..2026-08-15) while this arm
-    read `up` on every pass. An N-consecutive-failure alarm is ruled OUT until the job has a
-    target that can go green (it is armed at `system-health`, a seatless goal, so it refuses BY
-    DESIGN). The reasoning and the condition that lifts the ruling: `daemon-watchdog.md`
-    § "Three of these deserve their reasoning stated", item 4.
-    """
-    state, detail = gateway_call("queue")
-    if state != "ok":
-        # The queue is unreadable exactly when the daemon is down or mis-authed —
-        # which the daemon row already owns, including the only restart lever that
-        # exists for this job. Claiming it again would double-restart and double-report.
-        return "skip", "queue unreadable (%s) — the daemon row owns this cause" % detail
-    rows = [r for r in detail.get("result", {}).get("rows", [])
-            if r.get("job_id") == WATCH_JOB]
-    if not rows:
-        # NOT SCHEDULED is an ALARM, not a skip (owner ruling 2026-08-11). The former
-        # `skip` was correct in the abstract — no restart creates a queue row, so this
-        # is a human's call — but it made the arm's ONE hard failure indistinguishable
-        # from health on the only channel that pushes, and it hid a real one: the arm sat
-        # pointed at a deregistered job id for a full night, logging this line every pass
-        # while the live watcher went unwatched. `alarm` is exactly the right state for
-        # "real, and no restart fixes it": main() never restarts on it, and the DM says a
-        # human is needed. The dedupe + re-alert ceiling above bounds the volume that the
-        # old comment feared. Invariant 2 still holds — this REPORTS an absence, it does
-        # not judge whether the job should be armed or act on it.
-        return "alarm", ("job '%s' has NO queue row — the goal-watcher is NOT scheduled and "
-                         "nothing is watching. Arming it is a ruling, not a restart: enqueue "
-                         "the periodic row, or repoint RBTV_WATCHDOG_WATCH_JOB if the id moved"
-                         % WATCH_JOB)
-    row = rows[0]
-    interval = row.get("interval_seconds")
-    run_at = row.get("run_at")
-    if not interval or not run_at:
-        return "up", "queued, non-periodic (interval=%s)" % interval
-    overdue = time.time() - utc_epoch(run_at)
-    # One whole interval of slack: a tick is 10s and the row re-arms on completion,
-    # so a single slow fire must not read as death.
-    if overdue > float(interval):
-        return "down", "next fire was due %ds ago (interval=%ss)" % (int(overdue), interval)
-    return "up", "next fire due in %ds (interval=%ss)" % (int(-overdue), interval)
 
 
 # ── daemon identity · restart · crash-loop · stale code ─────────────────────
@@ -757,12 +704,6 @@ ROWS = {
                     lambda: "restarted %s" % BRIDGE_UNIT),
     "probe-suite": (probe_probe_suite,  lambda: restart_via_operator(PROBE_TIMER),
                     lambda: "restarted %s" % PROBE_TIMER),
-    # No narrower lever exists: this job has no unit of its own, so the ONLY way to
-    # revive it is a full daemon restart. The notify text says so, so the owner is
-    # never misled about the blast radius.
-    "goal-watcher": (probe_goal_watcher, lambda: restart_via_operator(DAEMON_UNIT),
-                     lambda: "restarted the WHOLE daemon (%s) — this job has no unit of its own, "
-                             "so a job-scoped restart does not exist" % DAEMON_UNIT),
 }
 
 

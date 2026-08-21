@@ -100,11 +100,11 @@ entries below cite.
   A closer never touches deliverables, never rules open questions, never messages beyond target
   and leader.
 - **watcher seats — RETIRED (owner-ruled, `d-watcher-deterministic-chain`; name removed from
-  coord.py 2026-08-13).** No run staffs a watcher seat. DETECTION is the deterministic watch
-  layer’s: team-monitor (CMP-20) is the sole raw sensor writing the goal’s `state.json`;
-  goal-watcher-job (CMP-21) thresholds that snapshot, performs the mechanical fixes (stale-sensor
-  restart, ruled revival) and nudges seat/leader. The former `watch.py` was dissolved into those
-  two components (task 7.35) — they ARE the detection spec; nothing else declares one.
+  coord.py 2026-08-13).** No run staffs a watcher seat. DETECTION is deterministic: team-monitor
+  (CMP-20) is the sole raw sensor writing the goal’s `state.json`, and the daemon's own per-goal
+  reconcile pass (`ignite/engine/reconcile.js`, D1/D15) acts on goal health. The former `watch.py`
+  was dissolved into team-monitor and `goal-watcher-job` (task 7.35); `goal-watcher-job` was in
+  turn dequeued 2026-08-20 and DELETED 2026-08-21, its half of the job now reconcile's.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders
   (`AGENTS.md` in the seat folder) point them here. They have no `/rename`; their identity lives
   in the pane/window title. Wakes reach them as terminal input like any pane.
