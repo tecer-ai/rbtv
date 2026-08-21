@@ -270,23 +270,6 @@
       }
     ]
   },
-  "innovation": {
-    "description": "Business innovation frameworks, mentorship, and product discovery.",
-    "commands": [
-      {
-        "source_template": "innovation/commands/innovator.md",
-        "target": ".claude/commands/rbtv-innovator.md",
-        "bake": ["rbtv_path"],
-        "description": "Business innovation mentor with guided discovery frameworks"
-      },
-      {
-        "source_template": "innovation/commands/product-discoverer.md",
-        "target": ".claude/commands/rbtv-product-discoverer.md",
-        "bake": ["rbtv_path"],
-        "description": "Product discovery persona for market fit and validation"
-      }
-    ]
-  },
   "writing": {
     "description": "Long-form writing and tone analysis.",
     "commands": [
@@ -373,7 +356,7 @@
   "cross_module_agents": {
     "vivian": {
       "primary_module": "studio",
-      "also_used_by": ["innovation"]
+      "also_used_by": []
     }
   }
 }

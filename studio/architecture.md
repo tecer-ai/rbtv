@@ -46,7 +46,7 @@ One Strategist (audience modes), one Designer. Art-direction is the Designer's o
 | Component | Landing path | Disposition | Notes |
 |-----------|--------------|-------------|-------|
 | **Strategist persona** | `studio/personas/strategist.md` | CREATE NEW | ONE persona, audience MODES: investor (Roelof-mined), client (Leo-mined), site-marketing, app-product. Drives beat 1; authors the content spec |
-| **Designer persona** | `studio/personas/vivian.md` | REWORK (existing → studio Designer) | Vivian retargeted: art-direction → layout → visual. Menu points at the studio loop, not `deck-design`. `[BV]` brand-visual item keeps pointing at the innovation module (cross-module — manifest `cross_module_agents.vivian`) |
+| **Designer persona** | `studio/personas/vivian.md` | REWORK (existing → studio Designer) | Vivian retargeted: art-direction → layout → visual. Menu points at the studio loop, not `deck-design`. The `[BV]` brand-visual item was REMOVED 2026-08-21 with the innovation module's deletion from this repo (superseded outside it); the `cross_module_agents.vivian` manifest entry was emptied in the same change |
 | `roelof.md` (Investor) | `office/personas/roelof.md` | MINED into Strategist investor mode → DELETED | Stress-test craft + investor vocabulary mined; not moved |
 | `leo.md` (Buyer) | `office/personas/leo.md` | MINED into Strategist client mode → DELETED | Procurement-defense craft mined |
 | `rbtv-designing` skill (loader) | `studio/skills/designing/SKILL.md` | REWORK | Designer entry loader → points at reworked `vivian.md` (see §3 entry surfaces) |
