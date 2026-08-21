@@ -40,7 +40,8 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > directory holding `component.md` (the KG's `component folder`) — on BOTH the workspace
 > mirror (`{target}/.rbtv/mirror`) and this repo, discovering their parts from the
 > **exposure manifest** (`exposure.csv`) beside it, and realizes each row's canonical method
-> for **four harnesses** (claude, codex, opencode, kimi) through CMP-12's adapter matrix.
+> for **three harnesses** (claude, codex, opencode) through CMP-12's adapter matrix
+> (`kimi` retired 2026-08-21 — kimi models are reached through opencode).
 > Everything else — module-root manifests, folders with no `component.md` — is the old
 > standard, and `install.py` alone manages it: the two installers cover disjoint sets.
 > One exception by design: a tree-root **`_skills/`** folder holds whole vendored skill
@@ -68,7 +69,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 >
 > Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the measured kimi realizations) are documented in the file's own module docstring —
+> rule, the retired kimi harness) are documented in the file's own module docstring —
 > that is their one home.
 >
 > A **third** installer, `core/capabilities/installer/tool/rbtv-install`, was built for the
