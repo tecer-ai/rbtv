@@ -150,7 +150,7 @@ cage:
   # they survive their own mask. GRANTS → MASKS → PIERCES. A pierce written up here instead would
   # simply be re-covered by its mask; a mask written above a grant would be shadowed by it.
   # ⚠ AND THE `ro-bind:{grant:readRoot}` LINE MUST STAY FIRST for a second, now UNIVERSAL reason
-  # (adv C56): the `tmpfs:{goalDir}/seats` line below is what makes PEER SEAT FOLDERS ABSENT, and
+  # (adv C56): the `ro-mask:{goalDir}/seats` line below is what makes PEER SEAT FOLDERS ABSENT, and
   # it only shadows the read-everything floor because that floor is emitted before it. Move the
   # read-root line down and every read-root seat reads every other seat's folder.
   # `probe-private-scope.js` legs 1-7 and 9 are the arms that hold this paragraph.
@@ -167,9 +167,9 @@ cage:
     # sessions.csv / state.csv ro carves. (D3: record forgery is a non-goal; ledgers are
     # writable. Fewer knobs is the point — each deleted line was an EROFS repair.)
     - "bind:{goalDir}"
-    # ⚑ PEER SEAT FOLDERS: ABSENT. Costs nothing, already works, keep (D3 does not ask for
-    # peer-folder isolation, but this line is free and already green).
-    - "tmpfs:{goalDir}/seats"
+    # ⚑ PEER SEAT FOLDERS: ABSENT, writes REFUSE (D48). Was `--tmpfs` (writable, evaporates —
+    # fake-success). `ro-mask` ro-binds an empty source so mkdir/write fail EROFS.
+    - "ro-mask:{goalDir}/seats"
     # W1 — the seat's own folder, READ-WRITE (D3 item 3).
     - "bind:{seatDir}"
     # RO carve-IN inside W1. seat.md is the permission record the NEXT session's cage is
@@ -239,13 +239,35 @@ cage:
     # ⚠ The private-scope masks are appended AFTER this whole stack, so a deny always wins over one
     # of these grants — a CLI-derived root is never a pierce.
     - "bind:{grant:cliWriteRoot}"
-  # ⚑ ABSENT / UNWRITABLE BY CONSTRUCTION (D3): peer seat folders even for READ, other
-  # seats' worktrees, main repo WORKING trees outside the seat's own worktree, vault
-  # 2-areas/ and other repos that are not goals/, .rbtv/heart/, env/secret files
-  # (private-scope.js). The rbtv source checkout and <ws>/.rbtv/mirror are now READ
-  # (D3 item 4). Goal-folder records including sessions.csv are WRITABLE (D3 item 5;
-  # record forgery is a non-goal). seat.md and permission-edits.csv stay RO (wall-
-  # control surfaces).
+  # ⚑ ABSENT / UNWRITABLE BY CONSTRUCTION (D3, WORKER cages): peer seat folders even for READ
+  # (ro-mask, writes refuse — D48), other seats' worktrees, main repo WORKING trees outside
+  # the seat's own worktree, vault 2-areas/ and other repos that are not goals/, .rbtv/heart/,
+  # env/secret files (private-scope.js). seat.md and permission-edits.csv stay RO (wall-
+  # control surfaces). MasterBinds below is the D49 exception for `*-master` roles.
+  #
+  # D49 — TRULY-EVERYTHING cage for ALL caged master roles (`goal-master`, `channel-master`;
+  # `console-master` is unsandboxed and never reaches this stack). Whole workspace RW. No
+  # peer-seats mask, no seat.md carve, no permission-edits carve, rbtv repo RW. Private-scope
+  # masks still append last — secrets stay read-denied (mask wins over this stack).
+  MasterBinds:
+    - "bind:{grant:readRoot}"
+    - "bind:{goalDir}"
+    - "bind:{seatDir}"
+    - "bind-try:{grant:rbtvRoot}"
+    - "bind-try:{grant:rbtvMirror}"
+    - "bind:{grant:busWrite}"
+    - "bind:{grant:goalsWrite}"
+    - "bind:{grant:worktree}"
+    - "ro-bind:{grant:repoGit}"
+    - "bind:{grant:repoGit}/objects"
+    - "bind:{grant:repoGit}/refs"
+    - "bind:{grant:repoGit}/logs"
+    - "bind:{grant:worktreeGitDir}"
+    - "ro-bind:{grant:harnessCreds}"
+    - "ro-bind:{grant:localBin}"
+    - "ro-bind:{grant:tmuxSocketDir}"
+    - "bind:{grant:rwPath}"
+    - "bind:{grant:cliWriteRoot}"
 
 # ── THE GLOBAL CAPS DEFAULT (r-seats-only-architecture (2)) ────────────────────────────────────
 # One default block; a profile-level `caps:` carries ONLY the keys it overrides, and only by

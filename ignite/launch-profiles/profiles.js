@@ -119,7 +119,7 @@ const KNOWN_CAPS_KEYS = new Set(['memory_max', 'cpu_quota', 'runtime_max', 'task
 // BWRAP_COMPATIBLE_SANDBOX_KEYS allowlist (bwrap.js) — exactly NoNewPrivileges — so this key is
 // dropped by the same construction that already drops ProtectSystem and ReadWritePaths.
 const KNOWN_SANDBOX_KEYS = new Set([
-  'ProtectSystem', 'ReadWritePaths', 'PrivateTmp', 'NoNewPrivileges', 'SeatBinds',
+  'ProtectSystem', 'ReadWritePaths', 'PrivateTmp', 'NoNewPrivileges', 'SeatBinds', 'MasterBinds',
 ]);
 const KNOWN_ENV_KEYS = new Set(['file']);
 // `{extra_dir}` — task 7.87. The G1 CONFINEMENT SPLIT needs TWO path values, and the vocabulary
@@ -290,6 +290,17 @@ function validateSandbox(sandbox, label, filePath, seatBindValidator) {
       );
     }
     seatBindValidator(sandbox.SeatBinds, label, filePath);
+  }
+  if (sandbox.MasterBinds !== undefined) {
+    if (typeof seatBindValidator !== 'function') {
+      throw new SpawnError(
+        E_CONFIG_LOAD,
+        `${label}.sandbox.MasterBinds is declared but this consumer supplied no ` +
+        `SeatBinds validator — refusing rather than accepting an unvalidated bind template`,
+        { file: filePath, key: `${label}.sandbox.MasterBinds` },
+      );
+    }
+    seatBindValidator(sandbox.MasterBinds, label, filePath);
   }
 }
 
