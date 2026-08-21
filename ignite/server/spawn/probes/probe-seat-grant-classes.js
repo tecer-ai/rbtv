@@ -344,13 +344,14 @@ capture('probe-seat-grant-classes', async (lines) => {
       hasFlag(granted, '--bind', f.betaRun), `--bind ${f.betaRun}: ${hasFlag(granted, '--bind', f.betaRun)}`);
     const ownSeats = path.join(f.runDir, 'seats');
     const ownSeatMd = path.join(f.mineDir, 'seat.md');
-    leg('G6b', "own goal IS bound (D3 bind:{goalDir}); seats tmpfs + seat.md carve come AFTER it",
+    const seatsRoMask = granted.some((a, i) => a === '--ro-bind' && granted[i + 2] === ownSeats && granted[i + 1] !== ownSeats);
+    leg('G6b', "own goal IS bound (D3 bind:{goalDir}); seats ro-mask + seat.md carve come AFTER it",
       hasFlag(granted, '--bind', f.runDir)
-      && hasFlag(granted, '--tmpfs', ownSeats)
+      && seatsRoMask
       && hasFlag(granted, '--ro-bind', ownSeatMd)
       && granted.lastIndexOf(ownSeats) > granted.lastIndexOf(f.runDir)
       && granted.lastIndexOf(ownSeatMd) > granted.lastIndexOf(f.runDir),
-      `--bind own=${hasFlag(granted, '--bind', f.runDir)} tmpfs seats after=${granted.lastIndexOf(ownSeats) > granted.lastIndexOf(f.runDir)} seat.md after=${granted.lastIndexOf(ownSeatMd) > granted.lastIndexOf(f.runDir)}`);
+      `--bind own=${hasFlag(granted, '--bind', f.runDir)} ro-mask seats=${seatsRoMask} seat.md after=${granted.lastIndexOf(ownSeatMd) > granted.lastIndexOf(f.runDir)}`);
     leg('G6c', "goalsWriteGroundTruth carve is GONE (D3: no file-level ro-bind of records)",
       !hasFlag(granted, '--ro-bind', f.betaSessions),
       `--ro-bind ${f.betaSessions}: ${hasFlag(granted, '--ro-bind', f.betaSessions)}`);

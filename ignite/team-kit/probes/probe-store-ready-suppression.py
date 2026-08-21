@@ -76,8 +76,7 @@ ENUMERATED = {
 
 LEGACY_CARRIER = "barred"   # reported, NEVER suppressed — B-4, pending U3.2
 
-DEFAULT_STORE = ("1-projects/rbtv-sb-merge-refactor-core-build/"
-                 "rbtv-sb-merge-refactor-core-build-tasks.md")
+DEFAULT_STORE = "1-projects/build-ignite/build-ignite-tasks.md"
 
 
 def suppressing_tags(tags, namespace=SUPPRESS_NAMESPACE):

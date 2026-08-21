@@ -213,6 +213,13 @@ capture('probe-seat-cage', async (lines) => {
       !leaked && !peerListed,
       `in-cage read yielded ${JSON.stringify(readOut.trim().slice(0, 120))}; seats/ ${peerListed ? 'STILL LISTS peer' : 'does not list peer'}`);
 
+    const newPeerFile = path.join(f.runDir, 'seats', 'newpeer', 'x.txt');
+    const rPeerWrite = inCage(f, `mkdir -p ${path.dirname(newPeerFile)} && echo FAKE > ${newPeerFile}`);
+    const hostPeer = bytes(newPeerFile);
+    leg('P8e-write', 'write into peer seats/ FAILS (EROFS/EACCES) and does not land on disk (D48)',
+      rPeerWrite.exit !== 0 && hostPeer.startsWith('<<ABSENT'),
+      `in-cage exit ${rPeerWrite.exit} stderr=${JSON.stringify((rPeerWrite.stderr || '').slice(0, 80))} host=${hostPeer}`);
+
     const wtFile = path.join(f.mineWt, 'work.txt');
     inCage(f, `echo WORK > ${wtFile}`);
     leg('P9b', "the seat's OWN worktree is writable", bytes(wtFile) === 'WORK\n',

@@ -4851,12 +4851,15 @@ def daemon_exec_identity(cgroup_text=None, db_path=None):
 #
 # ⚠ AND FROM AN IDENTITY THAT RESOLVES TO NOTHING AT ALL, which is the console master before it has
 # a name — an UNCAGED shell. That admission is exactly as wide as the console already is and no
-# wider: a CAGED seat always carries `COORD_AGENT` (injected into every launched seat's harness
-# command, `agent_env_prefix`) and a daemon-fired exec resolves through `daemon_exec_identity`, so
-# "nothing resolves" is reachable only from outside both. ⚠⚠ THIS IS WHAT CLOSES THE PANE-LESS
-# DAEMON-LANE HOLE: `ignite-daemon` is a resolved identity and is NOT in the admitted set, so the
-# absence of a CONTRADICTING pane row no longer admits the claim — which is all that stood between
-# any daemon-fired exec and acting as the leader.
+# wider. F-8 (measured 2026-08-21, closed D48.2): a CAGED seat does NOT carry `COORD_AGENT` (the
+# daemon injects none — D45) and `daemon_exec_identity` returns '' inside the cage (`/run` is
+# tmpfs, heart.db is not bound), so "nothing resolves" WAS reachable from inside every daemon
+# cage and the gate admitted `--as leader` as an uncaged console. After D46 the cgroup names the
+# carrier unit; `_staff_claim_gate` now fills an empty `actual` from `carrier_corroborated_seat`
+# BEFORE the `if actual` guard, so an uncorroborated cage REFUSES. The console admission remains
+# only when this process is not inside a carrier unit. ⚠⚠ `ignite-daemon` is still a resolved
+# identity and is NOT in the admitted set: a daemon-fired exec that cannot corroborate the claim
+# is refused — that is what closes the pane-less daemon-lane hole.
 #
 # ⚠ AND FROM A CORROBORATED CALLER (D45, owner 2026-08-20) — the fourth admission, and the one
 # that is NOT an identity at all. A real caged leader IS `ignite-daemon` by the paragraph above, so
@@ -4883,6 +4886,15 @@ def _staff_claim_gate(args, claimed, pane, registered):
     would be if it stopped claiming."""
     actual = (registered or os.environ.get("COORD_AGENT", "").strip()
               or daemon_exec_identity())
+    # F-8 (D48.2): D43/D45 corroboration BEFORE the `if actual` guard. A caged seat's
+    # `actual` is routinely '' (no COORD_AGENT, no heart.db in the cage, /run is tmpfs),
+    # so the old guard skipped D45 and admitted as "an uncaged console". After D46 the
+    # cgroup names the carrier unit; this call answers inside every daemon cage. A proven
+    # roster seat fills empty `actual` so the gate keys on PROVEN identity, not path
+    # visibility (a D49.2 wide-mount master is still only the seat its cgroup corroborates).
+    _sid, _seat = carrier_corroborated_seat(args)
+    if not actual and _sid and _seat:
+        actual = _seat
     corroborated = ""
     if actual and actual not in STAFF_CLAIM_IDENTITIES:
         # ---- D45 (owner, 2026-08-20) — A CORROBORATED CLAIM IS NOT AN ASSERTION ---------------
@@ -4906,7 +4918,6 @@ def _staff_claim_gate(args, claimed, pane, registered):
         #
         # ⚠ `--force` STILL DOES NOT LIFT IT: the refusal below is reached with no force check,
         # and this admission consults nothing the caller passes.
-        _sid, _seat = carrier_corroborated_seat(args)
         if _sid and _seat == claimed:
             corroborated = SID_PANE_PREFIX + _sid
         else:
@@ -4934,6 +4945,19 @@ def _staff_claim_gate(args, claimed, pane, registered):
                 f"There is no --force for this one: the emergency lever is the console, and the "
                 f"console is one of the identities above.",
                 2)
+    elif _sid and not actual:
+        # F-8: inside a carrier unit but nothing resolved (no roster row). Not a console.
+        refuse(
+            "identity",
+            f"you claimed '{claimed}' (--as), and '{claimed}' is a STAFF CHAIR — the run's own "
+            f"authority. That claim is admitted from "
+            f"{', '.join(STAFF_CLAIM_IDENTITIES)}, from an uncaged console, and from a caller "
+            f"whose OWN daemon-minted session is registered to '{claimed}' in the roster "
+            f"(D45); you resolve to '{actual or 'nothing'}'"
+            f"{f', and your own session {SID_PANE_PREFIX}{_sid} carries no ACTIVE roster row' if not _seat else ''}.\n"
+            f"There is no --force for this one: the emergency lever is the console, and the "
+            f"console is one of the identities above.",
+            2)
     # ACCEPTED — and every accepted use is announced, never silent. An emergency lever nobody can
     # find in the log is an emergency lever nobody can audit.
     print(c(f"{CONSOLE_OVERRIDE_MARKER}: acting --as '{claimed}' (a STAFF CHAIR) from "
@@ -19089,6 +19113,120 @@ def cmd_depart(args):
         tmux_kill_pane(pane)
     else:
         print("no pane to kill (not inside tmux)")
+
+
+# ── D49.1 / D49.3 — `secret-add`: client of the out-of-cage daemon write ─────────────────────
+#
+# CLI surface stays this verb. Identity is stamped here by the F-8 ladder (pane / COORD_AGENT /
+# cgroup→roster), never trusted from `--as`. This process validates and authorizes, then POSTs
+# {NAME, drop-file PATH} — never the value — to gateway intent `secret-add`. The daemon (uncaged)
+# re-checks authority from receiver-stamped identity, reads the drop file, appends to the
+# canonical env file, deletes the drop on success, and never logs the value.
+#
+# No `--env-file` / COORD_SECRET_ENV_FILE hatch: a caller must not redirect the append. The
+# daemon may honour RBTV_IGNITE_SECRET_ENV_FILE on its OWN process env (scratch tests); a cage
+# cannot set the daemon's environment.
+
+SECRET_ADD_MASTERS = ("goal-master", "channel-master", "console-master")
+SECRET_ADD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _drop_under_goals(path):
+    parts = Path(path).resolve().parts
+    for i in range(len(parts) - 1):
+        if parts[i] == ".rbtv" and parts[i + 1] == "goals":
+            return True
+    return False
+
+
+def _secret_add_authority(args):
+    """Admit only a proven master / uncaged console. Never a bare `--as`."""
+    claimed = (getattr(args, "as_agent", None) or "").strip()
+    pane = detect_pane(getattr(args, "pane", None))
+    registered = ""
+    if pane:
+        try:
+            registered = pane_agent(base_dir(args), pane)
+        except (SystemExit, OSError):
+            registered = ""
+    actual = (registered or os.environ.get("COORD_AGENT", "").strip()
+              or daemon_exec_identity())
+    try:
+        sid, seat = carrier_corroborated_seat(args)
+    except (SystemExit, OSError):
+        sid, seat = "", ""
+    if not actual and sid and seat:
+        actual = seat
+    if claimed and claimed in SECRET_ADD_MASTERS:
+        if actual != claimed:
+            refuse(
+                "identity",
+                f"you claimed '{claimed}' (--as) to add a secret. That claim is admitted only when "
+                f"your proven identity (pane, COORD_AGENT, or cgroup→roster) IS '{claimed}'. You "
+                f"resolve to '{actual or 'an uncaged console'}'. There is no --force for this one.",
+                2)
+        return actual
+    if actual in SECRET_ADD_MASTERS:
+        return actual
+    if not actual and not sid:
+        return "console-master"
+    refuse(
+        "role gate",
+        f"secret-add is a master act ({', '.join(SECRET_ADD_MASTERS)} / owner console). "
+        f"You resolve to '{actual or 'nothing'}'. Workers cannot add secrets.\n"
+        f"{ROLE_GATE_LAYER_NOTE}",
+        2)
+
+
+def cmd_secret_add(args):
+    """Ask the daemon to append NAME from a drop file. Value never read here, never printed."""
+    _secret_add_authority(args)
+    name = (args.name or "").strip()
+    if not SECRET_ADD_NAME_RE.match(name):
+        refuse("input",
+               "NAME must be a shell env identifier: letters, digits, underscore, not starting "
+               "with a digit. The value is never taken from argv.", 2)
+    drop = Path(args.from_file).expanduser()
+    if not drop.is_file():
+        refuse("input", f"drop file does not exist or is not a file: {drop}", 2)
+    drop_res = drop.resolve()
+    if _drop_under_goals(drop_res):
+        refuse("input",
+               f"drop file is under .rbtv/goals/ — live goal ledgers are not a mailbox. "
+               f"Leave the file where it is. path: {drop_res}", 2)
+    target = gateway_transport_target(args)
+    if not target:
+        refuse("environment",
+               "secret-add needs a running daemon serving this workspace (or IGNITE_GATEWAY_ADDR). "
+               "The write is performed out-of-cage by the daemon, never by this process.", 2)
+    host, port, token = target
+    try:
+        status, envelope = gateway_client.secret_add(
+            host, port, name, str(drop_res), token=token)
+    except gateway_client.GatewayTransportError as exc:
+        refuse("environment", f"secret-add could not reach the daemon: {exc}", 2)
+    if not isinstance(envelope, dict):
+        refuse("environment", f"secret-add: daemon returned a non-object envelope: {envelope!r}", 2)
+    if envelope.get("ok") is True:
+        result = envelope.get("result") or {}
+        env_path = result.get("env_file") or "the workspace env file"
+        print(f"secret-add: appended {name} to {env_path}")
+        if result.get("drop_consumed"):
+            print(f"secret-add: consumed drop file {drop_res}")
+        else:
+            print(f"secret-add: appended, but failed to delete drop file {drop_res} — owner must remove it")
+        return
+    err = envelope.get("error") or {}
+    code = err.get("code") if isinstance(err, dict) else None
+    msg = err.get("message") if isinstance(err, dict) else repr(err)
+    text = msg or f"daemon refused secret-add ({code or 'UNKNOWN'})"
+    if code == "UNAUTHORIZED_SENDER":
+        refuse("role gate", text, 2)
+    if "already exists" in text:
+        refuse("state", text, 2)
+    if ".rbtv/goals/" in text:
+        refuse("input", text, 2)
+    refuse("environment", text, 2)
 
 
 # ---------- selftest ----------
@@ -35325,6 +35463,62 @@ def _selftest_checks(args, failures, names):
               and "RESERVED bus address" in (_d2_ci_out + _d2_ci_err)
               and set(ROUTED_TYPES) == {"stuck", "ask"})
 
+    # ---- D49 secret-add (client gates; the write is daemon-side and is not this suite) ----
+    with tempfile.TemporaryDirectory() as tdSec:
+        pkgSec = Path(tdSec) / "pkg"
+        (pkgSec / "coordination").mkdir(parents=True)
+        dummyVal = "dummy-secret-add-selftest-value"
+        pSec = build_parser()
+        saved_agent = os.environ.pop("COORD_AGENT", None)
+        try:
+            hatch = False
+            try:
+                pSec.parse_args([
+                    "--package", str(pkgSec), "secret-add", "X",
+                    "--from-file", "/tmp/x", "--env-file", "/tmp/y"])
+            except SystemExit:
+                hatch = True
+            check("D49 secret-add --env-file hatch is closed (parser refuses the flag)", hatch)
+
+            os.environ["COORD_AGENT"] = "alpha"
+            dropW = Path(tdSec) / "worker.txt"
+            dropW.write_text(dummyVal + "\n", encoding="utf-8")
+            nsW = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_WORKER",
+                "--from-file", str(dropW)])
+            outW, errW, codeW = harness_outcome(nsW.func, nsW)
+            check("D49 secret-add refuse worker: role gate, drop left",
+                  codeW == 2 and "Workers cannot add secrets" in (outW + errW)
+                  and dropW.exists() and dummyVal not in (outW + errW))
+
+            dropAs = Path(tdSec) / "as.txt"
+            dropAs.write_text(dummyVal + "\n", encoding="utf-8")
+            nsAs = pSec.parse_args([
+                "--package", str(pkgSec), "--as", "goal-master", "secret-add",
+                "TEST_SECRET_AS", "--from-file", str(dropAs)])
+            outAs, errAs, codeAs = harness_outcome(nsAs.func, nsAs)
+            check("D49 secret-add refuse uncorroborated --as master: identity, drop left",
+                  codeAs == 2 and "you claimed 'goal-master' (--as)" in (outAs + errAs)
+                  and dropAs.exists() and dummyVal not in (outAs + errAs))
+
+            os.environ["COORD_AGENT"] = "goal-master"
+            goalsDir = Path(tdSec) / ".rbtv" / "goals" / "g" / "mailbox"
+            goalsDir.mkdir(parents=True)
+            dropG = goalsDir / "key.txt"
+            dropG.write_text(dummyVal + "\n", encoding="utf-8")
+            nsG = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_GOALS",
+                "--from-file", str(dropG)])
+            outG, errG, codeG = harness_outcome(nsG.func, nsG)
+            check("D49 secret-add refuse drop under .rbtv/goals/: input, drop left",
+                  codeG == 2 and ".rbtv/goals/" in (outG + errG)
+                  and dropG.exists() and dummyVal not in (outG + errG))
+        finally:
+            if saved_agent is None:
+                os.environ.pop("COORD_AGENT", None)
+            else:
+                os.environ["COORD_AGENT"] = saved_agent
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -35411,7 +35605,7 @@ leader
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
-  owner       set owner presence: present | afk
+  owner / secret-add  set owner presence: present | afk · append one env NAME from a drop file (masters; value never logged)
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
@@ -36855,6 +37049,26 @@ def build_parser():
                    help="explicit opt-in (inert by default, Fork 2 ruled): make one live "
                         "read-only `inspect` call against the detected gateway")
     s.set_defaults(func=cmd_gateway_status)
+
+    s = command(
+        "secret-add",
+        "Append ONE NAME to the workspace env file from a drop file. Masters only\n"
+        "(goal-master, channel-master, console/owner). Identity is the proven F-8 ladder —\n"
+        "pane, COORD_AGENT, or cgroup→roster — never a bare --as. This process is the\n"
+        "CLIENT: it sends NAME and the drop-file PATH to the daemon, which (out of cage)\n"
+        "reads the value, appends, and deletes the drop. The value never enters argv, the\n"
+        "wire, logs, or this command's output. Append-only: an existing NAME is refused.\n"
+        "Drop files under .rbtv/goals/ are refused. No update, no delete, no read-back.",
+        "example:\n"
+        "  coordinate secret-add GEMINI_API_KEY --from-file /path/in/the/workspace/gemini-key.txt\n"
+        "next: nothing — the NAME is in the env file; the drop file is gone; there is no "
+        "read-back verb")
+    s.add_argument("name", metavar="NAME",
+                   help="the env identifier to append (letters, digits, underscore)")
+    s.add_argument("--from-file", dest="from_file", metavar="PATH", required=True,
+                   help="drop file holding the value as a single line — never pass the value on argv")
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_secret_add)
 
     s = command(
         "selftest",

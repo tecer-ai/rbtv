@@ -79,7 +79,7 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer',
+  'record-bus-answer', 'secret-add',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -661,6 +661,20 @@ function parseRecordBusAnswer(payload) {
   return { goal: payload.goal, seat: payload.seat, corpus: payload.corpus };
 }
 
+const SECRET_ADD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function parseSecretAdd(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['name', 'from_file']), 'secret-add');
+  if (typeof payload.name !== 'string' || !SECRET_ADD_NAME_RE.test(payload.name)) {
+    bad('secret-add NAME must be a shell env identifier: letters, digits, underscore, not starting with a digit', 'name');
+  }
+  if (typeof payload.from_file !== 'string' || payload.from_file.length === 0) {
+    bad('secret-add requires a non-empty from_file (absolute path to the drop file)', 'from_file');
+  }
+  return { name: payload.name, from_file: payload.from_file };
+}
+
 // Raw sender input -> a typed request payload, or a typed refusal. This is the
 // ONLY function in the daemon that interprets raw sender input.
 function parseRequest({ intent, payload }) {
@@ -679,6 +693,7 @@ function parseRequest({ intent, payload }) {
     case 'live-feed': return parseLiveFeed(payload);
     case 'send-message': return parseSendMessage(payload);
     case 'record-bus-answer': return parseRecordBusAnswer(payload);
+    case 'secret-add': return parseSecretAdd(payload);
   }
 }
 

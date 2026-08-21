@@ -252,6 +252,17 @@ def read_thread(host, port, thread, token=None, timeout=10.0, offset=None, limit
     return envelope.get("result") or {}
 
 
+def secret_add(host, port, name, from_file, token=None, timeout=30.0):
+    """POST intent `secret-add` {name, from_file}. Returns (status, envelope).
+
+    The VALUE never crosses this function: only NAME and the drop-file PATH.
+    Callers read ok/error off the envelope. sender is stamped by the daemon.
+    """
+    return call_gateway(host, port, "secret-add",
+                        {"name": name, "from_file": from_file},
+                        token=token, timeout=timeout)
+
+
 def call_gateway(host, port, intent, payload, token=None, timeout=10.0):
     """POST / {intent, payload}; returns (status_code, envelope_dict). Mirrors
     gateway-client.js's callGateway: `Authorization: Bearer <token>` when present, JSON

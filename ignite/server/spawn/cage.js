@@ -7,7 +7,7 @@
 // are not a concern for now. Record forgery is a NON-goal — the fence does not enforce it.
 //
 //   bind     <goalDir>          the goal folder RW (ledgers, planning, coordination, sessions.csv)
-//   tmpfs    <goalDir>/seats    PEER SEAT FOLDERS ABSENT
+//   ro-mask  <goalDir>/seats    PEER SEAT FOLDERS ABSENT + writes refuse (D48)
 //   bind     <seatDir>          the seat's own folder RW
 //   ro-bind  <seatDir>/seat.md  the masked file inside the RW folder (wall-control surface)
 //   ro-bind  <rbtvRoot>         rbtv repo + <ws>/.rbtv/mirror, READ
@@ -26,7 +26,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { SpawnError, E_CAGE_TEMPLATE } = require('./errors');
-const { composePrivateScope } = require('./private-scope');
+const { composePrivateScope, emptyMaskSource } = require('./private-scope');
 
 // The bind verbs a template may declare. Deliberately NOT the whole bwrap vocabulary: these three
 // compose every opening `r-711-write-bounds` allows, and an unknown verb is a template error
@@ -34,7 +34,10 @@ const { composePrivateScope } = require('./private-scope');
 // `bind-try` is `bind` that TOLERATES A MISSING SOURCE (bwrap's own `--bind-try`). It counts as
 // an RW verb: when the source IS there the opening is read-write. Used by grant lines whose
 // source may be absent (a worktree, a bus, a permission-edits carve).
-const BIND_VERBS = new Set(['ro-bind', 'ro-bind-try', 'bind', 'bind-try', 'tmpfs']);
+// `ro-mask` is SRC≠DEST: ro-bind an EMPTY source over DEST so the path lists nothing AND writes
+// refuse (EROFS). Replaces `--tmpfs` over peer seat folders (D48: fake-success tmpfs is the
+// false-complete shape). `tmpfs` stays in the vocabulary for fixture templates that still spell it.
+const BIND_VERBS = new Set(['ro-bind', 'ro-bind-try', 'bind', 'bind-try', 'tmpfs', 'ro-mask']);
 const RW_VERBS = new Set(['bind', 'bind-try']);
 
 // `{grant:FIELD}` — the one PARAMETERIZED slot form. An entry carrying any `{grant:...}` slot is
@@ -143,7 +146,11 @@ function composeSeatCage({ seatBinds = [], values = {}, grants = [] } = {}) {
     GRANT_SLOT_RE.lastIndex = 0;
     const grantFields = [...scalarResolved.matchAll(GRANT_SLOT_RE)].map((m) => m[1]);
     if (grantFields.length === 0) {
-      spec.push({ verb, path: normalize(scalarResolved, i) });
+      const opening = { verb, path: normalize(scalarResolved, i) };
+      if (verb === 'ro-mask' && values.seatDir && contains(opening.path, path.normalize(values.seatDir))) {
+        opening.punchThrough = path.normalize(values.seatDir);
+      }
+      spec.push(opening);
       continue;
     }
     for (const grant of grants) {
@@ -182,11 +189,21 @@ function contains(dir, file) {
 // Flatten to bwrap flags. SRC == DEST throughout, the same property bwrap.js composes for: the
 // caged process sees real paths, so a path the daemon recorded (a workdir, a worktree, an argv
 // element) still means the same thing inside the namespace.
+function punchMaskSource(entry, punchThrough) {
+  const key = require('node:crypto').createHash('sha1').update([entry, punchThrough].join('\0')).digest('hex').slice(0, 16);
+  const dir = path.join(os.tmpdir(), 'rbtv-cage-romask', key);
+  fs.mkdirSync(path.join(dir, path.relative(entry, punchThrough)), { recursive: true });
+  return dir;
+}
+
 function specToBwrapFlags(spec) {
   const flags = [];
-  for (const { verb, path: p } of spec) {
+  for (const { verb, path: p, punchThrough } of spec) {
     if (verb === 'tmpfs') flags.push('--tmpfs', p);
-    else flags.push(`--${verb}`, p, p);
+    else if (verb === 'ro-mask') {
+      const src = punchThrough ? punchMaskSource(p, punchThrough) : emptyMaskSource();
+      flags.push('--ro-bind', src, p);
+    } else flags.push(`--${verb}`, p, p);
   }
   return flags;
 }

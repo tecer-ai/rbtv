@@ -174,7 +174,7 @@ function resolveSandbox(sandbox, workdir) {
     // 7.11: `SeatBinds` is resolved by cage.js against the SEAT'S OWN records (goal/run/seat dirs
     // and worktree grants), not against a workdir. Sending it through the workdir resolver here
     // would give one template two resolvers — and the one that runs first would silently win.
-    if (key === 'SeatBinds') continue;
+    if (key === 'SeatBinds' || key === 'MasterBinds') continue;
     if (typeof value === 'string') {
       resolved[key] = resolveTemplateSlots([value], values)[0];
     } else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) {
@@ -1103,8 +1103,22 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // `log` is threaded in for ONE reason: the `rw-paths` grant class refuses per entry rather than
 // per spawn, and a refusal nobody can hear is a silent narrowing of a seat's declared walls. It
 // defaults to a no-op so a caller with no logger still composes.
+// D49: every `*-master` role except console-master (owner-invoked, unsandboxed) gets the
+// MasterBinds stack — whole workspace writable, secrets still masked. Name-based: the seat
+// folder's parsed `seat` (`goal-master`, `channel-master` from `_channel-master`).
+function isCagedMasterRole(seatPath) {
+  const name = seatPath && seatPath.seat;
+  if (typeof name !== 'string' || name === 'console-master') return false;
+  return name.endsWith('-master');
+}
+
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}) {
   let template = resolvedSandbox && resolvedSandbox.SeatBinds;
+  if (isCagedMasterRole(seatPath)
+      && resolvedSandbox && Array.isArray(resolvedSandbox.MasterBinds)
+      && resolvedSandbox.MasterBinds.length > 0) {
+    template = resolvedSandbox.MasterBinds;
+  }
   if (!template || template.length === 0) return null;
 
   // ⚠ 7.607 E2b — THE E2a `runs` MOUNTPOINT mkdir IS DELETED, on the condition E2a itself stated.

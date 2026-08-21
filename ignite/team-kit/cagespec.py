@@ -57,7 +57,7 @@ import re
 # there the opening is read-write, and a reader that treated it as anything else would drift from
 # the wall on every one of the five goal-root ledgers.
 RW_VERBS = ("bind", "bind-try")
-BIND_VERBS = ("ro-bind", "ro-bind-try", "bind", "bind-try", "tmpfs")
+BIND_VERBS = ("ro-bind", "ro-bind-try", "bind", "bind-try", "tmpfs", "ro-mask")
 
 # THE DISTINCT-SUCCESSOR SENTINEL. `readable-by-a-successor` is the SAME composition asked with a
 # different occupant, so it is `evaluate(..., seat=PEER, goal_writes=())` and not a second table. A
@@ -264,7 +264,7 @@ def evaluate(seat_binds, token, *, seat, goal_writes=()):
     where = "%s:{goalDir}%s" % (verb, "/" + p if p else "")
     if verb in RW_VERBS:
         return (WRITABLE, where)
-    if verb == "tmpfs":
+    if verb in ("tmpfs", "ro-mask"):
         return (ABSENT, where)
     return (READONLY, where)
 

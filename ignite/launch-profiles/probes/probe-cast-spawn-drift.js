@@ -16,6 +16,7 @@ const SHIPPED = path.join(IGNITE_ROOT, 'config', 'spawn-profiles.yaml');
 const OUT = path.join(__dirname, 'probe-cast-spawn-drift.out');
 
 function resolveCatalog() {
+  if (process.env.RBTV_CAST_CATALOG) return require(path.resolve(process.env.RBTV_CAST_CATALOG));
   const fromCast = () => {
     const which = execFileSync('which', ['cast'], { encoding: 'utf8' }).trim();
     const real = fs.realpathSync(which);
@@ -24,7 +25,7 @@ function resolveCatalog() {
   try { return fromCast(); } catch {
     return require(path.resolve(
       IGNITE_ROOT, '..', '..', '..', '..',
-      '.rbtv', 'mirror', 'meta', 'providers', 'capabilities', 'cast', 'tool', 'catalog.js',
+      '.rbtv', 'mirror', 'core', 'sub-agents', 'tool', 'catalog.js',
     ));
   }
 }
@@ -64,7 +65,7 @@ check('(2) kimi is not a launch-specs harness key', () => {
 });
 
 check('(3) overlapping (harness, model) ladders agree', () => {
-  const cliRows = (catalog.ROWS || []).filter((r) => r.carrier === 'cli');
+  const cliRows = (catalog.ROWS || []).filter((r) => r.mode === 'cli');
   const byPair = new Map();
   for (const row of cliRows) {
     byPair.set(`${row.harness}\t${row.id}`, row);
@@ -78,16 +79,19 @@ check('(3) overlapping (harness, model) ladders agree', () => {
     for (const model of Object.keys(models)) {
       const row = byPair.get(`${harness}\t${model}`);
       if (!row) continue;
-      const castRungs = ((castList[harness] || {})[row.model]);
-      if (castRungs === undefined) continue;
       const spec = models[model] || {};
       const effort = spec.effort || {};
       const yamlRungs = effort.inert === true ? [] : (effort.rungs || []);
+      const catalogRungs = row.rungs || [];
+      const castRungs = ((castList[harness] || {})[row.model]);
       const left = JSON.stringify(yamlRungs);
-      const right = JSON.stringify(castRungs);
+      const fromCatalog = JSON.stringify(catalogRungs);
       compared.push(`${harness}/${model}`);
-      if (left !== right) {
-        diverged.push(`${harness}/${model} yaml=${left} cast=${right}`);
+      if (left !== fromCatalog) {
+        diverged.push(`${harness}/${model} yaml=${left} catalog=${fromCatalog}`);
+      }
+      if (castRungs !== undefined && left !== JSON.stringify(castRungs)) {
+        diverged.push(`${harness}/${model} yaml=${left} cast=${JSON.stringify(castRungs)}`);
       }
     }
   }
