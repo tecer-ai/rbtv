@@ -19115,6 +19115,173 @@ def cmd_depart(args):
         print("no pane to kill (not inside tmux)")
 
 
+# ── D49.1 / D49.3 — `secret-add`: mediated append-only env write (masters only) ───────────────
+#
+# CLI surface is THIS verb, not a gateway intent: masters already type `coordinate` commands;
+# identity is stamped here by the F-8 ladder (pane / COORD_AGENT / cgroup→roster), never trusted
+# from `--as`; coord.py is live per invocation (a new gateway intent would be inert until deploy
+# and would key on sender tokens, not F-8). The receiver is this process: it reads the drop file
+# itself so the value never enters argv, the bus, or this command's output.
+#
+# Canonical target is `rbtv.json`'s `env_file` (workspace default `.rbtv/config/.env`), NOT
+# `.user/config/env/.env`. `--env-file` / COORD_SECRET_ENV_FILE are the fixture hatch.
+
+SECRET_ADD_MASTERS = ("goal-master", "channel-master", "console-master")
+SECRET_ADD_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+CANONICAL_ENV_FILE_REL = ".rbtv/config/.env"
+
+
+def canonical_secret_env_file():
+    """Workspace env file: rbtv.json `env_file`, else `.rbtv/config/.env`."""
+    root = Path(VAULT_ROOT)
+    rel = CANONICAL_ENV_FILE_REL
+    cfg = root / "rbtv.json"
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        got = data.get("env_file")
+        if isinstance(got, str) and got.strip():
+            rel = got.strip()
+    except (OSError, json.JSONDecodeError, TypeError):
+        pass
+    return (root / rel).resolve()
+
+
+def _secret_env_file(args):
+    override = (getattr(args, "env_file", None) or os.environ.get("COORD_SECRET_ENV_FILE", "")).strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return canonical_secret_env_file()
+
+
+def _drop_under_goals(path):
+    parts = Path(path).resolve().parts
+    for i in range(len(parts) - 1):
+        if parts[i] == ".rbtv" and parts[i + 1] == "goals":
+            return True
+    return False
+
+
+def _env_file_has_name(text, name):
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            continue
+        if line.split("=", 1)[0].strip() == name:
+            return True
+    return False
+
+
+def _secret_add_authority(args):
+    """Admit only a proven master / uncaged console. Never a bare `--as`."""
+    claimed = (getattr(args, "as_agent", None) or "").strip()
+    pane = detect_pane(getattr(args, "pane", None))
+    registered = ""
+    if pane:
+        try:
+            registered = pane_agent(base_dir(args), pane)
+        except (SystemExit, OSError):
+            registered = ""
+    actual = (registered or os.environ.get("COORD_AGENT", "").strip()
+              or daemon_exec_identity())
+    try:
+        sid, seat = carrier_corroborated_seat(args)
+    except (SystemExit, OSError):
+        sid, seat = "", ""
+    if not actual and sid and seat:
+        actual = seat
+    if claimed and claimed in SECRET_ADD_MASTERS:
+        if actual != claimed:
+            refuse(
+                "identity",
+                f"you claimed '{claimed}' (--as) to add a secret. That claim is admitted only when "
+                f"your proven identity (pane, COORD_AGENT, or cgroup→roster) IS '{claimed}'. You "
+                f"resolve to '{actual or 'an uncaged console'}'. There is no --force for this one.",
+                2)
+        return actual
+    if actual in SECRET_ADD_MASTERS:
+        return actual
+    if not actual and not sid:
+        return "console-master"
+    refuse(
+        "role gate",
+        f"secret-add is a master act ({', '.join(SECRET_ADD_MASTERS)} / owner console). "
+        f"You resolve to '{actual or 'nothing'}'. Workers cannot add secrets.\n"
+        f"{ROLE_GATE_LAYER_NOTE}",
+        2)
+
+
+def cmd_secret_add(args):
+    """Append NAME=value to the workspace env file from a drop file. Value never printed."""
+    _secret_add_authority(args)
+    name = (args.name or "").strip()
+    if not SECRET_ADD_NAME_RE.match(name):
+        refuse("input",
+               "NAME must be a shell env identifier: letters, digits, underscore, not starting "
+               "with a digit. The value is never taken from argv.", 2)
+    drop = Path(args.from_file).expanduser()
+    if not drop.is_file():
+        refuse("input", f"drop file does not exist or is not a file: {drop}", 2)
+    drop_res = drop.resolve()
+    if _drop_under_goals(drop_res):
+        refuse("input",
+               f"drop file is under .rbtv/goals/ — live goal ledgers are not a mailbox. "
+               f"Leave the file where it is. path: {drop_res}", 2)
+    env_path = _secret_env_file(args)
+    if drop_res == env_path:
+        refuse("input", "drop file must not be the env file itself.", 2)
+    if not env_path.is_file():
+        refuse("environment",
+               f"env file does not exist: {env_path}. The owner creates it; this verb only appends.",
+               2)
+    try:
+        existing = env_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        refuse("environment", f"cannot read env file {env_path}: {exc}", 2)
+    if _env_file_has_name(existing, name):
+        refuse("state",
+               f"NAME {name} already exists in {env_path}. Append-only: no update, no delete, "
+               f"no read-back. The drop file was left in place.", 2)
+    try:
+        raw = drop_res.read_text(encoding="utf-8")
+    except OSError as exc:
+        refuse("environment", f"cannot read drop file {drop_res}: {exc}", 2)
+    value = raw.strip()
+    if not value or "\n" in value or "\r" in value or "\x00" in value:
+        refuse("input",
+               f"drop file {drop_res} is empty or not a single-line value. File left in place.", 2)
+    try:
+        with open(env_path, "r+", encoding="utf-8") as fh:
+            if fcntl is not None:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            text = fh.read()
+            if _env_file_has_name(text, name):
+                refuse("state",
+                       f"NAME {name} already exists in {env_path}. Append-only: no update, no "
+                       f"delete, no read-back. The drop file was left in place.", 2)
+            if text and not text.endswith("\n"):
+                fh.write("\n")
+            fh.write(name + "=" + value + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError as exc:
+        refuse("environment", f"cannot append to env file {env_path}: {exc}", 2)
+    deleted = False
+    try:
+        drop_res.unlink()
+        deleted = True
+    except OSError:
+        deleted = False
+    print(f"secret-add: appended {name} to {env_path}")
+    if deleted:
+        print(f"secret-add: consumed drop file {drop_res}")
+    else:
+        print(f"secret-add: appended, but failed to delete drop file {drop_res} — owner must remove it")
+
+
 # ---------- selftest ----------
 
 def harness_outcome(fn, args, capture_err=True):
@@ -35349,6 +35516,84 @@ def _selftest_checks(args, failures, names):
               and "RESERVED bus address" in (_d2_ci_out + _d2_ci_err)
               and set(ROUTED_TYPES) == {"stuck", "ask"})
 
+    # ---- D49 secret-add (append-only, masters, drop-file; value never in output) ----
+    with tempfile.TemporaryDirectory() as tdSec:
+        pkgSec = Path(tdSec) / "pkg"
+        (pkgSec / "coordination").mkdir(parents=True)
+        envSec = Path(tdSec) / "scratch.env"
+        envSec.write_text("# fixture — no real secrets\nEXISTING_MARK=keep\n", encoding="utf-8")
+        dropOk = Path(tdSec) / "ok.txt"
+        dummyVal = "dummy-secret-add-selftest-value"
+        dropOk.write_text(dummyVal + "\n", encoding="utf-8")
+        pSec = build_parser()
+        saved_agent = os.environ.pop("COORD_AGENT", None)
+        try:
+            os.environ["COORD_AGENT"] = "goal-master"
+            nsOk = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_SELFTEST",
+                "--from-file", str(dropOk), "--env-file", str(envSec)])
+            outOk, errOk, codeOk = harness_outcome(nsOk.func, nsOk)
+            textOk = envSec.read_text(encoding="utf-8")
+            check("D49 secret-add happy: master appends NAME, drop is consumed, value absent from "
+                  "stdout/stderr",
+                  codeOk is None and "appended TEST_SECRET_SELFTEST" in outOk
+                  and "consumed drop file" in outOk
+                  and not dropOk.exists()
+                  and "TEST_SECRET_SELFTEST=" + dummyVal in textOk
+                  and dummyVal not in outOk and dummyVal not in errOk)
+
+            dropDup = Path(tdSec) / "dup.txt"
+            dropDup.write_text(dummyVal + "\n", encoding="utf-8")
+            nsDup = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_SELFTEST",
+                "--from-file", str(dropDup), "--env-file", str(envSec)])
+            outDup, errDup, codeDup = harness_outcome(nsDup.func, nsDup)
+            check("D49 secret-add refuse existing NAME: typed state refusal, drop left, env "
+                  "unchanged length",
+                  codeDup == 2 and "already exists" in (outDup + errDup)
+                  and dropDup.exists()
+                  and dummyVal not in (outDup + errDup)
+                  and envSec.read_text(encoding="utf-8") == textOk)
+
+            os.environ["COORD_AGENT"] = "alpha"
+            dropW = Path(tdSec) / "worker.txt"
+            dropW.write_text(dummyVal + "\n", encoding="utf-8")
+            nsW = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_WORKER",
+                "--from-file", str(dropW), "--env-file", str(envSec)])
+            outW, errW, codeW = harness_outcome(nsW.func, nsW)
+            check("D49 secret-add refuse worker: role gate, drop left",
+                  codeW == 2 and "Workers cannot add secrets" in (outW + errW)
+                  and dropW.exists() and dummyVal not in (outW + errW))
+
+            dropAs = Path(tdSec) / "as.txt"
+            dropAs.write_text(dummyVal + "\n", encoding="utf-8")
+            nsAs = pSec.parse_args([
+                "--package", str(pkgSec), "--as", "goal-master", "secret-add",
+                "TEST_SECRET_AS", "--from-file", str(dropAs), "--env-file", str(envSec)])
+            outAs, errAs, codeAs = harness_outcome(nsAs.func, nsAs)
+            check("D49 secret-add refuse uncorroborated --as master: identity, drop left",
+                  codeAs == 2 and "you claimed 'goal-master' (--as)" in (outAs + errAs)
+                  and dropAs.exists() and dummyVal not in (outAs + errAs))
+
+            os.environ["COORD_AGENT"] = "goal-master"
+            goalsDir = Path(tdSec) / ".rbtv" / "goals" / "g" / "mailbox"
+            goalsDir.mkdir(parents=True)
+            dropG = goalsDir / "key.txt"
+            dropG.write_text(dummyVal + "\n", encoding="utf-8")
+            nsG = pSec.parse_args([
+                "--package", str(pkgSec), "secret-add", "TEST_SECRET_GOALS",
+                "--from-file", str(dropG), "--env-file", str(envSec)])
+            outG, errG, codeG = harness_outcome(nsG.func, nsG)
+            check("D49 secret-add refuse drop under .rbtv/goals/: input, drop left",
+                  codeG == 2 and ".rbtv/goals/" in (outG + errG)
+                  and dropG.exists() and dummyVal not in (outG + errG))
+        finally:
+            if saved_agent is None:
+                os.environ.pop("COORD_AGENT", None)
+            else:
+                os.environ["COORD_AGENT"] = saved_agent
+
     # verdict, exit code and --expect-fail all live in cmd_selftest, so an abort anywhere above
     # still reaches them (G-66).
 
@@ -35435,7 +35680,7 @@ leader
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
-  owner       set owner presence: present | afk
+  owner / secret-add  set owner presence: present | afk · append one env NAME from a drop file (masters; value never logged)
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
@@ -36879,6 +37124,27 @@ def build_parser():
                    help="explicit opt-in (inert by default, Fork 2 ruled): make one live "
                         "read-only `inspect` call against the detected gateway")
     s.set_defaults(func=cmd_gateway_status)
+
+    s = command(
+        "secret-add",
+        "Append ONE NAME to the workspace env file from a drop file. Masters only\n"
+        "(goal-master, channel-master, console/owner). Identity is the proven F-8 ladder —\n"
+        "pane, COORD_AGENT, or cgroup→roster — never a bare --as. Append-only: an existing\n"
+        "NAME is refused. The value is read from --from-file and is never printed, logged, or\n"
+        "taken from argv. On success the drop file is deleted; on refusal it is left. Drop\n"
+        "files under .rbtv/goals/ are refused. No update, no delete, no read-back.",
+        "example:\n"
+        "  coordinate secret-add GEMINI_API_KEY --from-file /tmp/gemini-key.txt\n"
+        "next: nothing — the NAME is in the env file; the drop file is gone; there is no "
+        "read-back verb")
+    s.add_argument("name", metavar="NAME",
+                   help="the env identifier to append (letters, digits, underscore)")
+    s.add_argument("--from-file", dest="from_file", metavar="PATH", required=True,
+                   help="drop file holding the value as a single line — never pass the value on argv")
+    s.add_argument("--env-file", dest="env_file", default="", metavar="PATH",
+                   help=argparse.SUPPRESS)
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_secret_add)
 
     s = command(
         "selftest",
