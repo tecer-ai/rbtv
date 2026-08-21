@@ -50,10 +50,12 @@ const OUT_PATH = path.join(__dirname, 'probe-daemon-lane-watch.out');
 const start = Date.now();
 const lines = [];
 const failures = [];
-const say = (s) => lines.push(s);
+function flushOut() { fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n'); }
+const say = (s) => { lines.push(s); flushOut(); };
 function check(name, ok, detail = '') {
   lines.push(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `  — ${detail}` : ''}`);
   if (!ok) failures.push(name);
+  flushOut();
   return ok;
 }
 const findings = [];
@@ -126,6 +128,19 @@ const goalsRoot = path.join(workspace, '.rbtv', 'goals');
 const dataRoot = path.join(tmp, 'data');                  // the DAEMON lane's state root
 fs.mkdirSync(dataRoot, { recursive: true });
 fs.mkdirSync(goalsRoot, { recursive: true });
+// Isolate tmux: inheriting the caller's TMUX makes `tmux new-session -s <goal>` talk to the
+// live server (or hang on a client). Mutation arms that used to cpSync the WHOLE tree then
+// ran seatBootPrompt/coord against every copied goal and blew the suite's 180 s budget.
+const tmuxScratch = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-lane-tmux-'));
+process.env.TMUX_TMPDIR = tmuxScratch;
+delete process.env.TMUX;
+delete process.env.TMUX_PANE;
+function copyGoals(dest, names) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of names) {
+    fs.cpSync(path.join(goalsRoot, name), path.join(dest, name), { recursive: true });
+  }
+}
 
 const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
 const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml'), 'utf8'));
@@ -837,7 +852,7 @@ async function main() {
       '  return { lane: CONSOLE, present: true, legacy, raw: text };',
       '  return { lane: DAEMON, present: true, legacy, raw: text };');
     const mutRoot = path.join(tmp, 'm1');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['console-goal']);
     const engine = createEngine({
       dbPath: path.join(tmp, 'm1.db'), spawnConfigPath: configPath, userManager: false,
     });
@@ -855,7 +870,7 @@ async function main() {
       '  return runnerAlive(Number(pidRaw), startRaw);',
       '  return false;');
     const mutRoot = path.join(tmp, 'm2');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['locked-goal']);
     const relocked = path.join(mutRoot, 'locked-goal', attached.RUN_LOCK);
     fs.writeFileSync(relocked, `${process.pid} ${selfStart.slice(selfStart.lastIndexOf(')') + 2).split(' ')[19]}\n`);
     const engine = createEngine({
@@ -876,7 +891,7 @@ async function main() {
       '    if (uncast.length) {',
       '    if (false) {');
     const mutRoot = path.join(tmp, 'm4');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['uncast-goal']);
     const dbPath = path.join(tmp, 'm4.db');
     const engine = createEngine({
       dbPath, spawnConfigPath: configPath, userManager: false,
@@ -897,7 +912,7 @@ async function main() {
       "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });",
       "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast }); continue;");
     const mutRoot = path.join(tmp, 'm5');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['uncast-goal']);
     const log = [];
     const engine = createEngine({
       dbPath: path.join(tmp, 'm5.db'), spawnConfigPath: configPath, userManager: false,
@@ -915,17 +930,16 @@ async function main() {
     const mutant = mutantWatch(
       '        if (!isHeld(seat)) continue;',
       '        if (true) continue;');
-    const mutRoot = path.join(tmp, 'm6');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
-    // heldSeatPredicate resolves the workspace root from the goal folder's own depth, so the copy
-    // is placed at the SAME depth the real tree has — otherwise the mutant would look green for
-    // the wrong reason (an unresolvable descriptor rather than a removed report).
+    // heldSeatPredicate walks up from the goal folder to a `.rbtv` workspace root, so the copy
+    // sits at the SAME depth as live goals — a flattened copy would look green for the wrong reason.
+    const mutRoot = path.join(tmp, 'm6-ws', '.rbtv', 'goals');
+    copyGoals(mutRoot, ['human-interactive-goal', 'armless-goal']);
     const log = [];
     const engine = createEngine({
       dbPath: path.join(tmp, 'm6.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     const hi = pass.adopted.find((a) => a.goal === 'human-interactive-goal');
     check('L8 M6 the human-interactive report REMOVED -> the daemon dispatches the seat with nothing '
       + 'said (L5d RED) — the silence, reproduced',
@@ -956,7 +970,9 @@ async function main() {
       dbPath: path.join(tmp, 'm7.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    const mutRoot = path.join(tmp, 'm7-ws', '.rbtv', 'goals');
+    copyGoals(mutRoot, ['m7-arm-goal']);
+    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     const hi = pass.adopted.find((a) => a.goal === 'm7-arm-goal');
     check('L8 M7 the ARM is never read -> a `block-and-queue` seat reports NO arm and is warned about '
       + 'as if it declared none (L5d RED) — the report degrades to the pre-7.626 one',
@@ -971,7 +987,7 @@ async function main() {
       dbPath: path.join(tmp, 'm7-control.db'), spawnConfigPath: configPath, userManager: false,
     });
     let cpass;
-    try { cpass = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
+    try { cpass = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
     const chi = cpass.adopted.find((a) => a.goal === 'm7-arm-goal');
     check('L8 M7 CONTROL: the UNMUTATED pass over that same untouched goal reports `block-and-queue` '
       + 'and warns about nothing',
@@ -991,7 +1007,7 @@ async function main() {
       "        skipped.push({ goal, reason: 'legacy-two-token-marker', raw });",
       "        skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });");
     const mutRoot = path.join(tmp, 'm8');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['legacy-marker-goal']);
     const log = [];
     const engine = createEngine({
       dbPath: path.join(tmp, 'm8.db'), spawnConfigPath: configPath, userManager: false,
@@ -1123,7 +1139,7 @@ async function main() {
   // redden this arm for a reason that is not the defect.
   {
     const mutRoot = path.join(tmp, 'm9');
-    fs.cpSync(goalsRoot, mutRoot, { recursive: true });
+    copyGoals(mutRoot, ['prompt-goal']);
     const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ workdir: seatDir }),',
       (mutantCreateEngine) => l9Pass(mutantCreateEngine, path.join(tmp, 'm9.db'), mutRoot));
     const m9args = m9.row ? JSON.parse(m9.row.args) : {};
@@ -1146,6 +1162,7 @@ async function main() {
     'seeding.js restored');
 
   fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(tmuxScratch, { recursive: true, force: true });
 }
 
 main().then(() => {
