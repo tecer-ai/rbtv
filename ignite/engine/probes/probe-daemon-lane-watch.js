@@ -86,7 +86,12 @@ function mutantWatch(from, to) {
   const m = new Module(LANE_WATCH_PATH, null);
   m.filename = LANE_WATCH_PATH;
   m.paths = Module._nodeModulePaths(path.dirname(LANE_WATCH_PATH));
-  m._compile(LANE_WATCH_SRC.replace(from, to), LANE_WATCH_PATH);
+  // Mutation arms prove lane-watch guards, not the watcher. `maybeReconcile` on a
+  // freshly copied fixture with no tmux room shells `recover-room.py` (timeout 120 s)
+  // and was L8's 137 s. The green L5 pass still uses the real `runLaneWatch`.
+  const src = LANE_WATCH_SRC.replace(from, to)
+    .replace(/\bmaybeReconcile\(/g, '(function () { return { skipped: \'probe-mutant\' }; })(');
+  m._compile(src, LANE_WATCH_PATH);
   return m.exports.runLaneWatch;
 }
 
@@ -129,8 +134,10 @@ const dataRoot = path.join(tmp, 'data');                  // the DAEMON lane's s
 fs.mkdirSync(dataRoot, { recursive: true });
 fs.mkdirSync(goalsRoot, { recursive: true });
 // Isolate tmux: inheriting the caller's TMUX makes `tmux new-session -s <goal>` talk to the
-// live server (or hang on a client). Mutation arms that used to cpSync the WHOLE tree then
-// ran seatBootPrompt/coord against every copied goal and blew the suite's 180 s budget.
+// live server (or hang on a client). Mutation copies must sit at `<ws>/.rbtv/goals/<goal>`
+// (heldSeatPredicate walks up to `.rbtv`). Do not cpSync the whole fixture tree into a
+// mutant pass (d27c44f4); do not re-walk it on L5c/L6/L9. L8's 137 s was maybeReconcile
+// → recover-room.py (120 s timeout) on those copies — stubbed in mutantWatch.
 const tmuxScratch = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-lane-tmux-'));
 process.env.TMUX_TMPDIR = tmuxScratch;
 delete process.env.TMUX;
@@ -139,6 +146,24 @@ function copyGoals(dest, names) {
   fs.mkdirSync(dest, { recursive: true });
   for (const name of names) {
     fs.cpSync(path.join(goalsRoot, name), path.join(dest, name), { recursive: true });
+  }
+}
+// Park every sibling so `runLaneWatch` still sees the SAME goalFolder path (the shout-memo
+// and boot-prompt bytes are path-keyed) without paying `readySeats`/`seatBootPrompt`/`maybeReconcile`
+// against the rest of the fixture tree. Copying to a new root breaks L5c's memo and L9's
+// byte-identity check.
+function withOnlyGoals(root, names, fn) {
+  const hidden = fs.mkdtempSync(path.join(path.dirname(root), 'hidden-'));
+  const parked = [];
+  for (const ent of fs.readdirSync(root)) {
+    if (!names.includes(ent)) {
+      fs.renameSync(path.join(root, ent), path.join(hidden, ent));
+      parked.push(ent);
+    }
+  }
+  try { return fn(); } finally {
+    for (const ent of parked) fs.renameSync(path.join(hidden, ent), path.join(root, ent));
+    fs.rmSync(hidden, { recursive: true, force: true });
   }
 }
 
@@ -562,12 +587,14 @@ async function main() {
   check('L4 the other lane\'s NON-CLEAN row reached the record through its own writer',
     record.readExecutionRecord(heldGoal).rows.some((r) => r.seat === 'alpha' && r.outcome === record.CRASHED),
     record.readExecutionRecord(heldGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+  say(`T+${Date.now() - start}ms after L4`);
 
   // ── L5 · THE WATCH PASS ─────────────────────────────────────────────────────────────────────
   say('');
   say('L5 — ONE watch pass over the goals tree: which goals does the daemon pick up?');
   const log1 = [];
   let pass1;
+  const l5t0 = Date.now();
   {
     const engine = createEngine({
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
@@ -584,6 +611,7 @@ async function main() {
       await engine.tick();          // …and the daemon's own tick DISPATCHES what the pass enqueued
     } finally { engine.close(); }
   }
+  say(`L5 pass1 (full fixture tree) wall_ms=${Date.now() - l5t0}`);
   const adoptedNames = pass1.adopted.map((a) => a.goal).sort();
   check('L5 the daemon ADOPTS the goal assigned to it — the trigger that did not exist before',
     adoptedNames.includes('switch-goal'), adoptedNames.join(', ') || 'none');
@@ -678,7 +706,11 @@ async function main() {
     const engine = createEngine({
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
-    try { laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log2) }); } finally { engine.close(); }
+    try {
+      withOnlyGoals(goalsRoot, ['legacy-marker-goal'], () => {
+        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log2) });
+      });
+    } finally { engine.close(); }
     const lvls = log2.filter((m) => m.goal === 'legacy-marker-goal').map((m) => m.level);
     check('L5c the SECOND pass over the same broken marker drops to debug — at a 10 s cadence the '
       + 'loud version is ~8,600 identical lines a day for a condition only a human can change',
@@ -689,7 +721,11 @@ async function main() {
     const engine3 = createEngine({
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
-    try { laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine: engine3, logger: collectingLogger(log3) }); } finally { engine3.close(); }
+    try {
+      withOnlyGoals(goalsRoot, ['legacy-marker-goal'], () => {
+        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine: engine3, logger: collectingLogger(log3) });
+      });
+    } finally { engine3.close(); }
     check('L5c …and it is LOUD again the moment the marker text changes — quiet must never mean '
       + 'forgotten, so the memo is keyed on the marker, not on the goal',
       log3.some((m) => m.goal === 'legacy-marker-goal' && m.level === 'warn'),
@@ -740,7 +776,10 @@ async function main() {
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pass2;
-    try { pass2 = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }); } finally { engine.close(); }
+    try {
+      pass2 = withOnlyGoals(goalsRoot, ['locked-goal'], () =>
+        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }));
+    } finally { engine.close(); }
     check('L5 PAIR: with the console runner gone, the SAME goal is adopted on the next pass — so '
       + '"not seeded" above was the lock, not an inert watch',
       pass2.adopted.map((a) => a.goal).includes('locked-goal'),
@@ -791,13 +830,17 @@ async function main() {
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     let pass3;
-    try { pass3 = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }); } finally { engine.close(); }
+    try {
+      pass3 = withOnlyGoals(goalsRoot, ['switch-goal'], () =>
+        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }));
+    } finally { engine.close(); }
     check('L6 …and the daemon LETS GO of it on the very next pass — flipped, therefore skipped',
       !pass3.adopted.map((a) => a.goal).includes('switch-goal')
         && pass3.skipped.some((s) => s.goal === 'switch-goal' && s.reason === 'not-assigned-to-the-daemon'),
       JSON.stringify(pass3.skipped.filter((s) => s.goal === 'switch-goal')));
   }
 
+  say(`T+${Date.now() - start}ms before L6 executeAttached`);
   await attached.executeAttached({
     goalFolder: switchGoal,
     profile: 'probe-lane',
@@ -805,6 +848,7 @@ async function main() {
     tickIntervalMs: 200,
     maxTicks: 2,
   });
+  say(`T+${Date.now() - start}ms after L6 executeAttached`);
   {
     const s = openHeartStore({ dbPath: path.join(switchGoal, 'heart.db') });
     const rows = s.dump().jobs_log;
@@ -816,6 +860,7 @@ async function main() {
       rows.some((r) => r.job_id === attached.jobIdFor('bravo')),
       rows.map((r) => `${r.job_id}=${r.status}`).join(' ') || 'empty');
   }
+  say(`T+${Date.now() - start}ms after L6`);
   finding('L6 THE REVERSE DIRECTION\'S HONEST BOUND (console -> daemon): it is the SAME two mechanisms '
     + 'measured in the same file rather than a second path — the record makes the daemon skip what the '
     + 'console finished (`probe-cross-lane-resume.js` D1, attached-then-daemon, still green), and this '
@@ -843,6 +888,7 @@ async function main() {
 
   // ── L8 · MUTATIONS — each guard is proven to be the thing doing the work ─────────────────────
   say('');
+  say(`T+${Date.now() - start}ms at L8 start`);
   say('L8 — mutations: every green arm above is re-run against a broken build and required to RED');
 
   // M1 · THE ASSIGNMENT IS IGNORED. The reader answers `daemon` for everything, so the pass should
@@ -851,7 +897,7 @@ async function main() {
     const mutant = mutantWatch(
       '  return { lane: CONSOLE, present: true, legacy, raw: text };',
       '  return { lane: DAEMON, present: true, legacy, raw: text };');
-    const mutRoot = path.join(tmp, 'm1');
+    const mutRoot = path.join(tmp, 'm1-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['console-goal']);
     const engine = createEngine({
       dbPath: path.join(tmp, 'm1.db'), spawnConfigPath: configPath, userManager: false,
@@ -861,6 +907,7 @@ async function main() {
     check('L8 M1 assignment IGNORED -> the daemon seeds a CONSOLE goal (the L5 control goes RED)',
       pass.adopted.map((a) => a.goal).includes('console-goal'),
       `mutant adopted: ${pass.adopted.map((a) => a.goal).join(', ') || 'none'}`);
+    say(`T+${Date.now() - start}ms after L8 M1`);
   }
 
   // M2 · THE RUN LOCK IS IGNORED. A live console runner no longer holds the daemon off, so the
@@ -869,7 +916,7 @@ async function main() {
     const mutant = mutantWatch(
       '  return runnerAlive(Number(pidRaw), startRaw);',
       '  return false;');
-    const mutRoot = path.join(tmp, 'm2');
+    const mutRoot = path.join(tmp, 'm2-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['locked-goal']);
     const relocked = path.join(mutRoot, 'locked-goal', attached.RUN_LOCK);
     fs.writeFileSync(relocked, `${process.pid} ${selfStart.slice(selfStart.lastIndexOf(')') + 2).split(' ')[19]}\n`);
@@ -890,7 +937,7 @@ async function main() {
     const mutant = mutantWatch(
       '    if (uncast.length) {',
       '    if (false) {');
-    const mutRoot = path.join(tmp, 'm4');
+    const mutRoot = path.join(tmp, 'm4-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['uncast-goal']);
     const dbPath = path.join(tmp, 'm4.db');
     const engine = createEngine({
@@ -911,7 +958,7 @@ async function main() {
     const mutant = mutantWatch(
       "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });",
       "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast }); continue;");
-    const mutRoot = path.join(tmp, 'm5');
+    const mutRoot = path.join(tmp, 'm5-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['uncast-goal']);
     const log = [];
     const engine = createEngine({
@@ -995,6 +1042,7 @@ async function main() {
         && chi.humanInteractiveDispatched.alpha === 'block-and-queue'
         && !clog.some((m) => m.goal === 'm7-arm-goal' && m.level === 'warn'),
       chi ? JSON.stringify(chi.humanInteractiveDispatched || null) : 'goal not adopted');
+    say(`T+${Date.now() - start}ms after L8 M7`);
   }
 
   // M8 · THE LEGACY-MARKER REPORT REMOVED (7.787). The branch it replaces (`fallbackProfileFor`,
@@ -1006,7 +1054,7 @@ async function main() {
     const mutant = mutantWatch(
       "        skipped.push({ goal, reason: 'legacy-two-token-marker', raw });",
       "        skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });");
-    const mutRoot = path.join(tmp, 'm8');
+    const mutRoot = path.join(tmp, 'm8-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['legacy-marker-goal']);
     const log = [];
     const engine = createEngine({
@@ -1052,6 +1100,7 @@ async function main() {
   // arm — flipped lanes, released locks, completed turns — and a row enqueued eight arms ago says
   // nothing about what THIS pass composed.
   say('');
+  say(`T+${Date.now() - start}ms at L9 start`);
   say('L9 — the enqueued row carries the seat\'s BOOT PROMPT, and it is coord\'s own bytes');
   const promptGoal = makeGoal('prompt-goal');
   laneCli(['prompt-goal', '--set', 'daemon']);
@@ -1106,7 +1155,15 @@ async function main() {
     return { pass, row, pickup: pass.adopted.find((a) => a.goal === 'prompt-goal') };
   }
 
-  const l9 = l9Pass(createEngine, path.join(tmp, 'l9.db'), goalsRoot);
+  // L9 asserts only `prompt-goal`. A pass over the full fixture tree re-pays coord
+  // (`readySeats`/`seatBootPrompt`/`maybeReconcile`) for every daemon-assigned sibling — that
+  // second full walk is what the 16:00:07Z suite hit as TIMEOUT after the L9/F1 checks.
+  // Park siblings in place so the package path (and therefore the boot-prompt bytes) stay
+  // identical to `expectedPrompt`.
+  const l9t0 = Date.now();
+  const l9 = withOnlyGoals(goalsRoot, ['prompt-goal'], () =>
+    l9Pass(createEngine, path.join(tmp, 'l9.db'), goalsRoot));
+  say(`L9 watch pass over prompt-goal only  — wall_ms=${Date.now() - l9t0}`);
   // NON-VACUITY, BOTH HALVES, BEFORE `args` IS EVER READ. Without these, "the goal was never
   // adopted" and "no row was enqueued" would both reach the prompt checks as `undefined` and
   // could be spun as "nothing wrong with the prompt".
@@ -1138,7 +1195,7 @@ async function main() {
   // lines in `seeding.js` AFTER the fix, so checking the old file out would revert that too and
   // redden this arm for a reason that is not the defect.
   {
-    const mutRoot = path.join(tmp, 'm9');
+    const mutRoot = path.join(tmp, 'm9-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['prompt-goal']);
     const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ workdir: seatDir }),',
       (mutantCreateEngine) => l9Pass(mutantCreateEngine, path.join(tmp, 'm9.db'), mutRoot));
