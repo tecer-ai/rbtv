@@ -634,6 +634,24 @@ class HeartStore {
     this.dbPath = resolveDbPath(opts);
     ensureDir(path.dirname(this.dbPath));
 
+    // ── The jobs_log list cache (2026-08-21) ───────────────────────────────────────────────────
+    // `listExecutionsByStatus` is asked ~20× per 10 s cadence by the engine passes (recordView,
+    // executionsByJob, publishToRecord — one call per status per goal per pass), and each call
+    // re-materialized EVERY terminal row ever recorded: 29,301 `done` rows × 197 ms a scan on
+    // 2026-08-21, ~4 s of every cadence, synchronously, on the SAME event loop as the gateway.
+    // That starved the HTTP ingress completely — every `rbtv ignite inspect` POST outwaited the
+    // CLI's 10 s timeout (measured 39.7 s / 50–60+ s to first byte) while the daemon stayed
+    // "healthy". This is the exact upgrade the ponytail note in execution-record.js reserved
+    // ("paid once per execution EVER RECORDED").
+    // The cache is invalidated by TWO signals, either one killing it:
+    //   · `_jobsLogGen` — bumped by every method of THIS store that writes jobs_log;
+    //   · `PRAGMA data_version` — SQLite's own counter for commits by ANY OTHER connection,
+    //     so a foreign writer process can never be served stale rows.
+    // Rows are cached WITHOUT the `thread` attach and the array is copied per call; the row
+    // objects themselves are shared — callers treat them as read-only (they all do today).
+    this._jobsLogGen = 0;
+    this._execListCache = null;
+
     this.db = new DatabaseSync(this.dbPath);
 
     // Everything below can throw. Two things must not survive that throw: the DatabaseSync handle
@@ -1312,6 +1330,7 @@ class HeartStore {
   }
 
   fireQueueRow({ queueId, now, tick, parentExecId = null }) {
+    this._jobsLogGen += 1;    // jobs_log write — invalidate the list cache (constructor note)
     const firedAt = toIsoUtc(now);
     this.db.exec('BEGIN EXCLUSIVE;');
     try {
@@ -1397,6 +1416,7 @@ class HeartStore {
   // `enqueuingSeat` (task 7.389) defaults to null: this method's callers are the daemon's own
   // internal starts (the attached-execution carrier, the deploy probes), which hold no proven seat.
   recordExecutionStart({ queueId = null, jobId, actionType, args, enqueuedBy, enqueuingSeat = null, sessionMode = 'headless', firedTick, firedAt, parentExecId = null, sessionId = null, pid = null, profile = null, workdir = null }) {
+    this._jobsLogGen += 1;    // jobs_log write — invalidate the list cache (constructor note)
     const firedAtIso = toIsoUtc(firedAt);
     this.db.exec('BEGIN EXCLUSIVE;');
     try {
@@ -1477,9 +1497,25 @@ class HeartStore {
   // store 2026-08-12, every tick, to serve a caller (`engine/execution-record.js#publishToRecord`)
   // that never reads `thread`. Callers that DO read it get it, unchanged, by default.
   listExecutionsByStatus(status, { withThread = true } = {}) {
-    const stmt = this._prepare('SELECT * FROM jobs_log WHERE status = ? ORDER BY exec_id');
-    const rows = stmt.all(status);
-    return withThread ? rows.map((r) => this._attachThread(r)) : rows;
+    // Served from the jobs_log list cache (see the constructor note): a repeat call with no
+    // intervening jobs_log write — by this store OR any other connection — costs an array copy
+    // instead of a full-history scan. `data_version` moves only on OTHER connections' commits;
+    // this store's own writes are tracked by `_jobsLogGen`.
+    const dv = this.db.prepare('PRAGMA data_version').get().data_version;
+    if (!this._execListCache
+        || this._execListCache.gen !== this._jobsLogGen
+        || this._execListCache.dataVersion !== dv) {
+      this._execListCache = { gen: this._jobsLogGen, dataVersion: dv, byStatus: new Map() };
+    }
+    const byStatus = this._execListCache.byStatus;
+    if (!byStatus.has(status)) {
+      const stmt = this._prepare('SELECT * FROM jobs_log WHERE status = ? ORDER BY exec_id');
+      byStatus.set(status, stmt.all(status));
+    }
+    const rows = byStatus.get(status);
+    // `_attachThread` mutates its row in place, so the thread walk runs on COPIES — the cached
+    // rows must never grow a `thread` property a `withThread: false` caller did not ask for.
+    return withThread ? rows.map((r) => this._attachThread({ ...r })) : rows.slice();
   }
 
   // LE-13 Change 2 (2026-08-19) — THE ONE COUNTER, both escalation consumers call this and neither
@@ -1714,6 +1750,7 @@ class HeartStore {
   // done/blocked report because NO CODE PATH HERE CAN END IT. A session leaves `alive` only
   // through `closeSession()`, called explicitly by whoever observed the process end.
   updateExecutionStatus(execId, { status, sessionId = null, pid = null, exitCode = null, completionMsgId = null, logPath = null, endedAt = null, carrier = null, unitName = null, pidStarttime = null, sessionRef = null, startedAt = null, profile = null, workdir = null }) {
+    this._jobsLogGen += 1;    // jobs_log write — invalidate the list cache (constructor note)
     // Refuse a SESSION-level value on a turn row. Without this the two enums would be disjoint by
     // convention only, and the first mis-levelled write would land a plausible-looking row that
     // every turn query then reads as real.
@@ -1795,6 +1832,7 @@ class HeartStore {
   }
 
   recordMessage({ type, sender, thread, corpus, status = null, createdAt, execId = null, exitCode = null }) {
+    this._jobsLogGen += 1;    // jobs_log write — invalidate the list cache (constructor note)
     if (!MESSAGE_TYPES.has(type)) {
       throw new HeartStoreError(E_BAD_MESSAGE, `invalid message type: ${type}`, { field: 'type' });
     }
