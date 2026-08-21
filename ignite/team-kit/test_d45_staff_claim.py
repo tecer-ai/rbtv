@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D45 check — the CORROBORATED staff claim, run inside a real carrier unit.
+"""D45/F-8 check — corroborated staff claim, plus the CAGED impersonation refusal.
 
     python3 test_d45_staff_claim.py [module]
 
@@ -9,14 +9,13 @@ run outside one would resolve to nothing and pass vacuously.  `module` defaults 
 pass a mutant module's name (a copy inside THIS directory — a /tmp copy dies at import) for
 the red arm.
 
-The CGROUP is real (a kernel fact this process cannot forge).  Only `daemon_heart_db` is
-stubbed — the documented probe seam — because the live daemon's heart.db is READ-ONLY to this
-seat and a fake carrier unit has no turn in it.  That `jobs_log` turn is what makes the caller
-resolve to `ignite-daemon`; WITHOUT it the caller resolves to "nothing at all", which the staff
-gate already admits, and the whole fixture would be vacuous (the exact trap the D43 seat hit and
-reported rather than banked).
+In-process arms stub `daemon_heart_db` so the caller resolves to `ignite-daemon` (D45).  The
+F-8 CAGED arm does not: it runs coord.py as a subprocess inside a bwrap cage built by
+production `composeCageFor`+`buildBwrapArgv` on a scratch package (never a live goal).  That
+is the path production takes — `/run` tmpfs, no heart.db — where `actual` used to be '' and
+the gate admitted `--as leader` as an uncaged console.
 """
-import argparse, json, os, shutil, sqlite3, sys, tempfile
+import argparse, json, os, shutil, sqlite3, subprocess, sys, tempfile
 from pathlib import Path
 
 MOD = sys.argv[1] if len(sys.argv) > 1 else "coord"
@@ -150,6 +149,61 @@ for who in coord.STAFF_CLAIM_IDENTITIES:
           "console-override: acting --as 'leader'" in out and f"from '{who}'" in out
           and "CORROBORATED (D45)" not in out and "STAFF CHAIR —" not in out and code != 2,
           f"exit={code}\n{out}")
+
+# ---- F-8 CAGED ARM: production composeCageFor + bwrap, same carrier unit, live coord.py ----
+KIT = Path(os.path.dirname(os.path.abspath(coord.__file__)))
+IGNITE = KIT.parent
+COORD_PY = Path(os.path.abspath(coord.__file__))
+COMPOSE_JS = r"""
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const yaml = require('js-yaml');
+const ignite = process.env.F8_IGNITE;
+const { composeCageFor } = require(path.join(ignite, 'server/spawn/spawn.js'));
+const { buildBwrapArgv } = require(path.join(ignite, 'server/spawn/bwrap.js'));
+const { parseSeatPath } = require(path.join(ignite, 'server/seat-identity/seat-folder.js'));
+const seatDir = process.argv[2];
+const inner = JSON.parse(process.argv[3]);
+const cfg = yaml.load(fs.readFileSync(path.join(ignite, 'config/spawn-profiles.yaml'), 'utf8'));
+const sandbox = { SeatBinds: cfg.cage.SeatBinds, MasterBinds: cfg.cage.MasterBinds };
+const parsed = parseSeatPath(seatDir);
+if (!parsed) { process.stderr.write('parseSeatPath failed\n'); process.exit(2); }
+const flags = composeCageFor(sandbox, parsed, seatDir, '127.0.0.1:7431');
+process.stdout.write(JSON.stringify(buildBwrapArgv({
+  argv: inner, workdir: seatDir, harness: null, seatBinds: flags })));
+"""
+
+def run_caged(pkg, seat_name, extra_argv):
+    """Exec coord.py inside a production-composer bwrap cage. FIXTURE scratch, not a live goal."""
+    seat_dir = str(pkg / "seats" / seat_name)
+    inner = [sys.executable, str(COORD_PY), "--package", str(pkg), *extra_argv]
+    js = Path(tempfile.mkdtemp(prefix="f8-compose-")) / "compose.js"
+    js.write_text(COMPOSE_JS, encoding="utf-8")
+    env = dict(os.environ)
+    env["NODE_PATH"] = str(IGNITE / "node_modules")
+    env["F8_IGNITE"] = str(IGNITE)
+    env.pop("COORD_AGENT", None)
+    env.pop("TMUX", None)
+    comp = subprocess.run(
+        ["node", str(js), seat_dir, json.dumps(inner)],
+        cwd=str(IGNITE), capture_output=True, text=True, timeout=60, env=env)
+    if comp.returncode != 0:
+        return (comp.stdout or "") + (comp.stderr or ""), comp.returncode, "compose-failed"
+    argv = json.loads(comp.stdout)
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=60, env=env)
+    return (r.stdout or "") + (r.stderr or ""), r.returncode, "caged-composeCageFor-FIXTURE"
+
+pkg_f8 = make_pkg("f8-caged", "crashy")
+out_f8, code_f8, klass = run_caged(
+    pkg_f8, "crashy",
+    ["--as", "leader", "send", "crashy", "f8-impersonation", "--type", "note", "--inline"])
+check("F-8 CAGED: uncorroborated --as leader on send is REFUSED in-cage "
+      f"(evidence-class={klass}; production composeCageFor; scratch package, not a live goal)",
+      "STAFF CHAIR" in out_f8 and code_f8 == 2
+      and "console-override: acting --as 'leader'" not in out_f8
+      and "an uncaged console — no identity resolves" not in out_f8,
+      f"exit={code_f8}\n{out_f8}")
 
 shutil.rmtree(TD, ignore_errors=True)
 print(f"\nD45 FIXTURE: {'PASS' if not FAIL else 'FAIL — ' + '; '.join(FAIL)}")
