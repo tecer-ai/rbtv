@@ -29,7 +29,7 @@ const SCHEMA_SQL = fs.readFileSync(path.join(HEART, 'schema.sql'), 'utf8');
 
 const { seedGoal } = require('../seeding');
 const { openHeartStore } = require('../../server/heart/heart-store');
-const { migrate, LATEST, MIGRATIONS } = require('../../server/heart/migrations');
+const { migrate, LATEST, MIGRATIONS, MIGRATION_ENQUEUE_LOG } = require('../../server/heart/migrations');
 const { stallAlarmDecision, conditionOf, STALL_MS, REASONS } = require('../../server/ticker/goal-stall-alarm');
 
 const start = Date.now();
@@ -231,7 +231,7 @@ function main() {
     const prePath = path.join(tmp, 'pre.db');
     const pre = new DatabaseSync(prePath);
     pre.exec(preSql);
-    pre.exec(`PRAGMA user_version = ${Math.max(0, LATEST - 1)}`);
+    pre.exec(`PRAGMA user_version = ${Math.max(0, MIGRATION_ENQUEUE_LOG.version - 1)}`);
     const firstMig = migrate(pre);
     const tableAfter = pre.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='enqueue_log'").get();
     check('Arm E: migrate() from the pre-migration user_version creates enqueue_log',
