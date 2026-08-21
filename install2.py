@@ -18,6 +18,13 @@ INSTALL ROOT only. Python 3 stdlib only.
     --dry-run and --json on every verb where they mean something.
     Exit codes: 0 success · 1 refusal · 2 usage.
 
+    THE TARGET. `--target D` is explicit and always wins. Without it the
+    install root is DISCOVERED by walking upward from the current directory —
+    first ancestor holding `.rbtv/config/install.json`, else first ancestor
+    holding a `.rbtv/` directory, else the cwd (D24). So a run from anywhere
+    inside the workspace finds the workspace, and a run from inside this repo
+    finds nothing to install only when the repo really is outside one.
+
 COEXISTENCE. `install.py` + `admin/install/` are untouched and keep working.
 This tool never reads or writes their state file (`rbtv.json` at the target
 root); its own book is `{target}/.rbtv/config/install.json`. It tolerates files
@@ -56,8 +63,10 @@ D2  WHAT A COMPONENT IS — THE NEW STANDARD ONLY (owner amendment, 2026-08-21)
     mints carry `component.md` and become visible here with no code change.
 
 D3  TREES + PRECEDENCE — two roots, scanned together: `mirror` =
-    `{target}/.rbtv/mirror`, `repo` = the directory holding this file. Both
-    overridable (`--mirror-tree`, `--repo-tree`). On the same id in both, the
+    `{target}/.rbtv/mirror`, `repo` = the directory holding this file, which
+    is NOT overridable — the file and its tree ship together, so a flag
+    pointing one at another's tree only ever named a broken pair (owner
+    ruling, 2026-08-21). `--mirror-tree` stays. On the same id in both, the
     MIRROR WINS (workspace-local staging is the newer copy by construction) and
     the shadowing is reported, never silent.
 
@@ -1209,6 +1218,38 @@ def _read_json(path: Path, method: str, cid: str, pid: str) -> dict:
             f"{cid}: {method} entry-point for {pid!r} is not readable JSON "
             f"({exc}) — refusing before any write",
             str(path)) from exc
+
+
+# ── target discovery ────────────────────────────────────────────────────────
+
+# D24  TARGET DISCOVERY (owner ruling, 2026-08-21) — `--target` stays the
+#      explicit form and always wins. WITHOUT it, the target is DISCOVERED by
+#      walking upward from the current directory, exactly as `install.py`
+#      resolved its own `rbtv.json`: the first ancestor holding the state file
+#      (`.rbtv/config/install.json`) is the workspace, and failing that the
+#      first ancestor holding a `.rbtv/` directory at all — which is what a
+#      never-yet-installed workspace looks like, since `.rbtv/mirror` is
+#      already there. Neither found → cwd, the previous behaviour. The walk
+#      stops at the filesystem root; a discovered root is always REPORTED (on
+#      stderr, so `--json` stays machine-readable) because a silent target is
+#      how a run lands in the wrong tree.
+
+DISCOVER_STATE = "state file"
+DISCOVER_RBTV = ".rbtv/ directory"
+DISCOVER_CWD = "cwd (no .rbtv/ found above)"
+
+
+def discover_target(start: Path) -> tuple[Path, str]:
+    """Resolve the install root from `start` upward. Returns (root, why)."""
+    here = start.resolve()
+    chain = [here, *here.parents]
+    for cand in chain:
+        if (cand / STATE_REL).is_file():
+            return cand, DISCOVER_STATE
+    for cand in chain:
+        if (cand / ".rbtv").is_dir():
+            return cand, DISCOVER_RBTV
+    return here, DISCOVER_CWD
 
 
 # ── state ───────────────────────────────────────────────────────────────────
@@ -3244,14 +3285,13 @@ def build_parser() -> argparse.ArgumentParser:
         # attribute when explicitly given — otherwise argparse would
         # overwrite a pre-verb value with the verb-level default.
         sup = argparse.SUPPRESS
-        dest.add_argument("--target", default=(sup if on_verb else "."),
-                          help="install root (default: cwd)")
+        dest.add_argument("--target", default=(sup if on_verb else None),
+                          help="install root (default: discovered by walking "
+                               "up from the cwd for .rbtv/config/install.json, "
+                               "then for any .rbtv/ directory, then cwd)")
         dest.add_argument("--mirror-tree", default=(sup if on_verb else None),
                           help="workspace mirror tree "
                                "(default: {target}/.rbtv/mirror)")
-        dest.add_argument("--repo-tree", default=(sup if on_verb else None),
-                          help="rbtv repo tree (default: this file's "
-                               "directory)")
 
     tree_flags(p, on_verb=False)
     sub = p.add_subparsers(dest="verb")
@@ -3308,9 +3348,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.verb == "selftest":
         return selftest()
 
-    target = Path(args.target).expanduser()
-    repo_tree = (Path(args.repo_tree).expanduser() if args.repo_tree
-                 else Path(__file__).resolve().parent)
+    if args.target is None:
+        target, why = discover_target(Path.cwd())
+        print(f"target: {target}  (discovered by {why}; pass --target to "
+              f"override)", file=sys.stderr)
+    else:
+        target = Path(args.target).expanduser()
+    repo_tree = Path(__file__).resolve().parent
     mirror_tree = (Path(args.mirror_tree).expanduser() if args.mirror_tree
                    else target / ".rbtv" / "mirror")
 
