@@ -8,7 +8,7 @@ Historical: the models tree (`orchestration/models/`, including `route.py`, manu
 | `cast route --catalog` | Live roster (add `--json` for the machine-readable view). This is the `--availability` equivalent. |
 | `cast` | Conductor dispatch: `cast <harness> <model> <effort> [folder] -p/-f …` |
 | `cast api` | API-worker runner (`carrier: api` rows). `cast` refuses to launch those rows. |
-| catalog | `.rbtv/mirror/meta/providers/capabilities/cast/` (`catalog.js` + `cast.md`) |
+| catalog | `.rbtv/mirror/core/cast/` (`catalog.js` + `cast.md`) |
 
 **Algorithm authority** is the routing card: `orchestration/skills/orchestrating/cards/routing.md` §1 / §2a. On any script-vs-card divergence the card text wins and a defect is filed against `cast route`.
 
