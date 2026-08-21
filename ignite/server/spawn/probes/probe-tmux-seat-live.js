@@ -60,11 +60,11 @@ const MEM_BYTES = 384 * 1024 * 1024;
 const SEAT_SCRIPT = [
   'CG=$(cut -d: -f3 /proc/self/cgroup)',
   'echo "cgroup=$CG" > a4-report.txt',
-  // The seat CANNOT read its own cgroup file, and that is not a defect: bwrap's `--unshare-all`
-  // includes the cgroup namespace (so /proc/self/cgroup reads `/`) and /sys/fs/cgroup is not
-  // bound into the namespace at all. Recorded here as the seat sees it; the REAL readback is done
-  // from OUTSIDE against the host kernel, which is stronger evidence anyway — a self-report is
-  // what the seat believes, the host cgroup file is what the kernel enforces. (iteration 2.)
+  // The seat's own cgroup view is RECORDED, never asserted. Under the original `--unshare-all`
+  // (then `--unshare-cgroup`) cage it read `/`; since the F-6 ruling (2026-08-21) dropped the
+  // cgroup unshare it names the real carrier path. Either way the REAL readback is done from
+  // OUTSIDE against the host kernel, which is stronger evidence — a self-report is what the seat
+  // believes, the host cgroup file is what the kernel enforces. (iteration 2; F-6 update.)
   'echo "seat_view_of_own_cgroup=$CG" >> a4-report.txt',
   'echo "cwd=$(pwd)" >> a4-report.txt',
   'echo "home_entries=$(ls -A $HOME 2>&1 | tr "\\n" " ")" >> a4-report.txt',

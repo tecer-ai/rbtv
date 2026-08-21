@@ -154,17 +154,25 @@ function buildBwrapArgv({ argv, workdir, editablePaths = [], promptFile = null, 
 
   const out = [
     '--die-with-parent',
-    // D3/D8 (2026-08-19): unshare user/ipc/uts/cgroup, NOT pid. `--unshare-all` included a
+    // D3/D8 (2026-08-19): unshare user/ipc/uts, NOT pid. `--unshare-all` included a
     // PID namespace, so a caged seat's /proc showed only itself (measured: pid=2, ancestry
     // 2<-1). coord.py's `ident_is_live_process` then reads every other
     // seat as dead — structurally, always — and a caged wake bound the last-ENDED session.
     // Shared PID ns + `--proc /proc` mounts host pids; in-cage liveness reads become TRUE.
     // Accepted consequence: a seat can see and signal host processes. Threat model is
     // filesystem writes outside goals/, not process isolation. Net stays shared (LLM APIs).
+    //
+    // F-6 (owner ruling, 2026-08-21): cgroup is NOT unshared either. `--unshare-cgroup` made a
+    // caged seat's /proc/self/cgroup read `0::/`, hiding the one string coord.py's
+    // `carrier_self_session()` — D43's identity corroborator — exists to read: the seat's own
+    // `rbtv-worker-<session-id>` carrier unit. The flag was inherited from decomposing
+    // `--unshare-all` (commit ac4726a6), not chosen: no cgroupfs is mounted in the cage, so the
+    // namespace never protected a write surface — sharing it discloses unit names of processes
+    // the seat can already see, and nothing else. Kept-unshared it structurally shut the
+    // crashed-row door (`launch --rerun`) for every caged chair.
     '--unshare-user',
     '--unshare-ipc',
     '--unshare-uts',
-    '--unshare-cgroup',
     '--proc', '/proc',
     '--dev', '/dev',
     '--tmpfs', '/tmp',

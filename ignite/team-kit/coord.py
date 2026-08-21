@@ -6858,12 +6858,19 @@ def lifecycle_recipient_live(args, base, name):
     if pane.startswith(SID_PANE_PREFIX):
         sid = pane[len(SID_PANE_PREFIX):]
         try:
-            still_open = sessions_open_ids(package_dir(args)).get(name, "")
+            # F-6 (2026-08-21): MEMBERSHIP among the seat's open rows, not equality with the LAST
+            # one. The roster token is now the carrier-proven id (`cmd_checkin`'s F-6 note), and
+            # the daemon appends the session row after launch — so during a boot window, or while
+            # a stale open row sits later in file order, "last open row" and the token can
+            # legitimately name different rows of the SAME live seat. Measured 2026-08-20 22:23Z:
+            # the live leader read as an empty chair for its whole sitting because the roster held
+            # the stale row's id while its own row 404 was the last-open one.
+            open_ids = session_open_ids(package_dir(args), name)
         except Exception as exc:                               # noqa: BLE001
             return False, (f"'{name}' is PANELESS (rostered against session {sid}) and this "
                            f"package's open-session set could not be read "
                            f"({type(exc).__name__}: {exc})")
-        if still_open == sid:
+        if sid in open_ids:
             return True, ""
         return False, (f"'{name}' is a PANELESS seat rostered ACTIVE against session {sid}, and "
                        f"that session is no longer open in sessions.csv")
@@ -8406,11 +8413,21 @@ def cmd_checkin(args):
     # gate (30 of 45 rows attested `exited`/`kit` because the seat could never declare its own
     # ending), the read cursor never persisting, `ready-seats` unable to report RUNNING (twin leader
     # sittings 4 s apart), and `send`/`close-seat` having no handle. Checkin already tolerated an
-    # empty pane; what was missing is an IDENTITY to register under. The seat's own still-open
-    # `sessions.csv` row is that identity — it exists by the time the seat is running its boot
-    # prompt, and it is the same row its checkout later closes.
+    # empty pane; what was missing is an IDENTITY to register under.
+    #
+    # F-6 (owner ruling, 2026-08-21): the identity registered here is the id THIS PROCESS can
+    # PROVE is its own — `carrier_self_session()`, the session id of the daemon-minted carrier
+    # unit read out of the caller's own /proc/self/cgroup — never "the seat's last open
+    # `sessions.csv` row by file order". Selecting by last-open-row bound the 2026-08-20 leader
+    # sitting to a stale, never-closed 08-18 row (sessions.csv:61), so the roster carried
+    # `sid:d8489a81…` while the carrier unit was `rbtv-worker-a3b2bee1…` — and D43's
+    # corroboration (`carrier_corroborated_seat`, an EXACT match of unit suffix against roster
+    # token) failed closed on the one lane it was built for. The last-open-row selection remains
+    # ONLY as the fallback for paneless callers running under no carrier unit (the attached lane,
+    # and caged seats until the cage stops hiding /proc/self/cgroup — bwrap `--unshare-cgroup`).
     if not pane:
-        _open_sid = sessions_open_ids(package_dir(args)).get(args.agent, "")
+        _open_sid = carrier_self_session() or \
+            sessions_open_ids(package_dir(args)).get(args.agent, "")
         if _open_sid:
             pane = SID_PANE_PREFIX + _open_sid
     if is_tmux_pane(pane):
@@ -16808,8 +16825,12 @@ def carrier_self_session(cgroup_text=None):
     """The session id THIS PROCESS can prove is its own, or '' — D43's corroborator.
 
     `spawn/carrier.js` mints one transient systemd unit per daemon-launched session, named
-    `rbtv-worker-<sessionId>`, and that sessionId is the SAME id `sessions.csv` carries and the
-    same one a paneless check-in writes into the roster as `sid:<id>` (F1). The cgroup line is
+    `rbtv-worker-<sessionId>`, and that sessionId is the `session-id` of the `sessions.csv` row
+    the daemon wrote for THIS session (the heart.db invariant `unit_name ==
+    'rbtv-worker-' || session_id` holds on 100% of rows — measured 2026-08-21). The paneless
+    check-in therefore registers the roster `sid:` token FROM THIS FUNCTION (F-6, 2026-08-21) —
+    not from whichever open row `sessions_open_ids` selects: selecting by last-open-row bound the
+    roster to a stale 08-18 row on 2026-08-20 and broke this very lane. The cgroup line is
     kernel-maintained: no env var, flag or config sets it, which is the whole reason F16 keys on
     it. So this is the paneless twin of "the pane id tmux says you are in".
 
