@@ -1892,7 +1892,14 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
     # copies: the mirror is the one home, and `rglob` does not recurse
     # symlinked dirs, so even a future catalog scan that reached this level
     # would not swallow the component lane.
-    for mod in sorted(p for p in component_root.parent.iterdir() if p.is_dir()):
+    # ⚠ MODULE DIRS ONLY. Since the catalogs moved into the rbtv REPO (2026-08-22), the tree
+    # root above the modules is the repo root, whose `.git`, `.pytest_cache`, `__pycache__`
+    # are directories too. A symlinked `.git` inside the goal collides with the cage's
+    # `**/.git` private-scope mask — bwrap cannot bind a cover onto a symlink and the seat
+    # dies at launch (measured 2026-08-22 15:30Z on meet's leader: every launch into the
+    # goal failed with `Can't bind mount … seat-lane/.git: No such file or directory`).
+    for mod in sorted(p for p in component_root.parent.iterdir()
+                      if p.is_dir() and not p.name.startswith('.') and p.name != '__pycache__'):
         if mod.name != GOAL_LOCAL_MODULE:
             (staging / mod.name).symlink_to(mod.resolve(), target_is_directory=True)
     (scomp / "component.md").write_text(
