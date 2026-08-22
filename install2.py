@@ -3606,6 +3606,13 @@ def selftest() -> int:
             _RUNTIME["local"] = None
             print("FATAL: PATH bin dir was not rebound — refusing to run")
             return 1
+        try:
+            _forbid_local_bin(Path.home() / ".local" / "bin")
+            check("L-forbid-local-bin — hardcoded ~/.local/bin is refused",
+                  False, "no refusal")
+        except Refuse as exc:
+            check("L-forbid-local-bin — hardcoded ~/.local/bin is refused",
+                  exc.code == "path-forbidden", exc.code)
         tree = tmp / "tree"
         tree.mkdir()
         _fixture(tree)
@@ -4718,6 +4725,27 @@ def selftest() -> int:
                   ["harnesses"] == four,
                   str(sorted(persisted["components"])))
 
+        hx = tmp / "ws-hub-coll"
+        hx.mkdir()
+        (hx / STATE_REL).parent.mkdir(parents=True)
+        (hx / STATE_REL).write_text(json.dumps({
+            "schema": 1, "installer": "install2.py",
+            "components": {
+                "_skills/vendored": {
+                    "module": "_skills", "component": "vendored",
+                    "harnesses": ["claude"], "files": []},
+                "_hub/skills/vendored": {
+                    "module": "_hub", "component": "vendored",
+                    "harnesses": ["claude"], "files": []},
+            },
+        }), encoding="utf-8")
+        try:
+            read_state(hx)
+            check("H-rewrite-collision — both keys refuse", False, "no refusal")
+        except Refuse as exc:
+            check("H-rewrite-collision — both keys refuse",
+                  exc.code == "hub-id-collision", exc.code)
+
         print("\nM — D12: the marker is what says `this file is mine`")
         mk = tmp / "ws-marker"
         mk.mkdir()
@@ -4933,6 +4961,16 @@ def selftest() -> int:
             check("D-dup — zero files written",
                   not any(pdup.rglob("*.md")) and not (pdup / STATE_REL).exists())
 
+        try:
+            _select_parts(catalog["fixmod/goodcomp"], None, ["no-such-part"])
+            pu = "no refusal"
+        except Refuse as exc:
+            pu = exc.code
+        except Exception as exc:
+            pu = type(exc).__name__
+        check("P-unknown — unknown part-id refuses",
+              pu == "part-unknown", pu)
+
         pws = tmp / "ws-parts"
         pws.mkdir()
         rp = do_install(pws, catalog, ["fixmod/goodcomp"], list(HARNESSES),
@@ -5008,6 +5046,28 @@ def selftest() -> int:
               and "fixmcp" not in pvst["components"]["fixmod/goodcomp"]["parts"]
               and "fixskill" in pvst["components"]["fixmod/goodcomp"]["parts"],
               str(sorted(pvst["components"]["fixmod/goodcomp"]["parts"])))
+        check("C2-rebuild — vanished part-rm keeps sibling hook claim",
+              _claim_id(".claude/settings.json", ["hooks", "PreToolUse"])
+              in pvst["shared_claims"],
+              str(pvst["shared_claims"]))
+
+        vu = tmp / "ws-v1-part"
+        vu.mkdir()
+        do_install(vu, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        st = read_state(vu)
+        rec = st["components"]["fixmod/goodcomp"]
+        rec.pop("parts", None)
+        rec["files"] = sorted(rec_files(rec)) if "files" not in rec else rec["files"]
+        write_state(vu, st)
+        gone_vu = {k: v for k, v in catalog.items() if k != "fixmod/goodcomp"}
+        try:
+            do_uninstall(vu, gone_vu, ["fixmod/goodcomp"], dry_run=False,
+                         parts=["fixskill"])
+            check("P-unbooked-v1 — vanished v1 part-rm refuses", False,
+                  "no refusal")
+        except Refuse as exc:
+            check("P-unbooked-v1 — vanished v1 part-rm refuses",
+                  exc.code == "part-unbooked", exc.code)
 
         print("\nU-live — v1→v2 upgrade against a COPY of the real book")
         live_book = Path("/home/henri/ht-wkdir/second-brain") / STATE_REL
@@ -5185,6 +5245,14 @@ def selftest() -> int:
               and "core/communication#plain-language" in _no_skill,
               f"kept={sorted(_no_skill - _all_parts)} "
               f"dropped={sorted(_all_parts - _no_skill)}")
+        _all = R(all=True)
+        _no_browse = R(all=True, exclude_component=["web/browse"])
+        check("SEL-exclude-component — -nc subtracts the component",
+              _no_browse < _all
+              and "web/browse#browse" not in _no_browse
+              and "web/browse#chrome-devtools" not in _no_browse
+              and "core/communication#audio-aware" in _no_browse,
+              f"dropped={sorted(_all - _no_browse)}")
         check("SEL-rm-booked",
               R(verb="rm", book=SEL_BOOK, component=["core/communication"])
               == {"core/communication#audio-aware",
@@ -5224,6 +5292,37 @@ def selftest() -> int:
         except Refuse as exc:
             stale = exc.code
         check("index-stale", stale == "index-stale", stale)
+
+        try:
+            resolve_selection(_sel(verb="add", component=["1"]), SEL_CAT, None)
+            im = "no refusal"
+        except Refuse as exc:
+            im = exc.code
+        except Exception as exc:
+            im = type(exc).__name__
+        check("index-missing", im == "index-missing", im)
+
+        idx = write_index(idx_ws, SEL_CAT)
+        try:
+            resolve_selection(
+                _sel(verb="add", component=["999"], index=idx), SEL_CAT, None)
+            iu = "no refusal"
+        except Refuse as exc:
+            iu = exc.code
+        except Exception as exc:
+            iu = type(exc).__name__
+        check("index-unknown", iu == "index-unknown", iu)
+
+        try:
+            resolve_selection(
+                _sel(verb="add", component=["1"], index=idx), SEL_CAT, None)
+            ik = "no refusal"
+        except Refuse as exc:
+            ik = exc.code
+        except Exception as exc:
+            ik = type(exc).__name__
+        check("index-kind-mismatch — slot 1 is module, not component",
+              ik == "index-kind-mismatch", ik)
 
         nws = tmp / "ws-nconfirm"
         nws.mkdir()
@@ -5386,6 +5485,19 @@ def selftest() -> int:
               f"code={ucode} exists={usurper.exists()}")
         usurper.unlink()
 
+        bindir = bin_dir()
+        bindir.mkdir(parents=True, exist_ok=True)
+        victim = bindir / "gate-drop"
+        victim.write_text("real file\n", encoding="utf-8")
+        try:
+            gate_path_links(bindir, {}, {"gate-drop"})
+            check("L-gate-drop-refuses-regular", False, "no refusal")
+        except Refuse as exc:
+            check("L-gate-drop-refuses-regular",
+                  exc.code == "path-collision" and victim.is_file()
+                  and victim.read_text() == "real file\n", exc.code)
+        victim.unlink()
+
         n1 = tmp / "n1src"
         n2 = tmp / "n2src"
         nws = tmp / "ws-path-twoname"
@@ -5500,6 +5612,37 @@ def selftest() -> int:
                           "fixmod/goodcomp#fixrule"])
         do_install(pws, catalog, ["fixmod/codexcomp"], ["claude"],
                    dry_run=False)
+        ls_in = build_ls(catalog, [], read_state(pws))
+        good = next(e for e in ls_in["components"] if e["id"] == "fixmod/goodcomp")
+        inn = {i["part_id"]: i["in"] for i in good["items"]}
+        check("SURF-ls-in-column — booked True, sibling False",
+              inn.get("fixskill") is True and inn.get("fixrule") is True
+              and inn.get("fixcmd") is False,
+              str(inn))
+        raw_sk = {"components": {
+            "_skills/vendored": {"parts": {"vendored": {"method": "skill"}}}}}
+        check("ls-in-legacy-skills-key — leftover _skills/ counts as in",
+              _part_in(raw_sk, "_hub/skills/vendored", "vendored") is True)
+        raw_v1 = {"components": {
+            "fixmod/goodcomp": {"files": [".claude/rules/fixrule.md"]}}}
+        check("ls-in-schema1-whole — missing parts map means every pid is in",
+              _part_in(raw_v1, "fixmod/goodcomp", "fixrule") is True
+              and _part_in(raw_v1, "fixmod/goodcomp", "fixcmd") is True)
+        ls_nc = build_ls(catalog, [], {}, exclude_components=["fixmod/goodcomp"])
+        check("SURF-ls-exclude-component",
+              all(e["id"] != "fixmod/goodcomp" for e in ls_nc["components"]),
+              str([e["id"] for e in ls_nc["components"]][:8]))
+        ls_nx = build_ls(catalog, [], {}, exclude_methods=["skill"])
+        check("SURF-ls-exclude-method",
+              all(i["method"] != "skill"
+                  for e in ls_nx["components"] for i in e["items"]))
+        li0 = do_list(pws, catalog)
+        args_nc = argparse.Namespace(
+            module=[], component=[], method=[],
+            exclude_module=[], exclude_component=["fixmod/goodcomp"],
+            exclude_method=[])
+        check("SURF-li-exclude-component",
+              "fixmod/goodcomp" not in _li_filter(li0, catalog, args_nc)["components"])
         li_data = do_list(pws, catalog)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
