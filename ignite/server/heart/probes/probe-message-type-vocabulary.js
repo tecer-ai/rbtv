@@ -30,7 +30,7 @@ const path = require('node:path');
 
 const IGNITE = path.resolve(__dirname, '..', '..', '..');
 
-// The vocabulary, spelled out. Deliberately NOT read from any of the seven sites: an expectation
+// The vocabulary, spelled out. Deliberately NOT read from any of the eight sites: an expectation
 // that reads one of the things under test moves with it and passes every change to it.
 const EXPECTED = ['completion', 'ask', 'answer', 'verdict', 'note', 'queue-request', 'escalation', 'stuck'];
 

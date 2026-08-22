@@ -19,6 +19,12 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // also routes `spawn-via-named-profile` because a bridge or a later client may name
 // it — the gateway is the internal API's single client and speaks its whole surface.
 //
+// ⚠ `spawn-via-named-profile` is PERMANENTLY EXCLUDED on the core side (owner ruling D70,
+// not in D1–D61): `server/internal-api/dispatch.js`'s handler always throws INTERNAL, never
+// even reaching this shape-validation's VALIDATION_FAILED path. The gateway still shape-checks
+// it because the intent remains registered here — dropping the validator would have to move
+// with the intent's registration itself, in lockstep with probe-intent-drift.js.
+//
 // ⚑ `send-to-session` + `capture-session-screen` (owner ruling D91, p6-3a) are RETIRED by task
 // 7.29. The server-owned pty they drove is deleted, tmux holds the headed session, and SSH is
 // the human trust boundary — so both are removed from THIS set, from the core's set, and from
