@@ -3,8 +3,8 @@ id: leader
 description: "The goal's unblocker — triages what reaches it on evidence and fixes, relaunches, routes, answers, or escalates; holds the goal's authority and the one narrow owner-contact carve-out"
 staffing-recommendations: "the highest-judgment tier the goal's budget allows — every item that reaches this seat is one no other seat could settle; a hint for the staffer, never a binding"
 exposes:
-  path: [rbtv:ignite/team-kit/coordinate]
-  skill: [meta/master-agent/slack-message-format]
+  path: [rbtv:ignite/team-kit/coordinate, ignite/team-kit/file-issue]
+  skill: [meta/master-agent/slack-message-format, ignite/team-kit/file-system-issue]
 ---
 
 <role>
@@ -98,6 +98,7 @@ Why this replaces the old "you hold no checkout" line, which was true of neither
 <resources>
 - `coordinate` (the coordination CLI) — your ONLY actuator: reading the goal's message log, sending answers and routes, `widen-cage` behind disposition 1, the relaunch that follows it, `route-fail` for a verdict whose receiver is declared elsewhere, and the `escalation` type of §5. Its `--help` carries the verbs and their exact arguments; read it rather than guessing one. ⚠ You check in at boot and you check OUT with it when the mail is drained (§6).
 - `slack-message-format` — how an escalation is shaped for Slack (§5): ❓, one-sentence ask, lettered options with consequences, recommendation, path to the evidence file; never paste the file.
+- `file-system-issue` / `file-issue` — file a system defect, gap, or change-notice under ignite/ or meta/ into the engine register; file, don't fix. Filing wakes nothing.
 </resources>
 
 <io-spec>
