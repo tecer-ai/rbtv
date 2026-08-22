@@ -63,15 +63,17 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 >
 > ```bash
 > rbtv install --target /path/to/workspace ls                    # what is installable
-> rbtv install --target /path/to/workspace li                    # what is installed
+> rbtv install --target /path/to/workspace li                    # what is installed + settings
 > rbtv install --target W add -c meta/planning \
 >       --harness claude,codex --artifact CLAUDE.md              # FIRST add: both required
 > rbtv install --target W add -m office                          # later adds: components only
 > rbtv install --target W rm -c meta/planning
-> rbtv install --target W harness                                # show the workspace settings
-> rbtv install --target W harness add|rm opencode                # change which tools get files
-> rbtv install --target W artifact set CLAUDE.md|AGENTS.md|none  # change the guidance basis
-> rbtv install --target W artifact exclude add|rm <dir>          # folders the mirror skips
+> rbtv install --target W rm -c web/browse,web/capture         # -m/-c/-x/-nm/-nc/-nx take a comma list
+> rbtv install --target W rm -c 3,7,9                          # …or the numbers from the last ls/li
+> rbtv install --target W rm -c 2-9,14                         # …N-M is an inclusive range of those numbers
+> rbtv install --target W add|rm harness opencode                # change which tools get files
+> rbtv install --target W set artifact CLAUDE.md|AGENTS.md|none  # change the guidance basis
+> rbtv install --target W add|rm artifact exclude <dir>          # folders the mirror skips
 > rbtv install                                                   # interactive
 > rbtv install selftest                                          # its runnable check
 > ```
@@ -81,8 +83,15 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > generated from it) are REQUIRED on the first `add` and REFUSED on every later one, because both
 > used to be silent: `--harness` defaulted to every harness and a narrower list on a later run
 > merged instead of narrowing, so asking for fewer harnesses succeeded and changed nothing. After
-> the first install the `harness` and `artifact` verbs own them, and `harness rm` really does
-> delete that harness's files. See `install2.py` D16.
+> the first install the ACTION-FIRST settings forms own them — `add|rm harness`, `set artifact`,
+> `add|rm artifact exclude` — and `rm harness` really does delete that harness's files. The
+> action word always comes first, the same way it does for components, and `set` exists because
+> the guidance basis holds ONE value: choosing a new one replaces the old, which is a set and not
+> an add. The old noun-led spelling (`harness add`, `artifact set`) is retired, not aliased: it
+> refuses with `verb-moved` and names its replacement. The three settings are READ at the head of
+> `rbtv install li` (and ride its `--json` under `settings`) — the two verbs that existed only to
+> print them are gone from the menu, kept hidden so the old spelling still lands on a sentence
+> saying where it went. See `install2.py` D16, D16b and D16c.
 >
 > Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision

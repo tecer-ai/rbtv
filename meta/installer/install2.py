@@ -11,11 +11,10 @@ INSTALL ROOT only. Python 3 stdlib only.
     rbtv install add -m <module> [-x skill]
         FIRST add on a workspace only: --harness a,b --artifact CLAUDE.md|none
     rbtv install rm -c <id> | -m <name> | -A
-    rbtv install harness                the workspace harness set (show)
-    rbtv install harness add|rm a,b     change it; files follow immediately
-    rbtv install artifact               the basis + guidance excludes (show)
-    rbtv install artifact set N         N = CLAUDE.md | AGENTS.md | none
-    rbtv install artifact exclude add|rm DIR   folders the mirror walk skips
+    rbtv install add|rm harness a,b     which AI tools get files; files follow
+    rbtv install set artifact N         N = CLAUDE.md | AGENTS.md | none
+    rbtv install add|rm artifact exclude DIR   folders the mirror walk skips
+        all three are READ at the head of `rbtv install li` (D16c)
     rbtv install dupe-artifacts         regenerate harness guidance from the basis
     rbtv install interactive            the human flow (also: no arguments)
     rbtv install selftest               the runnable check
@@ -154,7 +153,7 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
 
     The basis is answered once — on the first `add` via `--artifact`, or in
     `interactive` — persisted as `guidance_basis`, and thereafter owned by
-    `rbtv install artifact set` (D16). It is never re-asked and never
+    `rbtv install set artifact` (D16). It is never re-asked and never
     defaulted: since D16 the first `add` REQUIRES an explicit answer, because
     unset silently meant "generate nothing". A basis value outside the known
     guidance names refuses. Each generated mirror is a
@@ -180,7 +179,7 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     are never touched); the `GUIDANCE_ALWAYS_EXCLUDED` prefixes (`.rbtv/goals`,
     whose BOTH routers are scaffold-owned — a structural collision in every
     workspace rbtv serves, so a driver default and not a per-workspace entry);
-    and whatever `rbtv install artifact exclude add|rm` records (persisted as
+    and whatever `rbtv install add|rm artifact exclude` records (persisted as
     `guidance_excludes`; the verb edits the list as a SET — the old driver's
     `--exclude` replaced it wholesale, which is why asking to skip one more
     folder used to silently un-skip every other). `protect` covers EVERY directory's basis, not just the root's.
@@ -276,16 +275,49 @@ D16 HARNESS AND ARTIFACT ARE WORKSPACE SETTINGS, SET ONCE, MANAGED BY THEIR
         verb that owns it — `add` decides which components are installed and
         nothing else;
 
-        `install harness [add|rm]` and `install artifact [set|exclude]` own
-        them thereafter. A harness change REPLANS EVERY BOOKED COMPONENT, so
-        `harness rm codex` really deletes codex's files through the same
-        book-diff `apply` uses for everything else — never a no-op.
+        the ACTION-FIRST settings forms own them thereafter —
+        `add|rm harness`, `set artifact`, `add|rm artifact exclude` (D16b).
+        A harness change REPLANS EVERY BOOKED COMPONENT, so `rm harness
+        codex` really deletes codex's files through the same book-diff
+        `apply` uses for everything else — never a no-op.
 
     Each component record still carries a `harnesses` list, now a projection of
     the workspace set (every record holds the same one), because `plan_files`
     reads it per record. `upgrade_book`/`read_state` migrate a pre-D16 book by
     taking the UNION across its records — the widest set any component had, so
     a migration never silently deletes an installed file.
+
+D16b THE ACTION WORD COMES FIRST (owner ruling, 2026-08-22, amends D16's
+    SPELLING only — every rule above about WHEN a setting may change is
+    untouched). D16 gave each setting its own noun-led verb, so the same
+    action was spelled two ways depending on what it acted on: `add -c
+    <component>` but `harness add <harness>`. Now one grammar covers both:
+
+        rbtv install add harness codex        rbtv install rm harness codex
+        rbtv install set artifact CLAUDE.md
+        rbtv install add artifact exclude D   rbtv install rm artifact exclude D
+        rbtv install harness                  rbtv install artifact   (show)
+
+    `set` exists rather than folding the basis into `add` because the basis
+    holds ONE value: choosing a new one REPLACES the old. Spelling a replace
+    as an "add" is the silent-overwrite shape D16 was written to kill, so the
+    grammar names the third action instead of lying about the second.
+
+    The noun-led spelling is GONE, not aliased — `harness add codex` refuses
+    with `verb-moved` naming the new form. Two spellings of one action is the
+    shape that drifts: one gets maintained and the other quietly rots.
+
+D16c THE SETTINGS ARE READ IN `li` (owner ruling, 2026-08-22, completes D16b).
+    With their edit forms moved to `add`/`rm`/`set`, `harness` and `artifact`
+    were verbs that only PRINTED three lines — menu entries a reader has to
+    step past to reach a verb that does something. Those three lines are a
+    description of THIS workspace, which is exactly what `li` reports, so
+    they head its listing (and ride its `--json` under `settings`).
+
+    Both verbs stay in the parser, HIDDEN and refusing. That is not an alias:
+    the whole point is that `rbtv install harness` — the thing a reader's
+    fingers already know — lands on a sentence naming where it went, instead
+    of on argparse's `invalid choice: 'harness'`, which names nothing.
 
 D9  `path` ROWS MINT NOTHING UNDER THE INSTALL TARGET
     (`decisions.md#d-tool-inventory-exposure-rows`). `pool` stays inventory.
@@ -1130,8 +1162,8 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
             "guidance-basis-missing",
             f"the recorded guidance basis {basis!r} does not exist at the "
             "install root, so there is nothing to mirror. Recover with ONE of: "
-            f"restore {basis}; or `rbtv install artifact set {other}` to make "
-            f"the file you do have the basis; or `rbtv install artifact set "
+            f"restore {basis}; or `rbtv install set artifact {other}` to make "
+            f"the file you do have the basis; or `rbtv install set artifact "
             f"{BASIS_NONE}` to turn the mirror off. Nothing was written",
             str(root_source))
     files: dict[str, str] = {}
@@ -1166,10 +1198,10 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                 "guidance-basis-unreadable",
                 f"the guidance basis {rel!r} is not readable as UTF-8 text "
                 f"({exc}) — a mirror of it would be garbage; refusing before "
-                f"any write. Turn the mirror off with `rbtv install artifact "
-                f"set {BASIS_NONE}` if this file is not meant to be guidance, "
-                "or skip its directory with `rbtv install artifact exclude "
-                "add <dir>`",
+                f"any write. Turn the mirror off with `rbtv install set "
+                f"artifact {BASIS_NONE}` if this file is not meant to be "
+                "guidance, or skip its directory with `rbtv install add "
+                "artifact exclude <dir>`",
                 str(source)) from exc
         body, stripped_banner = strip_generated_banner(body)
         if stripped_banner:
@@ -1786,7 +1818,7 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 "guidance or a mirror rendered by another tool (install.py's "
                 "`model_mirror` renders one beside every CLAUDE.md). This run "
                 f"would generate it from the basis. DO NOT delete it: either "
-                f"`rbtv install artifact set {BASIS_NONE}` to leave both root "
+                f"`rbtv install set artifact {BASIS_NONE}` to leave both root "
                 "guidance files alone, or point the basis at the file you "
                 "author and retire the other tool's copy of the one it "
                 "generates. "
@@ -2045,11 +2077,44 @@ def _norm_comp(name: str) -> str:
     return name
 
 
+# A range may not span more than this many ls/li slots. The bound is not a
+# policy about how much anyone may select — it is what stops a fat-fingered
+# `-c 1-99999999999` from materializing eleven billion strings before the
+# first slot lookup gets a chance to refuse. No real listing approaches it.
+RANGE_SPAN_MAX = 1000
+
+
+def _index_nums(t: str) -> list[str] | None:
+    """The ls/li numbers a selector token names, or None if it names none.
+
+    `7` names one. `3-7` names five, inclusive and ascending. A range is
+    digits on BOTH sides of the hyphen and nothing else — component ids carry
+    hyphens of their own (`ponytail-audit`, `web/browse`), so every other
+    shape is a NAME and is handed back untouched rather than guessed at.
+    """
+    if t.isdigit():
+        return [t]
+    lo, sep, hi = t.partition("-")
+    if not sep or not lo.isdigit() or not hi.isdigit():
+        return None
+    a, b = int(lo), int(hi)
+    if b < a:
+        raise Refuse("index-range-inverted",
+                     f"range {t!r} counts down; write {b}-{a}")
+    if b - a + 1 > RANGE_SPAN_MAX:
+        raise Refuse("index-range-too-wide",
+                     f"range {t!r} spans {b - a + 1} slots (max "
+                     f"{RANGE_SPAN_MAX}) — no ls/li listing is this long, "
+                     "so this is a typo, not a selection")
+    return [str(n) for n in range(a, b + 1)]
+
+
 def _expand_nums(tokens: list[str], want: str, index: dict | None,
                  fp: str) -> list[str]:
     out: list[str] = []
     for t in tokens:
-        if not t.isdigit():
+        nums = _index_nums(t)
+        if nums is None:
             out.append(t)
             continue
         if not index:
@@ -2058,14 +2123,15 @@ def _expand_nums(tokens: list[str], want: str, index: dict | None,
         if index.get("fingerprint") != fp:
             raise Refuse("index-stale",
                          "scanned set changed since last ls/li")
-        slot = (index.get("n") or {}).get(str(t))
-        if not slot:
-            raise Refuse("index-unknown", f"no index slot {t}")
-        sk = slot["kind"]
-        if sk != want and not (want == "component" and sk == "part"):
-            raise Refuse("index-kind-mismatch",
-                         f"index {t} is {sk}, not {want}")
-        out.append(slot["id"])
+        for n in nums:
+            slot = (index.get("n") or {}).get(n)
+            if not slot:
+                raise Refuse("index-unknown", f"no index slot {n}")
+            sk = slot["kind"]
+            if sk != want and not (want == "component" and sk == "part"):
+                raise Refuse("index-kind-mismatch",
+                             f"index {n} is {sk}, not {want}")
+            out.append(slot["id"])
     return out
 
 
@@ -2735,6 +2801,10 @@ def do_list(target: Path, catalog: dict | None = None) -> dict:
             "state_file": str(target / STATE_REL),
             "marker": MANAGED_MARK,
             "guidance_basis": state.get("guidance_basis"),
+            # D16c — the settings ride the INSTALLED listing. They describe
+            # this workspace, so they belong with what is installed in it,
+            # not behind two verbs of their own.
+            "settings": _settings_view(state),
             "components": comps,
             "guidance_files": state.get("guidance_files") or [],
             "shared_claims": state.get("shared_claims") or [],
@@ -2742,9 +2812,9 @@ def do_list(target: Path, catalog: dict | None = None) -> dict:
 
 
 def print_li(data: dict, *, pretty: bool = False) -> None:
-    basis = data["guidance_basis"] or "(unset — no mirror)"
-    print(f"target: {data['target']}  marker: {data['marker']}  "
-          f"guidance basis: {basis}")
+    print(f"target: {data['target']}  marker: {data['marker']}")
+    _print_settings(data["settings"])
+    print()
     comps = data["components"]
     if not comps:
         print("nothing installed by install2.py")
@@ -3247,7 +3317,7 @@ def _print_guidance(report: dict, planned: bool) -> None:
                   + ", ".join(mirror["banner_stripped"]))
     elif mirror:
         print("  · guidance mirror: OFF — no basis recorded. Set one with "
-              "`rbtv install artifact set CLAUDE.md|AGENTS.md` (D13).")
+              "`rbtv install set artifact CLAUDE.md|AGENTS.md` (D13).")
     if report.get("guidance_debannered"):
         print(f"  · {'would clean' if planned else 'cleaned'} a stale GENERATED "
               "banner off the file(s) you now author: "
@@ -3326,7 +3396,8 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
         raise Refuse("bad-selection", f"not a valid selection: {raw!r}")
 
     # D16 — both settings are asked ONCE per target and only when the book has
-    # no answer yet; thereafter `install harness` / `install artifact` own them.
+    # no answer yet; thereafter the D16b settings forms own them
+    # (`add|rm harness`, `set artifact`, `add|rm artifact exclude`).
     st = read_state(target)
     recorded = book_harnesses(st)
     if recorded is None:
@@ -3335,7 +3406,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     else:
         harnesses = recorded
         print(f"\nHarnesses: {', '.join(harnesses)} — recorded for this "
-              "workspace. Change it with `rbtv install harness add|rm`.")
+              "workspace. Change it with `rbtv install add|rm harness`.")
 
     # D13 — asked ONCE per target; a recorded answer (incl. `none`) is not
     # re-asked, and every non-interactive path skips this entirely.
@@ -3529,6 +3600,15 @@ def selftest() -> int:
         print(f"  [{'PASS' if condition else 'FAIL'}] {label}"
               + (f" — {detail}" if detail and not condition else ""))
         ok = ok and condition
+
+    def skip(label: str, why: str) -> None:
+        """A precondition this MACHINE cannot supply — not a verdict.
+
+        Only for an arm that needs something outside the fixture tree (an
+        installed workspace to read). Never for an arm whose inputs this
+        suite builds itself: there, "cannot run" is a defect.
+        """
+        print(f"  [SKIP] {label} — {why}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -4158,8 +4238,8 @@ def selftest() -> int:
             check("a missing basis refuses",
                   exc.code == "guidance-basis-missing", exc.code)
             check("the refusal names BOTH recoveries, in verbs that EXIST",
-                  "rbtv install artifact set AGENTS.md" in exc.message
-                  and f"rbtv install artifact set {BASIS_NONE}" in exc.message,
+                  "rbtv install set artifact AGENTS.md" in exc.message
+                  and f"rbtv install set artifact {BASIS_NONE}" in exc.message,
                   exc.message)
         res6 = do_install(mt6, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                           dry_run=False, guidance_basis="AGENTS.md")
@@ -5128,47 +5208,47 @@ def selftest() -> int:
               str(read_state(w)["components"].get("fixmod/codexcomp")))
 
         codex_rule = ".agents/behavior-rules/fixrule.md"
-        check("W9 — `harness rm` DELETES that harness's files (never a no-op)",
+        check("W9 — `rm harness` DELETES that harness's files (never a no-op)",
               (w / codex_rule).exists()
-              and _run(w, ["harness", "rm", "codex"]) == 0
+              and _run(w, ["rm", "harness", "codex"]) == 0
               and not (w / codex_rule).exists()
               and read_state(w)["harnesses"] == ["claude"]
               and all(rec["harnesses"] == ["claude"]
                       for rec in read_state(w)["components"].values()))
         check("W10 — the AGENTS.md mirror goes with the last harness reading it",
               not (w / "AGENTS.md").exists())
-        check("W11 — `harness add` puts them back",
-              _run(w, ["harness", "add", "codex"]) == 0
+        check("W11 — `add harness` puts them back",
+              _run(w, ["add", "harness", "codex"]) == 0
               and (w / codex_rule).exists()
               and (w / "AGENTS.md").exists()
               and read_state(w)["harnesses"] == ["claude", "codex"])
         check("W12 — a no-op change says so and writes nothing",
-              _run(w, ["harness", "add", "codex"]) == 0
+              _run(w, ["add", "harness", "codex"]) == 0
               and read_state(w)["harnesses"] == ["claude", "codex"])
         check("W13 — removing every harness refuses; it is an uninstall",
-              _run(w, ["harness", "rm", "claude,codex"]) == "harness-list-empty"
+              _run(w, ["rm", "harness", "claude,codex"]) == "harness-list-empty"
               and read_state(w)["harnesses"] == ["claude", "codex"])
         check("W14 — an unknown harness refuses before any write",
-              _run(w, ["harness", "add", "kimi"]) == "harness-unknown"
+              _run(w, ["add", "harness", "kimi"]) == "harness-unknown"
               and read_state(w)["harnesses"] == ["claude", "codex"])
 
         # A flip that would GENERATE over the file the human authors is the
-        # D13 collision, and `artifact set` inherits it unchanged.
-        w15 = _run_msg(w, ["artifact", "set", "AGENTS.md"])
+        # D13 collision, and `set artifact` inherits it unchanged.
+        w15 = _run_msg(w, ["set", "artifact", "AGENTS.md"])
         check("W15 — a flip that would overwrite hand-authored guidance "
               "refuses, and the recorded basis does not move",
               w15[0] == "guidance-mirror-collision"
               and read_state(w)["guidance_basis"] == "CLAUDE.md"
-              and "rbtv install artifact set" in w15[1], str(w15))
-        check("W16 — `artifact set none` turns the mirror off and takes the "
+              and "rbtv install set artifact" in w15[1], str(w15))
+        check("W16 — `set artifact none` turns the mirror off and takes the "
               "generated file with it",
-              _run(w, ["artifact", "set", "none"]) == 0
+              _run(w, ["set", "artifact", "none"]) == 0
               and read_state(w)["guidance_basis"] == BASIS_NONE
               and read_state(w)["guidance_files"] == []
               and not (w / "AGENTS.md").exists(),
               str(read_state(w).get("guidance_files")))
         check("W16b — setting it back regenerates it",
-              _run(w, ["artifact", "set", "CLAUDE.md"]) == 0
+              _run(w, ["set", "artifact", "CLAUDE.md"]) == 0
               and (w / "AGENTS.md").exists()
               and read_state(w)["guidance_files"] == ["AGENTS.md"])
 
@@ -5177,8 +5257,8 @@ def selftest() -> int:
         _run(w, ["dupe-artifacts"])
         check("W17 — without an exclude, the nested folder IS mirrored",
               (w / "skipme" / "AGENTS.md").exists())
-        check("W18 — `artifact exclude add` skips it and persists the list",
-              _run(w, ["artifact", "exclude", "add", "skipme"]) == 0
+        check("W18 — `add artifact exclude` skips it and persists the list",
+              _run(w, ["add", "artifact", "exclude", "skipme"]) == 0
               and read_state(w)["guidance_excludes"] == ["skipme"]
               and not (w / "skipme" / "AGENTS.md").exists())
         # Two entries, because with ONE the old driver's REPLACE and a proper
@@ -5188,37 +5268,137 @@ def selftest() -> int:
         (w / "skiptoo" / "CLAUDE.md").write_text("nested too\n",
                                                  encoding="utf-8")
         check("W18b — a SECOND exclude joins the first, never replaces it",
-              _run(w, ["artifact", "exclude", "add", "skiptoo"]) == 0
+              _run(w, ["add", "artifact", "exclude", "skiptoo"]) == 0
               and read_state(w)["guidance_excludes"] == ["skipme", "skiptoo"]
               and not (w / "skiptoo" / "AGENTS.md").exists()
               and not (w / "skipme" / "AGENTS.md").exists(),
               str(read_state(w)["guidance_excludes"]))
-        check("W19 — `artifact exclude rm` takes ONE and leaves the other",
-              _run(w, ["artifact", "exclude", "rm", "skipme"]) == 0
+        check("W19 — `rm artifact exclude` takes ONE and leaves the other",
+              _run(w, ["rm", "artifact", "exclude", "skipme"]) == 0
               and read_state(w)["guidance_excludes"] == ["skiptoo"]
               and (w / "skipme" / "AGENTS.md").exists()
               and not (w / "skiptoo" / "AGENTS.md").exists(),
               str(read_state(w)["guidance_excludes"]))
         check("W19b — and removing the last one empties the list",
-              _run(w, ["artifact", "exclude", "rm", "skiptoo"]) == 0
+              _run(w, ["rm", "artifact", "exclude", "skiptoo"]) == 0
               and read_state(w)["guidance_excludes"] == []
               and (w / "skiptoo" / "AGENTS.md").exists())
         check("W20 — excluding what is not excluded refuses, never silently",
-              _run(w, ["artifact", "exclude", "rm", "skipme"])
+              _run(w, ["rm", "artifact", "exclude", "skipme"])
               == "exclude-unknown")
 
-        check("W21 — show needs no op and reports the three settings",
-              _run(w, ["harness"]) == 0 and _run(w, ["artifact"]) == 0
-              and _settings_view(read_state(w))["harnesses"]
-              == ["claude", "codex"])
+        # D16c — the settings are READ in `li`, and the two verbs that used
+        # to print them are gone from the menu.
+        _lib = io.StringIO()
+        with contextlib.redirect_stdout(_lib):
+            _rc_li = cmd_li(build_parser().parse_args(["li"]), w, catalog, [])
+        _litext = _lib.getvalue()
+        check("W21 — `li` heads its listing with all three settings",
+              _rc_li == 0
+              and "claude, codex" in _litext
+              and "artifact  :" in _litext and "excluded  :" in _litext,
+              _litext[:300])
+        check("W21b — and names the command that changes each one, so a "
+              "reader never has to go find the help",
+              "add|rm harness" in _litext
+              and "set artifact" in _litext
+              and "add|rm artifact exclude" in _litext,
+              _litext[:400])
+        _lij = io.StringIO()
+        with contextlib.redirect_stdout(_lij):
+            cmd_li(build_parser().parse_args(["li", "--json"]), w, catalog, [])
+        check("W21c — and they ride --json, so nothing that parsed the "
+              "retired verbs loses the values",
+              json.loads(_lij.getvalue())["settings"]
+              == _settings_view(read_state(w)),
+              str(json.loads(_lij.getvalue()).get("settings")))
+        for _gone in ("harness", "artifact"):
+            _c, _m = _run_msg(w, [_gone])
+            check(f"W21d — bare `{_gone}` is retired and sends the reader "
+                  "to `li`",
+                  _c == "verb-moved" and "rbtv install li" in _m,
+                  f"{_c}: {_m}")
+        # HIDDEN, not merely undocumented: a menu that still lists them has
+        # not actually shrunk, which is the whole ask.
+        # Match the verb ENTRY, never the word: `rm`'s and `set`'s own help
+        # lines mention both nouns, and a substring test would fire on the
+        # very sentences that teach the new forms.
+        _menu_verbs = {ln.split()[0] for ln in
+                       build_parser().format_help().splitlines()
+                       if ln.startswith("    ") and not ln.startswith("     ")
+                       and ln.split()}
+        check("W21e — neither is a verb ENTRY in the menu any more",
+              not ({"harness", "artifact"} & _menu_verbs),
+              str(sorted(_menu_verbs)))
+        check("W21f — and the menu still lists every verb that DOES act, so "
+              "the trim removed exactly two entries",
+              {"add", "rm", "set", "ls", "li", "doctor"} <= _menu_verbs,
+              str(sorted(_menu_verbs)))
+
+        # D16b — the ACTION word leads. Every arm below is about SPELLING;
+        # W9-W20 above already prove the behaviour each form reaches.
+        for _old, _new in (
+                (["harness", "add", "codex"], "add harness codex"),
+                (["harness", "rm", "codex"], "rm harness codex"),
+                (["artifact", "set", "none"], "set artifact none"),
+                (["artifact", "exclude", "add", "d"],
+                 "add artifact exclude d"),
+                (["artifact", "exclude", "rm", "d"],
+                 "rm artifact exclude d")):
+            _code, _msg = _run_msg(w, _old)
+            check(f"W25 — `{' '.join(_old)}` is retired and names its "
+                  f"replacement",
+                  _code == "verb-moved" and f"rbtv install {_new}" in _msg,
+                  f"{_code}: {_msg}")
+        # A retired form must CHANGE NOTHING on its way to the refusal —
+        # a message that says "moved" while the write already happened is
+        # worse than no message.
+        _before = (read_state(w)["harnesses"],
+                   read_state(w).get("guidance_basis"),
+                   read_state(w).get("guidance_excludes"))
+        _run(w, ["harness", "rm", "codex"])
+        _run(w, ["artifact", "set", "none"])
+        check("W26 — a retired form writes nothing before refusing",
+              (read_state(w)["harnesses"],
+               read_state(w).get("guidance_basis"),
+               read_state(w).get("guidance_excludes")) == _before,
+              str(_before))
+        check("W27 — `set` with no noun refuses, naming the one it takes",
+              _run_msg(w, ["set"])[0] == "noun-missing")
+        check("W28 — a noun that names no setting refuses, never guessing "
+              "it is a component",
+              _run(w, ["add", "sub-agents"]) == "noun-unknown")
+        check("W29 — the basis is a SET, and `add`/`rm` say so rather than "
+              "silently replacing it",
+              _run(w, ["add", "artifact", "CLAUDE.md"])
+              == "setting-wrong-verb"
+              and _run(w, ["rm", "artifact", "CLAUDE.md"])
+              == "setting-wrong-verb")
+        check("W30 — the harness set is MANY values, and `set` says so",
+              _run(w, ["set", "harness", "codex"]) == "setting-wrong-verb")
+        check("W31 — a settings noun mixed with component selectors refuses; "
+              "neither half is applied",
+              _run(w, ["add", "harness", "codex", "-c", "fixmod/goodcomp"])
+              == "noun-with-selectors")
+        check("W32 — a settings form still reaches its handler with the "
+              "shared flags (--dry-run writes nothing)",
+              _run(w, ["rm", "harness", "codex", "--dry-run"]) == 0
+              and read_state(w)["harnesses"] == ["claude", "codex"],
+              str(read_state(w)["harnesses"]))
 
         w2 = _mkws("ws-d16-virgin")
-        check("W22 — every settings verb refuses on a workspace with no book",
-              _run(w2, ["harness", "add", "codex"]) == "workspace-unrecorded"
-              and _run(w2, ["artifact", "set", "none"])
+        check("W22 — every settings form refuses on a workspace with no book",
+              _run(w2, ["add", "harness", "codex"]) == "workspace-unrecorded"
+              and _run(w2, ["set", "artifact", "none"])
               == "workspace-unrecorded"
-              and _run(w2, ["dupe-artifacts"]) == "workspace-unrecorded"
-              and _run(w2, ["harness"]) == 0)
+              and _run(w2, ["dupe-artifacts"]) == "workspace-unrecorded")
+        _w2li = io.StringIO()
+        with contextlib.redirect_stdout(_w2li):
+            _rc2 = cmd_li(build_parser().parse_args(["li"]), w2, catalog, [])
+        check("W22b — and `li` on that workspace SAYS nothing is recorded "
+              "rather than printing an empty settings block",
+              _rc2 == 0 and "none recorded" in _w2li.getvalue(),
+              _w2li.getvalue()[:200])
 
         # MIGRATION — a pre-D16 book has harnesses only inside `components`.
         w3 = _mkws("ws-d16-legacy")
@@ -5404,8 +5584,16 @@ def selftest() -> int:
             check("P-unbooked-v1 — vanished v1 part-rm refuses",
                   exc.code == "part-unbooked", exc.code)
 
-        print("\nU-live — v1→v2 upgrade against a COPY of the real book")
-        live_book = Path("/home/henri/ht-wkdir/second-brain") / STATE_REL
+        print("\nU-live — v1→v2 upgrade against a COPY of a real book")
+        # DISCOVERED from the cwd, the same walk the CLI itself uses. It was a
+        # literal `/home/<someone>/<their vault>` — an instance path baked into
+        # content that ships in the rbtv repo, where the General rule forbids
+        # exactly that. The practical cost was worse than the rule: on every
+        # machine but one the path did not exist, so the whole block was inert
+        # and its `live book present` arm failed for a reason no one could act
+        # on. Discovery makes it run wherever a workspace actually is.
+        live_root, _ = discover_target(Path.cwd())
+        live_book = live_root / STATE_REL
         if live_book.is_file():
             before = live_book.read_bytes()
             dest_root = tmp / "ws-live-upgrade"
@@ -5424,8 +5612,7 @@ def selftest() -> int:
                          for cid, rec in raw["components"].items()}
             rewrite_legacy_skill_ids(raw)
             old_ids = set(raw["components"])
-            vault = live_book.parents[2]
-            live_cat, _ = scan_all(vault / ".rbtv" / "mirror",
+            live_cat, _ = scan_all(live_root / ".rbtv" / "mirror",
                                    REPO_ROOT)
             upgraded = upgrade_book(raw, catalog_parts_map(live_cat))
             write_state(dest_root, upgraded)
@@ -5458,24 +5645,38 @@ def selftest() -> int:
             check("U-live known_files dual-read equals booked files ∪ guidance",
                   known_files(got) == set().union(*src_files.values())
                   | set(raw.get("guidance_files") or []))
-            legacy_four = ["claude", "codex", "opencode", "kimi"]
-            three = ["claude", "codex", "opencode"]
-            hub_skills = {
-                cid: hs for cid, hs in src_harnesses.items()
-                if cid.startswith(f"{HUB_DIR}/{HUB_ID_FOLDER['skill']}/")}
-            check("U-live every booked record listed kimi; upgrade leaves the three",
-                  hub_skills
-                  and all(hs == legacy_four for hs in src_harnesses.values())
-                  and all(got["components"][cid]["harnesses"] == three
-                          and "kimi" not in got["components"][cid]["harnesses"]
-                          for cid in got["components"])
-                  and all(got["components"][cid].get("module") == HUB_DIR
-                          for cid in hub_skills)
-                  and len(got["components"]) == len(src_harnesses),
-                  str({cid: got["components"].get(cid, {}).get("harnesses")
-                       for cid in list(hub_skills)[:3]}))
+            # THE RETIRED-HARNESS STRIP IS NOT TESTED HERE, and saying so is
+            # the point: its coverage is the D4 block and `H-rewrite`, which
+            # build books carrying the retired name themselves. This arm used
+            # to assert the strip too, by requiring the LIVE book to still
+            # list `kimi` — an assertion about how OLD a machine's data is,
+            # not about behaviour. The `kimi` CLI was retired 2026-08-14; once
+            # any install rewrote the record without it the arm could never
+            # pass again, and it reported a healthy migration as a failure.
+            # A real book of unknown age can only prove age-independent
+            # things, so those are what is left.
+            hub_skills = [
+                cid for cid in src_harnesses
+                if cid.startswith(f"{HUB_DIR}/{HUB_ID_FOLDER['skill']}/")]
+            check("U-live upgrade carries every record and invents no "
+                  "harness this tool does not know",
+                  len(got["components"]) == len(src_harnesses)
+                  and all(set(got["components"][cid]["harnesses"])
+                          <= set(HARNESSES) for cid in got["components"]),
+                  str({cid: got["components"][cid]["harnesses"]
+                       for cid in list(got["components"])[:3]}))
+            if hub_skills:
+                check("U-live hub skill ids land under the hub module",
+                      all(got["components"][cid].get("module") == HUB_DIR
+                          for cid in hub_skills),
+                      str({cid: got["components"][cid].get("module")
+                           for cid in hub_skills[:3]}))
+            else:
+                skip("U-live hub skill ids land under the hub module",
+                     "this workspace books no _hub skill")
         else:
-            check("U-live live book present", False, str(live_book))
+            skip("U-live — upgrade against a real book",
+                 f"no installed workspace at or above {Path.cwd()}")
 
         print("\nCLI — parser, selectors, index, R7 guard")
         for verb in ("add", "rm", "ls", "li", "harness", "artifact",
@@ -5527,6 +5728,28 @@ def selftest() -> int:
             b = build_parser().parse_args(["add", "-x", meth])
             check(f"CLI-alias-{flag}", a.method == b.method == [meth],
                   f"{a.method} vs {b.method}")
+
+        # A comma list must be IDENTICAL to the repeated form, for every
+        # selector — not just for -x, which is the only one that split before.
+        # The red control is the pre-change parser: with `append` restored on
+        # any of these four, the comma token arrives as one bogus id and the
+        # equality fails.
+        for _flag, _dest in (("-m", "module"), ("-c", "component"),
+                             ("-nm", "exclude_module"),
+                             ("-nc", "exclude_component"),
+                             ("-x", "method"), ("-nx", "exclude_method")):
+            _v = ("skill", "rule") if _dest.endswith("method") else ("aa", "bb")
+            _one = build_parser().parse_args(
+                ["rm", _flag, ",".join(_v)])
+            _two = build_parser().parse_args(
+                ["rm", _flag, _v[0], _flag, _v[1]])
+            check(f"CLI-comma-{_flag}",
+                  getattr(_one, _dest) == getattr(_two, _dest) == list(_v),
+                  f"{getattr(_one, _dest)} vs {getattr(_two, _dest)}")
+        # Whitespace around a comma is a human typing a list, not a new id.
+        check("CLI-comma-spaces",
+              build_parser().parse_args(["rm", "-c", "aa, bb ,"]).component
+              == ["aa", "bb"])
 
         SEL_CAT = {
             "core/communication": {
@@ -5682,6 +5905,86 @@ def selftest() -> int:
             ik = type(exc).__name__
         check("index-kind-mismatch — slot 1 is module, not component",
               ik == "index-kind-mismatch", ik)
+
+        # RANGES. The unit under test is _index_nums — the ONE place that
+        # decides whether a token names ls/li numbers at all. Every arm below
+        # would go red on the pre-range parser: it recognised `t.isdigit()`
+        # only, so `3-7` fell through as a component NAME.
+        check("RANGE-single", _index_nums("7") == ["7"])
+        check("RANGE-inclusive-both-ends", _index_nums("3-7")
+              == ["3", "4", "5", "6", "7"], str(_index_nums("3-7")))
+        check("RANGE-degenerate", _index_nums("5-5") == ["5"])
+        # The whole reason a range is digits-on-both-sides: real ids carry
+        # hyphens, and mistaking one for a range would select the wrong parts
+        # silently rather than refusing.
+        for _name in ("ponytail-audit", "web/browse", "sub-agent", "5-",
+                      "-5", "1-2-3", "a-1", "1-b"):
+            check(f"RANGE-name-not-range {_name}",
+                  _index_nums(_name) is None, str(_index_nums(_name)))
+        try:
+            _index_nums("7-3")
+            inv = "no refusal"
+        except Refuse as exc:
+            inv = exc.code
+        check("RANGE-inverted refuses", inv == "index-range-inverted", inv)
+        try:
+            _index_nums(f"1-{RANGE_SPAN_MAX + 2}")
+            wide = "no refusal"
+        except Refuse as exc:
+            wide = exc.code
+        check("RANGE-too-wide refuses before expanding",
+              wide == "index-range-too-wide", wide)
+        check("RANGE-at-the-cap still expands",
+              len(_index_nums(f"1-{RANGE_SPAN_MAX}")) == RANGE_SPAN_MAX)
+        # End to end through the resolver: a range must select exactly what the
+        # same numbers listed one by one select.
+        _idx3 = write_index(idx_ws, SEL_CAT)
+        _slots = sorted(
+            int(n) for n, sl in (_idx3.get("n") or {}).items()
+            if sl["kind"] in ("component", "part"))
+
+        def _outcome(comps: list[str]):
+            """The resolver's verdict — the selection OR the refusal code.
+
+            Both are outcomes a caller sees, and the property under test is
+            that a range and the same numbers listed one by one produce the
+            SAME one. Comparing only successful selections would let a range
+            that refuses where the list succeeds slip through green.
+            """
+            try:
+                return ("ok", resolve_selection(
+                    _sel(verb="add", component=comps, index=_idx3),
+                    SEL_CAT, None))
+            except Refuse as exc:
+                return ("refused", exc.code)
+
+        # The pair must be one where the LISTED form actually SELECTS something.
+        # Taking the first two component slots blind picked a span containing an
+        # uninstallable fixture, and the arm then compared refusal-to-refusal —
+        # equal, green, and proving nothing about a range that works.
+        _pair = next(
+            ((lo, hi) for lo in _slots for hi in _slots if hi > lo
+             and _outcome([str(n) for n in range(lo, hi + 1)])[0] == "ok"),
+            None)
+        if _pair:
+            _lo, _hi = _pair
+            _range = _outcome([f"{_lo}-{_hi}"])
+            _listed = _outcome([str(n) for n in range(_lo, _hi + 1)])
+            check("RANGE-equals-the-listed-numbers",
+                  _range == _listed and _range[0] == "ok" and _range[1],
+                  f"{_lo}-{_hi}: {_range} vs {_listed}")
+        else:
+            check("RANGE-equals-the-listed-numbers", False,
+                  f"fixture offers no selectable span: {_slots}")
+        try:
+            resolve_selection(
+                _sel(verb="add", component=["1-999"], index=_idx3),
+                SEL_CAT, None)
+            ru = "no refusal"
+        except Refuse as exc:
+            ru = exc.code
+        check("RANGE-unknown-slot inside a range refuses",
+              ru in ("index-unknown", "index-kind-mismatch"), ru)
 
         nws = tmp / "ws-nconfirm"
         nws.mkdir()
@@ -6039,7 +6342,8 @@ def selftest() -> int:
                   "components": {}, "target": str(pws),
                   "state_file": str(pws / STATE_REL),
                   "marker": MANAGED_MARK, "guidance_basis": BASIS_NONE,
-                  "schema": SCHEMA}
+                  "schema": SCHEMA,
+                  "settings": _settings_view({})}
         _pbuf = io.StringIO()
         with contextlib.redirect_stdout(_pbuf):
             print_li(_probe)
@@ -6262,7 +6566,7 @@ def selftest() -> int:
         check("SURF-json-li-keys — today's keys plus path_links/status",
               set(lij) >= {"ok", "target", "schema", "state_file", "marker",
                            "guidance_basis", "components", "guidance_files",
-                           "shared_claims", "path_links"}
+                           "shared_claims", "path_links", "settings"}
               and lij["components"]["fixmod/goodcomp"]["status"] == "part"
               and "missing" in lij["components"]["fixmod/goodcomp"],
               str(sorted(lij)))
@@ -6354,32 +6658,51 @@ def build_parser() -> argparse.ArgumentParser:
             default=(sup if on_verb else False),
             help="plan and print; write nothing")
 
-    class MethodsAction(argparse.Action):
+    class ListAction(argparse.Action):
+        """One selector token per comma, appended across repeats.
+
+        `-c a,b` and `-c a -c b` produce the same list, so a caller removing
+        or installing many parts writes ONE command instead of one per part.
+        Repeat-only was the shape before, and it made a ten-component `rm`
+        ten invocations. Safe because no module, component or method id
+        carries a comma — `-x` has split this way since it shipped, and this
+        only widens the same rule to the other four selectors.
+        """
+
+        VALID: tuple = ()
+        NOUN = "value"
+
         def __call__(self, parser, namespace, values, option_string=None):
             cur = getattr(namespace, self.dest) or []
             for part in str(values).split(","):
                 part = part.strip()
                 if not part:
                     continue
-                if part not in CANONICAL_METHODS:
+                if self.VALID and part not in self.VALID:
                     parser.error(
-                        f"unknown method {part!r} (want "
-                        + " · ".join(CANONICAL_METHODS) + ")")
+                        f"unknown {self.NOUN} {part!r} (want "
+                        + " · ".join(self.VALID) + ")")
                 cur.append(part)
             setattr(namespace, self.dest, cur)
+
+    class MethodsAction(ListAction):
+        VALID = CANONICAL_METHODS
+        NOUN = "method"
 
     def selectors(dest) -> None:
         dest.add_argument(
             "-A", action="store_true", dest="all",
             help="everything")
         dest.add_argument(
-            "-m", action="append", default=[], dest="module",
+            "-m", action=ListAction, default=[], dest="module",
             metavar="MOD",
-            help="module (repeatable, OR). -m hub = _hub")
+            help="module[,module] (repeatable, OR). name, or an ls/li "
+                 "number or N-M range. -m hub = _hub")
         dest.add_argument(
-            "-c", action="append", default=[], dest="component",
+            "-c", action=ListAction, default=[], dest="component",
             metavar="COMP",
-            help="component (repeatable, OR). name or last ls/li number")
+            help="component[,component] (repeatable, OR). name, or an "
+                 "ls/li number or N-M range")
         dest.add_argument(
             "-x", action=MethodsAction, default=[], dest="method",
             metavar="METH",
@@ -6395,13 +6718,24 @@ def build_parser() -> argparse.ArgumentParser:
             metavar="METH",
             help="exclude method[,method]")
         dest.add_argument(
-            "-nm", action="append", default=[], dest="exclude_module",
+            "-nm", action=ListAction, default=[], dest="exclude_module",
             metavar="MOD",
-            help="exclude module")
+            help="exclude module[,module]")
         dest.add_argument(
-            "-nc", action="append", default=[], dest="exclude_component",
+            "-nc", action=ListAction, default=[], dest="exclude_component",
             metavar="COMP",
-            help="exclude component")
+            help="exclude component[,component]")
+
+    # D16b — the SAME action word covers components and workspace settings.
+    # A settings form is a bare NOUN in the positional slot, which is free
+    # because components are always named behind a selector flag: nothing a
+    # caller can write means both.
+    def setting_noun(dest, verb: str) -> None:
+        dest.add_argument(
+            "noun", nargs="*", metavar="NOUN",
+            help=f"settings form: `{verb} harness <h,h>` · "
+                 f"`{verb} artifact exclude <dir>…`. Omit it and this verb "
+                 "works on COMPONENTS through the selectors above")
 
     tree_flags(p, on_verb=False)
     # D16 — no global --harness/--artifact. Each setting has exactly one door:
@@ -6415,29 +6749,45 @@ def build_parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
         epilog=(
             "selectors AND across kinds, OR within a kind.\n"
-            "exclusion: -nx skill  -nm core  -nc web/browse"))
+            "many at once: -c web/browse,web/capture  ·  -c 3,7,9  ·  -c 2-9,14\n"
+            "exclusion: -nx skill  -nm core  -nc web/browse\n"
+            + SETTINGS_EPILOG))
     selectors(s_add)
     s_add.add_argument(
         "--harness", default=argparse.SUPPRESS,
         help="FIRST add on this workspace ONLY (required there): "
              "comma-separated subset of " + ",".join(HARNESSES)
              + ". Recorded workspace-wide; later `add` refuses it — change it "
-               "with `rbtv install harness add|rm`")
+               "with `rbtv install add|rm harness`")
     s_add.add_argument(
         "--artifact", default=argparse.SUPPRESS,
         choices=(*GUIDANCE_NAMES, BASIS_NONE),
         help="FIRST add on this workspace ONLY (required there): which root "
              "guidance file you author; the other is generated. none = "
              "author-nothing, generate-nothing. Later `add` refuses it — "
-             "change it with `rbtv install artifact set`")
+             "change it with `rbtv install set artifact`")
     s_add.add_argument(
         "--write-path", action="store_true",
         help="append the PATH bootstrap line to the shell startup file "
              "(fenced; teardown can remove it). never happens without this flag")
+    setting_noun(s_add, "add")
 
     s_rm = sub.add_parser(
-        "rm", help="remove. -A = every booked part")
+        "rm", help="remove. -A = every booked part. also `rm harness <h>` / "
+                   "`rm artifact exclude <dir>`",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
+        epilog=SETTINGS_EPILOG)
     selectors(s_rm)
+    setting_noun(s_rm, "rm")
+
+    s_set = sub.add_parser(
+        "set", help="a workspace setting that holds ONE value: "
+                    "`set artifact CLAUDE.md|AGENTS.md|none`",
+        allow_abbrev=False)
+    s_set.add_argument("noun", nargs="*", metavar="NOUN",
+                       help="artifact <" + "|".join((*GUIDANCE_NAMES,
+                                                     BASIS_NONE)) + ">")
 
     s_ls = sub.add_parser(
         "ls", help="what is AVAILABLE (absorbs scan: shadowed)")
@@ -6449,46 +6799,18 @@ def build_parser() -> argparse.ArgumentParser:
     s_dupe = sub.add_parser(
         "dupe-artifacts",
         help="regenerate harness guidance files from the recorded basis "
-             "(change the basis with `artifact set`, never here)")
+             "(change the basis with `set artifact`, never here)")
 
-    s_h = sub.add_parser(
-        "harness",
-        help="the WORKSPACE harness set (D16). no OP = show",
-        allow_abbrev=False)
-    h_sub = s_h.add_subparsers(dest="op", metavar="OP")
-    for _op, _hlp in (("add", "add harness(es): plans and writes their files "
-                              "for every installed component"),
-                      ("rm", "remove harness(es): DELETES their files for "
-                             "every installed component")):
-        _q = h_sub.add_parser(_op, help=_hlp, allow_abbrev=False)
-        _q.add_argument("harness", metavar="HARNESS",
-                        help="comma-separated: " + ",".join(HARNESSES))
-        tree_flags(_q, on_verb=True)
+    # D16c — HIDDEN, and hidden is the point: no `help=` keyword means
+    # argparse never lists them, so the menu carries only verbs that DO
+    # something. They still parse, purely so every retired spelling —
+    # `harness`, `harness add`, `artifact set` — lands on a refusal that
+    # names where it went, rather than on `invalid choice: 'harness'`.
+    s_h = sub.add_parser("harness", allow_abbrev=False)
+    s_h.add_argument("moved", nargs="*", help=argparse.SUPPRESS)
 
-    s_art = sub.add_parser(
-        "artifact",
-        help="the root guidance basis + the mirror's skipped folders (D16). "
-             "no OP = show",
-        allow_abbrev=False)
-    a_sub = s_art.add_subparsers(dest="op", metavar="OP")
-    a_set = a_sub.add_parser(
-        "set", help="which root guidance file you author; the other is "
-                    "generated. none = author-nothing, generate-nothing",
-        allow_abbrev=False)
-    a_set.add_argument("value", metavar="NAME",
-                       choices=(*GUIDANCE_NAMES, BASIS_NONE))
-    tree_flags(a_set, on_verb=True)
-    a_ex = a_sub.add_parser(
-        "exclude", help="folders the guidance-mirror walk skips",
-        allow_abbrev=False)
-    e_sub = a_ex.add_subparsers(dest="exop", metavar="OP")
-    for _op, _hlp in (("add", "stop generating guidance under these folders"),
-                      ("rm", "resume generating guidance under these folders")):
-        _q = e_sub.add_parser(_op, help=_hlp, allow_abbrev=False)
-        _q.add_argument("dirs", metavar="DIR", nargs="+",
-                        help="path relative to the install root")
-        tree_flags(_q, on_verb=True)
-    tree_flags(a_ex, on_verb=True)
+    s_art = sub.add_parser("artifact", allow_abbrev=False)
+    s_art.add_argument("moved", nargs="*", help=argparse.SUPPRESS)
 
     s_doc = sub.add_parser(
         "doctor",
@@ -6499,7 +6821,8 @@ def build_parser() -> argparse.ArgumentParser:
     s_inter = sub.add_parser(
         "interactive", help="the human flow (also: no arguments)")
 
-    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_doc, s_inter, s_h, s_art):
+    for s in (s_add, s_rm, s_set, s_ls, s_li, s_dupe, s_doc, s_inter,
+              s_h, s_art):
         tree_flags(s, on_verb=True)
     return p
 
@@ -6513,10 +6836,11 @@ def _ls_filters(args, catalog: dict, target: Path) -> dict:
     drop_c = list(getattr(args, "exclude_component", None) or [])
     fp = scan_fingerprint(catalog)
     idx = read_index(target)
-    if any(t.isdigit() for t in comps):
-        comps = _expand_nums(comps, "component", idx, fp)
-    if any(t.isdigit() for t in drop_c):
-        drop_c = _expand_nums(drop_c, "component", idx, fp)
+    # No `is this numeric?` gate here: _expand_nums hands every non-index token
+    # straight back, and a gate that has to recognise index tokens ITSELF is a
+    # second copy of that rule — the copy that missed ranges when they landed.
+    comps = _expand_nums(comps, "component", idx, fp)
+    drop_c = _expand_nums(drop_c, "component", idx, fp)
     return dict(
         modules=list(getattr(args, "module", None) or []),
         methods=list(getattr(args, "method", None) or []),
@@ -6595,8 +6919,29 @@ def cmd_li(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
-SETTING_VERB = {"harness": "rbtv install harness add|rm <harness>",
-                "artifact": "rbtv install artifact set <name>"}
+SETTING_VERB = {"harness": "rbtv install add|rm harness <harness>",
+                "artifact": "rbtv install set artifact <name>"}
+
+# D16b — the ACTION-FIRST settings grammar, in one place so the help text, the
+# `verb-moved` refusal and the dispatch can never spell it three ways.
+SETTINGS_EPILOG = (
+    "workspace settings (same action words, a NOUN instead of selectors):\n"
+    "  rbtv install add harness codex          rbtv install rm harness codex\n"
+    "  rbtv install set artifact CLAUDE.md|AGENTS.md|none\n"
+    "  rbtv install add artifact exclude DIR   rbtv install rm artifact "
+    "exclude DIR\n"
+    "  rbtv install li                         (shows all three)")
+
+# The noun-led spelling D16b retired, mapped to what replaces it. Data, so the
+# refusal is generated from the same table the help is, and a form that moves
+# again cannot leave a stale sentence behind.
+MOVED_FORMS = {
+    ("harness", "add"): "add harness",
+    ("harness", "rm"): "rm harness",
+    ("artifact", "set"): "set artifact",
+    ("artifact", "exclude", "add"): "add artifact exclude",
+    ("artifact", "exclude", "rm"): "rm artifact exclude",
+}
 
 
 def _gate_add_harness(target: Path, state: dict, raw: str | None) -> list[str]:
@@ -6685,26 +7030,77 @@ def _settings_view(state: dict) -> dict:
 
 
 def _print_settings(view: dict) -> None:
+    """The workspace settings block at the head of `li` (D16c).
+
+    It is printed where a human is already looking at this workspace, and it
+    carries the commands that CHANGE each line — the two verbs that used to
+    exist only to show these three values are gone, and a reader who has to
+    go find the help to change what they are looking at is why.
+    """
     if not view["recorded"]:
-        print("no workspace settings recorded — nothing installed here yet")
+        print("settings  : none recorded — nothing installed here yet")
         return
-    print("harnesses : " + (", ".join(view["harnesses"]) or "(none)"))
-    print("artifact  : " + (view["artifact"] or "(unset — no guidance mirror)"))
-    print("excluded  : " + (", ".join(view["guidance_excludes"]) or "(none)"))
+    print("harnesses : " + (", ".join(view["harnesses"]) or "(none)")
+          + "   (change: rbtv install add|rm harness <h>)")
+    print("artifact  : " + (view["artifact"] or "(unset — no guidance mirror)")
+          + "   (change: rbtv install set artifact <name>)")
+    print("excluded  : " + (", ".join(view["guidance_excludes"]) or "(none)")
+          + "   (change: rbtv install add|rm artifact exclude <dir>)")
+
+
+def _refuse_moved(head: str, tokens: list[str]) -> None:
+    """D16b — the noun-led spelling is gone; say what replaces THIS command.
+
+    It parses (the old ops land in a catch-all positional) for exactly one
+    reason: an argparse usage dump tells a human that `add` is not a valid
+    something, which is both true and useless. This names the new form with
+    their own arguments already in it, ready to paste.
+    """
+    for old, new in MOVED_FORMS.items():
+        if old[0] != head or list(old[1:]) != tokens[:len(old) - 1]:
+            continue
+        rest = " ".join(tokens[len(old) - 1:])
+        raise Refuse(
+            "verb-moved",
+            f"`rbtv install {head} {' '.join(old[1:])}` moved — the ACTION "
+            f"word now comes first, the same way it does for components "
+            f"(D16b). Run: rbtv install {new} {rest}".rstrip())
+    raise Refuse(
+        "verb-moved",
+        f"`rbtv install {head}` is gone (D16c). READ the workspace settings "
+        "with `rbtv install li` — it heads its listing with all three. "
+        "CHANGE this one with "
+        + (SETTING_VERB["harness"] if head == "harness"
+           else f"{SETTING_VERB['artifact']} or "
+                "`rbtv install add|rm artifact exclude <dir>`"))
 
 
 def cmd_harness(args, target: Path, catalog: dict, shadowed: list,
                 *, ask=None) -> int:
-    del ask, shadowed
+    del ask, shadowed, catalog, target
+    _refuse_moved("harness", list(getattr(args, "moved", None) or []))
+    return 1  # unreachable: _refuse_moved always raises
+
+
+def cmd_artifact(args, target: Path, catalog: dict, shadowed: list,
+                 *, ask=None) -> int:
+    del ask, shadowed, catalog, target
+    _refuse_moved("artifact", list(getattr(args, "moved", None) or []))
+    return 1  # unreachable: _refuse_moved always raises
+
+
+# ── the settings forms of add / rm / set (D16b) ─────────────────────────────
+#
+# Each one changes a WORKSPACE setting and then re-plans every booked
+# component, so a dropped harness or a flipped basis really loses its files.
+# They are separate from the component path of the same verb and share none of
+# its selector handling — the noun is what tells them apart.
+
+def _apply_harness(args, target: Path, catalog: dict, op: str,
+                   raw: str) -> int:
     state = read_state(target)
-    as_json = bool(getattr(args, "json", False))
-    op = getattr(args, "op", None)
-    if op is None:
-        view = _settings_view(state)
-        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
-        return 0
     current = _require_recorded(target, state)
-    delta = _parse_harnesses(args.harness)
+    delta = _parse_harnesses(raw)
     if not delta:
         raise Refuse("harness-unknown", "no harness named")
     wanted = (set(current) | set(delta) if op == "add"
@@ -6721,38 +7117,36 @@ def cmd_harness(args, target: Path, catalog: dict, shadowed: list,
         return 0
     data = _replan_all(target, catalog, new,
                        bool(getattr(args, "dry_run", False)))
-    _emit(data, as_json)
+    _emit(data, bool(getattr(args, "json", False)))
     return 0
 
 
-def cmd_artifact(args, target: Path, catalog: dict, shadowed: list,
-                 *, ask=None) -> int:
-    del ask, shadowed
+def _apply_artifact(args, target: Path, catalog: dict, value: str) -> int:
     state = read_state(target)
-    as_json = bool(getattr(args, "json", False))
-    op = getattr(args, "op", None)
-    if op is None:
-        view = _settings_view(state)
-        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
-        return 0
     harnesses = _require_recorded(target, state)
-    dry = bool(getattr(args, "dry_run", False))
-    if op == "set":
-        if state.get("guidance_basis", object()) == args.value:
-            print(f"no change — the basis already is {args.value}")
-            return 0
-        data = _replan_all(target, catalog, harnesses, dry,
-                           guidance_basis=args.value)
-        _emit(data, as_json)
+    if value not in (*GUIDANCE_NAMES, BASIS_NONE):
+        raise Refuse(
+            "artifact-unknown",
+            f"{value!r} is not a guidance basis. Name one of: "
+            + ", ".join((*GUIDANCE_NAMES, BASIS_NONE))
+            + f" — `{BASIS_NONE}` means author nothing and generate nothing")
+    if state.get("guidance_basis", object()) == value:
+        print(f"no change — the basis already is {value}")
         return 0
-    exop = getattr(args, "exop", None)
-    if exop is None:
-        view = _settings_view(state)
-        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
-        return 0
+    data = _replan_all(target, catalog, harnesses,
+                       bool(getattr(args, "dry_run", False)),
+                       guidance_basis=value)
+    _emit(data, bool(getattr(args, "json", False)))
+    return 0
+
+
+def _apply_exclude(args, target: Path, catalog: dict, op: str,
+                   dirs: list[str]) -> int:
+    state = read_state(target)
+    harnesses = _require_recorded(target, state)
     current = [_norm_prefix(d) for d in (state.get("guidance_excludes") or [])]
-    delta = [_norm_prefix(d) for d in args.dirs]
-    if exop == "add":
+    delta = [_norm_prefix(d) for d in dirs]
+    if op == "add":
         new = sorted(set(current) | set(delta))
     else:
         unknown = [d for d in delta if d not in current]
@@ -6768,17 +7162,104 @@ def cmd_artifact(args, target: Path, catalog: dict, shadowed: list,
     if new == sorted(current):
         print("no change — " + (", ".join(new) or "nothing") + " excluded")
         return 0
-    data = _replan_all(target, catalog, harnesses, dry, guidance_excludes=new)
-    _emit(data, as_json)
+    data = _replan_all(target, catalog, harnesses,
+                       bool(getattr(args, "dry_run", False)),
+                       guidance_excludes=new)
+    _emit(data, bool(getattr(args, "json", False)))
     return 0
+
+
+def _has_selectors(args) -> bool:
+    return bool(getattr(args, "all", False) or getattr(args, "module", None)
+                or getattr(args, "component", None)
+                or getattr(args, "method", None)
+                or getattr(args, "exclude_module", None)
+                or getattr(args, "exclude_component", None)
+                or getattr(args, "exclude_method", None))
+
+
+def _settings_form(args, target: Path, catalog: dict, verb: str,
+                   noun: list[str]) -> int:
+    """Route a NOUN-carrying `add`/`rm`/`set` to the setting it names.
+
+    A settings form takes no component selectors: the two are different jobs
+    and running them in one command would make a partly-applied failure
+    ambiguous — which half landed? So the mix REFUSES rather than guessing an
+    order.
+    """
+    head, rest = noun[0], noun[1:]
+    if verb in ("add", "rm") and _has_selectors(args):
+        raise Refuse(
+            "noun-with-selectors",
+            f"`{verb} {head}` changes a WORKSPACE SETTING and takes no "
+            "component selectors — run the two as separate commands so a "
+            "failure in one cannot leave the other half-applied")
+
+    if head == "harness":
+        if verb == "set":
+            raise Refuse(
+                "setting-wrong-verb",
+                "the harness set holds MANY values, so it is edited a piece "
+                f"at a time: {SETTING_VERB['harness']}")
+        if not rest:
+            raise Refuse(
+                "harness-unknown",
+                f"name the harness(es) to {verb}: comma-separated subset of "
+                + ", ".join(HARNESSES))
+        return _apply_harness(args, target, catalog, verb, ",".join(rest))
+
+    if head == "artifact":
+        if rest and rest[0] == "exclude":
+            if verb == "set":
+                raise Refuse(
+                    "setting-wrong-verb",
+                    "the skipped-folder list holds MANY values: "
+                    "`rbtv install add|rm artifact exclude <dir>`")
+            if not rest[1:]:
+                raise Refuse(
+                    "exclude-empty",
+                    f"name the folder(s) to {verb}, relative to the install "
+                    "root")
+            return _apply_exclude(args, target, catalog, verb, rest[1:])
+        if verb != "set":
+            raise Refuse(
+                "setting-wrong-verb",
+                "the guidance basis holds ONE value, so choosing a new one "
+                f"REPLACES the old — that is a set, not an {verb}: "
+                f"{SETTING_VERB['artifact']}")
+        if len(rest) != 1:
+            raise Refuse(
+                "artifact-unknown",
+                "name exactly one basis: "
+                + ", ".join((*GUIDANCE_NAMES, BASIS_NONE)))
+        return _apply_artifact(args, target, catalog, rest[0])
+
+    known = ", ".join(SETTING_VERB)
+    raise Refuse(
+        "noun-unknown",
+        f"`{head}` names no workspace setting. Known: {known}. "
+        "To choose COMPONENTS, use the selector flags (-c/-m/-x/-A) with no "
+        "noun — run `rbtv install " + verb + " --help`")
+
+
+def cmd_set(args, target: Path, catalog: dict, shadowed: list,
+            *, ask=None) -> int:
+    del ask, shadowed
+    noun = list(getattr(args, "noun", None) or [])
+    if not noun:
+        raise Refuse(
+            "noun-missing",
+            f"`set` needs the setting to change: {SETTING_VERB['artifact']}")
+    return _settings_form(args, target, catalog, "set", noun)
 
 
 def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
     del ask, shadowed
-    if not (args.all or args.module or args.component or args.method
-            or args.exclude_module or args.exclude_component
-            or args.exclude_method):
+    noun = list(getattr(args, "noun", None) or [])
+    if noun:
+        return _settings_form(args, target, catalog, "add", noun)
+    if not _has_selectors(args):
         raise SystemExit(2)
     args.index = read_index(target)
     keys = resolve_selection(args, catalog, None)
@@ -6799,9 +7280,10 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
 def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
     del shadowed
-    if not (args.all or args.module or args.component or args.method
-            or args.exclude_module or args.exclude_component
-            or args.exclude_method):
+    noun = list(getattr(args, "noun", None) or [])
+    if noun:
+        return _settings_form(args, target, catalog, "rm", noun)
+    if not _has_selectors(args):
         raise SystemExit(2)
     args.index = read_index(target)
     book = read_state(target).get("components")
@@ -6863,6 +7345,7 @@ _HANDLERS = {
     "rm": cmd_rm,
     "ls": cmd_ls,
     "li": cmd_li,
+    "set": cmd_set,
     "harness": cmd_harness,
     "artifact": cmd_artifact,
     "dupe-artifacts": cmd_dupe,
@@ -6904,11 +7387,17 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         handler = _HANDLERS.get(args.verb)
         if handler is None:
             parser.error(f"unknown verb {args.verb!r}")
-        if args.verb in ("add", "rm") and not (
-                args.all or args.module or args.component or args.method
-                or args.exclude_module or args.exclude_component
-                or args.exclude_method):
-            parser.error(f"{args.verb} needs -A or -m/-c/-x")
+        # A settings NOUN is the other legal shape of add/rm (D16b), so the
+        # selector gate must let it through — this gate sits AHEAD of the
+        # handler, and without the noun clause every `add harness codex`
+        # died here as a usage error before the dispatch ever saw it.
+        if (args.verb in ("add", "rm")
+                and not getattr(args, "noun", None)
+                and not _has_selectors(args)):
+            parser.error(
+                f"{args.verb} needs -A or -m/-c/-x for components, or a "
+                f"setting: {args.verb} harness <h> · {args.verb} artifact "
+                "exclude <dir>")
         return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
         if as_json:
