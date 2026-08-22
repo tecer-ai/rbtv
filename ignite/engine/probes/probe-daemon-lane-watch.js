@@ -808,8 +808,8 @@ async function main() {
     // file, same columns (`coord.py SESSIONS_COLS`), same disposition the seat would declare.
     fs.writeFileSync(path.join(switchGoal, 'sessions.csv'),
       'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,'
-      + 'tty,disposition,disposition-writer,execution,checkin,model\n'
-      + `${rows[0] ? rows[0].session_id : 'sid-alpha'},alpha,claude,,,,${isoNow()},${isoNow()},,,,done,seat,,,\n`);
+      + 'tty,disposition,disposition-writer,execution,checkin,model,hold-anchor\n'
+      + `${rows[0] ? rows[0].session_id : 'sid-alpha'},alpha,claude,,,,${isoNow()},${isoNow()},,,,done,seat,,,,\n`);
   }
   {
     const engine = createEngine({

@@ -470,12 +470,12 @@ async function main() {
   // The seat's own CHECK-OUT — the only thing that advances an edge now. `sessions.csv` is the
   // surface `coord.py#session_disposition` reads, and the shape is its own `SESSIONS_COLS`.
   const SESSIONS_HEADER = 'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,'
-    + 'pid,pid-starttime,tty,disposition,disposition-writer,execution,checkin,model\n';
+    + 'pid,pid-starttime,tty,disposition,disposition-writer,execution,checkin,model,hold-anchor\n';
   function checkOut(dir, seat, disposition) {
     const f = path.join(dir, 'sessions.csv');
     if (!fs.existsSync(f)) fs.writeFileSync(f, SESSIONS_HEADER);
     fs.appendFileSync(f, `sid-${seat},${seat},claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,`
-      + `${disposition},${disposition ? 'seat' : ''},,,\n`);
+      + `${disposition},${disposition ? 'seat' : ''},,,,\n`);
   }
 
   const wave1 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
