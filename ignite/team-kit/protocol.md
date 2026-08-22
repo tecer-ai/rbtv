@@ -40,6 +40,7 @@ $COORD owner present|reachable|afk [--note ".."]  # owner/leader only (P15). rea
                                                 #   no master session running: escalate by LAUNCHING
                                                 #   THE DOOR. `--help` states all three (7.85)
 $COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort; pre-validates every seat's harness/model and refuses BEFORE opening any pane (PROP-8)
+$COORD launch --only <seat> --reopen "<reason>" # leader only (D54/D66/D72) — RE-OPEN a `done` seat on a LATE FINDING: appends a new ordinary sitting, the old `done` row stands unrewritten, the reason is recorded on the new row, at most 2 reopens per (seat, reason), and any seat that already ran depending on the old `done` is flagged (not rolled back)
 $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/

@@ -2490,10 +2490,27 @@ SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir"
                  # class-A owed scan (`engine/reconcile.js#deriveOwed`), which stops re-waking the
                  # leader every cadence on a row that leader has already ruled on. `ready-seats`
                  # still reports the row's REAL class and it still blocks its successors.
-                 "hold-anchor"]
+                 "hold-anchor",
+                 # D54/D72 (owner, 2026-08-22) — THE `--reopen` DOOR'S RECORDED REASON. APPENDED,
+                 # NEVER INSERTED, the same `widen_header` reason `hold-anchor` was appended for.
+                 #
+                 # ⚠ WRITTEN ONLY ON THE NEW ROW A `--reopen` ADMISSION OPENS, NEVER ON THE `done`
+                 # ROW IT RE-OPENS. D54: "the `done` row stands unrewritten" — this column's writer
+                 # (the `--reopen` block in `cmd_launch`) finds the seat's freshly-opened OPEN row
+                 # by `sessions_open_ids`, not by `sessions_last_ended_rows`, so there is no code
+                 # path from this column back to the old ended row's cells.
+                 #
+                 # ⚠ NOT A GRANT, NOT A LATCH — same D12 shape as `hold-anchor`. It records ONE
+                 # fact: the reason the leader gave for re-opening finished work. When D72's
+                 # walk-forward finds downstream seats that already ran on the retracted `done`,
+                 # this cell also carries a POINTER (" (downstream flagged in messages.md #N)") to
+                 # the durable note — see `reopen_downstream_seats` and the `--reopen` block for
+                 # why `messages.md` and not a second column is that flag's durable home.
+                 "reopen-reason"]
 # The one name for that column. Three readers spell it, and a fourth spelling is how a hold
 # becomes invisible to the surface meant to show it.
 HOLD_ANCHOR_COL = "hold-anchor"
+REOPEN_REASON_COL = "reopen-reason"
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
@@ -4035,6 +4052,41 @@ def sessions_last_ended_rows(pkg):
         if seat and r[idx["ended"]].strip():
             out[seat] = {c: r[i].strip() for c, i in idx.items() if i < len(r)}
     return out
+
+
+def reopen_attempt_count(pkg, seat, reason):
+    """How many PRIOR `--reopen` sittings of `seat` already carry this EXACT `reason` string, read
+    off `sessions.csv` alone (D66's brake, kept coord.py-LOCAL — see the `--reopen` admission
+    block's own comment in `cmd_launch` for why this does not touch brief 07's `heart.db` counter:
+    that store's sole writer is `HeartStore.enqueue()`, and `--reopen`, like `--rerun` before it,
+    is a LEADER-DIRECT door that never enqueues).
+
+    Conservative by construction: counts every prior reopen under an UNCHANGED reason, whether or
+    not that sitting later made progress — D52's progress-relief (the mail cursor moved, a row's
+    disposition changed) is NOT evaluated here, so this can only OVER-count relative to the full
+    ruling, never under-count. Over-counting is the fail-closed direction."""
+    path = sessions_csv(pkg)
+    if not path.exists():
+        return 0
+    header, rows = read_csv_table(path, SESSIONS_COLS)
+    idx = {c: i for i, c in enumerate(header)}
+    if not {"seat", REOPEN_REASON_COL} <= set(idx):
+        return 0
+    reason = (reason or "").strip()
+    if not reason:
+        return 0
+    n = 0
+    for r in rows:
+        pad_row(r, header)
+        if r[idx["seat"]].strip() != seat:
+            continue
+        cell = r[idx[REOPEN_REASON_COL]].strip()
+        # The cell may carry this door's own messages.md pointer suffix (" (downstream flagged
+        # in messages.md #N)") — compare the REASON PREFIX only, so a later read is not fooled
+        # by its own annotation.
+        if cell == reason or cell.startswith(reason + " ("):
+            n += 1
+    return n
 
 
 def last_ended_pairs(rows):
@@ -13686,6 +13738,62 @@ def after_member_state(member, term, guards):
     return "done+guard-ruled", None, [pname]
 
 
+# ---------- D72: THE WALK-FORWARD — who already ran on a `done` a `--reopen` is about to retract --
+#
+# D54 lets the leader re-open a `done` row; D72 settles the question the two feasibility lanes left
+# open ("should anything downstream be told?") in the FULLER direction: the SYSTEM flags every
+# downstream seat that already ran depending on that `done`, automatically, at reopen time.
+#
+# ⚠ THIS IS A REVERSE LOOKUP ("who names me"), NOT A FORWARD READINESS EVALUATION. It reuses the
+# SAME member grammar `after_member_state` reads — `taskforce_after`/`AfterMember`/
+# `after_member_limbs` — per D72's own constraint ("compute it from the same predicate the plan
+# already uses... a duplicate drifts"), but it does not call `after_member_state` itself: that
+# function asks "is THIS member satisfied", which needs `term`/`guards` and a guard ruling; this
+# asks only "does this member's after-cell NAME the reopened seat at all", which needs neither.
+
+def _reopen_predecessor_names(member):
+    """Every predecessor NAME one `after` member can resolve to — the bare name, or every limb's
+    name for an alternate (`a|b` names BOTH `a` and `b`, since a reopen of EITHER retracts a
+    `done` the alternate may have been satisfied by)."""
+    if member.unsupported:
+        return [AfterMember(limb).name for limb in after_member_limbs(str(member))
+                if AfterMember(limb).name]
+    return [member.name] if member.name else []
+
+
+def reopen_downstream_seats(pkg, reopened_seat):
+    """Every seat whose `after` NAMES `reopened_seat` as a predecessor AND that already has a
+    session row (open or ended) in `sessions.csv` — work that RAN on the `done` a `--reopen` of
+    `reopened_seat` is about to retract. `[]` when nothing downstream has run yet (the common
+    case: reopen is admitted the moment a `done` row exists, long before any successor need have
+    started).
+
+    Does NOT roll anything back, re-block anything, or touch any other seat's row — D54/D72 grant
+    a FLAG, never an undo. The caller (the `--reopen` admission block) is what prints and records
+    this list; this function only computes it."""
+    after = taskforce_after(pkg)
+    path = sessions_csv(pkg)
+    ran = set()
+    if path.exists():
+        header, rows = read_csv_table(path, SESSIONS_COLS)
+        idx = {c: i for i, c in enumerate(header)}
+        if "seat" in idx:
+            for r in rows:
+                pad_row(r, header)
+                s = r[idx["seat"]].strip()
+                if s:
+                    ran.add(s)
+    hits = []
+    for seat, members in after.items():
+        if seat not in ran:
+            continue
+        for m in members:
+            if reopened_seat in _reopen_predecessor_names(m):
+                hits.append(seat)
+                break
+    return sorted(set(hits))
+
+
 # ---------- D22: THE DERIVED `dead` STATE — a branch that CAN NEVER RUN is not pending ----------
 #
 # THE DEFECT THIS CLOSES, measured 2026-08-19 on both production goals. A goal's `taskforce.csv`
@@ -17481,6 +17589,175 @@ def cmd_launch(args):
                 f"row.\n  trail (the `leader`'s anchor, recorded not verified — no tool can check "
                 f"that an anchor names a real investigation): {_rerun_anchor}", C_HINT))
 
+    # ==== D54/D66/D72 (owner, 2026-08-22) — `--reopen`: RE-OPEN a `done` row by APPENDING =========
+    #
+    # A leader-written `done` may be RE-OPENED on a LATE FINDING, by APPENDING a new sitting with
+    # a recorded reason — the `done` row stands UNREWRITTEN (D54). This block is `--rerun`'s own
+    # shape, one door over: same role gate (inherits `is_authorized_launcher`, mints no second
+    # one), same P2/P4 guards, same "ordinary working session, prior row not rewritten" framing.
+    # It differs from `--rerun` in exactly the ways D54/D66/D72 require:
+    #   - admits `done` (any writer `RECORD_DISPOSITION_WRITER["done"]` admits), where `--rerun`
+    #     refuses it BY STATE (its own refusal text, quoted above, unchanged) — `done` does NOT
+    #     join `RULED_FLIP_FROM_STATES` and `--rerun`'s own from-state stays `exited`+`kit` only;
+    #   - WRITES the reason durably (D72: "a new column on the NEW sessions row") where `--rerun`'s
+    #     anchor is console-only — the gap the mechanism lane measured and flagged;
+    #   - is bounded by a (goal, seat, reason) budget (D66) — `--rerun` carries none;
+    #   - computes and flags D72's walk-forward (downstream seats that already ran on the `done`
+    #     this reopens) — `--rerun`'s target, `exited`, never advanced an edge, so it has no
+    #     downstream-consumer analogue at all.
+    #
+    # ⚠ THE BRAKE IS coord.py-LOCAL, NOT brief 07's `heart.db` COUNTER, AND THAT IS A DISCLOSED
+    # DEVIATION FROM A LITERAL "wire to the SAME key" READING. `HeartStore.enqueue()` (brief 07,
+    # D52/D66) is `heart.db`'s SOLE writer by design ("everything goes through it" — brief 07's own
+    # brief text; mirrors this file's own D3 "no proxy writers" ledger discipline). `--reopen`, like
+    # `--rerun` beside it, is a LEADER-DIRECT door: it opens a tmux pane and appends a
+    # `sessions.csv` row, and NEVER enqueues — there is no `enqueue()` call in this door's path to
+    # attach a check to, and a second Python writer into a live daemon's SQLite store while that
+    # daemon is running is exactly the kind of shared-live-system risk this plan's own hazards file
+    # warns against. `reopen_attempt_count` (above) is the same (goal, seat, reason) KEY SHAPE,
+    # counted instead over THIS package's own `sessions.csv` — a store `--reopen` already owns
+    # exclusively. It is deliberately the FAIL-CLOSED direction: it counts every prior reopen under
+    # an unchanged reason whether or not that sitting progressed (this door does not evaluate D52's
+    # mail-cursor/disposition progress signals), so it can only OVER-brake relative to the full
+    # ruling, never under-brake. A seat's DOWNSTREAM relaunches — the watcher picking up the new
+    # sitting's own non-`done` ending — DO reach brief 07's queue-side brake normally: nothing in
+    # this block or in `engine/reconcile.js`/`engine/seeding.js` (untouched, per this seat's own
+    # scope wall) exempts a reopened row from that path.
+    _reopen_raw = getattr(args, "reopen", None)
+    _reopen_reason = (_reopen_raw or "").strip()
+    _reopen_admitted = False
+    _reopen_downstream = []
+    if _reopen_raw is not None and not _reopen_reason:
+        refuse(
+            "input",
+            "--reopen carries the `leader`'s RECORDED REASON for re-opening a finished (`done`) "
+            "seat as its VALUE, and an empty one would re-open finished work citing nothing.\n"
+            f"Name it: {coord_invocation(args)} launch --only <seat> --reopen <reason>",
+            2)
+    if _reopen_reason:
+        _ro_pkg = package_dir(args, register=False)
+        _ro_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
+        # P2 — exactly ONE seat, explicitly named, same reasoning as `--rerun`'s own P2: the
+        # reason cites ONE late finding against ONE seat's finished work.
+        if not _ro_only:
+            refuse(
+                "state",
+                "--reopen admits ONE named seat, and no seat was named. It records the "
+                "`leader`'s reason for re-opening ONE finished seat, so it cannot be applied to "
+                "a set the caller did not name.\n"
+                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                "--reopen <reason>",
+                1)
+        if len(_ro_only) > 1:
+            refuse(
+                "state",
+                f"--reopen admits ONE seat per invocation, and --only named {len(_ro_only)}: "
+                f"{', '.join(_ro_only)}.\nThe reason you passed cites a late finding against ONE "
+                "seat's finished work; applying it to several would cite one finding as evidence "
+                "against work it never examined.\nRun it once per seat, each with its own "
+                "reason.",
+                1)
+        _rot = _ro_only[0]
+        # P3 — THE STATE BOUND. Reads the ONE row-selection home (`sessions_last_ended_rows`),
+        # the same one `--rerun` reads, adding no second selector.
+        _ro_row = sessions_last_ended_rows(_ro_pkg).get(_rot)
+        if _ro_row is None:
+            refuse(
+                "state",
+                f"'{_rot}' has no ENDED session row in this package, so there is no finished "
+                "work to re-open.\nAn unfinished seat is an ordinary launch candidate: "
+                f"{coord_invocation(args)} launch --only {_rot}\n"
+                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"ready-seats --explain {_rot}",
+                1)
+        _ro_disp = _ro_row.get("disposition", "")
+        _ro_writer = _ro_row.get("disposition-writer", "")
+        if _ro_disp != "done":
+            # ⚠ THE REFUSAL NAMES THE RIGHT DOOR FOR THE CLASS IT FOUND, mirroring `--rerun`'s
+            # own routing table — a fifth copy of it is not built; this is `--reopen`'s own,
+            # naming `--rerun` for the ONE class it is right about.
+            _ro_door = {
+                "exited": ("the KIT says the harness TERMINATED and the work is UNKNOWN — never "
+                           f"finished. That door is `{coord_invocation(args)} launch --only "
+                           f"{_rot} --rerun <leader-anchor>` (D42)"),
+                "incomplete": ("the SEAT said its work is unfinished, and the goal watcher "
+                               "relaunches that class BY NAME on its own cadence (D33(a)) — this "
+                               "door is not it"),
+                "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
+                               f"That is a ruling, not a reopen: `{coord_invocation(args)} "
+                               f"rule-disposition {_rot} done --anchor <anchor quoting the "
+                               f"on-disk evidence> --go` (D33(b))"),
+                "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
+                     f"door's own instrument for it is `--declare-only <leader-anchor>`"),
+            }.get(_ro_disp, f"`{_ro_disp}` is not a finished ending and this door does not "
+                            f"admit it")
+            refuse(
+                "state",
+                f"'{_rot}' last ENDED with disposition `{_ro_disp or '(empty)'}` written by "
+                f"`{_ro_writer or '(nobody)'}`, and --reopen admits EXACTLY ONE from-state: "
+                f"`done` — a leader-written or seat-written FINISHED ending (D54).\n"
+                f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
+                f"caller intended. Here, {_ro_door}.\n"
+                f"Read the row: {coord_invocation(args)} ready-seats --explain {_rot}",
+                1)
+        if _ro_writer not in RECORD_DISPOSITION_WRITER.get("done", frozenset()):
+            # Not reachable through any writer this file admits today (only `seat`/`leader` may
+            # write `done` at all) — held as a named refusal rather than a silent admit, so a
+            # future widening of `RECORD_DISPOSITION_WRITER["done"]` cannot silently widen this
+            # door too.
+            refuse(
+                "state",
+                f"'{_rot}'s `done` row was written by `{_ro_writer or '(nobody)'}`, which is not "
+                f"an admitted writer of `done` (`{sorted(RECORD_DISPOSITION_WRITER['done'])}`) — "
+                f"an inconsistent record, not a re-openable one. Nothing was written.",
+                1)
+        # D66: the (goal, seat, reason) brake budget — see the block comment above for why this
+        # is coord.py-LOCAL rather than a read/write against brief 07's `heart.db` counter.
+        _ro_budget = 2
+        _ro_prior = reopen_attempt_count(_ro_pkg, _rot, _reopen_reason)
+        if _ro_prior >= _ro_budget:
+            refuse(
+                "state",
+                f"'{_rot}' has already been re-opened {_ro_prior} time(s) citing the SAME reason "
+                f"(`{_reopen_reason}`) — the (goal, seat, reason) brake budget (D52/D66) admits "
+                f"at most {_ro_budget} launches with no owner re-arm.\nA genuinely NEW finding "
+                f"needs its OWN reason string. Nothing was written.",
+                1)
+        # P4 — no LIVE pane already holds the name, `--rerun`'s own composition, reused verbatim.
+        _, _, _ro_rows = load_workers(base_dir(args))
+        _ro_prior_row = current_row(_ro_rows, _rot)
+        if (_ro_prior_row and _ro_prior_row.get("active") == "yes" and _ro_prior_row.get("pane")
+                and _ro_prior_row["pane"] in live_panes()):
+            refuse(
+                "state",
+                f"'{_rot}' is already checked in on pane {_ro_prior_row['pane']}, and tmux says "
+                f"that pane is still ALIVE — re-opening it now would put two live sessions under "
+                f"one name (P37).\nNeither would see the other's messages (the unread filter is "
+                f"keyed on the name) and only the newest pane would receive wakes.\nConfirm the "
+                f"old session is dead first: inspect it with `tmux capture-pane -p -t "
+                f"{_ro_prior_row['pane']}`; if it is a zombie, kill it BY PANE ID (`tmux "
+                f"kill-pane -t {_ro_prior_row['pane']}`) — never by name — then retry.\n"
+                f"NO pane was opened.",
+                1)
+        # D72: THE WALK-FORWARD, computed at ADMISSION so it prints even on a dry run, and
+        # re-read after the real launch (below) so the message it is recorded in can quote the
+        # session-id the new row actually got.
+        _reopen_downstream = reopen_downstream_seats(_ro_pkg, _rot)
+        # ADMITTED. P2 made the launch set exactly this one seat.
+        _reopen_admitted = True
+        print(c(f"  {_rot}: ADMITTED by --reopen — session `{_ro_row.get('session-id') or '?'}` "
+                f"ended `done` (writer `{_ro_writer}`): a LATE FINDING against FINISHED work "
+                f"(D54). This admits an ORDINARY WORKING SESSION — the seat boots on its own "
+                f"boot prompt and does its job. The `done` row is NOT rewritten, cleared or "
+                f"relabelled by this act: it stays on the record and is superseded when this "
+                f"session writes its own ended row.\n  reason (recorded on the NEW row's "
+                f"`{REOPEN_REASON_COL}` column): {_reopen_reason}", C_HINT))
+        if _reopen_downstream:
+            print(c(f"  ⚠ DOWNSTREAM (D72): {len(_reopen_downstream)} seat(s) already ran "
+                    f"depending on '{_rot}'s retracted `done`: {', '.join(_reopen_downstream)}. "
+                    f"Flagged, NOT rolled back — D54/D72 grant a new sitting and a flag, never a "
+                    f"rewrite of anything downstream already did.", C_HINT))
+
     # ⚠⚠ BOUND BEFORE THE BRANCH, AND THE PLACEMENT IS THE FIX (`G-admission-predicate-prover-
     # 0803-0155`). The launch VERDICT far below reads `blocked` UNCONDITIONALLY —
     # `refused = refused + [w["agent"] for w in blocked]` — but the only assignment used to live
@@ -17602,7 +17879,7 @@ def cmd_launch(args):
     _adm_kept = []
     for w in workers:
         _adm_row = _adm_rows.get(w["agent"])
-        if (_declare_only_admitted or _rerun_admitted or _adm_row is None
+        if (_declare_only_admitted or _rerun_admitted or _reopen_admitted or _adm_row is None
                 or conjunction_admits(_adm_row)):
             _adm_kept.append(w)
             # THE TWO ADMITTED DISCLOSURES. An admission nobody can see is the same defect as a
@@ -17612,7 +17889,7 @@ def cmd_launch(args):
                         f"row joins this seat, so no term of the admission predicate could be "
                         f"evaluated for it. Admitting is the deliberate fail-OPEN direction: "
                         f"deferring would turn a join gap into a launch outage.", C_HINT))
-            elif not (_declare_only_admitted or _rerun_admitted):
+            elif not (_declare_only_admitted or _rerun_admitted or _reopen_admitted):
                 # 7.280 (O3) · S-2 — THE ORDINARY ADMISSION, AND IT IS THE CASE NOBODY TESTS.
                 # Every other outcome at this door already speaks: three disclosures for the
                 # instrument and clause-J paths, one line per deferred seat, one refusal when the
@@ -18089,6 +18366,68 @@ def cmd_launch(args):
         else:
             print(f"launched {label} in {pane}"
                   + (" (session /rename scheduled)" if w["harness"] == "claude" else ""))
+
+    # D54/D66/D72 — WRITE THE REASON, on the seat's freshly-opened row, AFTER the real launch.
+    #
+    # ⚠ GATED ON A REAL OPEN ROW, NOT ON `_reopen_admitted` ALONE. Admission can be TRUE while no
+    # pane ever opened for the reopened seat — the capacity gate (§ above, `_cap_deferred`) can
+    # defer an admitted seat AFTER this block's own admission ran and BEFORE `launch_seat` is ever
+    # called. `sessions_open_ids` answers "did a new OPEN row actually land for this seat", which
+    # is the only question that matters here: if it did not, there is nothing to write, and
+    # writing to the seat's LAST row in that case would silently touch the `done` row `--reopen`
+    # is built to leave untouched — exactly the wrong-shape mutation D54 forbids.
+    if _reopen_admitted:
+        _ro_new_sid = sessions_open_ids(_ro_pkg).get(_rot, "")
+        if _ro_new_sid:
+            _ro_msg_num = None
+            if _reopen_downstream:
+                # D72's chosen durable home for the WALK-FORWARD FLAG is `messages.md`, not a
+                # second `sessions.csv` column: the list is unbounded in length (any number of
+                # downstream seats), `messages.md` is ALREADY the append-only bus every seat and
+                # the leader read routinely ("where the goal's readers will see it"), and a
+                # sessions.csv cell is sized for short strings (every existing column is an
+                # id/anchor/word, never a list) — widening that convention for one column would
+                # be the "new pattern, not a continuation of one" the mechanism lane warned about.
+                # The reason CELL still POINTS at the note (below), so a reader of the row alone
+                # is never left with a dangling reference.
+                _ro_msg_num = append_message(
+                    base_dir(args), DISPOSITION_WRITER_KIT, "leader", "note",
+                    f"reopen: `{_rot}` was re-opened (session `{_ro_new_sid}`, reason "
+                    f"`{_reopen_reason}`) on top of a `done` row that "
+                    f"{len(_reopen_downstream)} seat(s) already ran depending on: "
+                    f"{', '.join(_reopen_downstream)}. Their work is NOT rolled back or "
+                    f"re-blocked — this is a flag, not an undo (D54/D72).")
+            _ro_reason_cell = _reopen_reason
+            if _ro_msg_num is not None:
+                _ro_reason_cell += f" (downstream flagged in messages.md #{_ro_msg_num})"
+            with coord_lock(base_dir(args)):
+                _ro_path = sessions_csv(_ro_pkg)
+                _ro_header, _ro_rows = read_csv_table(_ro_path, SESSIONS_COLS)
+                _ro_header, _ro_widened = widen_header(_ro_header, SESSIONS_COLS)
+                if _ro_widened:
+                    _ro_rows = [pad_row(r, _ro_header) for r in _ro_rows]
+                _ro_idx = {c: i for i, c in enumerate(_ro_header)}
+                # LAST row for this session-id — never "last row for the seat": the seat's LAST
+                # row is not necessarily THIS session if something else raced the append, and a
+                # row found by seat name alone could resolve to the `done` row itself if the new
+                # open row somehow failed to land between the check above and this lock.
+                _ro_target = None
+                if "session-id" in _ro_idx:
+                    for r in _ro_rows:
+                        pad_row(r, _ro_header)
+                        if r[_ro_idx["session-id"]].strip() == _ro_new_sid:
+                            _ro_target = r
+                if _ro_target is not None and REOPEN_REASON_COL in _ro_idx:
+                    _ro_target[_ro_idx[REOPEN_REASON_COL]] = _ro_reason_cell
+                    write_csv_table(_ro_path, _ro_header, _ro_rows)
+                    print(c(f"  {_rot}: sessions.csv `{REOPEN_REASON_COL}` recorded on session "
+                            f"`{_ro_new_sid}`.", C_HINT))
+                else:
+                    print(c(f"  WARNING {_rot}: the reopen reason could NOT be written — no open "
+                            f"row `{_ro_new_sid}` was found to carry it. The launch itself "
+                            f"succeeded; only the durable reason record is missing.", C_DEAD),
+                          file=sys.stderr)
+
     # 7.552: the room's session travels WITH the call — see `ensure_team_monitor`. Read off the
     # pane this launch used, so it is a measurement of the room and not a derivation from its path.
     status, detail = ensure_team_monitor(args, session=tmux_session_name(target))
@@ -23282,12 +23621,13 @@ def _selftest_checks(args, failures, names):
         _d19_old_row = ["kappa", "kappa-0810-1200", "claude", "2026-08-10T12:00:00Z"]
         write_csv_table(sessions_csv(_d19_legacy), _d19_old_header, [_d19_old_row])
         _d19_widened, _d19_changed = widen_header(_d19_old_header, SESSIONS_COLS)
-        check("D19 ARM (a) — `model` IS IN THE CONTRACT, exactly once, and LAST. Appended rather "
+        check("D19 ARM (a) — `model` IS IN THE CONTRACT, exactly once, and BEFORE every column "
+              "appended after it (`hold-anchor` D42, `reopen-reason` D54/D72). Appended rather "
               "than placed beside `harness` so a freshly-born file and a widened legacy file agree "
               "on column order; the position is asserted because the whole append-only safety "
               "argument is what the placement buys",
-              SESSIONS_COLS.count("model") == 1 and SESSIONS_COLS[-2:] == ["model",
-                                                                            HOLD_ANCHOR_COL])
+              SESSIONS_COLS.count("model") == 1
+              and SESSIONS_COLS[-3:] == ["model", HOLD_ANCHOR_COL, REOPEN_REASON_COL])
         check("D19 ARM (b) — A LEGACY TRACE GAINS `model` THROUGH THE WIDEN, and the columns it "
               "already had DO NOT MOVE. Both halves are asserted: a widen that added the column by "
               "re-sorting into SESSIONS_COLS order would satisfy 'model is present' while "
@@ -24771,12 +25111,13 @@ def _selftest_checks(args, failures, names):
                      if len(_x) > _h.index("seat") and _x[_h.index("seat")].strip() == seat]
             return _h, (_hits[n] if _hits else {})
 
-        check("7.96: `checkin` is in SESSIONS_COLS EXACTLY ONCE and LAST — appended, never "
-              "inserted. Position is what `widen_header`'s append-only guarantee protects: run-1 "
-              "and run-2 already disagree on column ORDER, so a column placed 'logically' beside "
-              "`started` would put a fresh file and a widened one on two different layouts",
+        check("7.96: `checkin` is in SESSIONS_COLS EXACTLY ONCE and BEFORE every column appended "
+              "after it — appended, never inserted. Position is what `widen_header`'s append-only "
+              "guarantee protects: run-1 and run-2 already disagree on column ORDER, so a column "
+              "placed 'logically' beside `started` would put a fresh file and a widened one on two "
+              "different layouts",
               SESSIONS_COLS.count("checkin") == 1
-              and SESSIONS_COLS[-3:] == ["checkin", "model", "hold-anchor"])
+              and SESSIONS_COLS[-4:] == ["checkin", "model", "hold-anchor", "reopen-reason"])
 
         _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
         _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
@@ -25542,6 +25883,242 @@ def _selftest_checks(args, failures, names):
               SESSIONS_COLS.count(HOLD_ANCHOR_COL) == 1
               and HOLD_ANCHOR_COL == "hold-anchor"
               and not (Path(_d42h) / "coordination" / "holds.json").exists())
+
+        # ==== D54/D66/D72 (2026-08-22): `--reopen` — RE-OPEN a `done` row by APPENDING =========
+        # Own scratch package (like D42h above): needs a real `taskforce.csv` DAG for the D72
+        # walk-forward, which the D42 fixtures above deliberately do not carry.
+        _d54 = Path(td) / "d54reopen"
+        for _d54_seat in ("origin", "succ", "ran1", "neverran", "unrelated", "probe"):
+            (_d54 / "seats" / _d54_seat).mkdir(parents=True)
+            (_d54 / "seats" / _d54_seat / "seat.md").write_text(
+                f"---\nseat: {_d54_seat}\nharness: claude\nmodel: opus\neffort: medium\n---\n"
+                f"brief\n", encoding="utf-8")
+        (_d54 / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "1,origin,,claude,opus,medium,50,m1\n"
+            "2,succ,origin,claude,opus,medium,50,m1\n"
+            "3,ran1,origin,claude,opus,medium,50,m1\n"
+            "4,neverran,origin,claude,opus,medium,50,m1\n"
+            "5,unrelated,,claude,opus,medium,50,m1\n"
+            "6,probe,,claude,opus,medium,50,m1\n", encoding="utf-8")
+        # R-REAL below does ONE real (non-dry-run) launch, which reaches the memory gate
+        # (`launch_gates`) — the SAME gate `cmd_launch` always reaches on that path. A floor must
+        # be declared or the gate refuses FloorUndeclared before ever reaching this door's own
+        # logic (`r-floor-single-source`); mirrors the top-level fixture package's own
+        # `budget.json` a few thousand lines above.
+        (_d54 / "budget.json").write_text(
+            json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
+
+        def _d54_seed_row(seat, disposition, writer, reopen_reason=""):
+            row = dict.fromkeys(SESSIONS_COLS, "")
+            row.update({"session-id": f"{seat}-{disposition or 'none'}-1", "seat": seat,
+                        "harness": "claude", "started": "2026-08-22 09:00",
+                        "ended": "2026-08-22 09:30" if disposition or writer else "",
+                        "disposition": disposition, "disposition-writer": writer,
+                        REOPEN_REASON_COL: reopen_reason})
+            existing = []
+            if sessions_csv(_d54).exists():
+                _h, existing = read_csv_table(sessions_csv(_d54), SESSIONS_COLS)
+                existing = [pad_row(r, _h) for r in existing]
+            existing.append([row.get(_c, "") for _c in SESSIONS_COLS])
+            write_csv_table(sessions_csv(_d54), SESSIONS_COLS, existing)
+
+        # `origin` is the seat about to be reopened: ONE finished (`done`) row.
+        _d54_seed_row("origin", "done", DISPOSITION_WRITER_SEAT)
+        # `ran1` already ran depending on `origin` — the walk-forward must name it.
+        _d54_seed_row("ran1", "done", DISPOSITION_WRITER_SEAT)
+        # `succ` and `neverran` also depend on `origin` but have NEVER run — the walk-forward
+        # must NOT name them (D72: only seats that already ran on the retracted `done`).
+        # `unrelated` shares nothing with `origin` at all.
+
+        def _d54_run(**kw):
+            d = {"agent": "leader", "as_agent": "leader", "package": str(_d54), "base": None,
+                 "workers_dir": None, "force": False, "only": None, "dry_run": True,
+                 "rerun": None, "reopen": None, "declare_only": None, "force_memory": False,
+                 "tmux_target": ""}
+            d.update(kw)
+            return refuse(cmd_launch, **d)
+
+        def _d54_cell(seat, col, sid=None):
+            _h, _r = read_csv_table(sessions_csv(_d54), SESSIONS_COLS)
+            _idx = {c: i for i, c in enumerate(_h)}
+            hits = [pad_row(r, _h) for r in _r if r and r[_idx["seat"]].strip() == seat
+                    and (sid is None or r[_idx["session-id"]].strip() == sid)]
+            return hits[-1][_idx[col]] if hits else None
+
+        # ---- R-EMPTY-REASON: empty value refused at the INPUT layer, same as `--rerun` -------
+        _d54_er, _d54_er_code = _d54_run(only="origin", reopen="   ")
+        check("D54 R-EMPTY-REASON: `--reopen` with an EMPTY value is refused at the INPUT layer "
+              "(exit 2) and opens nothing — an empty reason would re-open finished work citing "
+              "nothing",
+              _d54_er_code == 2 and "citing nothing" in _d54_er)
+
+        # ---- R-STATE: every non-`done` state is refused BY STATE, one arm each --------------
+        for _d54_disp, _d54_writer in (("exited", DISPOSITION_WRITER_KIT),
+                                       ("incomplete", DISPOSITION_WRITER_SEAT),
+                                       ("unverified", DISPOSITION_WRITER_SEAT),
+                                       ("", "")):
+            _d54_seed_row("probe", _d54_disp, _d54_writer)
+            _d54_st, _d54_st_code = _d54_run(only="probe", reopen="late finding")
+            check(f"D54 R-STATE ({_d54_disp or '(undeclared)'}): --reopen REFUSES a `probe` row "
+                  f"whose last ending is `{_d54_disp or '(empty)'}`, not `done` — the SAME "
+                  f"BY-STATE refusal shape `--rerun` uses, naming the right door for the class "
+                  f"it found",
+                  _d54_st_code == 1
+                  and "admits EXACTLY ONE from-state: `done`" in _d54_st)
+        check("D54 R-STATE (control): `--rerun`'s OWN refusal-of-`done` is UNTOUCHED — the "
+              "`RULED_FLIP_FROM_STATES` from-set `--reopen` does NOT join. `origin`'s `done` row "
+              "is refused by `--rerun` exactly as it always was",
+              refuse(cmd_launch, agent="leader", package=str(_d54), only="origin", dry_run=True,
+                     rerun="anchor", force=False)[1] == 1
+              and "already ADVANCED" in refuse(cmd_launch, agent="leader", package=str(_d54),
+                                               only="origin", dry_run=True, rerun="anchor",
+                                               force=False)[0])
+
+        # ---- R-1: THE ADMISSION (dry-run), the walk-forward it computes, and the OLD row ------
+        _d54_bytes_before = sessions_csv(_d54).read_bytes()
+        _d54_origin_row_before = _d54_cell("origin", "disposition", sid="origin-done-1")
+        _d54_ok, _d54_ok_code = _d54_run(only="origin", reopen="late-finding-2")
+        check("D54 R-1: `--reopen <reason>` ADMITS the finished target and the launch proceeds, "
+              "naming D54 and printing the reason it will record",
+              _d54_ok_code == 0 and "ADMITTED by --reopen" in _d54_ok
+              and "late-finding-2" in _d54_ok and "[dry-run] origin" in _d54_ok)
+        check("D54 R-1 (WALK-FORWARD, D72): the SAME admission NAMES `ran1` (already ran on the "
+              "retracted `done`) and does NOT name `succ`/`neverran` (never ran, so nothing of "
+              "theirs depends on the RETRACTED work yet) or `unrelated` (no dependency at all)",
+              "ran1" in _d54_ok and "DOWNSTREAM (D72)" in _d54_ok
+              and "succ" not in _d54_ok.split("DOWNSTREAM")[-1]
+              and "neverran" not in _d54_ok.split("DOWNSTREAM")[-1]
+              and "unrelated" not in _d54_ok.split("DOWNSTREAM")[-1])
+        check("D54 R-1 (THE OLD ROW IS UNTOUCHED, dry-run): a dry-run admission writes NOTHING — "
+              "`sessions.csv` is BYTE-IDENTICAL and `origin`'s `done` row is unchanged",
+              sessions_csv(_d54).read_bytes() == _d54_bytes_before
+              and _d54_cell("origin", "disposition", sid="origin-done-1") == "done")
+        check("D54 (compute-only): `reopen_downstream_seats` in isolation names EXACTLY {ran1} — "
+              "the direct assertion behind R-1's printed banner",
+              reopen_downstream_seats(_d54, "origin") == ["ran1"])
+
+        # ---- R-BUDGET: the (goal, seat, reason) brake, coord.py-LOCAL (D66) -------------------
+        _d54_seed_row("origin", "incomplete", DISPOSITION_WRITER_SEAT,
+                      reopen_reason="budget-reason")
+        _d54_seed_row("origin", "incomplete", DISPOSITION_WRITER_SEAT,
+                      reopen_reason="budget-reason")
+        check("D54 R-BUDGET (counter): TWO prior reopens citing the SAME reason are already on "
+              "the ledger — `reopen_attempt_count` reads them back directly, the same function "
+              "the door's own admission calls",
+              reopen_attempt_count(_d54, "origin", "budget-reason") == 2)
+        # `origin`'s LAST row is now `incomplete` (not `done`) from the seeding above — restore
+        # a `done` ending so the STATE gate admits and only the BUDGET gate can refuse this arm.
+        _d54_seed_row("origin", "done", DISPOSITION_WRITER_LEADER,
+                      reopen_reason="")
+        _d54_bud, _d54_bud_code = _d54_run(only="origin", reopen="budget-reason")
+        check("D54 R-BUDGET (refusal): the THIRD reopen citing the SAME reason is REFUSED — the "
+              "(goal, seat, reason) brake (D52/D66) admits at most 2 — and nothing was written "
+              "(byte-identical to just before this call)",
+              _d54_bud_code == 1 and "brake budget" in _d54_bud
+              and "at most 2" in _d54_bud)
+        check("D54 R-BUDGET (a NEW reason is unaffected): the SAME seat, a DIFFERENT reason "
+              "string, reads a budget of ZERO prior attempts and is admitted — the brake is "
+              "keyed on (seat, reason) TOGETHER, not on the seat alone",
+              reopen_attempt_count(_d54, "origin", "a-genuinely-new-finding") == 0
+              and _d54_run(only="origin", reopen="a-genuinely-new-finding")[1] == 0)
+
+        # ---- R-P4: a LIVE pane under the same name refuses, `--rerun`'s own composition -------
+        run(cmd_checkin, agent="origin", summary="zombie pane from a prior sitting", pane="%95",
+            package=str(_d54))
+        live_tmux_panes["v"] = {"%95"}
+        _d54_p4, _d54_p4_code = _d54_run(only="origin", reopen="late-finding-2")
+        check("D54 R-P4: `--reopen` is REFUSED while a LIVE pane already holds the name",
+              _d54_p4_code == 1 and "%95" in _d54_p4 and "[dry-run] origin" not in _d54_p4)
+        live_tmux_panes["v"] = set()
+
+        def _d54_deactivate(_r):
+            _r["active"] = "no"
+            _r["checkout"] = f"closed {now()}"
+        update_row(base_dir(argparse.Namespace(package=str(_d54), base=None, workers_dir=None,
+                                               as_agent=None, force=False)), "origin",
+                  _d54_deactivate)
+
+        # ---- R-REAL: the REAL (non-dry-run) path — the reason WRITES, the flag is DURABLE ------
+        _d54_pt = os.environ.get("COORD_LAUNCH_TARGET")
+        _d54_pw = wake_ok["v"]
+        os.environ["COORD_LAUNCH_TARGET"] = "%0"
+        wake_ok["v"] = True
+        _d54_real, _d54_real_code, _d54_exc = "", None, None
+        try:
+            _d54_real, _d54_real_code = refuse(cmd_launch, agent="leader", package=str(_d54),
+                                               only="origin", dry_run=False,
+                                               reopen="late-finding-2")
+        except Exception as _d54_e:                      # noqa: BLE001
+            _d54_exc = f"{type(_d54_e).__name__}: {_d54_e}"
+        finally:
+            wake_ok["v"] = _d54_pw
+            if _d54_pt is None:
+                os.environ.pop("COORD_LAUNCH_TARGET", None)
+            else:
+                os.environ["COORD_LAUNCH_TARGET"] = _d54_pt
+        check("D54 R-REAL: the real (non-dry-run) reopen launches without raising and reaches "
+              "the launch verdict",
+              _d54_exc is None and "ADMITTED by --reopen" in _d54_real)
+        _d54_new_sid = sessions_open_ids(_d54).get("origin", "")
+        check("D54 R-REAL (THE REASON IS DURABLE, D72): the new OPEN row's `reopen-reason` "
+              "column carries the reason text AND a pointer to the messages.md note recording "
+              "the walk-forward flag — readable straight off disk, not just the pane transcript "
+              "`--rerun`'s own anchor is",
+              bool(_d54_new_sid)
+              and (_d54_cell("origin", REOPEN_REASON_COL, sid=_d54_new_sid) or "")
+                  .startswith("late-finding-2")
+              and "messages.md #" in (_d54_cell("origin", REOPEN_REASON_COL, sid=_d54_new_sid)
+                                      or ""))
+        check("D54 R-REAL (THE OLD `done` ROW IS UNTOUCHED): re-extracted by its OWN session-id "
+              "after the real launch, `origin-done-1`'s disposition cell still reads `done` — "
+              "byte-identical to what it was captured as before the whole block ran. METHOD: "
+              "captured the ORIGINAL cell value before any `--reopen` call in this block; "
+              "re-extracted the SAME session-id's SAME column after; compared",
+              _d54_cell("origin", "disposition", sid="origin-done-1") == _d54_origin_row_before
+              == "done")
+        _d54_msgs = load_messages(base_dir(argparse.Namespace(
+            package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False)))[1]
+        # A block's BODY is `"lines"[1:]` (line 0 is the header the parser matched); there is no
+        # "body" key — reconstructed here exactly as every reader of `load_messages` must.
+        _d54_body = lambda m: "\n".join(m["lines"][1:])
+        _d54_note = next((m for m in _d54_msgs if m.get("type") == "note"
+                          and "ran1" in _d54_body(m) and "reopen:" in _d54_body(m)),
+                         None)
+        check("D54 R-REAL (WALK-FORWARD'S DURABLE HOME): the flag's chosen durable home is "
+              "`messages.md`, NOT a second `sessions.csv` column — justified by the reason "
+              "column's own comment (unbounded-length list vs. every other column being a "
+              "short id/anchor/word) — and it is READABLE AFTER THE PROCESS EXITS, from a FRESH "
+              "read of the file",
+              _d54_note is not None and "ran1" in _d54_body(_d54_note)
+              and "succ" not in _d54_body(_d54_note)
+              and "neverran" not in _d54_body(_d54_note))
+
+        # ---- UN-ADVANCE (D54 edge case 2): before the new sitting ends, `succ` still reads "
+        # ---- the OLD `done` row (last ENDED, not last OPEN); once it ends non-`done`, `succ` "
+        # ---- un-advances for FUTURE reads. Neither `ran1` (already ran) nor the historical "
+        # ---- fact that it ran is touched — only FUTURE evaluations of the edge change. -------
+        _d54_rows_before = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
+            package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
+        check("D54 UN-ADVANCE (before): with the new sitting still OPEN, `succ` STILL reads "
+              "READY — `sessions_last_ended_rows` selects the LAST ENDED row, and the freshly "
+              "opened row has no `ended` stamp yet, so `origin`'s durable disposition is still "
+              "the OLD `done` one",
+              _d54_rows_before["succ"]["verdict"] == "READY")
+        session_close(argparse.Namespace(package=str(_d54), base=None, workers_dir=None,
+                                         as_agent=None, force=False),
+                     "origin", disposition="incomplete", writer=DISPOSITION_WRITER_SEAT)
+        _d54_rows_after = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
+            package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
+        check("D54 UN-ADVANCE (after): once the REOPENED sitting itself ends NON-`done` "
+              "(`incomplete`), `origin`'s durable disposition is now that row (LAST ENDED), and "
+              "`succ`'s edge UN-ADVANCES for future reads — BLOCKED, not READY. Nothing about "
+              "`ran1`'s past run is touched: this is a FUTURE-READ effect only (D54 edge case 2 "
+              "— no rollback, no re-block of anything already launched)",
+              _d54_rows_after["succ"]["verdict"] == "BLOCKED"
+              and terminal_disposition(_d54, base_dir(argparse.Namespace(
+                  package=str(_d54), base=None, workers_dir=None, as_agent=None,
+                  force=False)), "origin")[0] == "incomplete")
 
         # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
         # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
@@ -27103,24 +27680,26 @@ def _selftest_checks(args, failures, names):
               "columns with `header.includes`). The CONTROL proves the risk was not imaginary: a "
               "positional reader built on the OLD eleven names silently DROPS the new fields "
               "instead of raising, which is exactly how an appended column goes wrong quietly. "
-              "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT HAS NOW FIRED THREE TIMES: 7.155's "
+              "⚠ THIS ROW IS THE SCHEMA'S TRIPWIRE AND IT HAS NOW FIRED SIX TIMES: 7.155's "
               "`disposition-writer` reddened it, 7.607 E2b's `execution` (the dated execution "
               "stamp, design-lock item 5) reddened it again, `755b197e`'s `checkin` reddened it "
-              "a third time, D19's `model` (the seat's launched cast) a fourth, and D42's "
-              "`hold-anchor` (the leader's HOLD on a non-terminal row) a FIFTH — which is "
+              "a third time, D19's `model` (the seat's launched cast) a fourth, D42's "
+              "`hold-anchor` (the leader's HOLD on a non-terminal row) a FIFTH, and D54/D72's "
+              "`reopen-reason` (the `--reopen` door's recorded reason) a SIXTH — which is "
               "exactly why the tail is "
               "asserted by NAME and by INDEX rather than as 'the last one'. A claim that moves "
               "with the file grades nothing, and each firing is a schema change being SEEN",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-6:] == ["disposition", "disposition-writer", "execution", "checkin",
-                                   "model", "hold-anchor"]
+              and _d9_hdr[-7:] == ["disposition", "disposition-writer", "execution", "checkin",
+                                   "model", "hold-anchor", "reopen-reason"]
               and _d9_idx["tty"] == 10
-              and _d9_idx["disposition"] == len(_d9_hdr) - 6
-              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 5
-              and _d9_idx["execution"] == len(_d9_hdr) - 4
-              and _d9_idx["checkin"] == len(_d9_hdr) - 3
-              and _d9_idx["model"] == len(_d9_hdr) - 2
-              and _d9_idx["hold-anchor"] == len(_d9_hdr) - 1
+              and _d9_idx["disposition"] == len(_d9_hdr) - 7
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 6
+              and _d9_idx["execution"] == len(_d9_hdr) - 5
+              and _d9_idx["checkin"] == len(_d9_hdr) - 4
+              and _d9_idx["model"] == len(_d9_hdr) - 3
+              and _d9_idx["hold-anchor"] == len(_d9_hdr) - 2
+              and _d9_idx["reopen-reason"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
               and "disposition-writer" not in _d9_positional
@@ -27128,6 +27707,7 @@ def _selftest_checks(args, failures, names):
               and "checkin" not in _d9_positional
               and "model" not in _d9_positional
               and "hold-anchor" not in _d9_positional
+              and "reopen-reason" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
         check("dag-09 LG-14: `disposition` APPEARS EXACTLY ONCE — in the column constant and in "
@@ -36590,6 +37170,26 @@ def build_parser():
                         "so no `rule-disposition` is needed first. NOT an override: any other "
                         "from-state is still refused, and --force/--force-memory are untouched "
                         "and carry no part of this")
+    # D54/D66/D72 (owner, 2026-08-22): NOT an override and NOT a member of the --force family. A
+    # FIFTH independent parameter, beside `--rerun`. It admits ONE named seat whose last ENDED row
+    # carries `done` — a leader-written or seat-written FINISHED ending — for an ORDINARY WORKING
+    # SESSION on a LATE FINDING. Its VALUE is the recorded reason, written DURABLY on the new row
+    # (unlike `--rerun`'s console-only trail), so the instrument cannot be invoked without one.
+    s.add_argument("--reopen", metavar="REASON", default=None,
+                   help="RE-OPEN ONE --only seat whose last session ENDED `done` (a FINISHED "
+                        "ending), on a LATE FINDING against that finished work (D54). The seat "
+                        "boots on its ordinary boot prompt and DOES ITS JOB; this is a real "
+                        "working session, not a ruling. Takes the leader's reason for the "
+                        "reopen, which is RECORDED on the new session's `reopen-reason` column "
+                        "(D72) — unlike `--rerun`'s anchor, this is not console-only. Bounded to "
+                        "at most 2 reopens of the same seat citing the SAME reason (D66). Any "
+                        "seat that already ran depending on this seat's retracted `done` is "
+                        "flagged (D72's walk-forward), never rolled back. The `done` row is NOT "
+                        "rewritten, cleared or relabelled — it stays on the record and is "
+                        "superseded when the new session writes its own ended row. NOT an "
+                        "override: any other from-state is still refused (that is `--rerun`'s "
+                        "door, or `rule-disposition`'s), and --force/--force-memory are "
+                        "untouched and carry no part of this")
     add_identity_flags(s)
     s.set_defaults(func=cmd_launch)
 
