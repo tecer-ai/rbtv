@@ -9,7 +9,7 @@ Structure the pieces into `milestones.csv` — an acyclic DAG of contained, veri
 
 <scope>
 - **Read:** the pieces draft at `planning/current/pieces-draft.md`; `goal.md` in the goal folder; the two standing context reads (the builder primer and the workflow-anatomy guide).
-- **Write:** `milestones.csv` in the goal folder.
+- **Write:** `./milestones.csv` in the goal folder.
 - **Guides — read whole before writing:** `ws:1-projects/build-ignite/system-definition/primer.md`; `references/workflow-anatomy.md`.
 </scope>
 

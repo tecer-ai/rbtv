@@ -9,7 +9,7 @@ Drive the ratified `goal.md` from falsifiable to COMPLETE: every gap of the five
 
 <scope>
 - **Read:** `goal.md` in the goal folder and every artifact it names; the owner's answers on the goal's owner-channel thread; the returns of the cataloged `researcher` and `diagnoser` sub-agents.
-- **Write:** `goal.md` in the goal folder (additions only) and appends to the goal's five write-if-something ledgers.
+- **Write:** `./goal.md` in the goal folder (additions only) and appends to the goal's five write-if-something ledgers.
 </scope>
 
 <done-contract>

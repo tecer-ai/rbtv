@@ -622,7 +622,10 @@ _IOSPEC_OUTPUTS_SECTION = re.compile(r"##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \
 # widened to slashless tokens (`plan.md`) or bare directories (`build/`): every widening here
 # widens the admission gate's refusal surface identically (a token this matches is a token the
 # cage gate must place), and prose blocks backtick file NAMES that are not outputs. A slashless
-# declaration is written `./plan.md`; a directory is declared by a file inside it.
+# declaration is written `./plan.md` — resolved at the seat's own `cwd` (D4/RS-28) AND, since D90
+# (2026-08-22), ALSO at the goal root (`declared_outputs`' own widening, `resolved_outputs`
+# unchanged) — a file at the goal folder's ROOT, with no subdirectory to name, has no OTHER
+# sanctioned spelling; a directory is declared by a file inside it.
 _IOSPEC_PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
 # D36 (2026-08-20): THE ONE TYPED NON-FILE OUTPUT. An `## Outputs` bullet whose SCHEMA is
 # literally `chat` declares a product that is CONVERSATION — a verdict row on the bus, an answer,
@@ -677,8 +680,9 @@ def _fm_outputs_defect(fm):
         return ("it carries the RETIRED `outputs:` frontmatter key (D3, 2026-08-18: the io-spec "
                 "`## Outputs` block in the seat.md body is the ONE declared-outputs surface). "
                 "Declare each output there as a backticked goal-relative token carrying a `/` "
-                "and an extension — `seats/<seat>/plan.md`, or `./plan.md` for a file in the "
-                "seat's own cwd — and DELETE the key")
+                "and an extension — `seats/<seat>/plan.md` for a file in the seat's own cwd, or "
+                "`./name.md` for a file with no subdirectory (checked at the seat's own cwd AND, "
+                "D90, the goal root) — and DELETE the key")
     return ""
 
 
@@ -9096,6 +9100,29 @@ def declared_outputs(args, seat):
         # it costs is a file of the SAME relative name under the seat's own scratchpad — which is
         # the seat's own work either way. What is NOT widened: a token absent at both bases is
         # still refused, and the refusal NAMES THE GOAL-RELATIVE PATH, the one the author meant.
+        #
+        # ⚠⚠⚠ A THIRD, NARROW WIDENING (D90, 2026-08-22): `./<name>.<ext>` WITH NO FURTHER `/` ALSO
+        # GETS A GOAL-ROOT CANDIDATE. `#594`'s unclosable half: `goal.md` and `milestones.csv` are
+        # written AT THE GOAL ROOT, not under any subdirectory, so there is no bare relative token
+        # for them at all — `_IOSPEC_PATHISH` demands a `/`, and the only sanctioned slashless
+        # spelling this file documents is `./name.md`. Before D90 that spelling was cwd-ONLY (the
+        # line above), which made the two tasks that write these files structurally undeclarable:
+        # not absent from the grammar, EXCLUDED from it by the same rule that protects RS-28.
+        # `_goal_root_dotslash` narrows the lift to EXACTLY that shape — one path segment after
+        # `./`, nothing deeper — so it cannot collide with `resolved_outputs`' cwd-only reading of
+        # a DEEPER dot-token (`./out/report.md`, pinned by the `blocky` OU fixture below, and by
+        # RS-28/RS-29's `./plan.md`/`./other.md` seed fixtures — all of which stay cwd-only,
+        # unresolved, because `resolved_outputs` itself is UNTOUCHED by this widening: D4's SEED
+        # contract is not reopened, only THIS presence check gets a second candidate). Additive,
+        # same as the bare-token widening above: a `./name.md` seat-private file that only exists
+        # at cwd still passes (the cwd candidate is still tried), and a `./name.md` that only
+        # exists at the goal root now ALSO passes — never a token that used to resolve now failing.
+        def _goal_root_dotslash(d):
+            if not d.startswith("./"):
+                return False
+            rest = d[2:]
+            return bool(rest) and "/" not in rest
+
         _goal = _declared_output_goal_dir(w)
 
         def _present(p):
@@ -9107,8 +9134,8 @@ def declared_outputs(args, seat):
         missing = []
         for _d, _resolved in resolved_outputs(w):
             _cands = [Path(_resolved)]
-            if (_goal is not None and not os.path.isabs(_d)
-                    and not _d.startswith(("./", "../"))):
+            if _goal is not None and not os.path.isabs(_d) and (
+                    not _d.startswith(("./", "../")) or _goal_root_dotslash(_d)):
                 _cands.insert(0, Path(_goal) / _d)   # the DECLARED meaning, checked first
             if not any(_present(p) for p in _cands):
                 missing.append(str(_cands[0]))
@@ -28838,7 +28865,7 @@ def _selftest_checks(args, failures, names):
         # not see).
         _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
                                   ("chatty", ""), ("goalrel", ""), ("seatrel", ""),
-                                  ("norel", ""),
+                                  ("norel", ""), ("dotgoal", ""), ("dotdeep", ""),
                                   ("goal-master", ""), ("consultant", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
@@ -28897,9 +28924,29 @@ def _selftest_checks(args, failures, names):
         (Path(_ou_pkg) / "seats" / "blocky" / "out").mkdir()
         (Path(_ou_pkg) / "seats" / "blocky" / "out" / "report.md").write_text(
             "the work\n", encoding="utf-8")
+        # D90 (2026-08-22): THE GOAL-ROOT DOT-SLASH SPELLING, AND ITS DEPTH LIMIT. `dotgoal`
+        # declares `./root.md` (no further `/`) with the file ONLY at the goal root, exactly
+        # `#594`'s shape (`goal.md`, `milestones.csv` — no subdirectory exists to make them bare
+        # relative tokens). `dotdeep` declares the DEEPER `./sub/deep.md` with the file ALSO only
+        # at the goal root, never at its own cwd — proving the widening did NOT reach past its
+        # one narrow shape: a deeper dot-token keeps the pre-D90, cwd-only reading (RS-28's
+        # seat-private base), so `dotdeep` must stay REFUSED even though the goal-root file exists.
+        (Path(_ou_pkg) / "seats" / "dotgoal" / "seat.md").write_text(
+            "---\nagent: dotgoal\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the record at `./root.md`.\n</io-spec>\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "dotdeep" / "seat.md").write_text(
+            "---\nagent: dotdeep\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the record at `./sub/deep.md`.\n</io-spec>\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "root.md").write_text("goal-root file\n", encoding="utf-8")
+        (Path(_ou_pkg) / "sub").mkdir()
+        (Path(_ou_pkg) / "sub" / "deep.md").write_text(
+            "goal-root file, deeper — must NOT satisfy `dotdeep`'s cwd-only token\n",
+            encoding="utf-8")
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
                              ("chatty", "%94"), ("goalrel", "%92"), ("seatrel", "%93"),
-                             ("norel", "%91"),
+                             ("norel", "%91"), ("dotgoal", "%89"), ("dotdeep", "%88"),
                              ("goal-master", "%98"), ("consultant", "%99")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
@@ -28920,6 +28967,10 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="seatrel"))
         _ou_no, _ou_ne, _ou_nc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="norel"))
+        _ou_dgo, _ou_dge, _ou_dgc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="dotgoal"))
+        _ou_ddo, _ou_dde, _ou_ddc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="dotdeep"))
         _ou_go, _ou_ge, _ou_gc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
         _ou_co, _ou_ce, _ou_cc = harness_outcome(
@@ -29009,6 +29060,27 @@ def _selftest_checks(args, failures, names):
               and str(Path(_ou_pkg) / "seats" / "norel" / "planning") \
               not in (_ou_no + _ou_ne)
               and not _ou_rec("norel"))
+        check("D90 (2026-08-22) THE GOAL-ROOT DOT-SLASH SPELLING: `dotgoal` declares "
+              "`./root.md` — no further `/`, `#594`'s exact shape (`goal.md`, `milestones.csv`, "
+              "no subdirectory to make them bare relative tokens) — with the file ONLY at the "
+              "goal root, and its `done` records the output VERIFIED PRESENT. Before D90 this "
+              "same declaration was cwd-ONLY (excluded from the goal-relative candidate by the "
+              "same rule that protects RS-28's seat-private base) and would have been refused "
+              "`MISSING: <seatdir>/root.md` — the exact shape that made `goal.md`/`milestones.csv` "
+              "structurally undeclarable for `review-goal-completeness`/`structure-milestone-dag`",
+              _ou_dgc is None and _ou_rec("dotgoal").get("disposition") == "done"
+              and "1 declared output(s) verified present" in (_ou_dgo + _ou_dge))
+        check("D90 extension RED: THE WIDENING STAYS NARROW. `dotdeep` declares the DEEPER "
+              "`./sub/deep.md` with the file ONLY at the goal root (never at its own cwd) and is "
+              "STILL REFUSED — a deeper dot-token keeps the pre-D90, cwd-only reading (RS-28's "
+              "seat-private base, and the `blocky`/RS-28/RS-29 fixtures that pin it elsewhere), "
+              "so this widening cannot collide with a seat's own scratch subdirectory of the same "
+              "relative name. This is the arm that goes green if the narrow lift ever widens past "
+              "its one documented shape",
+              _ou_ddc == 1 and "NOT on disk" in (_ou_ddo + _ou_dde)
+              and str(Path(_ou_pkg) / "seats" / "dotdeep" / "sub" / "deep.md") \
+              in (_ou_ddo + _ou_dde)
+              and not _ou_rec("dotdeep"))
         check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
               "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control "
