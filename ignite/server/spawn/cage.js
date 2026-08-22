@@ -323,7 +323,7 @@ function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructi
         let st;
         try { st = fs.statSync(p); } catch { continue; }
         const cover = lastCovering(spec, p);
-        if (!cover || cover.verb === 'tmpfs') continue; // already absent in-namespace
+        if (!cover || cover.verb === 'tmpfs' || cover.verb === 'ro-mask') continue; // already absent in-namespace (D53/#576 twin fix)
         if (st.isDirectory()) { maskDir(p); masked.configDirs++; }
         else { maskFile(p); masked.instructionFiles++; }
       }

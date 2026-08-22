@@ -153,12 +153,15 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   const scope = readPrivateScope(root, log);
   const flags = [];
 
-  // A path is worth masking only where something actually BOUND it: nothing covering it (or a
-  // tmpfs cover) means it is already absent in-namespace, and masking would only make bwrap mkdir
-  // a mountpoint over nothing. Same discipline as the ancestor walk this composes beside.
+  // A path is worth masking only where something actually BOUND it: nothing covering it, or a
+  // tmpfs/ro-mask cover, means it is already absent in-namespace, and masking would only make
+  // bwrap mkdir a mountpoint over nothing — worse, when that cover is itself read-only (`ro-mask`,
+  // D48), the mkdir for the deeper mount fails against a read-only parent and the whole spawn dies
+  // (D53/#576: a peer seat's `ro-mask`-covered folder collides with a pattern-floor match nested
+  // under it). Same discipline as the ancestor walk this composes beside.
   const visible = (p) => {
     const cover = lastCovering(spec, p);
-    return !!cover && cover.verb !== 'tmpfs';
+    return !!cover && cover.verb !== 'tmpfs' && cover.verb !== 'ro-mask';
   };
 
   // ── TIER 2a — the ENTRY SET: the enumerated list, then the pattern floor beneath it ──────────

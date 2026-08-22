@@ -32,12 +32,14 @@ const { composePrivateScope, refusesPath } = require('../private-scope');
 const { buildBwrapArgv } = require('../bwrap');
 
 // The shipped stack's shape, cut to the lines these claims depend on. The read-root floor FIRST
-// (adv C56 — it is what `tmpfs:{goalDir}/seats` must shadow), then the goal/seat lines, then the
-// two grant line classes a pierce can ride on.
+// (adv C56 — it is what `ro-mask:{goalDir}/seats` must shadow), then the goal/seat lines, then the
+// two grant line classes a pierce can ride on. `ro-mask`, not `tmpfs` (D48, 2026-08-21) — the
+// fixture must carry the SAME cover verb the shipped config carries, or it cannot exercise the
+// D53/#576 collision between this cover and the private-scope pattern floor beneath it.
 const TEMPLATE = [
   'ro-bind:{grant:readRoot}',
   'ro-bind:{goalDir}',
-  'tmpfs:{goalDir}/seats',
+  'ro-mask:{goalDir}/seats',
   'bind:{seatDir}',
   'bind:{grant:rwPath}',
 ];
@@ -54,6 +56,15 @@ function fixture() {
   fs.mkdirSync(peerDir, { recursive: true });
   fs.writeFileSync(path.join(peerDir, 'seat.md'), `PEER-SEAT-${CANARY}\n`);
   fs.writeFileSync(path.join(goalDir, 'sessions.csv'), 'seat,pid,pid-starttime\nmine,1,1\n');
+
+  // D53/#576 regression fixture: a pattern-floor-shaped directory (`**/*token*`) nested several
+  // levels under the peer seat folder — the exact shape of a live session's
+  // `sessions/<id>/dump/channel/tokens/` bookkeeping dir. The peer folder is already `ro-mask`-
+  // covered (absent + write-refused); this nested match must NOT cause private-scope to lay a
+  // second, deeper mask underneath that read-only cover, or bwrap's mkdir for it fails loudly.
+  const peerTokenDir = path.join(peerDir, 'sessions', 'deadbeef', 'dump', 'channel', 'tokens');
+  fs.mkdirSync(peerTokenDir, { recursive: true });
+  fs.writeFileSync(path.join(peerTokenDir, 'tok-msg-0001.json'), `${CANARY}-PEER-TOKEN\n`);
 
   // The private tree: a DIRECTORY entry and a FILE entry, plus a pierced leaf inside the directory.
   const areas = path.join(ws, '2-areas');
@@ -230,13 +241,23 @@ capture('probe-private-scope', async (lines) => {
       pierces.length === 1 && pierces[0].includes(health) && logsEach,
       `pierced=${JSON.stringify(pierces)}; spawn.js discloses pierces+refusals=${logsEach}`);
 
-    // ── 9 — PEER SEAT FOLDERS REMAIN ABSENT UNDER THE UNIVERSAL READ ROOT ─────────────────────
+    // ── 9 — PEER SEAT FOLDERS REMAIN ABSENT UNDER THE UNIVERSAL READ ROOT, INCLUDING A NESTED
+    //        PATTERN-FLOOR MATCH THE RO-MASK COVER ALREADY HANDLES (D53/#576 regression) ───────
+    // A pattern-floor match landing under the peer seat's `ro-mask` cover must not make
+    // composePrivateScope lay a second, deeper mask under it — that collision made bwrap's mkdir
+    // for the deeper mount fail against a read-only parent, and the WHOLE spawn died before the
+    // harness ever exec'd (`Can't mkdir parents ... Read-only file system`, never reaching the
+    // script below at all). Absence of that crash text, on top of the usual content-absence
+    // checks, is the assertion this leg is for.
     const nine = inCage(f,
       `echo "peers=[$(ls ${f.goalDir}/seats 2>/dev/null | tr '\\n' ' ')]"; ` +
       `echo "peerfile=[$(cat ${f.peerDir}/seat.md 2>/dev/null)]"; ` +
+      `echo "peertoken=[$(cat ${f.peerDir}/sessions/deadbeef/dump/channel/tokens/tok-msg-0001.json 2>/dev/null)]"; ` +
       `echo "own=[$(ls ${f.seatDir} >/dev/null 2>&1 && echo readable)]"`);
-    leg('9', 'peer seat folders stay absent under the read root; the seat keeps its own folder',
-      !new RegExp(`peerfile=\\[.*${CANARY}`).test(nine) && /peerfile=\[\]/.test(nine) && /own=\[readable\]/.test(nine),
+    leg('9', 'peer seat folders AND a nested pattern-floor match under them stay absent under the read root; the cage still LAUNCHES (does not crash bwrap); the seat keeps its own folder',
+      !new RegExp(`peerfile=\\[.*${CANARY}`).test(nine) && /peerfile=\[\]/.test(nine) &&
+      !new RegExp(`peertoken=\\[.*${CANARY}`).test(nine) && /peertoken=\[\]/.test(nine) &&
+      /own=\[readable\]/.test(nine) && !/Read-only file system|Can't mkdir/.test(nine),
       `in-cage: ${JSON.stringify(nine.trim())}`);
 
     // ── 10 — INTERPRETER CODE IS EXEMPT FROM THE PATTERN FLOOR, AND ONLY FROM THE FLOOR ──────
