@@ -369,14 +369,17 @@ rather than buried: `S3` is about **arity** (`null`, or a list/dict — no value
 and a wrongly-**typed** scalar fails that field's own value member rather than minting a "wrong
 type" member the schema does not carry.
 
-## Four bounds this capability is built to, each with its reason
+## Three bounds this capability is built to, each with its reason
 
 | Bound | Why |
 |---|---|
 | **The ruled name.** The create act invokes `scaffold-seats`, resolved on PATH — never the script path `materialize-seats.py` behind it, and never a hand-rolled spawn. | `d-materialize-term` and `p-the-scaffold-seats-fix-is-NOT-a-text-alignment`: invoke the ruled name, do not align text. |
-| **One location computer.** The arming marker's location comes from `edge-runner-job.arm_path()`, imported. Computed nowhere else here. | Two computers are two readers free to disagree about which packages are armed — the C4 failure itself. |
 | **Not hosted in `chat-bridge`.** | `chat-bridge.js:11-12` states its own bound: it holds NO spawn/queue capability BY DESIGN. Hosting the entry there changes another component's designed bound. |
 | **The chain fails closed.** A failed act stops the chain; a later act never runs on an earlier one's failure, and the outcome never reads `ACCEPTED` when a step returned non-zero. | Measured, not anticipated — see below. |
+
+(The former fourth bound, "one location computer" for the arming marker's path via
+`edge-runner-job.arm_path()`, is gone: ARMING IS RETIRED, and both the marker and the edge-runner
+are deleted — see below.)
 
 ## Three properties of the path, stated because they surprise every reader once
 

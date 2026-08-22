@@ -5,8 +5,8 @@ A thin local wrapper over this machine's systemd **USER** unit ops for the ignit
 
 It never crosses the gateway, presents no `IGNITE_SENDER_TOKEN`, and works precisely when the
 daemon is **down** — which is why it is not an `ignite` subcommand. The full contract, reasoning
-and rejected alternatives live in `1-projects/rbtv-sb-merge-refactor-structure/ignite-operator-surface-design.md`
-(merge-refactor campaign workspace) and on the registry's `rbtv CLI` record § daemon verb family.
+and rejected alternatives live in `4-archives/executed/rbtv-sb-merge/rbtv-sb-merge-refactor-structure/ignite-operator-surface-design.md`
+(merge-refactor campaign archive) and on the registry's `rbtv CLI` record § daemon verb family.
 Not restated here (`PRIN-11`).
 
 ## The verbs

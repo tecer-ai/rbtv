@@ -19,6 +19,7 @@ side and never on ignite):
     rbtv-goal teardown <goal-name> [--yes] [--dry-run]   # ⚠ NEEDS THE DAEMON UP (IPH-27)
     rbtv-goal gate-key-check <goal-name> --pass-folder NAME [--override ANCHOR]
     rbtv-goal check-acyclic <file> [--id-col C] [--after-col C]
+    rbtv-goal retry-threshold <goal-name> [--milestone M] [--set N] [--unset]
 
 ⚠ `teardown` IS THE EXCEPTION TO THE LOCAL-ONLY PROPERTY ABOVE, and it cannot be
 otherwise: what it reclaims is the job CATALOGUE, which lives in the machine's
@@ -34,8 +35,8 @@ convention: 0 success/clean, 1 refusal/gate-fail/not-found, 2 usage error — an
 `gate-key-check` extends it by exactly one: 3 flagged-pass (it never uses 2,
 which argparse reserves for a mistyped flag).
 
-v1 ships standalone; it folds into `rbtv goal <verb>` verbatim when task 7.65
-lands (the operator-surface stand-in pattern — no contract change at fold-in).
+Fold-in DONE (task 7.65, landed 2026-07-27, the operator-surface stand-in pattern):
+`rbtv goal <verb>` execs this script verbatim, no contract change.
 """
 
 from __future__ import annotations

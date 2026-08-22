@@ -979,7 +979,7 @@ def _run(cmd, step, dry_run):
 # ----------------------------------------------------------------- the entry
 
 def handle(request, goals_root, package, catalog_root, bindings, claude_md, budget_json,
-           seat=None, workflow=None, after=None, root=False, note=None,
+           seat=None, workflow=None, after=None, root=False,
            do_launch=True, dry_run=False):
     """The entry: validate, then create -> launch, in that order and once.
 
@@ -1076,7 +1076,6 @@ def main(argv=None):
     h.add_argument("--bindings", required=True)
     h.add_argument("--claude-md", required=True)
     h.add_argument("--budget-json", required=True)
-    h.add_argument("--note", help="free text written into the arming marker")
     g = h.add_mutually_exclusive_group(required=True)
     g.add_argument("--seat")
     g.add_argument("--workflow")
@@ -1084,7 +1083,7 @@ def main(argv=None):
     i.add_argument("--after")
     i.add_argument("--root", action="store_true")
     h.add_argument("--no-launch", action="store_true",
-                   help="perform create and arm only; the launch act is withheld by the caller")
+                   help="perform create only; the launch act is withheld by the caller")
     h.add_argument("--dry-run", action="store_true")
 
     # Task C2 — the DAEMON-EXECUTED verb. It takes an inbox DIRECTORY, never a single request
@@ -1155,7 +1154,7 @@ def main(argv=None):
         out = handle(payload, args.goals_root, args.package, args.catalog_root, args.bindings,
                      args.claude_md, args.budget_json,
                      seat=args.seat, workflow=args.workflow, after=args.after, root=args.root,
-                     note=args.note, do_launch=not args.no_launch, dry_run=args.dry_run)
+                     do_launch=not args.no_launch, dry_run=args.dry_run)
         print(json.dumps(out, indent=2))
         if out.get("stated-refusal"):
             print(out["stated-refusal"], file=sys.stderr)

@@ -6,12 +6,13 @@
 # precisely when the daemon is DOWN — which is why it is not an `ignite` subcommand
 # (the gateway client must never gain a lifecycle verb; DEC-4 boundary).
 #
-# v1 stand-in: folds into `rbtv ignite daemon <verb>` verbatim when the rbtv CLI
-# lands. See daemon-operator.md § Retirement.
+# v1 stand-in: `rbtv ignite daemon <verb>` (landed 2026-07-27) WRAPS this script rather than
+# replacing it — the CLI execs it verbatim. Retirement waits on the CLI STOPPING delegating, not
+# on the CLI landing. See daemon-operator.md § Retirement.
 #
 # Contract, reasoning and rejected alternatives are carried whole by
-# 1-projects/rbtv-sb-merge-refactor-structure/ignite-operator-surface-design.md
-# (in the merge-refactor campaign workspace) — never restated here.
+# 4-archives/executed/rbtv-sb-merge/rbtv-sb-merge-refactor-structure/ignite-operator-surface-design.md
+# (merge-refactor campaign archive) — never restated here.
 #
 # NO SEAT GATE, deliberately (owner-ruled 2026-07-26): during development every
 # agent on the box may run every daemon command. The enforcement point is the OS —
@@ -329,7 +330,7 @@ while [ "$#" -gt 0 ]; do
       printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS · RBTV_IGNITE_DEPLOY\n'
       printf '  --json applies to `unit` only.\n'
       printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'
-      printf '  the watch loop is NOT one of these: it has no fixed unit — see `rbtv ignite watch`.\n'; exit 0 ;;
+      printf '  the watch loop is NOT one of these: it has no fixed unit — see `orchestration/cli/team-monitor/team_monitor.py`.\n'; exit 0 ;;
     -*) die "unknown option: $1" ;;
     *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$1')"; VERB="$1" ;;
   esac

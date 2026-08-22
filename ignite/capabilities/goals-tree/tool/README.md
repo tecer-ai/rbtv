@@ -78,9 +78,9 @@ instead of a live package). Guarded by `../probes/probe-goal-root-escape.py`, wh
 runs the pre-fix expression and requires it to escape.
 
 Every verb is a LOCAL file operation — they work with the daemon down, which is why they live
-on the `rbtv` side and never on `ignite` (the detached gateway client). v1 ships standalone and
-folds into `rbtv goal <verb>` verbatim when the `rbtv` CLI lands (task 7.65) — the operator-surface
-stand-in pattern, no contract change at fold-in.
+on the `rbtv` side and never on `ignite` (the detached gateway client). Fold-in DONE (task 7.65,
+landed 2026-07-27, the operator-surface stand-in pattern): `rbtv goal <verb>` execs this script
+verbatim, no contract change.
 
 ## The verbs
 
