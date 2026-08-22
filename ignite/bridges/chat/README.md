@@ -173,8 +173,9 @@ into the owner's DM. Every other post failure takes that same bounded retry, so 
 never silently downgraded to another surface either.
 
 **Inbound (owner → agent).** `routeOf` resolves `kind: 'agent'` and `forward-path.js` homes the
-session at **that agent's seat** (`resolveGoalSeat(workspaceRoot, goalId, agent)`) on the
-**goal** profile: a new conversation is a `session-create` there — which **revives** the seat
+session at **that agent's seat** (`resolveGoalSeat(workspaceRoot, goalId, agent)`) — the seat's own
+CAST decides harness/model, no profile argument is passed (`#d-abolish-profile-names`,
+2026-08-12): a new conversation is a `session-create` there — which **revives** the seat
 headless with the owner's reply as its bare prompt — and an existing one is the unchanged
 `send-message` follow-up on the chain the seat already holds. If a live turn still holds that
 seat, the daemon's idempotent door suppresses the create and the owner gets the existing
@@ -192,7 +193,7 @@ REVERSED.** Every other branch routes a row because *nobody read it* — a defec
 | Gate | Where it is declared | Absent means |
 |------|----------------------|--------------|
 | **1 — the seat is human-interactive** | `human-interactive: yes\|true` in the sending seat's `seat.md` **frontmatter** — the first `---`-fenced block only, so a briefing line in the BODY that quotes the flag cannot open the gate (one file read, memoized per pass) | not human-interactive |
-| **2 — the goal is interactive** | a THREE-RUNG ladder (owner ruling 2026-08-10, issue C-4): **(1)** one word in `.rbtv/goals/<goal>/execution-mode` if that file is there — the PER-RUN POSTURE, which always wins, because the console flow writes `autonomous` there when the owner walks away and a birth attribute must not override a human saying "not now"; **(2)** file absent → the goal's BIRTH ATTRIBUTE, `goal-kind: interactive` in `goal.md` frontmatter (no creation path has ever written `execution-mode`, so without this rung every interactive goal was born with the gate shut and every ask parked silently); **(3)** neither → `autonomous` | **`autonomous`** — an unreadable file and any other word read that way at rung 1, and so does any `goal-kind` that is not exactly `interactive`, no key, no frontmatter or no `goal.md` at rung 2. A goal nobody declared reachable is not reachable; the owner flips it when he is |
+| **2 — the goal is interactive** | a THREE-RUNG ladder (owner ruling 2026-08-10, issue C-4): **(1)** one word in `.rbtv/goals/<goal>/execution-mode` if that file is there — the PER-RUN POSTURE, which always wins, because the console flow writes `autonomous` there when the owner walks away and a birth attribute must not override a human saying "not now" (`goal_creation_request.py` also writes this file at creation now, per the same 2026-08-10 ruling — a workflow declares a default, creation writes it, a requester may override per goal); **(2)** file absent → the goal's BIRTH ATTRIBUTE, `goal-kind: interactive` in `goal.md` frontmatter (rung 1 covers every daemon-created goal today, but a goal born some other way can still land here); **(3)** neither → `autonomous` | **`autonomous`** — an unreadable file and any other word read that way at rung 1, and so does any `goal-kind` that is not exactly `interactive`, no key, no frontmatter or no `goal.md` at rung 2. A goal nobody declared reachable is not reachable; the owner flips it when he is |
 
 **A blocked row PARKS ON THE BUS.** It is not re-routed, not downgraded into the owner's DM and
 not swallowed: **nothing is posted anywhere**, the cursor advances because the row was disposed
@@ -533,7 +534,8 @@ than a discipline this module keeps.
 
 ### The prompt is the bare user text, plus at most one correlation line (owner ruling 2026-08-06, amended 2026-08-07)
 
-A session-create carries `args: { profile, prompt, workdir }` where **`prompt` is the
+A session-create carries `args: { prompt }` — no `profile` (`#d-abolish-profile-names`,
+2026-08-12) and no `workdir` (the seat's home resolves it) — where **`prompt` is the
 user's message, verbatim** — on the master, mention and goal legs alike. The bridge
 ships **zero behavioural text**: who a session is and how it answers travel with the
 seat it is homed at, through that seat's `seat.md` and the auto-injected `CLAUDE.md`
@@ -885,10 +887,12 @@ HTTP interface. `probes/` is test harness and MAY reach siblings.
 | `SLACK_API_BASE` | Slack Web API base override (tests point it at a mock) |
 | `IGNITE_CHAT_BRIDGE_CONFIG` | path to the non-secret JSON config (allowlist, job/profile names) |
 
-Non-secret JSON config shape: `{ gateway_addr, session_job_id, session_profile,
-send_message_job_id, workdir, workspace_root, channel_prefix, master_profile,
-goal_profile, state_file, bus_ferry, bus_ferry_dm_user, live_sessions,
-allowlist: [chat-user-ids] }`.
+Non-secret JSON config shape: `{ gateway_addr, session_job_id,
+send_message_job_id, workdir, workspace_root, channel_prefix,
+state_file, bus_ferry, bus_ferry_dm_user, live_sessions,
+allowlist: [chat-user-ids] }`. (`session_profile`, `master_profile`, `goal_profile` and
+`master_effort` are DELETED — 2026-08-11/12, launch-cast unification — never read; the seat's own
+cast decides harness/model now.)
 
 `workspace_root` is the workspace whose `.rbtv/goals/` holds the goal runs — it is what
 a goal-channel session's workdir is resolved from (below). Leaving it unset does not

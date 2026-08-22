@@ -701,8 +701,9 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // mapped goal channel), or 'agent' (a thread in a goal channel that a named agent opened,
   // ratified 2026-08-09). It never changes the ADMISSION decision (DEC-6's gate is
   // per-principal, not per-surface) and it never changes the forward CONTRACT (still
-  // exactly two enqueue-job legs). It selects the launch profile AND the session's
-  // workdir, and is logged, so a goal's traffic is attributable.
+  // exactly two enqueue-job legs). It selects the session's home (which seat, which
+  // workdir) — never a launch profile, which no longer exists (`#d-abolish-profile-names`) —
+  // and is logged, so a goal's traffic is attributable.
   //
   // THREE-VALUED, deliberately: an explicit `null` means the bridge RESOLVED the
   // surface and found it unattributable → refuse. `undefined` means no caller

@@ -477,11 +477,16 @@ async function main() {
       sent.length === 10 && lastText() === 'opencode answered *here*',
       { sentCount: sent.length, text: lastText() });
 
-    state.status.set(42, { live: false, status: 'done', profile: 'kimi/kimi-code/kimi-for-coding' });
+    // The standalone `kimi` harness is retired; a kimi model is reached through opencode now, so
+    // its live profile shape is `opencode/kimi-for-coding/kimi-for-coding`, not the old
+    // `kimi/kimi-code/kimi-for-coding`. Same known-plain-text arm either way (HARNESS_TOKENS
+    // still recognizes the segment), so the assertion is unchanged — this just stops feeding a
+    // profile string that no live session can actually produce.
+    state.status.set(42, { live: false, status: 'done', profile: 'opencode/kimi-for-coding/kimi-for-coding' });
     state.logs.set(42, [FENCE_OPEN, 'kimi answered *here*', FENCE_CLOSE]);
     state.recentTicks.push({ tick: 12, actions: [{ action: 'spawn', execId: 42, queueId: QUEUE }] });
     await leg().tick();
-    record('n3:an unrecognized harness segment (kimi) resolves the plain-text arm',
+    record('n3:a kimi-for-coding reply (via opencode) resolves the known plain-text arm',
       sent.length === 11 && lastText() === 'kimi answered *here*',
       { sentCount: sent.length, text: lastText() });
 
