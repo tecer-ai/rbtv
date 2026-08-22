@@ -1,6 +1,7 @@
 'use strict';
 
 const { DatabaseSync } = require('node:sqlite');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
@@ -233,6 +234,33 @@ function enqueueHomeOf(job, args) {
 
 const TRIGGER_KINDS = new Set(['scheduled', 'periodic']);
 const VALID_PRIMITIVE_TYPES = new Set(['string', 'integer', 'number', 'boolean', 'object', 'array']);
+
+// ── D52/D66/D70/D84 (owner ruling, 2026-08-22) · THE ADMISSION BRAKE ────────────────────────────
+//
+// Same goal+seat+reason with no PROGRESS → at most this many launch-agent ADMISSIONS, then the
+// door refuses (D52). ONE constant, owned HERE — reconcile.js imports it rather than keeping its
+// own copy (brake-queue lane constraint 10: "one shared source of truth beats two literals").
+// Numerically identical to D34's STRIKE_LIMIT by design: this is the SAME bound relocated to
+// bind every caller, not a new policy.
+const ADMISSION_BRAKE_LIMIT = 2;
+
+// The merged-budget bucket a reasonless caller's admissions fall into (brake-queue lane: "omitting
+// a reason MERGES budgets, which is stricter, and that is the safe direction"). Prefixed `door:`
+// so its rows in `reconcile_attempts` can never collide with the watcher's own unprefixed
+// (goal, seat, reason) rows — the two brakes are independent locks sharing one table (D62 default
+// KEEP: `stuckStands`/`strike` are untouched by this door, see reconcile.js).
+const BRAKE_REASON_FLOOR = '__enqueue';
+
+// A caller with no ledger-derived progress signature (only the watcher has one) gets a FLOOR
+// signature instead: a hash of the exact bytes that would run. ⚠ NEVER a hash of unstamped `args`
+// — this hashes `argsForRow`, the STAMPED bytes (shard included), so two shards of one seat never
+// collide on this floor either. This is a courser signal than a real ledger diff (brake-queue lane
+// edge case 5: "the unread wake's prompt is byte-identical even when NEW mail exists") — acceptable
+// for a floor, wrong for the watcher's own semantic signature, which is why the watcher always
+// supplies its own via `req.progressSignature` and never falls through to this.
+function hashArgsFloor(argsForRow) {
+  return crypto.createHash('sha256').update(String(argsForRow)).digest('hex').slice(0, 16);
+}
 
 let singleton = null;
 
@@ -1149,6 +1177,95 @@ class HeartStore {
       return { dryRun: true, valid: true };
     }
 
+    const home = enqueueHomeOf(job, parsedArgs);
+
+    // ── D52/D66/D70/D84 (owner ruling, 2026-08-22) · THE ADMISSION BRAKE ──────────────────────
+    //
+    // Same goal+seat+reason with no PROGRESS → at most ADMISSION_BRAKE_LIMIT launch-agent
+    // admissions, then refuse. Placed AFTER the dry-run return (same reason Q9 is: dry-run keeps
+    // its certified "nothing was written" meaning byte-identically) and BEFORE the Q9 seatKey
+    // branch below, so it binds BOTH `on_seat_busy` modes — `'queue'` is precisely the mode the
+    // watcher uses to opt OUT OF DEDUPE, and D52 exists because that caller burned 356 launches.
+    // Scoped to `launch-agent` only, exactly like `seatKeyOf` (brake-queue lane constraint 1) —
+    // a periodic fire-tool/start-workflow job never reaches this branch, so the daemon's own
+    // cadences and the frozen-work watchdog are untouched.
+    //
+    // ⚠ D84 · `goal-master` IS EXEMPT, PROVEN BY IDENTITY, NOT BY THE ABSENCE OF A REASON.
+    // `goal-master` is a D24 SUMMONED SEAT (reconcile.js `summonedSeats`) — the watcher NEVER
+    // targets it, by construction, for either class (a) or class (b). Every launch-agent enqueue
+    // that resolves `home.seat === 'goal-master'` is therefore ALREADY an event-driven wake (a
+    // Slack message or an explicit owner/agent act), which is exactly what D84 exempts. This is
+    // an identity check on the row's own home, not a side effect of a reasonless caller's coarse
+    // key — a goal-master row is skipped even when it DOES carry a reason.
+    if (job.action_type === 'launch-agent' && home.seat !== 'goal-master' && home.goal && home.seat) {
+      const shard = typeof parsedArgs[SEAT_SHARD_ARG] === 'string' ? parsedArgs[SEAT_SHARD_ARG] : '';
+      // The shard rides IN the brake's seat key, independently of `seatKeyOf`'s own shard suffix —
+      // without it one stuck conversation at a shared seat (channel-master's every Slack DM) would
+      // brake every other conversation there (brake-queue lane edge case 8).
+      const brakeSeat = shard ? `${home.seat}#${shard}` : home.seat;
+      // `door:` prefixed so this counter's rows in `reconcile_attempts` never collide with the
+      // watcher's own unprefixed (goal, seat, reason) rows below — D62 default KEEP: `strike()`/
+      // `stuckStands()` (reconcile.js) are UNTOUCHED, this is a SECOND, INDEPENDENT lock on the
+      // SAME table, not a replacement. A caller with no reason (chat bridge, CLI today) falls into
+      // the ONE merged bucket `BRAKE_REASON_FLOOR` — omitting a reason MERGES budgets, which is
+      // stricter than a per-reason key, and stricter is the safe direction for a caller this door
+      // cannot otherwise distinguish (brake-queue lane item 2).
+      const brakeReason = `door:${typeof req.reason === 'string' && req.reason ? req.reason : BRAKE_REASON_FLOOR}`;
+      // The watcher ALWAYS supplies its own ledger-derived signature (`req.progressSignature`);
+      // every other caller today supplies none and falls to the args-bytes floor. NEVER a hash of
+      // the CALLER-SUPPLIED raw `args` — `argsForRow` is the STAMPED bytes (shard included), so
+      // two shards of one seat can never collide on this floor (`seatKeyOf`'s own "never a hash of
+      // args" warning is about a different purpose; the volatility concern here is the same).
+      const brakeSignature = typeof req.progressSignature === 'string' && req.progressSignature
+        ? req.progressSignature
+        : hashArgsFloor(argsForRow);
+      // D70 · an OWNER-INITIATED admission ALWAYS gets through and ALWAYS re-arms (resets the
+      // counter), regardless of the prior signature. `senderKind` is stamped by the caller from
+      // the AUTHENTICATED sender (dispatch.js `handleEnqueueJob`), never trusted from a payload —
+      // the exact discipline `enqueuingSeat`/`enqueued_by` already follow on this same door.
+      const ownerInitiated = req.senderKind === 'owner';
+      const prevBrake = this.getReconcileAttempt(home.goal, brakeSeat, brakeReason)
+        || { attempts: 0, stuck_emitted: 0, signature: '' };
+      const sameSignature = prevBrake.signature === brakeSignature;
+      if (!ownerInitiated && sameSignature && Number(prevBrake.attempts) >= ADMISSION_BRAKE_LIMIT) {
+        // THE REFUSAL. The counter still advances (mirrors `strike()`'s own "the counter keeps
+        // advancing; what stops is the SPEND" — reconcile.js) so `attempts` stays a true count of
+        // how many times this exact stuck condition was re-asked, for the `because` diagnostic.
+        const attempts = Number(prevBrake.attempts) + 1;
+        this.upsertReconcileAttempt({
+          goal: home.goal, seat: brakeSeat, reason: brakeReason,
+          attempts, stuckEmitted: 1, signature: brakeSignature, updatedAt: isoNow(),
+        });
+        const because = `admission-brake: ${attempts} attempts with unchanged signature ${brakeSignature}`;
+        this._recordEnqueueLog({
+          jobId: req.jobId, goal: home.goal, seat: home.seat, seatKey: brakeSeat,
+          outcome: 'braked', because, queueId: null, execId: null, heldStatus: null, at: isoNow(),
+        });
+        return {
+          braked: true,
+          goal: home.goal,
+          seat: home.seat,
+          seat_key: brakeSeat,
+          reason: brakeReason,
+          signature: brakeSignature,
+          attempts,
+          because,
+        };
+      }
+      // ADMITTED. Unchanged signature (and not an owner re-arm) ⇒ +1; a changed signature or an
+      // owner-initiated call ⇒ reset to 1 — byte-identical shape to `strike()`'s own progress test,
+      // relocated to count ADMISSIONS (D52's wording) rather than watcher PASSES (today's meaning
+      // for `stuckStands`/`strike`, which this door does not change).
+      const admittedAttempts = (!ownerInitiated && sameSignature) ? Number(prevBrake.attempts) + 1 : 1;
+      this.upsertReconcileAttempt({
+        goal: home.goal, seat: brakeSeat, reason: brakeReason,
+        attempts: admittedAttempts,
+        stuckEmitted: admittedAttempts >= ADMISSION_BRAKE_LIMIT ? 1 : 0,
+        signature: brakeSignature,
+        updatedAt: isoNow(),
+      });
+    }
+
     // ── Task Q9 · THE IDEMPOTENT DOOR (owner-authorized ruling `d-q9-door`, 2026-08-08) ────────
     //
     // A second add-job for a (run, seat) still held is a NO-OP that RETURNS THE HELD OPERATION'S
@@ -1191,7 +1308,6 @@ class HeartStore {
     // above, byte-identical. Queueing is safe only because the ticker's dispatch phase asks THIS
     // OBJECT's `findSeatHolder` before it launches, so two pending rows for one seat fire one
     // after the other rather than at once; the per-seat pending CAP is enforced at the bridge.
-    const home = enqueueHomeOf(job, parsedArgs);
     const onSeatBusy = req.onSeatBusy === undefined || req.onSeatBusy === null ? 'dedupe' : req.onSeatBusy;
     if (onSeatBusy !== 'dedupe' && onSeatBusy !== 'queue') {
       throw new HeartStoreError(E_BAD_ARGS, `on_seat_busy must be 'dedupe' or 'queue'`, { onSeatBusy });
@@ -1262,9 +1378,13 @@ class HeartStore {
   }
 
   listEnqueueUnfired(goal, cutoffIso) {
+    // D52/D66 · a `braked` row was REFUSED — never inserted into `queue`, so it can never fire.
+    // Without this exclusion every admission the brake stops would raise a false "enqueued, never
+    // fired" stall alarm (brake-queue lane constraint 7 / risk: "the brake will trip the daemon's
+    // own frozen-work alarm").
     return this._prepare(`
       SELECT * FROM enqueue_log e
-       WHERE e.goal = ? AND e.at <= ?
+       WHERE e.goal = ? AND e.at <= ? AND e.outcome != 'braked'
          AND NOT EXISTS (SELECT 1 FROM jobs_log j WHERE j.job_id = e.job_id AND j.fired_at >= e.at)
        ORDER BY e.at
     `).all(goal, cutoffIso);
@@ -2160,6 +2280,9 @@ function isHeartStoreOpen() {
 module.exports = {
   jobFireability,
   REQUIRED_ARGS_BY_ACTION,
+  // D52/D66 — the admission brake's own bound, the ONE source of truth reconcile.js imports
+  // rather than keeping a second STRIKE_LIMIT literal.
+  ADMISSION_BRAKE_LIMIT,
   openHeartStore,
   closeHeartStore,
   isHeartStoreOpen,
