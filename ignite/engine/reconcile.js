@@ -29,13 +29,22 @@ const { requirePythonCmd } = require('../lib/python-cmd');
 const {
   readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce,
 } = require('./seeding');
+// D52/D66 (2026-08-22) — ONE shared bound, owned by the door (heart-store.js), imported here
+// rather than kept as a second literal. This is a VALUE import only (a number) — HeartStore
+// still must not import engine code, and this direction (engine → server) is the existing one
+// (`reconcile.js` already receives `heartStore` via `engine.heartStore`).
+const { ADMISSION_BRAKE_LIMIT } = require('../server/heart/heart-store');
 
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const RECOVER_ROOM = path.join(__dirname, '..', 'jobs', 'recover-room.py');
 
 const CADENCE_MS = 5 * 60 * 1000;
-const STRIKE_LIMIT = 2; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
+const STRIKE_LIMIT = ADMISSION_BRAKE_LIMIT; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
 const OWNER_AFTER_STUCK = 3;
+// D70 (2026-08-22) — the ONE system sender that ever writes to a goal's messages.md
+// (`sendStuck` below, `engine/seeding.js` surface-refusal). System-written mail must never count
+// as progress for the mail-cursor signal (class B) — see `deriveOwed`'s classB loop.
+const SYSTEM_MAIL_SENDER = 'ignite-daemon';
 
 const RECORD_DISPOSITIONS = Object.freeze(
   ['done', 'renew', 'revive', 'exited', 'incomplete', 'unverified'],
@@ -305,7 +314,14 @@ function deriveOwed(goalFolder, {
     if (summonedSet.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
     const since = checkinOf(last.get(chair));
+    // D70 · SYSTEM-WRITTEN MAIL NEVER COUNTS. Without this exclusion the brake's own `stuck` note
+    // (sent `--as ignite-daemon`, sendStuck below) bumps the very cursor it is reporting on, and a
+    // machine-generated escalation loop reads as "new mail = progress" forever (brake-existing
+    // lane edge case 2, measured on meet: the nonterm stuck-mail advanced the leader's own unread
+    // counter). Human- and agent-authored mail (D70: "only mail authored by a human or by another
+    // seat") is unaffected — this filters exactly one sender identity, not a class of message.
     const unread = messages.filter((m) => m.to === chair && m.sender !== chair
+      && m.sender !== SYSTEM_MAIL_SENDER
       && (!since || tsAfter(m.ts, since)));
     if (!unread.length) continue;
     classB.push({
@@ -438,7 +454,7 @@ function nontermPayload(rows) {
 }
 
 function launchSitting({
-  heartStore, goal, goalFolder, seat, promptFn, say,
+  heartStore, goal, goalFolder, seat, promptFn, say, reason, signature,
 }) {
   const seatDir = path.join(goalFolder, 'seats', seat);
   if (!fs.existsSync(seatDir)) {
@@ -478,12 +494,29 @@ function launchSitting({
     runAt: isoNow(),
     enqueuedBy: 'goal-watcher',
     onSeatBusy: 'queue',
+    // D52/D66 — the watcher already derives BOTH of these (reconcileGoal's launchTargets); they
+    // used to be dropped before enqueue. Threaded through as first-class request fields (never as
+    // an unregistered `args` key — `validateArgs` refuses those, brake-queue lane item 2).
+    reason,
+    progressSignature: signature,
   });
   if (enq && enq.deduped) {
     if (say) say('warn', 'reconcile: enqueue returned deduped — sitting was NOT queued', {
       goal, seat, because: enq.because, queue_id: enq.queue_id, exec_id: enq.exec_id,
     });
     return { ok: false, error: 'deduped', enq, seat };
+  }
+  // D52/D66 — the door's own refusal. Mirrors the `deduped` handling immediately above: the
+  // watcher already reads the enqueue result, so a `braked` verdict surfaces here rather than the
+  // door importing engine code to escalate itself (HeartStore must not import engine — brake-queue
+  // lane constraint 6). The watcher's OWN `stuckStands`/`strike` brake (below, in reconcileGoal)
+  // is untouched and is what actually sends the typed `stuck` message; this is the SECOND,
+  // independent lock catching whatever reaches the door regardless of caller.
+  if (enq && enq.braked) {
+    if (say) say('warn', 'reconcile: enqueue returned braked — the door refused this admission', {
+      goal, seat, because: enq.because, attempts: enq.attempts, signature: enq.signature,
+    });
+    return { ok: false, error: 'braked', enq, seat };
   }
   return { ok: true, enq, seat, jobId };
 }
@@ -684,6 +717,7 @@ function reconcileGoal({
       seenTarget.add(t.seat);
       const launched = launchSitting({
         heartStore, goal, goalFolder, seat: t.seat, promptFn: t.promptFn || promptFn, say,
+        reason: t.reason, signature: t.signature,
       });
       action = launched.ok
         ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }
