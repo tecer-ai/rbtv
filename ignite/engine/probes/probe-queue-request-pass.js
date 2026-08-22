@@ -81,7 +81,7 @@ function withMutant(anchor, replacement, body) {
 // ── THE FIXTURE ──────────────────────────────────────────────────────────────────────────────
 //
 // A workspace shaped exactly as the daemon reads one: `<ws>/rbtv.json`, `<ws>/.rbtv/goals/<goal>`,
-// `<ws>/.rbtv/mirror/meta/`, `<ws>/.rbtv/config/modules/meta/planning/bindings/plan.json`.
+// catalog at `<rbtv_path>/meta/`, `<ws>/.rbtv/config/modules/meta/planning/bindings/plan.json`.
 const SHEET_SEATS = {
   'plan-planner': { agent_type: 'staff', mode: 'interactive', 'ctx-refresh': 35, harness: 'claude', model: 'claude-fable-5', effort: 'high' },
 };

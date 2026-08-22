@@ -156,12 +156,12 @@ yet (that check logs; it never refuses the boot).
 
 ⚠ **`--workflow` is RULED — `planning`** (owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08;
 task C5). It names what EVERY master-created goal that does not route to a pre-existing workflow is
-materialized with: the meta component `.rbtv/mirror/meta/planning/`, whose chain root is
+materialized with: the meta component `3-resources/tools/rbtv/meta/planning/`, whose chain root is
 `plan-interviewer`. ⚠ **`--entry-seat` is GONE** (7.778): it existed only to fill the deleted
 workflow-start row's argv, and nothing at this door opens a seat any more.
 
 ⚠ **REPOINTED 2026-08-10 (issue C-2) — the ruling held, the component moved.** The pair originally
-landed against `.rbtv/mirror/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by
+landed against `3-resources/tools/rbtv/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by
 the planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator`. That
 component was DELETED and the pair went stale: every daemon-fired creation refused
 `workflow-unknown` at `create-package` — `probe-planning-entry.py` recorded it RED, 14 checks. The

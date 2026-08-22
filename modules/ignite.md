@@ -134,7 +134,7 @@ QUOTED verbatim:
   TYPE survives — it is a generic dispatch category with live consumers
   (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`). The workflow every master-created goal starts in is RULED
   (task C5, `d-owner-q10-launcher-0808`): `planning` / entry seat `plan-interviewer`, the meta
-  component `.rbtv/mirror/meta/planning/`. *(Issue C-2, 2026-08-10: the ruling originally landed
+  component `3-resources/tools/rbtv/meta/planning/`. *(Issue C-2, 2026-08-10: the ruling originally landed
   against `planning-deprecated` / `elicitator` — named `planning`/`planner-workflow` when ruled,
   renamed by R11, vault `01f60de16`, task 7.598. That component was deleted and every fired
   creation refused `workflow-unknown`; the values were repointed at the 16-seat planning

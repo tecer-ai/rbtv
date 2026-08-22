@@ -73,7 +73,8 @@ LIVE_PROFILES = IGNITE / "config" / "spawn-profiles.yaml"
 MATERIALIZE = IGNITE / "team-kit" / "materialize-seats.py"
 STARTER = IGNITE / "team-kit" / "starter-set"
 WORKSPACE = IGNITE.parents[3]
-LIVE_MANIFEST = (WORKSPACE / ".rbtv" / "mirror" / "meta" / "planning"
+REPO = IGNITE.parent
+LIVE_MANIFEST = (REPO / "meta" / "planning"
                  / "workflows" / "planning" / "planning.csv")
 
 failures: list[str] = []
@@ -400,7 +401,7 @@ with tempfile.TemporaryDirectory() as td:
         return subprocess.run(
             [sys.executable, str(MATERIALIZE),
              "--package", str(pkg), "--workflow", "planning",
-             "--catalog-root", str(WORKSPACE / ".rbtv" / "mirror" / "meta"),
+             "--catalog-root", str(REPO / "meta"),
               "--root", "--bindings", str(sheet),
               "--claude-md", str(STARTER / "CLAUDE.md"),
              "--budget-json", str(STARTER / "budget.json"),
@@ -775,7 +776,7 @@ with tempfile.TemporaryDirectory() as td:
     r = subprocess.run(
         [sys.executable, str(MATERIALIZE), "--package", str(goal),
          "--workflow", "goal-local", "--goal-local",
-         "--catalog-root", str(WORKSPACE / ".rbtv" / "mirror" / "meta"),
+         "--catalog-root", str(REPO / "meta"),
           "--root", "--bindings", str(sheet), "--dry-run", "--json",
           "--claude-md", str(STARTER / "CLAUDE.md"),
          "--budget-json", str(STARTER / "budget.json")], capture_output=True, text=True)

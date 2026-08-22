@@ -46,7 +46,7 @@
 // this workspace rather than reasoned about, because the full-mode planning chain is made almost
 // entirely of the cells it refuses:
 //
-//   `.rbtv/mirror/meta/planning/workflows/planning/planning.csv` carries
+//   `3-resources/tools/rbtv/meta/planning/workflows/planning/planning.csv` carries
 //     · a SIX-member cell        — plan-check-assembler after plan-check-{edges,resources,
 //                                  permissions,scope,clarity,consistency}
 //     · GUARDED members          — plan-task-definer after plan-dag-structurer[planning-mode=full]
@@ -156,11 +156,13 @@ function resolveCatalogRoot(goalsRoot) {
     throw new Refusal('queue-request-workspace-book-no-rbtv-path',
       `${book} carries no \`rbtv_path\` — the one field that proves this tree is an rbtv workspace`);
   }
-  // ⚠ `rbtv_path` is READ but the MATERIALIZER IS NOT ADDRESSED THROUGH IT. The book records where
-  // the repo is INSTALLED FROM; the daemon must run the build it IS (`__dirname`), exactly as
-  // `seeding.js` addresses `coord.py`. Reading the book is the workspace-identity gate and the
-  // named refusal the F2 fix is about — not a second way to find this repo.
-  const catalogRoot = path.join(workspace, '.rbtv', 'mirror', PLANNING_MODULE);
+  // The catalog now lives IN the repo (`<rbtv>/meta/`, owner E11/E15). `rbtv_path` is the same
+  // helper `materialize-seats.py#_rbtv_repo_root` uses — relative values resolve against the
+  // workspace. The materializer BINARY is still the build this process IS (`__dirname`); only
+  // the catalog root follows the book.
+  let repoRoot = String(parsed.rbtv_path).trim();
+  if (!path.isAbsolute(repoRoot)) repoRoot = path.resolve(workspace, repoRoot);
+  const catalogRoot = path.join(repoRoot, PLANNING_MODULE);
   if (!fs.existsSync(catalogRoot)) {
     throw new Refusal('queue-request-catalog-root-absent',
       `${catalogRoot}: the component catalog root is absent — the '${PLANNING_WORKFLOW}' workflow `
@@ -377,17 +379,32 @@ function instanceBaseSeat(seat) {
   return m ? m[1] : '';
 }
 
+function repoRootOf(workspace) {
+  const book = path.join(workspace, 'rbtv.json');
+  const parsed = JSON.parse(fs.readFileSync(book, 'utf8'));
+  let root = String((parsed && parsed.rbtv_path) || '').trim();
+  if (!path.isAbsolute(root)) root = path.resolve(workspace, root);
+  return root;
+}
+
 function sheetForSeat(workspace, seat) {
   const code = String(seat || '').split('-')[0];
   const base = instanceBaseSeat(seat);
   const modulesRoot = path.join(workspace, '.rbtv', 'config', 'modules');
   const tried = [];
+  let repoRoot = null;
   for (const name of [...new Set([seat, base, code].filter(Boolean))]) {
     const hits = [];
     for (const mod of readdirSafe(modulesRoot)) {
       for (const comp of readdirSafe(path.join(modulesRoot, mod))) {
         const sheet = path.join(modulesRoot, mod, comp, 'bindings', `${name}.json`);
-        if (fs.existsSync(sheet)) hits.push({ sheet, catalogRoot: path.join(workspace, '.rbtv', 'mirror', mod) });
+        if (fs.existsSync(sheet)) {
+          if (mod === PLANNING_MODULE && repoRoot === null) repoRoot = repoRootOf(workspace);
+          const catalogRoot = (mod === PLANNING_MODULE)
+            ? path.join(repoRoot, PLANNING_MODULE)
+            : path.join(workspace, '.rbtv', 'mirror', mod);
+          hits.push({ sheet, catalogRoot });
+        }
       }
     }
     if (hits.length === 1) return hits[0];
@@ -459,7 +476,7 @@ function goalLocalSeatDir(goalFolder, seat) {
 const GOAL_LOCAL_SHEET = 'bindings.json';
 
 function buildGoalLocalSeats({ goalFolder, workspace, seats, rows = [], say }) {
-  const catalogRoot = path.join(workspace, '.rbtv', 'mirror', PLANNING_MODULE);
+  const catalogRoot = path.join(repoRootOf(workspace), PLANNING_MODULE);
   const sheet = path.join(goalFolder, ...GOAL_LOCAL_SOURCE, GOAL_LOCAL_SHEET);
   // ⚠ THE MILESTONE COMES OFF THE SEATS' OWN ROWS, exactly as the cataloged lane below reads it
   // (`:532`). It is not decoration: `--force-partial` byte-compares the row it WOULD write against

@@ -1072,10 +1072,10 @@ tools:
   # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
   # route to a pre-existing workflow starts in the PLANNING workflow.
   # ⚠ REPOINTED 2026-08-10 (issue C-2). The component this ruling was landed against —
-  # `.rbtv/mirror/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by the
+  # `3-resources/tools/rbtv/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by the
   # planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` —
   # was DELETED, and every daemon-fired creation refused `workflow-unknown` at `create-package`
-  # until this edit. The live component is `.rbtv/mirror/meta/planning/`, the planning REWRITE:
+  # until this edit. The live component is `3-resources/tools/rbtv/meta/planning/`, the planning REWRITE:
   # 16 manifest seats in `workflows/planning/planning.csv`. The ruling is unchanged — a
   # master-created goal still starts in planning; only the component it names moved.
   #
@@ -1122,7 +1122,7 @@ tools:
       # sibling component — measured in `evidence/c5e/c5e-01-premise-probes.txt` P1. All 16 seats
       # of the rewrite catalog inside `planning/` itself, but the resolution shape is unchanged.)
       - --catalog-root
-      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta/
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/meta/
       - --bindings
       - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/planning/bindings/plan.json
       # The OWNER-APPROVED starter set (CLAUDE.md + budget.json). F7 abolished conduct.md.
@@ -1175,7 +1175,7 @@ tools:
       # Where the re-render reads the seat DEFINITION from (the component mirror), as distinct from
       # the sheet above, which carries only what this deployment decided to spend on running it.
       - --catalog-root
-      - /home/henri/ht-wkdir/second-brain/.rbtv/mirror/meta
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/meta
       - --profiles
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/spawn-profiles.yaml
 

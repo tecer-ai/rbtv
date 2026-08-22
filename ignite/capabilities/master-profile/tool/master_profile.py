@@ -167,7 +167,7 @@ _WORKSPACE = _IGNITE.parents[3]
 DEFAULT_SEAT = "channel-master"
 DEFAULT_BINDINGS = (_WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "master-agent"
                     / "bindings" / f"{DEFAULT_SEAT}.json")
-DEFAULT_CATALOG_ROOT = _WORKSPACE / ".rbtv" / "mirror" / "meta"
+DEFAULT_CATALOG_ROOT = _IGNITE.parent / "meta"
 
 # ⚠ EVERY ONE OF THOSE IS A DEFAULT FOR A HUMAN AT A TERMINAL, AND THE FIRED ARGV NAMES ALL OF THEM
 # EXPLICITLY (`tools: master-profile:` in spawn-profiles.yaml). Same reason the sibling entries

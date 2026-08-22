@@ -52,8 +52,8 @@ half.
 
 Nothing here touches a live goals package: every act runs under `tempfile`, and the path driven is
 `scaffold_goal`, which invokes `rbtv-goal scaffold` ONLY. It never reaches `scaffold-seats`, so no
-seat is materialized, no pane is opened, and no agent is ever launched by this probe. The one live
-path it READS is the workspace's own `.rbtv/mirror/meta` catalog root — read-only, and the point:
+seat is materialized, no pane is opened, and no agent is ever launched by this probe.      The one live
+path it READS is the workspace's own `3-resources/tools/rbtv/meta` catalog root — read-only, and the point:
 checks 1 and 2 must resolve the default from the workflow's REAL scaffolding, not from a fixture
 this probe wrote to agree with itself.
 """
@@ -85,7 +85,17 @@ def catalog_root() -> Path | None:
     """
     for parent in [Path(__file__).resolve()] + list(Path(__file__).resolve().parents):
         if (parent / "rbtv.json").is_file():
-            return parent / ".rbtv" / "mirror" / "meta"
+            try:
+                data = json.loads((parent / "rbtv.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+            rel = str((data or {}).get("rbtv_path") or "").strip()
+            if not rel:
+                return None
+            root = Path(rel)
+            if not root.is_absolute():
+                root = parent / root
+            return root / "meta"
     return None
 
 

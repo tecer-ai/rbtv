@@ -92,7 +92,7 @@ the planning of the next milestone.
 `taskforce.csv` row minted at goal-materialize, holding no workflow node and no `after`. It is the
 authority seat, and `consultant` is its optional sibling (minted only where the workspace casts one).
 Still RETIRED, and not to be confused with them: **`chief-of-staff` and `closer`**. Any meta seat's
-definition is materialized from its own component folder under `.rbtv/mirror/meta/`, never
+definition is materialized from its own component folder under `3-resources/tools/rbtv/meta/`, never
 hand-written here.
 
 ## Who resumes from what
