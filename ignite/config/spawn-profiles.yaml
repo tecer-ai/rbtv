@@ -48,7 +48,7 @@ default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every s
 #   cage:      ONE shared cage template — the 7.11 seat cage, now every profile's sandbox
 #   caps:      ONE shared resource-caps default block — per-profile overrides only by ruling
 #   toolsets:  the CLOSED tool-rights enum — a dispatch narrows, never widens
-#   profiles:  ONE profile per harness+model; each carries ONLY exec / headed (where the
+#   launch-specs: ONE spec per harness+model; each carries ONLY exec / headed (where the
 #              harness has a TUI) / effort / session_ref / toolset_ceiling / workdir_root.
 #              Effort, launch home and tool rights are PER-DISPATCH parameters, never identity.
 #
@@ -1141,7 +1141,7 @@ tools:
   # stopped naming execution — so the fire below now edits the master's own CASTING SHEET, the same
   # kind of file `rbtv-bindings` writes for every workflow seat, and re-renders its `seat.md` from it.
   #
-  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `profiles:` SET OF THIS FILE, at both halves —
+  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `launch-specs:` SET OF THIS FILE, at both halves —
   # and against `coord.py#validate_seat` on top of it, because the sheet must hold a pair that the
   # F6 gate of `materialize-seats.py` accepts. An unknown or uncastable name does NOT fail when the
   # sheet is written — it fails at the SPAWN, one owner message later, with the sitting already
