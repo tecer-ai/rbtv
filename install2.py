@@ -343,7 +343,7 @@ PATH_FENCE_START = f"# {FENCE_ID}:start path"
 PATH_FENCE_END = f"# {FENCE_ID}:end path"
 WS_PREFIX = "ws:"
 # Selftest rebinds these to a temp workspace. Production: None → $HOME.
-_RUNTIME: dict = {"bin": None, "rc": None}
+_RUNTIME: dict = {"bin": None, "rc": None, "local": None}
 
 # D8/D13 — CMP-12's `agents.md` row: each harness's per-folder guidance
 # FILENAME. The mirror is keyed by this map and nothing else: targets = the
@@ -474,6 +474,11 @@ class Refuse(Exception):
 
 
 # ── PATH links (`~/.rbtv/bin`, book-aware — R3) ─────────────────────────────
+
+def local_bin() -> Path:
+    override = _RUNTIME.get("local")
+    return Path(override) if override is not None else Path.home() / ".local" / "bin"
+
 
 def bin_dir() -> Path:
     override = _RUNTIME.get("bin")
@@ -2288,9 +2293,9 @@ def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
     for cid in sorted(catalog):
         c = catalog[cid]
         hub = c.get("kind") == "hub"
-        folder = hub and c.get("method") == "skill" and not c.get("hub_refusal")
         rows = exposure_rows(c) if c["manifest"] else []
         refusal = c.get("hub_refusal") or ""
+        specs = _part_specs(c)
         entries.append({
             "id": cid, "tree": c["tree"], "module": c["module"],
             "kind": c.get("kind", "component"),
@@ -2298,11 +2303,7 @@ def do_scan(catalog: dict[str, dict], shadowed: list[dict]) -> dict:
             "methods": ([c["method"]] if hub else
                         sorted({(r.get("method") or "").strip() for r in rows
                                 if (r.get("part-id") or "").strip()})),
-            "parts": (sum(1 for q in Path(c["path"]).rglob("*") if q.is_file())
-                      if folder
-                      else (1 if hub else
-                            len([r for r in rows
-                                 if (r.get("part-id") or "").strip()]))),
+            "parts": len(specs),
             "note": (_hub_refuse_message(c) if refusal else
                      "" if is_installable(c) else
                      "component has no exposure manifest"),
@@ -2655,16 +2656,526 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
             **result, "report": report}
 
 
-def do_list(target: Path) -> dict:
-    state = read_state(target)
+DISCOVER_FLAG = "--target"
+ANSI = {"ok": "\033[32m", "part": "\033[33m", "warn": "\033[33m",
+        "gone": "\033[31m", "fail": "\033[31m", "reset": "\033[0m"}
+
+
+def _part_in(state: dict, cid: str, pid: str) -> bool:
+    rec = (state.get("components") or {}).get(cid)
+    if rec is None and cid.startswith(f"{HUB_DIR}/skills/"):
+        rec = (state.get("components") or {}).get(
+            f"{SKILLS_DIR}/{cid.rsplit('/', 1)[-1]}")
+    if rec is None:
+        return False
+    parts = rec.get("parts")
+    if parts is None:
+        return True
+    return pid in parts
+
+
+def catalog_ids(catalog: dict, cid: str) -> list[str]:
+    c = catalog.get(cid) or {}
+    return [s["id"] for s in _part_specs(c) if s.get("id")]
+
+
+def status_of(cid: str, rec: dict, catalog: dict
+              ) -> tuple[str, set[str], set[str], set[str]]:
+    cat = set(catalog_ids(catalog, cid))
+    booked = set(rec["parts"]) if "parts" in rec else cat
+    if cid not in catalog:
+        return "gone", booked, set(), booked
+    if not cat:
+        return "ok", booked, set(), booked - cat
+    miss, orph = cat - booked, booked - cat
+    st = "part" if booked and booked < cat else "full"
+    return st, booked, miss, orph
+
+
+def build_ls(catalog: dict, shadowed: list, state: dict, *,
+             modules: list[str] | None = None,
+             methods: list[str] | None = None,
+             components: list[str] | None = None,
+             exclude_modules: list[str] | None = None,
+             exclude_methods: list[str] | None = None,
+             exclude_components: list[str] | None = None) -> dict:
+    want_m = {module_id(m) for m in (modules or [])}
+    want_x = set(methods or [])
+    want_c = {_norm_comp(c) for c in (components or [])}
+    drop_m = {module_id(m) for m in (exclude_modules or [])}
+    drop_x = set(exclude_methods or [])
+    drop_c = {_norm_comp(c) for c in (exclude_components or [])}
+    entries, nmap, n = [], {}, 0
+    for cid in sorted(catalog):
+        c = catalog[cid]
+        hub = c.get("kind") in ("hub", "skill-folder")
+        mod = c.get("module") or cid.split("/")[0]
+        if want_m and mod not in want_m:
+            continue
+        if drop_m and mod in drop_m:
+            continue
+        if want_c and cid not in want_c and not any(
+                token == cid or token.endswith("#" + cid.split("/")[-1])
+                or (token.startswith(cid + "#"))
+                for token in want_c):
+            continue
+        if drop_c and cid in drop_c:
+            continue
+        items = []
+        for spec in _part_specs(c):
+            pid, meth = spec["id"], spec.get("method") or ""
+            if want_x and meth not in want_x:
+                continue
+            if drop_x and meth in drop_x:
+                continue
+            n += 1
+            items.append({"index": n, "part_id": pid, "method": meth,
+                          "in": _part_in(state, cid, pid)})
+            nmap[str(n)] = {"kind": "part", "id": part_key(cid, pid)}
+        refusal = c.get("hub_refusal") or ""
+        note = (_hub_refuse_message(c) if refusal else
+                "" if (c.get("manifest") or hub) else
+                "component has no exposure manifest")
+        if (want_x or drop_x) and not items:
+            continue
+        entries.append({
+            "id": cid, "tree": c.get("tree", ""), "module": mod,
+            "kind": "hub" if hub else c.get("kind", "component"),
+            "manifest": bool(c.get("manifest")),
+            "methods": sorted({i["method"] for i in items}),
+            "parts": len(items), "note": note, "items": items,
+            "refusal": refusal,
+        })
+    no_manifest = [
+        cid for cid, c in sorted(catalog.items())
+        if not c.get("manifest") and c.get("kind") not in ("hub", "skill-folder")]
+    hub_refusals = [cid for cid, c in sorted(catalog.items())
+                    if c.get("hub_refusal")]
+    return {"ok": True, "components": entries, "shadowed": shadowed,
+            "no_manifest": no_manifest, "hub_refusals": hub_refusals,
+            "index": {"fingerprint": scan_fingerprint(catalog), "n": nmap}}
+
+
+def print_ls(data: dict, *, pretty: bool = False) -> None:
+    print(f" {'#':>2}  {'COMPONENT / part':<42} {'TREE':<7} {'METHOD':<10} IN")
+    for e in data["components"]:
+        extra = f"  ({e['note']})" if e["note"] else ""
+        print(f"     {e['id']:<42} {e['tree']:<7}{extra}")
+        for i in e["items"]:
+            flag = "in" if i["in"] else "-"
+            if pretty:
+                flag = ((ANSI["ok"] + "in" + ANSI["reset"]) if i["in"]
+                        else flag)
+            print(f"{i['index']:>3}    {i['part_id']:<39} {'':<7} "
+                  f"{i['method']:<10} {flag}")
+    nm = data["no_manifest"]
+    if nm:
+        print(f"\n{len(nm)} component(s) have NO exposure "
+              "manifest (normal during the transition — nothing installs from "
+              "them):")
+        for cid in nm:
+            print(f"  - {cid}: component has no exposure manifest")
+    for s in data["shadowed"]:
+        print(f"\nSHADOWED: {s['id']} exists on both trees — mirror wins "
+              f"({s['winner_path']}); repo copy ignored ({s['shadowed_path']})")
+
+
+def write_visible_index(target: Path, index: dict) -> None:
+    path = target / INDEX_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+
+
+def do_list(target: Path, catalog: dict | None = None) -> dict:
+    raw = read_state(target)
+    catalog = catalog or {}
+    state = upgrade_book(raw, catalog_parts_map(catalog)) if catalog else raw
+    comps: dict = {}
+    links: list[dict] = []
+    for cid, rec in sorted((state.get("components") or {}).items()):
+        rec = dict(rec)
+        st, booked, miss, orph = status_of(cid, rec, catalog)
+        rec["status"], rec["missing"], rec["orphans"] = (
+            st, sorted(miss), sorted(orph))
+        rec.setdefault("parts", {})
+        comps[cid] = rec
+        for pid, part in (rec.get("parts") or {}).items():
+            if not isinstance(part, dict):
+                continue
+            for name in part.get("links") or []:
+                links.append({"name": name, "component": cid, "part": pid})
     return {"ok": True, "target": str(target.resolve()),
             "schema": state.get("schema"),
             "state_file": str(target / STATE_REL),
             "marker": MANAGED_MARK,
             "guidance_basis": state.get("guidance_basis"),
-            "components": state.get("components") or {},
+            "components": comps,
             "guidance_files": state.get("guidance_files") or [],
-            "shared_claims": state.get("shared_claims") or []}
+            "shared_claims": state.get("shared_claims") or [],
+            "path_links": links}
+
+
+def print_li(data: dict, *, pretty: bool = False) -> None:
+    basis = data["guidance_basis"] or "(unset — no mirror)"
+    print(f"target: {data['target']}  marker: {data['marker']}  "
+          f"guidance basis: {basis}")
+    comps = data["components"]
+    if not comps:
+        print("nothing installed by install2.py")
+    else:
+        print(f"{'#':<3} {'ST':<5} {'IN':<5} {'COMPONENT':<42} {'TREE':<7} "
+              f"HARNESSES")
+        cids = list(comps)
+        part_no: dict[str, dict[str, int]] = {cid: {} for cid in cids}
+        k = len(cids) + 1
+        for cid, rec in comps.items():
+            for pid in sorted(rec.get("parts") or {}):
+                part_no[cid][pid] = k
+                k += 1
+        for i, cid in enumerate(cids, 1):
+            rec = comps[cid]
+            cat_n = len((set(rec.get("parts") or {})
+                         | set(rec.get("missing") or {}))
+                        - set(rec.get("orphans") or {}))
+            booked = set(rec.get("parts") or {})
+            orph = set(rec.get("orphans") or {})
+            st = rec["status"]
+            if st == "gone":
+                inn = f"{len(booked)}/—"
+            else:
+                inn = f"{len(booked - orph)}/{cat_n}"
+            paint = f"{st:<5}"
+            if pretty and st in ANSI:
+                paint = ANSI[st] + paint + ANSI["reset"]
+            hs = ",".join(rec.get("harnesses") or [])
+            names = ",".join(sorted(booked))
+            if pretty:
+                print(f"{i:<3} {paint} {inn:<5} {cid:<42} "
+                      f"{rec.get('tree', ''):<7} {hs}")
+                for pid, part in sorted((rec.get("parts") or {}).items()):
+                    if not isinstance(part, dict):
+                        continue
+                    print(f"    {part_no[cid][pid]:<3} {pid:<22} "
+                          f"{part.get('method', '')}")
+            else:
+                print(f"{i:<3} {paint} {inn:<5} {cid:<42} "
+                      f"{rec.get('tree', ''):<7} {hs}  {names}")
+            miss = rec.get("missing") or []
+            orph_l = rec.get("orphans") or []
+            if st == "part" or miss or orph_l:
+                extra = []
+                if miss:
+                    extra.append("out: " + ", ".join(miss))
+                if orph_l:
+                    extra.append("orphan: " + ", ".join(orph_l))
+                if extra:
+                    print("        " + " · ".join(extra))
+    gfs = data["guidance_files"]
+    print("g  (none)" if not gfs else "\n".join(f"g  {p}" for p in gfs))
+    claims = data["shared_claims"]
+    print("\n".join(f"~  {c}" for c in claims) if claims else "~  (none)")
+    pls = data["path_links"]
+    print("\n".join(f"@  {p['name']}" for p in pls) if pls else "@  (none)")
+
+
+def booked_links(state: dict) -> set[str]:
+    return booked_path_names(state)
+
+
+def _path_index(bindir: Path) -> int:
+    want = bindir.expanduser()
+    try:
+        want_r = want.resolve()
+    except OSError:
+        want_r = want
+    for i, raw in enumerate(os.environ.get("PATH", "").split(os.pathsep)):
+        if not raw:
+            continue
+        p = Path(raw).expanduser()
+        try:
+            if p == want or p.resolve() == want_r:
+                return i
+        except OSError:
+            if p == want:
+                return i
+    return -1
+
+
+def collect_collisions(target: Path, files: dict, claims: list,
+                       state: dict) -> list[tuple[str, str]]:
+    ours_f, ours_c = known_files(state), known_claims(state)
+    hits: list[tuple[str, str]] = []
+    for rel in files:
+        if rel in ours_f or not (target / rel).exists() or _is_ours(target, rel):
+            continue
+        hits.append((rel, "guidance-mirror-collision"
+                     if rel.rsplit("/", 1)[-1] in GUIDANCE_NAMES
+                     else "collision"))
+    for claim in claims:
+        cid = _claim_id(claim["path"], claim["key"])
+        path = target / claim["path"]
+        if cid in ours_c or not path.is_file():
+            continue
+        if claim["fmt"] == "json":
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8") or "{}")
+            except ValueError:
+                hits.append((claim["path"], "shared-file-unparseable"))
+                continue
+            if _jget(doc, claim["key"])[1]:
+                hits.append((claim["path"] + "::" + ".".join(claim["key"]),
+                             "collision"))
+        else:
+            start, _ = _fence(claim["comment"])
+            if start in path.read_text(encoding="utf-8"):
+                hits.append((f"{claim['path']}::{FENCE_ID}-block", "collision"))
+    return hits
+
+
+def inspect_bindir(bindir: Path, booked: set[str],
+                   desired: set[str]) -> dict:
+    out = {"unbooked": [], "collision": [], "not_exec": []}
+    if not bindir.is_dir():
+        return out
+    names = {p.name for p in bindir.iterdir()}
+    out["unbooked"] = sorted(names - booked)
+    for name in sorted(desired):
+        p = bindir / name
+        if p.exists() and not p.is_symlink():
+            out["collision"].append(str(p))
+            continue
+        if p.is_symlink():
+            try:
+                dest = p.resolve()
+            except OSError:
+                dest = p
+            if dest.is_file() and not os.access(dest, os.X_OK):
+                out["not_exec"].append(f"{name} → {dest}")
+    return out
+
+
+def shadows(bindir: Path, booked: set[str]) -> list[str]:
+    locdir = local_bin()
+    if not locdir.is_dir():
+        return []
+    watch = set(booked)
+    if bindir.is_dir():
+        watch |= {p.name for p in bindir.iterdir()}
+    hits = []
+    for name in sorted(watch):
+        loc = locdir / name
+        if loc.exists() or loc.is_symlink():
+            hits.append(f"{name} → {loc} shadows {bindir / name}")
+    return hits
+
+
+def render_doctor(checks: list[dict], *, pretty: bool = False) -> str:
+    lines = []
+    for c in checks:
+        tok = {"ok": "ok  ", "warn": "warn", "fail": "FAIL"}[c["level"]]
+        if pretty:
+            tok = f"{ANSI[c['level']]}{tok}{ANSI['reset']}"
+        lines.append(f"{tok}  {c['name']}: {c['detail']}")
+    n_ok = sum(1 for c in checks if c["level"] == "ok")
+    n_warn = sum(1 for c in checks if c["level"] == "warn")
+    n_fail = sum(1 for c in checks if c["level"] == "fail")
+    head = "FAIL" if n_fail else ("warn" if n_warn else "ok")
+    extra = f" ({n_warn} warn)" if n_warn and not n_fail else ""
+    lines.append("")
+    lines.append(f"{head} — {n_ok}/{len(checks)} checks{extra}")
+    nxt = ("next: rbtv install ls" if head == "ok" else
+           f"next: fix the {head} lines above, then rerun `rbtv install doctor`")
+    lines.append(nxt)
+    return "\n".join(lines)
+
+
+def doctor_exit(checks: list[dict]) -> int:
+    return 1 if any(c["level"] == "fail" for c in checks) else 0
+
+
+def _check(name: str, level: str, detail: str) -> dict:
+    return {"name": name, "ok": level == "ok", "level": level, "detail": detail}
+
+
+def _desired_path_names(catalog: dict, booked: set[str]) -> set[str]:
+    names = set(booked)
+    for p in iter_catalog_parts(catalog):
+        if p["method"] != "path":
+            continue
+        try:
+            names.add(link_name(p["part_id"]))
+        except Refuse:
+            continue
+    return names
+
+
+def _probe_add_collisions(target: Path, catalog: dict,
+                          state: dict) -> tuple[list[tuple[str, str]], str]:
+    installable = [cid for cid, c in catalog.items() if is_installable(c)]
+    if not installable:
+        return [], "no catalog — nothing to plan"
+    try:
+        records = dict(state.get("components") or {})
+        for cid in installable:
+            c = catalog[cid]
+            existing = records.get(cid) or {}
+            rec = {"tree": c.get("tree", ""),
+                   "tree_root": c.get("tree_root", ""),
+                   "module": c.get("module") or cid.split("/")[0],
+                   "component": c.get("component") or cid.rsplit("/", 1)[-1],
+                   "harnesses": existing.get("harnesses") or list(HARNESSES),
+                   "parts": _select_parts(c, existing.get("parts"), None)}
+            if "files" in existing:
+                rec["files"] = list(existing["files"])
+            records[cid] = rec
+        files, owners, claims, report = plan_files(records, catalog)
+        _add_mirror(target, state, files, owners, report, None,
+                    installed_harnesses(records))
+        _add_gitignore(target, owners, claims, report)
+    except Refuse as exc:
+        return [(exc.path or exc.code, exc.code)], ""
+    return collect_collisions(target, files, claims, state), ""
+
+
+def do_doctor(target: Path, why: str, catalog: dict, shadowed: list,
+              repo_tree: Path, mirror_tree: Path) -> dict:
+    checks: list[dict] = []
+    if not target.is_dir():
+        checks.append(_check("target", "fail",
+                             f"{target} is not a directory"))
+    else:
+        checks.append(_check(
+            "target", "ok",
+            f"{target.resolve()}  (discovered by {why})"))
+
+    book_path = target / STATE_REL
+    state: dict = {"schema": SCHEMA, "components": {}}
+    if not book_path.is_file():
+        checks.append(_check("book", "ok", "no book (never installed)"))
+    else:
+        try:
+            state = upgrade_book(read_state(target),
+                                 catalog_parts_map(catalog))
+            n = len(state.get("components") or {})
+            checks.append(_check(
+                "book", "ok",
+                f"schema {state.get('schema')} · {n} components"))
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            checks.append(_check("book", "fail", f"unreadable: {exc}"))
+            state = {"schema": SCHEMA, "components": {}}
+
+    repo_found = scan_tree(repo_tree, "repo")
+    checks.append(_check(
+        "tree-repo", "ok",
+        f"{repo_tree} — {len(repo_found)} components"))
+    if mirror_tree.is_dir():
+        mir_found = scan_tree(mirror_tree, "mirror")
+        shadow_n = len(set(repo_found) & set(mir_found))
+        extra = f" ({shadow_n} shadowing repo)" if shadow_n else ""
+        checks.append(_check(
+            "tree-mirror", "ok",
+            f"{mirror_tree} — {len(mir_found)} components{extra}"))
+    else:
+        checks.append(_check(
+            "tree-mirror", "ok",
+            f"absent — 0 components"))
+
+    bindir = bin_dir()
+    if bindir.is_dir():
+        checks.append(_check("bin-dir", "ok", f"{bindir} exists"))
+    else:
+        checks.append(_check(
+            "bin-dir", "warn", f"{bindir} missing (add will mkdir)"))
+
+    bidx = _path_index(bindir)
+    lidx = _path_index(local_bin())
+    if bidx < 0:
+        checks.append(_check(
+            "bin-on-path", "warn",
+            f'not on PATH — add once: export PATH="$HOME/.rbtv/bin:$PATH"'))
+    elif lidx >= 0 and lidx < bidx:
+        checks.append(_check(
+            "bin-on-path", "warn",
+            f"on PATH at {bidx} but AFTER ~/.local/bin ({lidx}) "
+            f"— stale local names win"))
+    elif lidx < 0:
+        checks.append(_check(
+            "bin-on-path", "ok",
+            f"{bindir} on PATH at {bidx}, ~/.local/bin absent"))
+    else:
+        checks.append(_check(
+            "bin-on-path", "ok",
+            f"{bindir} on PATH at index {bidx} (before ~/.local/bin)"))
+
+    booked = booked_links(state)
+    desired = _desired_path_names(catalog, booked)
+    sh = shadows(bindir, booked)
+    if sh:
+        checks.append(_check("local-bin-shadow", "warn", ", ".join(sh)))
+    else:
+        checks.append(_check("local-bin-shadow", "ok", "none"))
+
+    insp = inspect_bindir(bindir, booked, desired)
+    if not bindir.is_dir():
+        checks.append(_check("path-unbooked", "ok", "no directory"))
+        checks.append(_check("path-collision", "ok", "no directory"))
+        checks.append(_check("path-not-executable", "ok", "no directory"))
+    else:
+        if insp["unbooked"]:
+            checks.append(_check(
+                "path-unbooked", "warn",
+                f"{', '.join(insp['unbooked'])} (left alone; next add "
+                f"relinks only if desired+symlink)"))
+        else:
+            checks.append(_check("path-unbooked", "ok", "none"))
+        if insp["collision"]:
+            checks.append(_check(
+                "path-collision", "warn",
+                f"{', '.join(insp['collision'])} exists and is not a "
+                f"symlink — next add refuses"))
+        else:
+            checks.append(_check("path-collision", "ok", "none"))
+        if not desired and not booked:
+            checks.append(_check("path-not-executable", "ok", "none booked"))
+        elif insp["not_exec"]:
+            checks.append(_check(
+                "path-not-executable", "warn",
+                ", ".join(f"{x} not executable (ok: python <path>)"
+                          for x in insp["not_exec"])))
+        else:
+            checks.append(_check("path-not-executable", "ok",
+                                 "all executable"))
+
+    hits, empty_msg = _probe_add_collisions(target, catalog, state)
+    if empty_msg:
+        checks.append(_check("add-collisions", "ok", empty_msg))
+    elif not hits:
+        checks.append(_check("add-collisions", "ok",
+                             "none — next add is clear"))
+    else:
+        rels = ", ".join(h[0] for h in hits)
+        codes = sorted({h[1] for h in hits})
+        checks.append(_check(
+            "add-collisions", "warn",
+            f"{rels} — next add refuses [{', '.join(codes)}]"))
+
+    basis = state.get("guidance_basis")
+    if basis is None:
+        checks.append(_check("guidance-basis", "ok", "unset (no mirror)"))
+    elif basis == BASIS_NONE:
+        checks.append(_check("guidance-basis", "ok", "none (no mirror)"))
+    elif basis in GUIDANCE_NAMES:
+        checks.append(_check("guidance-basis", "ok", str(basis)))
+    else:
+        checks.append(_check(
+            "guidance-basis", "warn",
+            f"{basis!r} is neither none nor AGENTS.md · CLAUDE.md — "
+            f"next add refuses [guidance-basis-invalid]"))
+
+    failed = any(c["level"] == "fail" for c in checks)
+    return {"ok": not failed, "version": VERSION,
+            "target": str(target.resolve() if target.exists() else target),
+            "why": why, "checks": checks}
 
 
 # ── human output ────────────────────────────────────────────────────────────
@@ -3085,12 +3596,14 @@ def selftest() -> int:
         tmp = Path(tmpdir)
         _RUNTIME["bin"] = tmp / "rbtv-bin"
         _RUNTIME["rc"] = tmp / "fake-bashrc"
+        _RUNTIME["local"] = tmp / "fake-local-bin"
         if (bin_dir().resolve() == (Path.home() / ".rbtv" / "bin")
                 or not str(bin_dir().resolve()).startswith(str(tmp.resolve()))
                 or bin_dir().resolve()
                 == (Path.home() / ".local" / "bin").resolve()):
             _RUNTIME["bin"] = None
             _RUNTIME["rc"] = None
+            _RUNTIME["local"] = None
             print("FATAL: PATH bin dir was not rebound — refusing to run")
             return 1
         tree = tmp / "tree"
@@ -4587,7 +5100,7 @@ def selftest() -> int:
         check("CLI-reach-handler-dupe", rc_dupe == 0)
         check("CLI-reach-handler-add", rc_add == 0)
         check("CLI-reach-handler-rm", rc_rm == "not-installed", str(rc_rm))
-        check("CLI-reach-handler-doctor", rc_doc == 2)
+        check("CLI-reach-handler-doctor", rc_doc == 0, str(rc_doc))
 
         for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
                            ("-xc", "command"), ("-xsa", "sub-agent")):
@@ -4945,6 +5458,308 @@ def selftest() -> int:
               PATH_FENCE_START not in rc_after
               and PATH_BOOTSTRAP not in rc_after)
 
+        print("\nSURF — ls / li / doctor / --pretty / --json")
+
+        vend_files = sum(1 for q in (tree / SKILLS_DIR / "vendored").rglob("*")
+                         if q.is_file())
+        ls_data = build_ls(catalog, [
+            {"id": "fixmod/goodcomp",
+             "winner_path": "/mirror/fixmod/goodcomp",
+             "shadowed_path": "/repo/fixmod/goodcomp"}],
+            read_state(target))
+        vend_e = next(e for e in ls_data["components"]
+                      if e["id"] == "_hub/skills/vendored")
+        good_e = next(e for e in ls_data["components"]
+                      if e["id"] == "fixmod/goodcomp")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_ls(ls_data)
+        ls_txt = buf.getvalue()
+        check("SURF-ls-reports — SHADOWED and NO-MANIFEST both print",
+              "SHADOWED: fixmod/goodcomp exists on both trees" in ls_txt
+              and "fixmod/barecomp: component has no exposure manifest"
+              in ls_txt
+              and ls_data["no_manifest"] == ["fixmod/barecomp"],
+              ls_txt[-400:])
+        check("SURF-ls-parts-are-rows — vendored parts is 1, not file count",
+              vend_e["parts"] == 1
+              and len(vend_e["items"]) == 1
+              and vend_files > 1
+              and good_e["parts"] == len(good_e["items"]) == 9
+              and f"{vend_files}" not in
+              [str(e["parts"]) for e in ls_data["components"]
+               if e["id"] == "_hub/skills/vendored"],
+              f"parts={vend_e['parts']} files={vend_files} "
+              f"good={good_e['parts']}")
+
+        pws = tmp / "ws-surf-li"
+        pws.mkdir()
+        do_install(pws, catalog, ["fixmod/goodcomp"], ["claude"],
+                   dry_run=False,
+                   parts=["fixmod/goodcomp#fixskill",
+                          "fixmod/goodcomp#fixrule"])
+        do_install(pws, catalog, ["fixmod/codexcomp"], ["claude"],
+                   dry_run=False)
+        li_data = do_list(pws, catalog)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            print_li(li_data)
+        li_txt = buf.getvalue()
+        part_rec = li_data["components"]["fixmod/goodcomp"]
+        full_rec = li_data["components"]["fixmod/codexcomp"]
+        check("SURF-li-full-vs-part — partial has out:, full does not",
+              part_rec["status"] == "part"
+              and full_rec["status"] == "full"
+              and "out:" in li_txt
+              and any(line.startswith("1") or "part" in line
+                      for line in li_txt.splitlines())
+              and any("full" in line and "fixmod/codexcomp" in line
+                      for line in li_txt.splitlines())
+              and any("part" in line and "fixmod/goodcomp" in line
+                      for line in li_txt.splitlines())
+              and "out: " in li_txt
+              and "fixcmd" in part_rec["missing"]
+              and not full_rec["missing"],
+              f"part={part_rec['status']} miss={part_rec['missing']} "
+              f"full={full_rec['status']}")
+        check("SURF-li-ownership-footer — claims / guidance / PATH visible",
+              li_txt.rstrip().endswith("@  (none)")
+              or "@  " in li_txt,
+              li_txt[-200:])
+
+        by_name = {c["name"]: c for c in do_doctor(
+            pws, DISCOVER_CWD, catalog, [], tree,
+            pws / ".rbtv" / "mirror")["checks"]}
+        check("SURF-doctor-names — every check has a stable name",
+              set(by_name) == {
+                  "target", "book", "tree-repo", "tree-mirror", "bin-dir",
+                  "bin-on-path", "local-bin-shadow", "path-unbooked",
+                  "path-collision", "path-not-executable", "add-collisions",
+                  "guidance-basis"},
+              str(sorted(by_name)))
+
+        notdir = tmp / "ws-doc-notdir"
+        notdir.write_text("x\n", encoding="utf-8")
+        tfail = {c["name"]: c for c in do_doctor(
+            notdir, DISCOVER_FLAG, {}, [], tree,
+            notdir / ".rbtv" / "mirror")["checks"]}
+        check("SURF-doctor-target-fail — names the path",
+              tfail["target"]["level"] == "fail"
+              and str(notdir) in tfail["target"]["detail"]
+              and "not a directory" in tfail["target"]["detail"]
+              and doctor_exit(list(tfail.values())) == 1,
+              tfail["target"]["detail"])
+
+        bws = tmp / "ws-doc-badbook"
+        bws.mkdir()
+        (bws / STATE_REL).parent.mkdir(parents=True)
+        (bws / STATE_REL).write_text("{not-json", encoding="utf-8")
+        bfail = {c["name"]: c for c in do_doctor(
+            bws, DISCOVER_CWD, catalog, [], tree,
+            bws / ".rbtv" / "mirror")["checks"]}
+        check("SURF-doctor-book-fail — unreadable book is named",
+              bfail["book"]["level"] == "fail"
+              and "unreadable" in bfail["book"]["detail"]
+              and doctor_exit(list(bfail.values())) == 1,
+              bfail["book"]["detail"])
+
+        rtree = tmp / "doc-repo-tree"
+        rtree.mkdir()
+        _fixture(rtree)
+        mtree = tmp / "doc-mirror-tree"
+        mtree.mkdir()
+        (mtree / "fixmod" / "goodcomp").mkdir(parents=True)
+        (mtree / "fixmod" / "goodcomp" / COMPONENT_NAME).write_text(
+            "# m\n", encoding="utf-8")
+        tws = tmp / "ws-doc-trees"
+        tws.mkdir()
+        tchecks = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
+        repo_n = len(scan_tree(rtree, "repo"))
+        mir_n = len(scan_tree(mtree, "mirror"))
+        check("SURF-doctor-trees — counts come from the trees given",
+              tchecks["tree-repo"]["level"] == "ok"
+              and tchecks["tree-mirror"]["level"] == "ok"
+              and f"{repo_n} components" in tchecks["tree-repo"]["detail"]
+              and str(rtree) in tchecks["tree-repo"]["detail"]
+              and f"{mir_n} components" in tchecks["tree-mirror"]["detail"]
+              and str(mtree) in tchecks["tree-mirror"]["detail"]
+              and repo_n != mir_n,
+              f"repo={tchecks['tree-repo']['detail']} "
+              f"mir={tchecks['tree-mirror']['detail']}")
+
+        saved_bin, saved_path = _RUNTIME["bin"], os.environ.get("PATH")
+        ghost = tmp / "ghost-bin"
+        _RUNTIME["bin"] = ghost
+        os.environ["PATH"] = "/usr/bin"
+        dmiss = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-bin-missing — names the bindir",
+              dmiss["bin-dir"]["level"] == "warn"
+              and str(ghost) in dmiss["bin-dir"]["detail"]
+              and "missing" in dmiss["bin-dir"]["detail"]
+              and dmiss["path-unbooked"]["detail"] == "no directory"
+              and doctor_exit(list(dmiss.values())) == 0,
+              dmiss["bin-dir"]["detail"])
+        check("SURF-doctor-bin-on-path — says not on PATH",
+              dmiss["bin-on-path"]["level"] == "warn"
+              and "not on PATH" in dmiss["bin-on-path"]["detail"],
+              dmiss["bin-on-path"]["detail"])
+
+        ghost.mkdir()
+        os.environ["PATH"] = str(ghost) + os.pathsep + str(local_bin())
+        (local_bin()).mkdir(parents=True, exist_ok=True)
+        (local_bin() / "shadowme").write_text("x\n", encoding="utf-8")
+        (ghost / "shadowme").symlink_to(tmp / "fake-bashrc")
+        Path(_RUNTIME["rc"]).write_text("x\n", encoding="utf-8")
+        dsh = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-local-shadow — names the shadowed command",
+              dsh["local-bin-shadow"]["level"] == "warn"
+              and "shadowme" in dsh["local-bin-shadow"]["detail"]
+              and "shadows" in dsh["local-bin-shadow"]["detail"],
+              dsh["local-bin-shadow"]["detail"])
+        (ghost / "stranger").symlink_to(tmp / "fake-bashrc")
+        dun = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, {}, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-unbooked — names the leftover link",
+              dun["path-unbooked"]["level"] == "warn"
+              and "stranger" in dun["path-unbooked"]["detail"],
+              dun["path-unbooked"]["detail"])
+        (ghost / "hitfile").write_text("not a link\n", encoding="utf-8")
+        coll_cat = {
+            "amod/acomp": {
+                "id": "amod/acomp", "module": "amod",
+                "component": "acomp", "kind": "component",
+                "manifest": True, "tree": "repo",
+                "path": str(tmp),
+                "rows": [{"part-id": "hitfile", "method": "path"}]}}
+        dcol = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, coll_cat, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-path-collision — names the regular file",
+              dcol["path-collision"]["level"] == "warn"
+              and "hitfile" in dcol["path-collision"]["detail"]
+              and "not a symlink" in dcol["path-collision"]["detail"],
+              dcol["path-collision"]["detail"])
+        nox = tmp / "not-exec.py"
+        nox.write_text("print(1)\n", encoding="utf-8")
+        nox.chmod(0o644)
+        (ghost / "noexec").symlink_to(nox)
+        nexec_cat = {
+            "amod/acomp": {
+                "id": "amod/acomp", "module": "amod",
+                "component": "acomp", "kind": "component",
+                "manifest": True, "tree": "repo",
+                "path": str(tmp),
+                "rows": [{"part-id": "noexec", "method": "path"}]}}
+        dnx = {c["name"]: c for c in do_doctor(
+            tws, DISCOVER_CWD, nexec_cat, [], rtree, mtree)["checks"]}
+        check("SURF-doctor-not-exec — names the non-executable dest",
+              dnx["path-not-executable"]["level"] == "warn"
+              and "noexec" in dnx["path-not-executable"]["detail"]
+              and "not executable" in dnx["path-not-executable"]["detail"],
+              dnx["path-not-executable"]["detail"])
+        _RUNTIME["bin"] = saved_bin
+        if saved_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = saved_path
+
+        cws = tmp / "ws-doc-addcoll"
+        cws.mkdir()
+        (cws / ".claude/skills/fixskill").mkdir(parents=True)
+        (cws / ".claude/skills/fixskill/SKILL.md").write_text(
+            "hand authored, no marker\n", encoding="utf-8")
+        dadd = {c["name"]: c for c in do_doctor(
+            cws, DISCOVER_CWD, {"fixmod/goodcomp": catalog["fixmod/goodcomp"]},
+            [], tree, cws / ".rbtv" / "mirror")["checks"]}
+        check("SURF-doctor-add-collisions — names the unbooked file",
+              dadd["add-collisions"]["level"] == "warn"
+              and "fixskill" in dadd["add-collisions"]["detail"]
+              and "collision" in dadd["add-collisions"]["detail"]
+              and doctor_exit(list(dadd.values())) == 0,
+              dadd["add-collisions"]["detail"])
+
+        gws = tmp / "ws-doc-basis"
+        gws.mkdir()
+        write_state(gws, {"components": {}, "guidance_basis": "WAT.md",
+                          "shared_claims": []})
+        dbas = {c["name"]: c for c in do_doctor(
+            gws, DISCOVER_CWD, {}, [], tree,
+            gws / ".rbtv" / "mirror")["checks"]}
+        check("SURF-doctor-guidance-basis — names the bad value",
+              dbas["guidance-basis"]["level"] == "warn"
+              and "WAT.md" in dbas["guidance-basis"]["detail"]
+              and "guidance-basis-invalid" in dbas["guidance-basis"]["detail"],
+              dbas["guidance-basis"]["detail"])
+
+        buf_p, buf_j = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf_p), \
+             contextlib.redirect_stderr(io.StringIO()):
+            cmd_ls(build_parser().parse_args(["ls"]), pws, catalog, [])
+        with contextlib.redirect_stdout(buf_j), \
+             contextlib.redirect_stderr(io.StringIO()):
+            cmd_ls(build_parser().parse_args(["ls", "--pretty"]),
+                   pws, catalog, [])
+        plain_ls, pretty_ls = buf_p.getvalue(), buf_j.getvalue()
+        check("SURF-pretty-off-is-plain — default has no ANSI",
+              "\033[" not in plain_ls
+              and "\033[" in pretty_ls,
+              f"plain_esc={'\\033[' in plain_ls} "
+              f"pretty_esc={'\\033[' in pretty_ls}")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             contextlib.redirect_stderr(io.StringIO()):
+            cmd_ls(build_parser().parse_args(["ls", "--json"]),
+                   pws, catalog, [])
+        lsj = json.loads(buf.getvalue())
+        check("SURF-json-ls-keys — today's keys plus items/index",
+              set(lsj) >= {"ok", "components", "shadowed", "no_manifest",
+                           "hub_refusals", "index"}
+              and set(lsj["components"][0]) >= {
+                  "id", "tree", "module", "kind", "manifest", "methods",
+                  "parts", "note", "items"}
+              and lsj["ok"] is True,
+              str(sorted(lsj)))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             contextlib.redirect_stderr(io.StringIO()):
+            cmd_li(build_parser().parse_args(["li", "--json"]),
+                   pws, catalog, [])
+        lij = json.loads(buf.getvalue())
+        check("SURF-json-li-keys — today's keys plus path_links/status",
+              set(lij) >= {"ok", "target", "schema", "state_file", "marker",
+                           "guidance_basis", "components", "guidance_files",
+                           "shared_claims", "path_links"}
+              and lij["components"]["fixmod/goodcomp"]["status"] == "part"
+              and "missing" in lij["components"]["fixmod/goodcomp"],
+              str(sorted(lij)))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             contextlib.redirect_stderr(io.StringIO()):
+            cmd_doctor(build_parser().parse_args(["doctor", "--json"]),
+                       pws, catalog, [])
+        dj = json.loads(buf.getvalue())
+        check("SURF-json-doctor-keys — envelope + named checks",
+              set(dj) >= {"ok", "version", "target", "why", "checks"}
+              and {c["name"] for c in dj["checks"]}
+              == set(by_name)
+              and all("level" in c and "detail" in c and "ok" in c
+                      for c in dj["checks"]),
+              str(sorted(dj)))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), \
+             contextlib.redirect_stderr(io.StringIO()):
+            rc_ref = main(["add", "--target", str(pws), "-c", "no/comp",
+                           "--json"])
+        env = json.loads(buf.getvalue())
+        check("SURF-json-refuse-keys — refusal envelope kept",
+              rc_ref == 1 and env.get("ok") is False
+              and "refusal" in env and "code" in env["refusal"]
+              and "message" in env["refusal"],
+              str(env))
+
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
         left = sorted(p.relative_to(target).as_posix()
@@ -4971,6 +5786,7 @@ def selftest() -> int:
               str(sorted(set(res["deleted"]) ^ expect)))
         _RUNTIME["bin"] = None
         _RUNTIME["rc"] = None
+        _RUNTIME["local"] = None
 
     print(f"\nselftest: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
@@ -5109,16 +5925,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=(*GUIDANCE_NAMES, BASIS_NONE),
         help="basis to regenerate from (default: whatever the book holds)")
 
-    sub.add_parser(
+    s_doc = sub.add_parser(
         "doctor",
-        help="can this tool work here (not yet built)")
+        help="can this tool work here: target, trees, PATH, collisions")
     sub.add_parser(
         "selftest",
         help="fixture tree + install/uninstall + new surface")
     s_inter = sub.add_parser(
         "interactive", help="the human flow (also: no arguments)")
 
-    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_inter):
+    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_doc, s_inter):
         tree_flags(s, on_verb=True)
     return p
 
@@ -5127,38 +5943,90 @@ def _emit(data: dict, as_json: bool) -> None:
     print(json.dumps(data, indent=2)) if as_json else print_result(data)
 
 
+def _ls_filters(args, catalog: dict, target: Path) -> dict:
+    comps = list(getattr(args, "component", None) or [])
+    drop_c = list(getattr(args, "exclude_component", None) or [])
+    fp = scan_fingerprint(catalog)
+    idx = read_index(target)
+    if any(t.isdigit() for t in comps):
+        comps = _expand_nums(comps, "component", idx, fp)
+    if any(t.isdigit() for t in drop_c):
+        drop_c = _expand_nums(drop_c, "component", idx, fp)
+    return dict(
+        modules=list(getattr(args, "module", None) or []),
+        methods=list(getattr(args, "method", None) or []),
+        components=comps,
+        exclude_modules=list(getattr(args, "exclude_module", None) or []),
+        exclude_methods=list(getattr(args, "exclude_method", None) or []),
+        exclude_components=drop_c,
+    )
+
+
+def _li_filter(data: dict, catalog: dict, args) -> dict:
+    want_m = {module_id(m) for m in (getattr(args, "module", None) or [])}
+    want_c = {_norm_comp(c) for c in (getattr(args, "component", None) or [])}
+    drop_m = {module_id(m) for m in (getattr(args, "exclude_module", None) or [])}
+    drop_c = {_norm_comp(c) for c in (getattr(args, "exclude_component", None) or [])}
+    want_x = set(getattr(args, "method", None) or [])
+    drop_x = set(getattr(args, "exclude_method", None) or [])
+    if not (want_m or want_c or drop_m or drop_c or want_x or drop_x):
+        return data
+    kept = {}
+    for cid, rec in data["components"].items():
+        mod = rec.get("module") or cid.split("/")[0]
+        if want_m and module_id(mod) not in want_m:
+            continue
+        if drop_m and module_id(mod) in drop_m:
+            continue
+        if want_c and cid not in want_c:
+            continue
+        if drop_c and cid in drop_c:
+            continue
+        rec = dict(rec)
+        if want_x or drop_x:
+            parts = {pid: p for pid, p in (rec.get("parts") or {}).items()
+                     if isinstance(p, dict)
+                     and (not want_x or p.get("method") in want_x)
+                     and p.get("method") not in drop_x}
+            rec["parts"] = parts
+        kept[cid] = rec
+    out = dict(data)
+    out["components"] = kept
+    return out
+
+
 def cmd_ls(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
     del ask
-    write_index(target, catalog)
-    data = do_scan(catalog, shadowed)
-    print(json.dumps(data, indent=2)) if getattr(args, "json", False) \
-        else print_scan(data)
+    state = read_state(target)
+    data = build_ls(catalog, shadowed, state, **_ls_filters(args, catalog, target))
+    write_visible_index(target, data["index"])
+    if getattr(args, "json", False):
+        print(json.dumps(data, indent=2))
+    else:
+        print_ls(data, pretty=bool(getattr(args, "pretty", False)))
     return 0
 
 
 def cmd_li(args, target: Path, catalog: dict, shadowed: list,
            *, ask=None) -> int:
-    del ask
-    write_index(target, catalog, read_state(target).get("components"))
-    data = do_list(target)
-    as_json = bool(getattr(args, "json", False))
-    if as_json:
+    del ask, shadowed
+    data = do_list(target, catalog)
+    data = _li_filter(data, catalog, args)
+    n, k = {}, 1
+    for cid in data["components"]:
+        n[str(k)] = {"kind": "component", "id": cid}
+        k += 1
+    for cid, rec in data["components"].items():
+        for pid in sorted(rec.get("parts") or {}):
+            n[str(k)] = {"kind": "part", "id": part_key(cid, pid)}
+            k += 1
+    write_visible_index(target, {"fingerprint": scan_fingerprint(catalog),
+                                 "n": n})
+    if getattr(args, "json", False):
         print(json.dumps(data, indent=2))
-        return 0
-    comps = data["components"]
-    basis = data["guidance_basis"] or "(unset — no mirror)"
-    print(f"target: {data['target']}  marker: {data['marker']}  "
-          f"guidance basis: {basis}")
-    if not comps:
-        print("nothing installed by install2.py")
-    for cid in sorted(comps):
-        rec = comps[cid]
-        print(f"  {cid}  [{rec['tree']}]  "
-              f"harnesses={','.join(rec['harnesses'])}  "
-              f"files={len(rec_files(rec))}")
-    for claim in data["shared_claims"]:
-        print(f"  ~ {claim}")
+    else:
+        print_li(data, pretty=bool(getattr(args, "pretty", False)))
     return 0
 
 
@@ -5224,9 +6092,17 @@ def cmd_dupe(args, target: Path, catalog: dict, shadowed: list,
 
 def cmd_doctor(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
-    del args, target, catalog, shadowed, ask
-    print("doctor: not yet built", file=sys.stderr)
-    return 2
+    del ask
+    why = getattr(args, "_why", DISCOVER_CWD) if args else DISCOVER_CWD
+    repo_tree = Path(__file__).resolve().parent
+    mirror_tree = target / ".rbtv" / "mirror"
+    data = do_doctor(target, why, catalog, shadowed, repo_tree, mirror_tree)
+    if args and getattr(args, "json", False):
+        print(json.dumps(data, indent=2))
+    else:
+        print(render_doctor(data["checks"],
+                            pretty=bool(args and getattr(args, "pretty", False))))
+    return doctor_exit(data["checks"])
 
 
 def cmd_interactive(args, target: Path, catalog: dict, shadowed: list,
@@ -5262,17 +6138,17 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
 
     if args.verb == "selftest":
         return selftest()
-    if args.verb == "doctor":
-        print("doctor: not yet built", file=sys.stderr)
-        return 2
 
     as_json = bool(getattr(args, "json", False))
     if getattr(args, "target", None) is None:
         target, why = discover_target(Path.cwd())
-        print(f"target: {target}  (discovered by {why}; pass --target to "
-              f"override)", file=sys.stderr)
+        if args.verb != "doctor":
+            print(f"target: {target}  (discovered by {why}; pass --target to "
+                  f"override)", file=sys.stderr)
     else:
         target = Path(args.target).expanduser()
+        why = DISCOVER_FLAG
+    args._why = why
     repo_tree = Path(__file__).resolve().parent
     mirror_tree = target / ".rbtv" / "mirror"
 
