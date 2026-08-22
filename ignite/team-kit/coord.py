@@ -6231,7 +6231,8 @@ def finish_lifecycle(base, seat, state, failure=""):
 def clear_lifecycle(base, seat):
     """Remove ONE seat's entry. Returns True when one was actually removed.
 
-    ⚠ RUN TEARDOWN ONLY — `sweep_lifecycle` (and therefore `close-run`) is its ONE caller. NEVER
+    ⚠ RUN TEARDOWN ONLY — `sweep_lifecycle` (called from the finish edge, `cmd_finish_goal`, since
+    `close-run` was deleted) is its ONE caller. NEVER
     called on success: a successful renewal FLIPS to `state: "done"` via `finish_lifecycle`, and
     deleting it there would erase the only record that the renewal happened out of pane."""
     try:
@@ -6404,7 +6405,9 @@ def renewal_state(base, seat, now_str=None, lifecycle=None):
 
 
 def sweep_lifecycle(base):
-    """`close-run`'s marker sweep. Returns `(cleared, survivors)`: `cleared` is the sorted seats
+    """The finish edge's (`cmd_finish_goal`) marker sweep — moved here from the deleted `close-run`
+    (7.607 E2b) when runs were extinguished and closed with `close-run`'s register. Returns
+    `(cleared, survivors)`: `cleared` is the sorted seats
     removed, `survivors` is `[(seat, why)]` for every entry this REFUSES to touch. Never fatal —
     a run stays closable with an unreadable marker, which reads as no entries at all.
 
