@@ -256,6 +256,7 @@ Hit a defect, gap, or trap in a TOOL while working? File it in the `issues.md` o
 OWNS that tooling — that is where whoever fixes it looks. Unreachable, or it refuses your write?
 Fall back to {issues}, name the destination it was meant for, and route it on as a follow-up.
 A finding left in chat dies with the sitting.
+An ignite/ or meta/ defect goes through the filing CLI (`file-issue`, skill `file-system-issue`) into the `ignite-engine` register — never into a goal's `issues.md`.
 """
 
 # The write-if-something sentence EXEMPTS `decisions.md`: owner ruling Q22 (2026-08-09,

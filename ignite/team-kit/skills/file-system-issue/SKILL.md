@@ -7,7 +7,7 @@ exposes-cli:
 
 # file-system-issue
 
-File, don't fix (D50). The engine goal reads its register on its own cadence — filing wakes nobody.
+File, don't fix — an ignite/ or meta/ defect, gap, or change-notice goes through the filing CLI (`file-issue`, skill `file-system-issue`) into the `ignite-engine` register; that goal's intake pass sweeps every filing into triage and the owner's digest (its contract §3.3, §5.1). (D50)
 
 ## When to file
 
@@ -25,17 +25,7 @@ file-issue file --surface <ignite/…|meta/…> --class <class> --symptom "<one 
 
 `--as` defaults from this seat folder's `seat.md` (`seat:` + the goal folder name). Required only when that derivation cannot run.
 
-Classes: `daemon-crash` `launch-cage` `coordination` `bridge-chat` `probe-gap` `data-ledger` `catalog-meta` `docs` `change-notice` `other`.
-
-## Required fields
-
-- **surface** — path under `ignite/` or `meta/`
-- **class** — one of the classes above
-- **symptom** — one line
-- **evidence** — a path or a command
-- **suggested-action** — what a later sitting should do
-- **risk** — one line
-- **as** — who files (`<goal>/<seat>`), derived when possible
+Fields, classes and the status vocabulary: `file-issue schema`.
 
 ## Id
 

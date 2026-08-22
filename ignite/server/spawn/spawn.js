@@ -1042,9 +1042,11 @@ function resolveExposedCliGrants(seatPath, log) {
 // `materialize-seats.py#resolve_cli_write_roots` additionally REFUSES such a root at authoring
 // time, so the author reads the refusal instead of meeting a silently masked mount.
 //
-// ⚠ AND IT NEVER REACHES `.rbtv/goals`: same rule and same reason as `rw-paths` — that subtree
-// holds every `sessions.csv` and every `seat.md`, including this seat's own read-only identity
-// surface. A CLI that claims it must write there is refused, not accommodated.
+// ⚠ AND IT IS HELD TO THE GOALS-TREE RULE, by the SAME predicate as `rw-paths` and
+// `permission-edits.csv` (`seat-grants.js#rwPathRefusal`, rule 3 — the rule's ONE home; nothing
+// here restates it): the goals root, every goal folder's root, `seats/`, `coordination/` and the
+// record files stay unwritable; a proper goal SUBFOLDER a CLI declares as its write root (the
+// filing CLI's `<ws>/.rbtv/goals/ignite-engine/register`, engine-goal E1) is admitted.
 function resolveCliWriteRootGrants(seatPath, log) {
   const grants = [];
   for (const entry of seatDeclaresList(seatPath.seatDir, 'cli-write-roots')) {

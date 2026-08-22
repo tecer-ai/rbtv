@@ -15,7 +15,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { contains } = require('./cage');
-const { resolvesInsideGoalsRoot } = require('../heart/argv-template');
 
 // The LIST half of the one declaration reader. Same surface (seat.md frontmatter, ro-bound inside
 // the cage), same lightweight parse — a YAML-style block list, read without pulling a parser into
@@ -59,18 +58,49 @@ function seatDeclaresList(seatDir, key) {
 //
 //   1. empty / absolute            — the key's vocabulary is workspace-RELATIVE, only
 //   2. escapes the workspace root  — checked AFTER `..` normalization, so `a/../../etc` is caught
-//   3. overlaps `<ws>/.rbtv/goals` — in EITHER direction. Every `sessions.csv` and every `seat.md`
-//      lives under that subtree, so one containment test covers rule 3 without walking the tree:
-//      an entry INSIDE it could be, or contain, one of those files; an entry that CONTAINS it
-//      contains all of them. This is also what keeps the seat.md ro-carve winning — an entry
-//      covering the seat's own folder is inside `.rbtv/goals` and is refused here, so it never
-//      reaches the ordering question at all (refused under rule 3's spirit, as ruled).
+//   3. lands on a WALLED SURFACE of the goals tree `<ws>/.rbtv/goals` — `goalsTreeRefusal` below,
+//      the ONE statement of the rule: the goals dir itself or any path CONTAINING it; a goal
+//      folder's ROOT (`goals/<goal>`); anything under `<goal>/seats/` (every seat.md, every seat's
+//      identity surface) or `<goal>/coordination/` (the bus and `permission-edits.csv`, the
+//      wall-control audit file); and a RECORD FILE by name — sessions.csv, state.csv, seat.md,
+//      taskforce.csv, goal.md, milestones.csv — wherever under the tree it sits. A PROPER
+//      SUBFOLDER of a goal folder that is none of those (`<goal>/register`, `<goal>/planning`) is
+//      ADMITTED. That carve is the 2026-08-22 change (ignite-engine m1, engine-goal E1): the
+//      filing CLI's declared write root IS a goal subfolder, and the blanket "overlaps .rbtv/goals
+//      in either direction" rule this replaced refused it on every spawn while protecting nothing
+//      the walled set does not. The walled set is also what keeps the seat.md ro-carve winning —
+//      an entry covering the seat's own folder is under `seats/` and is refused here, so it never
+//      reaches the ordering question at all.
 //   4. does not exist              — skipped; this resolver NEVER creates a path.
+//   (+) the RESOLVED path is held to rules 2 and 3 AGAIN (fA-4 D-1): the lexical tests answer
+//      where the path POINTS, not where it LANDS, and a symlink is how an entry lands on a walled
+//      surface — or outside the workspace — without spelling it.
+//
 // The FOUR REFUSAL RULES, in ONE function: the reason string when `entry` may not be granted
-// read-write to this seat, `null` when it may. Split out at W3 so `permission-edits.csv` — the
-// leader's audited second grant source — is judged by the SAME predicate, and so `widen-cage`
-// can validate at WRITE time against the identical rules (a silently-dropped grant at launch reads
-// as a successful widen in the leader's evidence, adv C--).
+// read-write to this seat, `null` when it may. ONE predicate for all three rw-grant sources —
+// `rw-paths` (resolveRwPathGrants below), `permission-edits.csv` (W3, the leader's audited second
+// grant source, validated against it at WRITE time by `widen-cage`), and `cli-write-roots`
+// (`spawn.js#resolveCliWriteRootGrants`, W6) — and for `engine/cage-admission.js`, which composes
+// admissibility from the first two resolvers. A second copy of the rule anywhere is the drift
+// this file exists to prevent (a silently-dropped grant at launch reads as a successful widen in
+// the leader's evidence, adv C--).
+const GOALS_WALLED_DIRS = new Set(['seats', 'coordination']);
+const GOALS_RECORD_FILES = new Set(['sessions.csv', 'state.csv', 'seat.md', 'taskforce.csv', 'goal.md', 'milestones.csv']);
+
+// Rule 3. `goals` is the `<ws>/.rbtv/goals` dir and `target` an absolute normalized path — BOTH
+// lexical, or BOTH resolved (realpath), so the one test serves both passes of rwPathRefusal.
+function goalsTreeRefusal(goals, target) {
+  const walled = (what) => `${what} — the identity/ground-truth surfaces (sessions.csv, seat.md, seats/, coordination/) stay unwritable: ${target}`;
+  if (contains(target, goals)) return walled(`contains ${goals}`);
+  if (!contains(goals, target)) return null;
+  const rel = path.relative(goals, target).split(path.sep);   // [<goal>, ...inside the goal folder]
+  if (rel.length < 2) return walled(`is a direct child of ${goals} (a goal root)`);
+  if (GOALS_WALLED_DIRS.has(rel[1])) return walled(`is under <goal>/${rel[1]}/ in ${goals}`);
+  const leaf = rel[rel.length - 1];
+  if (GOALS_RECORD_FILES.has(leaf)) return walled(`is the record file ${leaf} under ${goals}`);
+  return null;
+}
+
 function rwPathRefusal(seatPath, entry) {
   const root = seatPath.workspaceRoot;
   const goals = path.join(root, '.rbtv', 'goals');
@@ -78,52 +108,32 @@ function rwPathRefusal(seatPath, entry) {
   if (path.isAbsolute(entry)) return 'absolute path — entries are workspace-relative';
   const target = path.resolve(root, entry);
   if (!contains(root, target) || target === root) return `resolves outside the workspace root: ${target}`;
-  if (contains(goals, target) || contains(target, goals)) {
-    return `overlaps ${goals} — the identity/ground-truth surfaces (sessions.csv, seat.md) stay unwritable: ${target}`;
-  }
+  const walled = goalsTreeRefusal(goals, target);
+  if (walled) return walled;
   if (!fs.existsSync(target)) return `does not exist (never created from here): ${target}`;
-  const realRoot = (() => { try { return fs.realpathSync(root); } catch { return null; } })();
-  const realGoals = (() => { try { return fs.realpathSync(goals); } catch { return null; } })();
-  if (!realRoot || !resolvesInsideGoalsRoot(target, realRoot)) {
+  // (+) — the same two bounds, asked of where the path LANDS. `target` exists (rule 4 passed), so
+  // its realpath resolves; a root that does not resolve is a workspace this seat cannot be in.
+  let realRoot = null;
+  let realTarget = null;
+  try { realRoot = fs.realpathSync(root); realTarget = fs.realpathSync(target); } catch { realRoot = null; }
+  if (!realRoot || !contains(realRoot, realTarget) || realTarget === realRoot) {
     return `RESOLVES outside the workspace root — a segment on this path is a symlink out of it: ${target}`;
   }
-  if (realGoals && resolvesInsideGoalsRoot(target, realGoals)) {
-    return `RESOLVES inside ${goals} through a symlink — the identity/ground-truth surfaces stay unwritable: ${target}`;
-  }
+  const realGoals = (() => { try { return fs.realpathSync(goals); } catch { return null; } })();
+  const landed = realGoals ? goalsTreeRefusal(realGoals, realTarget) : null;
+  if (landed) return `RESOLVES through a symlink onto a walled surface of ${goals} — ${landed}`;
   return null;
 }
 
 function resolveRwPathGrants(seatPath, log) {
-  const root = seatPath.workspaceRoot;
-  const goals = path.join(root, '.rbtv', 'goals');
   const grants = [];
   for (const entry of seatDeclaresList(seatPath.seatDir, 'rw-paths')) {
-    const refuse = (reason) => log('warn', `rw-paths entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
-    if (!entry) { refuse('empty entry'); continue; }
-    if (path.isAbsolute(entry)) { refuse('absolute path — rw-paths entries are workspace-relative'); continue; }
-    const target = path.resolve(root, entry);
-    if (!contains(root, target) || target === root) { refuse(`resolves outside the workspace root: ${target}`); continue; }
-    if (contains(goals, target) || contains(target, goals)) {
-      refuse(`overlaps ${goals} — the identity/ground-truth surfaces (sessions.csv, seat.md) stay unwritable: ${target}`);
+    const reason = rwPathRefusal(seatPath, entry);
+    if (reason) {
+      log('warn', `rw-paths entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
       continue;
     }
-    if (!fs.existsSync(target)) { refuse(`does not exist (never created from here): ${target}`); continue; }
-    // fA-4 D-1 — THE LEXICAL TESTS ABOVE ANSWER WHERE THE PATH POINTS, NOT WHERE IT LANDS. A seat
-    // with a writable directory anywhere in the workspace can plant a symlink and declare it; the
-    // rules above see a tidy relative path and admit it. Resolve for real, against BOTH bounds:
-    // inside the workspace root, and — separately — NOT inside the goals tree, because rule 3's
-    // whole point is that a symlink is the way an entry gets there without spelling it.
-    const realRoot = (() => { try { return fs.realpathSync(root); } catch { return null; } })();
-    const realGoals = (() => { try { return fs.realpathSync(goals); } catch { return null; } })();
-    if (!realRoot || !resolvesInsideGoalsRoot(target, realRoot)) {
-      refuse(`RESOLVES outside the workspace root — a segment on this path is a symlink out of it: ${target}`);
-      continue;
-    }
-    if (realGoals && resolvesInsideGoalsRoot(target, realGoals)) {
-      refuse(`RESOLVES inside ${goals} through a symlink — the identity/ground-truth surfaces stay unwritable: ${target}`);
-      continue;
-    }
-    grants.push({ rwPath: target });
+    grants.push({ rwPath: path.resolve(seatPath.workspaceRoot, entry) });
   }
   return grants;
 }

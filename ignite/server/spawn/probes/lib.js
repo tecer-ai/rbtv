@@ -195,8 +195,13 @@ function capture(name, fn) {
       exit = 0;
     })
     .catch((err) => {
-      status = 'FAIL';
-      exit = 1;
+      // A probe that could not RUN its legs in this process — bwrap refusing a nested namespace
+      // inside a caged sitting is the measured case — throws with `code: 'E_INOPERATIVE'`. It is
+      // graded INOPERATIVE with exit 2 (the suite's own code for a self-declared could-not-run),
+      // never PASS, and distinct from a FAIL that measured something and found it wrong.
+      const inoperative = Boolean(err) && err.code === 'E_INOPERATIVE';
+      status = inoperative ? 'INOPERATIVE' : 'FAIL';
+      exit = inoperative ? 2 : 1;
       lines.push(`error: ${err.code || err.name}: ${err.message}`);
     })
     .finally(() => {

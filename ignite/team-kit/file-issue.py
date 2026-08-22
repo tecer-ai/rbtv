@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""file-issue — file one system issue into the ignite-engine register.
+"""file-issue — the ignite-engine register's filer, validator and written record.
 
-    file-issue file --surface ignite/… --class docs --symptom "…" …
-    file-issue list [--status open|closed|all] [--class X]
-    file-issue show <id>
-    file-issue doctor
-    file-issue selftest
+The command inventory lives in the argument parser: run `file-issue --help`.
+The entry format, the class enum, the status vocabulary and the HISTORY entry
+shape live in one place too: run `file-issue schema`.
 """
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -26,6 +26,29 @@ CLASSES = (
 FILE_FIELDS = (
     "surface", "class", "symptom", "evidence", "suggested-action", "risk",
 )
+# The entry format, in frontmatter order. One home: `render_filing` writes these,
+# `validate_entry` requires them, `schema` prints them.
+ENTRY_KEYS = (
+    "id", "filed-by", "when", "surface", "class", "symptom",
+    "evidence", "suggested-action", "risk", "status",
+)
+STATUS_LIFECYCLE = (
+    "open", "triaged", "approved", "building", "judged", "deployed",
+    "verified", "closed",
+)
+STATUS_TERMINAL = ("duplicate", "invalid", "wont-fix")
+STATUSES = STATUS_LIFECYCLE + STATUS_TERMINAL
+HISTORY_FIELDS = ("component", "id", "seen", "missed", "held")
+HISTORY_ENTRY = {
+    "file": "<rbtv repo>/<component>/HISTORY.md",
+    "header-when-created": "# HISTORY — <component>",
+    "heading": "## <UTC date YYYY-MM-DD> — <register-id> — <first line of --seen>",
+    "lines": [
+        "**Seen:** <what was seen>",
+        "**Missed:** <the trials that missed, and why>",
+        "**Held:** <the solution that held>",
+    ],
+}
 REGISTER_REL = Path(".rbtv") / "goals" / "ignite-engine" / "register"
 
 
@@ -103,12 +126,12 @@ def derive_as(cwd: Path) -> str | None:
     return f"{goal}/{seat}"
 
 
-def normalize_surface(raw: str, ws: Path | None) -> str | None:
+def normalize_surface(raw: str, repo: Path | None) -> str | None:
+    """A path under ignite/ or meta/ of the rbtv repo, repo-relative — or None."""
     text = raw.strip()
     if not text:
         return None
     p = Path(text)
-    repo = rbtv_repo(ws)
     if p.is_absolute():
         if repo is None:
             return None
@@ -134,11 +157,7 @@ def yaml_scalar(value: str) -> str:
 
 
 def render_filing(rec: dict) -> str:
-    keys = (
-        "id", "filed-by", "when", "surface", "class", "symptom",
-        "evidence", "suggested-action", "risk", "status",
-    )
-    fm = "\n".join(f"{k}: {yaml_scalar(rec[k])}" for k in keys)
+    fm = "\n".join(f"{k}: {yaml_scalar(rec[k])}" for k in ENTRY_KEYS)
     body = (
         f"## {rec['id']} — {rec['symptom']}\n"
         f"Destination: ignite-engine\n"
@@ -188,6 +207,41 @@ def existing_ids(reg: Path) -> set[str]:
         for p in d.glob("*.md"):
             found.add(p.stem)
     return found
+
+
+def register_files(reg: Path):
+    """(register-relative name, path) for every entry file, open then closed."""
+    for folder in ("open", "closed"):
+        d = reg / folder
+        if not d.is_dir():
+            continue
+        for path in sorted(d.glob("*.md")):
+            yield f"{folder}/{path.name}", path
+
+
+def validate_entry(path: Path) -> str | None:
+    """The first defect code of one register entry, or None when it validates."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unreadable"
+    rec = parse_frontmatter(text)
+    if not rec:
+        return "frontmatter-unparsed"
+    for key in ENTRY_KEYS:
+        if not str(rec.get(key, "")).strip():
+            return f"missing-field:{key}"
+    if rec["class"] not in CLASSES:
+        return "class-not-in-vocabulary"
+    if rec["status"] not in STATUSES:
+        return "status-not-in-vocabulary"
+    if rec["id"] != path.stem:
+        return "id-not-filename-stem"
+    if f"## {path.stem} — " not in text:
+        return "heading-missing"
+    if "Destination: ignite-engine" not in text:
+        return "destination-missing"
+    return None
 
 
 def mint_id(seat: str, when: datetime, taken: set[str], override: str | None) -> str:
@@ -274,7 +328,7 @@ def cmd_file(args, cwd: Path) -> int:
         ), as_json)
 
     ws = workspace_root(cwd)
-    surface = normalize_surface(values["surface"], ws)
+    surface = normalize_surface(values["surface"], rbtv_repo(ws))
     if surface is None:
         return refuse_payload(Refuse(
             "scope-refused",
@@ -415,22 +469,28 @@ def cmd_show(args, cwd: Path) -> int:
 def cmd_doctor(args, cwd: Path) -> int:
     try:
         reg = register_root(cwd, args.register)
-        derived_ok = True
         derive_note = None
     except Refuse as exc:
         reg = None
-        derived_ok = False
         derive_note = exc.message
     exists = bool(reg and reg.is_dir())
     writable = bool(exists and os.access(reg, os.W_OK))
     open_n = closed_n = 0
+    rows, invalid = [], []
     if exists:
         open_n = len(list((reg / "open").glob("*.md"))) if (reg / "open").is_dir() else 0
         closed_n = len(list((reg / "closed").glob("*.md"))) if (reg / "closed").is_dir() else 0
-    if not derived_ok or not exists:
+        for name, path in register_files(reg):
+            code = validate_entry(path)
+            rows.append((name, code))
+            if code:
+                invalid.append({"file": name, "code": code})
+    if not exists:
         refuse_code = "register-missing"
     elif not writable:
         refuse_code = "register-not-writable"
+    elif invalid:
+        refuse_code = "entries-invalid"
     else:
         refuse_code = None
     payload = {
@@ -440,20 +500,208 @@ def cmd_doctor(args, cwd: Path) -> int:
         "writable": writable,
         "open": open_n,
         "closed": closed_n,
+        "valid": len(rows) - len(invalid),
+        "invalid": invalid,
         "refuse": refuse_code,
     }
     if derive_note:
         payload["note"] = derive_note
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    else:
-        print(f"register: {payload['register']}")
-        print(f"exists: {exists}")
-        print(f"writable: {writable}")
-        print(f"open: {open_n}")
-        print(f"closed: {closed_n}")
-        print(f"refuse: {refuse_code or 'none'}")
+        return 0 if refuse_code is None else 1
+    for name, code in rows:
+        print(f"invalid {name} {code}" if code else f"ok {name}")
+    print(f"register: {payload['register']}")
+    print(f"exists: {exists}")
+    print(f"writable: {writable}")
+    print(f"open: {open_n}")
+    print(f"closed: {closed_n}")
+    print(f"valid: {payload['valid']}")
+    print(f"invalid: {len(invalid)}")
+    print(f"refuse: {refuse_code or 'none'}")
+    if invalid:
+        print(f"next: file-issue show {Path(invalid[0]['file']).stem}")
+    elif refuse_code is None:
+        print("next: file-issue list --status open")
     return 0 if refuse_code is None else 1
+
+
+def schema_payload() -> dict:
+    return {
+        "entry-keys": list(ENTRY_KEYS),
+        "classes": list(CLASSES),
+        "statuses": {
+            "lifecycle": list(STATUS_LIFECYCLE),
+            "terminal": list(STATUS_TERMINAL),
+        },
+        "history-entry": dict(HISTORY_ENTRY),
+    }
+
+
+def cmd_schema(args, _cwd: Path) -> int:
+    if args.json:
+        print(json.dumps(schema_payload(), ensure_ascii=False, sort_keys=True))
+        return 0
+    print("entry keys — frontmatter, in this order, all present and non-empty:")
+    for key in ENTRY_KEYS:
+        print(f"  {key}")
+    print("body: '## <id> — <symptom>' and the line 'Destination: ignite-engine'")
+    print("classes:")
+    print(f"  {' '.join(CLASSES)}")
+    print("status vocabulary — lifecycle, in this order:")
+    print(f"  {' -> '.join(STATUS_LIFECYCLE)}")
+    print("status vocabulary — terminal closes:")
+    print(f"  {' '.join(STATUS_TERMINAL)}")
+    print(f"HISTORY entry — file {HISTORY_ENTRY['file']}:")
+    print(f"  header when created: {HISTORY_ENTRY['header-when-created']}")
+    print(f"  {HISTORY_ENTRY['heading']}")
+    for line in HISTORY_ENTRY["lines"]:
+        print(f"  {line}")
+    print("next: file-issue doctor")
+    return 0
+
+
+def repo_root(cwd: Path, override: str | None) -> Path:
+    if override:
+        return Path(override).expanduser().resolve()
+    repo = rbtv_repo(workspace_root(cwd))
+    if repo is None:
+        raise Refuse(
+            "repo-missing",
+            "no rbtv.json above cwd — cannot derive the rbtv repo root",
+            extra={"fix": "run from inside the workspace (override with --repo in tests)"},
+        )
+    return repo
+
+
+def one_line(value: str) -> str:
+    return " ".join(value.split())
+
+
+def scope_refusal(what: str) -> Refuse:
+    return Refuse(
+        "scope-refused",
+        f"--{what} must be a path under ignite/ or meta/ of the rbtv repo",
+        extra={"fix": f"pass --{what} ignite/… or --{what} meta/…"},
+    )
+
+
+def cmd_history_append(args, cwd: Path) -> int:
+    as_json = args.json
+    values = {
+        "component": args.component, "id": args.id,
+        "seen": args.seen, "missed": args.missed, "held": args.held,
+    }
+    for name in HISTORY_FIELDS:
+        if not (values[name] or "").strip():
+            return refuse_payload(Refuse(
+                f"missing-field:{name}",
+                f"--{name} is required",
+                extra={"fix": f"pass --{name} "
+                              f"(see file-issue history append --help)"},
+            ), as_json)
+    try:
+        repo = repo_root(cwd, args.repo)
+        reg = register_root(cwd, args.register)
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+
+    component = normalize_surface(values["component"], repo)
+    if component is None:
+        return refuse_payload(scope_refusal("component"), as_json)
+
+    known = existing_ids(reg)
+    if values["id"] not in known:
+        near = difflib.get_close_matches(values["id"], sorted(known), n=1)
+        message = f"{values['id']} is in neither register/open nor register/closed"
+        if near:
+            message += f" — did you mean {near[0]}?"
+        return refuse_payload(Refuse(
+            "unknown-id", message,
+            extra={"fix": "file-issue list --status all"},
+        ), as_json)
+
+    title = one_line(values["seen"].splitlines()[0])
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    entry = (
+        f"## {date} — {values['id']} — {title}\n"
+        f"**Seen:** {one_line(values['seen'])}\n"
+        f"**Missed:** {one_line(values['missed'])}\n"
+        f"**Held:** {one_line(values['held'])}\n"
+    )
+    hist = repo / component / "HISTORY.md"
+    created = not hist.exists()
+    try:
+        with hist.open("a", encoding="utf-8") as fh:
+            if created:
+                fh.write(f"# HISTORY — {component}\n")
+            fh.write("\n" + entry)
+    except OSError as exc:
+        return refuse_payload(Refuse(
+            "history-not-writable",
+            f"could not write {hist}: {exc}",
+            extra={"fix": f"check that {repo / component} exists and is writable"},
+        ), as_json)
+
+    payload = {
+        "ok": True,
+        "path": str(hist),
+        "component": component,
+        "id": values["id"],
+        "date": date,
+        "created": created,
+        "text": f"{'created' if created else 'appended'} {hist}\n"
+                f"next: file-issue history show --component {component}",
+    }
+    return emit(payload, as_json=as_json, exit_code=0)
+
+
+def parse_history(text: str) -> list[dict]:
+    entries = []
+    for line in text.splitlines():
+        if not line.startswith("## "):
+            continue
+        parts = [x.strip() for x in line[3:].split(" — ")]
+        entries.append({
+            "heading": line,
+            "date": parts[0] if parts else "",
+            "id": parts[1] if len(parts) > 1 else "",
+            "title": " — ".join(parts[2:]) if len(parts) > 2 else "",
+        })
+    return entries
+
+
+def cmd_history_show(args, cwd: Path) -> int:
+    as_json = args.json
+    if not (args.component or "").strip():
+        return refuse_payload(Refuse(
+            "missing-field:component",
+            "--component is required",
+            extra={"fix": "pass --component (see file-issue history show --help)"},
+        ), as_json)
+    try:
+        repo = repo_root(cwd, args.repo)
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+    component = normalize_surface(args.component, repo)
+    if component is None:
+        return refuse_payload(scope_refusal("component"), as_json)
+    hist = repo / component / "HISTORY.md"
+    exists = hist.is_file()
+    entries = parse_history(hist.read_text(encoding="utf-8")) if exists else []
+    if as_json:
+        return emit({
+            "ok": True, "component": component, "path": str(hist),
+            "exists": exists, "entries": entries,
+        }, as_json=True, exit_code=0)
+    if not exists:
+        print(f"no HISTORY for {component}")
+        return 0
+    for e in entries:
+        print(f"{e['date']}\t{e['id']}\t{e['title']}")
+    print(f"{len(entries)} in {hist}")
+    print(f"next: file-issue history append --component {component} --id <register-id>")
+    return 0
 
 
 def _run(argv, *, cwd=None):
@@ -605,22 +853,170 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       and d8.get("refusal", {}).get("code") == "register-not-writable",
                       d8.get("refusal", {}).get("code"))
 
+
+        # ---- doctor validates the register the tool itself wrote ----------------
+        dv = _run(["--json", "--register", str(reg), "doctor"])
+        ddv = json.loads(dv.stdout) if dv.stdout.strip() else {}
+        passed &= _ok("green: doctor-valid",
+                      dv.returncode == 0 and ddv.get("invalid") == []
+                      and ddv.get("valid") == 4 and ddv.get("open") == 4,
+                      f"exit={dv.returncode} valid={ddv.get('valid')} "
+                      f"invalid={ddv.get('invalid')}")
+
+        victim_name = "G-leader-0101-0001.md"
+        reg_mk = root / "reg-missing-key"
+        shutil.copytree(reg, reg_mk)
+        vmk = reg_mk / "open" / victim_name
+        vmk.write_text("\n".join(
+            ln for ln in vmk.read_text(encoding="utf-8").splitlines()
+            if not ln.startswith("risk:")) + "\n", encoding="utf-8")
+        dmk = _run(["--json", "--register", str(reg_mk), "doctor"])
+        dd_mk = json.loads(dmk.stdout) if dmk.stdout.strip() else {}
+        passed &= _ok("red: doctor-missing-key",
+                      dmk.returncode != 0
+                      and {"file": f"open/{victim_name}", "code": "missing-field:risk"}
+                      in dd_mk.get("invalid", [])
+                      and dd_mk.get("valid") == 3,
+                      f"exit={dmk.returncode} invalid={dd_mk.get('invalid')}")
+
+        reg_bs = root / "reg-bad-status"
+        shutil.copytree(reg, reg_bs)
+        vbs = reg_bs / "open" / victim_name
+        vbs.write_text(vbs.read_text(encoding="utf-8")
+                       .replace("status: open", "status: parked", 1), encoding="utf-8")
+        dbs = _run(["--json", "--register", str(reg_bs), "doctor"])
+        dd_bs = json.loads(dbs.stdout) if dbs.stdout.strip() else {}
+        passed &= _ok("red: doctor-off-vocabulary-status",
+                      dbs.returncode != 0
+                      and {"file": f"open/{victim_name}",
+                           "code": "status-not-in-vocabulary"} in dd_bs.get("invalid", []),
+                      f"exit={dbs.returncode} invalid={dd_bs.get('invalid')}")
+
+        # ---- schema is the one written record -----------------------------------
+        want_keys = ["id", "filed-by", "when", "surface", "class", "symptom",
+                     "evidence", "suggested-action", "risk", "status"]
+        want_life = ["open", "triaged", "approved", "building", "judged",
+                     "deployed", "verified", "closed"]
+        want_term = ["duplicate", "invalid", "wont-fix"]
+        sc_txt = _run(["schema"])
+        sc_json = _run(["schema", "--json"])
+        try:
+            sd = json.loads(sc_json.stdout)
+        except ValueError:
+            sd = {}
+        passed &= _ok("green: schema",
+                      sc_txt.returncode == 0 and sc_json.returncode == 0
+                      and "suggested-action" in sc_txt.stdout
+                      and "wont-fix" in sc_txt.stdout
+                      and "**Missed:**" in sc_txt.stdout
+                      and set(sd) == {"entry-keys", "classes", "statuses", "history-entry"}
+                      and sd.get("entry-keys") == want_keys
+                      and sd.get("statuses", {}).get("lifecycle") == want_life
+                      and sd.get("statuses", {}).get("terminal") == want_term,
+                      f"txt={sc_txt.returncode} json={sc_json.returncode} keys={sorted(sd)}")
+
+        # ---- history: create, then append without touching a byte ----------------
+        comp = "ignite/team-kit"
+        repo_dir = root / "rbtv"
+        (repo_dir / comp).mkdir(parents=True, exist_ok=True)
+        hist = repo_dir / comp / "HISTORY.md"
+        hcommon = ["--repo", str(repo_dir), "--register", str(reg), "--json"]
+        h1 = _run(["history", "append", *hcommon, "--component", comp,
+                   "--id", "G-leader-0101-0000",
+                   "--seen", "doctor passed an entry with no status",
+                   "--missed", "a body grep — it matched the prose, not the frontmatter",
+                   "--held", "validate the parsed frontmatter against the ten entry keys"])
+        dh1 = json.loads(h1.stdout) if h1.stdout.strip() else {}
+        after1 = hist.read_text(encoding="utf-8") if hist.is_file() else ""
+        h2 = _run(["history", "append", *hcommon, "--component", comp,
+                   "--id", "G-leader-0101-0001",
+                   "--seen", "the second entry", "--missed", "nothing", "--held", "append"])
+        dh2 = json.loads(h2.stdout) if h2.stdout.strip() else {}
+        after2 = hist.read_text(encoding="utf-8") if hist.is_file() else ""
+        hshow = _run(["history", "show", "--repo", str(repo_dir),
+                      "--component", comp, "--json"])
+        dhs = json.loads(hshow.stdout) if hshow.stdout.strip() else {}
+        ents = dhs.get("entries", [])
+        passed &= _ok("green: history-create-append",
+                      h1.returncode == 0 and dh1.get("created") is True
+                      and after1.startswith(f"# HISTORY — {comp}\n")
+                      and "**Seen:** doctor passed an entry with no status" in after1
+                      and "**Missed:**" in after1 and "**Held:**" in after1
+                      and h2.returncode == 0 and dh2.get("created") is False
+                      and after2.startswith(after1) and len(after2) > len(after1)
+                      and hshow.returncode == 0 and len(ents) == 2
+                      and ents[0].get("id") == "G-leader-0101-0000"
+                      and ents[1].get("id") == "G-leader-0101-0001",
+                      f"c1={h1.returncode} created={dh1.get('created')} "
+                      f"c2={h2.returncode} appended={after2.startswith(after1)} "
+                      f"entries={len(ents)}")
+
+        hr1 = _run(["history", "append", *hcommon, "--component", comp,
+                    "--id", "G-leader-0101-0000", "--seen", "x", "--missed", "y"])
+        dr1 = json.loads(hr1.stdout) if hr1.stdout.strip() else {}
+        passed &= _ok("red: history-missing-field",
+                      hr1.returncode == 2
+                      and dr1.get("refusal", {}).get("code") == "missing-field:held",
+                      dr1.get("refusal", {}).get("code"))
+
+        hr2 = _run(["history", "append", *hcommon, "--component", "5-workbench/x",
+                    "--id", "G-leader-0101-0000", "--seen", "x", "--missed", "y",
+                    "--held", "z"])
+        dr2 = json.loads(hr2.stdout) if hr2.stdout.strip() else {}
+        passed &= _ok("red: history-scope-refused",
+                      hr2.returncode == 2
+                      and dr2.get("refusal", {}).get("code") == "scope-refused"
+                      and not (repo_dir / "5-workbench").exists(),
+                      dr2.get("refusal", {}).get("code"))
+
+        hr3 = _run(["history", "append", *hcommon, "--component", comp,
+                    "--id", "G-nobody-9999-9999", "--seen", "x", "--missed", "y",
+                    "--held", "z"])
+        dr3 = json.loads(hr3.stdout) if hr3.stdout.strip() else {}
+        passed &= _ok("red: history-unknown-id",
+                      hr3.returncode == 2
+                      and dr3.get("refusal", {}).get("code") == "unknown-id"
+                      and hist.read_text(encoding="utf-8") == after2,
+                      dr3.get("refusal", {}).get("code"))
+
+        # ---- the non-JSON refusal names the route on stderr ----------------------
+        rp = _run(["file", "--register", str(reg),
+                   "--surface", "5-workbench/x", "--class", "other",
+                   "--symptom", "x", "--evidence", "e", "--suggested-action", "s",
+                   "--risk", "r", "--as", "fx-goal/leader"])
+        passed &= _ok("red: stderr-route-pointer",
+                      rp.returncode == 2 and rp.stdout.strip() == ""
+                      and "refused: scope-refused" in rp.stderr
+                      and ".rbtv/goals/fx-goal/issues.md" in rp.stderr,
+                      rp.stderr.strip().replace("\n", " | "))
+
     print("selftest: PASS" if passed else "selftest: FAIL")
     return 0 if passed else 1
+
+
+def _shared(sp):
+    """--register / --json on a subcommand, without clobbering the top-level flag."""
+    sp.add_argument("--register", default=argparse.SUPPRESS,
+                    help="override register dir (tests only)")
+    sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                    help="stable JSON on stdout")
+    return sp
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="file-issue",
-        description="File one system issue into the ignite-engine register.",
+        description="File, validate and record ignite-engine register entries.",
         epilog="next: file-issue file --help",
     )
     p.add_argument("--register", help="override register dir (tests only)")
     p.add_argument("--json", action="store_true", help="stable JSON on stdout")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    f = sub.add_parser("file", help="write one filing into register/open/<id>.md",
-                       epilog="next: file-issue show <id>")
+    f = _shared(sub.add_parser(
+        "file", help="write one filing into register/open/<id>.md",
+        description="File one system issue whose surface is under ignite/ or meta/.",
+        epilog="next: file-issue show <id>"))
     f.add_argument("--surface", help="path under ignite/ or meta/ of the rbtv repo")
     f.add_argument("--class", dest="klass", choices=CLASSES, help="filing class")
     f.add_argument("--symptom", help="one-line symptom")
@@ -629,27 +1025,82 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--risk", help="one-line risk")
     f.add_argument("--as", dest="as_who", help="who files: <goal>/<seat>")
     f.add_argument("--id", help="override id (collision still suffixes -2, -3)")
-    f.add_argument("--register", help="override register dir (tests only)")
-    f.add_argument("--json", action="store_true")
     f.set_defaults(_fn=cmd_file)
 
-    l = sub.add_parser("list", help="list filings", epilog="next: file-issue show <id>")
+    l = _shared(sub.add_parser(
+        "list", help="list filings",
+        description="List register entries, newest folder order, open by default.",
+        epilog="next: file-issue show <id>"))
     l.add_argument("--status", choices=("open", "closed", "all"), default="open")
     l.add_argument("--class", dest="klass", choices=CLASSES)
-    l.add_argument("--register", help="override register dir (tests only)")
-    l.add_argument("--json", action="store_true")
     l.set_defaults(_fn=cmd_list)
 
-    s = sub.add_parser("show", help="print one filing", epilog="next: file-issue list")
-    s.add_argument("id")
-    s.add_argument("--register", help="override register dir (tests only)")
-    s.add_argument("--json", action="store_true")
-    s.set_defaults(_fn=cmd_show)
+    sh = _shared(sub.add_parser(
+        "show", help="print one filing",
+        description="Print one register entry whole, by id.",
+        epilog="next: file-issue list"))
+    sh.add_argument("id")
+    sh.set_defaults(_fn=cmd_show)
 
-    d = sub.add_parser("doctor", help="register path, exists, writable, counts")
-    d.add_argument("--register", help="override register dir (tests only)")
-    d.add_argument("--json", action="store_true")
+    d = _shared(sub.add_parser(
+        "doctor", help="validate every register entry; register path and counts",
+        description="Can this tool work here, and does every entry hold the format?\n"
+                    "Validates each register/open/*.md and register/closed/*.md against\n"
+                    "`file-issue schema`: one line per file, then the counts. Exit 1 when\n"
+                    "any entry is invalid, or the register is missing or unwritable.",
+        epilog="example: file-issue --json doctor\nnext: file-issue show <id>",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
     d.set_defaults(_fn=cmd_doctor)
+
+    sc = _shared(sub.add_parser(
+        "schema", help="the written record: entry keys, classes, statuses, HISTORY shape",
+        description="The one written record of the register's format. Every other doc\n"
+                    "points here instead of restating it.",
+        epilog="example: file-issue schema --json\nnext: file-issue doctor",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    sc.set_defaults(_fn=cmd_schema)
+
+    h = sub.add_parser(
+        "history", help="the per-component memory: append one entry, or list them",
+        description="Read or extend <rbtv repo>/<component>/HISTORY.md — what was seen,\n"
+                    "the trials that missed, and the solution that held, per register id.",
+        epilog="next: file-issue history show --component ignite/team-kit",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    hsub = h.add_subparsers(dest="history_cmd", required=True)
+
+    ha = _shared(hsub.add_parser(
+        "append", help="append one entry (creates HISTORY.md with its header when absent)",
+        description="Append one dated entry to a component's HISTORY.md, creating the file\n"
+                    "with its header line when it does not exist yet. Refuses a missing\n"
+                    "field, a component outside ignite/ or meta/, and an id that is in\n"
+                    "neither register/open nor register/closed.",
+        epilog=("example: file-issue history append --component ignite/team-kit \\\n"
+                "    --id G-leader-0101-0000 \\\n"
+                '    --seen "doctor passed an entry with no status" \\\n'
+                '    --missed "a body grep — it matched the prose, not the frontmatter" \\\n'
+                '    --held "validate the parsed frontmatter against the ten entry keys"\n'
+                "next: file-issue history show --component ignite/team-kit"),
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    ha.add_argument("--component", help="repo-relative dir under ignite/ or meta/")
+    ha.add_argument("--id", help="the register id this entry belongs to")
+    ha.add_argument("--seen", help="what was seen (its first line becomes the heading)")
+    ha.add_argument("--missed", help="the trials that missed, and why")
+    ha.add_argument("--held", help="the solution that held")
+    ha.add_argument("--repo", default=argparse.SUPPRESS,
+                    help="override the rbtv repo root (tests only)")
+    ha.set_defaults(_fn=cmd_history_append, repo=None)
+
+    hs = _shared(hsub.add_parser(
+        "show", help="list a component's HISTORY entries",
+        description="One line per entry: date, register id, heading. Quiet when the\n"
+                    "component has no HISTORY.md yet.",
+        epilog="example: file-issue history show --component meta/planning --json\n"
+               "next: file-issue history append --component <dir> --id <register-id>",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    hs.add_argument("--component", help="repo-relative dir under ignite/ or meta/")
+    hs.add_argument("--repo", default=argparse.SUPPRESS,
+                    help="override the rbtv repo root (tests only)")
+    hs.set_defaults(_fn=cmd_history_show, repo=None)
 
     t = sub.add_parser("selftest", help="hermetic green and red arms")
     t.set_defaults(_fn=cmd_selftest)
