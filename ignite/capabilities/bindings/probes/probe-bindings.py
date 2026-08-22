@@ -67,8 +67,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-TOOL = Path(__file__).resolve().parents[1] / "tool" / "bindings.py"
-IGNITE = Path(__file__).resolve().parents[3]
+_PROBE_FILE = Path(__file__).resolve()
+TOOL = _PROBE_FILE.parents[1] / "tool" / "bindings.py"
+IGNITE = _PROBE_FILE.parents[3]
 LIVE_PROFILES = IGNITE / "config" / "spawn-profiles.yaml"
 MATERIALIZE = IGNITE / "team-kit" / "materialize-seats.py"
 STARTER = IGNITE / "team-kit" / "starter-set"
@@ -98,8 +99,8 @@ class _Tee:
 
 _tee = _Tee(sys.stdout)
 sys.stdout = _tee
-atexit.register(lambda: Path(__file__).with_suffix(".out").write_text("".join(_tee.buf),
-                                                                     encoding="utf-8"))
+atexit.register(lambda: _PROBE_FILE.with_suffix(".out").write_text("".join(_tee.buf),
+                                                                  encoding="utf-8"))
 
 
 
@@ -121,6 +122,15 @@ def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
+def _mirror_wf(root, module, component, workflow, body):
+    (root / ".rbtv" / "config").mkdir(parents=True, exist_ok=True)
+    fake = (root / ".rbtv" / "mirror" / module / component
+            / "workflows" / workflow / f"{workflow}.csv")
+    fake.parent.mkdir(parents=True, exist_ok=True)
+    fake.write_text(body, encoding="utf-8")
+    return fake
+
+
 def refuses(fn, *a, **kw):
     """(refused?, message). A refusal must be the tool's own typed one, never an incidental crash."""
     mod = kw.pop("_mod")
@@ -132,6 +142,38 @@ def refuses(fn, *a, **kw):
 
 
 mod = load()
+
+# ─────────────────────────────────────────────────────────────────────────────── check 0
+print("check 0 — resolve_workflow accepts the repo tree and the mirror tree")
+wf0 = mod.resolve_workflow(LIVE_MANIFEST)
+sheet0 = mod.bindings_path(wf0)
+check("live repo planning.csv derives module=meta, component=planning, workspace=vault, "
+      "sheet at .rbtv/config/modules/meta/planning/bindings/plan.json",
+      wf0["module"] == "meta" and wf0["component"] == "planning"
+      and Path(wf0["workspace"]) == WORKSPACE
+      and Path(sheet0) == WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "planning"
+      / "bindings" / "plan.json",
+      f"module={wf0['module']} component={wf0['component']} ws={wf0['workspace']} sheet={sheet0}")
+with tempfile.TemporaryDirectory() as td0:
+    td0 = Path(td0)
+    fake0 = _mirror_wf(td0, "m", "c", "w", "Seat/workflow,after\nwxyz-one,\n")
+    wfm = mod.resolve_workflow(fake0)
+    check("mirror-tree fixture derives module/component/workspace/catalog_root by shape",
+          wfm["module"] == "m" and wfm["component"] == "c"
+          and Path(wfm["workspace"]) == td0
+          and Path(wfm["catalog_root"]) == td0 / ".rbtv" / "mirror" / "m",
+          f"module={wfm['module']} component={wfm['component']} ws={wfm['workspace']} "
+          f"catalog_root={wfm['catalog_root']}")
+    (td0 / "rbtv.json").write_text(json.dumps({"rbtv_path": str(td0 / "rbtv-repo")}),
+                                   encoding="utf-8")
+    orphan = td0 / "elsewhere" / "mod" / "comp" / "workflows" / "zz" / "zz.csv"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text("Seat/workflow,after\nzzzz-one,\n", encoding="utf-8")
+    refused0, msg0 = refuses(lambda: mod.resolve_workflow(orphan), _mod=mod)
+    mirror_named = str((td0 / ".rbtv" / "mirror").resolve())
+    repo_named = str((td0 / "rbtv-repo").resolve())
+    check("a manifest under neither tree is refused naming both admissible roots",
+          refused0 and mirror_named in msg0 and repo_named in msg0, msg0[:220])
 
 # ─────────────────────────────────────────────────────────────────────────────── check 1 + 2
 print("check 1/2 — the catalog is derived from the profiles document and survives validate_seat")
@@ -282,9 +324,8 @@ with tempfile.TemporaryDirectory() as td:
           refused, msg[:120])
 
     # check 5 — the code derivation itself, on a fabricated manifest
-    fake = td / "mirror" / "probemod" / "probecomp" / "workflows" / "probe" / "probe.csv"
-    fake.parent.mkdir(parents=True)
-    fake.write_text("Seat/workflow,after\npxyz-one,\npxyz-two,pxyz-one\n", encoding="utf-8")
+    fake = _mirror_wf(td / "ws", "probemod", "probecomp", "probe",
+                      "Seat/workflow,after\npxyz-one,\npxyz-two,pxyz-one\n")
     o = mod.scaffold(fake, croot)
     check("a manifest with prefix `pxyz` files itself as pxyz.json under the D15 path "
           "modules/probemod/probecomp/bindings",
@@ -316,9 +357,8 @@ print("check 6 — the mutants: widen one guard each and the matching arm MUST f
 def _five_letter_arm(m, croot):
     """Scaffold from a manifest whose shared prefix is FIVE letters. Under the guard this refuses;
     with the length check widened it goes through — which is what makes the arm above a check."""
-    fake = croot.parent / "mirror" / "probemod" / "probecomp" / "workflows" / "wide" / "wide.csv"
-    fake.parent.mkdir(parents=True, exist_ok=True)
-    fake.write_text("Seat/workflow,after\nplans-one,\nplans-two,plans-one\n", encoding="utf-8")
+    fake = _mirror_wf(croot.parent / "ws", "probemod", "probecomp", "wide",
+                      "Seat/workflow,after\nplans-one,\nplans-two,plans-one\n")
     return m.scaffold(fake, croot)
 
 

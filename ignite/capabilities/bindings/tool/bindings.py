@@ -265,14 +265,41 @@ def resolve_goal(goal_folder):
     }
 
 
+def _workspace_of(start):
+    """First ancestor of `start` (itself included) holding `.rbtv/config/`."""
+    walked = (start, *start.parents)
+    for parent in walked:
+        if (parent / ".rbtv" / "config").is_dir():
+            return parent
+    raise Refusal(
+        f"workspace-underivable: no `.rbtv/config/` directory exists at or above {start} — "
+        f"searched " + " · ".join(str(p) for p in walked))
+
+
+def _rbtv_path(workspace):
+    """The workspace's rbtv repo from `rbtv.json`'s `rbtv_path`, or None if unreadable."""
+    book = workspace / "rbtv.json"
+    if not book.is_file():
+        return None
+    try:
+        raw = str((json.loads(book.read_text(encoding="utf-8")) or {}).get("rbtv_path") or "").strip()
+    except (OSError, ValueError):
+        return None
+    if not raw:
+        return None
+    p = Path(raw)
+    return (p if p.is_absolute() else workspace / p).resolve()
+
+
 def resolve_workflow(workflow_csv):
     """Everything the canonical path needs, derived from the manifest's own location.
 
-    A mirrored workflow manifest sits at exactly
-    `<ws>/.rbtv/mirror/<module>/<component>/workflows/<w>/<w>.csv` — the shape
-    `materialize-seats` resolves through `<catalog-root>/<component>/workflows/…`. Anything else
-    refuses: a path this function had to guess about would put the bindings file somewhere the next
-    reader looks for in vain."""
+    A cataloged workflow manifest sits at exactly
+    `<tree>/<module>/<component>/workflows/<w>/<w>.csv` — the shape
+    `materialize-seats` resolves through `<catalog-root>/<component>/workflows/…`. `<tree>` is one
+    of two admissible roots: the workspace mirror `<ws>/.rbtv/mirror`, or the workspace's rbtv
+    repo (`rbtv.json`'s `rbtv_path`). Anything else refuses: a path this function had to guess
+    about would put the bindings file somewhere the next reader looks for in vain."""
     p = Path(workflow_csv).resolve()
     if p.is_dir():
         # A DIRECTORY is a goal folder, never a manifest — the goal-local mode, dispatched on the
@@ -281,24 +308,30 @@ def resolve_workflow(workflow_csv):
     if not p.is_file():
         raise Refusal(f"{p} is not a file — name the workflow manifest CSV itself (or a GOAL "
                       f"folder, for the goal-local sheet)")
-    parts = p.parts
     try:
-        mirror_at = len(parts) - 1 - parts[::-1].index("mirror")
-    except ValueError:
-        raise Refusal(f"{p} does not sit under a `.rbtv/mirror/` tree — this tool derives the "
-                      f"module and component from the manifest's own location, and a path outside "
-                      f"the mirror carries neither")
-    tail = parts[mirror_at + 1:]
-    if len(tail) != 5 or tail[2] != "workflows":
+        shape_ok = p.parents[1].name == "workflows" and p.parent.name == p.stem
+    except IndexError:
+        shape_ok = False
+    if not shape_ok:
         raise Refusal(f"{p} is not at <mirror>/<module>/<component>/workflows/<w>/<w>.csv (got "
-                      f"{'/'.join(tail)}) — refusing to guess which segment is the component")
-    workspace = Path(*parts[:mirror_at - 1])       # …/<ws>/.rbtv/mirror → <ws>
-    module, component = tail[0], tail[1]
+                      f"{'/'.join(p.parts[-5:])}) — refusing to guess which segment is the component")
+    component_dir = p.parents[2]
+    module_dir = component_dir.parent
+    tree_root = module_dir.parent
+    workspace = _workspace_of(tree_root)
+    mirror_root = (workspace / ".rbtv" / "mirror").resolve()
+    repo_root = _rbtv_path(workspace)
+    repo_named = repo_root if repo_root is not None else f"{workspace / 'rbtv.json'} rbtv_path"
+    if tree_root.resolve() != mirror_root and tree_root.resolve() != repo_root:
+        raise Refusal(f"{p} does not sit under an admissible tree — this tool derives the "
+                      f"module and component from the manifest's own location; accepted roots "
+                      f"are {mirror_root} and {repo_named}")
+    module, component = module_dir.name, component_dir.name
     seats = manifest_seats(p)
     return {
         "manifest": p, "workspace": workspace, "module": module, "component": component,
-        "component_dir": p.parents[2], "catalog_root": p.parents[3],
-        "workflow": tail[3], "seats": seats, "code": workflow_code(seats),
+        "component_dir": component_dir, "catalog_root": module_dir,
+        "workflow": p.parent.name, "seats": seats, "code": workflow_code(seats),
     }
 
 
