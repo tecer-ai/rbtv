@@ -497,6 +497,68 @@ const MIGRATION_RECONCILE_ATTEMPTS = {
 };
 MIGRATIONS.push(MIGRATION_RECONCILE_ATTEMPTS);
 
+// ── admission-brake (D52/D66, 2026-08-22) · enqueue_log gains the 'braked' outcome ─────────────
+//
+// SAME SHAPE AS MIGRATION 6/8 (additive) except the CHECK itself must widen, and SQLite cannot
+// ALTER a CHECK — a documented rebuild, same pattern as MIGRATION_MESSAGE_TYPES_SEVEN/EIGHT, but
+// simpler: nothing REFERENCES enqueue_log (no FK points in), so there is no child-index cost and
+// no relink pass.
+//
+// ⚠ THE OLD TABLE IS RENAMED OUT OF THE WAY, NOT THE NEW ONE RENAMED IN. `ALTER TABLE … RENAME TO`
+// makes SQLite re-quote the renamed table's identifier in `sqlite_master.sql`
+// (`CREATE TABLE "enqueue_log" (…)`) — measured empirically while proving DoD clause 9 (create one
+// fresh store and one migrated store, diff `enqueue_log`'s schema): a migration that renames its
+// NEW table INTO place is never byte-identical to schema.sql's own `CREATE TABLE enqueue_log`
+// (unquoted). Renaming the OLD table out of the way and creating the final `enqueue_log` fresh
+// avoids the quoting divergence entirely — its stored SQL is created the same way schema.sql's is.
+const MIGRATION_ENQUEUE_LOG_BRAKED = {
+  version: 9,
+  name: 'enqueue-log-braked',
+  up(db) {
+    const row = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='enqueue_log'"
+    ).get();
+    // ⚠ MATCH THE CHECK CLAUSE ITSELF, never a bare `'braked'` substring — this table's own
+    // schema.sql comment (the block right above the CHECK) quotes the word 'braked' too, and a
+    // loose substring test matches the COMMENT on a genuinely pre-migration store and returns
+    // early without ever widening the CHECK. Measured while proving fresh-vs-migrated identity
+    // for this migration (DoD clause 9): the loose guard made `up()` a permanent no-op.
+    if (!row || /IN\s*\(\s*'enqueued'\s*,\s*'suppressed'\s*,\s*'braked'\s*\)/.test(String(row.sql))) return;
+
+    db.exec('ALTER TABLE enqueue_log RENAME TO enqueue_log_pre_d52;');
+    // Column body BYTE-IDENTICAL to schema.sql's own `enqueue_log` block (comment included) — that
+    // identity is what DoD clause 9 checks, and `CREATE TABLE IF NOT EXISTS` / the trailing `;`
+    // are both stripped from `sqlite_master.sql` on EITHER side, so neither needs to match here.
+    db.exec(
+      'CREATE TABLE enqueue_log (\n'
+      + '  enq_id      INTEGER PRIMARY KEY AUTOINCREMENT,\n'
+      + '  job_id      TEXT NOT NULL,\n'
+      + '  goal        TEXT,\n'
+      + '  seat        TEXT,\n'
+      + '  seat_key    TEXT,\n'
+      + "  -- D52/D66 (2026-08-22) — 'braked' is the admission-brake door's own refusal outcome, recorded\n"
+      + '  -- for the SAME reason \'suppressed\' is: every enqueue() caller is recorded, and a refusal that\n'
+      + '  -- left no trace is indistinguishable from a caller that never tried (heart-store.js § enqueue).\n'
+      + "  outcome     TEXT NOT NULL CHECK (outcome IN ('enqueued','suppressed','braked')),\n"
+      + '  because     TEXT,\n'
+      + '  queue_id    INTEGER,\n'
+      + '  exec_id     INTEGER,\n'
+      + '  held_status TEXT,\n'
+      + '  at          TEXT NOT NULL\n'
+      + ');'
+    );
+    db.exec(
+      'INSERT INTO enqueue_log '
+      + '(enq_id, job_id, goal, seat, seat_key, outcome, because, queue_id, exec_id, held_status, at)\n'
+      + 'SELECT enq_id, job_id, goal, seat, seat_key, outcome, because, queue_id, exec_id, held_status, at\n'
+      + 'FROM enqueue_log_pre_d52;'
+    );
+    db.exec('DROP TABLE enqueue_log_pre_d52;');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_enqueue_log_goal_at ON enqueue_log(goal, at);');
+  },
+};
+MIGRATIONS.push(MIGRATION_ENQUEUE_LOG_BRAKED);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -615,4 +677,8 @@ module.exports = {
   // migrate() on a pre-v6 store and compares sqlite_master sql against a fresh schema.sql store.
   MIGRATION_ENQUEUE_LOG,
   MIGRATION_RECONCILE_ATTEMPTS,
+  // D52/D66. Exported by name AND registered above, for the same reason MIGRATION_MESSAGE_TYPES_EIGHT
+  // is: a probe injects it directly to prove the rebuild and the re-run no-op on a store it built
+  // itself, and to diff a fresh-vs-migrated enqueue_log schema for byte identity.
+  MIGRATION_ENQUEUE_LOG_BRAKED,
 };

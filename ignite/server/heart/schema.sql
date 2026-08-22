@@ -182,7 +182,10 @@ CREATE TABLE IF NOT EXISTS enqueue_log (
   goal        TEXT,
   seat        TEXT,
   seat_key    TEXT,
-  outcome     TEXT NOT NULL CHECK (outcome IN ('enqueued','suppressed')),
+  -- D52/D66 (2026-08-22) — 'braked' is the admission-brake door's own refusal outcome, recorded
+  -- for the SAME reason 'suppressed' is: every enqueue() caller is recorded, and a refusal that
+  -- left no trace is indistinguishable from a caller that never tried (heart-store.js § enqueue).
+  outcome     TEXT NOT NULL CHECK (outcome IN ('enqueued','suppressed','braked')),
   because     TEXT,
   queue_id    INTEGER,
   exec_id     INTEGER,

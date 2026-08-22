@@ -181,6 +181,9 @@ const ENQUEUE_KEYS = new Set([
   // one shard and lets different shards run side by side (heart-store.js#seatKeyOf § THE SHARD).
   // Same two-allowlist rule as `on_seat_busy` above: absent here ⇒ SHAPE_INVALID before dispatch.
   'seat_shard',
+  // D52/D66 (2026-08-22) — the admission brake's OPTIONAL per-reason key. Same two-allowlist rule:
+  // absent here ⇒ SHAPE_INVALID before dispatch.js is ever called.
+  'reason',
 ]);
 const ON_SEAT_BUSY = new Set(['dedupe', 'queue']);
 // `#` is the seat key's own separator and whitespace would make a tick action unreadable. The bound
@@ -276,9 +279,21 @@ function parseEnqueueJob(payload) {
     seatShard = payload.seat_shard;
   }
 
+  // `reason` — SHAPE ONLY here too, a short lowercase kebab/snake token. Absent ⇒ the door's own
+  // merged floor bucket (heart-store.js `BRAKE_REASON_FLOOR`), which is every producer that
+  // predates this field, byte-identical.
+  let reason = null;
+  if (payload.reason !== undefined && payload.reason !== null && payload.reason !== '') {
+    if (typeof payload.reason !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(payload.reason)) {
+      bad('reason must be a 1-64 char lowercase kebab/snake token', 'reason');
+    }
+    reason = payload.reason;
+  }
+
   return {
     on_seat_busy: onSeatBusy,
     seat_shard: seatShard,
+    reason,
     job_id: payload.job_id,
     args: JSON.stringify(args),
     session_mode: sessionMode,

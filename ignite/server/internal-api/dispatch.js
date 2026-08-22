@@ -173,6 +173,12 @@ const ENQUEUE_ALLOWED_KEYS = new Set([
   // under a reserved key and `seatKeyOf` suffixes the seat key with it, so two shards of one seat
   // run concurrently while one shard stays serialized. Also not a queue column.
   'seat_shard',
+  // D52/D66 (2026-08-22) — OPTIONAL. The admission brake's own key component: same shape as the
+  // watcher's own `incomplete`/`nonterm`/`unread`/`room` words, but open to ANY caller. A caller
+  // that supplies one gets its OWN per-reason budget at the door instead of falling into the
+  // merged reasonless bucket (heart-store.js `BRAKE_REASON_FLOOR`) — finer keying, never coarser;
+  // omitting it is always the STRICTER, safe default. Not a queue column.
+  'reason',
 ]);
 
 // The register-job payload's field set (task 7.12). The `jobs` DDL is the authoritative
@@ -527,6 +533,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(VALIDATION_FAILED, 'seat_shard must be a 1-200 char string with no whitespace and no "#"', { check: 'seat_shard-shape', field: 'seat_shard' });
     }
 
+    // D52/D66 — re-checked here for the same DEC-3 reason as `on_seat_busy`/`seat_shard`: shape
+    // only, a short safe-charset string, absent → the door's own merged floor (heart-store.js).
+    if (payload.reason !== undefined && payload.reason !== null && payload.reason !== ''
+      && (typeof payload.reason !== 'string' || !/^[a-z][a-z0-9_-]{0,63}$/.test(payload.reason))) {
+      throw new InternalApiError(VALIDATION_FAILED, 'reason must be a 1-64 char lowercase kebab/snake token', { check: 'reason-shape', field: 'reason' });
+    }
+
     // The store re-runs the COMPLETE deterministic dry-run (function in catalogue,
     // args shape, trigger, named profile, session_mode) inside enqueue() and writes
     // NOTHING on any failure — the single place all mutations pass. Under `dryRun` it
@@ -553,6 +566,12 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       dryRun,
       onSeatBusy: payload.on_seat_busy,
       seatShard: payload.seat_shard,
+      reason: payload.reason,
+      // D52/D66/D70 — the admission brake's owner-re-arm signal, stamped from the ATTESTED sender
+      // exactly as `enqueuingSeat` is (never accepted from the payload — a sender claiming
+      // `kind: 'owner'` on the wire would forge its own exemption; `sender.kind` is resolved by
+      // the gateway's own auth, not by this payload).
+      senderKind: sender.kind,
     });
 
     // Validate-only verdict — no queue row minted (D72/D73). Reaching here means the
