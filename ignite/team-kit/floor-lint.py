@@ -102,10 +102,10 @@ HOME_BASENAMES = {"budget.json"}
 _CP5_DEFAULT = 1200
 
 EXCLUDED = [
-    # STILL UNRULED, kept from when this list was empty: `watch.py`'s 500 default belongs here IF
-    # the leader rules it stays with G-29 -- see task 7.82 open question D. It is NOT entered below,
-    # because an entry here is a ruling's record, never a builder's convenience. (It reaches this
-    # lint as FIXTURE today, so nothing is waiting on the ruling.)
+    # MOOT, kept from when this list was empty: task 7.82 open question D asked whether
+    # `watch.py`'s 500 default should live here under G-29. `watch.py` itself was deleted
+    # (c23c770c); the surviving sensor, `team_monitor.py`, carries no such default to rule on.
+    # Nothing is entered here, and nothing is waiting on the ruling.
     #
     # Ruling record: task 7.103 (`#b/probe-fleet`), resolution (b). This entry is a FIXTURE-class
     # literal that `_is_fixture` cannot see, because it walks back to the nearest top-level def and
