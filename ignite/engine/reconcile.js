@@ -37,12 +37,17 @@ const CADENCE_MS = 5 * 60 * 1000;
 const STRIKE_LIMIT = 2; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
 const OWNER_AFTER_STUCK = 3;
 
-const RECORD_DISPOSITIONS = Object.freeze(['done', 'renew', 'revive', 'exited', 'incomplete']);
+const RECORD_DISPOSITIONS = Object.freeze(
+  ['done', 'renew', 'revive', 'exited', 'incomplete', 'unverified'],
+);
 const TERMINAL_DISPOSITIONS = Object.freeze(['done']);
 const NON_TERMINAL_DISPOSITIONS = Object.freeze(
   RECORD_DISPOSITIONS.filter((d) => !TERMINAL_DISPOSITIONS.includes(d)),
 );
-const EXTRA_NON_TERMINAL = Object.freeze(['renew-interrupted', 'unverified']);
+// `renew-interrupted` is never a literal `disposition` cell coord.py writes — it is this
+// module's OWN synthetic label for a renew marker whose successor session never showed up. It
+// stays in its own list, separate from RECORD_DISPOSITIONS (coord.py's real recorded enum).
+const EXTRA_NON_TERMINAL = Object.freeze(['renew-interrupted']);
 const STAFF_CHAIRS = Object.freeze(['leader', 'consultant', 'goal-master']);
 
 // D24 · A SUMMONED SEAT IS NEVER OWED. It is spawned ONLY when the owner summons it (a

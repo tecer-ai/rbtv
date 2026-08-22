@@ -188,7 +188,7 @@ const readyEmpty = { ready: new Map(), granted: new Map(), rows: [], reason: nul
 
 say('── dispositions ──');
 assert.deepStrictEqual([...NON_TERMINAL_DISPOSITIONS].sort(),
-  ['exited', 'incomplete', 'renew', 'revive']);
+  ['exited', 'incomplete', 'renew', 'revive', 'unverified']);
 say('ok  closed non-terminal set is coord RECORD_DISPOSITION_WRITER minus done');
 
 say('── class (a) ──');
