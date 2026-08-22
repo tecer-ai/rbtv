@@ -19,6 +19,7 @@ const { createForwardPath } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
+const askStore = require('./ask-store');
 
 const STATE_VERSION = 1;
 
@@ -554,7 +555,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         // ⚑ AND IT RUNS AFTER THE POST, not before. This is the latency path the warm leg exists
         // to win (`live-session-design.md` §4), and the bus write shells to a python process — so
         // ordering it first would spend the owner's own wait on bookkeeping he cannot see.
-        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false });
+        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false, answersOwnerAsk: verdict.ok === true });
         const busAnswer = await forwardPath.recordBusAnswer({ route, text: chatMsg.text });
         if (delivered && delivered.delivered !== false) {
           const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms, ...(busAnswer ? { busAnswer } : {}) };
@@ -904,7 +905,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // Behavior #3), at the TURN BOUNDARY (notes §7b — never mid-turn). `markAsk`
   // records that the daemon posed a pending `ask` on this conversation, so the
   // owner's NEXT reply forwards as an `answer` (D105) rather than a `note`.
-  async function deliverToOwner({ chatThreadId, text, markAsk = false }) {
+  async function deliverToOwner({ chatThreadId, text, markAsk = false, answersOwnerAsk = false }) {
     const addr = replyAddr.get(chatThreadId);
     if (!addr) {
       log('warn', 'no reply address for conversation — cannot deliver owner output', { chatThreadId });
@@ -917,6 +918,21 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // ONE place every conversation-addressed post passes through, which is why the
     // clear hangs here and not in the reply leg.
     if (posted && posted.delivered !== false) clearPending(chatThreadId);
+    // D57/D75 — the SAME store `unanswered_ask_block` reads, marked at the ONE place every
+    // owner-facing post passes through. `answersOwnerAsk` is true only for a GENUINELY
+    // conformant fenced reply (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a
+    // FALLBACK_TEXT/GIVE_UP_NOTICE/DEAD_AIR_NOTICE post is a system stand-in, never marks
+    // answered (Q1, surfaced not ruled: the lane leaning this build took).
+    if (answersOwnerAsk && posted && posted.delivered !== false && goalChannels) {
+      const goalId = goalChannels.goalForChannel(chatThreadId);
+      if (goalId) {
+        try {
+          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master' });
+        } catch (err) {
+          log('warn', 'owner-ask record NOT marked answered — it may re-inject even though this reply landed', { chatThreadId, goalId, error: err.message });
+        }
+      }
+    }
     return posted;
   }
 

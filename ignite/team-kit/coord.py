@@ -16165,6 +16165,50 @@ def harness_command(w, prompt=None, prompt_path=None):
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
+OWNER_ASKS_FILE = "owner-asks.json"
+
+
+def unanswered_ask_block(pkg):
+    """D57/D75 — the still-open owner ask for `goal-master`'s NEXT sitting, or `''`.
+
+    READ-ONLY, and deliberately so: `ignite/bridges/chat/ask-store.js` is the ONE writer (the
+    bridge creates the record on an inbound owner message to a goal channel and marks it
+    `answered` at the ONE place every owner-facing post passes through, `deliverToOwner`) — a
+    second writer here would be the exact cross-process write-ownership problem the ask-store's
+    own header names as still open. This function only asks whether that record says `open`.
+
+    NEVER RAISES. `boot_prompt` composes on EVERY relaunch of EVERY seat (`cmd_boot_prompt`'s own
+    docstring); a malformed or half-written JSON file must degrade to an absent ask, not a boot
+    prompt that never composes — that would break every seat's launch, not just goal-master's.
+
+    Checked AT FIRE TIME, against the SAME file `deliverToOwner` marks — so a re-inject racing a
+    just-delivered answer sees `answered` the moment the mark lands, not a snapshot taken when the
+    ask was first made. The one remaining window (the file is marked mid-flight while a boot
+    prompt is being composed) is the same eventual-consistency window every unsynchronized
+    reader/writer pair has; the corrective revive that answers the proven 99.6 s case rides the
+    SAME chain as a `send-message` follow-up, never a fresh `boot_prompt`, so it cannot race this
+    read at all."""
+    p = Path(pkg) / "coordination" / OWNER_ASKS_FILE
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    try:
+        store = json.loads(raw)
+    except (ValueError, TypeError):
+        return ""
+    entry = store.get("goal-master") if isinstance(store, dict) else None
+    if not isinstance(entry, dict) or entry.get("status") != "open":
+        return ""
+    text = str(entry.get("text") or "").strip()
+    if not text:
+        return ""
+    asked_at = str(entry.get("askedAt") or "an earlier sitting")
+    return (
+        f"\n\n⚠ AN UNANSWERED OWNER ASK IS STILL OPEN (asked {asked_at}, D57) — no reply has been "
+        f"recorded on it since. Answer it before anything else this sitting:\n\n{text}\n")
+
+
 def boot_prompt(w, args, daemon_lane=False):
     """The initial prompt every seat starts with, harness-independent. A leader seat whose
     memory.md already exists is only ever (re)launched to CONTINUE a run it was arbitrating
@@ -16266,6 +16310,10 @@ def boot_prompt(w, args, daemon_lane=False):
     routed = ("\n\n⚠ THIS SITTING WAS ROUTED TO YOU — read this before your briefing's ordinary "
               "work; it is the reason you were relaunched and it is NOT in the inputs you ran on "
               f"last time:\n\n{payload}\n") if payload else ""
+    # D57/D75 — SCOPED BY AN EXPLICIT NAME CHECK, never a filter that happens to match today. This
+    # composer serves EVERY seat's EVERY relaunch; only `goal-master` may ever carry an owner-ask
+    # ferry record, so every other seat's boot prompt is provably byte-unchanged by this addition.
+    ask_block = unanswered_ask_block(pkg) if w["agent"] == "goal-master" else ""
     return (
         f"You are agent '{w['agent']}' of the run package at {pkg}. "
         f"{first} "
@@ -16275,6 +16323,7 @@ def boot_prompt(w, args, daemon_lane=False):
         f"Never read any other agent's briefing or folder in {wdir}/. "
         f"Message 'leader' on any conflict, inconsistency, or decision you cannot settle alone."
         f"{routed}"
+        f"{ask_block}"
     )
 
 

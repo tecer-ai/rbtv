@@ -704,7 +704,7 @@ function createReplyLeg({
                   rawFallback: read.rawFallback,
                 });
               }
-              const d = await deliver({ chatThreadId: id, text, markAsk: false }); // plain agent output (D105 note; ask-detection out of scope v1)
+              const d = await deliver({ chatThreadId: id, text, markAsk: false, answersOwnerAsk: verdict.ok === true }); // plain agent output (D105 note; ask-detection out of scope v1)
               if (d && d.delivered === false) {
                 failure = `deliver-refused:${d.reason || d.error || 'unknown'}`;
               } else {

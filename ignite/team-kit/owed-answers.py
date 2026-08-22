@@ -107,11 +107,64 @@ def age_minutes(age):
     return sys.maxsize
 
 
+def collect_unanswered_asks(label, base):
+    """D57/D75 — the OTHER direction: an owner ask TO `goal-master` nothing has answered yet.
+
+    A NEW union member, never a widen of `coord.open_asks` (`p-owed-answers-locus` forbids that —
+    four hold gates read it). Read-only over `ignite/bridges/chat/ask-store.js`'s ONE file; a
+    missing or malformed file is an ABSENT ask, never an error — the caller's `except Exception`
+    still owns genuine unreadability (a directory that exists but is not a file, a permissions
+    error), this function's own job is only to make "the file simply is not there yet" silent."""
+    import json
+    p = base / "owner-asks.json"
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    try:
+        store = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(store, dict):
+        return []
+    rows = []
+    for seat, entry in store.items():
+        if not isinstance(entry, dict) or entry.get("status") != "open":
+            continue
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        rows.append({
+            "kind": "waiting",
+            "label": label,
+            "num": "-",
+            "sender": str(seat),
+            "age": age_of_coord_ts(entry.get("askedAt") or ""),
+            "body": text[:200],
+        })
+    return rows
+
+
+def age_of_coord_ts(ts):
+    """`coord.age_of` needs a live `coord` module handle this file does not carry at import time
+    (it is loaded per-call via `load_coord()`), so the ONE parse this predicate needs — the same
+    `YYYY-MM-DD HH:MM` local-clock format `ask-store.js#coordTimestamp` writes — is inlined rather
+    than threading `coord` through one more argument for a single call."""
+    import datetime
+    try:
+        dt = datetime.datetime.strptime(str(ts).strip(), "%Y-%m-%d %H:%M")
+    except (ValueError, AttributeError):
+        return "?"
+    mins = max(0, int((datetime.datetime.now() - dt).total_seconds() // 60))
+    return f"{mins}m" if mins < 90 else f"{mins // 60}h"
+
+
 def collect(coord, workspace, only=None):
-    """Every open ask OR unanswered escalation addressed to the owner, halts first then oldest
-    first, plus the packages that could not be read. An unreadable package is COUNTED and
-    disclosed, never dropped: an absence that reads as "no debt" when it really means "could not
-    look" is the one wrong answer this must not give."""
+    """Every open ask OR unanswered escalation addressed to the owner, PLUS an owner ask to
+    `goal-master` nothing has answered — halts first, then oldest first within the rest, plus the
+    packages that could not be read. An unreadable package is COUNTED and disclosed, never
+    dropped: an absence that reads as "no debt" when it really means "could not look" is the one
+    wrong answer this must not give."""
     rows, unreadable = [], []
     for label, base in packages(workspace, only):
         try:
@@ -132,6 +185,7 @@ def collect(coord, workspace, only=None):
                     "age": coord.age_of(b["ts"]),
                     "body": coord.truncate(coord.body_of(b)),
                 })
+            rows.extend(collect_unanswered_asks(label, base))
         except Exception as exc:                      # noqa: BLE001 — one bad package never hides the rest
             unreadable.append(f"{label}: {exc}")
     # Halts FIRST, then oldest-first within each kind — reverse makes True (halt) lead and the
@@ -151,7 +205,8 @@ def render(rows, unreadable):
             head += f" — oldest {CAP} shown"
         lines.append(head)
         for r in rows[:CAP]:
-            tag = "⛔ RUN HALTED · " if r["kind"] == "halt" else ""
+            tag = ("⛔ RUN HALTED · " if r["kind"] == "halt"
+                   else "⏳ AWAITING A REPLY FROM · " if r["kind"] == "waiting" else "")
             lines.append(f"- {tag}{r['age']} old · {r['sender']} ({r['label']}) · {r['body']} "
                          f"· answer in thread: {r['label']} #{r['num']}")
     for u in unreadable:
@@ -216,6 +271,20 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
     assert kinds(esc + "\n" + ans) == [], "an ANSWERED escalation is still reported owed"
     assert kinds(ask) == ["ask"], "the ask path changed"
     assert kinds(esc + "\n" + ask)[0] == "halt", "a halt did not sort above an ask"
+
+    # THE OWNER-ASK ARM (D57/D75) — the OTHER direction. Both polarities, same fixture package,
+    # so a wrong predicate that reports everything (or nothing) cannot pass by accident.
+    import json
+    open_ask = {"goal-master": {"seat": "goal-master", "goalId": "fixture", "text": "still open?",
+                                 "status": "open", "askedAt": "2026-08-20 03:00", "answeredAt": None}}
+    (pkg / "owner-asks.json").write_text(json.dumps(open_ask), encoding="utf-8")
+    assert kinds("") == ["waiting"], "an OPEN unanswered owner ask is not reported owed"
+    answered_ask = {"goal-master": {**open_ask["goal-master"], "status": "answered",
+                                     "answeredAt": "2026-08-20 03:05"}}
+    (pkg / "owner-asks.json").write_text(json.dumps(answered_ask), encoding="utf-8")
+    assert kinds("") == [], "an ANSWERED owner ask is still reported owed"
+    (pkg / "owner-asks.json").unlink()
+
     shutil.rmtree(tmp, ignore_errors=True)
     return f"OK — {len(pkgs)} package(s), {elapsed_ms} ms"
 

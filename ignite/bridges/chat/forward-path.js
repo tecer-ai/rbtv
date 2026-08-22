@@ -32,6 +32,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { nowIsoUtc } = require('./config');
+const askStoreDefault = require('./ask-store');
 
 // The EIGHT CMP-8 message types (closed vocabulary — mint nothing; W4 closed it at seven and D2's
 // routed types widened it to eight with `stuck`).
@@ -158,7 +159,7 @@ function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   return { ok: true, seatDir, seat: String(seatName) };
 }
 
-function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null, listAgentThreads = null }) {
+function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null, listAgentThreads = null, askStore = askStoreDefault }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -721,10 +722,26 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
       log('warn', 'chat message refused — surface maps to no goal and is not a DM', { chatUserId, chatThreadId });
       return { forwarded: false, refused: true, reason: 'unroutable-surface' };
     }
-    if (threadMap.has(chatThreadId)) {
-      return forwardFollowUp({ chatThreadId, text, route });
+    const outcome = threadMap.has(chatThreadId)
+      ? await forwardFollowUp({ chatThreadId, text, route })
+      : await forwardSessionCreate({ chatThreadId, text, route });
+    // D57/D75 — durable record of an owner ask to `goal-master`, so an unanswered one survives
+    // to the seat's next daemon-fired sitting (`coord.py#unanswered_ask_block`, folded into
+    // `boot_prompt`). GOAL ROUTE ONLY: 'agent'/'master' traffic has no `goal-master` ask to lose,
+    // and `recordBusAnswer` already covers the 'agent' direction. A REFUSED/undelivered turn
+    // records nothing — there is nothing durable to survive if the ask never reached the seat.
+    if (route && route.kind === 'goal' && route.goalId && outcome && outcome.forwarded === true
+        && config && config.workspaceRoot) {
+      try {
+        askStore.createAsk({
+          workspaceRoot: config.workspaceRoot, goalId: route.goalId, seat: 'goal-master',
+          chatThreadId, text, execId: outcome.execId || (outcome.summon && outcome.summon.execId) || null,
+        });
+      } catch (err) {
+        log('warn', 'owner-ask record NOT written — re-inject will not see this ask if it goes unanswered', { chatThreadId, goalId: route.goalId, error: err.message });
+      }
     }
-    return forwardSessionCreate({ chatThreadId, text, route });
+    return outcome;
   }
 
   // `workdirFor` is exposed so the WARM leg (live-sessions.js) resolves a conversation's home
