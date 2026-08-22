@@ -2781,7 +2781,10 @@ def print_ls(data: dict, *, pretty: bool = False) -> None:
     print(f" {'#':>2}  {'COMPONENT / part':<42} {'TREE':<7} {'METHOD':<10} IN")
     for e in data["components"]:
         extra = f"  ({e['note']})" if e["note"] else ""
-        print(f"     {e['id']:<42} {e['tree']:<7}{extra}")
+        n_in = sum(1 for i in e["items"] if i["in"])
+        n = len(e["items"])
+        tally = f"{n} part{'' if n == 1 else 's'}, {n_in} in" if n else ""
+        print(f"     {e['id']:<42} {e['tree']:<7} {tally}{extra}")
         for i in e["items"]:
             flag = "in" if i["in"] else "-"
             if pretty:
@@ -2837,7 +2840,7 @@ def print_li(data: dict, *, pretty: bool = False) -> None:
     if not comps:
         print("nothing installed by install2.py")
     else:
-        print(f"{'#':<3} {'ST':<5} {'IN':<5} {'COMPONENT':<42} {'TREE':<7} "
+        print(f"{'#':<3} {'ST':<5} {'IN':<6} {'COMPONENT':<42} {'TREE':<7} "
               f"HARNESSES")
         cids = list(comps)
         part_no: dict[str, dict[str, int]] = {cid: {} for cid in cids}
@@ -2864,7 +2867,7 @@ def print_li(data: dict, *, pretty: bool = False) -> None:
             hs = ",".join(rec.get("harnesses") or [])
             names = ",".join(sorted(booked))
             if pretty:
-                print(f"{i:<3} {paint} {inn:<5} {cid:<42} "
+                print(f"{i:<3} {paint} {inn:<6} {cid:<42} "
                       f"{rec.get('tree', ''):<7} {hs}")
                 for pid, part in sorted((rec.get("parts") or {}).items()):
                     if not isinstance(part, dict):
@@ -2872,8 +2875,8 @@ def print_li(data: dict, *, pretty: bool = False) -> None:
                     print(f"    {part_no[cid][pid]:<3} {pid:<22} "
                           f"{part.get('method', '')}")
             else:
-                print(f"{i:<3} {paint} {inn:<5} {cid:<42} "
-                      f"{rec.get('tree', ''):<7} {hs}  {names}")
+                print(f"{i:<3} {paint} {inn:<6} {cid:<42} "
+                      f"{rec.get('tree', ''):<7} {hs}")
             miss = rec.get("missing") or []
             orph_l = rec.get("orphans") or []
             if st == "part" or miss or orph_l:
@@ -2884,12 +2887,19 @@ def print_li(data: dict, *, pretty: bool = False) -> None:
                     extra.append("orphan: " + ", ".join(orph_l))
                 if extra:
                     print("        " + " · ".join(extra))
-    gfs = data["guidance_files"]
-    print("g  (none)" if not gfs else "\n".join(f"g  {p}" for p in gfs))
-    claims = data["shared_claims"]
-    print("\n".join(f"~  {c}" for c in claims) if claims else "~  (none)")
-    pls = data["path_links"]
-    print("\n".join(f"@  {p['name']}" for p in pls) if pls else "@  (none)")
+    def _section(label: str, items: list[str]) -> None:
+        """Owned outside our own files — the only place a human sees it."""
+        if not items:
+            print(f"\n{label}: (none)")
+            return
+        print(f"\n{label}:")
+        for it in items:
+            print(f"  {it}")
+
+    _section("guidance files written", data["guidance_files"])
+    _section("keys held in shared config files", data["shared_claims"])
+    _section("commands linked onto PATH",
+             [p["name"] for p in data["path_links"]])
 
 
 def booked_links(state: dict) -> set[str]:
@@ -5792,10 +5802,40 @@ def selftest() -> int:
               and not full_rec["missing"],
               f"part={part_rec['status']} miss={part_rec['missing']} "
               f"full={full_rec['status']}")
-        check("SURF-li-ownership-footer — claims / guidance / PATH visible",
-              li_txt.rstrip().endswith("@  (none)")
-              or "@  " in li_txt,
-              li_txt[-200:])
+        # Retargeted TWICE on 2026-08-22. The original was
+        # `endswith("@  (none)") or "@  " in li_txt` — an OR whose right arm
+        # matched any line containing "@  ". The first retarget asserted the
+        # real payload was listed, but THIS FIXTURE OWNS NOTHING (claims,
+        # guidance and links are all empty), so every `all(... for x in [])`
+        # was vacuously true and a mutant that stopped printing items entirely
+        # still passed. The renderer is now driven with a payload that HAS one
+        # of each, which is the only way the listing behaviour can be observed.
+        _labels = ("guidance files written",
+                   "keys held in shared config files",
+                   "commands linked onto PATH")
+        _probe = {"guidance_files": ["AGENTS.md"],
+                  "shared_claims": ['.mcp.json::["mcpServers", "probe"]'],
+                  "path_links": [{"name": "probe-cli"}],
+                  "components": {}, "target": str(pws),
+                  "state_file": str(pws / STATE_REL),
+                  "marker": MANAGED_MARK, "guidance_basis": BASIS_NONE,
+                  "schema": SCHEMA}
+        _pbuf = io.StringIO()
+        with contextlib.redirect_stdout(_pbuf):
+            print_li(_probe)
+        _ptxt = _pbuf.getvalue()
+        _plisted = [ln[2:] for ln in _ptxt.splitlines()
+                    if ln.startswith("  ") and ln.strip()]
+        check("SURF-li-ownership-footer — every owned thing is listed under a "
+              "named section",
+              all(f"\n{lab}:" in _ptxt for lab in _labels)
+              and "AGENTS.md" in _plisted
+              and '.mcp.json::["mcpServers", "probe"]' in _plisted
+              and "probe-cli" in _plisted
+              # and the real render still labels all three, empty or not
+              and all(f"\n{lab}:" in li_txt for lab in _labels),
+              f"listed={_plisted} "
+              f"labels_missing={[l for l in _labels if chr(10) + l + ':' not in _ptxt]}")
 
         by_name = {c["name"]: c for c in do_doctor(
             pws, DISCOVER_CWD, catalog, [], tree,
