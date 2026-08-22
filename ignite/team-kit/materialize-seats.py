@@ -7927,6 +7927,9 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "EXP-1": (("EXP-1 green",), ("EXP-1 red",)),
     # The --refresh update mode (derived surfaces only; standing-seat home).
     "RF-1": (("RF-1 green",), ("RF-1 red",)),
+    # D50 — the master-prompt access-wide/file-don't-fix sentence replaces
+    # D49's retired execute/write phrasing, pinned on every --refresh.
+    "D50": (("D50 green",), ("D50 red",)),
     # The seat-cage declaration (owner-ruled 2026-08-10).
     "CG-1": (("CG-1 green",), ("CG-1 red",)),
     # The derived write surface (D3: goal folder RW).
@@ -10024,6 +10027,88 @@ def run_selftest() -> int:
               and (home / "seat.md").read_text(encoding="utf-8") == before_half,
               pr_half.stderr.strip()[:200])
 
+    print("D50 master-prompt: access-wide/file-don't-fix sentence is pinned by refresh")
+    with tempfile.TemporaryDirectory() as d50_td:
+        # A master-shaped fixture, standing in for the real deployed
+        # `.rbtv/mirror/meta/master-agent/prompts/*.md` catalog this scenario
+        # exists to pin (decisions.md D50/D62) — this repo carries no
+        # per-instance workspace paths (root CLAUDE.md § "RBTV Content Must
+        # Be General"), so the pin is proven against a portable fixture that
+        # reproduces the exact retired phrasing and the exact replacement
+        # shape, never against one deployment's real files.
+        tmp_d50 = Path(d50_td)
+        d50_catalog = tmp_d50 / "catalog"
+        d50_comp = d50_catalog / "d50-master-comp"
+        (d50_comp / "prompts").mkdir(parents=True)
+        (d50_comp / "tasks").mkdir(parents=True)
+        (d50_comp / "seats.csv").write_text(
+            "seat-id,prompt-id,task-id,staffing-hints,description\n"
+            "d50-seat,d50-prompt,d50-task,,the D50 fixture master seat\n",
+            encoding="utf-8")
+        (d50_comp / "tasks" / "d50-task.md").write_text(
+            "---\nid: d50-task\ndescription: D50 fixture task\n---\n\n"
+            "<task-goal>\nProve the D50 access/procedure sentence is pinned.\n"
+            "</task-goal>\n", encoding="utf-8")
+        d50_prompt = d50_comp / "prompts" / "d50-prompt.md"
+        # The retired D49 "sentence pair" (decisions.md#d50 quotes it
+        # verbatim: "Write the whole workspace … the rbtv repo"; "owner-ruled
+        # descriptor/config edits you EXECUTE") — reproduced here as fixture
+        # text, split across <permissions> and <constraints> exactly as the
+        # real goal-master-prompt.md / channel-master-prompt.md carried it.
+        old_declared = (
+            "---\nid: d50-prompt\ndescription: D50 fixture prompt, pre-fix\n"
+            "---\n\n<role>\nYou are the D50 fixture master seat.\n</role>\n\n"
+            "<permissions>\n"
+            "- Write the whole workspace: this goal's seats and descriptors, "
+            "permission files, config, the rbtv repo.\n"
+            "- When the owner rules a descriptor or config edit, EXECUTE it "
+            "yourself.\n"
+            "</permissions>\n\n"
+            "<constraints>\nOwner-ruled descriptor/config edits you EXECUTE; "
+            "do not route those to the owner's hands.\n</constraints>\n")
+        new_declared = (
+            "---\nid: d50-prompt\ndescription: D50 fixture prompt, post-fix\n"
+            "---\n\n<role>\nYou are the D50 fixture master seat.\n</role>\n\n"
+            "<permissions>\n"
+            "- You may read and write anywhere in the workspace, including "
+            "the rbtv repo, but you do NOT edit ignite/daemon code unless "
+            "explicitly instructed by the owner; your standard procedure on "
+            "a system defect is to file it at: `/example/workspace/"
+            "loose-ends.md`.\n"
+            "</permissions>\n\n"
+            "<constraints>\nNone beyond the permissions above.\n"
+            "</constraints>\n")
+        d50_prompt.write_text(old_declared, encoding="utf-8")
+        home = tmp_d50 / "goals" / "_d50-seat"
+        home.mkdir(parents=True)
+        (home / "seat.md").write_text(
+            "---\nseat: d50-seat\ndescription: the D50 fixture master seat\n"
+            f"cwd: {home}/\nagent_type: master\nmode: one-shot\n"
+            "---\n\n<role>\nstale body\n</role>\n", encoding="utf-8")
+        common_d50 = ["--catalog-root", str(d50_catalog), "--seat", "d50-seat",
+                      "--refresh", "--json"]
+        pr_old = _invoke(["--package", str(home)] + common_d50, clean_env)
+        rendered_old = (home / "seat.md").read_text(encoding="utf-8")
+        forbidden = ("Write the whole workspace", "you EXECUTE")
+        check("D50 red: a master-shaped seat still carrying the retired D49 "
+              "'Write the whole workspace' / '...you EXECUTE' phrasing after "
+              "--refresh is CAUGHT — this is the regression D50's own fix "
+              "closed, and the case this scenario exists to pin (D62)",
+              pr_old.returncode == 0
+              and any(p in rendered_old for p in forbidden)
+              and "file it at:" not in rendered_old,
+              rendered_old[:300])
+        d50_prompt.write_text(new_declared, encoding="utf-8")
+        pr_new = _invoke(["--package", str(home)] + common_d50, clean_env)
+        rendered_new = (home / "seat.md").read_text(encoding="utf-8")
+        check("D50 green: replacing the catalog's D49 execute/write phrasing "
+              "with the ruled access-wide/file-don't-fix sentence clears on "
+              "--refresh — the new sentence lands and neither retired phrase "
+              "survives",
+              pr_new.returncode == 0
+              and not any(p in rendered_new for p in forbidden)
+              and "file it at:" in rendered_new,
+              rendered_new[:300])
 
     print("CG-1 seat cage: the sandbox declaration emitted from the catalog row")
     with tempfile.TemporaryDirectory() as cg_td:
