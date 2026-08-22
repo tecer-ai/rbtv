@@ -5558,6 +5558,10 @@ def main(argv: list[str] | None = None) -> int:
             # this run appended that the caller did not name, and a write a
             # command does not print is a write nobody reviews.
             print(f"  {verb} staff chair(s): " + ", ".join(sub["added_seats"]))
+        for sub in result.get("summoned", ()):
+            # D79 — the summoned chair (goal-master) is disclosed the same way:
+            # a silent mint reads as "not minted" to whoever audits the plan.
+            print(f"  {verb} summoned chair(s): " + ", ".join(sub["added_seats"]))
         for warn in result["warnings"]:
             print(f"  warning: {warn}")
     return 0
