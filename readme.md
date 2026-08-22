@@ -37,11 +37,13 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 >
 > **`install2.py`** (repo root) is its **designated successor**, in a deliberate coexistence
 > period: it manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
-> directory holding `component.md` (the KG's `component folder`) — on BOTH the workspace
+> directory holding an `exposure.csv` (that manifest at depth 2 IS the component; the former
+> `component.md` requirement was retired 2026-08-22) — on BOTH the workspace
 > mirror (`{target}/.rbtv/mirror`) and this repo, discovering their parts from the
 > **exposure manifest** (`exposure.csv`) beside it, and realizes each row's canonical method
-> for **four harnesses** (claude, codex, opencode, kimi) through CMP-12's adapter matrix.
-> Everything else — module-root manifests, folders with no `component.md` — is the old
+> for **three harnesses** (claude, codex, opencode) through CMP-12's adapter matrix. The
+> standalone kimi CLI was retired 2026-08-14; its models ride opencode.
+> Everything else — module-root manifests, folders with no `exposure.csv` — is the old
 > standard, and `install.py` alone manages it: the two installers cover disjoint sets.
 > One exception by design: a tree-root **`_skills/`** folder holds whole vendored skill
 > folders (`_skills/cli-creator/`), which are not rbtv parts and carry no manifest. Each is
@@ -52,23 +54,39 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > `rbtv2-managed` marker that says the installer may rewrite it, and its state lives at
 > `{target}/.rbtv/config/install.json`, recording every file and every shared-config key it
 > wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
-> `install2.py uninstall` removes exactly what it wrote and nothing else. It exposes at the
+> `rbtv install rm` removes exactly what it wrote and nothing else. It exposes at the
 > INSTALL ROOT only and never writes under `.rbtv/goals/` (seat folders belong to the
 > materializer). `install.py` is byte-untouched by it.
 >
+> It is reachable as **`rbtv install`** — the system CLI routes that namespace straight to it,
+> and the commands below are the same tool either way:
+>
 > ```bash
-> python rbtv/install2.py --target /path/to/workspace scan            # what is installable
-> python rbtv/install2.py --target /path/to/workspace install --component meta/planning
-> python rbtv/install2.py --target /path/to/workspace install --module office --harness claude,codex
-> python rbtv/install2.py --target /path/to/workspace list
-> python rbtv/install2.py --target /path/to/workspace uninstall --component meta/planning
-> python rbtv/install2.py                                             # interactive
-> python rbtv/install2.py selftest                                    # its runnable check
+> rbtv install --target /path/to/workspace ls                    # what is installable
+> rbtv install --target /path/to/workspace li                    # what is installed
+> rbtv install --target W add -c meta/planning \
+>       --harness claude,codex --artifact CLAUDE.md              # FIRST add: both required
+> rbtv install --target W add -m office                          # later adds: components only
+> rbtv install --target W rm -c meta/planning
+> rbtv install --target W harness                                # show the workspace settings
+> rbtv install --target W harness add|rm opencode                # change which tools get files
+> rbtv install --target W artifact set CLAUDE.md|AGENTS.md|none  # change the guidance basis
+> rbtv install --target W artifact exclude add|rm <dir>          # folders the mirror skips
+> rbtv install                                                   # interactive
+> rbtv install selftest                                          # its runnable check
 > ```
+>
+> **The two workspace settings are answered once.** `--harness` (which AI coding tools get files
+> written for them) and `--artifact` (which root guidance file YOU author, the others being
+> generated from it) are REQUIRED on the first `add` and REFUSED on every later one, because both
+> used to be silent: `--harness` defaulted to every harness and a narrower list on a later run
+> merged instead of narrowing, so asking for fewer harnesses succeeded and changed nothing. After
+> the first install the `harness` and `artifact` verbs own them, and `harness rm` really does
+> delete that harness's files. See `install2.py` D16.
 >
 > Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the measured kimi realizations) are documented in the file's own module docstring —
+> rule, the workspace settings) are documented in the file's own module docstring —
 > that is their one home.
 >
 > A **third** installer, `core/capabilities/installer/tool/rbtv-install`, was built for the

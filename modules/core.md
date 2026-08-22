@@ -124,3 +124,8 @@ into a workspace's `.claude/`, and they carry no manifest install entry.
 
 - **What**: the one system-wide `rbtv` CLI — the agent-facing disclosure and action surface
   (core-build task 7.65). Contract in `core/capabilities/rbtv-cli/rbtv-cli.md`.
+- **`rbtv install` routes here** to `install2.py` at the repo root (the exposure-manifest
+  installer). Verbs: `add` · `rm` · `ls` · `li` · `harness` · `artifact` · `dupe-artifacts` ·
+  `doctor` · `selftest` · `interactive`. The installer stays a repo-root file rather than a
+  capability tool because it must run in a workspace where nothing from this repo is installed
+  yet.

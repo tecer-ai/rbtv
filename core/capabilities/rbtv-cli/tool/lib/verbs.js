@@ -29,6 +29,11 @@ const ATTACHED_EXECUTION = path.join(
 const TEAMBUILD = path.join(
   RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
 );
+// The installer is a REPO-ROOT file, not a capability tool, and deliberately so:
+// it is what a workspace runs BEFORE any component of this repo is installed, so
+// it can have no dependency on the installed tree. Its own argparse prog is
+// already `rbtv install` — this route is what makes that string true.
+const INSTALLER = path.join(RBTV_ROOT, 'install2.py');
 
 // Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
 // `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the
@@ -83,6 +88,14 @@ const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'lane', 'pause
 // enumerator, so the route no longer points at nothing.
 const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
 
+// The installer's own verb set. `harness` and `artifact` own the two WORKSPACE
+// SETTINGS (which AI tools to write files for, and which root guidance file the
+// human authors): `add` chooses components and refuses those flags after the
+// first install, so a human who reaches for them lands on the verb that works
+// rather than on a run that succeeds and changes nothing (install2.py D16).
+const INSTALL_VERBS = ['add', 'rm', 'ls', 'li', 'harness', 'artifact',
+  'dupe-artifacts', 'doctor', 'selftest', 'interactive'];
+
 // Routes are matched by their token PREFIX, longest first, so `ignite daemon kill`
 // (the unit) can never be shadowed by `ignite kill` (a gateway session). Both
 // exist, they mean different things, and the extra token is what tells them apart.
@@ -127,6 +140,13 @@ const ROUTES = [
     summary: 'run a goal ATTACHED to this terminal — the daemon\'s own engine, in-process, resumable from the goal folder',
   },
   {
+    prefix: ['install'],
+    target: INSTALLER,
+    exec: 'direct',
+    verbs: INSTALL_VERBS,
+    summary: 'install rbtv components into a workspace — add/rm, ls/li, and the workspace settings (harness, artifact)',
+  },
+  {
     prefix: ['teambuild'],
     target: TEAMBUILD,
     exec: 'direct',
@@ -166,6 +186,8 @@ module.exports = {
   GOAL_VERBS,
   TEAMBUILD,
   TEAMBUILD_VERBS,
+  INSTALLER,
+  INSTALL_VERBS,
   verbNamespaceTokens,
   matchRoute,
 };

@@ -35,6 +35,7 @@ function topHelp() {
     '  rbtv <module> <component>  level 2 — the component\'s entry point + its entry points',
     '',
     'ACT (delegates — no second implementation)',
+    '  rbtv install <verb>        install components here: add|rm|ls|li|harness|artifact|doctor',
     '  rbtv ignite daemon <verb>  daemon lifecycle: start|restart|stop|kill|unit|deploy',
     '  rbtv ignite <command>      the ignite gateway client (jobs, queue, sessions)',
     '  rbtv goal <verb>           goals-tree: scaffold|reindex|lint|materialize|lane',

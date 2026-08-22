@@ -7,9 +7,15 @@ INSTALL ROOT only. Python 3 stdlib only.
 
     rbtv install ls                     what is available (+ shadowed)
     rbtv install li                     what is installed (from the state file)
-    rbtv install add -c <module>/<component> [--harness a,b] [--target D]
-    rbtv install add -m <module> [-x skill] [--artifact CLAUDE.md|AGENTS.md|none]
+    rbtv install add -c <module>/<component> [--target D]
+    rbtv install add -m <module> [-x skill]
+        FIRST add on a workspace only: --harness a,b --artifact CLAUDE.md|none
     rbtv install rm -c <id> | -m <name> | -A
+    rbtv install harness                the workspace harness set (show)
+    rbtv install harness add|rm a,b     change it; files follow immediately
+    rbtv install artifact               the basis + guidance excludes (show)
+    rbtv install artifact set N         N = CLAUDE.md | AGENTS.md | none
+    rbtv install artifact exclude add|rm DIR   folders the mirror walk skips
     rbtv install dupe-artifacts         regenerate harness guidance from the basis
     rbtv install interactive            the human flow (also: no arguments)
     rbtv install selftest               the runnable check
@@ -66,8 +72,9 @@ D3  TREES + PRECEDENCE — two roots, scanned together: `mirror` =
     MIRROR WINS (workspace-local staging is the newer copy by construction) and
     the shadowing is reported, never silent.
 
-D4  HARNESSES — the three launchable ones (claude, codex, opencode);
-    `--harness` filters. The standalone kimi CLI was retired 2026-08-14 and
+D4  HARNESSES — the three launchable ones (claude, codex, opencode). The set is
+    WORKSPACE-WIDE, not per component (D16). The standalone kimi CLI was
+    retired 2026-08-14 and
     its models moved under opencode; `cast` lists only these three. Kimi
     models remain reachable as opencode models. CON-2's three-harness bound
     and this tool now agree. A live book that still lists `kimi` is stripped
@@ -133,11 +140,12 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     file. "Installed harnesses" is the union of the `harnesses` recorded for
     every component in our own book — the same set uninstall shrinks.
 
-    The basis is asked once in `interactive`, settable/overridable by
-    `--guidance-basis`, and persisted as `guidance_basis` in the state file — so
-    later runs never re-ask. UNSET IS THE DEFAULT AND MEANS NO MIRROR: a
-    non-interactive run never prompts, never guesses a basis, and refuses a
-    basis value outside the known guidance names. Each generated mirror is a
+    The basis is answered once — on the first `add` via `--artifact`, or in
+    `interactive` — persisted as `guidance_basis`, and thereafter owned by
+    `rbtv install artifact set` (D16). It is never re-asked and never
+    defaulted: since D16 the first `add` REQUIRES an explicit answer, because
+    unset silently meant "generate nothing". A basis value outside the known
+    guidance names refuses. Each generated mirror is a
     normal installer-owned file — booked, collision-gated (a mirror file that
     exists and is not in our book, e.g. one the old installer's `model_mirror`
     renders, refuses the run pre-write) and removed on full uninstall.
@@ -160,9 +168,10 @@ D13 THE GUIDANCE MIRROR (owner ruling 9, 2026-08-10; harness-keyed per CMP-12
     are never touched); the `GUIDANCE_ALWAYS_EXCLUDED` prefixes (`.rbtv/goals`,
     whose BOTH routers are scaffold-owned — a structural collision in every
     workspace rbtv serves, so a driver default and not a per-workspace entry);
-    and whatever `--guidance-exclude` records (persisted as `guidance_excludes`;
-    passing the flag REPLACES the recorded list, matching the old driver's
-    `--exclude`). `protect` covers EVERY directory's basis, not just the root's.
+    and whatever `rbtv install artifact exclude add|rm` records (persisted as
+    `guidance_excludes`; the verb edits the list as a SET — the old driver's
+    `--exclude` replaced it wholesale, which is why asking to skip one more
+    folder used to silently un-skip every other). `protect` covers EVERY directory's basis, not just the root's.
     A basis that is itself somebody's generated mirror has its banner STRIPPED
     before mirroring, and the strip is reported — the old driver's banner-over-
     banner accumulation (task 7.623 item (a)) is a defect and is NOT ported.
@@ -238,6 +247,33 @@ D15 `_hub/` — METHOD-FIRST UNITS, NO MANIFEST (generalises the 2026-08-21
     marked skill folder is ours, and stripping the marker from that one
     `SKILL.md` releases the WHOLE folder from the book (D12's release arm),
     which is the human's way of taking a vendored skill over.
+
+D16 HARNESS AND ARTIFACT ARE WORKSPACE SETTINGS, SET ONCE, MANAGED BY THEIR
+    OWN VERBS (owner ruling, 2026-08-22). Both used to ride on `add`, and both
+    were silent when they did nothing: `--harness` DEFAULTED to all three, and
+    a narrower list on a later run MERGED into the record instead of narrowing
+    it, so a human asking for fewer harnesses got a successful run that changed
+    nothing. `--artifact` was worse — unset was a third state meaning "generate
+    no guidance at all", reachable by simply not passing the flag.
+
+        the FIRST `add` on a workspace REQUIRES both `--harness` and
+        `--artifact` (`--artifact none` is the explicit author-nothing answer)
+        and records them in the book at TOP LEVEL, outside `components`;
+
+        every LATER `add` REFUSES either flag (`setting-locked`), naming the
+        verb that owns it — `add` decides which components are installed and
+        nothing else;
+
+        `install harness [add|rm]` and `install artifact [set|exclude]` own
+        them thereafter. A harness change REPLANS EVERY BOOKED COMPONENT, so
+        `harness rm codex` really deletes codex's files through the same
+        book-diff `apply` uses for everything else — never a no-op.
+
+    Each component record still carries a `harnesses` list, now a projection of
+    the workspace set (every record holds the same one), because `plan_files`
+    reads it per record. `upgrade_book`/`read_state` migrate a pre-D16 book by
+    taking the UNION across its records — the widest set any component had, so
+    a migration never silently deletes an installed file.
 
 D9  `path` ROWS MINT NOTHING UNDER THE INSTALL TARGET
     (`decisions.md#d-tool-inventory-exposure-rows`). `pool` stays inventory.
@@ -1245,9 +1281,9 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
             "guidance-basis-missing",
             f"the recorded guidance basis {basis!r} does not exist at the "
             "install root, so there is nothing to mirror. Recover with ONE of: "
-            f"restore {basis}; or `--guidance-basis {other}` to make the file "
-            f"you do have the basis; or `--guidance-basis {BASIS_NONE}` to turn "
-            "the mirror off. Nothing was written",
+            f"restore {basis}; or `rbtv install artifact set {other}` to make "
+            f"the file you do have the basis; or `rbtv install artifact set "
+            f"{BASIS_NONE}` to turn the mirror off. Nothing was written",
             str(root_source))
     files: dict[str, str] = {}
     bases: set[str] = set()
@@ -1281,9 +1317,10 @@ def plan_mirror(target: Path, basis: str | None, harnesses,
                 "guidance-basis-unreadable",
                 f"the guidance basis {rel!r} is not readable as UTF-8 text "
                 f"({exc}) — a mirror of it would be garbage; refusing before "
-                f"any write. Turn the mirror off with `--guidance-basis "
-                f"{BASIS_NONE}` if this file is not meant to be guidance, or "
-                f"exclude its directory with `--guidance-exclude`",
+                f"any write. Turn the mirror off with `rbtv install artifact "
+                f"set {BASIS_NONE}` if this file is not meant to be guidance, "
+                "or skip its directory with `rbtv install artifact exclude "
+                "add <dir>`",
                 str(source)) from exc
         body, stripped_banner = strip_generated_banner(body)
         if stripped_banner:
@@ -1741,6 +1778,7 @@ def read_state(target: Path) -> dict:
     state = json.loads(path.read_text(encoding="utf-8"))
     rewrite_legacy_skill_ids(state)
     strip_retired_harnesses(state)
+    migrate_workspace_harnesses(state)
     return state
 
 
@@ -1774,6 +1812,7 @@ def upgrade_book(state: dict, catalog_parts: dict[str, list[dict]]) -> dict:
     refuses component-vanished.
     """
     strip_retired_harnesses(state)
+    migrate_workspace_harnesses(state)
     out = dict(state)
     out["schema"] = SCHEMA
     comps = {k: dict(v) for k, v in (state.get("components") or {}).items()}
@@ -1898,9 +1937,10 @@ def apply(target: Path, files: dict[str, str], claims: list[dict], state: dict,
                 "guidance or a mirror rendered by another tool (install.py's "
                 "`model_mirror` renders one beside every CLAUDE.md). This run "
                 f"would generate it from the basis. DO NOT delete it: either "
-                f"`--guidance-basis {BASIS_NONE}` to leave both root guidance "
-                "files alone, or point the basis at the file you author and "
-                "retire the other tool's copy of the one it generates. "
+                f"`rbtv install artifact set {BASIS_NONE}` to leave both root "
+                "guidance files alone, or point the basis at the file you "
+                "author and retire the other tool's copy of the one it "
+                "generates. "
                 "Nothing was written",
                 mirrors[0])
         raise Refuse(
@@ -2486,9 +2526,29 @@ def installed_harnesses(records: dict[str, dict]) -> list[str]:
             if any(h in (rec.get("harnesses") or []) for rec in records.values())]
 
 
-def _merge_harnesses(old, new) -> list[str]:
-    both = set(old or []) | set(new or [])
-    return [h for h in HARNESSES if h in both]
+def book_harnesses(state: dict) -> list[str] | None:
+    """D16 — the WORKSPACE harness set. `None` means never recorded, which is
+    what makes `--harness` mandatory on the first `add` and refused after it.
+    A recorded set is normalised to canonical order and filtered to D4's
+    harnesses (a hand-edited book cannot smuggle one back in)."""
+    raw = state.get("harnesses")
+    if raw is None:
+        return None
+    return [h for h in HARNESSES if h in raw]
+
+
+def migrate_workspace_harnesses(state: dict) -> None:
+    """D16 — a pre-D16 book records harnesses only per component. Lift them to
+    the workspace level by UNION: the widest set any component held. Narrower
+    would delete files on the very next run, before the human asked for it.
+    A book with no components stays unrecorded — nothing was ever installed,
+    so the first `add` is still the first `add`."""
+    comps = state.get("components") or {}
+    if state.get("harnesses") is not None or not comps:
+        return
+    lifted = installed_harnesses(comps)
+    if lifted:
+        state["harnesses"] = lifted
 
 
 def _parts_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
@@ -2540,8 +2600,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
         existing = records.get(cid) or {}
         rec = {"tree": c["tree"], "tree_root": c["tree_root"],
                "module": c["module"], "component": c["component"],
-               "harnesses": _merge_harnesses(existing.get("harnesses"),
-                                             harnesses),
+               "harnesses": [h for h in HARNESSES if h in harnesses],
                 "parts": _select_parts(c, existing.get("parts"),
                                        _parts_for_cid(cid, parts))}
         if "files" in existing:
@@ -2561,6 +2620,7 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
     if not dry_run:
         _rebook(state, records, files, owners, claims, report,
                 path_owners=path_owners)
+        state["harnesses"] = [h for h in HARNESSES if h in harnesses]
         if guidance_basis is not None:
             state["guidance_basis"] = guidance_basis
         if guidance_excludes is not None:
@@ -3338,7 +3398,7 @@ def _print_guidance(report: dict, planned: bool) -> None:
                   + ", ".join(mirror["banner_stripped"]))
     elif mirror:
         print("  · guidance mirror: OFF — no basis recorded. Set one with "
-              "`--guidance-basis CLAUDE.md|AGENTS.md` (D13).")
+              "`rbtv install artifact set CLAUDE.md|AGENTS.md` (D13).")
     if report.get("guidance_debannered"):
         print(f"  · {'would clean' if planned else 'cleaned'} a stale GENERATED "
               "banner off the file(s) you now author: "
@@ -3416,13 +3476,22 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     except (ValueError, IndexError):
         raise Refuse("bad-selection", f"not a valid selection: {raw!r}")
 
-    hraw = input(f"Harnesses [{','.join(HARNESSES)}]: ").strip()
-    harnesses = _parse_harnesses(hraw) if hraw else list(HARNESSES)
+    # D16 — both settings are asked ONCE per target and only when the book has
+    # no answer yet; thereafter `install harness` / `install artifact` own them.
+    st = read_state(target)
+    recorded = book_harnesses(st)
+    if recorded is None:
+        hraw = input(f"Harnesses [{','.join(HARNESSES)}]: ").strip()
+        harnesses = _parse_harnesses(hraw) if hraw else list(HARNESSES)
+    else:
+        harnesses = recorded
+        print(f"\nHarnesses: {', '.join(harnesses)} — recorded for this "
+              "workspace. Change it with `rbtv install harness add|rm`.")
 
     # D13 — asked ONCE per target; a recorded answer (incl. `none`) is not
     # re-asked, and every non-interactive path skips this entirely.
     basis: str | None = None
-    if "guidance_basis" not in read_state(target):
+    if "guidance_basis" not in st:
         print("\nRoot guidance basis — which root file do you author? The other "
               "one is GENERATED from it on every run; the basis is never "
               "written.")
@@ -4239,9 +4308,9 @@ def selftest() -> int:
         except Refuse as exc:
             check("a missing basis refuses",
                   exc.code == "guidance-basis-missing", exc.code)
-            check("the refusal names BOTH recoveries (repoint, or turn off)",
-                  "--guidance-basis AGENTS.md" in exc.message
-                  and f"--guidance-basis {BASIS_NONE}" in exc.message,
+            check("the refusal names BOTH recoveries, in verbs that EXIST",
+                  "rbtv install artifact set AGENTS.md" in exc.message
+                  and f"rbtv install artifact set {BASIS_NONE}" in exc.message,
                   exc.message)
         res6 = do_install(mt6, catalog, ["fixmod/goodcomp"], list(HARNESSES),
                           dry_run=False, guidance_basis="AGENTS.md")
@@ -5080,15 +5149,26 @@ def selftest() -> int:
               do_install(gi, catalog, ["fixmod/goodcomp"],
                          ["claude", "codex"], dry_run=False)["written"] == []
               and (gi / ".gitignore").read_text() == body)
-        # A shrinking set shrinks the block — the whole point of D14.
+        # A shrinking set shrinks the block — the whole point of D14, and
+        # since D16 a narrower harness set really is a narrowing.
         rgi2 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude"],
                           dry_run=False)
-        check("G3 — re-install with fewer harnesses MERGES, does not drop",
+        gi_body = (gi / ".gitignore").read_text()
+        check("G3 — a narrowed harness set drops the dropped harness's files "
+              "from disk AND from the block",
+              ".claude/rules/fixrule.md" in gi_body
+              and ".agents/behavior-rules/fixrule.md" not in gi_body
+              and ".agents/behavior-rules/fixrule.md" in rgi2["deleted"]
+              and not (gi / ".agents/behavior-rules/fixrule.md").exists(),
+              str(rgi2["deleted"]))
+        # …and widening it back restores them.
+        rgi3 = do_install(gi, catalog, ["fixmod/goodcomp"], ["claude", "codex"],
+                          dry_run=False)
+        check("G3b — widening it back re-writes them",
               ".agents/behavior-rules/fixrule.md"
               in (gi / ".gitignore").read_text()
-              and ".claude/rules/fixrule.md" in (gi / ".gitignore").read_text()
-              and rgi2["deleted"] == [],
-              str(rgi2["deleted"]))
+              and (gi / ".agents/behavior-rules/fixrule.md").exists()
+              and rgi3["deleted"] == [], str(rgi3["deleted"]))
         do_uninstall(gi, catalog, ["fixmod/goodcomp"], dry_run=False)
         check("G4 — the last uninstall takes the block, leaves their lines",
               (gi / ".gitignore").read_text() == "# theirs\nnode_modules/\n",
@@ -5143,6 +5223,170 @@ def selftest() -> int:
             check("G7 — and the human is told, with the fix",
                   "ALREADY TRACKED" in buf.getvalue()
                   and "git rm --cached" in buf.getvalue(), buf.getvalue()[-400:])
+
+        print("\nW — D16: harness + artifact are workspace settings")
+
+        def _mkws(name: str):
+            ws = tmp / name
+            ws.mkdir()
+            (ws / "CLAUDE.md").write_text(basis_body, encoding="utf-8")
+            return ws
+
+        def _run(ws: Path, argv: list[str]):
+            """Drive the real CLI handler; return 0 or the refusal code."""
+            return _run_msg(ws, argv)[0]
+
+        def _run_msg(ws: Path, argv: list[str]):
+            ns = build_parser().parse_args(argv)
+            handler = _HANDLERS[ns.verb]
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    return handler(ns, ws, catalog, []), ""
+                except Refuse as exc:
+                    return exc.code, exc.message
+
+        w = _mkws("ws-d16")
+        check("W1 — a first add with no --harness refuses, and writes nothing",
+              _run(w, ["add", "-c", "fixmod/goodcomp"]) == "harness-required"
+              and not (w / STATE_REL).exists())
+        check("W2 — a first add with no --artifact refuses too",
+              _run(w, ["add", "-c", "fixmod/goodcomp",
+                       "--harness", "claude"]) == "artifact-required"
+              and not (w / STATE_REL).exists())
+        check("W3 — with both, the first add records them at TOP LEVEL",
+              _run(w, ["add", "-c", "fixmod/goodcomp", "--harness",
+                       "claude,codex", "--artifact", "CLAUDE.md"]) == 0
+              and read_state(w)["harnesses"] == ["claude", "codex"]
+              and read_state(w)["guidance_basis"] == "CLAUDE.md",
+              str(read_state(w).get("harnesses")))
+        check("W4 — every component record projects the workspace set",
+              all(rec["harnesses"] == ["claude", "codex"]
+                  for rec in read_state(w)["components"].values()))
+        check("W5 — a LATER add refuses --harness by name",
+              _run(w, ["add", "-c", "fixmod/goodcomp",
+                       "--harness", "claude"]) == "setting-locked")
+        check("W6 — a LATER add refuses --artifact by name",
+              _run(w, ["add", "-c", "fixmod/goodcomp",
+                       "--artifact", "AGENTS.md"]) == "setting-locked")
+        w7 = _run_msg(w, ["add", "-c", "fixmod/goodcomp",
+                          "--harness", "claude"])
+        check("W7 — the refusal names the verb that DOES change it",
+              SETTING_VERB["harness"] in w7[1], w7[1])
+        check("W8 — a later add with NO flags inherits the recorded set",
+              _run(w, ["add", "-c", "fixmod/codexcomp"]) == 0
+              and read_state(w)["components"]["fixmod/codexcomp"]["harnesses"]
+              == ["claude", "codex"],
+              str(read_state(w)["components"].get("fixmod/codexcomp")))
+
+        codex_rule = ".agents/behavior-rules/fixrule.md"
+        check("W9 — `harness rm` DELETES that harness's files (never a no-op)",
+              (w / codex_rule).exists()
+              and _run(w, ["harness", "rm", "codex"]) == 0
+              and not (w / codex_rule).exists()
+              and read_state(w)["harnesses"] == ["claude"]
+              and all(rec["harnesses"] == ["claude"]
+                      for rec in read_state(w)["components"].values()))
+        check("W10 — the AGENTS.md mirror goes with the last harness reading it",
+              not (w / "AGENTS.md").exists())
+        check("W11 — `harness add` puts them back",
+              _run(w, ["harness", "add", "codex"]) == 0
+              and (w / codex_rule).exists()
+              and (w / "AGENTS.md").exists()
+              and read_state(w)["harnesses"] == ["claude", "codex"])
+        check("W12 — a no-op change says so and writes nothing",
+              _run(w, ["harness", "add", "codex"]) == 0
+              and read_state(w)["harnesses"] == ["claude", "codex"])
+        check("W13 — removing every harness refuses; it is an uninstall",
+              _run(w, ["harness", "rm", "claude,codex"]) == "harness-list-empty"
+              and read_state(w)["harnesses"] == ["claude", "codex"])
+        check("W14 — an unknown harness refuses before any write",
+              _run(w, ["harness", "add", "kimi"]) == "harness-unknown"
+              and read_state(w)["harnesses"] == ["claude", "codex"])
+
+        # A flip that would GENERATE over the file the human authors is the
+        # D13 collision, and `artifact set` inherits it unchanged.
+        w15 = _run_msg(w, ["artifact", "set", "AGENTS.md"])
+        check("W15 — a flip that would overwrite hand-authored guidance "
+              "refuses, and the recorded basis does not move",
+              w15[0] == "guidance-mirror-collision"
+              and read_state(w)["guidance_basis"] == "CLAUDE.md"
+              and "rbtv install artifact set" in w15[1], str(w15))
+        check("W16 — `artifact set none` turns the mirror off and takes the "
+              "generated file with it",
+              _run(w, ["artifact", "set", "none"]) == 0
+              and read_state(w)["guidance_basis"] == BASIS_NONE
+              and read_state(w)["guidance_files"] == []
+              and not (w / "AGENTS.md").exists(),
+              str(read_state(w).get("guidance_files")))
+        check("W16b — setting it back regenerates it",
+              _run(w, ["artifact", "set", "CLAUDE.md"]) == 0
+              and (w / "AGENTS.md").exists()
+              and read_state(w)["guidance_files"] == ["AGENTS.md"])
+
+        (w / "skipme").mkdir(exist_ok=True)
+        (w / "skipme" / "CLAUDE.md").write_text("nested\n", encoding="utf-8")
+        _run(w, ["dupe-artifacts"])
+        check("W17 — without an exclude, the nested folder IS mirrored",
+              (w / "skipme" / "AGENTS.md").exists())
+        check("W18 — `artifact exclude add` skips it and persists the list",
+              _run(w, ["artifact", "exclude", "add", "skipme"]) == 0
+              and read_state(w)["guidance_excludes"] == ["skipme"]
+              and not (w / "skipme" / "AGENTS.md").exists())
+        # Two entries, because with ONE the old driver's REPLACE and a proper
+        # set-union are indistinguishable — that is the bug this verb exists
+        # to kill: asking to skip one more folder un-skipped every other.
+        (w / "skiptoo").mkdir(exist_ok=True)
+        (w / "skiptoo" / "CLAUDE.md").write_text("nested too\n",
+                                                 encoding="utf-8")
+        check("W18b — a SECOND exclude joins the first, never replaces it",
+              _run(w, ["artifact", "exclude", "add", "skiptoo"]) == 0
+              and read_state(w)["guidance_excludes"] == ["skipme", "skiptoo"]
+              and not (w / "skiptoo" / "AGENTS.md").exists()
+              and not (w / "skipme" / "AGENTS.md").exists(),
+              str(read_state(w)["guidance_excludes"]))
+        check("W19 — `artifact exclude rm` takes ONE and leaves the other",
+              _run(w, ["artifact", "exclude", "rm", "skipme"]) == 0
+              and read_state(w)["guidance_excludes"] == ["skiptoo"]
+              and (w / "skipme" / "AGENTS.md").exists()
+              and not (w / "skiptoo" / "AGENTS.md").exists(),
+              str(read_state(w)["guidance_excludes"]))
+        check("W19b — and removing the last one empties the list",
+              _run(w, ["artifact", "exclude", "rm", "skiptoo"]) == 0
+              and read_state(w)["guidance_excludes"] == []
+              and (w / "skiptoo" / "AGENTS.md").exists())
+        check("W20 — excluding what is not excluded refuses, never silently",
+              _run(w, ["artifact", "exclude", "rm", "skipme"])
+              == "exclude-unknown")
+
+        check("W21 — show needs no op and reports the three settings",
+              _run(w, ["harness"]) == 0 and _run(w, ["artifact"]) == 0
+              and _settings_view(read_state(w))["harnesses"]
+              == ["claude", "codex"])
+
+        w2 = _mkws("ws-d16-virgin")
+        check("W22 — every settings verb refuses on a workspace with no book",
+              _run(w2, ["harness", "add", "codex"]) == "workspace-unrecorded"
+              and _run(w2, ["artifact", "set", "none"])
+              == "workspace-unrecorded"
+              and _run(w2, ["dupe-artifacts"]) == "workspace-unrecorded"
+              and _run(w2, ["harness"]) == 0)
+
+        # MIGRATION — a pre-D16 book has harnesses only inside `components`.
+        w3 = _mkws("ws-d16-legacy")
+        do_install(w3, catalog, ["fixmod/goodcomp", "fixmod/codexcomp"],
+                   ["claude", "codex"], dry_run=False,
+                   guidance_basis="CLAUDE.md")
+        pre16 = json.loads((w3 / STATE_REL).read_text(encoding="utf-8"))
+        pre16.pop("harnesses")
+        pre16["components"]["fixmod/goodcomp"]["harnesses"] = ["claude"]
+        pre16["components"]["fixmod/codexcomp"]["harnesses"] = ["codex"]
+        (w3 / STATE_REL).write_text(json.dumps(pre16, indent=2),
+                                    encoding="utf-8")
+        check("W23 — migration lifts the UNION of the records, never a subset",
+              read_state(w3)["harnesses"] == ["claude", "codex"])
+        check("W24 — after migration the flag is locked, like any recorded set",
+              _run(w3, ["add", "-c", "fixmod/goodcomp",
+                        "--harness", "claude"]) == "setting-locked")
 
         print("\nV — a VANISHED booked component is removable without the tree")
         vn = tmp / "ws-vanished"
@@ -5385,8 +5629,8 @@ def selftest() -> int:
             check("U-live live book present", False, str(live_book))
 
         print("\nCLI — parser, selectors, index, R7 guard")
-        for verb in ("add", "rm", "ls", "li", "dupe-artifacts", "doctor",
-                     "selftest", "interactive"):
+        for verb in ("add", "rm", "ls", "li", "harness", "artifact",
+                     "dupe-artifacts", "doctor", "selftest", "interactive"):
             argv = [verb] if verb != "add" else ["add", "-A"]
             ns = build_parser().parse_args(argv)
             check(f"CLI-reach-{verb}", ns.verb == verb
@@ -5397,12 +5641,20 @@ def selftest() -> int:
              contextlib.redirect_stderr(io.StringIO()):
             rc_ls = cmd_ls(build_parser().parse_args(["ls"]), empty, catalog, [])
             rc_li = cmd_li(build_parser().parse_args(["li"]), empty, catalog, [])
-            rc_dupe = cmd_dupe(build_parser().parse_args(["dupe-artifacts"]),
-                               empty, catalog, [])
-            rc_add = cmd_add(
-                build_parser().parse_args(["add", "-c", "fixmod/goodcomp",
-                                           "--dry-run"]),
-                empty, catalog, [])
+            try:
+                cmd_dupe(build_parser().parse_args(["dupe-artifacts"]),
+                         empty, catalog, [])
+                rc_dupe = "ok"
+            except Refuse as exc:
+                rc_dupe = exc.code
+            try:
+                cmd_add(
+                    build_parser().parse_args(["add", "-c", "fixmod/goodcomp",
+                                               "--dry-run"]),
+                    empty, catalog, [])
+                rc_add = "ok"
+            except Refuse as exc:
+                rc_add = exc.code
             try:
                 cmd_rm(build_parser().parse_args(
                     ["rm", "-c", "fixmod/goodcomp", "--dry-run"]),
@@ -5413,8 +5665,10 @@ def selftest() -> int:
             rc_doc = cmd_doctor(None, empty, catalog, [])
         check("CLI-reach-handler-ls", rc_ls == 0)
         check("CLI-reach-handler-li", rc_li == 0)
-        check("CLI-reach-handler-dupe", rc_dupe == 0)
-        check("CLI-reach-handler-add", rc_add == 0)
+        check("CLI-reach-handler-dupe", rc_dupe == "workspace-unrecorded",
+              str(rc_dupe))
+        check("CLI-reach-handler-add", rc_add == "harness-required",
+              str(rc_add))
         check("CLI-reach-handler-rm", rc_rm == "not-installed", str(rc_rm))
         check("CLI-reach-handler-doctor", rc_doc == 0, str(rc_doc))
 
@@ -6301,14 +6555,8 @@ def build_parser() -> argparse.ArgumentParser:
             help="exclude component")
 
     tree_flags(p, on_verb=False)
-    p.add_argument(
-        "--harness", default=None,
-        help="comma-separated subset of " + ",".join(HARNESSES)
-             + " (attaches to the component record, never rewrites the book)")
-    p.add_argument(
-        "--artifact", default=None, choices=(*GUIDANCE_NAMES, BASIS_NONE),
-        help="which root guidance file you author; the other is generated. "
-             "none = author-nothing, generate-nothing. persisted")
+    # D16 — no global --harness/--artifact. Each setting has exactly one door:
+    # the FIRST `add` (which requires it), then its own verb.
     sub = p.add_subparsers(dest="verb", metavar="VERB")
 
     s_add = sub.add_parser(
@@ -6322,13 +6570,17 @@ def build_parser() -> argparse.ArgumentParser:
     selectors(s_add)
     s_add.add_argument(
         "--harness", default=argparse.SUPPRESS,
-        help="comma-separated subset of " + ",".join(HARNESSES)
-             + " (attaches to the component record, never rewrites the book)")
+        help="FIRST add on this workspace ONLY (required there): "
+             "comma-separated subset of " + ",".join(HARNESSES)
+             + ". Recorded workspace-wide; later `add` refuses it — change it "
+               "with `rbtv install harness add|rm`")
     s_add.add_argument(
         "--artifact", default=argparse.SUPPRESS,
         choices=(*GUIDANCE_NAMES, BASIS_NONE),
-        help="which root guidance file you author; the other is generated. "
-             "none = author-nothing, generate-nothing. persisted")
+        help="FIRST add on this workspace ONLY (required there): which root "
+             "guidance file you author; the other is generated. none = "
+             "author-nothing, generate-nothing. Later `add` refuses it — "
+             "change it with `rbtv install artifact set`")
     s_add.add_argument(
         "--write-path", action="store_true",
         help="append the PATH bootstrap line to the shell startup file "
@@ -6347,11 +6599,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     s_dupe = sub.add_parser(
         "dupe-artifacts",
-        help="regenerate harness guidance files from the base artifact")
-    s_dupe.add_argument(
-        "--artifact", default=argparse.SUPPRESS,
-        choices=(*GUIDANCE_NAMES, BASIS_NONE),
-        help="basis to regenerate from (default: whatever the book holds)")
+        help="regenerate harness guidance files from the recorded basis "
+             "(change the basis with `artifact set`, never here)")
+
+    s_h = sub.add_parser(
+        "harness",
+        help="the WORKSPACE harness set (D16). no OP = show",
+        allow_abbrev=False)
+    h_sub = s_h.add_subparsers(dest="op", metavar="OP")
+    for _op, _hlp in (("add", "add harness(es): plans and writes their files "
+                              "for every installed component"),
+                      ("rm", "remove harness(es): DELETES their files for "
+                             "every installed component")):
+        _q = h_sub.add_parser(_op, help=_hlp, allow_abbrev=False)
+        _q.add_argument("harness", metavar="HARNESS",
+                        help="comma-separated: " + ",".join(HARNESSES))
+        tree_flags(_q, on_verb=True)
+
+    s_art = sub.add_parser(
+        "artifact",
+        help="the root guidance basis + the mirror's skipped folders (D16). "
+             "no OP = show",
+        allow_abbrev=False)
+    a_sub = s_art.add_subparsers(dest="op", metavar="OP")
+    a_set = a_sub.add_parser(
+        "set", help="which root guidance file you author; the other is "
+                    "generated. none = author-nothing, generate-nothing",
+        allow_abbrev=False)
+    a_set.add_argument("value", metavar="NAME",
+                       choices=(*GUIDANCE_NAMES, BASIS_NONE))
+    tree_flags(a_set, on_verb=True)
+    a_ex = a_sub.add_parser(
+        "exclude", help="folders the guidance-mirror walk skips",
+        allow_abbrev=False)
+    e_sub = a_ex.add_subparsers(dest="exop", metavar="OP")
+    for _op, _hlp in (("add", "stop generating guidance under these folders"),
+                      ("rm", "resume generating guidance under these folders")):
+        _q = e_sub.add_parser(_op, help=_hlp, allow_abbrev=False)
+        _q.add_argument("dirs", metavar="DIR", nargs="+",
+                        help="path relative to the install root")
+        tree_flags(_q, on_verb=True)
+    tree_flags(a_ex, on_verb=True)
 
     s_doc = sub.add_parser(
         "doctor",
@@ -6362,7 +6650,7 @@ def build_parser() -> argparse.ArgumentParser:
     s_inter = sub.add_parser(
         "interactive", help="the human flow (also: no arguments)")
 
-    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_doc, s_inter):
+    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_doc, s_inter, s_h, s_art):
         tree_flags(s, on_verb=True)
     return p
 
@@ -6458,6 +6746,184 @@ def cmd_li(args, target: Path, catalog: dict, shadowed: list,
     return 0
 
 
+SETTING_VERB = {"harness": "rbtv install harness add|rm <harness>",
+                "artifact": "rbtv install artifact set <name>"}
+
+
+def _gate_add_harness(target: Path, state: dict, raw: str | None) -> list[str]:
+    """D16 — `--harness` is answerable exactly once, on the first `add`."""
+    booked = book_harnesses(state)
+    if booked is not None and raw is not None:
+        raise Refuse(
+            "setting-locked",
+            "--harness is a workspace setting and this workspace already has "
+            f"one: {', '.join(booked) or '(none)'}. `add` chooses COMPONENTS, "
+            f"never harnesses — change the set with `{SETTING_VERB['harness']}`",
+            str(target / STATE_REL))
+    if booked is None:
+        if raw is None:
+            raise Refuse(
+                "harness-required",
+                "first install on this workspace: pass --harness with a "
+                "comma-separated subset of " + ", ".join(HARNESSES)
+                + ". It is recorded once for the whole workspace; every later "
+                f"`add` refuses the flag and `{SETTING_VERB['harness']}` "
+                "changes it")
+        booked = _parse_harnesses(raw)
+        if not booked:
+            raise Refuse("harness-unknown", "--harness selected no harness")
+    return booked
+
+
+def _gate_add_artifact(target: Path, state: dict, raw: str | None) -> str | None:
+    """D16 — same contract for the root guidance basis. A pre-D16 book that
+    never recorded one is asked here: unset used to MEAN `none` silently."""
+    booked = "guidance_basis" in state
+    if booked and raw is not None:
+        raise Refuse(
+            "setting-locked",
+            "--artifact is a workspace setting and this workspace already has "
+            f"one: {state.get('guidance_basis') or BASIS_NONE}. Change it with "
+            f"`{SETTING_VERB['artifact']}`",
+            str(target / STATE_REL))
+    if not booked and raw is None:
+        raise Refuse(
+            "artifact-required",
+            "first install on this workspace: pass --artifact with "
+            + " or ".join((*GUIDANCE_NAMES, BASIS_NONE))
+            + " — the root guidance file YOU author, from which the others are "
+              f"generated. `{BASIS_NONE}` means author nothing and generate "
+              "nothing. Recorded once; thereafter "
+              f"`{SETTING_VERB['artifact']}`")
+    return raw
+
+
+def _replan_all(target: Path, catalog: dict, harnesses: list[str],
+                dry_run: bool, *, guidance_basis: str | None = None,
+                guidance_excludes: list[str] | None = None) -> dict:
+    """D16 — re-plan EVERY booked component under a changed workspace setting.
+    `apply` removes what the old book held and the new plan does not, so a
+    dropped harness really loses its files. A component whose folder vanished
+    upstream is left in the book untouched: `plan_files` still refuses the run
+    with `component-vanished`, the same refusal `add` gives."""
+    records = read_state(target).get("components") or {}
+    picked = [cid for cid in sorted(records) if cid in catalog]
+    return do_install(target, catalog, picked, harnesses, dry_run,
+                      guidance_basis=guidance_basis,
+                      guidance_excludes=guidance_excludes)
+
+
+def _require_recorded(target: Path, state: dict) -> list[str]:
+    booked = book_harnesses(state)
+    if booked is None:
+        raise Refuse(
+            "workspace-unrecorded",
+            "this workspace has no recorded settings yet — nothing has been "
+            "installed here. Run `rbtv install add` first; its --harness and "
+            "--artifact flags are where the settings are chosen",
+            str(target / STATE_REL))
+    return booked
+
+
+def _settings_view(state: dict) -> dict:
+    harnesses = book_harnesses(state)
+    return {"ok": True,
+            "recorded": harnesses is not None,
+            "harnesses": harnesses,
+            "artifact": (state.get("guidance_basis") or BASIS_NONE
+                         if "guidance_basis" in state else None),
+            "guidance_excludes": list(state.get("guidance_excludes") or [])}
+
+
+def _print_settings(view: dict) -> None:
+    if not view["recorded"]:
+        print("no workspace settings recorded — nothing installed here yet")
+        return
+    print("harnesses : " + (", ".join(view["harnesses"]) or "(none)"))
+    print("artifact  : " + (view["artifact"] or "(unset — no guidance mirror)"))
+    print("excluded  : " + (", ".join(view["guidance_excludes"]) or "(none)"))
+
+
+def cmd_harness(args, target: Path, catalog: dict, shadowed: list,
+                *, ask=None) -> int:
+    del ask, shadowed
+    state = read_state(target)
+    as_json = bool(getattr(args, "json", False))
+    op = getattr(args, "op", None)
+    if op is None:
+        view = _settings_view(state)
+        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
+        return 0
+    current = _require_recorded(target, state)
+    delta = _parse_harnesses(args.harness)
+    if not delta:
+        raise Refuse("harness-unknown", "no harness named")
+    wanted = (set(current) | set(delta) if op == "add"
+              else set(current) - set(delta))
+    new = [h for h in HARNESSES if h in wanted]
+    if not new:
+        raise Refuse(
+            "harness-list-empty",
+            "that would leave this workspace targeting no harness at all. "
+            "Removing every harness is an uninstall — `rbtv install rm -A`",
+            str(target / STATE_REL))
+    if new == current:
+        print(f"no change — this workspace already targets {', '.join(new)}")
+        return 0
+    data = _replan_all(target, catalog, new,
+                       bool(getattr(args, "dry_run", False)))
+    _emit(data, as_json)
+    return 0
+
+
+def cmd_artifact(args, target: Path, catalog: dict, shadowed: list,
+                 *, ask=None) -> int:
+    del ask, shadowed
+    state = read_state(target)
+    as_json = bool(getattr(args, "json", False))
+    op = getattr(args, "op", None)
+    if op is None:
+        view = _settings_view(state)
+        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
+        return 0
+    harnesses = _require_recorded(target, state)
+    dry = bool(getattr(args, "dry_run", False))
+    if op == "set":
+        if state.get("guidance_basis", object()) == args.value:
+            print(f"no change — the basis already is {args.value}")
+            return 0
+        data = _replan_all(target, catalog, harnesses, dry,
+                           guidance_basis=args.value)
+        _emit(data, as_json)
+        return 0
+    exop = getattr(args, "exop", None)
+    if exop is None:
+        view = _settings_view(state)
+        print(json.dumps(view, indent=2)) if as_json else _print_settings(view)
+        return 0
+    current = [_norm_prefix(d) for d in (state.get("guidance_excludes") or [])]
+    delta = [_norm_prefix(d) for d in args.dirs]
+    if exop == "add":
+        new = sorted(set(current) | set(delta))
+    else:
+        unknown = [d for d in delta if d not in current]
+        if unknown:
+            raise Refuse(
+                "exclude-unknown",
+                "not excluded, so there is nothing to remove: "
+                + ", ".join(unknown)
+                + (f" — currently excluded: {', '.join(current)}" if current
+                   else " — nothing is excluded"),
+                str(target / STATE_REL))
+        new = sorted(set(current) - set(delta))
+    if new == sorted(current):
+        print("no change — " + (", ".join(new) or "nothing") + " excluded")
+        return 0
+    data = _replan_all(target, catalog, harnesses, dry, guidance_excludes=new)
+    _emit(data, as_json)
+    return 0
+
+
 def cmd_add(args, target: Path, catalog: dict, shadowed: list,
             *, ask=None) -> int:
     del ask, shadowed
@@ -6468,14 +6934,13 @@ def cmd_add(args, target: Path, catalog: dict, shadowed: list,
     args.index = read_index(target)
     keys = resolve_selection(args, catalog, None)
     picked, parts = _split_part_keys(keys)
-    harnesses = _parse_harnesses(
-        getattr(args, "harness", None) or ",".join(HARNESSES))
-    if not harnesses:
-        raise Refuse("harness-unknown", "--harness selected no harness")
+    state = read_state(target)
+    harnesses = _gate_add_harness(target, state, getattr(args, "harness", None))
+    basis = _gate_add_artifact(target, state, getattr(args, "artifact", None))
     data = do_install(
         target, catalog, picked, harnesses,
         bool(getattr(args, "dry_run", False)),
-        guidance_basis=getattr(args, "artifact", None),
+        guidance_basis=basis,
         parts=parts,
         write_path=bool(getattr(args, "write_path", False)))
     _emit(data, bool(getattr(args, "json", False)))
@@ -6508,12 +6973,11 @@ def cmd_dupe(args, target: Path, catalog: dict, shadowed: list,
     del ask, shadowed
     state = read_state(target)
     records = state.get("components") or {}
-    picked = sorted(records)
-    hs = installed_harnesses(records) or list(HARNESSES)
+    picked = [cid for cid in sorted(records) if cid in catalog]
+    hs = _require_recorded(target, state)
     data = do_install(
         target, catalog, picked, hs,
-        bool(getattr(args, "dry_run", False)),
-        guidance_basis=getattr(args, "artifact", None))
+        bool(getattr(args, "dry_run", False)))
     _emit(data, bool(getattr(args, "json", False)))
     return 0
 
@@ -6550,6 +7014,8 @@ _HANDLERS = {
     "rm": cmd_rm,
     "ls": cmd_ls,
     "li": cmd_li,
+    "harness": cmd_harness,
+    "artifact": cmd_artifact,
     "dupe-artifacts": cmd_dupe,
     "doctor": cmd_doctor,
     "interactive": cmd_interactive,
