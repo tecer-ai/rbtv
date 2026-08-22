@@ -4996,7 +4996,9 @@ def staff_sheet_path(seat_row: dict, seat: str) -> Path | None:
 def mint_staff_chairs(result: dict, package: Path, args,
                       seats_catalog: dict) -> dict:
     """Append the goal's staff rows if they are absent, and return `result`
-    carrying what that did (`result['staff']`).
+    carrying what that did (`result['staff']`). SUMMONED chairs
+    (`_coord_summoned_seats()`, today `goal-master`) ride the same pass
+    (D79) and land in `result['summoned']` — never in `STAFF_SEATS`.
 
     Every skip is one of FOUR, and only the first is silent:
       · the chair already has a row — the goal is already staffed;
@@ -5006,7 +5008,8 @@ def mint_staff_chairs(result: dict, package: Path, args,
       · the chair has no casting sheet — a WARNING for the `leader`, which the
         wake path requires, and silence for the `consultant`, whose absent
         sheet IS the instance declaring it does not staff one (the seat catalog
-        marks it OPTIONAL);
+        marks it OPTIONAL); a summoned chair with no sheet is also a WARNING
+        (the owner-message path has nobody to sit);
       · the goal carries an UNSETTLED awaiting-close debt under this chair's
         name — a WARNING for either chair, see the gate below.
     A refusal from the staff pass itself degrades to a warning for one reason:
@@ -5014,7 +5017,13 @@ def mint_staff_chairs(result: dict, package: Path, args,
     chair would make the caller's retry impossible (`seat-exists`) while
     leaving the goal materialized anyway."""
     staff = _coord_staff_seats()
-    if getattr(args, "seat", None) in staff or getattr(args, "nested", False):
+    summoned = _coord_summoned_seats()
+    # Staff chairs stay on the original early return. Summoned chairs join it
+    # so `--seat goal-master` (and a dry-run of that mint) cannot recurse:
+    # dry-run writes no row, so `existing` would never skip the chair.
+    if (getattr(args, "seat", None) in staff
+            or getattr(args, "seat", None) in summoned
+            or getattr(args, "nested", False)):
         return result
     existing = {(r.get("seat") or "").strip()
                 for r in _csv_rows(package / TASKFORCE_NAME)}
@@ -5090,6 +5099,56 @@ def mint_staff_chairs(result: dict, package: Path, args,
                 f"[{code}] {exc} — the goal is materialized WITHOUT the chair")
     if minted:
         result["staff"] = minted
+    # D79 — SUMMONED chairs (goal-master) mint here, beside staff, with the
+    # same four skips. They stay out of STAFF_SEATS: readiness IDLE, woken
+    # only by an owner message. result['summoned'] is a sibling of
+    # result['staff'] so SM-1's staff disclosure stays leader-only.
+    summoned_minted = []
+    for seat in summoned:
+        if seat in existing:
+            continue
+        row = seats_catalog.get(seat)
+        if row is None:
+            continue
+        debt = debts.get(seat)
+        if isinstance(debt, dict):
+            result["warnings"].append(
+                f"summoned chair '{seat}' NOT minted: this goal carries an "
+                f"UNSETTLED awaiting-close debt under that name (since "
+                f"{debt.get('since') or '(unstamped)'}, pane "
+                f"{debt.get('pane') or '(none)'}, disposition "
+                f"`{debt.get('disposition', 'done')}`). A chair minted over it "
+                f"reads that record as its OWN check-out and is born DONE — an "
+                f"absorbing state whose only wake is a grant nobody will mint, "
+                f"so the chair would exist and never sit. Settle the debt "
+                f"first — `coord.py --as {seat} close-seat {seat}` once you "
+                f"have confirmed its pane is dead (or `reap --go`) — then "
+                f"re-run this materialize")
+            continue
+        sheet = staff_sheet_path(row, seat)
+        if sheet is None or not sheet.is_file():
+            result["warnings"].append(
+                f"summoned chair '{seat}' NOT minted: no casting sheet at "
+                f"{sheet} — the goal has no chair for an owner message in "
+                f"its channel to sit, and every resolveGoalSeat will resolve "
+                f"to a name with nobody in it. Cast it and re-run this "
+                f"materialize")
+            continue
+        sub = argparse.Namespace(**vars(args))
+        sub.seat, sub.workflow, sub.nested = seat, None, False
+        sub.root, sub.after = True, None
+        sub.bindings = str(sheet)
+        sub.milestone_id = ""
+        sub.force_partial = sub.repass = sub.refresh = False
+        try:
+            summoned_minted.append(run(sub))
+        except (Refuse, CatalogRefusal) as exc:
+            code = getattr(exc, "code", "catalog")
+            result["warnings"].append(
+                f"summoned chair '{seat}' NOT minted: the mint refused "
+                f"[{code}] {exc} — the goal is materialized WITHOUT the chair")
+    if summoned_minted:
+        result["summoned"] = summoned_minted
     return result
 
 
@@ -7907,6 +7966,10 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # SETTLED ledger still mints. Widen the gate and the control alone would
     # keep it green.
     "staff-mint-debt": (("SM-12 control",), ("SM-10 red", "SM-11 red")),
+    # D79 — auto-mint of SUMMONED chairs at materialize. Own row: SM-1..SM-5
+    # stay the staff-chair contract (SM-1's added_seats==[["leader"]] is
+    # unchanged because summoned lands in result['summoned'], not staff).
+    "staff-mint-summoned": (("SM-14 green",), ("SM-15 red",)),
 }
 
 
@@ -8079,6 +8142,14 @@ def _staff_fixture(root: Path) -> dict:
         "w2,sm-prompt,sm-task,,the second fixture worker\n"
         "leader,sm-prompt,sm-task,,the fixture goal's unblocker\n"
         "goal-master,sm-prompt,sm-task,,the fixture summoned seat\n",
+        encoding="utf-8")
+    wf_dir = comp / "workflows" / "sm-flow"
+    wf_dir.mkdir(parents=True)
+    wf_dir.joinpath("sm-flow.csv").write_text(
+        "Seat/workflow,after,i/o,Modality\n"
+        "w1,,,agentic\n", encoding="utf-8")
+    wf_dir.joinpath("workflow.md").write_text(
+        "---\nid: sm-flow\nfour-letters: smfl\n---\n\nThe staff-mint fixture flow.\n",
         encoding="utf-8")
 
     (ws / ".rbtv" / "config").mkdir(parents=True)
@@ -8398,6 +8469,55 @@ def run_staff_mint_acceptance(check) -> None:
               and "leader" in [r["seat"] for r in _staff_rows(fx5)],
               str(res)[:200] or str([r["seat"] for r in _staff_rows(fx5)]))
         shutil.rmtree(fx5["pkg"].parents[2].parent, ignore_errors=True)
+
+        # ---- SM-14/SM-15: D79 auto-mint of the summoned chair on the
+        # `--root --workflow` path (the same invocation the creation job
+        # and a console materialize both take). The fixture already carries
+        # a goal-master sheet; SM-1 keeps asserting staff added_seats ==
+        # [["leader"]] because summoned is a sibling key, not a staff rewrite.
+        fx6 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm6-")))
+        res = _staff_run(fx6, None, workflow="sm-flow",
+                         bindings=fx6["b"]["w1"])
+        rows = {r["seat"]: r for r in _staff_rows(fx6)}
+        summoned = _coord_summoned_seats()
+        staff_ids = _coord_staff_seats()
+        check("SM-14 green: a --root --workflow materialize ALSO mints the "
+              "`goal-master` chair — seats/goal-master/seat.md exists, the "
+              "row's after cell is empty and it joins the first taskforce",
+              not isinstance(res, Refuse)
+              and (fx6["pkg"] / "seats" / "goal-master" / "seat.md").is_file()
+              and rows.get("goal-master", {}).get("after", "x") == ""
+              and rows.get("goal-master", {}).get("taskforce-id")
+              == rows.get("w1", {}).get("taskforce-id")
+              and "goal-master" in summoned
+              and "goal-master" not in staff_ids,
+              str(res)[:240] if not isinstance(res, dict) else
+              str(rows.get("goal-master")))
+        check("SM-14 green: the summoned mint is DISCLOSED in result"
+              "['summoned'], never silently and never inside result['staff']",
+              [s["added_seats"] for s in (res or {}).get("summoned", ())]
+              == [["goal-master"]]
+              and [s["added_seats"] for s in (res or {}).get("staff", ())]
+              == [["leader"]],
+              str({k: (res or {}).get(k) for k in ("staff", "summoned")}))
+        shutil.rmtree(fx6["pkg"].parents[2].parent, ignore_errors=True)
+
+        fx7 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm7-")))
+        fx7["goal_master_sheet"].unlink()
+        res = _staff_run(fx7, None, workflow="sm-flow",
+                         bindings=fx7["b"]["w1"])
+        warned = [w for w in (res or {}).get("warnings", ())
+                  if "goal-master" in w and "casting sheet" in w]
+        check("SM-15 red: the same --root --workflow fixture WITHOUT the "
+              "goal-master sheet yields no chair plus a warning naming the "
+              "sheet path",
+              not isinstance(res, Refuse)
+              and "goal-master" not in [r["seat"] for r in _staff_rows(fx7)]
+              and not (fx7["pkg"] / "seats" / "goal-master").exists()
+              and len(warned) == 1
+              and str(fx7["goal_master_sheet"]) in warned[0],
+              str((res or {}).get("warnings"))[:400])
+        shutil.rmtree(fx7["pkg"].parents[2].parent, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
