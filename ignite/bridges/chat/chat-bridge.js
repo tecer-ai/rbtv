@@ -922,7 +922,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // owner-facing post passes through. `answersOwnerAsk` is true only for a GENUINELY
     // conformant fenced reply (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a
     // FALLBACK_TEXT/GIVE_UP_NOTICE/DEAD_AIR_NOTICE post is a system stand-in, never marks
-    // answered (Q1, surfaced not ruled: the lane leaning this build took).
+    // answered (Q1 = A, owner-ruled D89: only a conformant reply counts). No `askId` is passed
+    // here — under D89 Q4 several asks can be open at once, and with none supplied `markAnswered`
+    // settles the OLDEST open one (see ask-store.js's own header for the full rule); this call
+    // site has no per-ask thread reference to pass a more specific one.
     if (answersOwnerAsk && posted && posted.delivered !== false && goalChannels) {
       const goalId = goalChannels.goalForChannel(chatThreadId);
       if (goalId) {

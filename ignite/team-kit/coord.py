@@ -16195,14 +16195,32 @@ def harness_command(w, prompt=None, prompt_path=None):
 OWNER_ASKS_FILE = "owner-asks.json"
 
 
+def _owner_asks_entries(store, seat):
+    """`store[seat]` normalized to a list, for EITHER file shape: the current D89-Q4 list, or the
+    pre-D89 legacy shape (`store[seat]` = one bare entry object, not a list). Never raises — a
+    malformed entry is dropped, not fatal, matching `unanswered_ask_block`'s own never-raise
+    contract. This mirrors `ask-store.js#readStore`'s migration on the Python read side: two
+    independent readers of the same file must normalize the same way or one of them mis-renders
+    a legacy file the other reads fine."""
+    val = store.get(seat) if isinstance(store, dict) else None
+    if isinstance(val, list):
+        return [e for e in val if isinstance(e, dict)]
+    if isinstance(val, dict):
+        return [val]
+    return []
+
+
 def unanswered_ask_block(pkg):
-    """D57/D75 — the still-open owner ask for `goal-master`'s NEXT sitting, or `''`.
+    """D57/D75, widened D89 Q4 — every still-open owner ask for `goal-master`'s NEXT sitting, or
+    `''`. Several asks can be open at once (Q4: a second owner message arriving before the first
+    is answered is QUEUED alongside it, never overwrites it) — this renders ALL of them, oldest
+    first, each with its own id and timestamp, not just one.
 
     READ-ONLY, and deliberately so: `ignite/bridges/chat/ask-store.js` is the ONE writer (the
     bridge creates the record on an inbound owner message to a goal channel and marks it
     `answered` at the ONE place every owner-facing post passes through, `deliverToOwner`) — a
     second writer here would be the exact cross-process write-ownership problem the ask-store's
-    own header names as still open. This function only asks whether that record says `open`.
+    own header names as still open. This function only asks which records say `open`.
 
     NEVER RAISES. `boot_prompt` composes on EVERY relaunch of EVERY seat (`cmd_boot_prompt`'s own
     docstring); a malformed or half-written JSON file must degrade to an absent ask, not a boot
@@ -16224,16 +16242,28 @@ def unanswered_ask_block(pkg):
         store = json.loads(raw)
     except (ValueError, TypeError):
         return ""
-    entry = store.get("goal-master") if isinstance(store, dict) else None
-    if not isinstance(entry, dict) or entry.get("status") != "open":
+    open_asks = []
+    for entry in _owner_asks_entries(store, "goal-master"):
+        if entry.get("status") != "open":
+            continue
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        asked_at = str(entry.get("askedAt") or "an earlier sitting")
+        open_asks.append((asked_at, text))
+    if not open_asks:
         return ""
-    text = str(entry.get("text") or "").strip()
-    if not text:
-        return ""
-    asked_at = str(entry.get("askedAt") or "an earlier sitting")
+    if len(open_asks) == 1:
+        asked_at, text = open_asks[0]
+        return (
+            f"\n\n⚠ AN UNANSWERED OWNER ASK IS STILL OPEN (asked {asked_at}, D57) — no reply has "
+            f"been recorded on it since. Answer it before anything else this sitting:\n\n{text}\n")
+    numbered = "\n\n".join(
+        f"{i}. (asked {asked_at}) {text}" for i, (asked_at, text) in enumerate(open_asks, 1))
     return (
-        f"\n\n⚠ AN UNANSWERED OWNER ASK IS STILL OPEN (asked {asked_at}, D57) — no reply has been "
-        f"recorded on it since. Answer it before anything else this sitting:\n\n{text}\n")
+        f"\n\n⚠ {len(open_asks)} UNANSWERED OWNER ASKS ARE STILL OPEN (D57/D89 Q4) — no reply has "
+        f"been recorded on any of them since. Answer them before anything else this sitting, "
+        f"oldest first:\n\n{numbered}\n")
 
 
 def boot_prompt(w, args, daemon_lane=False):

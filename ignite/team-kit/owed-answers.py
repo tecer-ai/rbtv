@@ -108,13 +108,20 @@ def age_minutes(age):
 
 
 def collect_unanswered_asks(label, base):
-    """D57/D75 — the OTHER direction: an owner ask TO `goal-master` nothing has answered yet.
+    """D57/D75, widened D89 Q4 — the OTHER direction: every owner ask TO `goal-master` nothing has
+    answered yet. Several can be open at once (Q4: a second owner message arriving before the
+    first is answered is QUEUED alongside it, never overwrites it) — this returns ONE row per open
+    ask, oldest first, each carrying its own id as `num` so a reader can tell them apart.
 
     A NEW union member, never a widen of `coord.open_asks` (`p-owed-answers-locus` forbids that —
     four hold gates read it). Read-only over `ignite/bridges/chat/ask-store.js`'s ONE file; a
     missing or malformed file is an ABSENT ask, never an error — the caller's `except Exception`
     still owns genuine unreadability (a directory that exists but is not a file, a permissions
-    error), this function's own job is only to make "the file simply is not there yet" silent."""
+    error), this function's own job is only to make "the file simply is not there yet" silent.
+
+    `store[seat]` may be EITHER shape: the current D89-Q4 list, or the pre-D89 legacy shape (one
+    bare entry object, not a list) — normalized the same way `coord.py#_owner_asks_entries` does,
+    so the two readers of this one file never disagree on what a legacy record means."""
     import json
     p = base / "owner-asks.json"
     try:
@@ -128,20 +135,27 @@ def collect_unanswered_asks(label, base):
     if not isinstance(store, dict):
         return []
     rows = []
-    for seat, entry in store.items():
-        if not isinstance(entry, dict) or entry.get("status") != "open":
+    for seat, val in store.items():
+        if isinstance(val, list):
+            entries = [e for e in val if isinstance(e, dict)]
+        elif isinstance(val, dict):
+            entries = [val]  # legacy pre-D89 shape: one bare entry object per seat
+        else:
             continue
-        text = str(entry.get("text") or "").strip()
-        if not text:
-            continue
-        rows.append({
-            "kind": "waiting",
-            "label": label,
-            "num": "-",
-            "sender": str(seat),
-            "age": age_of_coord_ts(entry.get("askedAt") or ""),
-            "body": text[:200],
-        })
+        for i, entry in enumerate(entries, 1):
+            if entry.get("status") != "open":
+                continue
+            text = str(entry.get("text") or "").strip()
+            if not text:
+                continue
+            rows.append({
+                "kind": "waiting",
+                "label": label,
+                "num": str(entry.get("id") or i),
+                "sender": str(seat),
+                "age": age_of_coord_ts(entry.get("askedAt") or ""),
+                "body": text[:200],
+            })
     return rows
 
 
@@ -283,6 +297,43 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
                                      "answeredAt": "2026-08-20 03:05"}}
     (pkg / "owner-asks.json").write_text(json.dumps(answered_ask), encoding="utf-8")
     assert kinds("") == [], "an ANSWERED owner ask is still reported owed"
+
+    # D89 Q4 — THE QUEUE ARM: a second, different owner message arriving before the first is
+    # answered is QUEUED alongside it, never overwrites it — both are reported owed, oldest
+    # first, each its own row. Answering the OLDEST (ask-store.js#markAnswered's no-`askId`
+    # rule — this fixture writes the file directly, mirroring what that call does) leaves
+    # exactly the second one open. RED before D89 Q4 (the old single-object shape could not
+    # even represent two open asks — the second write clobbered the first); GREEN now.
+    queued = {"goal-master": [
+        {"id": 1, "seat": "goal-master", "goalId": "fixture", "text": "ship today?",
+         "status": "open", "askedAt": "2026-08-20 03:00", "answeredAt": None},
+        {"id": 2, "seat": "goal-master", "goalId": "fixture", "text": "or wait for review?",
+         "status": "open", "askedAt": "2026-08-20 03:10", "answeredAt": None},
+    ]}
+    (pkg / "owner-asks.json").write_text(json.dumps(queued), encoding="utf-8")
+    (pkg / "messages.md").write_text("", encoding="utf-8")
+    rows = collect(coord, str(tmp), "fixture")[0]
+    bodies = [r["body"] for r in rows]
+    assert len(rows) == 2 and all(r["kind"] == "waiting" for r in rows), \
+        f"a queued pair of open asks is not both reported owed, one row each: {rows}"
+    assert bodies == ["ship today?", "or wait for review?"], \
+        f"a queued pair of open asks did not both render, oldest first: {bodies}"
+    queued["goal-master"][0]["status"] = "answered"
+    queued["goal-master"][0]["answeredAt"] = "2026-08-20 03:05"
+    (pkg / "owner-asks.json").write_text(json.dumps(queued), encoding="utf-8")
+    rows2 = collect(coord, str(tmp), "fixture")[0]
+    assert [r["body"] for r in rows2] == ["or wait for review?"], \
+        f"answering the OLDEST queued ask did not leave exactly the second one open: {rows2}"
+
+    # Same arm, on the LEGACY pre-D89 single-object shape (`store[seat]` = one bare entry, not a
+    # list) — it must still migrate and render, exactly as it did before this change.
+    legacy = {"goal-master": {"seat": "goal-master", "goalId": "fixture", "text": "legacy shape ask",
+                               "status": "open", "askedAt": "2026-08-20 02:00", "answeredAt": None}}
+    (pkg / "owner-asks.json").write_text(json.dumps(legacy), encoding="utf-8")
+    rows3 = collect(coord, str(tmp), "fixture")[0]
+    assert [r["body"] for r in rows3] == ["legacy shape ask"], \
+        f"the legacy pre-D89 single-object shape did not migrate/render: {rows3}"
+
     (pkg / "owner-asks.json").unlink()
 
     shutil.rmtree(tmp, ignore_errors=True)

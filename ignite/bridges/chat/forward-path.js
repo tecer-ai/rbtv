@@ -730,6 +730,8 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     // `boot_prompt`). GOAL ROUTE ONLY: 'agent'/'master' traffic has no `goal-master` ask to lose,
     // and `recordBusAnswer` already covers the 'agent' direction. A REFUSED/undelivered turn
     // records nothing — there is nothing durable to survive if the ask never reached the seat.
+    // D89 Q4: `createAsk` APPENDS, never replaces — a second owner message arriving before the
+    // first is answered is a SECOND queued ask, not an overwrite of the first; both re-inject.
     if (route && route.kind === 'goal' && route.goalId && outcome && outcome.forwarded === true
         && config && config.workspaceRoot) {
       try {
