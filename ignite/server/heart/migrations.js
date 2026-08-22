@@ -2,7 +2,7 @@
 
 // migrations — bring an EXISTING heart store forward to the schema the code expects.
 //
-// WHY THIS EXISTS (G-135). `schema.sql` is six `CREATE TABLE IF NOT EXISTS` statements re-run on
+// WHY THIS EXISTS (G-135). `schema.sql` is a set of `CREATE TABLE IF NOT EXISTS` statements re-run on
 // every open. On a store that already has those tables it does NOTHING — so adding a column to
 // `schema.sql` lands in the file, passes every test, and NEVER REACHES A STORE THAT ALREADY
 // EXISTS. Every fixture in this repo builds a FRESH store, and fresh is the one path where a
@@ -592,10 +592,11 @@ module.exports = {
   // in MIGRATIONS" until 2026-07-28 — true while it was parked, false from the owner's
   // ratification onward, and it sat one line above the push that falsified it.)
   MIGRATION_SESSION_SPLIT,
-  // Task 7.12. Exported and NOT in MIGRATIONS — the probes inject it to prove it works, which is a
-  // separate claim from it being armed. Per the note above its definition, the day this is
-  // ratified the push goes below the const and THIS COMMENT BECOMES FALSE: correct it in the same
-  // change, as the line above had to be.
+  // Task 7.12. Exported BY NAME as well as being in MIGRATIONS: the probes inject it directly to
+  // prove it WORKS, which is a separate claim from it being registered. (This line said "exported
+  // but NOT in MIGRATIONS" until ratification — true while it was parked, false from the owner's
+  // ratification onward, and it sat one line above the push that falsified it, same as
+  // MIGRATION_SESSION_SPLIT's history above.)
   MIGRATION_JOB_SEAT_HOME,
   // Task 7.389. Exported and NOT in MIGRATIONS — `probe-migration-enqueuing-seat` injects it to
   // prove it works, which is a separate claim from it being armed. Per the note above its
