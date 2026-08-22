@@ -45,10 +45,11 @@ never whether the SUBJECT is healthy (leader ruling on defect `G-121`). A wrappe
 health into its exit status would undo that fix for every caller arriving through here — so the
 selftest asserts it with a delegate that reports an unhealthy subject on a successful read.
 
-`rbtv install` delegates to **`install2.py` at the repo root**, not to a capability tool, and that
-is the point: the installer is what a workspace runs BEFORE anything from this repo is installed
-there, so it can depend on nothing installed. Its own `argparse` program name has always been
-`rbtv install`; this route is what makes that string true at a shell. Its two workspace settings —
+`rbtv install` delegates to **`meta/installer/install2.py`**. The installer is homed in the `meta`
+module because `meta/` hosts what operates on the rbtv SYSTEM itself rather than on a user goal's
+content, and installing rbtv into a workspace is exactly that (owner ruling, 2026-08-22 — `core/`
+was the wrong home). Its own `argparse` program name has always been `rbtv install`; this route is
+what makes that string true at a shell. Its two workspace settings —
 `harness` (which AI coding tools get files written for them) and `artifact` (which root guidance
 file the human authors) — are answered once on the first `add` and thereafter owned by their own
 verbs; `add` refuses those flags afterwards rather than accepting them and doing nothing

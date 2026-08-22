@@ -14,8 +14,9 @@
 //
 // ── The history-line format is ADOPTED, not invented ──────────────────────────────────────────
 // The task brief said nothing writes these files. That was true when it was written and FALSE by
-// the time this was built: the installer capability (`core/capabilities/installer/tool/rbtv-install`,
-// VPS-local install 2026-07-27 19:58) already appends history lines and already seeds
+// the time this was built: the installer capability (`core/capabilities/installer/tool/rbtv-install`
+// — DELETED 2026-08-22, content in git history; the lines it already wrote are still on disk and
+// this reasoning stands, VPS-local install 2026-07-27 19:58) already appends history lines and seeds
 // `settings.json` as `{"machines": {}}`. This module is therefore the SECOND writer into one
 // append-only stream, so it takes the live writer's six keys verbatim — {ts, machine, key, from,
 // to, by} — which are exactly CMP-1's named field set. Coining different names would put two

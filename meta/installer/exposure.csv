@@ -1,0 +1,12 @@
+# The installer's own exposure manifest. Component-first placement: this file sits beside the
+# tool it declares, so a directory at depth 2 holding exposure.csv IS the component (D2) — the
+# installer therefore discovers ITSELF on the same rule it applies to everything else, with no
+# special case. Moved here from `core/exposure.csv` on 2026-08-22 with the component, on the
+# owner's ruling that the installer belongs to `meta` and never to `core`: `meta/` hosts what
+# operates on the rbtv SYSTEM rather than on a user goal's content, and the module's
+# capability-only extension (2026-08-14) admits a component holding no seats and no workflow.
+# The `rbtv-cli` column carries the invocation prefix IFF `core/capabilities/rbtv-cli/tool/lib/
+# verbs.js` ROUTES routes to the tool — it now does, so the prefix is `rbtv install`.
+# Columns are the seven of concepts/exposure-manifest.md, in its order.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+install,tool,path,rbtv install,install2.py,,

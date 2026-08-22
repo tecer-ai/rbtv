@@ -35,7 +35,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > `install.py` (below) installs RBTV as it ships today — flat module components into
 > `.claude/`, state in `rbtv.json`, every artifact named `rbtv-*`.
 >
-> **`install2.py`** (repo root) is its **designated successor**, in a deliberate coexistence
+> **`install2.py`** (`meta/installer/`) is its **designated successor**, in a deliberate coexistence
 > period: it manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
 > directory holding an `exposure.csv` (that manifest at depth 2 IS the component; the former
 > `component.md` requirement was retired 2026-08-22) — on BOTH the workspace
@@ -89,11 +89,10 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > rule, the workspace settings) are documented in the file's own module docstring —
 > that is their one home.
 >
-> A **third** installer, `core/capabilities/installer/tool/rbtv-install`, was built for the
-> KG-shape component layout with cognitive-unit pools; it requires `<module>/module.md` and
-> `prompts/cognitive-units/` pools, neither of which exists on the live trees today. Unless
-> you are working on that layout, use `install.py`. See
-> [core/capabilities/installer/installer.md](./core/capabilities/installer/installer.md).
+> A third installer, `core/capabilities/installer/tool/rbtv-install`, was **deleted on
+> 2026-08-22**. It had been built for a KG-shape component layout requiring `<module>/module.md`
+> and `prompts/cognitive-units/` pools, neither of which ever materialized on the live trees, so
+> nothing ran it. Its content lives in git history.
 
 1. Clone RBTV as a subfolder of your workspace:
 

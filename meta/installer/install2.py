@@ -47,9 +47,21 @@ against CMP-12, the one form authority.
 ────────────────────────────────────────────────────────────────────────────
 DESIGN DECISIONS (delegated to the builder; recorded here as the one home)
 ────────────────────────────────────────────────────────────────────────────
-D1  PLACEMENT — one file at the repo root. No package. The old installer's
-    thin-entry + `admin/install/` split earns nothing at this size, and the
-    later supersession is then a single `git mv install2.py install.py`.
+D1  PLACEMENT — ONE FILE, no package, and since 2026-08-22 it lives at
+    `meta/installer/install2.py` (owner ruling: the installer belongs to the
+    `meta` module, never `core`). `meta/` hosts what operates on the rbtv
+    SYSTEM itself rather than on a user goal's content, and installing rbtv
+    into a workspace is exactly that; the module's capability-only extension
+    (2026-08-14) is what admits a component holding no seats and no workflow.
+    The folder is a component-first one — `exposure.csv` at depth 2 IS the
+    component (D2) — so this installer discovers ITSELF the way it discovers
+    everything else, on the same rule, with no special case.
+
+    THE REPO ROOT IS `parents[2]`, NOT the file's own directory. Every tree
+    scan and every fixture takes its repo root from `REPO_ROOT` below; a
+    reader who reaches for `Path(__file__).parent` now gets the component
+    folder, which holds no modules and would scan up empty. The old installer's
+    thin-entry + `admin/install/` split still earns nothing at this size.
 
 D2  WHAT A COMPONENT IS — DEPTH-2 + exposure.csv (owner ruling, 2026-08-22)
     — a directory at EXACTLY depth 2 of a scanned tree that contains
@@ -375,6 +387,11 @@ HUB_ID_FOLDER = {
 }
 SKILL_FOLDER_SKIP = frozenset({".git", "node_modules", "__pycache__"})
 STATE_REL = Path(".rbtv") / "config" / "install.json"
+
+# D1 — this file sits at `<repo>/meta/installer/install2.py`, so the repo tree
+# it scans is two directories up. Named once: every caller reads THIS, never
+# `__file__`, because the difference between the two is a silently empty scan.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
 FENCE_ID = "rbtv2"
 PATH_BOOTSTRAP = 'export PATH="$HOME/.rbtv/bin:$PATH"'
@@ -3445,7 +3462,7 @@ def interactive(target: Path, catalog: dict[str, dict]) -> int:
     if answer:
         target = Path(answer).expanduser()
         catalog, _ = scan_all(target / ".rbtv" / "mirror",
-                              Path(__file__).resolve().parent)
+                              REPO_ROOT)
     if not target.is_dir():
         raise Refuse("target-missing", f"target is not a directory: {target}")
 
@@ -5577,7 +5594,7 @@ def selftest() -> int:
             old_ids = set(raw["components"])
             vault = live_book.parents[2]
             live_cat, _ = scan_all(vault / ".rbtv" / "mirror",
-                                   Path(__file__).resolve().parent)
+                                   REPO_ROOT)
             upgraded = upgrade_book(raw, catalog_parts_map(live_cat))
             write_state(dest_root, upgraded)
             got = json.loads(dest.read_text(encoding="utf-8"))
@@ -6986,7 +7003,7 @@ def cmd_doctor(args, target: Path, catalog: dict, shadowed: list,
                *, ask=None) -> int:
     del ask
     why = getattr(args, "_why", DISCOVER_CWD) if args else DISCOVER_CWD
-    repo_tree = Path(__file__).resolve().parent
+    repo_tree = REPO_ROOT
     mirror_tree = target / ".rbtv" / "mirror"
     data = do_doctor(target, why, catalog, shadowed, repo_tree, mirror_tree)
     if args and getattr(args, "json", False):
@@ -7043,7 +7060,7 @@ def main(argv: list[str] | None = None, *, ask=None) -> int:
         target = Path(args.target).expanduser()
         why = DISCOVER_FLAG
     args._why = why
-    repo_tree = Path(__file__).resolve().parent
+    repo_tree = REPO_ROOT
     mirror_tree = target / ".rbtv" / "mirror"
 
     try:

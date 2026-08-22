@@ -11,7 +11,9 @@
 # ROUTES check (2026-08-10): exactly ONE core tool is routed — `teambuild` → TEAMBUILD →
 # `core/capabilities/teambuild/tool/rbtv-teambuild`, so that row carries `rbtv teambuild`.
 # The `rbtv` CLI itself IS the router — nothing routes TO it, so its own `rbtv-cli` is empty.
-# `rbtv-install` appears nowhere in ROUTES — empty.
+# The installer left this file on 2026-08-22: `rbtv-install` (the second installer) was deleted
+# unbuilt, and `install2.py` moved to `meta/installer/` with its own manifest — the installer
+# operates on the rbtv SYSTEM, which is `meta`'s subject test, never `core`'s.
 #
 # BOUNDARY — the ignite worked example's mechanical rule: a first-party invocable with its own
 # agent-facing command surface. That admits the three capability `tool/` entry points, the
@@ -26,7 +28,6 @@
 #     harness exposure is the OLD installer's manifest surface, out of this inventory's scope).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 rbtv,tool,path,,capabilities/rbtv-cli/tool/rbtv,,
-rbtv-install,tool,path,,capabilities/installer/tool/rbtv-install,,
 rbtv-teambuild,tool,path,rbtv teambuild,capabilities/teambuild/tool/rbtv-teambuild,,
 safe-move,tool,path,,tools/safe-move/safe_move/cli.py,,
 commit,tool,path,,workflows/commit/commit.py,,

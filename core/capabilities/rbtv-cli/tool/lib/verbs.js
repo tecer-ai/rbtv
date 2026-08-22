@@ -29,11 +29,12 @@ const ATTACHED_EXECUTION = path.join(
 const TEAMBUILD = path.join(
   RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
 );
-// The installer is a REPO-ROOT file, not a capability tool, and deliberately so:
-// it is what a workspace runs BEFORE any component of this repo is installed, so
-// it can have no dependency on the installed tree. Its own argparse prog is
-// already `rbtv install` — this route is what makes that string true.
-const INSTALLER = path.join(RBTV_ROOT, 'install2.py');
+// The installer lives in the `meta` module (owner ruling, 2026-08-22): `meta/` hosts
+// what operates on the rbtv SYSTEM itself rather than on a user goal's content, and
+// installing rbtv into a workspace is exactly that — `core/` was the wrong home and
+// `core/capabilities/installer/` (the unbuilt second installer) is gone with it. Its
+// own argparse prog is already `rbtv install`; this route makes that string true.
+const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install2.py');
 
 // Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
 // `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the

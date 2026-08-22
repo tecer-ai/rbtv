@@ -109,14 +109,6 @@
       "source_dir": "core/tools",
       "entries": [
         {
-          "name": "installer",
-          "package": "core/capabilities/installer",
-          "entry_point": "core/capabilities/installer/tool/rbtv-install",
-          "skill": null,
-          "runtime_prereq": "python3 only — no external dependencies",
-          "description": "The SECOND rbtv installer (core-build task 7.64): installs CMP-5 component-first components (module folders with prompts/tasks/seats/exposure catalogs + cognitive-unit pools) and realizes each exposure row through CMP-12's per-harness adapter matrix. Treats the rbtv repo and an install's .rbtv/mirror/ identically (CMP-3). --catalog-root is explicit and required, never inferred. install.py is UNTOUCHED and keeps serving today's flat module components; the two coexist deliberately. Version resolution is a STAND-IN pending CMP-5's cognitive-units-index.csv (issue G-109). Contract: core/capabilities/installer/installer.md."
-        },
-        {
           "name": "safe-move",
           "package": "core/tools/safe-move",
           "entry_point": "python -m safe_move",

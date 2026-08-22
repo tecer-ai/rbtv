@@ -309,9 +309,11 @@ QUOTED verbatim:
 
 ### `ignite/module.md` — the module entry point (KG shape)
 
-The skill-format front door the SECOND installer (`core/capabilities/installer/`, task 7.64)
-realizes as this module's **discovery skill** on each harness — the pushed index of the
-progressive-disclosure ladder (`PRIN-3`): one line per command-line capability, bodies on demand
+The skill-format front door for this module — the pushed index of the progressive-disclosure
+ladder (`PRIN-3`). It was written to be realized as a per-harness **discovery skill** by the
+SECOND installer (`core/capabilities/installer/`, task 7.64), which was **deleted unbuilt on
+2026-08-22**; no installer realizes it today, and `meta/installer/install2.py` has no
+module-level discovery-skill method: one line per command-line capability, bodies on demand
 through each CLI's own `-h`. It carries no bodies and restates neither `ignite/CLAUDE.md` nor
 `protocol.md` (`PRIN-11`).
 
