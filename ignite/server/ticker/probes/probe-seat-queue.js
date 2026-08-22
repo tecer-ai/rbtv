@@ -45,11 +45,13 @@ function makeTicker(ctx, config = {}) {
 
 const iso = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-function enqueue(ctx, workdir, { onSeatBusy, runAt = new Date(), triggerKind = 'scheduled', intervalSeconds, seatShard } = {}) {
+function enqueue(ctx, workdir, {
+  onSeatBusy, runAt = new Date(), triggerKind = 'scheduled', intervalSeconds, seatShard, reason,
+} = {}) {
   return ctx.store.enqueue({
     jobId: 'launch-agent', args: SEAT_ARGS(workdir), sessionMode: 'headless',
     triggerKind, runAt: iso(runAt), intervalSeconds,
-    enqueuedBy: 'probe', onSeatBusy, seatShard,
+    enqueuedBy: 'probe', onSeatBusy, seatShard, reason,
   });
 }
 
@@ -107,11 +109,17 @@ async function run(lines) {
       const ticker = makeTicker(ctx, { seat_queue_max_age_s: 3600 });
       const seat = ctx.seatDir;
 
-      enqueue(ctx, seat);
+      // D52/D66 · FOUR ROWS, ONE SEAT, IDENTICAL ARGS — each `reason` below is what a real caller
+      // supplies (or a distinct prompt gives it implicitly): the admission brake merges a
+      // reasonless caller's budget by design (heart-store.js `BRAKE_REASON_FLOOR`), and this
+      // fixture's four rows are deliberately byte-identical in `args`, which the brake would
+      // otherwise read as one seat asking the same no-progress question four times. Distinct
+      // `reason` values keep this scenario testing the SEAT-BUSY GATE, not the brake.
+      enqueue(ctx, seat, { reason: 'holder' });
       await ticker.tick(new Date());
 
       // Two hours past due. Nothing else about it differs from scenario A's row.
-      const stale = enqueue(ctx, seat, { onSeatBusy: 'queue', runAt: new Date(Date.now() - 7200 * 1000) });
+      const stale = enqueue(ctx, seat, { onSeatBusy: 'queue', runAt: new Date(Date.now() - 7200 * 1000), reason: 'stale' });
       const r = await ticker.tick(new Date());
       const expired = actionsOf(r, 'seat-queue-expired');
       const notes = ctx.store.dump().messages
@@ -127,7 +135,7 @@ async function run(lines) {
 
       // NEGATIVE CONTROL · a FRESH row in the same held state is deferred, not removed. Without
       // it, "removed" would be indistinguishable from "the gate removes everything it defers".
-      const fresh = enqueue(ctx, seat, { onSeatBusy: 'queue' });
+      const fresh = enqueue(ctx, seat, { onSeatBusy: 'queue', reason: 'fresh' });
       const r2 = await ticker.tick(new Date());
       check('fresh-queued-row-is-NOT-removed',
         actionsOf(r2, 'seat-queue-expired').length === 0
@@ -142,7 +150,7 @@ async function run(lines) {
       // there is no next fire to recover on.
       const periodic = enqueue(ctx, seat, {
         onSeatBusy: 'queue', triggerKind: 'periodic', intervalSeconds: 300,
-        runAt: new Date(Date.now() - 86400 * 1000),
+        runAt: new Date(Date.now() - 86400 * 1000), reason: 'periodic',
       });
       const r3 = await ticker.tick(new Date());
       check('recurring-row-is-NEVER-dropped',
