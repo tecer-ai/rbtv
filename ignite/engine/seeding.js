@@ -193,8 +193,8 @@ function readySeats(goalFolder) {
 // ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
 //
 // `coord.renewal_state` (team-kit/coord.py) is THE ONE READER of the successor-pending signal —
-// its own header says so, and `jobs/goal-watcher-job.py` § ONE READER states the doctrine: nothing
-// else parses `lifecycle-inflight.json`, in any language. This transports that answer through the
+// its own header says so: nothing else parses `lifecycle-inflight.json`, in any language. The
+// one JS-side consumer (`engine/attached-execution.js`) TRANSPORTS that answer through the
 // read-only `renewal-state` verb exactly as `readySeats` above transports the frontier: JS carries
 // the value, never the computation.
 //

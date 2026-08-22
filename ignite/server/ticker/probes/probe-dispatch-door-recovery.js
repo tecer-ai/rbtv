@@ -8,10 +8,12 @@
 // refusal in place — both halves, or the task is not closed."
 //
 // The answer this probe measures is structural, and the point is that it is measured rather than
-// argued: RECOVERY DOES NOT RUN THROUGH THE DOOR. Recovery jobs are `fire-tool` execs
-// (`selfheal-room`, `selfheal-watch`, `restart-daemon` — all three, in the live catalogue read
-// 2026-08-05), and ticker.js's `runToolLikeExec` goes straight to the carrier: it never calls
-// `spawnManager.spawn`, so it never reaches the 7.75 door. A code-read says that; this DRIVES it.
+// argued: RECOVERY DOES NOT RUN THROUGH THE DOOR. Recovery is a `fire-tool` exec
+// (`restart-daemon` — the sole survivor in today's catalogue; `selfheal-room`/`selfheal-watch`
+// were retired 2026-08-20 and `jobs/recover-room.py` is shelled directly by `engine/reconcile.js`,
+// never through the ticker's fire-tool path), and ticker.js's `runToolLikeExec` goes straight to
+// the carrier: it never calls `spawnManager.spawn`, so it never reaches the 7.75 door. A code-read
+// says that; this DRIVES it.
 //
 // THE PAIR IS THE PROOF, and both halves run in ONE tick against ONE workdir:
 //

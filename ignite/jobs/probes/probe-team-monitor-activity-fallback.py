@@ -4,9 +4,9 @@
 WHAT IT SCORES (task 7.663). `team_monitor.capture()` set `last_activity` straight from the
 ctx-monitor engine's `as_of`, and that value is a HARNESS TRANSCRIPT FILE'S MTIME
 (`ctx_monitor.py`, `f.stat().st_mtime`). A harness that publishes no readable transcript —
-**codex and opencode**, named as such in `watch.py`'s own docstring — therefore produced
-`as_of: None`, so `last_activity` AND `last_activity_age_s` were both None and every inactivity
-threshold downstream (`goal-watcher-job`'s QUIET row reads `last_activity_age_s`) produced
+**codex and opencode** — therefore produced
+`as_of: None`, so `last_activity` AND `last_activity_age_s` were both None, and any inactivity
+threshold reading `last_activity_age_s` off `team_monitor.capture()`'s own row produced
 NOTHING for those seats.
 
 ⚠ THAT IS A SILENT NO-SIGNAL, NOT A WRONG ONE, WHICH IS WHY IT NEEDED ITS OWN PROBE: a codex seat
