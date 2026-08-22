@@ -414,8 +414,6 @@ module.exports = {
   renderBoard,
   createBoard,
   isChatter,
-  boardKey,
   clip,
   visibleLen,
-  elapsedSince,
 };

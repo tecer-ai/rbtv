@@ -32,7 +32,6 @@ const { openHeartStore } = require('../server/heart/heart-store');
 const { createSpawnManager } = require('../server/spawn/spawn');
 const { createTicker } = require('../server/ticker/ticker');
 const { setResolvedGoalsRoot } = require('../server/heart/argv-template');
-const substrate = require('./substrate');
 const { publishToRecord } = require('./execution-record');
 const { seedGoal } = require('./seeding');
 
@@ -182,4 +181,4 @@ function createEngine({
   };
 }
 
-module.exports = { createEngine, substrate };
+module.exports = { createEngine };

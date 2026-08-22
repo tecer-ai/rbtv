@@ -123,9 +123,6 @@ function assertSubstrateSupported(env = process.env, platform = process.platform
 
 module.exports = {
   E_SUBSTRATE_UNSUPPORTED,
-  SubstrateError,
-  DEGRADED_BRANCHES,
   detectSubstrate,
   assertSubstrateSupported,
-  describeDegradation,
 };
