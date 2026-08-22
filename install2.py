@@ -5,15 +5,14 @@ Installs components into a workspace by reading their EXPOSURE MANIFESTS
 (`exposure.csv`) and realizing each row's canonical method per harness, at the
 INSTALL ROOT only. Python 3 stdlib only.
 
-    install2.py scan                    what is installable (+ the no-manifest report)
-    install2.py list                    what is installed (from the state file)
-    install2.py install --component <module>/<component> [--harness a,b] [--target D]
-    install2.py install --module <module>
-    install2.py install --component <id> --guidance-basis CLAUDE.md|AGENTS.md|none
-                                         [--guidance-exclude 4-archives,vendor]
-    install2.py uninstall --component <id> | --module <name>
-    install2.py interactive             the human flow (also: no arguments)
-    install2.py selftest                the runnable check
+    rbtv install ls                     what is available (+ shadowed / no_manifest)
+    rbtv install li                     what is installed (from the state file)
+    rbtv install add -c <module>/<component> [--harness a,b] [--target D]
+    rbtv install add -m <module> [-x skill] [--artifact CLAUDE.md|AGENTS.md|none]
+    rbtv install rm -c <id> | -m <name> | -A
+    rbtv install dupe-artifacts         regenerate harness guidance from the basis
+    rbtv install interactive            the human flow (also: no arguments)
+    rbtv install selftest               the runnable check
 
     --dry-run and --json on every verb where they mean something.
     Exit codes: 0 success · 1 refusal · 2 usage.
@@ -335,6 +334,7 @@ HUB_ID_FOLDER = {
 }
 SKILL_FOLDER_SKIP = frozenset({".git", "node_modules", "__pycache__"})
 STATE_REL = Path(".rbtv") / "config" / "install.json"
+INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
 FENCE_ID = "rbtv2"
 
 # D8/D13 — CMP-12's `agents.md` row: each harness's per-folder guidance
@@ -654,7 +654,7 @@ def _part_specs(comp: dict, *, strict: bool = False) -> list[dict]:
     seen: list[str] = []
     dups: set[str] = set()
     out: list[dict] = []
-    for row in exposure_rows(comp):
+    for row in (comp["rows"] if "rows" in comp else exposure_rows(comp)):
         pid = (row.get("part-id") or "").strip()
         if not pid:
             continue
@@ -1764,39 +1764,275 @@ def _prune(target: Path, directory: Path) -> None:
 
 # ── verbs ───────────────────────────────────────────────────────────────────
 
-def resolve_selection(catalog: dict[str, dict], components: list[str],
-                      modules: list[str], book: dict[str, dict] | None = None
-                      ) -> list[str]:
-    """Resolve the selection against the trees — and, for UNINSTALL, against
-    the book as well (`book` = the state file's `components`).
+def part_key(cid: str, pid: str) -> str:
+    """Global selector key. R1: `{cid}#{part-id}` — no method in the key."""
+    return f"{cid}#{pid}"
 
-    A booked component whose folder was renamed or deleted upstream exists in
-    no catalog, and `plan_files` refuses `component-vanished` on it, blocking
-    EVERY later run at that target. Without this the refusal's own advice
-    ("uninstall it with the tree present") names a door that cannot be opened —
-    the tree copy is gone. Its files are in the book, so removing it needs no
-    tree at all."""
-    known = dict(catalog)
+
+def iter_catalog_parts(catalog: dict[str, dict]) -> list[dict]:
+    out: list[dict] = []
+    for cid, c in catalog.items():
+        if not is_installable(c):
+            continue
+        for spec in _part_specs(c):
+            pid = spec["id"]
+            if not pid:
+                continue
+            out.append({
+                "key": part_key(cid, pid),
+                "component": cid,
+                "module": c.get("module") or cid.split("/")[0],
+                "part_id": pid,
+                "method": spec.get("method") or "",
+            })
+    return out
+
+
+def iter_booked_parts(catalog: dict[str, dict],
+                      book: dict[str, dict] | None) -> list[dict]:
+    by_cid: dict[str, list[dict]] = {}
+    for p in iter_catalog_parts(catalog):
+        by_cid.setdefault(p["component"], []).append(p)
+    booked: list[dict] = []
     for cid, rec in (book or {}).items():
-        known.setdefault(cid, {"module": rec.get("module", cid.split("/")[0])})
-    picked: list[str] = []
+        declared = rec.get("parts")
+        if isinstance(declared, dict) and declared:
+            for pid, part in declared.items():
+                booked.append({
+                    "key": part_key(cid, pid),
+                    "component": cid,
+                    "module": rec.get("module") or cid.split("/")[0],
+                    "part_id": pid,
+                    "method": (part or {}).get("method") or "",
+                })
+        elif isinstance(declared, list) and declared:
+            for d in declared:
+                pid = (d.get("part-id") or d.get("part_id") or "").strip()
+                booked.append({
+                    "key": part_key(cid, pid),
+                    "component": cid,
+                    "module": rec.get("module") or cid.split("/")[0],
+                    "part_id": pid,
+                    "method": (d.get("method") or "").strip(),
+                })
+        elif cid in by_cid:
+            booked.extend(by_cid[cid])
+        else:
+            name = rec.get("component") or cid.split("/")[-1]
+            booked.append({
+                "key": part_key(cid, name),
+                "component": cid,
+                "module": rec.get("module") or cid.split("/")[0],
+                "part_id": name,
+                "method": "component",
+            })
+    return booked
+
+
+def scan_fingerprint(catalog: dict[str, dict]) -> str:
+    """sha256 of sorted JSON of catalog part keys ∪ catalog ids."""
+    keys = sorted({p["key"] for p in iter_catalog_parts(catalog)} | set(catalog))
+    return hashlib.sha256(
+        json.dumps(keys, separators=(",", ":")).encode()).hexdigest()
+
+
+def write_index(target: Path, catalog: dict[str, dict],
+                book: dict[str, dict] | None = None) -> dict:
+    parts = iter_catalog_parts(catalog)
+    booked = iter_booked_parts(catalog, book) if book is not None else []
+    modules = sorted({p["module"] for p in parts}
+                     | {c.get("module") or cid.split("/")[0]
+                        for cid, c in catalog.items()})
+    components = sorted(set(catalog) | {p["component"] for p in booked})
+    part_ids = sorted({p["key"] for p in parts} | {p["key"] for p in booked})
+    n: dict[str, dict] = {}
+    i = 1
+    for mid in modules:
+        n[str(i)] = {"kind": "module", "id": mid}
+        i += 1
     for cid in components:
-        if cid not in known:
+        n[str(i)] = {"kind": "component", "id": cid}
+        i += 1
+    for key in part_ids:
+        n[str(i)] = {"kind": "part", "id": key}
+        i += 1
+    payload = {"fingerprint": scan_fingerprint(catalog), "n": n}
+    path = target / INDEX_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
+
+
+def read_index(target: Path) -> dict | None:
+    path = target / INDEX_REL
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _norm_comp(name: str) -> str:
+    if name == "hub" or name.startswith("hub/"):
+        return "_" + name
+    return name
+
+
+def _expand_nums(tokens: list[str], want: str, index: dict | None,
+                 fp: str) -> list[str]:
+    out: list[str] = []
+    for t in tokens:
+        if not t.isdigit():
+            out.append(t)
+            continue
+        if not index:
+            raise Refuse("index-missing",
+                         f"numeric selector {t!r} but no ls/li index")
+        if index.get("fingerprint") != fp:
+            raise Refuse("index-stale",
+                         "scanned set changed since last ls/li")
+        slot = (index.get("n") or {}).get(str(t))
+        if not slot:
+            raise Refuse("index-unknown", f"no index slot {t}")
+        sk = slot["kind"]
+        if sk != want and not (want == "component" and sk == "part"):
+            raise Refuse("index-kind-mismatch",
+                         f"index {t} is {sk}, not {want}")
+        out.append(slot["id"])
+    return out
+
+
+def _comp_hits(name: str, names_c: set[str], pool: list[dict]) -> bool:
+    if name in names_c:
+        return True
+    if any(p["key"] == name for p in pool):
+        return True
+    if any(cid == name or cid.endswith("/" + name)
+           or cid.split("/")[-1] == name for cid in names_c):
+        return True
+    return False
+
+
+def _match_c(p: dict, toks: list[str]) -> bool:
+    if p["component"] in toks or p["key"] in toks:
+        return True
+    short = p["component"].split("/")[-1]
+    return short in toks or p["component"].endswith("/" + short) and short in toks
+
+
+def resolve_selection(args, catalog: dict[str, dict],
+                      book: dict[str, dict] | None = None) -> set[str]:
+    """AND across selector kinds, OR within a kind, exclusions last.
+
+    Returns a set of `{cid}#{part-id}` keys (R1). `add` universe = installable
+    catalog parts. `rm` universe = catalog ∪ booked (incl. vanished); output
+    is the booked intersection.
+    """
+    verb = getattr(args, "verb", None)
+    index = getattr(args, "index", None)
+    fp = scan_fingerprint(catalog)
+    pos_m = [module_id(x) for x in _expand_nums(
+        list(getattr(args, "module", None) or []), "module", index, fp)]
+    neg_m = [module_id(x) for x in _expand_nums(
+        list(getattr(args, "exclude_module", None) or []), "module", index, fp)]
+    pos_c = [_norm_comp(x) for x in _expand_nums(
+        list(getattr(args, "component", None) or []), "component", index, fp)]
+    neg_c = [_norm_comp(x) for x in _expand_nums(
+        list(getattr(args, "exclude_component", None) or []),
+        "component", index, fp)]
+    pos_x = list(getattr(args, "method", None) or [])
+    neg_x = list(getattr(args, "exclude_method", None) or [])
+    flag_a = bool(getattr(args, "all", False))
+    if not (flag_a or pos_m or pos_c or pos_x):
+        raise Refuse("selection-empty",
+                     "need -A or a non-exclusion -m/-c/-x")
+
+    cat_parts = iter_catalog_parts(catalog)
+    booked = iter_booked_parts(catalog, book)
+    names_c = set(catalog) | {p["component"] for p in booked}
+    names_m = ({c.get("module") or cid.split("/")[0]
+                for cid, c in catalog.items()}
+               | {p["module"] for p in booked})
+    pool = cat_parts + booked
+    for label, bucket, names, code in (
+        ("module", pos_m + neg_m, names_m, "module-unknown"),
+        ("component", pos_c + neg_c, names_c, "component-unknown"),
+    ):
+        for n in bucket:
+            if label == "component":
+                if not _comp_hits(n, names, pool):
+                    raise Refuse(code, f"no {label} {n!r} on either tree")
+            elif n not in names:
+                raise Refuse(code, f"no {label} {n!r} on either tree")
+    for n in pos_c + neg_c:
+        if n in catalog and not is_installable(catalog[n]) and n not in (book or {}):
+            raise Refuse("component-not-installable",
+                         f"{n!r} has no exposure manifest")
+
+    by_key = {p["key"]: p for p in (cat_parts if verb != "rm" else pool)}
+    universe = list(by_key.values())
+    selected = set(by_key)
+    if pos_m:
+        selected &= {p["key"] for p in universe if p["module"] in pos_m}
+    if pos_c:
+        selected &= {p["key"] for p in universe if _match_c(p, pos_c)}
+    if pos_x:
+        selected &= {p["key"] for p in universe if p["method"] in pos_x}
+    if neg_m:
+        selected -= {p["key"] for p in universe if p["module"] in neg_m}
+    if neg_c:
+        selected -= {p["key"] for p in universe if _match_c(p, neg_c)}
+    if neg_x:
+        selected -= {p["key"] for p in universe if p["method"] in neg_x}
+
+    if verb == "rm":
+        booked_keys = {p["key"] for p in booked}
+        hit = selected & booked_keys
+        if not hit:
             raise Refuse(
-                "component-unknown",
-                f"no component {cid!r} on either tree — run `scan` to see what "
-                "is installable")
-        picked.append(cid)
-    for module in modules:
-        hits = [cid for cid, c in known.items()
-                if c["module"] == module_id(module)]
-        if not hits:
-            raise Refuse(
-                "module-unknown",
-                f"no module {module!r} on either tree — run `scan` to see what "
-                "is installable")
-        picked += hits
-    return sorted(set(picked))
+                "not-installed",
+                "not installed at this target: "
+                + ", ".join(sorted(selected) or pos_c or pos_m or pos_x
+                            or ["-A"]))
+        return hit
+    if not selected:
+        raise Refuse("selection-empty",
+                     "selectors matched no installable part")
+    return selected
+
+
+def _sel(verb: str = "add", **kw):
+    base = dict(all=False, module=[], component=[], method=[],
+                exclude_module=[], exclude_component=[], exclude_method=[],
+                index=None, verb=verb)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def _has_negative(args) -> bool:
+    return bool(getattr(args, "exclude_module", None)
+                or getattr(args, "exclude_component", None)
+                or getattr(args, "exclude_method", None))
+
+
+def confirm_removal(keys, *, dry_run: bool, ask=None) -> bool:
+    """R7 guard: print the full resolved removal list. Dry-run never asks."""
+    print("DRY RUN — would remove:" if dry_run else "will remove:")
+    for k in sorted(keys):
+        print(f"  {k}")
+    if dry_run:
+        return True
+    fn = ask or input
+    try:
+        ans = fn("Proceed? [y/N]: ")
+    except EOFError:
+        ans = ""
+    return str(ans).strip().lower() in ("y", "yes")
+
+
+def _split_part_keys(keys) -> tuple[list[str], list[str]]:
+    return sorted({k.split("#", 1)[0] for k in keys}), sorted(keys)
 
 
 def is_installable(comp: dict) -> bool:
@@ -1967,6 +2203,21 @@ def _merge_harnesses(old, new) -> list[str]:
     return [h for h in HARNESSES if h in both]
 
 
+def _parts_for_cid(cid: str, parts: list[str] | None) -> list[str] | None:
+    """None = all/refresh. Bare pids apply to every cid. `{cid}#{pid}` only to theirs."""
+    if parts is None:
+        return None
+    keyed, bare = [], []
+    for p in parts:
+        if "#" in p:
+            owner, pid = p.split("#", 1)
+            if owner == cid:
+                keyed.append(pid)
+        else:
+            bare.append(p)
+    return bare + keyed if (bare or keyed or not any("#" in p for p in parts)) else []
+
+
 def _select_parts(comp: dict, existing_parts, requested: list[str] | None
                   ) -> dict:
     specs = {r["id"]: r["method"] for r in _part_specs(comp, strict=True)}
@@ -2003,7 +2254,8 @@ def do_install(target: Path, catalog: dict[str, dict], picked: list[str],
                "harnesses": (_merge_harnesses(existing.get("harnesses"),
                                               harnesses)
                              if existing else list(harnesses)),
-               "parts": _select_parts(c, existing.get("parts"), parts)}
+                "parts": _select_parts(c, existing.get("parts"),
+                                       _parts_for_cid(cid, parts))}
         if "files" in existing:
             rec["files"] = list(existing["files"])
         records[cid] = rec
@@ -2034,15 +2286,20 @@ def do_uninstall(target: Path, catalog: dict[str, dict], picked: list[str],
                      "not installed at this target: " + ", ".join(missing))
     for cid in picked:
         rec = records[cid]
-        if parts is None:
+        want = _parts_for_cid(cid, parts)
+        if want is None:
             records.pop(cid)
             continue
         if "parts" not in rec:
+            name = rec.get("component") or cid.split("/")[-1]
+            if set(want) <= {name}:
+                records.pop(cid)
+                continue
             raise Refuse(
                 "part-unbooked",
                 f"{cid} has no parts map (a vanished v1 record) — remove the "
                 "whole component; files cannot be split across parts")
-        for pid in parts:
+        for pid in want:
             rec["parts"].pop(pid, None)
         if not rec["parts"]:
             records.pop(cid)
@@ -3526,10 +3783,12 @@ def selftest() -> int:
             check("H-refuse-path-dir-install — typed refusal",
                   exc.code == "hub-path-directory"
                   and not (hd / STATE_REL).exists(), exc.code)
+        hub_keys = {part_key(cid, catalog[cid]["component"])
+                    for cid, c in catalog.items()
+                    if c["module"] == HUB_DIR and is_installable(c)}
         check("H-alias — -m hub maps to module _hub (the one mapping)",
-              resolve_selection(catalog, [], ["hub"])
-              == sorted(cid for cid, c in catalog.items()
-                        if c["module"] == HUB_DIR)
+              resolve_selection(_sel(verb="add", module=["hub"]), catalog, None)
+              == hub_keys
               and module_id("hub") == HUB_DIR
               and module_id("_hub") == HUB_DIR
               and module_id("core") == "core")
@@ -3807,16 +4066,18 @@ def selftest() -> int:
                   "uninstall --component gonemod/gonecomp" in exc.message,
                   exc.message)
         try:
-            resolve_selection(catalog, ["gonemod/gonecomp"], [])
+            resolve_selection(_sel(verb="add", component=["gonemod/gonecomp"]),
+                              catalog, None)
             catalog_only = "no refusal"
         except Refuse as exc:
             catalog_only = exc.code
         check("V2 — the trees alone cannot name it (that was the trap)",
               catalog_only == "component-unknown", catalog_only)
         check("V2 — the BOOK can",
-              resolve_selection(catalog, ["gonemod/gonecomp"], [],
-                                book=read_state(vn)["components"])
-              == ["gonemod/gonecomp"])
+              resolve_selection(
+                  _sel(verb="rm", component=["gonemod/gonecomp"]),
+                  catalog, read_state(vn)["components"])
+              == {"gonemod/gonecomp#gonecomp"})
         resv = do_uninstall(vn, catalog, ["gonemod/gonecomp"], dry_run=False)
         check("V3 — uninstalling it needs no tree, and takes its file",
               resv["deleted"] == [gone_rel] and not (vn / gone_rel).exists()
@@ -3974,6 +4235,212 @@ def selftest() -> int:
         else:
             check("U-live live book present", False, str(live_book))
 
+        print("\nCLI — parser, selectors, index, R7 guard")
+        for verb in ("add", "rm", "ls", "li", "dupe-artifacts", "doctor",
+                     "selftest", "interactive"):
+            argv = [verb] if verb != "add" else ["add", "-A"]
+            ns = build_parser().parse_args(argv)
+            check(f"CLI-reach-{verb}", ns.verb == verb
+                  and verb in _HANDLERS, ns.verb)
+        empty = tmp / "ws-cli-empty"
+        empty.mkdir()
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            rc_ls = cmd_ls(build_parser().parse_args(["ls"]), empty, catalog, [])
+            rc_li = cmd_li(build_parser().parse_args(["li"]), empty, catalog, [])
+            rc_dupe = cmd_dupe(build_parser().parse_args(["dupe-artifacts"]),
+                               empty, catalog, [])
+            rc_add = cmd_add(
+                build_parser().parse_args(["add", "-c", "fixmod/goodcomp",
+                                           "--dry-run"]),
+                empty, catalog, [])
+            try:
+                cmd_rm(build_parser().parse_args(
+                    ["rm", "-c", "fixmod/goodcomp", "--dry-run"]),
+                       empty, catalog, [])
+                rc_rm = "ok"
+            except Refuse as exc:
+                rc_rm = exc.code
+            rc_doc = cmd_doctor(None, empty, catalog, [])
+        check("CLI-reach-handler-ls", rc_ls == 0)
+        check("CLI-reach-handler-li", rc_li == 0)
+        check("CLI-reach-handler-dupe", rc_dupe == 0)
+        check("CLI-reach-handler-add", rc_add == 0)
+        check("CLI-reach-handler-rm", rc_rm == "not-installed", str(rc_rm))
+        check("CLI-reach-handler-doctor", rc_doc == 2)
+
+        for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
+                           ("-xc", "command"), ("-xsa", "sub-agent")):
+            a = build_parser().parse_args(["add", flag])
+            b = build_parser().parse_args(["add", "-x", meth])
+            check(f"CLI-alias-{flag}", a.method == b.method == [meth],
+                  f"{a.method} vs {b.method}")
+
+        SEL_CAT = {
+            "core/communication": {
+                "module": "core", "component": "communication",
+                "manifest": True, "kind": "component", "rows": [
+                    {"part-id": "audio", "method": "path"},
+                    {"part-id": "plain-language", "method": "rule"},
+                    {"part-id": "non-technical-user", "method": "rule"},
+                    {"part-id": "concise-chat", "method": "rule"},
+                    {"part-id": "audio-aware", "method": "skill"}]},
+            "core/sub-agents": {
+                "module": "core", "component": "sub-agents",
+                "manifest": True, "kind": "component", "rows": [
+                    {"part-id": "cast", "method": "path"},
+                    {"part-id": "sub-agents", "method": "skill"},
+                    {"part-id": "swarm", "method": "skill"},
+                    {"part-id": "panel", "method": "skill"}]},
+            "web/browse": {
+                "module": "web", "component": "browse",
+                "manifest": True, "kind": "component", "rows": [
+                    {"part-id": "browse", "method": "skill"},
+                    {"part-id": "chrome-devtools", "method": "config"}]},
+            "web/capture": {
+                "module": "web", "component": "capture",
+                "manifest": True, "kind": "component", "rows": [
+                    {"part-id": "capture", "method": "skill"}]},
+            "_hub/skills/ponytail": {
+                "module": "_hub", "component": "ponytail",
+                "manifest": False, "kind": "hub"},
+            "badmod/silent": {
+                "module": "badmod", "component": "silent",
+                "manifest": False, "kind": "component"},
+        }
+        SEL_BOOK = {
+            "core/communication": {
+                "module": "core", "component": "communication",
+                "parts": {"audio-aware": {"method": "skill"},
+                          "plain-language": {"method": "rule"}}},
+            "web/browse": {"module": "web", "component": "browse"},
+            "ghost/gone": {"module": "ghost", "component": "gone"},
+        }
+
+        def R(verb="add", book=None, **kw):
+            return resolve_selection(_sel(verb=verb, **kw), SEL_CAT, book)
+
+        check("SEL-and",
+              R(module=["core"], method=["skill"]) == {
+                  "core/communication#audio-aware",
+                  "core/sub-agents#sub-agents",
+                  "core/sub-agents#swarm",
+                  "core/sub-agents#panel"})
+        check("SEL-or",
+              R(component=["core/communication", "web/browse"],
+                method=["skill", "rule"]) == {
+                  "core/communication#plain-language",
+                  "core/communication#non-technical-user",
+                  "core/communication#concise-chat",
+                  "core/communication#audio-aware",
+                  "web/browse#browse"})
+        check("SEL-exclude",
+              R(all=True, exclude_module=["core"], method=["skill"]) == {
+                  "web/browse#browse",
+                  "web/capture#capture",
+                  "_hub/skills/ponytail#ponytail"})
+        # -nx must SUBTRACT, not merely trigger the confirmation prompt.
+        # Without this arm, neutering the method-exclusion filter left the whole
+        # suite green: N-confirm asserts the prompt fired and that answering "n"
+        # changed nothing, which passes whether or not the filter ever ran.
+        _all_parts = R(all=True)
+        _no_skill = R(all=True, exclude_method=["skill"])
+        check("SEL-exclude-method — -nx subtracts the method",
+              _no_skill < _all_parts
+              and "web/browse#browse" not in _no_skill
+              and "_hub/skills/ponytail#ponytail" not in _no_skill
+              and "core/communication#plain-language" in _no_skill,
+              f"kept={sorted(_no_skill - _all_parts)} "
+              f"dropped={sorted(_all_parts - _no_skill)}")
+        check("SEL-rm-booked",
+              R(verb="rm", book=SEL_BOOK, component=["core/communication"])
+              == {"core/communication#audio-aware",
+                  "core/communication#plain-language"})
+        try:
+            R(component=["no/comp"])
+            unk = "no refusal"
+        except Refuse as exc:
+            unk = exc.code
+        check("SEL-refuse-unknown", unk == "component-unknown", unk)
+        try:
+            R(module=["core"], component=["web/browse"])
+            empty_and = "no refusal"
+        except Refuse as exc:
+            empty_and = exc.code
+        check("SEL-refuse-empty-and", empty_and == "selection-empty", empty_and)
+        try:
+            R(verb="rm", book=SEL_BOOK, component=["web/capture"])
+            not_in = "no refusal"
+        except Refuse as exc:
+            not_in = exc.code
+        check("SEL-refuse-not-installed", not_in == "not-installed", not_in)
+
+        idx_ws = tmp / "ws-index"
+        idx_ws.mkdir()
+        write_index(idx_ws, SEL_CAT)
+        other = dict(SEL_CAT)
+        other["zz/extra"] = {
+            "module": "zz", "component": "extra", "manifest": True,
+            "kind": "component",
+            "rows": [{"part-id": "x", "method": "skill"}]}
+        try:
+            resolve_selection(
+                _sel(verb="add", component=["1"], index=read_index(idx_ws)),
+                other, None)
+            stale = "no refusal"
+        except Refuse as exc:
+            stale = exc.code
+        check("index-stale", stale == "index-stale", stale)
+
+        nws = tmp / "ws-nconfirm"
+        nws.mkdir()
+        do_install(nws, catalog, ["fixmod/goodcomp"], ["claude"], dry_run=False)
+        book_before = (nws / STATE_REL).read_bytes()
+        skill_p = nws / ".claude/skills/fixskill/SKILL.md"
+        rule_p = nws / ".claude/rules/fixrule.md"
+        asked: list[str] = []
+
+        def _say_n(prompt: str) -> str:
+            asked.append(prompt)
+            return "n"
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc_n = cmd_rm(
+                build_parser().parse_args(
+                    ["rm", "-A", "-nx", "skill"]),
+                nws, catalog, [], ask=_say_n)
+        check("N-confirm-n — disk AND book untouched",
+              rc_n == 0 and asked
+              and (nws / STATE_REL).read_bytes() == book_before
+              and skill_p.is_file() and rule_p.is_file(),
+              f"rc={rc_n} asked={asked}")
+
+        asked.clear()
+
+        def _boom(prompt: str) -> str:
+            asked.append(prompt)
+            raise AssertionError("dry-run must not ask")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc_dry = cmd_rm(
+                build_parser().parse_args(
+                    ["rm", "--dry-run", "-A", "-nx", "skill"]),
+                nws, catalog, [], ask=_boom)
+        check("N-dry-run — prints and never asks",
+              rc_dry == 0 and not asked
+              and "would remove" in buf.getvalue()
+              and (nws / STATE_REL).read_bytes() == book_before
+              and skill_p.is_file(),
+              f"rc={rc_dry} asked={asked} out={buf.getvalue()[:200]!r}")
+
+        with contextlib.redirect_stdout(io.StringIO()), \
+             contextlib.redirect_stderr(io.StringIO()):
+            rc_usage = main(["add", "--target", str(empty)])
+            rc_refuse = main(["add", "--target", str(empty), "-c", "no/comp"])
+        check("CLI-usage-exit-2", rc_usage == 2, str(rc_usage))
+        check("CLI-refuse-exit-1", rc_refuse == 1, str(rc_refuse))
+
         print("\nuninstall")
         res = do_uninstall(target, catalog, ["fixmod/goodcomp"], dry_run=False)
         left = sorted(p.relative_to(target).as_posix()
@@ -4007,150 +4474,312 @@ def selftest() -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="install2.py",
-        description="Install rbtv components into a workspace from their "
-                    "exposure manifests (CMP-12 adapter matrix). Coexists with "
-                    "install.py: it manages ONLY new-standard component "
-                    "folders (`<module>/<component>/component.md`), every "
-                    "artifact it writes carries the `rbtv2-managed` marker, "
-                    "state lives at {target}/.rbtv/config/install.json, and "
-                    "nothing outside that book or marker is ever written or "
-                    "deleted.",
+        prog="rbtv install",
+        description=(
+            "Install rbtv components from exposure manifests. "
+            "Unit is the exposed part; any subset may be installed."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
         epilog="exit codes: 0 success · 1 refusal · 2 usage")
+
     def tree_flags(dest, *, on_verb: bool) -> None:
-        # The three flags are accepted BEFORE and AFTER the verb. The
-        # verb-level copies default to SUPPRESS so they only set the
-        # attribute when explicitly given — otherwise argparse would
-        # overwrite a pre-verb value with the verb-level default.
         sup = argparse.SUPPRESS
-        dest.add_argument("--target", default=(sup if on_verb else None),
-                          help="install root (default: discovered by walking "
-                               "up from the cwd for .rbtv/config/install.json, "
-                               "then for any .rbtv/ directory, then cwd)")
-        dest.add_argument("--mirror-tree", default=(sup if on_verb else None),
-                          help="workspace mirror tree "
-                               "(default: {target}/.rbtv/mirror)")
+        dest.add_argument(
+            "--target", default=(sup if on_verb else None),
+            help="install root (default: walk up from cwd for "
+                 ".rbtv/config/install.json, then any .rbtv/, then cwd)")
+        dest.add_argument(
+            "--json", action="store_true",
+            default=(sup if on_verb else False),
+            help="machine output")
+        dest.add_argument(
+            "--pretty", action="store_true",
+            default=(sup if on_verb else False),
+            help="human colour + alignment (never TTY-derived)")
+        dest.add_argument(
+            "--dry-run", action="store_true",
+            default=(sup if on_verb else False),
+            help="plan and print; write nothing")
+
+    class MethodsAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            cur = getattr(namespace, self.dest) or []
+            for part in str(values).split(","):
+                part = part.strip()
+                if not part:
+                    continue
+                if part not in CANONICAL_METHODS:
+                    parser.error(
+                        f"unknown method {part!r} (want "
+                        + " · ".join(CANONICAL_METHODS) + ")")
+                cur.append(part)
+            setattr(namespace, self.dest, cur)
+
+    def selectors(dest) -> None:
+        dest.add_argument(
+            "-A", action="store_true", dest="all",
+            help="everything")
+        dest.add_argument(
+            "-m", action="append", default=[], dest="module",
+            metavar="MOD",
+            help="module (repeatable, OR). -m hub = _hub")
+        dest.add_argument(
+            "-c", action="append", default=[], dest="component",
+            metavar="COMP",
+            help="component (repeatable, OR). name or last ls/li number")
+        dest.add_argument(
+            "-x", action=MethodsAction, default=[], dest="method",
+            metavar="METH",
+            help="method[,method] (repeatable, OR). "
+                 + " · ".join(CANONICAL_METHODS))
+        for flag, meth in (("-xs", "skill"), ("-xr", "rule"),
+                           ("-xc", "command"), ("-xsa", "sub-agent")):
+            dest.add_argument(
+                flag, action="append_const", const=meth, dest="method",
+                help=f"alias: -x {meth}")
+        dest.add_argument(
+            "-nx", action=MethodsAction, default=[], dest="exclude_method",
+            metavar="METH",
+            help="exclude method[,method]")
+        dest.add_argument(
+            "-nm", action="append", default=[], dest="exclude_module",
+            metavar="MOD",
+            help="exclude module")
+        dest.add_argument(
+            "-nc", action="append", default=[], dest="exclude_component",
+            metavar="COMP",
+            help="exclude component")
 
     tree_flags(p, on_verb=False)
-    sub = p.add_subparsers(dest="verb")
+    p.add_argument(
+        "--harness", default=None,
+        help="comma-separated subset of " + ",".join(HARNESSES)
+             + " (attaches to the component record, never rewrites the book)")
+    p.add_argument(
+        "--artifact", default=None, choices=(*GUIDANCE_NAMES, BASIS_NONE),
+        help="which root guidance file you author; the other is generated. "
+             "none = author-nothing, generate-nothing. persisted")
+    sub = p.add_subparsers(dest="verb", metavar="VERB")
 
-    s_scan = sub.add_parser("scan", help="what is installable, per tree, "
-                                         "incl. the no-manifest report")
-    s_scan.add_argument("--json", action="store_true")
-    s_list = sub.add_parser("list", help="what is installed, from the "
-                                         "state file")
-    s_list.add_argument("--json", action="store_true")
-    s_inter = sub.add_parser("interactive",
-                             help="the human flow (also: no arguments)")
-    sub.add_parser("selftest", help="build a fixture tree and verify the "
-                                    "install/uninstall round trip")
+    s_add = sub.add_parser(
+        "add",
+        help="install / refresh (replan). refuses a locally-modified vendor",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
+        epilog=(
+            "selectors AND across kinds, OR within a kind.\n"
+            "exclusion: -nx skill  -nm core  -nc web/browse"))
+    selectors(s_add)
+    s_add.add_argument(
+        "--harness", default=argparse.SUPPRESS,
+        help="comma-separated subset of " + ",".join(HARNESSES)
+             + " (attaches to the component record, never rewrites the book)")
+    s_add.add_argument(
+        "--artifact", default=argparse.SUPPRESS,
+        choices=(*GUIDANCE_NAMES, BASIS_NONE),
+        help="which root guidance file you author; the other is generated. "
+             "none = author-nothing, generate-nothing. persisted")
 
-    verbed = [s_scan, s_list, s_inter]
-    for verb, helptext in (("install", "install components"),
-                           ("uninstall", "remove components")):
-        s = sub.add_parser(verb, help=helptext)
-        s.add_argument("--component", action="append", default=[],
-                       metavar="<module>/<component>")
-        s.add_argument("--module", action="append", default=[], metavar="NAME")
-        if verb == "install":
-            s.add_argument("--harness", default=",".join(HARNESSES),
-                           help="comma-separated subset of "
-                                + ",".join(HARNESSES))
-            s.add_argument("--guidance-basis", default=None,
-                           choices=(*GUIDANCE_NAMES, BASIS_NONE),
-                           help="which root guidance file you author; the "
-                                "other is generated from it (D13). Persisted "
-                                "— pass it once. Default: whatever the state "
-                                "file holds; unset means no mirror and no "
-                                "prompt.")
-            s.add_argument("--guidance-exclude", default=None,
-                           metavar="A,B",
-                           help="comma-separated root-relative paths the "
-                                "recursive guidance mirror skips (D13). "
-                                "Persisted; passing it REPLACES the recorded "
-                                f"list. {'/'.join(GUIDANCE_ALWAYS_EXCLUDED)} is "
-                                "always skipped, as are nested git repos.")
-        s.add_argument("--dry-run", action="store_true")
-        s.add_argument("--json", action="store_true")
-        verbed.append(s)
-    for s in verbed:
+    s_rm = sub.add_parser(
+        "rm", help="remove. -A = every booked part")
+    selectors(s_rm)
+
+    s_ls = sub.add_parser(
+        "ls", help="what is AVAILABLE (absorbs scan: shadowed + no_manifest)")
+    selectors(s_ls)
+    s_li = sub.add_parser(
+        "li", help="what is INSTALLED; marks partials and names parts in")
+    selectors(s_li)
+
+    s_dupe = sub.add_parser(
+        "dupe-artifacts",
+        help="regenerate harness guidance files from the base artifact")
+    s_dupe.add_argument(
+        "--artifact", default=argparse.SUPPRESS,
+        choices=(*GUIDANCE_NAMES, BASIS_NONE),
+        help="basis to regenerate from (default: whatever the book holds)")
+
+    sub.add_parser(
+        "doctor",
+        help="can this tool work here (not yet built)")
+    sub.add_parser(
+        "selftest",
+        help="fixture tree + install/uninstall + new surface")
+    s_inter = sub.add_parser(
+        "interactive", help="the human flow (also: no arguments)")
+
+    for s in (s_add, s_rm, s_ls, s_li, s_dupe, s_inter):
         tree_flags(s, on_verb=True)
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def _emit(data: dict, as_json: bool) -> None:
+    print(json.dumps(data, indent=2)) if as_json else print_result(data)
+
+
+def cmd_ls(args, target: Path, catalog: dict, shadowed: list,
+           *, ask=None) -> int:
+    del ask
+    write_index(target, catalog)
+    data = do_scan(catalog, shadowed)
+    print(json.dumps(data, indent=2)) if getattr(args, "json", False) \
+        else print_scan(data)
+    return 0
+
+
+def cmd_li(args, target: Path, catalog: dict, shadowed: list,
+           *, ask=None) -> int:
+    del ask
+    write_index(target, catalog, read_state(target).get("components"))
+    data = do_list(target)
     as_json = bool(getattr(args, "json", False))
+    if as_json:
+        print(json.dumps(data, indent=2))
+        return 0
+    comps = data["components"]
+    basis = data["guidance_basis"] or "(unset — no mirror)"
+    print(f"target: {data['target']}  marker: {data['marker']}  "
+          f"guidance basis: {basis}")
+    if not comps:
+        print("nothing installed by install2.py")
+    for cid in sorted(comps):
+        rec = comps[cid]
+        print(f"  {cid}  [{rec['tree']}]  "
+              f"harnesses={','.join(rec['harnesses'])}  "
+              f"files={len(rec_files(rec))}")
+    for claim in data["shared_claims"]:
+        print(f"  ~ {claim}")
+    return 0
+
+
+def cmd_add(args, target: Path, catalog: dict, shadowed: list,
+            *, ask=None) -> int:
+    del ask, shadowed
+    if not (args.all or args.module or args.component or args.method
+            or args.exclude_module or args.exclude_component
+            or args.exclude_method):
+        raise SystemExit(2)
+    args.index = read_index(target)
+    keys = resolve_selection(args, catalog, None)
+    picked, parts = _split_part_keys(keys)
+    harnesses = _parse_harnesses(
+        getattr(args, "harness", None) or ",".join(HARNESSES))
+    if not harnesses:
+        raise Refuse("harness-unknown", "--harness selected no harness")
+    data = do_install(
+        target, catalog, picked, harnesses,
+        bool(getattr(args, "dry_run", False)),
+        guidance_basis=getattr(args, "artifact", None),
+        parts=parts)
+    _emit(data, bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_rm(args, target: Path, catalog: dict, shadowed: list,
+           *, ask=None) -> int:
+    del shadowed
+    if not (args.all or args.module or args.component or args.method
+            or args.exclude_module or args.exclude_component
+            or args.exclude_method):
+        raise SystemExit(2)
+    args.index = read_index(target)
+    book = read_state(target).get("components")
+    keys = resolve_selection(args, catalog, book)
+    dry = bool(getattr(args, "dry_run", False))
+    if _has_negative(args):
+        if not confirm_removal(keys, dry_run=dry, ask=ask):
+            print("cancelled")
+            return 0
+    picked, parts = _split_part_keys(keys)
+    data = do_uninstall(target, catalog, picked, dry, parts=parts)
+    _emit(data, bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_dupe(args, target: Path, catalog: dict, shadowed: list,
+             *, ask=None) -> int:
+    del ask, shadowed
+    state = read_state(target)
+    records = state.get("components") or {}
+    picked = sorted(records)
+    hs = installed_harnesses(records) or list(HARNESSES)
+    data = do_install(
+        target, catalog, picked, hs,
+        bool(getattr(args, "dry_run", False)),
+        guidance_basis=getattr(args, "artifact", None))
+    _emit(data, bool(getattr(args, "json", False)))
+    return 0
+
+
+def cmd_doctor(args, target: Path, catalog: dict, shadowed: list,
+               *, ask=None) -> int:
+    del args, target, catalog, shadowed, ask
+    print("doctor: not yet built", file=sys.stderr)
+    return 2
+
+
+def cmd_interactive(args, target: Path, catalog: dict, shadowed: list,
+                    *, ask=None) -> int:
+    del args, shadowed, ask
+    return interactive(target, catalog)
+
+
+def cmd_selftest(args, target: Path, catalog: dict, shadowed: list,
+                 *, ask=None) -> int:
+    del args, target, catalog, shadowed, ask
+    return selftest()
+
+
+_HANDLERS = {
+    "add": cmd_add,
+    "rm": cmd_rm,
+    "ls": cmd_ls,
+    "li": cmd_li,
+    "dupe-artifacts": cmd_dupe,
+    "doctor": cmd_doctor,
+    "interactive": cmd_interactive,
+    "selftest": cmd_selftest,
+}
+
+
+def main(argv: list[str] | None = None, *, ask=None) -> int:
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code or 0)
 
     if args.verb == "selftest":
         return selftest()
+    if args.verb == "doctor":
+        print("doctor: not yet built", file=sys.stderr)
+        return 2
 
-    if args.target is None:
+    as_json = bool(getattr(args, "json", False))
+    if getattr(args, "target", None) is None:
         target, why = discover_target(Path.cwd())
         print(f"target: {target}  (discovered by {why}; pass --target to "
               f"override)", file=sys.stderr)
     else:
         target = Path(args.target).expanduser()
     repo_tree = Path(__file__).resolve().parent
-    mirror_tree = (Path(args.mirror_tree).expanduser() if args.mirror_tree
-                   else target / ".rbtv" / "mirror")
+    mirror_tree = target / ".rbtv" / "mirror"
 
     try:
         catalog, shadowed = scan_all(mirror_tree, repo_tree)
-
         if args.verb in (None, "interactive"):
             if as_json:
                 raise Refuse("usage", "interactive mode has no --json output")
             return interactive(target, catalog)
-
-        if args.verb == "scan":
-            data = do_scan(catalog, shadowed)
-            print(json.dumps(data, indent=2)) if as_json else print_scan(data)
-            return 0
-
-        if args.verb == "list":
-            data = do_list(target)
-            if as_json:
-                print(json.dumps(data, indent=2))
-            else:
-                comps = data["components"]
-                basis = data["guidance_basis"] or "(unset — no mirror)"
-                print(f"target: {data['target']}  marker: {data['marker']}  "
-                      f"guidance basis: {basis}")
-                if not comps:
-                    print("nothing installed by install2.py")
-                for cid in sorted(comps):
-                    rec = comps[cid]
-                    print(f"  {cid}  [{rec['tree']}]  "
-                          f"harnesses={','.join(rec['harnesses'])}  "
-                          f"files={len(rec_files(rec))}")
-                for claim in data["shared_claims"]:
-                    print(f"  ~ {claim}")
-            return 0
-
-        if not args.component and not args.module:
-            parser.error(f"{args.verb} needs --component or --module")
-        picked = resolve_selection(
-            catalog, args.component, args.module,
-            book=(read_state(target).get("components")
-                  if args.verb == "uninstall" else None))
-
-        if args.verb == "install":
-            harnesses = _parse_harnesses(args.harness)
-            if not harnesses:
-                raise Refuse("harness-unknown", "--harness selected no harness")
-            excludes = (None if args.guidance_exclude is None else
-                        [p for p in args.guidance_exclude.split(",") if p.strip()])
-            data = do_install(target, catalog, picked, harnesses, args.dry_run,
-                              guidance_basis=args.guidance_basis,
-                              guidance_excludes=excludes)
-        else:
-            data = do_uninstall(target, catalog, picked, args.dry_run)
-        print(json.dumps(data, indent=2)) if as_json else print_result(data)
-        return 0
-
+        handler = _HANDLERS.get(args.verb)
+        if handler is None:
+            parser.error(f"unknown verb {args.verb!r}")
+        if args.verb in ("add", "rm") and not (
+                args.all or args.module or args.component or args.method
+                or args.exclude_module or args.exclude_component
+                or args.exclude_method):
+            parser.error(f"{args.verb} needs -A or -m/-c/-x")
+        return handler(args, target, catalog, shadowed, ask=ask)
     except Refuse as exc:
         if as_json:
             print(json.dumps(exc.payload(), indent=2))
@@ -4159,6 +4788,8 @@ def main(argv: list[str] | None = None) -> int:
             if exc.path:
                 print(f"  at: {exc.path}", file=sys.stderr)
         return 1
+    except SystemExit as exc:
+        return int(exc.code or 0)
     except KeyboardInterrupt:
         print("\ncancelled", file=sys.stderr)
         return 1
