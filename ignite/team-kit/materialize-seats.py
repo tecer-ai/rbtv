@@ -3668,10 +3668,13 @@ def _exposure_rows(comp_dir: Path) -> dict[str, dict]:
     path = comp_dir / EXPOSURE_NAME
     if not path.is_file():
         return {}
-    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines()
-             if not ln.lstrip().startswith("#")]
+    disc = _discovery()
+    try:
+        raw_rows = disc.exposure_rows({"path": str(comp_dir)})
+    except disc.Refuse as exc:
+        raise Refuse(exc.code, exc.message, exc.path or str(path)) from exc
     rows: dict[str, dict] = {}
-    for row in csv.DictReader(lines):
+    for row in raw_rows:
         pid = (row.get("part-id") or "").strip()
         if not pid:
             continue
@@ -3849,11 +3852,50 @@ def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
             "`module/component/part`; empty segments or deeper nesting are "
             "not expressible",
         )
+    catalog, mirror, repo = _scan_all(comp_dir)
+    own = _own_component_id(comp_dir, catalog, mirror, repo)
     if len(segs) == 1:
-        return comp_dir, segs[0]
-    if len(segs) == 2:
-        return comp_dir.parent / segs[0], segs[1]
-    return comp_dir.parent.parent / segs[0] / segs[1], segs[2]
+        cid, pid = own, segs[0]
+    elif len(segs) == 2:
+        cid, pid = f"{own.split('/', 1)[0]}/{segs[0]}", segs[1]
+    else:
+        cid, pid = f"{segs[0]}/{segs[1]}", segs[2]
+    rec = catalog.get(cid)
+    if rec is None:
+        raise Refuse(
+            "exposes-ref-dangling",
+            f"{subject} — no component {cid!r} in scan_all "
+            f"(mirror={mirror} · repo={repo})",
+        )
+    return Path(rec["path"]), pid
+
+
+def _own_component_id(comp_dir: Path, catalog: dict, mirror: Path,
+                      repo: Path) -> str:
+    """`<module>/<component>` of the referencing dir, via scan_all or relpath."""
+    resolved = comp_dir.resolve()
+    for cid, rec in catalog.items():
+        if rec.get("kind") == "hub":
+            continue
+        try:
+            if Path(rec["path"]).resolve() == resolved:
+                return cid
+        except OSError:
+            continue
+    for root in (mirror, repo):
+        try:
+            rel = resolved.relative_to(root.resolve())
+        except ValueError:
+            continue
+        parts = rel.parts
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}"
+    raise Refuse(
+        "exposes-ref-dangling",
+        f"referencing dir {comp_dir} is not a depth-2 component in scan_all "
+        f"(mirror={mirror} · repo={repo})",
+        str(comp_dir),
+    )
 
 
 def _frontmatter(path: Path) -> dict:
@@ -4041,13 +4083,21 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                     comp_dir, ref, f"seat '{seat}' exposes '{ref}' ({method})")
                 rows = _exposure_rows(ref_dir)
                 if pid not in rows:
+                    extra = ""
+                    if not ref.startswith("rbtv:"):
+                        try:
+                            _, mirror, repo = _scan_all(comp_dir)
+                            extra = (f"; scanned scan_all(mirror={mirror} · "
+                                     f"repo={repo})")
+                        except Refuse:
+                            extra = ""
                     raise Refuse(
                         "exposes-ref-dangling",
                         f"seat '{seat}' exposes '{ref}' ({method}) — no "
                         f"exposure.csv row '{pid}' under "
-                        f"{ref_dir / EXPOSURE_NAME}; a dead reference must "
-                        "not reach a materialized seat (grammar: `part` · "
-                        "`component/part` · `module/component/part`)",
+                        f"{ref_dir / EXPOSURE_NAME}{extra}; a dead reference "
+                        "must not reach a materialized seat (grammar: `part` "
+                        "· `component/part` · `module/component/part`)",
                     )
                 declared = (rows[pid].get("method") or "").strip()
                 if declared != method:
@@ -4931,13 +4981,17 @@ def check_refresh_drops(package: Path, plan: dict) -> None:
 STAFF_BINDINGS_DIR = "bindings"
 
 
+def _live_import(dir_path: Path, module: str):
+    """ONE sys.path dance for live-tree siblings (coord, discovery)."""
+    if str(dir_path) not in sys.path:
+        sys.path.insert(0, str(dir_path))
+    return __import__(module)
+
+
 def _coord_import(name: str):
     """Import one coord.py vocabulary set. NEVER re-list the names here (F6)."""
-    kit_dir = Path(__file__).resolve().parent
-    if str(kit_dir) not in sys.path:
-        sys.path.insert(0, str(kit_dir))
     try:
-        import coord as _coord
+        _coord = _live_import(Path(__file__).resolve().parent, "coord")
         return tuple(getattr(_coord, name))
     except Exception as exc:  # loud, machine-readable — never a crash
         raise Refuse(
@@ -4945,6 +4999,40 @@ def _coord_import(name: str):
             f"cannot import {name} from coord.py — {exc}; refusing rather "
             "than re-listing the names here (F6)",
         ) from exc
+
+
+def _discovery():
+    """The installer's discovery module, from the repo that ships this file."""
+    inst = Path(__file__).resolve().parents[2] / "meta" / "installer"
+    try:
+        return _live_import(inst, "discovery")
+    except Exception as exc:
+        raise Refuse(
+            "discovery-import",
+            f"cannot import discovery from {inst} — {exc}",
+            str(inst),
+        ) from exc
+
+
+_DISCOVERY_SCAN: dict[tuple[str, str], tuple] = {}
+
+
+def _clear_discovery_cache() -> None:
+    _DISCOVERY_SCAN.clear()
+
+
+def _scan_all(comp_dir: Path):
+    """One scan_all per (mirror, repo) pair per materialize run."""
+    ws = _workspace_root(comp_dir)
+    mirror = ws / ".rbtv" / "mirror"
+    repo = _rbtv_repo_root(comp_dir)
+    key = (str(mirror.resolve()), str(repo.resolve()))
+    hit = _DISCOVERY_SCAN.get(key)
+    if hit is None:
+        hit = _discovery().scan_all(mirror, repo)
+        _DISCOVERY_SCAN[key] = hit
+    catalog, _shadowed = hit
+    return catalog, mirror, repo
 
 
 def _coord_staff_seats() -> tuple[str, ...]:
@@ -5522,6 +5610,7 @@ def _emit_refusal(r: Refuse, as_json: bool) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     scrub_environment()
+    _clear_discovery_cache()
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--selftest" in argv:
         return run_selftest()
@@ -5648,9 +5737,10 @@ def build_fixture(tmp: Path) -> dict:
     """A throwaway catalog + goal package + bindings set, in the settled
     component shape (kind-named XML unit bodies, id in frontmatter; bare and
     @latest unit refs both exercised — the dag-01 widened grammar)."""
-    # catalog-root/<component>/... — one level, mirroring the live shape
-    # (catalog-root .rbtv/mirror/meta, component planning-deprecated, pre-rename planner-workflow).
-    comp = tmp / "catalog" / "demo-comp"
+    # catalog-root/<component>/... at installer depth 2 under the workspace
+    # mirror: `<ws>/.rbtv/mirror/<module>/<component>/` (D86 / D2).
+    (tmp / ".rbtv" / "config").mkdir(parents=True)
+    comp = tmp / ".rbtv" / "mirror" / "catalog" / "demo-comp"
 
     def unit(rel: str, uid: str, body: str) -> None:
         path = comp / rel
@@ -5737,7 +5827,7 @@ def build_fixture(tmp: Path) -> dict:
 
     # A second component: five cheap one-shot workers sharing one
     # prompt/task pair — the SC-13 whole-batch gate and F8/F10 fixtures.
-    wide = tmp / "catalog" / "wide-comp"
+    wide = tmp / ".rbtv" / "mirror" / "catalog" / "wide-comp"
 
     def wunit(rel: str, uid: str, body: str) -> None:
         path = wide / rel
@@ -5833,7 +5923,7 @@ def build_fixture(tmp: Path) -> dict:
     # A third component carrying a plugin/MCP declaration (MCP-1): its own
     # component so no other arm's write set changes; its seat reuses
     # demo-comp's prompt/task units (catalogs merge across the catalog root).
-    mcpc = tmp / "catalog" / "mcp-comp"
+    mcpc = tmp / ".rbtv" / "mirror" / "catalog" / "mcp-comp"
     mcpc.mkdir(parents=True)
     mcpc.joinpath("seats.csv").write_text(
         "seat-id,executor,task,staffing-hints,description\n"
@@ -5861,7 +5951,7 @@ def build_fixture(tmp: Path) -> dict:
     # set changes; assembly reuses demo-comp's prompt/task rows (catalogs
     # merge across the root), while the `exposes:` declaration lives on THIS
     # component's own whole-file prompt card.
-    expc = tmp / "catalog" / "exp-comp"
+    expc = tmp / ".rbtv" / "mirror" / "catalog" / "exp-comp"
     expc.mkdir(parents=True)
     expc.joinpath("seats.csv").write_text(
         "seat-id,executor,task,staffing-hints,description,cage-grants,"
@@ -5897,7 +5987,6 @@ def build_fixture(tmp: Path) -> dict:
     # longer consulted: every `rbtv:` arm below resolves without it, and
     # restoring the file would silently retire that proof. The DIRECTORY is
     # still required — it is what the one walk looks for.
-    (tmp / ".rbtv" / "config").mkdir(parents=True)
     (tmp / "rbtv.json").write_text(
         json.dumps({"rbtv_version": "0.0.0-fixture", "rbtv_path": "repo"})
         + "\n", encoding="utf-8")
@@ -5938,12 +6027,9 @@ def build_fixture(tmp: Path) -> dict:
         p = expc / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(body, encoding="utf-8")
-    # A component in ANOTHER MODULE (the `module/component/part` ref arm,
-    # owner-ruled: cross-module must exist): tmp/ stands in for the tree
-    # root above the modules (catalog/ being the module the seats live in),
-    # exactly the `<tree>/<module>/<component>/` shape of the mirror and
-    # the rbtv repo.
-    xmodc = tmp / "xmod" / "xmodc"
+    # A component in ANOTHER MODULE (the `module/component/part` ref arm):
+    # installer identity `xmod/xmodc` at depth 2 of the mirror tree.
+    xmodc = tmp / ".rbtv" / "mirror" / "xmod" / "xmodc"
     xmodc.mkdir(parents=True)
     xmodc.joinpath("exposure.csv").write_text(
         "part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots\n"
@@ -5951,6 +6037,78 @@ def build_fixture(tmp: Path) -> dict:
         encoding="utf-8")
     xmodc.joinpath("xms.md").write_text(
         "# xms\n\nCross-module skill content.\n", encoding="utf-8")
+
+    # D86 — depth-2 components in BOTH trees so unprefixed refs resolve
+    # through scan_all (mirror wins on a shared id).
+    hdr = ("part-id,part-kind,method,rbtv-cli,entry-point,description,"
+           "write-roots\n")
+    cap = tmp / ".rbtv" / "mirror" / "web" / "capture"
+    cap.mkdir(parents=True)
+    cap.joinpath("exposure.csv").write_text(
+        hdr + "capture,capability,skill,,capture.md,mirror capture,\n",
+        encoding="utf-8")
+    cap.joinpath("capture.md").write_text("# capture\n", encoding="utf-8")
+    brw = tmp / "repo" / "web" / "browse"
+    brw.mkdir(parents=True)
+    brw.joinpath("exposure.csv").write_text(
+        hdr + "browse,capability,skill,,browse.md,repo browse,\n",
+        encoding="utf-8")
+    brw.joinpath("browse.md").write_text("# browse\n", encoding="utf-8")
+    dup_m = tmp / ".rbtv" / "mirror" / "dup" / "comp"
+    dup_r = tmp / "repo" / "dup" / "comp"
+    dup_m.mkdir(parents=True)
+    dup_r.mkdir(parents=True)
+    dup_m.joinpath("exposure.csv").write_text(
+        hdr + "dpart,capability,skill,,mirror.md,mirror winner,\n",
+        encoding="utf-8")
+    dup_m.joinpath("mirror.md").write_text("# mirror-dup\n", encoding="utf-8")
+    dup_r.joinpath("exposure.csv").write_text(
+        hdr + "dpart,capability,skill,,repo.md,repo shadowed,\n",
+        encoding="utf-8")
+    dup_r.joinpath("repo.md").write_text("# repo-dup\n", encoding="utf-8")
+
+    def _mini_comp(root: Path, seat: str, prompt: str, exposes: str) -> Path:
+        root.mkdir(parents=True)
+        tag = seat.replace("-", "")
+        for rel, uid, body in (
+                (f"prompts/cognitive-units/roles/{tag}-r.md", f"{tag}-r",
+                 "<role>\nX.\n</role>"),
+                (f"prompts/cognitive-units/permissions/{tag}-p.md",
+                 f"{tag}-p", "<permissions>\nP.\n</permissions>"),
+                (f"prompts/cognitive-units/procedures/{tag}-pr.md",
+                 f"{tag}-pr", "<procedure>\nDo.\n</procedure>"),
+                (f"tasks/cognitive-units/task-goals/{tag}-g.md", f"{tag}-g",
+                 "<task-goal>\nG.\n</task-goal>"),
+                (f"tasks/cognitive-units/scopes/{tag}-s.md", f"{tag}-s",
+                 "<scope>\nS.\n</scope>"),
+                (f"tasks/cognitive-units/done-contracts/{tag}-d.md",
+                 f"{tag}-d", "<done-contract>\nD.\n</done-contract>")):
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(f"---\nid: {uid}\ndescription: {uid}\n---\n\n{body}\n",
+                         encoding="utf-8")
+        root.joinpath("prompts.csv").write_text(
+            "prompt-id,role,permissions,procedure,description\n"
+            f"{prompt},{tag}-r,{tag}-p,{tag}-pr,x\n", encoding="utf-8")
+        root.joinpath("tasks.csv").write_text(
+            "task-id,task goal,scope,done contract,description\n"
+            f"{tag}-t,{tag}-g,{tag}-s,{tag}-d,x\n", encoding="utf-8")
+        root.joinpath("seats.csv").write_text(
+            "seat-id,executor,task,staffing-hints,description\n"
+            f"{seat},{prompt},{tag}-t,,cross-tree seat\n", encoding="utf-8")
+        root.joinpath("prompts", f"{prompt}.md").write_text(
+            f"---\nid: {prompt}\ndescription: x\nexposes:\n"
+            f"  skill: [{exposes}]\n---\n\nCard.\n", encoding="utf-8")
+        return root
+
+    repo_x = _mini_comp(tmp / "repo" / "xtree" / "from-repo",
+                        "repo-xseat", "rxp", "web/capture/capture")
+    mir_x = _mini_comp(tmp / ".rbtv" / "mirror" / "xtree" / "from-mirror",
+                       "mir-xseat", "mxp", "web/browse/browse")
+    win_x = _mini_comp(tmp / ".rbtv" / "mirror" / "xtree" / "dup-seat",
+                       "dup-xseat", "dxp", "dup/comp/dpart")
+    miss_x = _mini_comp(tmp / ".rbtv" / "mirror" / "xtree" / "miss-seat",
+                        "miss-xseat", "nxp", "ghost/mod/gone")
 
     bdir = tmp / "bindings"
     bdir.mkdir()
@@ -6001,6 +6159,11 @@ def build_fixture(tmp: Path) -> dict:
                 "seats": {"exp-seat": {**seat_binding, "after": []}}}
     bdir.joinpath("exp-seat.json").write_text(json.dumps(exp_only),
                                               encoding="utf-8")
+    for sid in ("repo-xseat", "mir-xseat", "dup-xseat", "miss-xseat"):
+        bdir.joinpath(f"{sid}.json").write_text(json.dumps({
+            "version": 1, "defaults": both["defaults"],
+            "seats": {sid: {**seat_binding, "after": []}},
+        }), encoding="utf-8")
     guard = {"version": 1, "defaults": both["defaults"],
              "seats": {f"s{i}": dict(seat_binding) for i in range(1, 5)}}
     bdir.joinpath("guard.json").write_text(json.dumps(guard),
@@ -6025,7 +6188,13 @@ def build_fixture(tmp: Path) -> dict:
 
     return {
         "tmp": tmp,
-        "catalog": str(tmp / "catalog"),
+        "catalog": str(tmp / ".rbtv" / "mirror" / "catalog"),
+        "repo_xtree": str(tmp / "repo" / "xtree"),
+        "mirror_xtree": str(tmp / ".rbtv" / "mirror" / "xtree"),
+        "b_repo_x": str(bdir / "repo-xseat.json"),
+        "b_mir_x": str(bdir / "mir-xseat.json"),
+        "b_dup_x": str(bdir / "dup-xseat.json"),
+        "b_miss_x": str(bdir / "miss-xseat.json"),
         "pkg": str(pkg),
         "pkg9": str(pkg9),
         "pkg_status": str(pkg_status),
@@ -8670,6 +8839,7 @@ def run_pass_substitution_acceptance(check) -> None:
 
 
 def run_selftest() -> int:
+    _clear_discovery_cache()
     failures: list[str] = []
     records: list[tuple[str, bool]] = []  # dag-07 — the rollup's input
 
@@ -9737,6 +9907,53 @@ def run_selftest() -> int:
                   "share ONE workspace walk, and no install.json is consulted "
                   "to reach it",
                   repo_code == "ws-root-underivable", repo_code)
+        # D86 — unprefixed refs resolve through installer scan_all (both trees).
+        pxr = _invoke(["--package", fxe["pkg"], "--seat", "repo-xseat",
+                       "--catalog-root", fxe["repo_xtree"], "--root", "--json",
+                       "--bindings", fxe["b_repo_x"]], clean_env)
+        check("EXP-1 green (D86): a repo-resident component referencing a "
+              "mirror component by module/component/part resolves",
+              pxr.returncode == 0
+              and (Path(fxe["pkg"]) / "seats" / "repo-xseat"
+                   / ".claude/skills/capture/SKILL.md").is_file(),
+              pxr.stderr.strip()[:300])
+        pxm = _invoke(["--package", fxe["pkg"], "--seat", "mir-xseat",
+                       "--catalog-root", fxe["mirror_xtree"], "--root",
+                       "--json", "--bindings", fxe["b_mir_x"]], clean_env)
+        check("EXP-1 green (D86): a mirror component referencing a repo "
+              "component by module/component/part resolves",
+              pxm.returncode == 0
+              and (Path(fxe["pkg"]) / "seats" / "mir-xseat"
+                   / ".claude/skills/browse/SKILL.md").is_file(),
+              pxm.stderr.strip()[:300])
+        pxd = _invoke(["--package", fxe["pkg"], "--seat", "dup-xseat",
+                       "--catalog-root", fxe["mirror_xtree"], "--root",
+                       "--json", "--bindings", fxe["b_dup_x"]], clean_env)
+        dup_skill = (Path(fxe["pkg"]) / "seats" / "dup-xseat"
+                     / ".claude/skills/dpart/SKILL.md")
+        mirror_entry = str((Path(fxe["tmp"]) / ".rbtv" / "mirror" / "dup"
+                            / "comp" / "mirror.md").resolve())
+        repo_entry = str((Path(fxe["tmp"]) / "repo" / "dup" / "comp"
+                          / "repo.md").resolve())
+        check("EXP-1 green (D86): a duplicate id in both trees resolves to "
+              "the MIRROR copy",
+              pxd.returncode == 0 and dup_skill.is_file()
+              and mirror_entry in dup_skill.read_text(encoding="utf-8")
+              and repo_entry not in dup_skill.read_text(encoding="utf-8"),
+              (pxd.stderr.strip()[:300]
+               or (dup_skill.read_text(encoding="utf-8")[:240]
+                   if dup_skill.is_file() else "missing")))
+        pxg = _invoke(["--package", fxe["pkg9"], "--seat", "miss-xseat",
+                       "--catalog-root", fxe["mirror_xtree"], "--root",
+                       "--json", "--bindings", fxe["b_miss_x"]], clean_env)
+        check("EXP-1 red (D86): a reference to an id in neither tree refuses "
+              "naming both roots",
+              pxg.returncode == 1 and "exposes-ref-dangling" in pxg.stderr
+              and "ghost/mod" in pxg.stderr
+              and ".rbtv/mirror" in pxg.stderr
+              and "repo" in pxg.stderr
+              and not (Path(fxe["pkg9"]) / "seats" / "miss-xseat").exists(),
+              pxg.stderr.strip()[:350])
 
     print("RF-1 --refresh: bring an existing seat folder to the catalog's shape")
     with tempfile.TemporaryDirectory() as rf_td:
