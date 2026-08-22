@@ -1,0 +1,20 @@
+---
+description: The planning component — the intelligence-generation mechanism that authors seats, workflows, and taskforces for every goal, optimize, port, and scaffold request
+---
+
+# planning
+
+The `planning` workflow is what produces the system's seats, workflows, and taskforces. Four use cases, one seat DAG (no case skips a seat): (1) ad-hoc goal planning — output a TASKFORCE, ephemeral in its goal folder; (2) optimize an existing workflow; (3) port a foreign process; (4) create a workflow as scaffolding — cases 2–4 output a WORKFLOW into the scaffolding.
+
+The `forge` workflow is the small-request lane beside it: one create, edit, or parse request for a PART of a component that already exists — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition — scoped, built, registered, and judged in one serial three-seat run.
+
+## Entry points
+
+- Router surface: `references/build.md` — the ONE console entry, exposed as the `build` skill; it holds the workflow-vs-guide route rule, the kind router (moved out of forge's console entry), and the guide table. The standalone `planning`, `forge`, and `plan-in-session-run` skills folded into it (owner-ruled 2026-08-21).
+- Workflow `planning`: `workflows/planning/` — `workflow.md` (orientation) + `planning.csv` (the seat DAG: goal-level phase, then per-milestone phase).
+- Workflow `forge`: `workflows/forge/` — `workflow.md` (orientation) + `forge.csv` (three serial seats: intake → builder → judge). Small, frequent create/edit/parse requests for PARTS of components that already exist; it executes what it specifies, and a request needing a new component, workflow, or DAG escalates to `planning`.
+- Pools: `prompts/<id>.md` and `tasks/<id>.md` (one file per prompt/task, kind-named XML sections; no prompts.csv/tasks.csv — `d-prompt-task-files`).
+- `seats.csv` — the prompt+task pairings, prefix `plan`. `researcher`/`diagnoser` are cataloged definitions fanned out as SUB-AGENTS by planning seats (exposure rows in `exposure.csv`); they hold no workflow node.
+- Judge/eval pool — the two closing-seat definitions (`prompts/dod-judge.md` + `tasks/judge-milestone.md`, `prompts/unblock-checker.md` + `tasks/check-unblocked.md`, rows in `seats.csv`) the `assembler` shops for every PRODUCED taskforce; they hold no `planning.csv` node.
+- `references/` — the 16 craft/anatomy guides + the shared ethos (`ethos.md`). Forced reads for authoring seats; stage C wires the read steps.
+- `capabilities/` — `capability-cards` (resource shopping CLI) and `component-lint` (the component's lint step).

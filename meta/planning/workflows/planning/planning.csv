@@ -1,0 +1,18 @@
+Seat/workflow,after,i/o,Modality
+plan-interviewer,,"in: goal seed (the owner's request); out: goal.md (goal + use-case + ratified definition of done)",interactive
+plan-completeness-reviewer,plan-interviewer,"in: ratified goal.md; out: goal.md with its definition of done extended (completeness gaps closed or shown empty)",interactive
+plan-splitter,plan-completeness-reviewer,"in: goal.md; out: pieces working draft (run-surface scratch)",agentic
+plan-dag-structurer,plan-splitter,"in: pieces draft + goal.md; out: milestones.csv (planning-mode stamped per row)",agentic
+plan-task-definer,plan-dag-structurer[planning-mode=full],"in: one unblocked milestone row + its done contract + the run's ratified definition of done; out: task DAG",agentic
+plan-resource-definer,plan-task-definer,"in: task DAG; out: resourced task DAG (resources/permissions per seat + toolsmith tasks as early nodes)",agentic
+plan-assembler,plan-resource-definer,"in: resourced task DAG; out: draft manifest + seat definitions (incl. judge-pool closing seats, shopped from the component's judge/eval pool)",agentic
+plan-check-edges,plan-assembler,"in: draft plan; out: findings (edges dimension)",agentic
+plan-check-resources,plan-assembler,"in: draft plan; out: findings (resources dimension)",agentic
+plan-check-permissions,plan-assembler,"in: draft plan; out: findings (permissions dimension)",agentic
+plan-check-scope,plan-assembler,"in: draft plan; out: findings (scope-is-small dimension)",agentic
+plan-check-clarity,plan-assembler,"in: draft plan; out: findings (instructions-are-clear dimension)",agentic
+plan-check-consistency,plan-assembler,"in: draft plan + the milestone's done contract; out: findings (consistency-with-milestone-DoD dimension)",agentic
+plan-check-mechanization,"plan-assembler,plan-interviewer[use-case=optimize]|plan-interviewer[use-case=port]|plan-interviewer[use-case=scaffold]","in: draft plan + goal.md (use-case); out: findings (mechanization dimension)",agentic
+plan-check-assembler,"plan-check-edges,plan-check-resources,plan-check-permissions,plan-check-scope,plan-check-clarity,plan-check-consistency","in: swarm findings + draft plan; out: plan passing all checks + disposition record",agentic
+plan-binder,plan-check-assembler,"in: checked plan; out: taskforce.csv rows appended + materialized seats verified on disk",agentic
+plan-planner,plan-dag-structurer[planning-mode=collapsed],"in: one unblocked milestone row + its done contract + the run's ratified definition of done; out: taskforce.csv rows appended + verified on disk (steps 4-9 alone)",agentic
