@@ -57,12 +57,6 @@ const DEFAULTS = {
     tick_interval_floor_ms: 5000,     // owner-approved default, 2026-07-26
     tick_interval_ceiling_ms: 60000,  // owner-approved default, 2026-07-26
   },
-  jobs: {
-    // WALL-CLOCK and deliberately independent of the cadence, so a tick edit can never move it
-    // (design § 2.5). Not consumed by this task's surface; declared here because the block is part
-    // of the schema this task settles and a reader must know the key exists.
-    periodic_min_interval_seconds: 60,
-  },
 };
 
 // A block this daemon does not know is IGNORED — other consumers will add blocks, and a file
@@ -163,15 +157,7 @@ function validateTicker(effective) {
   return problems;
 }
 
-function validateJobs(effective) {
-  const v = effective.periodic_min_interval_seconds;
-  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
-    return [`jobs.periodic_min_interval_seconds must be an integer number of seconds > 0, got ${JSON.stringify(v)}`];
-  }
-  return [];
-}
-
-const VALIDATORS = { ticker: validateTicker, jobs: validateJobs };
+const VALIDATORS = { ticker: validateTicker };
 
 // Validate THIS machine's whole stored block set. Called at daemon boot; the daemon refuses to
 // start on any problem, naming it (the `RBTV_IGNITE_LOG_RETENTION_DAYS` idiom — retention.js).
@@ -282,7 +268,6 @@ module.exports = {
   readSettings,
   effectiveBlock,
   validateTicker,
-  validateJobs,
   validateMachine,
   appendHistory,
   setValue,

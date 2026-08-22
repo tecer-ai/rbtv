@@ -20,9 +20,9 @@
 // The direction of the require matters and is the same rule 7.42 established: `server/` may import
 // the shared module; the shared module may NEVER import anything under `server/`.
 //
-// `harnessOf` is RE-EXPORTED rather than redefined. Its four other call sites (spawn.js:366/579/622,
-// the spawn path) keep importing it from here, so this re-home changes where the knowledge lives
-// and nothing any caller observes.
+// `harnessOf` is RE-EXPORTED rather than redefined. Its other call sites (several in spawn.js, the
+// spawn path) keep importing it from here, so this re-home changes where the knowledge lives and
+// nothing any caller observes.
 
 const fs = require('node:fs');
 const path = require('node:path');
