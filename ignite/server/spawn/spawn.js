@@ -14,6 +14,7 @@ const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
 const { composeSeatCage, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
+const { needsDeclaration } = require('./private-scope');
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../seat-identity/csv');
@@ -931,6 +932,83 @@ function resolveTmuxSocketGrant(seatPath) {
 // never fatal to the spawn.
 const RBTV_BIN_DIRNAME = '.rbtv-bin';
 
+// ── THE NAMED REFUSAL (D56/D74, 2026-08-22) ─────────────────────────────────────────────────────
+//
+// `local-bin: true` puts every name in the real `~/.local/bin` on PATH undifferentiated (below).
+// A name whose own code tree `private-scope.js#needsDeclaration` finds nothing private in was
+// never a D4 pierce candidate — it stays reachable exactly as before, unshimmed (this is how
+// `coordinate`/`teamview`/`scaffold-seats`/… keep working with no declaration, unchanged). A name
+// that DOES need one gets shimmed here instead of resolving to the real tool: today that seat would
+// reach the real executable, which then throws a raw masked-path `PermissionError` three stack
+// frames from the actual mistake (declaring nothing). One shared HOST script services every shimmed
+// name in every cage — `$0`'s basename (the symlink name bwrap creates, one per refused tool) is
+// the per-invocation refusal text, so this writes ONE file, not one per name. Refuses EVERY
+// argument list, including a bare `--help` — D74: refuse the class, not the verb.
+const REFUSAL_SHIM_BODY = '#!/bin/sh\n' +
+  'name=$(basename "$0")\n' +
+  'echo "$name is not exposed to this seat — declare it in the exposed-clis: frontmatter (seat.md) to use it." >&2\n' +
+  'exit 1\n';
+
+// `readlinkSync`/`realpathSync` alone MISCLASSIFIES a name installed as a WRAPPER SCRIPT rather
+// than a symlink (`gtools` — a `#!/bin/sh … exec /real/path/gtools.py "$@"` file `~/.local/bin`
+// itself; measured 2026-08-22): its realpath is `~/.local/bin/gtools` itself, so the private-holding
+// tree it actually execs into is never seen. The workspace's OWN `.rbtv/mirror/**/exposure.csv`
+// registry — the SAME one `materialize-seats.py#_exposure_rows` resolves a declared part-id
+// against — is a second, independent way to find a name's real code tree, and covers exactly this
+// case: `gtools,tool,path,,ws:3-resources/tools/gtools/gtools.py,,`. Mirrors that function's TWO
+// resolution rules (not reused directly — that reader is Python) so the two stay in lockstep by
+// construction: not written twice as a THIRD, divergent grammar, but as the same two rules restated
+// in JS for the one JS caller that needs them.
+function findExposureCsvFiles(mirrorRoot) {
+  const out = [];
+  (function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(p);
+      else if (e.name === 'exposure.csv') out.push(p);
+    }
+  })(mirrorRoot);
+  return out;
+}
+
+function resolveExposureEntryPoint(workspaceRoot, name) {
+  const mirrorRoot = path.join(workspaceRoot, '.rbtv', 'mirror');
+  for (const csvPath of findExposureCsvFiles(mirrorRoot)) {
+    let text;
+    try { text = fs.readFileSync(csvPath, 'utf8'); } catch { continue; }
+    const compDir = path.dirname(csvPath);
+    for (const line of text.split('\n')) {
+      if (!line.trim() || line.trimStart().startsWith('#')) continue;
+      const cols = line.split(',');
+      if (cols[0] === 'part-id') continue;  // header
+      if ((cols[0] || '').trim() !== name) continue;
+      const method = (cols[2] || '').trim();
+      let entry = (cols[4] || '').trim();
+      if (!entry) continue;
+      if (entry.startsWith('ws:')) {
+        if (method !== 'path') continue;  // ws: is legal on method=path rows only
+        entry = path.join(workspaceRoot, entry.slice(3));
+      } else {
+        entry = path.join(compDir, entry);
+      }
+      return entry;
+    }
+  }
+  return null;
+}
+
+function refusalShimSource() {
+  const p = path.join(require('node:os').tmpdir(), 'rbtv-cage-refuse-shim.sh');
+  try {
+    if (fs.readFileSync(p, 'utf8') === REFUSAL_SHIM_BODY) return p;
+  } catch { /* absent — write it below */ }
+  fs.writeFileSync(p, REFUSAL_SHIM_BODY, { mode: 0o755 });
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
 function resolveExposedCliGrants(seatPath, log) {
   const grants = [];
   for (const entry of seatDeclaresList(seatPath.seatDir, 'exposed-clis')) {
@@ -1236,14 +1314,44 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // pushes `--ro-bind /dev/null <file>` directly. They land AFTER bwrap.js's `--tmpfs <home>`
   // (which is emitted before this whole stack), so bwrap creates the bin dir on that tmpfs.
   const pathDirs = [];
+  const rbtvBin = path.join(require('node:os').homedir(), RBTV_BIN_DIRNAME);
+  let rbtvBinUsed = false;
   if (exposedClis.length > 0) {
-    const rbtvBin = path.join(require('node:os').homedir(), RBTV_BIN_DIRNAME);
     for (const g of exposedClis) {
       flags.push('--symlink', g.exposedCliEntry, path.join(rbtvBin, g.exposedCliName));
     }
-    pathDirs.push(rbtvBin);
+    rbtvBinUsed = true;
     log('info', 'exposed CLIs enabled in the seat sandbox', { seat: seatPath.seat, clis: exposedClis.map((g) => g.exposedCliName) });
   }
+  // The named refusal (D56/D74): every name in the real `~/.local/bin` that DOES need a D4 pierce
+  // (private-scope.js#needsDeclaration) and is NOT declared gets a shim here instead of the real
+  // tool — ahead of the real `~/.local/bin` on PATH below, same shadowing rule as `exposed-clis:`
+  // above. A name that needs no pierce (`coordinate`, `teamview`, `scaffold-seats`, … — the ORIGINAL
+  // reason `local-bin` exists) is untouched: no shim, no PATH change, reachable exactly as today.
+  if (localBin.length > 0) {
+    const declaredNames = new Set(exposedClis.map((g) => g.exposedCliName));
+    let realNames = [];
+    try { realNames = fs.readdirSync(localBin[0].localBin); } catch { realNames = []; }
+    const shimmed = [];
+    for (const name of realNames) {
+      if (declaredNames.has(name)) continue;  // gets the real tool via exposed-clis above
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) continue;  // not a legal PATH filename
+      const candidateDirs = [];
+      try { candidateDirs.push(path.dirname(fs.realpathSync(path.join(localBin[0].localBin, name)))); } catch { /* not resolvable */ }
+      const exposureEntry = resolveExposureEntryPoint(seatPath.workspaceRoot, name);
+      if (exposureEntry) candidateDirs.push(path.dirname(exposureEntry));
+      const needs = candidateDirs.some((d) => needsDeclaration(seatPath.workspaceRoot, d, log));
+      if (!needs) continue;
+      flags.push('--symlink', refusalShimSource(), path.join(rbtvBin, name));
+      shimmed.push(name);
+    }
+    if (shimmed.length > 0) {
+      flags.push('--ro-bind', refusalShimSource(), refusalShimSource());
+      rbtvBinUsed = true;
+      log('info', 'undeclared tools refused by name in the seat sandbox', { seat: seatPath.seat, refused: shimmed });
+    }
+  }
+  if (rbtvBinUsed) pathDirs.push(rbtvBin);
   if (localBin.length > 0) pathDirs.push(localBin[0].localBin);
   if (pathDirs.length > 0) {
     const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';

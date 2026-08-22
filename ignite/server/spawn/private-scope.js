@@ -385,6 +385,53 @@ function refusesPath(workspaceRoot, target) {
   return null;
 }
 
+// ── THE DECLARABILITY QUESTION, asked from spawn.js's PATH shim (D56/D74, 2026-08-22) ──────────
+//
+// `local-bin: true` puts every name in the real `~/.local/bin` on a seat's PATH, undifferentiated.
+// Some of those names are the coordination CLIs the grant was BUILT for (`coordinate`, `teamview`,
+// `scaffold-seats`, …, spawn.js's own PATH-builder comment) — their own directories hold nothing
+// this file would ever mask. Others (`stools`, `gtools`, …) read their own `config.yaml`/
+// `credentials/` at argument-parser build time — undeclared, that reachability is the D56 defect:
+// the D4 `exposedCliCode` pierce (TIER 2b above) only opens a tool's directory for a seat that
+// DECLARED it, so an undeclared seat reaching the name today hits the raw masked-path
+// `PermissionError` instead of a named refusal.
+//
+// The two classes are NOT named here (D74: the mechanism hardcodes no tool name). They are DERIVED
+// from the SAME deny-list/pattern-floor data every other tier of this file reads: a candidate
+// directory that holds, lies inside, or itself IS a private entry — by the enumerated list or the
+// pattern floor — NEEDS a pierce to actually work; one that holds nothing private never needed one
+// and is unaffected by this question. Scoped to the WORKSPACE only (mirrors `deny`'s own
+// workspace-relative contract): a path outside `workspaceRoot` cannot be named in `private.json`
+// and cannot be resolved by the `exposed-clis:` materializer either, so it is never a candidate for
+// declaration and this returns `false` for it unconditionally — a host utility (`claude`, `codex`,
+// `uv`, …) living outside the workspace is never affected.
+function needsDeclaration(workspaceRoot, dir, log = () => {}) {
+  const root = path.normalize(workspaceRoot);
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+  const rd = real(dir) || path.normalize(dir);
+  if (rd !== root && !inside(root, rd)) return false;
+  const scope = readPrivateScope(root, log);
+  for (const e of scope.entries) {
+    const re = real(e) || e;
+    if (re === rd || inside(rd, re) || inside(re, rd)) return true;
+  }
+  if (scope.patterns.length === 0) return false;
+  let hit = false;
+  (function walk(p) {
+    if (hit) return;
+    let listing;
+    try { listing = fs.readdirSync(p, { withFileTypes: true }); } catch { return; }
+    for (const ent of listing) {
+      if (hit) return;
+      const full = path.join(p, ent.name);
+      if (scope.allow.has(full)) continue;
+      if (scope.patterns.some((re) => re.test(ent.name)) && (ent.isDirectory() || !isInterpreterCodeFile(ent.name))) { hit = true; return; }
+      if (ent.isDirectory() && !ent.isSymbolicLink()) walk(full);
+    }
+  })(rd);
+  return hit;
+}
+
 if (require.main === module) {
   // `--refuses <workspace-root> <path>` — the widen-cage question, answered as JSON on stdout.
   // Exit 0 with `{"refused": …}` either way: a non-zero exit would be indistinguishable, to the
@@ -411,6 +458,7 @@ module.exports = {
   composePrivateScope,
   readPrivateScope,
   refusesPath,
+  needsDeclaration,
   privateJsonPath,
   runningCages,
   emptyMaskSource,
