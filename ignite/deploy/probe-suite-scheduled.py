@@ -124,8 +124,12 @@ RETAINED_RUNS = int(os.environ.get('PROBE_SUITE_RETAINED_RUNS', 48))
 # Empty since `r-seats-only-architecture` (2026-08-06) deleted capabilities/sub-agent-dispatch/
 # (its probes made real PAID claude calls, G-213); the mechanism stays for the next paid probe.
 # capabilities/goal-creation-request/probes was excluded on 2026-08-08 for the same paid-call class
-# and is RESTORED here (task 7.553 criterion 3): `probe-planning-entry.py`'s `claude` stub now
-# actually binds — its own arm P5c goes RED if it ever stops — so the hourly run boots nothing.
+# and is RESTORED here (task 7.553 criterion 3). `probe-planning-entry.py` (the probe whose
+# `claude` stub this restoration was about) was itself DELETED in task 7.778, along with
+# `probe-sensor-start.py` and `probe-launcher-attribution.py` — all three asserted the deleted
+# `workflow_launcher.py` (see goal-creation-request.md § the three surviving probes). The three
+# probes that remain at this path (probe-goal-creation-request.py, probe-goal-type-carrier.py,
+# probe-execution-mode-birth.py) make no real claude/execFileSync call today (checked).
 EXCLUDED_DIRS = {}
 # ⚠ MECHANIZED, not documented: on 2026-08-08 an interim exclusion wrote a SET here while :202
 # reads this as a MAPPING, so every hourly fire died `TypeError: 'set' object is not subscriptable`

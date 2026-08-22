@@ -9,10 +9,14 @@ Reproduce any row by making the edit, running the probe, and restoring.
 | # | Mutation | Probe | Result |
 |---|---|---|---|
 | **M1** | remove the settings overlay from `server/index.js` | cadence-flow | ⚠ **INVALID — see below** |
-| **M1′** | overlay `settings.DEFAULTS.ticker` instead of the machine's block (`server/index.js`) — daemon HEALTHY, adoption BROKEN | cadence-flow | **RED: 12/15**, exit 1 |
-| **M2** | `from` hardcoded to `null` in `setValue` (the installer's defect, transplanted) | ticker-settings | **RED: 37/39**, exit 1 |
-| **M3** | `validateMachine` returns `[]` unconditionally | ticker-settings | **RED: 34/39**, exit 1 |
-| — | control, unmutated, before and after every row above | both | **GREEN: 39/39 and 15/15**, exit 0 |
+| **M1′** | overlay `settings.DEFAULTS.ticker` instead of the machine's block (`server/index.js`) — daemon HEALTHY, adoption BROKEN | cadence-flow | **RED: 15/18**, exit 1 |
+| **M2** | `from` hardcoded to `null` in `setValue` (the installer's defect, transplanted) | ticker-settings | **RED: 41/43**, exit 1 |
+| **M3** | `validateMachine` returns `[]` unconditionally | ticker-settings | **RED: 38/43**, exit 1 |
+| — | control, unmutated, before and after every row above | both | **GREEN: 43/43 and 18/18**, exit 0 |
+
+(Re-measured 2026-08-22, D81 cleanup: both probes grew since this table was first written —
+ticker-settings from 39 to 43 checks, cadence-flow from 15 to 18 — and every row above was
+actually re-applied and re-run against the CURRENT tree, not rescaled by arithmetic.)
 
 ## ⚠ M1 was INVALID and is kept here rather than deleted
 
