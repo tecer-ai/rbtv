@@ -15,7 +15,9 @@
 # WHY IT SITS AT THE MODULE ROOT rather than at the ruled `<module>/<component>/exposure.csv`:
 # measured 2026-07-28, NO component folders exist anywhere in this repo — CMP-5's component-first
 # layout is Phase-6 migration work and is unbuilt. The reader
-# (ignite/capabilities/sub-agent-dispatch/catalog.js) scans BOTH depths, so when the component tree
+# (`team-kit/materialize-seats.py`'s `_exposure_rows` — the former reader,
+# `ignite/capabilities/sub-agent-dispatch/catalog.js`, was deleted 2026-08-06,
+# r-seats-only-architecture) scans BOTH depths, so when the component tree
 # materializes and 7.48 moves this file one level down, nothing needs editing.
 #
 # COLUMNS: exactly the six of `concepts/exposure-manifest.md` § file schema, in its order. They are
@@ -51,11 +53,11 @@
 # manifest binds a component's PARTS (`sd-graph show module-entry-point` § differentiation).
 #
 # WHICH INVOCABLES COUNT AS TOOLS — the boundary is mechanical, so a later sweep can reproduce it:
-# a first-party invocable with its own agent-facing command surface. That admits the seven
+# a first-party invocable with its own agent-facing command surface. That admits the eight
 # capability `tool/` wrappers, the module CLI, the seat-identity CLI and the team-kit scripts.
 # It EXCLUDES, each for a stated reason and none by oversight:
-#   · implementation modules a wrapper imports (goal_cli.py, goal_creation_request.py,
-#     workflow_launcher.py) — one tool, one row, at the wrapper;
+#   · implementation modules a wrapper imports (goal_cli.py, goal_creation_request.py)
+#     — one tool, one row, at the wrapper;
 #   · daemon job payloads (jobs/*.py, deploy/probe-suite-scheduled.py) — the queue invokes them,
 #     no agent does;
 #   · long-running services (bridges/chat/index.js, server/**) and probe/test runners
@@ -67,6 +69,11 @@
 # rows split into `<component>/exposure.csv`, the prefixes drop with the move and nothing else
 # changes (same reasoning as the placement note above).
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+# NOTE (r2/capabilities:r2-F3, audit 2026-08-22): this is the ONLY row in this manifest using
+# method=sub-agent — a leftover of the retired sub-agent-dispatch era (same retirement as F1
+# above). No mirrored seat prompt currently declares `exposes:` naming ticker-settings. Kept as
+# data rather than deleted: it may still be a live capability description with no current
+# consumer, not necessarily dead.
 ticker-settings,capability,sub-agent,,capabilities/ticker-settings/ticker-settings.md,,
 team-kit,capability,skill,exhibit,skills/team-kit/SKILL.md,"Set up, run, or join a coordinated parallel multi-agent team in tmux: one pane per seat, typed append-only message log, roster with verified identities, staged launches, watcher/closer seats",
 rbtv-execution,tool,path,rbtv run,capabilities/attached-execution/tool/rbtv-execution,,
