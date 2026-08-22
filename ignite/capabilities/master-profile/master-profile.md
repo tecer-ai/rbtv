@@ -88,7 +88,6 @@ reasoning, rung N the highest, and **N differs per profile** because each harnes
 |---|---|---|
 | `claude-fable` · `claude-opus` · `claude-sonnet` | 1..5 — low · medium · high · xhigh · max | `--effort <level>` |
 | `codex-gpt-5-5` | 1..3 — low · medium · high | `-c model_reasoning_effort=<level>` |
-| `kimi` | 1..2 — `--no-thinking` · `--thinking` | the rung IS the flag |
 | `claude-haiku`, every `opencode-*`, `test-sleep` | **inert** | no dial exists — measured, not assumed |
 
 - **Out of range is refused, loudly, naming the range** — at `request`, again at `apply`, and again

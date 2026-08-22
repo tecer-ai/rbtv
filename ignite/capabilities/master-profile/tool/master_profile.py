@@ -53,7 +53,7 @@ the master is reached over chat or spawned by the daemon.
 
 WHAT A RUNG IS (owner ruling `d-0811lp-effort-numeric-per-profile`): an integer 1..N, ordered lowest
 to highest reasoning, in the ladder THAT PROFILE declares in `spawn-profiles.yaml` (`effort.rungs`).
-N differs per harness — claude 5 (low·medium·high·xhigh·max), codex 3, kimi 2 — so a rung is only
+N differs per harness — claude 5 (low·medium·high·xhigh·max), codex 3 — so a rung is only
 meaningful against a profile, and a request outside that profile's range is REFUSED naming it.
 
 ⚠ A PROFILE WITH NO DIAL (`effort: { inert: true }` — `claude-haiku`, `test-sleep`) ACCEPTS a rung
@@ -241,8 +241,9 @@ def known_pairs(profiles_path=DEFAULT_PROFILES):
     CONTRACT changes: the master asks for a harness and a model, which is what its bindings sheet
     stores and what the daemon resolves at spawn. There is no name layer left to offer.
 
-    ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, kimi, the
-    opencode set), and a list frozen in this file would refuse a pair that exists or admit one that
+    ⚠ NOT A HARD-CODED ROSTER. The owner-ruled roster changes (four claude models, codex, the
+    opencode set — which is where kimi models are reached now that the standalone kimi harness is
+    retired), and a list frozen in this file would refuse a pair that exists or admit one that
     was removed — the second being the failure that reaches the spawn. The catalog is the ONE
     derivation both this tool and `rbtv-bindings` enforce, so the pairs offered here are exactly the
     pairs accepted.

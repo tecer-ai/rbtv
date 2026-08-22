@@ -128,7 +128,8 @@ the carrier is a spawn variant.
   11 shipped profiles with a headed block now carry the same flag and the same value their detached
   templates do (`--model <m>` for claude, `-m <provider/model>` for opencode — a ROOT option there,
   so it applies to the bare TUI command and not only to `run`). **This changes the daemon-headed lane
-  too** (tmux-pane seats), ruled knowingly. `codex` and `kimi` declare no `headed:` block at all, so
+  too** (tmux-pane seats), ruled knowingly. `codex` declares no `headed:` block at all (the
+  standalone `kimi` harness is retired — its models are reachable through `opencode` instead), so
   no profile is left inconsistent with its detached half.
 - ⚠ **No cage.** A session sharing the owner's terminal has neither bwrap nor a systemd slice —
   the accepted bound of the console-run design (§ Cautions), the same one d1's hand-run elicitator

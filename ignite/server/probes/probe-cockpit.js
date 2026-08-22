@@ -77,7 +77,7 @@ function skip(name, why) {
 
 const UNIQUE = `${process.pid}-${Date.now()}`;
 const THROWAWAY = `rbtv-cockpitprobe-${UNIQUE}`;
-const HARNESS_NAMES = new Set(['claude', 'codex', 'opencode', 'kimi']);
+const HARNESS_NAMES = new Set(['claude', 'codex', 'opencode']);
 
 function tmux(args, { allowFail = false } = {}) {
   try {

@@ -304,8 +304,9 @@ spelling is the profile's own.
 
 **The ladders in the shipped config:** claude (fable/opus/sonnet) 1..5
 `low·medium·high·xhigh·max`; codex 1..3 `low·medium·high` (carried as
-`-c model_reasoning_effort=`); kimi 1..2 `--no-thinking·--thinking` (the rung IS the flag);
-claude-haiku and the whole `opencode-*` set inert, measured.
+`-c model_reasoning_effort=`); claude-haiku and the whole `opencode-*` set inert, measured. (The
+standalone `kimi` harness — which once carried its own 1..2 `--no-thinking·--thinking` ladder — is
+retired; its models are reached through `opencode` instead.)
 
 **`resolveEffort` is exported, and that is the point.** `server/spawn/spawn.js#composeArgv` calls
 it — the daemon composes its own argv (G-144 still stands, half selection is still 7.43/7.54) but

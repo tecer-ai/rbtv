@@ -21,7 +21,7 @@ can actually run). Both are decided once, per run, and the briefings below only 
   --renew --handoff`, and by a closer on the leader-initiated failure close; persistent seats
   only), and `transcripts/` (export target). The legacy flat `workers/<agent>.md` still launches.
 - Briefings carry `agent:` frontmatter (the roster signature `launch` discovers), plus optional
-  `harness:` (claude | codex | opencode | kimi; default claude), `model:` (claude alias, or the
+  `harness:` (claude | codex | opencode; default claude), `model:` (claude alias, or the
   provider/model slug for opencode — REQUIRED there; omitted on codex = plan default),
   `effort:` (EVERY harness that has a dial, written as that harness's OWN word — read from the
   profile's `effort.rungs` in `spawn-profiles.yaml`, never a cross-harness vocabulary, and the

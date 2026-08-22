@@ -24,8 +24,9 @@ is what **this deployment decided to spend** on running it — a different kind 
 different lifetime — so it lives under `.rbtv/config/` beside the other deployment knobs.
 
 This path is ONE INSTANCE of the general configuration convention — owner-specific values live at
-`.rbtv/config/modules/<module>/<component>/…`, stated once in
-`ignite/team-kit/starter-set/conduct.md` § 11.
+`.rbtv/config/modules/<module>/<component>/…` (`ignite/team-kit/starter-set/conduct.md`, which
+once stated this, was abolished by owner ruling F7, 2026-08-17; `capabilities/bindings/tool/bindings.py`
+now carries the canonical path).
 
 ⚠ **The pre-D15 spelling `.rbtv/config/bindings/{module}/{component}/{code}.json` still READS.** A
 deployment that has not moved its files keeps working: every verb falls back to the old path and
@@ -218,8 +219,9 @@ Only a DUMP would destroy them, and nothing here dumps.
 
 Every row is finally passed through **`coord.py#validate_seat`** — the same predicate
 `materialize-seats.py`'s F6 gate imports for the whole batch before any write. A profile that
-predicate rejects is listed NOT CASTABLE with its reason rather than dropped: today `kimi` (not in
-`HARNESSES`) and `test-sleep` (no harness at all).
+predicate rejects is listed NOT CASTABLE with its reason rather than dropped: today `test-sleep`
+(no harness at all) — the standalone `kimi` harness is retired outright, so `spawn-profiles.yaml`
+carries no `kimi` row for this predicate to reject in the first place.
 
 ⚠ **The model vocabulary is the profile's pin, verbatim** — `claude-fable-5` for `claude-fable`,
 `claude-opus-5` for `claude-opus`, and so on: every profile now pins a FULL model id (owner ruling

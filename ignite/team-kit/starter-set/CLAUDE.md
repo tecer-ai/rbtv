@@ -105,7 +105,7 @@ No seat resumes from another seat's state.
 
 **HOW the descriptor reaches you depends on your harness, and you do NOT go looking for it.** On
 `claude` your `seat.md` is appended to your SYSTEM PROMPT — it is already above this file; act on it.
-On `codex`, `opencode` and `kimi` your seat folder carries a generated `AGENTS.md` whose first job is
+On `codex` and `opencode` your seat folder carries a generated `AGENTS.md` whose first job is
 to send you to `seat.md` **before your first word**; obey it. (It closes with one standing rule for
 every harness — where a tooling-gap finding is filed; the goal folder's router carries the same
 text.) A seat launched by hand or by
