@@ -50,7 +50,33 @@ function fixture() {
   fs.writeFileSync(path.join(cfgDir, 'private.json'), '{"deny":["keep-this-secret"]}\n');
   fs.writeFileSync(path.join(goalDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime\n');
   fs.writeFileSync(path.join(ws, 'rbtv-standin.js'), 'RBTV-ORIGINAL\n');
-  return { root, ws, goalDir, masterDir, workerDir, peerDir, coordDir, cfgDir, ordinary, chanDir };
+
+  // D56/D74 — a FAKE "stools"-shaped tool inside the fixture workspace, credentials included, so
+  // this probe can prove the D4 pierce actually reaches a master's declared tool's credentials —
+  // no probe covered master cages at all before this (lane finding, 2026-08-22).
+  const toolDir = path.join(ws, '3-resources', 'tools', 'stools');
+  fs.mkdirSync(path.join(toolDir, 'credentials'), { recursive: true });
+  fs.writeFileSync(path.join(toolDir, 'config.yaml'), 'workspace: fixture\n');
+  fs.writeFileSync(path.join(toolDir, 'credentials', 'token.json'), '{"token":"fixture-secret"}\n');
+  fs.writeFileSync(path.join(toolDir, 'stools.py'),
+    '#!/usr/bin/env python3\nimport sys\n'
+    + 'cfg = open("' + path.join(toolDir, 'config.yaml') + '").read()\n'
+    + 'cred = open("' + path.join(toolDir, 'credentials', 'token.json') + '").read()\n'
+    + 'print("CFG_OK" if "fixture" in cfg else "CFG_FAIL")\n'
+    + 'print("CRED_OK" if "fixture-secret" in cred else "CRED_FAIL")\n',
+    { mode: 0o755 });
+  fs.writeFileSync(path.join(cfgDir, 'private.json'), JSON.stringify({
+    deny: ['keep-this-secret', '3-resources/tools/stools/config.yaml', '3-resources/tools/stools/credentials/'],
+    patterns: ['**/*.env', '**/credentials/', '**/*token*', '**/*.key', '**/.git'],
+  }));
+  const masterStoolsDir = path.join(goalDir, 'seats', 'goal-master-stools');
+  fs.mkdirSync(masterStoolsDir, { recursive: true });
+  fs.writeFileSync(path.join(masterStoolsDir, 'seat.md'), [
+    '---', 'seat: goal-master', 'read-root: true', 'bus-write: true', 'goals-write: true',
+    'exposed-clis:', `- stools ${path.join(toolDir, 'stools.py')}`, '---', 'briefing',
+  ].join('\n') + '\n');
+
+  return { root, ws, goalDir, masterDir, workerDir, peerDir, coordDir, cfgDir, ordinary, chanDir, toolDir, masterStoolsDir };
 }
 
 function cageFor(sandbox, seatDir) {
@@ -149,6 +175,29 @@ capture('probe-master-cage', async (lines) => {
     leg('C1', 'channel-master (service seat) write into workspace lands on disk',
       bytes(chanOrdinary) === `${MARK}\n`,
       `host=${JSON.stringify(bytes(chanOrdinary))}`);
+
+    // ── D56/D74 — a master seat that DECLARES stools reaches its config AND credentials ────────
+    // No probe covered a master cage's exposed-clis pierce before this (lane finding, 2026-08-22).
+    const masterStools = cageFor(sandbox, f.masterStoolsDir);
+    leg('S1', 'the D4 exposedCliCode pierce fires for a master seat exactly as for any other seat',
+      masterStools.some((a, i) => a === '--symlink' && masterStools[i + 1] === path.join(f.toolDir, 'stools.py')),
+      `symlink present: ${masterStools.some((a, i) => a === '--symlink' && masterStools[i + 1] === path.join(f.toolDir, 'stools.py'))}`);
+    const stoolsRun = inCage(f.masterStoolsDir, masterStools, 'stools 2>&1; echo rc=$?');
+    leg('S2', 'REAL in-cage run: a master cage with stools declared reads BOTH config.yaml AND credentials/ through the pierce',
+      /CFG_OK/.test(stoolsRun.stdout) && /CRED_OK/.test(stoolsRun.stdout) && /rc=0/.test(stoolsRun.stdout),
+      `stdout=${JSON.stringify(stoolsRun.stdout.trim())} stderr=${JSON.stringify((stoolsRun.stderr || '').trim().slice(0, 200))}`);
+    // RED control — the SAME master role, undeclared: today's PermissionError shape, proving S2
+    // is not vacuous (the pierce is what makes it work, not the master's already-wide cage).
+    const undeclaredMasterDir = path.join(f.goalDir, 'seats', 'goal-master-nostools');
+    fs.mkdirSync(undeclaredMasterDir, { recursive: true });
+    fs.writeFileSync(path.join(undeclaredMasterDir, 'seat.md'),
+      '---\nseat: goal-master\nread-root: true\nbus-write: true\ngoals-write: true\n---\nbriefing\n');
+    const undeclaredMaster = cageFor(sandbox, undeclaredMasterDir);
+    const undeclaredRun = inCage(undeclaredMasterDir, undeclaredMaster,
+      `python3 ${path.join(f.toolDir, 'stools.py')} 2>&1; echo rc=$?`);
+    leg('S2-control', 'RED: the SAME master role WITHOUT the declaration cannot read the masked config (S2 is non-vacuous)',
+      !/CFG_OK/.test(undeclaredRun.stdout) && !/rc=0/.test(undeclaredRun.stdout),
+      `stdout=${JSON.stringify(undeclaredRun.stdout.trim().slice(0, 200))}`);
 
     lines.push('');
     lines.push(`legs: ${fails.length === 0 ? 'ALL PASS' : `FAILED -> ${fails.join(', ')}`}`);
