@@ -13,7 +13,8 @@ drifted from the code and taught commands that no longer existed. Run `coordinat
 grouped command list, `coordinate <command> -h` for one command's arguments, one example and the
 step that usually follows. Briefing frontmatter keys: `briefing-template.md` beside this script.
 
-Stdlib only; no PATH install. Liveness/context monitoring lives in watch.py beside this script.
+Stdlib only; no PATH install. Liveness/context monitoring lives in `team_monitor.py`
+(`orchestration/cli/team-monitor/`), which replaced the retired `watch.py`.
 """
 import argparse
 import csv
@@ -2606,10 +2607,6 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 DISPOSITION_WRITER_SEAT = "seat"
 DISPOSITION_WRITER_KIT = "kit"
 DISPOSITION_WRITER_LEADER = "leader"
-# Historical token only. Pre-D3 rows carry `kit-for-seat` in `disposition-writer` (the EROFS
-# proxy transcribed a seat declaration the cage could not stamp). Readers must still parse
-# that spelling; the writer is gone. Seats now write `sessions.csv` themselves via checkout.
-DISPOSITION_WRITER_KIT_FOR_SEAT = "kit-for-seat"
 RECORD_DISPOSITION_WRITER = {
     "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
     "renew": frozenset({DISPOSITION_WRITER_SEAT}),
@@ -2913,20 +2910,6 @@ def pad_row(row, header):
     while len(row) < len(header):
         row.append("")
     return row
-
-
-def taskforce_ids(pkg):
-    """This run's taskforce ids, file order, deduped, '|'-joined. '' when there is none."""
-    header, rows = read_csv_table(pkg / "taskforce.csv", [])
-    if not rows or "taskforce-id" not in header:
-        return ""
-    i = header.index("taskforce-id")
-    out = []
-    for r in rows:
-        v = r[i].strip() if i < len(r) else ""
-        if v and v not in out:
-            out.append(v)
-    return "|".join(out)
 
 
 # ---------- 7.607 E1: THE DERIVED LEASE, accessed — never re-implemented here ----------------
@@ -5377,15 +5360,6 @@ def is_leader(name):
     return name == "leader"
 
 
-def is_daemon(name):
-    """Who may drain disposition grants onto `sessions.csv`: the uncaged ignite daemon only.
-
-    The leader mints on writable `coordination/`; this predicate is the apply half. Reusing
-    `is_authorized_launcher` would let the leader write `sessions.csv` from a cage that carves
-    that file read-only — the EROFS this split exists to avoid."""
-    return name == DAEMON_IDENTITY
-
-
 def is_leader_or_closer(name):
     return name == "leader" or name.startswith("closer-")
 
@@ -6419,8 +6393,8 @@ def renewal_from_entry(entry, now_str=None):
 
 def renewal_state(base, seat, now_str=None, lifecycle=None):
     """(state, why) — `renewal_from_entry` against the marker on disk. THE ONE READER of the
-    successor-pending signal, and both `after` gates call it: `ready_seat_rows` here and
-    `goal-watcher-job.py`'s shadow backstop across the import it already makes. Two gates
+    successor-pending signal: `ready_seat_rows` here, and `engine/attached-execution.js` on the JS
+    side, transported through the `renewal-state` verb rather than re-deriving it. Two gates
     re-deriving one seat's state from one file is how they come to disagree about it.
 
     `lifecycle` lets a caller that already loaded the marker (`ready_seat_rows` hoists it once for
@@ -8332,7 +8306,7 @@ def closing_reaches(seat, sender, entry):
 
 
 def cmd_approve(args):
-    """(doorman) answer a seat's interactive permission/approval prompt: send keys to its
+    """Answer a seat's interactive permission/approval prompt: send keys to its
     REGISTERED pane and echo the pane tail so the caller can verify the outcome. This is
     the sanctioned pane-touch for approval gates — inspect the pane (capture-pane) and
     decide BEFORE calling; --keys "" (default) just presses Enter (the highlighted
@@ -12748,7 +12722,7 @@ def discover_workers(wdir):
     Returns per-seat dicts: agent, agent_type (str — the DECLARED type, "" when the descriptor
     declares none; 7.278's capacity term sizes `counting.counts_toward_cap` off this and nothing
     else), briefing, harness, model, effort, cwd, window, ephemeral,
-    ctx_refresh (int|None — the seat's own context-refresh threshold, consumed by watch.py),
+    ctx_refresh (int|None — the seat's own context-refresh threshold, consumed by team_monitor.py),
     folder (the seat's worker folder in folder form, else None)."""
     found = []
     for p in briefing_files(wdir):
@@ -14094,8 +14068,8 @@ def ready_seat_rows(args):
                # watcher's owed scan.
                HOLD_ANCHOR_COL: (last_ended_rows.get(seat, {}).get(HOLD_ANCHOR_COL) or "").strip(),
                # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
-               # rule and the same reason as `undeclared-session`, `row-outcome`, `unmet-after` and
-               # `relaunch-grant` below: a key that appears only when it fires cannot be read as a
+               # rule and the same reason as `undeclared-session`, `row-outcome` and `unmet-after`:
+               # a key that appears only when it fires cannot be read as a
                # term, and an ABSENT key raises in a consumer where an empty list decides.
                "held-asks": held.get(seat, []),
                "skew": list(skew) if skew else None, "active": active,
@@ -14608,8 +14582,8 @@ def cmd_surface_refusal(args):
 # WHY A VERB EXISTS FOR A ONE-LINE ANSWER: `evaluateExit` (ignite/engine/attached-execution.js) was
 # the last reader collapsing stuck-vs-unfinished — it could end a console run `blocked` on a seat
 # whose `--renew` successor was mid-hand-over. The single source of renewal truth is
-# `renewal_state` (rbtv 3b43bda1), a PYTHON function with, by doctrine, no JS reader
-# (`jobs/goal-watcher-job.py` § ONE READER): JS may TRANSPORT the answer, never re-derive it. This
+# `renewal_state` (rbtv 3b43bda1), a PYTHON function with, by doctrine, no JS reader deriving its
+# own answer: JS may TRANSPORT the answer, never re-derive it. This
 # verb is that transport's far end — a thin print over `renewal_state`, no logic of its own, so the
 # reader count stays at one.
 #
@@ -20110,7 +20084,7 @@ def _selftest_checks(args, failures, names):
               and by["gamma"]["folder"] == gdir)
         check("v2: ephemeral codex seat discovered; model empty -> plan default",
               by["delta"]["harness"] == "codex" and by["delta"]["ephemeral"] and by["delta"]["model"] == "")
-        check("T5 ctx-refresh: the frontmatter key is exposed per seat (int|None) for watch.py",
+        check("T5 ctx-refresh: the frontmatter key is exposed per seat (int|None) for team_monitor.py",
               by["hk-1"]["ctx_refresh"] == 40 and by["alpha"]["ctx_refresh"] is None)
         check("leader renew: discovered by name, excluded from the bare mass sweep",
               "leader" in by
@@ -20896,7 +20870,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- T1: identity resolution + verification (F1) ----
         calling_pane["v"] = ""
-        check("T1: an explicit args.agent (watch.py's internal Namespace calls) resolves as --as",
+        check("T1: an explicit args.agent (team_monitor.py's internal Namespace calls) resolves as --as",
               resolve_agent(ns(agent="lookout")) == "lookout")
         os.environ["COORD_AGENT"] = "alpha"
         check("T1: COORD_AGENT (injected at launch) resolves the caller with nothing typed",
@@ -21077,7 +21051,9 @@ def _selftest_checks(args, failures, names):
               "kernel measurables carries no `--as`, so the bound never fires on it. Since 7.738 "
               "(owner ruling 2026-08-11) the ROLE gate admits it too: `is_authorized_launcher` "
               "names DAEMON_IDENTITY, so the daemon reaches the launch the widening was ruled for "
-              "and `workflow_launcher.py` no longer spells compliance as `--force`. This row still "
+              "and the daemon's start-workflow path no longer spells compliance as `--force` "
+              "(`workflow_launcher.py`, the file that once did, was folded into "
+              "goal-creation-request). This row still "
               "proves the gate did not capture its own key — the `--as` bound is INTACT (its own "
               "mark is absent, so it did not fire) and no role-gate refusal stands in front of the "
               "daemon. The grant is read at the predicate, never inferred from the absence of a "
@@ -22557,7 +22533,7 @@ def _selftest_checks(args, failures, names):
                   sender_origin(ns(pane="%9999"), "zeta") is None)
         finally:
             os.chdir(_cwd)
-        check("stage 4: an unresolvable pane changes NOTHING — out-of-pane callers (watch.py, an "
+        check("stage 4: an unresolvable pane changes NOTHING — out-of-pane callers (team_monitor.py, an "
               "--as claim from outside tmux) keep today's behaviour, because under-labelling is "
               "the safe direction and over-labelling would re-serve a seat its own sends",
               sender_origin(ns(pane=""), "zeta") is None)
@@ -24590,7 +24566,7 @@ def _selftest_checks(args, failures, names):
               _u97_t[1][1] == "executing" and _u97_t[2][1] == "blocked")
 
         # ARM 4 — THE OFF-VOCABULARY RED ARM, driven through the FUNCTION and not argparse: the
-        # parser's `choices=` refuses at the CLI, but watch.py and every internal caller build a
+        # parser's `choices=` refuses at the CLI, but team_monitor.py and every internal caller build a
         # Namespace directly, so the guard that matters is the one inside the command.
         _u97_before = state_csv(_u97_pkg).read_bytes()
         _u97_o, _u97_c = _u97_go(state="in-progress")
@@ -25776,7 +25752,7 @@ def _selftest_checks(args, failures, names):
               _s3_tokens == set(REFUSAL_LAYERS) and not _s3_opaque)
 
         # ---- L-b: THE EXIT CODES ARE UNCHANGED. The sites exited with a MIX of 1 and 2 before the
-        # sweep, and `watch.py`'s `record_undelivered` path keys on coord's EXIT CODE rather than
+        # sweep, and `team_monitor.py`'s undelivered-flag path keys on coord's EXIT CODE rather than
         # on this text — so a conversion that uniformized them would change behaviour for it and
         # for every scripted caller while every text assertion above stayed green. Three sites,
         # spanning both codes; the first is ALSO L-c (3 of 3), the third continuation-literal site.
@@ -25789,7 +25765,7 @@ def _selftest_checks(args, failures, names):
         check("s12-03 L-b / L-c (3 of 3): exit codes survive the sweep — the checkin "
               "SUMMARY-LENGTH site (the third continuation-literal one) still exits 1 and names "
               "`input`, an ordinary head site still exits 1, and the role gate still exits 2. The "
-              "codes are behaviour (watch.py keys on them), not decoration",
+              "codes are behaviour (team_monitor.py keys on them), not decoration",
               _s3_lb_cont_code == 1 and _s3_lb_head_code == 1 and _s12k_code == 2
               and re.search(r"^refused \[coord input\]: ", _s3_lb_cont, re.M) is not None
               and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
@@ -25828,7 +25804,7 @@ def _selftest_checks(args, failures, names):
         # corroborates — which is exactly the shape `as_agent=` builds here, with the suite's
         # calling pane stubbed to "". Left as `as_agent=`, the real-branch rows would stop reaching
         # the gate they are ABOUT and would assert F17's refusal instead, silently. `agent=` is the
-        # in-process Namespace channel (watch.py's), which F17 deliberately does not key on, so the
+        # in-process Namespace channel (team_monitor.py's), which F17 deliberately does not key on, so the
         # caller still resolves to the same name through the same `resolve_agent` and each row's
         # subject — the ROLE and MEMORY gates — is unchanged. The DRY-RUN calls move with them so
         # the block is uniform and `as_agent=` on `cmd_launch` means F17's own rows and nothing
@@ -27644,7 +27620,7 @@ def _selftest_checks(args, failures, names):
         # `no-successor`. The CLI row is compared against the FUNCTION's own answer on the same
         # package, which is the verb's whole contract: a thin transport, zero logic of its own —
         # a divergence here means a second classifier grew where the one-reader doctrine
-        # (`goal-watcher-job.py` § ONE READER) forbids one.
+        # (`renewal_state` above — no JS reader may re-derive its answer) forbids one.
         _le10 = _rs_make("le10", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
                          lifecycle={"a": {"disposition": "renew", "state": "in-flight",
                                           "stamped-at": now(), "steps-completed": [],
@@ -35605,7 +35581,7 @@ leader
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
-  owner / secret-add  set owner presence: present | afk · append one env NAME from a drop file (masters; value never logged)
+  owner / secret-add  set owner presence: present | reachable | afk · append one env NAME from a drop file (masters; value never logged)
   add-to-group / remove-from-group  join or drop an existing group's members
 
 other
@@ -36536,18 +36512,18 @@ def build_parser():
         "declared receiver is exactly the case that was lost silently.\n"
         "\n"
         "A declared target is checked for EXISTENCE (a well-formed name that names no seat is how a\n"
-        "routed FAIL reached nobody) and for a bindable ENDED SESSION, then granted a relaunch in\n"
-        "BOTH grant stores — and handed a PAYLOAD FILE that its next boot prompt folds in. A bare\n"
-        "grant would re-run the seat on its STALE SEED, which manufactures a false complete.",
+        "routed FAIL reached nobody) and for a bindable ENDED SESSION, then handed a PAYLOAD FILE\n"
+        "that its next boot prompt folds in. D12 · THIS VERB GRANTS NOTHING — the goal watcher\n"
+        "(`engine/reconcile.js`) is what relaunches a seat whose last ended row is NON-TERMINAL and\n"
+        "who has unread mail; a bare payload with no non-terminal row would strand the seat on its\n"
+        "STALE SEED with nothing to bring it back.",
         "example:\n"
-        "  coordinate route-fail \"the contract in step 3 contradicts step 1\" --inline --go\n"
+        "  coordinate route-fail \"the contract in step 3 contradicts step 1\" --go\n"
         "next: coordinate read — the routed seat relaunches on the next seeding pass")
     s.add_argument("message", nargs="?",
-                   help="the fail, quoted — needs --inline when typed at a shell. Anything with "
+                   help="the fail, quoted. Anything with "
                         "backticks, quotes or newlines goes through --file")
     s.add_argument("--file", metavar="PATH", help="read the body from a file instead")
-    s.add_argument("--inline", action="store_true",
-                   help="required with a positional body — the shell-quoting acknowledgement")
     s.add_argument("--go", action="store_true", help="act (bare = report, write nothing)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_route_fail)
@@ -36760,7 +36736,7 @@ def build_parser():
 
     s = command(
         "approve",
-        "(doorman) Answer a seat's interactive permission prompt by sending keys to its\n"
+        "Answer a seat's interactive permission prompt by sending keys to its\n"
         "registered pane, then echo the pane tail so you can verify what happened. Inspect the\n"
         "pane and DECIDE first — this only presses the button.",
         "example:\n"
