@@ -53,10 +53,19 @@ MEMORY_COMPONENTS = (
     "team-kit", "work-on-ignite",
     "meta-installer", "meta-leader", "meta-master-agent", "meta-planning",
 )
-MEMORY_ISSUE_HEADINGS = ("Seen", "Missed", "Held")
-MEMORY_CREATION_HEADINGS = ("What it is", "Why", "How to use & where wired", "ATTENTION")
+MEMORY_ISSUE_HEADINGS = (
+    "Observed", "Mechanism", "Attempts", "Fix", "Consequences", "Verification",
+    "ATTENTION",
+)
+MEMORY_CREATION_HEADINGS = (
+    "Motivation", "Design", "How it works", "Consequences", "Verification",
+    "ATTENTION",
+)
 MEMORY_LINE_TARGET = 280
 MEMORY_LINE_CAP = 400
+MEMORY_PROSE_WORD_FLOOR = 20
+MEMORY_HEADER_SECTIONS = ("commit", "files", "deployed", "pin")
+MEMORY_PLACEHOLDER_PHRASES = ("none recorded", "todo", "tbd", "n/a", "lorem")
 
 
 class Refuse(Exception):
@@ -621,12 +630,47 @@ def parse_sections(text: str) -> dict:
     return sections
 
 
+def required_headings(kind: str) -> tuple:
+    return MEMORY_ISSUE_HEADINGS if kind == "issue" else MEMORY_CREATION_HEADINGS
+
+
+def prose_headings(kind: str) -> tuple:
+    return required_headings(kind)[:-1]  # every required heading except ATTENTION
+
+
 def missing_heading(sections: dict, kind: str) -> str | None:
-    required = MEMORY_ISSUE_HEADINGS if kind == "issue" else MEMORY_CREATION_HEADINGS
-    for h in required:
+    for h in required_headings(kind):
         content = sections.get(h)
         if content is None or not any(l.strip() for l in content):
             return h
+    return None
+
+
+def thin_section(sections: dict, kind: str) -> str | None:
+    for h in prose_headings(kind):
+        content = sections.get(h) or []
+        words = len(re.findall(r"\S+", "\n".join(content)))
+        if words < MEMORY_PROSE_WORD_FLOOR:
+            return h
+    return None
+
+
+def duplicated_header_section(body_text: str) -> str | None:
+    for line in body_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("##"):
+            continue
+        name = stripped.lstrip("#").strip().lower()
+        if name in MEMORY_HEADER_SECTIONS:
+            return name
+    return None
+
+
+def placeholder_phrase(body_text: str) -> str | None:
+    lowered = body_text.lower()
+    for phrase in MEMORY_PLACEHOLDER_PHRASES:
+        if re.search(r"\b" + re.escape(phrase) + r"\b", lowered):
+            return phrase
     return None
 
 
@@ -639,34 +683,64 @@ def first_nonempty(lines: list[str]) -> str:
 
 def derive_clause(sections: dict, kind: str) -> str:
     if kind == "issue":
-        seen = first_nonempty(sections.get("Seen", []))
-        held = first_nonempty(sections.get("Held", []))
-        if seen and held:
-            return f"{seen} → {held}"
-        return seen or held
-    return first_nonempty(sections.get("What it is", []))
+        observed = first_nonempty(sections.get("Observed", []))
+        mechanism = first_nonempty(sections.get("Mechanism", []))
+        if observed and mechanism:
+            return f"{observed} → {mechanism}"
+        return observed or mechanism
+    return first_nonempty(sections.get("Design", []))
+
+
+def bullet_norm(bullet: str) -> str:
+    return one_line(bullet).strip().lower()
+
+
+def is_bullet_dupe(existing_norms: list[str], candidate_norm: str) -> bool:
+    for e in existing_norms:
+        if e == candidate_norm or e.startswith(candidate_norm) or candidate_norm.startswith(e):
+            return True
+    return False
 
 
 def merge_attention(body_text: str, bullets: list[str]) -> str:
     if not bullets:
         return body_text
     lines = body_text.splitlines()
-    bullet_lines = [f"- {b}" for b in bullets]
     idx = None
     for i, l in enumerate(lines):
         if l.strip() == "## ATTENTION":
             idx = i
             break
+    existing_norms = []
+    if idx is not None:
+        j = idx + 1
+        while j < len(lines) and not lines[j].startswith("## "):
+            stripped = lines[j].strip()
+            if stripped.startswith("- "):
+                existing_norms.append(bullet_norm(stripped[2:]))
+            j += 1
+
+    new_lines = []
+    for b in bullets:
+        norm = bullet_norm(b)
+        if not norm or is_bullet_dupe(existing_norms, norm):
+            continue
+        existing_norms.append(norm)
+        new_lines.append(f"- {one_line(b)}")
+
+    if not new_lines:
+        return body_text
+
     if idx is None:
         if lines and lines[-1].strip():
             lines.append("")
         lines.append("## ATTENTION")
-        lines.extend(bullet_lines)
+        lines.extend(new_lines)
     else:
         j = idx + 1
         while j < len(lines) and not lines[j].startswith("## "):
             j += 1
-        lines[j:j] = bullet_lines
+        lines[j:j] = new_lines
     return "\n".join(lines)
 
 
@@ -758,6 +832,24 @@ def cmd_memory_file(args, cwd: Path) -> int:
             "body-file-unreadable", f"could not read {body_path}: {exc}",
         ), as_json)
 
+    dup = duplicated_header_section(body_text)
+    if dup:
+        return emit({
+            "ok": False,
+            "refusal": {"code": "body-duplicates-header",
+                        "message": f"body carries '## {dup}', which the header block "
+                                   f"already writes — remove it from the body"},
+        }, as_json=as_json, exit_code=1)
+    phrase = placeholder_phrase(body_text)
+    if phrase:
+        return emit({
+            "ok": False,
+            "refusal": {"code": "body-placeholder",
+                        "message": f"body contains the placeholder phrase {phrase!r} — "
+                                   f"say what actually happened, or use "
+                                   f"'First attempt held — checked: …' for nothing tried"},
+        }, as_json=as_json, exit_code=1)
+
     date = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     merged_body = merge_attention(body_text, args.attention or [])
     sections = parse_sections(merged_body)
@@ -767,6 +859,14 @@ def cmd_memory_file(args, cwd: Path) -> int:
             "ok": False,
             "refusal": {"code": f"missing-field:{kebab(bad, 40)}",
                         "message": f"body is missing required section '## {bad}'"},
+        }, as_json=as_json, exit_code=1)
+    thin = thin_section(sections, kind)
+    if thin:
+        return emit({
+            "ok": False,
+            "refusal": {"code": "body-section-thin",
+                        "message": f"section '## {thin}' has fewer than "
+                                   f"{MEMORY_PROSE_WORD_FLOOR} words of prose"},
         }, as_json=as_json, exit_code=1)
 
     letter = "i" if kind == "issue" else "c"
@@ -988,6 +1088,66 @@ def cmd_memory_check(args, cwd: Path) -> int:
             print(f"finding: {f}")
         print("check: FAIL")
     return 0 if ok else 1
+
+
+def entry_kind(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith("kind:"):
+            return line.split(":", 1)[1].strip()
+    return "issue"
+
+
+def relint_entry(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    kind = entry_kind(text)
+    sections = parse_sections(text)
+    missing = [h for h in required_headings(kind)
+               if not any(l.strip() for l in sections.get(h, []))]
+    placeholders = [p for p in MEMORY_PLACEHOLDER_PHRASES
+                    if re.search(r"\b" + re.escape(p) + r"\b", text.lower())]
+    return {"file": path.name, "kind": kind, "missing_headings": missing,
+            "placeholders": placeholders}
+
+
+def cmd_memory_relint(args, cwd: Path) -> int:
+    as_json = args.json
+    if not (args.component or "").strip():
+        return refuse_payload(Refuse(
+            "missing-field:component", "--component is required",
+        ), as_json)
+    if args.component not in MEMORY_COMPONENTS:
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    try:
+        mem_dir = memory_root(cwd, args.repo) / args.component
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+    if not mem_dir.is_dir():
+        return refuse_payload(Refuse(
+            "component-dir-missing", f"{mem_dir} does not exist",
+        ), as_json)
+
+    entries = [relint_entry(p) for p in sorted(mem_dir.glob("*.md"))
+               if not p.name.startswith("_")]
+    flagged = [e for e in entries if e["missing_headings"] or e["placeholders"]]
+    payload = {
+        "ok": True, "component": args.component,
+        "total": len(entries), "flagged": len(flagged),
+        "entries": flagged,
+    }
+    if as_json:
+        return emit(payload, as_json=True, exit_code=0)
+    if not flagged:
+        print(f"relint: {len(entries)} entries, all conform")
+        return 0
+    for e in flagged:
+        bits = []
+        if e["missing_headings"]:
+            bits.append("missing=" + ",".join(e["missing_headings"]))
+        if e["placeholders"]:
+            bits.append("placeholder=" + ",".join(e["placeholders"]))
+        print(f"{e['file']}: {' '.join(bits)}")
+    print(f"relint: {len(flagged)}/{len(entries)} entries flagged")
+    return 0
 
 
 def _run(argv, *, cwd=None):
@@ -1218,9 +1378,35 @@ def cmd_selftest(_args, _cwd: Path) -> int:
 
         issue_body = scratch / "issue-body.md"
         issue_body.write_text(
-            "## Seen\nthe launcher spawned twice on restart\n\n"
-            "## Missed\nrestarting alone did not stop the double spawn\n\n"
-            "## Held\nadded a pid lock file before spawn\n", encoding="utf-8")
+            "## Observed\n"
+            "the launcher spawned twice on restart.\n"
+            "Confirmed by two pid entries in the process table for the same daemon "
+            "within one second of each other, on a routine restart with no crash "
+            "in between.\n\n"
+            "## Mechanism\n"
+            "the restart script raced the previous process's exit.\n"
+            "It called spawn before the previous process had actually been reaped, "
+            "so the liveness check saw no running process yet and started a second "
+            "one racing the first.\n\n"
+            "## Attempts\n"
+            "First attempt held — checked: a fixed sleep before spawn.\n"
+            "The race window still appeared under load because reaping speed varies "
+            "with how busy the host is, so a fixed delay could not close it reliably.\n\n"
+            "## Fix\n"
+            "added a pid lock file taken before spawn.\n"
+            "It is released only once the child reports itself ready, so a "
+            "concurrent spawn call blocks until the previous process is fully reaped.\n\n"
+            "## Consequences\n"
+            "restart is now serialized through the lock file.\n"
+            "A process that crashes without releasing the lock relies on the "
+            "watchdog timeout to clear it before the next restart can proceed.\n\n"
+            "## Verification\n"
+            "ran ten consecutive restarts under load, one pid each time.\n"
+            "Confirmed via the process table check script, with no double spawn "
+            "observed across the whole run.\n\n"
+            "## ATTENTION\n"
+            "- lock file permissions must survive a fresh clone\n",
+            encoding="utf-8")
 
         mf1 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
                     "--title", "double spawn on restart", "--body-file", str(issue_body),
@@ -1231,17 +1417,38 @@ def cmd_selftest(_args, _cwd: Path) -> int:
         passed &= _ok("green: memory-file-issue",
                       mf1.returncode == 0 and entry1 is not None and entry1.is_file()
                       and "kind: issue" in entry1.read_text(encoding="utf-8")
-                      and "## Seen" in entry1.read_text(encoding="utf-8")
+                      and "## Observed" in entry1.read_text(encoding="utf-8")
                       and issues_line1 and "double spawn on restart" in issues_line1[-1]
                       and "abc1234" in issues_line1[-1],
                       f"exit={mf1.returncode} path={dmf1.get('path')} line={issues_line1[-1:]}")
 
         creation_body = scratch / "creation-body.md"
         creation_body.write_text(
-            "## What it is\nA pid lock file the launcher takes before spawning\n\n"
-            "## Why\nprevents the double-spawn seen on restart\n\n"
-            "## How to use & where wired\nwired into launch-profiles/spawn\n\n"
-            "## ATTENTION\n- watch lock-file permissions on a fresh clone\n", encoding="utf-8")
+            "## Motivation\n"
+            "stop two restart calls from racing each other.\n"
+            "Repeated double-spawn incidents were traced back to the previous process "
+            "not being reaped before the next spawn began, so the launcher needed a "
+            "way to serialize the two calls.\n\n"
+            "## Design\n"
+            "a pid lock file taken before spawn.\n"
+            "It is released only after the child process reports itself ready, so a "
+            "second spawn attempt blocks on the file instead of racing ahead of the "
+            "first one.\n\n"
+            "## How it works\n"
+            "the launcher acquires the lock, spawns, then releases it.\n"
+            "It takes a blocking file lock, spawns the child, waits for its ready "
+            "signal, then releases the lock so the next restart can proceed safely.\n\n"
+            "## Consequences\n"
+            "restart is now serialized through the lock file.\n"
+            "A crashed process that never releases the lock relies on the watchdog "
+            "timeout to clear it before the next restart is attempted.\n\n"
+            "## Verification\n"
+            "ran ten consecutive restarts under load, one pid each time.\n"
+            "Confirmed via the process table check script, with no double spawn "
+            "observed across the whole run.\n\n"
+            "## ATTENTION\n"
+            "- watch lock-file permissions on a fresh clone\n",
+            encoding="utf-8")
         mf2 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "creation",
                     "--title", "pid lock file", "--body-file", str(creation_body),
                     "--commit", "def5678"])
@@ -1255,15 +1462,85 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       and creations_line1[-1].endswith("⚠"),
                       f"exit={mf2.returncode} line={creations_line1[-1:]}")
 
+        passed &= _ok("green: memory-new-headings-ok",
+                      mf1.returncode == 0 and mf2.returncode == 0
+                      and entry1 is not None and entry2 is not None
+                      and "## Observed" in entry1.read_text(encoding="utf-8")
+                      and "## Fix" in entry1.read_text(encoding="utf-8")
+                      and "## Motivation" in entry2.read_text(encoding="utf-8")
+                      and "## Design" in entry2.read_text(encoding="utf-8"),
+                      f"issue={mf1.returncode} creation={mf2.returncode}")
+
         bad_body = scratch / "bad-issue.md"
-        bad_body.write_text("## Seen\nx\n\n## Held\ny\n", encoding="utf-8")
+        bad_body.write_text(
+            issue_body.read_text(encoding="utf-8").split("## Fix\n", 1)[0], encoding="utf-8")
         mf3 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
-                    "--title", "bad body missing missed", "--body-file", str(bad_body)])
+                    "--title", "bad body missing fix", "--body-file", str(bad_body)])
         dmf3 = json.loads(mf3.stdout) if mf3.stdout.strip() else {}
-        passed &= _ok("red: memory-missing-missed",
+        passed &= _ok("red: memory-missing-fix",
                       mf3.returncode == 1
-                      and dmf3.get("refusal", {}).get("code") == "missing-field:missed",
+                      and dmf3.get("refusal", {}).get("code") == "missing-field:fix",
                       dmf3.get("refusal", {}))
+
+        dup_body = scratch / "dup-header-issue.md"
+        dup_body.write_text(
+            issue_body.read_text(encoding="utf-8") + "\n## commit\nabc1234\n",
+            encoding="utf-8")
+        mf_dup = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                       "--title", "dup header section", "--body-file", str(dup_body)])
+        dmf_dup = json.loads(mf_dup.stdout) if mf_dup.stdout.strip() else {}
+        passed &= _ok("red: memory-refuse-duplicate-header-section",
+                      mf_dup.returncode == 1
+                      and dmf_dup.get("refusal", {}).get("code") == "body-duplicates-header",
+                      dmf_dup.get("refusal", {}))
+
+        placeholder_body = scratch / "placeholder-issue.md"
+        placeholder_body.write_text(
+            issue_body.read_text(encoding="utf-8").replace(
+                "First attempt held — checked: a fixed sleep before spawn.\n"
+                "The race window still appeared under load because reaping speed varies "
+                "with how busy the host is, so a fixed delay could not close it reliably.",
+                "none recorded"),
+            encoding="utf-8")
+        mf_ph = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                      "--title", "placeholder phrase probe", "--body-file", str(placeholder_body)])
+        dmf_ph = json.loads(mf_ph.stdout) if mf_ph.stdout.strip() else {}
+        passed &= _ok("red: memory-refuse-placeholder",
+                      mf_ph.returncode == 1
+                      and dmf_ph.get("refusal", {}).get("code") == "body-placeholder",
+                      dmf_ph.get("refusal", {}))
+
+        thin_body = scratch / "thin-issue.md"
+        thin_body.write_text(
+            issue_body.read_text(encoding="utf-8").replace(
+                "ran ten consecutive restarts under load, one pid each time.\n"
+                "Confirmed via the process table check script, with no double spawn "
+                "observed across the whole run.",
+                "checked once, done."),
+            encoding="utf-8")
+        mf_thin = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                        "--title", "thin section probe", "--body-file", str(thin_body)])
+        dmf_thin = json.loads(mf_thin.stdout) if mf_thin.stdout.strip() else {}
+        passed &= _ok("red: memory-refuse-thin-section",
+                      mf_thin.returncode == 1
+                      and dmf_thin.get("refusal", {}).get("code") == "body-section-thin",
+                      dmf_thin.get("refusal", {}))
+
+        mf_att1 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                        "--title", "attention dedup probe", "--body-file", str(issue_body),
+                        "--attention",
+                        "Lock file permissions must survive a fresh clone (dup)",
+                        "--attention",
+                        "watch for lock contention under swarmed restarts"])
+        dmf_att1 = json.loads(mf_att1.stdout) if mf_att1.stdout.strip() else {}
+        att_entry = Path(dmf_att1["path"]) if dmf_att1.get("path") else None
+        att_text = att_entry.read_text(encoding="utf-8") if att_entry else ""
+        att_bullets = [l for l in att_text.splitlines() if l.strip().startswith("- ")]
+        passed &= _ok("green: memory-attention-dedup",
+                      mf_att1.returncode == 0 and len(att_bullets) == 2
+                      and any("lock contention" in b for b in att_bullets)
+                      and not any("(dup)" in b for b in att_bullets),
+                      f"exit={mf_att1.returncode} bullets={att_bullets}")
 
         mf4 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
                     "--title", "long line probe", "--body-file", str(issue_body),
@@ -1326,8 +1603,7 @@ def cmd_selftest(_args, _cwd: Path) -> int:
 
         check_body = scratch / "check-body.md"
         check_body.write_text(
-            "## Seen\ncheck target seen\n\n## Missed\nnothing\n\n## Held\nheld\n",
-            encoding="utf-8")
+            issue_body.read_text(encoding="utf-8"), encoding="utf-8")
         mcf = _run(["memory", "file", *mcommon, "--component", "gateway", "--kind", "issue",
                     "--title", "check target", "--body-file", str(check_body)])
         chk_ok = _run(["memory", "check", *mcommon, "--component", "gateway"])
@@ -1348,6 +1624,31 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       and any(f.get("code") == "line-malformed"
                               for f in dchk_bad.get("findings", [])),
                       dchk_bad.get("findings"))
+
+        # ---- relint: read-only report against old- vs new-heading entries --------
+        legacy_entry = mem_root / "gateway" / "20260101-i-legacy-old-headings.md"
+        legacy_entry.write_text(
+            render_memory_header(
+                "20260101-i-legacy-old-headings", "legacy old headings", "issue",
+                "gateway", "2026-01-01", "abc0001", "yes", "NONE", None, True, None)
+            + "## Seen\nold-format entry seen before the contract\n\n"
+              "## Missed\nnothing missed\n\n"
+              "## Held\nheld under the old vocabulary\n",
+            encoding="utf-8")
+        relint_j = _run(["memory", "relint", *mcommon, "--component", "gateway"])
+        drelint = json.loads(relint_j.stdout) if relint_j.stdout.strip() else {}
+        legacy_row = next((e for e in drelint.get("entries", [])
+                            if e.get("file") == legacy_entry.name), None)
+        clean_row = next((e for e in drelint.get("entries", [])
+                           if e.get("file") == "check-target.md"
+                           or "check-target" in e.get("file", "")), None)
+        passed &= _ok("green: memory-relint-reports",
+                      relint_j.returncode == 0 and drelint.get("ok") is True
+                      and legacy_row is not None
+                      and "Observed" in legacy_row.get("missing_headings", [])
+                      and "Fix" in legacy_row.get("missing_headings", [])
+                      and clean_row is None,
+                      drelint)
 
         # ---- the non-JSON refusal names the route on stderr ----------------------
         rp = _run(["file", "--register", str(reg),
@@ -1508,6 +1809,19 @@ def build_parser() -> argparse.ArgumentParser:
     mc.add_argument("--repo", default=argparse.SUPPRESS,
                      help="override the rbtv repo root (tests only)")
     mc.set_defaults(_fn=cmd_memory_check, repo=None)
+
+    mrl = _shared(msub.add_parser(
+        "relint", help="report which entries miss contract headings or carry placeholders",
+        description="Read-only report, per entry file, of missing contract headings\n"
+                    "(build-memory.md) and placeholder phrases found in the body. Never\n"
+                    "gates — exit 0 always; a finding is a report line, not a refusal.",
+        epilog="example: file-issue memory relint --component engine --json\n"
+               "next: file-issue memory file --component <component> ...",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    mrl.add_argument("--component", metavar="COMPONENT")
+    mrl.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    mrl.set_defaults(_fn=cmd_memory_relint, repo=None)
 
     t = sub.add_parser("selftest", help="hermetic green and red arms")
     t.set_defaults(_fn=cmd_selftest)
