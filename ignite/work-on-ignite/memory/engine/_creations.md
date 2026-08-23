@@ -1,9 +1,9 @@
 # engine — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
-2026-08-19 · change · seeded · Selfheal to reconcile · reconcile.js: one per-goal reconciliation loop replacing event/job selfheal. · 808902df,d1ca8097,9c3aee33,173b1fe3,b4f0f0e0 · jobs,team-kit · ⚠
-2026-08-19 · creation · seeded · Taskforce validate at load · Load-time validation for taskforce.csv/DAG rows; refuses malformed rows loudly. · 8f7b1adf,79ede919,a64ba6c6 · — · ⚠
-2026-08-20 · creation · seeded · Verified done resolver · Resolver: watcher relaunches a seat-declared-incomplete row by name, bounded, then stuck. · feba5fba,d813ebcc,3a112282 · team-kit · ⚠
-2026-08-20 · creation · seeded · Outputs declared at gate · Outputs declared where the gate reads them; a typed schema for non-file outputs. · ee64adde · team-kit · ⚠
-2026-08-20 · creation · seeded · Relaunch instrument rerun · The `--rerun` relaunch instrument, an anchored HOLD, and a `--hold` verb. · e3fc940f · team-kit · ⚠
-2026-08-20 · creation · seeded · Stuck becomes a brake · `stuck` becomes a hard brake keyed on (seat, reason, signature). · 23de241f · — · ⚠
-2026-08-22 · creation · seeded · Admission brake door · Fail-closed admission brake in enqueue() that no caller can opt out of. · 8478c7a5,affceae2,6c997616,c833046e · server,gateway · ⚠
-2026-08-22 · change · seeded · Unverified into dispositions · D81 audit cleanup: five small commits — enum move, fixture alignment, dead re-exports, stale docs. · 23578584,0afe6f88,c666cb9b,243f3aa1,acd38230 · — · ⚠
+2026-08-19 · change · seeded · Selfheal to reconcile · event/job selfheal never consulted sessions.csv so dead rooms and unfinished seats went unseen → D1/D15 per-goal loop acts then escalates stuck · 808902df,d1ca8097,9c3aee33,173b1fe3,b4f0f0e0 · jobs,team-kit · ⚠
+2026-08-19 · creation · seeded · Taskforce validate at load · malformed taskforce.csv rows absorbed silently by readCsv (08-14/15 stall) → readTaskforce refuses ragged/dupe/cycle/dangling-after at load · 8f7b1adf,79ede919,a64ba6c6 · — · ⚠
+2026-08-20 · creation · seeded · Verified done resolver · incomplete/done/exited overloaded and D12 left no relaunch path → watcher relaunches seat-written incomplete by name (bounded then stuck); rule-disposition admits 4 from-states · feba5fba,d813ebcc,3a112282 · team-kit · ⚠
+2026-08-20 · creation · seeded · Outputs declared at gate · gate read prompt ## Outputs (schema, no path); task named the file in Write: — 13/101 tokens resolved → render projects Write: paths into ## Outputs · ee64adde · team-kit · ⚠
+2026-08-20 · creation · seeded · Relaunch instrument rerun · kit-exited row had six shut revival paths; D39 advertised --declare-only as return-to-work → --rerun admits that one from-state in one act; --hold parks investigated rows from class A · e3fc940f · team-kit · ⚠
+2026-08-20 · creation · seeded · Stuck becomes a brake · after stuck, launchSitting still fired (audio-component-smith 17×/2h12m) → skip-stuck keyed on unchanged (seat, reason, signature) · 23de241f · — · ⚠
+2026-08-22 · creation · seeded · Admission brake door · watcher D34/D44 brake could be opted out of via enqueue() queue-mode; 356-sitting burn → fail-closed door inside HeartStore.enqueue() · 8478c7a5,affceae2,6c997616,c833046e · server,gateway · ⚠
+2026-08-22 · change · seeded · Unverified into dispositions · RECORD_DISPOSITIONS omitted unverified even though coord.py writes it → parked in EXTRA_NON_TERMINAL next to synthetic renew-interrupted; selftest matched the bug · 23578584,0afe6f88,c666cb9b,243f3aa1,acd38230 · — · ⚠

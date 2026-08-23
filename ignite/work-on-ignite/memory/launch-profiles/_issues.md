@@ -1,2 +1,2 @@
 # launch-profiles — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
-2026-08-21 · issue · seeded · cast-spawn-drift-probe-fix · `probe-cast-spawn-drift.js` joined its comparison on the wrong key — carrier instead of catalog mode. → The probe now joins on catalog mode, not carrier. · 69760b69 · — · ⚠
+2026-08-21 · issue · seeded · cast-spawn-drift-probe-fix · Arm 3 red no overlapping pairs — join failed hourly since 2026-08-20T22:00Z → filter r.carrier==='cli' matched zero catalog rows (they use mode) · 69760b69 · — · ⚠
