@@ -14,7 +14,7 @@ staffing-recommendations: "ONE long-lived session per run, renewed IN PLACE (a f
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  skill: [meta/master-agent/master-scaffold-flow, meta/master-agent/master-bootstrap, ignite/team-kit/file-system-issue]
+  skill: [meta/master-agent/master-scaffold-flow, meta/master-agent/master-bootstrap, ignite/team-kit/file-system-issue, ignite/work-on-ignite/work-on-ignite]
   path: [meta/planning/stools, ignite/team-kit/file-issue]
 ---
 
@@ -140,6 +140,7 @@ You sit INSIDE one goal's live run, and your surfaces are that run's:
 - `master-scaffold-flow` — the sequence from a NEW-classified request to a running goal: name it, resolve execution mode, create it into its lane in ONE act, verify at the product. Read it the moment you act on a NEW request.
 - `master-bootstrap` — for a BOOTSTRAPPED goal (no seat/workflow made it): open milestone 0, pick collapsed/expanded planning, run `rbtv goal materialize`, verify at the product, stop at REGISTERED — never launched or planned.
 - `file-system-issue` / `file-issue` — file a system defect, gap, or change-notice under ignite/ or meta/ into the engine register; file, don't fix. That goal's intake pass sweeps every filing into triage and the owner's digest (its contract §3.3, §5.1).
+- `work-on-ignite` — BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit: read the per-component build memory at `ignite/work-on-ignite/memory/` (what was seen, missed, and held on that surface before), then file your own fix or creation to it. Full mechanics: `ignite/work-on-ignite/work-on-ignite.md`.
 - The run's conduct manual and communication manual — the conventions binding EVERY seat. They have one home and are deliberately not restated in this prompt.
 </resources>
 

@@ -24,6 +24,10 @@ When carrying a file INTO this repo from an archive or an instance:
 
 Precedent: `studio/deck-loop-spec.md` (carried + generalized 2026-06-13).
 
+## Build memory — read before editing ignite/ or meta/
+
+BEFORE editing anything under `ignite/` or `meta/`: read `ignite/work-on-ignite/CLAUDE.md` and follow its skill (read memory first, file after).
+
 ## ignite/ — Runnable Service Code (convention)
 
 `ignite/` holds the source of the **ignite daemon** — runnable Node.js service code (server core, gateway, client CLI). It is the ONE sanctioned exception to this repo's markdown-only component inventory; runnable service code lives NOWHERE else in the repo.

@@ -1,5 +1,7 @@
 # ignite/ — the ignite daemon
 
+BEFORE editing anything under ignite/ or meta/: read `ignite/work-on-ignite/CLAUDE.md` and follow its skill (read memory first, file after).
+
 Source of the **ignite daemon**: ONE Node.js service (one systemd unit) with a hard internal module boundary between the **server core** (owns `.rbtv/` runtime state; sole queue writer; ticker engine + spawn machinery) and the **gateway** (sender auth + client CLI; no queue handle, no spawn). Repo conventions for this folder (deployment model, no hardcoded paths, relocatable subtree, branch discipline): root `CLAUDE.md` § "ignite/ — Runnable Service Code (convention)".
 
 Developed on branch `ignite/core-daemon`; design authority: the build specs under `1-projects/rbtv-sb-merge-refactor-core-build/build/phase-7-plan/specs/` (heart-store · ticker-engine · spawn-profiles · internal-api-contract · gateway-cli), governed by the `system-definition/` registry.

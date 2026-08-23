@@ -25,6 +25,10 @@ When you create, rename, delete, or materially change ANY component in this repo
 
 A component change without a matching docs/module/manifest update is incomplete. Do not stop at the component edit.
 
+## Build memory — read before editing ignite/ or meta/
+
+BEFORE editing anything under `ignite/` or `meta/`: read `ignite/work-on-ignite/CLAUDE.md` and follow its skill (read memory first, file after).
+
 ## Module Files
 
 `modules/` defines the installable bundles. Each module lists which skills, commands, rules, subagents, personas, workflows, and tasks ship with it. When a component's module membership changes, update both the old and new module files.
