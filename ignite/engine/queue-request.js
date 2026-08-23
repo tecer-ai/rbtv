@@ -490,21 +490,23 @@ function buildGoalLocalSeats({ goalFolder, workspace, seats, rows = [], say }) {
     say('warn', 'lane watch: this goal\'s authored seats span more than one milestone — one '
       + 'materialize carries one milestone-id, so the set is refused rather than split blind',
     { code: 'goal-local-milestone-split', milestones, seats });
-    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-milestone-split' })) };
+    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-milestone-split',
+      error: `the authored set spans milestones ${milestones.map((x) => x || '(none)').join(', ')} and one materialize carries one milestone-id` })) };
   }
   const milestone = milestones[0] || '';
   if (!fs.existsSync(sheet)) {
     say('warn', 'lane watch: this goal authored its own seats and left no casting sheet — they '
       + 'cannot be built, and their harness/model/effort is not the engine\'s to invent',
     { code: 'goal-local-sheet-absent', sheet, seats });
-    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-sheet-absent' })) };
+    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-sheet-absent',
+      error: `no casting sheet at ${sheet} — harness/model/effort is not the engine's to invent` })) };
   }
   const lint = goalLocalLint({ goalFolder, catalogRoot, sheet, milestone });
   if (lint) {
     say('warn', 'lane watch: the goal\'s own authored seat set does not LINT — nothing was built, '
       + 'and it is one refusal for the whole set rather than one opaque failure per seat',
     { code: lint.code, evidence: lint.evidence, seats });
-    return { built: [], failed: seats.map((seat) => ({ seat, code: lint.code })) };
+    return { built: [], failed: seats.map((seat) => ({ seat, code: lint.code, error: lint.reason })) };
   }
   const argv = goalLocalArgv({ goalFolder, catalogRoot, sheet, milestone });
   try {
@@ -517,7 +519,7 @@ function buildGoalLocalSeats({ goalFolder, workspace, seats, rows = [], say }) {
     const evidence = (String(err.stdout || '') + String(err.stderr || '')).trim().slice(0, 400);
     say('warn', 'lane watch: materializing the goal\'s own authored seats REFUSED — the goal '
       + 'stalls at them until it is cleared', { evidence, seats });
-    return { built: [], failed: seats.map((seat) => ({ seat, error: evidence })) };
+    return { built: [], failed: seats.map((seat) => ({ seat, code: 'goal-local-materialize-refused', error: evidence })) };
   }
 }
 
@@ -544,10 +546,23 @@ function goalLocalLint({ goalFolder, catalogRoot, sheet, milestone }) {
       { encoding: 'utf8', timeout: SUBPROCESS_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     return null;
   } catch (err) {
-    const out = String(err.stdout || '') + String(err.stderr || '');
+    // ⚠ PARSE STDOUT ALONE. `goalLocalArgv` passes `--json`, and that flag's whole purpose is a
+    // machine-readable payload on STDOUT; the tool's prose refusal goes to STDERR. This block used
+    // to parse `stdout + stderr`, which is JSON followed by prose and therefore NEVER valid JSON —
+    // so the parse always threw, `code` was always the `goal-local-lint-failed` fallback, and the
+    // refusal's own `message` was never recovered at all. Combined with `lane-watch.js` rendering
+    // the alarm from a field this arm did not set, a frozen goal told its owner only the word
+    // "undefined": meet-transcript-summarizer sat frozen ~13h behind an alarm that named no cause.
+    const payload = String(err.stdout || '');
+    const evidence = (payload + String(err.stderr || '')).trim().slice(0, 400);
     let code = '';
-    try { code = ((JSON.parse(out.slice(out.indexOf('{'))).refusal) || {}).code || ''; } catch { /* prose only */ }
-    return { code: code || 'goal-local-lint-failed', evidence: out.trim().slice(0, 400) };
+    let reason = '';
+    try {
+      const refusal = (JSON.parse(payload.slice(payload.indexOf('{'))).refusal) || {};
+      code = refusal.code || '';
+      reason = refusal.message || '';
+    } catch { /* prose only — `evidence` still carries whatever the tool said */ }
+    return { code: code || 'goal-local-lint-failed', reason: reason || evidence, evidence };
   }
 }
 
@@ -563,6 +578,14 @@ const unbuiltRefusalMemo = new Map();  // goalFolder -> last-shouted signature
 
 // Build every registered-but-unbuilt seat of one goal. Returns `{built, failed}`; NEVER throws —
 // the caller is a watch pass over the whole tree.
+// ⚠ EVERY `failed` ENTRY IS `{ seat, code, error }` AND ALL THREE ARE ALWAYS SET. `code` is the
+// machine-readable refusal id (it keys `unbuiltRefusalMemo`'s signature); `error` is the
+// human-readable reason, and it is what `lane-watch.js` renders into the OWNER'S FROZEN ALARM. This
+// shape is declared here because it was previously undeclared: six producers emitted three
+// different shapes, the goal-local lint arm set `code` only, and the alarm — which reads `error` —
+// posted the literal word "undefined" as the reason a goal was frozen. meet-transcript-summarizer
+// sat frozen for ~13 hours behind an alarm that named no cause. A producer that cannot name a real
+// reason has not finished diagnosing its own refusal; do not paper over it at the consumer.
 function buildUnbuiltSeats({ goalFolder, goalsRoot, rows, unbuilt, say = () => {} }) {
   const built = [];
   const failed = [];
