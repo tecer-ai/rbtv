@@ -605,6 +605,8 @@ def _check_skill_clis(c, out, where, part_id, entry_path, census):
                   f"`{EXPOSES_CLI_KEY}:` carries a non-string entry {ref!r} — the key is a flat "
                   "list of part references")
             continue
+        if ref.strip().startswith("rbtv:"):
+            continue                                # resolved by materialize, not here
         ref_dir, pid = _ref_target(c.root, ref.strip())
         if ref_dir is None:
             _fail(out, "exposure-canon", entry_path,
