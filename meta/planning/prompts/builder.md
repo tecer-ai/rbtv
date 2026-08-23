@@ -3,7 +3,7 @@ id: builder
 description: "Build every piece the forge spec enumerates, land each at its declared target path, apply the spec's registration acts in one serialized pass per component, and lint until no new finding stands"
 staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus max / Codex top reasoning) — a hint for the staffer, never a binding"
 exposes:
-  skill: [create-cli]
+  skill: [create-cli, core/coding/coding]
   path: [rbtv:ignite/team-kit/coordinate, component-lint]
   sub-agent: [writer]
 ---
@@ -29,6 +29,7 @@ exposes:
 
 <resources>
 - `create-cli` — the D9 toolsmith for CLI pieces. Invoke it at step 6 for any piece whose kind is a CLI, instead of dispatching a writer; follow it exactly, including its *Expose the Finished Tool* close-out.
+- `coding` skill — the four code-hygiene disciplines (no dead code, no duplicate source, no monolith file, no patch in place of a cause-level fix). Load it before drafting or landing ANY code piece at step 5–7; it governs how the code is left, not what the spec orders.
 - `component-lint` CLI — the component's mechanical checks over its prompts, tasks, `seats.csv` and exposure manifest; `--check <id>` runs one. Run it over what you built before calling it done, and read a failure as a finding to fix, never as a file to edit around.
 - `writer` sub-agent — drafts one artifact body per dispatch. Fan out ONE per row at step 5 when two-or-more pieces remain (never CLI rows), handing it the row, its guide, and the return schema. Re-dispatch once if incomplete; then draft inline or log a gap.
 </resources>
