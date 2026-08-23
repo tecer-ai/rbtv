@@ -14,7 +14,7 @@ Ten days of patch-by-patch fixes kept resurfacing defects. The loop turned aroun
 Read `ignite/work-on-ignite/work-on-ignite.md`. Before editing a component: its `_summary.md` + live indexes, then `rbtv embed-search query` over `memory/` (ladder semantic → keyword → grep). After a fix or creation: `file-issue memory file`. Wired here (`CLAUDE.md` / `AGENTS.md` point at the reference); `skill/` (not yet written) says when. Distillation is `goal-memory-management`.
 
 ## commit
-pending
+fd93aa92
 
 ## deployed
 no
