@@ -31,20 +31,25 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 
 ## Install
 
-> **There are three installers today, and `install.py` is still the one you want.**
-> `install.py` (below) installs RBTV as it ships today — flat module components into
-> `.claude/`, state in `rbtv.json`, every artifact named `rbtv-*`.
+> **The installer is `meta/installer/install.py`, reachable as `rbtv install`.**
+> It carried the name `install2.py` from its first commit until 2026-08-23, while a
+> PREDECESSOR installer held the plain name at the repo root. On that date it was split
+> into one module per responsibility under `meta/installer/lib/` (checks under
+> `meta/installer/selftest/`, decisions in `meta/installer/design-decisions.md`) and took
+> the plain name; the predecessor — repo-root `install.py` plus its `admin/install/`
+> package, which installed flat module components into `.claude/` and kept state in
+> `rbtv.json` — is being retired, and its package is already absent from this tree, so
+> the steps under "Clone RBTV" below no longer run as written.
 >
-> **`install2.py`** (`meta/installer/`) is its **designated successor**, in a deliberate coexistence
-> period: it manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
+> The installer manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
 > directory holding an `exposure.csv` (that manifest at depth 2 IS the component; the former
 > `component.md` requirement was retired 2026-08-22) — on BOTH the workspace
 > mirror (`{target}/.rbtv/mirror`) and this repo, discovering their parts from the
 > **exposure manifest** (`exposure.csv`) beside it, and realizes each row's canonical method
 > for **three harnesses** (claude, codex, opencode) through CMP-12's adapter matrix. The
 > standalone kimi CLI was retired 2026-08-14; its models ride opencode.
-> Everything else — module-root manifests, folders with no `exposure.csv` — is the old
-> standard, and `install.py` alone manages it: the two installers cover disjoint sets.
+> Everything else — module-root manifests, folders with no `exposure.csv` — was the old
+> standard, which only the predecessor installer ever managed: the two covered disjoint sets.
 > One exception by design: a tree-root **`_skills/`** folder holds whole vendored skill
 > folders (`_skills/cli-creator/`), which are not rbtv parts and carry no manifest. Each is
 > its own installable unit (`--component _skills/cli-creator`, `--module _skills`) and is
@@ -56,7 +61,7 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > wrote — so the two installers can never sweep, overwrite, or delete each other's work, and
 > `rbtv install rm` removes exactly what it wrote and nothing else. It exposes at the
 > INSTALL ROOT only and never writes under `.rbtv/goals/` (seat folders belong to the
-> materializer). `install.py` is byte-untouched by it.
+> materializer). It never read or wrote the predecessor's state file.
 >
 > It is reachable as **`rbtv install`** — the system CLI routes that namespace straight to it,
 > and the commands below are the same tool either way:
@@ -91,11 +96,11 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > refuses with `verb-moved` and names its replacement. The three settings are READ at the head of
 > `rbtv install li` (and ride its `--json` under `settings`) — the two verbs that existed only to
 > print them are gone from the menu, kept hidden so the old spelling still lands on a sentence
-> saying where it went. See `install2.py` D16, D16b and D16c.
+> saying where it went. See `meta/installer/design-decisions.md`, D16, D16b and D16c.
 >
 > Every verb takes `--dry-run` and `--json`; exit codes are `0` success / `1` refusal /
 > `2` usage. Its design decisions (tree precedence, the new-standard scope, the ownership marker, the collision
-> rule, the workspace settings) are documented in the file's own module docstring —
+> rule, the workspace settings) are documented in `meta/installer/design-decisions.md` —
 > that is their one home.
 >
 > A third installer, `core/capabilities/installer/tool/rbtv-install`, was **deleted on
@@ -115,12 +120,18 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 2. Run the installer:
 
    ```bash
-   python rbtv/install.py --target /path/to/your/workspace
+   rbtv install                 # or: python rbtv/meta/installer/install.py
    ```
 
-   The installer prompts for:
+   > The rest of this numbered section documents the PREDECESSOR installer (repo-root
+   > `install.py` + `admin/install/`), including its `--mirror` flags. That package is
+   > absent from this tree and the commands below do not run as written; the section is
+   > kept until the retirement is finished. What runs today is `rbtv install` — its verbs
+   > are the callout above.
+
+   The predecessor installer prompted for:
    - Modules to install (core is always included)
-   - Orchestration dispatch (when the `orchestration` module is selected): the live roster is the **cast catalog** (`cast route --catalog`; routable set = catalog ∩ availability). Cards and the planner CALL `cast route`; conductor dispatch is plain `cast`; API workers go through `cast api`. There is no install-time model-package election. The retired models-tree router is gone. The installer reconciles the workspace's `.claude/settings.local.json` permission allowlist from the catalog's `permission_rules` (only the catalog-declared strings are touched — hand-added entries survive). Electing the orchestration module also **renders the worker mirror** in the target workspace (shared `.agents/` library and per-model config dirs) via the mirror driver at `ignite/team-kit/mirror/driver/` (team-kit owns the one implementation; decision 5 of the 2026-08-18 models-tree-retirement build). **Guidance files (`AGENTS.md`/`QWEN.md`) are NOT rendered** — that leg is RETIRED (owner ruling `d-hard-guard-retire-model-mirror`, 2026-08-10): no flag or recorded state can make this installer write a guidance file; a render prints a one-line skip. The modern installer (`install2.py`) owns guidance files. Mirror state is persisted in a single `model_mirror` block in `rbtv.json`. Use `--mirror` to refresh mirror artifacts only (skips component install; empty package list means every driver-known package). Use `install.py --mirror --check` to ask whether the mirror is current WITHOUT refreshing it: a read-only probe that writes nothing, names every managed file missing or fallen behind its source, and exits 1 on drift / 0 in sync (gating-ready for CI and pre-flight checks) — worth having because mirrors are gitignored and refresh only when the installer runs, so drift is per-machine and invisible to git. `--check` applies only with `--mirror`, and is mutually exclusive with `--uninstall` (exit 2). `--exclude PATH [PATH ...]` is now INERT for rendering (it only ever constrained the guidance walk) but is still recorded in `rbtv.json` (`model_mirror.excluded_paths`) for state compatibility: passing it REPLACES the recorded list, omitting it PRESERVES it. The prune-on-exclude deletion was removed with the guidance retirement — installer-1 no longer deletes a guidance file a render would have orphaned. `ALWAYS_EXCLUDED_PREFIXES` in `driver/state.py` survives for the teardown side only: a goal folder's routers — `CLAUDE.md` AND `AGENTS.md` — are written by the goals-tree scaffold (owner ruling Q18, 2026-08-09), and uninstall consults the constant: a workspace upgraded from a pre-exclusion driver still carries those routers in its recorded managed-file list, so `install.py --mirror --uninstall` (and a deselection teardown) partitions them OUT of its delete set instead of deleting them (`UninstallResult.protected`) — they stay on disk, un-managed, and are reported under a `protected` label beside the deleted/spared counts. Use `install.py --mirror --uninstall` for a full mirror teardown: removes ALL generated mirror artifacts for the target (the shared `.agents/` library, per-model config dirs, and any guidance file still RECORDED from a pre-retirement install — banner-guarded, so a file installer-1 did not write is spared) — except any recorded path under `ALWAYS_EXCLUDED_PREFIXES`, which is protected (left on disk, un-managed) rather than deleted — and clears the `model_mirror` block from `rbtv.json`; `--uninstall` applies only with `--mirror`.
+   - Orchestration dispatch (when the `orchestration` module is selected): the live roster is the **cast catalog** (`cast route --catalog`; routable set = catalog ∩ availability). Cards and the planner CALL `cast route`; conductor dispatch is plain `cast`; API workers go through `cast api`. There is no install-time model-package election. The retired models-tree router is gone. The installer reconciles the workspace's `.claude/settings.local.json` permission allowlist from the catalog's `permission_rules` (only the catalog-declared strings are touched — hand-added entries survive). Electing the orchestration module also **renders the worker mirror** in the target workspace (shared `.agents/` library and per-model config dirs) via the mirror driver at `ignite/team-kit/mirror/driver/` (team-kit owns the one implementation; decision 5 of the 2026-08-18 models-tree-retirement build). **Guidance files (`AGENTS.md`/`QWEN.md`) are NOT rendered** — that leg is RETIRED (owner ruling `d-hard-guard-retire-model-mirror`, 2026-08-10): no flag or recorded state can make this installer write a guidance file; a render prints a one-line skip. The modern installer (`meta/installer/install.py`) owns guidance files. Mirror state is persisted in a single `model_mirror` block in `rbtv.json`. Use `--mirror` to refresh mirror artifacts only (skips component install; empty package list means every driver-known package). Use `install.py --mirror --check` to ask whether the mirror is current WITHOUT refreshing it: a read-only probe that writes nothing, names every managed file missing or fallen behind its source, and exits 1 on drift / 0 in sync (gating-ready for CI and pre-flight checks) — worth having because mirrors are gitignored and refresh only when the installer runs, so drift is per-machine and invisible to git. `--check` applies only with `--mirror`, and is mutually exclusive with `--uninstall` (exit 2). `--exclude PATH [PATH ...]` is now INERT for rendering (it only ever constrained the guidance walk) but is still recorded in `rbtv.json` (`model_mirror.excluded_paths`) for state compatibility: passing it REPLACES the recorded list, omitting it PRESERVES it. The prune-on-exclude deletion was removed with the guidance retirement — installer-1 no longer deletes a guidance file a render would have orphaned. `ALWAYS_EXCLUDED_PREFIXES` in `driver/state.py` survives for the teardown side only: a goal folder's routers — `CLAUDE.md` AND `AGENTS.md` — are written by the goals-tree scaffold (owner ruling Q18, 2026-08-09), and uninstall consults the constant: a workspace upgraded from a pre-exclusion driver still carries those routers in its recorded managed-file list, so `install.py --mirror --uninstall` (and a deselection teardown) partitions them OUT of its delete set instead of deleting them (`UninstallResult.protected`) — they stay on disk, un-managed, and are reported under a `protected` label beside the deleted/spared counts. Use `install.py --mirror --uninstall` for a full mirror teardown: removes ALL generated mirror artifacts for the target (the shared `.agents/` library, per-model config dirs, and any guidance file still RECORDED from a pre-retirement install — banner-guarded, so a file installer-1 did not write is spared) — except any recorded path under `ALWAYS_EXCLUDED_PREFIXES`, which is protected (left on disk, un-managed) rather than deleted — and clears the `model_mirror` block from `rbtv.json`; `--uninstall` applies only with `--mirror`.
 
    Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and workspace CLAUDE.md conventions to propose paths.
 

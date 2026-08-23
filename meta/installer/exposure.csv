@@ -5,8 +5,8 @@
 # owner's ruling that the installer belongs to `meta` and never to `core`: `meta/` hosts what
 # operates on the rbtv SYSTEM rather than on a user goal's content, and the module's
 # capability-only extension (2026-08-14) admits a component holding no seats and no workflow.
-# The `rbtv-cli` column carries the invocation prefix IFF `core/capabilities/rbtv-cli/tool/lib/
-# verbs.js` ROUTES routes to the tool — it now does, so the prefix is `rbtv install`.
+# The `rbtv-cli` column carries the invocation prefix IFF `meta/rbtv-cli/tool/lib/verbs.js`
+# ROUTES routes to the tool — it now does, so the prefix is `rbtv install`.
 # Columns are the seven of concepts/exposure-manifest.md, in its order.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-install,tool,path,rbtv install,install2.py,,
+install,tool,path,rbtv install,install.py,,

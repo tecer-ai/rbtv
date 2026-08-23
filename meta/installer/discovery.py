@@ -1,10 +1,14 @@
 """Installer discovery — D2 components + D15 hub units, no root derivation.
 
 Roots are ARGUMENTS. The installer keeps `REPO_ROOT` (the repo that ships
-install2.py). The materializer passes the workspace mirror and `rbtv.json`'s
+install.py). The materializer passes the workspace mirror and `rbtv.json`'s
 `rbtv_path`. One scan, one merge (mirror wins), one manifest reader.
 
 Hub discovery (`discover_hub`, D15) lives here because `scan_tree` calls it.
+
+This module deliberately sits BESIDE install.py rather than inside its `lib/`
+package: `ignite/team-kit/materialize-seats.py` imports it from this directory
+by bare name, so the path is a contract with another tool (D1).
 """
 from __future__ import annotations
 
