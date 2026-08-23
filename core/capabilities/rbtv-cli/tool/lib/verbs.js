@@ -29,6 +29,9 @@ const ATTACHED_EXECUTION = path.join(
 const TEAMBUILD = path.join(
   RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
 );
+const EMBED_SEARCH = path.join(
+  RBTV_ROOT, 'core', 'capabilities', 'embed-search', 'tool', 'rbtv-embed-search',
+);
 // The installer lives in the `meta` module (owner ruling, 2026-08-22): `meta/` hosts
 // what operates on the rbtv SYSTEM itself rather than on a user goal's content, and
 // installing rbtv into a workspace is exactly that — `core/` was the wrong home and
@@ -88,6 +91,7 @@ const GOAL_VERBS = ['scaffold', 'reindex', 'lint', 'materialize', 'lane', 'pause
 // provider-module boundary (teambuild's lib/provider.js) and rides that same corpus
 // enumerator, so the route no longer points at nothing.
 const TEAMBUILD_VERBS = ['agents', 'units', 'seats', 'tasks', 'workflows', 'search', 'selftest'];
+const EMBED_SEARCH_VERBS = ['index', 'query', 'status', 'selftest'];
 
 // The installer's own verb set. `harness` and `artifact` own the two WORKSPACE
 // SETTINGS (which AI tools to write files for, and which root guidance file the
@@ -164,6 +168,13 @@ const ROUTES = [
     verbs: TEAMBUILD_VERBS,
     summary: 'browse the component databases blurb-first — agent cards, kind-filtered cognitive units, seats, tasks, workflows — or `search` them by meaning (read-only; binds nothing)',
   },
+  {
+    prefix: ['embed-search'],
+    target: EMBED_SEARCH,
+    exec: 'direct',
+    verbs: EMBED_SEARCH_VERBS,
+    summary: 'index a folder and rank markdown sections — semantic (Voyage) → keyword → grep; index lives outside the tree',
+  },
 ];
 
 // The tokens that, at position 1, belong to the verb namespace rather than the
@@ -197,6 +208,8 @@ module.exports = {
   GOAL_VERBS,
   TEAMBUILD,
   TEAMBUILD_VERBS,
+  EMBED_SEARCH,
+  EMBED_SEARCH_VERBS,
   INSTALLER,
   INSTALL_VERBS,
   verbNamespaceTokens,

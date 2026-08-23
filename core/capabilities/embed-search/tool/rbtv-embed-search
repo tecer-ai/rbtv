@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+'use strict';
+
+const path = require('path');
+const engine = require('./lib/engine');
+
+const { json, refusal, suggest, paint } = require(
+  path.join(__dirname, '..', '..', 'rbtv-cli', 'tool', 'lib', 'render'),
+);
+
+const VERBS = ['index', 'query', 'status', 'selftest'];
+const ARMS = ['semantic', 'keyword', 'grep'];
+
+function help() {
+  return [
+    'rbtv embed-search — index a folder and rank markdown sections (semantic → keyword → grep).',
+    '',
+    '  rbtv embed-search index  --root <dir> [--glob \'**/*.md\'] [--index <file>]',
+    '  rbtv embed-search query  --root <dir> "<text>" [--top N] [--json] [--arm semantic|keyword|grep]',
+    '  rbtv embed-search status --root <dir>',
+    '  rbtv embed-search selftest',
+    '',
+    'Index default: $XDG_STATE_HOME/rbtv-embed-search/<hash-of-root>/index.json (never inside the tree).',
+    'query self-syncs before ranking and prints which ARM answered.',
+    'Key: VOYAGE_API_KEY env, else vault .user/config/env/.env. Absent key → keyword. Failure → grep.',
+    '4-archives/ is never indexed. Exit: 0 success · 1 refusal · 2 usage.',
+  ].join('\n');
+}
+
+function parse(argv) {
+  const opts = { json: false, pretty: Boolean(process.env.RBTV_PRETTY), top: 10, glob: '**/*.md' };
+  const rest = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--json') opts.json = true;
+    else if (a === '--pretty') opts.pretty = true;
+    else if (a === '--help' || a === '-h') opts.help = true;
+    else if (a === '--top') {
+      const n = Number(argv[i + 1]);
+      if (!Number.isInteger(n) || n < 1) return { usage: '`--top` needs a positive whole number' };
+      opts.top = n;
+      i += 1;
+    } else if (a === '--root' || a === '--glob' || a === '--index' || a === '--arm') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('-')) return { usage: `\`${a}\` needs a value` };
+      opts[a.slice(2)] = value;
+      i += 1;
+    } else if (a.startsWith('-')) return { usage: `\`${a}\` is not an embed-search flag` };
+    else rest.push(a);
+  }
+  return { opts, rest };
+}
+
+function usage(msg) {
+  console.error(refusal({
+    what: msg,
+    why: 'a mistyped flag or missing argument would otherwise search the wrong tree.',
+    fix: 'known: --root <dir> --glob <pat> --index <file> --top N --arm semantic|keyword|grep --json. Run `rbtv embed-search --help`.',
+  }));
+  return 2;
+}
+
+function refuse(err) {
+  if (err.rbtvCode === 'usage') return usage(err.message);
+  console.error(refusal({
+    what: err.message,
+    why: 'the command degrades rather than throwing; this case cannot proceed.',
+    fix: 'pass an existing --root directory. Run `rbtv embed-search --help`.',
+  }));
+  return 1;
+}
+
+function printNotes(notes, pretty) {
+  for (const n of notes || []) console.error(paint(pretty, 'yellow', n));
+}
+
+async function main(argv) {
+  const parsed = parse(argv);
+  if (parsed.usage) return usage(parsed.usage);
+  const { opts, rest } = parsed;
+  if (opts.help || rest.length === 0) { console.log(help()); return 0; }
+
+  if (opts.arm && !ARMS.includes(opts.arm)) {
+    return usage(`\`--arm ${opts.arm}\` is not a known arm (semantic|keyword|grep)`);
+  }
+
+  const verb = rest[0];
+  if (verb === 'selftest') return require('./lib/selftest')(opts);
+  if (!VERBS.includes(verb)) {
+    const near = suggest(verb, VERBS);
+    console.error(refusal({
+      what: `\`${verb}\` is not an embed-search verb`,
+      why: near ? `Did you mean \`${near}\`?` : 'nothing under embed-search carries this name.',
+      fix: `known: ${VERBS.join(', ')}. Run \`rbtv embed-search --help\`.`,
+    }));
+    return 1;
+  }
+
+  opts.indexFile = opts.index;
+  opts.cwd = process.cwd();
+
+  try {
+    if (verb === 'index') {
+      const out = await engine.sync(opts);
+      if (opts.json) { json(publicSync(out)); return 0; }
+      printNotes(out.semantic && out.semantic.error ? [`semantic: ${out.semantic.error}`] : [], opts.pretty);
+      console.log(paint(opts.pretty, 'bold', `index — ${out.docs} section(s) in ${out.files} file(s)`));
+      console.log(`root: ${out.root}`);
+      console.log(`index: ${out.index_file}`);
+      console.log(`semantic: ${out.semantic.available ? `available (${out.semantic.origin})` : `unavailable (${out.semantic.origin})`}`);
+      return 0;
+    }
+    if (verb === 'status') {
+      const out = engine.status(opts);
+      if (opts.json) { json(out); return 0; }
+      console.log(paint(opts.pretty, 'bold', `status — ${out.docs} indexed section(s), ${out.live_docs} on disk`));
+      console.log(`root: ${out.root}`);
+      console.log(`index: ${out.index_file}${out.built ? ` · built ${out.built}` : ' · (none yet)'}`);
+      console.log(`arms: semantic=${out.semantic_available ? `available (${out.semantic_origin})` : `unavailable (${out.semantic_origin})`} keyword=available grep=available`);
+      return 0;
+    }
+    const query = rest.slice(1).join(' ').trim();
+    if (!query) {
+      return usage('query needs a text string to rank against');
+    }
+    const out = await engine.query({ ...opts, query });
+    printNotes(out.notes, opts.pretty);
+    if (opts.json) { json(publicQuery(out)); return 0; }
+    console.log(paint(opts.pretty, 'bold', `query — arm ${out.arm}${out.degraded ? ' (degraded)' : ''} · ${out.results.length} of ${out.docs}`));
+    for (const r of out.results) {
+      const head = r.heading ? `# ${r.heading}` : '(file)';
+      console.log(`${r.score.toFixed(4)}  ${r.path}  ${head}`);
+    }
+    console.log(`arm: ${out.arm}`);
+    console.log(`index: ${out.index_file}`);
+    return 0;
+  } catch (err) {
+    return refuse(err);
+  }
+}
+
+function publicSync(out) {
+  return {
+    root: out.root,
+    index_file: out.index_file,
+    docs: out.docs,
+    files: out.files,
+    changed: out.changed,
+    built: out.built,
+    semantic: { available: out.semantic.available, origin: out.semantic.origin },
+  };
+}
+
+function publicQuery(out) {
+  return {
+    arm: out.arm,
+    degraded: out.degraded,
+    notes: out.notes,
+    semantic_available: out.semantic_available,
+    root: out.root,
+    index_file: out.index_file,
+    docs: out.docs,
+    results: out.results.map((r) => ({
+      path: r.path, heading: r.heading, score: r.score, id: r.id,
+    })),
+  };
+}
+
+try {
+  const rc = main(process.argv.slice(2));
+  if (rc && typeof rc.then === 'function') {
+    rc.then((code) => { process.exitCode = code; }, (err) => {
+      console.error(`INTERNAL: ${err.stack || err.message}`);
+      process.exitCode = 1;
+    });
+  } else process.exitCode = rc;
+} catch (err) {
+  console.error(`INTERNAL: ${err.stack || err.message}`);
+  process.exitCode = 1;
+}

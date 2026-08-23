@@ -8,8 +8,10 @@
 # `method=path`, `description` EMPTY (tools self-document via `-h`), `rbtv-cli` carrying the
 # invocation prefix IFF `core/capabilities/rbtv-cli/tool/lib/verbs.js` ROUTES routes to the tool.
 #
-# ROUTES check (2026-08-10): exactly ONE core tool is routed — `teambuild` → TEAMBUILD →
-# `core/capabilities/teambuild/tool/rbtv-teambuild`, so that row carries `rbtv teambuild`.
+# ROUTES check (2026-08-23): two core tools are routed — `teambuild` → TEAMBUILD →
+# `core/capabilities/teambuild/tool/rbtv-teambuild` (`rbtv teambuild`), and
+# `embed-search` → EMBED_SEARCH → `core/capabilities/embed-search/tool/rbtv-embed-search`
+# (`rbtv embed-search`).
 # The `rbtv` CLI itself IS the router — nothing routes TO it, so its own `rbtv-cli` is empty.
 # The installer left this file on 2026-08-22: `rbtv-install` (the second installer) was deleted
 # unbuilt, and `install2.py` moved to `meta/installer/` with its own manifest — the installer
@@ -29,5 +31,6 @@
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 rbtv,tool,path,,capabilities/rbtv-cli/tool/rbtv,,
 rbtv-teambuild,tool,path,rbtv teambuild,capabilities/teambuild/tool/rbtv-teambuild,,
+rbtv-embed-search,tool,path,rbtv embed-search,capabilities/embed-search/tool/rbtv-embed-search,,
 safe-move,tool,path,,tools/safe-move/safe_move/cli.py,,
 commit,tool,path,,workflows/commit/commit.py,,
