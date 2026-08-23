@@ -3860,10 +3860,23 @@ def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
             "not expressible",
         )
     catalog, mirror, repo = _scan_all(comp_dir)
-    own = _own_component_id(comp_dir, catalog, mirror, repo)
+    # ⚠ `own` IS RESOLVED INSIDE THE BRANCHES THAT READ IT, AND THAT IS
+    # LOAD-BEARING. `_own_component_id` REFUSES any referencing dir that is not
+    # a depth-2 component of the mirror or the repo, and the goal-local lane
+    # (`<goal>/planning/current/seat-lane/goal-local/goal-local`) is neither, by
+    # construction. A THREE-segment reference is fully qualified and never reads
+    # `own`, so resolving it up front refused every goal-authored seat over an
+    # identity its own reference does not use — it froze two live goals for
+    # hours (meet-transcript-summarizer, stools-canvas-audio-elevenlabs) after
+    # `0563266b` replaced this function's root-agnostic path arithmetic with the
+    # two-root lookup. The 1- and 2-segment forms ARE defined in terms of the
+    # referencing component's own identity, so they still refuse from the lane:
+    # that refusal is CORRECT and is the ruling
+    # `p-goal-local-seats-cannot-use-bare-part-ids-2026-08-23`. Do not hoist.
     if len(segs) == 1:
-        cid, pid = own, segs[0]
+        cid, pid = _own_component_id(comp_dir, catalog, mirror, repo), segs[0]
     elif len(segs) == 2:
+        own = _own_component_id(comp_dir, catalog, mirror, repo)
         cid, pid = f"{own.split('/', 1)[0]}/{segs[0]}", segs[1]
     else:
         cid, pid = f"{segs[0]}/{segs[1]}", segs[2]
