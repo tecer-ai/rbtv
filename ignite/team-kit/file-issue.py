@@ -6,7 +6,7 @@ The command inventory lives in the argument parser: run `file-issue --help`.
 The register's entry format, class enum and status vocabulary live in one
 place too: run `file-issue schema`. The build memory (closed issues and
 creations under `ignite/work-on-ignite/memory/<component>/`) is documented in
-`ignite/work-on-ignite/work-on-ignite.md`; this file only writes it.
+`ignite/work-on-ignite/references/build-memory.md`; this file only writes it.
 """
 from __future__ import annotations
 
@@ -1434,7 +1434,7 @@ def build_parser() -> argparse.ArgumentParser:
         "memory", help="the ignite build memory: file/show/rotate/check closed craft",
         description="File, read and maintain ignite/work-on-ignite/memory/<component>/ —\n"
                     "the closed-issue and creation record that replaced per-component\n"
-                    "HISTORY.md. See ignite/work-on-ignite/work-on-ignite.md for the shape.",
+                    "HISTORY.md. See ignite/work-on-ignite/references/build-memory.md for the shape.",
         epilog="next: file-issue memory file --help",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     msub = m.add_subparsers(dest="memory_cmd", required=True)
