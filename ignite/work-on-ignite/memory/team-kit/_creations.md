@@ -1,1 +1,9 @@
 # team-kit — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-19 · creation · seeded · worktree-flow-propose-merge · Repo integration flow for worktree-based leader builds: the leader proposes (opens a merge request), the owner approves — `worktree-flow.py` gained self-rooting, a repos gate, `propose-merge`, and `--park` (fix-inventory D4). · 7c829a91,f636b212 · — · ⚠
+2026-08-19 · change · seeded · record-ledger-custody · Ledger-write custody change: seats write their own `sessions.csv` row at checkout; the `kit-for-seat` proxy that used to write on a seat's behalf is retired — kit now only originates the `exited` row (when a seat's process dies before it can check out itself). · e56d8704,85f0a30a · — · ⚠
+2026-08-20 · creation · seeded · goal-master-mint-door · Closes the goal-master READY hole: a minted goal-master no longer counts ready-to-dispatch until summoned. · 1dd5d907,aa1920a8,61ce15d9,288de5d3,eda7e4c7 · engine · ⚠
+2026-08-21 · creation · seeded · caged-identity-corroboration · F-6/D43/D45/F-8: the launch identity gate corroborates a paneless leader via a kernel-observable session id, not a name lookup. · 2138307d,70eb50de,23de241f,70328baa,b6c64a25 · server · ⚠
+2026-08-22 · creation · seeded · file-issue-cli-skill · D78: any goal-master or leader may file a system issue (consultants may not). · 2524e4c9 · meta-leader · ⚠
+2026-08-22 · creation · seeded · reopen-verb · D54/D66/D72: a `--reopen` verb — re-opens a `done` row by appending a new sitting with a recorded reason. · 17d75459 · — · ⚠
+2026-08-22 · change · seeded · component-first-migration · Migrate team-kit to component-first exposure: its own `exposure.csv` instead of a shared root-level one. · da69c086,0563266b · meta-installer · ⚠
+2026-08-22 · creation · seeded · goal-root-relative-outputs · D90 (#594 second half): a goal-root-relative output declaration grammar — `./name.ext`. · ffdf2dc2 · meta-planning · ⚠
