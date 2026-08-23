@@ -99,7 +99,7 @@ Why this replaces the old "you hold no checkout" line, which was true of neither
 - `coordinate` (the coordination CLI) — your ONLY actuator: reading the goal's message log, sending answers and routes, `widen-cage` behind disposition 1, the relaunch that follows it, `route-fail` for a verdict whose receiver is declared elsewhere, and the `escalation` type of §5. Its `--help` carries the verbs and their exact arguments; read it rather than guessing one. ⚠ You check in at boot and you check OUT with it when the mail is drained (§6).
 - `slack-message-format` — how an escalation is shaped for Slack (§5): ❓, one-sentence ask, lettered options with consequences, recommendation, path to the evidence file; never paste the file.
 - `file-system-issue` / `file-issue` — file a system defect, gap, or change-notice under ignite/ or meta/ into the engine register; file, don't fix. That goal's intake pass sweeps every filing into triage and the owner's digest (its contract §3.3, §5.1).
-- `work-on-ignite` — BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit: read the per-component build memory at `ignite/work-on-ignite/memory/` (what was seen, missed, and held on that surface before), then file your own fix or creation to it. Full mechanics: `ignite/work-on-ignite/work-on-ignite.md`.
+- `work-on-ignite` — BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit: read the per-component build memory at `ignite/work-on-ignite/memory/` (what was seen, missed, and held on that surface before), then file your own fix or creation to it. Full mechanics: `ignite/work-on-ignite/references/build-memory.md`.
 </resources>
 
 <io-spec>

@@ -1,3 +1,3 @@
 You are about to edit ignite/ or meta/.
-Read work-on-ignite.md now.
-Follow the skill/ procedure: read memory before, file after.
+Read component.md now, then references/work-on-ignite.md.
+Follow its procedure: read memory before, file after.

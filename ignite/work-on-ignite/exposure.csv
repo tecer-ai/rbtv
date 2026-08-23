@@ -3,4 +3,4 @@
 # component, per ignite/team-kit/exposure.csv's own header note). Columns are the seven of
 # concepts/exposure-manifest.md, in its order.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-work-on-ignite,capability,skill,,skill/SKILL.md,"Use BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit — read the build memory before, file to it after",
+work-on-ignite,reference,skill,,references/work-on-ignite.md,"Use BEFORE editing anything under ignite/ or meta/ and AGAIN at the close of that edit — read the build memory before, file to it after",
