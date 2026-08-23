@@ -46,33 +46,61 @@ Two kinds only.
 - **issue** — one loose end or bug. Filed only when fixed. A fix is always filed.
 - **creation** — something new added. Refactors, removals, and renames are creations with `kind=change`.
 
-Missed trials live inside the eventual issue entry (`## Missed`). Open items stay in the goal's `issues.md` / `loose-ends.md`. They never enter memory.
+Missed trials live inside the eventual issue entry (`## Attempts`). Open items stay in the goal's `issues.md` / `loose-ends.md`. They never enter memory.
 
 ## Entry files
 
 Naming: `yyyymmdd-i-<name≤30 kebab>.md` for issues, `yyyymmdd-c-<name≤30 kebab>.md` for creations and changes. Same-day same-name clash → `-2` suffix (`20260823-i-cage-grant-2.md`).
 
-The filing command writes one title line `# <stem> — <title>`, then the body sections below (it copies `memory/_templates/issue.md` / `memory/_templates/creation.md`).
+The filing command writes one title line `# <stem> — <title>` and the header block ONCE: `kind`, `component`, `date`, `commit`, `deployed`, `pin`, `components`, `seeded`. The body NEVER repeats commit, deployed, pin, or files as sections.
 
-Issue body (mandatory):
+## Entry content contract
 
-- **Seen** — what was observed
-- **Missed** — trials that failed, and why
-- **Held** — the solution that stuck
-- **commit** — hash that landed the fix
-- **files** — `path:lines` against the DEPLOYED tree where it differs from HEAD
-- **deployed** — `yes` | `no` | `at` (the deploy that carries it)
-- **pin** — probe path, or `NONE` (allowed, must be visible)
-- **ATTENTION** — bullets that say what to watch for and why
+The body exists so a later agent building on rbtv knows what was already done, what mistakes were made, what was built, and the reasoning. Reader test: a stranger with no memory of the event can reconstruct the problem, the cause, what was tried, what was built and why, and what it broke.
 
-Creation body (mandatory; also used for `kind=change`):
+Each heading below is a prose section with evidence (commits, dates, doc citations) INLINE. NEVER a list of files. Files and functions appear only as citations where the prose needs them. Length is whatever the substance needs — padding and restatement are defects. A body that could have been written from the index line alone is a defect.
 
-- **What it is**
-- **Why** — motivation / decision served
-- **How to use & where wired**
-- **commit** · **deployed** · **pin** · **ATTENTION** — same meaning as the issue body
+### Issue headings (this order, all mandatory)
 
-ATTENTION bullets name what to watch for and why. The banned wording that forbids reversing a fix is never used.
+- `## Observed` — the symptom as it was measured: what, where (component/function), when, by whom/which goal; the deployed-vs-HEAD note when they differ.
+- `## Mechanism` — the root cause: what the code actually did, and why that produced the symptom. NEVER the symptom restated.
+- `## Attempts` — every earlier fix or trial of THIS problem: what it changed, when (commit), and WHY it did not hold. If nothing was tried before, write `First attempt held — checked: <the commits/docs you looked at>`. The literal phrase `none recorded` is FORBIDDEN.
+- `## Fix` — what was built, and WHY this design rather than the alternatives (the ruling/decision it serves, the trade-off taken, what was rejected).
+- `## Consequences` — what the fix changed elsewhere: what it deleted or replaced, regressions or new bugs it introduced, follow-up fixes it required (cite the later commits/entries).
+- `## Verification` — how it was proven (probe/selftest by name, inline), and when it was deployed.
+- `## ATTENTION` — what a future editor MUST know before touching this area: the trap, and why it is a trap. 1–5 bullets, each self-contained, no duplicates. NEVER the banned wording that forbids reversing a fix.
+
+### Creation / change headings (this order, all mandatory)
+
+- `## Motivation` — the problem or decision it serves.
+- `## Design` — what was built and why this shape; alternatives rejected.
+- `## How it works` — mechanism, wiring, how to use it.
+- `## Consequences` — what it replaced/deleted, what it broke, follow-ups.
+- `## Verification` — how it was proven, and when it was deployed.
+- `## ATTENTION` — same rule as the issue heading.
+
+### Quality gate
+
+Before filing, the writer (or a judge seat of a different model) MUST answer the questions below against the body. Any "no" sends the body back. NEVER file a body that fails a question.
+
+Issue (seven questions, one per heading):
+
+1. Observed — can a stranger reconstruct the symptom as measured (what, where, when, by whom/which goal), with deployed-vs-HEAD when they differ?
+2. Mechanism — does the body name what the code actually did and why that produced the symptom, rather than restating Observed?
+3. Attempts — does it account for every earlier trial of THIS problem (what, when, why it failed), or write `First attempt held — checked: …`? NEVER `none recorded`?
+4. Fix — does it say what was built AND why this design rather than the alternatives?
+5. Consequences — does it say what the fix changed elsewhere (deleted/replaced, regressions, follow-ups)?
+6. Verification — does it name how it was proven (probe/selftest) and when it was deployed?
+7. ATTENTION — are there 1–5 self-contained trap bullets, each with why it is a trap, and no duplicates?
+
+Creation / change (six questions, one per heading):
+
+1. Motivation — does it name the problem or decision this creation serves?
+2. Design — does it say what was built, why this shape, and what was rejected?
+3. How it works — can a stranger operate or rewire it from the mechanism and wiring in the prose?
+4. Consequences — does it say what it replaced/deleted, what it broke, and what follow-ups it required?
+5. Verification — does it name how it was proven and when it was deployed?
+6. ATTENTION — are there 1–5 self-contained trap bullets, each with why it is a trap, and no duplicates?
 
 ## Index lines
 
@@ -146,7 +174,7 @@ Reuse; never coin a synonym for a thing that has a name.
 
 - **memory** — box-② craft memory about building a component, versioned with the code at `ignite/work-on-ignite/memory/` (`sd-graph show memory`)
 - **register / file / filing** — the `file-issue` register is the OPEN-defect side; memory is the CLOSED side
-- **Seen / Missed / Held** — the three issue-body fields
+- **Observed / Mechanism / Attempts / Fix / Consequences / Verification / ATTENTION** — the issue-body headings (creation: Motivation / Design / How it works / Consequences / Verification / ATTENTION)
 - **decision-log** — the per-goal `decisions.md`; not this memory
 - **dreamers** — the curating role the KG names; `goal-memory-management` realizes it for this memory
 

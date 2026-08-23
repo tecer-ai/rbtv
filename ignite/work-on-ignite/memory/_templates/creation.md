@@ -1,20 +1,17 @@
-## What it is
-<one paragraph: the thing that was added, removed, renamed, or refactored>
+## Motivation
+The problem or decision this creation serves. NOT a file list.
 
-## Why
-<motivation / decision this serves>
+## Design
+What was built and why this shape; alternatives rejected. NOT the symptom restated as a feature.
 
-## How to use & where wired
-<how to use it, and the paths that wire it in>
+## How it works
+Mechanism, wiring, how to use it. Files and functions appear only INLINE as citations.
 
-## commit
-<hash>
+## Consequences
+What it replaced or deleted, what it broke, follow-up fixes it required (cite later commits/entries).
 
-## deployed
-<yes|no|at>
-
-## pin
-<probe-path or NONE>
+## Verification
+How it was proven (probe/selftest by name, inline) and when it was deployed.
 
 ## ATTENTION
-- <what to watch for, and why>
+1–5 bullets. Each names a trap and why it is a trap. Each self-contained. No duplicates of each other or of the header.

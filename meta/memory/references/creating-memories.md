@@ -43,7 +43,11 @@ A fact that touches more than one key (a cross-cutting fix) is filed ONCE, under
 Every memory splits into two layers, because an agent editing component X needs to scan "has this broken before" in seconds, not read every past fix in full:
 
 - **The index line** — what agents actually read, by default, before touching the key. Field order encodes priority: put the fact a scanning agent needs FIRST, leftmost. The ignite index line is `date · kind · title · symptom→cause (one clause) · commit · other-components · ⚠ if ATTENTION` — date and kind first (so a scan can filter by recency and type before reading further), the causal clause next (the single fact that answers "does this apply to what I'm about to do"), then provenance (commit) and blast radius (other components) last. Give the index line a TARGET length and a HARD CAP (280 target / 400 cap here) — a target keeps entries scannable, a hard cap keeps one verbose entry from making the whole index unreadable — and enforce the cap in the filing command (§ 6), never in prose alone. The index is APPEND-ONLY, newest entry LAST: a prior line is never rewritten, because a rewritten line is a lie about when something was known.
-- **The entry file** — full context, opened only when the index line says "this looks relevant." What makes an entry file worth opening later, rather than becoming prose nobody re-reads, is concreteness: the ignite entries are decisive because they cite `path:lines` against the ACTUALLY DEPLOYED tree (not just HEAD, which can differ from what is running), name the Missed trials and WHY each failed (so the next agent doesn't re-try a dead end), and carry ATTENTION bullets rather than instructions. **"Do not undo" wording is banned outright** — the owner ruled it dangerous, because a KEEP-style command outlives the reason for it and eventually blocks a legitimate reversal; an ATTENTION bullet states what to watch for and why, and lets the reader decide, rather than forbidding an action it cannot foresee the future need for.
+- **The entry file** — full context, opened only when the index line says "this looks relevant." An entry answers, in prose with evidence inline (commits, dates, doc citations — never a list of files): **observed** (the symptom as measured) + **mechanism** (what the code did and why that produced the symptom) · **attempts** and why they failed (or `First attempt held — checked: …`; NEVER `none recorded`) · **what was built and why** (the design chosen, alternatives rejected) · **consequences** (what it replaced, broke, or forced next) · **verification** (how it was proven, when deployed) · **attention** (the trap, and why it is a trap). Header fields (kind, commit, deployed, pin, files) are written ONCE by the filing command; the body NEVER repeats them as sections. A body that could have been written from the index line alone is a defect. Reader test: a stranger with no memory of the event can reconstruct the problem, the cause, what was tried, what was built and why, and what it broke. **"Do not undo" wording is banned outright** — the owner ruled it dangerous, because a KEEP-style command outlives the reason for it and eventually blocks a legitimate reversal; an ATTENTION bullet states what to watch for and why, and lets the reader decide.
+
+## Why entries go thin, and the gate that stops it
+
+Writers fed one-liners and file stats produce entries nobody can rebuild from: half the file lists paths, "none recorded" stands in for unread history, header fields are pasted again as body sections, ATTENTION bullets duplicate each other. There is no judge, so the thin file ships. The remedy is evidence from diffs and documents (not from the index line), and a judge of a different model asking the seven questions — one per heading — against the body; any "no" sends it back. This reference is unwired: it rules the shape; it does not install the judge.
 
 ## 6. Mechanize the write
 
@@ -89,7 +93,7 @@ Answer each with yes/no before treating the design as done:
 | 3 | Is the kind list short, and does each kind have a fixed mandatory body? |
 | 4 | Does the key reuse a partition that already exists in the thing being remembered? |
 | 5 | Does the index line have a target length AND a hard cap, both enforced by a command? |
-| 6 | Does every entry file cite concrete evidence (paths, deployed-tree lines, named failed trials) rather than a forbidding-future-reversal instruction (§ 5)? |
+| 6 | Does every entry file answer observed + mechanism · attempts and why they failed · what was built and why · consequences · verification · attention, with evidence inline, rather than a forbidding-future-reversal instruction (§ 5)? |
 | 7 | Is there ONE filing command that owns shape/naming/cap/refusals, and are ALL writers named? |
 | 8 | Is the read step a ladder with a deterministic floor (grep) under any semantic layer, and does it require citing consulted entry ids? |
 | 9 | Is the distillation trigger count-based, and is it wired to a standing hub goal or equivalent recurring owner? |
@@ -104,7 +108,7 @@ Answer each with yes/no before treating the design as done:
 | Kinds | `issue`, `creation` — two only |
 | Key | component = top-level folder under `ignite/` and `meta/` (19 keys) |
 | Index line | `date · kind · title · symptom→cause · commit · other-components · ⚠`, 280 target / 400 cap |
-| Entry body | Seen/Missed/Held + commit + deployed-tree `files:lines` + `deployed` + `pin` + ATTENTION (never a forbidding-reversal instruction, § 5) |
+| Entry body | Observed / Mechanism / Attempts / Fix / Consequences / Verification / ATTENTION (creation: Motivation / Design / How it works / Consequences / Verification / ATTENTION); header written once; never a forbidding-reversal instruction, § 5 |
 | Filing command | `file-issue memory file`, refuses bad shape/name/missing field/unknown component |
 | Writers | the owning goal at build/closure; any other ignite-editing session at its close |
 | Read ladder | `_summary.md` + live index → embed-search (semantic→keyword→grep) → grep-all-indexes floor → cite entry ids |

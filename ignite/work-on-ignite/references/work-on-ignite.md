@@ -26,13 +26,13 @@ Binds: the `ignite-engine` goal's seats at build/closure, AND any other console 
 
 5. **Read recent creations before you write.** For each component you touch, skim its newest `_creations.md`/`_issues.md` entries to learn the motivation behind the code you're about to change — a decision you'd otherwise blindly reverse. Then do the work.
 
-6. **Before closing the sitting, file.** For every fix, run:
+6. **Before closing the sitting, file.** Write the body to the contract in `ignite/work-on-ignite/references/build-memory.md` § Entry content contract. Run the quality-gate questions (self, or a judge seat of a different model); any "no" rewrites the body before filing. Then:
    ```
    file-issue memory file --component <name> --kind issue --title "<title>" \
-     --body-file <path-to-Seen/Missed/Held-body> --commit <hash> --deployed yes|no|at \
+     --body-file <path-to-contract-body> --commit <hash> --deployed yes|no|at \
      --pin <probe-path|NONE> --components <other,other> --attention "<bullet>"
    ```
-   For every new thing added, removed, renamed, or refactored, run the same command with `--kind creation` (or `--kind change` for a refactor/removal/rename) and a body carrying `What it is / Why / How to use & where wired`. Templates: `ignite/work-on-ignite/memory/_templates/issue.md`, `ignite/work-on-ignite/memory/_templates/creation.md`. One index line per entry, ≤400 chars (the command enforces this).
+   For every new thing added, removed, renamed, or refactored, run the same command with `--kind creation` (or `--kind change` for a refactor/removal/rename) and a body carrying the creation headings. Templates: `ignite/work-on-ignite/memory/_templates/issue.md`, `ignite/work-on-ignite/memory/_templates/creation.md`. One index line per entry, ≤400 chars (the command enforces this). The command refuses bodies missing the headings or carrying placeholder phrases.
 
 7. **If the filing command refuses, report the refusal.** Never hand-edit `_issues.md`, `_creations.md`, or any index — the command is the only writer. A refusal you cannot resolve is a loose end in your report, not a workaround.
 
