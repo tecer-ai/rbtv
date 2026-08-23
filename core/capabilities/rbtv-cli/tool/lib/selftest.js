@@ -319,6 +319,59 @@ const CHECKS = [
     if (blurb('') !== '') throw new Error('blurb of empty text is not empty');
     if (blurb(null) !== '') throw new Error('blurb of null is not empty');
   }],
+
+  // cli-drill seat (owner-ruled 2026-08-24, option a): a component-level manifest
+  // (`component.md` + `exposure.csv` beside the parts it declares, one level down
+  // from the module root) is now a level-1 row, not an invisible folder.
+  ['a component FOLDER (component.md + exposure.csv, no module-root row) is listed at level 1', () => {
+    const comps = catalog.components('ignite') || [];
+    const woi = comps.find((c) => c.name === 'work-on-ignite' && c.kind === 'component');
+    if (!woi) throw new Error('`ignite` components() does not carry a work-on-ignite component-folder row');
+    if (!woi.exposure_rows || !woi.exposure_rows.length) throw new Error('work-on-ignite carries no exposure rows');
+
+    const r = runCli(['ignite']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite\` exited ${r.status}`);
+    if (!/work-on-ignite \(component\)/.test(r.stdout)) throw new Error('level 1 does not list work-on-ignite as a component');
+    if (!/team-kit \(component\)/.test(r.stdout)) throw new Error('level 1 does not list team-kit as a component');
+  }],
+
+  ['level 2 on a component folder delivers component.md\'s body (frontmatter stripped) then its exposure.csv rows', () => {
+    const r = runCli(['ignite', 'work-on-ignite']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite work-on-ignite\` exited ${r.status}`);
+    if (!/^\n?ignite work-on-ignite \(component\)/m.test(r.stdout)) throw new Error('no component header printed');
+    const bodyIdx = r.stdout.indexOf('# work-on-ignite');
+    if (bodyIdx === -1) throw new Error('component.md body (frontmatter stripped) was not delivered');
+    if (/^description:/m.test(r.stdout.slice(0, bodyIdx))) throw new Error('component.md frontmatter leaked into the printed body');
+    const rowsIdx = r.stdout.indexOf('exposure rows');
+    if (rowsIdx === -1 || rowsIdx < bodyIdx) throw new Error('exposure rows did not follow the component.md body');
+    if (!/work-on-ignite \(reference\/skill\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
+  }],
+
+  ['a name that is BOTH a component folder and a module-root part: the folder wins the body, the part is a note, never two answers', () => {
+    const r = runCli(['ignite', 'team-kit']);
+    if (r.status !== 0) throw new Error(`\`rbtv ignite team-kit\` exited ${r.status}`);
+    if (!/file-issue \(tool\/path\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver file-issue');
+    if (!/file-system-issue \(capability\/skill\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver file-system-issue');
+    const noteIdx = r.stdout.indexOf('is ALSO a module-root part');
+    if (noteIdx === -1) throw new Error('the module-root skill facet was not folded into a note under the folder');
+    const headerCount = (r.stdout.match(/ignite team-kit \(/g) || []).length;
+    if (headerCount > 1) throw new Error(`team-kit rendered ${headerCount} separate facet headers — expected one, the folder`);
+  }],
+
+  ['an unknown name under a module WITH component folders still refuses, and the known-list carries the new components', () => {
+    const r = runCli(['ignite', 'nosuchthing']);
+    if (r.status !== 1) throw new Error(`expected exit 1, got ${r.status}`);
+    if (!/work-on-ignite/.test(r.stderr)) throw new Error('refusal known-list does not carry work-on-ignite');
+  }],
+
+  ['a module with no component folders (core) is untouched by the folder reader', () => {
+    if (catalog.componentFolders('core').length) {
+      throw new Error('core unexpectedly carries component folders — the fixture this check assumes has moved');
+    }
+    const r = runCli(['core']);
+    if (r.status !== 0) throw new Error(`\`rbtv core\` exited ${r.status}`);
+    if (/\(component\)/.test(r.stdout)) throw new Error('`rbtv core` printed a component-folder row where none exist');
+  }],
 ];
 
 function throwaway(body) {

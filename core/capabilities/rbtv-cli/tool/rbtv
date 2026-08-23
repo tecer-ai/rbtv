@@ -262,7 +262,15 @@ function level1(moduleName, opts) {
 // `safe-move` is both a skill and a tool — two facets of one capability — and
 // delivering only whichever the manifest happened to list first would hide half of
 // it, with the half you got decided by key order.
+//
+// A `kind: 'component'` facet (a component FOLDER — component-anatomy.md §1) is
+// never just another facet among equals: when one is present, the folder WINS the
+// body and any module-root part sharing the name is listed under it as a note,
+// never rendered as a second full answer (cli-drill seat, owner-ruled 2026-08-24).
 function level2(moduleName, matches, opts) {
+  const compFacet = matches.find((c) => c.kind === 'component');
+  const otherFacets = matches.filter((c) => c !== compFacet);
+
   if (opts.json) {
     json({
       level: 2,
@@ -273,17 +281,26 @@ function level2(moduleName, matches, opts) {
         entry_point: c.entry_point,
         entry_point_body: catalog.readBody(c.entry_point),
         entry_points: c.tools,
+        exposure_rows: c.exposure_rows,
       })),
+      folder_wins_body: Boolean(compFacet && otherFacets.length),
       substrate: 'stand-in pending CMP-5',
     });
     return 0;
   }
 
-  if (matches.length > 1) {
+  if (compFacet && otherFacets.length) {
+    renderFacet(moduleName, compFacet, opts);
+    console.log(`\n${paint(opts.pretty, 'bold',
+      `note: \`${compFacet.name}\` is ALSO a module-root part — the folder wins the body above, the part is listed here, never as a second answer`)}`);
+    console.log(table(otherFacets.map((o) => [`${o.name} (${o.kind})`, o.entry_point || '(no entry point)']), opts.pretty).join('\n'));
+  } else if (matches.length > 1) {
     console.log(paint(opts.pretty, 'bold',
       `${moduleName} ${matches[0].name} — ${matches.length} facets (${matches.map((c) => c.kind).join(' + ')}), all delivered`));
+    for (const comp of matches) renderFacet(moduleName, comp, opts);
+  } else {
+    renderFacet(moduleName, matches[0], opts);
   }
-  for (const comp of matches) renderFacet(moduleName, comp, opts);
 
   const route = verbs.ROUTES.find((r) => r.prefix[0] === moduleName);
   console.log(`\nnext: ${route ? `rbtv ${route.prefix.join(' ')} <verb>` : `rbtv ${moduleName}`}`);
@@ -291,6 +308,8 @@ function level2(moduleName, matches, opts) {
 }
 
 function renderFacet(moduleName, comp, opts) {
+  if (comp.kind === 'component') return renderComponentFacet(moduleName, comp, opts);
+
   const body = catalog.readBody(comp.entry_point);
 
   console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (${comp.kind})`));
@@ -312,6 +331,35 @@ function renderFacet(moduleName, comp, opts) {
     console.log(`\n--- ${comp.entry_point} ---\n${body}`);
   } else if (comp.entry_point) {
     console.log(`\n(no deliverable body at ${comp.entry_point} — it names a package or directory, not a document)`);
+  }
+}
+
+// A component FOLDER's level-2 answer, in the order the registry's
+// "component entry point" record and exposure.md §3 settle: the orientation body
+// first (what a reader decides whether to enter with), then the component's own
+// exposed parts, then — of those — the ones it routes to as action verbs.
+function renderComponentFacet(moduleName, comp, opts) {
+  console.log(paint(opts.pretty, 'bold', `\n${moduleName} ${comp.name} (component)`));
+  console.log(comp.entry_point ? `entry point: ${comp.entry_point}` : 'entry point: (no component.md at this folder yet)');
+
+  if (comp.entry_point) {
+    const body = catalog.stripFrontmatter(catalog.readBody(comp.entry_point));
+    if (body) console.log(`\n--- ${comp.entry_point} ---\n${body}`);
+  }
+
+  const rows = comp.exposure_rows || [];
+  if (rows.length) {
+    console.log(`\n${paint(opts.pretty, 'bold', `exposure rows (${comp.exposure_path})`)}`);
+    console.log(table(rows.map((r) => [
+      `${r['part-id']} (${r['part-kind']}/${r.method})`,
+      [r['entry-point'], r.description].filter(Boolean).join(' — '),
+    ]), opts.pretty).join('\n'));
+
+    const verbRows = rows.filter((r) => r['rbtv-cli']);
+    if (verbRows.length) {
+      console.log(`\n${paint(opts.pretty, 'bold', 'action verbs (rbtv-cli column)')}`);
+      console.log(table(verbRows.map((r) => [r['rbtv-cli'], r.description || r['part-id']]), opts.pretty).join('\n'));
+    }
   }
 }
 
