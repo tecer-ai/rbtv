@@ -1650,6 +1650,35 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       and clean_row is None,
                       drelint)
 
+
+        # ---- memory commit: pathspec commit in a fixture git repo ------------------
+        import shutil as _sh
+        grepo = Path(td) / "commit-repo"
+        (grepo / "ignite" / "work-on-ignite" / "memory" / "engine").mkdir(parents=True)
+        (grepo / "other.txt").write_text("untouched\n", encoding="utf-8")
+        _g = lambda *a: subprocess.run(["git", "-C", str(grepo), *a], capture_output=True, text=True)
+        _g("init", "-q"); _g("config", "user.email", "t@t"); _g("config", "user.name", "t")
+        (grepo / "ignite" / "work-on-ignite" / "memory" / "engine" / "_issues.md").write_text("# engine\n", encoding="utf-8")
+        _g("add", "-A"); _g("commit", "-q", "-m", "base")
+        (grepo / "ignite" / "work-on-ignite" / "memory" / "engine" / "_issues.md").write_text("# engine\n2026-01-01 · issue · x\n", encoding="utf-8")
+        (grepo / "other.txt").write_text("changed outside memory\n", encoding="utf-8")
+        c0 = _run(["memory", "commit", "--repo", str(grepo), "--dry-run", "--json"])
+        d0 = json.loads(c0.stdout) if c0.stdout.strip() else {}
+        c1 = _run(["memory", "commit", "--repo", str(grepo), "--json"])
+        d1 = json.loads(c1.stdout) if c1.stdout.strip() else {}
+        c2 = _run(["memory", "commit", "--repo", str(grepo), "--json"])
+        d2 = json.loads(c2.stdout) if c2.stdout.strip() else {}
+        outside_still_dirty = "other.txt" in _g("status", "--porcelain").stdout
+        shown = _g("show", "--stat", "--format=", "HEAD").stdout
+        passed &= _ok("green: memory-commit-pathspec",
+                      c0.returncode == 0 and d0.get("committed") is None and d0.get("changed")
+                      and c1.returncode == 0 and d1.get("committed")
+                      and "_issues.md" in shown and "other.txt" not in shown
+                      and outside_still_dirty
+                      and c2.returncode == 0 and d2.get("committed") is None,
+                      {"dry": d0, "first": d1, "second": d2, "shown": shown[:200]})
+        _sh.rmtree(grepo, ignore_errors=True)
+
         # ---- the non-JSON refusal names the route on stderr ----------------------
         rp = _run(["file", "--register", str(reg),
                    "--surface", "5-workbench/x", "--class", "other",
@@ -1672,6 +1701,42 @@ def _shared(sp):
     sp.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                     help="stable JSON on stdout")
     return sp
+
+
+def cmd_memory_commit(args, cwd: Path) -> int:
+    """Commit the memory tree by pathspec — the deterministic, out-of-cage step a caged
+    distill/rotate seat cannot do (the repo root is not bound inside a cage; owner ruling
+    2026-08-23, goal-memory-management decisions.md). Exit 0 when nothing changed."""
+    as_json = args.json
+    try:
+        repo = repo_root(cwd, args.repo)
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+    rel = "ignite/work-on-ignite/memory"
+    if not (repo / rel).is_dir():
+        return refuse_payload(Refuse("memory-dir-missing", f"{repo / rel} does not exist"), as_json)
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+    if git("rev-parse", "--is-inside-work-tree").returncode != 0:
+        return refuse_payload(Refuse("not-a-git-repo", f"{repo} is not a git work tree"), as_json)
+    st = git("status", "--porcelain", "--", rel)
+    changed = [l[3:] for l in st.stdout.splitlines() if l.strip()]
+    payload = {"ok": True, "repo": str(repo), "pathspec": rel, "changed": changed, "committed": None}
+    if not changed:
+        payload["note"] = "nothing to commit under the memory tree"
+        return emit(payload, as_json=as_json, exit_code=0)
+    if args.dry_run:
+        payload["note"] = "dry-run: would commit the files above"
+        return emit(payload, as_json=as_json, exit_code=0)
+    add = git("add", "-A", "--", rel)
+    if add.returncode != 0:
+        return refuse_payload(Refuse("git-add-failed", add.stderr.strip()[:400]), as_json)
+    msg = args.message or f"memory: {len(changed)} file(s) under {rel} (distill/rotate/file)"
+    com = git("commit", "-q", "-m", msg, "--", rel)
+    if com.returncode != 0:
+        return refuse_payload(Refuse("git-commit-failed", (com.stderr or com.stdout).strip()[:400]), as_json)
+    payload["committed"] = git("rev-parse", "--short", "HEAD").stdout.strip()
+    return emit(payload, as_json=as_json, exit_code=0)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1822,6 +1887,21 @@ def build_parser() -> argparse.ArgumentParser:
     mrl.add_argument("--repo", default=argparse.SUPPRESS,
                      help="override the rbtv repo root (tests only)")
     mrl.set_defaults(_fn=cmd_memory_relint, repo=None)
+
+
+    mcm = _shared(msub.add_parser(
+        "commit", help="commit the memory tree by pathspec (out-of-cage step after distill/rotate)",
+        description="git add + commit ONLY ignite/work-on-ignite/memory in the rbtv repo. Exit 0 with\n"
+                    "'nothing to commit' when clean. Meant for a daemon fire-tool job / a console\n"
+                    "session; a caged seat cannot see the repo root and must not try.",
+        epilog="example: file-issue memory commit --dry-run\n"
+               "next: git -C <rbtv> log -1 -- ignite/work-on-ignite/memory",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    mcm.add_argument("--message", metavar="TEXT", default=None)
+    mcm.add_argument("--dry-run", action="store_true")
+    mcm.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    mcm.set_defaults(_fn=cmd_memory_commit, repo=None, dry_run=False)
 
     t = sub.add_parser("selftest", help="hermetic green and red arms")
     t.set_defaults(_fn=cmd_selftest)

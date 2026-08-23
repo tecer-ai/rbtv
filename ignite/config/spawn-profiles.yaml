@@ -1000,6 +1000,19 @@ tools:
   #
   # ⚠ LANDED IS NOT LIVE. This file is boot-read, so this entry reaches the daemon only
   # through a restart — today the owner's one arming restart, thereafter this job itself.
+  # ── memory-commit (owner ruling 2026-08-23, goal-memory-management decisions.md, option a) ──
+  # The deterministic, OUT-OF-CAGE step after the daily `distill-ignite-memory` pass: commits
+  # ONLY `ignite/work-on-ignite/memory` in the rbtv repo by pathspec (`file-issue memory commit`),
+  # exit 0 when clean. A caged seat cannot see the repo root, so it writes and this job commits.
+  # Scheduled by a periodic queue row 30 min after the distill fire (see that goal's decisions.md).
+  memory-commit:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/file-issue.py
+      - memory
+      - commit
+      - --json
+
   restart-daemon:
     argv:
       - /usr/bin/python3
