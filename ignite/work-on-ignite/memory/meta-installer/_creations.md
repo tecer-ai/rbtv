@@ -1,2 +1,3 @@
 # meta-installer — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
 2026-08-22 · change · seeded · installer-home-in-meta · live installer was repo-root install2.py not core/; owner ruled installer is meta (system-ops) so it moved to meta/installer/ and unbuilt core/capabilities/installer was deleted · eeb1fea6 · — · ⚠
+2026-08-23 · change · installer split into lib + selftest, renamed install.py · install2.py was 7418 lines in one file (3035 of them a single selftest function) → owner-directed split into lib/ + selftest/ + design-decisions.md, renamed install.py, interactive rebuilt on the predecessor's arrow-key picker · e9d571a5 · — · ⚠
