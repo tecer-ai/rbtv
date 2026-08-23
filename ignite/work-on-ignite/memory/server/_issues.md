@@ -1,1 +1,7 @@
 # server — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-19 · issue · seeded · D3 fence replaces cage · The bwrap anti-forgery cage was a repeated launch-death cause. → Replace the cage with a thin "D3 fence" built on git worktrees. · ac4726a6,e37853b2,fb8db289 · config,team-kit · ⚠
+2026-08-20 · issue · seeded · Spawn refresh before launch · spawnSeat() could launch a seat using stale descriptor/state data. → spawnSeat() runs --refresh before its first read; extended to the headless door next day. · ee64adde,a06723ec · — · ⚠
+2026-08-21 · issue · seeded · Stools undeclared tool refusal · Undeclared tools raised a raw PermissionError instead of a named refusal. → A named refusal class for undeclared tools, pinned by a red-control test on the master cage. · 7f6eaf3e,9060c3cc · — · ⚠
+2026-08-21 · issue · seeded · Heart store perf fixes · Full-history scans + a missing index were starving the gateway's event loop. → Cache listExecutionsByStatus; add the missing jobs_log index. · fecd3b6a,6fc989bc · — · ⚠
+2026-08-22 · issue · seeded · Ro mask private scope fix · The private-scope visible() predicate didn't excuse read-only mask covers. → Excuse ro-mask covers in the visible() predicate explicitly. · 6b55b1c4 · — · ⚠
+2026-08-23 · issue · seeded · Lane aware launch doors · Leader launch doors were console-era tmux composers, lane-blind and cage-blind. → On a daemon-lane goal, the doors enqueue a caged headless sitting via the daemon instead. · a554197b · team-kit · ⚠
