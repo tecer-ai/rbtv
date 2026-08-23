@@ -1,4 +1,4 @@
-# 20260823-c-build-memory — ignite build memory
+# 20260823-c-ignite-build-memory — ignite build memory
 
 kind: creation
 component: work-on-ignite
