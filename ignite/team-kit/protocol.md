@@ -40,6 +40,7 @@ $COORD owner present|reachable|afk [--note ".."]  # owner/leader only (P15). rea
                                                 #   no master session running: escalate by LAUNCHING
                                                 #   THE DOOR. `--help` states all three (7.85)
 $COORD launch [--only a,b,c] [--dry-run]        # leader only — per-seat harness/model/effort; pre-validates every seat's harness/model and refuses BEFORE opening any pane (PROP-8)
+$COORD launch --only <seat> --rerun <anchor>    # leader only (D42) — RE-RUN a seat whose last session ENDED `exited` (the kit's word: the harness died, the work is unknown) as an ordinary working session citing the leader's investigation anchor; the `exited` row stays and is superseded by the new one. LANE-AWARE (E22): on a goal whose `execution-lane` reads `daemon`, every launch door ENQUEUES a caged headless sitting through the daemon (no tmux pane; --tmux-target refused there)
 $COORD launch --only <seat> --reopen "<reason>" # leader only (D54/D66/D72) — RE-OPEN a `done` seat on a LATE FINDING: appends a new ordinary sitting, the old `done` row stands unrewritten, the reason is recorded on the new row, at most 2 reopens per (seat, reason), and any seat that already ran depending on the old `done` is flagged (not rolled back)
 $COORD create-group <group> [member ...]        # creator + leader auto-included
 $COORD add-to-group <group> <member ...>        # leader only

@@ -26,10 +26,15 @@ the room's transport is byte-identically what it was (the leader's 7.57 fork-2 r
 naive detect-then-route flips the transport for every seat mid-run).
 
 Credential discipline (inherited from gateway-cli-spec.md, unconditional): the sender
-token is read from the environment ONLY, at call time — never cached, never placed in
-argv or a URL, never logged. A missing token is not raised here; the request still
-goes out with no Authorization header, so the gateway's own AUTH_REFUSED answers,
-never a client-side fake refusal (config.js's own documented choice, inherited as-is).
+token is read at call time — never cached, never placed in argv or a URL, never logged.
+Since 7.566 (mirrored here 2026-08-23, E22) `config.js#resolveToken` reads it from the
+environment FIRST and then from the workspace's gitignored `.rbtv/config/sender-token.env`,
+walking up from the cwd — the ONE file a seat cage never masks, which is how a CAGED seat
+(whose environment carries no token: the daemon's unit ships `EnvironmentFile=-/dev/null`)
+gets one at all. `resolve_token` below does the same walk, so `coordinate` can speak to the
+gateway from inside a cage exactly as the `ignite` CLI does. A missing token is not raised
+here; the request still goes out with no Authorization header, so the gateway's own
+AUTH_REFUSED answers, never a client-side fake refusal (config.js's own documented choice).
 """
 
 import http.client
@@ -176,14 +181,46 @@ def resolve_gateway_addr(workspace_root, hostname=None, env=None):
     )
 
 
-def resolve_token(env=None):
-    """IGNITE_SENDER_TOKEN from the environment, or None. Never a file, never argv —
-    mirrors config.js's resolveToken exactly: a missing token is not a local error
-    here, the gateway's own AUTH_REFUSED is the honest answer (never a client-side
-    fake refusal)."""
+_TOKEN_LINE_RE = re.compile(r"^[ \t]*(?:export[ \t]+)?IGNITE_SENDER_TOKEN[ \t]*=[ \t]*(.*)$", re.M)
+
+
+def _token_from_env_file(start):
+    """Walk up from `start` for `.rbtv/config/sender-token.env` and read IGNITE_SENDER_TOKEN out
+    of it — the port of `config.js#readEnvFileToken`: one key, `KEY=value` to end of line, an
+    `export ` prefix and surrounding quotes tolerated; the FIRST file found decides (a key-less
+    one answers None, it does not keep walking); unreadable/absent → None. Never throws."""
+    d = Path(start).resolve() if start is not None else Path.cwd()
+    while True:
+        try:
+            raw = (d / ".rbtv" / "config" / "sender-token.env").read_text(encoding="utf-8")
+        except OSError:
+            if d.parent == d:
+                return None
+            d = d.parent
+            continue
+        m = _TOKEN_LINE_RE.search(raw)
+        if not m:
+            return None
+        value = m.group(1).strip()
+        value = re.sub(r"""^(['"])(.*)\1$""", r"\2", value)
+        return value or None
+
+
+def resolve_token(env=None, start=None, workspace_root=None):
+    """The sender token, or None. Mirrors `config.js#resolveToken` (7.566): IGNITE_SENDER_TOKEN in
+    the environment FIRST; else the workspace's gitignored `.rbtv/config/sender-token.env`, found
+    by walking up from `start` (default: the cwd — in a cage, the seat folder) and, when that walk
+    finds nothing, from `workspace_root` (coord.py's fixed VAULT_ROOT, which the cwd walk cannot
+    reach from a seat folder bound below an ro-masked `seats/`). Never argv, never a URL. A missing
+    token is not a local error here: the gateway's own AUTH_REFUSED is the honest answer."""
     env = os.environ if env is None else env
     t = env.get("IGNITE_SENDER_TOKEN")
-    return t if isinstance(t, str) and len(t) > 0 else None
+    if isinstance(t, str) and len(t) > 0:
+        return t
+    found = _token_from_env_file(start)
+    if found is None and workspace_root is not None:
+        found = _token_from_env_file(workspace_root)
+    return found
 
 
 # ── task 7.93 · the addressed-message door, client side ────────────────────────────────────────

@@ -23,7 +23,7 @@ const { expandArgv, checkFireToolWorkdir } = require('../heart/argv-template');
 // Task 7.12 — the job->seat pointer (`r-job-seat-home`). The RESOLVER is imported, never
 // re-implemented: `seat-folder.js` is the one definition of what a seat folder is, and a second
 // spelling here would be a second definition that drifts (that module's own opening argument).
-const { resolveSeatHome } = require('../seat-identity/seat-folder');
+const { resolveSeatHome, parseSeatPath } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
 // `bindingOf` — the resume-ref foreign-harness gate below (D28) needs "which harness will this
 // spec run?". It is answered by the SAME reader `profiles.js#validateSpecKey` trusts to keep a
@@ -706,6 +706,39 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return home.seatDir;
   }
 
+  // ── E22 (owner ruling, 2026-08-23) · THE BOOT PROMPT OF A PROMPT-LESS FIRST EXECUTION ────────
+  //
+  // The leader-direct daemon-lane launch door (`coordinate launch …` on a goal whose
+  // `execution-lane` reads `daemon`, team-kit/coord.py#launch_daemon_lane) enqueues a seat sitting
+  // with NO `prompt` in its args — on purpose: a CAGED leader cannot read a sibling seat's
+  // descriptor (SeatBinds `ro-mask:{goalDir}/seats`), so a prompt it composed would read "Read your
+  // briefing None first" (G-leader-0822-2058). The daemon, uncaged, composes it HERE at dispatch
+  // through the ONE composer the seeding pass and the watcher already ask
+  // (`engine/seeding.js#seatBootPrompt` → `coordinate boot-prompt --lane <marker>`), so the sitting
+  // boots on exactly the bytes a watcher relaunch of the same seat would.
+  //
+  // BOUNDED TO: a FIRST execution (a chained turn's prompt is the conversation, composed in
+  // `launchAgent`), a canonical seat folder, and a goal whose lane marker reads `daemon` — the one
+  // lane whose seat rows the daemon composes for. Everything else (probe fixtures, a console-lane
+  // goal, a hand `ignite add-job` on a flat workdir) keeps today's bytes. And it FALLS BACK SOFTLY:
+  // a seat coord cannot compose for keeps the empty stdin it had and NAMES why on the spawn
+  // action — the failure is data, never a throw, so nothing here can abandon the tick.
+  function composeSeatBootPrompt(seatDir) {
+    const home = parseSeatPath(seatDir);
+    if (!home) return { prompt: null, reason: 'not-a-seat-folder' };
+    let lane = 'console';
+    try { lane = require('../../engine/lane-watch').readLane(home.goalDir).lane; } catch { lane = 'console'; }
+    if (lane !== 'daemon') return { prompt: null, reason: 'not-daemon-lane' };
+    let boot;
+    try {
+      boot = require('../../engine/seeding').seatBootPrompt(home.goalDir, home.seat);
+    } catch (err) {
+      return { prompt: null, reason: `composer-threw: ${err.message}` };
+    }
+    if (!boot || !boot.prompt) return { prompt: null, reason: (boot && boot.reason) || 'empty' };
+    return { prompt: boot.prompt, reason: null };
+  }
+
   // Launch helpers
   async function launchAgent(queueRow, actions, tick, now) {
     const { parentExecId, cleanedArgs } = extractChainMarker(queueRow);
@@ -926,8 +959,19 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         // Task 7.12 — resolved INSIDE the try so a homed job whose seat cannot be resolved fails
         // loud against this exec's own jobs_log row (see resolveJobHome above).
         const homedWorkdir = resolveJobHome(queueRow, workdir);
-        await spawnManager.spawn(exec.exec_id, queueRow.session_mode, attempt.prompt, homedWorkdir, queueRow.enqueued_by, attempt.ref, effort);
+        // E22 — a prompt-less FIRST execution of a daemon-lane seat boots on its boot prompt,
+        // composed by the daemon at dispatch (see composeSeatBootPrompt above). Inside the try on
+        // purpose: `resolveJobHome` may throw, and that throw must keep landing as `spawn-failed`.
+        let attemptPrompt = attempt.prompt;
+        let bootNote = null;
+        if (!parentExecId && !attempt.ref && (attemptPrompt === null || attemptPrompt === undefined || attemptPrompt === '')) {
+          const boot = composeSeatBootPrompt(homedWorkdir);
+          if (boot.prompt) { attemptPrompt = boot.prompt; bootNote = { bootPrompt: 'composed' }; }
+          else bootNote = { bootPrompt: 'unavailable', bootPromptReason: boot.reason };
+        }
+        await spawnManager.spawn(exec.exec_id, queueRow.session_mode, attemptPrompt, homedWorkdir, queueRow.enqueued_by, attempt.ref, effort);
         const spawnAction = { phase: 'dispatch', action: 'spawn', execId: exec.exec_id, queueId: queueRow.queue_id, thread: exec.thread };
+        if (bootNote) Object.assign(spawnAction, bootNote);
         if (effort !== null) spawnAction.effort = effort;
         if (homedWorkdir !== workdir) spawnAction.homed = homedWorkdir;
         if (compactTurn) spawnAction.compact = true;

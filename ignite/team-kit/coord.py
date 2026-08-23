@@ -12586,7 +12586,10 @@ def gateway_transport_target(args):
         host, port = gateway_client.resolve_gateway_addr(root)
     except gateway_client.GatewayUsageError:
         return None
-    return host, port, gateway_client.resolve_token()
+    # E22: the token walk (env, then `.rbtv/config/sender-token.env` up from the cwd) also tries the
+    # workspace root — from a seat folder bound below an ro-masked `seats/`, the cwd walk alone
+    # cannot reach it. A read-root seat sees that file; the cage never masks it.
+    return host, port, gateway_client.resolve_token(workspace_root=root)
 
 
 def gateway_thread_for(args, base, to):
@@ -17248,6 +17251,187 @@ def cmd_session_open(args):
     if note:
         print(c(f"  {note}", C_HINT))
 
+# ---------- E22 (owner ruling, 2026-08-23) · THE LANE-AWARE LAUNCH COMPOSER ----------------------
+#
+# `G-leader-0822-2056` / `G-leader-0822-2058` (the parked-on-console diagnosis): every leader-direct
+# launch door — a bare `launch`, `--only`, `--declare-only`, `--rerun`, `--reopen` — composed a tmux
+# pane running a bare harness, LANE-BLIND. On a goal whose `execution-lane` marker reads `daemon`
+# that is an UNCAGED sitting (no bwrap, no seat.md descriptor carriage) — and from inside a cage it
+# cannot even read a sibling seat's descriptor (SeatBinds `ro-mask:{goalDir}/seats`), so the boot
+# prompt read "Read your briefing None first". The leader therefore held NO caged re-run act for an
+# `exited`/UNDECLARED daemon-lane row, and the whole class parked on the owner at a terminal.
+#
+# THE FIX IS ONE BRANCH AFTER ADMISSION. Every wall above it — P2–P4 of `--rerun`, the 7.251 wall of
+# `--declare-only`, `--reopen`'s brake and walk-forward, `is_authorized_launcher`, the D45/F17
+# identity bound, the admission filter, PROP-8, the capacity term — is untouched and decides the
+# same on both lanes. What moves is the COMPOSER: on the daemon lane the admitted seats are handed
+# to the daemon's OWN spawn door — gateway intent `enqueue-job` on the seat's registered job
+# (`seat-<goal>-<seat>`, the id `engine/seeding.js#jobIdFor` registers at seeding), headless, the
+# canonical seat folder as workdir and NO prompt — the same row `engine/reconcile.js#launchSitting`
+# enqueues for a watcher relaunch. The daemon then composes the cage (`server/spawn/spawn.js`:
+# `composeCageFor` + `buildBwrapArgv`, the real `seat.md` descriptor) and — because a caged caller
+# cannot compose it — the boot prompt (`server/ticker/ticker.js#launchAgent` asks
+# `engine/seeding.js#seatBootPrompt`, i.e. `coordinate boot-prompt --lane daemon`, at dispatch),
+# and opens the seat's `sessions.csv` row at dispatch exactly as for every watcher relaunch. One
+# composer per lane; no second copy of the cage; no second Python writer into `heart.db` (the
+# gateway IS the daemon's single writer — the hazard `--reopen`'s wall names).
+#
+# The prior row stays as it stands (D42's `exited`, D54's `done`, the UNDECLARED cell) and is
+# superseded by the daemon's new row. A dedup refusal from the door (a live/queued sitting already
+# holds the seat) is PRINTED AS A REFUSAL and counted out of `launched` — never reported as
+# launched. `--tmux-target` is REFUSED on this lane, never silently ignored. The console lane
+# composes byte-identically to before (the self-test's E22-3 control).
+#
+# AUTHZ, measured: `server/internal-api/dispatch.js#handleEnqueueJob` runs NO authz predicate —
+# `enqueue-job` is open to every authenticated sender by design ("a live feed can do strictly LESS
+# than an enqueue … which is open to any authenticated sender"), so no allow-rule is minted; the
+# leader-only admission stays HERE, under `is_authorized_launcher`, where it always was.
+
+_GOAL_CLI_TOOL_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
+
+
+def goal_execution_lane(pkg):
+    """`daemon` or `console` for this package's `execution-lane` marker — read through the goals
+    tree's OWN Python speller (`goal_cli.read_lane`, DEC-1's twin of `lane-watch.js#readLane`),
+    never a third copy of the grammar in this file (the W1 note on `cmd_boot_prompt`). The import
+    is lazy (this is the one verb that needs it) and resolved relative to this file, exactly as
+    `materialize-seats.py` resolves the same module. An import failure is a LOUD refusal, never a
+    silent `console`: a launch that cannot tell its lane must not open an uncaged pane."""
+    try:
+        if str(_GOAL_CLI_TOOL_DIR) not in sys.path:
+            sys.path.append(str(_GOAL_CLI_TOOL_DIR))
+        from goal_cli import read_lane as _read_lane  # noqa: E402 — lazy by design
+    except Exception as exc:  # noqa: BLE001 — any import failure is the same refusal
+        refuse("environment",
+               f"cannot read this goal's execution lane: the goals-tree speller "
+               f"`goal_cli.read_lane` did not import from {_GOAL_CLI_TOOL_DIR} "
+               f"({type(exc).__name__}: {exc}). A launch that cannot tell `daemon` from `console` "
+               f"must not guess — on the daemon lane a guessed `console` opens an UNCAGED pane. "
+               f"Nothing was opened.", 1)
+    lane, _legacy = _read_lane(Path(pkg))
+    return lane
+
+
+def daemon_lane_reason(door, why):
+    """The admission brake's `reason` token for a leader-direct daemon-lane launch: the DOOR and the
+    leader's own anchor/reason, folded to the door's token grammar (`^[a-z][a-z0-9_-]{0,63}$`,
+    gateway/parse.js). Per-anchor ON PURPOSE: the brake (heart-store.js, D52/D66) admits at most
+    ADMISSION_BRAKE_LIMIT launches per (goal, seat, reason) with an unchanged signature, and this
+    door's signature is the args bytes — constant per seat — so the anchor is what separates one
+    investigation's budget from the next (D66's own `(goal, seat, reason)` shape, one token)."""
+    slug = re.sub(r"[^a-z0-9_-]+", "-", (why or "").lower()).strip("-")
+    tok = f"leader-{door}" + (f"-{slug}" if slug else "")
+    return tok[:64].rstrip("-")
+
+
+def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door, why,
+                       reopen_downstream=()):
+    """The daemon-lane COMPOSER of `cmd_launch` — reached only after every admission wall admitted
+    `workers`. Opens NO pane. Dry-run prints the enqueue each seat would get and exits on the same
+    fold the console dry-run exits on; the real path POSTs one `enqueue-job` per seat through the
+    gateway and renders the same verdict block (`launched`/`refused`, exit 1 on any refusal) the
+    console path renders — a dedup or brake refusal from the door IS a refusal here."""
+    goal = Path(pkg).name
+    reason = daemon_lane_reason(door, why)
+    rows = [(w, w["agent"], str(Path(pkg) / "seats" / w["agent"]), f"seat-{goal}-{w['agent']}")
+            for w in workers]
+    if args.dry_run:
+        for w, seat, seat_dir, job_id in rows:
+            verr = validate_seat(w)  # PROP-8: the same pre-flight the console dry-run shows
+            shape = (f"enqueue-job job_id={job_id} session_mode=headless trigger_kind=scheduled "
+                     f"reason={reason} args={{\"workdir\": \"{seat_dir}\"}} — no tmux pane and no "
+                     f"harness argv here: the daemon composes the cage (bwrap + seat.md) and the "
+                     f"boot prompt (`boot-prompt --lane daemon`) at dispatch")
+            print(f"[dry-run] {seat} ({w['harness']}/{w['model'] or 'plan-default'}"
+                  f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, daemon lane -> "
+                  f"enqueue, workdir={seat_dir}): {('REFUSED — ' + verr) if verr else shape}")
+        if adm_fold:
+            print(c(f"launch INCOMPLETE (dry-run): {len(adm_fold)} seat(s) would NOT launch "
+                    f"({', '.join(adm_fold)}). The exit code is the same one a real launch of "
+                    f"this set would return.", C_DEAD), file=sys.stderr)
+            sys.exit(1)
+        return
+    target = gateway_transport_target(args)
+    if not target:
+        refuse("environment",
+               "this goal's execution-lane is `daemon`, so launch hands the seat to the daemon's "
+               "own spawn door — and no daemon serves this workspace (no server.json machine "
+               "entry and no IGNITE_GATEWAY_ADDR). Nothing was enqueued and NO pane was opened: "
+               "an uncaged pane is not a fallback for a daemon-lane goal.", 1)
+    host, port, token = target
+    run_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    refused = []
+    for w, seat, seat_dir, job_id in rows:
+        label = f"{seat} ({w['harness']}/{w['model'] or 'plan-default'}, daemon lane)"
+        payload = {"job_id": job_id, "args": {"workdir": seat_dir}, "session_mode": "headless",
+                   "trigger_kind": "scheduled", "run_at": run_at, "reason": reason}
+        try:
+            _status, envelope = gateway_client.call_gateway(host, port, "enqueue-job", payload,
+                                                            token=token)
+        except gateway_client.GatewayTransportError as exc:
+            print(f"  {label}: FAILED — the daemon's door could not be reached: {exc}",
+                  file=sys.stderr)
+            refused.append(seat)
+            continue
+        if not isinstance(envelope, dict) or envelope.get("ok") is not True:
+            err = (envelope.get("error") if isinstance(envelope, dict) else None) or {}
+            code = err.get("code") if isinstance(err, dict) else None
+            msg = err.get("message") if isinstance(err, dict) else repr(envelope)
+            hint = ""
+            if code == "AUTH_REFUSED":
+                hint = (" — no sender token reached the gateway: IGNITE_SENDER_TOKEN in the "
+                        "environment, or `.rbtv/config/sender-token.env` under the workspace root "
+                        "(the one file a seat cage never masks)")
+            elif "unknown job" in str(msg):
+                hint = (f" — the daemon has no registered job `{job_id}` for this seat: this goal "
+                        f"was never seeded on the daemon lane (engine/seeding.js registers one per "
+                        f"taskforce row on its first daemon pass)")
+            print(f"  {label}: FAILED — the daemon's door refused the enqueue: "
+                  f"{code or 'UNKNOWN'}: {msg}{hint}", file=sys.stderr)
+            refused.append(seat)
+            continue
+        result = envelope.get("result") or {}
+        if result.get("deduped"):
+            print(f"  {label}: NOT ENQUEUED — the daemon already holds a live or queued sitting "
+                  f"for this seat (deduped: held by {result.get('because')}, queue "
+                  f"{result.get('jobId')}, exec {result.get('exec_id')}). This is the door's "
+                  f"REFUSAL, not a launch — a second sitting under one seat is never opened.",
+                  file=sys.stderr)
+            refused.append(seat)
+            continue
+        if not result.get("jobId"):
+            print(f"  {label}: NOT ENQUEUED — the daemon's door returned no queue row: its "
+                  f"admission brake (D52/D66, per goal+seat+reason) refused this launch. A "
+                  f"genuinely NEW investigation needs its own anchor/reason; an owner act re-arms.",
+                  file=sys.stderr)
+            refused.append(seat)
+            continue
+        print(f"enqueued {label} as daemon queue row {result['jobId']} — a caged headless "
+              f"sitting; the daemon opens the seat's sessions.csv row at dispatch (job {job_id})")
+    if door == "reopen" and why and len(workers) > len(refused):
+        seat = workers[0]["agent"]
+        down = (f" {len(reopen_downstream)} seat(s) already ran depending on the retracted "
+                f"`done`: {', '.join(reopen_downstream)} — flagged, NOT rolled back (D54/D72)."
+                if reopen_downstream else "")
+        num = append_message(base_dir(args), DISPOSITION_WRITER_KIT, "leader", "note",
+                             f"reopen: `{seat}` was re-opened on the daemon lane (reason `{why}`) "
+                             f"on top of a `done` row; the daemon opens the new sessions.csv row "
+                             f"at dispatch, so the reason is recorded HERE rather than on a row "
+                             f"this act never wrote.{down}")
+        print(c(f"  {seat}: reopen reason recorded on the bus (messages.md #{num}) — on the "
+                f"daemon lane the new sessions.csv row is the daemon's, opened at dispatch, so "
+                f"the `{REOPEN_REASON_COL}` cell is not written by this act.", C_HINT))
+    launched = len(workers) - len(refused)
+    refused = refused + [w["agent"] for w in blocked] + [w["agent"] for w, _c_, _r_ in adm_deferred]
+    if refused:
+        print(c(f"launch INCOMPLETE: {launched} enqueued, {len(refused)} refused "
+                f"({', '.join(refused)}). The enqueued seats are QUEUED with the daemon and were "
+                f"not rolled back.", C_DEAD), file=sys.stderr)
+        sys.exit(1)
+    print(c(f"next: {coord_invocation(args)} ready-seats --explain <seat> — the daemon dispatches "
+            f"the queued sitting on its next tick and opens the seat's sessions.csv row; a "
+            f"refusal at dispatch lands on the bus", C_HINT))
+
 
 def cmd_launch(args):
     # ---- F17 ENTRY BOUND: refuse an UNCORROBORATED `--as` identity BEFORE anything is read,
@@ -17295,6 +17479,19 @@ def cmd_launch(args):
             f"Each seat needs workers/<agent>/agent.md with `agent: <name>` "
             f"(template: briefing-template.md beside coord.py).",
             1)
+
+    # ==== E22 (owner, 2026-08-23) — THE LANE IS READ ONCE, HERE, and decides the COMPOSER far below
+    # (`launch_daemon_lane`); every admission wall between here and there runs unchanged on both
+    # lanes. Read through the goals-tree's own speller (`goal_execution_lane`), never derived here.
+    # `--tmux-target` is refused on the daemon lane AT ONCE — before any ADMITTED banner prints —
+    # because it names a pane this lane never opens, and a flag silently ignored is a flag that lies.
+    _lane = goal_execution_lane(package_dir(args, register=False))
+    if _lane == "daemon" and str(getattr(args, "tmux_target", "") or "").strip():
+        refuse("input",
+               f"--tmux-target names a tmux pane, and this goal's `execution-lane` is `daemon`: "
+               f"launch hands the seat to the daemon's own spawn door (a caged headless sitting) "
+               f"and opens NO pane, so the flag has nothing to name here. Refused rather than "
+               f"ignored. Drop it: {coord_invocation(args)} launch --only <seat> ...", 2)
 
     # 7.241 (U4.6): THE UNDECLARED-ENDING REFUSAL — the CONSUMER of 7.237's detector on the ONE
     # path that opens panes. `undeclared_endings` is 7.237's function, called here and not
@@ -17610,11 +17807,14 @@ def cmd_launch(args):
     # DEVIATION FROM A LITERAL "wire to the SAME key" READING. `HeartStore.enqueue()` (brief 07,
     # D52/D66) is `heart.db`'s SOLE writer by design ("everything goes through it" — brief 07's own
     # brief text; mirrors this file's own D3 "no proxy writers" ledger discipline). `--reopen`, like
-    # `--rerun` beside it, is a LEADER-DIRECT door: it opens a tmux pane and appends a
-    # `sessions.csv` row, and NEVER enqueues — there is no `enqueue()` call in this door's path to
-    # attach a check to, and a second Python writer into a live daemon's SQLite store while that
-    # daemon is running is exactly the kind of shared-live-system risk this plan's own hazards file
-    # warns against. `reopen_attempt_count` (above) is the same (goal, seat, reason) KEY SHAPE,
+    # `--rerun` beside it, is a LEADER-DIRECT door: on the CONSOLE lane it opens a tmux pane and
+    # appends a `sessions.csv` row; on the DAEMON lane (E22, 2026-08-23) it hands the admitted seat
+    # to the daemon's OWN door through the gateway (`launch_daemon_lane`), where the door's
+    # (goal, seat, reason) brake applies under a per-reason token. It NEVER writes `heart.db`
+    # itself — there is no `enqueue()` call in this file to attach a check to, and a second Python
+    # writer into a live daemon's SQLite store while that daemon is running is exactly the kind of
+    # shared-live-system risk this plan's own hazards file warns against. `reopen_attempt_count`
+    # (above) is the console lane's brake: the same (goal, seat, reason) KEY SHAPE,
     # counted instead over THIS package's own `sessions.csv` — a store `--reopen` already owns
     # exclusively. It is deliberately the FAIL-CLOSED direction: it counts every prior reopen under
     # an unchanged reason whether or not that sitting progressed (this door does not evaluate D52's
@@ -18302,6 +18502,20 @@ def cmd_launch(args):
     _f18_explicit = str(getattr(args, "tmux_target", "") or "").strip()
     if _f18_explicit:
         target = _f18_explicit
+    # ==== E22 — THE LANE BRANCH: the COMPOSER moves, the admission does not. Placed AFTER every
+    # admission wall and the capacity term, and BEFORE the tmux-environment refusal below: a caged
+    # leader has no $TMUX_PANE and must not be refused for lacking a window it will not open. The
+    # door the leader used (`--rerun` / `--declare-only` / `--reopen` / a plain launch) and its
+    # anchor become the daemon door's brake reason. See the block comment on `launch_daemon_lane`.
+    if _lane == "daemon":
+        _lane_door, _lane_why = (("rerun", _rerun_anchor) if _rerun_admitted
+                                 else ("declare-only", _decl_anchor) if _declare_only_admitted
+                                 else ("reopen", _reopen_reason) if _reopen_admitted
+                                 else ("launch", ""))
+        launch_daemon_lane(args, workers, package_dir(args, register=False), _adm_fold, blocked,
+                           _adm_deferred, _lane_door, _lane_why,
+                           reopen_downstream=_reopen_downstream)
+        return
     if not target and not args.dry_run:
         refuse(
             "environment",
@@ -25685,6 +25899,172 @@ def _selftest_checks(args, failures, names):
               "cleared it to make room for the re-run would destroy the evidence the leader's "
               "investigation was about. It is superseded later, by the new session's own ended row",
               sessions_csv(pkg).read_bytes() == _d42_bytes_before)
+
+        # ==== E22 (owner ruling, 2026-08-23): THE LANE-AWARE COMPOSER — G-leader-0822-2056/2058 ==
+        # gamma's last ENDED row is `exited`/kit and the registry is written (above), so `--rerun`
+        # ADMITS here on both lanes; the ONE thing each row below moves is the package's
+        # `execution-lane` marker, read through the goals-tree speller (`goal_execution_lane`).
+        # ⚠ NO EXPECTED VALUE BELOW IS READ FROM THE CODE UNDER TEST: every substring is a
+        # spelled-out literal. Each arm was proved RED by a mutation on a scratch copy (the
+        # door-builder's evidence JSON carries the ledger): the lane read forced to `console`, the
+        # `--tmux-target` refusal removed, the dedup branch reporting `enqueued`.
+        _e22_marker = pkg / "execution-lane"
+        _e22_marker.write_text("daemon\n", encoding="utf-8")
+        _e22_d, _e22_d_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     rerun=_d42_a)
+        check("E22-1 DAEMON LANE: `launch --only gamma --rerun <anchor> --dry-run` on a goal whose "
+              "`execution-lane` reads `daemon` is ADMITTED by the same `--rerun` wall and COMPOSES "
+              "AN ENQUEUE — the daemon's own door (`enqueue-job` on job `seat-<goal>-<seat>`, "
+              "headless, the canonical seat folder, NO prompt) — and NO tmux pane and NO bare "
+              "harness argv: the `\"$(cat …)\"` prompt-file shape every console composition "
+              "carries is absent, and the line says the daemon composes the cage and the boot "
+              "prompt at dispatch",
+              _e22_d_code == 0
+              and "ADMITTED by --rerun" in _e22_d
+              and "[dry-run] gamma (" in _e22_d
+              and "daemon lane" in _e22_d
+              and "enqueue-job job_id=seat-pkg-gamma" in _e22_d
+              and "session_mode=headless" in _e22_d
+              and "/seats/gamma" in _e22_d
+              and "reason=leader-rerun-p-655-crashy-investigated" in _e22_d
+              and '"$(cat ' not in _e22_d
+              and "bwrap + seat.md" in _e22_d
+              and "boot-prompt --lane daemon" in _e22_d)
+        check("E22-1 (THE ROW IS UNTOUCHED, daemon lane): the dry-run wrote nothing — sessions.csv "
+              "is byte-identical; the enqueue is the daemon's act at dispatch, never a coord write",
+              sessions_csv(pkg).read_bytes() == _d42_bytes_before)
+        _e22_t, _e22_t_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     rerun=_d42_a, tmux_target="%5")
+        check("E22-2 `--tmux-target` ON THE DAEMON LANE IS REFUSED, NEVER SILENTLY IGNORED: the "
+              "flag names a pane this lane will not open, so the command refuses at the INPUT "
+              "layer (exit 2) BEFORE any ADMITTED banner, composes nothing and enqueues nothing",
+              _e22_t_code == 2
+              and "--tmux-target" in _e22_t and "`daemon`" in _e22_t
+              and "Refused rather than ignored" in _e22_t
+              and "ADMITTED by --rerun" not in _e22_t
+              and "enqueue-job" not in _e22_t and "[dry-run] gamma" not in _e22_t)
+        # ---- the CONSOLE CONTROL: marker `console`, then the marker ABSENT — same invocation ----
+        _e22_marker.write_text("console\n", encoding="utf-8")
+        _e22_c, _e22_c_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     rerun=_d42_a)
+        _e22_marker.unlink()
+        _e22_a, _e22_a_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+                                     rerun=_d42_a)
+        _e22_line = lambda t: next((l for l in t.splitlines()
+                                    if l.startswith("[dry-run] gamma")), "")
+        check("E22-3 CONSOLE LANE CONTROL (the RED control for E22-1 — only the marker moved): "
+              "with `execution-lane` reading `console`, and again with the marker ABSENT, the SAME "
+              "invocation composes the tmux-pane harness command EXACTLY as before — the "
+              "`\"$(cat …)\"` prompt-file shape, the window placement — and no enqueue; the two "
+              "console compositions are byte-identical to each other",
+              _e22_c_code == 0 and _e22_a_code == 0
+              and "ADMITTED by --rerun" in _e22_c
+              and '"$(cat ' in _e22_line(_e22_c)
+              and ", window, " in _e22_line(_e22_c)
+              and "enqueue-job" not in _e22_c and "daemon lane" not in _e22_c
+              and _e22_line(_e22_c) == _e22_line(_e22_a) != "")
+        check("E22-3 (THE ARM FLIPS ON THE MARKER ALONE): the daemon-lane and console-lane "
+              "compositions of the identical invocation differ, and differ in exactly the "
+              "composer — one names the enqueue, the other the harness argv",
+              _e22_line(_e22_d) != _e22_line(_e22_c)
+              and "enqueue-job" in _e22_line(_e22_d)
+              and "enqueue-job" not in _e22_line(_e22_c))
+        # ---- the REAL path, against a STUBBED gateway: the door's answers RENDERED honestly ------
+        # Patched at the module-attribute level (no global rebinding): `gateway_transport_target`
+        # resolves the address and the token through `gateway_client`, and the wire is ONE call.
+        _e22_marker.write_text("daemon\n", encoding="utf-8")
+        _e22_calls = []
+        _e22_answer = {"v": None}
+        _e22_real = (gateway_client.resolve_gateway_addr, gateway_client.resolve_token,
+                     gateway_client.call_gateway)
+        gateway_client.resolve_gateway_addr = lambda root, hostname=None, env=None: ("127.0.0.1", 1)
+        gateway_client.resolve_token = lambda env=None, start=None, workspace_root=None: "selftest-token"
+
+        def _e22_call(host, port, intent, payload, token=None, timeout=10.0):
+            _e22_calls.append((intent, payload, token))
+            return 200, _e22_answer["v"]
+        gateway_client.call_gateway = _e22_call
+        _e22_pt = os.environ.pop("COORD_LAUNCH_TARGET", None)
+        _e22_opened_n = len(opened)
+        _e22_bytes_real = sessions_csv(pkg).read_bytes()
+        try:
+            _e22_answer["v"] = {"ok": True, "result": {"jobId": "q-77", "deduped": True,
+                                                        "because": "live:exec-9",
+                                                        "seat_key": "workdir:/x/seats/gamma",
+                                                        "exec_id": 9}}
+            _e22_dd, _e22_dd_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                           dry_run=False, rerun=_d42_a)
+            _e22_answer["v"] = {"ok": True, "result": {"jobId": "q-78"}}
+            _e22_ok, _e22_ok_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                           dry_run=False, rerun=_d42_a)
+            _e22_answer["v"] = {"ok": False, "error": {"code": "AUTH_REFUSED",
+                                                        "message": "authentication required"}}
+            _e22_au, _e22_au_code = refuse(cmd_launch, agent="leader", only="gamma",
+                                           dry_run=False, rerun=_d42_a)
+        finally:
+            (gateway_client.resolve_gateway_addr, gateway_client.resolve_token,
+             gateway_client.call_gateway) = _e22_real
+            if _e22_pt is not None:
+                os.environ["COORD_LAUNCH_TARGET"] = _e22_pt
+            _e22_marker.unlink()
+        check("E22-4 DEDUP IS A REFUSAL, NOT A LAUNCH: when the daemon's door answers `deduped` "
+              "(a live/queued sitting already holds the seat) the real path prints NOT ENQUEUED "
+              "naming the holder, counts the seat as REFUSED, exits 1 with `launch INCOMPLETE`, "
+              "and never prints `enqueued gamma`",
+              _e22_dd_code == 1
+              and "NOT ENQUEUED" in _e22_dd and "deduped" in _e22_dd
+              and "live:exec-9" in _e22_dd
+              and "launch INCOMPLETE" in _e22_dd and "enqueued gamma" not in _e22_dd)
+        check("E22-5 THE REAL PATH ENQUEUES THROUGH THE DAEMON'S DOOR, with the row the watcher "
+              "enqueues: intent `enqueue-job`, job `seat-pkg-gamma`, headless, scheduled, the "
+              "canonical seat folder as the ONLY arg (no prompt — the daemon composes it), a "
+              "per-anchor brake reason, the sender token on the wire; the command reports the "
+              "queue row, exits 0, opened NO pane (no tmux target was needed or resolved) and "
+              "wrote NO sessions.csv row (that row is the daemon's, at dispatch)",
+              _e22_ok_code == 0
+              and "enqueued gamma" in _e22_ok and "q-78" in _e22_ok
+              and "opens the seat's sessions.csv row at dispatch" in _e22_ok
+              and any(i == "enqueue-job" and p["job_id"] == "seat-pkg-gamma"
+                      and p["session_mode"] == "headless" and p["trigger_kind"] == "scheduled"
+                      and set(p["args"]) == {"workdir"}
+                      and p["args"]["workdir"].endswith("/seats/gamma")
+                      and p["reason"] == "leader-rerun-p-655-crashy-investigated"
+                      and t == "selftest-token"
+                      for i, p, t in _e22_calls)
+              and len(opened) == _e22_opened_n
+              and sessions_csv(pkg).read_bytes() == _e22_bytes_real)
+        check("E22-5 (AUTH_REFUSED IS RENDERED, with the token's two homes named): a gateway "
+              "refusal is a refusal of the launch — exit 1, `launch INCOMPLETE`, the code quoted, "
+              "and the caged seat's token file named so the next reader knows where it comes from",
+              _e22_au_code == 1 and "AUTH_REFUSED" in _e22_au
+              and "sender-token.env" in _e22_au and "launch INCOMPLETE" in _e22_au
+              and "enqueued gamma" not in _e22_au)
+        # ---- the Python gateway client's token walk (the half that makes the door reachable from
+        # ---- inside a cage: `config.js#resolveToken`'s 7.566 file fallback, ported) -------------
+        with tempfile.TemporaryDirectory() as _e22_td:
+            _e22_ws = Path(_e22_td) / "ws"
+            (_e22_ws / ".rbtv" / "config").mkdir(parents=True)
+            (_e22_ws / ".rbtv" / "config" / "sender-token.env").write_text(
+                "# the gitignored token file\nexport IGNITE_SENDER_TOKEN='file-token-42'\n",
+                encoding="utf-8")
+            _e22_seat = _e22_ws / ".rbtv" / "goals" / "g" / "seats" / "leader"
+            _e22_seat.mkdir(parents=True)
+            check("E22-6 THE PYTHON GATEWAY CLIENT READS THE TOKEN FILE A CAGED SEAT CAN SEE: with "
+                  "no IGNITE_SENDER_TOKEN in the environment, `resolve_token` walks up from the "
+                  "start dir (a seat folder — the cage's cwd) to `.rbtv/config/sender-token.env`, "
+                  "the ONE file the cage never masks, exactly as `cli/lib/config.js#resolveToken` "
+                  "does since 7.566; the environment still wins when set; a walk that finds nothing "
+                  "tries the workspace root; nothing anywhere → None (the gateway's own "
+                  "AUTH_REFUSED answers, never a client-side fake)",
+                  gateway_client.resolve_token(env={}, start=_e22_seat) == "file-token-42"
+                  and gateway_client.resolve_token(env={"IGNITE_SENDER_TOKEN": "env-wins"},
+                                                   start=_e22_seat) == "env-wins"
+                  and gateway_client.resolve_token(env={}, start="/nonexistent-e22-zz",
+                                                   workspace_root=_e22_ws) == "file-token-42"
+                  and gateway_client.resolve_token(env={}, start="/", workspace_root="/") is None)
+        check("E22 (fixture postcondition): the lane marker is gone again, so every row after "
+              "this block composes for the console lane it was written against",
+              not _e22_marker.exists())
 
         # ---- R-PARITY: the REAL path, and it is IDENTICAL to the dry one ----
         _d42_pt = os.environ.get("COORD_LAUNCH_TARGET")
@@ -37118,7 +37498,13 @@ def build_parser():
         "launches without reading any briefing. A bare launch never boots leader itself.\n"
         "Before any codex/opencode seat opens, its launch root's worker mirror (AGENTS.md +\n"
         ".agents/) is refreshed once, so the seat reads current rules and not whatever the\n"
-        "last installer run left behind. A failed refresh warns and launches anyway.",
+        "last installer run left behind. A failed refresh warns and launches anyway.\n"
+        "LANE-AWARE (E22): on a goal whose `execution-lane` marker reads `daemon`, every door\n"
+        "of this command (a bare launch, --only, --declare-only, --rerun, --reopen) ENQUEUES a\n"
+        "caged headless sitting through the daemon's own spawn door instead of opening a tmux\n"
+        "pane — the daemon composes the cage and the boot prompt at dispatch and opens the\n"
+        "seat's sessions.csv row; a dedup/brake refusal from that door is reported as a refusal.\n"
+        "Admission is identical on both lanes; --tmux-target is refused on the daemon lane.",
         "example:\n"
         "  coordinate launch --only judge-ux,judge-parity\n"
         "next: coordinate workers — every seat must check in; one that does not never booted")
@@ -37134,7 +37520,9 @@ def build_parser():
                         "For a daemon-fired exec, which has neither. NOT an override: empty or "
                         "absent falls through to those two variables and to the same refusal — "
                         "an empty target is never defaulted, because tmux resolves one to the "
-                        "MOST RECENT session, which is how a stray launch reaches the live room")
+                        "MOST RECENT session, which is how a stray launch reaches the live room. "
+                        "REFUSED on a goal whose execution-lane is `daemon` (E22): that lane opens "
+                        "no pane, and a flag silently ignored is a flag that lies")
     s.add_argument("--force-memory", action="store_true",
                    help="override the MEMORY gate only (--force does not: it covers the role gate)")
     # 7.251 (C1.2): NOT an override and NOT a member of the --force family. It admits ONE named
