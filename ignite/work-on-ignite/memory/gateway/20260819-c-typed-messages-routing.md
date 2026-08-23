@@ -9,32 +9,24 @@ pin: server/heart/probes/probe-message-type-vocabulary.js; probe-migration-messa
 components: team-kit,server,bridges
 seeded: true
 
-## What it is
-Typed messages + a system routing table; agents never pick recipients.
+## Motivation
+D2 (owner-ruled 2026-08-19 morning interview, `redesign-plan/decisions.md`) settled communication as: an agent emits a typed message; the system routes it; the agent never chooses a recipient. Before af7c0f7b (2026-08-19 18:35:24Z) the vocabulary was already closed at seven types — `completion, ask, answer, verdict, note, queue-request, escalation` (97088440 / 290ee40a, 2026-08-14) — but addressing was still a free-text name. D2 named the table (`stuck` → leader, who escalates to the owner what it cannot solve; the existing question type → consultant, or straight to the owner from a human-interactive seat) and forbade minting a `decision-needed` type. The thin seed body cited `system-problems/synth2/synthesis.md` D61 ("gates never told to their subjects"); that document is a later 174-rule synthesis and is not D2's origin.
 
-`gateway/parse.js` gains typed message parsing; `heart-store.js`/`migrations.js`/`schema.sql` add a system routing table; `coord.py` (346 new lines) and `bridges/chat/forward-path.js` are updated so agents no longer choose message recipients directly — routing is table-driven and typed.
+## Design
+af7c0f7b added the eighth type `stuck` at every enum copy plus the store CHECK, and encoded the routing table in one function (`routed_recipient` in `coord.py`) behind the reserved recipient token `auto` (`AUTO_TOKEN`). D2's spoken `question` was mapped onto the existing type `ask` — the type was not renamed and `decision-needed` was not minted. `stuck` is AUTO-ONLY (naming a recipient is refused, no `--force`) because it had zero legacy senders; `ask` keeps explicit addressing legal because live goals, transports, and many selftest arms already addressed it by name (D8: that blast radius was out of scope). Carriage of `stuck` was decided rather than defaulted: it is not writer-held (a staff chair already spawns a sitting on unread mail) and it crosses the gateway door (`gateway_send_leg` treats it as a CROSSING type — a health signal the daemon plane and heart store must carry). `auto` is refused as a seat name at check-in, symmetric with `owner`, so a seat cannot silently capture every routed row. Rejected: writing the table into an agent prompt; collapsing the eight enum copies into one shared module (gateway holds no store import / DEC-4, core re-validates independently of gateway origin / DEC-3, the chat bridge is a separate process, `coord.py` is a different language, the store CHECK is SQL); giving `stuck` a `--force` escape.
 
-## Why
-D2: routing depended on agents picking recipients ad hoc.
+## How it works
+The send is `coord send auto "<what>" --type stuck --inline` (or `--type ask`). `cmd_send` resolves `auto` at the top, before every existing gate, so the unknown-recipient check, the owner-ask gate, and the master rule all see a real seat name and judge it on their own merits — no gate had to learn about `auto`. `routed_recipient` is the only table in code (restated for humans in `team-kit/communication.md` §4 and `team-kit/roles.md`, never in an agent prompt): `stuck` always returns `leader`; `ask` from a seat whose `seat.md` declares `human-interactive:` returns `owner`; any other `ask` calls `staff_route_target(..., "consultant")`, the same three-line ladder the check-out closer uses (`who` is only a label so the two callers cannot drift). Any other type sent to `auto` is refused with the address-by-name line. `known_recipients` teaches `auto` as always-legal so a mistaken send meets D2's own refusal rather than a generic unknown-recipient error. The vocabulary is copied at eight sites and compared by `probe-message-type-vocabulary.js` against a hand-spelled EXPECTED set (`completion, ask, answer, verdict, note, queue-request, escalation, stuck`); the eighth site — the goal-scaffold `threads.sql` template inside `capabilities/goals-tree/tool/goal_cli.py` — was found by a tree sweep and was on no prior site list. Store side: migration 7 `message-types-eight-stuck` rebuilds `messages` (SQLite cannot ALTER a CHECK; `jobs_log.completion_msg_id` points into `messages`) and carries a throwaway index on the child column around the DROP.
 
-`fix-inventory.csv` D2 — message routing previously depended on agents picking recipients ad hoc, flagged as a "gates never told to their subjects" structural cause (system-problems digest §4, one of D61's three named structural causes of edge cases).
+## Consequences
+Replaced free-text recipient addressing for the two routed types; did not replace the seven-type close of 97088440 — it widened that enum. The seed body's claim that `heart-store.js` "adds a system routing table" is false: the store only widened its CHECK; the table lives in `routed_recipient`. No later commit subject names a D2 revert or a routing-table amendment; `coord.py` and `heart-store.js` were then touched by nearly every subsequent ruling (D5 onward) as shared hot files. The one documented follow-up is 1c4d077f (2026-08-22, D81 / GW-004): the probe's own comment still said "seven sites" after its `SITES` array had eight entries — leftover W4 wording, not a routing regression. The eighth enum site lives under `capabilities/` and is not named on this entry's `components:` header.
 
-## How to use & where wired
-coord.py's send path looks up the typed routing table instead of a free-text recipient.
-
-`coord.py`'s message-send path now looks up the typed routing table (`heart-store.js`) instead of taking a free-text recipient; `bridges/chat/forward-path.js` and `gateway/parse.js` consume the same typed schema.
-
-## commit
-af7c0f7b
-
-## deployed
-yes
-
-## pin
-server/heart/probes/probe-message-type-vocabulary.js; probe-migration-message-types.js (both scheduled)
+## Verification
+`coord.py` selftest 1103/1103 at af7c0f7b, including five new D2 arms: `stuck`→`leader`; a named-recipient `stuck` refused and `--force`-proof with nothing appended; `ask`→consultant-if-staffed else leader, both packages in one run so the fallback cannot pass as a hardcoded chair; a `human-interactive:` `ask`→`owner` (resolution runs before the D-7 owner-ask gate, which then admits `owner` on its own merits); `auto` refused as a recipient on `note` and as a check-in seat name. Two of those arms were proven RED-alone under mutation with `--expect-fail`. `probe-message-type-vocabulary.js` extended 7→8 sites; `probe-migration-message-types.js` extended to 16/16 on a populated pre-migration store with a live `jobs_log.completion_msg_id` FK (migration 5 then 7 chained). Deployed: yes — included in the tree at ac1c08d8, deployed 2026-08-21 18:14:37Z per `fix-inventory.csv` D2.
 
 ## ATTENTION
-- Foundational routing-table change touching team-kit, server/heart, and bridges/chat at once — a later change to the message-type vocabulary must update the SAME schema.sql/migrations.js pair or the two scheduled probes will catch a drift.
-- "Agents never choose recipients" is the design invariant — any new message-producing path that lets an agent free-type a recipient string reopens the exact problem D2 closed.
-- message-type vocabulary changes must update schema.sql/migrations.js together
-- agents never choose recipients is the design invariant here
+- The closed type enum is copied at eight sites on purpose (gateway has no store import / DEC-4; core re-validates independently / DEC-3; chat bridge is another process; `coord.py` is another language; the store CHECK is SQL; plus the goal-scaffold `threads.sql` template). `probe-message-type-vocabulary.js` is the only object that makes them one set — a unification into a shared module would re-couple the substrates the copies exist to isolate.
+- The probe's EXPECTED list is hand-spelled and the count moves with the vocabulary, not with the site list. Adding a type at seven of eight doors is silent at every site: the row lands in the append-only log at the lenient doors and is refused permanently at the strict one (the D3 silent class). Bump EXPECTED in the same change as the eighth copy, or the probe stays green on a partial move.
+- `auto` is reserved at two doors that must stay paired: refused as a seat name at check-in (a seat called `auto` would silently capture every routed row) and refused as an explicit recipient on every type outside `ROUTED_TYPES` (`stuck`, `ask`). Touching only one door leaves the other as a capture hole.
+- `stuck` is AUTO-ONLY with no `--force`; `ask` still accepts an explicit seat name because live senders already did. Closing `ask` the same way, or adding a `--force` to `stuck`, collapses the asymmetry the commit scoped on purpose (zero legacy for `stuck`; large blast radius for `ask`).
+- Migration 7 rebuilds `messages` (SQLite cannot ALTER a CHECK). On the live store, `DROP TABLE messages` alone was 163.3s of a 168.8s run because `jobs_log` indexed only `status`; a throwaway index on `jobs_log.completion_msg_id` around the DROP cut the whole migration to 0.92s. A later CHECK change that drops `messages` without that temporary index inherits a multi-minute deploy window.

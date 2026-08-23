@@ -8,31 +8,26 @@ deployed: yes
 pin: probe-bindings.py
 seeded: true
 
-## Seen
-The bindings tool's exposure-manifest resolver only accepted `exposure.csv` from the mirror tree, not from a repo-tree workflow manifest.
+## Observed
+On 2026-08-22 ~15:19Z the cleanup suite on `cleanup/audit-2026-08-22` (rebased onto `6b55b1c4` as `dfca0740`) reported 200 PASS / 1 FAIL, the fail being `probe-bindings.py`. The same probe was red on both the live `ignite/core-daemon` checkout and the pristine deploy tree, with `NameError: __file__` on checks 3/4/5; it had been PASS at 14:44Z on `513a013c` and reddened after the meta move (`redesign-plan/status.md` 2334–2335). The peer that owned the bindings tool named the product cause in that same log: `bindings.py#resolve_workflow` hard-codes the `mirror` path segment. Seat 10 (`outputs-grammar`) independently could not dry-run the real catalog CLI for the same worktree-root admissibility and fell back to in-process regex (status.md:2352). The trigger was `da69c086` (11:36:05Z, "migrate to component-first — its own exposure manifest"), which moved team-kit's eleven exposure rows out of module-root `ignite/exposure.csv` into `ignite/team-kit/exposure.csv` and made repo-tree catalogs the live source. Deployed and HEAD no longer differ: nothing has touched these two files since `933b4ddf`.
 
-D86: this is the `capabilities/bindings` side of the same exposure-manifest-resolution ruling that drove `team-kit`'s `component-first-migration` — the resolver's rule must match wherever the installer reads from.
+## Mechanism
+`resolve_workflow` found a catalog by searching `Path.parts` for a literal `"mirror"` (`mirror_at = len(parts) - 1 - parts[::-1].index("mirror")`) and then required the five-segment tail `<module>/<component>/workflows/<w>/<w>.csv`. A path with no `"mirror"` segment raised `ValueError` and became `Refusal: … does not sit under a .rbtv/mirror/ tree`. After `da69c086`, live manifests such as `meta/planning/workflows/planning/planning.csv` sit under the rbtv repo, not under `<ws>/.rbtv/mirror/`, so every repo-tree resolve refused. Separately, `probe-bindings.py` registered `atexit` as `lambda: Path(__file__).with_suffix(".out").write_text(...)`; by teardown `__file__` is gone, which is the `NameError: __file__` the suite measured on checks 3/4/5 — a probe-capture crash, not the resolver `Refusal` itself.
 
-## Missed
-None recorded in sources.
+## Attempts
+First attempt held — checked: `git log --before=2026-08-22T15:28:55` on `bindings.py` (prior commit `510717cc`, 2026-08-14, "a goal-local mode", unrelated to tree roots); seed map `missed_trials_source: NONE`; no earlier bindings-resolver trial in `redesign-plan/decisions.md` D86 or `status.md`. The same D86 ruling had already been applied once that afternoon to a different resolver: `da69c086` created the live `exposes-ref-dangling` blocker, and `0563266b` (14:56:54Z, "share D2 discovery; resolve exposes across both trees (D86)") taught `materialize-seats.py` / `meta/installer/discovery.py` to read both trees. That sibling held; it was not a failed trial of `bindings.py`.
 
-## Held
-`bindings.py` now accepts repo-tree workflow manifests, not only the mirror.
+## Fix
+`933b4ddf` (15:28:55Z, "fix(bindings): accept repo-tree workflow manifests (D86)") replaced the `"mirror"`-segment search with shape derivation (`shape_ok = p.parents[1].name == "workflows" and p.parent.name == p.stem`), then walks `component_dir = p.parents[2]`, `module_dir`, `tree_root` and admits the tree only if it equals `workspace/.rbtv/mirror` or the workspace's `rbtv.json` `rbtv_path`. New helpers `_workspace_of` (first ancestor holding `.rbtv/config/`) and `_rbtv_path` (reads that book) implement the two roots; the refusal names both. The probe captures `_PROBE_FILE = Path(__file__).resolve()` at import so the atexit writer closes over a live Path, and adds check 0: live `planning.csv` derives module=meta / component=planning / workspace=vault; a mirror fixture still resolves by shape; an orphan under neither tree is refused and the message names both roots. D86 (owner, 2026-08-22 ~13:45Z, on the `exposes-ref-dangling` blocker from `da69c086`) required the resolver to follow the installer's source of truth and recognise both trees, ideally by sharing `install2.py` code. `bindings.py` applied that shape in place rather than importing `meta/installer/discovery.py` (landed ~32 minutes earlier in `0563266b`). No source records a rejected alternative for this copy; status.md:2291 only notes "D86 proper (installer/resolver shared discovery, both trees) is the PEER's."
 
-Commit `933b4ddf` ("accept repo-tree workflow manifests (D86)") changed `capabilities/bindings/tool/bindings.py` and its probe `capabilities/bindings/probes/probe-bindings.py` (101 lines changed across both).
+## Consequences
+No later commit has touched `bindings.py` or `probe-bindings.py` (`git log --since=2026-08-22T15:28:55` after this hash is empty). The probe's checks 1, 5, and 6's mutation arm now build fixtures through `_mirror_wf` so they stay two-tree-aware; the old hand-built `td/mirror/...` paths would have failed the new admissibility. The team-kit entry `20260822-c-component-first-migration` is the other half of D86 (`da69c086`/`0563266b`); the two copies do not share code, so a later change to `discovery.py` will not update `resolve_workflow`. A merge attempt at ~15:10Z was refused because tip had moved to `0563266b` and the main checkout was dirty with in-flight meta-move edits (status.md:2325) — same day's D86 stream, not a bindings regression. Ride-along deploy at 15:56Z (`6b55b1c4 → d487c072`, status.md:2345) put `933b4ddf` live with D78, cleanup, stools, and the lane fix. No later D/E ruling revisits this.
 
-## commit
-933b4ddf
-
-## files
-ignite/capabilities/bindings/tool/bindings.py
-
-## deployed
-yes
-
-## pin
-probe-bindings.py
+## Verification
+Pin is `probe-bindings.py`. Check 0 is the D86 pin: live repo-tree `meta/planning/workflows/planning/planning.csv`, a `.rbtv/mirror/<m>/<c>/workflows/<w>/<w>.csv` fixture, and an orphan whose refusal names both roots. Checks 1–6 remain and were adapted, not replaced. At 15:31Z the peer reported tip `933b4ddf` and `probe-bindings` PASS (status.md:2337). Deployed yes, 15:56Z as the ride-along named above; deployed and HEAD still agree on these two files.
 
 ## ATTENTION
-- This is D86's `capabilities/bindings` half; the `team-kit` half (`component-first-migration`, commits `da69c086`/`0563266b`) applies the same "resolve wherever the installer reads from, BOTH `.rbtv/mirror` and the rbtv repo" rule to `materialize-seats.py` and `meta/installer/discovery.py`. Read both together — the ruling is one decision applied twice, not two independent fixes.
-- D86's bindings half; team-kit's component-first-migration is the same ruling applied to materialize-seats.py/discovery.py — read together
+- D86 was applied twice the same day to two independent resolvers: this `bindings.py#resolve_workflow` commit, and the team-kit half (`20260822-c-component-first-migration`, `da69c086`/`0563266b` on `materialize-seats.py` and `meta/installer/discovery.py`). They do not share code, so a later edit to one copy does not update the other.
+- `resolve_workflow` admits exactly two roots — `<ws>/.rbtv/mirror` and the workspace `rbtv.json` `rbtv_path`. A new lookup that checks only one will silently miss catalogs that now live in the other (the same trap the team-kit half already names).
+- The suite's measured red was `NameError: __file__` in `probe-bindings.py`'s atexit capture writer (checks 3/4/5). `__file__` is gone at teardown; the fix closes over `_PROBE_FILE` captured at import. A new probe that names `__file__` inside `atexit.register(lambda: …)` will fail the same way even when the tool under test is fine.
+- `da69c086` (11:36Z) made repo-tree manifests real ~4 hours before this fix (15:28:55Z). Any remaining resolver that still searches for a literal `"mirror"` segment will refuse the live catalogs the same way `resolve_workflow` did.

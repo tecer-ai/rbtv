@@ -9,32 +9,42 @@ pin: engine/probes/probe-reconcile.js (D42 arms); engine/probes/probe-enqueue-re
 components: team-kit
 seeded: true
 
-## What it is
-The `--rerun` relaunch instrument, an anchored HOLD, and a `--hold` verb.
+## Motivation
+On 2026-08-20, before cutover, `resolve-verify` pass 1 and meet's leader independently measured the same hole (redesign-plan `decisions.md` D42; escalation #655, open then). A harness that died mid-task left a kit-written `exited` last-ended row, and every revival path the leader tried was shut: `launch` refused an exit-unruled row; the watcher revived only seat-declared `incomplete` (D33(a), by design); `relaunch-pane` needed a live `%pane`; `close-seat --renew` was cage-blind; CLEAR then `launch --only <seat> --declare-only <anchor>` "does NO work" (`launch --help`'s own sentence); `rule-relaunch` had been retired the same day by D12 (`e5a8e0de`, `a3b58eaf`). Hours earlier D39 (`feba5fba`, `d813ebcc`) had stopped the leader payload promising an "ordinary relaunch" after a CLEAR, but its consequence-2 still named `--declare-only` as the act that "brings a cleared row back" — F-3: that flag admits a session that declares its own ending and does no work. Separately the live leader filed `meet/issues.md#G-leader-0820-1748`: a row it had investigated and left as-is was byte-identical, in `deriveOwed`'s class-A scan, to an unattended owed row, so the watcher re-woke it every ~300s (17:37 / 17:43 / 17:48, identical output). Owner that sitting: build the instrument now, before cutover.
 
-`reconcile.js` + `coord.py` (862-line coord.py diff) add the `--rerun` relaunch instrument — the crashed-row door — plus an anchored HOLD state and a `--hold` verb, and correct F-3's wording (D42).
+## Design
+`e3fc940f` (2026-08-20 19:23:47Z) is D42's three parts in one commit. `--rerun` is a fourth independent `launch` parameter, not an override of `--force` / `--force-memory` / `--declare-only`. It inherits `is_authorized_launcher` and mints no second role gate (PRIN-11). It admits exactly one named seat whose last-ended row is kit-written `exited` and opens an ordinary working session; the exited row is left standing and is superseded when the new session writes its own ended row. A CLEAR first would destroy the only record of how that session ended (`meet/issues.md#G-leader-0820-1727`). D12 stays intact: no grant, no store, no flag file, no latch, no TTL; the barred list still refuses an `exited` row. F-3 wording: every surface that offered `--declare-only` as a return-to-work path is corrected to name `--rerun` for a crashed row and to keep D39's two-act shape for CLEARED rows only (nine `coord.py` sites plus `nontermPayload`). `--hold` is the leader's own proposal: `rule-disposition <seat> --hold --anchor <p-*/d-*>` writes a new `hold-anchor` column (fifth appended column after `checkin` / `model`; the `dag-09 LG-13` schema tripwire fires a fifth time by design). The disposition cell keeps its value so `ready-seats` and successor `after` gates still see the real class; only `deriveOwed`'s watcher-facing class A skips the row.
 
-## Why
-D42: needed an explicit, owner-invokable re-run door before cutting over to daemon relaunch.
+Rejected in the ruling: rule crashed rows `done` as a lie, or leave them stranded (the same hole D32–D41 closed, left open in the one cell D33(a) routed to leader judgment); close and re-create the seat from scratch (unfinished work is never resumed, and the five-minute re-wake on held rows continues); defer past cutover (would close over a known capability hole on both LIVE goals while D39's payload kept advertising a return path that returns nothing). Sequencing: this seat lands before cutover; `resolve-verify` pass 2 re-takes the census with the instrument in place; cutover waits on that pass. No earlier commit built a working crashed-row door — D12 deleted `rule-relaunch` without a replacement, and D39 only rewrote the CLEARED-row payload.
 
-`fix-inventory.csv` D42 — before any lane could cut over to daemon-driven relaunch, there needed to be an explicit, owner-invokable instrument for re-running a crashed row rather than only automatic mechanical retry.
+## How it works
+On a kit-written `exited` row the leader fires `coord launch --only <seat> --rerun <leader-anchor>`. `cmd_launch` reads `args.rerun`, refuses an empty value at the input layer (exit 2), refuses zero or more-than-one `--only` names, resolves the target via `sessions_last_ended_rows` (factored out of `sessions_last_ended` so `--rerun` and `--hold` read the same selected row), and refuses any disposition/writer pair other than kit `exited`, naming the right door for the class it found (`incomplete` → watcher D33(a); `unverified` → `rule-disposition`; empty → `--declare-only`; `done` → stands). P4 reuses `--declare-only`'s live-pane composition: a live `%pane` already holding the name is refused (P37). On success it sets `_rerun_admitted` and prints `ADMITTED by --rerun — session …`; that flag is OR'd into the same downstream branches `_declare_only_admitted` already fed. The admission block contains no `dry_run` test by construction (7.251 parity).
 
-## How to use & where wired
-`coord.py --rerun <row>` re-runs a crashed row; `--hold` anchors a row against the watcher.
+To park an investigated owed row: `coord rule-disposition <seat> --hold --anchor <p-*/d-*> --go`. `session_rule_disposition(..., hold=...)` writes the anchor into `hold-anchor`; the next real ruling on the same row clears the cell in the same act. A bare `rule-disposition <seat>` reports the row and its hold (the positional became optional). In `deriveOwed` the skip is one line immediately before class-A classification: `if ((row['hold-anchor'] || '').trim()) continue`. Nothing else in the engine reads that cell.
 
-`coord.py --rerun <row>` re-runs a crashed row through the launch door; `--hold` anchors a row so the watcher won't touch it.
+`nontermPayload` now presents three doors in that order: `--hold` for a wait, `--rerun` for `exited` ("do NOT clear it first"), `--declare-only` scoped to CLEARED rows only.
 
-## commit
-e3fc940f
+## Consequences
+No revert of `e3fc940f`. The `hold-anchor` skip and the `--rerun` verb persist; what later changed is launch-time identity and lane composition underneath them.
 
-## deployed
-yes
+Same evening, immediately after: `23de241f` (D43 + D44). D43 measured that `--rerun` could not be fired by the leader chair it was built for: `asserted_launch_claim` corroborated a `--as` claim only via a live tmux pane (`detect_pane` / `pane_agent`), so a headless/caged leader with no `TMUX_PANE` was refused outright (meet's leader, roster `sid:c22b6807-…` at 19:45Z). `--force` deliberately does not lift it. `70eb50de` (D45, same day) continues that identity-gate thread.
 
-## pin
-engine/probes/probe-reconcile.js (D42 arms); engine/probes/probe-enqueue-record.js Arm E; team-kit/probes/probe-checkout-disposition.py
+Three days later `a554197b` (server `20260823-i-lane-aware-launch-doors`, pin NONE, unproven at deploy) found this exact door — named as the `--rerun` built here — still a console-era tmux composer: lane-blind and cage-blind, always firing an uncaged pane. Root-caused via `engine-goal/decisions.md` E21: a crashed seat on a daemon-lane goal parked the owner back on a console pane to fire `--rerun` by hand. That fix makes `--rerun` / `--declare-only` / `--reopen` enqueue a caged headless sitting via the daemon gateway on daemon-lane goals. `--reopen` (D54 / D66 / D72, 2026-08-22) later copied this admission shape for `done` rows; it is a sibling door, not a replacement.
+
+`hold-anchor` is still read only at `deriveOwed` (the class-A `continue`). Whether a held row is also excluded from D40's no-progress / retry counters was not pinned in this commit and is still unverified.
+
+## Verification
+Commit message of `e3fc940f`: coord selftest PASS (0 failures, 10 new D42 rows); `reconcile.selftest` OK (1 new arm, payload pins moved); `probe-reconcile` exit 0; `probe-checkout-disposition` 16/16; `probe-suite --only reconcile` / `--only verdict-vocabulary` GREEN. Red-by-mutation on copies: delete the admission block → the fixture returns `NOT LAUNCHED — exit-unruled`; delete the hold-skip → the held row reappears in class A; revert the payload → the new pin goes red.
+
+`reconcile.selftest.js` added `── D42: a leader HOLD leaves class A, and the row is otherwise untouched ──`: BEFORE/AFTER on one fixture — held `checker` (`unverified`) leaves class A, unheld crashed `runner` (`exited`) stays, `disposition` / `disposition-writer` untouched. The existing D33(a) payload arm grew needles `launch --only <seat> --rerun`, `A CRASHED SEAT IS RE-RUN IN ONE ACT`, `rule-disposition <seat> --hold --anchor`. `probe-reconcile.js` is a thin wrapper that runs that selftest — the header pin "D42 arms" resolves there.
+
+`coord.py` `_selftest_checks` D42 arms landed as R-DONE (refuse `--rerun` on `done`), R-TWO (more than one seat), R-NOANCHOR (empty value, exit 2), R-1 (admit a genuine crashed row), R-PARITY (admission block contains zero `dry_run`), ONE INSTRUMENT NOT TWO (banner prints exactly once), R-P4 (live pane already holds the name).
+
+`probe-enqueue-record.js` Arm E is listed on the pin only to disclose a known unrelated red (`heart/migrations.js`); the commit says it is pre-existing and required by nothing this commit touches. `probe-checkout-disposition.py` 16/16 is a regression check (no D42-named arm). Deployed yes per `fix-inventory.csv` D42: rbtv HEAD `ac1c08d8` at 2026-08-21 18:14:37Z (a later census that post-dates `e3fc940f`).
 
 ## ATTENTION
-- `--rerun` here is the CONSOLE-era door — the `lane-aware-launch-doors` entry (server, 2026-08-23) found this exact door (along with `--declare-only`/`--reopen`) was lane-blind and cage-blind, a tmux composer that broke on daemon-lane goals. Check that entry before assuming this is still how `--rerun` behaves.
-- `--hold` anchors a row against the watcher; verify a held row is excluded from the `watcher-retry-policy` counters, or a hold can be silently overridden by mechanical relaunch.
-- console-era door; lane-aware-launch-doors (server, 08-23) found it lane-blind and cage-blind, check that entry first
-- --hold must be excluded from watcher-retry-policy counters or a hold can be overridden
+- `--rerun` as landed here composed and fired an uncaged tmux pane. Three days later `a554197b` (`server/20260823-i-lane-aware-launch-doors`, pin NONE) found that door lane-blind and cage-blind on daemon-lane goals and rerouted it through the daemon gateway. Read that entry before assuming this still opens a pane.
+- D43 (`23de241f`, same evening) measured that a paneless/caged leader could not fire `--rerun` at all: `asserted_launch_claim` required a live `TMUX_PANE`. Treating D42 as "the leader can re-run a crashed seat" without D43 is wrong about the 2026-08-20 evening system.
+- `--hold` is read in exactly one place: `deriveOwed`'s class-A skip. `ready-seats`, successor `after` gates, and D40's no-progress / retry counters do not consult `hold-anchor`. A hold that is not also excluded from those counters can be silently overridden by mechanical relaunch.
+- Clearing an `exited` row to "prepare" a `--rerun` is the trap: the CLEAR destroys the kit's `exited` word (the only record of how that session ended) and `--rerun` then refuses the row because its from-state is no longer kit-written `exited`.
+- `--rerun` is not in the `--force` / `--force-memory` family. Those barred-list doors still refuse an `exited` row; this is a fourth independent parameter that inherits `is_authorized_launcher` and mints no grant (D12 intact).

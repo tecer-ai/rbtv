@@ -9,37 +9,35 @@ pin: NONE (unproven at deploy)
 components: team-kit
 seeded: true
 
-## Seen
-Leader launch doors were console-era tmux composers, lane-blind and cage-blind.
+## Observed
+On 2026-08-22 the `ignite-engine` leader parked the owner on escalation #43 (m4): `plan-4-plan-planner` had ended `exited` (harness gone, not `done` / `incomplete`). The daemon's only unattended re-seed is `reconcile.js#launchSitting` on a seat-written `incomplete` row. The leader's only re-run act, `coordinate launch --rerun`, "spawns UNCAGED and without the briefing", so the leader asked the owner to run a console sitting. Owner: "slack is made to operate w/o me in console… that is broken" (`engine-goal/decisions.md` E21, 23:48Z; register G-leader-0822-2058 / G-leader-0822-2056). The same class fired independently that day on stools `#237`: a `--rerun` dry-run against daemon-lane `audio-live-prober` admitted and composed a bare `claude` tmux pane, no bwrap (`investigation/parked-on-console/diagnosis.md` T1 / T5). `a554197b` is still HEAD on `coord.py`, `gateway_client.py`, and `ticker.js`; the daemon that received the fix is the 2026-08-23 01:58:08Z deploy (E23, pid 3790808).
 
-The leader's launch doors (`--rerun` built in the `relaunch-instrument-rerun` entry, `--declare-only`, `--reopen`) were console-era: they composed and fired an uncaged tmux pane directly, regardless of which lane (console vs daemon) the goal was actually running on.
+## Mechanism
+`cmd_launch` always called `launch_seat` → `harness_command`, which opens a tmux pane running a bare harness. The launch path had no `execution-lane` read (diagnosis T2 / T3). On the daemon lane that is an uncaged sitting: no bwrap, no `seat.md` carriage. From inside a cage it is worse: SeatBinds `ro-mask`s `{goalDir}/seats` and binds back only the caller's own seat folder, so a caged leader's roster discovery cannot see the target's `seat.md`; the synthetic roster row then carries `briefing: None` and the boot text is "Read your briefing None first" (T7). Every non-`done` ending other than `incomplete` is routed to the leader by D33(a); `rule-disposition` destinations are `done` or `""` only — the leader cannot write the one word the watcher relaunches. So the instant a daemon-lane seat ends `exited` / empty / `unverified`, no agent holds a caged re-run act, and the lettered escalation can only name a person at a terminal.
 
-## Missed
-A crashed seat on a daemon-lane goal parked the owner back on a console pane.
+## Attempts
+First attempt held — checked: `git log --before=2026-08-23 --grep=launch -- ignite/team-kit/coord.py` (hits are launch-adjacent work or the predecessor below); `engine-goal/decisions.md` E1–E20 name no lane-blind composer. The door itself is three days older: `e3fc940f` (2026-08-20, D42) shipped `--rerun` as an explicit re-run before daemon cutover (`engine/20260820-c-relaunch-instrument-rerun`) and composed a tmux pane on every lane by design — it was not a failed try at lane-awareness. Diagnosis rejected letting `rule-disposition` write `incomplete` onto an `exited` row: that would destroy the D42 record the `exited` state exists to keep, and it would make the leader's ruling the seat's voice.
 
-Per `engine-goal/decisions.md#E21`, a crashed seat needing `--rerun` on a daemon-lane goal parked the owner back on a console pane to fire it manually — the exact failure this fix closes. This was this program's own trigger: the day before this fix, a dedicated investignosis pass (6 investigator outputs + diagnosis) named the root cause as "lane-blind leader launch doors" (E21).
+## Fix
+E21 (2026-08-22 23:48Z) parked m4 and ruled the cause must be fixed now. E22 (2026-08-23 00:31Z) chose diagnosis option (a) — build now — over (b) register-only and (c) also scoping stools secret-add.
 
-## Held
-On a daemon-lane goal, the doors enqueue a caged headless sitting via the daemon instead.
+`a554197b` (01:46:15Z) adds one branch after existing admission. `cmd_launch` reads the lane once via `goal_execution_lane(pkg)`, which lazy-imports the goals-tree's own `goal_cli.read_lane` (DEC-1 twin of `lane-watch.js#readLane`); import failure is a loud refusal, never a silent `console`. P2–P4 of `--rerun`, `--declare-only`'s 7.251 wall, `--reopen`'s brake, and `is_authorized_launcher` still decide the same on both lanes. On `daemon`, admitted seats go to `launch_daemon_lane`: one gateway `enqueue-job` POST per seat (`job_id=seat-<goal>-<seat>`, the id `engine/seeding.js#jobIdFor` registers; `session_mode=headless`; `workdir=<seat_dir>`; `reason=leader-<door>[-<slug>]`; no `prompt`). Dedup, `AUTH_REFUSED`, unknown-job, and the D52/D66 admission brake come back as refusals, not launches. `--tmux-target` is refused at `cmd_launch` entry on this lane, before any ADMITTED banner. No new allow-rule: `dispatch.js#handleEnqueueJob` runs no authz predicate — `enqueue-job` is open to any authenticated sender; leader-only admission stays in `is_authorized_launcher`.
 
-On a daemon-lane goal, `--rerun`/`--declare-only`/`--reopen` now enqueue a caged, briefed headless sitting via the daemon's gateway (`gateway enqueue-job`) instead of composing an uncaged tmux pane; `ticker.js` composes the boot prompt at dispatch time for this prompt-less daemon-lane seat; `gateway_client.py` reads the sender token from `.rbtv/config/sender-token.env`.
+The caged leader cannot compose a prompt (that is the `None` briefing). At dispatch, `ticker.js#composeSeatBootPrompt` (from `launchAgent`, first execution, empty prompt) asks `engine/seeding.js#seatBootPrompt` — the same composer seeding and watcher relaunch already use — and records `bootPrompt: composed` or `unavailable` + reason on the spawn action; a composer throw never abandons the tick. Console-lane and non-seat-folder cases fall through (`not-daemon-lane` / `not-a-seat-folder`).
 
-## commit
-a554197b
+`gateway_client.resolve_token` now mirrors `config.js#resolveToken` (7.566): env first, then `_token_from_env_file` walking up from cwd for `.rbtv/config/sender-token.env` (the one file a seat cage never masks), then the same walk from `workspace_root` — a cage-bound cwd under an ro-masked `seats/` cannot walk up to the vault root itself. `gateway_transport_target` passes `workspace_root=root`.
 
-## files
-ignite/team-kit/coord.py; ignite/server/ticker/ticker.js; ignite/server/ticker/probes/probe-boot-prompt-fallback.js; ignite/team-kit/gateway_client.py; ignite/team-kit/protocol.md
+Why this shape: E17 / diagnosis (a) — smallest change that removes the console act for the whole class. One composer per lane; no second cage; no second Python writer into `heart.db` (the gateway is the daemon's single writer). Rejected (diagnosis (b)): auto-relaunch `exited` (re-runs concluded work / crash-loop); a seat-side wait verb (headless cannot wait; `checkout --incomplete` + watcher already works, T4); reword the escalation to hide option (a); spawn goal-master (holds no launch verb); bind `{goalDir}/seats` into the leader cage (widens every briefing to patch a composer symptom); authorize the uncaged `--rerun` "just this once" (full-disk).
 
-## deployed
-yes
+## Consequences
+E23 (01:58Z), same session: the owner deployed then paused the entire `ignite-engine` goal (`rbtv goal pause ignite-engine`) — not because this fix failed, but because this landing was the trigger to freeze the goal until build memory exists and to replace HISTORY (E7/E11/E16). m4 was not re-fired; stools' leader was told it may use the fixed door at once. E24 (2026-08-24) struck HISTORY and rewired the goal; that is a separate structural change riding the same pause, not a revert. `git log` after `a554197b` on `coord.py` / `gateway_client.py` / `ticker.js` is empty — no follow-up fix or regression on these files. The D42 creation `engine/20260820-c-relaunch-instrument-rerun` now carries a forward ATTENTION that this entry is the current daemon-lane behaviour. `protocol.md` gained the one `--rerun` CLI row the diagnosis asked for, marked LANE-AWARE. On daemon-lane `--reopen`, the reason is written to the bus (`messages.md`) rather than `REOPEN_REASON_COL`, because this act does not write the new `sessions.csv` row. First real firing from a caged leader was unproven at deploy (E23) and is still unconfirmed in the sources this entry was rewritten from.
 
-## pin
-NONE (unproven at deploy — first real caged-leader firing not yet observed)
+## Verification
+Judge PASS 6/6 (door-judge, opus-5). `coord.py` selftest gained ten E22 arms (E22-1…E22-6): dry-run admission on the daemon lane; the row untouched by dry-run; `--tmux-target` refused; console-lane control unchanged; the lane-marker alone flips the arm; dedup rendered as refusal; the real enqueue path fires `enqueue-job` / `seat-<goal>-<seat>` / headless; `AUTH_REFUSED` names both token homes; the Python client reads the token file. Tally 1132/0, mutation-proved. team-kit probes 16/16, ticker probes 30/30. New `probe-boot-prompt-fallback.js` drives a real tick: (1) daemon-lane prompt-less enqueue → `bootPrompt: composed` and stdin names `…/seats/<seat>/seat.md`; (2) no-lane-marker case is 331-byte-identical to pre-fix, `unavailable` / `not-daemon-lane`; (3) a bad descriptor falls back softly with a named reason, never a throw. Deployed 2026-08-23 01:58:08Z, daemon pid 3790808, healthy (E23). Pin is NONE: no probe proves a real caged-leader firing.
 
 ## ATTENTION
-- This fix is UNPROVEN IN PRODUCTION as filed — no pin exists yet because the first real caged-leader firing hadn't happened at deploy time. Check whether that first live firing has since occurred before building further on this path.
-- This directly supersedes `relaunch-instrument-rerun`'s `--rerun` door (built console-era) — do not revert to that shape; the whole point of this fix is that the console-era door was lane-blind.
-- The `ignite-engine` goal this fix serves was PAUSED the same window specifically because of this launch-door class of defect — check whether the goal has since been un-paused/rewired before assuming this is still the live behavior.
-- unproven in production as filed; check if the first live caged-leader firing has occurred
-- supersedes the console-era --rerun door; do not revert to that shape
-- ignite-engine goal was paused the same window over this defect class
+- Unproven under a real caged-leader firing (E23). The path fail-closes if the cage cannot reach `.rbtv/config/sender-token.env` or the gateway. Pin is NONE; dry-runs and `probe-boot-prompt-fallback.js` do not prove this.
+- `resolve_token` must try `workspace_root` after the cwd walk: a seat folder is bound below an ro-masked `seats/`, so walking up from cwd never reaches the token file. Dropping the fallback re-parks the leader on `AUTH_REFUSED`.
+- `goal_execution_lane` must refuse loud on import failure. A silent `console` fallback is exactly the lane-blind composer this fix closed.
+- On the daemon lane these doors enqueue via `launch_daemon_lane`; they do not open panes. The D42 entry (`engine/20260820-c-relaunch-instrument-rerun`) still describes the console-era `launch_seat` composer.
+- Do not "fix" `briefing: None` by binding `{goalDir}/seats` into the leader cage, auto-relaunching `exited`, or writing `incomplete` onto an `exited` row — those were rejected (widens every briefing / crash-loop / destroys the D42 record). Same-shape owner-console escalations (`secret-add` / API-key, stools #196/#229) are a different mechanism.

@@ -9,33 +9,26 @@ pin: engine/probes/probe-reconcile.js (D39 arms)
 components: team-kit
 seeded: true
 
-## Seen
-A CLEAR verb was treated as if it also re-seeded/relaunched the row.
+## Observed
+On 2026-08-20 the `resolve-word` seat measured that D33(b)'s design sentence — destination `""` "re-arms an ordinary relaunch through seeding" (`redesign-plan/decisions.md` D32–D38 block) — was false in the running kit. A `rule-disposition <seat> "" --go` left `ready-seats` at verdict `UNDECLARED` / class `undeclared-ending`; `engine/seeding.js` `CLASSIFIED_VERDICTS` maps that to `not-waitable`, so the daemon never enqueued the seat. Two read-only sub-agents confirmed the measurement and that no remaining seat owned a fix (`resolve-watcher` walls off `seeding.js`; `resolve-verify` writes no code). The same lie sat in the class-(a) leader wake: `nontermPayload()` in `reconcile.js` (landed hours earlier in `2233233a`) offered `rule-disposition <seat> "" --go   # CLEAR → ordinary relaunch`. Owner ruled D39 at 16:2xZ on that contract-item-8 scope question. At measurement, coord.py already carried the false sentence live-on-commit from `3a112282` (15:58Z); reconcile.js is engine-tree JS and was inert until deploy. HEAD is not the D39 text: same-day `e3fc940f` layered D42 HOLD/`--rerun` paragraphs in front of it.
 
-A CLEAR verb on a stuck/dead row was being treated as if it also re-seeded/relaunched the row automatically — collapsing "clear the row" and "relaunch it" into one act, so a cleared row could silently come back through seeding instead of an explicit leader decision.
+## Mechanism
+CLEAR writes an empty disposition cell. That is the whole act. `ready-seats` classifies an empty cell as undeclared; the seeder will not pick a `not-waitable` verdict. The row was already launchable through the existing `launch --only <seat> --declare-only <anchor>` door (coord selftest row 7.251 DO-1). Nothing in CLEAR called launch. The defect was instructional: eight coord.py surfaces (`validate_disposition`'s D33(b) comment, the module comment above the verb, `staff_mail_body`, `cmd_rule_disposition`'s docstring, `cmd_launch`'s deferred-admission detail, `rule-disposition --help`, its example, and the `disposition` positional help) plus the `nontermPayload()` comment all told the leader that CLEAR itself re-armed seeding. A leader who believed that text would clear and wait; the seat sat. D33(b)'s real ruling is four from-states (`exited`, empty, `unverified`, `incomplete`) and two destinations (`done` or empty). The "through seeding" clause was a design-doc error that `3a112282` copied into the live verb the same afternoon.
 
-## Missed
-none recorded in sources.
+## Attempts
+First attempt held — checked: map.csv lists no missed-trials source for this entry; `redesign-plan/decisions.md` D5/D32/D33/D39; `fix-inventory.csv` rows D32/D33/D39; `git log --before=2026-08-20T17:33:42` on `reconcile.js` and `coord.py` (order `3a112282`, `2233233a`, `d813ebcc`, `feba5fba`). `3a112282` (15:58:48, "`unverified` — a third ending, and four from-states for the leader") is the commit that first wrote "CLEAR → re-arms an ordinary relaunch through seeding" into coord.py. D39/`d813ebcc`/`feba5fba` is the same-day correction of that earlier commit, not a retry of a failed fix of this defect.
 
-## Held
-Split CLEAR (coord.py) from relaunch (leader, explicit) — two acts, not one.
+## Fix
+D39 (owner, 2026-08-20 16:2xZ): accept the two-act shape. "Clearing a row and relaunching it are TWO acts, by design, not a defect to engineer away." Option B — teach the daemon to auto-reseed cleared rows — was rejected: it edits `seeding.js` (every then-current seat was walled out of that file), needs its own seat plus a deploy, and the blast radius is every `UNDECLARED` row, not just the 11 owed ones. Option C — forbid clearing — was rejected: genuinely superseded rows such as meet's `plan-planner` need an honest word to close under. What landed: `d813ebcc` (17:20:45Z) rewrote `nontermPayload()` to drop `# CLEAR → ordinary relaunch` and append the paragraph "CLEARING IS NOT A RELAUNCH — they are TWO acts (D39)" naming `launch --only <seat> --declare-only <anchor>` and warning that a clear without that second command leaves the seat sitting. Same commit also changed the incomplete retry signature from `incomplete:${item.seat}:${item.ended}` to `incomplete:${item.seat}` (D40 — a different bug, filed as `20260820-i-watcher-retry-policy`). `feba5fba` (17:33:42Z) is documentation-only on coord.py (27 insertions / 13 deletions, eight sites, no branch change); coord.py is read live per invocation, so that half was effective on commit. Ruling consequence 4 said no engine change or daemon restart was owed by D39 itself; the two commits are the follow-through that told the leader the second act (consequence 2).
 
-`feba5fba` (fix(coord): a CLEAR does not re-seed — the leader relaunches it, D39) splits the two acts: coord.py's CLEAR verb only clears; the leader must separately, explicitly relaunch. `d813ebcc`'s reconcile.js companion tells the leader clearing and relaunching are two acts and stops the retry counter resetting on a bare clear.
+## Consequences
+Same day, D42 found the advertised second act was itself the wrong door for a crashed row: `launch --help` says `--declare-only` admits a seat "for a DECLARE-ONLY session (it declares its own ending and checks out; it does NO work)", so it restores a declared ending, not a working seat. Meet escalation #655 listed six shut revival paths for a kit-written `exited` row. D42 built `launch --only <seat> --rerun <anchor>` and, under F-3 wording, rewrote the same coord.py help/`staff_mail_body`/`cmd_launch` surfaces `feba5fba` had just edited, plus `nontermPayload()`. `e3fc940f` keeps the D39 paragraph but places it after new HOLD and `--rerun` blocks and adds "and it is the CLEARED row's path, not the crashed one's". `resolve-verify` DoD-1 "cleared+relaunched" now means both acts; a cleared-but-never-launched row is standing. The design-doc D33(b) paragraph was corrected in place with a pointer to D39 (ruling consequence 1). Sibling entries sharing the landing: `20260820-c-verified-done-resolver` (creation; `3a112282`,`feba5fba`,`d813ebcc`) and `20260820-i-watcher-retry-policy` (the D40 half of `d813ebcc`).
 
-## commit
-feba5fba,d813ebcc
-
-## files
-ignite/team-kit/coord.py; ignite/engine/reconcile.js
-
-## deployed
-yes
-
-## pin
-engine/probes/probe-reconcile.js (D39 arms)
+## Verification
+`reconcile.selftest.js`'s existing "D33(a): the incomplete seat is enqueued BY NAME" arm was extended in `d813ebcc` to assert `!/ordinary relaunch/.test(payload)` and that the payload contains `launch --only <seat> --declare-only` and `CLEARING IS NOT A RELAUNCH`. Those pins ride inside the D33(a) arm; `probe-reconcile.js`'s own description line names D33(a)/D34/D44/D35/red-arms and does not name D39, so the declared pin `engine/probes/probe-reconcile.js (D39 arms)` is indirect. The same commit's new D40 arm (two watcher passes, different `ended`, attempts reach 2, one `stuck`) and its RED arm (recompile a copy with the pre-fix signature; attempts stay `[1,1,1]`, zero `stuck`) prove D40, not this fix. coord.py half: live at `feba5fba` 2026-08-20 17:33:42Z, no deploy. reconcile.js half: engine JS, inert until `rbtv ignite daemon deploy`; `fix-inventory.csv` D39 row records deployed yes at rbtv HEAD `ac1c08d8` (2026-08-21 18:14:37Z). No per-commit deploy log for `d813ebcc` itself was found.
 
 ## ATTENTION
-- Do not re-merge CLEAR and relaunch into one verb — that was the exact defect. Any convenience wrapper that auto-relaunches after a clear reopens D39.
-- Shares commits with `verified-done-resolver` and `watcher-retry-policy` — this is the same D39/D40 landing referenced by all three; read them together before touching reconcile.js's retry/clear logic.
-- do not re-merge CLEAR and relaunch into one verb, that was the defect
-- shares commits with verified-done-resolver and watcher-retry-policy, read together
+- Teaching the daemon to auto-reseed a CLEARED / `UNDECLARED` row reopens the option D39 rejected: it edits `seeding.js` (walled off from the seats that found the lie), needs its own deploy, and hits every `UNDECLARED` row, not just ones the leader just cleared.
+- `launch --only <seat> --declare-only <anchor>` is the second act for a CLEARED row only. On a kit-written `exited` (crashed) row it opens a declare-ending session, not a working one; clearing first destroys the only record of how that session ended. D42's door for that class is `--rerun`.
+- `d813ebcc` also dropped `:${item.ended}` from the incomplete retry signature (D40). That is a different bug, filed as `20260820-i-watcher-retry-policy`, and the same landing sits in `20260820-c-verified-done-resolver`. Read all three before editing `nontermPayload()` or the incomplete signature.
+- The text `feba5fba`/`d813ebcc` landed is not HEAD. Same-day `e3fc940f` (D42 F-3) put HOLD and `--rerun` paragraphs in front of the D39 block and added "and it is the CLEARED row's path, not the crashed one's". Re-read live `nontermPayload()` and `rule-disposition --help` before quoting either diff as current.

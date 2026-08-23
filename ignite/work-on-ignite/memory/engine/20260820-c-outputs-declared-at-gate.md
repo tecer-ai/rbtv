@@ -9,32 +9,42 @@ pin: engine/probes/probe-outputs-resolver.js (OUTPROJ-3, scheduled)
 components: team-kit
 seeded: true
 
-## What it is
-Outputs declared where the gate reads them; a typed schema for non-file outputs.
+## Motivation
+The reusable prompt owns `<io-spec> ## Outputs` and must stay use-case-neutral (one `checker.md` serves check-clarity, check-scope, check-edges — `references/kind-io-spec.md` point 5), so it carries schema prose and no path. The per-instance task names the real file in its `<scope>` `Write:` clause. Both render into one `seat.md`. The done-gate readers — `cage-admission.js#parseDeclaredOutputs` (admission) and `coord.py#iospec_outputs` (grading/seed) — parse only that `## Outputs` section. Measured on the two live goals at ee64adde (2026-08-20 16:58Z): 13 of 101 seats resolved a token; the rest were real file producers whose `done` the D5 gate refused every sitting. D3 (`60835d3e`, 2026-08-19, outputs-unify) had already made that zero-token count measurable by retiring the `outputs:` frontmatter key and building the shared fixture-tested resolver; it did not close the prompt-vs-task authority split. D36 (`redesign-plan/decisions.md`): "outputs are declared where the gate reads them, at render." Live seats heal via D37.
 
-`cage-admission.js` + `materialize-seats.py` + `coord.py` gain an outputs-declaration path (D36/D37, same commit): materialize-seats projects a seat's `Write:` grant paths directly into its descriptor's `## Outputs` section, and a typed schema covers non-file (chat) outputs. Companion in the same commit: `server/spawn/spawn.js` + `probe-spawn-refresh.js` implement "refresh-before-launch" (D37, detailed separately in the `spawn-refresh-before-launch` entry, filed under server).
+## Design
+ee64adde built a projection, not an authoring campaign. `materialize-seats.py#render_descriptors` is the one actor that holds prompt and task at once; it writes the concrete destination into the surface the gate already reads. KG-consistent (`concepts/output.md`): an i/o-spec output is schema + purpose (prompt-owned, reusable); a destination is a fact about this seat (task-owned, instance data). Prompt-file cleanup was left optional hygiene.
 
-## Why
-D36: the gate reading declared outputs read a different source than where seats declared writes.
+Three companions rode the same commit because measurement forced them. (1) A typed `- Schema: chat` bullet declares a non-file product; checkout admits that `done` and says `none-declared` in those words; materialize's zero-token check stays quiet. Declared on the two confirmed non-producers (`dod-judge`, `unblock-checker`) in the catalog, separately — D36's "7 true non-producers" was the authoring target, not what this commit rewrote. (2) `coord.py#declared_outputs` now also tries the goal folder for a bare relative token, not only the seat `cwd`. All 17 declared tokens on the two production goals were bare and goal-relative; 16 existed at the goal folder and one at the seat folder, so shipping the projection on the old reader would have turned a soft `unverified` into a hard `MISSING: <seatdir>/planning/…` refusal on ~50 seats that had done the work. `resolved_outputs` (D4 seed, RS-28) is untouched. (3) D37 refresh-before-launch: `spawn.js#spawnSeat()` re-renders via `--refresh` before `launchSpecForSeat`; `resolve_added` aliases a composed instance name (`plan-4-*`) through its base catalog row in the refresh lane too (one predicate over `force_partial OR refresh` — before this, no argv combination reached a composed name with `--refresh`). The spawn half is filed as `20260820-i-spawn-refresh-before-launch` under server.
 
-`fix-inventory.csv` D36 — the gate that verifies a seat's declared outputs exist was reading a different source of truth than where seats actually declared writes, so outputs review/planning tasks kept reading stale or absent declarations.
+Rejected: composing `dir + slashless` tokens to lift more seats — that manufactures wrong paths (`plan-planner`'s single `Write:` bullet names three different destinations). Rejected: turning the zero-token check into a refusal — after projection, 26 non-chair live seats still named destinations slashless (`task-dag.md` under a separately-named `planning/current/`); refusing them would freeze re-render and m4's mint. The check stays a WARNING on that measured ground, not habit; its RED arm is materialize `--selftest` OUTPROJ-3.
 
-## How to use & where wired
-materialize-seats.py writes Outputs directly from the seat's own cage grants.
+## How it works
+After `render_descriptors` assembles the blocks it finds the `<io-spec>` block. If that block declares an Outputs section but `_coord_iospec_outputs()` resolves zero path tokens and is not typed `chat`, it scans the seat's `<scope>` with `_SCOPE_WRITE_RE` (the `Write:` label, bold or plain — never the `Read:` bullet beside it, which backticks inputs). Tokens come from coord.py's own `_IOSPEC_PATHISH` imported through `_coord_iospec_grammar()` — never a second regex. One `_PROJECTED_OUTPUT_BULLET` is appended per token, inside the section and before `</io-spec>`: `- Destination (projected from the task's scope Write clause): `{token}``.
 
-`materialize-seats.py`'s descriptor-writing step now writes Outputs directly from the seat's own cage grants; `cage-admission.js` and `coord.py` read/consume the same field.
+The projection is additive and only into a section that resolves nothing. A section that already yields a token is left byte-untouched (a projection beside a declaration is two authorities, and checkout would start demanding a file the seat never promised). A `chat` section is left alone even if its `Write:` names a real token. A scope with no resolvable token projects nothing — no guessed paths.
 
-## commit
-ee64adde
+`iospec_outputs` and `parseDeclaredOutputs` now return a third element `chat`. Matching is schema-position only: `_IOSPEC_CHAT` / `CHAT_SCHEMA` = `^[ \t]*[-*][ \t]*\**Schema:?\**:?[ \t]*`?chat`?\b`. The word "chat" in ordinary Outputs prose ("posted to the chat bridge") must not exempt a file producer. The cage admission verdict itself is unchanged (zero path tokens is still zero admission questions); coord's checkout and materialize's warning are the consumers that branch on `chat`.
 
-## deployed
-yes
+`declared_outputs` tries the goal folder first, then seat `cwd` as fallback. Absence at both is still refused; the refusal names the goal-relative path.
 
-## pin
-engine/probes/probe-outputs-resolver.js (OUTPROJ-3, scheduled)
+To declare a non-file product, open an Outputs bullet `- Schema: chat`. To name a file the gate will grade, either put a pathish token (backticked, carries `/` and an extension) in `## Outputs` yourself, or name it in the task's `Write:` and let render project it. Slashless names (`milestones.csv`, `goal.md`) are not tokens under `_IOSPEC_PATHISH`.
+
+## Consequences
+Did not replace D3's shared resolver; extended it. Retired nothing. Same-day follow-up `a06723ec` (2026-08-20 17:12Z, ~14 min later) had to rewire D37 onto the headless door: `server/index.js` routes to `spawnSeat` only when `sessionMode === 'headed'`, and every live launch on both production goals is HEADLESS — the first deploy's hook fired on nothing (journal at 17:03:32 and 17:08:34 shows `audio-component-smith` and `leader` launching with no refresh line). D41 accepted both disclosed stretches (two deploys; the goal-relative fallback keeping `cwd` too) rather than reverse them: "Breaking the one-deploy wall to ship a hook that actually fires beats a green report over dead code"; reversing the two-base read "would ship a known regression."
+
+Coverage after projection was 69/101, not the seat.md's expected ≥94/101. D41 (same day) accepted the shortfall: the DoD was internally contradictory — `design-opus-C.md` said `_IOSPEC_PATHISH` unchanged resolves 63, and 94 required admitting a slashless backticked token, which the same seat.md forbade ("do NOT write a second regex"). Typed-`chat` lifted 63 to 69. The leftover gap is authoring-side: ~4 prompt families (`planner`, `completeness-reviewer`, `splitter`, `dag-structurer`) name destinations slashless. Logged in `loose-ends.md`, explicitly not built. ~26 non-chair seats keep emitting `outputs-undeclarable` and end `unverified`.
+
+D90 (2026-08-22, #594 second half) later extended the grammar so a goal-root-relative output (`goal.md`, `milestones.csv`) becomes declarable — specifically so `review-goal-completeness.md` and `structure-milestone-dag.md` stop being leader-flipped. That is a later build; this commit is not the final Outputs-declaration shape. No later commit reverts the projection itself.
+
+## Verification
+`coord.py` selftest PASS, 0 failures, 4 new D36 arms (the `chat` declaration vs its prose negative control, and the two-base pair with its red). `materialize-seats.py --selftest` PASS, 60 rows, 6 new arms: projection, no-duplicate, the zero-token RED (OUTPROJ-3 — the warning must fire by name on a seat that still resolves nothing), `chat`, composed-name refresh, and `repass+force-partial` still refused. `probe-outputs-resolver.js` PASS against the shared fixture set, including the two new cases (`chat` declaration and `chat-word-in-prose-is-not-a-declaration`) asserted on every row so a resolver that reported `chat: true` everywhere would red on the others. New `probe-spawn-refresh.js` PASS over the real materializer and a real catalog fixture (freshness through the real spawn door, dryRun control, refused render leaving the sheet byte-identical, launch still proceeds). Red-by-mutation on copies: projection neutered → 12 seats lose their token; refresh-lane predicate neutered → `--seat plan-4-plan-check-clarity --refresh` refuses `seat-unknown` again.
+
+Deployed yes. `fix-inventory.csv` D36 records the batch at rbtv HEAD `ac1c08d8` (deployed 2026-08-21 18:14:37Z); no commit-level deploy log for ee64adde itself. `a06723ec` was a second deploy the same sitting, accepted by D41.
 
 ## ATTENTION
-- This landed in the SAME commit as `spawn-refresh-before-launch` (server) — easy to conflate; this entry is about WHAT gets written into a descriptor's Outputs section, the other is about WHEN spawn.js re-reads state before launching.
-- A later ruling (D90, team-kit, "goal-root-relative-outputs") revisited output declaration grammar again — check that ruling before assuming this is the final output-declaration shape.
-- same commit as spawn-refresh-before-launch; don't conflate WHAT vs WHEN
-- D90 (team-kit) later revisited output declaration grammar again
+- Path grammar lives only in `coord.py#_IOSPEC_PATHISH`, imported by `materialize-seats.py#_coord_iospec_grammar()`. `_SCOPE_WRITE_RE` is a bullet finder, not a path grammar — a second regex is the defect D36 exists to close (a token this file admits that checkout cannot resolve is a declaration the gate still refuses).
+- The zero-token check is a WARNING, not a refusal. D41 accepted the leftover slashless-destination seats (`planner`, `completeness-reviewer`, `splitter`, `dag-structurer`). Hardening it into a refusal freezes re-render and m4's mint without first doing that prompt-family follow-up.
+- `- Schema: chat` matches SCHEMA POSITION ONLY (`CHAT_SCHEMA` / `_IOSPEC_CHAT`). Matching the word "chat" loose would exempt real file producers whose Outputs prose mentions a chat bridge.
+- ee64adde also shipped D37 refresh-before-launch (sibling `20260820-i-spawn-refresh-before-launch` under server). That first deploy wired only the headed door (`spawnSeat`); production is headless (`spawn`). `a06723ec` the same day wired the door that actually fires. Do not conflate what gets written into `## Outputs` with when spawn re-reads the sheet, and do not assume a `spawnSeat` hook covers live traffic.
+- 69/101 is an accepted shortfall (D41), not a leftover bug of this fix. D90 (2026-08-22) later extended goal-root-relative declaration for `goal.md` / `milestones.csv`. Do not treat ee64adde as the final Outputs-declaration shape, and do not assume 94/101 was reached here.

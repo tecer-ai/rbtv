@@ -8,33 +8,25 @@ deployed: yes
 pin: self-pinning (scheduled)
 seeded: true
 
-## Seen
-`probe-cast-spawn-drift.js` joined its comparison on the wrong key — carrier instead of catalog mode.
+## Observed
+The redesign-plan `cutover` seat (2026-08-21, suite row 9) found `probe-cast-spawn-drift.js` green through the 2026-08-20T21:00:00Z scheduled run and red on every hourly run since 2026-08-20T22:00:44Z — eight consecutive. The failing check was `FAIL (3) overlapping (harness, model) ladders agree -> no overlapping pairs — join failed`; arms 1 and 2 still passed. The probe is the only scheduled guard that `spawn-profiles.yaml` launch-spec effort ladders match the live cast catalog per `(harness, model)` pair — i.e. which model each worker actually resolves to. The fork had no safe branch: either the catalog moved and the check is stale (cheap, but a sixth red trains everyone to ignore a suite already carrying five others), or workers have been spawning on the wrong model since 22:00Z and this red is the only thing saying so. Nobody owned it. Decision-review strand B (2026-08-21T14:42Z; latest suite `199 / 193 / 6` RED) classified it as D-4. The probe runs from the rbtv repo tree on commit (`fix-probes` report: effective on commit, deploy not required); the later same-day deploy (ac1c08d8, 18:14:37Z) put HEAD and the deployed tree on the same commit.
 
-D48: this probe was one of 6 red probes bundled into one owner-approved fix batch (decision-review-2026-08-21), alongside F-8's companions and the D-6 wide-cage/append-only-secret-writes direction.
+## Mechanism
+98209c92 (2026-08-18T04:44:15Z) authored the probe. Arm 3 built `cliRows` with `(catalog.ROWS || []).filter((r) => r.carrier === 'cli')`, keyed `byPair` on `${row.harness}\t${row.id}` and `${row.harness}\t${row.model}`, then for each launch-specs pair looked up the row and compared `yamlRungs` only against `castRungs` from a separately-resolved `cast list --json`, skipping whenever that lookup was undefined. Live catalog rows use `mode: 'cli'` and have no `carrier` field, so `cliRows` was empty, every pair hit `if (!row) continue`, `compared` stayed empty, and the arm threw `no overlapping pairs — join failed`. Independently, `resolveCatalog()`'s fallback required the retired `.rbtv/mirror/meta/providers/capabilities/cast/tool/catalog.js`; the expected `.rbtv/mirror/core/cast/` path was also absent. Live `cast` resolved to `.rbtv/mirror/core/sub-agents/tool/cast.js` with adjacent `catalog.js`, and `cast route --catalog` reported that same catalog. Live `sessions.csv` showed workers on the declared models (`zai-coding-plan/glm-5.2`, `google/gemini-3.6-flash`, `claude-opus-5`) — the red was a stale join, not a wrong-model signal. Two brief-claims were disproven (`decision-review-2026-08-21.md` §2 / strand-b report): `8e66585e` (2026-08-21T05:32:22Z) is documentation-only, outside the 21:00→22:00Z window, and it pointed docs at the still-wrong `core/cast` path; the foreign-deletions theory is unproven — no catalog file in the rbtv worktree was shown deleted.
 
-## Missed
-None recorded in sources.
+## Attempts
+First attempt held — checked: `git log` on the probe is only 98209c92 (authoring) then 69760b69 (this fix); `git log --all --grep=carrier` on the same path matches only the fix. map.csv names no missed-trials source. Strand B considered and rejected two other explanations (wrong worker models; `8e66585e`; foreign deletions unproven) before the join-key diagnosis; those were diagnostic hypotheses, not patches.
 
-## Held
-The probe now joins on catalog mode, not carrier.
+## Fix
+69760b69 (2026-08-21T16:09:38Z), one of the six D48.1-approved red-probe fixes (owner, interactive session: "fix all six red probes as one batch (strand B root causes)"), changed the filter to `r.mode === 'cli'`, pointed the fallback at `.rbtv/mirror/core/sub-agents/tool/catalog.js`, and added `RBTV_CAST_CATALOG` so a mutation harness can substitute a synthetic catalog. Arm 3 now always compares `yamlRungs` against `catalogRungs` (`row.rungs || []` — the primary, mutation-provable comparison) and additionally against `castRungs` only when defined. `modules/orchestration.md` was repointed from the stray `core/cast/` path to `core/sub-agents/` and `carrier: api` was corrected to `mode: api`. Kept the nonempty-overlap assertion (`if (!compared.length) throw`) — strand B named silencing it as losing the only standing signal that a worker's resolved model/effort differs from the spawn profile. Rejected: treating the red as a production wrong-model bug; leaving both `core/cast` and `core/sub-agents` as implied authorities; dropping the empty-join throw.
 
-Commit `69760b69` ("join cast-spawn-drift on catalog mode, not carrier") changed `launch-profiles/probes/probe-cast-spawn-drift.js` (comparison key) and `modules/orchestration.md` (doc note on the correct join key).
+## Consequences
+The commit is fourteen insertions and ten deletions in the probe plus a three-line path/schema correction in the orchestration module doc. `git log --since=2026-08-21` on both paths is 69760b69 (and the earlier same-day doc-only `8e66585e` on the md, which this commit superseded). No revert, no follow-up. Sibling D48 probe fixes (`0c505934`, `f00aba41`, `bb13d3a9`, `4d47c796`, `cfdc49e4`, `d27c44f4`, plus `92e7156c` for the wide-cage/tmpfs direction) live under their own components.
 
-## commit
-69760b69
-
-## files
-ignite/launch-profiles/probes/probe-cast-spawn-drift.js
-
-## deployed
-yes
-
-## pin
-self-pinning (scheduled) — the probe fix is itself the pin, auto-discovered and in the scheduled probe suite.
+## Verification
+The corrected arm is the pin (`self-pinning (scheduled)` — auto-discovered in the hourly suite). `fix-probes` re-ran against the live catalog+config: BEFORE `FAIL (3) … -> no overlapping pairs — join failed` exit 1; AFTER `PASS (3) … -> 24 pairs` exit 0. Mutation (scratch copy, never live) doctored sonnet-5 rungs to `['low']` and got `FAIL (3) … -> claude/claude-sonnet-5 yaml=["low","medium","high","xhigh","max"] catalog=["low"]` exit 1, then recaptured green. The 16:00Z scheduled run confirmed cast-spawn-drift PASS (`redesign-plan/status.md`); the loose-end closed it green in the 17:00Z run. Deployed yes with the rest of the D48 batch at rbtv HEAD ac1c08d8, 2026-08-21 18:14:37Z. Probes run from the repo tree — effective on commit, deploy not required for the suite.
 
 ## ATTENTION
-- This was one of an 8-commit fix batch (69760b69, 0c505934, f00aba41, bb13d3a9, 4d47c796, cfdc49e4, d27c44f4, 3303c80e, plus 92e7156c for the wide-cage/tmpfs direction) approved together under D48 — the other 7 commits touch team-kit, engine, server, bridges, deploy and are filed under those components' own memory, not here.
-- If cast/spawn's mode vocabulary changes again, re-verify the join key is still catalog mode — carrier and catalog mode drifted apart once already.
-- One of an 8-commit D48 fix batch; the other 7 commits are filed under their own components
-- Re-verify join key is catalog mode if cast/spawn mode vocabulary changes again
+- The join key is `mode` (catalog rows have no `carrier`). It already drifted once between 98209c92 (2026-08-18) and this fix without the hourly suite catching the schema change until the join went empty. If cast/spawn vocabulary changes again, re-verify the filter against live `catalog.ROWS` rather than assuming the field name.
+- Arm 3 reds on an empty join only because of `if (!compared.length) throw new Error('no overlapping pairs — join failed')`. Remove that guard and a bad join (`r.mode` renamed, fallback path dead, `RBTV_CAST_CATALOG` pointing at a catalog with no cli rows) goes silently green — the same stale-check class, now invisible. Silencing the arm also deletes the only standing signal that a worker's resolved model/effort differs from the spawn profile.
+- This was one line of an 8-commit D48 batch (69760b69 plus `0c505934`, `f00aba41`, `bb13d3a9`, `4d47c796`, `cfdc49e4`, `d27c44f4`, and `92e7156c` for the wide-cage/tmpfs direction). The other seven live under their own components; the full batch context is not here.

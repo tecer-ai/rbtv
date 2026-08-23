@@ -8,32 +8,35 @@ deployed: yes
 pin: NONE
 seeded: true
 
-## What it is
-D81 audit cleanup: five small commits — enum move, fixture alignment, dead re-exports, stale docs.
+## Motivation
+D81 (owner, 2026-08-22 ~13:10Z, `redesign-plan/decisions.md`) authorized one build seat to execute the SAFE audit-cleanup tiers — `cleanup.csv` rows with `d62_action` FIX-DOC / FIX-ALIGN / FIX, excluding `kind=bug` and `kind=duplicate` — against D62 regression rows; the nine confirmed bugs stayed on the engine-goal backlog. Engine row E1 (cleanup.csv `touches_fix=none`; the landing commit later tagged `touches_fix=D32,D5,D33`) was that `reconcile.js`'s `RECORD_DISPOSITIONS`, written to mirror coord.py's recorded-disposition enum, still listed five values (`done`, `renew`, `revive`, `exited`, `incomplete`) after D32 (`3a112282`, 2026-08-20; sibling `20260820-c-verified-done-resolver`) had made `unverified` a real seat-written `disposition` cell on checkout's D5 refusal path. coord.py's `RECORD_DISPOSITION_WRITER` has exactly those six keys. The omitted word was sitting in `EXTRA_NON_TERMINAL` next to `renew-interrupted`, a synthetic label this module invented for a renew marker with no successor and that coord.py never writes. The same sitting's other SAFE rows in this entry's commit list were a 16-column `sessions.csv` fixture still missing D42's `hold-anchor`, three unused engine re-exports, ticker-settings mutation denominators that had not been re-measured, and `sweep_lifecycle` / `clear_lifecycle` docstrings still claiming `close-run` (deleted in task 7.607 E2b) as their caller.
 
-Five small D81 audit-cleanup commits: `23578584` moves `unverified` (the D32 disposition) into the formal RECORD_DISPOSITIONS enum instead of an ad-hoc list; `0afe6f88` aligns SESSIONS_HEADER test fixtures with the D42 hold-anchor; `c666cb9b` drops unused re-exports from index.js/run-board.js/substrate.js; `243f3aa1` fixes stale probe-count denominators and a deleted-probe citation in docs; `acd38230` fixes coord.py's sweep_lifecycle/clear_lifecycle docstrings' incorrect close-run claim.
+## Design
+`23578584` put `unverified` on `RECORD_DISPOSITIONS` and left `EXTRA_NON_TERMINAL` as `['renew-interrupted']` only, with a new comment stating the split: the first list is coord.py's real recorded enum; the second is this module's own synthetics. `NON_TERMINAL_DISPOSITIONS` is derived (`RECORD_DISPOSITIONS` minus `TERMINAL_DISPOSITIONS` = `['done']`), so `unverified` now arrives through that derivation instead of the extra-list union. `isNonTerminal()` is still `NON_TERMINAL_DISPOSITIONS.includes(d) || EXTRA_NON_TERMINAL.includes(d)` — coverage of `unverified` is unchanged; the commit message calls this a model-accuracy fix, not a behavior change.
 
-## Why
-D81: wave-2 code audit confirmed findings; hygiene cleanup, no behavior change beyond the enum move.
+Rejected: leaving `unverified` in `EXTRA_NON_TERMINAL`. That placement contradicted the module's own selftest comment ("closed non-terminal set is coord RECORD_DISPOSITION_WRITER minus done" = five values) and had already trained `reconcile.selftest.js` to assert the four-value bug (`['exited','incomplete','renew','revive']`). `system-problems/build/cleanup/report.md` names that silent match a real latent defect, not a comment nit.
 
-`redesign-plan/decisions.md#D81` — the wave-2 code audit (redesign-plan-seed digest §1, orchestrate2.sh) found these as confirmed findings; audit hygiene cleanup, no behavior change beyond the `unverified` enum move.
+First attempt held — checked: `git log -S` on the two-value `EXTRA_NON_TERMINAL` freeze shows the mis-placement introduced at `808902df` (2026-08-19, "feat(engine): reconcile owed work from the ledgers (D1/D15)") and left untouched through `2058b965`, `dfecb8aa`, `61ce15d9`, `2233233a`, `d813ebcc`, `2ddb8644`, `e3fc940f`, `23de241f` until this audit. map.csv `missed_trials_source` is empty. D32 added the real writer key on 2026-08-20 without moving the reconcile list.
 
-## How to use & where wired
-RECORD_DISPOSITIONS is now the single source of truth for disposition strings.
+The other four commits in the header are the same D81 sitting's one-concern hygiene, not alternative designs of the enum: `0afe6f88` appends the missing `hold-anchor` column to two hand-typed `SESSIONS_HEADER` fixtures (cleanup E2/E3, `touches_fix=D42`); `c666cb9b` drops unused re-exports after a whole-repo grep found zero external importers (`touches_fix=none`); `243f3aa1` re-applies ticker-settings mutations M1′/M2/M3 to the live tree and writes the measured reds instead of rescaling 39/39 and 15/15 by arithmetic, and retargets a `probe-suite-scheduled.py` comment that still cited deleted `probe-planning-entry.py` arm P5c; `acd38230` rewords the two coord.py docstrings so `cmd_finish_goal` is the named caller.
 
-RECORD_DISPOSITIONS in reconcile.js is now the single source of truth for disposition values including `unverified` — any code checking disposition strings against an ad-hoc list should use this enum instead.
+## How it works
+Anyone adding a recorded disposition must add it to coord.py's `RECORD_DISPOSITION_WRITER` and to `RECORD_DISPOSITIONS` in `reconcile.js`. `NON_TERMINAL_DISPOSITIONS` follows automatically unless the new word is also added to `TERMINAL_DISPOSITIONS` (today only `done`). A label that is not a coord.py cell belongs in `EXTRA_NON_TERMINAL` so `isNonTerminal()` still sees it without claiming coord wrote it. `deriveOwed` already gates class A on `isNonTerminal(disp)`, which is why moving the word between the two lists did not change owed-work classification.
 
-## commit
-23578584,0afe6f88,c666cb9b,243f3aa1,acd38230
+The hold-anchor fixture change is a trailing `,hold-anchor` on the header string and one extra empty field on the sample row, matching the live 17-column `SESSIONS_COLS`. `engine/index.js` now exports only `createEngine` (every consumer already destructured only that). `boardKey` / `elapsedSince` stay as internal functions in `run-board.js`; `DEGRADED_BRANCHES` / `describeDegradation` / `SubstrateError` stay internal in `substrate.js` — only the `module.exports` keys went away. The mutations.md control row is GREEN 43/43 and 18/18; M1′ RED 15/18, M2 RED 41/43, M3 RED 38/43. `sweep_lifecycle`'s call-site comment already named `cmd_finish_goal`; the docstrings now agree.
 
-## deployed
-yes
+## Consequences
+Replaced the five-value `RECORD_DISPOSITIONS` plus the two-value `EXTRA_NON_TERMINAL` that had been smuggling a real cell. Did not change `isNonTerminal()` results, class-A split, or checkout's writer. `reconcile.selftest.js`'s sort-comparison now expects the five non-terminal words including `unverified`.
 
-## pin
-NONE
+`affceae2` (same day, "feat(reconcile): D52/D66/D70 thread reason+signature into enqueue") later touched `reconcile.js` as a feature add, not a revert of E1. `a554197b` (2026-08-23) later touched coord.py for lane-aware leader launch doors — unrelated to the docstring-only `acd38230`. No later commit in the checked window touched the two probe fixtures, the three export surfaces, `mutations.md`, or `probe-suite-scheduled.py`. Sibling `20260820-c-verified-done-resolver` already cites `23578584` as the later enum-home move.
+
+The five shas landed as five commits on `cleanup/audit-2026-08-22` (forked from `f66f24bf`; 18 commits / 90 selected rows total) and merged to `ignite/core-daemon` at `acd38230` (~15:22Z). Reverting by the D81 label would take all five concerns with it.
+
+## Verification
+`23578584`: `probe-checkout-disposition.py` and `reconcile.selftest.js` PASS before and after; also `probe-reconcile.js`, `probe-frozen-frontier.js` (18/18), `probe-enqueue-record.js`. `0afe6f88`: those three plus the two edited probes — `probe-engine-library.js` 60/60, `probe-daemon-lane-watch.js` PASS with one expected read-only finding; field counts checked with `node -e` against 17-column `SESSIONS_COLS`. `c666cb9b`: `node --check` on the three edited modules, then `probe-reconcile.js`, `probe-frozen-frontier.js` 18/18, `probe-enqueue-record.js`, `probe-run-board.js`, `probe-daemon-lane-watch.js`, `probe-engine-library.js` 60/60. `243f3aa1`: each mutation applied, probed, reverted, and re-verified green; `probe-suite-scheduled.py --selftest` OK. `acd38230`: `coord.py` compile OK; selftest from `ignite/team-kit/` with `TMUX` unset, no concurrent edits, PASS 0 failures (running it from repo root or under ambient `$TMUX` races — `cleanup/report.md`). Header `deployed: yes`; `pin: NONE` — no new pinning probe; the named existing probes are the pin.
 
 ## ATTENTION
-- `unverified` (D32/D33) has now moved location twice (introduced by the `verified-done-resolver` entry, formalized here) — grep for the STRING "unverified" rather than assuming it lives in one place if auditing disposition handling again.
-- This is a batch of five otherwise-unrelated one-line fixes bundled under one audit ruling (D81) — if any single one needs reverting, check it doesn't share the commit with others before reverting a whole commit.
-- unverified enum has moved twice; grep the string rather than assuming one location
-- five unrelated fixes share one commit batch; check before reverting any single one
+- `unverified` lived in `EXTRA_NON_TERMINAL` from `808902df` (2026-08-19, before D32 made it a real coord.py cell) until `23578584` (2026-08-22). Grep the string `unverified` in `reconcile.js` rather than assuming one named constant: a later audit that only reads `RECORD_DISPOSITIONS` will miss a synthetic-list smuggle, and one that only reads `EXTRA_NON_TERMINAL` will miss the formal enum.
+- `EXTRA_NON_TERMINAL` is reserved for labels coord.py never writes (`renew-interrupted` today). Putting a `RECORD_DISPOSITION_WRITER` key there again would recreate E1: `isNonTerminal()` still true, `NON_TERMINAL_DISPOSITIONS` silently short, and a selftest literal can be adjusted to match the short set.
+- `reconcile.selftest.js`'s `NON_TERMINAL_DISPOSITIONS` assertion had drifted to four values while its own comment required five (`RECORD_DISPOSITION_WRITER` minus `done`). Compare a hardcoded test literal to its comment, not only to current code — the pre-fix test was green on the bug.
+- These five commits share the D81 label and nothing else. Each sha is already one concern (enum, hold-anchor fixtures, dead exports, measured denominators, coord docstrings). Revert by sha after `git show --stat`; reverting "the D81 cleanup" as a unit would take four unrelated hygiene edits with the enum.

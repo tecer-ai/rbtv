@@ -8,33 +8,27 @@ deployed: yes
 pin: NONE
 seeded: true
 
-## Seen
-goal-watcher-job died silently under jobcontain's 256MB cap, undetected for 4 days.
+## Observed
+From 2026-08-11T04:13Z to 2026-08-15T14:48Z, `goal-watcher-job` (then `ignite/jobs/goal-watcher-job.py`, the periodic daemon job that watched a goal's health) FAILED on every fire — ~200 consecutive, exit 2 — refusing to start because the `system-health` lease came back `UNREADABLE (exit -5)`. The lease was readable from a shell; the job could not read it (`f79bcdec` message). The daemon watchdog's `goal-watcher` arm (`probe_goal_watcher()` in `rbtv-ignite-watchdog`) reported `up` on every one of those failing passes, because it scores whether the queue row is still scheduled, not whether the last run succeeded, so the ignorance sat four days with no alarm. Reproduced in that commit (2026-08-15 15:07:49Z): `bash -c 'ulimit -v 262144; node …'` aborts with Trace/breakpoint trap (SIGTRAP). At HEAD the call site is gone (`goal-watcher-job.py` deleted `9c3aee33`, 2026-08-21); header `deployed: yes` is the 2026-08-15 live confirmation, not a re-check against today's tree.
 
-`ignite/jobs/goal-watcher-job.py` (the daemon job that watched goal health) was dying silently under `jobcontain`'s 256MB memory cap; the job itself never observed its own crash, so it kept believing it was healthy for 4 days before anyone noticed the ignorance.
+## Mechanism
+`jobcontain.contain(mem_mb=256, seconds=600)` sets this process's `RLIMIT_AS` to 256 MB and arms `SIGALRM`. POSIX `RLIMIT_AS` is inherited by every child — the module docstring already named that as "THE TRAP THIS MODULE EXISTS TO AVOID", and `child_preexec()` restores the pre-contain limits inside every child the job script execs itself. The hole was one layer deeper. `resolve_room_package` called `coord.derive_lease(goal)` in-process; `derive_lease` then shells to `server/lease/lease.js` under node, a grandchild that never saw `child_preexec`, so that node inherited the 256 MB cap. V8 reserves several gigabytes of *virtual* address space at startup regardless of RSS; the reservation fails and node aborts with SIGTRAP (signal 5 → subprocess returncode -5) before any JS — including `lease.js`'s own error path — runs. The job therefore treated a readable lease as unreadable ignorance and refused to start. This is not a silent OOM of the job, and it is not a missing cap-kill reporter: the job ran, exited 2, and lied about why.
 
-## Missed
-none recorded in sources.
+## Attempts
+First attempt held — checked: `git log --before=2026-08-15T15:07:49 -- ignite/jobs/jobcontain.py` (five prior commits: `ccb14bdc` birth, `839f3dc8`/`e9073327` PATH forwarding across `detach_argv`, `9878b771` loop-forever fallback, `30ee30b3` lazy `fcntl`/`resource` imports for Windows — none close `RLIMIT_AS` inheritance into an in-process helper's node child); `git log --before=2026-08-15T15:07:49 -- ignite/jobs/goal-watcher-job.py` (25 prior commits, none wrapping this `derive_lease` call); map.csv `missed_trials_source` names no earlier trial. The pre-fix docstring already covered children the script execs; it did not anticipate a helper called in-process spawning its own uncovered child.
 
-## Held
-jobcontain now observes and reports a cap kill instead of disappearing silently.
+## Fix
+`f79bcdec` added `jobcontain.uncapped()`, a `@contextlib.contextmanager` that looks up the AS tuple `contain()` saved in module-level `_ORIGINAL_LIMITS`, restores that original limit for the `with` block, and reinstates the capped limit in `finally`. Wall-clock `SIGALRM` and the CPU cap stay. If `contain()` never ran (`_ORIGINAL_LIMITS` has no `RLIMIT_AS`) or `resource` does not import, it is a no-op passthrough. The single wrap: `resolve_room_package` now does `with jobcontain.uncapped(): lease, why = coord.derive_lease(goal)`. Design, stated in the new docstring: lift the AS cap only around the one node-spawning call rather than drop the 256 MB bound or special-case node — "the block runs with no memory bound at all," so it is for an in-process helper that shells to node (or any VM with a large virtual reservation), and nowhere else. A companion ruling, recorded in the same commit as `daemon-watchdog.md` item 4 and the arm's docstring (not as a D-id/E-id): the watchdog's `goal-watcher` arm measures scheduling, not outcome; an N-consecutive-failure alarm was ruled out because the job was expected to stay red against `system-health` (a seatless goal, armed at 1800 s by the inline ruling `d-0811-goalwatcher-arm-long-cadence` — that id is not in `redesign-plan/decisions.md` or `engine-goal/decisions.md`; it lives in the `spawn-profiles.yaml` comment this commit added). That comment names the two reds: `UNREADABLE (exit -5)` is a defect; `0 rooms` / `NOT EXECUTING` is the accepted refusal.
 
-`jobs/jobcontain.py` (the wrapper that enforces the memory cap on daemon jobs) gained an observation path that reports a cap kill to its parent instead of silently disappearing; a new probe `jobs/probes/probe-jobcontain-uncapped.py` pins the behavior. Also touched: `config/spawn-profiles.yaml`, `jobs/README.md`, `jobs/goal-watcher-job.py`, and the `daemon-watchdog` capability's tool/doc.
+## Consequences
+After the wrap, the job still exited 2, but with an answer ("the live lease names 0 rooms: the goal is NOT EXECUTING") instead of ignorance — the owner-ruled red, not a new green. Two days later `724d1bc6` (2026-08-17) dequeued the periodic `goal-watcher-job` row; the watchdog arm this commit had just documented then alarmed `NO queue row` on that now-accepted state, so it was disarmed via `RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite` (item 4's lift clause amended: the dequeued branch does not add the outcome half). `d1ca8097` (2026-08-20, D1/D15) retired the selfheal-room + goal-watcher machinery in favor of `engine/reconcile.js`; `9c3aee33` (2026-08-21; change entry `20260821-c-delete-goal-watcher-job`) deleted `goal-watcher-job.py` and its 12 dedicated probes, so this fix's wrap site no longer exists. `jobcontain.uncapped()` and `probe-jobcontain-uncapped.py` were not in that sweep: `f79bcdec` is still the last commit on `jobcontain.py`, and both files are at HEAD. The general lift outlived its original caller.
 
-## commit
-f79bcdec
-
-## files
-ignite/jobs/jobcontain.py; ignite/jobs/goal-watcher-job.py; ignite/jobs/probes/probe-jobcontain-uncapped.py; ignite/config/spawn-profiles.yaml; ignite/jobs/README.md; core/capabilities/daemon-watchdog/tool/rbtv-ignite-watchdog; core/capabilities/daemon-watchdog/daemon-watchdog.md
-
-## deployed
-yes
-
-## pin
-NONE
+## Verification
+`probe-jobcontain-uncapped.py` (added in `f79bcdec`) has three arms: U1 CONTROL — a plain `node -e` child under `contain(mem_mb=256)` must die on a signal (survival makes the probe INOPERATIVE, never a pass, because then U2 cannot tell a fix from a no-op); U2 — the same child inside `uncapped()` must exit 0; U3 — after the block, the cap is back and node dies again. Proved red-first: a no-op `uncapped()` reddens U2 alone (`RBTV_PROBE_TREE`). Run only through `node ignite/deploy/probe-suite.js --only jobcontain-uncapped`, never by hand (probe docstring, rule G-163). Exit 0 green / 1 property broken / 2 inoperative. Header `deployed: yes`; the commit records the live post-fix observation (job still exit 2, now with the 0-rooms answer). Header `pin: NONE` — the probe pins `uncapped()` itself but was not named as this entry's pin.
 
 ## ATTENTION
-- `goal-watcher-job.py` itself was later deleted entirely (2026-08-21, commit `9c3aee33` — see the `jobs` creation/change entry `delete-goal-watcher-job`) — this fix's original target file no longer exists; the surviving value is `jobcontain.py`'s cap-observation behavior, which now guards whatever daemon job runs under it.
-- `probe-jobcontain-uncapped.py`'s location matters for scheduling — the daemon's scheduled probe-suite only auto-discovers `probe-*.js`/`probe-*.py` inside a directory literally named `probes/`; verify it still sits there before assuming it runs on schedule.
-- goal-watcher-job.py deleted 2026-08-21 (9c3aee33); surviving value is jobcontain.py cap-observation
-- probe-jobcontain-uncapped.py must live under a probes/ dir to be scheduled
+- `child_preexec()` only restores limits for a child this script execs. An in-process helper that shells to node (or any VM that reserves gigabytes of virtual address space at startup) hands that grandchild `contain()`'s 256 MB `RLIMIT_AS`; V8 then SIGTRAPs before JS runs and the parent sees returncode -5. That is the hole `uncapped()` exists to close.
+- Wrap `uncapped()` only around that spawn. The block lifts the address-space cap entirely (alarm and CPU stay); wrapping anything that should stay memory-bounded removes the bound the module exists to provide.
+- The original wrap in `goal-watcher-job.resolve_room_package` is gone — the job was deleted `9c3aee33` (2026-08-21; `20260821-c-delete-goal-watcher-job`). The surviving contract is `jobcontain.uncapped()` plus `probe-jobcontain-uncapped.py`. Looking for the wrap in the deleted job, or treating this entry as "jobcontain now reports cap kills," is reading the wrong fix.
+- Two different reds were disambiguated here: lease `UNREADABLE (exit -5)` is this defect; `0 rooms` / `NOT EXECUTING` was the accepted owner-ruled refusal (`d-0811-goalwatcher-arm-long-cadence`). A later `contain()`-capped job that shells to node can recreate the -5 signature even though the original job is gone.
+- `probe-jobcontain-uncapped.py` must run through the suite runner, never by hand (G-163). A green U2 on a host where U1's node survived the cap is not a pass — the probe is then INOPERATIVE because the hazard is absent on that host.

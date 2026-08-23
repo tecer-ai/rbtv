@@ -8,31 +8,27 @@ deployed: yes
 pin: engine/probes/probe-reconcile.js
 seeded: true
 
-## Seen
-reconcile.js's watcher ignored `rbtv goal pause`, kept acting on paused goals.
+## Observed
+On 2026-08-19 the same sitting that landed `reconcileGoal` at 21:23Z (`808902df`, "feat(engine): reconcile owed work from the ledgers (D1/D15)") left that function with no pause check. Fifty-nine minutes later `2058b965` (22:22Z) recorded the gap: a goal whose `execution-lane` held the two-token marker `rbtv goal pause` writes (`paused console`, first token read by `lane-watch.laneIsPaused`) still had `reconcileGoal` run `readySeats` / `deriveOwed` and enqueue a seat. Sources name no live goal that was wrongly launched; the measurement is the pre-fix path (cadence, then ready-seats, never pause) plus the selftest that encodes the failure (`paused console` → queue non-empty). The gate added that night is still the same block at HEAD (`reconcile.js` after the cadence early-return); engine JS stays inert until `rbtv ignite daemon deploy`. Header `deployed: yes` was not re-checked against a deploy log.
 
-`reconcile.js`'s mechanical watcher loop kept acting (relaunching/escalating) on goals the owner had explicitly paused via `rbtv goal pause` — the pause command's intent wasn't read by the newly-built reconcile loop.
+## Mechanism
+Two holes, not one. `reconcileGoal` never asked whether the goal was paused. `laneIsPaused` already existed in `lane-watch.js` as the JS twin of Python `goal_cli.lane_is_paused` (the 2026-08-14 ticker work); the new loop simply did not call it, so after the cadence window it walked straight into owed-work derivation. Separately, even a gate inside `reconcileGoal` would not have run for a paused goal: `readLane` flattens `paused <lane>` to `console` (that flatten *is* the pause mechanism for seeding — a paused goal is not daemon-owned), and `runLaneWatch` then took `lane !== DAEMON` and never called `maybeReconcile`. A skip would have been an accident of console-ownership, not a recorded `{skipped:'paused'}`. `laneIsPaused` itself treats absent or unreadable `execution-lane` as not paused; only an explicit first token `paused` counts.
 
-## Missed
-none recorded in sources.
+## Attempts
+First attempt held — checked: `git log --before=2026-08-19T22:22:31` on `reconcile.js` shows only `808902df` (birth, no pause check), `dfecb8aa` (taskforce double-alarm, unrelated), and this fix; `missed_trials_source` is empty. `9b939440` (2026-08-14, "ticker dispatch defers paused goals") is a sibling gate on `ticker.js` plus `probe-goal-paused-gate.js`, not a failed try at this path — `reconcile.js` did not exist yet, and the new D1 watcher did not inherit the ticker's check. `queue-request.js` already asked `laneIsPaused` separately as of `ec917552` (W7, 2026-08-14) for the same flatten reason; that consumer was not this loop.
 
-## Held
-lane-watch.js and reconcile.js now check goal-pause state before acting.
+## Fix
+`2058b965` wired one reader at two sites. Inside `reconcileGoal`, after the cadence early-return and before `readySeats`: lazy-`require('./lane-watch')`, and if `goalFolder && laneIsPaused(goalFolder)` then `setPassAt` (cadence bookkeeping continues), log `reconcile: skipped — goal is paused`, return `{skipped:'paused', goal}`. The require is in-body because `lane-watch.js` already imports `reconcile.js` at top level; a cycle at load would leave the reader undefined. In `runLaneWatch`, *before* the `lane !== DAEMON` branch, a non-`_` goal that `laneIsPaused` accepts is handed to `maybeReconcile` so the new return is actually recorded; seeding still uses the existing not-daemon path. The in-code contract is "ONE reader: lane-watch.laneIsPaused (DEC-1 twin of goal_cli.lane_is_paused)" — no third copy of the pause grammar. That serves D1 (redesign-plan `decisions.md`: the reconciliation loop *is* the per-goal watcher and owns all health checks), which is why ticker-only pause was not enough once reconcile derived owed work. No D-id or E-id names this patch; no alternative design is argued in the commit, only the rejected shapes the comments rule out: a local reimplementation, relying on the console-flatten to skip, and a top-level require.
 
-`lane-watch.js` and `reconcile.js` now check goal-pause state before acting; `reconcile.selftest.js` gained 67 lines of arms covering a paused goal.
+## Consequences
+The pause block in `reconcileGoal` is untouched by the later reconcile commits (`61ce15d9` D24, `2233233a` D33a/D34/D35, `d813ebcc` D39/D40, `2ddb8644` F-1, `e3fc940f` D42, `23de241f` D43/D44, `23578584` D81, `affceae2` D52/D66/D70); `git diff 2058b965 HEAD` does not rewrite those lines, and no revert appears in the log. Cadence is evaluated *before* pause, and a pause skip itself calls `setPassAt`, so the next unforced pass inside the cadence window returns `skipped:'cadence'`, not `skipped:'paused'`. The ticker gate (`9b939440`) and the `queue-request` gate (`ec917552`) were left in place as sibling dispatchers. `probe-reconcile.js`'s description string grew "pause gate, red arms" (plural). Five days later this is the check that keeps the paused `ignite-engine` goal inert (`rbtv goal pause ignite-engine`, 2026-08-24, E23) — later dependence, not a 2026-08-19 side effect.
 
-## commit
-2058b965
-
-## files
-ignite/engine/lane-watch.js; ignite/engine/reconcile.js; ignite/engine/probes/probe-reconcile.js; ignite/engine/reconcile.selftest.js
-
-## deployed
-yes
-
-## pin
-engine/probes/probe-reconcile.js
+## Verification
+`reconcile.selftest.js` gained two arms in `2058b965`. `paused goal is not reconciled` writes `execution-lane` = `paused console\n`, calls `reconcileGoal` with `force: true` (bypasses cadence), and asserts `skipped === 'paused'`, empty queue, and the skip log; then rewrites the marker to `daemon` and asserts an enqueue (control). `red arm: mutation of the pause gate` asserts the source still contains the anchor `if (goalFolder && laneIsPaused(goalFolder))`, `_compile`s a copy with that condition forced to `if (false && …)`, and asserts a paused goal then *does* enqueue — the test fails if someone deletes the gate. Pin `engine/probes/probe-reconcile.js` runs that selftest end-to-end; its banner was updated the same commit to list the pause gate. Header `deployed: yes`; no separate deploy-log line was found.
 
 ## ATTENTION
-- This is exactly the mechanism this program's own coordinating goal (`ignite-engine`) now depends on to stay inert while paused (`rbtv goal pause ignite-engine`, per this program's read-first.md) — do not weaken this check, or a paused goal would resume being acted on by the watcher.
-- ignite-engine's own pause relies on this check; do not weaken it
+- `readLane` flattens `paused <lane>` to `console`. Any new caller that branches on `lane !== DAEMON` (or "not mine") before asking `laneIsPaused` will treat a paused goal as console-owned and never reach `reconcileGoal`, so the skip becomes an unlogged accident of flatten rather than `{skipped:'paused'}`. The `runLaneWatch` call in `2058b965` exists only to prevent that.
+- The pause reader is singular: `lane-watch.laneIsPaused` is the JS twin of `goal_cli.lane_is_paused` (DEC-1, no third grammar). A local check in reconcile will diverge the moment either side's first-token rule changes. `queue-request.js` already follows this: it asks `laneIsPaused` separately because `readLane` cannot carry pause.
+- The `require('./lane-watch')` inside `reconcileGoal` is lazy on purpose. `lane-watch.js` already requires `reconcile.js` at module top level; hoisting this require circular-loads and leaves `laneIsPaused` undefined, which throws (or, if guarded, stops honouring pause with no skip log).
+- Cadence is evaluated before pause. After a pause skip, `setPassAt` has fired, so the next unforced pass inside the cadence window returns `skipped:'cadence'`. An assertion that expects the `paused` token every tick must pass `force: true`, as the selftest does.
+- The paused `ignite-engine` goal (paused 2026-08-24 via `rbtv goal pause ignite-engine`, E23) stays unreconciled only while this gate is reachable and the reader still understands a leading `paused` token. A flatten-swallow or a broken lazy-require would start deriving owed work on that goal on the next daemon tick.
