@@ -16,5 +16,5 @@ tmux-overview,tool,path,,tmux-overview,,
 overview-compact,tool,path,,overview-compact.py,,
 provider-usage,tool,path,,provider-usage.py,,
 statusline-usage,tool,path,,statusline-usage.py,,
-file-issue,tool,path,,file-issue.py,,!ws:.rbtv/goals/ignite-engine/register
+file-issue,tool,path,,file-issue.py,,!ws:.rbtv/goals/ignite-engine/register;!ws:3-resources/tools/rbtv/ignite/work-on-ignite/memory
 file-system-issue,capability,skill,,skills/file-system-issue/SKILL.md,"File a system issue (defect, gap, change notice) under ignite/ or meta/ into the engine goal's register — file, don't fix",

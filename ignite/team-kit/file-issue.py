@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""file-issue — the ignite-engine register's filer, validator and written record.
+"""file-issue — the ignite-engine register's filer/validator, and the ignite
+build-memory filer.
 
 The command inventory lives in the argument parser: run `file-issue --help`.
-The entry format, the class enum, the status vocabulary and the HISTORY entry
-shape live in one place too: run `file-issue schema`.
+The register's entry format, class enum and status vocabulary live in one
+place too: run `file-issue schema`. The build memory (closed issues and
+creations under `ignite/work-on-ignite/memory/<component>/`) is documented in
+`ignite/work-on-ignite/work-on-ignite.md`; this file only writes it.
 """
 from __future__ import annotations
 
@@ -11,6 +14,7 @@ import argparse
 import difflib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -38,27 +42,31 @@ STATUS_LIFECYCLE = (
 )
 STATUS_TERMINAL = ("duplicate", "invalid", "wont-fix")
 STATUSES = STATUS_LIFECYCLE + STATUS_TERMINAL
-HISTORY_FIELDS = ("component", "id", "seen", "missed", "held")
-HISTORY_ENTRY = {
-    "file": "<rbtv repo>/<component>/HISTORY.md",
-    "header-when-created": "# HISTORY — <component>",
-    "heading": "## <UTC date YYYY-MM-DD> — <register-id> — <first line of --seen>",
-    "lines": [
-        "**Seen:** <what was seen>",
-        "**Missed:** <the trials that missed, and why>",
-        "**Held:** <the solution that held>",
-    ],
-}
 REGISTER_REL = Path(".rbtv") / "goals" / "ignite-engine" / "register"
+
+# The 19 build-memory components: the 15 top-level ignite/ folders (minus
+# node_modules) plus the four meta/ trees. One memory folder per name under
+# ignite/work-on-ignite/memory/. See work-on-ignite.md.
+MEMORY_COMPONENTS = (
+    "bridges", "capabilities", "cli", "config", "deploy", "engine", "gateway",
+    "injection-ladder", "jobs", "launch-profiles", "lib", "server", "skills",
+    "team-kit", "work-on-ignite",
+    "meta-installer", "meta-leader", "meta-master-agent", "meta-planning",
+)
+MEMORY_ISSUE_HEADINGS = ("Seen", "Missed", "Held")
+MEMORY_CREATION_HEADINGS = ("What it is", "Why", "How to use & where wired", "ATTENTION")
+MEMORY_LINE_TARGET = 280
+MEMORY_LINE_CAP = 400
 
 
 class Refuse(Exception):
-    def __init__(self, code, message, *, route=None, extra=None):
+    def __init__(self, code, message, *, route=None, extra=None, exit_code=2):
         super().__init__(message)
         self.code = code
         self.message = message
         self.route = route
         self.extra = extra or {}
+        self.exit_code = exit_code
 
 
 def workspace_root(start: Path) -> Path | None:
@@ -299,7 +307,7 @@ def refuse_payload(exc: Refuse, as_json: bool) -> int:
     ref = {"code": exc.code, "message": exc.message, **exc.extra}
     if exc.route:
         ref["route"] = exc.route
-    return emit({"ok": False, "refusal": ref}, as_json=as_json, exit_code=2)
+    return emit({"ok": False, "refusal": ref}, as_json=as_json, exit_code=exc.exit_code)
 
 
 def cmd_file(args, cwd: Path) -> int:
@@ -534,7 +542,6 @@ def schema_payload() -> dict:
             "lifecycle": list(STATUS_LIFECYCLE),
             "terminal": list(STATUS_TERMINAL),
         },
-        "history-entry": dict(HISTORY_ENTRY),
     }
 
 
@@ -552,11 +559,6 @@ def cmd_schema(args, _cwd: Path) -> int:
     print(f"  {' -> '.join(STATUS_LIFECYCLE)}")
     print("status vocabulary — terminal closes:")
     print(f"  {' '.join(STATUS_TERMINAL)}")
-    print(f"HISTORY entry — file {HISTORY_ENTRY['file']}:")
-    print(f"  header when created: {HISTORY_ENTRY['header-when-created']}")
-    print(f"  {HISTORY_ENTRY['heading']}")
-    for line in HISTORY_ENTRY["lines"]:
-        print(f"  {line}")
     print("next: file-issue doctor")
     return 0
 
@@ -578,130 +580,414 @@ def one_line(value: str) -> str:
     return " ".join(value.split())
 
 
-def scope_refusal(what: str) -> Refuse:
+def unknown_component_refusal(component: str) -> Refuse:
     return Refuse(
-        "scope-refused",
-        f"--{what} must be a path under ignite/ or meta/ of the rbtv repo",
-        extra={"fix": f"pass --{what} ignite/… or --{what} meta/…"},
+        "unknown-component",
+        f"{component!r} is not one of the 19 memory components",
+        extra={"fix": "pick one of: " + ", ".join(MEMORY_COMPONENTS)},
     )
 
 
-def cmd_history_append(args, cwd: Path) -> int:
+def memory_root(cwd: Path, override: str | None) -> Path:
+    repo = repo_root(cwd, override)
+    return repo / "ignite" / "work-on-ignite" / "memory"
+
+
+def kebab(text: str, limit: int) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
+    s = re.sub(r"-{2,}", "-", s)
+    return s[:limit].rstrip("-") or "entry"
+
+
+def entry_stem(mem_dir: Path, date_compact: str, letter: str, name: str) -> str:
+    base = f"{date_compact}-{letter}-{name}"
+    if not (mem_dir / f"{base}.md").exists():
+        return base
+    n = 2
+    while (mem_dir / f"{base}-{n}.md").exists():
+        n += 1
+    return f"{base}-{n}"
+
+
+def parse_sections(text: str) -> dict:
+    sections: dict[str, list[str]] = {}
+    current = None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            sections[current] = []
+        elif current is not None:
+            sections[current].append(line)
+    return sections
+
+
+def missing_heading(sections: dict, kind: str) -> str | None:
+    required = MEMORY_ISSUE_HEADINGS if kind == "issue" else MEMORY_CREATION_HEADINGS
+    for h in required:
+        content = sections.get(h)
+        if content is None or not any(l.strip() for l in content):
+            return h
+    return None
+
+
+def first_nonempty(lines: list[str]) -> str:
+    for l in lines:
+        if l.strip():
+            return one_line(l)
+    return ""
+
+
+def derive_clause(sections: dict, kind: str) -> str:
+    if kind == "issue":
+        seen = first_nonempty(sections.get("Seen", []))
+        held = first_nonempty(sections.get("Held", []))
+        if seen and held:
+            return f"{seen} → {held}"
+        return seen or held
+    return first_nonempty(sections.get("What it is", []))
+
+
+def merge_attention(body_text: str, bullets: list[str]) -> str:
+    if not bullets:
+        return body_text
+    lines = body_text.splitlines()
+    bullet_lines = [f"- {b}" for b in bullets]
+    idx = None
+    for i, l in enumerate(lines):
+        if l.strip() == "## ATTENTION":
+            idx = i
+            break
+    if idx is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append("## ATTENTION")
+        lines.extend(bullet_lines)
+    else:
+        j = idx + 1
+        while j < len(lines) and not lines[j].startswith("## "):
+            j += 1
+        lines[j:j] = bullet_lines
+    return "\n".join(lines)
+
+
+def render_memory_header(stem: str, title: str, kind: str, component: str, date: str,
+                          commit: str | None, deployed: str | None, pin: str | None,
+                          components: str | None, seeded: bool, register_id: str | None) -> str:
+    lines = [f"# {stem} — {title}", "", f"kind: {kind}", f"component: {component}", f"date: {date}"]
+    if commit:
+        lines.append(f"commit: {commit}")
+    if deployed:
+        lines.append(f"deployed: {deployed}")
+    if pin:
+        lines.append(f"pin: {pin}")
+    if components:
+        lines.append(f"components: {components}")
+    if seeded:
+        lines.append("seeded: true")
+    if register_id:
+        lines.append(f"register-id: {register_id}")
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def compose_index_line(date: str, kind: str, seeded: bool, title: str, clause: str,
+                        commit: str | None, other_components: str | None, attention: bool) -> str:
+    parts = [date, kind]
+    if seeded:
+        parts.append("seeded")
+    parts.append(title)
+    if clause:
+        parts.append(clause)
+    parts.append(commit or "pending")
+    parts.append(other_components or "—")
+    line = " · ".join(parts)
+    if attention:
+        line += " · ⚠"
+    return one_line(line)
+
+
+def read_index_lines(mem_dir: Path, index_name: str) -> list[str]:
+    p = mem_dir / index_name
+    if not p.is_file():
+        return []
+    return [l for l in p.read_text(encoding="utf-8").splitlines()
+            if l.strip() and not l.startswith("#")]
+
+
+def reconstruct_stem(date: str, kind: str, title: str) -> str:
+    letter = "i" if kind == "issue" else "c"
+    return f"{date.replace('-', '')}-{letter}-{kebab(title, 30)}"
+
+
+def cmd_memory_file(args, cwd: Path) -> int:
     as_json = args.json
-    values = {
-        "component": args.component, "id": args.id,
-        "seen": args.seen, "missed": args.missed, "held": args.held,
-    }
-    for name in HISTORY_FIELDS:
-        if not (values[name] or "").strip():
-            return refuse_payload(Refuse(
-                f"missing-field:{name}",
-                f"--{name} is required",
-                extra={"fix": f"pass --{name} "
-                              f"(see file-issue history append --help)"},
-            ), as_json)
+    kind = args.kind
+    missing = []
+    for name, val in (("kind", kind), ("component", args.component),
+                       ("title", args.title), ("body-file", args.body_file)):
+        if not (val or "").strip():
+            missing.append(name)
+    if missing:
+        name = missing[0]
+        return refuse_payload(Refuse(
+            f"missing-field:{name}", f"--{name} is required",
+            extra={"fix": f"pass --{name} (see file-issue memory file --help)"},
+        ), as_json)
+    if len(args.title) > 60:
+        return refuse_payload(Refuse(
+            "title-too-long", f"--title is {len(args.title)} chars (cap 60)",
+        ), as_json)
+    if args.component not in MEMORY_COMPONENTS:
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+
     try:
         repo = repo_root(cwd, args.repo)
-        reg = register_root(cwd, args.register)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-
-    component = normalize_surface(values["component"], repo)
-    if component is None:
-        return refuse_payload(scope_refusal("component"), as_json)
-
-    known = existing_ids(reg)
-    if values["id"] not in known:
-        near = difflib.get_close_matches(values["id"], sorted(known), n=1)
-        message = f"{values['id']} is in neither register/open nor register/closed"
-        if near:
-            message += f" — did you mean {near[0]}?"
+    mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
+    if not mem_dir.is_dir():
         return refuse_payload(Refuse(
-            "unknown-id", message,
-            extra={"fix": "file-issue list --status all"},
+            "component-dir-missing", f"{mem_dir} does not exist",
         ), as_json)
 
-    title = one_line(values["seen"].splitlines()[0])
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entry = (
-        f"## {date} — {values['id']} — {title}\n"
-        f"**Seen:** {one_line(values['seen'])}\n"
-        f"**Missed:** {one_line(values['missed'])}\n"
-        f"**Held:** {one_line(values['held'])}\n"
-    )
-    hist = repo / component / "HISTORY.md"
-    created = not hist.exists()
+    body_path = Path(args.body_file).expanduser()
     try:
-        with hist.open("a", encoding="utf-8") as fh:
-            if created:
-                fh.write(f"# HISTORY — {component}\n")
-            fh.write("\n" + entry)
+        body_text = body_path.read_text(encoding="utf-8")
     except OSError as exc:
         return refuse_payload(Refuse(
-            "history-not-writable",
-            f"could not write {hist}: {exc}",
-            extra={"fix": f"check that {repo / component} exists and is writable"},
+            "body-file-unreadable", f"could not read {body_path}: {exc}",
+        ), as_json)
+
+    date = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    merged_body = merge_attention(body_text, args.attention or [])
+    sections = parse_sections(merged_body)
+    bad = missing_heading(sections, kind)
+    if bad:
+        return emit({
+            "ok": False,
+            "refusal": {"code": f"missing-field:{kebab(bad, 40)}",
+                        "message": f"body is missing required section '## {bad}'"},
+        }, as_json=as_json, exit_code=1)
+
+    letter = "i" if kind == "issue" else "c"
+    name = kebab(args.title, 30)
+    date_compact = date.replace("-", "")
+    stem = entry_stem(mem_dir, date_compact, letter, name)
+
+    clause = derive_clause(sections, kind)
+    has_attention = bool(any(l.strip() for l in sections.get("ATTENTION", [])))
+    if args.line:
+        line = one_line(args.line)
+    else:
+        line = compose_index_line(date, kind, bool(args.seeded), args.title, clause,
+                                   args.commit, args.components, has_attention)
+
+    if len(line) > MEMORY_LINE_CAP:
+        return refuse_payload(Refuse(
+            "index-line-too-long",
+            f"index line is {len(line)} chars (cap {MEMORY_LINE_CAP})",
+            extra={"length": len(line)},
+        ), as_json)
+    if len(line) > MEMORY_LINE_TARGET:
+        print(f"warn: index line is {len(line)} chars (target {MEMORY_LINE_TARGET})",
+              file=sys.stderr)
+
+    header = render_memory_header(stem, args.title, kind, args.component, date,
+                                   args.commit, args.deployed, args.pin,
+                                   args.components, bool(args.seeded), args.register_id)
+    entry_path = mem_dir / f"{stem}.md"
+    try:
+        entry_path.write_text(header + merged_body.strip("\n") + "\n", encoding="utf-8")
+    except OSError as exc:
+        return refuse_payload(Refuse(
+            "entry-not-writable", f"could not write {entry_path}: {exc}",
+        ), as_json)
+
+    index_name = "_issues.md" if kind == "issue" else "_creations.md"
+    index_path = mem_dir / index_name
+    try:
+        with index_path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+    except OSError as exc:
+        return refuse_payload(Refuse(
+            "index-not-writable", f"could not write {index_path}: {exc}",
         ), as_json)
 
     payload = {
-        "ok": True,
-        "path": str(hist),
-        "component": component,
-        "id": values["id"],
-        "date": date,
-        "created": created,
-        "text": f"{'created' if created else 'appended'} {hist}\n"
-                f"next: file-issue history show --component {component}",
+        "ok": True, "path": str(entry_path), "index": str(index_path), "line": line,
+        "text": f"filed {entry_path}\nindex: {index_path}\n"
+                f"next: file-issue memory show --component {args.component}",
     }
     return emit(payload, as_json=as_json, exit_code=0)
 
 
-def parse_history(text: str) -> list[dict]:
-    entries = []
-    for line in text.splitlines():
-        if not line.startswith("## "):
-            continue
-        parts = [x.strip() for x in line[3:].split(" — ")]
-        entries.append({
-            "heading": line,
-            "date": parts[0] if parts else "",
-            "id": parts[1] if len(parts) > 1 else "",
-            "title": " — ".join(parts[2:]) if len(parts) > 2 else "",
-        })
-    return entries
-
-
-def cmd_history_show(args, cwd: Path) -> int:
+def cmd_memory_show(args, cwd: Path) -> int:
     as_json = args.json
     if not (args.component or "").strip():
         return refuse_payload(Refuse(
-            "missing-field:component",
-            "--component is required",
-            extra={"fix": "pass --component (see file-issue history show --help)"},
+            "missing-field:component", "--component is required",
         ), as_json)
+    if args.component not in MEMORY_COMPONENTS:
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
     try:
-        repo = repo_root(cwd, args.repo)
+        mem_dir = memory_root(cwd, args.repo) / args.component
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-    component = normalize_surface(args.component, repo)
-    if component is None:
-        return refuse_payload(scope_refusal("component"), as_json)
-    hist = repo / component / "HISTORY.md"
-    exists = hist.is_file()
-    entries = parse_history(hist.read_text(encoding="utf-8")) if exists else []
+
+    rows = []
+    if args.kind in (None, "issue"):
+        rows += [("issue", l) for l in read_index_lines(mem_dir, "_issues.md")]
+    if args.kind in (None, "creation", "change"):
+        for l in read_index_lines(mem_dir, "_creations.md"):
+            fields = [x.strip() for x in l.split(" · ")]
+            k = fields[1] if len(fields) > 1 else "creation"
+            if args.kind and k != args.kind:
+                continue
+            rows.append((k, l))
+    flat = [l for _, l in rows]
+    if args.last:
+        flat = flat[-args.last:]
     if as_json:
-        return emit({
-            "ok": True, "component": component, "path": str(hist),
-            "exists": exists, "entries": entries,
-        }, as_json=True, exit_code=0)
-    if not exists:
-        print(f"no HISTORY for {component}")
-        return 0
-    for e in entries:
-        print(f"{e['date']}\t{e['id']}\t{e['title']}")
-    print(f"{len(entries)} in {hist}")
-    print(f"next: file-issue history append --component {component} --id <register-id>")
+        return emit({"ok": True, "component": args.component, "lines": flat},
+                     as_json=True, exit_code=0)
+    for l in flat:
+        print(l)
+    if not flat:
+        print(f"no entries for {args.component}")
     return 0
+
+
+def cmd_memory_rotate(args, cwd: Path) -> int:
+    as_json = args.json
+    if not (args.component or "").strip():
+        return refuse_payload(Refuse(
+            "missing-field:component", "--component is required",
+        ), as_json)
+    if args.component not in MEMORY_COMPONENTS:
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    try:
+        mem_dir = memory_root(cwd, args.repo) / args.component
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+    if not mem_dir.is_dir():
+        return refuse_payload(Refuse(
+            "component-dir-missing", f"{mem_dir} does not exist",
+        ), as_json)
+
+    keep = args.keep
+    threshold = args.threshold
+    report = {}
+    for index_name in ("_issues.md", "_creations.md"):
+        p = mem_dir / index_name
+        heading = None
+        lines = []
+        if p.is_file():
+            raw = p.read_text(encoding="utf-8").splitlines()
+            if raw and raw[0].startswith("#"):
+                heading = raw[0]
+                lines = [l for l in raw[1:] if l.strip()]
+            else:
+                lines = [l for l in raw if l.strip()]
+        count = len(lines)
+        if count > threshold:
+            to_archive, to_keep = lines[:-keep] if keep else lines, lines[-keep:] if keep else []
+        else:
+            to_archive, to_keep = [], lines
+        report[index_name] = {"count": count, "archived": len(to_archive), "kept": len(to_keep)}
+        if args.dry_run or not to_archive:
+            continue
+        archive_path = mem_dir / "_issues-archive.md"
+        if not archive_path.is_file() or not archive_path.read_text(encoding="utf-8").strip():
+            archive_path.write_text(
+                f"# {args.component} — date · kind · title · symptom→cause · "
+                f"commit · others · ⚠ | rotated, newest last\n", encoding="utf-8")
+        with archive_path.open("a", encoding="utf-8") as fh:
+            for l in to_archive:
+                fh.write(l + "\n")
+        new_content = (heading or f"# {args.component} — index") + "\n"
+        new_content += "\n".join(to_keep) + ("\n" if to_keep else "")
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(new_content, encoding="utf-8")
+        tmp.replace(p)
+
+    payload = {
+        "ok": True, "component": args.component, "dry_run": bool(args.dry_run),
+        "report": report,
+        "text": f"rotate {'(dry-run) ' if args.dry_run else ''}{args.component}: "
+                + ", ".join(f"{k}={v}" for k, v in report.items()),
+    }
+    return emit(payload, as_json=as_json, exit_code=0)
+
+
+def cmd_memory_check(args, cwd: Path) -> int:
+    as_json = args.json
+    if not (args.component or "").strip():
+        return refuse_payload(Refuse(
+            "missing-field:component", "--component is required",
+        ), as_json)
+    if args.component not in MEMORY_COMPONENTS:
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    try:
+        mem_dir = memory_root(cwd, args.repo) / args.component
+    except Refuse as exc:
+        return refuse_payload(exc, as_json)
+    if not mem_dir.is_dir():
+        return refuse_payload(Refuse(
+            "component-dir-missing", f"{mem_dir} does not exist",
+        ), as_json)
+
+    findings = []
+    all_lines = []
+    for index_name in ("_issues.md", "_creations.md", "_issues-archive.md"):
+        for l in read_index_lines(mem_dir, index_name):
+            all_lines.append((index_name, l))
+
+    expected_stems = set()
+    for src, line in all_lines:
+        if len(line) > MEMORY_LINE_CAP:
+            findings.append({"code": "line-too-long", "file": src,
+                              "length": len(line), "line": line[:60] + "…"})
+        parts = [x.strip() for x in line.split(" · ")]
+        if len(parts) < 4:
+            findings.append({"code": "line-malformed", "file": src, "line": line[:80]})
+            continue
+        date, kind = parts[0], parts[1]
+        idx = 3 if parts[2] == "seeded" else 2
+        if idx >= len(parts):
+            findings.append({"code": "line-malformed", "file": src, "line": line[:80]})
+            continue
+        title = parts[idx]
+        stem = reconstruct_stem(date, kind, title)
+        expected_stems.add(stem)
+        candidates = {stem} | {f"{stem}-{n}" for n in range(2, 6)}
+        if not any((mem_dir / f"{c}.md").is_file() for c in candidates):
+            findings.append({"code": "entry-missing", "file": src, "expected": f"{stem}.md"})
+
+    stripped_expected = {re.sub(r"-\d+$", "", s) for s in expected_stems}
+    entry_files = sorted(p for p in mem_dir.glob("*.md") if not p.name.startswith("_"))
+    for p in entry_files:
+        base = re.sub(r"-\d+$", "", p.stem)
+        if base not in stripped_expected:
+            findings.append({"code": "file-without-line", "file": p.name})
+        text = p.read_text(encoding="utf-8")
+        for field in ("kind:", "component:", "date:"):
+            if field not in text:
+                findings.append({"code": "header-missing-field", "file": p.name,
+                                  "field": field.rstrip(":")})
+
+    ok = not findings
+    payload = {"ok": ok, "component": args.component, "findings": findings}
+    if as_json:
+        return emit(payload, as_json=True, exit_code=0 if ok else 1)
+    if ok:
+        print(f"check: PASS ({len(entry_files)} entries, {len(all_lines)} index lines)")
+    else:
+        for f in findings:
+            print(f"finding: {f}")
+        print("check: FAIL")
+    return 0 if ok else 1
 
 
 def _run(argv, *, cwd=None):
@@ -908,76 +1194,160 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       sc_txt.returncode == 0 and sc_json.returncode == 0
                       and "suggested-action" in sc_txt.stdout
                       and "wont-fix" in sc_txt.stdout
-                      and "**Missed:**" in sc_txt.stdout
-                      and set(sd) == {"entry-keys", "classes", "statuses", "history-entry"}
+                      and set(sd) == {"entry-keys", "classes", "statuses"}
                       and sd.get("entry-keys") == want_keys
                       and sd.get("statuses", {}).get("lifecycle") == want_life
                       and sd.get("statuses", {}).get("terminal") == want_term,
                       f"txt={sc_txt.returncode} json={sc_json.returncode} keys={sorted(sd)}")
 
-        # ---- history: create, then append without touching a byte ----------------
-        comp = "ignite/team-kit"
+        # ---- memory: fixture tree, never the real memory folder -------------------
         repo_dir = root / "rbtv"
-        (repo_dir / comp).mkdir(parents=True, exist_ok=True)
-        hist = repo_dir / comp / "HISTORY.md"
-        hcommon = ["--repo", str(repo_dir), "--register", str(reg), "--json"]
-        h1 = _run(["history", "append", *hcommon, "--component", comp,
-                   "--id", "G-leader-0101-0000",
-                   "--seen", "doctor passed an entry with no status",
-                   "--missed", "a body grep — it matched the prose, not the frontmatter",
-                   "--held", "validate the parsed frontmatter against the ten entry keys"])
-        dh1 = json.loads(h1.stdout) if h1.stdout.strip() else {}
-        after1 = hist.read_text(encoding="utf-8") if hist.is_file() else ""
-        h2 = _run(["history", "append", *hcommon, "--component", comp,
-                   "--id", "G-leader-0101-0001",
-                   "--seen", "the second entry", "--missed", "nothing", "--held", "append"])
-        dh2 = json.loads(h2.stdout) if h2.stdout.strip() else {}
-        after2 = hist.read_text(encoding="utf-8") if hist.is_file() else ""
-        hshow = _run(["history", "show", "--repo", str(repo_dir),
-                      "--component", comp, "--json"])
-        dhs = json.loads(hshow.stdout) if hshow.stdout.strip() else {}
-        ents = dhs.get("entries", [])
-        passed &= _ok("green: history-create-append",
-                      h1.returncode == 0 and dh1.get("created") is True
-                      and after1.startswith(f"# HISTORY — {comp}\n")
-                      and "**Seen:** doctor passed an entry with no status" in after1
-                      and "**Missed:**" in after1 and "**Held:**" in after1
-                      and h2.returncode == 0 and dh2.get("created") is False
-                      and after2.startswith(after1) and len(after2) > len(after1)
-                      and hshow.returncode == 0 and len(ents) == 2
-                      and ents[0].get("id") == "G-leader-0101-0000"
-                      and ents[1].get("id") == "G-leader-0101-0001",
-                      f"c1={h1.returncode} created={dh1.get('created')} "
-                      f"c2={h2.returncode} appended={after2.startswith(after1)} "
-                      f"entries={len(ents)}")
+        mem_root = repo_dir / "ignite" / "work-on-ignite" / "memory"
+        for c in MEMORY_COMPONENTS:
+            cdir = mem_root / c
+            cdir.mkdir(parents=True, exist_ok=True)
+            heading = f"# {c} — date · kind · title · symptom→cause · commit · others · ⚠ | newest last\n"
+            (cdir / "_issues.md").write_text(heading, encoding="utf-8")
+            (cdir / "_creations.md").write_text(heading, encoding="utf-8")
+            (cdir / "_issues-archive.md").write_text(heading, encoding="utf-8")
+            (cdir / "_summary.md").write_text("No distillation yet — read the live index.\n",
+                                               encoding="utf-8")
+        scratch = root / "scratch"
+        scratch.mkdir()
+        mcommon = ["--repo", str(repo_dir), "--json"]
 
-        hr1 = _run(["history", "append", *hcommon, "--component", comp,
-                    "--id", "G-leader-0101-0000", "--seen", "x", "--missed", "y"])
-        dr1 = json.loads(hr1.stdout) if hr1.stdout.strip() else {}
-        passed &= _ok("red: history-missing-field",
-                      hr1.returncode == 2
-                      and dr1.get("refusal", {}).get("code") == "missing-field:held",
-                      dr1.get("refusal", {}).get("code"))
+        issue_body = scratch / "issue-body.md"
+        issue_body.write_text(
+            "## Seen\nthe launcher spawned twice on restart\n\n"
+            "## Missed\nrestarting alone did not stop the double spawn\n\n"
+            "## Held\nadded a pid lock file before spawn\n", encoding="utf-8")
 
-        hr2 = _run(["history", "append", *hcommon, "--component", "5-workbench/x",
-                    "--id", "G-leader-0101-0000", "--seen", "x", "--missed", "y",
-                    "--held", "z"])
-        dr2 = json.loads(hr2.stdout) if hr2.stdout.strip() else {}
-        passed &= _ok("red: history-scope-refused",
-                      hr2.returncode == 2
-                      and dr2.get("refusal", {}).get("code") == "scope-refused"
-                      and not (repo_dir / "5-workbench").exists(),
-                      dr2.get("refusal", {}).get("code"))
+        mf1 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                    "--title", "double spawn on restart", "--body-file", str(issue_body),
+                    "--commit", "abc1234", "--deployed", "yes", "--pin", "NONE"])
+        dmf1 = json.loads(mf1.stdout) if mf1.stdout.strip() else {}
+        entry1 = Path(dmf1["path"]) if dmf1.get("path") else None
+        issues_line1 = read_index_lines(mem_root / "engine", "_issues.md")
+        passed &= _ok("green: memory-file-issue",
+                      mf1.returncode == 0 and entry1 is not None and entry1.is_file()
+                      and "kind: issue" in entry1.read_text(encoding="utf-8")
+                      and "## Seen" in entry1.read_text(encoding="utf-8")
+                      and issues_line1 and "double spawn on restart" in issues_line1[-1]
+                      and "abc1234" in issues_line1[-1],
+                      f"exit={mf1.returncode} path={dmf1.get('path')} line={issues_line1[-1:]}")
 
-        hr3 = _run(["history", "append", *hcommon, "--component", comp,
-                    "--id", "G-nobody-9999-9999", "--seen", "x", "--missed", "y",
-                    "--held", "z"])
-        dr3 = json.loads(hr3.stdout) if hr3.stdout.strip() else {}
-        passed &= _ok("red: history-unknown-id",
-                      hr3.returncode == 2
-                      and dr3.get("refusal", {}).get("code") == "unknown-id"
-                      and hist.read_text(encoding="utf-8") == after2,
-                      dr3.get("refusal", {}).get("code"))
+        creation_body = scratch / "creation-body.md"
+        creation_body.write_text(
+            "## What it is\nA pid lock file the launcher takes before spawning\n\n"
+            "## Why\nprevents the double-spawn seen on restart\n\n"
+            "## How to use & where wired\nwired into launch-profiles/spawn\n\n"
+            "## ATTENTION\n- watch lock-file permissions on a fresh clone\n", encoding="utf-8")
+        mf2 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "creation",
+                    "--title", "pid lock file", "--body-file", str(creation_body),
+                    "--commit", "def5678"])
+        dmf2 = json.loads(mf2.stdout) if mf2.stdout.strip() else {}
+        entry2 = Path(dmf2["path"]) if dmf2.get("path") else None
+        creations_line1 = read_index_lines(mem_root / "engine", "_creations.md")
+        passed &= _ok("green: memory-file-creation",
+                      mf2.returncode == 0 and entry2 is not None and entry2.is_file()
+                      and "kind: creation" in entry2.read_text(encoding="utf-8")
+                      and creations_line1 and "pid lock file" in creations_line1[-1]
+                      and creations_line1[-1].endswith("⚠"),
+                      f"exit={mf2.returncode} line={creations_line1[-1:]}")
+
+        bad_body = scratch / "bad-issue.md"
+        bad_body.write_text("## Seen\nx\n\n## Held\ny\n", encoding="utf-8")
+        mf3 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                    "--title", "bad body missing missed", "--body-file", str(bad_body)])
+        dmf3 = json.loads(mf3.stdout) if mf3.stdout.strip() else {}
+        passed &= _ok("red: memory-missing-missed",
+                      mf3.returncode == 1
+                      and dmf3.get("refusal", {}).get("code") == "missing-field:missed",
+                      dmf3.get("refusal", {}))
+
+        mf4 = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                    "--title", "long line probe", "--body-file", str(issue_body),
+                    "--line", "x" * 401])
+        dmf4 = json.loads(mf4.stdout) if mf4.stdout.strip() else {}
+        entries_before_leak = list((mem_root / "engine").glob("*long-line-probe*"))
+        passed &= _ok("red: memory-line-too-long",
+                      mf4.returncode == 2
+                      and dmf4.get("refusal", {}).get("code") == "index-line-too-long"
+                      and not entries_before_leak,
+                      dmf4.get("refusal", {}))
+
+        mf5a = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                     "--title", "clash entry", "--body-file", str(issue_body)])
+        mf5b = _run(["memory", "file", *mcommon, "--component", "engine", "--kind", "issue",
+                     "--title", "clash entry", "--body-file", str(issue_body)])
+        dmf5a = json.loads(mf5a.stdout) if mf5a.stdout.strip() else {}
+        dmf5b = json.loads(mf5b.stdout) if mf5b.stdout.strip() else {}
+        passed &= _ok("green: memory-clash-suffix",
+                      mf5a.returncode == 0 and mf5b.returncode == 0
+                      and dmf5a.get("path") != dmf5b.get("path")
+                      and (dmf5b.get("path") or "").endswith("-2.md"),
+                      f"a={dmf5a.get('path')} b={dmf5b.get('path')}")
+
+        mf6 = _run(["memory", "file", *mcommon, "--component", "not-a-real-component",
+                    "--kind", "issue", "--title", "x", "--body-file", str(issue_body)])
+        dmf6 = json.loads(mf6.stdout) if mf6.stdout.strip() else {}
+        passed &= _ok("red: memory-unknown-component",
+                      mf6.returncode == 2
+                      and dmf6.get("refusal", {}).get("code") == "unknown-component",
+                      dmf6.get("refusal", {}).get("code"))
+
+        rotate_dir = mem_root / "capabilities"
+        seed_lines = [
+            f"2026-08-{(i % 28) + 1:02d} · issue · seed entry {i} · x → y · c{i:04d} · —"
+            for i in range(61)
+        ]
+        (rotate_dir / "_issues.md").write_text(
+            "# capabilities — date · kind · title · symptom→cause · commit · others · ⚠ "
+            "| newest last\n" + "\n".join(seed_lines) + "\n", encoding="utf-8")
+        rdry = _run(["memory", "rotate", *mcommon, "--component", "capabilities", "--dry-run"])
+        ddry = json.loads(rdry.stdout) if rdry.stdout.strip() else {}
+        rep_dry = ddry.get("report", {}).get("_issues.md", {})
+        passed &= _ok("green: memory-rotate-dry-run",
+                      rdry.returncode == 0 and rep_dry.get("count") == 61
+                      and rep_dry.get("archived") == 31 and rep_dry.get("kept") == 30
+                      and len(read_index_lines(rotate_dir, "_issues.md")) == 61,
+                      rep_dry)
+
+        rreal = _run(["memory", "rotate", *mcommon, "--component", "capabilities"])
+        dreal = json.loads(rreal.stdout) if rreal.stdout.strip() else {}
+        kept_after = read_index_lines(rotate_dir, "_issues.md")
+        archived_after = read_index_lines(rotate_dir, "_issues-archive.md")
+        passed &= _ok("green: memory-rotate-apply",
+                      rreal.returncode == 0 and len(kept_after) == 30
+                      and len(archived_after) == 31
+                      and kept_after[0] == seed_lines[-30]
+                      and archived_after[-1] == seed_lines[30],
+                      f"kept={len(kept_after)} archived={len(archived_after)}")
+
+        check_body = scratch / "check-body.md"
+        check_body.write_text(
+            "## Seen\ncheck target seen\n\n## Missed\nnothing\n\n## Held\nheld\n",
+            encoding="utf-8")
+        mcf = _run(["memory", "file", *mcommon, "--component", "gateway", "--kind", "issue",
+                    "--title", "check target", "--body-file", str(check_body)])
+        chk_ok = _run(["memory", "check", *mcommon, "--component", "gateway"])
+        dchk_ok = json.loads(chk_ok.stdout) if chk_ok.stdout.strip() else {}
+        passed &= _ok("green: memory-check-pass",
+                      mcf.returncode == 0 and chk_ok.returncode == 0
+                      and dchk_ok.get("ok") is True and dchk_ok.get("findings") == [],
+                      dchk_ok)
+
+        gw_issues = mem_root / "gateway" / "_issues.md"
+        raw_lines = gw_issues.read_text(encoding="utf-8").splitlines()
+        raw_lines[-1] = "a hand-broken line with no separators at all"
+        gw_issues.write_text("\n".join(raw_lines) + "\n", encoding="utf-8")
+        chk_bad = _run(["memory", "check", *mcommon, "--component", "gateway"])
+        dchk_bad = json.loads(chk_bad.stdout) if chk_bad.stdout.strip() else {}
+        passed &= _ok("red: memory-check-fail",
+                      chk_bad.returncode == 1 and dchk_bad.get("ok") is False
+                      and any(f.get("code") == "line-malformed"
+                              for f in dchk_bad.get("findings", [])),
+                      dchk_bad.get("findings"))
 
         # ---- the non-JSON refusal names the route on stderr ----------------------
         rp = _run(["file", "--register", str(reg),
@@ -1053,54 +1423,91 @@ def build_parser() -> argparse.ArgumentParser:
     d.set_defaults(_fn=cmd_doctor)
 
     sc = _shared(sub.add_parser(
-        "schema", help="the written record: entry keys, classes, statuses, HISTORY shape",
+        "schema", help="the written record: entry keys, classes and status vocabulary",
         description="The one written record of the register's format. Every other doc\n"
                     "points here instead of restating it.",
         epilog="example: file-issue schema --json\nnext: file-issue doctor",
         formatter_class=argparse.RawDescriptionHelpFormatter))
     sc.set_defaults(_fn=cmd_schema)
 
-    h = sub.add_parser(
-        "history", help="the per-component memory: append one entry, or list them",
-        description="Read or extend <rbtv repo>/<component>/HISTORY.md — what was seen,\n"
-                    "the trials that missed, and the solution that held, per register id.",
-        epilog="next: file-issue history show --component ignite/team-kit",
+    m = sub.add_parser(
+        "memory", help="the ignite build memory: file/show/rotate/check closed craft",
+        description="File, read and maintain ignite/work-on-ignite/memory/<component>/ —\n"
+                    "the closed-issue and creation record that replaced per-component\n"
+                    "HISTORY.md. See ignite/work-on-ignite/work-on-ignite.md for the shape.",
+        epilog="next: file-issue memory file --help",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    hsub = h.add_subparsers(dest="history_cmd", required=True)
+    msub = m.add_subparsers(dest="memory_cmd", required=True)
 
-    ha = _shared(hsub.add_parser(
-        "append", help="append one entry (creates HISTORY.md with its header when absent)",
-        description="Append one dated entry to a component's HISTORY.md, creating the file\n"
-                    "with its header line when it does not exist yet. Refuses a missing\n"
-                    "field, a component outside ignite/ or meta/, and an id that is in\n"
-                    "neither register/open nor register/closed.",
-        epilog=("example: file-issue history append --component ignite/team-kit \\\n"
-                "    --id G-leader-0101-0000 \\\n"
-                '    --seen "doctor passed an entry with no status" \\\n'
-                '    --missed "a body grep — it matched the prose, not the frontmatter" \\\n'
-                '    --held "validate the parsed frontmatter against the ten entry keys"\n'
-                "next: file-issue history show --component ignite/team-kit"),
+    mf = _shared(msub.add_parser(
+        "file", help="file one issue/creation/change entry + its index line",
+        description="Copy --body-file into a new memory entry (validating it carries the\n"
+                    "mandatory sections for --kind), prepend a small header, then append\n"
+                    "one index line to _issues.md or _creations.md. Never rewrites an\n"
+                    "existing entry or index line.",
+        epilog=("example: file-issue memory file --component work-on-ignite \\\n"
+                "    --kind creation --title \"cp2 probe\" --body-file body.md\n"
+                "next: file-issue memory show --component <component>"),
         formatter_class=argparse.RawDescriptionHelpFormatter))
-    ha.add_argument("--component", help="repo-relative dir under ignite/ or meta/")
-    ha.add_argument("--id", help="the register id this entry belongs to")
-    ha.add_argument("--seen", help="what was seen (its first line becomes the heading)")
-    ha.add_argument("--missed", help="the trials that missed, and why")
-    ha.add_argument("--held", help="the solution that held")
-    ha.add_argument("--repo", default=argparse.SUPPRESS,
-                    help="override the rbtv repo root (tests only)")
-    ha.set_defaults(_fn=cmd_history_append, repo=None)
+    mf.add_argument("--component", metavar="COMPONENT",
+                     help="one of the 19 memory components (see MEMORY_COMPONENTS)")
+    mf.add_argument("--kind", choices=("issue", "creation", "change"), help="entry kind")
+    mf.add_argument("--title", help="short title, <=60 chars")
+    mf.add_argument("--body-file", dest="body_file", help="path to the body markdown")
+    mf.add_argument("--commit", help="hash, or comma-separated hashes")
+    mf.add_argument("--deployed", help="yes|no|<iso date/time of the deploy>")
+    mf.add_argument("--pin", help="probe path, or NONE")
+    mf.add_argument("--components", help="other components touched, comma-separated")
+    mf.add_argument("--attention", action="append",
+                     help="an ATTENTION bullet (repeatable)")
+    mf.add_argument("--date", help="backdate YYYY-MM-DD (seeding)")
+    mf.add_argument("--seeded", action="store_true", help="mark as a backfilled entry")
+    mf.add_argument("--register-id", dest="register_id", help="the OPEN-side register id, if any")
+    mf.add_argument("--line", help="override the computed index line verbatim")
+    mf.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    mf.set_defaults(_fn=cmd_memory_file, repo=None)
 
-    hs = _shared(hsub.add_parser(
-        "show", help="list a component's HISTORY entries",
-        description="One line per entry: date, register id, heading. Quiet when the\n"
-                    "component has no HISTORY.md yet.",
-        epilog="example: file-issue history show --component meta/planning --json\n"
-               "next: file-issue history append --component <dir> --id <register-id>",
+    ms = _shared(msub.add_parser(
+        "show", help="print a component's live index lines (newest last)",
+        description="Print _issues.md and/or _creations.md index lines for one component.",
+        epilog="example: file-issue memory show --component engine --last 10\n"
+               "next: file-issue memory file --component <component> ...",
         formatter_class=argparse.RawDescriptionHelpFormatter))
-    hs.add_argument("--component", help="repo-relative dir under ignite/ or meta/")
-    hs.add_argument("--repo", default=argparse.SUPPRESS,
-                    help="override the rbtv repo root (tests only)")
-    hs.set_defaults(_fn=cmd_history_show, repo=None)
+    ms.add_argument("--component", metavar="COMPONENT")
+    ms.add_argument("--kind", choices=("issue", "creation", "change"))
+    ms.add_argument("--last", type=int, help="only the last N lines")
+    ms.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    ms.set_defaults(_fn=cmd_memory_show, repo=None)
+
+    mr = _shared(msub.add_parser(
+        "rotate", help="move older index lines to _issues-archive.md past --threshold",
+        description="When a component's live index passes --threshold lines, move all\n"
+                    "but the newest --keep to _issues-archive.md. Both _issues.md and\n"
+                    "_creations.md rotate into the same archive file.",
+        epilog="example: file-issue memory rotate --component engine --dry-run\n"
+               "next: file-issue memory check --component <component>",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    mr.add_argument("--component", metavar="COMPONENT")
+    mr.add_argument("--keep", type=int, default=30)
+    mr.add_argument("--threshold", type=int, default=60)
+    mr.add_argument("--dry-run", action="store_true")
+    mr.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    mr.set_defaults(_fn=cmd_memory_rotate, repo=None)
+
+    mc = _shared(msub.add_parser(
+        "check", help="lint a component's memory: line length, entry↔line pairing, fields",
+        description="Every index line <=400 chars, every line's entry file exists, every\n"
+                    "entry file has a line, and every entry header carries kind/component/date.",
+        epilog="example: file-issue memory check --component engine\n"
+               "next: file-issue memory rotate --component <component>",
+        formatter_class=argparse.RawDescriptionHelpFormatter))
+    mc.add_argument("--component", metavar="COMPONENT")
+    mc.add_argument("--repo", default=argparse.SUPPRESS,
+                     help="override the rbtv repo root (tests only)")
+    mc.set_defaults(_fn=cmd_memory_check, repo=None)
 
     t = sub.add_parser("selftest", help="hermetic green and red arms")
     t.set_defaults(_fn=cmd_selftest)
