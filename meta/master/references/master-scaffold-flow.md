@@ -145,8 +145,8 @@ created, and no master session is born inside it.
 
 ## 6. Goal-master chair — AUTOMATIC at materialize (D79, 2026-08-22)
 
-D9 wants a `goal-master` sitting available on the next owner message. The consultant chair staffs
-itself on every later materialize once `.rbtv/config/modules/meta/leader/bindings/consultant.json`
+D9 wants a `goal-master` sitting available on the next owner message. The leader chair staffs
+itself on every later materialize once `.rbtv/config/modules/meta/leader/bindings/leader.json`
 exists. As of D79 the goal-master is minted automatically by the materialize staff pass
 (`mint_staff_chairs`) on every goal whose catalog carries the seat and whose casting sheet exists —
 at creation for the request path (`scaffold-seats --workflow planning`) and at materialize for a
