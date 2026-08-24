@@ -716,10 +716,9 @@ def cmd_attest_exit(args):
         print(c(f"\n{acted} seat(s) attested `exited`. THAT IS THE ONLY CLAIM MADE: the harness "
                 f"terminated. Whether the work is done is NOT established here — each row routes "
                 f"to the LEADER, which investigates and either relaunches the seat or, where the "
-                f"work had in fact concluded, records that ruling with "
-                f"`{coord_invocation(args)} rule-disposition <seat> done --go` (leader's; the row "
-                f"then names the leader as the party that ruled it). Until then it advances NO "
-                f"edge ({coord_invocation(args)} ready-seats).", C_HINT))
+                f"work had in fact concluded, records that ruling — `rule-disposition` was deleted "
+                f"[T2-R12, T1-R9]; no replacement ruling instrument is wired here yet. Until then "
+                f"it advances NO edge ({coord_invocation(args)} ready-seats).", C_HINT))
 
 
 def cmd_rule_guard(args):
