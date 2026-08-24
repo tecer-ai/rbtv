@@ -572,15 +572,26 @@ def cmd_schema(args, _cwd: Path) -> int:
     return 0
 
 
+def enclosing_rbtv_repo(cwd: Path) -> Path | None:
+    """The rbtv checkout that cwd sits inside — its own tree, not any workspace's book."""
+    here = cwd.resolve()
+    for parent in (here, *here.parents):
+        if (parent / "ignite" / "work-on-ignite").is_dir():
+            return parent
+    return None
+
+
 def repo_root(cwd: Path, override: str | None) -> Path:
     if override:
         return Path(override).expanduser().resolve()
-    repo = rbtv_repo(workspace_root(cwd))
+    repo = enclosing_rbtv_repo(cwd)
     if repo is None:
         raise Refuse(
             "repo-missing",
-            "no rbtv.json above cwd — cannot derive the rbtv repo root",
-            extra={"fix": "run from inside the workspace (override with --repo in tests)"},
+            "cwd is not inside an rbtv checkout — no ignite/work-on-ignite/ above it, "
+            "so the target repo cannot be derived (this is deliberate: it never falls "
+            "back to a different checkout's repo)",
+            extra={"fix": "cd into the rbtv checkout you mean to file into, or pass --repo"},
         )
     return repo
 
@@ -1831,7 +1842,7 @@ def build_parser() -> argparse.ArgumentParser:
     mf.add_argument("--register-id", dest="register_id", help="the OPEN-side register id, if any")
     mf.add_argument("--line", help="override the computed index line verbatim")
     mf.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     mf.set_defaults(_fn=cmd_memory_file, repo=None)
 
     ms = _shared(msub.add_parser(
@@ -1844,7 +1855,7 @@ def build_parser() -> argparse.ArgumentParser:
     ms.add_argument("--kind", choices=("issue", "creation", "change"))
     ms.add_argument("--last", type=int, help="only the last N lines")
     ms.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     ms.set_defaults(_fn=cmd_memory_show, repo=None)
 
     mr = _shared(msub.add_parser(
@@ -1860,7 +1871,7 @@ def build_parser() -> argparse.ArgumentParser:
     mr.add_argument("--threshold", type=int, default=60)
     mr.add_argument("--dry-run", action="store_true")
     mr.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     mr.set_defaults(_fn=cmd_memory_rotate, repo=None)
 
     mc = _shared(msub.add_parser(
@@ -1872,7 +1883,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter))
     mc.add_argument("--component", metavar="COMPONENT")
     mc.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     mc.set_defaults(_fn=cmd_memory_check, repo=None)
 
     mrl = _shared(msub.add_parser(
@@ -1885,7 +1896,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter))
     mrl.add_argument("--component", metavar="COMPONENT")
     mrl.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     mrl.set_defaults(_fn=cmd_memory_relint, repo=None)
 
 
@@ -1900,7 +1911,7 @@ def build_parser() -> argparse.ArgumentParser:
     mcm.add_argument("--message", metavar="TEXT", default=None)
     mcm.add_argument("--dry-run", action="store_true")
     mcm.add_argument("--repo", default=argparse.SUPPRESS,
-                     help="override the rbtv repo root (tests only)")
+                     help="override the rbtv repo root (default: the checkout enclosing cwd)")
     mcm.set_defaults(_fn=cmd_memory_commit, repo=None, dry_run=False)
 
     t = sub.add_parser("selftest", help="hermetic green and red arms")
