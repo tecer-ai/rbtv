@@ -993,3 +993,11 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
   stand-in until goals/threads-store land.
 - **Registry `sender`** resolves to no registry record though load-bearing across
   the gateway/bridge design (task-7.5 reconciliation row).
+
+## Reply grammar — `reply-grammar.js`
+
+Pure first-token parser for owner replies (`spec-owner-io` §4). Input is raw
+reply text; output is `{ok, outcome, comments, family, findings, goal}` or a
+parse failure carrying the verbatim §4.5 NACK (`nackKind` `ask` vs `mechanical`).
+Does not post, touch Slack, or read or write any store. Callers wire it later.
+Probe: `probes/probe-chat-reply-grammar.js`.
