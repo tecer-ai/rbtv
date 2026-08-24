@@ -32,7 +32,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
-const { capture, reapWorkerUnit } = require('./lib');
+const { capture, reapWorkerUnit, fixtureRoot } = require('./lib');
 const { requirePythonCmd } = require('../../../lib/python-cmd');
 const { listSystemdUnits } = require('../carrier');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
@@ -52,13 +52,14 @@ function ownerHeader() {
 // A canonical goal tree with a LIVE run and one rostered seat. `sessions.csv` is NOT written here:
 // each leg decides its own precondition, which is the whole variable under test.
 function fixture(over) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc7-trace-'));
+  const root = fixtureRoot('mc7-trace-');
   const ws = path.join(root, 'ws');
   const goalsDir = path.join(ws, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, 'tracegoal');
   const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'tracer');
   fs.mkdirSync(seatDir, { recursive: true });
+  fs.mkdirSync(path.join(ws, '.rbtv', 'mirror', 'x'), { recursive: true });  // envelope family 6 ro-binds {workspace}/.rbtv/mirror; a real workspace always has one
   fs.writeFileSync(path.join(goalsDir, 'goals.csv'), 'name,created,due,type,status\ntracegoal,2026-08-06,,one-shot,active\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,tracer\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: tracer\nharness: bash\nmodel: trace-probe\n---\n');

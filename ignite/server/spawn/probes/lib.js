@@ -8,8 +8,22 @@ const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
+// ⚠ A FIXTURE WORKSPACE MUST NOT LIVE UNDER `os.tmpdir()` OR `/tmp` — the envelope template bakes
+// both into families 4 (`scratch-temp`) and 7 (`benign-cache-config-temp`) RW for every seat, so a
+// workspace rooted there is simultaneously RW (temp family) and RO (family 5 `vault-wide-read`).
+// The compiler authorizes that carve; `cage.js#lastCovering`, which `private-scope.js` asks about
+// the workspace root, reads it as mixed access and refuses `E_LAUNCH_REFUSED conflict rw:/tmp …`.
+// No real workspace sits inside the scratch family, so the shape is a fixture artifact, not a
+// launch defect. `/var/tmp` is in no baked family — that is the whole reason it is used here.
+const FIXTURE_TMP = '/var/tmp';
+
+function fixtureRoot(prefix) {
+  fs.mkdirSync(FIXTURE_TMP, { recursive: true });
+  return fs.mkdtempSync(path.join(FIXTURE_TMP, prefix));
+}
+
 function setup() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p2-2-probe-'));
+  const tmp = fixtureRoot('p2-2-probe-');
   const dataRoot = path.join(tmp, 'data');
   const workRoot = path.join(tmp, 'work');
   const defaultWorkdir = path.join(tmp, 'default');
@@ -29,6 +43,7 @@ function setup() {
   const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
+  fs.mkdirSync(path.join(workRoot, '.rbtv', 'mirror', 'x'), { recursive: true });  // envelope family 6 ro-binds {workspace}/.rbtv/mirror; a real workspace always has one
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\nharness: bash\nmodel: test-sleep\n---\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
 
@@ -218,4 +233,4 @@ function capture(name, fn) {
     });
 }
 
-module.exports = { setup, teardown, now, writeOut, capture, fire, reapWorkerUnit, castSeat };
+module.exports = { setup, fixtureRoot, teardown, now, writeOut, capture, fire, reapWorkerUnit, castSeat };

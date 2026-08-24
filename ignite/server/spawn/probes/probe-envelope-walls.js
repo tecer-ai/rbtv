@@ -3,13 +3,13 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { capture } = require('./lib');
+const { capture, fixtureRoot } = require('./lib');
 const { admitLaunch } = require('../../../envelope/launch');
 const { writeWallReport } = require('../../../envelope/wall-report');
 const { writeConfigShims, realStoreOnBinds } = require('../../../envelope/shims');
 
 capture('probe-envelope-walls', async (lines) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'env-walls-'));
+  const root = fixtureRoot('env-walls-');
   const fails = [];
   const leg = (id, desc, ok, detail) => {
     lines.push(`${ok ? 'PASS' : 'FAIL'} ${id} — ${desc}`);
@@ -23,7 +23,6 @@ capture('probe-envelope-walls', async (lines) => {
     const goalId = 'g1';
     const goalDir = path.join(workspace, '.rbtv', 'goals', goalId);
     const register = path.join(goalDir, 'register');
-    fs.mkdirSync(path.join(goalDir, 'scratch'), { recursive: true });
     fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
     fs.mkdirSync(path.join(workspace, '.rbtv', 'mirror', 'x'), { recursive: true });
     fs.mkdirSync(path.join(home, '.cache'), { recursive: true });
@@ -54,11 +53,18 @@ capture('probe-envelope-walls', async (lines) => {
       leaked.length === 0 && shims.files.some((f) => f.harness === 'claude') && shims.files.some((f) => f.tool === 'stools'),
       `leaked=${leaked.join(',')} files=${shims.files.map((f) => f.dest).join(',')}`);
 
-    const missingScratch = path.join(workspace, '.rbtv', 'goals', 'gone', 'scratch');
-    const refused = admitLaunch({ ...base, goalId: 'gone', goalDir: path.join(workspace, '.rbtv', 'goals', 'gone') });
-    leg('4', 'unresolved template path is refused at launch',
-      refused.spawn === false && refused.refuse && refused.refuse.kind === 'unresolved',
-      `refuse=${JSON.stringify(refused.refuse)} missing=${missingScratch}`);
+    // The goal scratch folder is NOT a case of this leg any more: `admitLaunch` materializes it
+    // before compiling (it is where the §8 shims land), so leg 6 below holds that instead. The
+    // unresolved arm needs a baked family path nothing on the launch path creates — family 6's
+    // `{workspace}/.rbtv/mirror`, absent from this second workspace.
+    const ws2 = path.join(root, 'ws-no-mirror');
+    const goalDir2 = path.join(ws2, '.rbtv', 'goals', goalId);
+    fs.mkdirSync(goalDir2, { recursive: true });
+    const refused = admitLaunch({ ...base, workspaceRoot: ws2, goalDir: goalDir2 });
+    leg('4', 'unresolved baked template path is refused at launch',
+      refused.spawn === false && refused.refuse && refused.refuse.kind === 'unresolved'
+        && refused.refuse.path === path.join(ws2, '.rbtv', 'mirror'),
+      `refuse=${JSON.stringify(refused.refuse)}`);
 
     const rec = writeWallReport({
       path: path.join(home, '.cache', 'missed'),
@@ -71,6 +77,15 @@ capture('probe-envelope-walls', async (lines) => {
     leg('5', 'benign-shaped wall writes family-match=cache with path/seat/goal',
       rec.record['family-match'] === 'cache' && rec.record.seat === 'worker' && rec.record.goal === goalId,
       JSON.stringify(rec.record));
+
+    // Regression guard for the compile-order defect: family 4 bakes `{goal}/scratch`, nothing else
+    // on the launch path creates it, so a compile-first order refused EVERY first launch with
+    // `unresolved …/scratch`. `admitLaunch` must leave the folder on disk and bind it rw.
+    const scratch = path.join(goalDir, 'scratch');
+    const scratchBind = (admitted.binds || []).find((b) => path.resolve(b.path) === path.resolve(scratch));
+    leg('6', 'launch materializes {goal}/scratch and binds it rw',
+      fs.existsSync(scratch) && !!scratchBind && scratchBind.access === 'rw',
+      `exists=${fs.existsSync(scratch)} bind=${JSON.stringify(scratchBind)}`);
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   }

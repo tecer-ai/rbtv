@@ -17,7 +17,7 @@ require('../../../deploy/probe-self-isolate').selfIsolateTmux(); // solo-run tmu
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
-const { capture, setup, teardown, fire } = require('./lib');
+const { capture, setup, teardown, fire, fixtureRoot } = require('./lib');
 const { composeSeatSpawn, buildScopeArgv, scopeUnitName } = require('../tmux');
 const { SpawnError } = require('../errors');
 const { execFileSync } = require('node:child_process');
@@ -38,7 +38,7 @@ function expectThrow(code, fn, label) {
 }
 
 capture('probe-tmux-seat', async (lines) => {
-  const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-tmux-seat-'));
+  const workdir = fixtureRoot('probe-tmux-seat-');
   const base = {
     room: 'probe-room',
     windowName: 'probe-seat',

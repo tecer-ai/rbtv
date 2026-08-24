@@ -28,7 +28,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
-const { capture } = require('./lib');
+const { capture, fixtureRoot } = require('./lib');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
@@ -82,7 +82,7 @@ const SEAT_SCRIPT = [
 
 capture('probe-tmux-seat-live', async (lines) => {
   // ── throwaway everything ──────────────────────────────────────────────────────────────────
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'a4-live-'));
+  const tmp = fixtureRoot('a4-live-');
   const dataRoot = path.join(tmp, 'data');
   const workRoot = path.join(tmp, 'work');
   fs.mkdirSync(dataRoot, { recursive: true });
@@ -95,6 +95,7 @@ capture('probe-tmux-seat-live', async (lines) => {
   const runDir = goalDir;   // 7.607 E2a — goal-direct: the goal folder IS the package
   const seatDir = path.join(runDir, 'seats', 'a4seat');
   fs.mkdirSync(seatDir, { recursive: true });
+  fs.mkdirSync(path.join(workRoot, '.rbtv', 'mirror', 'x'), { recursive: true });  // envelope family 6 ro-binds {workspace}/.rbtv/mirror; a real workspace always has one
   fs.writeFileSync(path.join(workRoot, '.rbtv', 'goals', 'goals.csv'), 'name,created,due,type,status\na4goal,2026-07-27,,one-shot,active\n');
   fs.writeFileSync(path.join(runDir, 'taskforce.csv'), 'taskforce-id,seat\ntf-1,a4seat\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');

@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const yaml = require('js-yaml');
 const { execFileSync } = require('node:child_process');
-const { capture } = require('./lib');
+const { capture, fixtureRoot } = require('./lib');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../spawn');
 
@@ -30,7 +30,7 @@ const { createSpawnManager } = require('../spawn');
 // lease through the real binary. The box's default tmux server carries the owner's attached
 // session and is neither read as evidence nor extended here.
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g4-launch-'));
+  const root = fixtureRoot('g4-launch-');
   const ws = path.join(root, 'ws');
   const goalsDir = path.join(ws, '.rbtv', 'goals');
   const goalDir = path.join(goalsDir, 'testgoal');
@@ -41,6 +41,7 @@ function fixture() {
   const closedSeatDir = path.join(closedRunDir, 'seats', 'mine');
   const interimDir = path.join(ws, '.rbtv', 'sessions', 'exec-7');
   for (const d of [seatDir, imposterDir, closedSeatDir, interimDir]) fs.mkdirSync(d, { recursive: true });
+  fs.mkdirSync(path.join(ws, '.rbtv', 'mirror', 'x'), { recursive: true });  // envelope family 6 ro-binds {workspace}/.rbtv/mirror; a real workspace always has one
 
   fs.writeFileSync(path.join(goalsDir, 'goals.csv'),
     'name,created,due,type,status\ntestgoal,2026-07-27,,one-shot,active\nfinishedgoal,2026-07-27,,one-shot,active\n');
