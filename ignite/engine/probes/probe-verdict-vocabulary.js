@@ -29,10 +29,20 @@ function check(claim, ok, detail) {
   if (!ok) failures.push(claim);
 }
 
+// THE PRODUCT IS SEVERAL FILES NOW. The move-only split [D23, T4-R12] carried
+// `CLASS_TO_VERDICT` and the `rec["verdict"]` assignments out of coord.py into the sibling files
+// coord.py loads, so an extract over coord.py alone yields an EMPTY vocabulary — which this probe
+// already refuses as green-by-absence. The file list is derived from coord.py's own SPLIT_MODULES
+// tuple, so the next split file arrives here for free. Scan target only: the extractor is unchanged.
+const SPLIT_MODULES = ((fs.readFileSync(COORD_PY, 'utf8')
+  .match(/SPLIT_MODULES = \(([\s\S]*?)\)/) || [, ''])[1].match(/"([a-z_]+)"/g) || [])
+  .map((q) => q.replace(/"/g, ''));
+const PRODUCT_PY = [COORD_PY].concat(
+  SPLIT_MODULES.map((n) => path.join(IGNITE, 'team-kit', `${n}.py`)));
+
 const EXTRACT = `
 import ast, sys
-src = open(sys.argv[1], encoding="utf-8").read()
-tree = ast.parse(src)
+tree = ast.parse("\\n".join(open(p, encoding="utf-8").read() for p in sys.argv[1:]))
 verdicts = set()
 class V(ast.NodeVisitor):
     def visit_Assign(self, node):
@@ -52,7 +62,7 @@ V().visit(tree)
 print("\\n".join(sorted(verdicts)))
 `;
 
-const raw = execFileSync(requirePythonCmd(), ['-c', EXTRACT, COORD_PY], { encoding: 'utf8' });
+const raw = execFileSync(requirePythonCmd(), ['-c', EXTRACT, ...PRODUCT_PY], { encoding: 'utf8' });
 const coordVerdicts = raw.split(/\n/).map((s) => s.trim()).filter(Boolean);
 
 say('── coord live verdict vocabulary (AST of CLASS_TO_VERDICT + rec["verdict"] assignments) ──');
