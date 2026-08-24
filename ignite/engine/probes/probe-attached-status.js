@@ -9,7 +9,7 @@
 //     A status call before the first run would therefore leave a `heart.db` behind, and after that
 //     "has this goal ever run?" is unanswerable from disk forever. The arm compares a full
 //     directory listing before and after.
-//  2. THE WAVE MATH IS THE ENGINE'S. `seatState` is the ONE predicate; `enqueueEligible` and the
+//  2. THE WAVE MATH IS THE ENGINE'S. `seatState` is the ONE predicate; `launchOwed` and the
 //     status verb both go through it. A second copy is a status surface that can disagree with the
 //     engine it reports on — the arm asserts the ready set the status verb prints is exactly the
 //     set the enqueue pass fires.

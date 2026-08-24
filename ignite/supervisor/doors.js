@@ -38,7 +38,7 @@ const DOORS = Object.freeze({
     door: 'seeding',
     disposition: WRAPPED,
     launcher: 'attached-execution',
-    chokepoint: 'engine/seeding.js seedGoal / enqueueEligible',
+    chokepoint: 'engine/seeding.js seedGoal / launchOwed',
     note: 'daemon first-launches go through supervisor spawn',
   },
   reconcile: {

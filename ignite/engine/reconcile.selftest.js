@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
 const {
-  classifyOwedFromLedgers, reconcileGoal, STRIKE_LIMIT, summonedSeats,
+  owedFromLedgers, reconcileGoal, STRIKE_LIMIT, summonedSeats,
 } = require('./reconcile');
 const { classifyEnding } = require('./owed-from-endings');
 const { bind } = require('../state-store');
@@ -237,7 +237,7 @@ say('ok  classifyEnding reads ending+armed (done/disarmed drop out; incomplete a
 
 say('── class (a) ──');
 {
-  const d = classifyOwedFromLedgers(fixtureA(), {
+  const d = owedFromLedgers(fixtureA(), {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
     endings: endingsMap([['plan-planner', 'incomplete'], ['leader', 'done']]),
   });
@@ -261,7 +261,7 @@ say('── F-1: a sitting that starts and ends inside ONE minute is still class
   ]);
   writeMessages(goalFolder, []);
   const f1Endings = endingsMap([['plan-3-plan-check-edges', 'exited']]);
-  const d = classifyOwedFromLedgers(goalFolder, {
+  const d = owedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: f1Endings,
   });
   assert.deepStrictEqual(d.classA.map((x) => x.seat), ['plan-3-plan-check-edges'],
@@ -304,7 +304,7 @@ say('── F-1: a sitting that starts and ends inside ONE minute is still class
 
 say('── class (b) ──');
 {
-  const d = classifyOwedFromLedgers(fixtureB(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  const d = owedFromLedgers(fixtureB(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
   assert.strictEqual(d.classB.length, 1, JSON.stringify(d.classB));
   assert.strictEqual(d.classB[0].seat, 'leader');
   assert.strictEqual(d.classB[0].unreadCount, 1);
@@ -313,7 +313,7 @@ say('── class (b) ──');
 
 say('── D33(a): class (a) splits by WORD ──');
 {
-  const d = classifyOwedFromLedgers(fixtureSplit(), {
+  const d = owedFromLedgers(fixtureSplit(), {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
     endings: endingsMap([
       ['writer', 'incomplete'], ['checker', 'unverified'], ['runner', 'exited'], ['leader', 'done'],
@@ -391,7 +391,7 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
 say('── D42: a disarmed incomplete leaves class A ──');
 {
   const goalFolder = fixtureSplit();
-  const before = classifyOwedFromLedgers(goalFolder, {
+  const before = owedFromLedgers(goalFolder, {
     endings: endingsMap([
       ['writer', 'incomplete'], ['checker', 'unverified'], ['runner', 'exited'], ['leader', 'done'],
     ]),
@@ -401,7 +401,7 @@ say('── D42: a disarmed incomplete leaves class A ──');
   assert.ok(before.classA.some((r) => r.seat === 'runner' && r.ending === 'failed'),
     'control: the crashed row is owed to start with');
 
-  const after = classifyOwedFromLedgers(goalFolder, {
+  const after = owedFromLedgers(goalFolder, {
     endings: endingsMap([
       ['writer', 'incomplete'], ['checker', 'incomplete', 0], ['runner', 'exited'], ['leader', 'done'],
     ]),
@@ -416,7 +416,7 @@ say('── D42: a disarmed incomplete leaves class A ──');
 say('── dead seats excluded ──');
 {
   const goalFolder = fixtureA();
-  const d = classifyOwedFromLedgers(goalFolder, {
+  const d = owedFromLedgers(goalFolder, {
     readyAnswer: {
       ready: new Map(), granted: new Map(), reason: null,
       rows: [{ seat: 'plan-planner', dead: true }],
@@ -878,7 +878,7 @@ say('── D35: unread is a timestamp comparison, not a message number ──')
     ['no row at all', { checkin: '', row: false }, 3],
   ];
   for (const [label, opts, want] of cases) {
-    const d = classifyOwedFromLedgers(fixtureMail(opts), {
+    const d = owedFromLedgers(fixtureMail(opts), {
       readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
     });
     const got = d.classB.length ? d.classB[0].unreadCount : 0;
@@ -1065,7 +1065,7 @@ say('── D24: summoned seats are never owed ──');
   const summonedEndings = endingsMap([
     ['goal-master', 'incomplete'], ['leader', 'incomplete'],
   ]);
-  const red = classifyOwedFromLedgers(goalFolder, {
+  const red = owedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: new Set(),
     endings: summonedEndings,
   });
@@ -1073,7 +1073,7 @@ say('── D24: summoned seats are never owed ──');
   assert.ok(red.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(red.classB));
   say('  red (summoned set empty): goal-master derives in BOTH class (a) and class (b)');
 
-  const green = classifyOwedFromLedgers(goalFolder, {
+  const green = owedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned,
     endings: summonedEndings,
   });
@@ -1125,12 +1125,120 @@ say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent
   assert.strictEqual(set.size, 0, JSON.stringify([...set]));
   assert.ok(warns.some((w) => w.startsWith('warn:')), JSON.stringify(warns));
   const goalFolder = fixtureSummoned();
-  const d = mut.exports.classifyOwedFromLedgers(goalFolder, {
+  const d = mut.exports.owedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: set,
     endings: endingsMap([['goal-master', 'incomplete'], ['leader', 'incomplete']]),
   });
   assert.ok(d.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(d.classB));
   say('ok  unreadable coord → empty set + a warn, and derivation falls back to the old behaviour');
+}
+
+// ── THE SINGLE OWED COMPUTER, AND THE SINGLE ENQUEUE [spec-supervisor §5, T4-R7, C-15] ─────────
+//
+// The defect this guards is not a wrong answer, it is a SECOND ANSWERER: `seeding.js`
+// `enqueueEligible` and `reconcile.js`'s ledger classifier both derived "this seat is owed a
+// launch" and both called `heartStore.enqueue`, on two cadences, from two pictures, with nothing
+// able to say which was right when they disagreed (CODE-GROUND-TRUTH §4).
+//
+// It is checked STRUCTURALLY because that is where the property lives: no fixture can prove the
+// absence of a second path, but the source can. `liveEnqueueCalls` strips comments first — this
+// file's own headers talk about `heartStore.enqueue` constantly, and a checker that counted those
+// would be green for the wrong reason and would go red the day someone edited a comment.
+say('── one owed computer, one enqueue: no second launch path may return ──');
+{
+  function liveEnqueueCalls(src) {
+    const code = String(src)
+      .replace(/\/\*[\s\S]*?\*\//g, '')      // block comments
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))   // line comments
+      .join('\n');
+    return (code.match(/\.enqueue\s*\(/g) || []).length;
+  }
+
+  const seedingSrc = fs.readFileSync(path.join(__dirname, 'seeding.js'), 'utf8');
+  const reconcileSrc = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const owedSrc = fs.readFileSync(path.join(__dirname, '..', 'supervisor', 'owed.js'), 'utf8');
+  const doorSrc = fs.readFileSync(path.join(__dirname, '..', 'supervisor', 'launch-door.js'), 'utf8');
+
+  // Neither owed computer may enqueue on its own [spec-supervisor §5].
+  assert.strictEqual(liveEnqueueCalls(seedingSrc), 0,
+    'engine/seeding.js calls .enqueue() again — the retired owed computer grew a launch path back');
+  assert.strictEqual(liveEnqueueCalls(reconcileSrc), 0,
+    'engine/reconcile.js calls .enqueue() again — deriveOwed must not enqueue on its own');
+  assert.strictEqual(liveEnqueueCalls(owedSrc), 0,
+    'supervisor/owed.js calls .enqueue() — an owed set is a statement, never an act');
+  // …and the door is the ONE that may.
+  assert.strictEqual(liveEnqueueCalls(doorSrc), 1,
+    'supervisor/launch-door.js must hold exactly ONE enqueue — the only one on the owed path');
+
+  // RED ARM. Re-introduce the second enqueue path in seeding's source and assert the guard above
+  // actually fires on it. Without this, the four assertions are a check nobody has ever seen fail.
+  const ANCHOR = '  const enqueued = [];';
+  assert.ok(seedingSrc.includes(ANCHOR), 'seeding.js red-arm anchor missing');
+  const secondPath = seedingSrc.replace(ANCHOR,
+    `${ANCHOR}\n  heartStore.enqueue({ jobId: 'a-second-owed-path' });`);
+  assert.strictEqual(liveEnqueueCalls(secondPath), 1,
+    'the guard does NOT see a re-added enqueue — it would pass whatever the code did');
+
+  // And the retired computer is gone as a SYMBOL, not merely quiet: an exported
+  // `enqueueEligible` is a second owed-work computer whatever its body currently does.
+  const seeding = require('./seeding');
+  const attached = require('./attached-execution');
+  assert.strictEqual(seeding.enqueueEligible, undefined,
+    'seeding still exports enqueueEligible — the second owed computer is back');
+  assert.strictEqual(attached.enqueueEligible, undefined,
+    'attached-execution still exports enqueueEligible — the second owed computer is back');
+  assert.strictEqual(typeof require('../supervisor/owed').deriveOwed, 'function',
+    'the survivor deriveOwed is missing from the supervisor home');
+
+  say('ok  seeding + reconcile + owed hold 0 enqueue calls; launch-door holds exactly 1; red arm fires');
+}
+
+// The one computer answers BOTH halves — the ledger half (classes A/B) and the graph-derived
+// launchability half [T1-R3] (class R) — from a single call, which is what makes "one owed set"
+// checkable at all rather than an assertion about two functions agreeing.
+say('── deriveOwed answers both halves of the owed set from one call ──');
+{
+  const { deriveOwed } = require('../supervisor/owed');
+  const rows = [{ seat: 'alpha', after: '' }, { seat: 'beta', after: 'alpha' }];
+  const jobIdFor = (seat) => `job-${seat}`;
+  const both = deriveOwed(fixtureA(), {
+    readyAnswer: readyEmpty,
+    live: new Set(),
+    queued: new Set(),
+    endings: endingsMap([['leader', 'incomplete']]),
+    ledger: {
+      loadSessions: require('./reconcile').loadSessions,
+      loadMessages: require('./reconcile').loadMessages,
+      lastBySeat: require('./reconcile').lastBySeat,
+      liveSeatsFromLedgers: require('./reconcile').liveSeatsFromLedgers,
+      checkinOf: require('./reconcile').checkinOf,
+      tsAfter: require('./reconcile').tsAfter,
+      STAFF_CHAIRS: require('./reconcile').STAFF_CHAIRS,
+      SYSTEM_MAIL_SENDER: 'ignite-daemon',
+    },
+    graph: {
+      rows,
+      byJob: new Map(),
+      queued: new Set(),
+      view: null,
+      ready: new Map([['alpha', []]]),
+      jobIdFor,
+      seatIsFinished: () => false,
+      seatHasRun: () => false,
+    },
+  });
+  assert.deepStrictEqual(both.classR.map((x) => x.seat), ['alpha'],
+    `graph half wrong: ${JSON.stringify(both.classR)}`);
+  assert.ok(Array.isArray(both.classA) && Array.isArray(both.classB),
+    'ledger half missing from the same answer');
+  assert.strictEqual(both.owed, true, 'an owed graph half must make the whole set owed');
+
+  // A caller that hands in neither half gets an empty owed set — never a second derivation.
+  const neither = deriveOwed(fixtureA(), {});
+  assert.deepStrictEqual(neither.classR, []);
+  assert.strictEqual(neither.owed, false);
+  say('ok  one call, both halves; class R is the graph-derived launchability [T1-R3]');
 }
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });

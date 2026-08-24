@@ -450,7 +450,7 @@ async function main() {
   // "the dependency held charlie back" from "the session cap held charlie back" — `bars.md` 11's
   // first shape, a check that cannot fail, hiding inside a green.
   //
-  // So the wave decision is now measured WHERE IT IS MADE: `enqueueEligible` returns the seats it
+  // So the wave decision is now measured WHERE IT IS MADE: `launchOwed` returns the seats it
   // releases, against a store whose state this probe sets deliberately. Nothing here depends on
   // the cap, on timing, or on what a tick happened to dispatch.
   say('');
@@ -464,7 +464,7 @@ async function main() {
   fs.copyFileSync(path.join(goalFolder, 'taskforce.csv'), path.join(waveDir, 'taskforce.csv'));
   const waveStore = openHeartStore({ dbPath: path.join(waveDir, 'heart.db'), profiles: spawnConfig.profiles });
   const waveRows = attached.seedTaskforce(waveStore, waveDir, { profile: 'probe-seat' });
-  // ⚠ THE FRONTIER IS COORD'S SINCE § D1 (`one-readiness-predicate.md`): `enqueueEligible` no
+  // ⚠ THE FRONTIER IS COORD'S SINCE § D1 (`one-readiness-predicate.md`): `launchOwed` no
   // longer evaluates the `after` column at all — it takes the READY set and subtracts what this
   // store has already registered, queued or fired. So every pass below hands it a FRESHLY READ
   // frontier, and what these arms measure is the STORE half: the no-double-fire guard.
@@ -497,7 +497,7 @@ async function main() {
       });
   }
 
-  const wave1 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const wave1 = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C2b WAVE 1 releases BOTH dependency-free seats and NOTHING else',
     wave1.length === 2 && wave1.includes('alpha') && wave1.includes('bravo'),
     `released: [${wave1.join(', ')}]`);
@@ -505,7 +505,7 @@ async function main() {
     !wave1.includes('charlie'),
     'the cap dispatches; the `after` column decides eligibility, and this reads eligibility');
 
-  const wave1Again = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const wave1Again = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C2b a second pass releases NOTHING — an already-queued seat is never double-enqueued',
     wave1Again.length === 0, `released: [${wave1Again.join(', ')}]`);
 
@@ -519,7 +519,7 @@ async function main() {
     jobId: 'seat-alpha', actionType: 'launch-agent', args: '{}', enqueuedBy: 'probe',
     sessionMode: 'headless', firedTick: 1, firedAt: nowIso,
   });
-  const wave2Blocked = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const wave2Blocked = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C2b POSITIVE CONTROL: with alpha merely RUNNING, charlie is STILL held',
     !wave2Blocked.includes('charlie'),
     '`after` means finished, not started — else wave 2 would race wave 1');
@@ -528,12 +528,12 @@ async function main() {
   // …AND alpha CHECKS OUT. The turn status above is a fact about a PROCESS and advances nothing
   // since § D1; the check-out beside it is the seat's own declaration, and it is what moves the
   // edge. The pair is deliberate: with the turn alone, charlie stays held (arm below).
-  const heldWithoutCheckout = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const heldWithoutCheckout = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C2b a DONE TURN alone does not release charlie — an exit code is not a check-out',
     !heldWithoutCheckout.includes('charlie'),
     `released: [${heldWithoutCheckout.join(', ')}]`);
   checkOut(waveDir, 'alpha', 'done');
-  const wave2 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const wave2 = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C2b WAVE 2 releases charlie ONCE alpha is done, and only charlie',
     wave2.length === 1 && wave2[0] === 'charlie',
     `released: [${wave2.join(', ')}]`);
@@ -558,7 +558,7 @@ async function main() {
   check('C3b the queue is EMPTY, so the queued-guard cannot answer for the has-run guard',
     waveStore.listQueue().length === 0, 'the two guards are now separable');
 
-  const dupes = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
+  const dupes = attached.launchOwed(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });
   check('C3b RESUME: seats that already RAN are NOT re-enqueued, even with an empty queue',
     !dupes.includes('alpha') && !dupes.includes('bravo'),
     dupes.length ? `released [${dupes.join(', ')}]` : 'released nothing');

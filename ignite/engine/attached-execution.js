@@ -41,7 +41,7 @@ const { loadConfig } = require('../server/spawn/config');
 // none of it was ever a property of the terminal a run is attached to (see seeding.js's header).
 const {
   readCsv, jobIdFor, seedTaskforce, executionsByJob, seatIsFinished, seatHasRun,
-  seatState, SEAT_STATES, enqueueEligible, recordView, readySeats, renewalState,
+  seatState, SEAT_STATES, launchOwed, recordView, readySeats, renewalState,
   // WHICH SEATS ARE NOT CAST. Shared with the daemon lane's watch pass so both doors refuse the
   // same goals (`#d-abolish-profile-names` sub-ruling 3).
   uncastSeats,
@@ -987,7 +987,7 @@ async function executeAttached({
   // the two lanes cannot disagree about which goals may run.
   //
   // ⚠ AN UNMATERIALIZED GOAL IS NOT A CASE HERE: `uncastSeats` reads the taskforce through
-  // `readTaskforce`, which raises the same refusal `enqueueEligible` would raise four lines later
+  // `readTaskforce`, which raises the same refusal `launchOwed` would raise four lines later
   // ("no taskforce — a run executes the run's seats").
   {
     const uncast = uncastSeats(goalFolder);
@@ -1126,7 +1126,7 @@ async function executeAttached({
         view = recordView(engine.heartStore, goalFolder, { readyRows });
       }
 
-      enqueueEligible(engine.heartStore, rows, {
+      launchOwed(engine.heartStore, rows, {
         goalFolder, logger: engineLogger, isHeld, view, ready, readyRows,
       });
       await engine.tick(now());
@@ -1220,7 +1220,7 @@ module.exports = {
   resolveGoalFolder,
   assertNotTheDaemonStore,
   seedTaskforce,
-  enqueueEligible,
+  launchOwed,
   evaluateExit,
   executionsByJob,
   heldSeatPredicate,

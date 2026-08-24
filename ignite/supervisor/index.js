@@ -4,7 +4,9 @@
 // rows, the liveness probe and the four write moments; `readopt.js` holds the boot pass that must
 // run before any stamp; `death-stamp.js` holds the evidence-to-ending path every door that used to
 // stamp independently now calls; `doors.js` holds the explicit door list every launch is on, and
-// `probe.js` the one `(goal, seat)` liveness answer the legacy predicates were retired into.
+// `probe.js` the one `(goal, seat)` liveness answer the legacy predicates were retired into;
+// `owed.js` is the single owed-work computer the two of them became, and `launch-door.js` the
+// single enqueue on the owed path plus the admit checks the retired computer left behind.
 // Callers require THIS file, never a path inside the folder, so the split can move without a
 // sweep of every door.
 
@@ -13,5 +15,7 @@ const readopt = require('./readopt');
 const deathStamp = require('./death-stamp');
 const doors = require('./doors');
 const probe = require('./probe');
+const owed = require('./owed');
+const launchDoor = require('./launch-door');
 
-module.exports = { ...registry, ...readopt, ...deathStamp, ...doors, ...probe };
+module.exports = { ...registry, ...readopt, ...deathStamp, ...doors, ...probe, ...owed, ...launchDoor };

@@ -93,7 +93,7 @@ through the supervisor or is MARKED `unsupervised`; there is no silent arm.
 
 | Door | Chokepoint | Disposition |
 |---|---|---|
-| seeding | `engine/seeding.js` `seedGoal` / `enqueueEligible` | wrapped |
+| seeding | `engine/seeding.js` `seedGoal` / `launchOwed` | wrapped |
 | reconcile | `engine/reconcile.js` `deriveOwed` / `launchSitting` | wrapped |
 | `--rerun` | `team-kit/launch.py` `cmd_launch --rerun` / `--declare-only` | wrapped |
 | attest-exit | `spawn.js` `closeSeatSessionRow` -> `attest-exit --force-dead` | wrapped (it BECAME the death stamp) |
@@ -109,6 +109,62 @@ not refused and not invisible.
 `refuseLaunch` is the `E_GOAL_NOT_LIVE` arm and asserts its three absences by
 name: nothing spawned, nothing stamped, nothing enqueued. It is NOT a seat
 `failed` - that class is envelope's `launch-refused`.
+
+## One owed-work computer, and one enqueue [spec-supervisor §5, T4-R7, C-15]
+
+Two functions used to answer "is this seat owed a launch?", and both of them
+called `heartStore.enqueue`:
+
+| Was | Cadence | Half it computed | Fate |
+|---|---|---|---|
+| `engine/seeding.js` `enqueueEligible` | ~10 s | whose `after` is satisfied and who has never fired | **retired as a computer** |
+| `engine/reconcile.js` ledger classifier | ~300 s | class A (non-terminal ending), class B (unread mail) | **survivor**, relocated here |
+
+They could disagree, and nothing could say which was right when they did: a seat
+"not owed" by one and "owed" by the other simply behaved differently depending on
+which cadence fired.
+
+`owed.js` — `deriveOwed(goalFolder, opts)` is now the single "this seat is owed a
+launch" function. It answers three classes from ONE call:
+
+| Class | Means |
+|---|---|
+| A | the seat's last ending is non-terminal |
+| B | a staff chair has unread mail |
+| R | graph-derived launchability [T1-R3] — the half that used to live inside `enqueueEligible` |
+
+Both cadences still exist and both still run: the watcher hands in the `ledger`
+readers and reads A/B, seeding hands in the `graph` readers and reads R. **Two
+callers of one computer is the design; two computers is the defect.** The readers
+are injected rather than required because they live under `engine/` and a
+top-level require in that direction would close a load cycle.
+
+`deriveOwed` must never enqueue. An owed set is a STATEMENT, not an act — the
+moment the computer can also launch, a second launch path exists by construction.
+
+`launch-door.js` holds what seeding's retired computer left behind. Its five
+gates are now refusals on the wrapped spawn, not a second owed set — a refusal
+answers "this launch does not happen", never "this seat is not owed work", so the
+seat stays owed and the next cadence asks again:
+
+| Refusal `kind` | Fires when |
+|---|---|
+| `store-disagree` | coord ruled the seat READY and this store holds an unfinished execution row for it (the store may decline, never promote) |
+| `hold` | the seat is human-interactive and detached to the foreground carrier |
+| `cage-admit` | a declared output is inadmissible for a caged launch (§ D5) |
+| `lane-reach` | the declared probe lane is not satisfied by the composed cage |
+| `boot-prompt` | coord could not compose the seat's boot prompt |
+| `store-dedup` / `braked` | the store suppressed it, or D52's fail-closed admission brake refused it |
+
+`launchThroughDoor` is the ONLY `heartStore.enqueue` on the owed path. It calls
+`enqueue()` and reads its verdict — it never replaces it, because D52's admission
+brake lives inside `enqueue()` and is fail-closed by design. `enqueued_by` is read
+off the door list by the caller and passed through, so it can only ever be a value
+this component knows how to turn back into a door name.
+
+`reconcile.selftest.js` holds the guard: `seeding.js`, `reconcile.js` and `owed.js`
+must carry ZERO `.enqueue(` calls and `launch-door.js` exactly one, with a red arm
+that re-adds a second path and proves the check fires.
 
 ## Asking whether a sitting is alive
 
@@ -138,6 +194,10 @@ Registry: `loadRegistry` · `saveRegistry` · `makeRecord` · `recordSpawn` ·
 `recordCheckIn` · `dropRow` · `awaitingReap` · `registryPath`
 
 Boot: `readopt` · `assertReadoptDone`
+
+Owed work: `deriveOwed` · `seatState` · `deriveLaunchable`
+
+Launch door: `admitLaunch` · `launchThroughDoor` · `storeDisagreeRefusal`
 
 Doors: `DOORS` · `doorForLauncher` · `supervisionFor` · `superviseSpawn` ·
 `markUnsupervised` · `registerCheckIn` · `refuseLaunch`

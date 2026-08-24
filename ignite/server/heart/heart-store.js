@@ -1014,7 +1014,7 @@ class HeartStore {
   // ── Task Q9 · THE IDEMPOTENT DOOR's lookup (ruling `d-q9-door`) ─────────────────────────────
   //
   // Who currently HOLDS this (run, seat), or null. TWO surfaces, and both are required — this is
-  // the `engine/attached-execution.js` enqueueEligible grammar (pending row OR prior execution), read
+  // the `engine/attached-execution.js` launchOwed grammar (pending row OR prior execution), read
   // against the ruled non-terminal set rather than "ever ran".
   //
   // ⚠ THE SECOND SURFACE IS THE WHOLE FIX. A queue-only check is VACUOUS in the configuration

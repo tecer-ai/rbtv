@@ -356,17 +356,17 @@ async function main() {
   const barStore = openHeartStore({ dbPath: path.join(barGoal, 'heart.db') });
   const barRows = attached.seedTaskforce(barStore, barGoal, { profile: 'probe-fg' });
   // ⚠ COORD'S ANSWER IS HANDED IN, off the REAL fixture on disk — not a hand-typed map. Without it
-  // `enqueueEligible` promotes nothing (the store may decline, never promote, § D1) and BOTH arms
+  // `launchOwed` promotes nothing (the store may decline, never promote, § D1) and BOTH arms
   // below would pass for the wrong reason: the bar arm would be vacuous and its control would be
   // the thing that catches it, which is exactly the pairing that must not silently collapse.
   const { ready: barReady, rows: barReadyRows } = readySeats(barGoal);
   check('B1a coord offers `alpha` on the bar fixture — the precondition BOTH arms below rest on',
     Boolean(barReady) && barReady.has('alpha'),
     barReady ? `READY=${[...barReady.keys()].join()}` : 'coord refused to compute readiness');
-  const heldBar = attached.enqueueEligible(barStore, barRows,
+  const heldBar = attached.launchOwed(barStore, barRows,
     { profile: 'probe-fg', goalFolder: barGoal, isHeld: attached.heldSeatPredicate(barGoal), ready: barReady, readyRows: barReadyRows });
   const queuedAfterBar = barStore.listQueue().map((q) => q.job_id);
-  const freeBar = attached.enqueueEligible(barStore, barRows,
+  const freeBar = attached.launchOwed(barStore, barRows,
     { profile: 'probe-fg', goalFolder: barGoal, ready: barReady, readyRows: barReadyRows });
   check('B1a the enqueue pass REFUSES to queue a held seat — the bar, measured where it stands',
     heldBar.length === 0 && queuedAfterBar.length === 0,

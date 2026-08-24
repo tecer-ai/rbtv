@@ -67,6 +67,23 @@ const { deriveLease } = require('../server/lease/lease');
 // record with it). Reusing it is the whole CSV fix — see below.
 const { splitRow } = require('../server/seat-identity/csv');
 const { DOORS, refuseLaunch } = require('../supervisor/doors');
+// ── THE ONE OWED-WORK COMPUTER AND THE ONE ENQUEUE [spec-supervisor §5, T4-R7, C-15] ──────────
+// This module used to own a SECOND owed-work computer (`enqueueEligible`) and a second call to
+// `heartStore.enqueue`. Both are gone: `deriveOwed` is the single "this seat is owed a launch"
+// function and `launchThroughDoor` is the single enqueue on the owed path. Nothing in this file
+// may re-derive either — see `supervisor/owed.js`'s header for the disagreement that cost.
+const { deriveOwed, seatState: owedSeatState } = require('../supervisor/owed');
+const { admitLaunch, launchThroughDoor, storeDisagreeRefusal } = require('../supervisor/launch-door');
+
+// One message per launch-door refusal kind, so the journal names WHICH gate refused rather than
+// leaving an operator to infer it from the evidence string.
+const REFUSAL_MESSAGES = Object.freeze({
+  hold: 'seat NOT enqueued — held for human-interactive detach (dispatched through the foreground carrier or not at all)',
+  'cage-admit': 'seat NOT enqueued — a declared output is inadmissible for a caged launch',
+  'lane-reach': 'seat NOT enqueued — its declared lane reach is not satisfied by the composed cage',
+  'boot-prompt': 'seat NOT enqueued — coord could not compose its boot prompt, and a seat queued '
+    + 'without one boots a harness that exits immediately on empty input',
+});
 
 const TASKFORCE = 'taskforce.csv';
 
@@ -600,19 +617,13 @@ const SEAT_STATES = ['done', 'live', 'queued', 'ready', 'waiting'];
 // ⚠ `ready` IS COORD'S ANSWER, HANDED IN — never derived here (§ D1). Absent (a caller that could
 // not ask, or did not) means NO seat is ready: the store may decline, never promote. That is the
 // whole asymmetry, in one default.
-function seatState(row, byJob, queued, { done = null, goal = null, foreign = null, notFinished = null, ready = null } = {}) {
-  const isDone = (seat) => !(notFinished && notFinished.has(seat))
-    && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));
-  if (isDone(row.seat)) return 'done';
-  if (notFinished && notFinished.has(row.seat)) return 'live';
-  const jobId = jobIdFor(row.seat, goal);
-  // A seat the record shows running-or-ended-badly ELSEWHERE is `live` here — the same word the
-  // local answer uses for exactly the same situation, so no reader learns a sixth state and no
-  // caller can treat "live over there" as dispatchable.
-  if (foreign && foreign.has(row.seat)) return 'live';
-  if (seatHasRun(byJob.get(jobId))) return 'live';
-  if (queued.has(jobId)) return 'queued';
-  return ready && ready.has(row.seat) ? 'ready' : 'waiting';
+// `seatState` IS `supervisor/owed.js`'S NOW [spec-supervisor §5, T1-R3]. The wave arithmetic IS
+// the owed question for the graph half, so leaving it here would have left half the one owed-work
+// computer behind. Re-exported under its own name and with its own signature: the injected record
+// readers are this module's, and no caller of `seatState` learns a new name for a predicate whose
+// behaviour did not change.
+function seatState(row, byJob, queued, opts = {}) {
+  return owedSeatState(row, byJob, queued, { ...opts, jobIdFor, seatIsFinished, seatHasRun });
 }
 
 // D2 (2026-08-19): a cage-admission refusal lands ONCE on the goal's own bus, not only in this
@@ -639,40 +650,48 @@ function surfaceCageRefusal(goalFolder, seat, refusal, logger) {
   }
 }
 
-// Enqueue every seat whose `after` dependency has finished and which has never been fired. Returns
-// the seats enqueued this pass.
+// -- LAUNCH WHAT THE ONE COMPUTER SAYS IS OWED [spec-supervisor §5, T4-R7, C-15] ---------------
 //
-// `isHeld` is the ONE place the engine can DETACH a human-interactive seat, and it is where it is
-// stopped (console-run ruling 1: such a seat is dispatched through the foreground carrier or not at
-// all). Skipping it here rather than filtering the rows earlier keeps the wave math on the WHOLE
-// taskforce — a held seat still blocks its dependents exactly as it would if it had been queued.
-function enqueueEligible(heartStore, rows, {
+// ⚠ THIS FUNCTION USED TO BE `enqueueEligible`, AND IT USED TO BE A COMPUTER. It worked out its
+// own owed set (whose `after` is satisfied and who has never fired) on a ~10 s cadence while
+// `reconcile.js` worked out a different one on a ~300 s cadence, and BOTH called
+// `heartStore.enqueue` (CODE-GROUND-TRUTH §4). Two computers that can disagree, with no third
+// surface able to say which is right, is the defect spec-supervisor §5 retires.
+//
+// It computes nothing now. `deriveOwed` (`supervisor/owed.js`) is the single "this seat is owed a
+// launch" function and class R is the graph-derived launchability [T1-R3] that used to live in
+// this loop's head. It enqueues nothing either: `launchThroughDoor` (`supervisor/launch-door.js`)
+// is the ONE enqueue on the owed path, and this function's five old pre-queue gates are that
+// door's refusals. What is left here is the seeding CADENCE and its reporting — which is all this
+// lane ever needed to own.
+//
+// `isHeld` is still the ONE place the engine can DETACH a human-interactive seat, and it is still
+// applied at the door rather than by filtering the rows earlier: a held seat must keep blocking its
+// dependents exactly as it would if it had been queued, so the wave math stays on the WHOLE
+// taskforce (console-run ruling 1).
+function launchOwed(heartStore, rows, {
   goalFolder, logger, isHeld = null, goal = null, view = null,
   ready = null, readyRows = [], heldByStore = null,
   suppressedEnqueues = null,
 }) {
   const byJob = executionsByJob(heartStore, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
-  const { done: finished, foreign, notFinished, blocked } = view || recordView(heartStore, goalFolder, { readyRows });
-  const enqueued = [];
-  // The LIVE cage template each launch composes against — never a re-read of the YAML and never a
-  // transcribed snapshot (§ D5). ⚠ IT IS PER SEAT SINCE 7.787, and it always should have been: it
-  // used to read the CALLER'S profile, so on a mixed-cast goal (a claude seat and a codex seat)
-  // the admission test ran against a template belonging to neither. It now reads the seat's OWN
-  // launch spec, resolved through `specKey` from the same descriptor `spawn()` will read.
-  // `heartStore.config.launchSpecs` is assigned by the composition root (`engine/index.js`) off
-  // the spawn manager's loaded config. An uncaged spec yields `[]`, and `admitDeclaredOutputs`
-  // does not run against one.
-  const { specKey } = require('../launch-profiles/catalog');
-  const launchSpecs = heartStore.config?.launchSpecs || {};
-  const seatBindsFor = (seat) => {
-    const cast = seatCast(goalFolder, seat);
-    const spec = launchSpecs[specKey(cast.harness, cast.model)];
-    return (spec && spec.sandbox && spec.sandbox.SeatBinds) || null;
-  };
+  const resolvedView = view || recordView(heartStore, goalFolder, { readyRows });
+  const { foreign, blocked } = resolvedView;
+
+  // THE ONE OWED COMPUTER. Class R is asked for, never re-derived — the injected readers are this
+  // module's own record readers, which is the seam that keeps `supervisor/` from requiring `engine/`
+  // at load time.
+  const { classR, disagreements } = deriveOwed(goalFolder, {
+    goal,
+    ready,
+    graph: {
+      rows, byJob, queued, view: resolvedView,
+      jobIdFor, seatIsFinished, seatHasRun,
+    },
+  });
 
   for (const row of rows) {
-    const jobId = jobIdFor(row.seat, goal);
     if (foreign && foreign.has(row.seat) && logger) {
       logger({ level: 'info', message: 'seat held — the execution record shows it elsewhere', seat: row.seat, evidence: foreign.get(row.seat) });
     }
@@ -682,116 +701,91 @@ function enqueueEligible(heartStore, rows, {
       // this one BLOCKED sends an operator to the DAG when the answer is a person.
       logger({ level: 'info', message: 'seat waiting — an unanswered ask to the owner, and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
     }
-    // ⚠ THE SILENT DROP THIS LINE USED TO BE (task 7.776). It was a bare `continue` with no logger
-    // call, and it is where the measured 18-hour stall lived: coord answered READY, this store's
-    // own `seatHasRun` answered `live` off a `failed` execution row, and the seat vanished from
-    // the pass with nothing said anywhere. A disagreement between coord's verdict and this store's
-    // computed state is the ONE skip an operator cannot reconstruct from any other surface, so it
-    // is the one that must be reported — with the computed state, which is the half he does not
-    // have. Every other state word (`done`, `queued`, `waiting`) is ordinary and stays quiet:
-    // logging those would bury this line under one message per seat per cadence forever.
-    const state = seatState(row, byJob, queued, { done: finished, goal, foreign, notFinished, ready });
-    if (state !== 'ready') {
-      if (ready && ready.has(row.seat) && state === 'live') {
-        if (heldByStore) heldByStore[row.seat] = `coord says READY, this store says \`${state}\` — an execution row exists here that has not finished`;
-        if (logger) {
-          logger({
-            level: 'info',
-            message: 'seat NOT enqueued — coord says READY and THIS store disagrees; the store never promotes, so the seat waits',
-            seat: row.seat,
-            state,
-            evidence: heldByStore ? heldByStore[row.seat] : `computed state \`${state}\``,
-          });
-        }
-      }
-      continue;
-    }
-    if (isHeld && isHeld(row.seat)) {
-      if (logger) {
-        logger({
-          level: 'info',
-          message: 'seat NOT enqueued — held for human-interactive detach (dispatched through the foreground carrier or not at all)',
-          seat: row.seat,
-        });
-      }
-      continue;
-    }
+  }
 
-    // ── § D5 · CAGE ADMISSIBILITY, THE LAST PRE-QUEUE REFUSAL ────────────────────────────────
-    //
-    // Could this seat actually WRITE its declared outputs once sandboxed, and could a successor
-    // READING them read them? A row that declares a token the cage refuses fails at the FAR end,
-    // after a launch, as a missing artifact marked against the seat's WORK — when the truth is
-    // that its DECLARATION named a place it was never able to write. Refused here, at the door,
-    // it costs one refusal instead of one wasted seat and one misattributed mark.
-    //
-    // Ordered LAST of the pre-queue tests, exactly as the Python it replaces was: no seat that
-    // would have been declined for another reason is now declined for this one.
-    const refusal = admitDeclaredOutputs({
-      seatBinds: seatBindsFor(row.seat), goalFolder, seat: row.seat, successorReads: successorReads(readyRows, row.seat),
+  // THE DISAGREEMENT, NOW A NAMED DOOR REFUSAL rather than the silent `continue` it once was
+  // (task 7.776 — coord answered READY, this store's own `seatHasRun` answered `live` off a
+  // `failed` execution row, and the seat vanished from the pass with nothing said anywhere: an
+  // 18-hour stall). It is the ONE skip an operator cannot reconstruct from any other surface.
+  for (const [seat, why] of Object.entries(disagreements)) {
+    const refused = storeDisagreeRefusal({ seat, goal, evidence: why });
+    if (heldByStore) heldByStore[seat] = refused.evidence;
+    if (logger) {
+      logger({
+        level: 'info',
+        message: 'seat NOT enqueued — coord says READY and THIS store disagrees; the store never promotes, so the seat waits',
+        seat,
+        state: 'live',
+        evidence: refused.evidence,
+      });
+    }
+  }
+
+  // The LIVE cage template each launch composes against — never a re-read of the YAML and never a
+  // transcribed snapshot (§ D5). ⚠ IT IS PER SEAT SINCE 7.787, and it always should have been: it
+  // used to read the CALLER'S profile, so on a mixed-cast goal (a claude seat and a codex seat)
+  // the admission test ran against a template belonging to neither. It now reads the seat's OWN
+  // launch spec, resolved through `specKey` from the same descriptor `spawn()` will read.
+  const { specKey } = require('../launch-profiles/catalog');
+  const launchSpecs = heartStore.config?.launchSpecs || {};
+  const seatBindsFor = (seat) => {
+    const cast = seatCast(goalFolder, seat);
+    const spec = launchSpecs[specKey(cast.harness, cast.model)];
+    return (spec && spec.sandbox && spec.sandbox.SeatBinds) || null;
+  };
+
+  const enqueued = [];
+  for (const item of classR) {
+    const seat = item.seat;
+    const admit = admitLaunch({
+      seat,
+      goal,
+      goalFolder,
+      isHeld,
+      seatBinds: seatBindsFor(seat),
+      successorReads: successorReads(readyRows, seat),
       // D2 (2026-08-19): the composition root's ONE workspace-root resolution, threaded via the
       // store (`engine/index.js` assigns it off the spawn manager) — the gate needs it to judge
       // workspace-grammar declared outputs (`.rbtv/mirror/…`) against the same root the spawner
       // resolves rw grants against.
       workspaceRoot: heartStore.config?.workspaceRoot || null,
+      promptFn: seatBootPrompt,
     });
-    if (refusal) {
-      if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — a declared output is inadmissible for a caged launch', seat: row.seat, evidence: refusal });
-      surfaceCageRefusal(goalFolder, row.seat, refusal, logger);
-      continue;
-    }
-    // ── D5 (seed-gates, 2026-08-19): LANE REACH, the refusal beside the one above ──────────────
-    // Could this seat's declared probe lane RUN once caged? The stools DoD judge burned two waves
-    // landing in cages where `stools workspaces` exited 127 — the requirement was written in four
-    // prose surfaces and read by nothing. It is now machine-readable in the seat's io-spec
-    // (`## Requires-reach`) and refused HERE, through the same log + bus surfacing as its sibling.
-    // The gate checks REACH (declaration/bind present), never behavior (`exit 0`) — see
-    // `cage-admission.js#admitLaneReach` for the honest limit.
-    const reachRefusal = admitLaneReach({
-      seatBinds: seatBindsFor(row.seat), goalFolder, seat: row.seat,
-      workspaceRoot: heartStore.config?.workspaceRoot || null,
-    });
-    if (reachRefusal) {
-      if (logger) logger({ level: 'warn', message: 'seat NOT enqueued — its declared lane reach is not satisfied by the composed cage', seat: row.seat, evidence: reachRefusal });
-      surfaceCageRefusal(goalFolder, row.seat, reachRefusal, logger);
-      continue;
-    }
-    // ── THE BOOT PROMPT, THE LAST PRE-QUEUE REFUSAL ──────────────────────────────────────────
-    // Composed by coord, for THIS seat, from THIS goal's package — never here.
-    const { prompt, reason: promptReason } = seatBootPrompt(goalFolder, row.seat);
-    if (prompt === null) {
+    if (admit.refused) {
       if (logger) {
         logger({
-          level: 'warn',
-          message: 'seat NOT enqueued — coord could not compose its boot prompt, and a seat queued '
-            + 'without one boots a harness that exits immediately on empty input',
-          seat: row.seat,
-          evidence: promptReason,
+          level: admit.kind === 'hold' ? 'info' : 'warn',
+          message: REFUSAL_MESSAGES[admit.kind] || 'seat NOT enqueued — the launch door refused it',
+          seat,
+          evidence: admit.evidence,
         });
       }
+      // D2 (2026-08-19): a cage-admission refusal lands ONCE on the goal's own bus, not only in
+      // this daemon's journal — the measured failure was a seat refused every 10s for hours with
+      // nothing an operator-read surface saying so (G-owner-console-0818-2030).
+      if (admit.surface) surfaceCageRefusal(goalFolder, seat, admit.evidence, logger);
       continue;
     }
-    const after = (row.after || '').trim();
-    const seatDir = path.join(goalFolder, 'seats', row.seat);
-    const seed = (ready && ready.get(row.seat)) || [];
-    const enq = heartStore.enqueue({
-      jobId,
+
+    const seatDir = path.join(goalFolder, 'seats', seat);
+    const launched = launchThroughDoor({
+      heartStore,
+      seat,
+      goal,
+      jobId: jobIdFor(seat, goal),
       // ⚠ THE SEED IS NOT IN THIS OBJECT, AND THAT IS THE DOOR'S RULE, NOT A CHOICE. The registered
-      // `args_schema` for a seat job is `{workdir, prompt}` (7.787 emptied its `required` half) and `heart-store.js`
-      // validateArgs REFUSES an unregistered key by name (`E_BAD_ARGS: unknown argument: seed`).
+      // `args_schema` for a seat job is `{workdir, prompt}` and `heart-store.js` validateArgs
+      // REFUSES an unregistered key by name (`E_BAD_ARGS: unknown argument: seed`).
       // `edge-runner-job.py#_enqueue_argv` states the rule it was measured into: "THE SEED NO
       // LONGER RIDES IN ARGV AND MUST NOT BE PUT BACK — a seat is driven by its DESCRIPTOR and by
       // the room, never by argv text." So the seed coord resolves is CARRIED (logged per seat and
       // returned on the pass) rather than submitted; the door is where it would have to be widened.
       //
-      // ⚠ `prompt` IS A REGISTERED KEY (`seedTaskforce`'s `optional: {workdir, prompt}`) and it is
-      // what the harness is actually booted on: `ticker.js#launchAgent` reads `args.prompt ?? null`
-      // and `spawn.js#ensurePromptFile` writes those bytes as the session's stdin. Passed VERBATIM
-      // — coord printed it with no trailing newline exactly so nothing here has to strip anything,
-      // and a consumer that strips is a consumer that has begun re-assembling the prompt.
-      args: JSON.stringify({ workdir: seatDir, prompt }),
-      sessionMode: 'headless',
-      triggerKind: 'scheduled',
+      // ⚠ `prompt` IS A REGISTERED KEY and it is what the harness is actually booted on:
+      // `ticker.js#launchAgent` reads `args.prompt ?? null` and `spawn.js#ensurePromptFile` writes
+      // those bytes as the session's stdin. Passed VERBATIM — coord printed it with no trailing
+      // newline exactly so nothing here has to strip anything.
+      args: JSON.stringify({ workdir: seatDir, prompt: admit.prompt }),
       runAt: isoNow(),
       // ── THE SEEDING DOOR'S NAME [spec-supervisor §3, T4-R7] ────────────────────────────────
       // Read off the supervisor's door list rather than spelled here, because this string is what
@@ -801,25 +795,38 @@ function enqueueEligible(heartStore, rows, {
       // becomes UNSUPERVISED the day either side is edited.
       enqueuedBy: DOORS.seeding.launcher,
     });
-    if (enq && enq.deduped) {
-      if (suppressedEnqueues) {
-        suppressedEnqueues[row.seat] = `${enq.because} — queue_id=${enq.queue_id} exec_id=${enq.exec_id} held_status=${enq.held_status}`;
-      }
+    if (launched.refused) {
+      if (suppressedEnqueues) suppressedEnqueues[seat] = launched.evidence;
       if (logger) {
+        // ⚠ THE FIELDS ARE THE MESSAGE. `probe-enqueue-record.js` Arm A reads `because` off this
+        // record by name — the suppression's own word for why (`live-turn`, …) is the half an
+        // operator cannot reconstruct, so it is carried as a field rather than folded into prose.
+        const enq = launched.enq || {};
         logger({
           level: 'warn',
-          message: 'store SUPPRESSED the enqueue — the seat was not queued',
-          seat: row.seat,
+          message: launched.kind === 'braked'
+            ? 'the admission brake REFUSED this launch — the seat was not queued'
+            : 'store SUPPRESSED the enqueue — the seat was not queued',
+          seat,
           because: enq.because,
           queue_id: enq.queue_id,
           exec_id: enq.exec_id,
           held_status: enq.held_status,
+          evidence: launched.evidence,
         });
       }
       continue;
     }
-    enqueued.push(row.seat);
-    if (logger) logger({ level: 'info', message: 'enqueued seat', seat: row.seat, after: after || null, seed });
+    enqueued.push(seat);
+    if (logger) {
+      logger({
+        level: 'info',
+        message: 'enqueued seat',
+        seat,
+        after: item.after || null,
+        seed: (ready && ready.get(seat)) || [],
+      });
+    }
   }
   return enqueued;
 }
@@ -922,7 +929,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
   const suppressedEnqueues = {};
-  const enqueued = enqueueEligible(heartStore, rows, { goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues });
+  const enqueued = launchOwed(heartStore, rows, { goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues });
   const unfiredCutoff = new Date(Date.now() - ENQUEUE_UNFIRED_GRACE_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const enqueueUnfired = heartStore.listEnqueueUnfired(goal, unfiredCutoff).map((r) => ({
     seat: r.seat, because: r.because, at: r.at,
@@ -1008,7 +1015,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     // operator must be able to tell "somebody else is running it" from "it is waiting on YOU".
     blockedOnOwner: Object.fromEntries(seats.filter((s) => view.blocked.has(s)).map((s) => [s, view.blocked.get(s)])),
     // THE FOURTH HELD-FOR-A-REASON SET, and the one that cost a live investigation (task 7.776).
-    // coord said READY and THIS store said otherwise, so `enqueueEligible` skipped the seat — with
+    // coord said READY and THIS store said otherwise, so the seeding pass skipped the seat — with
     // no log line, nothing in the return, and every other surface reading healthy. The goal sat
     // still for 18 hours. It is named separately from the three above for their own reason: "the
     // record says somebody else has it" and "MY OWN store has already fired it" are different
@@ -1054,7 +1061,7 @@ module.exports = {
   seatHasRun,
   seatState,
   recordView,
-  enqueueEligible,
+  launchOwed,
   // Exported for `engine/probes/probe-cage-workspace-grammar.js`: the refusal->bus wire, driven
   // against a fixture goal without standing up the whole enqueue path.
   surfaceCageRefusal,

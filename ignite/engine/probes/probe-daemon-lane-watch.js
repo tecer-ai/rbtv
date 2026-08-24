@@ -1105,7 +1105,7 @@ async function main() {
 
   // ── L9 · THE SEAT IS ENQUEUED WITH ITS INSTRUCTIONS ─────────────────────────────────────────
   //
-  // THE DEFECT `d34277c6` CLOSED, which nothing here measured: `enqueueEligible` submitted
+  // THE DEFECT `d34277c6` CLOSED, which nothing here measured: `launchOwed` submitted
   // `{profile, workdir}` and NO PROMPT, so `spawn.js#ensurePromptFile` wrote 0 bytes, systemd
   // connected an empty file as stdin, and the harness refused — "Error: Input must be provided
   // either through stdin or as a prompt argument when using --print", exit 1, on execs 26274 and
@@ -1128,7 +1128,11 @@ async function main() {
   const promptGoal = makeGoal('prompt-goal');
   laneCli(['prompt-goal', '--set', 'daemon']);
   const L9_JOB = 'seat-prompt-goal-alpha';
-  const L9_ANCHOR = 'args: JSON.stringify({ workdir: seatDir, prompt }),';
+  // ⚠ THE ANCHOR MOVED WITH THE UNIFICATION [spec-supervisor §5]. `launchOwed` no longer composes
+  // the boot prompt itself: the launch door does (`supervisor/launch-door.js#admitLaunch`) and
+  // hands it back as `admit.prompt`, which is the key this arm mutates away. Same defect, same
+  // measurement — only the local name of the value changed.
+  const L9_ANCHOR = 'args: JSON.stringify({ workdir: seatDir, prompt: admit.prompt }),';
   // THE EXPECTATION IS COMPUTED, NEVER TYPED: `coordinate boot-prompt` is the ONE composer
   // (`seeding.js#seatBootPrompt` shells exactly this), so a hand-written string here would be a
   // second composer and the arm would pass on drift between them.

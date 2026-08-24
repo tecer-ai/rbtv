@@ -31,7 +31,7 @@ const product = [
 
 const banned = [
   'CLASSIFIED_VERDICTS', 'PROCESS_OUTCOME_OF', 'RECORD_DISPOSITIONS',
-  'deriveOwed', 'isNonTerminal', 'TERMINAL_DISPOSITIONS',
+  'isNonTerminal', 'TERMINAL_DISPOSITIONS',
 ];
 for (const file of product) {
   const src = fs.readFileSync(file, 'utf8');
@@ -39,6 +39,23 @@ for (const file of product) {
   for (const sym of banned) {
     check(`${path.basename(file)} has no product ${sym}`, !code.includes(sym), file);
   }
+
+  // ── `deriveOwed` IS NO LONGER BANNED OUTRIGHT — IT IS BANNED AS ENGINE'S [spec-supervisor §5] ──
+  //
+  // It used to be forbidden here because engine had no business computing owed work off a killed
+  // verdict enum. It now EXISTS, once, as the single "this seat is owed a launch" function at the
+  // supervisor home (`supervisor/owed.js`) — the survivor of the two owed-work computers [T4-R7,
+  // C-15]. So the property this row holds is unchanged in substance and sharper in form: an engine
+  // product file may BORROW the supervisor's computer, and may never BE one. Every occurrence must
+  // therefore sit on the require line that names `supervisor/owed`, or be a call. A definition
+  // (`function deriveOwed`), a re-export, or an assignment is the second computer coming back.
+  const owedLines = code.split('\n')
+    .map((l, i) => [l, i + 1])
+    .filter(([l]) => l.includes('deriveOwed'));
+  const borrowed = owedLines.every(([l]) => l.includes("supervisor/owed") || /deriveOwed\s*\(/.test(l));
+  check(`${path.basename(file)} does not DEFINE deriveOwed — it may only borrow the supervisor's`,
+    borrowed,
+    `${file}: ${owedLines.filter(([l]) => !(l.includes('supervisor/owed') || /deriveOwed\s*\(/.test(l))).map(([l, n]) => `${n}: ${l.trim()}`).join(' | ')}`);
 }
 
 const srcHasIdle = fs.readFileSync(SEEDING, 'utf8').includes("IDLE: 'not-waitable'");

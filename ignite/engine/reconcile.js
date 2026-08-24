@@ -11,7 +11,8 @@
 // seeding.readySeats (the one subprocess) and reads the ledgers.
 // ⚠ DEAD SEATS ARE NEVER OWED (D22). ready-seats carries `dead` beside BLOCKED.
 // ⚠ SUMMONED SEATS ARE NEVER OWED (D24). See `summonedSeats` below.
-// ⚠ GRANTS ARE NOT TOUCHED. Launch is heartStore.enqueue({ onSeatBusy: 'queue' }).
+// ⚠ GRANTS ARE NOT TOUCHED. Launch goes through the supervisor's wrapped spawn door
+//    (`launchThroughDoor`, `onSeatBusy: 'queue'`) — never this file's own enqueue [§5].
 //    delete-grants has nothing to remove here.
 // ⚠ CLASS A SPLITS BY WORD (D33a). `incomplete` is SEAT-written and means one thing — the seat
 //   said unfinished — so the watcher relaunches THAT seat by name. `unverified` (checkout's D5
@@ -29,7 +30,13 @@ const { requirePythonCmd } = require('../lib/python-cmd');
 const {
   readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce,
 } = require('./seeding');
-const { classifyOwed } = require('./owed-from-endings');
+// ── THE ONE OWED-WORK COMPUTER AND THE ONE ENQUEUE [spec-supervisor §5, T4-R7, C-15] ──────────
+// `deriveOwed` is the SURVIVOR of the two owed-work computers. It lives at the supervisor home
+// because the owed set is supervisor-owned, and this file now ASKS it rather than being it.
+// `launchThroughDoor` is the single `heartStore.enqueue` on the owed path — the watcher no longer
+// has one of its own.
+const { deriveOwed } = require('../supervisor/owed');
+const { launchThroughDoor } = require('../supervisor/launch-door');
 const { DOORS } = require('../supervisor/doors');
 // D52/D66 (2026-08-22) — ONE shared bound, owned by the door (heart-store.js), imported here
 // rather than kept as a second literal. This is a VALUE import only (a number) — HeartStore
@@ -232,17 +239,23 @@ function roomState(goal) {
   return { exists: true, empty: list.length === 0 };
 }
 
-function classifyOwedFromLedgers(goalFolder, opts = {}) {
-  return classifyOwed(goalFolder, {
+// The watcher's half of the ONE owed computer: class A (a seat whose last ending is non-terminal)
+// and class B (a chair with unread mail). It hands in the ledger readers and reads no other half —
+// the graph half [T1-R3] is the same function's class R, asked for by the seeding cadence. Two
+// callers of one computer is the design; two computers is the defect [spec-supervisor §5].
+function owedFromLedgers(goalFolder, opts = {}) {
+  return deriveOwed(goalFolder, {
     ...opts,
-    loadSessions,
-    loadMessages,
-    lastBySeat,
-    liveSeatsFromLedgers,
-    checkinOf,
-    tsAfter,
-    STAFF_CHAIRS,
-    SYSTEM_MAIL_SENDER,
+    ledger: {
+      loadSessions,
+      loadMessages,
+      lastBySeat,
+      liveSeatsFromLedgers,
+      checkinOf,
+      tsAfter,
+      STAFF_CHAIRS,
+      SYSTEM_MAIL_SENDER,
+    },
   });
 }
 
@@ -370,43 +383,44 @@ function launchSitting({
     if (prompt === null) return { ok: false, error: boot.reason || 'no-boot-prompt', seat };
   }
   if (!prompt) return { ok: false, error: 'no-boot-prompt', seat };
-  const enq = heartStore.enqueue({
+  // ── THE ONE ENQUEUE ON THE OWED PATH [spec-supervisor §5, T4-R7] ────────────────────────────
+  // `deriveOwed` must not `heartStore.enqueue` on its own, and neither may its caller: BOTH owed
+  // computers used to enqueue independently, which is the second launch path the unification
+  // removes. This goes through the wrapped spawn door, which is the only remaining one.
+  //
+  // `enqueuedBy` is read off the supervisor's door list rather than spelled here: that string is
+  // what turns back into the door name at the pid moment (`doors.js#doorForLauncher`), so a second
+  // spelling of it is a reconcile launch that silently registers UNSUPERVISED.
+  //
+  // D52/D66 — `reason` and `progressSignature` are the watcher's already-derived values, threaded
+  // as first-class request fields (never as an unregistered `args` key — `validateArgs` refuses
+  // those). They are what the admission brake inside `enqueue()` counts on.
+  const launched = launchThroughDoor({
+    heartStore,
+    seat,
+    goal,
     jobId,
     args: JSON.stringify({ workdir: seatDir, prompt }),
-    sessionMode: 'headless',
-    triggerKind: 'scheduled',
     runAt: isoNow(),
-    // ── THE RECONCILE DOOR'S NAME [spec-supervisor §3, T4-R7] ──────────────────────────────
-    // Off the supervisor's door list for the same reason seeding's is: this string is what turns
-    // back into the door name at the pid moment (`doors.js#doorForLauncher`), so a second spelling
-    // of it here is a reconcile launch that silently registers UNSUPERVISED. Reconcile's launches
-    // therefore go through supervisor spawn and never become a second enqueue — `deriveOwed` stays
-    // the owed COMPUTER, and the unification of the two computers is owed-unify's act, not this.
     enqueuedBy: DOORS.reconcile.launcher,
     onSeatBusy: 'queue',
-    // D52/D66 — the watcher already derives BOTH of these (reconcileGoal's launchTargets); they
-    // used to be dropped before enqueue. Threaded through as first-class request fields (never as
-    // an unregistered `args` key — `validateArgs` refuses those, brake-queue lane item 2).
     reason,
     progressSignature: signature,
   });
-  if (enq && enq.deduped) {
-    if (say) say('warn', 'reconcile: enqueue returned deduped — sitting was NOT queued', {
-      goal, seat, because: enq.because, queue_id: enq.queue_id, exec_id: enq.exec_id,
-    });
-    return { ok: false, error: 'deduped', enq, seat };
-  }
-  // D52/D66 — the door's own refusal. Mirrors the `deduped` handling immediately above: the
-  // watcher already reads the enqueue result, so a `braked` verdict surfaces here rather than the
-  // door importing engine code to escalate itself (HeartStore must not import engine — brake-queue
-  // lane constraint 6). The watcher's OWN `stuckStands`/`strike` brake (below, in reconcileGoal)
-  // is untouched and is what actually sends the typed `stuck` message; this is the SECOND,
-  // independent lock catching whatever reaches the door regardless of caller.
-  if (enq && enq.braked) {
-    if (say) say('warn', 'reconcile: enqueue returned braked — the door refused this admission', {
-      goal, seat, because: enq.because, attempts: enq.attempts, signature: enq.signature,
-    });
-    return { ok: false, error: 'braked', enq, seat };
+  const enq = launched.enq;
+  if (launched.refused) {
+    // The door's own two refusals, surfaced exactly as they were when this function read the
+    // enqueue result itself: the store's dedup, and D52's fail-closed admission brake. The typed
+    // `stuck` message still comes from the watcher's OWN `strike()` below — HeartStore must not
+    // import engine, so the door reports and the watcher escalates.
+    if (say) {
+      say('warn', launched.kind === 'braked'
+        ? 'reconcile: enqueue returned braked — the door refused this admission'
+        : 'reconcile: enqueue returned deduped — sitting was NOT queued', {
+        goal, seat, evidence: launched.evidence,
+      });
+    }
+    return { ok: false, error: launched.kind === 'braked' ? 'braked' : 'deduped', enq, seat };
   }
   return { ok: true, enq, seat, jobId };
 }
@@ -496,7 +510,7 @@ function reconcileGoal({
   }
 
   const queued = queuedSeats(heartStore, goal);
-  const derived = classifyOwedFromLedgers(goalFolder, {
+  const derived = owedFromLedgers(goalFolder, {
     readyAnswer, live, queued, summoned: summonedSeats(say),
     heartStore, goal,
   });
@@ -663,7 +677,7 @@ module.exports = {
   CADENCE_MS,
   STRIKE_LIMIT,
   STAFF_CHAIRS,
-  classifyOwedFromLedgers,
+  owedFromLedgers,
   summonedSeats,
   reconcileGoal,
   maybeReconcile,
