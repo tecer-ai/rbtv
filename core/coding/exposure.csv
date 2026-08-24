@@ -1,0 +1,20 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# THREE `method: skill` ROWS (audience agent, trigger on-demand — the owner's deciding reason,
+# 2026-08-23: most turns in this vault are not coding turns, and a rule's always-on cost on every
+# non-coding turn is waste). `coding` is a reference (applied: it shapes how code is left) whose
+# entry point reads the four discipline references beside it — those four carry NO row of their
+# own on purpose: they are reached only through `coding`, never on their own.
+# `improve-codebase-architecture` is a prompt (executed: a scan → report → grill procedure).
+# `commit` is a reference (the deterministic git-commit procedure), migrated 2026-08-23 from the
+# rbtv repo's pre-component `core/skills/commit` + `core/workflows/commit` (owner-directed) — one
+# reference, its script beside it in `tool/`.
+# `rbtv-commit` is this component's MANDATORY TOOL INVENTORY row: a first-party CLI it authors and
+# ships (`tool/commit.py`, plus its test suite `tool/test_commit.py`); `description` empty by
+# ruling on a `tool` row — the script self-documents via `-h`.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+commit,reference,skill,,references/commit.md,"Use when committing changes to git. Triggers: user says ""commit"", ""salva no git"", ""commita"", or a task finishes and changes must be persisted. Handles file-op hygiene (git mv/git rm), remote sync, conflict detection, and commit message generation from diff analysis.",
+rbtv-commit,tool,path,,tool/commit.py,,
+coding,reference,skill,,references/coding.md,"Use on ANY code write, edit, fix, or refactor — in a repo, a vault script, or a mirror CLI — BEFORE the first edit. Carries the four code-hygiene disciplines the code must meet when you leave it: no dead code, no duplicate source, no monolith file, no patch in place of a root-cause fix. A violation your own change creates is fixed in the same change; a pre-existing one is surfaced, never fixed unasked.",
+improve-codebase-architecture,prompt,skill,,prompts/improve-codebase-architecture.md,"Use when the user asks to audit, review, or improve a codebase's architecture, find shallow modules or deepening opportunities, or make code more testable or navigable by agents. Scans the codebase for deepening opportunities (refactors that turn shallow modules into deep ones), renders them as a visual HTML report, then grills through whichever candidate the user picks. Fork of mattpocock/skills improve-codebase-architecture + codebase-design (vocabulary inlined), adapted to rbtv — never re-synced.",

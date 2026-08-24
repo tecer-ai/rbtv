@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-COMMIT_PY = os.path.join(os.path.dirname(os.path.dirname(__file__)), "commit.py")
+COMMIT_PY = os.path.join(os.path.dirname(__file__), "commit.py")
 
 # Imported as a module (not just run as a subprocess) so the race test below can
 # wrap commit.py's own git helper and land a foreign `git add` inside the window

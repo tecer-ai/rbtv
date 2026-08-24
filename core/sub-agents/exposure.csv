@@ -1,0 +1,18 @@
+# Columns are the six of `concepts/exposure-manifest.md` § file schema, in its order — routed, not
+# invented (+ the seventh `write-roots`, W6).
+#
+# `cast` is this component's MANDATORY TOOL INVENTORY row (`decisions.md#d-exposure-method-path`):
+# a first-party CLI this component authors and ships, exposed through PATH whether or not anyone
+# declares it. `part-id` is the binary as it is called, never a path; `description` is empty by
+# ruling on a `tool` row. Row relocated here 2026-08-20 from `meta/providers/exposure.csv` when
+# the cast component moved to `core/sub-agents/` — the cross-tree `../../` entry-point retired with it.
+#
+# SURFACES. The six-column schema keys a row to an invocable, not to a subcommand, so a verb gets
+# no row of its own. Named here because a caller reaching for them needs to know they exist:
+# `cast route` — the deterministic worker selector (documented in `component.md` § `cast route`).
+# `cast api` — the API-worker runner (documented in `component.md` § `cast api`).
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+cast,tool,path,,tool/cast.js,,
+sub-agents,reference,skill,,references/sub-agents.md,"ALWAYS invoke BEFORE launching any sub-agent, worker, or parallel agent — even though your harness has a native sub-agent tool, and regardless of which tool you will launch with: your native tool does not know this workspace's model roster or routing. This skill carries the manager posture (delegate everything, verify, keep your own context small), seat-based staffing, and the `cast route` verdict that picks the model and harness for each task. Triggers: 'sub-agent', 'sub agents', 'subagent', 'delegate this', 'launch agents', 'parallel agents', 'workers', 'spawn agents' — and any task you are about to split across multiple agents, even when the user never names sub-agents.",
+swarm,reference,skill,,references/swarm.md,"Attack one large task with WAVES of parallel sub-agents: a wide base of cheap fast models does the broad work, and each wave above is smaller and stronger, building on the wave below — more breadth and depth at lower cost than one big agent. Use when the user says 'swarm', and on any task wide enough to benefit from many parallel investigators (sweep a codebase, audit many files, mass research, bulk classification) — even when they never say 'swarm'. Carries what your native sub-agent tool does not know: the wave architecture, per-wave model routing via `cast route`, depth rules, and the file-based handoff between waves. NOT for several viewpoints on one subject — that is `panel`.",
+panel,reference,skill,,references/panel.md,"Examine ONE subject through several independent points of view at once — parallel sub-agents with different perspectives, different models, or both, then a synthesis. Use when the user says 'panel', 'second opinion', 'multiple perspectives', 'have different models look at this', 'devil's advocate', 'independent review' — and on any judgment call important enough that a single viewpoint should not be trusted alone, even when they never say 'panel'. Carries the panel architecture and per-seat model routing via `cast route`, which your native sub-agent tool does not know. NOT for splitting a large task into parts — that is `swarm` or `sub-agents`.",

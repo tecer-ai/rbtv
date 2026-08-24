@@ -1,0 +1,14 @@
+# audio component — EVERY external dependency with its install command; updated IN THE SAME
+# CHANGE as any dependency change (convention: ignite/dependencies.txt, D28; schema:
+# concepts/dependency-manifest.md).
+#
+# Format: name — why — install command
+
+python3 — interpreter for audio.py and its check script (test_audio.py). System tool, present on the box (3.14.4 measured 2026-08-18).
+requests — the HTTP client audio.py calls the ElevenLabs API with; the transcribe verb posts multipart/form-data, which urllib would need a hand-rolled body for. Already present on the box (2.32.5 measured 2026-08-18) — `pip3 install --user --break-system-packages requests` if a machine lacks it (the box's python is PEP-668 externally managed; --user confines the install to ~/.local and touches no OS package).
+
+# ⚠ NOT PyYAML, and never PyYAML. The workspace's private-scope pattern floor masks
+# `yaml/tokens.py`, which bricks the import inside every cage
+# (goal stools-canvas-audio-elevenlabs issues.md#G-plan-interviewer-0818-0213 — measured on
+# stools, which is unusable in a cage for exactly this reason). This component's config is JSON
+# for that reason, read with the stdlib `json` module.

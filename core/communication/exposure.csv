@@ -1,0 +1,29 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# FIVE ROWS: one first-party tool (the `audio` capability), three `reference`/`rule` rows —
+# the always-on owner-facing chat style rules (`plain-language`, `non-technical-user`,
+# `concise-chat`) — and one `reference`/`skill` row (`audio-aware`, the transcript-ungarbling
+# skill for audio conversations), one file each under `references/`.
+#
+# THE TOOL ROW: the component's one first-party tool (the `audio` capability). `part-kind: tool` + `method: path` is the
+# MANDATORY inventory row every component keeps for a CLI it authors and ships (owner-ruled
+# 2026-08-09, core-build `decisions.md#d-tool-inventory-exposure-rows`), and it is also the row a
+# CAGED seat's `exposes: path: [core/communication/audio]` binds to. `rbtv-cli` and `description`
+# are empty because the tool self-documents through `-h` — a second inventory here is what drifts.
+#
+# The seventh cell is `write-roots`, legal on `method=path` rows ONLY. It carries `!capabilities/audio/config.json`:
+# the `language` verb REWRITES that file (goal.md clause 12 — the channel master must be able to
+# switch the language from inside its own cage), and under the universal read-only workspace floor
+# that write meets EROFS without this grant. The `!` is the danger marker every entry must carry —
+# a write grant is never inferred, it reaches a seat only because it was typed here.
+#
+# The grant is the FILE, not the folder, on purpose: `capabilities/audio/credentials/` and `audio.py` itself stay
+# read-only inside the cage, and `language_write()` writes in place (no temp-plus-rename) so a
+# file-level bind is enough.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+audio,tool,path,,capabilities/audio/audio.py,,!capabilities/audio/config.json
+plain-language,reference,rule,,references/plain-language.md,"Plain language on every turn: define every term on first use, no analogies, no bare name-drops, no unexpanded acronyms, a phase named with its purpose, and existing terminology only — never an invented term or alias.",
+non-technical-user,reference,rule,,references/non-technical-user.md,"The code overlay for a non-technical owner: every technical name paired with a plain translation the owner learns from, every coding decision framed as the behavior change the owner will see, and never a raw log/diff/output dump in chat.",
+concise-chat,reference,rule,,references/concise-chat.md,"Objective concise chat: fewest words that carry the message, lead with the decision or result, never restate what a file already says, TLDR bullets on long explanations, and the fixed question format — max 3 at a time, named options with consequences, one recommended.",
+audio-aware,reference,skill,,references/audio-aware.md,"Use whenever dealing with transcripts — dictated owner input, meeting transcripts, or native harness audio/voice. Ungarbles them: glossary-corrects names (glossary at .rbtv/config/audio/glossary.md, updated same-turn on owner correction), keeps only the speaker's final self-correction, latest version wins on hesitant numbers/dates, flags unknown names instead of assuming, and confirms dates/names in a summary table before any vault write.",

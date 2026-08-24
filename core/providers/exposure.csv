@@ -1,0 +1,14 @@
+# Columns are the six of `concepts/exposure-manifest.md` § file schema, in its order — routed, not
+# invented.
+#
+# One row, the MANDATORY TOOL INVENTORY (`decisions.md#d-exposure-method-path`): a first-party CLI
+# this component authors and ships, exposed through PATH whether or not anyone declares it, so an
+# absent row would state something false. `part-id` is the invocable's own name — the binary as it
+# is called — never a path (that is the entry-point's job), and `description` is empty by ruling
+# on a `tool` row. No `rbtv-cli` route today: reached as a plain PATH command.
+#
+# `cast` is no longer declared here: relocated 2026-08-20 (owner instruction, route-redesign
+# spec §8) to `core/sub-agents/`, now a component of its own — its inventory row lives in
+# `core/sub-agents/exposure.csv`.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+acct,tool,path,,capabilities/acct/tool/acct.py,,
