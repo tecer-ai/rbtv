@@ -23,7 +23,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { capture } = require('./lib');
-const { composeSeatCage, composeAncestorMasks, specToBwrapFlags, lastCovering } = require('../cage');
+const { composeSeatCage, composeAncestorMasks, specToBwrapFlags, projectStoreSlug, lastCovering } = require('../cage');
 const { admitLaunch, bindsToSpec } = require('../../../envelope/launch');
 const { buildBwrapArgv } = require('../bwrap');
 
@@ -144,26 +144,45 @@ capture('probe-ancestor-mask', async (lines) => {
       /own-claude=\[SEAT-OWN-RULES\]/.test(d) && /own-skill=\[SEAT-OWN-SKILL\]/.test(d),
       `in-cage: ${JSON.stringify(d.trim())}`);
 
-    // ── (e) bound (iii): auto-memory masked, sibling transcript READABLE ──────────────────────
+    // ── (e) bound (iii): auto-memory masked, the OWN store's transcript READABLE ──────────────
     // Deliberately measured against the REAL project store: the split this leg proves is between
     // two paths the harness itself creates, and a fixture would prove the mask against a shape
     // nothing on the box actually has.
+    //
+    // ⚠ THIS LEG CHANGED SHAPE 2026-08-24, AND THE CONTRACT GOT STRONGER, NOT WEAKER. It used to
+    // pick an ARBITRARY store — a FOREIGN one — and require its transcript readable in-cage,
+    // because the mask was per-store (`--tmpfs` over every `*/memory`) and left everything else
+    // on the box open. That mask emitted one flag per store, 68,503 bytes of argv against a
+    // ~16 KB `tmux new-window` ceiling, and killed every seat-door launch. Masking the projects
+    // ROOT and binding back only the seat's own store is O(1) — and the foreign store is now
+    // ABSENT rather than merely memory-less, which is what a seat should always have seen. The
+    // ruling's scope line is `--resume` must survive, and a seat only ever resumes its OWN
+    // session, so the own store is the whole of what the bind-back owes.
     const projects = path.join(os.homedir(), '.claude', 'projects');
-    const slug = (fs.readdirSync(projects, { withFileTypes: true }) || [])
-      .filter((e) => e.isDirectory() && fs.existsSync(path.join(projects, e.name, 'memory')))
-      .map((e) => path.join(projects, e.name))[0];
-    if (!slug) {
-      leg('E', 'auto-memory masked while a sibling transcript stays readable',
-        false, `no memory dir under ${projects} — the mask target does not exist, so this bound cannot be proven here`);
-    } else {
-      const transcript = fs.readdirSync(slug).find((n) => n.endsWith('.jsonl'));
-      const memDir = path.join(slug, 'memory');
-      const e = inCage(f, false,
-        `echo "mem=[$(ls ${memDir} 2>/dev/null | tr '\\n' ' ')]"; ` +
-        (transcript ? `echo "tx=[$(head -c 12 ${path.join(slug, transcript)} 2>/dev/null)]"` : 'echo "tx=[NO-TRANSCRIPT]"'));
-      leg('E', 'auto-memory dir is masked while a sibling session transcript stays readable',
-        /mem=\[\]/.test(e) && !/tx=\[\]/.test(e) && !/tx=\[NO-TRANSCRIPT\]/.test(e),
-        `store ${slug} — in-cage: ${JSON.stringify(e.trim())}`);
+    const own = path.join(projects, projectStoreSlug(f.seatDir));
+    const foreign = (fs.readdirSync(projects, { withFileTypes: true }) || [])
+      .filter((d) => d.isDirectory() && path.join(projects, d.name) !== own)
+      .map((d) => path.join(projects, d.name))[0];
+    // The own store is what `composeMemoryMask` creates and binds back; seeding it here is what
+    // gives the leg something to READ, exactly as a real seat's prior session would have left it.
+    fs.mkdirSync(path.join(own, 'memory'), { recursive: true });
+    fs.writeFileSync(path.join(own, 'probe-sess.jsonl'), 'OWN-TRANSCRIPT\n');
+    fs.writeFileSync(path.join(own, 'memory', 'probe-m.md'), 'OWN-MEMORY\n');
+    try {
+      if (!foreign) {
+        leg('E', "auto-memory masked, own transcript readable, foreign stores absent",
+          false, `no second store under ${projects} — the foreign-absence half cannot be proven here`);
+      } else {
+        const e = inCage(f, false,
+          `echo "own-mem=[$(ls ${path.join(own, 'memory')} 2>/dev/null | tr '\\n' ' ')]"; ` +
+          `echo "own-tx=[$(head -c 14 ${path.join(own, 'probe-sess.jsonl')} 2>/dev/null)]"; ` +
+          `echo "foreign=[$(ls ${foreign} 2>/dev/null | tr '\\n' ' ')]"`);
+        leg('E', "the own store's transcript stays readable while its memory dir and every foreign store are absent",
+          /own-tx=\[OWN-TRANSCRIPT\]/.test(e) && /own-mem=\[\]/.test(e) && /foreign=\[\]/.test(e),
+          `own ${own} — foreign ${foreign} — in-cage: ${JSON.stringify(e.trim())}`);
+      }
+    } finally {
+      try { fs.rmSync(own, { recursive: true, force: true }); } catch {}
     }
 
     // ── The composition itself: masks must be emitted AFTER the openings they shadow. ─────────

@@ -326,22 +326,63 @@ function lastCovering(spec, target) {
   return covering.length ? covering[covering.length - 1] : null;
 }
 
-// The auto-memory store. The harness keys it on a project slug derived from the workdir, and the
-// slug the harness picks is not knowable from here without reimplementing its derivation — so
-// every existing `memory` dir under the project store is masked and the derivation question never
-// arises. The SIBLING session `.jsonl` transcripts are deliberately untouched: `--resume` reads
-// them, and the ruling's scope line requires resume to survive the memory mask.
-// ponytail: one readdir of the project store per spawn (601 entries today, sub-ms). Derive the
-// slug instead only if this ever shows up on a spawn-latency measurement.
-function memoryMaskPaths(home) {
-  const projects = path.join(home, '.claude', 'projects');
-  let entries;
-  try {
-    entries = fs.readdirSync(projects);
-  } catch {
-    return [];
+// ── Bound (iii): THE AUTO-MEMORY STORE — ONE MOUNT PER SEAT, NEVER ONE PER STORE ─────────────
+//
+// The harness keys its project store on the LAUNCH FOLDER: one directory per project under
+// `{home}/.claude/projects`, named for the absolute launch path with every non-alphanumeric byte
+// replaced by `-`. Measured against the live store 2026-08-24 — 1794 entries, alphabet exactly
+// `[-0-9A-Za-z]`, and `{workdir}` is `resolvedWorkdir`, the very path spawn.js hands bwrap as
+// `--chdir`. So the slug IS knowable here, and knowing it is what makes this mask O(1).
+//
+// ⚠ THE ARGV MUST NOT SCALE WITH THE HOST. The first cut emitted one `--tmpfs` per existing
+// `{home}/.claude/projects/*/memory`. That is argv that grows with how much OTHER work has
+// happened on the box: 696 stores / 68,503 bytes measured here, against a `tmux new-window`
+// command ceiling of roughly 16 KB (measured on this box: 16000 accepted, 20000 refused). Under
+// universal caging every seat-door launch therefore died `E_CARRIER_FAILED: command too long`,
+// and a clean `HOME` made the error vanish — the tell that the count, not the cage, was the
+// defect. A cap on the list would have been a silent hole in the mask; masking the PARENT is the
+// same absence in three flags no matter how many stores exist:
+//
+//   --tmpfs  {home}/.claude/projects     every store, foreign and own, gone
+//   --bind   {ownStore} {ownStore}       the ONE store this launch folder keys on, back
+//   --tmpfs  {ownStore}/memory           bound (iii) again — the own store's memory drops too
+//
+// This is STRICTLY STRONGER than the per-store mask it replaces. Before, a foreign store's
+// session `.jsonl` transcripts were readable in-cage — every conversation ever held on this box,
+// for the sake of a `--resume` that only ever reads the seat's OWN store. Now the foreign store
+// is not merely memory-less, it is absent. The ruling's scope line (resume survives the memory
+// mask) is exactly what the one bind-back is for.
+const PROJECT_STORE_REL = ['.claude', 'projects'];
+const MEMORY_DIRNAME = 'memory';
+
+function projectStoreSlug(launchFolder) {
+  return path.normalize(launchFolder).replace(/[^A-Za-z0-9]/g, '-');
+}
+
+// Composes the flags AND returns the store it bound back, so the spawn log can name it: a mask
+// whose bind-back silently missed is the failure mode this bound has always had (it breaks
+// `--resume`, not the mask, so nothing goes red).
+function composeMemoryMask(home, launchFolder) {
+  const projects = path.join(home, ...PROJECT_STORE_REL);
+  if (!fs.existsSync(projects)) return { flags: [], masks: 0, ownStore: null };
+  const flags = ['--tmpfs', projects];
+  let ownStore = null;
+  if (launchFolder) {
+    ownStore = path.join(projects, projectStoreSlug(launchFolder));
+    // CREATED when missing, and created BEFORE it is bound. `--bind-try` would silently skip an
+    // absent store and leave the harness writing its transcript onto the projects tmpfs, where
+    // the next spawn could never find it — and every live session is a `--resume`
+    // (`live-sessions.js`), so an ephemeral transcript is a dead seat one tick later. Same order
+    // rule `ensureGoalScratch` learned the hard way: the step that needs the folder makes it.
+    fs.mkdirSync(ownStore, { recursive: true });
+    flags.push('--bind', ownStore, ownStore);
+    // Unconditional, existing or not: if the dir is absent the harness would CREATE it mid-session
+    // and write real memories into the real store. bwrap mkdirs the mountpoint through the bind
+    // (measured), so the mask lands either way. `tmpfs` and not `ro-mask` on purpose — bound (iii)
+    // DROPS auto-memory, and a harness that gets EROFS from its own memory tool dies instead.
+    flags.push('--tmpfs', path.join(ownStore, MEMORY_DIRNAME));
   }
-  return entries.map((e) => path.join(projects, e, 'memory')).filter((p) => fs.existsSync(p));
+  return { flags, masks: ownStore ? 2 : 1, ownStore };
 }
 
 // Compose the mask FLAGS to append after a seat cage's own openings (last = wins).
@@ -388,7 +429,9 @@ function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructi
   }
 
   // Bound (iii): auto-memory is dropped for ALL seat spawns, channel seat included.
-  for (const p of memoryMaskPaths(home)) { maskDir(p); masked.memory++; }
+  const memory = composeMemoryMask(home, launchFolder);
+  flags.push(...memory.flags);
+  masked.memory = memory.masks;
 
   // ── W5 (owner ruling D-1, 2026-08-13) — THE PRIVATE READ SCOPE ──────────────────────────────
   // The third-party secrets file (`.rbtv/config/.env`, task 7.566) is now the FIRST of two
@@ -403,13 +446,15 @@ function composeAncestorMasks(spec, { workspaceRoot, launchFolder, keepInstructi
     masked.secrets += privateScope.masked;
   }
 
-  return { flags, masked, policy, pierced: privateScope.pierced, refusedPierces: privateScope.refused };
+  return { flags, masked, policy, memoryStore: memory.ownStore, pierced: privateScope.pierced, refusedPierces: privateScope.refused };
 }
 
 module.exports = {
   contains,
   lastCovering,
   composeAncestorMasks,
+  composeMemoryMask,
+  projectStoreSlug,
   MASK_INSTRUCTION_FILES,
   MASK_CONFIG_DIRS,
   composeSeatCage,
