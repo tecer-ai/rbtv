@@ -7,8 +7,9 @@ tags: [planning]
 
 **You are reading this because a user wants scaffolding created or changed.** This page is the ONE
 router surface for the meta/planning component (owner-ruled 2026-08-21): it replaced the standalone
-`planning`, `forge`, and `plan-in-session-run` skills, and it holds the kind router that used to
-live in forge's console entry. Stop at the first section that answers you; everything deeper is
+`planning` and `forge` skills, and it holds the kind router that used to
+live in forge's console entry. The `plan` skill (named `plan-in-session-run` until 2026-08-24)
+stands alone again — owner-directed 2026-08-24. Stop at the first section that answers you; everything deeper is
 reached through the links here.
 
 Written to be read cold. Nothing below assumes you saw an earlier turn.
@@ -38,7 +39,7 @@ anything.
 |---|---|
 | ONE small part of a component that already EXISTS — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition | **forge** — `workflows/forge/console-entry.md` (setup + run handover; the per-kind authoring table is §2 below) |
 | a NEW component, a NEW workflow, a DAG change larger than one seat row, or pieces spanning components | **planning** — `workflows/planning/console-entry.md` |
-| already-decided work to structure as a console-orchestrated seat plan (no goal/daemon run) | **plan-in-session-run** — `references/plan-in-session-run.md` |
+| already-decided work to structure as a console-orchestrated seat plan (no goal/daemon run) | **plan** — `references/plan.md` |
 
 Three further conditions escalate a forge-shaped request to planning whatever the kind: the pieces
 span more than one component in a way one build pass cannot carry; a new workflow or DAG is needed;
@@ -103,7 +104,7 @@ to READ. Descriptions are each file's own frontmatter, verbatim in spirit; the f
 | `references/workflow-anatomy.md` | structuring a workflow DAG, authoring its manifest, binding its taskforce |
 | `references/workflow-authoring-checklist.md` | authoring or amending seat declarations — the six walls (also a standalone skill: seat prompts materialize it) |
 | `references/seat-id-naming.md` | naming a workflow's seat rows — the workflow-code prefix law |
-| `references/plan-in-session-run.md` | structuring already-decided work as a console-run seat plan |
+| `references/plan.md` | structuring already-decided work as a console-run seat plan |
 
 **Exposure:**
 

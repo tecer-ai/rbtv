@@ -10,7 +10,7 @@ The `forge` workflow is the small-request lane beside it: one create, edit, or p
 
 ## Entry points
 
-- Router surface: `references/build.md` — the ONE console entry, exposed as the `build` skill; it holds the workflow-vs-guide route rule, the kind router (moved out of forge's console entry), and the guide table. The standalone `planning`, `forge`, and `plan-in-session-run` skills folded into it (owner-ruled 2026-08-21).
+- Router surface: `references/build.md` — the ONE console entry, exposed as the `build` skill; it holds the workflow-vs-guide route rule, the kind router (moved out of forge's console entry), and the guide table. The standalone `planning` and `forge` skills folded into it (owner-ruled 2026-08-21). The `plan` skill (named `plan-in-session-run` until 2026-08-24) stands alone again, exposing `references/plan.md` (owner-directed 2026-08-24).
 - Workflow `planning`: `workflows/planning/` — `workflow.md` (orientation) + `planning.csv` (the seat DAG: goal-level phase, then per-milestone phase).
 - Workflow `forge`: `workflows/forge/` — `workflow.md` (orientation) + `forge.csv` (three serial seats: intake → builder → judge). Small, frequent create/edit/parse requests for PARTS of components that already exist; it executes what it specifies, and a request needing a new component, workflow, or DAG escalates to `planning`.
 - Pools: `prompts/<id>.md` and `tasks/<id>.md` (one file per prompt/task, kind-named XML sections; no prompts.csv/tasks.csv — `d-prompt-task-files`).

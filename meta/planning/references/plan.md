@@ -1,9 +1,9 @@
 ---
-description: Read at the moment of structuring already-decided work as a plan-in-session-run — the executable plan folder whose seat units a console session dispatches and verifies in-session.
+description: Read at the moment of structuring already-decided work as a plan — the executable plan folder whose seat units a console session dispatches and verifies in-session. (Named plan-in-session-run until 2026-08-24.)
 tags: [planning]
 ---
 
-# plan-in-session-run — the plan format a console session executes
+# plan — the plan format a console session executes
 
 You already hold every planning input: the scope, the decisions, the rulings. This file rules ONE thing — the SHAPE you write them into, so a console session can execute the result without you present.
 
@@ -11,7 +11,7 @@ You already hold every planning input: the scope, the decisions, the rulings. Th
 
 - It NEVER interviews, NEVER decides content, and NEVER chooses the work — the sanctioned owner questions are exactly TWO: the loose-ends destination (§ Loose ends) and the checkpoint alignment (§ Owner checkpoints), asked together. Every fact the plan states arrives from what you already hold; a fact you are missing is a gap you STATE to your caller, never one you invent to fill a seat.
 - It NEVER resolves where the plan folder goes. The caller names that folder; this file rules only what goes inside it.
-- It produces NO registration of any kind. A plan-in-session-run has NO prompt/task pairs, NO `seats.csv` row, NO exposure row, NO casting sheet, and NO materializer step — the files you write ARE the deliverable, live the moment they are saved. The four-letter workflow-code law binds registered workflow seats and NEVER these: no manifest reads these names, so a seat folder is named for the unit's job and nothing else.
+- It produces NO registration of any kind. A plan has NO prompt/task pairs, NO `seats.csv` row, NO exposure row, NO casting sheet, and NO materializer step — the files you write ARE the deliverable, live the moment they are saved. The four-letter workflow-code law binds registered workflow seats and NEVER these: no manifest reads these names, so a seat folder is named for the unit's job and nothing else.
 
 ## The plan folder — three surfaces
 
@@ -81,7 +81,7 @@ Nothing seat-specific goes here: a fact true of ONE seat belongs in that seat's 
 
 ## `seats/<name>/seat.md` — one self-contained unit
 
-**Frontmatter.** `cast seat <seat-folder>` reads exactly three keys from it — `harness`, `model`, `effort` — and refuses (exit 2) when the folder holds no `seat.md`. All three MUST be present, each one plain scalar on its own line inside the leading `---` block; a quoted, nested, or space-carrying value is not read. Their VALUES are yours to choose as the plan's author: this file mandates the KEYS and NEVER which executor a seat gets. Any further key — `seat`, `description`, `cwd` — is spelled as the live seat standard spells it, and NEVER invented here. NEVER carry a key only the materializer consumes (`exposes`, `goal-writes`, `rw-paths`, `human-interactive`): no materializer and no sandbox run here, so those keys mint nothing, bind nothing, and grant nothing — an instrument the seat needs is named in its BODY, in prose. The seat FOLDER's own standard surfaces are declaration 4 of `references/workflow-authoring-checklist.md`, and a plan-in-session-run seat folder follows it unchanged.
+**Frontmatter.** `cast seat <seat-folder>` reads exactly three keys from it — `harness`, `model`, `effort` — and refuses (exit 2) when the folder holds no `seat.md`. All three MUST be present, each one plain scalar on its own line inside the leading `---` block; a quoted, nested, or space-carrying value is not read. Their VALUES are yours to choose as the plan's author: this file mandates the KEYS and NEVER which executor a seat gets. Any further key — `seat`, `description`, `cwd` — is spelled as the live seat standard spells it, and NEVER invented here. NEVER carry a key only the materializer consumes (`exposes`, `goal-writes`, `rw-paths`, `human-interactive`): no materializer and no sandbox run here, so those keys mint nothing, bind nothing, and grant nothing — an instrument the seat needs is named in its BODY, in prose. The seat FOLDER's own standard surfaces are declaration 4 of `references/workflow-authoring-checklist.md`, and a plan seat folder follows it unchanged.
 
 **ALWAYS verify a seat launches before the plan is handed over:** `cast seat <seat-folder> --dry-run` prints the composed argv and exits 0 without launching. A frontmatter typo is otherwise found by the orchestrator, mid-run, on a seat it cannot start.
 
