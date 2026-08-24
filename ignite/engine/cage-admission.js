@@ -217,8 +217,8 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
       if (w.verdict !== 'writable') {
         bad.push(`\`${token}\` — no-workspace-grant: it names the WORKSPACE path ${wsTarget}, and no workspace `
           + `write grant composes a writable bind over it — neither an \`rw-paths:\` entry in ${seat}'s seat.md `
-          + `frontmatter nor a \`coordination/permission-edits.csv\` row covering it. Grant one (the leader's `
-          + `\`widen-cage\` verb writes the audited csv row) and the next seed pass admits it`);
+          + `frontmatter nor a \`coordination/permission-edits.csv\` row covering it. Grant one `
+          + `and the next seed pass admits it`);
         continue;
       }
       // Admitted, with NO successor-read test on this lane: a workspace path sits OUTSIDE the
@@ -359,7 +359,7 @@ function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
     if (v.verdict === 'absent') {
       bad.push(`\`path ${arg}\` — lane-cannot-reach: ${target} is ABSENT in ${seat}'s composed cage — no bind covers it. `
         + `Grant it through an \`rw-paths:\` entry in ${seat}'s seat.md frontmatter or a \`coordination/permission-edits.csv\` `
-        + 'row (the leader\'s `widen-cage` verb writes the audited csv row) and the next seed pass admits it');
+        + 'row and the next seed pass admits it');
     }
   }
   if (!bad.length) return null;

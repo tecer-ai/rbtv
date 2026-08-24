@@ -5343,8 +5343,7 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
 # checkout: a sitting is spawned when the chair has unread mail and ends when the mail is drained.
 # Every silent stall this program closes was a correct signal delivered to an EMPTY chair.
 #
-# ⚠ THE LIST IS A SEAT-NAME LIST AND NOTHING ELSE. It confers no authority — `is_permission_editor`
-# below is the only widening grant, and it names ONE of the two deliberately.
+# ⚠ THE LIST IS A SEAT-NAME LIST AND NOTHING ELSE. It confers no authority.
 #
 # ⚠ NO LIVE GOAL STAFFS A `consultant`, AND THAT IS THE DESIGN — not an oversight, not a migration
 # left half-done. The consultant chair is OPTIONAL PER WORKFLOW and homed at
@@ -5395,21 +5394,6 @@ CONVERSATIONAL_CHAIRS = SUMMONED_SEATS + STAFF_SEATS
 
 def is_conversational_chair(name):
     return name in CONVERSATIONAL_CHAIRS
-
-
-def is_permission_editor(name):
-    """Who may run the audited permission-edit verb (`widen-cage`): the `leader`, and nobody else.
-
-    ⚠ MINTED RATHER THAN REUSING `is_authorized_launcher` (adv, C29 / ruling D-2). That predicate's
-    docstring is a RULED BOUND — "`launch` and nothing else", open-versus-terminate — and it admits
-    `DAEMON_IDENTITY`. Reusing it here would silently authorize the ignite daemon as a
-    PERMISSION-EDITOR, which is a strictly larger act than opening a pane and was ruled to nobody.
-    The consultant is excluded by the same ruling: it holds the leader's judgment surface MINUS its
-    authorities, and a permission edit is the first of them.
-
-    The cage's own spelling of this seat is `spawn.js#PERMISSION_EDITOR_SEAT`; the two are asserted
-    equal by `probe-permission-edits.js`, so a widening of one cannot outrun the other."""
-    return name == "leader"
 
 
 def is_leader(name):
@@ -15103,7 +15087,7 @@ def close_session_seat(args, sid, seat):
 # ═══ W3 · THE STAFF WIRING — a signal that reaches an OCCUPIED chair ══════════════════════════
 #
 # Everything in this section exists for one sentence: a seat that cannot finish must reach a chair
-# that is occupied. The four surfaces, in the order a wake travels them:
+# that is occupied. The three surfaces, in the order a wake travels them:
 #
 #   1. THE CLOSER'S STAFF-MAIL ARM  — every terminal non-`done` ending mints one message to a staff
 #      chair, carrying the seat's own check-out reason. Mechanical: no agent decides whether to
@@ -15116,11 +15100,13 @@ def close_session_seat(args, sid, seat):
 #      folders are inert history no runtime path opens.
 #   3. `route-fail`                 — a FAIL verdict with a declared route goes to the AUTHOR of the
 #      instruction; an undeclared one goes to the leader. Never a void.
-#   4. `widen-cage`                 — the leader's one repair actuator, audited into the same file
-#      that applies it.
+#
+# `widen-cage` — the leader's audited permission-edit verb that used to be a fourth surface here —
+# is DELETED (ruling [T2-R6, C-6], 2026-08-24): runtime auto-widen is dead, the seat's cage
+# envelope is fixed at plan time now. No repair actuator replaces it in this file; a seat blocked
+# on a narrow cage escalates to the leader as a message, same as any other blocker.
 #
 ROUTE_PAYLOAD_DIR = "route-payloads"
-PERMISSION_EDITS_COLS = ["stamped-at", "seat", "path", "reason", "edited-by"]
 
 
 def staff_route_target(args, base, flag, who="the check-out"):
@@ -15253,172 +15239,6 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     steps.append(f"staff wake: none needed — `{to}` has unread mail, which the goal watcher "
                  f"reconciles into a sitting on its next pass")
     return steps
-
-
-# ── `widen-cage` — the leader's audited permission edit (ruling D-2, adv C29/C34) ───────────────
-#
-# THE ONE REPAIR ACTUATOR behind the leader's FIX-AND-RELAUNCH disposition. The common blocker is a
-# CAGE TOO NARROW: a seat could not read or write a path its job requires.
-#
-# ⚠ IT DOES NOT WRITE THE `rw-paths` CELL, and that is the whole design rather than a detail. That
-# cell is `seat.md` frontmatter — ro-bound in-cage and MATERIALIZER-OWNED, so a `--repass` or an
-# `add-seat` splice re-emits the file and silently reverts it. This writes
-# `coordination/permission-edits.csv`, which `spawn.js#resolvePermissionEditGrants` reads
-# ADDITIVELY at every launch: the audit log and the mechanism are ONE ARTIFACT, so a wall that was
-# widened and a widening that was recorded can never be two different sets.
-#
-# ⚠ IT VALIDATES AT WRITE TIME AGAINST THE LAUNCH-TIME RULES (adv, C--). A grant the spawner will
-# silently drop reads, in the leader's evidence, as a successful widen — and the leader then
-# relaunches into the same wall and concludes the seat is lying. So the four refusal rules are
-# checked HERE, in the verb where the leader can read the reason, by asking the one function that
-# enforces them (`spawn.js#rwPathRefusal`) rather than by re-stating them in Python.
-
-
-def permission_edits_csv(base):
-    return Path(base) / "permission-edits.csv"
-
-
-def private_scope_refusal(pkg, target):
-    """The reason `target` may not be granted, per the PRIVATE SCOPE — or `''`.
-
-    ⚠ FAIL-CLOSED ON ANY NON-ANSWER. The authority is `server/spawn/private-scope.js` (the deny
-    list, the two unoverrulable hardcodes, the pattern floor and the realpath matching all live
-    there, W5). A second Python reader of `private.json` would be two interpreters of one wall, and
-    it would drift in the PERMISSIVE direction — the one that matters. So this asks, and a node
-    that will not answer REFUSES the widen: an unanswerable question about a secret is not a `no`.
-    """
-    js = Path(__file__).resolve().parent.parent / "server" / "spawn" / "private-scope.js"
-    ws = workspace_root_of(pkg)
-    try:
-        out = subprocess.run(["node", str(js), "--refuses", str(ws), str(target)],
-                             capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return (f"the private scope could not be consulted ({type(exc).__name__}: {exc}) — and an "
-                f"unanswerable question about a secret is REFUSED, never waved through")
-    if out.returncode != 0:
-        return (f"the private scope refused to answer (exit {out.returncode}): "
-                f"{(out.stderr or '').strip()[:300]}")
-    try:
-        payload = json.loads(out.stdout)
-    except ValueError:
-        return f"the private scope returned no JSON: {(out.stdout or '').strip()[:200]}"
-    return payload.get("reason") or "" if payload.get("refused") else ""
-
-
-def workspace_root_of(pkg):
-    """The workspace root above a goal package: `<ws>/.rbtv/goals/<goal>` -> `<ws>`.
-
-    Derived by walking up to the `.rbtv` ancestor rather than by counting parents, because a goal
-    folder's depth is not a constant anyone here may assume."""
-    p = Path(pkg).resolve()
-    for parent in p.parents:
-        if parent.name == ".rbtv":
-            return parent.parent
-    return p.parent
-
-
-def rw_path_refusal(pkg, seat, entry):
-    """`spawn.js#rwPathRefusal`'s answer for one entry, or `''`. Fail-closed like its sibling."""
-    js = Path(__file__).resolve().parent.parent / "server" / "spawn" / "spawn.js"
-    ws = workspace_root_of(pkg)
-    script = (
-        "const s=require(process.argv[1]);"
-        "const r=s.rwPathRefusal({workspaceRoot:process.argv[2],seat:process.argv[3],"
-        "seatDir:'',goalDir:''},process.argv[4]);"
-        "process.stdout.write(JSON.stringify({reason:r}));"
-    )
-    try:
-        out = subprocess.run(["node", "-e", script, str(js), str(ws), str(seat), str(entry)],
-                             capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return (f"the launch-time grant rules could not be consulted ({type(exc).__name__}: {exc})"
-                f" — a widen whose admissibility is unknown is REFUSED, so the leader never reads "
-                f"a success for a grant the spawner will drop")
-    if out.returncode != 0:
-        return (f"the launch-time grant rules refused to answer (exit {out.returncode}): "
-                f"{(out.stderr or '').strip()[:300]}")
-    try:
-        return json.loads(out.stdout).get("reason") or ""
-    except ValueError:
-        return f"the launch-time grant rules returned no JSON: {(out.stdout or '').strip()[:200]}"
-
-
-def cmd_widen_cage(args):
-    """(leader) Widen ONE seat's cage by ONE workspace-relative path, with a stated reason.
-
-    BARE = report what would be written; `--go` = append it. The append is the mechanism: the next
-    launch of that seat reads this file as a second rw-grant source."""
-    gate(args, "widen-cage", is_permission_editor,
-         "the `leader`'s alone — it is the goal's authority, and a permission edit is the first of "
-         "the authorities the consultant does NOT hold. The ignite daemon does not hold it either: "
-         "`is_authorized_launcher` is a ruled bound on OPENING a pane, never on editing a wall",
-         remedy="ask the leader; a seat blocked on a narrow cage reports the path it could not "
-                "reach and the leader widens it")
-    base = base_dir(args)
-    pkg = package_dir(args)
-    seat = args.seat
-    entry = (args.path or "").strip()
-    reason = (args.reason or "").strip()
-    if not reason:
-        refuse("input",
-               "--reason is REQUIRED. A widened wall nobody can audit is a wall nobody can narrow "
-               "again — the reason is what makes this file an audit log rather than a pile of "
-               "openings.", 1)
-    if not _ferry_safe_name(seat):
-        refuse("input", f"'{seat}' is not a valid seat name.", 1)
-    if seat not in registered_seats(pkg) and seat not in briefing_frontmatters(workers_dir(args)):
-        refuse("state",
-               f"'{seat}' is not a registered seat (no row in taskforce.csv or sessions.csv) — "
-               f"widening the cage of a seat that does not exist writes a grant no launch will "
-               f"ever read.\n"
-               f"Seats in this run: {coord_invocation(args)} ready-seats", 1)
-    # THE PRIVATE SCOPE FIRST, and UNCONDITIONALLY (adv, C29). The PIERCE rule — an opening that
-    # legitimately sits inside a private entry — is a MATERIALIZE-TIME authoring affordance, never a
-    # runtime one, so no reason, no flag and no identity carries this refusal.
-    why = private_scope_refusal(pkg, entry)
-    if why:
-        refuse("state",
-               f"REFUSED: `{entry}` is inside the workspace's PRIVATE SCOPE — {why}.\n"
-               f"This refusal is UNCONDITIONAL: there is no --force, no reason and no identity that "
-               f"carries it. A pierce of the private scope is authored at MATERIALIZE time, in the "
-               f"seat's own descriptor, where a human reviews it — it is never granted at runtime "
-               f"by a seat reacting to a blocker.\n"
-               f"If the seat genuinely needs this path, that is an ESCALATION, not a widen.", 1)
-    why = rw_path_refusal(pkg, seat, entry)
-    if why:
-        refuse("input",
-               f"REFUSED: `{entry}` — {why}.\n"
-               f"These are the SAME four rules the spawner applies at launch, checked here so you "
-               f"read the refusal now instead of reading a SUCCESS for a grant the spawner would "
-               f"silently drop — and then relaunching into the same wall.", 1)
-    stamp = now()
-    caller = resolve_agent(args)
-    if not getattr(args, "go", False):
-        print(f"{c(seat, C_LABEL)}  WIDENABLE — `{entry}` passes the private scope and all four "
-              f"launch-time grant rules.")
-        print(f"    would append to {permission_edits_csv(base)}: "
-              f"seat `{seat}`, path `{entry}`, edited-by `{caller}`")
-        print("    (report only — nothing was written. Re-run with --go to widen.)")
-        return
-    with coord_lock(base):
-        path = permission_edits_csv(base)
-        header, rows = read_csv_table(path, PERMISSION_EDITS_COLS)
-        header, _ = widen_header(header, PERMISSION_EDITS_COLS)
-        rows = [pad_row(r, header) for r in rows]
-        rec = {"stamped-at": stamp, "seat": seat, "path": entry, "reason": reason,
-               "edited-by": caller}
-        rows.append([rec.get(col, "") for col in header])
-        write_csv_table(path, header, rows)
-    print(f"{c(seat, C_LABEL)}  CAGE WIDENED — `{entry}` is read-write for this seat from its NEXT "
-          f"launch.")
-    print(f"    {path_display(permission_edits_csv(base))}: appended, edited-by `{caller}`")
-    print(c("\nIt takes effect at the seat's NEXT launch and NOT in any session already running — a "
-            "cage is fixed at spawn. Relaunch the seat, and SAY IN YOUR MESSAGE what you widened "
-            "and why: a widened wall nobody can audit is a wall nobody can narrow again.", C_HINT))
-
-
-def path_display(p):
-    return str(p)
 
 
 # ── `route-fail` — a FAIL verdict always reaches a receiver (adv, C31/C32) ─────────────────────
@@ -28767,20 +28587,6 @@ def _selftest_checks(args, failures, names):
               and _rs4_stub[0]["folder"] is None
               and (_rs4_miss_c or 0) != 0
               and "no register carries seat" in (_rs4_miss_o + _rs4_miss_e))
-        _rs4_wid_ok, _rs4_wid_e, _rs4_wid_c = harness_outcome(
-            cmd_widen_cage, argparse.Namespace(
-                package=str(_rs4), run=None, base=None, workers_dir=None, as_agent="leader",
-                force=False, seat="b", path="data/out", reason="f2-register", go=False))
-        _rs4_wid_bad, _rs4_wid_be, _rs4_wid_bc = harness_outcome(
-            cmd_widen_cage, argparse.Namespace(
-                package=str(_rs4), run=None, base=None, workers_dir=None, as_agent="leader",
-                force=False, seat="ghost", path="data/out", reason="f2-register", go=False))
-        check("dag-10 RS-4 (widen-cage): a registered name with no folder is not refused as "
-              "missing; a name in neither CSV still refuses",
-              "not a registered seat" not in (_rs4_wid_ok + _rs4_wid_e)
-              and "no descriptor under" not in (_rs4_wid_ok + _rs4_wid_e)
-              and (_rs4_wid_bc or 0) != 0
-              and "not a registered seat" in (_rs4_wid_bad + _rs4_wid_be))
         check("dag-10 RS-4 (send census): known_recipients unions the registers, so a "
               "taskforce name with no folder is addressable",
               "b" in known_recipients(_rs4_ns, _rs4 / "coordination")
@@ -36692,7 +36498,7 @@ HELP_EPILOG = """everyday
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
   close       spawn a closer that co-writes a seat's memory.md, then closes it
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / widen-cage / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · (leader) widen ONE seat's cage by ONE workspace-relative path, audited, refusing a private path unconditionally (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / rule-disposition / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · record YOUR ruling on an already-ENDED row, written straight to sessions.csv (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
   owner / secret-add  set owner presence: present | reachable | afk · append one env NAME from a drop file (masters; value never logged)
@@ -37591,7 +37397,8 @@ def build_parser():
         "example:\n"
         "  coordinate --as ignite-daemon surface-refusal audio-component-smith --reason \"...\" --json\n"
         "next: nothing by hand — the daemon's seeding pass calls this; read the row with "
-        "coordinate read, fix the grant with widen-cage")
+        "coordinate read — the cage envelope is fixed at plan time now, so a refusal here is a "
+        "planning fix, not a runtime widen")
     s.add_argument("seat", help="the refused seat — the row is ABOUT it, never FROM it")
     s.add_argument("--reason", metavar="TEXT", default=None,
                    help="the refusal text, verbatim from the admission gate — the dedup key is derived from it")
@@ -37616,37 +37423,9 @@ def build_parser():
                    help='{"seat", "state", "why"} — `state` is `successor-pending` or `no-successor`')
     s.set_defaults(func=cmd_renewal_state)
 
-    # ── W3 · the leader's two actuators ────────────────────────────────────────────────────────
-    s = command(
-        "widen-cage",
-        "(leader) THE AUDITED PERMISSION EDIT — widen ONE seat's cage by ONE workspace-relative\n"
-        "path, with a stated reason. This is the actuator behind the leader's FIX-AND-RELAUNCH\n"
-        "disposition: the common blocker is a CAGE TOO NARROW, and this is how it is repaired.\n"
-        "\n"
-        "⚠ IT WRITES coordination/permission-edits.csv, NOT the seat's `rw-paths` cell. That cell\n"
-        "is seat.md frontmatter — ro-bound in-cage and materializer-owned, so a refresh or a splice\n"
-        "silently reverts it. The spawner reads THIS file additively at every launch, so the audit\n"
-        "log and the mechanism are ONE artifact.\n"
-        "\n"
-        "⚠ IT REFUSES A PRIVATE PATH UNCONDITIONALLY. No reason, no flag and no identity carries\n"
-        "that refusal: a pierce of the private scope is authored at MATERIALIZE time, where a human\n"
-        "reviews it, and is never granted at runtime. It also validates the four launch-time grant\n"
-        "rules HERE, so you never read a success for a grant the spawner would silently drop.\n"
-        "\n"
-        "It takes effect at the seat's NEXT launch and in no session already running.",
-        "example:\n"
-        "  coordinate widen-cage builder data/fixtures --reason \"its briefing writes here\"\n"
-        "  coordinate widen-cage builder data/fixtures --reason \"…\" --go\n"
-        "next: relaunch the seat, and SAY on the log what you widened and why")
-    s.add_argument("seat", help="the TARGET seat whose cage is widened (never the caller)")
-    s.add_argument("path", help="ONE workspace-RELATIVE path, which must already exist")
-    s.add_argument("--reason", required=True, metavar="WHY",
-                   help="REQUIRED: why this seat needs this path. A widened wall nobody can audit "
-                        "is a wall nobody can narrow again")
-    s.add_argument("--go", action="store_true", help="append it (bare = report, write nothing)")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_widen_cage)
-
+    # ── W3 · the leader's actuator ─────────────────────────────────────────────────────────────
+    # `widen-cage` (the leader's audited permission edit) was DELETED here (ruling [T2-R6, C-6],
+    # 2026-08-24): runtime auto-widen is dead, the seat's cage envelope is fixed at plan time.
     s = command(
         "route-fail",
         "Route a FAIL back to a receiver that EXISTS. The route is your own seat.md declaration\n"

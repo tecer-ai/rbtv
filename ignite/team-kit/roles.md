@@ -18,9 +18,11 @@ entries below cite.
   on every terminal non-`done` ending, a live seat's mid-run ask (the PRIMARY path — a seat that
   asks before it fails costs the run nothing), a FAIL with no declared `on-fail-relaunch:` receiver
   (`route-fail`), and an executor-failure lifecycle alarm. Each item leaves with exactly ONE
-  disposition — FIX AND RELAUNCH (`widen-cage <seat> <path> --reason "<why>" --go`, this chair's
-  verb alone, effective at that seat's NEXT launch), ROUTE to the seat that authored the
-  instruction, ANSWER, or ESCALATE — and an unfinished row is NEVER relabelled `done`. Its full
+  disposition — ROUTE to the seat that authored the instruction, ANSWER, or ESCALATE — and an
+  unfinished row is NEVER relabelled `done`. FIX AND RELAUNCH (widening a seat's cage at runtime,
+  via the now-deleted `widen-cage` verb) is GONE: ruling [T2-R6, C-6] fixes the cage envelope at
+  plan time, so a narrow-cage blocker is a planning defect, escalated like any other, not a
+  runtime repair this chair performs. Its full
   briefing is the component's own prompt (`meta/leader/prompts/leader.md`); the rest of this entry
   is the discipline that survives from the hand-launched arbiter it replaces.
   Support/arbiter, launched by the owner by hand; launches the roster at bootstrap

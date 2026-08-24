@@ -11,7 +11,10 @@
 //
 // There are in fact THREE spellings, not two:
 //   * `team-kit/coord.py#is_permission_editor`  — THE AUTHORITY. Who may run the audited
-//     `widen-cage` verb (ruling D-2). Deliberately not `is_authorized_launcher`.
+//     `widen-cage` verb (ruling D-2). ⚠ `widen-cage` and `is_permission_editor` were DELETED from
+//     coord.py ([T2-R6, C-6], 2026-08-24) — this leg now calls a symbol that no longer exists;
+//     see the same-dated team-kit memory entry for the disposition. Deliberately not
+//     `is_authorized_launcher`.
 //   * `server/spawn/spawn.js#PERMISSION_EDITOR_SEAT` — what the CAGE has in hand: the ONE seat
 //     whose `permission-edits.csv` stays read-WRITE, driven here through the real
 //     `resolvePermissionEditsRoGrant` rather than read as a constant.

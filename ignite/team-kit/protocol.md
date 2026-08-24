@@ -49,7 +49,6 @@ $COORD checkout                                 # on finish (done disposition) �
 $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle
 $COORD checkout --incomplete "<reason>" [--route leader|consultant]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and fallback: leader)
 $COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
-$COORD widen-cage <seat> <path> --reason "<why>" [--go]  # leader only — the audited permission edit: ONE seat, ONE workspace-relative path; effective at that seat's NEXT launch, never in a live session
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $COORD close <agent> [--renew]                  # leader only — FAILURE PATH: spawn a closer to dirty-close/salvage a seat that cannot check itself out. A healthy seat renews itself (line above), never through this
 $COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — leader's remedy for a dead pane, and the closer's own tail step
@@ -149,7 +148,8 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    running is the primary path and the cheap one; an `incomplete` row is the expensive one. Address
    it by SHAPE: blocked-shaped — a wall only authority lifts (a narrow cage, a permission, an
    instruction that cannot be executed as written) — goes to `leader`, naming the exact path or line
-   you could not reach, since the remedy is `widen-cage` and that verb is the leader's alone;
+   you could not reach; the cage envelope is fixed at plan time now ([T2-R6, C-6]), so there is no
+   runtime widen — the leader escalates a narrow cage as a planning defect instead of repairing it;
    guidance-shaped — a question above your scope that needs no authority — goes to `consultant`
    where the goal staffs one. The same two shapes pick `checkout --incomplete --route`.
 8. **Check out last — completion first.** When your briefing is complete: send your completion

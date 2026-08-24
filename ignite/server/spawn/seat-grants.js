@@ -79,7 +79,8 @@ function seatDeclaresList(seatDir, key) {
 // The FOUR REFUSAL RULES, in ONE function: the reason string when `entry` may not be granted
 // read-write to this seat, `null` when it may. ONE predicate for all three rw-grant sources —
 // `rw-paths` (resolveRwPathGrants below), `permission-edits.csv` (W3, the leader's audited second
-// grant source, validated against it at WRITE time by `widen-cage`), and `cli-write-roots`
+// grant source — its writer, the `widen-cage` verb, was DELETED ([T2-R6, C-6], 2026-08-24); the
+// file and this reader remain), and `cli-write-roots`
 // (`spawn.js#resolveCliWriteRootGrants`, W6) — and for `engine/cage-admission.js`, which composes
 // admissibility from the first two resolvers. A second copy of the rule anywhere is the drift
 // this file exists to prevent (a silently-dropped grant at launch reads as a successful widen in
