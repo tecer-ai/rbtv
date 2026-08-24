@@ -10,3 +10,4 @@
 2026-08-24 · change · Path A goal-wide planning-seat mint · IE-2 splice re-nested planning.csv per milestone → goal-wide mint once through the wrapper · 88ac3206 · planning,server · ⚠
 2026-08-24 · change · Fix stale rule-disposition references cross-component · No replacement instrument was invented — [T2-R5] forbids new daemon remedy verbs, and the owner-ask · a6913c6f · bridges,capabilities,meta-leader,team-kit · ⚠
 2026-08-24 · change · delete goal-stall-alarm module [T4-R10] · Delete `server/ticker/goal-stall-alarm.js` outright (stallAlarmDecision, conditionOf, STALL_MS, · 2d7b0da0 · server · ⚠
+2026-08-24 · change · engine reads ending store · verdict/outcome path now reads seat_endings+armed → 23d95ec3 · server · ⚠
