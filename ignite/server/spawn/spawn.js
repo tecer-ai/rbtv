@@ -28,11 +28,16 @@ const { resolvesInsideGoalsRoot } = require('../heart/argv-template');
 // resolvers moved to a module both import — one resolver, no copy. Re-exported below unchanged, so
 // every existing consumer and probe keeps its import path.
 const {
-  seatDeclaresList, rwPathRefusal, conflictBind,
+  seatDeclaresList, rwPathRefusal,
 } = require('./seat-grants');
 const {
   isStaffUncaged, admitLaunch, bindsToSpec, LaunchRefused,
 } = require('../../envelope/launch');
+// The ONE answer to "is this covering pair at different access a conflict?" (spec-envelope §2
+// makes `ignite/envelope/` the source of carve truth). Imported for the exposed-CLI cover check
+// below, for the same reason `cage.js#lastCovering` imports it (`f6df6cae`): a second spelling
+// of the carve rules drifts, and it drifts in the direction that refuses real launches.
+const { authorizedCarve } = require('../../envelope/compiler');
 const { loadCentralStore, injectDeclaredEnv } = require('../../envelope/credentials');
 const { stampLaunchRefused } = require('../../envelope/stamp');
 const {
@@ -1038,6 +1043,48 @@ function resolveExposedCliGrants(seatPath, log) {
   return grants;
 }
 
+// ── The exposed-CLI COVER CHECK — pairwise, and carve-aware ──────────────────────────────────
+//
+// An `exposed-clis:` grant mounts a code tree ro. If that tree covers (or sits inside) a bind the
+// envelope already opened rw, the seat would be handed two answers about the same path, so the
+// launch refuses at compose time — that posture is `20260824-c-envelope-launch-refuse-and-inj`'s
+// and is unchanged here.
+//
+// What changed is WHO answers "is this covering pair a conflict?". `seat-grants.js#conflictBind`
+// answers it with no carve rules at all, which is right for the legacy grant arrays it was
+// written for and wrong for a COMPILED bind list: the compiler's own admitted output legitimately
+// holds `{goal}` rw over the daemon-owned `{goal}/seats` ro (and, since `c3ceb005`, the own-seat
+// punch triple `{goal}` rw / `{goal}/seats` ro / `{self}` rw inside it). Run unchanged over
+// `admitted.binds`, `conflictBind` read that pre-existing pair as a conflict and refused EVERY
+// seat declaring an exposed CLI, before any process was born — the trap that entry's ATTENTION
+// names ("do not re-run `conflictBind` over a compiled bind list"), and the last predicate still
+// re-deriving conflict for itself after `f6df6cae` (`cage.js#lastCovering`) and `c3ceb005`
+// (`launch.js`) aligned the other two.
+//
+// So: the same pairwise shape and the same refuse value, with a pair the compiler would have
+// authorized skipped — asked of `compiler.js#authorizedCarve`, never re-spelled here. Pairwise
+// like `compiler.js#findConflict` rather than "some rw and some ro somewhere in the list", which
+// is a coarser question that answers yes for lists holding no conflict at all.
+//
+// The exposedCli entries carry no `family`/`origin`, so `authorizedCarve` finds nothing to
+// authorize on any pair involving one: an exposed CLI's ro tree overlapping an rw bind — in
+// either direction — still refuses, and so does the identical-path case (`a.path === b.path`
+// never carves, in `findConflict` and here alike).
+function exposedCliConflict(sources) {
+  const list = sources || [];
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+      if (!a || !b || a.access === b.access) continue;
+      if (!contains(a.path, b.path) && !contains(b.path, a.path)) continue;
+      if (a.path !== b.path && authorizedCarve(a, b)) continue;
+      return { kind: 'conflict', path: a.path, pair: [a, b] };
+    }
+  }
+  return null;
+}
+
 // ── W6 · `cli-write-roots:` — the SKILL-DERIVED write grants ─────────────────────────────────
 //
 // A seat exposes a skill; the skill's entry point declares `exposes-cli:`; those CLIs' exposure
@@ -1192,8 +1239,13 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     throw new LaunchRefused(admitted.refuse);
   }
   if (exposedClis.length > 0) {
-    const clash = conflictBind([
-      ...admitted.binds.map((b) => ({ path: b.path, access: b.access, source: b.source || 'envelope' })),
+    // `family`/`origin` ride along exactly as they do into `bindsToSpec`: the carve question is
+    // unanswerable from `{path, access}` alone, and dropping them here makes `authorizedCarve`
+    // see `undefined` families, authorize nothing, and the false refusal return in full.
+    const clash = exposedCliConflict([
+      ...admitted.binds.map((b) => ({
+        path: b.path, access: b.access, family: b.family, origin: b.origin, source: b.source || 'envelope',
+      })),
       ...exposedClis.map((g) => ({ path: g.exposedCliCode, access: 'ro', source: 'exposedCli' })),
     ]);
     if (clash) {
@@ -2245,6 +2297,10 @@ module.exports = {
   // Exported for server/spawn/probes/probe-resolve-seat-grants.js: the dual-root discovery
   // (P3 self-root) must be driven, not re-read from this file.
   resolveSeatGrants,
+  // Exported for `probes/probe-envelope-walls.js` leg 10, which drives this predicate over a REAL
+  // `admitLaunch` bind list. A probe that re-composed the list itself would prove its own fixture
+  // and not the branch that refused every exposed-CLI seat.
+  exposedCliConflict,
 };
 
 function validateSpawnRequest(req) {

@@ -7,6 +7,9 @@ const { capture, fixtureRoot } = require('./lib');
 const { admitLaunch } = require('../../../envelope/launch');
 const { writeWallReport } = require('../../../envelope/wall-report');
 const { writeConfigShims, realStoreOnBinds } = require('../../../envelope/shims');
+// Leg 10 drives the REAL exposed-CLI cover check out of the spawn door, not a copy of it: the
+// defect it pins lived in that branch, so a probe re-spelling the predicate would prove nothing.
+const { exposedCliConflict } = require('../spawn');
 
 capture('probe-envelope-walls', async (lines) => {
   const root = fixtureRoot('env-walls-');
@@ -147,6 +150,33 @@ capture('probe-envelope-walls', async (lines) => {
       ghost.spawn === false && ghost.refuse && ghost.refuse.kind === 'unresolved'
         && ghost.refuse.source === 'own-seat',
       `refuse=${JSON.stringify(ghost.refuse)}`);
+
+    // ── leg 10 — AN EXPOSED CLI LAUNCHES OVER THE STANDARD GOAL BINDS ────────────────────────
+    // `spawn.js#composeCageFor` re-asks "does anything cover anything else at a different
+    // access?" over the COMPILED bind list once a seat declares `exposed-clis:`. Asked without
+    // the compiler's carve rules, the answer is yes for a list the compiler itself admitted —
+    // `{goal}` rw covers the daemon-owned `{goal}/seats` ro, and the own-seat punch adds
+    // `{self}` rw inside that — so every such seat refused at spawn before any process existed.
+    // Two arms, because the fix is only correct if it kept the refusal it was hiding: an ordinary
+    // exposed CLI (code tree overlapping nothing at a different access) admits, and a CLI whose
+    // code tree lands ro inside an opening the envelope holds rw still refuses. The second arm is
+    // what says this is a carve, not a disabled check.
+    const cliCode = path.join(rbtvRepo, 'ignite', 'team-kit');
+    fs.mkdirSync(cliCode, { recursive: true });
+    const sourcesFor = (codeDir) => [
+      ...(punched.binds || []).map((b) => ({
+        path: b.path, access: b.access, family: b.family, origin: b.origin, source: b.source || 'envelope',
+      })),
+      { path: codeDir, access: 'ro', source: 'exposedCli' },
+    ];
+    const admits = exposedCliConflict(sourcesFor(cliCode));
+    // `{goal}/scratch` is bound rw by family 4 (leg 6); an exposed CLI rooted there is the real
+    // shape of the refusal — an ro tree at a different access inside an rw opening, and carried by
+    // no family or origin, so there is nothing for `authorizedCarve` to authorize.
+    const overRw = exposedCliConflict(sourcesFor(scratch));
+    leg('10', 'a seat with an exposed CLI launches over the standard goal binds, and an exposed CLI landing ro inside an rw bind still refuses',
+      admits === null && !!overRw && overRw.kind === 'conflict',
+      `admits=${JSON.stringify(admits)} over-rw=${JSON.stringify(overRw && overRw.pair && overRw.pair.map((x) => `${x.access}:${x.source}:${x.path}`))}`);
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   }
