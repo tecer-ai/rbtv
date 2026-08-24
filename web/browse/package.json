@@ -1,0 +1,25 @@
+{
+  "name": "@rbtv/browse",
+  "private": true,
+  "description": "Dependency manifest for the browse component — the browser CLIs the environment must provide. Declaration only; never published, never installed in place. `defuddle` is NOT here: it moved to the web/capture component with the reading job (owner-ruled 2026-08-21). See concepts/dependency-manifest.md in the system-definition registry.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "agent-browser": ">=0.33",
+    "playwright": ">=1.61"
+  },
+  "rbtv": {
+    "manager": "npm",
+    "check": {
+      "node": "node -v",
+      "agent-browser": "command -v agent-browser",
+      "playwright": "command -v playwright"
+    },
+    "install": {
+      "node": "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs",
+      "agent-browser": "npm install --global --prefix \"${RBTV_BIN_ROOT:-$HOME/.local}\" agent-browser",
+      "playwright": "npm install --global --prefix \"${RBTV_BIN_ROOT:-$HOME/.local}\" playwright && playwright install chromium"
+    }
+  }
+}
