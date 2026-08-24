@@ -333,8 +333,9 @@ directions are safe.
 
 ⚠ **THERE IS NO `--relaunch` ESCAPE ANY MORE (D12, 2026-08-20).** The one-shot grant that used to
 release a held seat is deleted with the rest of the grant machinery. A seat held on an unanswered
-owner ask is released by the ANSWER, and a seat nobody will answer is released by the leader ruling
-its row (`coordinate rule-disposition <seat> done --go`).
+owner ask is released by the ANSWER. `rule-disposition`, the leader verb that used to release a
+seat nobody would answer, is itself deleted [T2-R12, T1-R9] — that release path does not currently
+exist; owner authorization is now an answer to a live ask, and that door is not wired here yet.
 
 ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED).** The revival still mints
 a second `executions.csv` row for the seat — and since W2 the two facts come from **different

@@ -293,11 +293,13 @@ function deriveOwed(goalFolder, {
     // — and this scan reads only that cell. So the leader was re-woken every cadence, forever,
     // with identical output (17:37/17:43/17:48, measured).
     //
-    // ⚠ THE SKIP IS THE WATCHER'S ALONE. `ready-seats` still reports the row's real class, the
-    // row still blocks its successors and it is still rulable at any time. Nothing here advances
-    // an edge and nothing reads this cell as authorization: it is an ANCHOR STRING written by
-    // `coord.py rule-disposition --hold` and released by the next real ruling on the same row.
-    // Not a grant, not a latch, no expiry, nothing to spend (D12 intact).
+    // ⚠ THE SKIP IS THE WATCHER'S ALONE. `ready-seats` still reports the row's real class and
+    // the row still blocks its successors. Nothing here advances an edge and nothing reads this
+    // cell as authorization: it is an ANCHOR STRING, read but no longer writable by any runtime
+    // instrument — `coord.py rule-disposition --hold`, its writer, was deleted [T2-R12, T1-R9].
+    // Not a grant, not a latch, no expiry, nothing to spend (D12 intact). A row already holding
+    // one from before this deletion is released exactly as before, by whatever eventually
+    // replaces the deleted ruling instrument (not built here — see nontermPayload above).
     if ((row['hold-anchor'] || '').trim()) continue;
     // D33(a) · the word IS the split. `incomplete` → that seat, by name. Everything else
     // non-terminal → the leader, who is the only actor with a verb for it.
@@ -421,18 +423,10 @@ function nontermPayload(rows) {
     ...rows.map((r) => `- \`${r.seat}\` — last row \`${r.disposition || '(empty)'}\`, ended ${r.ended}`),
     '',
     'Each of those rows ended with an ending nothing can advance on, and no seat can close',
-    'its own. You are the only actor with a verb for them (D33b):',
-    '',
-    '    rule-disposition <seat> done --anchor <p-*/d-* or message ref> --go',
-    '    rule-disposition <seat> "" --anchor <p-*/d-* or message ref> --go   # CLEAR the row',
-    '',
-    'A `done` ruling\'s anchor must quote the on-disk evidence. Rule them or this wake repeats.',
-    '',
-    'If a row must simply WAIT — you investigated it and ruled that it stays as it is — HOLD it',
-    'and this wake stops repeating on it (D42). The cell keeps its value, the row keeps blocking',
-    'its successors, and the next real ruling releases the hold in the same act:',
-    '',
-    '    rule-disposition <seat> --hold --anchor <p-*/d-* or message ref> --go',
+    'its own. No runtime ruling instrument exists for them any more: `rule-disposition` (the',
+    'verb that used to record a ruling or a HOLD on a row) was deleted [T2-R12, T1-R9] — owner',
+    'authorization is now an answer to a live ask, not a standing CLI ruling, and that door is',
+    'not wired here yet. This wake will keep repeating on these rows until it is.',
     '',
     'A CRASHED SEAT IS RE-RUN IN ONE ACT (D42). A row reading `exited` is the KIT saying the',
     'harness TERMINATED and the work is UNKNOWN — never that it finished. Do NOT clear it first:',

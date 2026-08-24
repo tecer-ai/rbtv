@@ -539,9 +539,10 @@ the bus by its one writer (`coord.py send --type answer --re <n>`, driven by
 `engine/bus-answer.js#recordBusAnswer`, which resolves the ask id via the surviving
 `execution-record.js#openOwnerAsks` pairing). Once the ask is answered `ready-seats` stops reporting
 `HELD`, and coord's `cmd_checkout` — which refuses a `done` while the seat's ask is open — admits
-the check-out that advances the successors' `after` members. When no answer is coming, the escape
-is the owner ruling the row (`coordinate rule-disposition <seat> done --go`), not a grant: D12
-deleted `--relaunch`.
+the check-out that advances the successors' `after` members. When no answer is coming, there is
+currently no escape: D12 deleted `--relaunch`, and `rule-disposition`, the owner-ruling verb that
+used to release such a row, is itself deleted [T2-R12, T1-R9] — owner authorization is now an
+answer to a live ask, and that door is not wired here yet.
 
 ⚠ **ONLY AN `answer` RELEASES.** A `note` in the same direction does not count: the closed CMP-8
 vocabulary has a word for answering and a different word for remarking, and a peer's aside must not

@@ -284,18 +284,24 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     // the real coord.py flag spelling (`launch --only <seat> --declare-only <anchor>`), and must
     // no longer claim a CLEAR re-arms an ordinary relaunch.
     assert.ok(!/ordinary relaunch/.test(payload), `payload still promises an ordinary relaunch: ${payload}`);
-    // D42 · the payload must ALSO name the CRASHED row's own one-act door and the HOLD, and it
-    // keeps D39's CLEAR-is-two-acts text for cleared rows. A wake that offers only the cleared
-    // row's path is the F-3 defect: a tool advertising a return path that returns nothing.
-    for (const needle of ['checker', 'unverified', 'runner', 'exited', 'rule-disposition',
+    // D42 · the payload must ALSO name the CRASHED row's own one-act door, and it keeps D39's
+    // CLEAR-is-two-acts text for cleared rows. A wake that offers only the cleared row's path is
+    // the F-3 defect: a tool advertising a return path that returns nothing. `rule-disposition`
+    // (the ruling/HOLD verb) was deleted [T2-R12, T1-R9] — the payload must say so, not name it
+    // as a live instrument.
+    for (const needle of ['checker', 'unverified', 'runner', 'exited',
+      'No runtime ruling instrument exists', '[T2-R12, T1-R9]',
       'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH',
-      'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT',
-      'rule-disposition <seat> --hold --anchor']) {
+      'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT']) {
       assert.ok(payload.includes(needle), `leader payload never names ${needle}: ${payload}`);
     }
+    // The payload MAY name `rule-disposition` to explain it is gone, but must never present it
+    // as a runnable command (an indented command line, as every live verb above is shown).
+    assert.ok(!/^ {4}rule-disposition\b/m.test(payload),
+      `leader payload still presents rule-disposition as a runnable command: ${payload}`);
     assert.ok(!/^- `writer`/m.test(payload), `the by-name seat leaked into the leader payload: ${payload}`);
     say(`ok  writer workdir=…${q['seat-fx-split-writer'].workdir.slice(-20)}`);
-    say(`ok  leader payload (${payload.length} chars) names checker/unverified, runner/exited and rule-disposition`);
+    say(`ok  leader payload (${payload.length} chars) names checker/unverified, runner/exited, no rule-disposition`);
     say(payload.slice(payload.indexOf('## The watcher woke you')));
   } finally {
     store.close();
