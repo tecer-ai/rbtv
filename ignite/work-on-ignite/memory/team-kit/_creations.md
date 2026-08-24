@@ -10,3 +10,4 @@
 2026-08-23 · creation · memory commit verb + daily commit job · caged distill seat can write memory but not commit → file-issue memory commit (pathspec) fired by the daemon fire-tool job memory-commit daily 11:05Z after the 10:33Z distill; a new tools: entry needs deploy, not restart · dd271085 · work-on-ignite,config · ⚠
 2026-08-24 · change · move-only split of coord.py into 16 loaded siblings · Sixteen map-named units left the monolith as sibling files under `team-kit/`, and `coord.py` · 867a240f · — · ⚠
 2026-08-24 · creation · planning-door lock and wrapper · C5 splice had no lock → flock + supervised wrapper · 9dcfdf44 · — · ⚠
+2026-08-24 · change · kit endings via store client · dual writers gone → ending_store.py calls state-store/cli.js · 795459fa · capabilities · ⚠ absolutize outputs before stamp
