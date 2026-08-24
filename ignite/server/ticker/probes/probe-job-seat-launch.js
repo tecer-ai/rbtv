@@ -26,6 +26,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const { setup, teardown, capture } = require('./lib');
+const { fixtureRoot } = require('../../spawn/probes/lib');
 
 // Build a real goal tree the resolver will accept: a goals.csv row, a REAL tmux room (the goal is
 // EXECUTING — 7.607 E2a: `resolveSeatHome` asks the derived lease, not a register), seat.md naming
@@ -90,11 +91,15 @@ async function run(lines) {
     'seat-profile': {
       exec: { argv: ['bash', '-c', 'exec sleep 3600', '--model', 'seat-profile'], prompt: 'stdin' },
       session_ref: { source: 'cwd-implicit' },
-      workdir_root: '/tmp',
+      workdir_root: '/var/tmp',   // matches the fixture workspace root (see fixtureRoot)
       caps: { memory_max: '64M', runtime_max: '1h' },
     },
   });
-  const wsRoot = fs.mkdtempSync('/tmp/p712-ws-');
+  // NOT under /tmp: families 4 and 7 bake it RW, so a workspace there is RW and RO at once.
+  const wsRoot = fixtureRoot('p712-ws-');
+  // Envelope family 6 ro-binds `{workspace}/.rbtv/mirror`, and the compiler refuses a baked path
+  // that does not resolve — a real workspace always has one.
+  fs.mkdirSync(path.join(wsRoot, '.rbtv', 'mirror', 'x'), { recursive: true });
   const prevEnv = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
   process.env.RBTV_IGNITE_WORKSPACE_ROOT = wsRoot;
 

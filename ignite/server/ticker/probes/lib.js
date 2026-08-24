@@ -2,7 +2,6 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const yaml = require('js-yaml');
 const { openHeartStore, closeHeartStore } = require('../../heart/heart-store');
 const { createSpawnManager } = require('../../spawn/spawn');
@@ -10,10 +9,10 @@ const { createTicker } = require('../ticker');
 // 7.544 — ONE reaper implementation, owned by the spawn probe fixture (PRIN-11). Both fixtures
 // spawn through the same carrier and leak the same `rbtv-worker-*` units; a second copy here is
 // the same drift as a second rule.
-const { reapWorkerUnit } = require('../../spawn/probes/lib');
+const { reapWorkerUnit, fixtureRoot } = require('../../spawn/probes/lib');
 
 function setup(configOverrides = {}, extraProfiles = {}, extraHarnesses = null) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-1-probe-'));
+  const tmp = fixtureRoot('p3-1-probe-');
   const dataRoot = path.join(tmp, 'data');
   const workRoot = path.join(tmp, 'work');
   const defaultWorkdir = path.join(tmp, 'default');
@@ -28,6 +27,9 @@ function setup(configOverrides = {}, extraProfiles = {}, extraHarnesses = null) 
   const runDir = path.join(workRoot, '.rbtv', 'goals', 'probe-goal');
   const seatDir = path.join(runDir, 'seats', 'probe-seat');
   fs.mkdirSync(seatDir, { recursive: true });
+  // Envelope family 6 ro-binds `{workspace}/.rbtv/mirror`; the compiler refuses a baked path that
+  // does not resolve, and a real workspace always has one.
+  fs.mkdirSync(path.join(workRoot, '.rbtv', 'mirror', 'x'), { recursive: true });
   fs.writeFileSync(path.join(seatDir, 'seat.md'), '---\nseat: probe-seat\nharness: bash\nmodel: test-sleep\n---\n');
   fs.writeFileSync(path.join(runDir, 'sessions.csv'), 'seat,session-id,harness,workdir,pid,pid-starttime,tty,worktree-path,started,ended\n');
 
