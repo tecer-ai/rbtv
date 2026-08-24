@@ -727,16 +727,16 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const outcome = threadMap.has(chatThreadId)
       ? await forwardFollowUp({ chatThreadId, text, route })
       : await forwardSessionCreate({ chatThreadId, text, route });
-    // The `open_asks` row for an owner ask to `goal-master` (spec-state-store §3), so an
-    // unanswered one survives to the seat's next daemon-fired sitting and so §2.1 can DERIVE that
-    // the seat is waiting on the owner. GOAL ROUTE ONLY: 'agent'/'master' traffic has no
-    // `goal-master` ask to lose, and `recordBusAnswer` already covers the 'agent' direction. A
-    // REFUSED/undelivered turn records nothing — there is nothing to wait on if the ask never
-    // reached the seat, and a row that is not `posted` is not a wait either.
+    // D57/D75 — durable record of an owner ask to `goal-master`, so an unanswered one survives
+    // to the seat's next daemon-fired sitting (`unanswered_ask_block`, folded into `boot_prompt`).
+    // GOAL ROUTE ONLY: 'agent'/'master' traffic has no `goal-master` ask to lose, and
+    // `recordBusAnswer` already covers the 'agent' direction. A REFUSED/undelivered turn records
+    // nothing — there is nothing durable to survive if the ask never reached the seat.
     //
-    // ⚠ ONE ROW PER THREAD [T5-R7]. The ask IS `chatThreadId`; a second owner message in the same
-    // thread is the same ask, not a queued second one. A genuinely new question arrives in a new
-    // thread and therefore mints a new `ask_id`.
+    // ⚠ NOT YET MIGRATED TO `open_asks` — see the same note at `chat-bridge.js#deliverToOwner`.
+    // §3 rules this file replaced by the daemon-owned table; the bridge is a separate process
+    // walled off from the store, so the write has no boundary-legal home until a daemon-side
+    // writer is reached by a gateway intent. Surfaced, not decided here.
     if (route && route.kind === 'goal' && route.goalId && outcome && outcome.forwarded === true
         && config && config.workspaceRoot) {
       try {

@@ -947,20 +947,28 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // ONE place every conversation-addressed post passes through, which is why the
     // clear hangs here and not in the reply leg.
     if (posted && posted.delivered !== false) clearPending(chatThreadId);
-    // The `open_asks` row this reply settles, reaped at the ONE place every owner-facing post
-    // passes through. `answersOwnerAsk` is true only for a GENUINELY conformant fenced reply
-    // (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a FALLBACK_TEXT/GIVE_UP_NOTICE/
-    // DEAD_AIR_NOTICE post is a system stand-in and never settles an ask.
+    // D57/D75 — the SAME store `unanswered_ask_block` reads, marked at the ONE place every
+    // owner-facing post passes through. `answersOwnerAsk` is true only for a GENUINELY
+    // conformant fenced reply (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a
+    // FALLBACK_TEXT/GIVE_UP_NOTICE/DEAD_AIR_NOTICE post is a system stand-in, never marks
+    // answered (Q1 = A, owner-ruled D89: only a conformant reply counts). No `askId` is passed
+    // here — under D89 Q4 several asks can be open at once, and with none supplied `markAnswered`
+    // settles the OLDEST open one (see ask-store.js's own header for the full rule); this call
+    // site has no per-ask thread reference to pass a more specific one.
     //
-    // ⚠ THE ASK IS NAMED BY ITS THREAD, and that is the whole release rule [D-4-ruling, T1-R12]:
-    // an authorized reply releases the ask bound to THAT EXACT thread. The old "with no askId,
-    // settle the oldest open one" fallback is DELETED — it is how a reply to one question closed
-    // a different one — so `chatThreadId` is passed here and `markAnswered` refuses without it.
+    // ⚠ NOT YET MIGRATED TO `open_asks`, AND THE REASON IS A WALL, NOT AN OVERSIGHT.
+    // spec-state-store §3 replaces this file with the daemon-owned `open_asks` table. The bridge
+    // is a SEPARATE PROCESS that reaches the daemon ONLY over the gateway (bridges/chat/index.js
+    // header; `probes/probe-chat-boundary.js` enforces no store handle and no child process here),
+    // so it cannot write that table without becoming a second writer process into heart.db —
+    // which §7's "one writer path per row" forbids for the same reason. Closing this needs a
+    // daemon-side writer reached by a gateway intent, and a new intent is an owner-ruled act
+    // (the twelfth, `record-bus-answer`, cites ruling 2026-08-11). Surfaced, not decided here.
     if (answersOwnerAsk && posted && posted.delivered !== false && goalChannels) {
       const goalId = goalChannels.goalForChannel(chatThreadId);
       if (goalId) {
         try {
-          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master', askId: chatThreadId });
+          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master' });
         } catch (err) {
           log('warn', 'owner-ask record NOT marked answered — it may re-inject even though this reply landed', { chatThreadId, goalId, error: err.message });
         }
