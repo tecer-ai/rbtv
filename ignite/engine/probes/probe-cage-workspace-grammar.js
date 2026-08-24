@@ -6,14 +6,14 @@
 // D2 (2026-08-19). The measured defect this holds closed (G-owner-console-0818-2030): a seat
 // whose `## Outputs` declared workspace-relative mirror paths (`.rbtv/mirror/…`) was refused
 // `producer-cannot-write` quoting the GOAL ro-bind — the token was resolved goal-relative, and
-// the gate composed from `goal-writes` only, so no `rw-paths:` declaration and no
-// `coordination/permission-edits.csv` widen could ever flip the verdict: a permanent,
-// misdiagnosed refusal loop, journal-only. Four arms:
+// the gate composed from `goal-writes` only, so no `rw-paths:` declaration could ever flip the
+// verdict: a permanent, misdiagnosed refusal loop, journal-only. Three arms (a former second arm,
+// admitting on a `coordination/permission-edits.csv` row, was DELETED with the grant store it
+// exercised — [T2-R12, T1-R9], 2026-08-24):
 //
 //   1. ADMIT on the `rw-paths:` grant — the frontmatter class the spawner composes.
-//   2. ADMIT on a `permission-edits.csv` row — the leader's audited widen lane.
-//   3. REFUSE with `no-workspace-grant` (naming BOTH grant classes, never the goal bind) when
-//      both classes are absent.
+//   3. REFUSE with `no-workspace-grant` (naming the grant class, never the goal bind) when
+//      it is absent.
 //   4. The GOAL grammar follows D3 (2026-08-19): a `goal-writes`-covered token still admits;
 //      an ordinary in-goal token now also admits (the whole goal folder is RW). A wall-control
 //      surface (`seat.md`) still refuses `producer-cannot-write` — those ro-binds are the fence
@@ -37,7 +37,7 @@ const OUT_PATH = path.join(HERE, 'probe-cage-workspace-grammar.out');
 const { admitDeclaredOutputs } = require('../cage-admission');
 const { surfaceCageRefusal } = require('../seeding');
 const { loadConfig } = require('../../server/spawn/config');
-const { resolveRwPathGrants, resolvePermissionEditGrants } = require('../../server/spawn/seat-grants');
+const { resolveRwPathGrants } = require('../../server/spawn/seat-grants');
 const { contains } = require('../../server/spawn/cage');
 
 const start = Date.now();
@@ -63,7 +63,7 @@ function liveSeatBinds() {
 
 // A scratch WORKSPACE (never under the real .rbtv/goals — the live daemon scans that tree) with
 // a mirror subtree and one fixture goal holding one seat.
-function fixture({ rwPaths, permissionEditsRow, outputs }) {
+function fixture({ rwPaths, outputs }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-cage-ws-'));
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'fixture-goal');
@@ -77,10 +77,6 @@ function fixture({ rwPaths, permissionEditsRow, outputs }) {
   const body = ['<io-spec>', '## Outputs',
     ...outputs.map((t) => `- \`${t}\``), '</io-spec>', ''].join('\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), fm.join('\n') + '\n' + body);
-  if (permissionEditsRow) {
-    fs.writeFileSync(path.join(goalDir, 'coordination', 'permission-edits.csv'),
-      `seat,path,granted-by,granted-at\n${SEAT},.rbtv/mirror/communication,leader,2026-08-19T00:00:00Z\n`);
-  }
   return { root, ws, goalDir, seatDir };
 }
 
@@ -105,22 +101,14 @@ function main() {
     check('arm 1 parity: the SPAWNER\'s resolver composes a writable bind containing the admitted path',
       g1.some((g) => contains(g.rwPath, path.resolve(f1.ws, MIRROR_TOKEN))), JSON.stringify(g1));
 
-    // 2 — the leader's audited widen lane admits, through the same shared resolver.
-    const f2 = make({ rwPaths: false, permissionEditsRow: true, outputs: [MIRROR_TOKEN] });
-    check('arm 2: mirror token ADMITTED on a `permission-edits.csv` row alone',
-      admit(f2, seatBinds) === null, `refused: ${admit(f2, seatBinds)}`);
-    const g2 = resolvePermissionEditGrants({ workspaceRoot: f2.ws, goalDir: f2.goalDir, seatDir: f2.seatDir, seat: SEAT }, () => {});
-    check('arm 2 parity: the SPAWNER\'s permission-edits resolver composes the same grant',
-      g2.some((g) => contains(g.rwPath, path.resolve(f2.ws, MIRROR_TOKEN))), JSON.stringify(g2));
-
-    // 3 — no grant, no admission — and the refusal must name the WORKSPACE grant classes, never
+    // 3 — no grant, no admission — and the refusal must name the WORKSPACE grant class, never
     // the goal ro-bind (that misdiagnosis is the measured defect).
     const f3 = make({ rwPaths: false, outputs: [MIRROR_TOKEN] });
     const r3 = admit(f3, seatBinds) || '';
-    check('arm 3: mirror token REFUSED with `no-workspace-grant` when both grant classes are absent',
+    check('arm 3: mirror token REFUSED with `no-workspace-grant` when the grant class is absent',
       r3.includes('no-workspace-grant'), r3.slice(0, 300) || 'admitted');
-    check('arm 3: the refusal names BOTH missing grant classes (`rw-paths:` and `permission-edits.csv`)',
-      r3.includes('rw-paths') && r3.includes('permission-edits.csv'), r3.slice(0, 300));
+    check('arm 3: the refusal names the missing grant class (`rw-paths:`)',
+      r3.includes('rw-paths'), r3.slice(0, 300));
     check('arm 3: the refusal is NOT the misdiagnosed `producer-cannot-write` quoting the goal bind',
       !r3.includes('producer-cannot-write'), r3.slice(0, 300));
 
@@ -165,8 +153,8 @@ const exitCode = failures.length ? 1 : 0;
 say('');
 say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
-  : 'RESULT: PASS — the admission gate admits workspace-grammar outputs on either spawner grant '
-    + 'class (shared resolvers, so the two sides agree by construction), refuses grantless ones '
+  : 'RESULT: PASS — the admission gate admits workspace-grammar outputs on the spawner\'s `rw-paths` '
+    + 'grant (the shared resolver, so the two sides agree by construction), refuses grantless ones '
     + 'naming the missing grant, admits ordinary in-goal tokens (D3: goal folder is RW), still '
     + 'refuses a wall-control surface (`seat.md`), and lands each refusal on the goal bus exactly once.');
 say(`WALL_MS ${Date.now() - start}`);

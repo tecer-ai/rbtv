@@ -12,7 +12,7 @@
 // carried the refusal on every leader spawn (18 lines in 3 days). The rule is now a WALLED-SET
 // test (`goalsTreeRefusal`): goals root · goal roots · `seats/` · `coordination/` · the record
 // files, lexically AND through symlinks; a proper goal subfolder is admitted. ONE predicate for
-// `rw-paths`, `permission-edits.csv` and `cli-write-roots`, and for `engine/cage-admission.js`.
+// `rw-paths` and `cli-write-roots`, and for `engine/cage-admission.js`.
 //
 // Driven through `composeCageFor` — the ONE composer both spawn doors use — against a real goal
 // tree on disk and the SHIPPED template (`config/spawn-profiles.yaml`'s `cage.SeatBinds`, read

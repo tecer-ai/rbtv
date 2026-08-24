@@ -11,10 +11,11 @@
 // (`## Requires-reach`) and `cage-admission.js#admitLaneReach` refuses at the pre-enqueue door:
 //   1. `cli stools` with NO `exposed-clis:` declaration → refused `no-cli-grant`, by name.
 //   2. the same seat WITH the declaration → admitted.
-//   3. a `path` entry covered ONLY by a `permission-edits.csv` row → admitted; row removed →
-//      refused `lane-cannot-reach`.
 //   4. a malformed entry → refused (an unreadable requirement is never a met one).
 //   5. the refusal lands EXACTLY ONCE on the goal bus through the landed D2 surfacing wire.
+//
+// (A former arm 3, admitting a `path` entry ONLY on a `coordination/permission-edits.csv` row,
+// was DELETED with the grant store it exercised — [T2-R12, T1-R9], 2026-08-24.)
 //
 // D9 · GOAL-LIVE BEFORE GRANT SPEND. The measured defect (G-leader-0818-1830,
 // meet-transcript-summarizer): two relaunch grants burned with no session row — `seedGoal`'s
@@ -63,7 +64,7 @@ function liveSeatBinds() {
 
 // A scratch WORKSPACE (never under the real .rbtv/goals — the live daemon scans that tree) with
 // one fixture goal, one seat, and a workspace tool subtree a `path` reach can point at.
-function reachFixture({ exposedClis, permissionEditsRow, reach }) {
+function reachFixture({ exposedClis, reach }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-'));
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'fixture-goal');
@@ -77,10 +78,6 @@ function reachFixture({ exposedClis, permissionEditsRow, reach }) {
   const body = ['<io-spec>', '## Outputs', `- \`coordination/${SEAT}-verdict.md\``,
     '## Requires-reach', ...reach, '</io-spec>', ''].join('\n');
   fs.writeFileSync(path.join(seatDir, 'seat.md'), fm.join('\n') + '\n' + body);
-  if (permissionEditsRow) {
-    fs.writeFileSync(path.join(goalDir, 'coordination', 'permission-edits.csv'),
-      `seat,path,granted-by,granted-at\n${SEAT},tools/stools/.git,leader,2026-08-19T00:00:00Z\n`);
-  }
   return { root, ws, goalDir, seatDir };
 }
 
@@ -99,17 +96,15 @@ function laneReachArms(seatBinds, roots) {
   check('arm 2: the SAME seat WITH the `exposed-clis:` declaration is ADMITTED',
     admit(f2) === null, `refused: ${admit(f2)}`);
 
-  // 3 — a `path` reach covered ONLY by the leader's audited widen lane admits…
-  const f3 = make({ exposedClis: false, permissionEditsRow: true, reach: ['- path `tools/stools/.git`'] });
-  check('arm 3a: `path tools/stools/.git` covered ONLY by a `permission-edits.csv` row is ADMITTED',
-    admit(f3) === null, `refused: ${admit(f3)}`);
-  // …and with the row removed the same reach is refused, naming the grant lanes.
-  fs.rmSync(path.join(f3.goalDir, 'coordination', 'permission-edits.csv'));
+  // 3 — the leader's audited widen lane (`coordination/permission-edits.csv`) is DELETED
+  // ([T2-R12, T1-R9], 2026-08-24); a `path` reach with no grant at all is refused, naming the
+  // one remaining grant lane.
+  const f3 = make({ exposedClis: false, reach: ['- path `tools/stools/.git`'] });
   const r3 = admit(f3) || '';
-  check('arm 3b: with the row REMOVED the same `path` reach is REFUSED `lane-cannot-reach`',
+  check('arm 3: `path tools/stools/.git` with NO grant is REFUSED `lane-cannot-reach`',
     r3.includes('lane-cannot-reach'), r3.slice(0, 300) || 'admitted');
-  check('arm 3b: the refusal names BOTH grant lanes (`rw-paths:` and `permission-edits.csv`)',
-    r3.includes('rw-paths') && r3.includes('permission-edits.csv'), r3.slice(0, 300));
+  check('arm 3: the refusal names the grant lane (`rw-paths:`)',
+    r3.includes('rw-paths'), r3.slice(0, 300));
 
   // 4 — fail closed: an unparseable entry refuses rather than passing as "no requirement".
   const f4 = make({ exposedClis: true, reach: ['- clii `stools`'] });
@@ -219,7 +214,7 @@ say('');
 say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
   : 'RESULT: PASS — the pre-enqueue door refuses a lane whose reach the composed cage cannot '
-    + 'satisfy (cli via exposed-clis, path via the two workspace grant lanes, fail-closed on '
+    + 'satisfy (cli via exposed-clis, path via the `rw-paths` grant lane, fail-closed on '
     + 'malformed entries, surfaced once on the bus), and seedGoal refuses a not-live goal BEFORE '
     + 'any relaunch grant is spent while a live one seeds and spends normally.');
 say(`WALL_MS ${Date.now() - start}`);

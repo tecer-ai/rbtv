@@ -44,7 +44,7 @@ function fixture() {
   fs.writeFileSync(path.join(peerDir, 'seat.md'), '---\nseat: peer\n---\nPEER\n');
   fs.writeFileSync(path.join(chanDir, 'seat.md'),
     '---\nseat: channel-master\nread-root: true\n---\nbriefing\n');
-  fs.writeFileSync(path.join(coordDir, 'permission-edits.csv'), 'seat,path\n');
+  fs.writeFileSync(path.join(coordDir, 'coordination-record.csv'), 'seat,path\n');
   fs.writeFileSync(ordinary, 'ORDINARY\n');
   fs.writeFileSync(path.join(cfgDir, '.env'), 'SECRET=do-not-read\n');
   fs.writeFileSync(path.join(cfgDir, 'private.json'), '{"deny":["keep-this-secret"]}\n');
@@ -107,9 +107,9 @@ capture('probe-master-cage', async (lines) => {
       bytes(seatMd).includes(MARK),
       `host includes marker=${bytes(seatMd).includes(MARK)}`);
 
-    const perm = path.join(f.coordDir, 'permission-edits.csv');
+    const perm = path.join(f.coordDir, 'coordination-record.csv');
     inCage(f.masterDir, master, `echo ${MARK} >> ${perm}`);
-    leg('M3', 'master write into permission-edits.csv lands on disk',
+    leg('M3', 'master write into an ordinary coordination-dir record lands on disk',
       bytes(perm).includes(MARK),
       `host includes marker=${bytes(perm).includes(MARK)}`);
 

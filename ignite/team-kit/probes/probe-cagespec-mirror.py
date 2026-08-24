@@ -14,9 +14,14 @@ field fails the WHOLE template closed, so every goal-relative token evaluated `u
 THE DRIFT THIS MUST CATCH, stated exactly: **a grant class known to the JS composer and unknown to
 the Python deriver.** So the arms read the LIVE template — `config/spawn-profiles.yaml`'s
 `cage.SeatBinds`, the one input `cage.js` substitutes `{grant:FIELD}` out of — rather than a copy,
-and hold it against cagespec's own three sets (`DROPPED_GRANTS`, `GOAL_WRITE_GRANT`,
-`PERMISSION_EDITS_GRANT`). A class added to the template without a matching cagespec row turns A2
-red, and A3 shows the CONSEQUENCE the drift actually had: the whole template undecided.
+and hold it against cagespec's own two sets (`DROPPED_GRANTS`, `GOAL_WRITE_GRANT`). A class added
+to the template without a matching cagespec row turns A2 red, and A3 shows the CONSEQUENCE the
+drift actually had: the whole template undecided.
+
+⚠ `PERMISSION_EDITS_GRANT` (the former `permissionEditsRo` special case) was DELETED from
+`cagespec.py` along with the `permission-edits.csv` grant store it modeled ([T2-R12, T1-R9],
+2026-08-24) — `known` below no longer carries it, and the live template no longer carries the
+`{grant:permissionEditsRo}` slot it named.
 
 WHY NOT DRIVE `composeSeatCage` THROUGH NODE, as the deleted check did. That check re-derived every
 DROPPED entry through the real composer to prove it lands outside the goal folder. This one is
@@ -88,8 +93,7 @@ def main():
 
     binds = live_seat_binds(PROFILES.read_text(encoding="utf-8"))
     fields = sorted({f for e in binds for f in GRANT_SLOT.findall(e)})
-    known = set(cagespec.DROPPED_GRANTS) | {cagespec.GOAL_WRITE_GRANT,
-                                            cagespec.PERMISSION_EDITS_GRANT}
+    known = set(cagespec.DROPPED_GRANTS) | {cagespec.GOAL_WRITE_GRANT}
 
     # ── A1 — NON-VACUITY. A template this probe failed to parse would make A2/A3 pass empty. ──
     check("A1", len(binds) >= 10 and len(fields) >= 5,

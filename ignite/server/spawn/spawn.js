@@ -22,14 +22,13 @@ const { appendRow, readCsv } = require('../seat-identity/csv');
 // fire-tool workdir guard rather than respelled here — `path.resolve` + a lexical prefix test
 // answers where a path POINTS, never where it LANDS.
 const { resolvesInsideGoalsRoot } = require('../heart/argv-template');
-// The seat-declared grant resolvers (`rw-paths`, `permission-edits.csv`, the frontmatter list
-// reader and the shared refusal predicate) live in ./seat-grants since ruling D2 (2026-08-19):
-// `engine/cage-admission.js` must compose admissibility from the SAME grant classes this spawner
-// composes walls from, so the resolvers moved to a module both import — one resolver, no copy.
-// Re-exported below unchanged, so every existing consumer and probe keeps its import path.
+// The seat-declared grant resolvers (`rw-paths`, the frontmatter list reader and the shared
+// refusal predicate) live in ./seat-grants since ruling D2 (2026-08-19): `engine/cage-admission.js`
+// must compose admissibility from the SAME grant classes this spawner composes walls from, so the
+// resolvers moved to a module both import — one resolver, no copy. Re-exported below unchanged, so
+// every existing consumer and probe keeps its import path.
 const {
-  seatDeclaresList, rwPathRefusal, resolveRwPathGrants, resolvePermissionEditGrants,
-  PERMISSION_EDITS_REL,
+  seatDeclaresList, rwPathRefusal, resolveRwPathGrants,
 } = require('./seat-grants');
 const {
   generateSessionId,
@@ -619,23 +618,11 @@ function refreshSeatDescriptor(seatDir, log) {
 }
 
 
-// ── `rw-paths:` + W3 `coordination/permission-edits.csv` — the two workspace rw-grant
-// sources, resolved in `seat-grants.js` (moved there under ruling D2 so the pre-enqueue
-// admission gate composes from the same resolvers; re-exported below unchanged).
-
-// THE PERMISSION EDITOR — the ONE seat whose cage keeps `permission-edits.csv` read-WRITE. Every
-// other seat gets the carve. Spelled here as the seat NAME because that is what a cage has in hand;
-// the AUTHORITY is coord.py's `is_permission_editor`, and `probe-permission-edits.js` asserts the
-// two spellings agree so a widening of one cannot silently outrun the other.
-const PERMISSION_EDITOR_SEAT = 'leader';
-
-function resolvePermissionEditsRoGrant(seatPath) {
-  if (seatPath.seat === PERMISSION_EDITOR_SEAT) return [];
-  const file = path.join(seatPath.goalDir, PERMISSION_EDITS_REL);
-  // No file, no carve: `ro-bind-try` would tolerate the absence, but emitting a grant for a path
-  // that does not exist would put a mount in the log for a wall that is not there.
-  return fs.existsSync(file) ? [{ permissionEditsRo: file }] : [];
-}
+// ── `rw-paths:` — the ONE workspace rw-grant source, resolved in `seat-grants.js` (moved there
+// under ruling D2 so the pre-enqueue admission gate composes from the same resolver; re-exported
+// below unchanged). Its former sibling, `coordination/permission-edits.csv` (W3, the leader's
+// audited widen lane), is GONE ([T2-R12, T1-R9], 2026-08-24): the grant store is deleted, owner
+// auth is an answer to a live ask, and the file is no longer a runtime surface.
 
 // ── `goal-writes:` — the seat's ONE declared role output (owner ruling D9, 2026-08-10) ─────────
 //
@@ -1042,8 +1029,8 @@ function resolveExposedCliGrants(seatPath, log) {
 // `materialize-seats.py#resolve_cli_write_roots` additionally REFUSES such a root at authoring
 // time, so the author reads the refusal instead of meeting a silently masked mount.
 //
-// ⚠ AND IT IS HELD TO THE GOALS-TREE RULE, by the SAME predicate as `rw-paths` and
-// `permission-edits.csv` (`seat-grants.js#rwPathRefusal`, rule 3 — the rule's ONE home; nothing
+// ⚠ AND IT IS HELD TO THE GOALS-TREE RULE, by the SAME predicate as `rw-paths`
+// (`seat-grants.js#rwPathRefusal`, rule 3 — the rule's ONE home; nothing
 // here restates it): the goals root, every goal folder's root, `seats/`, `coordination/` and the
 // record files stay unwritable; a proper goal SUBFOLDER a CLI declares as its write root (the
 // filing CLI's `<ws>/.rbtv/goals/ignite-engine/register`, engine-goal E1) is admitted.
@@ -1257,17 +1244,12 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
       ...resolveReadRootGrant(seatPath),
       ...resolveFenceReadGrants(seatPath),
       ...resolveBusWriteGrants(seatPath),
-      ...resolvePermissionEditsRoGrant(seatPath),
       ...resolveGoalsWriteGrants(seatPath),
       ...localBin,
       ...exposedClis,
       ...resolveTmuxSocketGrant(seatPath),
       ...resolveGoalWriteGrants(seatPath, log),
       ...resolveRwPathGrants(seatPath, log),
-      // W3 — the leader's audited widenings, ADDITIVE beside the declared cell above. Same grant
-      // shape (`rwPath`), so it lands on the same `bind:{grant:rwPath}` template line and inherits
-      // its placement (last, beneath nothing that could re-cover it) with no template change.
-      ...resolvePermissionEditGrants(seatPath, log),
       // W6 — the skill-derived CLI write roots. Its OWN grant key rather than the `rwPath` shape
       // its neighbours share: the two answer different questions in the cage spec and in the log
       // ("the seat declared this" vs "a CLI this seat's skill routes to declared this"), and that
@@ -1291,7 +1273,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   flags.push(...mask.flags);
   log('info', 'ancestor harness artifacts masked', { policy: mask.policy, ...mask.masked });
   // ── W5 (adv C54) — PIERCE DISCLOSURE AT SPAWN, not at materialize ─────────────────────────
-  // SPAWN is where all grant sources converge (materialize-baked declarations, permission-edits,
+  // SPAWN is where all grant sources converge (materialize-baked declarations
   // and private.json read here at dispatch), so it is the only place that can name every pierce
   // and every refusal for the cage that is actually about to run. A pierce nobody can read is an
   // undisclosed hole in the private scope.
@@ -2274,13 +2256,9 @@ module.exports = {
   // about the SAME `goal-writes` grant this spawner will compose, so it calls the one declaration
   // reader rather than parsing seat.md a second time.
   seatDeclaresList,
-  // Exported for `probe-permission-edits.js` (W3): the second rw-grant source and the ONE
-  // refusal predicate both doors share — the probe drives them against a real seat folder.
-  resolvePermissionEditGrants,
-  resolvePermissionEditsRoGrant,
+  // Exported for the cage probes that drive the shared refusal predicate against a real seat
+  // folder (e.g. `probe-cli-write-roots.js`, `probe-register-door.js`).
   rwPathRefusal,
-  PERMISSION_EDITS_REL,
-  PERMISSION_EDITOR_SEAT,
   // Exported for server/spawn/probes/probe-resolve-seat-grants.js: the dual-root discovery
   // (P3 self-root) must be driven, not re-read from this file.
   resolveSeatGrants,

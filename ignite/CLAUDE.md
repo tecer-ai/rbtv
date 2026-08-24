@@ -19,7 +19,7 @@ Allow-list (bwrap, fail-closed if `bwrap` is missing — D59):
 5. **coordination ledgers — WRITABLE** (no file-level ro-bind of records, no proxy writers)
 6. **env/secret files — simply not present** (`private-scope.js` hardcoded denies + pattern floor; do not pierce)
 
-Wall-control surfaces stay file-level RO: `seat.md` and `coordination/permission-edits.csv`. Those are the fence holding its own posts, not forgery-prevention.
+A wall-control surface stays file-level RO: `seat.md`. That is the fence holding its own posts, not forgery-prevention. Its former sibling, `coordination/permission-edits.csv` (the leader's audited cage-widen store), is GONE ([T2-R12, T1-R9], 2026-08-24): owner auth is an answer to a live ask, not a standing grant a cage reads back — the file is no longer a runtime surface.
 
 **PID namespace is gone — and so is the cgroup namespace (F-6, owner-ruled 2026-08-21).** The fence unshares user/ipc/uts only. The cgroup unshare was inherited from decomposing `--unshare-all` (never a chosen protection — no cgroupfs is mounted in the cage) and it blinded `coord.py`'s `carrier_self_session()`, the D43 identity corroborator, structurally shutting the crashed-row door for every caged chair; a seat now reads its own `rbtv-worker-<session-id>` unit from `/proc/self/cgroup`, which is the point. In-cage `/proc` shows **host pids**, so `coord.py`'s liveness read (`ident_is_live_process`) is true. **Accepted consequence:** a seat can see and signal host processes. The threat model is filesystem writes outside `goals/`, not process isolation. Do not build a mitigation.
 

@@ -472,7 +472,7 @@ def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
     `_cage_rw_covers` above answers "is the DECLARED path writable". D3 made the
     whole goal folder RW, so the old file-inside-ro-directory EROFS trap is
     gone for records. Shadowing is still respected: a later `ro-bind` carve
-    (`seat.md`, `permission-edits.csv`) must not appear here.
+    (`seat.md`) must not appear here.
 
     Openings that compose OUTSIDE the goal folder (worktrees, `~/.local/bin`,
     the tmux socket) are absent by construction — `cagespec` drops them — which
@@ -515,8 +515,8 @@ _WRITE_SURFACE_BLOCK = """\
 
 Read-write inside your goal folder (D3, 2026-08-19 — the whole folder, including
 ledgers, planning, coordination, sessions.csv). `.` is the goal folder itself.
-Peer seat folders are absent. `seat.md` and `coordination/permission-edits.csv`
-stay read-only — those are wall-control surfaces, not records:
+Peer seat folders are absent. `seat.md`
+stays read-only — a wall-control surface, not a record:
 
 {rows}
 
@@ -3094,8 +3094,8 @@ the cage makes peer seat folders ABSENT, so an attempt fails rather than lands.
 derived from the cage itself, so it beats any prose that disagrees with it.
 
 **The whole folder is writable** (D3, 2026-08-19) — ledgers, planning, coordination,
-sessions.csv included. Atomic writers (`Write` / `Edit`) work. `seat.md` and
-`coordination/permission-edits.csv` stay read-only (wall-control surfaces). Peer seat
+sessions.csv included. Atomic writers (`Write` / `Edit`) work. `seat.md`
+stays read-only (a wall-control surface). Peer seat
 folders are absent.
 """
 

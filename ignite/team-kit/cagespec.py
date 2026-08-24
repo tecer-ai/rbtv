@@ -40,8 +40,10 @@ covering a path decides what that path IS — later wins, the same reading bwrap
 a `ro-bind` placed after an opening takes it back. D3 (2026-08-19): the goal folder is RW, so
 `sessions.csv` / `state.csv` / ledgers / planning / coordination are writable via that one
 opening. Peer seat folders sit under the `seats` tmpfs, and `seat.md` under its own carve. The
-two remaining file-level ro-binds are wall-control surfaces (`seat.md`, `permission-edits.csv`),
-not record-forgery prevention.
+one remaining file-level ro-bind is a wall-control surface (`seat.md`), not record-forgery
+prevention. Its former sibling, `permission-edits.csv`, is GONE ([T2-R12, T1-R9], 2026-08-24): the
+grant store is deleted, owner auth is an answer to a live ask, and the file is no longer a runtime
+surface.
 
 No yaml, no node, no filesystem: this module is pure so both hosts can call it from wherever they
 already loaded the template. `python3 cagespec.py` runs its own asserts.
@@ -114,26 +116,11 @@ DROPPED_GRANTS = ("readRoot", "busWrite", "goalsWrite",
                   "worktree", "repoGit", "worktreeGitDir", "harnessCreds",
                   "localBin", "tmuxSocketDir", "rwPath", "cliWriteRoot")
 
-# THE ONE GRANT CLASS THAT IS NEITHER DROPPED NOR THE GOAL-WRITES FAN-OUT (W3, adv C34). It lands
-# INSIDE the goal folder — `{goalDir}/coordination/permission-edits.csv` — so dropping it would be
-# the one thing the table above cannot say about a class: that its absence cannot change a
-# goal-relative verdict. It is the leader's audit file, carved back READ-ONLY for every seat that
-# is not the permission editor (`spawn.js#resolvePermissionEditsRoGrant` /
-# `PERMISSION_EDITOR_SEAT`), after the `coordination` opening that would otherwise make every
-# audited party a writer of its own audit.
-#
-# ⚠ WITHOUT THIS BRANCH THE WHOLE TEMPLATE FAILS CLOSED, and that is measured, not feared: an
-# unknown grant field returns None from `compose`, so EVERY goal-relative token — `taskforce.csv`,
-# the five ledgers, the planning workspace — evaluates `undecided`, and
-# `materialize-seats.py`'s preflight then refuses `cage-goal-writes-ungranted` for every seat that
-# declares an output. Template growth failing closed is the design; a growth that fails closed
-# SILENTLY and universally is what this branch (and the selftest's CG-1/CG-2 rows) catches.
-#
-# The JS emits no grant when the file does not exist. Modeling the carve unconditionally is the
-# fail-CLOSED direction of that difference — this reader may under-report a write, never invent one.
-PERMISSION_EDITS_GRANT = "permissionEditsRo"
-PERMISSION_EDITS_REL = "coordination/permission-edits.csv"
-PERMISSION_EDITOR_SEAT = "leader"
+# THE FORMER PERMISSION-EDITS GRANT CLASS (W3, adv C34) — `permissionEditsRo`, carved READ-ONLY
+# for every seat but the leader over `{goalDir}/coordination/permission-edits.csv` — is GONE
+# ([T2-R12, T1-R9], 2026-08-24): the redesign deletes the grant store; owner auth is an answer to
+# a live ask, not a standing widen a leader files and a cage reads back. The template no longer
+# carries a `{grant:permissionEditsRo}` slot, so `compose` below no longer special-cases it.
 
 WRITABLE = "writable"
 READONLY = "readonly"
@@ -209,12 +196,6 @@ def compose(seat_binds, *, seat, goal_writes=()):
             return None
         fields = _GRANT_SLOT.findall(template)
         if fields:
-            if fields == [PERMISSION_EDITS_GRANT]:
-                if template != "{grant:%s}" % PERMISSION_EDITS_GRANT:
-                    return None               # welded onto a path: not this reading
-                if seat != PERMISSION_EDITOR_SEAT:
-                    spec.append((verb, PERMISSION_EDITS_REL))
-                continue
             if any(f not in DROPPED_GRANTS and f != GOAL_WRITE_GRANT for f in fields):
                 return None                       # template GROWTH fails closed, by construction
             if any(f in DROPPED_GRANTS for f in fields):
@@ -324,17 +305,10 @@ if __name__ == "__main__":
     # THE SENTINEL NEVER COVERS THE PRODUCER'S OWN SEAT FOLDER — the successor reading errs closed.
     assert evaluate(FX, "seats/p/a.json", seat=PEER)[0] == ABSENT
 
-    # THE PERMISSION-EDITS CARVE (W3): goal-relative, occupant-dependent, and it must NOT poison the
-    # rest of the template — the arm that would have caught the live regression it was landed with.
-    PE = ["ro-bind:{goalDir}", "bind:{goalDir}/coordination",
-          "ro-bind-try:{grant:permissionEditsRo}", "bind-try:{grant:goalWrite}"]
-    assert evaluate(PE, PERMISSION_EDITS_REL, seat="p")[0] == READONLY
-    assert evaluate(PE, PERMISSION_EDITS_REL, seat=PERMISSION_EDITOR_SEAT)[0] == WRITABLE
-    assert evaluate(PE, "coordination/messages.md", seat="p")[0] == WRITABLE
-    assert evaluate(PE, "taskforce.csv", seat="p",
-                    goal_writes=["taskforce.csv"])[0] == WRITABLE
-
-    # FAIL-CLOSED: unknown verb, unknown scalar slot, unknown grant field, empty template.
+    # FAIL-CLOSED: unknown verb, unknown scalar slot, unknown grant field, empty template. The
+    # former `permissionEditsRo` grant field (W3) is now exactly this shape — GONE from the
+    # template ([T2-R12, T1-R9], 2026-08-24), so a template that still names it fails closed here.
+    assert compose(["ro-bind-try:{grant:permissionEditsRo}"], seat="p") is None
     assert compose(["mount:{goalDir}"], seat="p") is None
     assert compose(["bind:{runDir}/x"], seat="p") is None
     assert compose(["bind:{grant:futureCageThing}"], seat="p") is None
@@ -354,4 +328,4 @@ if __name__ == "__main__":
                               "goal-writes") == ["goal.md"]
     assert seat_declares_list("---\nseat: p\n---\n", "goal-writes") == []
 
-    print("cagespec: %d asserts hold" % 24)
+    print("cagespec: %d asserts hold" % 21)

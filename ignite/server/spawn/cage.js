@@ -14,8 +14,9 @@
 //   bind     <worktree>         (per grant) + the repo git plumbing trio
 //
 // A file-level ro-bind of a RECORD is gone (denying them was the EROFS class). A file-level
-// ro-bind of a WALL-CONTROL SURFACE stays: seat.md and coordination/permission-edits.csv.
-// Those are not forgery-prevention; they are the fence holding its own posts.
+// ro-bind of a WALL-CONTROL SURFACE stays: seat.md. That is not forgery-prevention; it is the
+// fence holding its own posts. Its former sibling, coordination/permission-edits.csv, is GONE
+// ([T2-R12, T1-R9], 2026-08-24): the grant store is deleted, owner auth is an answer to a live ask.
 //
 // Absence IS the mechanism here exactly as it is in bwrap.js: nothing is denied, things are simply
 // never bound. ORDER of the bindings is load-bearing — later wins — so the composition is a

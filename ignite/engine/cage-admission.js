@@ -55,12 +55,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { composeSeatCage, specToBwrapFlags, contains, RW_VERBS } = require('../server/spawn/cage');
 // The ONE declaration reader for every seat-declared grant class, AND the spawner's own two
-// workspace rw-grant resolvers (`rw-paths` frontmatter + `coordination/permission-edits.csv`) —
-// shared via `seat-grants.js` under ruling D2 (2026-08-19). A second parse of seat.md frontmatter
-// or a second reading of the widen csv would be a second definition of what "granted" means, and
-// this gate must reason about exactly the grants the spawner will compose.
+// workspace rw-grant resolver (`rw-paths` frontmatter) — shared via `seat-grants.js` under ruling
+// D2 (2026-08-19). A second parse of seat.md frontmatter would be a second definition of what
+// "granted" means, and this gate must reason about exactly the grant the spawner will compose.
+// Its former sibling, `coordination/permission-edits.csv` (W3), is GONE ([T2-R12, T1-R9],
+// 2026-08-24): the grant store is deleted, owner auth is an answer to a live ask.
 const {
-  seatDeclaresList, resolveRwPathGrants, resolvePermissionEditGrants,
+  seatDeclaresList, resolveRwPathGrants,
 } = require('../server/spawn/seat-grants');
 
 // A backticked token that looks like a path: contains a `/` and carries an extension. Verbatim
@@ -119,10 +120,9 @@ function declaredOutputs(goalFolder, seat) {
 
 // The cage this occupant composes for this goal — the REAL composer, over the LIVE template.
 // `grants` carries the seat's own `goal-writes` items plus (D2, 2026-08-19) the resolved
-// WORKSPACE rw grants in `extraGrants` — `rw-paths` frontmatter entries and
-// `coordination/permission-edits.csv` rows, resolved by the spawner's own resolvers. The
-// workspace grants can never change a verdict about a path INSIDE the goal folder (both
-// resolvers refuse any entry overlapping `.rbtv/goals`); they exist to decide the
+// WORKSPACE rw grants in `extraGrants` — `rw-paths` frontmatter entries, resolved by the
+// spawner's own resolver. The workspace grants can never change a verdict about a path INSIDE
+// the goal folder (the resolver refuses any entry overlapping `.rbtv/goals`); they exist to decide the
 // workspace-grammar tokens below. Every remaining grant class still composes outside the goal
 // folder by construction (worktrees, git plumbing, harness credentials, `~/.local/bin`, the tmux
 // socket dir), or re-covers it identically read-only (`read-root`). A `{grant:…}` entry with no
@@ -183,13 +183,13 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
   let produced;
   let peer;
   try {
-    // The workspace rw grants — the SAME two sources, resolved by the SAME functions, the spawner
+    // The workspace rw grant — the SAME source, resolved by the SAME function, the spawner
     // composes at launch (`spawn.js#composeCageFor`). Refusals of individual entries are the
     // spawner's launch-time business to log; here a refused entry is simply not a grant.
     const noLog = () => {};
     const grantSeatPath = { workspaceRoot, goalDir, seatDir, seat };
     const wsGrants = workspaceRoot
-      ? [...resolveRwPathGrants(grantSeatPath, noLog), ...resolvePermissionEditGrants(grantSeatPath, noLog)]
+      ? [...resolveRwPathGrants(grantSeatPath, noLog)]
       : [];
     produced = cageFor({
       seatBinds, goalDir, seatDir,
@@ -216,8 +216,8 @@ function admitDeclaredOutputs({ seatBinds, goalFolder, seat, successorReads = 'n
       const w = coverVerdict(produced, wsTarget);
       if (w.verdict !== 'writable') {
         bad.push(`\`${token}\` — no-workspace-grant: it names the WORKSPACE path ${wsTarget}, and no workspace `
-          + `write grant composes a writable bind over it — neither an \`rw-paths:\` entry in ${seat}'s seat.md `
-          + `frontmatter nor a \`coordination/permission-edits.csv\` row covering it. Grant one `
+          + `write grant composes a writable bind over it — no \`rw-paths:\` entry in ${seat}'s seat.md `
+          + `frontmatter covers it. Grant one `
           + `and the next seed pass admits it`);
         continue;
       }
@@ -345,7 +345,7 @@ function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
       try {
         const noLog = () => {};
         const grantSeatPath = { workspaceRoot, goalDir, seatDir, seat };
-        const wsGrants = [...resolveRwPathGrants(grantSeatPath, noLog), ...resolvePermissionEditGrants(grantSeatPath, noLog)];
+        const wsGrants = [...resolveRwPathGrants(grantSeatPath, noLog)];
         produced = cageFor({
           seatBinds, goalDir, seatDir,
           goalWrites: seatDeclaresList(seatDir, 'goal-writes'), extraGrants: wsGrants,
@@ -358,15 +358,15 @@ function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
     const v = coverVerdict(produced, target);
     if (v.verdict === 'absent') {
       bad.push(`\`path ${arg}\` — lane-cannot-reach: ${target} is ABSENT in ${seat}'s composed cage — no bind covers it. `
-        + `Grant it through an \`rw-paths:\` entry in ${seat}'s seat.md frontmatter or a \`coordination/permission-edits.csv\` `
-        + 'row and the next seed pass admits it');
+        + `Grant it through an \`rw-paths:\` entry in ${seat}'s seat.md frontmatter `
+        + 'and the next seed pass admits it');
     }
   }
   if (!bad.length) return null;
   return 'LANE REACH REQUIREMENT NOT SATISFIED BY THE COMPOSED CAGE: ' + bad.join('; ')
     + '. THE RULE: a `## Requires-reach` entry is satisfied iff `cli <name>` is declared in the seat\'s `exposed-clis:` '
-    + 'block, and `path <p>` is covered readable-or-writable by the seat\'s composed cage (goal-writes + `rw-paths:` + '
-    + '`permission-edits.csv`). LIMIT: this gate checks REACH (the bind is present), never BEHAVIOR (`exit 0`) — a '
+    + 'block, and `path <p>` is covered readable-or-writable by the seat\'s composed cage (goal-writes + `rw-paths:`). '
+    + 'LIMIT: this gate checks REACH (the bind is present), never BEHAVIOR (`exit 0`) — a '
     + 'masked-but-readable file passes; the D4 tool-secrets pierce is the fix for that class. This launch was refused '
     + 'BEFORE it was queued, because the seat\'s probe lane could not have run once caged; the failure would otherwise '
     + 'have surfaced mid-milestone as a blocked seat and burned the wave.';

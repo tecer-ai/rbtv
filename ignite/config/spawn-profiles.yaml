@@ -137,11 +137,11 @@ cage:
   #
   # A file-level ro-bind of a RECORD is gone: records are what seats must write, and denying
   # them is the EROFS class. A file-level ro-bind of a WALL-CONTROL SURFACE stays: `seat.md`
-  # (it is the permission record the NEXT session's cage is derived from) and
-  # `coordination/permission-edits.csv` (it is both the audit of cage widenings and the
-  # mechanism that applies them — spawn.js#resolvePermissionEditGrants reads it as a grant
-  # source). Those two are not forgery-prevention; they are the fence holding its own posts.
-  # D3 item 3 names `seat.md` explicitly. Record forgery is a NON-goal (D3).
+  # (it is the permission record the NEXT session's cage is derived from) — not forgery
+  # prevention; it is the fence holding its own posts. D3 item 3 names it explicitly. Record
+  # forgery is a NON-goal (D3). Its former sibling, `coordination/permission-edits.csv` (the
+  # audit of cage widenings and the mechanism that applied them), is GONE ([T2-R12, T1-R9],
+  # 2026-08-24): the grant store is deleted, owner auth is an answer to a live ask.
   #
   # ⚠ W5 (owner ruling D-1, 2026-08-13) EXTENDS THAT ORDER WITH TWO TIERS BELOW THIS LIST, and
   # both are load-bearing in the same way. After every line here, spawn.js appends
@@ -184,10 +184,10 @@ cage:
     # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every EXECUTING goal,
     # READ-WRITE, one opening per grant. Must come AFTER the read-root ro floor.
     - "bind:{grant:busWrite}"
-    # W3 (adv, C34) — the WALL-CONTROL SURFACE carve. permission-edits.csv is the leader's
-    # audited widenings AND the mechanism that applies them. Stays RO (D3: fence holding
-    # its own posts). Must come AFTER the goal-folder bind and the busWrite opening.
-    - "ro-bind-try:{grant:permissionEditsRo}"
+    # W3 (adv, C34) — the WALL-CONTROL SURFACE carve over `permission-edits.csv` (the leader's
+    # audited widenings AND the mechanism that applied them) is DELETED here ([T2-R12, T1-R9],
+    # 2026-08-24): the grant store is gone, owner auth is an answer to a live ask, and the file
+    # is no longer a runtime surface — no bind line, RO or RW, names it any more.
     # GOALS-WRITE grant: the GOAL FOLDER of every EXECUTING goal other than this seat's own.
     # The own goal is already RW via bind:{goalDir} above. The goalsWriteGroundTruth carve
     # is DELETED (D3: record forgery is a non-goal).
@@ -242,12 +242,12 @@ cage:
   # ⚑ ABSENT / UNWRITABLE BY CONSTRUCTION (D3, WORKER cages): peer seat folders even for READ
   # (ro-mask, writes refuse — D48), other seats' worktrees, main repo WORKING trees outside
   # the seat's own worktree, vault 2-areas/ and other repos that are not goals/, .rbtv/heart/,
-  # env/secret files (private-scope.js). seat.md and permission-edits.csv stay RO (wall-
-  # control surfaces). MasterBinds below is the D49 exception for `*-master` roles.
+  # env/secret files (private-scope.js). seat.md stays RO (a wall-control surface).
+  # MasterBinds below is the D49 exception for `*-master` roles.
   #
   # D49 — TRULY-EVERYTHING cage for ALL caged master roles (`goal-master`, `channel-master`;
   # `console-master` is unsandboxed and never reaches this stack). Whole workspace RW. No
-  # peer-seats mask, no seat.md carve, no permission-edits carve, rbtv repo RW. Private-scope
+  # peer-seats mask, no seat.md carve, rbtv repo RW. Private-scope
   # masks still append last — secrets stay read-denied (mask wins over this stack).
   MasterBinds:
     - "bind:{grant:readRoot}"
