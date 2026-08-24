@@ -40,7 +40,6 @@ const RECOVER_ROOM = path.join(__dirname, '..', 'jobs', 'recover-room.py');
 
 const CADENCE_MS = 5 * 60 * 1000;
 const STRIKE_LIMIT = ADMISSION_BRAKE_LIMIT; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
-const OWNER_AFTER_STUCK = 3;
 // D70 (2026-08-22) — the ONE system sender that ever writes to a goal's messages.md
 // (`sendStuck` below, `engine/seeding.js` surface-refusal). System-written mail must never count
 // as progress for the mail-cursor signal (class B) — see `deriveOwed`'s classB loop.
@@ -537,7 +536,7 @@ function stuckStands(store, goal, seat, reason, signature) {
 }
 
 function strike({
-  store, goal, seat, reason, signature, goalFolder, say, sendFn, engine, pickup, now,
+  store, goal, seat, reason, signature, goalFolder, say, sendFn,
 }) {
   const prev = getAttempt(store, goal, seat, reason) || {
     attempts: 0, stuck_emitted: 0, signature: '',
@@ -560,23 +559,6 @@ function strike({
   putAttempt(store, {
     goal, seat, reason, attempts, stuckEmitted, signature, updatedAt: isoNow(),
   });
-  const pastOwner = stuckEmitted && attempts >= STRIKE_LIMIT + OWNER_AFTER_STUCK;
-  const leaderIsSubject = seat === 'leader' || seat === 'goal-master';
-  if ((leaderIsSubject && stuckEmitted) || pastOwner) {
-    if (engine && say) {
-      const { alarmOnStall } = require('./lane-watch');
-      alarmOnStall({
-        goal, goalFolder, engine, say,
-        pickup: pickup || {
-          frozen: {
-            kind: 'reconcile-stuck',
-            seats: [seat],
-            detail: `${reason} still standing after ${attempts} attempts`,
-          },
-        },
-      });
-    }
-  }
   return { attempts, stuckEmitted, sent, signature };
 }
 
@@ -704,8 +686,7 @@ function reconcileGoal({
     } else if (stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {
       // D44 · the BRAKE. `stuck` already went to the leader for this exact (seat, reason,
       // signature) — the mechanical relaunch stops here and the row is the leader's. `strike`
-      // still runs below, so the counter keeps advancing and the owner-alarm leg
-      // (STRIKE_LIMIT + OWNER_AFTER_STUCK) is untouched; what stops is the SPEND.
+      // still runs below, so the counter keeps advancing; what stops is the SPEND.
       seenTarget.add(t.seat);
       action = { kind: 'skip-stuck', seat: t.seat, reason: t.reason };
     } else {
@@ -724,7 +705,7 @@ function reconcileGoal({
     // `strike` resets to 1 by itself when the signature differs — that IS the progress test.
     const struck = strike({
       store: heartStore, goal, seat: t.seat, reason: t.reason,
-      signature: t.signature, goalFolder, say, sendFn, engine, pickup, now,
+      signature: t.signature, goalFolder, say, sendFn,
     });
     action.attempts = struck.attempts;
     action.stuckEmitted = struck.stuckEmitted;
@@ -743,7 +724,7 @@ function reconcileGoal({
         const struck = strike({
           store: heartStore, goal, seat: recSeat, reason: 'room',
           signature: `room:${room.exists ? 'empty' : 'dead'}`,
-          goalFolder, say, sendFn, engine, pickup, now,
+          goalFolder, say, sendFn,
         });
         actions.push({
           kind: 'room-refused', error: rec.out || rec.status,

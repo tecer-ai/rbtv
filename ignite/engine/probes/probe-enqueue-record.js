@@ -14,7 +14,7 @@
 // which is the truer shape anyway: `findSeatHolder` keys on the seat (`seatKeyOf` -> the workdir),
 // `seatState` keys on the JOB (`jobIdFor(seat, goal)`), and the 08-19 freeze lived in exactly that
 // gap. It then asserts the arms the seat named. The REAL seedGoal and the REAL store are driven;
-// conditionOf is never handed a hand-built pickup.
+// pickup is never hand-built.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,7 +30,6 @@ const SCHEMA_SQL = fs.readFileSync(path.join(HEART, 'schema.sql'), 'utf8');
 const { seedGoal } = require('../seeding');
 const { openHeartStore } = require('../../server/heart/heart-store');
 const { migrate, LATEST, MIGRATIONS, MIGRATION_ENQUEUE_LOG } = require('../../server/heart/migrations');
-const { stallAlarmDecision, conditionOf, STALL_MS, REASONS } = require('../../server/ticker/goal-stall-alarm');
 
 const start = Date.now();
 const lines = [];
@@ -161,10 +160,9 @@ function main() {
       // and the unfired predicate would clear the row.
       store.db.prepare('UPDATE jobs_log SET fired_at = ? WHERE exec_id = ?').run(isoAgo(120 * 1000), fired.exec_id);
       store.db.prepare('UPDATE enqueue_log SET at = ? WHERE enq_id = ?').run(isoAgo(90 * 1000), suppressed.enq_id);
-      // …and RE-HOME the holder's row onto the seat's own job. `conditionOf` is first-match-wins
-      // and `ready-no-live` sits ABOVE `enqueue-unfired`: while the holder is only reachable by
-      // seat KEY, `states[SEAT]` reads `ready` and the goal alarms as "ready, undispatched" — a
-      // true statement about a different condition. A cadence later the record HAS attributed the
+      // …and RE-HOME the holder's row onto the seat's own job. While the holder is only reachable
+      // by seat KEY, `states[SEAT]` reads `ready`, which is a true statement about a different
+      // condition. A cadence later the record HAS attributed the
       // turn, which is the state this arm is about: the seat is LIVE, an enqueue for it was
       // recorded, and nothing ever fired FOR THAT ENQUEUE. One UPDATE, so the arm keeps its
       // subject instead of drifting onto its neighbour's.
@@ -176,24 +174,10 @@ function main() {
     const third = pass({ dbPath, goalFolder });
     store = third.heartStore;
     say(`  third enqueueUnfired=${JSON.stringify(third.pickup.enqueueUnfired || null)}`);
-    const cond = conditionOf(third.pickup);
-    say(`  conditionOf=${JSON.stringify(cond)}`);
-    const state = new Map();
-    const t0 = Date.now();
-    const below = stallAlarmDecision({ goal: GOAL, pickup: third.pickup, now: t0, state });
-    const posted = stallAlarmDecision({ goal: GOAL, pickup: third.pickup, now: t0 + STALL_MS + 1, state });
-    const again = stallAlarmDecision({ goal: GOAL, pickup: third.pickup, now: t0 + STALL_MS + 2, state });
-    check('Arm C: past STALL_MS the decision posts kind=enqueue-unfired naming the seat',
-      posted.action === 'post'
-        && cond && cond.kind === 'enqueue-unfired'
-        && (cond.seats || []).includes(SEAT),
-      JSON.stringify({ action: posted.action, reason: posted.reason, signature: posted.signature, cond, below: below.reason }));
-    check('Arm C: text does not contain the fallback "Frozen before seeding" wording',
-      typeof posted.text === 'string' && !posted.text.includes('Frozen before seeding'),
-      posted.text || '(no text)');
-    check('Arm C: a second call at the same signature returns already-alerted',
-      again.action === 'skip' && again.reason === REASONS.ALREADY_ALERTED,
-      JSON.stringify({ action: again.action, reason: again.reason }));
+    const unfired = third.pickup.enqueueUnfired || [];
+    check('Arm C: pickup.enqueueUnfired names the seat',
+      unfired.some((r) => r.seat === SEAT),
+      JSON.stringify(unfired));
 
     // ── Arm D — the record clears ───────────────────────────────────────────────
     const jobId = `seat-${GOAL}-${SEAT}`;
@@ -212,10 +196,9 @@ function main() {
     store = null;
     const fourth = pass({ dbPath, goalFolder });
     store = fourth.heartStore;
-    const gone = conditionOf(fourth.pickup);
     check('Arm D: the enqueue-unfired condition goes away',
-      !gone || gone.kind !== 'enqueue-unfired',
-      JSON.stringify(gone));
+      !(fourth.pickup.enqueueUnfired || []).length,
+      JSON.stringify(fourth.pickup.enqueueUnfired || null));
   } finally {
     if (store) try { store.close(); } catch { /* already closed */ }
     fs.rmSync(root, { recursive: true, force: true });
@@ -283,7 +266,7 @@ const exitCode = failures.length ? 1 : 0;
 say('');
 say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
-  : 'RESULT: PASS — suppressed enqueue is warned, recorded, alarmed, and clears on fire; '
+  : 'RESULT: PASS — suppressed enqueue is warned, recorded, and clears on fire; '
     + 'migration is idempotent and equivalent to a fresh store; the isHeld guard speaks.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
