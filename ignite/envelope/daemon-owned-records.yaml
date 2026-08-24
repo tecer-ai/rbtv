@@ -1,0 +1,13 @@
+version: 1
+files:
+  - sessions.csv
+  - state.csv
+  - taskforce.csv
+  - seat.md
+  - goal.md
+  - milestones.csv
+directories:
+  - coordination
+  - seats
+own-seat-folder-rw: true
+proper-subfolders-rw: true

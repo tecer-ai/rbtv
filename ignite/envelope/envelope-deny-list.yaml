@@ -1,0 +1,40 @@
+version: 1
+deny:
+  - pattern: ".rbtv/config/.env"
+    source: "canonical credential store [T2-R11]"
+    credential: true
+  - pattern: ".user/config/env/"
+    source: "symlink to the canonical store"
+    credential: true
+  - pattern: ".rbtv/config/private.json"
+    source: "private-scope HARDCODED_REL"
+    credential: true
+  - pattern: ".rbtv/goals/*/"
+    except-launching-goal: true
+    source: "other goals' folders"
+  - pattern: "4-archives/"
+    source: "T2 starting set"
+  - pattern: ".rbtv/heart/"
+    source: "daemon admin"
+  - pattern: "ignite/envelope/spawn-profiles.yaml"
+    relative-to: rbtv-repo
+    source: "daemon config"
+  - pattern: ".rbtv/config/"
+    except:
+      - ".rbtv/config/sender-token.env"
+    source: "daemon admin/config; sender-token remains allowed"
+  - pattern: "**/*.env"
+    credential: true
+    source: "private-scope DEFAULT_PATTERNS"
+  - pattern: "**/credentials/"
+    credential: true
+    source: "private-scope DEFAULT_PATTERNS"
+  - pattern: "**/*token*"
+    credential: true
+    except-extensions: [".py", ".pyc", ".so"]
+    except:
+      - ".rbtv/config/sender-token.env"
+    source: "private-scope DEFAULT_PATTERNS; interpreter-code exemption"
+  - pattern: "**/*.key"
+    credential: true
+    source: "private-scope DEFAULT_PATTERNS"

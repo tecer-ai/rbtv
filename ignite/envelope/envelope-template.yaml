@@ -1,0 +1,54 @@
+version: 1
+families:
+  - id: goal-folder
+    number: 1
+    access: rw
+    plan-fill-in: false
+    path: "{workspace}/.rbtv/goals/{goal}"
+    except: daemon-owned-records
+  - id: named-repos
+    number: 2
+    access: rw
+    plan-fill-in: true
+    include-git: true
+    source: plan.namedRepos
+  - id: project-folder
+    number: 3
+    access: rw
+    plan-fill-in: true
+    source: plan.projectFolder
+  - id: scratch-temp
+    number: 4
+    access: rw
+    plan-fill-in: false
+    paths:
+      - "{workspace}/.rbtv/goals/{goal}/scratch"
+      - "{tmpdir}"
+      - "/tmp"
+  - id: vault-wide-read
+    number: 5
+    access: ro
+    plan-fill-in: false
+    path: "{workspace}"
+    minus: deny-list
+  - id: rbtv-and-mirror
+    number: 6
+    access: ro
+    plan-fill-in: false
+    paths:
+      - "{rbtv-repo}"
+      - "{mirror}"
+  - id: benign-cache-config-temp
+    number: 7
+    access: rw
+    plan-fill-in: false
+    paths:
+      - "{home}/.cache"
+      - "{tmpdir}"
+      - "/tmp"
+      - "{home}/.config/*"
+    exclude:
+      - "{home}/.claude"
+      - "{home}/.claude.json"
+      - "{home}/.codex"
+      - "{home}/.config/opencode"
