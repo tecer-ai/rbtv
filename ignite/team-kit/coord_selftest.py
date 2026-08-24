@@ -7664,6 +7664,18 @@ def _selftest_checks(args, failures, names):
                                    "started": "2026-07-29 14:00", "ended": "2026-07-29 15:02",
                                    "disposition": d}.get(_c2, "") for _c2 in SESSIONS_COLS]
                                  for s, d in sessions])
+                # ⚠ THE DURABLE SURFACE MOVED, AND THE FIXTURE HAD NOT. `sessions.csv` is still
+                # written above — several rows read it directly, and the CSV is still the run's
+                # own record — but `ready.py#terminal_disposition` no longer reads it: it asks
+                # `ending_store.get_current_ending`, the ONE ending store. A fixture that wrote
+                # only the CSV therefore handed every readiness row a package with NO ending at
+                # all, which is why they read absence rather than the disposition they set up.
+                # `seed_ending` is the ONE mapping from a legacy disposition word to a stored
+                # ending, and it is called here rather than re-spelled: a second mapping is
+                # exactly the two-computers shape this suite exists to catch.
+                for _seat_e, _disp_e in sessions:
+                    if _disp_e:
+                        seed_ending(p, _seat_e, disposition=_disp_e)
             if lifecycle is not None:
                 (p / "coordination" / "lifecycle-inflight.json").write_text(
                     json.dumps(lifecycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -7955,6 +7967,16 @@ def _selftest_checks(args, failures, names):
               "their red arms along with this row",
               len(_rs8_verdict_lines) == 6 and _rs8_bare == [])
 
+        # ⚠ THE `renewal` READS BELOW ARE NULL-SAFE, AND THAT IS A HARNESS FIX, NOT A WEAKENING.
+        # `terminal_disposition` now answers off the ONE ending store, whose vocabulary is
+        # `done|incomplete|failed` — so `ready.py`'s renew gate, which keys on a raw `renew`
+        # disposition, can no longer be reached and `rec["renewal"]` is `None` on every row. The
+        # three rows below are therefore RED, correctly and loudly. They used to be worse than red:
+        # indexing `None["state"]` raised, and a raise inside a `check` argument ABORTS the suite —
+        # 758 rows reported and every row after them UNKNOWN, which is G-121 (a truncated run reads
+        # greener than a complete one) inside the suite written to catch it. The claims are
+        # untouched; only the read is made to fail as a verdict instead of as a crash.
+        #
         # ---- RG-1/2/3 (THE RENEW GATE, 2026-08-18): `renew` is TWO states, and neither is a
         # failure ending. Three packages differing in ONE surface — the lifecycle marker — because
         # the whole claim is that the marker, and nothing else, separates a seat coming back from
@@ -7988,7 +8010,7 @@ def _selftest_checks(args, failures, names):
               "fixed (i) by releasing the DAG would be a worse defect than the one it fixed",
               _rg_p["a"]["verdict"] == "RENEWING"
               and deferral_class(_rg_p["a"]) == "renewing"
-              and _rg_p["a"]["renewal"]["state"] == RENEW_PENDING
+              and (_rg_p["a"]["renewal"] or {}).get("state") == RENEW_PENDING
               and "IN PROGRESS, NOT AN ENDING" in _rg_p["a"]["reason"]
               and _rg_p["a"]["verdict"] not in ("DONE", "UNDECLARED")
               and deferral_class(_rg_p["a"]) != "exit-unruled"
@@ -8006,7 +8028,7 @@ def _selftest_checks(args, failures, names):
               _rg_n["a"]["verdict"] == "RENEW-BLOCKED"
               and _rg_n["a"]["verdict"] != "RENEWING"
               and deferral_class(_rg_n["a"]) == "renew-blocked"
-              and _rg_n["a"]["renewal"]["state"] == RENEW_NO_SUCCESSOR
+              and (_rg_n["a"]["renewal"] or {}).get("state") == RENEW_NO_SUCCESSOR
               and "RENEWAL BLOCKED" in _rg_n["a"]["reason"]
               and ("no pane and no paneless lane: lifecycle_fork_target refused"
                    in _rg_n["a"]["reason"])
@@ -8048,10 +8070,10 @@ def _selftest_checks(args, failures, names):
               "says so out loud instead of promising a successor no reader will ever get",
               lifecycle_stale({"state": "in-flight", "disposition": "renew",
                                "stamped-at": "2026-01-01 00:00"}) is False
-              and _rg_r["a"]["renewal"]["state"] == RENEW_NO_SUCCESSOR
+              and (_rg_r["a"]["renewal"] or {}).get("state") == RENEW_NO_SUCCESSOR
               and _rg_r["a"]["verdict"] == "RENEW-BLOCKED"
               and deferral_class(_rg_r["a"]) == "renew-blocked"
-              and "NO EXECUTOR EVER RECORDED ITSELF" in _rg_r["a"]["reason"]
+              and "NO EXECUTOR EVER RECORDED ITSELF" in (_rg_r["a"].get("reason") or "")
               and _rg_r["b"]["verdict"] == "BLOCKED")
 
         # ---- RS-12: `exited` never advances the DAG ----
