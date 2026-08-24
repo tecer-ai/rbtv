@@ -117,6 +117,7 @@ function composeSeatSpawn({
   maskPaths = [],
   seatBinds = null,
   userManager = true,
+  uncaged = false,
 }) {
   assertTmuxName('tmux session', room);
   assertTmuxName('tmux window', windowName);
@@ -125,7 +126,8 @@ function composeSeatSpawn({
   //    `seatBinds` (task 7.11) is the composed seat cage; when present it replaces the flat
   //    workdir+editablePaths openings inside buildBwrapArgv. Passed straight through: this module
   //    composes tmux, it does not get a vote on the walls.
-  const wrappedArgv = buildBwrapArgv({
+  //    Staff (leader / goal-master / channel-master) stay uncaged [T2-R4]: no bwrap wrap.
+  const wrappedArgv = uncaged ? [...harnessArgv] : buildBwrapArgv({
     argv: harnessArgv,
     workdir,
     editablePaths,

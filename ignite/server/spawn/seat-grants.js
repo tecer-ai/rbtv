@@ -57,9 +57,9 @@ function seatDeclaresList(seatDir, key) {
 // and its reads die when the token expires. The generic answer is a declared, validated list of
 // workspace-relative paths punched back through the read-only floor.
 //
-// FAIL-CLOSED, PER ENTRY. A bad entry is SKIPPED and LOGGED — never guessed at, never repaired,
-// and never fatal to the spawn: one typo in a seat descriptor must not take a seat offline. The
-// four refusals, in the order they are cheapest to answer:
+// FAIL-CLOSED, PER LAUNCH. One conflicting or unresolved source refuses the whole spawn
+// ([T2-R1] [C-6]): never skip-and-continue, never lastCovering. The four path-shape
+// refusals, in the order they are cheapest to answer:
 //
 //   1. empty / absolute            — the key's vocabulary is workspace-RELATIVE, only
 //   2. escapes the workspace root  — checked AFTER `..` normalization, so `a/../../etc` is caught
@@ -104,6 +104,41 @@ function goalsTreeRefusal(goals, target) {
   return null;
 }
 
+function reasonFrom(refuse) {
+  if (!refuse) return 'launch-refused';
+  if (refuse.kind === 'conflict') {
+    const pair = (refuse.pair || []).map((p) => `${p.access}:${p.path}`).join(' vs ');
+    return `conflict ${pair || refuse.path || ''}`.trim();
+  }
+  if (refuse.kind === 'unresolved') return `unresolved ${refuse.path || ''}`.trim();
+  return String(refuse.reason || refuse.path || 'launch-refused');
+}
+
+function unresolvedBind(p, extra) {
+  if (!p) return { kind: 'unresolved', path: p || '', ...extra };
+  if (!fs.existsSync(p)) return { kind: 'unresolved', path: p, ...extra };
+  try {
+    fs.realpathSync(p);
+    return null;
+  } catch {
+    return { kind: 'unresolved', path: p, ...extra };
+  }
+}
+
+function conflictBind(sources) {
+  const list = sources || [];
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i];
+      const b = list[j];
+      if (!a || !b || a.access === b.access) continue;
+      if (!contains(a.path, b.path) && !contains(b.path, a.path)) continue;
+      return { kind: 'conflict', path: a.path, pair: [a, b] };
+    }
+  }
+  return null;
+}
+
 function rwPathRefusal(seatPath, entry) {
   const root = seatPath.workspaceRoot;
   const goals = path.join(root, '.rbtv', 'goals');
@@ -134,7 +169,11 @@ function resolveRwPathGrants(seatPath, log) {
     const reason = rwPathRefusal(seatPath, entry);
     if (reason) {
       log('warn', `rw-paths entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
-      continue;
+      const err = new Error(`rw-paths launch-refused: ${reason}`);
+      err.code = 'E_LAUNCH_REFUSED';
+      err.refuse = unresolvedBind(path.isAbsolute(entry) ? entry : path.resolve(seatPath.workspaceRoot, entry), { reason, source: 'rw-paths' })
+        || { kind: 'unresolved', path: entry, reason, source: 'rw-paths' };
+      throw err;
     }
     grants.push({ rwPath: path.resolve(seatPath.workspaceRoot, entry) });
   }
@@ -145,4 +184,7 @@ module.exports = {
   seatDeclaresList,
   rwPathRefusal,
   resolveRwPathGrants,
+  conflictBind,
+  unresolvedBind,
+  reasonFrom,
 };

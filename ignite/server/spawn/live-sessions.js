@@ -44,6 +44,7 @@ const { buildBwrapArgv } = require('./bwrap');
 // `spawn.js` was another session's dirty file at build time. A live session's cage and its
 // transcript mode ARE the dispatch door's — now inexpressibly so, rather than by discipline.
 const { composeArgv, composeCageFor, exitFilePath, resolveSandbox, ensureLogPath, launchSpecForSeat, resolvePidStarttime, closeSeatSessionRow } = require('./spawn');
+const { stampLaunchRefused } = require('../../envelope/stamp');
 const { generateSessionId, selectCarrier, buildSystemdRunArgs, ensureDir, systemdStatus } = require('./carrier');
 const { parseSeatPath, parseServiceSeatPath } = require('../seat-identity/seat-folder');
 const { appendRow } = require('../seat-identity/csv');
@@ -219,15 +220,24 @@ function createLiveSessions({
     materializeCagedSettings(settings.copies);
 
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const seatCage = composeCageFor(resolvedSandbox, seat, resolvedWorkdir, gatewayAddr, (l, m, e) => log(l, m, e));
-    const wrappedArgv = buildBwrapArgv({
-      argv: settings.argv,
-      workdir: resolvedWorkdir,
-      editablePaths,
-      harness: harnessOf(profile),
-      maskPaths,
-      seatBinds: seatCage,
+    const seatCage = composeCageFor(resolvedSandbox, seat, resolvedWorkdir, gatewayAddr, (l, m, e) => log(l, m, e), (refuse) => {
+      stampLaunchRefused({
+        workspaceRoot: seat.workspaceRoot,
+        goal: seat.goal,
+        seat: seat.seat,
+        refuse,
+      });
     });
+    const wrappedArgv = (seatCage && seatCage.uncaged)
+      ? settings.argv
+      : buildBwrapArgv({
+        argv: settings.argv,
+        workdir: resolvedWorkdir,
+        editablePaths,
+        harness: harnessOf(profile),
+        maskPaths,
+        seatBinds: seatCage,
+      });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
     if (carrier !== 'systemd') {

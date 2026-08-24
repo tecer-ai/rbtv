@@ -261,14 +261,35 @@ const MASK_CONFIG_DIRS = ['.claude', '.codex', '.opencode', '.agents', '.kimi'];
 // folder's roster, run rules and THIS-RUN-IS-CLOSED banner are the seat's actual conduct.
 const GOALS_SUBTREE = path.join('.rbtv', 'goals');
 
-// What the caged process ACTUALLY sees at a path is decided by the LAST spec entry covering it —
-// later wins, the same reading bwrap takes. Nothing covering it means the path is already absent
-// (no read-root grant, no vault), so masking it would only make bwrap mkdir a mountpoint into a
-// namespace where nothing was there to hide.
+// Visibility query over an already-conflict-free list ([T2-R1] [C-6]). Mixed access on
+// covering entries is a launch refuse, never later-wins. Nothing covering the path means it
+// is already absent, so masking it would only make bwrap mkdir a mountpoint into a namespace
+// where nothing was there to hide.
+function accessOf(entry) {
+  if (entry.verb === 'bind' || entry.verb === 'bind-try') return 'rw';
+  return 'ro';
+}
+
 function lastCovering(spec, target) {
-  let hit = null;
-  for (const entry of spec) if (contains(entry.path, target)) hit = entry;
-  return hit;
+  const covering = [];
+  for (const entry of spec) if (contains(entry.path, target)) covering.push(entry);
+  let sawRw = false;
+  let sawRo = false;
+  for (const entry of covering) {
+    if (accessOf(entry) === 'rw') sawRw = true;
+    else sawRo = true;
+  }
+  if (sawRw && sawRo) {
+    const err = new Error(`launch-refused: lastCovering mixed access at ${target}`);
+    err.code = 'E_LAUNCH_REFUSED';
+    err.refuse = {
+      kind: 'conflict',
+      path: target,
+      pair: covering.map((e) => ({ path: e.path, access: accessOf(e), source: e.verb })),
+    };
+    throw err;
+  }
+  return covering.length ? covering[covering.length - 1] : null;
 }
 
 // The auto-memory store. The harness keys it on a project slug derived from the workdir, and the

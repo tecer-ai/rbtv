@@ -1,11 +1,9 @@
 # ignite/envelope
 
-Plan-time per-goal envelope compiler. See `component.md`.
+Plan-time per-goal envelope compiler and launch consumer. See `component.md`.
 
 ```js
 const { compile, compilePlanning } = require('./compiler');
-const result = compile({
-  workspaceRoot, goalId, rbtvRepo,
-  namedRepos, projectFolder, credentialNames, extraPaths,
-});
+const { admitLaunch } = require('./launch');
+const { resolveCredentials, injectDeclaredEnv } = require('./credentials');
 ```

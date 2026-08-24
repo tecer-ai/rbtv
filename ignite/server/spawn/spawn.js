@@ -13,7 +13,7 @@ const { materializeHarnessConfig, harnessOf, planCagedSettings, materializeCaged
 const { buildBwrapArgv } = require('./bwrap');
 const { composeSeatSpawn } = require('./tmux');
 // Task 7.11 — the seat cage and the launch-time half of the identity gate.
-const { composeSeatCage, specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
+const { specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
 const { needsDeclaration } = require('./private-scope');
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../seat-identity/seat-folder');
 const { deriveLease } = require('../lease/lease');  // 7.607 E1 — the bus/goals authz predicate
@@ -28,8 +28,13 @@ const { resolvesInsideGoalsRoot } = require('../heart/argv-template');
 // resolvers moved to a module both import — one resolver, no copy. Re-exported below unchanged, so
 // every existing consumer and probe keeps its import path.
 const {
-  seatDeclaresList, rwPathRefusal, resolveRwPathGrants,
+  seatDeclaresList, rwPathRefusal, conflictBind,
 } = require('./seat-grants');
+const {
+  isStaffUncaged, admitLaunch, bindsToSpec, LaunchRefused,
+} = require('../../envelope/launch');
+const { loadCentralStore, injectDeclaredEnv } = require('../../envelope/credentials');
+const { stampLaunchRefused } = require('../../envelope/stamp');
 const {
   generateSessionId,
   selectCarrier,
@@ -1170,23 +1175,8 @@ function resolveHarnessCredGrants(entitledHarnesses = []) {
 // `log` is threaded in for ONE reason: the `rw-paths` grant class refuses per entry rather than
 // per spawn, and a refusal nobody can hear is a silent narrowing of a seat's declared walls. It
 // defaults to a no-op so a caller with no logger still composes.
-// D49: every `*-master` role except console-master (owner-invoked, unsandboxed) gets the
-// MasterBinds stack — whole workspace writable, secrets still masked. Name-based: the seat
-// folder's parsed `seat` (`goal-master`, `channel-master` from `_channel-master`).
-function isCagedMasterRole(seatPath) {
-  const name = seatPath && seatPath.seat;
-  if (typeof name !== 'string' || name === 'console-master') return false;
-  return name.endsWith('-master');
-}
-
-function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}) {
-  let template = resolvedSandbox && resolvedSandbox.SeatBinds;
-  if (isCagedMasterRole(seatPath)
-      && resolvedSandbox && Array.isArray(resolvedSandbox.MasterBinds)
-      && resolvedSandbox.MasterBinds.length > 0) {
-    template = resolvedSandbox.MasterBinds;
-  }
-  if (!template || template.length === 0) return null;
+function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}, stamp = null) {
+  if (isStaffUncaged(seatPath)) return { uncaged: true };
 
   // ⚠ 7.607 E2b — THE E2a `runs` MOUNTPOINT mkdir IS DELETED, on the condition E2a itself stated.
   // E2a had to `mkdirSync(<goalDir>/runs)` for every caged seat because the shipped SeatBinds
@@ -1209,54 +1199,28 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     fs.mkdirSync(path.join(seatPath.goalDir, 'seats'), { recursive: true });
     if (!fs.existsSync(seatPath.sessionsCsv)) fs.writeFileSync(seatPath.sessionsCsv, '');
   }
-  // Resolved ONCE: the same grant decides the mount below and the PATH entry after it. Two
-  // resolutions would be two answers the first time either gained a case.
   const localBin = resolveLocalBinGrant(seatPath);
-  // Same rule, same reason: the ONE resolution decides the mount, the symlink AND the PATH entry.
   const exposedClis = resolveExposedCliGrants(seatPath, log);
-  if (exposedClis.length > 0) {
-    // Appended in code rather than added to `config/spawn-profiles.yaml`'s SeatBinds: the line
-    // has no meaning for a seat with no grant, and cage.js skips a `{grant:…}` line whose grant
-    // list is empty.
-    // LAST, and that ORDER IS THE SAFE ONE — but not for the reason a first reading suggests:
-    // in bwrap the LATER argument WINS (measured: `--bind sub` then `--ro-bind tree` leaves
-    // `tree/sub` read-only; the reverse order leaves it writable). So appending last means this
-    // read-only code tree SHADOWS any writable opening the stack made above it under the same
-    // path — which is the posture we want for a code tree, and is why it is not moved earlier.
-    // ⚠ The consequence, stated so it is not discovered by surprise: an `rw-paths` grant pointing
-    // INSIDE a granted CLI's directory is silently downgraded to read-only — no refusal, no log.
-    // That is ONE CSV CELL away, not hypothetical: `rw-paths` is a live seats.csv column that
-    // materialize emits into this same frontmatter, and a seat already populates it (channel-master).
-    // No seat points one at a granted CLI's directory TODAY (verified 2026-08-10); if one ever
-    // does, it must be REFUSED at compose time here, not silently ignored by mount order.
-    template = [...template, 'ro-bind:{grant:exposedCliCode}'];
-  }
-  const spec = composeSeatCage({
-    seatBinds: template,
-    values: {
-      workdir: resolvedWorkdir,
-      seatDir: seatPath.seatDir,
-      goalDir: seatPath.goalDir,
-    },
-    grants: [
-      ...resolveSeatGrants(seatPath),
-      ...resolveHarnessCredGrants(),
-      ...resolveReadRootGrant(seatPath),
-      ...resolveFenceReadGrants(seatPath),
-      ...resolveBusWriteGrants(seatPath),
-      ...resolveGoalsWriteGrants(seatPath),
-      ...localBin,
-      ...exposedClis,
-      ...resolveTmuxSocketGrant(seatPath),
-      ...resolveGoalWriteGrants(seatPath, log),
-      ...resolveRwPathGrants(seatPath, log),
-      // W6 — the skill-derived CLI write roots. Its OWN grant key rather than the `rwPath` shape
-      // its neighbours share: the two answer different questions in the cage spec and in the log
-      // ("the seat declared this" vs "a CLI this seat's skill routes to declared this"), and that
-      // provenance is the whole reason the chain is resolved at materialize and disclosed there.
-      ...resolveCliWriteRootGrants(seatPath, log),
-    ],
+  const admitted = admitLaunch({
+    workspaceRoot: seatPath.workspaceRoot,
+    goalId: seatPath.goal,
+    goalDir: seatPath.goalDir,
   });
+  if (!admitted.spawn) {
+    if (stamp) stamp(admitted.refuse);
+    throw new LaunchRefused(admitted.refuse);
+  }
+  if (exposedClis.length > 0) {
+    const clash = conflictBind([
+      ...admitted.binds.map((b) => ({ path: b.path, access: b.access, source: b.source || 'envelope' })),
+      ...exposedClis.map((g) => ({ path: g.exposedCliCode, access: 'ro', source: 'exposedCli' })),
+    ]);
+    if (clash) {
+      if (stamp) stamp(clash);
+      throw new LaunchRefused(clash);
+    }
+  }
+  const spec = bindsToSpec(admitted.binds);
   const flags = specToBwrapFlags(spec);
   // ── r-seat-context-cut-at-launch-folder — the ANCESTOR MASK, appended LAST ────────────────
   // Last is the mechanism, exactly as it is for every other line of this stack: the mask must
@@ -1264,12 +1228,21 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // the first place. Composed for BOTH doors here because both compose through this function.
   // `keep-instruction-files: true` is the channel policy (ruling bound (ii)) — a seat.md
   // declaration read by the same one declaration reader every other grant class uses.
-  const mask = composeAncestorMasks(spec, {
-    workspaceRoot: seatPath.workspaceRoot,
-    launchFolder: resolvedWorkdir,
-    keepInstructionFiles: seatDeclares(seatPath.seatDir, 'keep-instruction-files'),
-    log,
-  });
+  let mask;
+  try {
+    mask = composeAncestorMasks(spec, {
+      workspaceRoot: seatPath.workspaceRoot,
+      launchFolder: resolvedWorkdir,
+      keepInstructionFiles: seatDeclares(seatPath.seatDir, 'keep-instruction-files'),
+      log,
+    });
+  } catch (err) {
+    if (err.code === 'E_LAUNCH_REFUSED') {
+      if (stamp) stamp(err.refuse);
+      throw err instanceof LaunchRefused ? err : new LaunchRefused(err.refuse);
+    }
+    throw err;
+  }
   flags.push(...mask.flags);
   log('info', 'ancestor harness artifacts masked', { policy: mask.policy, ...mask.masked });
   // ── W5 (adv C54) — PIERCE DISCLOSURE AT SPAWN, not at materialize ─────────────────────────
@@ -1282,6 +1255,8 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   if (gatewayAddr && seatDeclares(seatPath.seatDir, 'gateway-env')) {
     flags.push('--setenv', 'IGNITE_GATEWAY_ADDR', gatewayAddr);
   }
+  const injected = injectDeclaredEnv(admitted.credentialNames, loadCentralStore(seatPath.workspaceRoot));
+  for (const name of Object.keys(injected)) flags.push('--setenv', name, injected[name]);
   // …and PATH, for the same reason the bind exists. A caged session inherits the systemd --user
   // manager's PATH, which does NOT contain ~/.local/bin (the same fact the restart-daemon job
   // notes in spawn-profiles.yaml). So `local-bin: true` mounted the user CLIs at a path nothing
@@ -1611,8 +1586,18 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // spawnSeat uses. A profile with no template still gets the v1 workdir-only wall — a config
     // state, not a code branch kept on purpose.
     const maskPaths = config.auth?.senders_file ? [path.dirname(config.auth.senders_file)] : [];
-    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir, gatewayAddr, log);
-    const wrappedArgv = buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
+    const seatCage = composeCageFor(resolvedSandbox, dispatchSeat, resolvedWorkdir, gatewayAddr, log, (refuse) => {
+      stampLaunchRefused({
+        heartStore,
+        workspaceRoot: dispatchSeat.workspaceRoot,
+        goal: dispatchSeat.goal,
+        seat: dispatchSeat.seat,
+        refuse,
+      });
+    });
+    const wrappedArgv = (seatCage && seatCage.uncaged)
+      ? argv
+      : buildBwrapArgv({ argv, workdir: resolvedWorkdir, editablePaths, harness: harnessOf(profile), maskPaths, seatBinds: seatCage });
 
     const carrier = selectCarrier(config.spawn.carrier, userManager);
 
@@ -1896,7 +1881,15 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // (composeCageFor above — r-seats-only-architecture (1)). Slots resolve from the SEAT'S OWN
     // RECORDS; nothing here reads caller input (CMP-17), and the ground-truth assertion runs on
     // every spawn.
-    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr, log);
+    const seatCage = composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr, log, (refuse) => {
+      stampLaunchRefused({
+        heartStore,
+        workspaceRoot: seatPath.workspaceRoot,
+        goal: seatPath.goal,
+        seat: seatPath.seat,
+        refuse,
+      });
+    });
 
     // Composition FIRST — and this ordering is the fail-closed guarantee, not a style choice.
     // composeSeatSpawn runs buildBwrapArgv before it builds any tmux argv, so on a box without
@@ -1921,7 +1914,8 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       editablePaths,
       harness: harnessOf(profile),
       maskPaths,
-      seatBinds: seatCage,
+      seatBinds: (seatCage && seatCage.uncaged) ? null : seatCage,
+      uncaged: Boolean(seatCage && seatCage.uncaged),
       userManager,
     });
 

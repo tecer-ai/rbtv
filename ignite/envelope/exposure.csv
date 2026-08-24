@@ -1,3 +1,3 @@
 # envelope's exposure manifest. Depth-2 exposure.csv is the component marker.
-# The compiler is a require()-able library, not a first-party CLI — no method=path row.
+# The compiler and launch consumer are require()-able libraries, not a first-party CLI — no method=path row.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
