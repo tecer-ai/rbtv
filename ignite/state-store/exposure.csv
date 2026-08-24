@@ -1,0 +1,4 @@
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+ending-store,library,path,,index.js,"Write-once seat endings, goal words, open asks, and spec §2 derived predicates over heart.db",
+ending-store-cli,tool,path,,cli.js,"JSON CLI over the ending-store APIs: --db PATH --op NAME --payload JSON|PATH|-",
+ending-store-copy-home,tool,path,,copy-home.js,"One-shot copy of jobs_log plus operational tables into .rbtv/runtime/ignite/heart.db — cutover executes; never against a live daemon",
