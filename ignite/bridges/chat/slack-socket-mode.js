@@ -258,6 +258,21 @@ function createSlackSocketMode({
     return { delivered: true, ts: resp.ts };
   }
 
+  // REWRITE a message already posted — `chat.update`. The ONE caller is `ask-thread.js#postAsk`:
+  // the §3 opening line prints a suffix of the ask id, the ask id IS this message's `thread_ts`
+  // [D-8], and Slack mints that only on the way back. So the opener is posted and then stamped.
+  // Not a general edit surface and not a retry path: a failure is reported, never re-posted, since
+  // a second message would give the owner two threads for one question.
+  async function updateMessage({ channel, ts, text }) {
+    if (!botToken) throw new Error('SLACK_BOT_TOKEN (bot token) is required to rewrite a posted message');
+    const resp = await slackPost('chat.update', botToken, { channel, ts, text });
+    if (!resp || !resp.ok) {
+      log('warn', 'chat.update failed — the message stands as first posted', { channel, ts, error: resp && resp.error });
+      return { updated: false, error: resp && resp.error };
+    }
+    return { updated: true, ts: resp.ts };
+  }
+
   // React to / un-react a message: the ⏳ pending marker the bridge puts on an owner
   // message when its turn is accepted and takes off when the answer lands
   // (chat-bridge.js § pending marker; owner-directed 2026-08-06, one-marker
@@ -402,7 +417,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, react, unreact, authTest, openDm, openConnection, toChatMessage,
+    start, stop, sendToOwner, updateMessage, react, unreact, authTest, openDm, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel, inviteToChannel,
   };
 }
