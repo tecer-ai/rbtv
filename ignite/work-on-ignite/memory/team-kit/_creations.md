@@ -20,3 +20,4 @@
 2026-08-24 · change · delete staff-claim corroboration gate · Redesign batch D19 (authority/grant machinery) [T2-R10, D24, F-simplicity-7]: exactly two identity gates survive · 855f4290 · — · ⚠
 2026-08-24 · change · delete team-monitor CLI and teamview [T4-R8] · Design-baseline v2 [T4-R8, C-15, C6] settles is it alive on the supervisor registry alone — a terminal pane is a viewport · 549a0f8b · orchestration,capabilities · ⚠
 2026-08-24 · change · delete widen-cage verb · Owner ruling [T2-R6, C-6] (redesign-plan, 2026-08-24): runtime auto-widen is dead — a seat's cage envelope is fixed at plan time · 35bdffd4 · engine,server,meta-leader · ⚠
+2026-08-24 · change · delete the oldest-open escalation release door [D-4-ruling] · The arm is deleted rather than repaired, because the fact it was reconstructing now lives · 7672db10 · bridges · ⚠
