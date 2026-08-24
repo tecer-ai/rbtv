@@ -14,3 +14,4 @@
 2026-08-24 · creation · Manifest-derived planning seat divergence alarm · The manifest is the source of truth for the planning seat ids, because · 8713ca14 · planning,meta-planning · ⚠
 2026-08-24 · creation · Persisted supervisor registry + boot re-adopt · A new component `ignite/supervisor/` — the home `spec-component-map` names, replacing · b7a174ca · server,team-kit · ⚠
 2026-08-24 · creation · supervisor death stamp · ONE function from observed exit to ending, `supervisor/death-stamp.js`, replacing two evidence-blind stampers. · 9b34c874 · team-kit,server · ⚠
+2026-08-24 · creation · Supervisor door list + the one liveness probe · Two files beside the registry. `doors.js` is spec-supervisor §3's table as code — six rows, each · 758ecd4b · team-kit,server · ⚠
