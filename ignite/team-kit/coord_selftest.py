@@ -15141,20 +15141,20 @@ def _selftest_checks(args, failures, names):
               and _w8_hi_code is None and _w8_staff_code is None and _w8_nod_code is None
               and len(load_messages(baseW8)[1]) == _w8_n3 + 3)
 
-        # arm 4 — (adv, C78) THE RETURN LEG. The owner's reply arrives exactly as
-        # `engine/bus-answer.js` writes it: `--type answer --as owner --force`, addressed to the
-        # chair, and carrying NO `--re` (that transport resolves `--re` from the sender's oldest
-        # open ASK, and an escalation is not one — it opens no hold, C45). Two things must follow,
-        # and neither did before W8: the chair is WOKEN, and the escalation stops being open.
-        # The chair is given an ENDED session row first, which is the state a chair that has
-        # already sat is in.
+        # arm 4 — THE OLDEST-OPEN RELEASE DOOR IS DELETED [D-4-ruling, C-3, T1-R12, C8]. This arm
+        # used to prove the C78 return leg: an unnumbered `type: answer` from `owner`, addressed to
+        # the chair, retired that chair's OLDEST still-open escalation. That is the guess the
+        # redesign ends — a reply about one halt silently closed a different one — so the arm is
+        # INVERTED rather than deleted, and it now measures the absence at the same door.
         #
-        # ⚠ D12 (2026-08-20) — THE WAKE HALF MOVED OUT OF THIS FILE AND THE ROW SAYS SO. It used
-        # to assert a minted `staff wake` grant here. There is no minter: `engine/reconcile.js`
-        # derives a chair with UNREAD MAIL as owed work and launches the sitting. What this row
-        # can still measure is (a) the send LANDS THE MAIL, which is the wake term, and (b) the
-        # settle rule, which is coord's alone. Asserting a grant string here after the deletion
-        # would be asserting the absent mechanism, not the present one.
+        # Two things must follow from the same send. The chair is still WOKEN — the mail lands,
+        # which is the wake term `engine/reconcile.js` derives (D12: no grant is minted by
+        # anything here). And NOTHING is settled: both halts stay open, because the reply named no
+        # row. Release that reaches a waiting seat now binds to the Slack thread plus an
+        # authorized sender and lives in `bridges/chat/ask-thread.js`, not on this bus.
+        #
+        # RED-FIRST: restore the `rows.remove(mine[0])` arm in `messages.open_escalations` and the
+        # open-count assertion below goes 2 -> 1.
         _w8_srow = [""] * len(SESSIONS_COLS)
         _w8_srow[SESSIONS_COLS.index("session-id")] = "leader-0814-1000"
         _w8_srow[SESSIONS_COLS.index("seat")] = "leader"
@@ -15166,30 +15166,47 @@ def _selftest_checks(args, failures, names):
                                            "--type", "answer", "--force")
         _w8_open_after = open_escalations(load_messages(baseW8)[1])
         _w8_ans_n = len(load_messages(baseW8)[1])
-        check("W8 arm 4 (adv, C78): the owner's reply — `type: answer` from `owner` to the chair, "
-              "with NO `re:`, which is what the bus-answer transport can produce for a row that "
-              "opens no ask — LANDS ON THE BUS addressed to the chair (D12: that unread row IS "
-              "the wake term `engine/reconcile.js` reconciles, and no grant is minted by anything "
-              "here) and SETTLES exactly one escalation, oldest first. Without this arm's settle "
-              "rule `pending` would nag on an answered halt forever, since `--re` never points at "
-              "it",
+        check("W8 arm 4 [D-4-ruling, C-3]: the owner's UNNUMBERED reply — `type: answer` from "
+              "`owner` to the chair with NO `re:` — LANDS ON THE BUS addressed to the chair (D12: "
+              "that unread row IS the wake term `engine/reconcile.js` reconciles, and no grant is "
+              "minted by anything here) and SETTLES NOTHING. Both halts stay open. The oldest-open "
+              "arm that used to retire one of them is DELETED: it closed a row the owner never "
+              "named. A reply releases a waiting seat only in the Slack THREAD its ask was posted "
+              "in, from an authorized sender (`bridges/chat/ask-thread.js`, spec-owner-io §2.4)",
               _w8_ans_code is None
               and load_messages(baseW8)[1][-1]["to"] == "leader"
               and load_messages(baseW8)[1][-1]["type"] == "answer"
               and not [_p for _p in Path(baseW8).glob("*grant*")]
-              and len(_w8_open_before) == 2 and len(_w8_open_after) == 1
-              and _w8_open_after[0]["num"] == _w8_open_before[1]["num"])
+              and len(_w8_open_before) == 2 and len(_w8_open_after) == 2
+              and [_e["num"] for _e in _w8_open_after] == [_e["num"] for _e in _w8_open_before])
 
-        # arm 5 — the DEDUP RELEASES when the owner answers. At-most-once is not once-ever: a
-        # blocker that returns after a ruling is new information, and the chair must be able to say
-        # so. RED mutation: make the `_dup` scan read every escalation rather than the OPEN ones.
+        # arm 5 — the DEDUP RELEASES when the row is SETTLED BY NUMBER. At-most-once is not
+        # once-ever: a blocker that returns after a ruling is new information, and the chair must
+        # be able to say so. What changed with arm 4's deletion is WHICH event releases it — the
+        # unnumbered answer no longer does, so this arm names the row with `--re`, which is the
+        # only settle a bus row still has. First the control: the SAME key while the halt is still
+        # open is refused. RED mutation: make the `_dup` scan read every escalation rather than
+        # the OPEN ones.
+        _w8_dupe_out, _w8_dupe_code = sendW8(
+            "leader", OWNER_TOKEN, "escalation: the m2 cage refuses the data root\nStill stuck.",
+            "--type", "escalation")
+        _w8_target = [_e for _e in open_escalations(load_messages(baseW8)[1])
+                      if _escalation_key(body_of(_e)) == _escalation_key(
+                          "escalation: the m2 cage refuses the data root")]
+        _w8_settle_out, _w8_settle_code = sendW8(
+            "leader", OWNER_TOKEN, "recording the owner's ruling on that halt", "--type", "answer",
+            "--re", str(_w8_target[0]["num"]))
         _w8_again_out, _w8_again_code = sendW8(
             "leader", OWNER_TOKEN, "escalation: the m2 cage refuses the data root\nIt is back "
             "after the ruling.", "--type", "escalation")
-        check("W8 arm 5: once the owner has ANSWERED, the same key may be raised again — the scan "
-              "is at-most-once over OPEN escalations, not once-ever over the log. This is the arm "
-              "that separates a dedup from a gag",
-              _w8_again_code is None
+        check("W8 arm 5: while the halt is OPEN the same key is refused; once the row is settled "
+              "BY NUMBER (`--re`, the only settle a bus row still has now that the oldest-open arm "
+              "is deleted) the same key may be raised again. The scan is at-most-once over OPEN "
+              "escalations, not once-ever over the log — this is the arm that separates a dedup "
+              "from a gag",
+              _w8_dupe_code == 1 and "ALREADY ESCALATED" in _w8_dupe_out
+              and _w8_settle_code is None
+              and _w8_again_code is None
               and len(open_escalations(load_messages(baseW8)[1])) == 2)
 
     # ---- W7: the queue-request READ PATH — coord.py as the engine's one bus parser ------------

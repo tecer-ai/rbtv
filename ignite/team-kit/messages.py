@@ -1590,19 +1590,23 @@ def open_escalations(blocks):
     by an exclusion list). This function only makes an unanswered halt impossible to scroll past.
     Nothing here starts a timeout; `d-auto-proceed-declined` is untouched.
 
-    An escalation is SETTLED the same way an ask is — a row carrying `re: <its number>` — and by a
-    supersession, for the same reason an ask is.
+    An escalation LEAVES THIS VIEW two ways and two only: a row carrying `re: <its number>` — which
+    NAMES the row it closes — and a supersession, for the same reason an ask does.
 
-    ⚠ W8 (adv, C78) ADDS A THIRD SETTLE ARM, and without it this view nags FOREVER on every
-    escalation that actually worked. The owner's reply comes back through `engine/bus-answer.js`,
-    which resolves `--re` from the sender's oldest open ASK and passes NONE when there is not one —
-    escalations are excluded from ask-linkage BY DESIGN (they open no hold, C45), so the return leg
-    is structurally a `type: answer` from `owner` with `re: null`. A settle test that only knows
-    `--re` therefore cannot see the one event that settles the row it renders. So: an `answer` from
-    the owner addressed to the escalating seat, appended AFTER the escalation, settles it. The
-    `--re` arm stays and stays preferred — a human who names the number closes exactly that row —
-    and this arm closes the seat's OLDEST open escalation only, so two open halts are not both
-    cleared by one reply.
+    ⚠ THE THIRD ARM IS DELETED [D-4-ruling, C-3, T1-R12, C8]. W8 (adv, C78) used to retire the
+    escalating seat's OLDEST still-open halt on ANY unnumbered `answer` from the owner. That is the
+    guess the redesign exists to end: an owner reply about one halt silently retired a different
+    one, and the rule was HEAD-only, so nobody watching Slack could see which row it had taken.
+    Owner-facing release now binds to the Slack THREAD the ask was posted in plus an authorized
+    sender, and it lives where that thread does — `bridges/chat/ask-thread.js`, backed by the
+    daemon's `open_asks` row (`spec-owner-io` §2.4, `spec-state-store` §3). Nothing on this bus
+    releases anything any more.
+
+    ⚠ WHAT SURVIVES HERE IS A RENDER, NOT A DOOR. `re:` is a LOG FIELD: it says which numbered row
+    an answer was written about, and this view honours it so a numbered reply stops nagging. It
+    opens no hold, reaps no wait, fires no relaunch and flips no stored state — `open_asks` filters
+    `type == "ask"` and an escalation is never one (C45). An unnumbered owner answer now settles
+    NOTHING here, which is the correct reading of a reply that named no row.
 
     ⚠ TWO ARMS, and the marker is required on ONLY ONE of them. `type: escalation` is sufficient by
     itself (a leader's escalation composes its own body and carries no marker); the marker test
@@ -1615,14 +1619,6 @@ def open_escalations(blocks):
             if (b["type"] == "escalation"
                 or (b["type"] == "verdict" and ESCALATION_MARKER in "\n".join(b["lines"][1:])))
             and b["num"] not in superseded and b["num"] not in answered]
-    # The C78 return-leg arm. One owner reply retires ONE escalation — the oldest still open from
-    # that seat — so a seat holding two halts does not have both cleared by a single answer.
-    for b in blocks:
-        if b["type"] != "answer" or b["sender"] != OWNER_TOKEN:
-            continue
-        mine = [e for e in rows if e["num"] < b["num"] and e["sender"] == b["to"]]
-        if mine:
-            rows.remove(mine[0])
     return rows
 
 
@@ -1998,8 +1994,9 @@ def cmd_send(args):
     # four other readers treat as an enum.
     #
     # ⚠ AT-MOST-ONCE, NOT ONCE-EVER. It refuses only while that escalation is still OPEN; once the
-    # owner answers (C78's return leg settles it — see `open_escalations`), the same key may be
-    # raised again, because a blocker that returns after a ruling is new information. And no
+    # row is settled — by an answer carrying `re: <its number>`, or by a supersession; the
+    # unnumbered-owner-answer arm is DELETED, see `open_escalations` — the same key may be raised
+    # again, because a blocker that returns after a ruling is new information. And no
     # --force: the escape hatch is a first line that says a different thing, which is the honest
     # act — if it IS a different blocker, it does not read the same.
     if args.type == "escalation":
