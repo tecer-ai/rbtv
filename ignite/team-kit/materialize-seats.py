@@ -7167,12 +7167,13 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # NON-ROOT seat.
         #
         # ⚠ IDENTITY CORRECTED (task 7.738). Every `launch` arm below used to
-        # claim `--as chief-of-staff`; that role is RETIRED and was removed from
-        # `coord.py#is_authorized_launcher`, so each one refused at the ROLE gate
-        # naming a role that no longer exists. `leader` is the gate's surviving
-        # human launcher, and `--as` on a DRY RUN is admitted (F17's entry bound
-        # refuses an uncorroborated claim only on a non-dry run — see CP-6's own
-        # note below). The claim stays because the role gate is not what these
+        # claim `--as chief-of-staff`; that role is RETIRED and, at the time, was
+        # removed from `coord.py#is_authorized_launcher` (since itself deleted whole,
+        # along with every per-verb role predicate [T2-R10, D24, F-simplicity-7] —
+        # `launch` carries no role gate at all anymore). `leader` is kept as the
+        # claim here regardless, and `--as` on a DRY RUN is admitted (F17's entry
+        # bound refuses an uncorroborated claim only on a non-dry run — see CP-6's
+        # own note below). The claim stays because no role gate is what these
         # rows assert; they assert the materialize -> launch coupling.
         cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])

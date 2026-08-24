@@ -35,18 +35,20 @@ entries below cite.
   `R-cheap-ask`: owner-gated items go up as ONE batched ask with a recommended default per item and
   any-subset/silence-is-held semantics — measured to compound with the ordering, where ordering
   alone did not clear the queue. Leader never writes to the run's target surfaces.
-  Seat-lifecycle authority is DISTRIBUTED, not leader-only: `launch` accepts the leader AND the
-  **ignite daemon** (`coord.py` `is_authorized_launcher` — task 7.738, owner 2026-08-11: a
-  daemon-fired `start-workflow` opens the goal's entry seat, so the grant is stated at the gate
-  instead of spelled as a `--force` by the caller. It replaces the retired chief-of-staff's half of
-  the G-257 repair — `protocol.md` staffs `leader`/`consultant` only, so that role is RETIRED; every TERMINATING verb —
-  close, renew-of-another, reap, kill, revive — stays off this predicate per `d-cos-may-launch`, so
-  the bound is still open-versus-terminate), and a healthy seat's renewal is its OWN
+  Seat-lifecycle authority is a CONVENTION now, not a coord.py gate: `coord.py` carries no per-verb
+  role predicate anymore [T2-R10, D24, F-simplicity-7] — every verb (`launch`, `close`, `panel`,
+  `kill-pane`, and the rest) is callable by any resolved identity. The two mechanical refusal points
+  that survive are the cage envelope (fixed at plan time, never widened at runtime) and the
+  send-time refusal of an owner-ask from a non-designated seat; "who is SUPPOSED to run `launch`"
+  is a role expectation this document states, not something coord.py enforces. In practice `launch`
+  is typically run by the leader or by the **ignite daemon** (a daemon-fired `start-workflow` opens
+  the goal's entry seat), and a healthy seat's renewal is its OWN
   deterministic act — `checkout --renew --handoff "<note>"`, no approval, no closer
   (`r-self-renewal-is-the-seats-own-act`, `r-cos-self-renew-carveout-generalized`; the one
   exception is a `close: mechanical` seat, whose renewal stays the leader-side
-  close-and-relaunch, `d-mechanical-no-self-renew`). What stays the leader's — every `approve`
-  and the failure-path close of ANOTHER seat — still bottlenecks on one seat: see **deputy**.
+  close-and-relaunch, `d-mechanical-no-self-renew`). What is BY CONVENTION the leader's — every
+  `approve` and the failure-path close of ANOTHER seat — bottlenecks on one seat by agreement, not
+  by a coord.py refusal: see **deputy**.
   Anchors resolve in the owning goal's `decisions.md` ledger (2026-07-29/30 rulings).
 - **consultant** — the goal's OPTIONAL second staff chair, same lifecycle as the leader (on-demand,
   no node, no checkin/checkout): the same judgment surface MINUS the authorities — no close gate, no

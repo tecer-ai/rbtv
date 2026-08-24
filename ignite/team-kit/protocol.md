@@ -59,8 +59,12 @@ $COORD panel                                    # leader only — open the contr
 into every launched seat) > the calling pane's roster row. A claim that contradicts the pane's
 registered agent is REFUSED, naming the registered one. Where `<agent>` still appears above
 (`export-transcript`, `close`, `close-seat`, `approve`), it is the seat being ACTED ON, never the
-caller. `--force` is the single deliberate override on any refusal (identity, role gate,
-recipient/length/`--re` validation); leader-only commands hard-refuse everyone else.
+caller. `--force` is the single deliberate override on any refusal that still carries it (identity,
+recipient/length/`--re` validation). There is no per-verb role gate anymore
+[T2-R10, D24, F-simplicity-7]: coord.py enforces exactly two refusal points — the cage envelope
+(fixed at plan time, never widened at runtime) and the send-time refusal of an owner-ask from a
+non-designated seat. "leader only" labels on commands above are a ROLE CONVENTION this protocol
+states, not a refusal coord.py enforces — every command is callable by any resolved identity.
 `--pretty` (or `COORD_PRETTY=1`) adds colour and aligned columns to `status`/`workers`/`read`/
 `pending` for a human reader; the default output is plain. Full surface: `coordinate -h` (grouped
 one-line index) and `coordinate <command> -h` (arguments, one example, the step that follows).

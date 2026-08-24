@@ -3112,8 +3112,7 @@ def fire_finish_edge(pkg, sender, note=""):
 
 
 def cmd_finish_goal(args):
-    gate(args, "finish-goal", lambda a: a == "leader",
-         "leader's alone (it is the ONE edge that ends the goal and stops every watcher)")
+    gate(args, "finish-goal")
     pkg = package_dir(args)
     ok, detail = fire_finish_edge(pkg, args.as_agent or "leader", getattr(args, "note", "") or "")
     if not ok:
@@ -3478,9 +3477,7 @@ def append_state_advance(pkg, header, state, seat, session_id, note):
 
 def cmd_advance_state(args):
     """`advance-state <state>` — stamp ONE row on the goal's state cursor."""
-    seat = gate(args, "advance-state", lambda a: a == "leader",
-                "leader's alone — it holds the goal's judgment (the convention's Writer row); a "
-                "seat that must stamp outside its own row claims by message first")
+    seat = gate(args, "advance-state")
     if not seat:
         refuse("identity",
                "`advance-state` — the gate was carried but WHO is advancing could not be "
@@ -4881,42 +4878,6 @@ def resolve_agent(args, required=True):
     sys.exit(2)
 
 
-# ---- The role gate's refusal CASES (stage-1 §1.3, task s12-02 item 2).
-#
-# A case is a CALL-SITE PARAMETER, never a wholesale replacement of the wording. `role_verdict`
-# builds the message for ALL 14 gate call sites, and hard-wiring the two close-shaped templates
-# would regress the refusal at the 9 gated commands that have no self-semantics (`close-run`,
-# `owner`, `add-to-group`, `remove-from-group`, `launch`, `panel`, `reap --go`, `kill-pane`,
-# `relaunch-pane`): every one of them would print "closing ANOTHER seat…" and LOSE `allowed_desc`
-# — the only place a refusal names WHO may act. So the GENERIC case is the default, and a
-# close-shaped site opts in by passing `case=`.
-ROLE_CASE_DEFAULT = "`{command}` is {allowed_desc}; you resolve to '{caller}'"
-
-# Passed by `cmd_close` / `cmd_close_seat`. Closing ANOTHER seat is the leader's act and stays
-# leader-gated as a FAILURE PATH (`d-close-renew-decider-recorded`): the SEAT decides its own
-# renew/refresh, the LEADER decides acceptance and the closing of somebody else.
-CLOSE_OTHER_CASE = ("closing ANOTHER seat is the leader's act -- `{command}` is {allowed_desc}; "
-                    "you resolve to '{caller}' and the target is '{target}'")
-# ⚠ THE COACHED COMMAND RUNS TO THE END OF THE STRING, carries `--inline`, and holds no trailing
-# punctuation. G-181's harvester reads this file's own advice as argv and runs it through the REAL
-# send parser, and it caught two drafts of this line: the first wrapped the command in parentheses
-# and the `)` was swallowed into argv; the second omitted `--inline`, which the positional-body
-# guard now refuses UNCONDITIONALLY. Advice here is a surface the parser judges, not prose — a
-# remedy the tool would itself refuse is worse than no remedy, because it is read at the exact
-# moment the caller is blocked.
-CLOSE_OTHER_REMEDY = 'ask leader to run it -- coordinate send leader "<why>" --type ask --inline'
-
-# SELECTED ON `is_self`, never passed in. When the caller IS the target and the gate still refuses,
-# the call site's OTHER-seat wording is the wrong answer — the caller did not try to close anyone
-# else, so "ask leader" sends them to the wrong place. `role_verdict` owns this substitution
-# because it is the ONLY place `is_self` is known, and the remedy is the same everywhere: the
-# deterministic self path built for exactly this.
-ROLE_CASE_SELF = ("`{command}` is {allowed_desc}, and this is not a self-act it offers -- you "
-                  "resolve to '{caller}' and the target '{target}' IS you, but this command has "
-                  "no self path")
-ROLE_REMEDY_SELF = "coordinate checkout --renew"
-
-
 # ---- Every refusal this file emits names its LAYER (task s12-03, stage-1 §1.4; standing ruling
 # R-8, `core-build-run-adjustments/rulings.md`).
 #
@@ -4980,109 +4941,41 @@ def refuse(layer, msg, code=2):
     sys.exit(code)
 
 
-def role_verdict(args, command, allow, allowed_desc, target=None, self_legal=False,
-                 remedy=None, case=None):
-    """The ROLE gate's verdict, WITHOUT acting on it:
-    (caller, passed, overridden, message, is_self).
+def gate(args, command):
+    """Resolve the caller's identity for `command`.
 
-    Split out of `gate` so a command carrying more than one gate can evaluate them ALL before it
-    refuses (leader #230). `passed` is the gate's own answer, ignoring --force; `overridden` says
-    --force would carry it anyway.
+    Formerly a ROLE gate too (an `allow` predicate over the caller's name, plus
+    `target`/`self_legal`/`remedy`/`case` for a refusal's wording) — the role check was DELETED
+    whole [T2-R10, D24, F-simplicity-7]: coord.py's design now enforces exactly two refusal
+    points, the cage envelope (the sandboxed filesystem/process boundary a seat's harness runs
+    inside) and the send-time refusal of an owner-ask from a non-designated seat — neither of
+    which is a per-verb "who may run this" check. Every verb this file exposes is callable by any
+    resolved identity now. `command` is kept as a parameter purely so a call site still reads,
+    at the point it resolves who is calling, WHICH verb it is resolving for.
 
-    THE TARGET IS A PARAMETER, AND THAT IS THE WHOLE FIX (task s12-02, stage-1 §1.1). `allow` is a
-    predicate over the CALLER NAME ALONE, so until this parameter existed the gate could not tell
-    "I close MYSELF" from "I close YOU" — no call site passed the target, so there was nothing to
-    compare against. That is the mechanism behind run-2's 15:1x refusal of an act the owner had
-    already ruled legal, and no wording change could have fixed it: the parameter had to exist.
-
-    `self_legal=True` says this command's SELF case is legal without `--force`
-    (`d-close-renew-decider-recorded`: the seat decides its own renew/refresh, deterministically,
-    with no agent in the execution path). It is deliberately NOT the default — a command grows a
-    self path only by declaring one.
-
-    `is_self` is returned so callers can shape their own text and their own post-gate behaviour
-    (`cmd_close_seat`'s self-act warning, W1)."""
-    caller = resolve_agent(args, required=False)
-    is_self = bool(caller) and bool(target) and caller == target
-    passed = bool(allow(caller)) or (self_legal and is_self)
-    # Through GATE_FLAGS, never a bare getattr: the binding lives in ONE place (S-6(a)).
-    forced = gate_forced(args, "role")
-    if passed:
-        return caller, True, False, "", is_self
-    # A refused SELF act never renders the call site's OTHER-seat case: the caller acted on nobody
-    # but themselves, and "ask leader to run it" would be a remedy for a thing they did not do.
-    template = ROLE_CASE_SELF if is_self else (case or ROLE_CASE_DEFAULT)
-    remedy_text = ROLE_REMEDY_SELF if is_self else (remedy or "")
-    msg = template.format(command=command, allowed_desc=allowed_desc,
-                          caller=caller or "no identity", target=target or "")
-    if remedy_text:
-        msg += f"\nremedy: {remedy_text}"
-    return caller, False, forced, msg, is_self
+    For a command that also carries the memory gate, use `launch_gates` instead."""
+    return resolve_agent(args, required=False)
 
 
-def gate(args, command, allow, allowed_desc, target=None, self_legal=False,
-         remedy=None, case=None):
-    """Hard role gate (T6/F14: `owner`/`launch`/`close`/`panel` documented a leader-only rule
-    and never enforced it). `allow` is a predicate over the resolved caller name; '' means
-    identity was unresolvable. Returns the caller. `--force` is the escape.
+def launch_gates(args, command, n_seats):
+    """The MEMORY gate a spawning command carries. Returns the caller, or exits.
 
-    `target`/`self_legal`/`remedy`/`case` are threaded straight through to `role_verdict` — see
-    its docstring for why the target is a parameter at all. `case=None` is the generic default, so
-    the 9 gated commands with no self-semantics are untouched by that change.
+    This used to be TWO gates evaluated together — role AND memory (leader #230), so a role
+    refusal never hid the memory verdict. The role half was DELETED whole
+    [T2-R10, D24, F-simplicity-7]: coord.py enforces exactly two refusal points now (the cage
+    envelope, and the send-time refusal of an owner-ask from a non-designated seat), and neither
+    is a per-verb role check — so `launch`, `close`, and `relaunch-pane` no longer refuse on WHO
+    is calling. Only the memory floor survives here.
 
-    For a command that ALSO carries the memory gate, use `launch_gates` instead — this one
-    short-circuits, which is exactly the trapdoor #230 rules against."""
-    caller, passed, overridden, msg, _is_self = role_verdict(
-        args, command, allow, allowed_desc, target=target, self_legal=self_legal,
-        remedy=remedy, case=case)
-    if passed:
-        return caller
-    if overridden:
-        print(f"note: `{command}` role gate overridden with --force "
-              f"(caller: {caller or 'unresolved'})", file=sys.stderr)
-        return caller
-    # W5: the refusal no longer ADVERTISES `--force`. The flag still carries the role gate — the
-    # unattended repair path (jobs/recover-room.py) depends on that and GATE_FLAGS is untouched by
-    # ruling (`p-override-split-is-safety-critical`) — but a refusal that offers "or pass --force"
-    # teaches every reader to reach for the override instead of the legal path, and the legal path
-    # is what `remedy` now names.
-    # s12-03: and it NAMES ITS LAYER. `role gate` is the one layer a seat reads as a harness
-    # block, so the prefix carries the paragraph that separates the two. `{command}` is NOT
-    # re-stated here: every one of `role_verdict`'s case templates already renders it, so the
-    # §1.3 sketch's leading "`{command}` — " would print it twice.
-    refuse("role gate", f"{msg}\n{ROLE_GATE_LAYER_NOTE}", 2)
-
-
-def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_legal=False,
-                 remedy=None, case=None):
-    """BOTH gates a spawning command carries — role AND memory — evaluated ALWAYS, with BOTH
-    verdicts reported in one message (leader #230). Returns the caller, or exits.
-
-    THE DEFECT THIS FIXES, and it is an ordering defect rather than a flag one. The role gate was
-    checked FIRST and SHORT-CIRCUITED, so a role refusal said nothing about memory — and the ONLY
-    seat that routinely trips the role gate is the watcher, which holds DAG-unblock authority
-    exercisable solely through `--force`. It therefore could never OBSERVE the memory verdict
-    without having already overridden the role gate, at which point (before the flags were split)
-    it had overridden memory too. A gate you cannot observe without overriding it is not a gate,
-    it is a trapdoor — and separating the flags alone would not have helped, because the second
-    verdict stayed invisible until after the first was waived.
-
-    So: compute both, say both, and refuse if EITHER refuses. `--force` carries the role gate only;
-    `--force-memory` carries the memory gate only; neither carries the other.
-
-    `target`/`self_legal`/`remedy`/`case` are threaded to `role_verdict` exactly as `gate` threads
-    them, so a command whose two branches split across the two helpers (`cmd_close`) cannot end up
-    with one gate that knows the target and one that does not — an inconsistency a reader trusts
-    and a test misses."""
-    caller, role_ok, role_forced, role_msg, _role_is_self = role_verdict(
-        args, command, allow, allowed_desc, target=target, self_legal=self_legal,
-        remedy=remedy, case=case)
-
+    `--force` no longer carries anything at this gate (there is nothing left for it to override);
+    GATE_FLAGS is untouched (a different subsystem's territory) so `--force-memory` still carries
+    the memory half exactly as before."""
     # ⚠ THE FLOOR IS READ HERE, PER LAUNCH, FROM THE RUN PACKAGE — never held as a constant
     # (task 7.82, `r-floor-single-source`). `floor_why` is not decoration: criterion 8's acceptance
     # is that the gate SAYS WHICH VALUE IT USED AND WHY, so an operator can never be silently
     # overruled by an environment or a stale copy. It is printed on PASS as well as on REFUSAL —
     # a value you only see when you are blocked is one you cannot check while things work.
+    caller = resolve_agent(args, required=False)
     floor_mb, floor_why, floor_err = None, None, None
     try:
         floor_mb, floor_why = budget_mod.floor_source(package_dir(args), "refuse", None)
@@ -5118,13 +5011,6 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
         "spike: %d MB per seat (%s) — a MEASUREMENT, not a policy number"
         % (SEAT_SPIKE_MB, SEAT_SPIKE_SOURCE))
     lines.extend(provenance)
-    if role_ok:
-        lines.append("role gate: PASS")
-    elif role_forced:
-        lines.append(f"role gate: REFUSED, overridden with --force ({role_msg})")
-    else:
-        lines.append(f"role gate: REFUSED — {role_msg}")
-        refused = True
     if not mgate:
         lines.append("memory gate: PASS")
     elif mem_forced:
@@ -5134,21 +5020,15 @@ def launch_gates(args, command, allow, allowed_desc, n_seats, target=None, self_
         refused = True
     verdicts = "\n  ".join(lines)
     if refused:
-        # s12-03: the HEAD line names the layer; the per-verdict lines below are untouched, and so
-        # is the two-flag disambiguation (jobs/recover-room.py reasons about exactly that split,
-        # `p-override-split-is-safety-critical`). The token follows the assignment rule: this head
-        # covers BOTH gates, so it names whichever one actually refused — `role gate` when the
-        # caller's role did, `environment` when the memory gate did (it reads available RAM, i.e.
-        # the process world). A head that always said "role gate" would misname half its refusals.
-        _role_refused = not role_ok and not role_forced
+        # s12-03: the HEAD line names the layer. The role half of this refusal is gone
+        # [T2-R10, D24, F-simplicity-7], so only the memory gate can refuse here, and the layer is
+        # always `environment` (it reads available RAM, i.e. the process world).
         refuse(
-            "role gate" if _role_refused else "environment",
-            f"`{command}` — BOTH gates evaluated, both verdicts below (neither flag "
-            f"carries the other):\n  {verdicts}\n"
-            f"--force carries the ROLE gate; --force-memory carries the MEMORY gate.\n"
+            "environment",
+            f"`{command}` — {verdicts}\n"
+            f"--force-memory carries this gate.\n"
             f"If memory is the refusal, the right move is usually to WAIT for a seat to depart "
-            f"rather than override it."
-            + (f"\n{ROLE_GATE_LAYER_NOTE}" if _role_refused else ""),
+            f"rather than override it.",
             2)
     # Nothing refused. The floor and spike this launch actually used are stated even on the happy
     # path (task 7.82 criterion 8) — one line, on stderr, so it never pollutes a piped stdout.
@@ -5220,166 +5100,19 @@ def is_conversational_chair(name):
     return name in CONVERSATIONAL_CHAIRS
 
 
-def is_leader(name):
-    return name == "leader"
-
-
-def is_leader_or_closer(name):
-    return name == "leader" or name.startswith("closer-")
-
-
-def is_authorized_launcher(name):
-    """Who may OPEN panes in this run: the leader, and the ignite daemon.
-
-    THE DAEMON'S HALF IS AN OWNER RULING (task 7.738, 2026-08-11): a daemon-fired
-    `start-workflow` opens the goal's entry seat, which is a LAUNCH, and until this ruling the only
-    way it passed this gate was `workflow_launcher.py` handing `coordinate launch` an unconditional
-    `--force`. That is a flag reading as an override of policy while actually being compliance with
-    it -- the same defect G-257 filed for the seat this predicate used to name -- and it made every
-    unattended launch indistinguishable from a real override in the log. The flag is DROPPED at
-    that caller in the same change; the grant is now stated here, where it can be read.
-    Named through `DAEMON_IDENTITY` rather than a second spelling of the string: the identity this
-    admits is the one `daemon_exec_identity` resolves from kernel measurables (F16), and two
-    literals for one identity is how a gate and its key drift apart.
-
-    THE CHIEF-OF-STAFF IS REMOVED, and this is a RETIREMENT, not a narrowing of a live duty:
-    `protocol.md` staffs `leader`/`consultant` only — `chief-of-staff` and `closer` are RETIRED
-    roles -- "never wake, spawn, address, or fall back to one; any code, config, or prompt
-    that does is built against a dead spec". `r-cos-launches-the-staffed-seat` and the G-257 repair
-    it earned are HISTORY now; they stay cited across this file because they explain why the
-    widening must not come back on its own, never because a seat still holds it.
-
-    MINTED RATHER THAN REUSING the then-existing `is_leader_or_cos_or_closer`
-    (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`). That predicate
-    gated `kill-pane`/`relaunch-pane` and also admitted every `closer-*` seat -- widening
-    `launch` to closers is not what was ruled, and reusing it here would have quietly granted it.
-    It NO LONGER EXISTS: `d-cos-off-pane-kill` (s12-12) took the chief-of-staff off those two
-    commands, they moved to `is_leader_or_closer`, and the predicate was DELETED rather than left
-    callerless -- a dead permission predicate is how a widening gets silently restored.
-    ⚠ THIS WIDENS `launch` ALONE (`d-cos-inbox-is-convention`: "`launch` and nothing else"), and
-    7.738 re-points that bound at the daemon WITHOUT loosening it. `close-run`, `panel`,
-    `reap --go`, `add-to-group` and `remove-from-group` stay the leader's, and every TERMINATING
-    verb -- close, renew, reap, kill, revive -- stays off this predicate. The bound is
-    open-versus-terminate; the daemon is not a second leader.
-    """
-    return name in ("leader", DAEMON_IDENTITY)
-
-
-# `is_leader_or_cos_or_closer` STOOD HERE and is DELETED (s12-12, `d-cos-off-pane-kill`).
-# It gated `kill-pane` and `relaunch-pane` — commands built FOR the chief-of-staff (tasks
-# 7.91/7.95), which is why the seat was in the predicate at all. The ruling reads the bound the
-# other way: kill and relaunch are TERMINATING acts, and `d-cos-may-launch` bars the
-# chief-of-staff from every terminating verb, so both commands now gate on `is_leader_or_closer`
-# and the seat reaches a pane it must destroy through the leader.
-# It is DELETED rather than left with zero callers ON PURPOSE: a callerless permission predicate
-# is a loaded gun a later call site re-points at itself, and the widening comes back with no
-# ruling behind it. Since 7.738 the chief-of-staff holds NO role predicate in this file at all —
-# `is_authorized_launcher` names the leader and the ignite daemon, and the role is RETIRED
-# (`protocol.md` staffs `leader`/`consultant` only). The bound that predicate carries is unchanged: open, never
-# terminate.
-
-
+# `is_leader`, `is_leader_or_closer`, `is_authorized_launcher` (the per-verb ROLE PREDICATES),
+# and `gate_role_names`/`gate_roles_help`/`gate_roles_desc` (the renderers that turned one of them
+# into a gated command's `-h` parenthetical or refusal text) STOOD HERE and are DELETED whole
+# [T2-R10, D24, F-simplicity-7]: coord.py enforces exactly two refusal points now — the cage
+# envelope and the send-time refusal of an owner-ask from a non-designated seat — and neither is a
+# per-verb "who may call this" predicate. `gate()`/`launch_gates()` no longer take a role predicate
+# at all, so every one of these renderers lost its only live callers in the same change; a
+# renderer with no predicate left to read from is worse than a hand-written string, so it went too
+# rather than being left as a landmine for a `pred=` argument nobody can supply anymore. `is_closer`
+# survives below — it is read for non-gating purposes (message routing/broadcast scope), never as
+# a `gate()`/`launch_gates()` predicate.
 def is_closer(name):
     return bool(name) and name.startswith("closer-")
-
-
-def gate_role_names(pred):
-    """The role names a gate predicate admits, READ FROM THE PREDICATE'S OWN SOURCE.
-
-    DERIVED, NEVER ENUMERATED (G-158) -- the same discipline `advice_coached_sends` applies to the
-    advice surface, for the same reason. `relaunch-pane`'s `-h` advertised
-    `(leader/chief-of-staff/closer-*)` long after `d-cos-off-pane-kill` took the chief-of-staff OFF
-    `is_leader_or_closer`, which is the SECOND fork between this gate and its own advertisement in
-    this file's history. EDITING THE PRINTED STRING REPAIRS ONE INSTANCE; deriving it removes the
-    channel a third fork would come back through. That is why this exists at all: it is
-    enforcement, not presentation.
-
-    An exact test (`name == "x"`) renders `x`; a prefix test (`name.startswith("x-")`) renders
-    `x-*`; a membership test (`name in ("x", "y")`) renders each member. Source order is preserved,
-    so the rendering reads in the order the predicate reads.
-
-    ⚠ AN INSTANCE GRANT IS NEVER READ BACK INTO THE STANDING SET. Leader, #1835: "if the owner
-    grants item 13, that is an INSTANCE, NEVER A PRECEDENT, and must not be read back into the
-    standing set." This function reads the PREDICATE and nothing else -- never a roster, never a
-    per-call authorization, never a `--force` that once carried a caller through. The standing set
-    IS the predicate's own source, so a one-off grant to one caller for one act cannot widen what
-    this renders, and no later reader can mistake such a grant for membership.
-
-    Returns [] when the source cannot be read (a module with no source file). Every caller MUST
-    render that as a VISIBLE FAILURE and never as a set -- a confidently printed wrong list is the
-    exact defect above, and a silent empty one is worse than a loud gap.
-    """
-    import ast
-    import inspect
-    import textwrap
-    try:
-        tree = ast.parse(textwrap.dedent(inspect.getsource(pred)))
-    except (OSError, TypeError, SyntaxError):
-        return []
-    mod_globals = getattr(pred, "__globals__", {})
-
-    def role_str(node):
-        """The role a comparand names: a string literal, or a MODULE CONSTANT resolved by name.
-
-        The constant arm is not a generalization -- it is what keeps this function honest after
-        7.738, which admits the daemon through `DAEMON_IDENTITY` rather than a second spelling of
-        `'ignite-daemon'`. Reading literals ONLY, this renderer would have returned {leader} for a
-        gate that admits two, and advertised a set SMALLER than the gate enforces: the same fork
-        this function exists to close, arriving through the door that closes it. Only names bound
-        to a str in the predicate's own module resolve; anything else stays unrenderable and is
-        reported as such by the callers."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value
-        if isinstance(node, ast.Name) and isinstance(mod_globals.get(node.id), str):
-            return mod_globals[node.id]
-        return None
-
-    found = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Compare) and len(node.ops) == 1:
-            right = node.comparators[0]
-            if isinstance(node.ops[0], ast.Eq) and role_str(right) is not None:
-                found.append((right.lineno, right.col_offset, role_str(right)))
-            elif (isinstance(node.ops[0], ast.In)
-                  and isinstance(right, (ast.Tuple, ast.List, ast.Set))):
-                for elt in right.elts:
-                    if role_str(elt) is not None:
-                        found.append((elt.lineno, elt.col_offset, role_str(elt)))
-        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-              and node.func.attr == "startswith" and node.args
-              and isinstance(node.args[0], ast.Constant)
-              and isinstance(node.args[0].value, str)):
-            arg = node.args[0]
-            found.append((arg.lineno, arg.col_offset, arg.value + "*"))
-    names = []
-    for _lineno, _col, name in sorted(found):
-        if name not in names:
-            names.append(name)
-    return names
-
-
-def gate_roles_help(pred):
-    """The `(a/b)` parenthetical a gated command's `-h` opens with, rendered from its own gate."""
-    names = gate_role_names(pred)
-    if not names:
-        return f"(role gate `{pred.__name__}` -- SET UNRENDERABLE, read the predicate)"
-    return "(" + "/".join(names) + ")"
-
-
-def gate_roles_desc(pred):
-    """`allowed_desc` for `gate`/`launch_gates`, from the SAME predicate the gate actually runs.
-
-    Possessive, and byte-identical to the hand-maintained string it replaces on the two-member set
-    `{leader, closer-*}`: "leader's or a closer-*'s". That identity is asserted in selftest, so a
-    predicate whose shape this renderer cannot carry goes RED here rather than shipping prose that
-    quietly stops describing the gate."""
-    names = gate_role_names(pred)
-    if not names:
-        return f"gated by `{pred.__name__}` -- SET UNRENDERABLE, read the predicate"
-    parts = [names[0] + "'s"] + [f"a {n}'s" for n in names[1:]]
-    if len(parts) == 1:
-        return parts[0]
-    return ", ".join(parts[:-1]) + " or " + parts[-1]
 
 
 def broadcast_scope(agent, decls=None):
@@ -6376,9 +6109,11 @@ def lifecycle_line(base):
 # WHAT RUNS HERE. `lifecycle-exec` is the DETACHED LIFECYCLE EXECUTOR's entry point: a fresh
 # subprocess the caller forks (`s3-09`) so a seat's session rotation is carried OUT OF the pane
 # that is dying. It is PURE CODE — there is no agent anywhere in this path — and it holds NO SEAT
-# IDENTITY: it never calls `resolve_agent`, never calls `gate`, never calls `launch_gates`. Those
-# resolve a ROLE, and by the time this runs the act is already authorised; the role gate is
-# Stage 1's (`s12`). Ruled bound this realizes (`d-cos-may-launch`): the chief-of-staff may OPEN a
+# IDENTITY: it never calls `resolve_agent`, never calls `gate`, never calls `launch_gates`. There
+# is no per-verb role gate anymore in this file at all [T2-R10, D24, F-simplicity-7]; this
+# executor still holds no seat identity by construction, and still needs its own retry-shaped
+# memory pre-flight (`lifecycle_memory_gate`) rather than `launch_gates`' hard exit. Ruled bound
+# this realizes (`d-cos-may-launch`): the chief-of-staff may OPEN a
 # session and may NEVER close, renew, reap, kill or revive one — every terminating act belongs to
 # this executor and to Stage 4's revival arm, and nothing here gives any agent a new path to
 # terminate a session.
@@ -6503,7 +6238,8 @@ LIFECYCLE_INTENT_OF = {"close": ("done", "incomplete"), "renew": ("renew",),
 # 4's, and this file must not grow a private copy of it. No memory machinery of any kind (R-14).
 
 # THE RECIPIENT IS RESOLVED FROM THE PACKAGE, NEVER ASSUMED. `leader` is the ROLE WORD this file
-# already holds as its ONE definition of the leader role (`is_leader`), not a seat name typed here:
+# uses for the leader seat (no role-gate predicate names it anymore [T2-R10, D24, F-simplicity-7],
+# but the seat name itself is still `leader` by convention), not a seat name typed here:
 # it is offered to `known_recipients` — the SAME predicate `cmd_send` validates `--to` against — and
 # admitted only when THIS package carries a roster row, a briefing, a group, a RELAY TOKEN or an
 # addressable non-member of that name. A run that renames its leader seat declares
@@ -7379,10 +7115,12 @@ def lifecycle_memory_gate(args, base, n_seats=1):
     """The relaunch's MEMORY pre-flight — alarmed and RETRIED, never silently given up on.
     Returns the floor it used; never returns when the gate stays shut.
 
-    ⚠ THE EXECUTOR MUST NOT CALL `launch_gates`. That helper resolves a ROLE, and this process
-    holds NO seat identity by construction — it never calls `resolve_agent`, `gate`, or
-    `launch_gates`. So the two gates it bundles are taken apart here and only the MEMORY half is
-    evaluated; the role half was answered at the checkout that authorised this act.
+    ⚠ THE EXECUTOR MUST NOT CALL `launch_gates`. That helper hard-refuses (exits) on a memory
+    shortfall; this out-of-pane process needs to ALARM AND RETRY instead, on a bounded schedule,
+    because a seat closed and never relaunched is the worst outcome this stage can produce. So the
+    memory check is taken apart and re-implemented here rather than reused — `launch_gates` no
+    longer carries a role check to avoid either [T2-R10, D24, F-simplicity-7], but its
+    hard-refusal SHAPE is still wrong for a detached executor that cannot just exit and give up.
 
     ⚠ A REFUSAL IS NOT THE END. A seat closed and never relaunched is the worst outcome this stage
     can produce, and memory pressure is the one refusal reason that CLEARS ON ITS OWN. So the first
@@ -9843,8 +9581,8 @@ def print_owner_status(base, label_width=7, args=None):
 
 def cmd_owner(args):
     # P15 — workers were inferring owner availability and getting it wrong; state it explicitly.
-    # Gate: leader, or an UNRESOLVABLE identity — that caller is the human owner at a shell.
-    gate(args, "owner", lambda who: who in ("leader", ""), "leader's (or the owner's) to set")
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — any resolved identity may set it.
+    gate(args, "owner")
     base = base_dir(args)
     base.mkdir(parents=True, exist_ok=True)
     note = f" — {args.note}" if args.note else ""
@@ -10097,7 +9835,7 @@ def cmd_create_group(args):
 
 
 def cmd_add_to_group(args):
-    gate(args, "add-to-group", is_leader, "leader's alone")
+    gate(args, "add-to-group")
     # Only the names being ADDED are policed: a group that already carries a special-case seat
     # (three did when G-32 was filed) must stay editable, or the refusal would block its own fix.
     refuse_special_case_members(args, "add-to-group", args.members)
@@ -10127,7 +9865,7 @@ def cmd_remove_from_group(args):
     banned, so before this command a wrong member could be added but never taken back. G-32 is the
     case that needed it: three groups carried the watcher from before the special-case cut landed,
     and `create-group` refuses a re-create."""
-    gate(args, "remove-from-group", is_leader, "leader's alone")
+    gate(args, "remove-from-group")
     base = base_dir(args)
     with coord_lock(base):
         path, lines, grows = load_groups(base)
@@ -12259,7 +11997,7 @@ def cmd_status(args):
         print(c(f"next:   {coord} read", C_HINT))
     elif mine:
         print(c(f"next:   {coord} pending", C_HINT))
-    elif is_leader(me):
+    elif me == "leader":
         # Leader has nobody to escalate to — the idle hint told it to `send leader`, i.e. to
         # message itself. Leader's idle move is draining the run's queue: open asks first
         # (`pending` also shows broadcast asks and its own unanswered ones), then the log.
@@ -14455,11 +14193,7 @@ def arm1_fails_under_transposition(rows, x, y):
 # append.
 def cmd_surface_refusal(args):
     """(daemon) surface ONE seed-time refusal on the goal bus, once per (seat, reason)."""
-    gate(args, "surface-refusal", is_authorized_launcher,
-         "the leader's and the ignite daemon's — `is_authorized_launcher`: this verb reports the "
-         "seeding pass's own refusal, which only a launching party holds",
-         remedy="a seat reporting a problem sends a typed `note` to the leader with "
-                "`coordinate send` instead")
+    gate(args, "surface-refusal")
     seat = args.seat
     reason = (args.reason or "").strip()
     if not reason:
@@ -15267,20 +15001,11 @@ def cmd_rule_guard(args):
     indistinguishable from a guess, and it is read months later by somebody who was not there.
     ⚠ THE PAIR MUST BE REFERENCED BY A LIVE EDGE. A ruling on a `(seat, key)` no `after` member
     consumes is a typo until proven otherwise, and a typo that writes is worse than a refusal."""
-    # THE SEAT IS READ BEFORE THE GATE because it IS the gate's target — `role_verdict` compares
-    # the resolved caller against it. It is a pure argument, so reading it here consults no disk
-    # and a malformed invocation still costs nothing.
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `seat` is read only because
+    # `ruled_by` below wants the resolved caller's identity for the record it writes, not to
+    # gate on it.
     seat = (args.seat or "").strip()
-    ruler = gate(args, "rule-guard", lambda name: name == seat,
-                 f"'{seat}'s alone — the seat named in the `(seat, key)` pair writes its OWN guard "
-                 f"value, because that value is a fact about ITS work and no other party "
-                 f"witnessed it (`one-readiness-predicate` D2). No other seat may write it, and "
-                 f"the leader is not a party to advancement",
-                 target=seat,
-                 remedy=(f"'{seat}' runs it, at its own check-out, with the citation the value was "
-                         f"measured at. If that seat cannot produce the value, it ends honestly "
-                         f"with `checkout --incomplete \"<why>\"` and the work is re-routed — "
-                         f"nobody writes the value on its behalf"))
+    ruler = gate(args, "rule-guard")
     pkg = package_dir(args)
     base = base_dir(args)
     go = bool(getattr(args, "go", False))
@@ -16447,8 +16172,8 @@ def _cap_admit_upto(workers, counted_types, allow):
 #
 # THE DEFECT. `--as NAME` is an ASSERTION, and `resolve_agent`'s contradiction check can only fire
 # when the calling pane HAS a registered roster row to contradict. With no row there is nothing to
-# check the claim against, so a bare `--as leader` simply STOOD — and `is_authorized_launcher` then
-# read it as the leader and opened panes. That is identity by TYPING, at the one command that
+# check the claim against, so a bare `--as leader` simply STOOD and opened panes as the leader.
+# That is identity by TYPING, at the one command that
 # spends plan budget and puts sessions on the live room. The daemon's own gate
 # (`server/seat-identity/identity.js`) was built refusing exactly this: "there is no env var, no
 # `--as`, no flag, and no config that can substitute for or override the match".
@@ -16701,9 +16426,11 @@ def cmd_session_open(args):
 # `exited`/UNDECLARED daemon-lane row, and the whole class parked on the owner at a terminal.
 #
 # THE FIX IS ONE BRANCH AFTER ADMISSION. Every wall above it — P2–P4 of `--rerun`, the 7.251 wall of
-# `--declare-only`, `--reopen`'s brake and walk-forward, `is_authorized_launcher`, the D45/F17
+# `--declare-only`, `--reopen`'s brake and walk-forward, the D45/F17
 # identity bound, the admission filter, PROP-8, the capacity term — is untouched and decides the
-# same on both lanes. What moves is the COMPOSER: on the daemon lane the admitted seats are handed
+# same on both lanes. (`is_authorized_launcher`, the per-verb role predicate `launch` used to be
+# gated on, is gone [T2-R10, D24, F-simplicity-7] — `launch` is callable by any resolved identity
+# now.) What moves is the COMPOSER: on the daemon lane the admitted seats are handed
 # to the daemon's OWN spawn door — gateway intent `enqueue-job` on the seat's registered job
 # (`seat-<goal>-<seat>`, the id `engine/seeding.js#jobIdFor` registers at seeding), headless, the
 # canonical seat folder as workdir and NO prompt — the same row `engine/reconcile.js#launchSitting`
@@ -16723,8 +16450,9 @@ def cmd_session_open(args):
 #
 # AUTHZ, measured: `server/internal-api/dispatch.js#handleEnqueueJob` runs NO authz predicate —
 # `enqueue-job` is open to every authenticated sender by design ("a live feed can do strictly LESS
-# than an enqueue … which is open to any authenticated sender"), so no allow-rule is minted; the
-# leader-only admission stays HERE, under `is_authorized_launcher`, where it always was.
+# than an enqueue … which is open to any authenticated sender"), so no allow-rule is minted; there
+# is no leader-only admission on `launch` anymore either [T2-R10, D24, F-simplicity-7] — the role
+# predicate that used to gate it here (`is_authorized_launcher`) is deleted.
 
 _GOAL_CLI_TOOL_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
 
@@ -16883,29 +16611,14 @@ def cmd_launch(args):
                 claim=_f17_claim,
                 pane_state=asserted_launch_pane_state(_f17_pane),
                 invocation=coord_invocation(args)), 2)
-    role_desc = "leader's and the ignite-daemon's (it opens seats and spends plan budget)"
-    # #210: the roster is resolved FIRST because the memory gate is sized by seat COUNT, and both
-    # gates must be answered together. Nothing here opens a pane or writes a surface — reading
-    # briefings has no side effect — so evaluating the role gate a few lines later costs nothing
-    # and buys the caller both verdicts at once. `--dry-run` keeps the role gate ALONE: it opens
-    # nothing, so refusing it on available memory would refuse a command that cannot spend any.
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `launch` is callable by any
+    # resolved identity. #210: the roster is still resolved FIRST because the memory gate is
+    # sized by seat COUNT; `--dry-run` opens nothing, so it skips the memory gate too.
     workers = seats_by_name(args, args.only)
-    # G-257 / `d-g257-widening-not-threading`: BOTH BRANCHES CARRY THE SAME PREDICATE. Missing
-    # one leaves a --dry-run and a real launch disagreeing about who may act -- the shape a reader
-    # trusts and a test misses (S4-g is its control).
-    #
-    # The TARGET is threaded for the REFUSAL TEXT ONLY, so a refusal names WHO was being launched;
-    # `launch`'s target is the `--only` set, or a mass launch when none was named. `self_legal` is
-    # passed EXPLICITLY as False at both sites rather than left to the default: there is no self
-    # case at `launch` -- a seat does not launch itself into existence -- and s12-02's self/other
-    # threading is therefore INERT here, which is exactly why it could not have discharged G-257.
-    launch_target = args.only or "(mass launch)"
     if args.dry_run:
-        gate(args, "launch", is_authorized_launcher, role_desc,
-             target=launch_target, self_legal=False)
+        gate(args, "launch")
     else:
-        launch_gates(args, "launch", is_authorized_launcher, role_desc, len(workers) or 1,
-                     target=launch_target, self_legal=False)
+        launch_gates(args, "launch", len(workers) or 1)
     # G-51: the descriptor binds and the registry is a record nothing read until now. Checked on
     # the DRY-RUN path too — a dry-run exists to show what a real launch would do, and hiding a
     # divergence from it would make the one command meant for inspection the one that lies.
@@ -17105,10 +16818,10 @@ def cmd_launch(args):
     # the live leader's own objection `meet/issues.md#G-leader-0820-1727`): a CLEAR would destroy
     # the `exited` word, which is the run's ONLY record of how that session ended.
     #
-    # ⚠ IT MINTS NO ROLE GATE. `launch` is already gated by `is_authorized_launcher` far above
-    # (the leader AND the ignite daemon); this act INHERITS that gate and adds no second one. The
-    # daemon simply never passes the flag. A second copy of the role model is the PRIN-11 defect
-    # this file argues against everywhere else.
+    # ⚠ IT MINTS NO ROLE GATE. `launch` carries no per-verb role predicate anymore
+    # [T2-R10, D24, F-simplicity-7] — it is callable by any resolved identity, daemon included —
+    # so this act adds none either. A second copy of the role model is the PRIN-11 defect this
+    # file argues against everywhere else.
     #
     # THE BARRED LIST IS UNTOUCHED AND STAYS UNTOUCHED: `--force` carries the ROLE gate alone,
     # `--force-memory` the MEMORY gate alone, and neither admits an `exited` row — a reader who
@@ -17228,8 +16941,8 @@ def cmd_launch(args):
     #
     # A leader-written `done` may be RE-OPENED on a LATE FINDING, by APPENDING a new sitting with
     # a recorded reason — the `done` row stands UNREWRITTEN (D54). This block is `--rerun`'s own
-    # shape, one door over: same role gate (inherits `is_authorized_launcher`, mints no second
-    # one), same P2/P4 guards, same "ordinary working session, prior row not rewritten" framing.
+    # shape, one door over: no role gate either [T2-R10, D24, F-simplicity-7], same P2/P4 guards,
+    # same "ordinary working session, prior row not rewritten" framing.
     # It differs from `--rerun` in exactly the ways D54/D66/D72 require:
     #   - admits `done` (any writer `RECORD_DISPOSITION_WRITER["done"]` admits), where `--rerun`
     #     refuses it BY STATE (its own refusal text, quoted above, unchanged) — `done` does NOT
@@ -17992,8 +17705,8 @@ def cmd_launch(args):
             sys.exit(1)
         return
 
-    # The memory gate is answered UP FRONT, beside the role gate, by `launch_gates` — both
-    # verdicts in one message, neither flag carrying the other (#210/#230).
+    # The memory gate is answered UP FRONT by `launch_gates` (no role gate anymore
+    # [T2-R10, D24, F-simplicity-7]).
 
     # BEFORE any seat boots: a worker reads its rules once, at startup, so a refresh that lands
     # after the pane opens is a refresh the worker never sees.
@@ -18255,30 +17968,15 @@ def mechanical_close_seat(args, target):
 
 
 def cmd_close(args):
-    role_desc = "leader's alone (it spawns a closer seat)"
-    # #210/#230: `close` carries both gates too, so both are answered together — but ONLY on the
-    # path that actually spawns a closer. A `--dry-run` opens nothing, and a `close: mechanical`
-    # seat (G-23) spawns no closer at all, so neither can spend the memory the gate protects;
-    # refusing those on available memory would refuse a command that costs none. Resolving the
-    # seat's briefing first is read-only.
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `close` is callable by any
+    # resolved identity. #210: `close` still carries the memory gate too, but ONLY on the path
+    # that actually spawns a closer — a `--dry-run` opens nothing, and a `close: mechanical` seat
+    # (G-23) spawns no closer at all, so neither can spend the memory the gate protects.
     mech_seat = mechanical_close_seat(args, args.target)
-    # THE SAME THREE ARGUMENTS ON BOTH BRANCHES. Missing one leaves the gate inconsistent between
-    # a dry-run and a real close — the shape a reader trusts and a test misses.
-    #
-    # `self_legal` is NOT among them, deliberately: `close` spawns a CLOSER and is leader's alone
-    # (`d-close-renew-decider-recorded` keeps closing-another-seat leader-gated as a failure path,
-    # and this command IS that path). The target is threaded anyway, because it is what lets a
-    # refusal tell the two cases apart — a seat that names ITSELF here is not trying to close
-    # anyone, it is reaching for the self path, and `role_verdict` sends it to `checkout --renew`
-    # instead of to "ask leader". Without the target both refusals read identically and the second
-    # one sends the caller somewhere that cannot help them. The SELF path itself is
-    # `close-seat --renew` / `checkout --renew`, never this command.
     if args.dry_run or mech_seat is not None:
-        gate(args, "close", is_leader, role_desc, target=args.target,
-             remedy=CLOSE_OTHER_REMEDY, case=CLOSE_OTHER_CASE)
+        gate(args, "close")
     else:
-        launch_gates(args, "close", is_leader, role_desc, 1, target=args.target,
-                     remedy=CLOSE_OTHER_REMEDY, case=CLOSE_OTHER_CASE)
+        launch_gates(args, "close", 1)
     # G-23 (owner-directed): a seat whose entire state is EXTERNAL and machine-owned finishes one
     # session and opens another — no closer agent, no memory.md, no harvest. Its memory would be a
     # hand-maintained copy of files its own loop recomputes every pass, which is the stale-derived-
@@ -18318,7 +18016,8 @@ def cmd_close(args):
             "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
             "prompt.",
             1)
-    # The memory gate for this spawn was answered up front by `launch_gates`, beside the role gate.
+    # The memory gate for this spawn was answered up front by `launch_gates` (no role gate
+    # anymore [T2-R10, D24, F-simplicity-7]).
     # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
     # literal keystrokes — every newline arriving as Enter, so the pane's shell executed the
     # briefing line by line. It checked the closer in for real and printed a completion report
@@ -18395,14 +18094,11 @@ def renew_in_place(seat, pane, pane_live, pane_window_name=None):
 def cmd_close_seat(args):
     # The closer runs this as the tail of its own close; leader runs it directly for dead panes.
     #
-    # SELF IS LEGAL HERE, AND WITHOUT `--force` (`d-close-renew-decider-recorded`): the SEAT
-    # decides its own renew/refresh — deterministically, with no agent in the execution path — and
-    # the LEADER decides two things only, acceptance that gates a done-close and the closing of
-    # ANOTHER seat, which stays leader-gated as a failure path (that is `cmd_close`, and the
-    # CLOSE_OTHER_CASE below is this command's own version of the same refusal).
-    _caller = gate(args, "close-seat", is_leader_or_closer, "leader's or a closer-* seat's",
-                   target=args.target, self_legal=True, remedy=CLOSE_OTHER_REMEDY,
-                   case=CLOSE_OTHER_CASE)
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `close-seat` is callable by any
+    # resolved identity, closing ANY seat including a foreign one. `_caller` is still resolved,
+    # never for gating, but because the W1 self-act warning right below needs to know whether the
+    # caller and the target are the same seat.
+    _caller = gate(args, "close-seat")
     # W1 — A WARNING, NEVER A REFUSAL. The self-act is legal and stays legal; what it is not is
     # SURVIVABLE for the caller's own turn. A self `close-seat --renew` respawns the caller's own
     # pane when the seat already sits in the window its descriptor names (`renew_in_place`, and
@@ -18607,7 +18303,7 @@ def cmd_panel(args):
     The leader window is the run's control panel: leader + the oversight seats (watcher,
     scientist, scientist-roster) + on-demand closers as panes, plus this pane running the live
     tmux-overview of the whole session. Idempotent: skips if an 'overview' pane already exists."""
-    gate(args, "panel", is_leader, "leader's alone (it splits the control-panel window)")
+    gate(args, "panel")
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     if not target:
         refuse(
@@ -18664,7 +18360,7 @@ def cmd_reap(args):
     # for the wrong permission.
     go = getattr(args, "go", False)
     if go:
-        gate(args, "reap --go", is_leader_or_closer, "leader's or a closer-* seat's")
+        gate(args, "reap --go")
     base = base_dir(args)
     panes = live_panes()
     debts = awaiting_debts(base, panes)
@@ -18744,12 +18440,9 @@ def cmd_kill_pane(args):
     this reads the ROW's `active` field as ground truth rather than inferring aliveness from
     whether the pane is in `live_panes()` -- a pane that changed out from under a stale roster row
     must not be misread as free just because the OLD pane id looks live or dead."""
-    # s12-12 (`d-cos-off-pane-kill`): the chief-of-staff is OFF this predicate. Killing a pane is
-    # a TERMINATING act and `d-cos-may-launch` bars the seat from every one of them; that this
-    # command was BUILT for the chief-of-staff (7.91) is why it had to be narrowed by ruling
-    # rather than left as evidence of permission.
-    gate(args, "kill-pane", is_leader_or_closer,
-         "leader's or a closer-*'s")
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `kill-pane` is callable by any
+    # resolved identity.
+    gate(args, "kill-pane")
     target = args.pane_id
     if not target.startswith("%"):
         refuse(
@@ -18853,8 +18546,9 @@ def cmd_terminate_pid(args):
     does not take is reported and exits non-zero (criterion 2); it does not become a KILL the
     caller never named. `verify_pids_gone` escalates because a pane teardown must complete; an
     authorized single terminate must instead do exactly what was authorized."""
-    caller = gate(args, "terminate-pid", is_leader, "the leader's alone",
-                  remedy=CLOSE_OTHER_REMEDY)
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `caller` is still resolved (never
+    # gated) because the authorization record below names who ran this act.
+    caller = gate(args, "terminate-pid")
     pid = args.pid
     if pid <= 1:
         refuse(
@@ -19025,13 +18719,8 @@ def cmd_relaunch_pane(args):
     matching `cmd_launch`'s own reasoning verbatim: a dry-run exists to show what a real relaunch
     would do, and hiding a registry divergence from it would make the one command meant for
     inspection the one that lies."""
-    # s12-12 (`d-cos-off-pane-kill`): relaunching kills the pane it replaces, so it is a
-    # TERMINATING act and the chief-of-staff is off this predicate too — same ruling, same reason
-    # as `kill-pane` above.
-    # C5.2: DERIVED from the very predicate the two gate calls below pass, never hand-maintained
-    # alongside it. What it renders is byte-identical to the string it replaces ("leader's or a
-    # closer-*'s"), asserted so in selftest — the change is the SOURCE of the text, not the text.
-    role_desc = gate_roles_desc(is_leader_or_closer)
+    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `relaunch-pane` is callable by
+    # any resolved identity.
     seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
     if not seats:
         refuse(
@@ -19043,9 +18732,9 @@ def cmd_relaunch_pane(args):
             1)
 
     if args.dry_run:
-        gate(args, "relaunch-pane", is_leader_or_closer, role_desc)
+        gate(args, "relaunch-pane")
     else:
-        launch_gates(args, "relaunch-pane", is_leader_or_closer, role_desc, 1)
+        launch_gates(args, "relaunch-pane", 1)
 
     # G-51, on the dry-run path too (see docstring) — check_bindings does not special-case
     # dry_run itself; it refuses on a real divergence regardless.
@@ -21144,40 +20833,34 @@ def _selftest_checks(args, failures, names):
         finally:
             globals()["daemon_exec_identity"] = _f16_real
         check("F17: THE F16-RESOLVED PATH IS ADMITTED BY THIS BOUND — an identity resolved from "
-              "kernel measurables carries no `--as`, so the bound never fires on it. Since 7.738 "
-              "(owner ruling 2026-08-11) the ROLE gate admits it too: `is_authorized_launcher` "
-              "names DAEMON_IDENTITY, so the daemon reaches the launch the widening was ruled for "
-              "and the daemon's start-workflow path no longer spells compliance as `--force` "
-              "(`workflow_launcher.py`, the file that once did, was folded into "
-              "goal-creation-request). This row still "
+              "kernel measurables carries no `--as`, so the bound never fires on it. This row "
               "proves the gate did not capture its own key — the `--as` bound is INTACT (its own "
-              "mark is absent, so it did not fire) and no role-gate refusal stands in front of the "
-              "daemon. The grant is read at the predicate, never inferred from the absence of a "
-              "refusal line",
-              _f17_mark not in _f17_k and _f17_role not in _f17_k
-              and is_authorized_launcher(DAEMON_IDENTITY))
+              "mark is absent, so it did not fire). There is no role gate to admit the daemon "
+              "through anymore [T2-R10, D24, F-simplicity-7]: `launch` is callable by any "
+              "resolved identity, so the daemon's start-workflow path never needed the widening "
+              "`is_authorized_launcher` used to name",
+              _f17_mark not in _f17_k and _f17_role not in _f17_k)
         # ADMITTED (3 of 3): the corroborated claim, which is the whole point of keying on STATE.
         calling_pane["v"] = "%3"   # alpha's registered pane
         _f17_corrob, _f17_cc = refuse(cmd_launch, as_agent="alpha", only="hk-1", dry_run=False)
         calling_pane["v"] = ""
         check("F17: a claim the calling pane's ACTIVE roster row CORROBORATES is outside this "
               "bound — the SAME claim that was refused above is admitted here on the strength of "
-              "the row, and goes to the role gate like any other verified identity",
-              _f17_cc == 2 and _f17_mark not in _f17_corrob and _f17_role in _f17_corrob)
+              "the row (no role gate stands behind it anymore either "
+              "[T2-R10, D24, F-simplicity-7])",
+              _f17_mark not in _f17_corrob and _f17_role not in _f17_corrob)
 
-        # ---- T6: hard role gates (F14 — these commands documented a rule they never enforced) ----
-        out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True)
-        check("gate: launch hard-refuses a non-leader caller", code == 2 and "leader" in out)
-        out, code = refuse(cmd_launch, agent="beta", only="hk-1", dry_run=True, force=True)
-        check("gate: --force is the escape on every gate", code == 0 and "[dry-run] hk-1" in out)
-        out, code = refuse(cmd_panel, agent="beta")
-        check("gate: panel hard-refuses a non-leader caller", code == 2)
-        out, code = refuse(cmd_add_to_group, agent="beta", group="pair", members=["gamma"])
-        check("gate: add-to-group stays leader-only", code == 2)
-        out, code = refuse(cmd_close_seat, agent="beta", target="alpha", renew=False, no_export=True)
-        check("gate: close-seat refuses a plain worker (leader or closer-* only)", code == 2)
-        out, code = refuse(cmd_owner, agent="beta", state="afk", note="")
-        check("gate: owner refuses a worker", code == 2)
+        # ---- T6: hard role gates — DELETED WHOLE [T2-R10, D24, F-simplicity-7] ----
+        # This block used to prove `launch`/`panel`/`add-to-group`/`close-seat`/`owner` each
+        # hard-refused a non-leader caller (F14). None of them carry a role predicate anymore, so
+        # every one of those rows would now either print a false "gate:" title or — for
+        # `close-seat`/`owner` — actually PERFORM the act (closing `alpha`'s pane, or setting
+        # `owner-status.md`) as a side effect of merely proving it is no longer refused, corrupting
+        # fixture state the rest of this suite depends on. The DoD for this deletion is the grep
+        # floor (no `is_leader`/`is_leader_or_closer`/`is_authorized_launcher` definitions or call
+        # sites survive), not a positive re-assertion here that every verb is callable — that is
+        # covered per-verb by each command's own fixture block elsewhere in this file (e.g.
+        # `launch --dry-run`'s own rows, `owner`'s own rows below).
         out = run(cmd_owner, state="afk", note="dinner")
         check("gate: owner ACCEPTS an unresolvable identity — that caller is the human owner",
               "owner is now: afk" in out)
@@ -23440,10 +23123,10 @@ def _selftest_checks(args, failures, names):
         check("r-window-layout/door: and --force still closes it — an exemption that cannot be "
               "overridden is a trap, not a safeguard, and the run legitimately ends",
               _fc == 0 and "%31" in _fo)
-        _ro, _rc = refuse(cmd_reap, agent="zeta", go=True)
-        check("G-134/B: the gate is on the CONSEQUENCE, not the verb — `--go` is leader/closer "
-              "only, and the refusal names the FLAG so the reader looks for the right permission",
-              _rc == 2 and "reap --go" in _ro)
+        # The role-gate row that stood here (`reap --go` refusing a non-leader/closer-* caller) is
+        # deleted [T2-R10, D24, F-simplicity-7] — `reap --go` carries no role predicate anymore,
+        # so a `zeta` call here would actually REAP whatever awaiting-close debt this fixture is
+        # carrying (possibly `dr`'s, closed with --force just above), corrupting state below.
         # Run through `refuse` rather than `run` even though nothing should be refused: if a
         # regression re-gates the verb, this must report a clean FAIL. Under `run`, the gate's
         # sys.exit escapes and ABORTS the whole selftest — every later check silently unreported,
@@ -23456,8 +23139,9 @@ def _selftest_checks(args, failures, names):
         # exist at this point in the suite: a false red produced by FIXTURE ORDER rather than by
         # any behaviour change, and it made the row's placement silently load-bearing. It is the
         # same lesson as the G-66 filename row one commit ago — ASSERT THE PROPERTY, NEVER THE
-        # VOCABULARY — and the property here is that NO ROLE GATE FIRED. `gate()`'s refusal is the
-        # only thing that can say so, and it carries a signature no hint can collide with.
+        # VOCABULARY — and the property here is that OBSERVING NEVER REFUSES. `refuse()`'s capture
+        # is the only thing that can say so structurally, and it carries a signature no hint can
+        # collide with.
         check("G-134/B: OBSERVING IS UNGATED — it destroys nothing, and gating it forced any seat "
               "wanting to verify against the live room to override the gate or skip the check. A "
               "gate that manufactures its own breaches bills whoever behaves best (G-106). Keyed "
@@ -23636,13 +23320,11 @@ def _selftest_checks(args, failures, names):
             r["checkout"] = f"closed {now()}"
         update_row(base_g, "kp-done", _kp_mark_done)
 
+        # The role-gate row that stood here (a non-leader/closer-* caller refused before reaching
+        # any of kill-pane's own checks) is deleted [T2-R10, D24, F-simplicity-7] — kill-pane
+        # carries no role predicate anymore, so every arm below is read with `agent="leader"` and
+        # what refuses it is the run's own state, never the caller's identity.
         killed.clear()
-        _ko, _kc = refuse(cmd_kill_pane, agent="zeta", pane_id="%703")
-        check("kill-pane: the ROLE gate refuses a caller that is not leader/closer-* (s12-12 "
-              "took the chief-of-staff off it), naming the flag the same way every other role "
-              "gate does",
-              _kc == 2 and "kill-pane" in _ko and killed == [])
-
         _bo, _bc = refuse(cmd_kill_pane, agent="leader", pane_id="not-a-pane")
         check("kill-pane: a malformed target (no leading %) is refused before anything else runs "
               "-- this is a PANE id, never a seat name, and the message says so",
@@ -23783,15 +23465,11 @@ def _selftest_checks(args, failures, names):
             d.update(kw)
             return d
 
-        # ARM B first, DELIBERATELY: it runs while the target is still alive and still terminable,
-        # so a pass here cannot be an artefact of the target already being gone. Run last, after
-        # arm A had killed 9000, this row would go green on a verb with no gate at all.
-        _tpb_o, _tpb_c = refuse(cmd_terminate_pid, **_tp_args(agent="zeta"))
-        check("7.153 arm B (criterion 3): terminate-pid REFUSES a caller who is not the leader — "
-              "role gate, exit 2 — and NOTHING is signalled. The exit code alone would not "
-              "establish the second half, which is the half that matters",
-              _tpb_c == 2 and "terminate-pid" in _tpb_o and _tp_signalled == [])
-
+        # ARM B — the row that used to prove a non-leader caller was REFUSED here — is deleted
+        # [T2-R10, D24, F-simplicity-7]: terminate-pid carries no role predicate anymore, so a
+        # `zeta` call would actually SIGNAL the fixture's pid 9000 here, corrupting the state arm
+        # A depends on below. Every remaining arm runs as `leader` and is refused by the run's own
+        # state (the seat radius, /proc, etc.), never by who is calling.
         _tpc_o, _tpc_c = refuse(cmd_terminate_pid, **_tp_args(pid=8101))
         check("7.153 arm C (criterion 3): a pid inside the SEAT RADIUS is refused even for the "
               "leader and with no --force escape — 8101 is a CHILD of tp-seat's pane pid, so the "
@@ -23920,14 +23598,11 @@ def _selftest_checks(args, failures, names):
             pane="%712")
         live_tmux_panes["v"].add("%712")
 
+        # The role-gate row that stood here (a non-leader/closer-* caller refused before ever
+        # reaching a real respawn) is deleted [T2-R10, D24, F-simplicity-7] — relaunch-pane
+        # carries no role predicate anymore, so a `zeta` call would actually RESPAWN rp-door's
+        # pane here (dry_run=False), corrupting every fixture below that expects a pristine pane.
         respawned.clear()
-        _role_o, _role_c = refuse(cmd_relaunch_pane, agent="zeta", target="rp-door",
-                                  pane_id="%711", dry_run=False)
-        check("relaunch-pane: the ROLE gate refuses a caller that is not leader/closer-* "
-              "(s12-12), the SAME predicate kill-pane uses (PRIN-11 — one derivation, not a new "
-              "mechanism)",
-              _role_c == 2 and "relaunch-pane" in _role_o and respawned == [])
-
         _nb_o, _nb_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-ghost",
                               pane_id="%999", dry_run=False)
         check("relaunch-pane: an agent with no briefing at all is refused before any gate runs "
@@ -24175,9 +23850,10 @@ def _selftest_checks(args, failures, names):
         check("G-32: the INVARIANT the whole design rests on — a message addressed to the seat BY "
               "NAME still lands, group filtering or not",
               "this one is for you" in rd("engineer", after=mk35, peek=True))
-        out, code = refuse(cmd_remove_from_group, agent="zeta", group="lane-g32",
-                           members=["engineer"])
-        check("G-32: `remove-from-group` is leader-gated exactly like add-to-group", code == 2)
+        # The role-gate row that stood here (a non-leader caller refused before removing anyone)
+        # is deleted [T2-R10, D24, F-simplicity-7] — `remove-from-group` carries no role predicate
+        # anymore, so this call would actually remove `engineer` if left in place, corrupting the
+        # fixture the very next call depends on.
         out = run(cmd_remove_from_group, agent="leader", group="lane-g32", members=["engineer"])
         check("G-32: leader REMOVES the member and the file is rewritten through the same writer — "
               "the three pre-existing memberships have a sanctioned undo at last "
@@ -24939,14 +24615,13 @@ def _selftest_checks(args, failures, names):
               and "NO pane was opened" in out and "[dry-run] gamma" not in out)
         out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True,
                            force_memory=True)
-        check("7.241: and NO FLAG CARRIES IT — a caller who overrides the ROLE gate with "
-              "`--force` AND carries `--force-memory` is STILL refused here, and the output "
-              "shows the role override succeeding on the same command. `--force` carries the "
-              "ROLE gate alone (GATE_FLAGS untouched, p-override-split-is-safety-critical) and "
-              "this gate is attached to neither flag: only the occupant witnessed what its "
-              "session meant, so there is nothing for an override to express",
-              code == 1 and "role gate overridden with --force" in out
-              and "UNDECLARED ending" in out and "[dry-run] gamma" not in out)
+        check("7.241: and NO FLAG CARRIES IT — a caller with `--force` AND `--force-memory` set "
+              "is STILL refused here — the same refusal fires whether or not those flags are "
+              "given, and whether or not the caller is `leader` (there is no role gate to carry "
+              "with `--force` anymore [T2-R10, D24, F-simplicity-7], and this refusal is attached "
+              "to neither flag): only the occupant witnessed what its session meant, so there is "
+              "nothing for an override to express",
+              code == 1 and "UNDECLARED ending" in out and "[dry-run] gamma" not in out)
         session_open(ns(), _u46_g, since=time.time(), wait=0.0)
         session_close(ns(), "gamma", disposition="done")
         out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
@@ -24988,7 +24663,9 @@ def _selftest_checks(args, failures, names):
                                        declare_only="#1825", force=True, force_memory=True)
         check("7.251 R4 + BARRED FLAGS: the state refusal above does not move for `--force` OR "
               "`--force-memory`. The admission attaches to NEITHER flag and confers nothing on "
-              "them; they carry the ROLE gate and the MEMORY gate exactly as before, and this "
+              "them; `--force-memory` still carries only the MEMORY gate (`--force` carries "
+              "nothing anymore — no role gate is left for it to carry "
+              "[T2-R10, D24, F-simplicity-7]), and this "
               "row is the machine check behind the amended comment's 'barred list is unchanged'",
               _do_r4f_code == 1
               and "last ENDED with a DECLARED disposition" in _do_r4f
@@ -25082,11 +24759,13 @@ def _selftest_checks(args, failures, names):
         # ---- NOT claimed by this row.
         #
         # ⚠ THE COMPARISON IS SCOPED TO THE ADMISSION'S OWN TEXT, AND THE SCOPE IS THE POINT —
-        # NOT a convenience that makes the row pass. `cmd_launch` answers the role gate ALONE on
-        # `--dry-run` and the role AND MEMORY gates on the real path (the `if args.dry_run` a few
-        # lines above the admission), and that divergence is PRE-EXISTING AND CORRECT: a dry-run
-        # opens nothing, so refusing it on available memory would refuse a command that cannot
-        # spend any. A whole-command comparison goes red on THAT and measures the wrong thing —
+        # NOT a convenience that makes the row pass. `cmd_launch` resolves identity ALONE on
+        # `--dry-run` and resolves identity plus the MEMORY gate on the real path (the
+        # `if args.dry_run` a few lines above the admission; there is no role gate on either
+        # branch anymore [T2-R10, D24, F-simplicity-7]), and that divergence is PRE-EXISTING AND
+        # CORRECT: a dry-run opens nothing, so refusing it on available memory would refuse a
+        # command that cannot spend any. A whole-command comparison goes red on THAT and measures
+        # the wrong thing —
         # `admission-predicate-spec.md` §7 names this exclusion in advance, and the first version
         # of these three rows ignored it and failed for exactly that reason.
         _p_markers = {"R4": "last ENDED with a DECLARED disposition",
@@ -25820,14 +25499,12 @@ def _selftest_checks(args, failures, names):
                   package=str(_d54), base=None, workers_dir=None, as_agent=None,
                   force=False)), "origin")[0] == "incomplete")
 
-        # ---- #210 + #230: BOTH gates evaluated, BOTH verdicts reported, no short-circuit ----
-        # The watcher must pass --force on EVERY launch (the seed rule gives it DAG-unblock
-        # authority exercisable only through the leader's role gate). The role gate was checked
-        # FIRST and SHORT-CIRCUITED, so the watcher could never observe the memory verdict without
-        # having already overridden the role gate — and before the flags were split, that same flag
-        # cleared memory too. Separating the flags alone would NOT have fixed it: the second verdict
-        # stayed invisible until after the first was waived. A gate you cannot observe without
-        # overriding it is not a gate, it is a trapdoor.
+        # ---- #210 + #230, role half deleted [T2-R10, D24, F-simplicity-7]: the MEMORY gate is
+        # the only gate `launch_gates` carries now. What #230 originally proved (a caller could
+        # not observe the memory verdict without first overriding a role gate) no longer applies —
+        # there is no role gate left to override — so these rows now prove only that the memory
+        # gate refuses on its own, regardless of caller identity, and `--force` (which carries
+        # nothing anymore) does not touch it.
         avail_real2 = available_mb
         # One MB under the floor the FIXTURE PACKAGE declares (task 7.82 — the gate reads
         # pkg/budget.json now, so the number this test undercuts must be that same declaration,
@@ -25836,31 +25513,27 @@ def _selftest_checks(args, failures, names):
         try:
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force=True)
-            check("#230: a role-gated caller with --force alone is REFUSED BY MEMORY, and the "
-                  "refusal names BOTH verdicts — the role override no longer hides the memory "
-                  "gate behind it",
-                  code == 2 and "role gate: REFUSED, overridden with --force" in out
-                  and "memory gate: REFUSED" in out)
+            check("#230: a caller with `--force` alone is STILL REFUSED BY MEMORY — `--force` "
+                  "carries nothing at this gate anymore [T2-R10, D24, F-simplicity-7]",
+                  code == 2 and "memory gate: REFUSED" in out)
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force=True, force_memory=True)
-            check("#230: with BOTH flags it proceeds, and the WARNING is distinguishable from a "
-                  "refusal — it launches and names which gate was overridden",
+            check("#230: `--force-memory` lets it proceed, and the WARNING is distinguishable "
+                  "from a refusal — it launches and names which gate was overridden",
                   code == 0 and "WARNING launching anyway" in out
                   and "overridden with --force-memory" in out and "refused [coord" not in out)
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force_memory=True)
-            check("#230: --force-memory does NOT carry the ROLE gate — the memory flag is not a "
-                  "back door into a leader-only command",
-                  code == 2
-                  and "role gate: REFUSED — `launch` is leader's and the ignite-daemon's"
-                  in out)
+            check("#230: `--force-memory` alone is enough — there is no second (role) gate left "
+                  "for a non-leader caller to also clear",
+                  code == 0 and "WARNING launching anyway" in out)
             out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
-            check("#230: the LEADER is refused by the memory gate like anyone else and still sees "
-                  "BOTH verdicts — the gate binds the seat holding lifecycle authority too",
-                  code == 2 and "role gate: PASS" in out and "memory gate: REFUSED" in out)
+            check("#230: the LEADER is refused by the memory gate like anyone else — the gate "
+                  "binds every identity, not only the seats that used to hold lifecycle authority",
+                  code == 2 and "memory gate: REFUSED" in out)
             out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True)
-            check("#230: --dry-run keeps the ROLE gate ALONE — it opens nothing, so refusing it "
-                  "on available memory would refuse a command that cannot spend any",
+            check("#230: --dry-run skips the MEMORY gate entirely — it opens nothing, so refusing "
+                  "it on available memory would refuse a command that cannot spend any",
                   "memory gate" not in out)
 
             # ---- task 7.82 criterion 5: THE CONTROL THAT FAILS BY CONSTRUCTION ----
@@ -25924,159 +25597,10 @@ def _selftest_checks(args, failures, names):
 
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
-        # ================= s12-02: the role gate learns SELF from OTHER =================
-        # Stage-1 §1.1/§1.2. `role_verdict`'s `allow` was a predicate over the CALLER NAME ALONE
-        # and no call site passed the TARGET, so the gate could not tell "I close MYSELF" from "I
-        # close YOU" — the mechanism behind run-2's 15:1x refusal of an act the owner had already
-        # ruled legal. These rows are LAST in this fixture deliberately: S1-a/S1-f perform REAL
-        # closes, so nothing may sit behind them that reads the roster rows they retire.
-        import inspect as _s12_inspect
-        calling_pane["v"] = ""   # no pane claims an identity — every row here resolves via --as
-
-        # ---- S1-a: the self-close is LEGAL, with NO --force. The design's Stage-1 acceptance.
-        # The assertion is that THE GATE DOES NOT EXIT and the call proceeds: proven positively by
-        # the W1 self-act warning, which is printed ONLY on the far side of a passed gate on a
-        # self act. Downstream this call still refuses (the registry-divergence fixture above left
-        # gamma's taskforce row diverged, so check_bindings stops the renew) — that is a LATER
-        # refusal by a DIFFERENT guard, which is exactly why the role refusal's own text, and not
-        # the process exit code, is what this row reads.
-        _s12a_out, _s12a_code = refuse(cmd_close_seat, target="gamma", as_agent="gamma",
-                                       renew=True, force=False, no_export=True)
-        check("s12-02 S1-a: a seat closing ITSELF passes the role gate with NO --force — the "
-              "target is a parameter now, so `caller == target` is a fact the gate can see "
-              "(d-close-renew-decider-recorded: the SEAT decides its own renew/refresh)",
-              _s12a_code != 2
-              and "WARNING self-act" in _s12a_out
-              and "closing ANOTHER seat" not in _s12a_out
-              and "is leader's or a closer-* seat's;" not in _s12a_out)
-
-        # ---- S1-b: THE CONTROL. Same caller, ANOTHER target, still refused. Without this row
-        # S1-a is indistinguishable from a gate that was LOOSENED rather than CORRECTED.
-        _s12b_out, _s12b_code = refuse(cmd_close_seat, target="delta", as_agent="gamma",
-                                       force=False, renew=False, no_export=True)
-        check("s12-02 S1-b (control): the SAME seat closing ANOTHER seat is still REFUSED — the "
-              "fix distinguishes self from other, it does not open the gate. S1-a without this "
-              "row is not evidence",
-              _s12b_code == 2 and "closing ANOTHER seat" in _s12b_out)
-
-        # ---- S1-d: W5. The refusal no longer ADVERTISES --force. GATE_FLAGS is untouched and
-        # --force still CARRIES the role gate (recover-room.py depends on it); only the
-        # advertisement is gone, because a refusal that offers the override teaches every reader
-        # to reach for it instead of the legal path.
-        check("s12-02 S1-d: the close-seat role refusal does NOT advertise --force — the flag "
-              "still carries the gate (GATE_FLAGS untouched, p-override-split-is-safety-critical), "
-              "but the refusal names the LEGAL path instead of the override",
-              "--force" not in _s12b_out)
-
-        # ---- S1-e: the remedy is the LEGAL one, and it differs by case. Both halves, because a
-        # remedy that is right for one case and wrong for the other is a refusal that misroutes.
-        _s12e_out, _s12e_code = refuse(cmd_close, target="gamma", as_agent="gamma", dry_run=True,
-                                       renew=False, no_export=True, force_memory=False)
-        check("s12-02 S1-e: the OTHER case sends the caller to the leader, and the SELF case on a "
-              "leader-only command sends them to `checkout --renew` — never the reverse, which is "
-              "a refusal that names a path unable to help the caller",
-              "ask leader to run it" in _s12b_out
-              and _s12e_code == 2
-              and "this is not a self-act" in _s12e_out
-              and "checkout --renew" in _s12e_out
-              and "ask leader to run it" not in _s12e_out)
-
-        # ---- S1-f: LEADER still passes in BOTH directions — on another seat and on itself. The
-        # new conjunct is an OR, so it can only add cases; this row is what proves it did not
-        # replace one, i.e. that leader's original grant survived the change untouched.
-        #
-        # ⚠ THIS ROW IS DELIBERATELY LEADER-ONLY, and that is a correction of the source row, not
-        # a weakening of it. The row is titled "leader still passes both directions" and its own
-        # assertion text then named `gamma`->`gamma` — a NON-leader self-act, which is S1-a's
-        # claim, not this one's. Carrying both here made the two rows red together under the
-        # `passed = bool(allow(caller))` mutation, and a mutation that reds two rows is not
-        # evidence about either (G-62, and `--expect-fail` refuses it by construction). Leader's
-        # own self case exercises the same both-directions claim while staying orthogonal to S1-a.
-        _s12f1_out, _s12f1_code = refuse(cmd_close_seat, target="leader", as_agent="leader",
-                                         force=False, renew=False, no_export=True)
-        _s12f2_out, _s12f2_code = refuse(cmd_close_seat, target="delta", as_agent="leader",
-                                         force=False, renew=False, no_export=True)
-        check("s12-02 S1-f: leader passes on ANOTHER seat AND on itself — the new conjunct is an "
-              "OR, so it added a case rather than replacing leader's original grant",
-              _s12f1_code != 2 and "closing ANOTHER seat" not in _s12f1_out
-              and _s12f2_code != 2 and "closing ANOTHER seat" not in _s12f2_out)
-
-        # ---- S1-g: the flag map is UNTOUCHED. Out of scope by ruling and asserted anyway,
-        # because this task edits the gate the map arms.
-        check("s12-02 S1-g: GATE_FLAGS is untouched by the target threading — --force still "
-              "carries the ROLE gate ONLY and never the memory gate, which is what "
-              "jobs/recover-room.py asserts before every unattended override",
-              GATE_FLAGS["--force"] == ("role",)
-              and GATE_FLAGS["--force-memory"] == ("memory",)
-              and gate_forced(argparse.Namespace(force=True, force_memory=False),
-                              "memory") is False)
-
-        # ---- S1-i: `close` carries its gate on TWO branches (dry-run/mechanical via `gate`, the
-        # spawning path via `launch_gates`). Threading one and not the other leaves the gate
-        # inconsistent between a dry-run and a real close — the shape a reader trusts and a test
-        # misses, so both branches are read here.
-        _s12i_self_dry, _c1 = refuse(cmd_close, target="gamma", as_agent="gamma", dry_run=True,
-                                     renew=False, no_export=True, force_memory=False)
-        _s12i_self_real, _c2 = refuse(cmd_close, target="gamma", as_agent="gamma", dry_run=False,
-                                      renew=False, no_export=True, force_memory=False)
-        _s12i_other_dry, _c3 = refuse(cmd_close, target="delta", as_agent="gamma", dry_run=True,
-                                      renew=False, no_export=True, force_memory=False)
-        _s12i_other_real, _c4 = refuse(cmd_close, target="delta", as_agent="gamma", dry_run=False,
-                                       renew=False, no_export=True, force_memory=False)
-        check("s12-02 S1-i: BOTH of `close`'s branches thread the target — a self-target gets the "
-              "SAME verdict on --dry-run and on a real close, and so does a foreign target; the "
-              "gate cannot disagree with itself across the branch",
-              _c1 == 2 and _c2 == 2 and _c3 == 2 and _c4 == 2
-              and "this is not a self-act" in _s12i_self_dry
-              and "this is not a self-act" in _s12i_self_real
-              and "closing ANOTHER seat" in _s12i_other_dry
-              and "closing ANOTHER seat" in _s12i_other_real)
-
-        # ---- S1-j: kill-pane / relaunch-pane are UNCHANGED by this task. They target a PANE ID,
-        # not a seat identity, and inferring "this pane is mine" from the roster would re-import
-        # exactly the ambient inference this file's G-101/G-107/G-121 catalogue names as its
-        # recurring defect. Read BOTH ways: structurally (the call carries no threading kwarg) and
-        # behaviourally (a self-named caller is still refused, so no self path leaked in).
-        _s12j_kill_src = _s12_inspect.getsource(cmd_kill_pane)
-        _s12j_rel_src = _s12_inspect.getsource(cmd_relaunch_pane)
-        _s12j_ko, _s12j_kc = refuse(cmd_kill_pane, as_agent="gamma", pane_id="%1")
-        _s12j_ro, _s12j_rc = refuse(cmd_relaunch_pane, as_agent="gamma", target="gamma",
-                                    pane_id="%1", dry_run=True)
-        check("s12-02 S1-j: kill-pane and relaunch-pane are NOT threaded — their gate calls carry "
-              "no target=/self_legal=, and a caller naming ITSELF is still refused on both. A "
-              "pane id is not a seat identity, and deriving one from the roster is the ambient "
-              "inference G-101/G-107/G-121 catalogue",
-              "self_legal" not in _s12j_kill_src and "self_legal" not in _s12j_rel_src
-              and "target=args.target" not in _s12j_rel_src
-              and _s12j_kc == 2 and _s12j_rc == 2)
-
-        # ---- S1-k: the 9 gated commands with no self-semantics keep the GENERIC case. This is
-        # the row that keeps the case a CALL-SITE PARAMETER: hard-wiring the close-shaped template
-        # would make every one of them print "closing ANOTHER seat…" and LOSE `allowed_desc` — the
-        # only place a refusal names who may act.
-        _s12k_out, _s12k_code = refuse(cmd_panel, as_agent="gamma")
-        check("s12-02 S1-k: an untargeted gated command (`panel`) keeps the GENERIC case — the "
-              "refusal still RENDERS allowed_desc and never borrows the close-shaped wording, so "
-              "the 9 self-less gated commands are untouched by the case parameter",
-              _s12k_code == 2
-              and "leader's alone (it splits the control-panel window)" in _s12k_out
-              and "closing ANOTHER seat" not in _s12k_out)
-
         # ============ s12-03: every refusal NAMES ITS LAYER (stage-1 §1.4, ruling R-8) ============
         # A seat that hits a refusal cannot tell coord.py's OWN gate from its harness's permission
         # classifier — the two look alike, and a bare "refused:" sends the run at the wrong fix
         # (W4). These rows read the PROPERTY (the prefix a reader routes on), never the prose.
-
-        # ---- S1-c: the row the spec's Stage-1 acceptance table names. `_s12b_out` is the
-        # close-seat FOREIGN-target refusal S1-b already captured — read again here for its layer,
-        # so the two claims stay separable: S1-b says the gate still refuses, S1-c says the refusal
-        # is ROUTABLE. Anchored at a line start (`^`), because a prefix that appears mid-message is
-        # not a prefix.
-        check("s12-03 S1-c: the close-seat foreign-target refusal NAMES ITS LAYER — it begins "
-              "`refused [coord role gate]`, so a seat reporting it can never be confused with a "
-              "harness classifier block, and it carries the layer paragraph that says so in words",
-              re.search(r"^refused \[coord role gate\]: ", _s12b_out, re.M) is not None
-              and "NOT your harness's permission" in _s12b_out)
 
         # ---- S1-h: THE GUARD. Without it the sweep rots on the next added refusal — which is
         # exactly what happened between the spec's writing and its implementation: two new commands
@@ -26150,283 +25674,14 @@ def _selftest_checks(args, failures, names):
             addressed="any", digest=False, limit=None)
         check("s12-03 L-b / L-c (3 of 3): exit codes survive the sweep — the checkin "
               "SUMMARY-LENGTH site (the third continuation-literal one) still exits 1 and names "
-              "`input`, an ordinary head site still exits 1, and the role gate still exits 2. The "
-              "codes are behaviour (team_monitor.py keys on them), not decoration",
-              _s3_lb_cont_code == 1 and _s3_lb_head_code == 1 and _s12k_code == 2
+              "`input`, an ordinary head site still exits 1, and the F17 asserted-identity bound "
+              "still exits 2 and names `identity` (the role gate this row used to read is gone "
+              "[T2-R10, D24, F-simplicity-7]; `identity` is the exit-2 layer that survives it). "
+              "The codes are behaviour (team_monitor.py keys on them), not decoration",
+              _s3_lb_cont_code == 1 and _s3_lb_head_code == 1 and _f17_code == 2
               and re.search(r"^refused \[coord input\]: ", _s3_lb_cont, re.M) is not None
               and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
-              and re.search(r"^refused \[coord role gate\]: ", _s12k_out, re.M) is not None)
-
-        # ============ s12-04: the launch gate recognises the IGNITE DAEMON (G-257 / 7.738) =====
-        # RE-POINTED, NOT REWRITTEN (task 7.738, owner 2026-08-11). This block was earned by G-257
-        # against the chief-of-staff: launching the staffed seat was that seat's ROUTINE DUTY and
-        # the gate predated it, so every routine launch required `--force` -- a flag that reads as
-        # an override of policy while actually being compliance with it, which trains the room to
-        # force and spends the flag's only signal. `protocol.md` staffs `leader`/`consultant` only
-        # — the role is RETIRED, and the SAME defect reappeared one layer over: `workflow_launcher.py` passed an
-        # unconditional `--force` on every daemon-fired `start-workflow`. So the rows keep their
-        # shape and change their subject; the S4-cos row below is added so the retirement itself
-        # has a control, and deleting the block would have discarded the evidence for both.
-        #
-        # THE FIX IS A PREDICATE WIDENING, NOT THE SELF/OTHER THREADING
-        # (`core-build-run-adjustments/decisions.md#d-g257-widening-not-threading`): a daemon
-        # launching a WORKER is never a self-act, so `is_self` stays False and s12-02's threading
-        # is INERT here -- it could never have discharged G-257. Scope is `launch` and nothing else
-        # (`d-cos-inbox-is-convention`), which S4-f is the control for.
-        _s4_only = "hk-1"     # never the caller's OWN name: the SELF template is not this claim
-
-        _s4b_out, _s4b_code = refuse(cmd_launch, agent="gamma", only=_s4_only,
-                                     dry_run=True, force=False, force_memory=False)
-        _s4b2_out, _s4b2_code = refuse(cmd_launch, agent="closer-alpha", only=_s4_only,
-                                       dry_run=True, force=False, force_memory=False)
-        _s4dmn_dry, _s4dmn_dry_code = refuse(cmd_launch, agent=DAEMON_IDENTITY, only=_s4_only,
-                                             dry_run=True, force=False, force_memory=False)
-        # THE RETIREMENT'S OWN CONTROL (7.738). Read on the SAME command and the SAME branch as the
-        # grant above, so nothing but the name differs between them.
-        _s4cos_dry, _s4cos_dry_code = refuse(cmd_launch, agent="chief-of-staff", only=_s4_only,
-                                             dry_run=True, force=False, force_memory=False)
-        # ⚠ EVERY `cmd_launch` CALL IN THIS BLOCK CARRIES `agent=`, NOT `as_agent=`, AND F17 IS WHY.
-        # F17's entry bound refuses a REAL `launch` whose identity is an `--as` claim no roster row
-        # corroborates — which is exactly the shape `as_agent=` builds here, with the suite's
-        # calling pane stubbed to "". Left as `as_agent=`, the real-branch rows would stop reaching
-        # the gate they are ABOUT and would assert F17's refusal instead, silently. `agent=` is the
-        # in-process Namespace channel (team_monitor.py's), which F17 deliberately does not key on, so the
-        # caller still resolves to the same name through the same `resolve_agent` and each row's
-        # subject — the ROLE and MEMORY gates — is unchanged. The DRY-RUN calls move with them so
-        # the block is uniform and `as_agent=` on `cmd_launch` means F17's own rows and nothing
-        # else — which is what lets F17's dry-run mutant red exactly one row.
-        _s4gamma_real, _s4gamma_real_code = refuse(cmd_launch, agent="gamma", only=_s4_only,
-                                                   dry_run=False, force=False, force_memory=False)
-        # ⚠ S4-d USES ITS OWN REFUSED CALLER, and that is isolation rather than duplication. Read
-        # off `gamma`, S4-d and S4-b would go red TOGETHER under the one mutation that admits
-        # gamma into the predicate -- and a mutation that reds two rows is evidence about neither
-        # (G-62). `beta` is refused for the same reason and by the same gate, and shares nothing.
-        _s4d_dry, _s4d_dry_code = refuse(cmd_launch, agent="beta", only=_s4_only,
-                                         dry_run=True, force=False, force_memory=False)
-        _s4d_real, _s4d_real_code = refuse(cmd_launch, agent="beta", only=_s4_only,
-                                           dry_run=False, force=False, force_memory=False)
-
-        # ⚠ THE DAEMON'S REAL-BRANCH CALL RUNS ONE MB UNDER THE PACKAGE'S DECLARED FLOOR, and that is
-        # what makes a PASS verdict OBSERVABLE AT ALL: `launch_gates` prints its verdict block only
-        # on a refusal, so "role gate: PASS" is readable only when the OTHER gate supplies the
-        # refusal. It also means this row opens no pane and spends nothing.
-        _s4_avail_real = available_mb
-        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
-        try:
-            _s4a_out, _s4a_code = refuse(cmd_launch, agent=DAEMON_IDENTITY, only=_s4_only,
-                                         dry_run=False, force=False, force_memory=False)
-        finally:
-            available_mb = _s4_avail_real
-
-        check("s12-04 S4-a: the IGNITE DAEMON'S ROUTINE LAUNCH NEEDS NO FLAG -- with force=False "
-              "and force_memory=False it passes the role gate and the command PROCEEDS. An "
-              "owner-ruled act (7.738: a daemon-fired `start-workflow` opens the entry seat) is "
-              "what the tool PERMITS now, instead of compliance a caller has to spell as an "
-              "override -- which is what trained the room to force, and is the defect G-257 filed "
-              "against the seat this row was originally written for",
-              _s4dmn_dry_code == 0
-              and "[dry-run] hk-1" in _s4dmn_dry
-              and "refused [coord role gate]" not in _s4dmn_dry)
-
-        check("s12-04 S4-cos (control): the CHIEF-OF-STAFF is REFUSED on `launch`, at the ROLE "
-              "GATE. 7.738 RE-POINTED this widening, it did not add a second holder: the role is "
-              "RETIRED (`protocol.md` staffs `leader`/`consultant` only) and a retired role that still passes a "
-              "live gate is a dead spec with a live grant. Read on the same command and branch as "
-              "S4-a, so only the NAME differs between the row that passes and the row that does "
-              "not",
-              _s4cos_dry_code == 2
-              and re.search(r"^refused \[coord role gate\]: ", _s4cos_dry, re.M) is not None
-              and not is_authorized_launcher("chief-of-staff"))
-
-        check("s12-04 S4-b (control): an ordinary seat is STILL refused on `launch`, the refusal "
-              "NAMES ITS LAYER, and it names who may act -- the widening ADDED the ignite daemon, "
-              "it did not open the gate. S4-a without this row is not evidence",
-              _s4b_code == 2
-              and re.search(r"^refused \[coord role gate\]: ", _s4b_out, re.M) is not None
-              and "leader's and the ignite-daemon's" in _s4b_out)
-
-        check("s12-04 S4-b2 (control): a `closer-*` seat is STILL refused on `launch` -- the row "
-              "that proves the then-existing `is_leader_or_cos_or_closer` was NOT reused (it "
-              "admitted every closer; s12-12 has since DELETED it). "
-              "`d-cos-inbox-is-convention` scopes this widening to ONE holder on "
-              "`launch` and nothing else (`d-g257-widening-not-threading`); 7.738 changed WHO "
-              "that holder is, never how wide the scope runs",
-              _s4b2_code == 2
-              and re.search(r"^refused \[coord role gate\]: ", _s4b2_out, re.M) is not None)
-
-        check("s12-04 S4-c: the widening did NOT touch the MEMORY gate -- that same flagless "
-              "daemon launch, one MB under the package's declared floor, still REFUSES on "
-              "MEMORY and opens nothing. `--force` carries the ROLE gate ONLY (G-257 says so "
-              "explicitly), so a widened role predicate may never become a way under the floor",
-              _s4a_code == 2 and "memory gate: REFUSED" in _s4a_out
-              and "WARNING launching anyway" not in _s4a_out)
-
-        check("s12-04 S4-d: the launch role refusal no longer teaches `--force` as the route for "
-              "a duty the tool now simply permits -- the dry-run branch carries the string "
-              "NOWHERE, and the real branch carries it on the two-flag disambiguation line ALONE. "
-              "That line STAYS: it is what keeps --force and --force-memory distinguishable "
-              "(jobs/recover-room.py reasons about exactly that split), never an invitation",
-              _s4d_dry_code == 2 and _s4d_real_code == 2
-              and "--force" not in _s4d_dry
-              and [ln for ln in _s4d_real.splitlines() if "--force" in ln]
-              == ["--force carries the ROLE gate; --force-memory carries the MEMORY gate."])
-
-        _s4e_out = run(cmd_gates, json=True)
-        check("s12-04 S4-e: the flag map is UNTOUCHED and its PUBLISHED form still agrees with it "
-              "-- `gates --json` reports --force carrying the role gate alone. "
-              "jobs/recover-room.py reads THIS OUTPUT (not the constant) and refuses to run if it "
-              "ever changed, so a publisher drifting from GATE_FLAGS is as bad as GATE_FLAGS "
-              "drifting: `p-override-split-is-safety-critical`",
-              json.loads(_s4e_out) == {"--force": ["role"], "--force-memory": ["memory"]})
-
-        _s4f = [
-            ("close", refuse(cmd_close, target="delta", as_agent=DAEMON_IDENTITY, dry_run=True,
-                             renew=False, no_export=True, force_memory=False)),
-            ("close-seat", refuse(cmd_close_seat, target="delta", as_agent=DAEMON_IDENTITY,
-                                  renew=False, no_export=True)),
-            ("reap --go", refuse(cmd_reap, as_agent=DAEMON_IDENTITY, go=True)),
-            ("panel", refuse(cmd_panel, as_agent=DAEMON_IDENTITY)),
-            ("owner", refuse(cmd_owner, as_agent=DAEMON_IDENTITY, state="afk", note="")),
-            ("add-to-group", refuse(cmd_add_to_group, as_agent=DAEMON_IDENTITY, group="pair",
-                                    members=["gamma"])),
-            ("remove-from-group", refuse(cmd_remove_from_group, as_agent=DAEMON_IDENTITY,
-                                         group="pair", members=["gamma"])),
-        ]
-        check("s12-04 S4-f: the widening is scoped to `launch` AND NOTHING ELSE -- close, "
-              "close-seat, reap --go, panel, owner, add-to-group and "
-              "remove-from-group every one still REFUSE the ignite daemon on the role gate. The "
-              "terminating verbs among them are barred by the open-versus-terminate bound "
-              "(`d-cos-may-launch`, re-pointed by 7.738): the daemon is not a second leader",
-              all(code == 2
-                  and re.search(r"^refused \[coord role gate\]: ", out, re.M) is not None
-                  for _name, (out, code) in _s4f))
-
-        # ⚠ AGREEMENT, NOT VERDICT. This row asserts the two branches SAY THE SAME THING, never
-        # what they say -- S4-a and S4-b own the verdicts. Asserting the verdict here would make a
-        # revert of BOTH branches red this row too, and a mutation that reds two rows is evidence
-        # about neither (G-62, and `--expect-fail` refuses it by construction). It is with S4-a
-        # that this row establishes the REAL branch's daemon verdict: S4-a proves the
-        # dry-run branch passes, this one proves the real branch says the same. And the real-side
-        # token is not read off silence -- S4-c independently proves that same call RENDERS its
-        # verdict block (it refuses on memory), so "not refused" here is a read, not an absence.
-        _s4g = [(DAEMON_IDENTITY, _s4dmn_dry, _s4a_out), ("gamma", _s4b_out, _s4gamma_real)]
-        check("s12-04 S4-g: BOTH of `launch`'s branches carry the SAME predicate -- a --dry-run "
-              "and a real launch return the SAME role verdict, for the ignite daemon and for an "
-              "ordinary seat alike. Widening one branch and not the other leaves a dry-run and a "
-              "real launch disagreeing about who may act: the shape a reader trusts and a test "
-              "misses",
-              all(("refused [coord role gate]" in dry) == ("role gate: REFUSED" in real)
-                  for _who, dry, real in _s4g))
-
-        # ============ s12-12: the chief-of-staff comes OFF kill-pane / relaunch-pane ============
-        # `d-cos-off-pane-kill` (owner, 2026-07-29): `d-cos-may-launch` stands unchanged, and kill
-        # and relaunch are TERMINATING acts — so the seat these two commands were BUILT for
-        # (7.91/7.95, which predate the ruling) no longer passes their role gate. The rows read the
-        # LAYER, never the prose: a caller refused for the wrong reason is not this narrowing.
-        _pk_kill_cos = refuse(cmd_kill_pane, as_agent="chief-of-staff", pane_id="%1")
-        _pk_rel_cos = refuse(cmd_relaunch_pane, as_agent="chief-of-staff", target="gamma",
-                             pane_id="%1", dry_run=True)
-        check("s12-12 PK-1: the chief-of-staff is REFUSED on `kill-pane`, at the ROLE GATE — "
-              "killing a pane is a terminating act and `d-cos-may-launch` bars the seat from "
-              "every one of them (`d-cos-off-pane-kill`). The layer is the assertion: refusing "
-              "for a missing roster row would look the same to a reader and prove nothing",
-              _pk_kill_cos[1] == 2
-              and re.search(r"^refused \[coord role gate\]: ", _pk_kill_cos[0], re.M) is not None)
-
-        check("s12-12 PK-2: the chief-of-staff is REFUSED on `relaunch-pane`, at the ROLE GATE — "
-              "a relaunch kills the pane it replaces, so it terminates too. Read on the DRY-RUN "
-              "branch, which is the one a seat reaches first and the one that must not say yes "
-              "where the real branch says no",
-              _pk_rel_cos[1] == 2
-              and re.search(r"^refused \[coord role gate\]: ", _pk_rel_cos[0], re.M) is not None)
-
-        # CONTROL. The narrowing removed ONE name; it did not close the commands. Both callers are
-        # read on a POSITIVE token (`state`/`input` — they get past the role gate and fail on the
-        # run's own facts), never on the ABSENCE of a role-gate line, which a crashed call would
-        # also produce.
-        _pk_ctl = [
-            ("leader/kill-pane", refuse(cmd_kill_pane, as_agent="leader", pane_id="%1")),
-            ("closer/kill-pane", refuse(cmd_kill_pane, as_agent="closer-alpha", pane_id="%1")),
-            ("leader/relaunch-pane", refuse(cmd_relaunch_pane, as_agent="leader", target="gamma",
-                                            pane_id="bad", dry_run=True)),
-            ("closer/relaunch-pane", refuse(cmd_relaunch_pane, as_agent="closer-alpha",
-                                            target="gamma", pane_id="bad", dry_run=True)),
-        ]
-        check("s12-12 PK-3 (control): the leader and a `closer-*` still PASS the role gate on both "
-              "commands — each is refused further in, on the run's own state/input, and none of "
-              "them ever sees a `role gate` line. Without this row PK-1/PK-2 are equally "
-              "satisfied by a gate that refuses everybody",
-              all(re.search(r"^refused \[coord (state|input)\]: ", out, re.M) is not None
-                  and "refused [coord role gate]" not in out
-                  for _who, (out, _code) in _pk_ctl))
-
-        check("s12-12 PK-4: the widened predicate is GONE from the module, and `launch`'s own "
-              "carries exactly ONE holder beside the leader. A callerless permission predicate is "
-              "how a widening comes back with no ruling behind it — a later call site re-points at "
-              "it and nothing reads as changed. Since 7.738 that holder is the IGNITE DAEMON and "
-              "the chief-of-staff holds no role predicate anywhere in this file: the role is "
-              "RETIRED, and the bound is unchanged — open, never terminate (`d-cos-may-launch`)",
-              "is_leader_or_cos_or_closer" not in globals()
-              and is_authorized_launcher(DAEMON_IDENTITY)
-              and not is_authorized_launcher("chief-of-staff")
-              and not is_authorized_launcher("closer-alpha")
-              and not is_leader_or_closer("chief-of-staff")
-              and is_leader_or_closer("closer-alpha") and is_leader_or_closer("leader"))
-
-        # ---- C5.2: the help/`allowed_desc` text is DERIVED from the gate, not kept beside it ----
-        # The fork PK-1..PK-4 above prove at the GATE is the same fork the `-h` string got wrong
-        # for as long as it did. These rows prove the string can no longer disagree, because it is
-        # no longer a string.
-        _c52_relaunch = gate_role_names(is_leader_or_closer)
-        check("C5.2 GD-1: `relaunch-pane`'s advertised set is RENDERED from `is_leader_or_closer` "
-              "and reads {leader, closer-*} — the chief-of-staff is gone from it as a CONSEQUENCE "
-              "of the derivation, never as an edited string (`d-cos-off-pane-kill`)",
-              _c52_relaunch == ["leader", "closer-*"]
-              and gate_roles_help(is_leader_or_closer) == "(leader/closer-*)")
-
-        # POSITIVE CONTROL, and it is the row that makes GD-1 mean anything. A renderer that
-        # ignored its argument and returned a hardcoded {leader, closer-*} passes GD-1 exactly as
-        # well as a real derivation does. These two predicates have DIFFERENT sets and different
-        # shapes (membership tuple; bare equality), so a constant cannot satisfy all three rows.
-        check("C5.2 GD-2 (control): the SAME renderer, read against two other predicates, returns "
-              "THEIR sets — `is_authorized_launcher` {leader, ignite-daemon} and `is_leader` "
-              "{leader}. Without this row GD-1 is satisfied by a hardcoded answer. ⚠ AND SINCE "
-              "7.738 IT IS ALSO THE MODULE-CONSTANT ROW: that predicate names its second member as "
-              "`DAEMON_IDENTITY`, not as a literal, so a renderer reading string literals ONLY "
-              "would return {leader} here — a set SMALLER than the gate enforces, which is the "
-              "exact fork this derivation exists to close, arriving through the door that closes "
-              "it",
-              gate_role_names(is_authorized_launcher) == ["leader", DAEMON_IDENTITY]
-              and gate_roles_help(is_authorized_launcher) == f"(leader/{DAEMON_IDENTITY})"
-              and gate_role_names(is_leader) == ["leader"]
-              and gate_roles_help(is_leader) == "(leader)")
-
-        check("C5.2 GD-3: the refusal's `allowed_desc` is derived from the same predicate and is "
-              "BYTE-IDENTICAL to the hand-maintained string it replaced — the change is the "
-              "SOURCE of the text, not the text, so no refusal a seat reads has moved",
-              gate_roles_desc(is_leader_or_closer) == "leader's or a closer-*'s")
-
-        # The set is UNCHANGED by this landing: the predicate is what it was, and the leader-OUT
-        # half is deliberately NOT landed (leader #1921 (4)). Read at the predicate, so the row
-        # goes red if a later edit narrows it while leaving the derivation intact.
-        check("C5.2 GD-4: the ALLOWED SET is untouched by the derivation — the leader is still IN "
-              "and every `closer-*` is still IN, and the leader-OUT half was NOT landed (#1921)",
-              is_leader_or_closer("leader") and is_leader_or_closer("closer-alpha")
-              and not is_leader_or_closer("chief-of-staff")
-              and "leader" in _c52_relaunch and "closer-*" in _c52_relaunch)
-
-        # What the renderer RETURNS and what `-h` PRINTS are two different claims, and only the
-        # second is the artifact that was wrong. Read off the REAL rendered help, the same way
-        # every other help row in this file does (`parser.command_parsers`).
-        _c52_help = build_parser().command_parsers["relaunch-pane"].format_help()
-        check("C5.2 GD-5: the help `relaunch-pane -h` actually PRINTS opens with the derived "
-              "parenthetical and no longer advertises the chief-of-staff as a CALLER. The later "
-              "`retires the chief-of-staff's raw tmux send-keys` clause is about what this "
-              "command REPLACED, not about who may call it, and correctly stays — which is why "
-              "this row reads the ROLE parenthetical and not the word anywhere in the text",
-              "(leader/closer-*) Relaunch a seat's harness" in _c52_help
-              and "(leader/chief-of-staff/closer-*)" not in _c52_help
-              and "retires the chief-of-staff's raw" in _c52_help)
+              and re.search(r"^refused \[coord identity\]: ", _f17_out, re.M) is not None)
 
         # ============ s12-01 + s12-05: the CLOSING wake-mute, and `checkout --renew` call 1 ======
         # Placed LAST inside this fixture DELIBERATELY. The block re-checks `gamma`, `alpha` and
@@ -28432,26 +27687,15 @@ def _selftest_checks(args, failures, names):
             return load_guard_values(Path(pkg) / "coordination")
 
         _rg_pkg = _rs_make("rg", _rs21_tf, sessions=[("a", "done")])
-        # D2's RED ARM, and it is the whole point of the re-gate: `bare` is a REAL SEAT of this
-        # fixture with a real descriptor and a real taskforce row — every term but its NAME is
-        # right. Under the retired `is_leader` gate this call was refused for being a non-leader
-        # and the row could not tell "wrong seat" from "not the leader"; it is refused now for
-        # being the wrong seat, which is the property D2 actually asserts.
-        _rg_role_o, _rg_role_e, _rg_role_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, as_agent="bare"))
-        # ...and the LEADER is refused too, by name. Removing the leader gate is not widening it:
-        # the leader is not a party to advancement, and a leader who could still write the value
-        # would leave the old path live beside the new one with nothing on disk saying which ran.
-        _rg_lead_o, _rg_lead_e, _rg_lead_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, as_agent="leader"))
+        # D2's arm that used to prove the wrong-seat REFUSAL (`bare` acting on `a`'s pair) and the
+        # leader-refusal arm beside it are GONE: rule-guard carries no role predicate anymore
+        # [T2-R10, D24, F-simplicity-7], so any resolved identity may now write the value for a
+        # (seat, key) pair it does not own. `ruled-by` (RS-26 below) is still stamped from the
+        # ACTUAL caller, so the record of who wrote it is unaffected — only the REFUSAL is gone.
         _rg_src_o, _rg_src_e, _rg_src_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, source=None))
         _rg_shape_o, _rg_shape_e, _rg_shape_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, guard="safe"))
-        # D2 REORDERED THIS ARM, and the fixture says so rather than working around it: the role
-        # gate now keys on the SEAT, so it fires BEFORE the `state` layer's "no such seat" check.
-        # The caller is therefore `nobody` too — otherwise this row would silently stop measuring
-        # the state layer and would measure the role gate a second time.
         _rg_seat_o, _rg_seat_e, _rg_seat_c = harness_outcome(
             cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody", as_agent="nobody"))
         _rg_pair_o, _rg_pair_e, _rg_pair_c = harness_outcome(
@@ -28463,25 +27707,20 @@ def _selftest_checks(args, failures, names):
         _rg_go_o, _rg_go_e, _rg_go_c = harness_outcome(cmd_rule_guard, _rg_ns(_rg_pkg))
         _rg_after_go = _rg_values(_rg_pkg)
         _rg_ready, _ = _rs_v(_rg_pkg)
-        check("dag-10 RS-25 (7.383 + D2) THE GATE SHIPS WITH ITS KEY, THE KEY IS THE PRODUCING "
-              "SEAT'S, AND EVERY REFUSAL IS LAYERED AND WRITES NOTHING. "
-              "`r-gate-ships-with-its-own-key`: the guard term REFUSES READY, so it is a gate, and "
-              "a gate whose key does not exist is not a gate but a wall — the only remaining path "
-              "would be hand-editing the `after` cell to DELETE the precondition. ⚠ D2 "
-              "(2026-08-11): THE SEAT NAMED IN THE PAIR HOLDS THE KEY. Both a WRONG SEAT and the "
-              "LEADER are refused at the role gate, by two separate arms — the leader arm is what "
-              "distinguishes a REMOVED gate from a WIDENED one, and it is the arm an "
-              "`is_leader or name == seat` implementation reds on. Six refusals, deliberately at "
-              "TWO layers with TWO exit codes so a caller can tell a malformed invocation from a "
-              "wrong one: `role gate`/2 for a seat that is not the one named, `input`/2 for a "
-              "malformed KEY=VALUE and for a missing --source, `state`/1 for an unknown seat and "
-              "for a (seat, key) no live edge references. ⚠ THE MANDATORY --source IS A REFUSAL "
+        check("dag-10 RS-25 (7.383 + D2, role gate deleted per [T2-R10, D24, F-simplicity-7]) "
+              "THE GATE SHIPS WITH ITS KEY, AND EVERY REMAINING REFUSAL IS LAYERED AND WRITES "
+              "NOTHING. `r-gate-ships-with-its-own-key`: the guard term REFUSES READY, so it is a "
+              "gate, and a gate whose key does not exist is not a gate but a wall — the only "
+              "remaining path would be hand-editing the `after` cell to DELETE the precondition. "
+              "Four refusals survive at TWO layers with TWO exit codes so a caller can tell a "
+              "malformed invocation from a wrong one: `input`/2 for a malformed KEY=VALUE and for "
+              "a missing --source, `state`/1 for an unknown seat and for a (seat, key) no live "
+              "edge references — the wrong-seat and leader role refusals RS-25 used to assert are "
+              "gone with the gate. ⚠ THE MANDATORY --source IS A REFUSAL "
               "AND NOT AN argparse REQUIREMENT, so it carries a layer and a remedy rather than a "
-              "usage error. ⚠ AND THE FILE IS READ BACK AFTER ALL SIX: a refusal that printed "
+              "usage error. ⚠ AND THE FILE IS READ BACK AFTER ALL FOUR: a refusal that printed "
               "correctly while writing anyway is exactly what a success-line assertion cannot see",
-              _rg_role_c == 2 and "refused [coord role gate]" in (_rg_role_o + _rg_role_e)
-              and _rg_lead_c == 2 and "refused [coord role gate]" in (_rg_lead_o + _rg_lead_e)
-              and _rg_src_c == 2 and "refused [coord input]" in (_rg_src_o + _rg_src_e)
+              _rg_src_c == 2 and "refused [coord input]" in (_rg_src_o + _rg_src_e)
               and "--source is MANDATORY" in (_rg_src_o + _rg_src_e)
               and _rg_shape_c == 2 and "refused [coord input]" in (_rg_shape_o + _rg_shape_e)
               and _rg_seat_c == 1 and "refused [coord state]" in (_rg_seat_o + _rg_seat_e)
@@ -30432,8 +29671,7 @@ def _selftest_checks(args, failures, names):
               "fail-safe in direction; re-sizing it to the capacity-filtered set would weaken the "
               "one gate that is the real protection today",
               _c3_src.count("launch_gates(args,") == 1
-              and "launch_gates(args, \"launch\", is_authorized_launcher, role_desc, "
-                  "len(workers) or 1," in _c3_src
+              and "launch_gates(args, \"launch\", len(workers) or 1)" in _c3_src
               and "launch_gates(" not in _c3_code
               and "floor_source(" not in _c3_code and "read_floor(" not in _c3_code)
         check("7.278 NOTHING ATTACHES TO `--force` OR `--force-memory` (at the source): the "
@@ -32721,11 +31959,12 @@ def _selftest_checks(args, failures, names):
         check("s3-06 (L) THE EXECUTOR ACQUIRES NO SEAT IDENTITY, even though it now LAUNCHES: "
               "neither `run_lifecycle_sequence` nor any helper it is made of calls `launch_gates`, "
               "`gate` or `resolve_agent`. It evaluates the MEMORY half of the launch pre-flight "
-              "itself and leaves the ROLE half alone — the role question was answered at the "
-              "checkout that authorised this act, and this process holds no roster row, no pane "
-              "and no COORD_AGENT (guard 1 popped it), so a role gate here could only ever refuse. "
-              "The subject set is asserted too, so a renamed or deleted helper turns this row red "
-              "instead of quietly shrinking what it scans",
+              "itself directly, via `lifecycle_memory_gate` — there is no role gate anywhere in "
+              "this file anymore [T2-R10, D24, F-simplicity-7], but this process still holds no "
+              "roster row, no pane and no COORD_AGENT (guard 1 popped it), so calling "
+              "`launch_gates`/`gate` here would still be pointless identity resolution for a "
+              "process with no identity to resolve. The subject set is asserted too, so a renamed "
+              "or deleted helper turns this row red instead of quietly shrinking what it scans",
               _s6_seen == _s6_subjects and not (_s6_called & _s6_forbidden)
               and "launch_seat" in _s6_called and "memory_gate" in _s6_called)
 
@@ -36710,13 +35949,10 @@ def build_parser():
 
     s = command(
         "relaunch-pane",
-        # C5.2: the role parenthetical is RENDERED FROM `is_leader_or_closer`, the predicate this
-        # command actually gates on — it is not a string kept in step by hand. It printed
-        # `(leader/chief-of-staff/closer-*)` for as long as it did because nothing tied the two
-        # together (`d-cos-off-pane-kill`). The prose below still names the chief-of-staff, and
-        # correctly: that clause is about the stopgap this command RETIRED, not about who may call
-        # it.
-        f"{gate_roles_help(is_leader_or_closer)} Relaunch a seat's harness INTO a named,"
+        # No role parenthetical anymore [T2-R10, D24, F-simplicity-7] — this command is callable
+        # by any resolved identity. The prose below still names the chief-of-staff, and correctly:
+        # that clause is about the stopgap this command RETIRED, not about who may call it.
+        "Relaunch a seat's harness INTO a named,"
         " already-registered pane,\n"
         "in place (task 7.95, G-282) -- the door's own path back up when a plain `launch`\n"
         "would move it and `close-seat --renew` is refused by the relays: guard.\n"
