@@ -52,22 +52,28 @@ function check(claim, ok, detail) {
   if (!ok) failures.push(claim);
 }
 
-function stampDone(heartStore, goal, seat) {
-  const { bind } = require('../../state-store');
-  bind(heartStore.db).stampSeatDeclare({
+// ⚠ THE STAMP GOES TO THE STORE'S OWN HOME, NOT TO THE LANE STORE THIS FIXTURE HOLDS OPEN.
+// spec-state-store §1.1 puts the ONE ending store at `<workspace>/.rbtv/runtime/ignite/heart.db`
+// (never per-goal, never `{state_root}` after cutover), and `engine/ending-reads.js#bindEnding`
+// derives exactly that path from the goal folder. A fixture stamping `heartStore.db` is writing a
+// file no reader consults. The two helpers keep their
+// `heartStore` parameter only for the callers' shape; the WORKSPACE is what decides the file.
+const store = require('../../state-store');
+const endingApi = (workspaceRoot) => store.bind(store.openEndingStoreFor(workspaceRoot));
+
+function stampDone(workspaceRoot, goal, seat) {
+  endingApi(workspaceRoot).stampSeatDeclare({
     goal, seat, ending: 'done', evidence_pointer: 'probe-frozen', declared_outputs: [], replace: true,
   });
 }
 
-function stampFailed(heartStore, goal, seat) {
-  const { bind } = require('../../state-store');
-  bind(heartStore.db).stampSystem({
+function stampFailed(workspaceRoot, goal, seat) {
+  const api = endingApi(workspaceRoot);
+  api.stampSystem({
     goal, seat, ending: 'failed', reason_class: 'crash',
     evidence_pointer: 'probe-frozen-exit', replace: true,
   });
-  heartStore.db.prepare(
-    'UPDATE seat_endings SET leader_attempt_used = 1 WHERE goal = ? AND seat = ?',
-  ).run(goal, seat);
+  api.setLeaderAttemptUsed({ goal, seat });
 }
 
 // A minimal, real, coord-readable goal package: one seat, optionally blocked on a REAL predecessor
@@ -131,7 +137,7 @@ function runFixture(hasAfter) {
 
     const engine = createEngine({ dbPath, spawnConfigPath: configPath, userManager: false });
     try {
-      if (hasAfter) stampFailed(engine.heartStore, 'fx', 'missing-dep');
+      if (hasAfter) stampFailed(ws, 'fx', 'missing-dep');
       return engine.seedGoal({ goalFolder, goal: 'fx', readLease: liveLease });
     } finally {
       engine.close();
@@ -180,7 +186,7 @@ function runFixtureWithSeedGoal(hasAfter, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
-      if (hasAfter) stampFailed(heartStore, 'fx', 'missing-dep');
+      if (hasAfter) stampFailed(ws, 'fx', 'missing-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();
@@ -271,10 +277,10 @@ function runDead(withPending, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
-      stampDone(heartStore, 'fx', 'struct');
-      stampFailed(heartStore, 'fx', 'full');
-      stampFailed(heartStore, 'fx', 'down');
-      if (withPending) stampFailed(heartStore, 'fx', 'undeclared-dep');
+      stampDone(ws, 'fx', 'struct');
+      stampFailed(ws, 'fx', 'full');
+      stampFailed(ws, 'fx', 'down');
+      if (withPending) stampFailed(ws, 'fx', 'undeclared-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();
@@ -386,9 +392,9 @@ function runIdle(withPending, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
-      stampDone(heartStore, 'fx', 'leader');
-      stampDone(heartStore, 'fx', 'goal-master');
-      if (withPending) stampFailed(heartStore, 'fx', 'undeclared-dep');
+      stampDone(ws, 'fx', 'leader');
+      stampDone(ws, 'fx', 'goal-master');
+      if (withPending) stampFailed(ws, 'fx', 'undeclared-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();

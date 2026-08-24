@@ -62,6 +62,12 @@ const record = require('../execution-record');
 const seeding = require('../seeding');
 const { createEngine } = require('../index');
 const { recordBusAnswer } = require('../bus-answer');
+// THE OWNER-ASK RECORD ITSELF (spec-state-store §3): the bus row a seat writes is what the OWNER
+// reads, while the `open_asks` row is what the RUN's wait is derived from (§2.1). The row is
+// written HERE through the store's own writers — the same substitution this probe's header
+// discloses for executions, and for the same reason: the transport that posts an ask to Slack is
+// another component's, and what this probe measures is the seam from the ROW to the two readers.
+const askStore = require('../../state-store');
 const { requirePythonCmd } = require('../../lib/python-cmd');
 const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
 
@@ -117,6 +123,12 @@ function bus(goalDir, { from, to, type, body, re = null }) {
 
 // One `coord.py` call against a package, FROM INSIDE IT — the cwd is load-bearing: coord stamps a
 // message's origin off it, and a seat's cwd is its own folder within the goal.
+// ⚠ NOTHING POINTS COORD AT A STORE HERE, AND THAT IS THE MEASUREMENT. Both sides DERIVE the
+// ending store's home from the workspace the goal lives in (spec-state-store §1.1,
+// `<workspace>/.rbtv/runtime/ignite/heart.db`): the kit's door walks up from the package for
+// `.rbtv`, and the engine's `bindEnding` walks the goal folder back to the same root. If either
+// side reverted to the store its own lane opened — `{data_root}/heart.db` here — the arms below
+// would read an empty one, so "one ending store" is what this fixture would lose first.
 function coord(dir, args) {
   try {
     return { ok: true, out: execFileSync(PYTHON, [COORD_PY, '--package', dir, ...args],
@@ -145,6 +157,25 @@ function withEngine(fn) {
     dbPath: path.join(dataRoot, 'heart.db'), spawnConfigPath: configPath, userManager: false,
   });
   try { return fn(engine); } finally { engine.close(); }
+}
+
+// THE ASK, RECORDED THE WAY THE BRIDGE RECORDS IT: the seat writes its question on the bus (that
+// row is the owner's copy and the ferry's input), and the daemon stamps the `open_asks` row that
+// makes the seat `waiting-on-owner`. `ask_id` IS the thread id [T5-R7]; on this fixture the thread
+// is named after the bus row so a reader can pair the two by eye.
+function askOwner(engine, goalDir, goal, seat, body) {
+  const num = bus(goalDir, { from: seat, to: 'owner', type: 'ask', body });
+  const thread = `thread-${goal}-${num}`;
+  const api = askStore.bind(askStore.openEndingStoreFor(workspace));
+  api.insertAsk({
+    ask_id: thread, goal, seat, label: 'work-content',
+    evidence_pointer: path.join(goalDir, 'coordination', 'messages.md'),
+  });
+  // ⚠ POSTED IS A SECOND ACT AND THE FIXTURE MAKES IT ONE. §3 sets `posted=1` only once delivery
+  // to the owner is acknowledged, and §2.1 reads THAT flag — an inserted-but-unposted ask holds
+  // nothing, because no answer to it can ever arrive.
+  api.postAsk({ ask_id: thread });
+  return { num, thread };
 }
 
 // One session of a seat, synthesized: it starts, it runs whatever `during` does (that is where the
@@ -193,8 +224,13 @@ async function main() {
     pass1.enqueued.join() === 'alpha', JSON.stringify(pass1.enqueued));
 
   let askId = null;
+  let askNum = null;
   withEngine((e) => runSession(e, goal, dir, 'alpha', {
-    during: () => { askId = bus(dir, { from: 'alpha', to: 'owner', type: 'ask', body: 'which way?' }); },
+    during: () => {
+      const a = askOwner(e, dir, goal, 'alpha', 'which way?');
+      askId = a.thread;
+      askNum = a.num;
+    },
   }));
   const refused = checkOut(dir, 'alpha');
   withEngine((e) => e.publishRecord());
@@ -204,9 +240,15 @@ async function main() {
   // The column is a PROCESS vocabulary now: alpha's turn ended tidily, so `clean` is the true and
   // complete thing this lane witnessed. A `clean` process is exactly what a fail-blocked seat
   // leaves — which is why nothing may read done-ness out of it.
-  check('H1 the record row is a PROCESS fact and says `clean` — the hold is NOT in this column, and '
-    + 'a tidy exit is all the lane that watched it can honestly attest',
-    rowsOf(dir).join() === 'alpha=clean', JSON.stringify(rowsOf(dir)));
+  // Row D of spec-state-store finished the job the note above started: the column carries NO word
+  // at all now, clean or otherwise. What the lane witnessed lives in `jobs_log` as history and what
+  // the WORK came to lives in the ending store — so the arm measures the column's EMPTINESS, which
+  // is the migration's observable, and the close stamp that proves the row really did close.
+  check('H1 the record row holds NO work word — Row D emptied the outcome column, and the close is '
+    + 'attested by the `ended` stamp instead',
+    rowsOf(dir).join() === 'alpha=open'
+      && record.readExecutionRecord(dir).rows.every((r) => (r.ended || '').trim()),
+    `${JSON.stringify(rowsOf(dir))} · ended ${JSON.stringify(record.readExecutionRecord(dir).rows.map((r) => r.ended))}`);
 
   const heldRows = readyRowsOf(dir);
   const heldV = verdicts(heldRows);
@@ -217,9 +259,13 @@ async function main() {
 
   // THE SEAM THIS PROBE EXISTS FOR: coord's rows reaching the engine's own view.
   const heldView = viewOf(dir);
-  check('H3 THE CONSUMPTION SEAM: `recordView` turns that verdict into `view.blocked` — the map\'s '
-    + 'VALUE is coord\'s own reason string, so the engine states nothing about WHY',
-    heldView.blocked.has('alpha') && /OWNER-ASK HOLD/.test(heldView.blocked.get('alpha') || '')
+  // ⚠ THE SEAM MOVED WITH THE FACT. `recordView` no longer re-reads coord's reason string: since
+  // the engine reads §2.1 itself, BOTH sides now answer the hold off the SAME `open_asks` row —
+  // which is the point of the migration, and is why the two agree at H2 and here without either
+  // parsing the other's prose.
+  check('H3 THE CONSUMPTION SEAM: `recordView` derives `view.blocked` from the SAME posted open ask '
+    + 'coord held on — one fact, one source, two readers',
+    heldView.blocked.has('alpha') && /open posted ask/.test(heldView.blocked.get('alpha') || '')
       && heldView.notFinished.has('alpha') && !heldView.finished.has('alpha'),
     `blocked=${[...heldView.blocked.keys()].join()} · finished=${[...heldView.finished].join() || 'none'} · reason ${String(heldView.blocked.get('alpha') || '').slice(0, 80)}`);
 
@@ -229,9 +275,9 @@ async function main() {
     pass2.enqueued.length === 0 && pass2.states.bravo === 'waiting',
     `enqueued ${JSON.stringify(pass2.enqueued)} · bravo=${pass2.states.bravo}`);
   check('H5 the hold is REPORTED, not silent — an operator can see what the wave waits on, and the '
-    + 'evidence is the ask, not a lane fact',
+    + 'evidence is the ask (§2.1\'s posted open row), not a lane fact',
     Object.keys(pass2.blockedOnOwner || {}).join() === 'alpha'
-      && /OWNER-ASK HOLD/.test(pass2.blockedOnOwner.alpha || ''),
+      && /open posted ask/.test(pass2.blockedOnOwner.alpha || ''),
     JSON.stringify(Object.keys(pass2.blockedOnOwner || {})));
 
   // ── U · UNIVERSALITY: the three gates W2 deleted ────────────────────────────────────────────
@@ -245,8 +291,9 @@ async function main() {
   const gU = 'hold-goal-ungated';
   const dU = makeGoal(gU, { arm: null, flagged: false, mode: 'autonomous' });
   seed(dU, gU);
+  let askU = null;
   withEngine((e) => runSession(e, gU, dU, 'alpha', {
-    during: () => bus(dU, { from: 'alpha', to: 'owner', type: 'ask', body: 'which way?' }),
+    during: () => { askU = askOwner(e, dU, gU, 'alpha', 'which way?'); },
   }));
   checkOut(dU, 'alpha');
   withEngine((e) => e.publishRecord());
@@ -261,21 +308,25 @@ async function main() {
   // probe's. `HELD` holds THE SEAT: it keeps `ready-seats` from offering alpha and puts it in
   // `view.blocked`. What holds a seat's DEPENDENTS is a DIFFERENT door — coord's `cmd_checkout`
   // refusing a `done` while the ask is open, which is what leaves the successor's `after` member
-  // unsatisfied. That door still consults `ask_parked_at_gate`, so on a goal where the ferry PARKED
-  // the ask (autonomous, or an unflagged seat) the check-out is admitted and the wave runs on.
+  // unsatisfied. That door is still armed by the seat's own `fallback: block-and-queue`
+  // declaration, so THIS seat — which declares none — checks out and the wave runs on, with its
+  // ask posted and open in the store the whole time.
   const bravoRan = passU.enqueued.includes('bravo');
-  check('U2 …and the SEAT\'s hold is what was made universal, not the DAG\'s: with the ask parked, '
-    + 'alpha checks out and bravo starts anyway. The finding below records that, at its real size',
+  check('U2 …and the SEAT\'s hold is what was made universal, not the DAG\'s: with no '
+    + '`fallback: block-and-queue` arm, alpha checks out and bravo starts anyway even though its '
+    + 'ask is posted and open. The finding below records that, at its real size',
     verdicts(readyRowsOf(dU)).bravo === 'READY' && bravoRan,
     `verdicts ${JSON.stringify(verdicts(readyRowsOf(dU)))} · enqueued ${JSON.stringify(passU.enqueued)}`);
   finding('W2\'s `HELD` is universal at the READY SURFACE — the seat is never offered and the engine '
-    + 'reports it blocked-on-owner with none of the three deleted gates present. The hold on a '
-    + 'seat\'s DEPENDENTS is still coord\'s `cmd_checkout` refusal, and that door still reads '
-    + '`ask_parked_at_gate`: in an AUTONOMOUS goal, or for a seat not marked `human-interactive`, '
-    + 'the ask parks, the `done` check-out is admitted, and the successors advance on an unanswered '
-    + 'question. Measured at U2. Whether that is the intended residual of the parked-ask workaround '
-    + '(`d-parked-ask-autonomous-workaround`) or a surviving limb of the incident W2 closes is an '
-    + 'OWNER call, not this probe\'s — it is recorded, not ruled.');
+    + 'reports it blocked-on-owner with none of the three deleted gates present, and since the '
+    + 'state-store migration both readers derive that from the ONE posted `open_asks` row (§2.1). '
+    + 'The hold on a seat\'s DEPENDENTS is still coord\'s `cmd_checkout` refusal, and that door is '
+    + 'still ARMED BY THE SEAT\'S OWN `fallback: block-and-queue` declaration: a seat that does not '
+    + 'declare it checks out `done` with a posted, open ask, and its successors advance on an '
+    + 'unanswered question. Measured at U2. The migration narrowed the residual — the two DELIVERY '
+    + 'gates the parked-ask workaround needed (`ask_parked_at_gate`\'s execution-mode and '
+    + '`human-interactive:` rungs) are gone from that door, replaced by §3\'s `posted` flag — but '
+    + 'the arm gate itself survives, and whether it should is an OWNER call, not this probe\'s.');
 
   // ── P · THE RELEASE ─────────────────────────────────────────────────────────────────────────
   //
@@ -292,6 +343,18 @@ async function main() {
   });
   check('P0 the reply is RECORDED against the ask it answers — `re` resolved, never guessed',
     answer && answer.recorded === true && answer.re !== null, JSON.stringify(answer));
+  // ⚠ AND THE RELEASE IS THE **REAP**, WHICH IS A SECOND ACT ON A SECOND SURFACE. Writing the
+  // owner's words onto the bus is delivery; what lifts a §2.1 wait is `reapAsk` closing the
+  // `open_asks` row and signalling the relaunch in ONE transaction (§2.8). Before the migration a
+  // `--re` row on the bus was the whole release, and that is exactly the surface the engine had
+  // already stopped reading.
+  const reaped = askStore.bind(askStore.openEndingStoreFor(workspace))
+    .reapAndRelaunch({ ask_id: askId });
+  check('P0a THE REAP: the owner\'s authorized reply closes the ask AND names the seat to relaunch, '
+    + 'in one act — no orphan-or-twin (§2.8)',
+    reaped && reaped.ask && reaped.ask.state === 'closed'
+      && reaped.relaunch && reaped.relaunch.seat === 'alpha',
+    JSON.stringify(reaped));
   // W8 (adv, C78) — THE ESCALATION RETURN LEG lands on this same transport, addressed to the
   // `leader` chair, and it carries NO `re` (an escalation opens no ask, so `askToSettle` finds
   // none). The chair is ON-DEMAND: its seat FOLDER need not exist, and on this fixture it does
@@ -341,7 +404,7 @@ async function main() {
   check('P0b the SAME check-out that was refused while the ask was open now PASSES — the hold lifted '
     + 'for the right reason, not merely lifted',
     !refused.ok && released.ok && /refused \[coord state\]/.test(refused.out)
-      && refused.out.includes(`#${askId} to owner`),
+      && refused.out.includes(`UNANSWERED: ${askId}`),
     `refused=${!refused.ok} released=${released.ok} · ${String(refused.out).replace(/\s+/g, ' ').slice(0, 140)}`);
   withEngine((e) => e.publishRecord());
   const pass3 = seed(dir, goal);
@@ -352,20 +415,24 @@ async function main() {
       && pass3.enqueued.join() === 'bravo',
     `verdicts ${JSON.stringify(verdicts(readyRowsOf(dir)))} · enqueued ${JSON.stringify(pass3.enqueued)}`);
 
-  // ── D · THE DEGRADE, WHICH IS A DECISION AND NOT A DEFAULT ──────────────────────────────────
+  // ── D · WITH NO COORD ANSWER, THE VIEW STILL READS THE STORE — NEVER THE COLUMN ─────────────
   //
-  // `readyRows` absent must degrade to "NOTHING is done, NOTHING is held" — never to the old column
-  // read. Two callers pass none today. Both directions of a wrong guess are unsafe and they are not
-  // equally unsafe: an empty `done` set makes a finished seat merely look unfinished, and the
-  // store's own no-double-fire guard plus `foreign` still stop it being re-run; reading the stale
-  // column instead would advance a wave off values the migration deliberately left inert.
+  // ⚠ THIS SECTION'S BAR MOVED WITH THE MIGRATION, AND THE OLD ONE IS NAMED HERE SO THE CHANGE IS
+  // NOT MISTAKEN FOR A LOOSENING. It used to be "`readyRows` absent must degrade to NOTHING is
+  // done, NOTHING is held", because doneness arrived as coord's verdict and the only other thing
+  // in reach was the stale `outcome` column. Since §4.2 the fact is neither: `recordView` reads
+  // the ENDING STORE, which is available whether or not coord answered, so `readyRows` now decides
+  // only WHICH SEATS are looked at, never what is true about them. The thing that must still never
+  // happen — doneness inferred from the record's own column — is what these two arms measure,
+  // by taking the answer while every outcome cell is BLANK.
   say('');
-  say('D — `recordView` with no coord answer degrades to "nothing done, nothing held"');
+  say('D — with no coord answer `recordView` still answers off the ending store, never the column');
   const degraded = withEngine((e) => seeding.recordView(e.heartStore, dir));
-  check('D1 no `readyRows` -> `done` and `blocked` are EMPTY, and the record\'s own `clean` rows are '
-    + 'NOT read as done. NOT VACUOUS: the same goal with coord\'s rows answers `done` at D2',
-    degraded.done.size === 0 && degraded.blocked.size === 0 && degraded.finished.size === 0,
-    `done=${[...degraded.done].join() || 'none'} · blocked=${[...degraded.blocked.keys()].join() || 'none'}`);
+  check('D1 no `readyRows` -> alpha is `done` because its ENDING SAYS SO, while every `outcome` '
+    + 'cell in the record is blank; bravo, which never ended, is not invented into the set',
+    degraded.done.has('alpha') && !degraded.done.has('bravo') && degraded.blocked.size === 0
+      && record.readExecutionRecord(dir).rows.every((r) => !(r.outcome || '').trim()),
+    `done=${[...degraded.done].join() || 'none'} · blocked=${[...degraded.blocked.keys()].join() || 'none'} · outcomes ${JSON.stringify(record.readExecutionRecord(dir).rows.map((r) => r.outcome))}`);
   check('D2 CONTROL: the SAME goal WITH coord\'s rows answers `done` for alpha — so D1 measured the '
     + 'degrade and not a goal in which nothing was ever finished',
     viewOf(dir).done.has('alpha'), `done=${[...viewOf(dir).done].join() || 'none'}`);
@@ -462,11 +529,16 @@ async function main() {
   const notesN = () => (fs.existsSync(busPathN)
     ? (fs.readFileSync(busPathN, 'utf8').match(/from: ignite-daemon \| to: owner \| type: note/g) || []).length
     : 0);
-  check('N1 the crash is recorded `crashed` AND reported non-clean — and NO owner `note` is minted '
-    + 'by the tick (the staff-mail arm, not this pass, is the surfacing)',
-    rowsOf(dN).join() === 'alpha=crashed' && pubN.nonClean.length === 1
-      && pubN.nonClean[0].seat === 'alpha' && notesN() === 0,
-    `${JSON.stringify(rowsOf(dN))} · nonClean ${JSON.stringify(pubN.nonClean.map((n) => `${n.seat}=${n.outcome}`))} · notes ${notesN()}`);
+  // ⚠ THE WORD MOVED OUT OF THE ROW AND THE REPORT MOVED ONTO HISTORY. Row D deleted `crashed`
+  // from the outcome column, so what this pass owes is the CLOSE (an `ended` stamp, blank outcome)
+  // and the honest report of how the PROCESS ended — the lane's turn status, which is history. The
+  // work's death-truth is the ending store's `failed:crash` with its evidence pointer, written by
+  // the closer and not by this pass.
+  check('N1 the crash CLOSES the row with no work word and is reported non-clean off the turn '
+    + 'status — and NO owner `note` is minted by the tick (the staff-mail arm is the surfacing)',
+    rowsOf(dN).join() === 'alpha=open' && pubN.nonClean.length === 1
+      && pubN.nonClean[0].seat === 'alpha' && pubN.nonClean[0].status === 'failed' && notesN() === 0,
+    `${JSON.stringify(rowsOf(dN))} · nonClean ${JSON.stringify(pubN.nonClean.map((n) => `${n.seat}=${n.status}`))} · notes ${notesN()}`);
   // ONCE PER EXECUTION, NOT ONCE PER TICK — and the idempotence is `closeExecution`'s stamp, not the
   // publish loop's. A second publish over the same terminal row must report nothing.
   const pubN2 = withEngine((e) => e.publishRecord());

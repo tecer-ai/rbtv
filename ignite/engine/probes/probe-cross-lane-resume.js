@@ -115,6 +115,14 @@ cfg['launch-specs'].bash['probe-lane'] = {
 const configPath = path.join(tmp, 'spawn-profiles.yaml');
 fs.writeFileSync(configPath, yaml.dump(cfg));
 
+// ⚠ THE CAGE'S MIRROR ROOT MUST EXIST BEFORE ANY SEAT LAUNCHES. `envelope/compiler.js` resolves
+// `<workspace>/.rbtv/mirror` into every launch plan, and `composeCageFor` refuses an unresolved
+// bind source outright (`LaunchRefused: unresolved …/.rbtv/mirror`) — so on a fixture without it
+// EVERY detached launch lands `failed` with no carrier and no session id, which reads like a
+// broken engine and is a missing directory. The envelope's own selftests create the same folder
+// (`envelope-launch.selftest.js`); these fixtures predate that requirement.
+fs.mkdirSync(path.join(workspace, '.rbtv', 'mirror'), { recursive: true });
+
 const goalFolder = path.join(workspace, '.rbtv', 'goals', 'lane-goal');
 for (const s of ['alpha', 'bravo']) fs.mkdirSync(path.join(goalFolder, 'seats', s), { recursive: true });
 fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
@@ -155,11 +163,49 @@ const cell = (m) => HEADER_COLS.map((c) => m[c] || '').join(',');
 // `disposition` and `seeding.js#recordView` reads. A fixture that stopped at the record row was
 // modelling a real state — a seat whose process ended and which never checked out — but not the one
 // its arm claimed.
+// ⚠ AND SINCE THE STATE-STORE MIGRATION IT MUST ALSO STAMP THE ENDING STORE, which is where
+// done-ness now lives (spec-state-store §4.1: the check-out is a `seat_endings` write, and
+// `sessions.csv` stopped being a work-state writer). The store is opened AT ITS HOME —
+// `<workspace>/.rbtv/runtime/ignite/heart.db`, derived from the goal folder — because that home is
+// exactly what makes this probe's subject true: both lanes read ONE ending store, so a seat the
+// attached lane finished is finished to the daemon lane as well. A fixture that stamped the lane's
+// own `heart.db` would be modelling the per-goal store §1.1 forbids.
+const stateStore = require('../../state-store');
+function stampDone(goal, seat) {
+  const workspaceRoot = path.resolve(goal, '..', '..', '..');
+  stateStore.bind(stateStore.openEndingStoreFor(workspaceRoot)).stampSeatDeclare({
+    goal: path.basename(goal),
+    seat,
+    ending: 'done',
+    evidence_pointer: `probe-cross-lane:${seat}`,
+    replace: true,
+  });
+}
+
+// …and its opposite, for the arms that model a seat the other lane could NOT finish: a terminal
+// `failed` (the leader attempt already spent), which §2.6 makes un-launchable. A NON-terminal
+// `failed` is deliberately not used here — that one IS relaunchable, because it is the recovery
+// ladder's own state and not a hold.
+function stampFailedTerminal(goal, seat) {
+  const api = stateStore.bind(stateStore.openEndingStoreFor(path.resolve(goal, '..', '..', '..')));
+  const gid = path.basename(goal);
+  api.stampSystem({
+    goal: gid,
+    seat,
+    ending: 'failed',
+    reason_class: 'crash',
+    evidence_pointer: `probe-cross-lane:${seat} observed dead`,
+    replace: true,
+  });
+  api.setLeaderAttemptUsed({ goal: gid, seat });
+}
+
 function attestCheckout(goal, seat, sessionId) {
   fs.writeFileSync(path.join(goal, 'sessions.csv'), `${HEADER}\n${cell({
     'session-id': sessionId, seat, harness: 'claude', workdir: path.join(goal, 'seats', seat),
     started: isoNow(), ended: isoNow(), disposition: 'done', 'disposition-writer': 'seat',
   })}\n`);
+  stampDone(goal, seat);
 }
 
 const { splitRow, quoteField } = require('../../server/seat-identity/csv');
@@ -178,6 +224,7 @@ function checkOutDone(goal, seat) {
     cells[at('disposition-writer')] = 'seat';
     lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
     fs.writeFileSync(csvPath, lines.join('\n'), 'utf8');
+    stampDone(goal, seat);
     return true;
   }
   return false;
@@ -371,9 +418,14 @@ async function main() {
   // the ONLY surface that can say the WORK finished since W2 (see `attestCheckout`). Written AFTER
   // the publish so the arm above still measures the record's own writer and nothing else.
   attestCheckout(freshGoal, 'alpha', DAEMON_SESSION);
-  check('D2 the DAEMON LANE\'S OWN TICK publishes that outcome into the GOAL FOLDER\'s record',
-    record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === record.CLEAN),
-    record.readExecutionRecord(freshGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+  // ⚠ WHAT IT PUBLISHES IS THE CLOSE, NOT A WORD. Row D of spec-state-store emptied the outcome
+  // column, so this arm read `outcome === record.CLEAN` against a constant that no longer exists —
+  // `undefined`, which no cell can equal. The publish's observable is the row: this lane's name on
+  // it and an `ended` stamp, with the work word deliberately absent.
+  check('D2 the DAEMON LANE\'S OWN TICK publishes that close into the GOAL FOLDER\'s record',
+    record.readExecutionRecord(freshGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon'
+      && (r.ended || '').trim() && !(r.outcome || '').trim()),
+    record.readExecutionRecord(freshGoal).rows.map((r) => `${r.seat}=${(r.ended || '').trim() ? 'ended' : 'open'}/${r.lane}`).join(' ') || 'empty');
 
   // THE CALLER ARM (review F1). The behavioural arm above drives `engine.tick`; this one asserts
   // that the DAEMON drives `engine.tick` too. Both are needed: the first cannot see a loop that
@@ -407,12 +459,24 @@ async function main() {
   // THE DISCRIMINATING MUTATION: nothing about this goal changes except the ONE fact the decision
   // rests on — alpha's ROW. Take it out and the very same fixture re-runs the seat, so the skip
   // above is the record's content, not the file's existence, not the seat's name, not the trace.
-  // ⚠ THE TARGET IS `record.CLEAN`, NOT A TYPED `done` (W2). This pattern used to read `/,done$/m`,
-  // and after the outcome column narrowed to `clean|crashed|killed` that regex could match NOTHING
-  // — the two mutations below would have applied to no byte, the fixtures would have been identical
-  // to their control, and the F3/F6 arms would have passed while measuring nothing at all. It is
-  // built from the module's own constant so the next narrowing breaks it loudly instead.
-  const BLANK_THE_OUTCOME = new RegExp(`,${record.CLEAN}$`, 'm');
+  // ⚠ THE MUTATION IS ON THE `ended` CELL AND NO LONGER ON A WORD. It used to blank
+  // `record.CLEAN` in the outcome column — and Row D deleted that constant, so the regex was
+  // `,undefined$`: it matched NOTHING, the F3 mutant was byte-identical to its control, and the
+  // arm passed while measuring nothing at all. Re-opening a row is now what it always meant
+  // structurally: clear the close stamp, which is the cell the readers key on.
+  const reopenAlphaRow = (rp) => {
+    const lines = fs.readFileSync(rp, 'utf8').split('\n');
+    const header = lines[0].split(',').map((h) => h.trim());
+    const at = header.indexOf('ended');
+    const out = lines.map((l, i) => {
+      if (i === 0 || !/^alpha,/.test(l)) return l;
+      const cells = l.split(',');
+      cells[at] = '';
+      return cells.join(',');
+    });
+    if (out.join('\n') === lines.join('\n')) throw new Error('reopenAlphaRow mutated nothing');
+    fs.writeFileSync(rp, out.join('\n'));
+  };
   // ⚠ A MUTANT DROPS THE CHECK-OUT BY DEFAULT SINCE W2, AND WITHOUT THAT EVERY ARM BELOW IS
   // UNREACHABLE. `freshGoal` now carries both halves a finished daemon-lane seat leaves — the record
   // row AND the `done` disposition on `sessions.csv` — because done-ness moved to the check-out.
@@ -420,11 +484,17 @@ async function main() {
   // record row erased), and such a seat did not check out `done`; leaving the copied attestation in
   // place makes coord answer `DONE` for it, so nothing can ever be dispatched and each arm reports
   // `[]` no matter what the engine decides. Copying a fixture is copying its every fact.
+  // ⚠ AND THE CHECK-OUT IS NOW TWO FACTS, SO COPYING IT IS TWO ACTS. Since spec-state-store §4.1
+  // the ending lives in the store, keyed by GOAL NAME — and a mutant is a NEW goal name, so
+  // `cpSync` carries the `sessions.csv` row and leaves the ending behind. A mutant that kept its
+  // check-out on paper and lost it in the store is not the fixture arm (a) claims; it is a seat
+  // that never ended, which re-runs for a reason the arm is not about.
   const mutantOf = (name, edit, { keepCheckout = false } = {}) => {
     const dir = path.join(workspace, '.rbtv', 'goals', name);
     fs.cpSync(freshGoal, dir, { recursive: true });
     for (const f of fs.readdirSync(dir)) if (f.startsWith('heart.db')) fs.rmSync(path.join(dir, f), { force: true });
     if (!keepCheckout) fs.rmSync(path.join(dir, 'sessions.csv'), { force: true });
+    if (keepCheckout) stampDone(dir, 'alpha');
     edit(record.recordPath(dir));
     return dir;
   };
@@ -466,9 +536,7 @@ async function main() {
   // Blank the OUTCOME and the row goes back to what it was between dispatch and completion. The
   // seat must NOT be dispatched here — that was the double-dispatch review finding F3 — and the run
   // must not spin on it either.
-  const openGoal = mutantOf('lane-goal-2o', (rp) => {
-    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(BLANK_THE_OUTCOME, ','));
-  });
+  const openGoal = mutantOf('lane-goal-2o', reopenAlphaRow, { keepCheckout: true });
   const openRun = await runOn(openGoal);
   check('F3 an OPEN row from another lane HOLDS the seat — it is never dispatched a second time',
     openRun.fired.length === 0, `foreground launches ${JSON.stringify(openRun.fired)}`);
@@ -480,9 +548,12 @@ async function main() {
       && !attached.statusAttached({ goalFolder: openGoal }).ready.includes('alpha'),
     JSON.stringify(attached.statusAttached({ goalFolder: openGoal }).seats.map((x) => `${x.seat}=${x.state}`)));
   // ── F6 · A FOREIGN `crashed` OUTCOME IS HELD TOO, exactly like a local one ────────
-  const failedGoal = mutantOf('lane-goal-2f', (rp) => {
-    fs.writeFileSync(rp, fs.readFileSync(rp, 'utf8').replace(BLANK_THE_OUTCOME, `,${record.CRASHED}`));
-  });
+  // ⚠ AND THE FAILURE IS STAMPED IN THE STORE, NOT SPELLED IN THE COLUMN (§4.4): death-truth is
+  // `failed` plus an evidence pointer, and it is TERMINAL here (the leader attempt spent) because
+  // that is the state that holds. The old mutant wrote `record.CRASHED` into the outcome cell — a
+  // constant Row D deleted, so it wrote `undefined` and the arm held for no reason at all.
+  const failedGoal = mutantOf('lane-goal-2f', () => {});
+  stampFailedTerminal(failedGoal, 'alpha');
   const failedRun = await runOn(failedGoal);
   check('F6 a seat that FAILED in the other lane is held here, not silently re-run — exactly as a '
     + 'LOCAL failure is held on this lane',
@@ -549,16 +620,18 @@ async function main() {
   }, 1);
 
   const appender = child('for(let i=0;i<N;i++)record.openExecution({goalFolder:G,seat:"s"+i,sessionId:"sid-"+i,lane:"attached",startedAt:"t"});');
-  const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"clean",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
+  const closer = child('let i=0;const t=Date.now();while(i<N){if(record.closeExecution({goalFolder:G,sessionId:"sid-"+i,outcome:"",endedAt:"t"}).closed){i++;continue;}if(Date.now()-t>60000)break;}');
   await Promise.all([appender, closer].map(awaitExit));
   clearInterval(poll);
 
   const raceRows = record.readExecutionRecord(raceGoal).rows;
-  const stamped = raceRows.filter((r) => r.outcome === record.CLEAN);
+  // The close stamp is `ended`; the outcome cell is blank on every closed row since Row D, so
+  // counting it counted zero and this arm reported a lost race that never happened.
+  const stamped = raceRows.filter((r) => (r.ended || '').trim());
   const malformed = raceRows.filter((r) => !r.seat || !r['session-id']);
   check(`D5 all ${N} appended rows SURVIVED the race — not one lost`,
     raceRows.length === N, `${raceRows.length}/${N} rows · ${malformed.length} malformed`);
-  check(`D5 all ${N} outcome stamps landed`, stamped.length === N, `${stamped.length}/${N} stamped`);
+  check(`D5 all ${N} closes landed`, stamped.length === N, `${stamped.length}/${N} closed`);
   check('D5 an UNLOCKED reader never saw the file go backwards or empty',
     !regressed && !sawEmptyAfterRows, `regressed=${regressed} empty-after-rows=${sawEmptyAfterRows}`);
   check('D5 no lock file survives the writers',
@@ -664,7 +737,7 @@ async function main() {
   attestCheckout(foreignGoal, 'alpha', FOREIGN_SESSION);
   // …and the other lane's OUTCOME, in the shared record, keyed by that same session id.
   record.openExecution({ goalFolder: foreignGoal, seat: 'alpha', sessionId: FOREIGN_SESSION, lane: 'daemon', startedAt: isoNow() });
-  record.closeExecution({ goalFolder: foreignGoal, sessionId: FOREIGN_SESSION, outcome: record.CLEAN, endedAt: isoNow() });
+  record.closeExecution({ goalFolder: foreignGoal, sessionId: FOREIGN_SESSION, outcome: '', endedAt: isoNow() });
 
   const foreignRuns = [];
   const attempt = async (goal, sink = null) => {
@@ -693,7 +766,7 @@ async function main() {
       for (const s2 of ['alpha', 'bravo']) fs.copyFileSync(path.join(goalFolder, 'seats', s2, 'seat.md'), path.join(fresh, 'seats', s2, 'seat.md'));
       const FRESH_SESSION = 'ffffffff-0000-0000-0000-000000000001';
       record.openExecution({ goalFolder: fresh, seat: 'alpha', sessionId: FRESH_SESSION, lane: 'daemon', startedAt: isoNow() });
-      record.closeExecution({ goalFolder: fresh, sessionId: FRESH_SESSION, outcome: record.CLEAN, endedAt: isoNow() });
+      record.closeExecution({ goalFolder: fresh, sessionId: FRESH_SESSION, outcome: '', endedAt: isoNow() });
       // …AND THE TRACE ROW THAT LANE'S SEAT LEFT, CHECKED OUT `done`. The record answers "did this
       // seat FINISH" and coord answers "is bravo READY", and since § D1 they are DIFFERENT
       // QUESTIONS asked of DIFFERENT FILES — a fixture writing only the record models a lane that
@@ -704,6 +777,10 @@ async function main() {
         workdir: path.join(fresh, 'seats', 'alpha'), started: isoNow(), ended: isoNow(),
         disposition: 'done', 'disposition-writer': 'seat',
       })}\n`);
+      // …and the third half the daemon lane leaves: the ENDING, in the one store both lanes read
+      // (§1.1). It is what makes this arm's claim true — the orientation answers `done` for a seat
+      // this lane never ran, with no store of ITS OWN in the goal folder.
+      stampDone(fresh, 'alpha');
       const st = attached.statusAttached({ goalFolder: fresh });
       return st.everRun === false && st.done.join() === 'alpha' && st.ready.join() === 'bravo'
         && !fs.existsSync(path.join(fresh, 'heart.db'));

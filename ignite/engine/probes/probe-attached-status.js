@@ -109,16 +109,17 @@ fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
   'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
   + 'disposition,disposition-writer,execution,checkin,model\n'
   + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,done,seat,,,\n');
+// ⚠ THE STAMP GOES TO THE STORE'S OWN HOME, NOT TO THE LANE STORE THIS FIXTURE HOLDS OPEN.
+// spec-state-store §1.1 puts the ONE ending store at `<workspace>/.rbtv/runtime/ignite/heart.db`
+// (never per-goal, never `{state_root}` after cutover), and `engine/ending-reads.js#bindEnding`
+// derives exactly that path from the goal folder. A fixture stamping `heartStore.db` is writing a
+// file no reader consults.
 {
-  const { openHeartStore, closeHeartStore } = require('../../server/heart/heart-store');
-  const { bind } = require('../../state-store');
-  const hs = openHeartStore({ dbPath: path.join(goalFolder, 'heart.db') });
-  bind(hs.db).stampSeatDeclare({
+  const store = require('../../state-store');
+  store.bind(store.openEndingStoreFor(path.resolve(goalFolder, '..', '..', '..'))).stampSeatDeclare({
     goal: path.basename(goalFolder), seat: 'alpha', ending: 'done',
-    evidence_pointer: 'probe-attached-status', declared_outputs: [],
+    evidence_pointer: 'probe-attached-status', declared_outputs: [], replace: true,
   });
-  hs.close();
-  closeHeartStore();
 }
 byJob.set(attached.jobIdFor('alpha'), [{ status: 'done' }]);
 const advanced = frontier();
@@ -132,7 +133,19 @@ fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
   'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
   + 'disposition,disposition-writer,execution,checkin,model\n'
   + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,,,,,\n');
-try { fs.unlinkSync(path.join(goalFolder, 'heart.db')); } catch { /* none */ }
+// ⚠ TAKING THE CHECK-OUT AWAY IS NOW TWO ACTS, and the second one is raw SQL on purpose. It used
+// to be `unlink(<goal>/heart.db)` — the per-goal store the ending was stamped into. Since §1.1 the
+// ending lives at the workspace home, which this fixture must NOT delete (the handle is open, and
+// unlinking under sqlite leaves the reader on the old inode reading the row it was meant to lose).
+// There is no API for this because PRODUCTION NEVER UN-DECLARES an ending: a new sitting REPLACES
+// the row, it does not blank it. The state being modelled — no current row at all — is the absence
+// §1.1 calls "no declared ending", so the fixture removes the row directly and says why.
+{
+  const store = require('../../state-store');
+  store.openEndingStoreFor(path.resolve(goalFolder, '..', '..', '..'))
+    .prepare('DELETE FROM seat_endings WHERE goal = ? AND seat = ?')
+    .run(path.basename(goalFolder), 'alpha');
+}
 check('…and with the SAME store turn but NO check-out, the dependent stays WAITING (UNDECLARED)',
   attached.seatState(rows[1], byJob, queued, { ready: frontier() }) === 'waiting');
 fs.unlinkSync(path.join(goalFolder, 'sessions.csv'));

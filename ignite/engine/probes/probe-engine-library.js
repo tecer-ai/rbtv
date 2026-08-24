@@ -80,6 +80,11 @@ const dataRoot = path.join(tmp, 'data');
 // a `runs/run-1` fixture would be refused by the very predicate this probe exercises.
 const goalFolder = path.join(workspace, '.rbtv', 'goals', 'probe-goal');
 fs.mkdirSync(goalFolder, { recursive: true });
+// The cage's mirror root — `envelope/compiler.js` resolves `<workspace>/.rbtv/mirror` into every
+// launch plan and `composeCageFor` refuses an unresolved bind source, so without this folder every
+// real launch lands `failed` with no carrier and no session id, and `rbtv run` reports
+// `seat-failed` for a goal whose seats never reached a process.
+fs.mkdirSync(path.join(workspace, '.rbtv', 'mirror'), { recursive: true });
 fs.mkdirSync(dataRoot, { recursive: true });
 
 const SEATS = ['alpha', 'bravo', 'charlie'];
@@ -469,11 +474,27 @@ async function main() {
   // surface `coord.py#session_disposition` reads, and the shape is its own `SESSIONS_COLS`.
   const SESSIONS_HEADER = 'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,'
     + 'pid,pid-starttime,tty,disposition,disposition-writer,execution,checkin,model,hold-anchor\n';
+  // ⚠ AND IT STAMPS THE ENDING STORE, which is where a check-out's ending now lives
+  // (spec-state-store §4.1 — `sessions.csv` still closes its row but is no longer a work-state
+  // writer, so a fixture that stopped at the CSV was declaring nothing an edge could read). The
+  // store is opened at its §1.1 home, derived from the goal folder exactly as the readers derive
+  // it, so this fixture and `readyFromEndings` cannot be looking at two files.
+  const stateStore = require('../../state-store');
   function checkOut(dir, seat, disposition) {
     const f = path.join(dir, 'sessions.csv');
     if (!fs.existsSync(f)) fs.writeFileSync(f, SESSIONS_HEADER);
     fs.appendFileSync(f, `sid-${seat},${seat},claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,`
       + `${disposition},${disposition ? 'seat' : ''},,,,\n`);
+    if (!disposition) return;
+    stateStore.bind(stateStore.openEndingStoreFor(path.resolve(dir, '..', '..', '..')))
+      .stampSeatDeclare({
+        goal: path.basename(dir),
+        seat,
+        ending: disposition === 'done' ? 'done' : 'incomplete',
+        armed: disposition === 'done' ? undefined : 1,
+        evidence_pointer: `probe-engine-library:${seat}`,
+        replace: true,
+      });
   }
 
   const wave1 = attached.enqueueEligible(waveStore, waveRows, { profile: 'probe-seat', goalFolder: waveDir, ...frontier() });

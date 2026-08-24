@@ -76,6 +76,12 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-foreground-carrier-'));
 const workspace = path.join(tmp, 'workspace');
 const dataRoot = path.join(tmp, 'data');
 fs.mkdirSync(dataRoot, { recursive: true });
+// The cage's mirror root — `envelope/compiler.js` resolves `<workspace>/.rbtv/mirror` into every
+// launch plan and `composeCageFor` refuses an unresolved bind source, so without this folder every
+// DETACHED launch lands `failed` with no carrier and no session id (the foreground path, which is
+// what this probe is about, does not go through the cage and was green either way — which is
+// exactly how a missing directory came to look like a broken detached door).
+fs.mkdirSync(path.join(workspace, '.rbtv', 'mirror'), { recursive: true });
 
 // ── THE SEAT'S OWN CHECK-OUT, AS A FIXTURE ACT ────────────────────────────────────────────────
 //
@@ -119,9 +125,24 @@ function checkOutDone(goalFolder, seat) {
     cells[at('disposition-writer')] = 'seat';
     lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
     fs.writeFileSync(csvPath, lines.join('\\n'), 'utf8');
+    stampDone(goalFolder, seat);
     return true;
   }
   return false;
+}
+// …AND THE ENDING, in the ONE store (spec-state-store §4.1/§1.1). The CSV row still closes the
+// sitting; it stopped being the work-state writer, so a substituted occupant that stamped only the
+// CSV declared nothing an edge could read and every dependent stayed blocked.
+const stateStore = require(${JSON.stringify(path.join(IGNITE_SRC, 'state-store'))});
+function stampDone(goalFolder, seat) {
+  stateStore.bind(stateStore.openEndingStoreFor(path.resolve(goalFolder, '..', '..', '..')))
+    .stampSeatDeclare({
+      goal: path.basename(goalFolder),
+      seat,
+      ending: 'done',
+      evidence_pointer: 'probe-foreground-carrier:' + seat,
+      replace: true,
+    });
 }
 module.exports = { checkOutDone };
 // As a \`headed.tui\` command the cwd IS the seat folder, so both operands are read off it.
@@ -772,8 +793,16 @@ async function main() {
   // `pad_row`), and those primitives are what run below. The parse stays coord's; only the wrapper
   // is gone. This is a PROBE computing an assertion, never production code deciding anything, so it
   // mints no second reader of the state it checks.
-  check('B1h every foreground row is CLOSED — `ended` stamped, disposition `exited` by the `kit`',
-    allTrace.rows.every((r) => r.ended && r.disposition === 'exited' && r['disposition-writer'] === 'kit'),
+  // ⚠ AND THE DISPOSITION WORD IS GONE FROM THIS CLOSE (spec-state-store §4.1). The carrier used to
+  // stamp `exited` + writer `kit` here, and `exited` was a WORK word written by something that only
+  // ever witnessed a PROCESS — the exact conflation Row A ends. `closeForegroundSessionRow` now
+  // stamps `ended` and nothing else, so the row says "this sitting is over" and says nothing about
+  // the work. What the work came to is the ending store's business, and a seat that never declared
+  // has no current row there at all (§1.1: absence is not a word) — which the arm below measures
+  // against a seat that DID declare.
+  check('B1h every foreground row is CLOSED — `ended` stamped, and NO work word is written into '
+    + 'the trace by a closer that only watched a process',
+    allTrace.rows.length > 0 && allTrace.rows.every((r) => r.ended && !r.disposition && !r['disposition-writer']),
     allTrace.rows.map((r) => `${r.seat}:${r.ended || 'OPEN'}/${r.disposition || '-'}`).join(' '));
 
   const askPython = (src) => spawnSync(requirePythonCmd(), ['-c', src], { encoding: 'utf8', cwd: IGNITE_SRC });
@@ -798,17 +827,28 @@ def open_session_seats(pkg):
     return out
 pkg = pathlib.Path(${JSON.stringify(allFg)})
 print('OPEN=' + ','.join(sorted(open_session_seats(pkg))))
-print('DISP=' + ','.join('%s:%s' % (s, coord.session_disposition(pkg, s)) for s in ('alpha', 'bravo')))
+def ending_of(p, seat):
+    row = coord.ending_store.get_current_ending(p, seat)
+    return (row or {}).get('ending') or 'none'
+declared = pathlib.Path(${JSON.stringify(goal)})
+print('END=' + ','.join('%s:%s' % (s, ending_of(pkg, s)) for s in ('alpha', 'bravo'))
+      + ';declared-alpha:' + ending_of(declared, 'alpha'))
 `);
   const readerOut = `${readersSay.stdout || ''}${readersSay.stderr || ''}`.trim();
   check('B1h no FINISHED seat is left reading as an OPEN sitting in the trace (the F2 harm)',
     /OPEN=\s*$/m.test(readerOut) || /OPEN=$/m.test(readerOut.split('\n')[0]),
     readerOut.split('\n')[0] || 'python said nothing');
-  // F3, measured rather than assumed: gate 3's PURPOSE is that the trace can ANSWER disposition.
-  // It now does — and the answer is `exited`, which every reader treats as NOT-done. That is the
-  // truth on this lane: no seat declared its own check-out, because it cannot.
-  check('B1h …and `coord.session_disposition` now RESOLVES for a foreground seat (was None)',
-    /DISP=alpha:exited,bravo:exited/.test(readerOut),
+  // F3, RE-FOUNDED ON THE ONE STORE. The old arm asked `coord.session_disposition` to answer
+  // `exited` for these two seats — the word this lane's closer invented for "a process ended and
+  // nobody declared anything". Row A deleted it, and the successor is not another word: a seat that
+  // never declared has NO current `seat_endings` row, and §1.1 says that absence is not a stored
+  // state. So the pair is measured instead of a single value, through the kit's own store door and
+  // in python, because the claim is about what COORD sees: these two carried-but-undeclared seats
+  // have no ending, while a seat that really did check out on the same lane reads `done`. A
+  // one-sided arm here could not tell "nothing was declared" from "the store cannot be read".
+  check('B1h …and the ENDING STORE tells declared from undeclared: a carried seat that never '
+    + 'checked out has NO ending, while a seat that did reads `done`',
+    /END=alpha:none,bravo:none;declared-alpha:done/.test(readerOut),
     readerOut.split('\n')[1] || 'python said nothing');
 
   // ── B1i · S-21 — every `headed.tui` pins its profile's model ─────────────────────────────────

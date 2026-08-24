@@ -133,6 +133,14 @@ const goalsRoot = path.join(workspace, '.rbtv', 'goals');
 const dataRoot = path.join(tmp, 'data');                  // the DAEMON lane's state root
 fs.mkdirSync(dataRoot, { recursive: true });
 fs.mkdirSync(goalsRoot, { recursive: true });
+// The cage's mirror root — `envelope/compiler.js` resolves `<workspace>/.rbtv/mirror` into every
+// launch plan and `composeCageFor` refuses an unresolved bind source, so without this folder every
+// detached launch lands `failed` with no carrier and no session id.
+fs.mkdirSync(path.join(workspace, '.rbtv', 'mirror'), { recursive: true });
+// The ONE ending store (spec-state-store §1.1) is reached through its own home, never through the
+// lane store a fixture happens to hold open — that is what lets the daemon lane's stamp be read by
+// the console lane at L6.
+const stateStore = require('../../state-store');
 // Isolate tmux: inheriting the caller's TMUX makes `tmux new-session -s <goal>` talk to the
 // live server (or hang on a client). Mutation copies must sit at `<ws>/.rbtv/goals/<goal>`
 // (heldSeatPredicate walks up to `.rbtv`). Do not cpSync the whole fixture tree into a
@@ -580,13 +588,15 @@ async function main() {
   // pass. Either way it is a row the other lane did NOT finish, which is exactly what holds the
   // seat (`seeding.js` § `foreign` — a row belonging to another lane's store, whatever it says), so
   // the arm asserts that and not an emptiness the sweep is entitled to remove.
-  // ⚠ THE WORD IS `crashed` SINCE W2, and the test is written against `CLEAN` rather than against
-  // the old `done`: a `failed` turn publishes `crashed` through `processOutcome`, and `!== 'done'`
-  // would now be satisfied by EVERY row this column can hold — including a tidy exit — which is a
-  // test that cannot fail.
-  check('L4 the other lane\'s NON-CLEAN row reached the record through its own writer',
-    record.readExecutionRecord(heldGoal).rows.some((r) => r.seat === 'alpha' && r.outcome === record.CRASHED),
-    record.readExecutionRecord(heldGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+  // ⚠ AND THE WORD IS GONE ENTIRELY SINCE Row D (spec-state-store §4.4): this column holds no
+  // process vocabulary at all now, so `record.CRASHED` is `undefined` and no cell can equal it.
+  // What the other lane's writer still puts here — and all this arm ever spent — is the ROW: its
+  // seat, its lane, and a close stamp. The crash itself is the ending store's `failed` plus the
+  // evidence pointer that names the observed death, which is not this file's business.
+  check('L4 the other lane\'s row reached the record through its own writer, closed and wordless',
+    record.readExecutionRecord(heldGoal).rows.some((r) => r.seat === 'alpha'
+      && (r.ended || '').trim() && !(r.outcome || '').trim()),
+    record.readExecutionRecord(heldGoal).rows.map((r) => `${r.seat}=${(r.ended || '').trim() ? 'ended' : 'open'}/${r.lane}`).join(' ') || 'empty');
   say(`T+${Date.now() - start}ms after L4`);
 
   // ── L5 · THE WATCH PASS ─────────────────────────────────────────────────────────────────────
@@ -810,6 +820,18 @@ async function main() {
       'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,'
       + 'tty,disposition,disposition-writer,execution,checkin,model,hold-anchor\n'
       + `${rows[0] ? rows[0].session_id : 'sid-alpha'},alpha,claude,,,,${isoNow()},${isoNow()},,,,done,seat,,,,\n`);
+    // …AND THE ENDING, which is where that declaration now lives (spec-state-store §4.1). The CSV
+    // row still closes the sitting, but it stopped being a work-state writer — so a fixture that
+    // stopped at it was synthesizing a seat that ended without declaring anything, and the console
+    // lane would correctly re-run alpha. The store is opened at its §1.1 workspace home, which is
+    // the whole point of L6: the DAEMON wrote it and the CONSOLE lane reads the same file.
+    stateStore.bind(stateStore.openEndingStoreFor(workspace)).stampSeatDeclare({
+      goal: path.basename(switchGoal),
+      seat: 'alpha',
+      ending: 'done',
+      evidence_pointer: 'probe-daemon-lane-watch:alpha',
+      replace: true,
+    });
   }
   {
     const engine = createEngine({
@@ -817,9 +839,10 @@ async function main() {
     });
     try { await engine.tick(); } finally { engine.close(); }
   }
-  check('L6 the DAEMON\'s own tick published that outcome into the goal folder\'s execution record',
-    record.readExecutionRecord(switchGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon' && r.outcome === record.CLEAN),
-    record.readExecutionRecord(switchGoal).rows.map((r) => `${r.seat}=${r.outcome || 'open'}/${r.lane}`).join(' ') || 'empty');
+  check('L6 the DAEMON\'s own tick published that CLOSE into the goal folder\'s execution record',
+    record.readExecutionRecord(switchGoal).rows.some((r) => r.seat === 'alpha' && r.lane === 'daemon'
+      && (r.ended || '').trim() && !(r.outcome || '').trim()),
+    record.readExecutionRecord(switchGoal).rows.map((r) => `${r.seat}=${(r.ended || '').trim() ? 'ended' : 'open'}/${r.lane}`).join(' ') || 'empty');
 
   // ⚑ THE FLIP — one CLI call, mid-goal. This is the act the ruling calls the button.
   laneCli(['switch-goal', '--set', 'console']);
