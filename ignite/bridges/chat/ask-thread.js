@@ -194,7 +194,14 @@ function createAskThreads({
   // `askId` is what the caller believes this thread's ask is. `threadTs` is where the message
   // actually landed. They are compared rather than assumed EQUAL because that comparison IS the
   // release rule: a reply in any other thread releases nothing, silently (§2.4.1).
-  async function release({ goalId, channelId, seatName, askId, threadTs, senderId, text, channelGoal = null, liveGoals = null }) {
+  //
+  // `reap` is the ONE knob, and it exists for exactly one caller: a `reject-and-pause`d APPROVAL
+  // thread [T3-R22]. That thread's ask was already released and reaped by the reply that paused
+  // it; the later `retry with:` / `approve` / `close` arrive in the SAME thread and must be
+  // authorized and parsed by this same door — but must NOT reap a second time, because a second
+  // reap is a second relaunch signal on a seat nobody re-asked. With `reap: false` this function
+  // is the release rule minus its last act: exact thread, authorized sender, parse, NACK.
+  async function release({ goalId, channelId, seatName, askId, threadTs, senderId, text, channelGoal = null, liveGoals = null, reap = true }) {
     // 1a. THE EXACT THREAD. Not "a thread on this seat", not "the newest", not "the oldest".
     if (askId == null || threadTs == null || String(threadTs) !== String(askId)) {
       log('debug', 'reply is not in the ask\'s exact thread — nothing released [§2.4.1]', { goalId, askId, threadTs });
@@ -224,7 +231,18 @@ function createAskThreads({
       log('info', 'mechanical verb in an ask thread — handled elsewhere, the ask stays OPEN [§4.2]', { goalId, askId, outcome: parsed.outcome });
       return { released: false, reason: 'mechanical', outcome: parsed.outcome, goal: parsed.goal, comments: parsed.comments };
     }
-    // 4. RECOGNIZED OUTCOME. The reply goes to disk FIRST — the reap fires the relaunch in the
+    // 4. RECOGNIZED OUTCOME. `reap: false` stops here (see the header): the outcome is reported
+    // to the caller, and the record — already `answered` — is left exactly as it stands.
+    if (reap === false) {
+      log('info', 'authorized reply parsed in an already-released thread — reported, NOT reaped again [T3-R22]', {
+        goalId, seat: seatName, askId, outcome: parsed.outcome,
+      });
+      return {
+        released: false, reason: 'no-reap', parsedOnly: true,
+        outcome: parsed.outcome, comments: parsed.comments, family: parsed.family, findings: parsed.findings,
+      };
+    }
+    // The reply goes to disk FIRST — the reap fires the relaunch in the
     // same act (§2.8), so a seat can be reading this file before the reap call has returned.
     const copy = persistReply({ goalId, askId, senderId: sender, text });
     const reaped = await askRecord.reapAsk({ goalId, seat: seatName, chatThreadId: askId });
