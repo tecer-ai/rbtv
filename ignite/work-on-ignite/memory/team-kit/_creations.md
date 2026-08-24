@@ -11,3 +11,12 @@
 2026-08-24 · change · move-only split of coord.py into 16 loaded siblings · Sixteen map-named units left the monolith as sibling files under `team-kit/`, and `coord.py` · 867a240f · — · ⚠
 2026-08-24 · creation · planning-door lock and wrapper · C5 splice had no lock → flock + supervised wrapper · 9dcfdf44 · — · ⚠
 2026-08-24 · change · kit endings via store client · dual writers gone → ending_store.py calls state-store/cli.js · 795459fa · capabilities · ⚠ absolutize outputs before stamp
+2026-08-24 · change · cmd_status no longer claims pane liveness [T4-R8] · Design-baseline v2 [T4-R8, C-15, C6] settles that a terminal pane is a viewport, never a heartbeat · 7b425e77 · — · ⚠
+2026-08-24 · change · delete closer-* seat class [T2-R9] · [T2-R9] (redesign baseline v2, subsystem 8 of an 11-subsystem deletion batch): the closer-* seat class is deleted · 4930e6a9 · — · ⚠
+2026-08-24 · change · Delete consultant staff chair, keep ask labels · Ruling [T2-R17, D-7-ruling] (redesign D19, subsystem 11): the consultant ROLE/CHAIR is deleted, not unstaffed · bbbddaac · engine · ⚠
+2026-08-24 · change · delete gate_forced/GATE_FLAGS override machinery · Subsystem 6 of an 11-part deletion batch [T2-R10, D24, F-simplicity-7]: exactly two refusal points survive in coord.py · PENDING · jobs · ⚠
+2026-08-24 · change · delete per-verb role gate layer · D19 (redesign ruling [T2-R10, D24, F-simplicity-7]): the per-verb role-gate machinery is superseded · PENDING · — · ⚠
+2026-08-24 · change · delete rule-disposition + RULED_FLIP_FROM states · D19 (redesign ruling [T2-R12, T1-R9]): the grant-store authority model is gone — owner authority is now an answer to a live ask · 7b978663 · — · ⚠
+2026-08-24 · change · delete staff-claim corroboration gate · Redesign batch D19 (authority/grant machinery) [T2-R10, D24, F-simplicity-7]: exactly two identity gates survive · 855f4290 · — · ⚠
+2026-08-24 · change · delete team-monitor CLI and teamview [T4-R8] · Design-baseline v2 [T4-R8, C-15, C6] settles is it alive on the supervisor registry alone — a terminal pane is a viewport · 549a0f8b · orchestration,capabilities · ⚠
+2026-08-24 · change · delete widen-cage verb · Owner ruling [T2-R6, C-6] (redesign-plan, 2026-08-24): runtime auto-widen is dead — a seat's cage envelope is fixed at plan time · 35bdffd4 · engine,server,meta-leader · ⚠
