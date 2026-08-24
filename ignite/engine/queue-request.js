@@ -62,6 +62,39 @@ function resolveCatalogRoot(goalsRoot) {
   return { workspace, catalogRoot, sheet };
 }
 
+// The workflow manifest is the SOURCE OF TRUTH for the planning seat ids —
+// `materialize-seats.py --workflow W` resolves exactly `<component>/workflows/<W>/<W>.csv`
+// and writes that file's `Seat/workflow` column onto taskforce.csv. `planning/door.js`
+// decides already-minted by comparing `pipeline-seats.json` against those same rows, so the
+// json is only ever a mirror of this column. Divergence is not a load error: it makes every
+// planning goal read unminted forever. Probe leg M byte-compares the two.
+const PLANNING_MANIFEST_REL = path.join(
+  PLANNING_COMPONENT, 'workflows', PLANNING_WORKFLOW, `${PLANNING_WORKFLOW}.csv`,
+);
+
+function planningManifestPath(catalogRoot) {
+  return path.join(catalogRoot, PLANNING_MANIFEST_REL);
+}
+
+// Read the manifest's first column. Later columns are RFC-quoted and may contain commas;
+// the id column never is, so the text before the first comma is the whole cell.
+function planningManifestSeats(catalogRoot) {
+  const file = planningManifestPath(catalogRoot);
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new Refusal('queue-request-planning-manifest-unreadable',
+      `${file}: the '${PLANNING_WORKFLOW}' workflow manifest — the source of truth for the `
+      + `planning seat ids — is unreadable: ${err.message}`);
+  }
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) {
+    throw new Refusal('queue-request-planning-manifest-empty', `${file} carries no rows`);
+  }
+  return lines.slice(1).map((l) => l.slice(0, l.indexOf(',') < 0 ? l.length : l.indexOf(',')).trim());
+}
+
 function runQueueRequestPass({ goalsRoot, engine = null, logger = null, mint = null }) { // eslint-disable-line no-unused-vars
   return runPlanningMintPass({
     goalsRoot,
@@ -73,8 +106,8 @@ function runQueueRequestPass({ goalsRoot, engine = null, logger = null, mint = n
 
 module.exports = {
   PLANNING_MODULE, PLANNING_COMPONENT, PLANNING_WORKFLOW, PLANNING_CODE, PLANNING_SEATS,
-  MATERIALIZE_PY, SUBPROCESS_TIMEOUT_MS,
-  Refusal, resolveCatalogRoot,
+  PLANNING_MANIFEST_REL, MATERIALIZE_PY, SUBPROCESS_TIMEOUT_MS,
+  Refusal, resolveCatalogRoot, planningManifestPath, planningManifestSeats,
   isPlanningGoal, pipelineMinted, planningMintArgv, runQueueRequestPass,
   sheetForSeat: unbuilt.sheetForSeat,
   materializeUnbuiltSeatArgv: unbuilt.materializeUnbuiltSeatArgv,
@@ -102,5 +135,10 @@ if (require.main === module) {
   assert.strictEqual(pipelineMinted([]), false);
   assert.strictEqual(pipelineMinted(PLANNING_SEATS.map((seat) => ({ seat }))), true);
   assert.strictEqual(pipelineMinted(PLANNING_SEATS.slice(0, 4).map((seat) => ({ seat }))), false);
+  assert.deepStrictEqual(
+    planningManifestSeats(path.join(__dirname, '..', '..', PLANNING_MODULE)),
+    PLANNING_SEATS.slice(),
+    'pipeline-seats.json has diverged from the plan-console manifest — the door would re-mint forever',
+  );
   console.log('queue-request selftest OK');
 }

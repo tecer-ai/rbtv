@@ -7,15 +7,26 @@
 // taskforce.csv. Does the door fire once? Is an already-minted goal a quiet
 // no-op? Does a second cadence mint nothing? The door is not a queue-request
 // row and is not keyed by milestone-id.
+//
+// AND (leg M): are the names the door compares the names the mint actually
+// writes? Leg M derives its expectation from the REAL manifest on disk —
+// meta/planning/workflows/plan-console/plan-console.csv — not from a fixture,
+// so it goes RED the moment pipeline-seats.json and that manifest diverge.
+// Every other leg's seat names are derived from PLANNING_SEATS for the same
+// reason: a hand-typed fixture can agree with a wrong json forever.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const ENGINE_SRC = path.resolve(__dirname, '..');
+const REPO_ROOT = path.resolve(ENGINE_SRC, '..', '..');
 const QR_PATH = path.join(ENGINE_SRC, 'queue-request.js');
 const SERVER_INDEX = path.resolve(ENGINE_SRC, '..', 'server', 'index.js');
 const OUT_PATH = path.join(__dirname, 'probe-queue-request-pass.out');
+
+const qr = require('../queue-request');
+const { PLANNING_SEATS, PLANNING_MODULE, PLANNING_MANIFEST_REL } = qr;
 
 const start = Date.now();
 const lines = [];
@@ -35,7 +46,7 @@ function makeWorkspace(root, { taskforce, role = 'planning', lane = 'daemon' }) 
   fs.mkdirSync(sheetDir, { recursive: true });
   fs.writeFileSync(path.join(ws, 'rbtv.json'), JSON.stringify({ rbtv_path: path.resolve(ENGINE_SRC, '..', '..') }));
   const seats = {};
-  for (const name of ['understand', 'design', 'draft', 'review-finalize', 'verify']) {
+  for (const name of PLANNING_SEATS) {
     seats[name] = { harness: 'claude', model: 'claude-fable-5', effort: 'high' };
   }
   fs.writeFileSync(path.join(sheetDir, 'plan.json'),
@@ -51,12 +62,9 @@ function makeWorkspace(root, { taskforce, role = 'planning', lane = 'daemon' }) 
 
 const TF_HEADER = 'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n';
 const TF_EMPTY = `${TF_HEADER}`;
-const TF_MINTED = `${TF_HEADER}`
-  + 'tf-1,understand,,claude,claude-fable-5,high,35,\n'
-  + 'tf-1,design,understand,claude,claude-fable-5,high,35,\n'
-  + 'tf-1,draft,design,claude,claude-fable-5,high,35,\n'
-  + 'tf-1,review-finalize,draft,claude,claude-fable-5,high,35,\n'
-  + 'tf-1,verify,review-finalize,claude,claude-fable-5,high,35,\n';
+const TF_MINTED = TF_HEADER + PLANNING_SEATS
+  .map((seat, i) => `tf-1,${seat},${i ? PLANNING_SEATS[i - 1] : ''},claude,claude-fable-5,high,35,\n`)
+  .join('');
 
 function logger(sink) { return (m) => sink.push(m); }
 
@@ -68,9 +76,32 @@ function stubMint({ goalFolder, seats }) {
 
 function main() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-qr-'));
-  const {
-    runQueueRequestPass, planningMintArgv, pipelineMinted, PLANNING_SEATS,
-  } = require('../queue-request');
+  const { runQueueRequestPass, planningMintArgv, pipelineMinted } = qr;
+
+  {
+    // Leg M — the two vocabularies the door compares must be ONE. `pipeline-seats.json`
+    // (what pipelineMinted() looks for) against the real workflow manifest's
+    // `Seat/workflow` column (what the mint actually writes onto taskforce.csv).
+    // Read from the checked-in file, never a fixture: this is the divergence alarm.
+    const manifest = path.join(REPO_ROOT, PLANNING_MODULE, PLANNING_MANIFEST_REL);
+    check('M the real plan-console manifest is on disk', fs.existsSync(manifest), manifest);
+    let manifestSeats = [];
+    try {
+      manifestSeats = qr.planningManifestSeats(path.join(REPO_ROOT, PLANNING_MODULE));
+    } catch (err) {
+      check('M the manifest seat column is readable', false, err.message);
+    }
+    check('M pipeline-seats.json IS the manifest Seat/workflow column, in order',
+      JSON.stringify(manifestSeats) === JSON.stringify(PLANNING_SEATS.slice()),
+      `manifest [${manifestSeats.join(' ')}] vs json [${PLANNING_SEATS.join(' ')}]`);
+    check('M a manifest-seated taskforce reads MINTED',
+      pipelineMinted(manifestSeats.map((seat) => ({ seat }))),
+      'a goal minted from the real manifest must not re-mint every cadence');
+    const self = fs.readFileSync(__filename, 'utf8');
+    const typed = manifestSeats.filter((seat) => self.includes(`'${seat}'`) || self.includes(`,${seat},`));
+    check('M no leg hand-types a seat id (they all derive from PLANNING_SEATS)',
+      typed.length === 0, typed.join(', '));
+  }
 
   {
     const src = fs.readFileSync(SERVER_INDEX, 'utf8');
@@ -100,9 +131,11 @@ function main() {
     check('unminted planning goal: trigger fires once',
       r1.seeded.length === 1 && mintCalls === 1 && r1.seeded[0].goal === 'g1',
       `seeded ${r1.seeded.length} mintCalls ${mintCalls}`);
+    const wrote = fs.readFileSync(path.join(fx.goal, 'taskforce.csv'), 'utf8');
     check('unminted fire wrote the five pipeline seats',
       pipelineMinted(PLANNING_SEATS.map((seat) => ({ seat })))
-      && fs.readFileSync(path.join(fx.goal, 'taskforce.csv'), 'utf8').includes('review-finalize'));
+      && PLANNING_SEATS.every((seat) => wrote.includes(`,${seat},`)),
+      `wrote [${PLANNING_SEATS.join(' ')}]`);
   }
 
   {
@@ -173,7 +206,8 @@ say('');
 say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
   : 'RESULT: PASS — Path A door is goal-wide: fires once on an unminted planning goal, '
-    + 'quiet no-op when minted, second cadence mints nothing.');
+    + 'quiet no-op when minted, second cadence mints nothing; and the seat vocabulary it '
+    + 'compares is the real plan-console manifest column.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
 fs.writeFileSync(OUT_PATH, `${lines.join('\n')}\n`);

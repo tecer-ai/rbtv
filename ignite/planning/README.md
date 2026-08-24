@@ -12,4 +12,4 @@ Replacement splice door (spec-planning-door §1–§4). Path A is the goal-wide 
 | `door.js` | Goal-wide trigger the daemon tick calls |
 | `failure.py` | six-field failure record + origin routing + gate-lane stamp |
 
-`GOAL_LOCAL_SOURCE` stays `("planning", "current")`. A planning goal is a `goal.md` whose frontmatter carries `role: planning`. Minted = the five seats in `pipeline-seats.json` are rows on that goal's `taskforce.csv`.
+`GOAL_LOCAL_SOURCE` stays `("planning", "current")`. A planning goal is a `goal.md` whose frontmatter carries `role: planning`. Minted = the five seats in `pipeline-seats.json` are rows on that goal's `taskforce.csv`. That json is a MIRROR, not a source: the seat ids belong to the workflow manifest `meta/planning/workflows/plan-console/plan-console.csv` (`Seat/workflow` column), which is what the mint writes onto `taskforce.csv`. If the two diverge, every planning goal reads unminted and the door re-mints every cadence forever — leg M of `engine/probes/probe-queue-request-pass.js` is the alarm.

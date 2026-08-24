@@ -9,6 +9,14 @@ const { readLane, laneIsPaused, consoleRunIsLive, DAEMON } = require('../engine/
 const PLANNING_DIR = __dirname;
 const ARGV_PY = path.join(PLANNING_DIR, 'argv.py');
 const PATH_A_PY = path.join(PLANNING_DIR, 'path_a.py');
+// `pipeline-seats.json` is NOT the source of truth for these names — it is a cached
+// mirror of the workflow manifest `meta/planning/workflows/plan-console/plan-console.csv`
+// (`Seat/workflow` column), which is what `materialize-seats.py --workflow plan-console`
+// actually writes onto `taskforce.csv`. The two vocabularies MUST be one string set: this
+// file compares the json against that column, so any divergence makes `pipelineMinted()`
+// permanently false and the door re-mints every cadence, forever. The json is a bare array
+// and carries no comment field; `engine/queue-request.js` `planningManifestSeats()` reads
+// the manifest, and `engine/probes/probe-queue-request-pass.js` leg M fails on divergence.
 const SEATS_FILE = path.join(PLANNING_DIR, 'pipeline-seats.json');
 const PLANNING_SEATS = Object.freeze(JSON.parse(fs.readFileSync(SEATS_FILE, 'utf8')));
 const ROLE_RE = /^role:[ \t]*planning(?:[ \t].*)?$/m;
