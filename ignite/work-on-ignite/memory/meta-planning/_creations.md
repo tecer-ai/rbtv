@@ -1,1 +1,2 @@
 # meta-planning — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-24 · creation · D13 replan mini-pipeline · Three seats reusing the pipeline's understander/drafter/verifier prompts byte-unchanged, paired with two new tasks — gap-understand (verdict + what execution produced, ending in one contained|cross-milestone call) and patch-draft, walled to one milestone and an unwidened envelope. · 32ad68a8 · — · ⚠
