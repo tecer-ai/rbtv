@@ -178,17 +178,37 @@ def clear_awaiting(base, seat):
 
 
 def awaiting_debts(base, live=None):
-    """[(seat, entry, age_min, pane_alive)] oldest first — the debt, ready to render or to reap.
+    """[(seat, entry, age_min, alive)] oldest first — the reap debt, ready to render or to reap.
 
-    `pane_alive` is resolved against the live pane set so a debt whose pane is ALREADY gone (killed
-    by hand, or the whole window torn down) is distinguishable from one still holding memory. Both
-    are debts — the record is stale either way and the leader still owes a `close-seat` to complete
-    the roster and session trace — but only one of them is costing RAM."""
-    panes = live_panes() if live is None else live
+    ⚠ THE DEBT IS THE SUPERVISOR'S, AND ITS LIVENESS IS THE REGISTRY'S [T4-R8, C-15]. Both halves
+    moved. The debt used to be read out of `awaiting-close.json`; that file went away with
+    spec-state-store §4.1's second ending writer, so `load_awaiting` has answered a permanent `{}`
+    ever since and this function could never report anything — a reaper that can never find a debt
+    leak-guards nothing (G-134). The successor fact needs no second store and is derived, not kept:
+    a supervisor registry row STILL PRESENT while its sitting already carries an ending is, by
+    registry write moment (iii), a reap that did not complete.
+
+    And `alive` is now the registry probe (pid + /proc start-time), not `pane in live_panes()`. The
+    two answers differ exactly where it matters: a pane outlives its harness, so a pane-alive debt
+    was routinely reported as "still holding memory" when the process was long gone, and a
+    paneless daemon-lane sitting could never be reported as holding anything at all.
+
+    `live` is accepted and IGNORED — kept so the roster's single `live_panes()` read still threads
+    through unchanged. The pane set is a viewport enumeration and was never an answer here."""
+    del live  # a viewport set is not a liveness input [T4-R8]
+    pkg = base.parent if getattr(base, "name", "") == "coordination" else base
+    try:
+        rows = supervisor_door.awaiting_reap(pkg)
+    except (supervisor_door.SupervisorError, OSError, ValueError):
+        return []   # a probe that cannot run reports no debt; it never invents one
     out = []
-    for seat, entry in load_awaiting(base).items():
-        age = closing_age_min(entry)
-        out.append((seat, entry, age, bool(entry.get("pane")) and entry["pane"] in panes))
+    for row in rows or []:
+        seat = row.get("seat")
+        if not seat:
+            continue
+        entry = {"pane": row.get("pane") or "", "since": row.get("since") or "",
+                 "pid": row.get("pid"), "exported": row.get("exported", False)}
+        out.append((seat, entry, closing_age_min(entry), bool(row.get("alive"))))
     return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
 
 
@@ -303,40 +323,12 @@ def reap_blockers(entry, age, panes, decls=None, seat=None, pkg=None):
     return out
 
 
-def confirm_reap(base, seat, blocked):
-    """Record ONE sweep pass's observation and answer whether the two-pass rule is satisfied.
-
-    Returns (confirmations, ready). A pass whose condition FAILED resets the ledger to empty: the
-    rule is two CONSECUTIVE passes, so an interruption must cost the trend rather than leave a
-    stale half-confirmation to be completed an hour later by an unrelated sweep.
-
-    Confirmations are recorded on EVERY pass, including a dry one — observing is not acting, and
-    the whole point of a dry sweep is to build the trend the leader then acts on. What `--go`
-    gates is the KILL, and nothing else.
-
-    The spacing rule lives here rather than in the caller so no future entry point can skip it."""
-    try:
-        with coord_lock(base):
-            data = load_awaiting(base)
-            entry = data.get(seat)
-            if entry is None:
-                return [], False
-            seen = [s for s in (entry.get("confirmed") or []) if isinstance(s, str)]
-            if blocked:
-                seen = []
-            else:
-                last = seen[-1] if seen else ""
-                gap = closing_age_min({"since": last}) if last else None
-                # A first observation always counts; a later one counts only if it is far enough
-                # from the previous to be a genuinely separate pass.
-                if not seen or (gap is not None and gap >= REAP_MIN_PASS_GAP_MIN):
-                    seen.append(now())
-            entry["confirmed"] = seen
-            data[seat] = entry
-            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-            return seen, len(seen) >= 2
-    except (OSError, ValueError):
-        return [], False
+# `confirm_reap` — the two-pass reap ledger — is DELETED here, not disabled. It had no caller left
+# and it could not have run if it had one: its last act wrote `awaiting_path(base)`, a function that
+# went away with the debt file itself, so any call would have raised NameError inside a lock. The
+# reap it guarded is now `supervisor.confirmAndReap`, which CONFIRMS by probing the registry and
+# waiting for the process to actually go, rather than by counting two sightings an hour apart
+# [spec-supervisor §4].
 
 
 def set_closing(base, seat, closer):
@@ -627,8 +619,15 @@ def cmd_checkin(args):
     if not getattr(args, "force", False):
         _, _, existing = load_workers(base)
         prior = current_row(existing, args.agent)
+        # ⚠ THE WALL'S PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]. What
+        # this wall must stop is TWO LIVE SITTINGS UNDER ONE NAME, and a pane answers a different
+        # question: it outlives its harness (so a dead seat's pane refused honest check-ins) and a
+        # daemon-lane sitting never had one (so it refused nothing at all). `occupied` collapses
+        # the registry's three-valued answer once and fails CLOSED on the unknown arm — where the
+        # sitting is UNSUPERVISED the pane is all there is, and it still decides toward refusal.
         if (prior and prior["active"] == "yes" and prior["pane"] and prior["pane"] != pane
-                and prior["pane"] in live_panes()):
+                and liveness.occupied(base.parent if base.name == "coordination" else base,
+                                      args.agent, prior["pane"] in live_panes())):
             refuse(
                 "state",
                 f"'{args.agent}' is already checked in on pane {prior['pane']}, and tmux "
@@ -649,8 +648,10 @@ def cmd_checkin(args):
         # reach it — `reap` then reports "pane already gone", true of the pane it names, false of
         # the room. Run-3 measured three such orphans resident 14-23 h. Refuse until the debt pane
         # is freed; --force is the same deliberate override as above.
-        debt = load_awaiting(base).get(args.agent) or {}
-        if debt.get("pane") and debt["pane"] != pane and debt["pane"] in live_panes():
+        debt = dict(next((e for s, e, _a, _l in awaiting_debts(base) if s == args.agent), {}))
+        if debt.get("pane") and debt["pane"] != pane and liveness.occupied(
+                base.parent if base.name == "coordination" else base,
+                args.agent, debt["pane"] in live_panes()):
             refuse(
                 "state",
                 f"'{args.agent}' has an UNSETTLED awaiting-close debt on pane {debt['pane']}, "

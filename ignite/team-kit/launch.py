@@ -1500,6 +1500,16 @@ def goal_execution_lane(pkg):
     return lane
 
 
+# ── `--rerun`'s ADMITTED FROM-STATE, spelled once [D42, spec-supervisor §4, T1-R3] ─────────────
+# The door admits a CRASH and nothing else. `crash` is the ordinary death with no checkout;
+# `provider-error` is the same death whose evidence named the model provider — the supervisor
+# classifies it separately so spec-recovery can reroute rather than strike, but from THIS door's
+# side both are "the harness died and the work is unknown", which is exactly what a re-run answers.
+# `outputs-missing` is deliberately absent: that is the gate's verdict on a claim the seat made, a
+# ruling and not a re-run, and admitting it here would make this door "anything but done".
+RERUN_ADMITTED_REASON_CLASSES = frozenset({"crash", "provider-error"})
+
+
 def daemon_lane_reason(door, why):
     """The admission brake's `reason` token for a leader-direct daemon-lane launch: the DOOR and the
     leader's own anchor/reason, folded to the door's token grammar (`^[a-z][a-z0-9_-]{0,63}$`,
@@ -1520,6 +1530,16 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
     gateway and renders the same verdict block (`launched`/`refused`, exit 1 on any refusal) the
     console path renders — a dedup or brake refusal from the door IS a refusal here."""
     goal = Path(pkg).name
+    # ⚠ THE DOOR IS ON THE SUPERVISOR'S LIST OR THIS LAUNCH IS UNSUPERVISED [T4-R7]. The token
+    # composed below travels as the enqueue's `reason`, and `supervisor/doors.js#doorForLauncher`
+    # reads it back at the pid moment to decide which door the registry row names. A door spelled
+    # here and not there produces a launch that silently registers as unsupervised, so the two
+    # spellings are checked against each other in the act rather than trusted to stay in step.
+    if door == "rerun" and not supervisor_door.door_is_wrapped("rerun"):
+        refuse("state",
+               "the `--rerun` door is not wrapped by the supervisor, so this launch could not be "
+               "registered as a supervised sitting. NOTHING was enqueued and NO pane was opened.",
+               1)
     reason = daemon_lane_reason(door, why)
     rows = [(w, w["agent"], str(Path(pkg) / "seats" / w["agent"]), f"seat-{goal}-{w['agent']}")
             for w in workers]
@@ -1794,7 +1814,11 @@ def cmd_launch(args):
         _, _, _rows = load_workers(base_dir(args))
         _prior = current_row(_rows, _t)
         if (_prior and _prior.get("active") == "yes" and _prior.get("pane")
-                and _prior["pane"] in live_panes()):
+                and liveness.occupied(package_dir(args, register=False), _t,
+                                      _prior["pane"] in live_panes())):
+            # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
+            # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
+            # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
             refuse(
                 "state",
                 f"'{_t}' is already checked in on pane {_prior['pane']}, and tmux says that pane "
@@ -1900,9 +1924,23 @@ def cmd_launch(args):
                 f"If you expected an ended row, read it first: {coord_invocation(args)} "
                 f"ready-seats --explain {_rt}",
                 1)
-        _rr_disp = _rr_row.get("disposition", "")
-        _rr_writer = _rr_row.get("disposition-writer", "")
-        if _rr_disp != "exited" or _rr_writer != DISPOSITION_WRITER_KIT:
+        # ── THE FROM-STATE IS READ OFF THE ENDING STORE, AND THE WORD `exited` IS GONE ────────
+        #
+        # D42 admitted ONE from-state: `exited` written by the kit. That vocabulary was retired
+        # [T1-R3, T4-R7] — `exited` was a fifth ending carrying NO reason at all, and the ending
+        # store now REFUSES it at the write boundary. The same fact is spelled `failed` with a
+        # mandatory reason class, stamped by the SUPERVISOR from evidence (spec-supervisor §4), so
+        # the door's admitted from-state is `failed` + a crash-shaped reason class and its source
+        # is the store rather than a `sessions.csv` cell no writer fills any more.
+        #
+        # THE DOOR IS NOT WIDENED BY THE RENAME. `failed` with any OTHER reason class
+        # (`outputs-missing`, the gate's verdict) is still refused here and still routed by name
+        # below, exactly as `unverified` was: this admits a CLASS, never "anything but done".
+        _rr_ending = ending_store.get_current_ending(_rr_pkg, _rt) or {}
+        _rr_disp = (_rr_ending.get("ending") or _rr_row.get("disposition", "") or "").strip()
+        _rr_class = (_rr_ending.get("reason_class") or "").strip()
+        _rr_writer = (_rr_ending.get("writer") or _rr_row.get("disposition-writer", "") or "").strip()
+        if _rr_disp != "failed" or _rr_class not in RERUN_ADMITTED_REASON_CLASSES:
             # ⚠ THE REFUSAL NAMES THE RIGHT DOOR FOR THE CLASS IT FOUND. Every other non-terminal
             # ending already has an owner, and sending them all here would make this the fifth
             # copy of a routing table the file already carries once.
@@ -1919,13 +1957,18 @@ def cmd_launch(args):
                      "ruling instrument is wired here yet"),
                 "done": ("its own writer's word stands and its edge has already ADVANCED. There "
                          "is nothing to re-run and no ruling grants a power to rewrite it"),
+                "failed": (f"the ending IS `failed`, but its reason class is "
+                           f"`{_rr_class or '(none)'}` — not a crash. `outputs-missing` is the "
+                           f"gate's verdict on a claim, which is a ruling and not a re-run"),
             }.get(_rr_disp, f"`{_rr_disp}` is not a crashed ending and this door does not admit it")
             refuse(
                 "state",
                 f"'{_rt}' last ENDED with disposition `{_rr_disp or '(empty)'}` written by "
                 f"`{_rr_writer or '(nobody)'}`, and --rerun admits EXACTLY ONE from-state: "
-                f"`exited` written by `{DISPOSITION_WRITER_KIT}` — the kit saying a "
-                f"harness TERMINATED with the work unknown.\n"
+                f"`failed` with reason class "
+                f"{' or '.join('`' + rc + '`' for rc in sorted(RERUN_ADMITTED_REASON_CLASSES))} "
+                f"— the supervisor saying a harness DIED with the work unknown "
+                f"(spec-supervisor §4; the reason-less word `exited` is retired [T1-R3]).\n"
                 f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
                 f"caller intended. Here, {_rr_door}.\n"
                 f"Read the row: {coord_invocation(args)} ready-seats --explain {_rt}",
@@ -1935,7 +1978,11 @@ def cmd_launch(args):
         _, _, _rr_rows = load_workers(base_dir(args))
         _rr_prior = current_row(_rr_rows, _rt)
         if (_rr_prior and _rr_prior.get("active") == "yes" and _rr_prior.get("pane")
-                and _rr_prior["pane"] in live_panes()):
+                and liveness.occupied(package_dir(args, register=False), _rt,
+                                      _rr_prior["pane"] in live_panes())):
+            # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
+            # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
+            # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
             refuse(
                 "state",
                 f"'{_rt}' is already checked in on pane {_rr_prior['pane']}, and tmux says that "
@@ -1950,10 +1997,10 @@ def cmd_launch(args):
         # ADMITTED. P2 made the launch set exactly this one seat.
         _rerun_admitted = True
         print(c(f"  {_rt}: ADMITTED by --rerun — session `{_rr_row.get('session-id') or '?'}` "
-                f"ended `exited` (writer `{DISPOSITION_WRITER_KIT}`): the harness "
-                f"TERMINATED and the work is UNKNOWN, never finished. This admits an ORDINARY "
+                f"ended `failed`/`{_rr_class}`, stamped by the supervisor from evidence: the "
+                f"harness DIED and the work is UNKNOWN, never finished. This admits an ORDINARY "
                 f"WORKING SESSION — the seat boots on its own boot prompt and does its job. The "
-                f"`exited` row is NOT rewritten, cleared or relabelled by this act: it "
+                f"`failed` ending is NOT rewritten, cleared or relabelled by this act: it "
                 f"stays on the record and is superseded when this session writes its own ended "
                 f"row.\n  trail (the `leader`'s anchor, recorded not verified — no tool can check "
                 f"that an anchor names a real investigation): {_rerun_anchor}", C_HINT))
@@ -2098,7 +2145,11 @@ def cmd_launch(args):
         _, _, _ro_rows = load_workers(base_dir(args))
         _ro_prior_row = current_row(_ro_rows, _rot)
         if (_ro_prior_row and _ro_prior_row.get("active") == "yes" and _ro_prior_row.get("pane")
-                and _ro_prior_row["pane"] in live_panes()):
+                and liveness.occupied(package_dir(args, register=False), _rot,
+                                      _ro_prior_row["pane"] in live_panes())):
+            # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
+            # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
+            # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
             refuse(
                 "state",
                 f"'{_rot}' is already checked in on pane {_ro_prior_row['pane']}, and tmux says "

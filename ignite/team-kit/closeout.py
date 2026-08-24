@@ -387,57 +387,26 @@ def cmd_reap(args):
     go = getattr(args, "go", False)
     if go:
         gate(args, "reap --go")
-    base = base_dir(args)
-    panes = live_panes()
+    # ── ONE REAP DEBT, ONE REAPER [spec-supervisor §3/§4, T4-R7] ─────────────────────────────
+    #
+    # The pane-walking arm that used to run here is DELETED, not disabled. It read the debt out of
+    # `awaiting-close.json`, confirmed by counting two sightings spaced an hour apart, and then
+    # killed a PANE. All three halves are superseded: the debt file went away with spec-state-store
+    # §4.1's second ending writer, `confirm_reap`'s ledger could not even be written afterwards,
+    # and the supervisor's own `confirmAndReap` confirms by PROBING the registry (pid + /proc
+    # start-time) and waiting for the process to actually go — a real confirmation rather than a
+    # trend, and it signals the process rather than the viewport it happened to be displayed in.
+    #
+    # Keeping both would have been the worse defect: two reapers over one debt, disagreeing about
+    # whether a sitting is still there, is exactly the shape the one-liveness-surface ruling closes.
     supervisor_reaped, supervisor_held = supervisor_reap_arm(args, go)
-    debts = awaiting_debts(base, panes)
-    if not debts:
-        for line in supervisor_held:
-            print(c(f"  {line}", C_HINT))
-        for line in supervisor_reaped:
-            print(c(f"  {line}", C_ALIVE))
-        if not (supervisor_held or supervisor_reaped):
-            print("no reap debt — every sitting with an ending has been reaped")
-        return
-    decls = inbox_decls(args)
-    freed, held = list(supervisor_reaped), list(supervisor_held)
-    for seat, entry, age, _alive in debts:
-        # ponytail: `base.parent` is the goal folder because `base_dir` builds it as
-        # `<goal>/coordination`; under an explicit `--base` override it is not, and the pipe-pane
-        # fallback then finds no `sessions.csv` and the gate reads the export alone — fail-closed,
-        # never a crash. Upgrade path if `reap --base` ever needs the fallback: resolve the package
-        # through `package_dir(args, register=False)` and handle its refusal here.
-        blockers = reap_blockers(entry, age, panes, decls, seat, base.parent)
-        seen, ready = confirm_reap(base, seat, blockers)
-        aged = f"{age}min" if age is not None else "unknown age"
-        if blockers:
-            held.append(f"{seat} ({aged}): HELD — " + "; ".join(blockers))
-            continue
-        if not ready:
-            held.append(f"{seat} ({aged}): every precondition holds, confirmed {len(seen)}/2 — "
-                        f"a second pass at least {REAP_MIN_PASS_GAP_MIN}min from now decides it. "
-                        f"One reading is a snapshot; two is a trend.")
-            continue
-        if not go:
-            held.append(f"{seat} ({aged}): READY to reap ({len(seen)} confirmations) — "
-                        f"pane {entry['pane']} would be freed. Re-run with --go.")
-            continue
-        idents = pane_harness_idents(entry["pane"])
-        ok, err = tmux_kill_pane(entry["pane"])
-        # G-10, same discipline every other teardown uses: kill-pane SIGHUPs the process group and
-        # a blocked harness survives it as a ghost no roster row mentions. Confirm, never assume.
-        survivors, note = verify_pids_gone(idents)
-        freed.append(f"{seat}: pane {entry['pane']} "
-                     + ("freed" if ok else f"kill FAILED — {err}")
-                     + (f"; {len(idents)} harness pid(s) "
-                        + ("GONE" if not survivors else f"NOT gone — {note}") if idents else ""))
-    for line in held:
+    for line in supervisor_held:
         print(c(f"  {line}", C_HINT))
-    for line in freed:
+    for line in supervisor_reaped:
         print(c(f"  {line}", C_ALIVE))
-    if not go and any("READY to reap" in h for h in held):
-        print(c(f"next: {coord_invocation(args)} reap --go — frees the panes listed READY above; "
-                f"each still owes a close-seat afterwards", C_HINT))
+    if not (supervisor_held or supervisor_reaped):
+        print("no reap debt — every sitting with an ending has been reaped")
+    return
 
 
 def cmd_kill_pane(args):

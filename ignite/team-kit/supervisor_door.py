@@ -80,6 +80,26 @@ def death_stamp(pkg, seat, *, session="", pid=None, start_time=None, exit_code=N
     return supervisor_op("stampDeath", payload, start=pkg, registry=registry)
 
 
+# ── THE DOOR LIST, READ RATHER THAN RE-SPELLED [T4-R7, spec-supervisor §3] ────────────────────
+# `launch.py` composes a door token that `supervisor/doors.js#doorForLauncher` reads back at the pid
+# moment. A door spelled on one side and not the other produces a launch that silently registers
+# UNSUPERVISED, so the kit ASKS the list instead of carrying a second copy of it. Read through
+# node, like every other supervisor question, and fail-CLOSED: a list that cannot be read is not
+# evidence that a door is wrapped.
+def door_is_wrapped(door):
+    """True when `door` is on the supervisor's list with disposition `wrapped`."""
+    try:
+        proc = subprocess.run(
+            ["node", "-e",
+             "const d=require(process.argv[1]);const r=d.doorRow(process.argv[2]);"
+             "process.stdout.write(r&&r.disposition===d.WRAPPED?'1':'0')",
+             str(SUPERVISOR_CLI.parent / "doors.js"), str(door)],
+            capture_output=True, text=True)
+    except OSError:
+        return False
+    return proc.returncode == 0 and proc.stdout.strip() == "1"
+
+
 def awaiting_reap(pkg, registry=None):
     """The reap debt: every registry row whose sitting ALREADY carries an ending.
 
@@ -101,5 +121,5 @@ def confirm_and_reap(pkg, seat, *, pid=None, start_time=None, registry=None):
 
 
 __all__ = ["SupervisorError", "EndingStoreError", "supervisor_op", "registry_override",
-           "death_stamp",
+           "death_stamp", "door_is_wrapped",
            "awaiting_reap", "confirm_and_reap", "SUPERVISOR_CLI"]

@@ -36,6 +36,13 @@ CARRIER_UNIT_PREFIX = "rbtv-worker-"
 def carrier_self_session(cgroup_text=None):
     """The session id THIS PROCESS can prove is its own, or '' — D43's corroborator.
 
+    ⚠ IDENTITY, NEVER LIVENESS [T2-R8, T4-R8]. spec-supervisor §6 retires the cgroup carrier as a
+    liveness predicate and keeps it as exactly this: the answer to "who am I", minted by the daemon
+    at launch, which is why token minting stays untouched. It says nothing about whether any OTHER
+    sitting is running — that question is `liveness.sitting_alive`, on the supervisor registry. A
+    caller reading a carrier's presence as a heartbeat is reading one of the three predicates the
+    redesign collapsed.
+
     `spawn/carrier.js` mints one transient systemd unit per daemon-launched session, named
     `rbtv-worker-<sessionId>`, and that sessionId is the `session-id` of the `sessions.csv` row
     the daemon wrote for THIS session (the heart.db invariant `unit_name ==

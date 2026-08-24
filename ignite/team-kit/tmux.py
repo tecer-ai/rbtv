@@ -275,7 +275,14 @@ def schedule_session_rename(pane, agent, delay=25, expected_title=None):
 
 
 def live_panes():
-    """Set of pane ids tmux currently knows. Empty set when tmux is unavailable."""
+    """Set of pane ids tmux currently knows. Empty set when tmux is unavailable.
+
+    ⚠ THIS IS NOT A LIVENESS PREDICATE AND NO CALLER MAY USE IT AS ONE [T4-R8, C-15]. It answers
+    ONE mechanical question — can a wake reach this pane through tmux right now — and a pane is a
+    VIEWPORT: it outlives the harness that ran in it, a daemon-lane seat never had one, and closing
+    one kills nothing. "Is this sitting alive?" is `liveness.sitting_alive` / `liveness.occupied`,
+    which probe the supervisor registry (pid + /proc start-time) and nothing else. spec-supervisor
+    §6 retired this predicate as liveness; what survives is the viewport enumeration below."""
     r = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
                        capture_output=True, text=True)
     if r.returncode != 0:

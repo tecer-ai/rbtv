@@ -862,24 +862,32 @@ def build_parser():
                         "nothing — this flag plumbs nothing into the pane and the session it "
                         "opens is an ordinary one. What the flag actually decides is ADMISSION: "
                         "it admits the UNDECLARED class and nothing else. It is NOT the way to "
-                        "bring a CRASHED seat back to work — an `exited` row's door is --rerun "
+                        "bring a CRASHED seat back to work — a `failed`/`crash` ending's door is --rerun "
                         "(D42). Takes the leader's investigation/acceptance anchor for that seat, "
                         "which is recorded as the trail. NOT an override: the target stays "
                         "UNDECLARED until its new session supersedes it, a seat with a DECLARED "
                         "ending is still refused, and --force/--force-memory are untouched and "
                         "carry no part of this")
     # D42 (2026-08-20): NOT an override and NOT a member of the --force family. A FOURTH
-    # independent parameter. It admits ONE named seat whose last ENDED row carries `exited`
-    # written by the KIT — a harness that TERMINATED with the work unknown — for an ORDINARY
+    # independent parameter. It admits ONE named seat whose current ENDING is `failed` with a
+    # crash-shaped reason class — a harness that DIED with the work unknown — for an ORDINARY
     # WORKING SESSION. Its VALUE is the written trail, so the instrument cannot be invoked
     # without one.
+    #
+    # ⚠ THE FROM-STATE WAS RE-SPELLED, NOT WIDENED [T1-R3, T4-R7, spec-supervisor §3/§4]. It read
+    # `exited` written by the kit until the redesign retired that word: `exited` was a fifth ending
+    # vocabulary carrying NO reason at all, so nothing downstream could classify it. The same fact
+    # is now `failed` + a mandatory reason class, stamped by the SUPERVISOR from evidence, and the
+    # ending store refuses the old word at the write boundary. `failed` with any other class
+    # (`outputs-missing`) is still refused by this door and routed by name.
     s.add_argument("--rerun", metavar="LEADER-ANCHOR", default=None,
-                   help="RE-RUN ONE --only seat whose last session ENDED `exited` (the kit's "
-                        "word: the harness terminated, the work is UNKNOWN — never finished). "
+                   help="RE-RUN ONE --only seat whose current ending is `failed` with reason "
+                        "class `crash` or `provider-error` (the supervisor's stamp from evidence: "
+                        "the harness died, the work is UNKNOWN — never finished). "
                         "The seat boots on its ordinary boot prompt and DOES ITS JOB; this is a "
                         "real working session, not a declaration. Takes the leader's "
                         "investigation anchor for that seat, which is recorded as the trail. The "
-                        "`exited` row is NOT rewritten, cleared or relabelled — it stays on the "
+                        "`failed` ending is NOT rewritten, cleared or relabelled — it stays on the "
                         "record and is superseded when the new session writes its own ended row, "
                         "so no `rule-disposition` is needed first. NOT an override: any other "
                         "from-state is still refused, and --force/--force-memory are untouched "
@@ -902,7 +910,8 @@ def build_parser():
                         "rewritten, cleared or relabelled — it stays on the record and is "
                         "superseded when the new session writes its own ended row. NOT an "
                         "override: any other from-state is still refused (that is `--rerun`'s "
-                        "door for `exited`; `rule-disposition`, the leader's ruling instrument "
+                        "door for a `failed`/`crash` ending; `rule-disposition`, the leader's "
+                        "ruling instrument "
                         "for the rest, was deleted [T2-R12, T1-R9] and has no replacement wired "
                         "here yet), and --force/--force-memory are "
                         "untouched and carry no part of this")
@@ -1313,10 +1322,10 @@ def build_parser():
         "The ready-SEAT frontier, recomputed from disk (dag-10). A seat is READY when it has no\n"
         "check-out of its own, no ACTIVE roster row, a descriptor on disk, and EVERY `after`\n"
         "predecessor in taskforce.csv carries a check-out with disposition `done`. Only `done`\n"
-        "advances an edge — `renew`, `revive`, `exited` and the absence of a check-out all leave\n"
+        "advances an edge — `renew`, `revive`, `failed` and the absence of a check-out all leave\n"
         "the successor BLOCKED. A GUARDED member `<seat>[<key>=<value>]` needs that `done` AND a\n"
         "matching recorded value (coordinate rule-guard); an ALTERNATE `a|b` is satisfied when ANY\n"
-        "ONE member is. Reads workers.md, awaiting-close.json and sessions.csv; when the\n"
+        "ONE member is. Reads workers.md, the ending store and sessions.csv; when the\n"
         "last two disagree about one seat it reports SKEW for THAT seat rather than picking a\n"
         "winner — that seat and its dependents are held, the rest of the goal keeps advancing,\n"
         "and the exit status stays 0 (Q2a).\n"

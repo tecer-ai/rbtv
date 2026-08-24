@@ -52,6 +52,12 @@ const DOORS = Object.freeze({
     door: 'rerun',
     disposition: WRAPPED,
     launcher: 'leader-rerun',
+    // spec-supervisor §3 puts `--rerun` and `--declare-only` on ONE row, and `--reopen` is the
+    // same leader-direct composer with a third flag: they are one door with three from-states,
+    // not three doors. `daemon_lane_reason` spells each as its own `leader-<flag>-…` token, so the
+    // aliases are listed rather than the token grammar being loosened — a loose prefix would
+    // silently adopt any future `leader-*` composer into this door's disposition.
+    aliases: ['leader-declare-only', 'leader-reopen', 'leader-launch'],
     chokepoint: 'team-kit/launch.py cmd_launch --rerun / --declare-only',
     note: 'the leader-direct relaunch door, on both the daemon and the console lane',
   },
@@ -88,6 +94,9 @@ function doorForLauncher(launcher) {
   for (const row of Object.values(DOORS)) {
     if (!row.launcher) continue;
     if (name === row.launcher) return row.door;
+    for (const alias of row.aliases || []) {
+      if (name === alias || name.startsWith(`${alias}-`)) return row.door;
+    }
     // `--rerun`'s token is `leader-rerun-<anchor-slug>`: the door is the stem, the anchor is the
     // brake's per-investigation budget key (D66) and is none of this file's business.
     if (name.startsWith(`${row.launcher}-`)) return row.door;

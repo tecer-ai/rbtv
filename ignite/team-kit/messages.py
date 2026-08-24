@@ -476,6 +476,12 @@ def cmd_workers(args):
     gmap = group_map(base)
     observers, _ = observer_sets(args)
     live = live_panes()
+    # ⚠ THE ROSTER'S LIVENESS COLUMN IS THE REGISTRY'S, NOT THE PANE'S [T4-R8, spec-supervisor §6].
+    # `live` above stays, and stays a VIEWPORT enumeration: it answers only whether a wake can be
+    # delivered. One probe for the whole goal rather than one per row — a roster render used to be
+    # the reason a per-seat liveness call was unaffordable, which is how the pane became the answer.
+    _pkg = base.parent if base.name == "coordination" else base
+    sittings = liveness.goal_liveness(_pkg)
     agent_types = state_agent_types(base)  # task 7.80's `coordinate` half, G-195
     if getattr(args, "history", False):
         shown = rows
@@ -485,9 +491,18 @@ def cmd_workers(args):
     for r in shown:
         if r["active"] == "yes":
             status, tone = "ACTIVE", C_ALIVE
-            if is_tmux_pane(r["pane"]) and live and r["pane"] not in live:
-                status, tone = "DEAD?", C_DEAD  # registered pane is gone — wakes cannot reach it
+            _alive = (sittings.get(r["agent"]) or {}).get("alive")
+            if _alive is False:
+                # The REGISTRY says the process is gone: pid + /proc start-time, the one liveness
+                # surface. This is a claim about the SITTING and it is now safe to make.
+                status, tone = "DEAD", C_DEAD
                 dead += 1
+            elif _alive is None and is_tmux_pane(r["pane"]) and live and r["pane"] not in live:
+                # No registry row — the sitting is UNSUPERVISED (born outside the daemon and not
+                # yet checked in), so nothing here knows whether it is running. The pane says only
+                # that a WAKE CANNOT REACH IT, and that is exactly what is reported: never `DEAD`,
+                # because absence of a row has never been evidence of death (C-15).
+                status, tone = "UNREACHABLE", C_DEAD
         else:
             status, tone = "done", C_DONE
         cursor = f" read@{r['lastread']}" if r["lastread"] not in ("", "0") else ""
@@ -529,19 +544,20 @@ def cmd_workers(args):
     for seat, entry, age, alive in awaiting_debts(base, live):
         aged = f"{age}min" if age is not None else "unknown age"
         if alive:
-            print(c(f"awaiting close: {seat} — checked out {aged} ago and its pane "
-                    f"{entry.get('pane') or '?'} IS STILL LIVE, holding memory against the launch "
-                    f"floor. transcript {'exported' if entry.get('exported') else 'NOT exported'}"
-                    f" — {coord_invocation(args)} close-seat {seat}", C_DEAD))
+            print(c(f"awaiting close: {seat} — its ending is stamped {aged} ago and its PROCESS "
+                    f"(pid {entry.get('pid') or '?'}) IS STILL RUNNING, holding memory against the "
+                    f"launch floor — the reap did not complete "
+                    f"— {coord_invocation(args)} close-seat {seat}", C_DEAD))
         else:
-            print(c(f"awaiting close: {seat} — checked out {aged} ago; its pane is already gone, "
-                    f"but the close never ran, so the roster and session trace are unfinished "
+            print(c(f"awaiting close: {seat} — its ending is stamped {aged} ago and its process is "
+                    f"already gone, but the registry row is still there, so the roster and session "
+                    f"trace are unfinished "
                     f"— {coord_invocation(args)} close-seat {seat} --no-export", C_HINT))
     if not getattr(args, "history", False):
         print(c(f"-- current rows only (log tail #{tail}); --history for every row, --full for "
                 f"untruncated summaries", C_HINT))
     if dead:
-        print(c(f"next: {dead} row(s) point at a pane tmux no longer has — "
+        print(c(f"next: {dead} row(s) name a sitting the supervisor registry says is GONE — "
                 f"{coord_invocation(args)} close-seat <agent> cleans one up", C_HINT))
 
 
