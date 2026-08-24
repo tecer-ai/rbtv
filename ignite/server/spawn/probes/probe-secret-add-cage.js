@@ -111,7 +111,15 @@ async function main() {
 
   const kitDir = path.join(ws.workspaceRoot, 'kit');
   fs.mkdirSync(kitDir, { recursive: true });
-  for (const f of ['coord.py', 'gateway_client.py', 'budget.py']) {
+  // ⚠ THE STAND-IN KIT CARRIES coord.py'S LOADED SIBLINGS TOO. The move-only split
+  // [D23, T4-R12] put most of the product in the files named by coord.py's own SPLIT_MODULES
+  // tuple, and coord.py loads them from its OWN directory — a kit missing one dies at load with
+  // FileNotFoundError before any refusal under test is reached. Derived from the tuple, so the
+  // next split file arrives here for free.
+  const splitModules = ((fs.readFileSync(path.join(TEAM_KIT, 'coord.py'), 'utf8')
+    .match(/SPLIT_MODULES = \(([\s\S]*?)\)/) || [, ''])[1].match(/"([a-z_]+)"/g) || [])
+    .map((q) => `${q.replace(/"/g, '')}.py`);
+  for (const f of ['coord.py', 'gateway_client.py', 'budget.py', ...splitModules]) {
     fs.copyFileSync(path.join(TEAM_KIT, f), path.join(kitDir, f));
   }
 
