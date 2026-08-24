@@ -100,7 +100,7 @@ def advice_coached_sends(path=None):
     function name — their strings are controlled inputs, not advice to a user.
     """
     import ast
-    src = Path(path or __file__).read_text(encoding="utf-8")
+    src = Path(path).read_text(encoding="utf-8") if path else PRODUCT_SOURCE
     tree = ast.parse(src)
     spans = [(n.lineno, n.end_lineno) for n in ast.walk(tree)
              if isinstance(n, ast.FunctionDef) and "selftest" in n.name]

@@ -2711,7 +2711,7 @@ def _selftest_checks(args, failures, names):
         # (The same fact was already known here as the "false-red filename trap" — that gating a
         # candidate named `coord-candidate.py` fails this row. It was recorded as a caveat about
         # gating and never read as what it is: this check depends on the invocation name.)
-        _where = os.path.basename(__file__) + ":"
+        _where = os.path.basename(_selftest_checks.__code__.co_filename) + ":"
         check("G-66: the abort names WHERE it raised — file AND line — so a reader can find the "
               "raising check without re-running under a debugger. The filename is DERIVED from "
               "this module's own path, never a literal, because the traceback carries the name "
@@ -6528,7 +6528,7 @@ def _selftest_checks(args, failures, names):
         # neither problem: it normalizes every quote and f-prefix shape, merges implicit
         # concatenation, and carries no comments at all.
         import ast as _s3_ast
-        _s3_src = Path(__file__).read_text(encoding="utf-8")
+        _s3_src = PRODUCT_SOURCE
         _s3_tree = _s3_ast.parse(_s3_src)
         # ⚠ The token is BUILT, never written as a literal: this check reads the file it lives in,
         # so a literal here would be its own first hit — the check would fail on itself forever.
@@ -7094,7 +7094,7 @@ def _selftest_checks(args, failures, names):
               "named comment is how the sites stay findable instead of being re-derived from a "
               "spec nobody reads at the time — and this count is bumped in the SAME change as any "
               "seam added or discharged, or the inventory starts lying quietly",
-              Path(__file__).read_text(encoding="utf-8").count(_h6_ip) == 1)
+              PRODUCT_SOURCE.count(_h6_ip) == 1)
 
         # ============ s12-07: the DISPOSITION in awaiting-close.json =============================
         # Spec: stage-1-2-gate-checkout-spec.md §2.3. The rows that need a live pane, a recorded
@@ -7163,7 +7163,7 @@ def _selftest_checks(args, failures, names):
         import ast as _s7_ast
         import inspect as _s7_inspect
         _s7_calls = [n for n in _s7_ast.walk(
-                         _s7_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                         _s7_ast.parse(PRODUCT_SOURCE))
                      if isinstance(n, _s7_ast.Call) and getattr(n.func, "id", "") == "set_awaiting"]
         _s7_params = list(_s7_inspect.signature(set_awaiting).parameters)
         _s7_kwnames = {k.arg for n in _s7_calls for k in n.keywords}
@@ -7239,7 +7239,7 @@ def _selftest_checks(args, failures, names):
         # seat path unbound.
         import ast as _d8_ast
         _d8_ckt = next((n for n in _d8_ast.walk(
-                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                            _d8_ast.parse(PRODUCT_SOURCE))
                         if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
         _d8_ckt_writer = ""
         for _d8_n in _d8_ast.walk(_d8_ckt) if _d8_ckt else []:
@@ -7509,7 +7509,7 @@ def _selftest_checks(args, failures, names):
         # manufacture at the source — two independently-computed expressions from one branch
         # discriminant, in one function, twelve lines apart.
         _d9_ckt = next((n for n in _d8_ast.walk(
-                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                            _d8_ast.parse(PRODUCT_SOURCE))
                         if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
         _d9_args = {}
         for _d9_n in _d8_ast.walk(_d9_ckt) if _d9_ckt else []:
@@ -7895,7 +7895,7 @@ def _selftest_checks(args, failures, names):
         # the package, and the one write this command was at risk of making lands OUTSIDE it —
         # resolving a package normally RE-REGISTERS the run tag in the global runs index.
         _rs6_fn = next((n for n in _d8_ast.walk(
-                            _d8_ast.parse(Path(__file__).read_text(encoding="utf-8")))
+                            _d8_ast.parse(PRODUCT_SOURCE))
                         if isinstance(n, _d8_ast.FunctionDef) and n.name == "ready_seat_rows"),
                        None)
         _rs6_reg = {}
@@ -8552,7 +8552,7 @@ def _selftest_checks(args, failures, names):
               # and the live member on the same path does NOT refuse — a check that refused
               # everything would pass this row while breaking the command
               and after_member_parts(_w1_g)[1] == "safe")
-        _w1_src = Path(__file__).read_text(encoding="utf-8")
+        _w1_src = PRODUCT_SOURCE
         import inspect as _w1_inspect
         _w1_body = _w1_inspect.getsource(parse_after_member)
         _w1_altbody = _w1_inspect.getsource(after_member_limbs)
@@ -9475,9 +9475,9 @@ def _selftest_checks(args, failures, names):
               and "rule-guard" in _rg_help
               and GUARD_VALUES_FILE == "guard-values.csv"
               and "rule-guard" in (_d8_ast.get_source_segment(
-                  Path(__file__).read_text(encoding="utf-8"),
+                  PRODUCT_SOURCE,
                   next(n for n in _d8_ast.walk(_d8_ast.parse(
-                      Path(__file__).read_text(encoding="utf-8")))
+                      PRODUCT_SOURCE))
                        if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_rule_guard"))
                   or ""))
 
@@ -12250,7 +12250,7 @@ def _selftest_checks(args, failures, names):
         # ---- (L) THE LAYER BOUND, restored for the refusals this block routes through a helper.
         import ast as _s5_ast
         _s5_layers, _s5_opaque = set(), []
-        for _s5_node in _s5_ast.walk(_s5_ast.parse(Path(__file__).read_text(encoding="utf-8"))):
+        for _s5_node in _s5_ast.walk(_s5_ast.parse(PRODUCT_SOURCE)):
             if not (isinstance(_s5_node, _s5_ast.Call)
                     and getattr(_s5_node.func, "id", None) == "lifecycle_alarm"
                     and _s5_node.args):
@@ -12854,7 +12854,7 @@ def _selftest_checks(args, failures, names):
                         "lifecycle_memory_gate", "lifecycle_settle", "lifecycle_record_step"}
         import ast as _s6_ast
         _s6_called, _s6_seen = set(), set()
-        for _s6_node in _s6_ast.walk(_s6_ast.parse(Path(__file__).read_text(encoding="utf-8"))):
+        for _s6_node in _s6_ast.walk(_s6_ast.parse(PRODUCT_SOURCE)):
             if not (isinstance(_s6_node, _s6_ast.FunctionDef) and _s6_node.name in _s6_subjects):
                 continue
             _s6_seen.add(_s6_node.name)

@@ -175,9 +175,19 @@ SPLIT_MODULES = ("addressing", "outputs", "tmux", "process", "records", "identit
                  "closeout", "attest", "checkout", "lifecycle_exec", "messages", "launch",
                  "ready", "coord_selftest", "cli_main")
 _SPLIT_DIR = Path(__file__).resolve().parent
+_SPLIT_SOURCES = []
 for _split_name in SPLIT_MODULES:
     _split_src = _SPLIT_DIR / (_split_name + ".py")
-    exec(compile(_split_src.read_text(encoding="utf-8"), str(_split_src), "exec"), globals())
+    _split_text = _split_src.read_text(encoding="utf-8")
+    _SPLIT_SOURCES.append(_split_text)
+    exec(compile(_split_text, str(_split_src), "exec"), globals())
+
+# The kit's PRODUCT SOURCE as one text: this shim followed by every file above, in load order.
+# The audits and selftest rows that scan "this module's source" are asking about the product, and
+# the product is now several files — this is the same corpus they read before the split, so their
+# counts and their AST walks keep meaning what they meant. Scan TARGET only; no scan's logic moved.
+# Built from the text the loader has already read, so it costs no second pass over the files.
+PRODUCT_SOURCE = "\n".join([Path(__file__).resolve().read_text(encoding="utf-8")] + _SPLIT_SOURCES)
 
 
 if __name__ == "__main__":
