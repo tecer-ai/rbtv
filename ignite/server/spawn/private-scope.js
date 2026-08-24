@@ -74,6 +74,13 @@ function emptyMaskSource() {
 const CODE_FILE_RE = /\.(py|pyc|so)$/;
 function isInterpreterCodeFile(name) { return CODE_FILE_RE.test(name); }
 
+function isCredentialHost(entry) {
+  const b = path.basename(entry);
+  if (b === 'credentials' || b.endsWith('.env') || b.endsWith('.key')) return true;
+  if (/token/i.test(b) && !isInterpreterCodeFile(b)) return true;
+  return false;
+}
+
 function globToRe(g) {
   const base = g.replace(/^\*\*\//, '').replace(/\/$/, '');
   return new RegExp('^' + base.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
@@ -220,9 +227,9 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   // used to live in TIER 2b below — an opening of that class CONTAINING an enumerated deny entry
   // (a declared CLI's own `config.yaml` / `credentials/`) used to re-open it whole. Owner ruling:
   // credentials are env-injected, never caged — no mechanism in this compiler re-opens
-  // `credentials/`, `*.env`, `*.key`, or `*token*` for ANY caller/role, declared or not. This
-  // TIER-3 named-grant pierce is unaffected (it serves unrelated authored exceptions, e.g. the
-  // therapy-summarizer's health path) and still refuses the two HARDCODES unconditionally below.
+  // `credentials/`, `*.env`, `*.key`, or `*token*` for ANY caller/role, declared or not.
+  // Residual TIER-3 pierce is only for a non-credential enumerated path (e.g. health).
+  // HARDCODES and credential-shaped hosts refuse unconditionally below.
   const pierced = [];
   const refused = [];
   const pierceOpenings = [];
@@ -231,6 +238,10 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
     if (host) {
       if (scope.hardcoded.has(host)) {
         refused.push({ opening: opening.path, reason: `names the unoverrulable private path ${host}` });
+        continue;
+      }
+      if (isCredentialHost(host)) {
+        refused.push({ opening: opening.path, reason: `names the credential-shaped private path ${host}` });
         continue;
       }
       if (!realInside(host, opening.path)) {
