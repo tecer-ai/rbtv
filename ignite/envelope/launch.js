@@ -85,10 +85,19 @@ function admitLaunch(raw) {
   };
 }
 
+// `family` and `origin` ride along with the verb. They are not decoration: `cage.js#lastCovering`
+// asks `compiler.js#authorizedCarve` whether a covering pair at different access is a conflict,
+// and that question is unanswerable from a path and a verb alone — a `/tmp` opening is a carve
+// because it came from a TEMP FAMILY, not because of how it is spelled. Dropping them here is
+// what made a workspace legal to the compiler illegal to the mask composer.
+// `specToBwrapFlags` reads only `verb`/`path`/`punchThrough`, so the extra fields cost no argv.
 function bindsToSpec(binds) {
   return binds.map((b) => ({
     verb: b.access === 'rw' ? 'bind' : 'ro-bind',
     path: b.path,
+    access: b.access,
+    family: b.family,
+    origin: b.origin,
   }));
 }
 

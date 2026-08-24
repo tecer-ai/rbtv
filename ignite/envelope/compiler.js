@@ -245,7 +245,7 @@ function compile(raw) {
   for (const s of sources) {
     if (s.origin === 'deny') continue;
     const prev = byPath.get(s.path);
-    if (!prev) byPath.set(s.path, { path: s.path, access: s.access, family: s.family, source: s.source });
+    if (!prev) byPath.set(s.path, { path: s.path, access: s.access, family: s.family, origin: s.origin, source: s.source });
   }
   const binds = [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
 
@@ -273,4 +273,9 @@ module.exports = {
   compilePlanning,
   loadConfig,
   CONFIG_DIR,
+  // Exported for `server/spawn/cage.js#lastCovering`, which must answer "is this covering pair at
+  // different access a conflict?" with THIS function and not a second copy of it (spec-envelope §2
+  // makes the compiler the source of truth). The carve rules are why a fixture workspace under a
+  // baked temp family compiles: re-deriving them elsewhere refused launches the compiler admitted.
+  authorizedCarve,
 };

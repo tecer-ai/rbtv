@@ -23,7 +23,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { capture } = require('./lib');
-const { composeSeatCage, composeAncestorMasks, specToBwrapFlags } = require('../cage');
+const { composeSeatCage, composeAncestorMasks, specToBwrapFlags, lastCovering } = require('../cage');
+const { admitLaunch, bindsToSpec } = require('../../../envelope/launch');
 const { buildBwrapArgv } = require('../bwrap');
 
 // The shipped stack's shape, cut to the lines this probe's claims depend on: the read-root floor
@@ -203,6 +204,42 @@ capture('probe-ancestor-mask', async (lines) => {
         `with-file=${JSON.stringify(withEnv.masked)} without-file=${JSON.stringify(m.masked)}`);
     } finally {
       try { fs.rmSync(bare, { recursive: true, force: true }); } catch {}
+    }
+
+    // ── (i) lastCovering agrees with the COMPILER about what a conflict is ────────────────────
+    // The mask composer's visibility query used to re-derive "covering pair at different access"
+    // with none of the compiler's authorized carves, so a workspace the compiler compiled happily
+    // was illegal the moment it sat under a baked temp family: `/tmp` is family 4/7 RW and family
+    // 5 `vault-wide-read` RO at once, and `lastCovering` threw `E_LAUNCH_REFUSED conflict` on a
+    // launch that held no conflict. `probes/lib.js` routes every fixture to `/var/tmp` to dodge
+    // exactly this; that workaround is the evidence, and this leg is the assertion under it.
+    //
+    // Deliberately rooted in `/tmp` — the shape the workaround avoids — and driven through the
+    // REAL compiler, so the leg fails if either side's rules move away from the other.
+    const tmpWs = fs.mkdtempSync(path.join('/tmp', 'anc-mask-carve-'));
+    try {
+      const g = path.join(tmpWs, 'work', '.rbtv', 'goals', 'g');
+      fs.mkdirSync(path.join(g, 'seats', 's'), { recursive: true });
+      fs.mkdirSync(path.join(tmpWs, 'work', '.rbtv', 'mirror', 'x'), { recursive: true });
+      fs.writeFileSync(path.join(g, 'seats', 's', 'seat.md'), '---\nseat: s\n---\n');
+      const wsRoot = path.join(tmpWs, 'work');
+      const admitted = admitLaunch({ workspaceRoot: wsRoot, goalId: 'g', goalDir: g });
+      if (!admitted.spawn) {
+        leg('I', 'a workspace the compiler ADMITS is not refused by lastCovering',
+          false, `the compiler itself refused the fixture: ${JSON.stringify(admitted.refuse)}`);
+      } else {
+        const compiled = bindsToSpec(admitted.binds);
+        const covering = compiled.filter((e) => wsRoot === e.path || wsRoot.startsWith(`${e.path}/`));
+        let outcome;
+        try { outcome = `OK (${(lastCovering(compiled, wsRoot) || {}).verb})`; }
+        catch (err) { outcome = `${err.code}: ${err.message}`; }
+        leg('I', 'a workspace the compiler ADMITS is not refused by lastCovering (temp-floor carve)',
+          outcome.startsWith('OK')
+          && covering.some((e) => e.verb === 'bind') && covering.some((e) => e.verb === 'ro-bind'),
+          `binds=${admitted.binds.length} covering=${JSON.stringify(covering.map((e) => `${e.verb}:${e.family}`))} lastCovering -> ${outcome}`);
+      }
+    } finally {
+      try { fs.rmSync(tmpWs, { recursive: true, force: true }); } catch {}
     }
 
     lines.push('');

@@ -28,6 +28,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { SpawnError, E_CAGE_TEMPLATE } = require('./errors');
 const { composePrivateScope, emptyMaskSource } = require('./private-scope');
+// The envelope compiler owns the carve rules `lastCovering` asks about (spec-envelope §2). See
+// the block above `lastCovering` for why this predicate is imported and never re-spelled here.
+const { authorizedCarve } = require('../../envelope/compiler');
 
 // The bind verbs a template may declare. Deliberately NOT the whole bwrap vocabulary: these three
 // compose every opening `r-711-write-bounds` allows, and an unknown verb is a template error
@@ -265,27 +268,58 @@ const GOALS_SUBTREE = path.join('.rbtv', 'goals');
 // covering entries is a launch refuse, never later-wins. Nothing covering the path means it
 // is already absent, so masking it would only make bwrap mkdir a mountpoint into a namespace
 // where nothing was there to hide.
+//
+// ⚠ THE CARVE RULES ARE THE COMPILER'S, IMPORTED — NOT A SECOND SPELLING. spec-envelope §2 makes
+// `ignite/envelope/` the source of truth for what a covering pair at different access MEANS, and
+// this predicate re-derived it with NO carve rules at all: a workspace the compiler compiled
+// happily was illegal to the mask composer the moment it sat under a baked temp family. That is
+// exactly the shape `probes/lib.js` had to route around — a fixture workspace under `/tmp` is
+// family 4/7 RW and family 5 RO at once, the compiler authorizes the carve, and `lastCovering`
+// refused `E_LAUNCH_REFUSED conflict rw:/tmp …` on a launch that was never in conflict. Two
+// spellings of one rule drift, and this pair drifted in the direction that refuses real launches.
+//
+// Legacy specs (`composeSeatCage`, the probe templates) carry no `family`/`origin`, so
+// `authorizedCarve` sees nothing to authorize and the pre-existing refuse posture is unchanged
+// for them. Only compiler-composed binds, which alone know which family opened them, can carve.
 function accessOf(entry) {
   if (entry.verb === 'bind' || entry.verb === 'bind-try') return 'rw';
   return 'ro';
 }
 
+// The shape `authorizedCarve` reads. `access` is derived from the VERB rather than trusted from
+// the entry so a spec hand-composed from a template answers the same question the same way.
+function carveSource(entry) {
+  return { path: entry.path, access: accessOf(entry), family: entry.family, origin: entry.origin };
+}
+
+// The first covering pair at different access that the compiler would NOT have authorized.
+// Pairwise, exactly as `compiler.js#findConflict` is pairwise: "some rw and some ro anywhere in
+// the list" is a coarser question and it answers yes for lists that hold no conflict at all.
+function unauthorizedPair(covering) {
+  for (let i = 0; i < covering.length; i++) {
+    for (let j = i + 1; j < covering.length; j++) {
+      const a = covering[i];
+      const b = covering[j];
+      if (accessOf(a) === accessOf(b)) continue;
+      if (a.path !== b.path && authorizedCarve(carveSource(a), carveSource(b))) continue;
+      return [a, b];
+    }
+  }
+  return null;
+}
+
 function lastCovering(spec, target) {
   const covering = [];
   for (const entry of spec) if (contains(entry.path, target)) covering.push(entry);
-  let sawRw = false;
-  let sawRo = false;
-  for (const entry of covering) {
-    if (accessOf(entry) === 'rw') sawRw = true;
-    else sawRo = true;
-  }
-  if (sawRw && sawRo) {
+  const clash = unauthorizedPair(covering);
+  if (clash) {
     const err = new Error(`launch-refused: lastCovering mixed access at ${target}`);
     err.code = 'E_LAUNCH_REFUSED';
     err.refuse = {
       kind: 'conflict',
       path: target,
-      pair: covering.map((e) => ({ path: e.path, access: accessOf(e), source: e.verb })),
+      pair: clash.map((e) => ({ path: e.path, access: accessOf(e), source: e.verb, family: e.family })),
+      covering: covering.map((e) => ({ path: e.path, access: accessOf(e), source: e.verb })),
     };
     throw err;
   }
