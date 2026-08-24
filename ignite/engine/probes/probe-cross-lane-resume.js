@@ -688,12 +688,18 @@ async function main() {
   // rather than deleting it keeps the same file answering the same question: WHERE does a held
   // seat's declared arm get executed. The answer is: in this module, on the goal-channel surface.
   const ferry = fs.readFileSync(path.join(IGNITE_SRC, 'bridges', 'chat', 'bus-ferry.js'), 'utf8');
-  check('D3 the module that IMPLEMENTS the two gates now also EXECUTES the seat\'s declared `fallback:` '
-    + '— the reader, all three arms, and the `park` rung on the gate ladder live here (7.626)',
+  // ⚠ AND THE `park` RUNG IS NO LONGER PART OF THE CLAIM — it was DELETED by ruling
+  // [D24, T2-R17, D-7-ruling, T2-R14] (`chat(bus-ferry): the park is deleted — every `to: owner`
+  // row travels`), which is why the third conjunct here is now its ABSENCE. The three park rungs
+  // swallowed owner-bound rows: nothing posted, cursor advanced, no retry, no queue. The reader
+  // and the three declared arms still live in this one module, which is all this arm was ever
+  // about; what it may no longer assert is that a gate parks a question.
+  check('D3 the module that IMPLEMENTS the two gates also owns the seat\'s declared `fallback:` '
+    + 'reader and its arms (7.626) — and NO gate-park reason survives it [D24]',
     /function seatFallback\(/.test(ferry)
       && ['park', 'default-and-disclose', 'block-and-queue'].every((a) => ferry.includes(`'${a}'`))
-      && /'fallback-park'/.test(ferry),
-    'the gap this arm used to measure is closed — see bus-ferry.js § THE SEAT\'S FALLBACK ARM');
+      && !/'fallback-park'/.test(ferry),
+    'reader+arms present, gate park absent — see bus-ferry.js § THE SEAT\'S FALLBACK ARM');
   const watch = fs.readFileSync(path.join(IGNITE_SRC, 'engine', 'lane-watch.js'), 'utf8');
   check('D3 …and the DAEMON lane reads it through THAT module\'s reader — no second parser of a seat '
     + 'descriptor anywhere on the path',
