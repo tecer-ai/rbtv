@@ -11571,19 +11571,23 @@ def cmd_status(args):
         print(f"{c('roster:', C_LABEL)} {c('NOT checked in', C_DEAD)} — no active row for '{me}'")
         print(c(f"next:   {coord} checkin {me} \"<what you are working on>\"", C_HINT))
         return
+    # ⚠ NO LIVENESS VERDICT HERE [T4-R8, C-15, C6, del-observers]. A pane is a viewport, never a
+    # heartbeat — "is it alive" is answered only by probing the supervisor registry, not built by
+    # this seat. This reports one mechanical fact only: can a WAKE reach this row's registered
+    # pane through tmux right now. It never claims the seat itself is alive, dead, or "ok".
     live = live_panes()
     if not row["pane"]:
-        pane_state, pane_tone = "no pane registered — wakes cannot reach you", C_DEAD
+        pane_state = "no pane registered — wakes cannot reach you; run `read` at your own checkpoints"
     elif not is_tmux_pane(row["pane"]):
         # F1: paneless (daemon-lane) row — bound to its session id, not to tmux. Not a defect.
-        pane_state, pane_tone = "paneless — bound to your session id; run `read` yourself", C_ALIVE
+        pane_state = "paneless — bound to your session id, not a tmux pane; run `read` yourself"
     elif live and row["pane"] not in live:
-        pane_state, pane_tone = "DEAD? — the registered pane is gone, wakes cannot reach you", C_DEAD
+        pane_state = "not in tmux's current pane list — a wake sent to it will not be delivered"
     else:
-        # No live tmux server means live_panes() is empty and every pane reads ok — an honest
-        # degradation, the same one `workers` makes.
-        pane_state, pane_tone = "ok", C_ALIVE
-    print(f"{c('pane:  ', C_LABEL)} {row['pane'] or '-'} ({c(pane_state, pane_tone)})")
+        # No live tmux server means live_panes() is empty and every registered pane reads the
+        # same as one tmux currently reports — an honest degradation, the same one `workers` makes.
+        pane_state = "registered"
+    print(f"{c('pane:  ', C_LABEL)} {row['pane'] or '-'} ({pane_state})")
     print(f"{c('work:  ', C_LABEL)} {truncate(row['summary'], 120)}")
     print_owner_status(base, label_width=7, args=args)
     _, blocks = load_messages(base)
