@@ -20,7 +20,6 @@ function touch(p, body) {
   fs.writeFileSync(p, body == null ? '' : body);
 }
 
-mkdirp(path.join(goalDir, 'scratch'));
 mkdirp(path.join(goalDir, 'coordination'));
 mkdirp(path.join(workspace, '.rbtv', 'mirror', 'x'));
 mkdirp(path.join(home, '.cache'));
