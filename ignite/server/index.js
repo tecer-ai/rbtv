@@ -958,17 +958,15 @@ async function main() {
     }
   };
 
-  // ⚠ THE QUEUE-REQUEST PASS RUNS **BEFORE** THE LANE WATCH, NOT AFTER. It consumes each goal's
-  // `queue-request` rows and splices the newly unblocked milestone's planning pass into
-  // `taskforce.csv` (`engine/queue-request.js`, W7); the lane watch then seeds that same registry
-  // in the same cadence, and the tick that follows dispatches it. Reversed, every wave boundary
-  // would cost one extra cadence for no reason. Same outer belt as the lane watch: one bad goal
-  // folder must never take the loop down.
+  // ⚠ THE PLANNING-MINT PASS RUNS **BEFORE** THE LANE WATCH, NOT AFTER. Path A
+  // (spec-planning-door §1) mints the five pipeline seats onto an unminted planning
+  // goal; the lane watch then seeds that same registry in the same cadence. Same
+  // outer belt as the lane watch: one bad goal folder must never take the loop down.
   const queueRequestPass = () => {
     try {
       runQueueRequestPass({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
     } catch (err) {
-      log('error', 'queue-request pass failed', { error: err.message });
+      log('error', 'planning-mint pass failed', { error: err.message });
     }
   };
 

@@ -59,11 +59,11 @@ only way to keep N copies honest is to not have them.
 A planning pass can author a seat inside the goal — `planning/current/seats/<seat>/` holding the
 definition itself rather than a `source.md` pointer at a cataloged one. **Those seats belong to no
 workflow**, so the canonical path above cannot address them: `bindings/{code}.json` is keyed by a
-workflow code they do not have. `ignite/engine/queue-request.js:390-399` states exactly this and is
+workflow code they do not have. `ignite/engine/unbuilt-seats.js` (`sheetForSeat`) states exactly this and is
 the reason the two paths differ — it is a design, not a bug, and the reader must never be "fixed" to
 look under `.rbtv/config/`.
 
-The engine reads the goal-local sheet at `buildGoalLocalSeats` (`queue-request.js:425-433`) and
+The engine reads the goal-local sheet at `buildGoalLocalSeats` (`unbuilt-seats.js`) and
 **refuses `goal-local-sheet-absent` when it is missing** — an uncast goal-authored seat is a named
 refusal at every door, never a default (`#d-abolish-profile-names`). Until this mode existed nothing
 wrote that file, so every goal whose pass invented a seat stalled at it.

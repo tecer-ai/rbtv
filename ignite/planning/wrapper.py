@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 from failure import (
+    CLASS_ATOMIC_CORE_REFUSAL,
     CLASS_ENVELOPE_REFUSAL,
     CLASS_LOCK_COLLISION,
     CLASS_ROSTER_NAME_COLLISION,
@@ -26,6 +28,38 @@ from lock import LockCollision, take_lock
 
 PATH_A = "A"
 PATH_B = "B"
+
+
+def uncast_in_sheet(sheet_path, seat_names):
+    """Refuse-before-write pattern (KEEP). Cast = harness and model both non-empty.
+
+    Same predicate as launch-profiles/catalog.js `declaresBinding`. Call site is
+    this wrapper: a non-empty result refuses the whole act.
+    """
+    try:
+        raw = Path(sheet_path).read_text(encoding="utf-8")
+        sheet = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "uncast-in-sheet",
+            f"{sheet_path}: {exc}",
+        ) from exc
+    seats = (sheet or {}).get("seats")
+    if not isinstance(seats, dict):
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "uncast-in-sheet",
+            f"{sheet_path}: must be a JSON object carrying a 'seats' mapping",
+        )
+    missing = []
+    for name in seat_names:
+        entry = seats.get(name) or {}
+        harness = str(entry.get("harness") or "").strip()
+        model = str(entry.get("model") or "").strip()
+        if not harness or not model:
+            missing.append(name)
+    return missing
 
 def _fail_arm(*, goal_folder, origin, origin_id, class_, code, subject, reason, sessions_path):
     record = make_record(
@@ -58,11 +92,12 @@ def supervised_materialize(
     reclaim=None,
     envelope_stamp=None,
     sessions_path=None,
+    uncast=None,
 ):
-    """validate → (path B) scaffold → take lock → mint → release lock.
+    """validate → uncast → (path B) scaffold → take lock → mint → release lock.
 
-    Callers (impl-planning-door-mint path A, impl-planning-door-birth path B)
-    inject validate/scaffold/mint. This wrapper does not Slack-post.
+    Callers inject validate/scaffold/mint. `uncast` (callable → list of seat
+    names) refuses the whole act if any seat would land uncast. No Slack.
     """
     if path not in (PATH_A, PATH_B):
         raise ValueError(f"path must be {PATH_A!r} or {PATH_B!r}")
@@ -83,6 +118,15 @@ def supervised_materialize(
     scaffolded = False
     try:
         validate()
+        if uncast is not None:
+            uncast_seats = uncast()
+            if uncast_seats:
+                raise MaterializeFailure(
+                    CLASS_ATOMIC_CORE_REFUSAL,
+                    "uncast-in-sheet",
+                    "would land uncast: " + ", ".join(uncast_seats),
+                    subject,
+                )
         if path == PATH_B:
             if scaffold is None:
                 raise MaterializeFailure(

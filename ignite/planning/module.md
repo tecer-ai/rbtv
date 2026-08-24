@@ -4,10 +4,14 @@ description: Use when minting planning seats or birthing an execution goal throu
 
 # planning
 
-The planning-door lock and supervised-materialize wrapper. Not a CLI — later seats import `lock.py`, `wrapper.py`, and `failure.py` from this folder.
+The planning-door lock, Path A mint, and supervised-materialize wrapper. Not a CLI — mint/birth import these modules.
 
 | Part | One line |
 |---|---|
 | `lock.py` `take_lock` | Exclusive flock on `<goal>/planning/current/.materialize.lock`; same pass-id re-enters; distinct trigger refuses `lock-collision`; dead pid is stolen |
-| `wrapper.py` `supervised_materialize` | Shared path-A/path-B wrapper: validate → scaffold (B) → lock → mint → release; five failure classes; no Slack |
+| `wrapper.py` `supervised_materialize` | Shared path-A/path-B wrapper: validate → uncast → scaffold (B) → lock → mint → release; five failure classes; no Slack |
+| `wrapper.py` `uncast_in_sheet` | Refuse-before-write: any seat without harness+model refuses the whole act |
+| `argv.py` `planning_mint_argv` | Path A argv: `--package` at the existing goal; never `--milestone-id`, never `--nested`, never full/collapsed |
+| `path_a.py` `run_path_a` | Path A caller: uncast + wrapper + one materialize invocation |
+| `door.js` `runPlanningMintPass` | Goal-wide trigger: planning goal + five seats absent → mint once; already-minted is a quiet no-op |
 | `failure.py` | Record fields `origin`/`origin-id`/`class`/`code`/`subject`/`reason`; D12 approval-thread; D13 gate-lane `incomplete: materialize-failed` |
