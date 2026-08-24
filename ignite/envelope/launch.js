@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { compile, compilePlanning } = require('./compiler');
+const { covers, realpathOrNull } = require('./paths');
 const { writeConfigShims } = require('./shims');
 const { reasonFrom } = require('../server/spawn/seat-grants');
 
@@ -67,6 +68,51 @@ function ensureGoalScratch(goalDir) {
   return dir;
 }
 
+// ⚠ THE OWN-SEAT RW PUNCH — spec-envelope §5, and the one bind the COMPILER cannot make.
+// `{goal}/seats` is a daemon-owned DIRECTORY: the compiler binds the whole tree `ro` so a worker
+// cannot write a peer's folder. But §5's directory row carries an exception in its own heading —
+// "the dir and everything under it, EXCEPT a worker's need to write its own seat folder" — and
+// `daemon-owned-records.yaml` records it as `own-seat-folder-rw: true`. The compiler is per-GOAL
+// and plan-time: it never learns WHICH seat is launching, so it cannot spell `{self}`. Launch can,
+// and this is the step the compiler's creation entry names ("launch punches `{self}`").
+// Without it a seat spawns, passes caps-at-kernel, and then cannot write the one directory it
+// exists to fill — `probe-tmux-seat-live` died exactly there, on its own `a4-report.txt`.
+//
+// THE PUNCH IS EXACTLY ONE FOLDER, NEVER A LEVEL WIDER. `{goal}/seats` itself stays ro; only a
+// path whose PARENT is the launching goal's own `seats/` is punched, so a seatDir from another
+// goal, a nested path, or a service seat's `goalDir == seatDir` home punches nothing.
+//
+// ORDER IS THE MECHANISM, and the sort is how it is kept: bwrap applies mounts in argv order and
+// the deepest-applied mount wins, so the list must read `{goal}` rw → `{goal}/seats` ro →
+// `{seatDir}` rw → `{seatDir}/seat.md` ro. Appending the punch at the END instead would remount
+// the seat folder OVER the daemon-owned `seat.md` ro carve inside it and hand the worker a
+// writable `seat.md` — the one file §5 keeps read-only inside an otherwise RW own folder. Sorting
+// by path (the compiler's own comparator) puts every parent before its children and holds that.
+function ownSeatPunch(binds, raw) {
+  const seatDir = raw && raw.seatDir;
+  if (!seatDir) return { binds };
+  const resolved = realpathOrNull(seatDir);
+  // The compiler refuses a baked path that does not resolve; a seat folder that does not resolve
+  // is the same defect one layer out, and a silent skip would launch the seat read-only instead.
+  if (!resolved) return { refuse: { kind: 'unresolved', path: path.normalize(seatDir), source: 'own-seat', origin: 'own-seat' } };
+  const goalDir = raw.goalDir ? realpathOrNull(raw.goalDir) : null;
+  if (!goalDir) return { binds };
+  if (path.dirname(resolved) !== path.join(goalDir, 'seats')) return { binds };
+  if (binds.some((b) => b.path === resolved)) return { binds };
+  // Nothing to punch BACK through unless something covering it is ro — on a bind list where the
+  // seats tree is already rw the punch would be a no-op line of argv, not a grant.
+  if (!binds.some((b) => b.access === 'ro' && b.path !== resolved && covers(b.path, resolved))) return { binds };
+  const punched = [...binds, {
+    path: resolved,
+    access: 'rw',
+    family: 'goal-folder',
+    origin: 'own-seat',
+    source: 'own-seat-punch',
+  }];
+  punched.sort((a, b) => a.path.localeCompare(b.path));
+  return { binds: punched };
+}
+
 function admitLaunch(raw) {
   ensureGoalScratch(raw.goalDir);
   const shims = writeConfigShims({
@@ -77,9 +123,11 @@ function admitLaunch(raw) {
   });
   const compiled = consumeLaunch(raw);
   if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
+  const punched = ownSeatPunch(compiled.binds, raw);
+  if (punched.refuse) return { spawn: false, refuse: punched.refuse };
   return {
     spawn: true,
-    binds: compiled.binds,
+    binds: punched.binds,
     credentialNames: compiled.credentialNames || [],
     shims,
   };
@@ -108,6 +156,7 @@ module.exports = {
   isStaffUncaged,
   loadFillIns,
   consumeLaunch,
+  ownSeatPunch,
   admitLaunch,
   bindsToSpec,
   reasonFrom,

@@ -86,6 +86,67 @@ capture('probe-envelope-walls', async (lines) => {
     leg('6', 'launch materializes {goal}/scratch and binds it rw',
       fs.existsSync(scratch) && !!scratchBind && scratchBind.access === 'rw',
       `exists=${fs.existsSync(scratch)} bind=${JSON.stringify(scratchBind)}`);
+
+    // ── leg 7 — THE OWN-SEAT RW PUNCH (spec-envelope §5), and its three boundaries ───────────
+    // `{goal}/seats` is daemon-owned ro; §5's directory row excepts "a worker's need to write its
+    // own seat folder" and `daemon-owned-records.yaml` records it as `own-seat-folder-rw`. The
+    // compiler is per-goal and cannot spell `{self}`, so launch punches it — and until it did, a
+    // seat spawned, passed caps-at-kernel, and could not write its own folder
+    // (`probe-tmux-seat-live`, red on its own `a4-report.txt`).
+    // Four assertions, because three of them are what keeps the punch from being a widening:
+    // own folder rw; the seats TREE still ro; the PEER folder not rw; and `{self}/seat.md` still
+    // ro AND still ordered after the punch — bwrap applies mounts in argv order, so a punch
+    // appended last would remount the seat folder over that carve and hand the worker a writable
+    // `seat.md`.
+    const seats = path.join(goalDir, 'seats');
+    const selfSeat = path.join(seats, 'w1');
+    const peerSeat = path.join(seats, 'w2');
+    fs.mkdirSync(selfSeat, { recursive: true });
+    fs.mkdirSync(peerSeat, { recursive: true });
+    fs.writeFileSync(path.join(selfSeat, 'seat.md'), '---\nseat: w1\n---\n');
+    const punched = admitLaunch({ ...base, seatDir: selfSeat });
+    const at = (p) => (punched.binds || []).find((b) => path.resolve(b.path) === path.resolve(p));
+    const idx = (p) => (punched.binds || []).findIndex((b) => path.resolve(b.path) === path.resolve(p));
+    const selfBind = at(selfSeat);
+    const seatsBind = at(seats);
+    const peerBind = at(peerSeat);
+    const seatMd = at(path.join(selfSeat, 'seat.md'));
+    leg('7', 'launch punches the OWN seat folder rw and nothing wider (seats tree ro, peer absent, own seat.md still ro and still after the punch)',
+      !!selfBind && selfBind.access === 'rw' && selfBind.origin === 'own-seat'
+        && !!seatsBind && seatsBind.access === 'ro'
+        && !peerBind
+        && !!seatMd && seatMd.access === 'ro' && idx(path.join(selfSeat, 'seat.md')) > idx(selfSeat)
+        && idx(selfSeat) > idx(seats),
+      `self=${JSON.stringify(selfBind)} seats=${seatsBind && seatsBind.access} peer=${JSON.stringify(peerBind)} seat.md=${seatMd && seatMd.access} order=${idx(seats)}<${idx(selfSeat)}<${idx(path.join(selfSeat, 'seat.md'))}`);
+
+    // Leg 8 — the punch is `{self}` or nothing. A seatDir that is not a DIRECT child of the
+    // launching goal's own `seats/` (a peer goal's seat, a nested path, a service seat whose home
+    // IS the goal dir) must add no bind at all: the field is caller-supplied, and "punch whatever
+    // I am handed" is how a one-folder exception becomes a grant source.
+    const foreignGoalDir = path.join(workspace, '.rbtv', 'goals', 'g2');
+    const foreignSeat = path.join(foreignGoalDir, 'seats', 'w9');
+    fs.mkdirSync(foreignSeat, { recursive: true });
+    const nested = path.join(selfSeat, 'deeper');
+    fs.mkdirSync(nested, { recursive: true });
+    const foreign = admitLaunch({ ...base, seatDir: foreignSeat });
+    const deep = admitLaunch({ ...base, seatDir: nested });
+    const service = admitLaunch({ ...base, seatDir: goalDir });
+    const rwAt = (adm, p) => {
+      const b = (adm.binds || []).find((x) => path.resolve(x.path) === path.resolve(p));
+      return !!b && b.access === 'rw' && b.origin === 'own-seat';
+    };
+    leg('8', 'a seatDir outside the launching goal\'s own seats/ punches nothing',
+      !rwAt(foreign, foreignSeat) && !rwAt(deep, nested) && !rwAt(service, goalDir),
+      `foreign=${!rwAt(foreign, foreignSeat)} nested=${!rwAt(deep, nested)} service-home=${!rwAt(service, goalDir)}`);
+
+    // Leg 9 — an unresolvable own seat folder is a REFUSE, not a silent read-only launch. The
+    // compiler refuses every baked path that does not resolve; the punch holds the same line one
+    // layer out, because the quiet alternative is the exact defect this leg set exists for.
+    const ghost = admitLaunch({ ...base, seatDir: path.join(seats, 'not-materialized') });
+    leg('9', 'an unresolvable own seat folder refuses the launch',
+      ghost.spawn === false && ghost.refuse && ghost.refuse.kind === 'unresolved'
+        && ghost.refuse.source === 'own-seat',
+      `refuse=${JSON.stringify(ghost.refuse)}`);
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
   }

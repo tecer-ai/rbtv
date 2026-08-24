@@ -110,6 +110,11 @@ function authorizedCarve(a, b) {
   const [narrow, wide] = covers(a.path, b.path) ? [b, a] : [a, b];
   if (narrow.origin === 'deny' && wide.family === 'vault-wide-read') return true;
   if (narrow.origin === 'daemon-owned' && (wide.family === 'goal-folder' || TEMP_FAMILIES.has(wide.family))) return true;
+  // The own-seat punch (§5's own exception, applied at launch by `launch.js#ownSeatPunch`) is rw
+  // INSIDE the daemon-owned `{goal}/seats` ro cover. That pair is the carve, not a conflict: read
+  // as one, `cage.js#lastCovering` refuses every seat whose private-scope floor matches a path
+  // under its own folder — the D53/#576 shape, one layer in.
+  if (narrow.origin === 'own-seat' && wide.origin === 'daemon-owned') return true;
   if (wide.family === 'vault-wide-read' && wide.access === 'ro' && narrow.access === 'rw') return true;
   if (TEMP_FAMILIES.has(wide.family) && wide.access === 'rw') return true;
   if (narrow.origin === 'deny' && narrow.credential && wide.family === 'named-repos') return true;

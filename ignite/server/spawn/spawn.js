@@ -1183,6 +1183,9 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
     workspaceRoot: seatPath.workspaceRoot,
     goalId: seatPath.goal,
     goalDir: seatPath.goalDir,
+    // `{self}` — the ONE thing the plan-time compiler cannot know. Without this field the seats
+    // tree stays wholly ro and the seat cannot write its own folder (`launch.js#ownSeatPunch`).
+    seatDir: seatPath.seatDir,
   });
   if (!admitted.spawn) {
     if (stamp) stamp(admitted.refuse);
