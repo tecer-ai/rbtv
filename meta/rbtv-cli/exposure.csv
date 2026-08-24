@@ -1,0 +1,12 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# `rbtv` is this component's MANDATORY TOOL INVENTORY row (first-party CLI, `d-tool-inventory-
+# exposure-rows`): the ONE system-wide rbtv CLI — the drill + the action-verb router. Nothing
+# routes TO it (it IS the router), so its own `rbtv-cli` cell is empty; `description` empty by
+# ruling on a `tool` row — the tool self-documents via `-h`.
+# Row relocated here 2026-08-23 from the retired module-root `core/exposure.csv` when the owner
+# ruled the rbtv CLIs into `meta/` (each command a component): entry point is component-relative
+# now, the old `core/capabilities/rbtv-cli/` prefix dropped with the CMP-5 component shape.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+rbtv,tool,path,,tool/rbtv,,

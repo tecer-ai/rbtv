@@ -27,17 +27,17 @@ const ATTACHED_EXECUTION = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'attached-execution', 'tool', 'rbtv-execution',
 );
 const TEAMBUILD = path.join(
-  RBTV_ROOT, 'core', 'capabilities', 'teambuild', 'tool', 'rbtv-teambuild',
+  RBTV_ROOT, 'meta', 'teambuild', 'tool', 'rbtv-teambuild',
 );
 const EMBED_SEARCH = path.join(
-  RBTV_ROOT, 'core', 'capabilities', 'embed-search', 'tool', 'rbtv-embed-search',
+  RBTV_ROOT, 'meta', 'embed-search', 'tool', 'rbtv-embed-search',
 );
 // The installer lives in the `meta` module (owner ruling, 2026-08-22): `meta/` hosts
 // what operates on the rbtv SYSTEM itself rather than on a user goal's content, and
 // installing rbtv into a workspace is exactly that — `core/` was the wrong home and
 // `core/capabilities/installer/` (the unbuilt second installer) is gone with it. Its
 // own argparse prog is already `rbtv install`; this route makes that string true.
-const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install2.py');
+const INSTALLER = path.join(RBTV_ROOT, 'meta', 'installer', 'install.py');
 
 // Task 7.66 built the cadence-edit surface, so the namespace that previously refused now routes.
 // `set-interval` is the DESIGN's verb name (operator-surface design § 2.3), not coined here — the
@@ -97,7 +97,7 @@ const EMBED_SEARCH_VERBS = ['index', 'query', 'status', 'selftest'];
 // SETTINGS (which AI tools to write files for, and which root guidance file the
 // human authors): `add` chooses components and refuses those flags after the
 // first install, so a human who reaches for them lands on the verb that works
-// rather than on a run that succeeds and changes nothing (install2.py D16).
+// rather than on a run that succeeds and changes nothing (installer D16).
 // `set` joined at D16b (2026-08-22): the workspace settings moved to an
 // ACTION-FIRST grammar (`add harness`, `rm harness`, `set artifact`), and the
 // basis needs a third action word because choosing a new one REPLACES the old.

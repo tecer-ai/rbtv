@@ -193,7 +193,7 @@ capture('probe-seat-exposed-clis', async (lines) => {
     // declaration this seat (which declares none) saw neither and crashed; under the universal
     // read root it resolves both. A red here means the cage has gone back to binding only the
     // entry point's own folder.
-    const CAPS = path.resolve(__dirname, '..', '..', '..', '..', 'core', 'capabilities');
+    const CAPS = path.resolve(__dirname, '..', '..', '..', '..', 'meta');
     if (!fs.existsSync(path.join(CAPS, 'teambuild', 'tool', 'rbtv-teambuild'))) {
       throw new Error(`fixture precondition: ${CAPS}/teambuild/tool/rbtv-teambuild is absent — X5's subject must exist`);
     }
@@ -202,7 +202,7 @@ capture('probe-seat-exposed-clis', async (lines) => {
     // SIBLING one through the workspace read root rather than through its own grant. Copying keeps
     // the probe free of any instance path while preserving the production topology; exposing the
     // repo's own copy instead would test a layout no deployment has.
-    const repo = path.join(f.ws, 'tools', 'rbtv', 'core', 'capabilities');
+    const repo = path.join(f.ws, 'tools', 'rbtv', 'meta');
     fs.cpSync(path.join(CAPS, 'teambuild'), path.join(repo, 'teambuild'), { recursive: true });
     fs.cpSync(path.join(CAPS, 'rbtv-cli'), path.join(repo, 'rbtv-cli'), { recursive: true });
     const TEAMBUILD = path.join(repo, 'teambuild', 'tool', 'rbtv-teambuild');

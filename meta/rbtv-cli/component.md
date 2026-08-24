@@ -1,3 +1,7 @@
+---
+description: The ONE system-wide RBTV CLI — the agent-facing disclosure drill (modules → components → entry points) plus the action-verb router that delegates to the surfaces that already ship.
+---
+
 # rbtv-cli — the ONE system-wide RBTV CLI
 
 `rbtv` — the agent-facing disclosure + action surface. Built for core-build task 7.65.
@@ -45,7 +49,8 @@ never whether the SUBJECT is healthy (leader ruling on defect `G-121`). A wrappe
 health into its exit status would undo that fix for every caller arriving through here — so the
 selftest asserts it with a delegate that reports an unhealthy subject on a successful read.
 
-`rbtv install` delegates to **`meta/installer/install2.py`**. The installer is homed in the `meta`
+`rbtv install` delegates to **`meta/installer/install.py`** (named `install2.py` until
+2026-08-23, when the file was split into `meta/installer/lib/` and took the plain name). The installer is homed in the `meta`
 module because `meta/` hosts what operates on the rbtv SYSTEM itself rather than on a user goal's
 content, and installing rbtv into a workspace is exactly that (owner ruling, 2026-08-22 — `core/`
 was the wrong home). Its own `argparse` program name has always been `rbtv install`; this route is
@@ -53,7 +58,7 @@ what makes that string true at a shell. Its two workspace settings —
 `harness` (which AI coding tools get files written for them) and `artifact` (which root guidance
 file the human authors) — are answered once on the first `add` and thereafter owned by their own
 verbs; `add` refuses those flags afterwards rather than accepting them and doing nothing
-(`install2.py` D16).
+(installer `design-decisions.md` D16).
 
 The daemon verbs' names, the survival-check and `LoadState` behaviours, and the reason `unit` is
 not called `status` are the daemon-operator capability's, carried whole there. Nothing was thinned
@@ -123,7 +128,7 @@ Per-machine symlink, never synced by git — the convention `sd-graph`, `coordin
 already follow on this box:
 
 ```
-ln -sfn <rbtv_path>/core/capabilities/rbtv-cli/tool/rbtv ~/.local/bin/rbtv
+ln -sfn <rbtv_path>/meta/rbtv-cli/tool/rbtv ~/.local/bin/rbtv
 ```
 
 `node` is the only prerequisite (v24 on the ignite VPS). Verify with `rbtv doctor` from any

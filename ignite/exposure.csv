@@ -38,7 +38,7 @@
 # `rbtv-cli` was ALSO empty under that entry's mechanic 1; the owner AMENDED it 2026-08-10
 # (`#d-tool-inventory-rbtv-cli-column`) — a tool the `rbtv` CLI routes to carries its invocation
 # prefix there, and only an unrouted tool leaves it empty. Six of the twenty below are routed
-# (source of truth: `core/capabilities/rbtv-cli/tool/lib/verbs.js` `ROUTES`); the parent-CLI fact
+# (source of truth: `meta/rbtv-cli/tool/lib/verbs.js` `ROUTES`); the parent-CLI fact
 # is NOT expressible in `method`, whose vocabulary is closed and keyed by CMP-12's map.
 # `path` mints nothing: it has no CMP-12 realization and is `exposes:`-authorable since d-path-exposes-authorable (2026-08-10) —
 # a `path` row is inventory plus the declaration that the shell reaches the part by script path.
@@ -82,7 +82,7 @@ rbtv-ignite-watchdog,tool,path,,capabilities/daemon-watchdog/tool/rbtv-ignite-wa
 rbtv-goal-request,tool,path,,capabilities/goal-creation-request/tool/rbtv-goal-request,,
 rbtv-goal,tool,path,rbtv goal,capabilities/goals-tree/tool/rbtv-goal,,
 rbtv-bindings,tool,path,,capabilities/bindings/tool/rbtv-bindings,"Author the casting sheet that turns a workflow into a taskforce — the per-seat harness/model/effort file materialize-seats.py reads as --bindings, at .rbtv/config/modules/{module}/{component}/bindings/{code}.json",
-rbtv-master-profile,tool,path,,capabilities/master-profile/tool/rbtv-master-profile,"Read and change which harness+model — and at which effort rung — the channel master's next sitting runs on: the harness/model/effort triple of its seat in .rbtv/config/modules/meta/master-agent/bindings/channel-master.json, validated against the live CASTABLE profile set and followed by a seat.md re-render. Takes effect on the next message; nothing is restarted",
+rbtv-master-profile,tool,path,,capabilities/master-profile/tool/rbtv-master-profile,"Read and change which harness+model — and at which effort rung — the channel master's next sitting runs on: the harness/model/effort triple of its seat in .rbtv/config/modules/meta/master/bindings/channel-master.json, validated against the live CASTABLE profile set and followed by a seat.md re-render. Takes effect on the next message; nothing is restarted",
 rbtv-ignite-ticker,tool,path,rbtv ignite ticker,capabilities/ticker-settings/tool/rbtv-ignite-ticker,,
 rbtv-seat-identity,tool,path,,server/seat-identity/rbtv-seat-identity,,
 ignite-cli,tool,path,rbtv ignite,cli/ignite.js,,

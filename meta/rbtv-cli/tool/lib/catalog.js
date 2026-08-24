@@ -29,7 +29,7 @@ const fs = require('fs');
 const path = require('path');
 
 // The repo root, resolved from this file's own position: tool/lib -> tool ->
-// rbtv-cli -> capabilities -> core -> <rbtv root>. `RBTV_ROOT` overrides it, the
+// rbtv-cli -> meta -> <rbtv root>. `RBTV_ROOT` overrides it, the
 // same env-override shape the rest of this family uses (RBTV_IGNITE_UNIT,
 // IGNITE_GATEWAY_ADDR) — which is also what makes the tree probeable from a
 // throwaway copy without editing the real one.
@@ -40,7 +40,7 @@ const path = require('path');
 // root it resolved, and `doctor` prints that root as its own check.
 const RBTV_ROOT = process.env.RBTV_ROOT
   ? path.resolve(process.env.RBTV_ROOT)
-  : path.resolve(__dirname, '..', '..', '..', '..', '..');
+  : path.resolve(__dirname, '..', '..', '..', '..');
 const MANIFEST = path.join(RBTV_ROOT, 'admin', 'install', 'module-manifest.json');
 
 // Manifest keys that carry a per-component inventory. `tools` nests its rows one

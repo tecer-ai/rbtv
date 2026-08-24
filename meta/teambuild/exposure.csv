@@ -1,0 +1,11 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# `rbtv-teambuild` is this component's MANDATORY TOOL INVENTORY row (first-party CLI,
+# `d-tool-inventory-exposure-rows`); the `rbtv-cli` cell carries `rbtv teambuild` because
+# `meta/rbtv-cli/tool/lib/verbs.js` ROUTES routes to this tool; `description` empty by ruling on
+# a `tool` row — the tool self-documents via `-h`.
+# Row relocated here 2026-08-23 from the retired module-root `core/exposure.csv` when the owner
+# ruled the rbtv CLIs into `meta/` (each command a component).
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+rbtv-teambuild,tool,path,rbtv teambuild,tool/rbtv-teambuild,,
