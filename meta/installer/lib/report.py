@@ -5,19 +5,6 @@ from __future__ import annotations
 from .constants import FENCE_ID, MANAGED_MARK, PATH_BOOTSTRAP
 
 
-def print_scan(data: dict) -> None:
-    print(f"{'COMPONENT':<34} {'TREE':<7} {'PARTS':>5}  METHODS / NOTE")
-    for e in data["components"]:
-        note = e["note"] or ", ".join(e["methods"]) or "(manifest has no rows)"
-        if (e.get("kind") == "hub" and e.get("methods") == ["skill"]
-                and not e.get("refusal")):
-            note = "hub skill — whole folder copied verbatim (D15)"
-        print(f"{e['id']:<34} {e['tree']:<7} {e['parts']:>5}  {note}")
-    for s in data["shadowed"]:
-        print(f"\nSHADOWED: {s['id']} exists on both trees — mirror wins "
-              f"({s['winner_path']}); repo copy ignored ({s['shadowed_path']})")
-
-
 def print_result(data: dict) -> None:
     for key in ("installed", "uninstalled"):
         if data.get(key):

@@ -137,9 +137,6 @@ MATRIX: dict[str, dict[str, str | None]] = {
     },
 }
 
-# Methods that do not land as a per-part file: they claim keys or blocks inside
-# files shared with the whole installed set (D7/D12), or mint nothing (D9).
-AGGREGATE_METHODS = ("hook", "config", "agents.md")
 
 INVENTORY_METHODS = ("pool",)
 
