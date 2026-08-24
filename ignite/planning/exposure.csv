@@ -1,0 +1,5 @@
+# planning's exposure manifest. Library parts — no agent-facing CLI (mint/birth call them).
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+planning-lock,reference,path,,lock.py,"Exclusive flock over <goal>/planning/current/.materialize.lock — holder pid + planning-pass id; collision refuses",
+supervised-materialize,reference,path,,wrapper.py,"Supervised materialize wrapper both planning-door paths call — five failure classes, no Slack",
+planning-failure-record,reference,path,,failure.py,"C-16 failure record writer + origin routing (approval-thread / gate-lane)",
