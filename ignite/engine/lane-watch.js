@@ -94,7 +94,7 @@ function readLane(goalFolder) {
 function laneIsPaused(goalFolder, heartStore) {
   try {
     const { bindEnding, goalNameOf } = require('./ending-reads');
-    const api = bindEnding(heartStore);
+    const api = bindEnding(heartStore, goalFolder);
     if (api && api.isGoalPaused(goalNameOf(goalFolder))) return true;
   } catch { /* fall through to file shim */ }
   let raw;

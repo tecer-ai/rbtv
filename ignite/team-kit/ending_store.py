@@ -59,6 +59,19 @@ def seat_waiting_on_owner(pkg, seat):
         start=pkg))
 
 
+# spec-state-store §2.1 as a LIST — the same WHERE clause `seat_waiting_on_owner` answers as a
+# boolean, so a row can never be held by one reader and clean by the other. ONE call per goal:
+# `ready.py` needs the ask ids of EVERY seat and must not pay a `node` subprocess per seat.
+# `posted` DEFAULTS TO 1 AND THAT DEFAULT IS §2.1 — see the JS side. `posted=None` asks the
+# different question "every open ask, delivered or not", which only the check-out door's
+# never-posted note needs; it is never the wait predicate.
+def list_open_asks(pkg, seat=None, posted=1):
+    payload = {"goal": goal_id_of(pkg), "posted": posted}
+    if seat:
+        payload["seat"] = seat
+    return ending_store_op("listOpenAsks", payload, start=pkg) or []
+
+
 def is_launchable(predecessors_done, ending, armed, failed_terminal=False):
     return bool(ending_store_op("isLaunchable", {
         "predecessorsDone": bool(predecessors_done),

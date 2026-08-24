@@ -187,9 +187,12 @@ function readExecutionRecord(goalFolder) {
 // that: `clean` says a process ended tidily, which is true of a seat that fail-blocked. Done-ness
 // is the check-out disposition (§ WHERE DONE-NESS LIVES NOW). What this file can still say — and
 // what its cross-lane readers actually spend — is "a lane ran this seat and watched it end".
+// ⚠ AND IT KEYS ON `ended`, NOT ON `outcome` — the same Row D migration `closeExecutionLocked`
+// carries. Spec-state-store emptied the work word out of that column, so filtering on it answered
+// "no lane has ever run any seat" for every goal in the build. `ended` is the close stamp.
 function ranSeats(goalFolder) {
   return new Set(readExecutionRecord(goalFolder).rows
-    .filter((r) => (r.outcome || '').trim())
+    .filter((r) => (r.ended || '').trim())
     .map((r) => r.seat));
 }
 
@@ -264,9 +267,16 @@ function closeExecutionLocked({ goalFolder, sessionId, outcome, endedAt }) {
     const cells = splitRow(lines[i]);
     while (cells.length < header.length) cells.push('');
     if (cells[at('session-id')] !== sessionId) continue;
-    if ((cells[at('outcome')] || '').trim()) return { closed: false, reason: 'already closed' };
+    // ⚠ THE CLOSE STAMP IS `ended`, AND KEYING THIS ON `outcome` WAS A LIVE DEFECT. Row D of
+    // spec-state-store emptied the work word out of this column, so `outcome` is now blank on
+    // EVERY closed row — and this guard, which reads a blank cell as "still open", re-closed every
+    // terminal row of every goal on every tick, forever. `ended` is what the schema calls the close
+    // stamp (see COLUMNS), it is written right here, and it is never blank on a closed row.
+    if ((cells[at('ended')] || '').trim()) return { closed: false, reason: 'already closed' };
     cells[at('outcome')] = outcome;
-    if (at('ended') >= 0) cells[at('ended')] = endedAt || '';
+    // …which means it must never be written blank: a row stamped with an empty `ended` would be
+    // closed and unrecognizable as closed, which is the defect above with one extra step.
+    if (at('ended') >= 0) cells[at('ended')] = endedAt || new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
     atomicWrite(p, lines.join('\n'));
     return { closed: true, outcome };
@@ -366,8 +376,11 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
   const closedIds = new Map();
   const alreadyClosed = (goalFolder, sessionId) => {
     if (!closedIds.has(goalFolder)) {
+      // `ended`, NOT `outcome` — the same Row D migration `closeExecutionLocked` carries. A blank
+      // outcome column is now the normal shape of a CLOSED row, so filtering on it made this set
+      // permanently empty and `nonClean` re-reported every terminal row of the goal every tick.
       closedIds.set(goalFolder, new Set(readExecutionRecord(goalFolder).rows
-        .filter((r) => (r.outcome || '').trim()).map((r) => r['session-id'])));
+        .filter((r) => (r.ended || '').trim()).map((r) => r['session-id'])));
     }
     return closedIds.get(goalFolder).has(sessionId);
   };
@@ -396,7 +409,18 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       });
       if (c.closed) {
         closed.push(`${home.seat}=ended`);
-        nonClean.push({ seat: home.seat, goalFolder: home.goalFolder, sessionId: row.session_id, outcome: '' });
+        // ⚠ NON-CLEAN IS THE LANE'S TURN STATUS, READ AS HISTORY (§5: `jobs_log` → history), and
+        // it is NOT the killed `outcome` word — which is why the row's own cell stays blank. It
+        // used to be pushed for EVERY close, clean ones included, because the word it tested was
+        // deleted out from under it: a tidy `done` turn reported itself as a non-clean ending.
+        // The DEATH-TRUTH of the work is not here at all — that is the ending store's
+        // `failed:crash` plus its evidence pointer (§4.4). This list is the lane's witness of how
+        // the PROCESS ended, report-only, for the log and the probes.
+        if (row.status !== 'done') {
+          nonClean.push({
+            seat: home.seat, goalFolder: home.goalFolder, sessionId: row.session_id, status: row.status,
+          });
+        }
       }
     }
   }

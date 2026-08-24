@@ -953,7 +953,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // if coord grows a verdict this table does not name.
   const deadSeats = new Set((readyRows || []).filter((r) => r && r.dead).map((r) => r.seat));
   const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
-  const api = bindEnding(heartStore);
+  const api = bindEnding(heartStore, goalFolder);
   const gid = goalNameOf(goalFolder, goal);
   const waitableSeats = (readyRows || [])
     .filter((r) => r && r.seat && !r.dead && isPendingWork(api, gid, r.seat))

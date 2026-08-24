@@ -1576,66 +1576,81 @@ def cmd_checkout(args):
         # REFUSES rather than downgrading, and it runs BEFORE the export and the roster flip, so a
         # refusal costs the seat the re-run and nothing else.
         #
-        # ⚠ ONE READER, AND IT IS COORD'S OWN. `open_asks` is the predicate `pending` renders,
-        # narrowed to this seat and to `owner`. Nothing here re-derives ask/answer pairing and
-        # nothing reaches for the engine's execution store — which is unreachable from inside a
-        # seat cage anyway (measured 2026-08-11: no bus, no /proc MainPID, no store on disk), and
-        # degrading it to empty INVERTS the verdict on the one case that matters. What settles an
-        # ask is coord's own rule, enforced at `send`: an answer carries `--re <#>`. So the hold
-        # lifts on exactly the row `pending` stops showing, and on no other event.
-        # ⚠⚠ THE TRANSPORT THAT WRITES THE OWNER'S ANSWER ONTO THIS BUS MUST CARRY `--re <ask#>`.
-        # `send --type answer` without it is admitted only under `--force`, and that row leaves the
-        # ask OPEN for every reader — `pending`, this gate, and the seat's own eyes. A bridge that
-        # cannot name the ask number can read it here: `pending --as <seat>` lists it.
+        # ⚠ ONE READER, AND IT IS THE ENDING STORE (spec-state-store §2.1). This gate keyed on
+        # `open_asks(messages.md, to=owner)` — coord's BUS predicate — while the engine keyed the
+        # same fact on the `open_asks` TABLE. One fact, two sources: a posted ask with no bus row
+        # held the engine and not this door, and a bus ask nobody delivered held this door and not
+        # the engine. The store is reachable from inside the cage: this very command already stamps
+        # its ending through `ending_store` a few lines on, so the kit door is the seat's door.
+        # Nothing here re-derives ask/answer pairing.
+        # ⚠⚠ WHAT SETTLES AN ASK IS THE REAP (§2.8): an authorized reply in that exact thread flips
+        # the row `closed` and signals the relaunch in ONE transaction. `--re <#>` on the bus
+        # settles a bus row and no longer lifts this hold.
         #
-        # ⚠ AN ASK THE FERRY PARKED DOES NOT HOLD, AND ITS ABSENCE FROM THIS REFUSAL IS DELIBERATE
-        # — not an oversight (owner ruling 2026-08-11, `d-parked-ask-autonomous-workaround`). The
-        # ferry delivers a `to: owner` row only when the goal is `interactive` AND the seat declares
-        # `human-interactive:`; otherwise nobody is told, so no answer can EVER arrive, and a hold
-        # there is one the owner cannot clear by answering. `ask_parked_at_gate` above is the
-        # ferry's own gate ladder, mirrored and pinned — read its header for the mirror's terms and
-        # for why a cannot-tell reads as PARKED. A released seat is NOT silent: the note below names
-        # the gate on the seat's own output and on its durable disposition record, so a reader can
-        # tell "measured and released" from "never asked".
+        # ⚠ AN UNDELIVERED ASK DOES NOT HOLD, AND ITS ABSENCE FROM THIS REFUSAL IS DELIBERATE —
+        # not an oversight (owner ruling 2026-08-11, `d-parked-ask-autonomous-workaround`). The
+        # parked case now has a FIELD instead of a mirrored ladder: §3 sets `posted=1` only once
+        # delivery is acknowledged, so `posted=0` IS "nobody was told", and no answer can EVER
+        # arrive for it. `ask_parked_at_gate`'s re-derivation of the ferry's ladder is therefore
+        # gone from this door — the store carries the fact the ladder was predicting. A released
+        # seat is NOT silent: the note below names the reason on the seat's own output and on its
+        # durable disposition record, so a reader can tell "measured and released" from
+        # "never asked".
+        #
+        # ⚠ IT REFUSES AND NEVER DEGRADES. An unreachable store must not release a held seat, so a
+        # store error is a refusal here — the opposite direction from `ready-seats`, whose broad
+        # `except` protects a fail-closed-per-goal seeding pass that must not lose its other
+        # verdicts to a bad read.
         _bq_fm = briefing_frontmatters(workers_dir(args)).get(me)
-        _bq_open = (open_asks(load_messages(base)[1], sender=me, to=OWNER_TOKEN)
-                    if _bq_fm and _fm_fallback(_bq_fm[0]) == FALLBACK_BLOCK_AND_QUEUE else [])
-        _bq_gate = ask_parked_at_gate(package_dir(args), me) if _bq_open else ""
-        if _bq_open and _bq_gate:
-            _bq_note = (f"owner-ask hold NOT applied: {len(_bq_open)} unanswered ask(s) to the "
-                        f"owner, PARKED by the ferry at gate `{_bq_gate}` — never delivered, so no "
-                        f"answer can settle them")
+        _bq_all = []
+        if _bq_fm and _fm_fallback(_bq_fm[0]) == FALLBACK_BLOCK_AND_QUEUE:
+            try:
+                _bq_all = ending_store.list_open_asks(package_dir(args), seat=me, posted=None)
+            except ending_store.EndingStoreError as _exc:
+                refuse("state",
+                       f"'{me}' declares `fallback: block-and-queue`, so this check-out must read "
+                       f"the ending store's open asks before it may record `done` — and the store "
+                       f"could not be read: {_exc}. Nothing was written. This refuses rather than "
+                       f"releasing, because an unreadable store must never advance a successor on "
+                       f"a question that may still be open.", 1)
+        _bq_open = [a for a in _bq_all if int(a.get("posted") or 0) == 1]
+        _bq_parked = [a for a in _bq_all if int(a.get("posted") or 0) != 1]
+        if not _bq_open and _bq_parked:
+            _bq_note = (f"owner-ask hold NOT applied: {len(_bq_parked)} open ask(s) to the owner "
+                        f"were never POSTED (§3 `posted=0`) — nobody was told, so no answer can "
+                        f"settle them")
             _outputs_note += f" · {_bq_note}"
             print(c(f"note: {_bq_note}. Your `done` STANDS (the wave continues). You are expected "
                     f"to have PROCEEDED on your authored autonomous workaround — record the "
                     f"derivation in this goal's decisions.md / doubts.md for the owner to review "
                     f"on his return (d-s14-autonomous-dod).", C_HINT))
-        if _bq_open and not _bq_gate:
+        if _bq_open:
             refuse(
                 "state",
-                f"'{me}' declares `fallback: block-and-queue` and has {len(_bq_open)} ask(s) to "
-                f"the owner that nobody has answered, so this check-out will not record `done`. "
+                f"'{me}' declares `fallback: block-and-queue` and has {len(_bq_open)} posted ask(s) "
+                f"to the owner that nobody has answered, so this check-out will not record `done`. "
                 f"That arm is this seat's OWN declaration that it blocks on its question, and "
                 f"`done` is the ONE disposition that advances the run's DAG — recording it here "
                 f"starts every successor on the assumption your question was settled "
                 f"(`d-block-and-queue-mechanical-hold`). Nothing was written, nothing was exported "
                 f"and your roster row is still ACTIVE.\n"
-                + "".join(f"  UNANSWERED: #{b['num']} to {b['to']} — {truncate(body_of(b), 160)}\n"
+                + "".join(f"  UNANSWERED: {b['ask_id']} to the owner — "
+                            f"{truncate(str(b.get('evidence_pointer') or ''), 160)}\n"
                           for b in _bq_open) +
                 f"END HONESTLY — this is the way out, and the only one you can reach on your own, "
                 f"because the answer is not yours to produce:\n"
                 f"  {coord_invocation(args)} checkout --incomplete \"asked the owner in "
-                + ", ".join(f"#{b['num']}" for b in _bq_open) + f" and ended with no answer\"\n"
+                + ", ".join(str(b['ask_id']) for b in _bq_open) + f" and ended with no answer\"\n"
                 f"It does NOT advance your successors, which is the point: the run records that "
                 f"you said so and leader picks the work up.\n"
                 f"THE ONE OTHER ENDING, if it is TRUE: the answer LANDED while you were working. "
-                f"Look — {coord_invocation(args)} pending — and if nothing is listed under \"your "
-                f"asks nobody has answered\", re-run a plain checkout and it passes. (An answer "
-                f"settles an ask only when it carries `--re <#>`.)\n"
-                 f"⚠ YOUR QUESTION WAS DELIVERED — this seat is `human-interactive:` and this goal "
-                 f"is in `interactive` execution mode, which is what puts it in front of the owner. "
-                 f"Retracting it to get past this gate would discard a question he can still answer; "
-                 f"the parked case, where nobody could be told, does not reach this refusal at all.",
+                f"Re-run a plain checkout — if the reply reached that thread the ask has been "
+                f"REAPED and this gate passes. (An ask settles when an authorized reply lands in "
+                f"its own thread, spec-state-store §2.8 — never on a bus row's `--re <#>`.)\n"
+                 f"⚠ YOUR QUESTION WAS DELIVERED — the ask carries `posted=1`, which is set only "
+                 f"once delivery to the owner was acknowledged (§3). Retracting it to get past this "
+                 f"gate would discard a question he can still answer; an unposted ask, where nobody "
+                 f"could be told, does not reach this refusal at all.",
                  1)
         # ---- D5 (2026-08-19): AN UNVERIFIABLE `done` IS NOT `done` ------------------------------
         #

@@ -7,6 +7,7 @@ const writers = require('./writers');
 const predicates = require('./predicates');
 const { copyHeartHome, OPERATIONAL_TABLES } = require('./copy-home');
 const { checkDoneOutputs } = require('./outputs-check');
+const open = require('./open');
 
 function bind(db) {
   return {
@@ -24,6 +25,7 @@ function bind(db) {
     getGoalState: (goal) => writers.getGoalState(db, goal),
     getAsk: (askId) => writers.getAsk(db, askId),
     seatWaitingOnOwner: (fields) => predicates.seatWaitingOnOwner(db, fields),
+    listOpenAsks: (fields) => predicates.listOpenAsks(db, fields),
     goalWaitingOnOwner: (fields) => predicates.goalWaitingOnOwner(db, fields),
     countOpenAsks: (goal) => predicates.countOpenAsks(db, goal),
     isGoalPaused: (goal) => predicates.isGoalPaused(db, goal),
@@ -40,6 +42,7 @@ module.exports = {
   ...errors,
   ...vocabulary,
   ...paths,
+  ...open,
   ...writers,
   ...predicates,
   checkDoneOutputs,

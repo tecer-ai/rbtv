@@ -702,8 +702,10 @@ def ready_seat_rows(args):
 
     Verdict precedence, and the order is the design:
       SKEW     first, always — a contradiction must never be masked by a later verdict
-      HELD     (W2) this seat has at least one OPEN ask addressed to the OWNER. Its dependents
-               WAIT. ⚠ IT SITS ABOVE `DONE` DELIBERATELY, and that placement IS the mechanism:
+      HELD     (W2) this seat has at least one POSTED, still-open `open_asks` row addressed to
+               the OWNER — spec-state-store §2.1, the ONE source (it was the bus until the
+               state-store migration, which is the dual-source defect that swap closes). Its
+               dependents WAIT. ⚠ IT SITS ABOVE `DONE` DELIBERATELY, and that placement IS the mechanism:
                the whole purpose of the hold is that a seat which checked out WHILE its question
                to the owner was unanswered must not advance its successors, so a terminal
                disposition — the very thing such a seat carries — must never mask it. Below `SKEW`
@@ -802,22 +804,32 @@ def ready_seat_rows(args):
     # cost one read of `lifecycle-inflight.json`, not N. It is spent through `renewal_state`, which
     # is the ONE reader of it (see that function's own note); nothing here re-derives its arms.
     lifecycle = load_lifecycle(base)
-    # W2: THE OWNER-ASK HOLD'S ONE READ OF THE BUS, hoisted for the same reason as every hoist
-    # above — N seats must cost ONE `messages.md` parse, not N. `open_asks` is the room's OWN
-    # settling predicate (`pending`'s, and the check-out gate's): it already drops superseded asks
-    # and asks an `answer`/`verdict` carrying `re: <n>` settled, so THAT LINK IS THE RELEASE
-    # MECHANISM and nothing here counts, pairs or spends a second time.
+    # W2: THE OWNER-ASK HOLD'S ONE READ OF THE ENDING STORE (spec-state-store §2.1), hoisted for
+    # the same reason as every hoist above — N seats must cost ONE read, not N.
+    #
+    # ⚠ THE SOURCE IS `open_asks` AND NO LONGER THE BUS, and that swap IS the fix. This row used
+    # to key `HELD` on `coord.open_asks(messages.md, to=owner)` while `engine/ending-reads.js#
+    # recordView` keyed the SAME fact on the `open_asks` table — one fact, two sources, which is
+    # the dual-source shape §2.1 exists to end. The two disagreed the moment either surface moved:
+    # a posted ask that never reached this room's `messages.md` held the engine and not this
+    # verdict, and a bus ask nobody posted held this verdict and not the engine.
+    # `list_open_asks` is `seat_waiting_on_owner`'s own WHERE clause returned as rows, so
+    # `waiting_on_owner` below and `held-asks` here can never disagree about one seat.
+    #
+    # ⚠ THE RELEASE MECHANISM MOVED WITH IT. A hold lifts when the ask is REAPED (§2.8:
+    # `reapAndRelaunch` flips the row to `closed` in the same transaction that signals the seat's
+    # relaunch), not when a `send --type answer --re <n>` row lands on the bus. Nothing here pairs,
+    # counts or settles a second time.
     #
     # ⚠⚠ IT DEGRADES, IT NEVER RAISES, AND THE BROAD `except` IS THE DESIGN. The ignite engine's
     # seeding pass is FAIL-CLOSED PER GOAL: a non-zero exit from this command seeds NOTHING for the
-    # whole goal. So an unreadable, half-written or malformed bus must cost the run its HOLDS —
-    # never its other verdicts. Absent file, torn read, parse error, anything: no holds, `[]` on
+    # whole goal. So an unreachable, locked or absent store must cost the run its HOLDS — never its
+    # other verdicts. Missing db, node failure, malformed payload, anything: no holds, `[]` on
     # every row, exit 0, every other term intact.
     held = {}
     try:
-        _msgs = load_messages(base)[1]
-        for _seat in after:
-            held[_seat] = [b["num"] for b in open_asks(_msgs, sender=_seat, to=OWNER_TOKEN)]
+        for _ask in ending_store.list_open_asks(pkg):
+            held.setdefault(_ask["seat"], []).append(_ask["ask_id"])
     except Exception:                                          # noqa: BLE001 — see the note above
         held = {}
     # ── W3 · THE ON-DEMAND TERM — how many messages a STAFF CHAIR has waiting ──────────────────
@@ -980,7 +992,8 @@ def ready_seat_rows(args):
                # ⚠ IT IS NOT A TERM OF THE VERDICT and must never become one: a held row keeps its
                # real class and keeps blocking its successors. The ONE consumer is the goal
                # watcher's owed scan.
-                # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
+               # W2: the open owner-ask IDS (§2.1 `open_asks.ask_id`, a Slack thread id — NOT
+               # a bus message number), present on EVERY row (`[]` when none) — the same
                # rule and the same reason as `undeclared-session`, `row-outcome` and `unmet-after`:
                # a key that appears only when it fires cannot be read as a
                # term, and an ABSENT key raises in a consumer where an empty list decides.
@@ -1043,11 +1056,11 @@ def ready_seat_rows(args):
                # it fires. It is what `--explain` prints, so the explain view and the reason
                # string can no longer disagree about one member: they read one computation.
                 "after-render": render}
-        rec["waiting_on_owner"] = False
-        try:
-            rec["waiting_on_owner"] = bool(ending_store.seat_waiting_on_owner(pkg, seat))
-        except ending_store.EndingStoreError:
-            pass
+        # §2.1's boolean, READ OFF THE SAME HOISTED ROWS as `held-asks` above and not re-derived:
+        # it used to spend one `node` subprocess PER SEAT on `seatWaitingOnOwner` while the hold
+        # read a different surface entirely, so the row could print `waiting_on_owner: false` beside
+        # `verdict: HELD`. One read, one answer, N seats.
+        rec["waiting_on_owner"] = bool(rec["held-asks"])
         rec["launchable"] = ending_store.is_launchable(
             not unmet_after, value, None if value != "incomplete" else 1)
         if skew:
@@ -1062,12 +1075,13 @@ def ready_seat_rows(args):
             _ha = rec["held-asks"]
             rec["verdict"] = "HELD"
             rec["reason"] = (
-                f"OWNER-ASK HOLD — this seat has {len(_ha)} unanswered ask(s) to the owner on the "
-                f"bus (#{', #'.join(str(n) for n in _ha)}). NOT OFFERED, and its dependents WAIT: "
-                f"a question the owner has not answered is a question the run has not settled, "
-                f"whatever this seat's own check-out says. It lifts when the owner answers — one "
-                f"`send --type answer --re <n>` per ask, naming the number — and on no other "
-                f"event. It advances NO edge meanwhile")
+                f"OWNER-ASK HOLD — this seat has {len(_ha)} posted ask(s) to the owner still open "
+                f"in the ending store ({', '.join(str(n) for n in _ha)}). NOT OFFERED, and its "
+                f"dependents WAIT: a question the owner has not answered is a question the run has "
+                f"not settled, whatever this seat's own check-out says. It lifts when the ask is "
+                f"REAPED — an authorized reply in that exact thread closes the row and signals the "
+                f"relaunch in ONE act (spec-state-store §2.8) — and on no other event. It advances "
+                f"NO edge meanwhile")
         elif value is not None:
             rec["verdict"] = "DONE"
             rec["reason"] = f"check-out `{value}` ({source})"
@@ -1571,8 +1585,9 @@ def cmd_ready_seats(args):
         # that either exists or does not).
         _ha = rec.get("held-asks") or []
         print(f"  no unanswered ask to the owner                        -> {not _ha}"
-              + (f"   ⚠ OWNER-ASK HOLD: #{', #'.join(str(n) for n in _ha)} open — dependents WAIT "
-                 f"until the owner answers with `--re <n>`" if _ha else ""))
+              + (f"   ⚠ OWNER-ASK HOLD: {', '.join(str(n) for n in _ha)} posted and open —"
+                 f" dependents WAIT until an authorized reply in that thread reaps the ask"
+                 if _ha else ""))
         if not rec["after"]:
             print("  every `after` predecessor is `done`                   -> True (root — none)")
         # 7.383: READ FROM THE ROW, NOT RE-DERIVED. This loop used to look each member up in the

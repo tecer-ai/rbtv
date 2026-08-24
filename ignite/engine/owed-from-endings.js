@@ -47,7 +47,7 @@ function classifyOwed(goalFolder, {
   const queuedSet = queued || new Set();
   const summonedSet = summoned || new Set();
   const gid = goalNameOf(goalFolder, goal);
-  const api = bindEnding(heartStore);
+  const api = bindEnding(heartStore, goalFolder);
   const seats = [...last.keys()];
   const endingMap = endings || endingsForSeats(api, gid, seats);
 
