@@ -6,28 +6,87 @@ four-letters: plan
 
 # planning — the workflow
 
-**Four letters (`plan`).** The prefix every NESTED INSTANCE of this workflow is named through
-(`materialize-seats.py#read_workflow_prefix` → `compose_seat_name`): a second pass materializes as
-`plan-<seat>`, a third as `plan-2-<seat>`, and its taskforce id as `tf-<n>-plan<m>`. Declared
-because W7's wave re-entry splices each newly-unblocked milestone's pass as ONE nested
-materialization, and without this key that materialization refuses `workflow-prefix-undeclared`.
-It is REQUIRED, not cosmetic: `taskforce.csv` is keyed by seat NAME, a goal that already ran pass 1
-carries `plan-planner` (and its siblings), and a bare re-splice of the same names hits the
-materializer's own pinned `seat-exists` refusal and would refuse forever.
+**Four letters (`plan`).** The prefix every seat-id in `planning.csv` shares (`plan-understander`,
+`plan-designer`, …) — mechanically required by the bindings capability's `workflow_code()`, which
+REFUSES a manifest whose rows share no single four-letter prefix. It names this workflow's casting
+sheet (`.rbtv/config/modules/meta/planning/bindings/plan.json`) and is the prefix this workflow's
+seats carry inside a goal.
 
-**Default execution mode.** `interactive` — declared above, in this workflow's own scaffolding. It is the value a goal created from this workflow is BORN with: goal creation writes it into `.rbtv/goals/<goal>/execution-mode`, and from there the control plane gates every agent-initiated owner contact on it. Declared rather than left to derivation because derivation would reach the same answer here (`planning.csv` carries an `interactive` Modality seat, `plan-interviewer`) and the DECLARATION is what lets a later owner ruling say otherwise without rewriting the manifest. Resolution when a workflow declares NO `default-execution-mode:` — any manifest row whose Modality reads `interactive` → `interactive`, none → `autonomous`. A per-goal value supplied in the creation request overrides this default; this is the floor, never a lock.
+**Default execution mode.** `interactive` — declared above, in this workflow's own scaffolding. It
+is the value a goal created from this workflow is BORN with: goal creation writes it into
+`.rbtv/goals/<goal>/execution-mode`, and from there the control plane gates every agent-initiated
+owner contact on it. Declared rather than left to derivation because derivation would reach the
+same answer here (every row below carries Modality `interactive`) and the DECLARATION is what lets
+a later owner ruling say otherwise without rewriting the manifest. Resolution when a workflow
+declares NO `default-execution-mode:` — any manifest row whose Modality reads `interactive` →
+`interactive`, none → `autonomous`. A per-goal value supplied in the creation request overrides
+this default; this is the floor, never a lock.
 
-**Goal.** Turn a planning request — an ad-hoc goal, an optimize, a port, or a scaffold ask — into an owner-ratified definition of done, a milestone DAG, and, per unblocked milestone, a checked, bound, materialization-verified execution plan. Only use case 1 outputs a taskforce (ephemeral, in its goal folder); cases 2–4 output a workflow into the scaffolding.
+**Goal.** Turn a planning request — an ad-hoc goal, an optimize, a port, or a scaffold ask — into an
+owner-approved plan: a full milestone list, the execution seats/workflow that will run it, and a
+digest the owner approves from a phone. Rolling planning is dead: planning runs once to completion,
+then stops for approval — it never executes the plan and never opens or materializes anything
+itself (the daemon does, on approval). Whether the plan lands as a durable workflow (scaffolding,
+reusable) or a one-off taskforce (in the goal's own folder) is the owner's declaration at goal
+creation, honoured by the draft stage — no agent mints durable scaffolding on its own, and no seat
+in this DAG branches on it.
 
-**Scope.** Planning plans — it never executes the plan and never opens/materializes anything itself (the daemon does). The interview is the one deliberately interactive moment: the first pass waits at the owner channel (questions sent as messages addressed to the reserved `owner` token, which the chat bridge carries to the owner's goal channel) for a ratified DoD — a disclosed block-and-queue, never a silent stall, and the ONE sanctioned hard gate (a goal seed already carrying an owner-ratified DoD skips the wait); every later pass runs autonomous.
+**Scope.** Four lean stages, one seat each, plus a fifth verification seat — five seats, one linear
+pass, no per-milestone teams and no goal-level/per-milestone split. Every stage seat is an
+orchestrator of sub-agents (`plan-researcher` / `plan-diagnoser`, fanned out with no manifest row —
+results return to the dispatcher and die with the step). All five seats may ask the owner; none has
+an ask-cap and none has a wall-clock deadline (a planning seat's only clock is the daemon's shared
+~30-min no-progress kill).
 
-**Procedure (two phases, `planning.csv` is the DAG).**
+**Procedure (`planning.csv` is the whole DAG — five rows, linear, no forks, no guards).**
 
-1. **Goal-level phase — runs once per goal:** `plan-interviewer` (goal.md + DoD) → `plan-splitter` (pieces scratch) → `plan-dag-structurer` (`milestones.csv`, each row stamped `planning-mode: full | collapsed`).
-2. **Per-milestone phase — one team per unblocked milestone, in parallel; later passes start here:** `plan-task-definer` → `plan-resource-definer` → `plan-assembler` → check swarm (six single-dimension checkers in parallel — seven when the goal's `use-case:` reads optimize, port, or scaffold, adding the mechanization checker) → `plan-check-assembler` → `plan-binder`. A `collapsed`-stamped milestone runs `plan-planner` alone instead — same contracts, one seat.
+1. `plan-understander` — reads the goal seed and every artifact it names, grounds itself with
+   `plan-researcher` / `plan-diagnoser` where needed, and writes `planning/facts-brief.md`: the
+   goal restated, its constraints, a salvage inventory (existing work products this re-plan may
+   reuse), and a credentials/preferences inventory (names only, never values).
+2. `plan-designer` — reads the facts brief, picks ONE approach, and writes `planning/design.md`:
+   why that approach, and the FULL milestone list (not a first slice) with per-milestone
+   done-criteria — each an observable, a probe, and a threshold.
+3. `plan-drafter` — reads the design and the facts brief, and writes `planning/draft-plan.md`:
+   every milestone from the design detailed, the execution seats/workflow, a permission-envelope
+   section and a credential-name section (sections, never compiled — planning seats themselves run
+   under the shipped standard planning envelope), per-seat interact flags, declared outputs, and a
+   relaunch budget. Every produced execution seat carries the six
+   `workflow-authoring-checklist` declarations.
+4. `plan-reviewer` — trials the draft ONCE against the frozen milestone list and the six
+   declarations, emits a findings list tagged `blocking` / `non-blocking`, revises ONLY the
+   blocking findings (non-blocking ships as accepted residue), and writes
+   `planning/review-package.md`: the tagged findings, the revised plan, and the approval package
+   (what the owner is being asked to bind, and that approval binds at a git commit).
+5. `plan-verifier` — runs exactly two checks (closed findings addressed; the design's milestone
+   list still unbroken), caps regression fix passes at TWO (`REGRESSION-PASS` lines in its own
+   `memory.md`), and composes `planning/approval-digest.md`: milestones, seat count, envelope
+   summary, which seats are interactive, credential-resolve result, red flags (including
+   `unresolved regression` if the cap was hit), artifact paths, the recorded git commit, and the
+   four owner outcomes — `approve` / `reject-close` / `reject-pause` / `reject-retry`. It composes;
+   it never posts (a Slack seat posts the digest afterward) and it never parses a reply.
 
-**The loop.** Every trial verdict the produced taskforce's dod-judge records fires the pass-opener (the unblock-checker seat): a PASS queues one planning pass per newly unblocked milestone; a FAIL below the goal's retry threshold queues ONE gap-filling pass at the same done contract, seeded from the verdict's per-clause gaps; a FAIL at the threshold queues NOTHING — the halt — until the owner answers the escalation. The count is derived from the run's verdict message log, never stored; the threshold it is measured against is per-goal configuration with an optional per-milestone override (`rbtv-goal retry-threshold`, default 2), and both seats read it off the one `coordinate fail-status` verb rather than deriving or typing it. Inside a pass, the check-assembler loops route-backs and re-checks by appending relaunch rows to the run's `taskforce.csv` (finding delivered at `planning/current/route-back-<seat-id>.md` — never in the routed seat's folder, which no peer can write or read). A route-back file is written for an AUTHORING seat ONLY — task-definer, resource-definer, assembler; a relaunched CHECKER receives no file and re-derives its dimension fresh from the amended plan, which is the point of re-checking it at all.
+**The regression loop.** `plan-verifier` is the only seat with an `on-fail-relaunch` entry —
+`plan-reviewer,plan-verifier` — declared on the seat that ISSUES the verdict, per
+`workflow-authoring-checklist`. A failed check re-fires the reviewer (fix the named items only,
+never a new findings pass) then the verifier itself (re-run the same two checks, nothing more). At
+most two such fix passes; a third failure ships the digest with the `unresolved regression` red
+flag instead of failing again.
 
-Any planning seat may fan out `plan-researcher` / `plan-diagnoser` as sub-agents (no taskforce row; results return to the dispatcher).
+**Reject-retry, after approval.** A `reject-retry` owner reply is NOT this workflow's `after` DAG —
+it is a fresh relaunch of `plan-reviewer` + `plan-verifier` only (the owner's comments become the
+closed findings list), fired by whatever consumes the approval-thread reply. An owner-declared
+approach rethink instead reruns the full five-seat pipeline; this workflow's own manifest is
+identical either way.
 
-**Interims (R22, flagged):** the unblock-checker (stage D) still runs as an AGENT seat until its deterministic CLI exists. ⚠ The former "passes run serially until the daemon supports N parallel passes" clause is RETIRED as a doc artifact, not a fixed limit: the consumer drains EVERY open request of a goal in one cadence (`engine/queue-request.js`, the request loop — no bound, no per-goal pass cap) and no concurrency cap exists anywhere in `engine/` or the ticker. A milestone whose PASS unblocks four successors opens four passes in the same cadence; the flagship `meet-transcript-summarizer` is exactly that 4-parallel case. Its output is no longer an interim, though: as of W7 it mints a real `queue-request` message per queued pass and the daemon drains it (`coordinate queue-requests --json`), and each pass is spliced as ONE nested materialization of this workflow. What remains interim is the OCCUPANT, not the mechanism.
+**Inadequate input, any stage.** Repair the gap yourself, log it in `input-gaps` and the goal's
+`decisions.md` (or `doubts.md` if unclosable), and continue. No stage re-entry, no rejection
+verdict — a stage that receives a markerless or thin upstream artifact never re-enters the seat
+that should have produced it.
+
+**Next-stage launch** is the ordinary task-graph `after` edge — no splice, no new mechanism. The old
+17-row per-milestone splice (goal-level phase + a per-milestone team of nine) is retired teaching:
+it does not run inside this workflow. `plan-interviewer`, `plan-completeness-reviewer`,
+`plan-splitter`, `plan-dag-structurer`, and every per-milestone-phase seat (`plan-task-definer`
+through `plan-planner`) remain cataloged in `seats.csv` — their retirement from the catalog is a
+later change, not this one — but none of them holds a node in `planning.csv` any longer.
