@@ -214,7 +214,24 @@ The two gates, as they were declared while they existed:
 anywhere, the cursor advanced, and no retry, replay or queue ever surfaced it again. Every
 `to: owner` row now **travels** — as a real ❓ ask thread where `postAsk` is wired, and otherwise
 down the agent-thread / DM legs it always had. The ONE outcome that still posts nothing is the
-[T2-R14] refusal at `ask-thread.js#postAsk`, and that is not a park: the caller is told.
+[T2-R14] refusal at `ask-thread.js#postAsk`, and that is not a park: the caller is told, and the
+row stays on the bus for the bounded retry instead of being swept past.
+
+### The ask door, wired (spec-owner-io §2/§3)
+
+`chat-bridge.js` builds `ask-thread.js` and holds ONE map for it — `askThreads`,
+`<channel>:<threadTs>` → `{ goalId, seat, askId, label }`, persisted additively in the state file
+(`STATE_VERSION` unchanged). It carries no ask **state**: state is `open_asks`, daemon-side, and a
+second copy of it in this process would be a second source of one fact.
+
+| Direction | Path |
+|---|---|
+| **Outbound** | the bus ferry's injected `postAsk` → `postOwnerAsk` → resolve the goal channel (`resolveChannel`, shared with `routeToAgentThread` via `goalChannelFor`) → `askDoor.postAsk` → record the map entry and the reply address. A 💭 note is **not** entered in the map: it mints no record [§2.1], so there is nothing to release. |
+| **Inbound** | `onChatMessage` looks the thread up in `askThreads` **before every other leg**, keyed off the raw event (`_channel`/`_threadTs`) because for goal traffic the routed conversation id IS the channel and cannot tell one ask thread from another. A hit is handled at the release door and **does not fall through** — a fall-through would mint a sitting on an unauthorized remark and answer an authorized one twice. |
+
+The map entry is dropped **only on an actual release**. Wrong thread, unauthorized sender,
+unparsed token and a mechanical verb all leave the ask `open` — and an ask still open whose thread
+the bridge has forgotten is an ask that can never be answered.
 
 **Every `to: owner` row is carried** — that address IS agent-initiated contact. Owner-initiated flows were untouched by
 construction even while the gates existed — that address IS agent-initiated contact, so there is no nobody-home precondition. Owner-initiated flows are untouched by

@@ -35,3 +35,19 @@ seat reads) and reaps the wait + fires the relaunch in ONE act. The pre-D89
 "oldest still open ask" and `re: <n>` release doors are DELETED [D-4-ruling,
 C-3, T1-R12] — a reply that names no thread this module owns releases nothing.
 Probe: `probes/probe-chat-ask-release.js`.
+
+**How it is reached in production.** `chat-bridge.js` constructs the module and
+holds the one map it needs: `askThreads`, `<channel>:<threadTs>` → the ask's goal,
+seat and id, persisted additively in the bridge state file (`STATE_VERSION`
+unchanged). No ask STATE lives there — state is `open_asks`, daemon-side.
+
+Outbound: the bus ferry posts every `to: owner` row through the bridge's
+`postOwnerAsk`, which resolves the goal's channel and calls `postAsk`. The three
+park rungs that used to swallow such a row are deleted (see the README's gate
+section); the ONE outcome that posts nothing is the [T2-R14] refusal, which is
+logged and leaves the row on the bus rather than sweeping it away.
+
+Inbound: `onChatMessage` checks `askThreads` BEFORE every other leg. A message in
+an ask's thread is handled at the release door and does not fall through — a
+fall-through would mint a sitting on an unauthorized remark and answer an
+authorized one twice.

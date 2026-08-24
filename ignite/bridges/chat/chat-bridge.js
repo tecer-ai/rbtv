@@ -18,7 +18,8 @@ const path = require('node:path');
 const { createForwardPath } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
-const { createBusFerry } = require('./bus-ferry');
+const { createBusFerry, seatIsHumanInteractive } = require('./bus-ferry');
+const { createAskThreads } = require('./ask-thread');
 const { createAskRecord } = require('./ask-store');
 const { createOutbox, outboxStorePath } = require('./outbox');
 
@@ -52,6 +53,81 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // open and the reap — travel the same intent through the same forwarder. Two constructions would
   // be two places to get the intent's name and its refusal handling right.
   const askRecord = createAskRecord({ forwarder, logger });
+
+  // ── THE ASK DOOR (`ask-thread.js`, spec-owner-io §2/§3) ────────────────────────────────────
+  //
+  // ONE map and one module. `askThreads` is the bridge's answer to the only question the release
+  // rule asks that Slack cannot: is THIS thread an ask's thread, and whose? The id IS the Slack
+  // `thread_ts` [D-8], so the key is the ordinary conversation address `<channel>:<ts>` and the
+  // value is the ask's owner — nothing about the ask's STATE lives here. State is `open_asks`,
+  // daemon-side, and a second copy of it in this process would be a second source of one fact.
+  //
+  // ⚑ PERSISTED ADDITIVELY, `STATE_VERSION` unchanged — the ferry cursors' and the agent threads'
+  // discipline exactly. Losing it would leave every open ask thread unattributed: the owner's
+  // answer would be handled as ordinary goal traffic and the ask would never be released, which
+  // is the pre-redesign silence rebuilt by accident.
+  const askThreads = new Map(); // `<channel>:<threadTs>` -> { goalId, seat, askId, label }
+
+  const askDoor = createAskThreads({
+    outbox,
+    askRecord,
+    updateMessage: (args) => transport.updateMessage(args),
+    // INSTANCE CONFIG, never repo content, and an empty list authorizes NOBODY (ask-thread.js).
+    authorizedSenders: (config && config.allowlist) || [],
+    // A GETTER: the identity is resolved from Slack at start(), after this construction.
+    botUserId: () => botUserId,
+    // [T2-R14] the send-time refusal, at the door the ruling names. The predicate is the
+    // BRIDGE's because the bridge owns the goal folder; `seatIsHumanInteractive` is the same
+    // reader the descriptor's own linter agrees with (bus-ferry.js).
+    seatIsInteractive: (goalId, seatName) => {
+      const root = (config && config.workspaceRoot) || null;
+      if (!root || !goalId || !seatName) return false;
+      return seatIsHumanInteractive(path.join(root, '.rbtv', 'goals', String(goalId)), String(seatName));
+    },
+    workspaceRoot: (config && config.workspaceRoot) || null,
+    logger,
+  });
+
+  // POST AN ASK AS A REAL ❓ THREAD. The wrapper is what the ask module deliberately does not
+  // hold: the goal→channel resolution (`resolveChannel`, never `channelForGoal` — see
+  // routeToAgentThread's header for why a map miss is not proof of absence) and the bookkeeping
+  // that makes the owner's reply findable again.
+  async function postOwnerAsk({ goalId, seatName, label = 'work-content', body, marker = 'ask' }) {
+    const resolved = await goalChannelFor(goalId);
+    const channel = resolved.channelId;
+    if (!channel) return { posted: false, reason: resolved.reason };
+    const fn = marker === 'note' ? askDoor.postNote : askDoor.postAsk;
+    const out = await fn({ goalId, channelId: channel, seatName, label, body });
+    if (!out || out.posted !== true) return out || { posted: false, reason: 'post-failed' };
+    const threadTs = out.askId || out.threadTs;
+    const key = `${channel}:${threadTs}`;
+    // A 💭 note mints NO record [§2.1] and therefore nothing to release — it is not entered in
+    // the map. Its thread still gets a reply address so the owner can be answered in it.
+    if (out.askId) askThreads.set(key, { goalId: String(goalId), seat: String(seatName), askId: String(threadTs), label });
+    replyAddr.set(key, { channel, threadTs });
+    saveState();
+    return out;
+  }
+
+  // THE RELEASE, called from the inbound path below and nowhere else.
+  async function releaseAskFor(entry, chatMsg) {
+    const channelGoal = goalChannels ? goalChannels.goalForChannel(chatMsg._channel) : null;
+    const out = await askDoor.release({
+      goalId: entry.goalId,
+      channelId: chatMsg._channel,
+      seatName: entry.seat,
+      askId: entry.askId,
+      threadTs: chatMsg._threadTs,
+      senderId: chatMsg.chatUserId,
+      text: chatMsg.text,
+      channelGoal,
+    });
+    // The map entry is dropped only on an ACTUAL release. Every other outcome — wrong thread,
+    // unauthorized, unparsed, a mechanical verb — leaves the ask `open`, and an ask still open
+    // whose thread the bridge has forgotten is an ask that can never be answered.
+    if (out && out.released === true) { askThreads.delete(`${chatMsg._channel}:${chatMsg._threadTs}`); saveState(); }
+    return out;
+  }
 
   const forwardPath = createForwardPath({
     forwarder, threadMap, allowlist, config, logger, askStore: askRecord,
@@ -332,8 +408,15 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // exist) and `resolve-failed` (Slack did not answer) are different facts and the ferry acts on
   // the difference — collapsing them here would put the distinction the map just made straight
   // back in the bin.
+  // ONE resolver for every outbound leg that needs a goal's channel. Two copies of this line
+  // would be two places to get `resolveChannel`-not-`channelForGoal` right — and the second copy
+  // is exactly where a future edit would quietly put the in-memory map back in charge.
+  async function goalChannelFor(goalId) {
+    return goalChannels ? await goalChannels.resolveChannel(goalId) : { channelId: null, reason: 'no-channel' };
+  }
+
   async function routeToAgentThread({ goalId, agent, text }) {
-    const resolved = goalChannels ? await goalChannels.resolveChannel(goalId) : { channelId: null, reason: 'no-channel' };
+    const resolved = await goalChannelFor(goalId);
     const channel = resolved.channelId;
     if (!channel) return { delivered: false, reason: resolved.reason };
     const known = agentThreadFor(goalId, agent);
@@ -368,6 +451,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     routeToMaster: (args) => routeBusRowToMaster(args),
     routeToAgentThread: (args) => routeToAgentThread(args),
     knowsThread: (t) => knowsThread(t),
+    // A `to: owner` row is posted as a REAL ❓ ask thread [D18, T5-R8, spec-owner-io §3] — the
+    // park that used to swallow it is gone (bus-ferry.js). Injected, so `busFerryOptions` can
+    // still unwire it in a probe measuring the legs beneath.
+    postAsk: (args) => postOwnerAsk(args),
     ownerUser: (config && config.ownerUser) || null,
     ...busFerryOptions,
   });
@@ -482,6 +569,29 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // that queue IS the DM-pairing feature (DEC-6). Order matters for a reason that
   // has nothing to do with which refusal is stricter.
   async function onChatMessage(rawMsg) {
+    // ── THE ASK DOOR, BEFORE EVERY OTHER LEG (spec-owner-io §2.4) ──────────────────────────────
+    //
+    // A message inside a thread this bridge opened for an ask is an ANSWER TO THAT ASK and is
+    // handled here and NOWHERE ELSE. It does not fall through, and that is the point: an
+    // unauthorized reply falling through would mint a sitting on somebody's remark, and an
+    // authorized one would be answered twice — once by the release and once by the goal leg.
+    //
+    // Keyed on `<channel>:<threadTs>` off the RAW event, never on `route.conversationId`: for
+    // goal traffic the conversation IS the channel, so the routed id cannot tell one ask thread
+    // from another, or from the channel itself.
+    //
+    // ⚑ EVERY §2.4 REFUSAL IS STILL A HANDLED MESSAGE. Wrong thread cannot happen through this
+    // key; unauthorized is silent by ruling [§2.4.2]; unparsed already posted its NACK
+    // in-thread [§2.4.3]; a mechanical verb belongs to the pause/resume door. In all four the ask
+    // stays `open` — nothing here ever closes one by guessing.
+    if (rawMsg && rawMsg._channel && rawMsg._inThread && rawMsg._threadTs) {
+      const entry = askThreads.get(`${rawMsg._channel}:${rawMsg._threadTs}`);
+      if (entry) {
+        const released = await releaseAskFor(entry, rawMsg);
+        return { forwarded: false, leg: 'ask-release', route: 'ask', ask: entry.askId, ...released };
+      }
+    }
+
     const route = routeOf(rawMsg);
     // The conversation id the whole bridge keys on: the Slack thread for master
     // traffic, the CHANNEL for goal traffic. An unroutable message keeps its raw id
@@ -856,6 +966,9 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // orphan every open agent thread: the owner's reply would land in a thread the bridge no
       // longer attributes to anybody and be handled as ordinary goal traffic.
       agentThreads: Object.fromEntries(agentThreads),
+      // Same additive rule for the ask threads. See `askThreads`' header: losing this map leaves
+      // an open ask whose answer the bridge can no longer recognize as an answer.
+      askThreads: Object.fromEntries(askThreads),
       // ⚠ NO `pendingRetries` KEY (P2). The daemon queue holds what this used to hold, and it
       // survives a bridge restart by construction. A file written by an OLDER bridge may still
       // carry the key — loadState says so out loud rather than dropping it in silence.
@@ -905,6 +1018,12 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     agentThreads.clear();
     for (const [k, v] of Object.entries(doc.agentThreads || {})) {
       if (v && typeof v === 'object' && v.threadTs) agentThreads.set(String(k), { threadTs: String(v.threadTs) });
+    }
+    askThreads.clear();
+    for (const [k, v] of Object.entries(doc.askThreads || {})) {
+      if (v && typeof v === 'object' && v.askId && v.goalId && v.seat) {
+        askThreads.set(String(k), { goalId: String(v.goalId), seat: String(v.seat), askId: String(v.askId), label: v.label || 'work-content' });
+      }
     }
     // ⚠ A STATE FILE FROM THE PRE-QUEUE BRIDGE (P2). Held re-submits used to ride this file, and
     // the deploy that deletes the machinery meets exactly one such file on this box. The entries
@@ -1059,9 +1178,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   return {
     onChatMessage, deliverToOwner, start, stop,
+    postOwnerAsk, askDoor,
     registerGoal, closeGoal, routeOf, outbox,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
-    _replyAddr: replyAddr, _agentThreads: agentThreads, _lastForwarded: lastForwarded,
+    _replyAddr: replyAddr, _agentThreads: agentThreads, _askThreads: askThreads, _lastForwarded: lastForwarded,
     forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
     _saveState: saveState, _loadState: loadState, stateFile,
   };

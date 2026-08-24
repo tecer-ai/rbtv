@@ -4,14 +4,18 @@
 // agent-initiated contact, the (goal, agent) thread map, the inbound 'agent' route, the
 // return leg into a goal channel, and the seat refusals.
 //
-// The claims that matter most here are NEGATIVE, and they split into two kinds that a
-// careless fixture makes indistinguishable:
-//   • a PARKED row — the gates said no, so NOTHING is posted anywhere (not the channel, not
-//     the owner's DM) while the cursor still advances. Every park check below therefore
-//     asserts against BOTH post logs, and each is paired with the same row travelling once
-//     its own gate opens — so "not posted" can never pass for "nothing was ferried at all".
+// ⚑ THE GATES AND THE PARK ARE DELETED [D24, T2-R17, D-7-ruling]. This file used to pin that a
+// row the two gates refused was SWALLOWED — nothing posted anywhere, cursor advanced. Arms 2, 3
+// and 4b now pin the opposite on the same discriminating fixtures: the row TRAVELS, and NO log
+// line matches `/PARK/i` on any pass. Every TRAVEL claim keeps its pair, so "it was delivered"
+// can never pass for "everything is delivered regardless".
+//
+// The claims that still matter most are NEGATIVE:
 //   • NO SITTING MINTED — the agent-thread post and the return leg both mint nothing, which
 //     is checkable only as an absence in the forwarder's enqueue log.
+//   • NOT THE INVENTED THREAD (S-13) — a fabricated `[chat-thread:]` token must land the row in
+//     the seat's OWN thread, never the one the row named. Both are posts, so the discriminator
+//     is `threadTs`, never the post count.
 //
 // No daemon: every claim is about the bridge's own gating, mapping and routing, so the
 // gateway is a stub that records every enqueue and Slack is a fake that records every post.
@@ -160,7 +164,14 @@ function makeBridge({ workspaceRoot, stateFile = null, logs = null, slack = make
     makeTransport: () => slack,
     forwarderImpl: forwarder,
     replyLegOptions: { pollMs: 3600000 },
-    busFerryOptions: { pollMs: 3600000 }, // driven by hand via tick()
+    // ⚑ THE ASK DOOR IS UNWIRED HERE, DELIBERATELY, and it is the documented unwired
+    // configuration (bus-ferry.js § postAsk), not a bypass. Wired, every `to: owner` row in this
+    // file would be posted as a ❓ ASK THREAD [D18, T5-R8] and this probe would stop measuring its
+    // own subject — the per-AGENT thread, which is still the leg a row takes when the ask door
+    // refuses it ([T2-R14]) or cannot post. The wired claim — a work-content row becoming a real
+    // ❓ thread rather than a park — lives in `probe-chat-ask-release.js`, where the ask door is
+    // the subject.
+    busFerryOptions: { pollMs: 3600000, postAsk: null }, // driven by hand via tick()
   });
   return { ...built, slack, forwarder, config };
 }

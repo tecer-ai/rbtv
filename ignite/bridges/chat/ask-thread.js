@@ -74,7 +74,10 @@ function createAskThreads({
   updateMessage,
   // Instance config (`config.js#allowlist`). Empty = nobody is authorized.
   authorizedSenders = [],
-  // This bot's own user id, so its own posts can never release an ask (§2.4.2).
+  // This bot's own user id, so its own posts can never release an ask (§2.4.2). A FUNCTION is
+  // accepted as well as a value, and the bridge passes one: the identity is resolved from Slack
+  // at `start()`, long after this module is constructed, so a captured value would be `null`
+  // forever and the self-reply guard would be dead code that reads as live.
   botUserId = null,
   // §2.4 / [T2-R14]: is this seat designated to reach the owner? A non-designated seat's ask is
   // REFUSED AT THIS DOOR. Default TRUE because the predicate is the embedder's (it owns the goal
@@ -93,6 +96,10 @@ function createAskThreads({
   }
 
   const authorized = new Set(authorizedSenders.map(String).filter(Boolean));
+  const botId = () => {
+    const v = typeof botUserId === 'function' ? botUserId() : botUserId;
+    return v == null ? null : String(v);
+  };
   const log = (level, message, fields = {}) => { if (logger) logger({ level, message, ...fields }); };
 
   // The shared body of `postAsk` and `postNote`: open a NEW thread, learn the id it minted, stamp
@@ -197,7 +204,8 @@ function createAskThreads({
     // parse, no NACK, no state change — a NACK here would let anyone in the channel make the bot
     // talk back, and an unauthorized message is not a malformed answer, it is not an answer.
     const sender = senderId == null ? '' : String(senderId);
-    if (!sender || (botUserId && sender === String(botUserId)) || !authorized.has(sender)) {
+    const self = botId();
+    if (!sender || (self && sender === self) || !authorized.has(sender)) {
       log('debug', 'reply ignored — sender is not in the instance-config authorized set [§2.4.2]', { goalId, askId, sender });
       return { released: false, reason: 'unauthorized' };
     }

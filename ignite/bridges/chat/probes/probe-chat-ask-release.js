@@ -18,6 +18,7 @@ const {
   createAskThreads, openingLine, displaySuffix, replyCopyPath, MARKER_ASK, MARKER_NOTE,
 } = require('../ask-thread');
 const { NACK_ASK } = require('../reply-grammar');
+const { buildBridge } = require('../index');
 
 const OUT = path.join(__dirname, 'probe-chat-ask-release.out');
 const t0 = Date.now();
@@ -220,6 +221,227 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
     check('no oldest-open / `re:` release door survives in the module\'s live code',
       !/oldest/i.test(code) && !/\bre:\s*<?\d/.test(code) && /String\(threadTs\) !== String\(askId\)/.test(code),
       {});
+  }
+
+  // ── E — END TO END THROUGH THE BRIDGE ────────────────────────────────────────────────────────
+  //
+  // Everything above drives `ask-thread.js` directly. This section drives the REAL BRIDGE, because
+  // a door that is built and proven but never wired is exactly the state this sitting inherited:
+  // `chat-bridge.js` must CONSTRUCT the module, the bus ferry must reach it instead of parking,
+  // and an inbound Slack message in an ask's thread must reach `release` — three wirings, none of
+  // which any check on the module alone can see.
+  //
+  // Still no Slack and still no daemon: the transport and the gateway forwarder are fakes.
+  {
+    const eRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ask-release-e2e-'));
+    const E_GOAL = 'e2e-goal';
+    const E_SEAT = 'writer';
+    const DM = 'D_OWNER';
+    const goalDir = path.join(eRoot, '.rbtv', 'goals', E_GOAL);
+    fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'coordination', 'execution'), '2026-08-24a\n');
+    fs.mkdirSync(path.join(goalDir, 'seats', E_SEAT), { recursive: true });
+    // [T2-R14] the seat IS designated, so the ask door accepts it. The refusal half is the
+    // `seat-not-interact` check further down, on a seat that declares nothing.
+    fs.writeFileSync(path.join(goalDir, 'seats', E_SEAT, 'seat.md'),
+      `---\nseat: ${E_SEAT}\nhuman-interactive: yes\nfallback: block-and-queue\n---\nbody\n`);
+    fs.mkdirSync(path.join(goalDir, 'seats', 'silent'), { recursive: true });
+    fs.writeFileSync(path.join(goalDir, 'seats', 'silent', 'seat.md'), '---\nseat: silent\n---\nbody\n');
+    const busFile = path.join(goalDir, 'coordination', 'messages.md');
+    const row = (id, from, to, type, body) => `## ${id} | from: ${from} | to: ${to} | type: ${type} | 2026-08-24 10:00\n\n${body}\n\n`;
+    fs.writeFileSync(busFile, '# messages\n\n' + row(1, E_SEAT, E_SEAT, 'note', 'history — first sight seeds the cursor here'));
+
+    const posted = [];
+    const updated = [];
+    let nextTs = 100;
+    let nextChan = 1;
+    const chans = [];
+    const slack = {
+      posted,
+      postsIn(c) { return posted.filter((q) => q.channel === c); },
+      async authTest() { return { ok: true, userId: BOT }; },
+      async openDm(userId) { return { ok: true, channel: DM, userId }; },
+      async createChannel({ name }) {
+        const ch = { id: `C${String(nextChan++).padStart(4, '0')}`, name, is_archived: false };
+        chans.push(ch);
+        return { ok: true, channel: { id: ch.id, name: ch.name } };
+      },
+      async listChannels() { return { ok: true, channels: chans.map((c) => ({ id: c.id, name: c.name })), nextCursor: null }; },
+      async archiveChannel() { return { ok: true }; },
+      async sendToOwner({ channel, threadTs, text }) {
+        // A DISTINCT §2.1 `display_suffix` per post: the suffix is the last six digits of the ts,
+        // so a fake that reuses them would let "the re-ask minted a FRESH id" pass on two threads
+        // that render identically to the owner.
+        const ts = `${nextTs}.${String(nextTs++).padStart(6, '0')}`;
+        posted.push({ channel, threadTs: threadTs ?? null, text, ts });
+        return { delivered: true, ts };
+      },
+      // The one transport call the ask door REQUIRES — the §3 lead line is stamped by rewriting
+      // the message Slack just minted an id for.
+      async updateMessage(u) { updated.push(u); const t = posted.find((q) => q.ts === u.ts); if (t) t.text = u.text; return { updated: true }; },
+      async start() { return { connected: true }; },
+      stop() {},
+    };
+    const eLogs = [];
+    const forwarded = [];
+    const forwarder = {
+      forwarded,
+      askOps() { return forwarded.filter((f) => f.intent === 'record-owner-ask').map((f) => f.payload.act); },
+      async forward(intent, payload) { forwarded.push({ intent, payload }); return { ok: true, result: { recorded: true, ask_id: payload.thread || null, state: payload.act === 'reap' ? 'closed' : 'open', relaunch: { queued: true } } }; },
+      async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
+    };
+    const built = buildBridge({
+      gatewayAddr: '127.0.0.1:0',
+      bridgeToken: 'stub',
+      sessionJobId: 'chat-launch',
+      sendMessageJobId: 'send-message',
+      workdir: null,
+      workspaceRoot: eRoot,
+      channelPrefix: 'test-',
+      stateFile: path.join(eRoot, 'state.json'),
+      busFerry: true,
+      busFerryDmUser: OWNER,
+      allowlist: [OWNER],
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, {
+      logger: (e) => eLogs.push(e),
+      makeTransport: () => slack,
+      forwarderImpl: forwarder,
+      replyLegOptions: { pollMs: 3600000 },
+      busFerryOptions: { pollMs: 3600000 },
+    });
+    const bridge = built.bridge;
+    await bridge.start();
+    const reg = await bridge.registerGoal(E_GOAL);
+    await bridge.busFerry.tick();                       // first sight → cursor at tail
+    const before = posted.length;
+
+    // E1 — THE PARKING TEST [DoD 4]. A work-content `to: owner` row on a goal with NO
+    // `execution-mode` file at all — the fixture that was the guaranteed park under the deleted
+    // gate ladder — is posted as a REAL ❓ ASK THREAD.
+    fs.appendFileSync(busFile, row(2, E_SEAT, 'owner', 'ask', 'which folder should the draft land in?'));
+    await bridge.busFerry.tick();
+    const askPost = posted[before];
+    const askId = askPost && askPost.ts;
+    check('E1 [DoD 4]: a work-content owner-bound bus row is posted as a REAL ❓ ASK THREAD in the goal channel — NEW thread, §3 lead line, and NOT parked',
+      posted.length === before + 1 && askPost.channel === reg.channelId && askPost.threadTs === null
+      && askPost.text.startsWith(`${MARKER_ASK} ${displaySuffix(askId)} · ${E_SEAT} · work-content`)
+      && /which folder should the draft land in\?/.test(askPost.text)
+      && bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) === 2,
+      { head: askPost && askPost.text.split('\n')[0], threadTs: askPost && askPost.threadTs, cursor: bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) });
+    check('E1: the bridge MINTED the ask record through the `record-owner-ask` intent — exactly one open, no reap',
+      forwarder.askOps().join(',') === 'open'
+      && forwarded.find((f) => f.intent === 'record-owner-ask').payload.thread === askId,
+      { ops: forwarder.askOps() });
+
+    // E2 — THE INBOUND DOOR. A reply in the WRONG thread of the SAME channel releases nothing and
+    // is not even recognized as an ask reply.
+    const wrong = await bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: `${reg.channelId}:99.9`, text: 'a) yes',
+      _channel: reg.channelId, _threadTs: '99.9', _msgTs: '99.91', _inThread: true, _channelType: 'channel',
+    });
+    check('E2 §2.4.1: an authorized reply in the WRONG thread reaches no ask door at all — no reap, and the ask is still the only record',
+      wrong.leg !== 'ask-release' && forwarder.askOps().join(',') === 'open',
+      { leg: wrong.leg, ops: forwarder.askOps() });
+
+    // E3 — the RIGHT thread, an UNAUTHORIZED sender: recognized as an ask reply and refused in
+    // SILENCE (§2.4.2) — no reap, no NACK, and nothing minted anywhere.
+    const postsBeforeStranger = posted.length;
+    const stranger = await bridge.onChatMessage({
+      chatUserId: STRANGER, chatThreadId: `${reg.channelId}:${askId}`, text: 'a) yes',
+      _channel: reg.channelId, _threadTs: askId, _msgTs: '101.1', _inThread: true, _channelType: 'channel',
+    });
+    check('E3 §2.4.2: the RIGHT thread with an UNAUTHORIZED sender is handled AT the ask door and released NOTHING — no reap, no NACK posted, and it never fell through to a session-create',
+      stranger.leg === 'ask-release' && stranger.released === false && stranger.reason === 'unauthorized'
+      && posted.length === postsBeforeStranger && forwarder.askOps().join(',') === 'open'
+      && forwarded.every((f) => f.intent === 'record-owner-ask'),
+      { reason: stranger.reason, posts: posted.length - postsBeforeStranger, intents: forwarded.map((f) => f.intent) });
+
+    // E4 — an UNPARSED first token: the verbatim §4.5 NACK, in the SAME thread, ask still open.
+    const nackBefore = posted.length;
+    const garbled = await bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: `${reg.channelId}:${askId}`, text: 'whatever you think best',
+      _channel: reg.channelId, _threadTs: askId, _msgTs: '102.1', _inThread: true, _channelType: 'channel',
+    });
+    const nackPost = posted[nackBefore];
+    check('E4 §2.4.3: an UNRECOGNIZED first token posts the verbatim NACK IN THE ASK THREAD through the outbox and the ask stays OPEN',
+      garbled.released === false && garbled.reason === 'unparsed' && posted.length === nackBefore + 1
+      && nackPost.channel === reg.channelId && nackPost.threadTs === askId && nackPost.text === NACK_ASK
+      && forwarder.askOps().join(',') === 'open',
+      { threadTs: nackPost && nackPost.threadTs, ops: forwarder.askOps() });
+
+    // E5 — the release itself, through the bridge: reap exactly once, reply on disk.
+    const released = await bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: `${reg.channelId}:${askId}`, text: 'b) the project folder\nand keep the draft',
+      _channel: reg.channelId, _threadTs: askId, _msgTs: '103.1', _inThread: true, _channelType: 'channel',
+    });
+    const dest = replyCopyPath(eRoot, E_GOAL, askId);
+    check('E5 §2.4.4/§2.4.5 END TO END: the authorized reply in the exact thread RELEASES through the bridge — reap fires EXACTLY once and the reply is on disk for the relaunched seat',
+      released.leg === 'ask-release' && released.released === true && released.outcome === 'b'
+      && forwarder.askOps().join(',') === 'open,reap'
+      && fs.existsSync(dest) && fs.readFileSync(dest, 'utf8').includes('the project folder'),
+      { ops: forwarder.askOps(), outcome: released.outcome, dest });
+
+    // E6 — RE-ASK IS FREE [§2.4.5, C-11] and lands in a FRESH thread, and the released thread is
+    // no longer an ask door: a second answer in it releases nothing twice.
+    fs.appendFileSync(busFile, row(3, E_SEAT, 'owner', 'ask', 'and the filename?'));
+    await bridge.busFerry.tick();
+    const second = posted[posted.length - 1];
+    const again = await bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: `${reg.channelId}:${askId}`, text: 'a) yes',
+      _channel: reg.channelId, _threadTs: askId, _msgTs: '104.1', _inThread: true, _channelType: 'channel',
+    });
+    check('E6 [C-11]: the re-ask opens a FRESH thread with its own id and its own record, and the RELEASED thread has stopped being an ask door — a second answer in it reaps nothing',
+      second.threadTs === null && second.ts !== askId
+      && second.text.startsWith(`${MARKER_ASK} ${displaySuffix(second.ts)} · ${E_SEAT} · work-content`)
+      && forwarder.askOps().join(',') === 'open,reap,open'
+      && again.leg !== 'ask-release',
+      { ops: forwarder.askOps(), secondHead: second.text.split('\n')[0], againLeg: again.leg });
+
+    // E7 — [T2-R14] AT THE WIRED DOOR. A seat that declares nothing is REFUSED at send: no ❓
+    // thread, no record, and — the ruling's point — the row does NOT reach the owner by some
+    // other leg either, because a refusal that falls through to the agent thread is not a refusal.
+    //
+    // ⚑ AND IT IS STILL NOT A PARK, which is the distinction this check exists to hold. A park
+    // ADVANCED THE CURSOR and told nobody: the row was gone. A refusal leaves the cursor where it
+    // was — the row is held and retried, exactly like a missing channel — and it is REPORTED in
+    // the log, naming the seat and the ruling. Both halves are asserted, because "nothing was
+    // posted" alone reads identically to the behaviour that was deleted.
+    const beforeSilent = posted.length;
+    const cursorBefore = bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`);
+    fs.appendFileSync(busFile, row(4, 'silent', 'owner', 'ask', 'an undesignated seat asking'));
+    await bridge.busFerry.tick();
+    const refusal = eLogs.filter((l) => /REFUSED at the ask door/.test(l.message));
+    check('E7 [T2-R14]: an UNDESIGNATED seat is REFUSED at the ask door — nothing posted on any surface and no record minted — and the refusal is NOT a park: it is logged naming the seat, and the cursor does not sweep the row away',
+      posted.length === beforeSilent
+      && forwarder.askOps().join(',') === 'open,reap,open'
+      && refusal.length === 1 && refusal[0].from === 'silent'
+      && bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) === cursorBefore
+      && eLogs.every((l) => !/PARK/i.test(l.message)),
+      { posts: posted.length - beforeSilent, refusals: refusal.length, cursorBefore, cursorAfter: bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`), ops: forwarder.askOps() });
+
+    // E8 — PERSISTENCE. The ask-thread map is in the state file and survives a restart, or the
+    // owner's answer after one lands as ordinary goal traffic and the ask is never released.
+    const openThreadTs = second.ts;
+    bridge.stop();
+    const doc = JSON.parse(fs.readFileSync(path.join(eRoot, 'state.json'), 'utf8'));
+    const rebuilt = buildBridge({
+      gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch', sendMessageJobId: 'send-message',
+      workdir: null, workspaceRoot: eRoot, channelPrefix: 'test-', stateFile: path.join(eRoot, 'state.json'),
+      busFerry: true, busFerryDmUser: OWNER, allowlist: [OWNER],
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, { logger: () => {}, makeTransport: () => slack, forwarderImpl: forwarder, replyLegOptions: { pollMs: 3600000 }, busFerryOptions: { pollMs: 3600000 } });
+    await rebuilt.bridge.start();
+    const afterRestart = await rebuilt.bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: `${reg.channelId}:${openThreadTs}`, text: 'a) draft.md',
+      _channel: reg.channelId, _threadTs: openThreadTs, _msgTs: '105.1', _inThread: true, _channelType: 'channel',
+    });
+    check('E8: the ask-thread map is PERSISTED (version 1, additive) and restored — the owner\'s answer AFTER A RESTART still releases the ask it belongs to',
+      doc.version === 1 && doc.askThreads && Object.keys(doc.askThreads).length === 1
+      && afterRestart.leg === 'ask-release' && afterRestart.released === true
+      && forwarder.askOps().join(',') === 'open,reap,open,reap',
+      { version: doc.version, persisted: doc.askThreads && Object.keys(doc.askThreads), ops: forwarder.askOps() });
+    rebuilt.bridge.stop();
   }
 
   const pass = checks.every((c) => c.pass);
