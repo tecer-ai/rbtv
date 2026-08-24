@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { compile, compilePlanning } = require('./compiler');
+const { writeConfigShims } = require('./shims');
 const { reasonFrom } = require('../server/spawn/seat-grants');
 
 const STAFF = new Set(['leader', 'goal-master', 'channel-master']);
@@ -56,10 +57,17 @@ function extraPathsOf(fill) {
 function admitLaunch(raw) {
   const compiled = consumeLaunch(raw);
   if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
+  const shims = writeConfigShims({
+    goalDir: raw.goalDir,
+    home: raw.home || os.homedir(),
+    workspaceRoot: raw.workspaceRoot,
+    rbtvRepo: raw.rbtvRepo,
+  });
   return {
     spawn: true,
     binds: compiled.binds,
     credentialNames: compiled.credentialNames || [],
+    shims,
   };
 }
 
