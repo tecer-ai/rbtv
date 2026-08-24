@@ -64,7 +64,7 @@ except ImportError:                      # non-POSIX host; the writer lock is no
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+TARGET = ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 OUT = HERE / "probe-team-monitor-activity-fallback.out"
 
 T0 = 1_700_000_000.0            # a fixed wall clock, so an age is a measurement and not a race

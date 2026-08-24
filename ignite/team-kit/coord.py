@@ -14,7 +14,7 @@ grouped command list, `coordinate <command> -h` for one command's arguments, one
 step that usually follows. Briefing frontmatter keys: `briefing-template.md` beside this script.
 
 Stdlib only; no PATH install. Liveness/context monitoring lives in `team_monitor.py`
-(`orchestration/cli/team-monitor/`), which replaced the retired `watch.py`.
+(`orchestration/team-monitor/tool/`), which replaced the retired `watch.py`.
 """
 import argparse
 import csv
@@ -4306,7 +4306,7 @@ def write_seat_statusline(w):
 # ---------- team-monitor start (task 7.33's room-creation line; p-monitor-start-is-lane-K...) ----------
 
 def team_monitor_script():
-    return Path(__file__).resolve().parents[2] / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+    return Path(__file__).resolve().parents[2] / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 
 
 def team_monitor_holder(base):

@@ -11,7 +11,7 @@ commit until this repoint the probe read exit=2 INOPERATIVE on
 `module 'watch' has no attribute 'RELAUNCH_EXHAUSTED_LINE'` — measuring NOTHING while the
 property it guards went unguarded on the surviving ladder. Nothing it measures is weakened here:
 the same six arms, the same red-first meaning, aimed at
-`orchestration/cli/team-monitor/team_monitor.py` — the ONE ladder `probe-one-room-relaunch-ladder`
+`orchestration/team-monitor/tool/team_monitor.py` — the ONE ladder `probe-one-room-relaunch-ladder`
 names as the survivor.
 
 THE DEFECT IT CLOSES. `relaunch_room` restores the room with `tmux new-session -d`, which comes
@@ -98,7 +98,7 @@ for _v in ("TMUX", "TMUX_PANE"):
 HERE = Path(__file__).resolve().parent
 # HERE = <root>/ignite/team-kit/probes -> parents[2] is the rbtv repo root.
 ROOT = HERE.parents[2]
-MONITOR = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+MONITOR = ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 OUT = HERE / "probe-hollow-room-relaunch.out"
 
 lines, failures, inoperative = [], [], []

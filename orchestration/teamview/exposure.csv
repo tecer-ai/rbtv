@@ -1,0 +1,10 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# `teamview` (CMP-24) is this component's MANDATORY TOOL INVENTORY row (first-party CLI,
+# `d-tool-inventory-exposure-rows`); `description` empty by ruling on a `tool` row — the tool
+# self-documents via `-h`. Row relocated here 2026-08-23 from the retired module-root
+# `orchestration/exposure.csv` in the owner-directed component-shape migration; the wrapper
+# part-id `rbtv-teamview` died with the wrapper.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+teamview,tool,path,,tool/teamview.py,,

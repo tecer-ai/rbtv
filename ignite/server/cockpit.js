@@ -136,7 +136,7 @@ function resolveTeamviewArgv({ igniteSrc, env = process.env, exists = fs.existsS
   }
 
   if (igniteSrc) {
-    const sibling = path.resolve(igniteSrc, '..', 'orchestration', 'cli', 'teamview', 'teamview.py');
+    const sibling = path.resolve(igniteSrc, '..', 'orchestration', 'teamview', 'tool', 'teamview.py');
     if (exists(sibling)) { const py = pythonCmd(); return py ? [py, sibling] : null; }
   }
   return null;

@@ -31,7 +31,7 @@ out on a live multi-agent run.
 ## Run
 
 ```bash
-python3 orchestration/cli/teamview/teamview.py                  # the run package found by walking
+python3 orchestration/teamview/tool/teamview.py                  # the run package found by walking
                                                                 #   UP from the current directory
 python3 .../teamview.py --package <run-folder>                  # or name the run folder outright
                                                                 #   (the canonical form)
@@ -181,7 +181,7 @@ Symlink it onto PATH per machine (like `ignite` / `sd-graph` — never synced by
   `seat+ harness:model ctxN% age` — harness (the pane command, dim), model, context-window
   used % (colored green <60 / yellow <85 / red ≥85), and last-activity age (`now`, `Nm`,
   `NhMMm`, `NdNh`). Resolved by the sibling **ctx-monitor** CLI
-  (`orchestration/cli/ctx-monitor/ctx_monitor.py`, imported by path) from each harness's own
+  (`orchestration/team-monitor/tool/ctx_monitor.py`, imported by path) from each harness's own
   session record — claude transcript (exact pid→transcript map when the team-kit statusline
   is installed), codex rollout, opencode db, kimi wire, argv/TUI fallbacks — see its README.
   Without ctx-monitor the rows degrade to seat + pane command.

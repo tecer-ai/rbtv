@@ -69,7 +69,7 @@ for _v in ("TMUX", "TMUX_PANE"):
     os.environ.pop(_v, None)
 
 KIT = Path(__file__).resolve().parent.parent
-MONITOR = KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+MONITOR = KIT.parent.parent / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 OUT = Path(__file__).resolve().parent / "probe-7555-window-session.out"
 
 lines, failures, inoperative = [], [], []

@@ -179,7 +179,7 @@ def main():
             subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=20)
 
         # ── F7 — the two spellings, read from the two files ──────────────────────────────────
-        tm = KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+        tm = KIT.parent.parent / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
         m = re.search(r'^FINISH_MARKER = "(.*)"$', tm.read_text(encoding="utf-8"), re.M)
         check("⚠ F7 the DISCLOSED second spelling agrees byte for byte with coord's. team-monitor "
               "cannot import coord (separate custody, and `ignite/CLAUDE.md` rule 4 from the other "

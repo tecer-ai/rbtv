@@ -67,7 +67,7 @@ threshold · shell harness exited · ? empty-title pane (dim).
 Reference:  --help-security   audit surface: what is read, never-touches-tmux
             --help-panes      every pane state/marker, cause and remedy
             plan limits       `acct usage` (a different CLI — see its own --help)
-            full docs         orchestration/cli/teamview/README.md
+            full docs         orchestration/teamview/tool/README.md
 """
 import argparse
 import json

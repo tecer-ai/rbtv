@@ -139,7 +139,7 @@ HERE = Path(__file__).resolve().parent
 KIT = HERE.parent                                     # ignite/team-kit
 KIT_COORD = KIT / "coord.py"
 KIT_BUDGET = KIT / "budget.py"
-KIT_MONITOR = (KIT.parent.parent / "orchestration" / "cli" / "team-monitor" / "team_monitor.py")
+KIT_MONITOR = (KIT.parent.parent / "orchestration" / "team-monitor" / "tool" / "team_monitor.py")
 
 # ── The stub harness, and why it is shaped like this. Every clause below is a MEASUREMENT. ─────
 #

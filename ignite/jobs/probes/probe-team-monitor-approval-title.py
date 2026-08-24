@@ -15,7 +15,7 @@ the phrase), so an R1-only probe would report green against the defect. What sep
 pane that is NOT gated whose CONTENT quotes the prompt — the false positive the design record
 rejected.
 
-⚠ PLACEMENT. `team_monitor.py` lives under `orchestration/cli/team-monitor/`, which the probe
+⚠ PLACEMENT. `team_monitor.py` lives under `orchestration/team-monitor/tool/`, which the probe
 runner's discovery root (`ignite/`) does not reach — a probe beside it would be outside the ONE
 denominator, which is the G-141 failure the runner exists to prevent. It therefore sits here,
 beside the other sensor probes under `ignite/jobs/probes/`.
@@ -60,7 +60,7 @@ except ImportError:
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+TARGET = ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 DESIGN_CITATION = "system-design.md:140"
 OUT = HERE / "probe-team-monitor-approval-title.out"
 

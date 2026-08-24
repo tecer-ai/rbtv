@@ -15,7 +15,7 @@ in-session.
 ## Run
 
 ```bash
-python3 orchestration/cli/ctx-monitor/ctx_monitor.py                    # panes of the session you are IN
+python3 orchestration/team-monitor/tool/ctx_monitor.py                    # panes of the session you are IN
 python3 .../ctx_monitor.py <session> [--json]                           # any session by name
 python3 .../ctx_monitor.py --pane %3                                    # one pane
 python3 .../ctx_monitor.py --cwd <dir> --harness claude                 # no tmux: records directly

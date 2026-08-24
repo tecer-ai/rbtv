@@ -36,7 +36,7 @@ proving runs; the run records live in that vault under
   run from INSIDE this folder — it aborts on missing sibling assets elsewhere. The save gate is
   deliberately not the done gate: it does not run the self-test, so run it yourself after saving.
   The same rule applies to the surviving sensor `team_monitor.py`
-  (`python3 orchestration/cli/team-monitor/team_monitor.py selftest`, from the repo root) —
+  (`python3 orchestration/team-monitor/tool/team_monitor.py selftest`, from the repo root) —
   it replaced the retired `watch.py --selftest` gate. Extend the self-test in the
   same change that adds or alters a mechanic — an untested mechanic is how the previous tooling
   shipped six latent defects.
@@ -62,7 +62,7 @@ Before this kit ships beyond the `ignite/core-daemon` branch, the owner rules on
 | `coord.py:38` | `VAULT_ROOT = "/home/henri/ht-wkdir/second-brain"` — hardcoded spawn-cwd fallback; should resolve from the run package / workspace root at runtime |
 | `coord.py` selftest fixtures | Real captured pane text carries the origin vault's absolute paths (production-regime fixtures — anonymize or keep as-is by ruling) |
 | `team-kit.md` / `system-design.md` | Provenance mentions of the origin vault's run packages (descriptive history, arguably fine) |
-| `tmux-overview` / `overview-compact.py` / `provider-usage.py` | Superseded by the promoted `teamview` CLI (`orchestration/cli/teamview/`) — decide drop vs keep for the `panel` strip |
+| `tmux-overview` / `overview-compact.py` / `provider-usage.py` | Superseded by the promoted `teamview` CLI (`orchestration/teamview/tool/`) — decide drop vs keep for the `panel` strip |
 
 ## Starting or joining a run
 

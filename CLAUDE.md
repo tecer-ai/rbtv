@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-RBTV plugin source repo. Components here are installed into target workspaces via `install.py`.
+RBTV plugin source repo. Components here are installed into target workspaces via
+`rbtv install` — `meta/installer/install.py`, which carried the name `install2.py`
+until 2026-08-23.
 
 ## Hard Rule — Keep Docs in Sync
 
@@ -44,7 +46,7 @@ Development note: `ignite/` is developed on the `ignite/core-daemon` branch; it 
 
 ## CLI Tool Placement (convention, owner-ruled 2026-07-26)
 
-The settled destination for every rbtv CLI tool is **capability-folder shape** — `<module>/<component>/capabilities/<name>/tool*/` per the CMP-5 component-first layout (`system-definition/architecture/CMP-5-component-databases.md` in the merge-refactor campaign). NEVER create a new interim CLI home (a `cli/` folder or ad-hoc scripts location). The existing off-tree CLIs (`orchestration/cli/teamview/`, `orchestration/cli/ctx-monitor/`) stay in place until the Phase-6 migration materializes the CMP-5 tree and moves them (task filed in `rbtv-sb-merge-refactor-migrate-tasks.md`).
+The settled destination for every rbtv CLI tool is inside its owning COMPONENT — `<module>/<component>/tool/` (a component whose main CLI it is: e.g. `meta/rbtv-cli/tool/rbtv`, `orchestration/team-monitor/tool/team_monitor.py`), or `<module>/<component>/capabilities/<name>/tool/` when the CLI is one capability of a larger component (e.g. `core/communication/capabilities/audio/audio.py`) — per the CMP-5 component-first layout (`system-definition/architecture/CMP-5-component-databases.md` in the merge-refactor campaign). NEVER create a new interim CLI home (a `cli/` folder or ad-hoc scripts location). The former off-tree CLIs under `orchestration/cli/` were moved into their components on 2026-08-23 (owner-directed), discharging the interim "stay in place until Phase-6" clause this paragraph used to carry.
 
 ## Module Files
 

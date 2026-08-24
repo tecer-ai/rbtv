@@ -53,7 +53,7 @@ for _v in ("TMUX", "TMUX_PANE"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+TARGET = ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 OUT = HERE / "probe-team-monitor-homings.out"
 
 lines, failures, inoperative = [], [], []

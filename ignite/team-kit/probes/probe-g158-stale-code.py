@@ -47,8 +47,8 @@ for _v in ("TMUX", "TMUX_PANE"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
-ENGINE = ROOT / "orchestration" / "cli" / "ctx-monitor" / "ctx_monitor.py"
+TARGET = ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
+ENGINE = ROOT / "orchestration" / "team-monitor" / "tool" / "ctx_monitor.py"
 OUT = HERE / "probe-g158-stale-code.out"
 
 lines, failures, inoperative = [], [], []
@@ -73,10 +73,9 @@ def main():
 
     tmp = Path(tempfile.mkdtemp(prefix="g158-tm-"))
     try:
-        tm_dir = tmp / "orchestration" / "cli" / "team-monitor"
-        eng_dir = tmp / "orchestration" / "cli" / "ctx-monitor"
+        tm_dir = tmp / "orchestration" / "team-monitor" / "tool"
+        eng_dir = tm_dir  # engine ships in the same tool/ dir since the CMP-5 component shape
         tm_dir.mkdir(parents=True)
-        eng_dir.mkdir(parents=True)
         shutil.copy2(TARGET, tm_dir / "team_monitor.py")
         shutil.copy2(ENGINE, eng_dir / "ctx_monitor.py")
 

@@ -3,7 +3,7 @@
 
 WHAT IT SCORES (task 7.664; kit behaviour map row B21). Until this task there were TWO independent
 bounded relaunch ladders acting on the SAME room: `ignite/team-kit/watch.py` and
-`orchestration/cli/team-monitor/team_monitor.py`. Both derive their own lease reading, both spend
+`orchestration/team-monitor/tool/team_monitor.py`. Both derive their own lease reading, both spend
 their own backoff budget, and both run `tmux new-session -d -s <room>` on the same name. Two
 mechanisms that can disagree and BOTH ACT is the failure `ignite/jobs/goal-watcher-job.py` says the
 architecture exists to prevent, and it was LIVE, not theoretical. 7.664 removed the `watch.py`
@@ -83,7 +83,7 @@ HERE = Path(__file__).resolve().parent
 LIVE_ROOT = HERE.parents[2]
 WATCH_ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or LIVE_ROOT)
 WATCH = WATCH_ROOT / "ignite" / "team-kit" / "watch.py"
-MONITOR = LIVE_ROOT / "orchestration" / "cli" / "team-monitor" / "team_monitor.py"
+MONITOR = LIVE_ROOT / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
 OUT = HERE / "probe-one-room-relaunch-ladder.out"
 
 ROOM = "zzprobe-one-ladder"

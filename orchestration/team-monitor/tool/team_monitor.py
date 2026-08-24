@@ -57,7 +57,7 @@ from pathlib import Path
 SCHEMA = "team-monitor/1"
 DEFAULT_INTERVAL = 20.0
 HERE = Path(__file__).resolve().parent
-SENSOR_PATH = HERE.parent / "ctx-monitor" / "ctx_monitor.py"
+SENSOR_PATH = HERE / "ctx_monitor.py"
 
 
 # ---------- inheritance ----------

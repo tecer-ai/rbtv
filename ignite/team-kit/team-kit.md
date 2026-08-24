@@ -32,7 +32,7 @@ runs.
 
 > **Successor note (2026-07-24, updated 2026-07-26):** the `tmux-overview` /
 > `overview-compact.py` / `provider-usage.py` trio was promoted, generalized, into the rbtv repo
-> as the **`teamview`** CLI (`orchestration/cli/teamview/`, branch `ignite/core-daemon`) —
+> as the **`teamview`** CLI (`orchestration/teamview/tool/`, branch `ignite/core-daemon`) —
 > multi-account providers with in-use highlighting, kimi+google added, four size-responsive
 > layouts, session auto-detection. The hold that kept these kit copies authoritative has EXPIRED:
 > it was scoped to the then in-flight kg-views-rebuild run, which closed on 2026-07-24. Whether
