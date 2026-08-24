@@ -5,8 +5,12 @@
 // ⚠ STAND-IN PENDING CMP-5. The registry (`concepts/rbtv-cli.md`) specifies this
 // drill over `module.md` (level 0/1), per-component `component.md` description
 // lines (level 1), and exposure-manifest rows carrying an `rbtv-cli` column
-// (level 2). `module.md` (level 0/1) is STILL not read — level 0/1's module
-// listing stays the install-manifest stand-in below.
+// (level 2). `module.md` IS now read (2026-08-24): the retired installer's
+// `admin/install/module-manifest.json` was this file's level-0 stand-in, and it
+// was deleted with the installer it belonged to — a manifest of the flat-module
+// standard nothing serves any more. Every verb passes through `modules()`, so
+// its absence refused the whole CLI. Level 0/1 now reads the tree the registry
+// always named.
 //
 // What IS now read (owner-ruled 2026-08-24, option a — cli-drill seat): component
 // FOLDERS. Since 2026-08-22 some components moved their manifest one level down
@@ -20,8 +24,8 @@
 // column is read as data (which parts a component exposes as verbs) without any
 // dispatch machinery around it.
 //
-// So this module reads the substrate that IS live — the install manifest, the
-// capability-folder shape, and now component folders — and every function below is
+// So this module reads the substrate that IS live — `module.md`, the
+// capability-folder shape, and component folders — and every function below is
 // a stand-in for a CMP-5 reader, NOT the settled schema. When CMP-5 lands, this
 // file is the one that changes; nothing above it should need to.
 
@@ -41,41 +45,41 @@ const path = require('path');
 const RBTV_ROOT = process.env.RBTV_ROOT
   ? path.resolve(process.env.RBTV_ROOT)
   : path.resolve(__dirname, '..', '..', '..', '..');
-const MANIFEST = path.join(RBTV_ROOT, 'admin', 'install', 'module-manifest.json');
-
-// Manifest keys that carry a per-component inventory. `tools` nests its rows one
-// level deeper (`{description, source_dir, entries:[...]}`) and is unwrapped below.
-const COMPONENT_KEYS = ['skills', 'commands', 'rules', 'subagents', 'tools'];
-
-function readManifest() {
-  let raw;
-  try {
-    raw = fs.readFileSync(MANIFEST, 'utf8');
-  } catch (err) {
-    const e = new Error(`cannot read the module manifest at ${MANIFEST}: ${err.message}`);
-    e.rbtvCode = 'NO_MANIFEST';
-    throw e;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    const e = new Error(`the module manifest is not valid JSON (${MANIFEST}): ${err.message}`);
-    e.rbtvCode = 'BAD_MANIFEST';
-    throw e;
-  }
-}
-
-// Level 0 — the installed modules. `cross_module_agents` is bookkeeping, not a module.
+// Level 0 — the modules ON THE TREE. A directory at the repo root holding
+// `module.md` IS a module, and that file's `description:` frontmatter is its
+// blurb. Read from disk rather than from an inventory file, so a module added or
+// removed is visible the moment it exists, with nothing to keep in step.
+//
+// A tree with no `module.md` anywhere is a resolved-root failure, not an empty
+// repo, so it refuses by name — every verb passes through here, and "0 modules"
+// silently answered would send a caller looking for a module that is really
+// there.
 function modules() {
-  const m = readManifest();
-  return Object.keys(m)
-    .filter((k) => k !== 'cross_module_agents')
-    .sort()
-    .map((name) => ({
-      name,
-      description: m[name].description || '',
-      always_installed: Boolean(m[name].always_installed),
-    }));
+  let entries;
+  try {
+    entries = fs.readdirSync(RBTV_ROOT, { withFileTypes: true });
+  } catch (err) {
+    const e = new Error(`cannot read the rbtv tree at ${RBTV_ROOT}: ${err.message}`);
+    e.rbtvCode = 'NO_TREE';
+    throw e;
+  }
+  const out = [];
+  for (const d of entries) {
+    if (!d.isDirectory() || d.name.startsWith('.')) continue;
+    const md = path.join(RBTV_ROOT, d.name, 'module.md');
+    if (!fs.existsSync(md)) continue;
+    out.push({
+      name: d.name,
+      description: frontmatterField(md, 'description') || firstDescriptionLine(md) || '',
+      entry_point: rel(md),
+    });
+  }
+  if (!out.length) {
+    const e = new Error(`no directory under ${RBTV_ROOT} carries a module.md`);
+    e.rbtvCode = 'NO_MODULES';
+    throw e;
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function moduleExists(name) {
@@ -137,33 +141,14 @@ function toolsOf(capabilityDir) {
   return out;
 }
 
-// Level 1 — a module's components. Manifest rows plus capability folders plus
-// component folders; the manifest never lists capabilities (the installer does not
-// install them) or component-level manifests (nothing installs those either), so no
-// one source alone is the module's inventory.
+// Level 1 — a module's components: capability folders plus component folders,
+// both read off the tree. The retired installer's manifest used to contribute a
+// third set of rows here, and it never listed either of these two (it installed
+// neither), so removing it removes rows that duplicated a component already
+// found on disk, not rows nobody else reports.
 function components(moduleName) {
-  const mod = readManifest()[moduleName];
-  if (!mod) return null;
-  const out = [];
-
-  for (const key of COMPONENT_KEYS) {
-    const block = mod[key];
-    if (!block) continue;
-    const rows = Array.isArray(block) ? block : Array.isArray(block.entries) ? block.entries : [];
-    for (const row of rows) {
-      const source = row.source_template || row.source || row.package || null;
-      out.push({
-        kind: key.replace(/s$/, ''),
-        name: componentName(row, key),
-        description: row.description || '',
-        entry_point: source,
-        tools: [],
-      });
-    }
-  }
-
-  out.push(...capabilities(moduleName));
-  out.push(...componentFolders(moduleName));
+  if (!moduleExists(moduleName)) return null;
+  const out = [...capabilities(moduleName), ...componentFolders(moduleName)];
   out.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return out;
 }
@@ -224,8 +209,10 @@ function componentFolderDescriptor(name, dir, hasComponentMd, hasExposureCsv) {
 }
 
 // Minimal frontmatter field read — the same `---\nkey: value\n---` block every
-// other rbtv-authored file already carries. Values are never quoted in this repo's
-// frontmatter, so no quote-stripping is attempted beyond a defensive trim.
+// other rbtv-authored file already carries. Some values ARE quoted (a
+// `description:` containing a colon must be, or the YAML is invalid), so a
+// matching pair of surrounding quotes is stripped: leaving it in printed a
+// stray `"` at the head of two module blurbs.
 function frontmatterField(absPath, key) {
   let text;
   try {
@@ -237,7 +224,9 @@ function frontmatterField(absPath, key) {
   if (!block) return null;
   const line = block[1].split('\n').find((l) => l.startsWith(`${key}:`));
   if (!line) return null;
-  return line.slice(line.indexOf(':') + 1).trim() || null;
+  const value = line.slice(line.indexOf(':') + 1).trim();
+  const unquoted = /^(["']).*\1$/.test(value) ? value.slice(1, -1) : value;
+  return unquoted || null;
 }
 
 // A component.md's DELIVERABLE body never includes its own frontmatter block — the
@@ -295,20 +284,6 @@ function splitCsvLine(line) {
 // name (what `.claude/` actually carries), with the `rbtv-` prefix stripped so the
 // module scope is not repeated in every token: `rbtv core commit`, not
 // `rbtv core rbtv-commit`.
-function componentName(row, key) {
-  if (row.name) return row.name;
-  if (row.target) {
-    const base = path.basename(row.target, '.md');
-    const dir = path.basename(path.dirname(row.target));
-    const raw = base === 'SKILL' ? dir : base;
-    return raw.replace(/^rbtv-/, '');
-  }
-  if (row.source_template || row.source) {
-    return path.basename(row.source_template || row.source, '.md');
-  }
-  return `<unnamed ${key} row>`;
-}
-
 // ALL matches, never the first. One name can legitimately carry two facets — in
 // `core`, `safe-move` is BOTH a skill (the loader installed into `.claude/`) and a
 // tool (the package it loads). Returning the first match would deliver one facet
@@ -326,13 +301,20 @@ function findComponents(moduleName, componentName_) {
 // 11 rules, and unconditionally inlining them would make the cheap scan step the
 // most expensive output the CLI produces. Divergence stated in rbtv-cli.md.
 function rulesOf(moduleName) {
-  const mod = readManifest()[moduleName];
-  if (!mod || !Array.isArray(mod.rules)) return [];
-  return mod.rules.map((r) => ({
-    name: componentName(r, 'rules'),
-    description: r.description || '',
-    path: r.source || r.source_template || null,
-  }));
+  if (!moduleExists(moduleName)) return [];
+  const out = [];
+  for (const comp of componentFolders(moduleName)) {
+    for (const row of comp.exposure_rows || []) {
+      if ((row.method || '').trim() !== 'rule') continue;
+      const entry = (row['entry-point'] || '').trim();
+      out.push({
+        name: row['part-id'] || '(unnamed rule row)',
+        description: row.description || '',
+        path: entry ? `${moduleName}/${comp.name}/${entry}` : null,
+      });
+    }
+  }
+  return out;
 }
 
 // Level 2 delivers a body. Read at the point of need, never eagerly.
@@ -367,7 +349,6 @@ function rel(abs) {
 
 module.exports = {
   RBTV_ROOT,
-  MANIFEST,
   modules,
   moduleExists,
   components,

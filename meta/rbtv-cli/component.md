@@ -94,8 +94,8 @@ So `tool/lib/catalog.js` reads the substrate that IS live, and is a stand-in for
 
 | Level | Ruled substrate | Read instead |
 |-------|-----------------|--------------|
-| 0 | `module.md` | `admin/install/module-manifest.json` module descriptions |
-| 1 | `component.md` description lines | the manifest's per-module inventory rows (`skills`/`commands`/`rules`/`subagents`/`tools`) + capability folders |
+| 0 | `module.md` | `module.md` — read since 2026-08-24; a directory at the tree root holding one IS a module |
+| 1 | `component.md` description lines | `component.md` frontmatter + capability folders + component folders. The retired installer's `admin/install/module-manifest.json` supplied a third set of rows here until 2026-08-24; it was deleted with that installer, and it never listed either of the two folder shapes anyway |
 | 2 | exposure rows where `rbtv-cli` is set | the capability-folder shape; **invocable entry points are INFERRED from the executable bit** |
 
 **When CMP-5 lands, `catalog.js` is the file that changes; nothing above it should need to.**

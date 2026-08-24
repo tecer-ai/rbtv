@@ -249,30 +249,48 @@ const CHECKS = [
     // the first time at close, not by re-reading the parser.
     const after = runCli(['core', '--rules']);
     if (after.status !== 0) throw new Error(`\`rbtv core --rules\` exited ${after.status}`);
-    const bodies = (after.stdout.match(/^--- core\/rules\//gm) || []).length;
+    // Counted by the body HEADER, not by a path shape: the rules used to live at
+    // `core/rules/<name>.md` and now live inside the component that exposes them
+    // (`core/behaviour/references/…`). Pinning the old folder made this check red
+    // on a move that broke nothing.
+    const bodies = (after.stdout.match(/^--- core\//gm) || []).length;
     if (bodies < 2) throw new Error(`--rules after the module delivered ${bodies} rule bodies`);
 
     const before = runCli(['--rules', 'core']);
-    const beforeBodies = (before.stdout.match(/^--- core\/rules\//gm) || []).length;
+    const beforeBodies = (before.stdout.match(/^--- core\//gm) || []).length;
     if (beforeBodies !== bodies) throw new Error('flag position changes the result');
 
     if (runCli(['ignite', '--json']).status !== 0) throw new Error('`rbtv ignite --json` refused');
     if (runCli(['ignite', '--nonsense']).status !== 2) throw new Error('an unknown drill flag is not a usage error');
   }],
 
-  ['a name with two facets delivers BOTH, never whichever came first', () => {
-    // `core safe-move` is a skill AND a tool. Returning the first match would hand
-    // over one facet and hide the other, with the winner decided by manifest key
-    // order — a silent, ordering-dependent answer.
-    const facets = catalog.findComponents('core', 'safe-move');
-    if (facets.length < 2) throw new Error(`expected >=2 facets for core safe-move, got ${facets.length}`);
-    const r = runCli(['core', 'safe-move']);
-    if (r.status !== 0) throw new Error(`exited ${r.status}`);
-    for (const f of facets) {
-      if (!r.stdout.includes(f.entry_point || '')) throw new Error(`facet ${f.kind} was not delivered`);
+  ['a name resolves to EVERY facet it has, never whichever came first', () => {
+    // `core safe-move` used to be a skill AND a tool, and returning the first match
+    // handed over one facet and hid the other. That name went with the retired
+    // installer's manifest, and no name on the tree carries two facets today — a
+    // capability folder and a component folder sharing a name still would, so the
+    // ALL-matches contract is held here against every live name instead of one
+    // fixture. It cannot go vacuous: a `findComponents` that dropped or duplicated
+    // a match reddens on the very first name.
+    let checked = 0;
+    for (const mod of catalog.modules()) {
+      const list = catalog.components(mod.name) || [];
+      for (const name of new Set(list.map((c) => c.name))) {
+        const expected = list.filter((c) => c.name === name).length;
+        const got = catalog.findComponents(mod.name, name).length;
+        if (got !== expected) {
+          throw new Error(`${mod.name} ${name}: findComponents gave ${got}, components() holds ${expected}`);
+        }
+        checked += 1;
+      }
     }
-    const j = JSON.parse(runCli(['--json', 'core', 'safe-move']).stdout);
-    if (j.facets.length !== facets.length) throw new Error('--json dropped a facet');
+    if (checked < 10) throw new Error(`only ${checked} names checked — the tree read is not delivering components`);
+    const r = runCli(['core', 'coding']);
+    if (r.status !== 0) throw new Error(`\`rbtv core coding\` exited ${r.status}`);
+    const j = JSON.parse(runCli(['--json', 'core', 'coding']).stdout);
+    if (j.facets.length !== catalog.findComponents('core', 'coding').length) {
+      throw new Error('--json dropped a facet');
+    }
   }],
 
   ['an unresolvable rbtv root refuses with a teaching error, not a stack trace', () => {
@@ -347,13 +365,15 @@ const CHECKS = [
     if (!/work-on-ignite \(reference\/skill\)/.test(r.stdout)) throw new Error('the manifest row was not delivered');
   }],
 
-  ['a name that is BOTH a component folder and a module-root part: the folder wins the body, the part is a note, never two answers', () => {
+  ['a component folder delivers its body under ONE header, never a second answer', () => {
     const r = runCli(['ignite', 'team-kit']);
     if (r.status !== 0) throw new Error(`\`rbtv ignite team-kit\` exited ${r.status}`);
     if (!/file-issue \(tool\/path\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver file-issue');
     if (!/file-system-issue \(capability\/skill\)/.test(r.stdout)) throw new Error('team-kit exposure rows did not deliver file-system-issue');
-    const noteIdx = r.stdout.indexOf('is ALSO a module-root part');
-    if (noteIdx === -1) throw new Error('the module-root skill facet was not folded into a note under the folder');
+    // The second facet used to come from a module-root manifest row; with that
+    // manifest retired the only remaining source is a capability folder of the
+    // same name, and ignite has none — so the note is not asserted here. What IS
+    // asserted is the half that outlived it: ONE header, the folder's body.
     const headerCount = (r.stdout.match(/ignite team-kit \(/g) || []).length;
     if (headerCount > 1) throw new Error(`team-kit rendered ${headerCount} separate facet headers — expected one, the folder`);
   }],
@@ -364,13 +384,19 @@ const CHECKS = [
     if (!/work-on-ignite/.test(r.stderr)) throw new Error('refusal known-list does not carry work-on-ignite');
   }],
 
-  ['a module with no component folders (core) is untouched by the folder reader', () => {
-    if (catalog.componentFolders('core').length) {
-      throw new Error('core unexpectedly carries component folders — the fixture this check assumes has moved');
-    }
+  ['a module built ENTIRELY of component folders lists all of them', () => {
+    // This check used to assert the opposite — that `core` carried NO component
+    // folders, so the folder reader could be seen not to disturb it. core was
+    // migrated to component folders and the check had been red on that stale
+    // assumption before the module manifest was retired. Every module is
+    // folder-built now, so the property worth holding is that none is dropped.
+    const folders = catalog.componentFolders('core');
+    if (folders.length < 3) throw new Error(`core carries ${folders.length} component folders — expected the whole module`);
     const r = runCli(['core']);
     if (r.status !== 0) throw new Error(`\`rbtv core\` exited ${r.status}`);
-    if (/\(component\)/.test(r.stdout)) throw new Error('`rbtv core` printed a component-folder row where none exist');
+    for (const f of folders) {
+      if (!r.stdout.includes(f.name)) throw new Error(`\`rbtv core\` did not list ${f.name}`);
+    }
   }],
 ];
 

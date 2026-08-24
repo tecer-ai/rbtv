@@ -206,7 +206,7 @@ function level0(opts) {
     json({ level: 0, substrate: 'stand-in pending CMP-5', modules: mods });
     return 0;
   }
-  const rows = mods.map((m) => [m.name, blurb(m.description) + (m.always_installed ? ' [always installed]' : '')]);
+  const rows = mods.map((m) => [m.name, blurb(m.description)]);
   console.log(paint(opts.pretty, 'bold', `${mods.length} modules`));
   console.log(table(rows, opts.pretty).join('\n'));
   console.log(`\nnext: rbtv <module>   e.g. rbtv ${mods[0] ? mods[0].name : 'core'}`);
@@ -260,7 +260,7 @@ function level1(moduleName, opts) {
 
 // `matches` is EVERY component carrying the name, not the first. In `core`,
 // `safe-move` is both a skill and a tool — two facets of one capability — and
-// delivering only whichever the manifest happened to list first would hide half of
+// delivering only whichever source happened to be read first would hide half of
 // it, with the half you got decided by key order.
 //
 // A `kind: 'component'` facet (a component FOLDER — component-anatomy.md §1) is
@@ -292,7 +292,7 @@ function level2(moduleName, matches, opts) {
   if (compFacet && otherFacets.length) {
     renderFacet(moduleName, compFacet, opts);
     console.log(`\n${paint(opts.pretty, 'bold',
-      `note: \`${compFacet.name}\` is ALSO a module-root part — the folder wins the body above, the part is listed here, never as a second answer`)}`);
+      `note: \`${compFacet.name}\` carries a SECOND facet — the folder wins the body above, the other facet is listed here, never as a second answer`)}`);
     console.log(table(otherFacets.map((o) => [`${o.name} (${o.kind})`, o.entry_point || '(no entry point)']), opts.pretty).join('\n'));
   } else if (matches.length > 1) {
     console.log(paint(opts.pretty, 'bold',
@@ -371,9 +371,9 @@ function doctor(opts) {
   let mods = [];
   try {
     mods = catalog.modules();
-    push('manifest readable', true, `${catalog.rel(catalog.MANIFEST)} — ${mods.length} modules`);
+    push('modules readable', true, `${mods.length} modules, each from its own module.md`);
   } catch (err) {
-    push('manifest readable', false, err.message);
+    push('modules readable', false, err.message);
   }
   push('rbtv root resolved', true, catalog.RBTV_ROOT);
 
@@ -401,10 +401,14 @@ function doctor(opts) {
   }
 
   // CMP-5 divergence — reported by doctor rather than only documented, so it
-  // cannot be forgotten by anyone who never opens the README.
-  const cmp5 = fs.existsSync(path.join(catalog.RBTV_ROOT, 'modules', 'ignite.md'));
+  // cannot be forgotten by anyone who never opens the README. What the drill
+  // reads today is named here so the gap is the part that stands out: the
+  // retired installer's module manifest is gone (2026-08-24) and level 0/1 now
+  // reads `module.md`, but the rbtv-cli exposure column is still read as data
+  // with no dispatch built on it.
   push('drill substrate', true,
-    `STAND-IN pending CMP-5 (no component.md / module.md / rbtv-cli exposure column exists)${cmp5 ? '' : ' — modules/ absent too'}`);
+    'STAND-IN pending CMP-5 — reads module.md, component.md and exposure.csv '
+    + 'off the tree; the rbtv-cli exposure column carries no dispatch yet');
 
   push('node', true, process.version);
 
@@ -435,7 +439,7 @@ try {
   // (a copied or relocated checkout). It gets a teaching refusal naming the root
   // it resolved and the override, because a stack trace tells the caller nothing
   // it can act on. Found by probing this CLI from a throwaway copy of itself.
-  if (err.rbtvCode === 'NO_MANIFEST' || err.rbtvCode === 'BAD_MANIFEST') {
+  if (err.rbtvCode === 'NO_MODULES' || err.rbtvCode === 'NO_TREE') {
     console.error(refusal({
       what: 'the rbtv module catalog is unreadable, so the drill cannot resolve anything',
       why: `${err.message}\n       resolved rbtv root: ${catalog.RBTV_ROOT}`
