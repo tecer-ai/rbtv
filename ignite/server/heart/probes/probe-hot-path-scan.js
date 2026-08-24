@@ -127,7 +127,13 @@ try {
   // ── 3. The CONSUMERS. A bounded API nothing calls is the 7.10 defect. ──────────────────────
   const dispatchSrc = fs.readFileSync(path.join(IGNITE, 'server', 'internal-api', 'dispatch.js'), 'utf8');
   const recordSrc = fs.readFileSync(path.join(IGNITE, 'engine', 'execution-record.js'), 'utf8');
-  const seedingSrc = fs.readFileSync(path.join(IGNITE, 'engine', 'seeding.js'), 'utf8');
+  // ⚠ TWO FILES, ONE SCAN SET. `recordView`'s all-status walk moved to `engine/ending-reads.js`
+  // when the verdict/outcome reads migrated onto the ending store, while `executionsByJob` stayed
+  // in `seeding.js`. Scanning only `seeding.js` would find ONE of the costly pair and report the
+  // other as absent — a green that means "I looked in the wrong file", which is the failure mode
+  // every check below exists to prevent. The pair is what matters, not which file holds it.
+  const seedingSrc = fs.readFileSync(path.join(IGNITE, 'engine', 'seeding.js'), 'utf8')
+    + fs.readFileSync(path.join(IGNITE, 'engine', 'ending-reads.js'), 'utf8');
 
   check('DISPATCH_NEVER_FILTERS_THREAD_IN_JS',
     // `[^)]*` does NOT work here: the arrow param `(m)` closes a paren before `thread` ever

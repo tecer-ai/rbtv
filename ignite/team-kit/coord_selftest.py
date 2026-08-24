@@ -689,11 +689,13 @@ def _selftest_checks(args, failures, names):
               not is_tmux_pane(_pl_row["pane"]) and is_tmux_pane("%3")
               and not is_tmux_pane("") and not is_tmux_pane("pl-sid-1"))
         run(cmd_checkout, agent="paneless", no_export=True, incomplete="ran out of budget")
-        _pl_aw = load_awaiting(base_dir(ns())).get("paneless") or {}
-        check("F1: THE ENDING IS BOUGHT BACK — that seat now CHECKS OUT, reaching `set_awaiting` "
-              "and recording its own `incomplete` where the closer's carry-across reads it. This "
-              "is the row that used to refuse at the roster gate and attest `exited`/`kit`",
-              _pl_aw.get("disposition") == "incomplete")
+        _pl_end = ending_store.get_current_ending(pkg, "paneless") or {}
+        check("F1: THE ENDING IS BOUGHT BACK — that seat now CHECKS OUT and writes its own "
+              "`incomplete` to the ONE ending store, seat-stamped and armed. This is the row that "
+              "used to refuse at the roster gate and be attested `failed`/`crash` by the system",
+              _pl_end.get("ending") == "incomplete"
+              and _pl_end.get("who_stamped") == "seat"
+              and int(_pl_end.get("armed") or 0) == 1)
 
         _pl_sessions.unlink()   # fixture restored: the suite's package has no sessions.csv
 
@@ -1589,16 +1591,16 @@ def _selftest_checks(args, failures, names):
         # both halves green, the COMPOSITION never taken, which is G-124's lesson exactly. This is
         # the row that fails when the wiring is cut, and it is the one that matters — the debt is
         # worthless if the act that incurs it does not record it.
-        check("G-134 (wiring): `checkout` ITSELF records the debt, and it names the pane the "
-              "leader must free — a checked-out seat's pane stays LIVE until close-seat, which is "
-              "the 41-minute leak this exists to make impossible to miss",
-              load_awaiting(base_dir(ns())).get("beta", {}).get("pane") == "%2"
-              and "awaiting close" in out)
+        check("G-134 (wiring): `checkout` ITSELF records the seat's ENDING, at the one moment the "
+              "seat can still witness it — a checked-out seat's pane stays LIVE until close-seat, "
+              "and an ending nobody wrote is the 41-minute leak this exists to make impossible to "
+              "miss. Asserted on the REAL verb, never on the writer it calls",
+              (ending_store.get_current_ending(pkg, "beta") or {}).get("ending") == "done")
         cs_out = run(cmd_close_seat, agent="leader", target="beta", no_export=True, renew=False)
-        check("G-134 (wiring): and `close-seat` SETTLES it — the debt dies with the act that "
-              "actually frees the resources, so a settled seat never lingers in the leader's view "
-              "and the record cannot outlive the leak it reports",
-              "beta" not in load_awaiting(base_dir(ns())) and "debt settled" in cs_out)
+        check("G-134 (wiring): and `close-seat` frees the resources WITHOUT touching that ending — "
+              "the ending store holds the ONE current row per (goal, seat) and only a new sitting "
+              "replaces it, so the mechanical close can never erase what the seat declared",
+              (ending_store.get_current_ending(pkg, "beta") or {}).get("ending") == "done")
 
         check("auto-name: checkin titles the pane after the agent",
               ("%1", "alpha") in titles and ("%2", "beta") in titles)
@@ -3835,37 +3837,14 @@ def _selftest_checks(args, failures, names):
         # Nothing bounded or noticed the gap, and one instance ran 41 minutes with the pane holding
         # memory against a 2800 MB launch floor. The stated fix (checkout kills its own pane) was
         # REFUSED: it destroys the in-place renew path, which respawns into the SAME pane (G-12).
-        check("G-134: `checkout` ASSERTS the debt at the one moment every input is known — who, "
-              "which pane, whether the transcript landed. A later pass reconstructing this from "
-              "roster + tmux + fs would be the seventh infer-from-ambient defect this run has "
-              "catalogued (G-101, G-107, G-121, G-124, G-128, the circular origin)",
-              seed_ending(base_g, "theta", "%99", "/tmp/t.txt", True)
-              and load_awaiting(base_g)["theta"]["pane"] == "%99"
-              and load_awaiting(base_g)["theta"]["exported"] is True)
-        # ⚠ THE FIXTURE IS THE CHECK. An earlier version of this bar used transcript=""/exported=
-        # False and transcript=<path>/exported=True — two rows where `exported == bool(transcript)`,
-        # so a mutation replacing the stored flag with `bool(transcript)` PASSED IT. The bar was
-        # green over the exact inference it existed to forbid. The discriminating row is the one
-        # where the two DISAGREE: an export that produced a path and still FAILED.
-        check("G-134: `exported` is STORED, not inferred from the transcript path being truthy — "
-              "an export can hand back a path and still fail, and #259's ratified mapping gates "
-              "the kill on the transcript EXISTING, so a reaper must tell 'safe to kill' from 'not "
-              "yet safe' without re-running the export to find out",
-              seed_ending(base_g, "iota", "%98", "/tmp/partial.txt", False)
-              and load_awaiting(base_g)["iota"]["exported"] is False
-              and load_awaiting(base_g)["iota"]["transcript"] == "/tmp/partial.txt")
-        _live = {"%99"}
-        _debts = {s: (a, alive) for s, _e, a, alive in awaiting_debts(base_g, _live)}
-        check("G-134: a debt whose pane is ALREADY GONE is distinguished from one still holding "
-              "memory — both still owe a close-seat (the roster and session trace are unfinished "
-              "either way), but only one is costing RAM, and telling the leader they are the same "
-              "would be the silence this record exists to end",
-              _debts["theta"][1] is True and _debts["iota"][1] is False)
-        check("G-134: the debt is SETTLED by the act that frees the resources, and clearing is "
-              "reported honestly — True only when something was actually cleared",
-              clear_awaiting(base_g, "theta") is True
-              and clear_awaiting(base_g, "theta") is False
-              and "theta" not in load_awaiting(base_g))
+        # ⚠ THE DEBT RECORD IS GONE, AND WITH IT THE ROWS THAT ASSERTED ITS FIELD SHAPE.
+        # `awaiting-close.json` was the second writer of a seat's ending (spec-state-store §4.1
+        # Row A); the ONE ending store replaced it, and `load_awaiting` now answers `{}` by
+        # construction. The `pane` / `exported` / `transcript` debt fields it carried have no
+        # successor here — the seat's ENDING is the record, and the wiring row above asserts it on
+        # the real verb. These rows are DELETED rather than re-pointed because re-pointing them
+        # would manufacture a subject the design deliberately removed. The pane-reap preconditions
+        # they fed still have a live subject and are asserted below, on `reap_blockers` itself.
         # ---- G-134 shape B: `reap` (leader #312 owns the numbers) ----
         _fresh = {"since": now(), "pane": "%77", "transcript": "/tmp/x", "exported": True,
                   "pids": [[1, "1"]]}
