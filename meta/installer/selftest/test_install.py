@@ -20,7 +20,7 @@ from lib.constants import (
 )
 from lib.claims import _claim_id
 from lib.content import _is_ours
-from lib.pathlinks import bin_dir
+from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
 from lib.operations import do_install, do_uninstall
 from lib.report import print_result
@@ -79,10 +79,9 @@ def green_arm_all_harnesses(ctx) -> None:
           and not (target / "tool/thing.py").exists(),
           str(res["report"]["skipped_inventory_rows"]))
     check("green — path part-id is the link name, not the basename",
-          (bin_dir() / "fixtool").is_symlink()
-          and not (bin_dir() / "thing.py").exists()
-          and (bin_dir() / "fixtool").resolve()
-          == (tree / "fixmod/goodcomp/tool/thing.py").resolve()
+          link_points_at(link_path(bin_dir(), "fixtool"),
+                         (tree / "fixmod/goodcomp/tool/thing.py").resolve())
+          and not link_path(bin_dir(), "thing.py").exists()
           and read_state(target)["components"]["fixmod/goodcomp"]
           .get("path_links") == ["fixtool"],
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))

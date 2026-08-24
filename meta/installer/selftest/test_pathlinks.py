@@ -13,7 +13,8 @@ from lib.constants import (
     WS_PREFIX,
     _RUNTIME,
 )
-from lib.pathlinks import bin_dir, gate_path_links, unlink_one
+from lib.pathlinks import (bin_dir, gate_path_links, link_path,
+                           link_points_at, unlink_one)
 from lib.state import read_state
 from lib.operations import do_install, do_uninstall
 
@@ -55,10 +56,9 @@ def path_links(ctx) -> None:
     before_home_rc = _RUNTIME["rc"].exists()
     lr = do_install(lws, lcat, ["lmod/ladd"], ["claude"], dry_run=False)
     check("L-add — link on add, name is the part-id not the basename",
-          (bin_dir() / "ladd-bin").is_symlink()
-          and not (bin_dir() / "impl.py").exists()
-          and (bin_dir() / "ladd-bin").resolve()
-          == (lsrc / "lmod/ladd/impl.py").resolve()
+          link_points_at(link_path(bin_dir(), "ladd-bin"),
+                         (lsrc / "lmod/ladd/impl.py").resolve())
+          and not link_path(bin_dir(), "impl.py").exists()
           and not (lws / "ladd-bin").exists()
           and read_state(lws)["components"]["lmod/ladd"]["path_links"]
           == ["ladd-bin"]
@@ -71,7 +71,7 @@ def path_links(ctx) -> None:
 
     do_uninstall(lws, lcat, ["lmod/ladd"], dry_run=False)
     check("L-rm — unlink on rm; directory kept if anything else remains",
-          not (bin_dir() / "ladd-bin").exists()
+          not link_path(bin_dir(), "ladd-bin").exists()
           and bin_dir().is_dir(),
           str(list(bin_dir().iterdir()) if bin_dir().is_dir() else None))
 
@@ -80,7 +80,7 @@ def path_links(ctx) -> None:
     csrc = tmp / "csrc"
     ccat = _lcomp(csrc, "cmod", "ccoll", "hitfile", "x.py")
     bin_dir().mkdir(parents=True, exist_ok=True)
-    (bin_dir() / "hitfile").write_text("not a symlink\n", encoding="utf-8")
+    link_path(bin_dir(), "hitfile").write_text("not a symlink\n", encoding="utf-8")
     snap_c, snap_b = _lsnap(cws), _lsnap(bin_dir())
     try:
         do_install(cws, ccat, ["cmod/ccoll"], ["claude"], dry_run=False)
@@ -92,10 +92,10 @@ def path_links(ctx) -> None:
               and _lsnap(cws) == snap_c
               and _lsnap(bin_dir()) == snap_b
               and not (cws / STATE_REL).exists()
-              and (bin_dir() / "hitfile").is_file()
-              and not (bin_dir() / "hitfile").is_symlink(),
+              and link_path(bin_dir(), "hitfile").is_file()
+              and not link_path(bin_dir(), "hitfile").is_symlink(),
               exc.code)
-    (bin_dir() / "hitfile").unlink()
+    link_path(bin_dir(), "hitfile").unlink()
 
     stranger = bin_dir() / "unbooked-stranger"
     (tmp / "stranger-tgt").write_text("x\n", encoding="utf-8")
@@ -118,7 +118,7 @@ def path_links(ctx) -> None:
     # green: L-collision covers the PRE-WRITE gate on add, and nothing covered
     # the REMOVE path — the destructive one, where a user's real file has
     # replaced a link we once booked.
-    usurper = bin_dir() / "usurper"
+    usurper = link_path(bin_dir(), "usurper")
     bin_dir().mkdir(parents=True, exist_ok=True)
     usurper.write_text("a real file, not ours\n", encoding="utf-8")
     try:
@@ -137,7 +137,7 @@ def path_links(ctx) -> None:
 
     bindir = bin_dir()
     bindir.mkdir(parents=True, exist_ok=True)
-    victim = bindir / "gate-drop"
+    victim = link_path(bindir, "gate-drop")
     victim.write_text("real file\n", encoding="utf-8")
     try:
         gate_path_links(bindir, {}, {"gate-drop"})
@@ -178,9 +178,8 @@ def path_links(ctx) -> None:
     wcat = _lcomp(wsrc, "wmod", "wcomp", "wsbin", "ws:tools/from-ws.py")
     wr = do_install(wws, wcat, ["wmod/wcomp"], ["claude"], dry_run=False)
     check("L-ws — ws: entry-point resolves workspace-root-relative",
-          (bin_dir() / "wsbin").is_symlink()
-          and (bin_dir() / "wsbin").resolve()
-          == (wws / "tools/from-ws.py").resolve()
+          link_points_at(link_path(bin_dir(), "wsbin"),
+                         (wws / "tools/from-ws.py").resolve())
           and not (wsrc / "wmod/wcomp" / "ws:tools").exists(),
           str(wr["report"].get("path")))
     do_uninstall(wws, wcat, ["wmod/wcomp"], dry_run=False)
