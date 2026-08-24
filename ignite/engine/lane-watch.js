@@ -91,7 +91,12 @@ function readLane(goalFolder) {
 // operator's explicit act, and `rbtv-goal pause` CREATES the file on a goal that never had one
 // (`read_lane_raw` supplies `console\n`), so every goal is pausable and an unpaused goal keeps
 // its exact current behaviour.
-function laneIsPaused(goalFolder) {
+function laneIsPaused(goalFolder, heartStore) {
+  try {
+    const { bindEnding, goalNameOf } = require('./ending-reads');
+    const api = bindEnding(heartStore);
+    if (api && api.isGoalPaused(goalNameOf(goalFolder))) return true;
+  } catch { /* fall through to file shim */ }
   let raw;
   try {
     raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
@@ -253,7 +258,7 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     // the skip would be an accident of the console-flatten (two readings of one
     // state). Call it here; reconcileGoal returns skipped:'paused' before
     // ready-seats. Seeding still uses the existing lane !== DAEMON path.
-    if (!goal.startsWith('_') && laneIsPaused(goalFolder)) {
+    if (!goal.startsWith('_') && laneIsPaused(goalFolder, engine && engine.heartStore)) {
       maybeReconcile({ goal, goalFolder, engine, say });
     }
 

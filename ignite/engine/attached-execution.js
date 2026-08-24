@@ -53,7 +53,7 @@ const { createBoard, snapshotFrom } = require('./run-board');
 // the daemon's per-tick publish write the same word for the same ending (W2). The hold that used to
 // be decided here is gone: an unanswered owner-ask is coord's `HELD` verdict now, computed once,
 // universally, on the surface that knows what every seat declared.
-const { openExecution, closeExecution, laneOf, processOutcome } = require('./execution-record');
+const { openExecution, closeExecution, laneOf } = require('./execution-record');
 
 // The goal folder's shape is the goals tree's (CMP-4), not ours to redefine. GOAL-DIRECT since
 // 7.607 (design-lock items 7-8 — the `runs/run-{n}` segment is extinguished, not optional):
@@ -446,9 +446,6 @@ function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, mode
 // The window is one `readFileSync`/`writeFileSync` pair while the ticker is frozen (nothing else in
 // this run can append), so a concurrent append would have to come from another lane. Upgrade path:
 // a JS binding for `coord_lock`, or a coord verb this carrier can call.
-const FOREGROUND_DISPOSITION = 'exited';
-const FOREGROUND_DISPOSITION_WRITER = 'kit';
-
 function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
   const csvPath = path.join(goalFolder, SESSIONS_CSV);
   try {
@@ -465,11 +462,9 @@ function closeForegroundSessionRow({ goalFolder, sessionId, logger = null }) {
       if ((cells[at('session-id')] || '').trim() !== sessionId) continue;
       if ((cells[at('ended')] || '').trim()) return { closed: false, reason: 'already closed by another writer' };
       cells[at('ended')] = isoNow();
-      if (at('disposition') >= 0) cells[at('disposition')] = FOREGROUND_DISPOSITION;
-      if (at('disposition-writer') >= 0) cells[at('disposition-writer')] = FOREGROUND_DISPOSITION_WRITER;
       lines[i] = header.map((_, c) => quoteField(cells[c])).join(',');
       fs.writeFileSync(csvPath, lines.join('\n'), 'utf8');
-      return { closed: true, disposition: FOREGROUND_DISPOSITION };
+      return { closed: true };
     }
     return { closed: false, reason: 'no open row for this session id' };
   } catch (err) {
@@ -599,8 +594,7 @@ function runForegroundSeat({
   // fact about a process, which is all an exit code can attest); the RECORD says what became of the
   // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
   // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
-  const carriedOutcome = processOutcome(ok ? 'done' : 'failed');
-  closeExecution({ goalFolder, sessionId, outcome: carriedOutcome, endedAt: isoNow() });
+  closeExecution({ goalFolder, sessionId, outcome: '', endedAt: isoNow() });
   // ⚠ NO HOLD IS DECIDED HERE ANY MORE (W2). This site used to call `outcomeForSeat`, which read
   // the goal's bus and the ferry's gates to decide whether a carried seat's `done` should publish
   // as `blocked`. That whole derivation is deleted: the outcome is a fact about the process this
@@ -885,12 +879,13 @@ function statusAttached({ goalFolder: goalFolderInput, openStore = null }) {
   // and only the disputed seat, with its dependents, reads as unready.
   // ⚠ READ BEFORE THE VIEW SINCE W2: `recordView` sources done-ness and the `HELD` hold from these
   // rows, so a view built before them would report every seat unfinished.
-  const { ready, rows: statusReadyRows } = readySeats(goalFolder);
+  let { ready, rows: statusReadyRows } = readySeats(goalFolder);
   let view = recordView(null, goalFolder, { readyRows: statusReadyRows });
   if (everRun) {
     const open = openStore || ((p) => require('../server/heart/heart-store').openHeartStore({ dbPath: p }));
     const store = open(storePath);
     try {
+      ({ ready, rows: statusReadyRows } = readySeats(goalFolder, { heartStore: store }));
       byJob = executionsByJob(store);
       queued = new Set(store.listQueue().map((q) => q.job_id));
       asks = unansweredAsks(store.dump().messages);
@@ -1091,7 +1086,9 @@ async function executeAttached({
       // ⚠ IT IS READ BEFORE THE VIEW SINCE W2, and the order is now load-bearing rather than
       // incidental: `recordView` takes these rows as the source of done-ness and of the `HELD`
       // hold, so a view built before them would answer "nothing is done" for the whole pass.
-      const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder);
+      const { ready, rows: readyRows, reason: readyRefusal } = readySeats(goalFolder, {
+        heartStore: engine.heartStore, goal: path.basename(goalFolder),
+      });
       let view = recordView(engine.heartStore, goalFolder, { readyRows });
       if (!ready) {
         engineLogger({
@@ -1157,7 +1154,9 @@ async function executeAttached({
       // ⚠ ONE post-tick `ready-seats`, and the VIEW is built FROM IT (W2) rather than beside it.
       // The frontier and the record's view now share one source for done-ness, so the exit decision
       // and the live board cannot disagree about a seat that checked out inside this tick.
-      const post = readySeats(goalFolder);
+      const post = readySeats(goalFolder, {
+        heartStore: engine.heartStore, goal: path.basename(goalFolder),
+      });
       const postView = recordView(engine.heartStore, goalFolder, { readyRows: post.rows });
       const postReady = post.ready;
       if (board) {

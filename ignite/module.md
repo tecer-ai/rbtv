@@ -25,6 +25,8 @@ is where the detail lives — progressive disclosure (`PRIN-3`), one rung at a t
 | `bindings` | The CASTING SHEET a workflow is run through — which harness, model and effort each seat gets. `catalog` (what this box can spawn, effort NUMBERED, and the validator `set` uses), `inspect` (seats, definitions, hints, what is still uncast), `scaffold` (create-only), `set`. One file per workflow at `.rbtv/config/modules/{module}/{component}/bindings/{code}.json`; direct writes, no daemon, no restart. | `capabilities/bindings/tool/rbtv-bindings <verb>` · `-h` |
 | gateway client | Enqueue and remove scheduled/periodic jobs, inspect runtime state. | `rbtv ignite <command>` · `-h` |
 | team-kit | Run a coordinated parallel multi-agent team in tmux: checkin, typed append-only messaging, bounded reads, staged launches, close/renew ceremonies. | `coordinate -h` |
+| ending store | One seat-ending / goal-word / open-ask store plus derived wait and launchability predicates. Hosted in `heart.db`; APIs in `state-store/`. Engine readers (`seeding.js`, `reconcile.js`, `lane-watch.js`) consume those predicates — no verdict enum. | `ignite/state-store/` · `cli.js --help` via `--db` `--op` |
+| planning | Planning-door Path A mint + lock + supervised wrapper (goal-wide trigger, `.materialize.lock`, five failure classes). Not a CLI. | `planning/` |
 
 ## Drilling
 
@@ -35,3 +37,10 @@ rbtv ignite <component>      that component's entry point body + its invocable e
 
 The daemon's conventions, install model, and state layout live in `ignite/CLAUDE.md`; the
 team-kit's protocol in `ignite/team-kit/protocol.md`. Neither is restated here (`PRIN-11`).
+
+## Components
+
+| Folder | One line |
+|---|---|
+| `envelope/` | Plan-time per-goal bind-list compiler + versioned template / deny-list / daemon-owned records |
+| `planning/` | Planning-door Path A mint + lock + supervised wrapper (goal-wide trigger, `.materialize.lock`) |

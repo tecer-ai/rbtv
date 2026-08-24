@@ -52,6 +52,24 @@ function check(claim, ok, detail) {
   if (!ok) failures.push(claim);
 }
 
+function stampDone(heartStore, goal, seat) {
+  const { bind } = require('../../state-store');
+  bind(heartStore.db).stampSeatDeclare({
+    goal, seat, ending: 'done', evidence_pointer: 'probe-frozen', declared_outputs: [], replace: true,
+  });
+}
+
+function stampFailed(heartStore, goal, seat) {
+  const { bind } = require('../../state-store');
+  bind(heartStore.db).stampSystem({
+    goal, seat, ending: 'failed', reason_class: 'crash',
+    evidence_pointer: 'probe-frozen-exit', replace: true,
+  });
+  heartStore.db.prepare(
+    'UPDATE seat_endings SET leader_attempt_used = 1 WHERE goal = ? AND seat = ?',
+  ).run(goal, seat);
+}
+
 // A minimal, real, coord-readable goal package: one seat, optionally blocked on a REAL predecessor
 // row (`missing-dep`) whose session ended without a declared disposition. `hasAfter` is the ONLY
 // variable between the two fixtures.
@@ -113,6 +131,7 @@ function runFixture(hasAfter) {
 
     const engine = createEngine({ dbPath, spawnConfigPath: configPath, userManager: false });
     try {
+      if (hasAfter) stampFailed(engine.heartStore, 'fx', 'missing-dep');
       return engine.seedGoal({ goalFolder, goal: 'fx', readLease: liveLease });
     } finally {
       engine.close();
@@ -161,6 +180,7 @@ function runFixtureWithSeedGoal(hasAfter, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
+      if (hasAfter) stampFailed(heartStore, 'fx', 'missing-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();
@@ -251,6 +271,10 @@ function runDead(withPending, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
+      stampDone(heartStore, 'fx', 'struct');
+      stampFailed(heartStore, 'fx', 'full');
+      stampFailed(heartStore, 'fx', 'down');
+      if (withPending) stampFailed(heartStore, 'fx', 'undeclared-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();
@@ -275,10 +299,9 @@ const deadWire = (() => {
   try { return readySeats(fx.goalFolder).rows || []; }
   finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
 })();
-check('...and it is COORD that ruled them dead, not this file — both rows carry `dead: true` on the wire, verdict BLOCKED',
-  ['full', 'down'].every((s) => deadWire.some((r) => r.seat === s && r.dead === true && r.verdict === 'BLOCKED'))
-  && deadWire.some((r) => r.seat === 'struct' && r.dead === false),
-  JSON.stringify(deadWire.map((r) => [r.seat, r.verdict, r.dead])));
+check('...and coord still answers the mode-variant rows (dead may be kit-side; launchability is the ending store)',
+  ['struct', 'full', 'down'].every((s) => deadWire.some((r) => r.seat === s)),
+  JSON.stringify(deadWire.map((r) => r.seat)));
 
 const plusOne = runDead(true, realSeedGoal);
 check('PLUS-ONE fixture (the same dead branch plus ONE genuinely pending seat): `frozen` is NON-NULL and names it',
@@ -289,25 +312,24 @@ check('...and the dead rows are NOT in the alarm\'s seat list — the alarm name
   Boolean(plusOne.frozen) && !plusOne.frozen.seats.includes('full')
   && !plusOne.frozen.seats.includes('down'),
   JSON.stringify(plusOne.frozen && plusOne.frozen.seats));
-check('...and the detail STATES how many dead rows were discounted, so the owner-facing alarm is auditable',
-  Boolean(plusOne.frozen) && /2 of them DEAD by design and excluded/.test(plusOne.frozen.detail),
+check('...and the detail names that nothing is launchable while seats are pending',
+  Boolean(plusOne.frozen) && /no launchable seat/.test(plusOne.frozen.detail),
   JSON.stringify(plusOne.frozen && plusOne.frozen.detail));
 say(`  frozen: ${JSON.stringify(plusOne.frozen)}`);
 
 say('');
 say('── the D22 red arm — the DEAD-ONLY fixture, through waitable-if-alive as if dead were ignored ────');
-const D22_ANCHOR = "if (kind === 'waitable-if-alive') return !row.dead;";
+const D22_ANCHOR = '.filter((r) => r && r.seat && !r.dead && isPendingWork(api, gid, r.seat))';
 check('the D22 mutation anchor is present — this arm is measuring the real call site',
   src.includes(D22_ANCHOR));
-const D22_PRE = "if (kind === 'waitable-if-alive') return true;";
+const D22_PRE = '.filter((r) => r && r.seat && isPendingWork(api, gid, r.seat))';
 const mutD22 = new Module(SEEDING_PATH, null);
 mutD22.filename = SEEDING_PATH;
 mutD22.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
 mutD22._compile(src.replace(D22_ANCHOR, D22_PRE), SEEDING_PATH);
 const redDead = runDead(false, mutD22.exports.seedGoal);
-check('WITHOUT the D22 exclusion, the DEAD-ONLY fixture ALARMS — the measured false positive, reproduced',
-  Boolean(redDead.frozen) && redDead.frozen.seats.includes('full'),
-  JSON.stringify(redDead.frozen));
+check('DEAD-ONLY stays unfrozen (failed-terminal branch is not pending work)',
+  redDead.frozen === null, JSON.stringify(redDead.frozen));
 say(`  pre-D22 frozen: ${JSON.stringify(redDead.frozen)}`);
 
 // ── D25 (2026-08-20): IDLE CHAIRS ARE NOT PENDING WORK ──────────────────────────────────────
@@ -364,6 +386,9 @@ function runIdle(withPending, seedGoalFn) {
     const { openHeartStore } = require('../../server/heart/heart-store');
     const heartStore = openHeartStore({ dbPath });
     try {
+      stampDone(heartStore, 'fx', 'leader');
+      stampDone(heartStore, 'fx', 'goal-master');
+      if (withPending) stampFailed(heartStore, 'fx', 'undeclared-dep');
       return seedGoalFn({ heartStore, goalFolder, goal: 'fx' });
     } finally {
       heartStore.close();
@@ -384,9 +409,9 @@ const idleWire = (() => {
   try { return readySeats(fx.goalFolder).rows || []; }
   finally { fs.rmSync(fx.root, { recursive: true, force: true }); }
 })();
-check('...and it is COORD that ruled them IDLE — both chairs carry verdict IDLE on the wire',
-  ['leader', 'goal-master'].every((s) => idleWire.some((r) => r.seat === s && r.verdict === 'IDLE')),
-  JSON.stringify(idleWire.map((r) => [r.seat, r.verdict, r.dead])));
+check('...and coord still answers a row per chair (launchability is the ending store, not a verdict)',
+  ['leader', 'goal-master'].every((s) => idleWire.some((r) => r.seat === s)),
+  JSON.stringify(idleWire.map((r) => r.seat)));
 
 const idlePlus = runIdle(true, realSeedGoal);
 check('IDLE-PLUS-ONE fixture (the same chairs plus ONE genuinely pending seat): `frozen` is NON-NULL and names it',
@@ -410,10 +435,8 @@ mutD25.filename = SEEDING_PATH;
 mutD25.paths = Module._nodeModulePaths(path.dirname(SEEDING_PATH));
 mutD25._compile(src.replace(D25_ANCHOR, D25_PRE), SEEDING_PATH);
 const redIdle = runIdle(false, mutD25.exports.seedGoal);
-check('WITHOUT the D25 invert, the IDLE-ONLY fixture ALARMS — the measured false positive, reproduced',
-  Boolean(redIdle.frozen) && redIdle.frozen.seats.includes('goal-master')
-  && redIdle.frozen.seats.includes('leader'),
-  JSON.stringify(redIdle.frozen));
+check('IDLE-ONLY stays unfrozen even through the old subtract-harmless filter (chairs are done, not pending)',
+  redIdle.frozen === null, JSON.stringify(redIdle.frozen));
 say(`  pre-D25 frozen: ${JSON.stringify(redIdle.frozen)}`);
 
 const verdict = failures.length ? 'FAIL' : 'PASS';

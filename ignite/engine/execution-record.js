@@ -104,20 +104,7 @@ const { TERMINAL_TURN_STATUSES } = require('../server/heart/heart-store');
 const RECORD_FILENAME = 'executions.csv';
 const COLUMNS = ['seat', 'session-id', 'lane', 'started', 'ended', 'outcome'];
 // THE NARROWED PROCESS VOCABULARY (§ THE SCHEMA). Three words, closed set.
-const CLEAN = 'clean';
-const CRASHED = 'crashed';
-const KILLED = 'killed';
-const PROCESS_OUTCOMES = [CLEAN, CRASHED, KILLED];
-
-// The store's terminal turn statuses, mapped onto it. ONE function, because every close site must
-// reach the same word — the per-tick publish below and the attached lane's foreground carriage.
-// `stalled` is not terminal and never reaches here; anything unrecognised is `crashed`, which is
-// the fail-loud direction (a word this map does not know is not a clean exit).
-const PROCESS_OUTCOME_OF = { done: CLEAN, blocked: CLEAN, failed: CRASHED, killed: KILLED };
-
-function processOutcome(status) {
-  return PROCESS_OUTCOME_OF[status] || CRASHED;
-}
+// History join only — this file no longer publishes a work outcome. ended is the close stamp.
 
 const LANE_ATTACHED = 'attached';
 const LANE_DAEMON = 'daemon';
@@ -401,21 +388,15 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
       if (o.appended) opened.push(`${home.seat}/${row.session_id}`);
       if (!TERMINAL_TURN_STATUSES.has(row.status)) continue;
       if (alreadyClosed(home.goalFolder, row.session_id)) continue;
-      // NO VERDICT IS COMPUTED HERE ANY MORE (§ THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE). The
-      // outcome is a pure function of the store's own terminal status — one lookup, no file read,
-      // no bus parse, no ferry gate. Everything this line used to decide is coord's `HELD` verdict.
-      const outcome = processOutcome(row.status);
       const c = closeExecution({
         goalFolder: home.goalFolder,
         sessionId: row.session_id,
-        outcome,
+        outcome: '',
         endedAt: row.ended_at || '',
       });
       if (c.closed) {
-        closed.push(`${home.seat}=${outcome}`);
-        if (outcome !== CLEAN) {
-          nonClean.push({ seat: home.seat, goalFolder: home.goalFolder, sessionId: row.session_id, outcome });
-        }
+        closed.push(`${home.seat}=ended`);
+        nonClean.push({ seat: home.seat, goalFolder: home.goalFolder, sessionId: row.session_id, outcome: '' });
       }
     }
   }
@@ -432,14 +413,6 @@ function publishToRecord(heartStore, { statuses, logger = null } = {}) {
 module.exports = {
   RECORD_FILENAME,
   COLUMNS,
-  CLEAN,
-  CRASHED,
-  KILLED,
-  PROCESS_OUTCOMES,
-  PROCESS_OUTCOME_OF,
-  processOutcome,
-  // The ask/answer pairing on the goal's bus. `engine/bus-answer.js` is the one consumer; the hold
-  // that was the other is gone (§ THE OWNER-ASK HOLD IS NO LONGER DECIDED HERE).
   openOwnerAsks,
   addressesSeat,
   LANE_ATTACHED,

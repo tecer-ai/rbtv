@@ -29,6 +29,7 @@ const { requirePythonCmd } = require('../lib/python-cmd');
 const {
   readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce,
 } = require('./seeding');
+const { classifyOwed } = require('./owed-from-endings');
 // D52/D66 (2026-08-22) — ONE shared bound, owned by the door (heart-store.js), imported here
 // rather than kept as a second literal. This is a VALUE import only (a number) — HeartStore
 // still must not import engine code, and this direction (engine → server) is the existing one
@@ -45,18 +46,6 @@ const STRIKE_LIMIT = ADMISSION_BRAKE_LIMIT; // D34 (was 3), and counted on NO PR
 // as progress for the mail-cursor signal (class B) — see `deriveOwed`'s classB loop.
 const SYSTEM_MAIL_SENDER = 'ignite-daemon';
 
-const RECORD_DISPOSITIONS = Object.freeze(
-  ['done', 'renew', 'revive', 'exited', 'incomplete', 'unverified'],
-);
-const TERMINAL_DISPOSITIONS = Object.freeze(['done']);
-const NON_TERMINAL_DISPOSITIONS = Object.freeze(
-  RECORD_DISPOSITIONS.filter((d) => !TERMINAL_DISPOSITIONS.includes(d)),
-);
-// `renew-interrupted` is never a literal `disposition` cell coord.py writes — it is this
-// module's OWN synthetic label for a renew marker whose successor session never showed up. It
-// stays in its own list, separate from RECORD_DISPOSITIONS (coord.py's real recorded enum).
-const EXTRA_NON_TERMINAL = Object.freeze(['renew-interrupted']);
-// The `consultant` chair this list used to also carry is deleted [T2-R17, D-7-ruling].
 const STAFF_CHAIRS = Object.freeze(['leader', 'goal-master']);
 
 // D24 · A SUMMONED SEAT IS NEVER OWED. It is spawned ONLY when the owner summons it (a
@@ -162,12 +151,6 @@ function loadMessages(goalFolder) {
   return blocks;
 }
 
-function isNonTerminal(disp) {
-  const d = String(disp || '').trim();
-  if (!d) return false;
-  return NON_TERMINAL_DISPOSITIONS.includes(d) || EXTRA_NON_TERMINAL.includes(d);
-}
-
 function pidAlive(pid) {
   const n = Number(pid);
   if (!Number.isInteger(n) || n <= 1) return false;
@@ -248,109 +231,18 @@ function roomState(goal) {
   return { exists: true, empty: list.length === 0 };
 }
 
-function deriveOwed(goalFolder, {
-  readyAnswer = null,
-  live = null,
-  queued = null,
-  summoned = null,
-} = {}) {
-  const sessions = loadSessions(goalFolder);
-  const messages = loadMessages(goalFolder);
-  const last = lastBySeat(sessions);
-  const liveSet = live || liveSeatsFromLedgers(sessions);
-  const queuedSet = queued || new Set();
-  const summonedSet = summoned || new Set();
-
-  const dead = new Set();
-  let readyRefused = null;
-  let readyCount = 0;
-  const pending = [];
-  if (readyAnswer) {
-    if (readyAnswer.reason && readyAnswer.ready === null) {
-      readyRefused = readyAnswer.reason;
-    } else {
-      for (const r of readyAnswer.rows || []) {
-        if (!r || !r.seat) continue;
-        if (r.dead === true) { dead.add(r.seat); continue; }
-        if (r.verdict === 'READY') readyCount += 1;
-        else if (r.verdict && r.verdict !== 'DONE') pending.push(r.seat);
-      }
-    }
-  }
-
-  const classA = [];
-  for (const [seat, row] of last) {
-    if (dead.has(seat)) continue;
-    if (summonedSet.has(seat)) continue;
-    const disp = (row.disposition || '').trim();
-    if (!isNonTerminal(disp)) continue;
-    const ended = (row.ended || '').trim();
-    if (!ended) continue;
-    // D42 · A RULED HOLD IS SKIPPED, AND IT IS THE ONLY THING THE HOLD CHANGES.
-    // `meet/issues.md#G-leader-0820-1748`, filed by the live leader: a row the leader had
-    // INVESTIGATED and deliberately held was byte-identical to an unattended owed one, because
-    // the disposition cell must keep its value for `ready-seats` to keep blocking the successors
-    // — and this scan reads only that cell. So the leader was re-woken every cadence, forever,
-    // with identical output (17:37/17:43/17:48, measured).
-    //
-    // ⚠ THE SKIP IS THE WATCHER'S ALONE. `ready-seats` still reports the row's real class and
-    // the row still blocks its successors. Nothing here advances an edge and nothing reads this
-    // cell as authorization: it is an ANCHOR STRING, read but no longer writable by any runtime
-    // instrument — `coord.py rule-disposition --hold`, its writer, was deleted [T2-R12, T1-R9].
-    // Not a grant, not a latch, no expiry, nothing to spend (D12 intact). A row already holding
-    // one from before this deletion is released exactly as before, by whatever eventually
-    // replaces the deleted ruling instrument (not built here — see nontermPayload above).
-    if ((row['hold-anchor'] || '').trim()) continue;
-    // D33(a) · the word IS the split. `incomplete` → that seat, by name. Everything else
-    // non-terminal → the leader, who is the only actor with a verb for it.
-    classA.push({
-      seat, disposition: disp, ended,
-      reason: disp === 'incomplete' ? 'incomplete' : 'nonterm',
-    });
-  }
-  classA.sort((x, y) => (x.seat < y.seat ? -1 : x.seat > y.seat ? 1 : 0));
-
-  const classB = [];
-  for (const chair of STAFF_CHAIRS) {
-    if (dead.has(chair)) continue;
-    if (summonedSet.has(chair)) continue;
-    if (liveSet.has(chair) || queuedSet.has(chair)) continue;
-    const since = checkinOf(last.get(chair));
-    // D70 · SYSTEM-WRITTEN MAIL NEVER COUNTS. Without this exclusion the brake's own `stuck` note
-    // (sent `--as ignite-daemon`, sendStuck below) bumps the very cursor it is reporting on, and a
-    // machine-generated escalation loop reads as "new mail = progress" forever (brake-existing
-    // lane edge case 2, measured on meet: the nonterm stuck-mail advanced the leader's own unread
-    // counter). Human- and agent-authored mail (D70: "only mail authored by a human or by another
-    // seat") is unaffected — this filters exactly one sender identity, not a class of message.
-    const unread = messages.filter((m) => m.to === chair && m.sender !== chair
-      && m.sender !== SYSTEM_MAIL_SENDER
-      && (!since || tsAfter(m.ts, since)));
-    if (!unread.length) continue;
-    classB.push({
-      seat: chair,
-      unreadCount: unread.length,
-      lastNum: unread[unread.length - 1].num,
-      reason: 'unread',
-    });
-  }
-
-  const moving = liveSet.size > 0 || queuedSet.size > 0;
-  const classE = (!readyRefused && readyCount === 0 && pending.length && !moving)
-    ? { pending: pending.slice().sort(), ready: 0 }
-    : null;
-
-  return {
-    readyRefused,
-    deadSeats: [...dead],
-    summonedSeats: [...summonedSet],
-    classA,
-    classB,
-    classE,
-    seats: [...last.keys()],
-    live: [...liveSet],
-    queued: [...queuedSet],
-    owed: classA.length > 0 || classB.length > 0,
-  };
+function classifyOwedFromLedgers(goalFolder, opts = {}) {
+  return classifyOwed(goalFolder, {
+    ...opts,
+    loadSessions,
+    loadMessages,
+    lastBySeat,
+    liveSeatsFromLedgers,
+    checkinOf,
+    tsAfter,
+    STAFF_CHAIRS,
+    SYSTEM_MAIL_SENDER,
+  });
 }
 
 function getAttempt(store, goal, seat, reason) {
@@ -420,7 +312,7 @@ function nontermPayload(rows) {
     '',
     `## The watcher woke you for ${rows.length} owed session-log row(s)`,
     '',
-    ...rows.map((r) => `- \`${r.seat}\` — last row \`${r.disposition || '(empty)'}\`, ended ${r.ended}`),
+    ...rows.map((r) => `- \`${r.seat}\` — last ending \`${r.ending || '(none)'}\`, ended ${r.ended}`),
     '',
     'Each of those rows ended with an ending nothing can advance on, and no seat can close',
     'its own. No runtime ruling instrument exists for them any more: `rule-disposition` (the',
@@ -428,17 +320,14 @@ function nontermPayload(rows) {
     'authorization is now an answer to a live ask, not a standing CLI ruling, and that door is',
     'not wired here yet. This wake will keep repeating on these rows until it is.',
     '',
-    'A CRASHED SEAT IS RE-RUN IN ONE ACT (D42). A row reading `exited` is the KIT saying the',
-    'harness TERMINATED and the work is UNKNOWN — never that it finished. Do NOT clear it first:',
-    'the CLEAR destroys the `exited` word, which is the only record of how that session ended.',
-    'This opens an ORDINARY WORKING SESSION and leaves the row standing to be superseded:',
+    'A CRASHED SEAT IS RE-RUN IN ONE ACT (D42). A `failed` ending with reason_class crash is the',
+    'system saying the harness TERMINATED and the work is UNKNOWN — never that it finished.',
+    'Do NOT invent a kit close. This opens an ORDINARY WORKING SESSION:',
     '',
     '    launch --only <seat> --rerun <p-*/d-* or message ref>',
     '',
-    'CLEARING IS NOT A RELAUNCH — they are TWO acts (D39), and it is the CLEARED row\'s path, not',
-    'the crashed one\'s. A cleared row reads UNDECLARED, the daemon maps that to not-waitable, and',
-    'NEVER re-seeds it. To bring a cleared seat back you must then issue the second command',
-    'yourself — a session that DECLARES the ending:',
+    'CLEARING IS NOT A RELAUNCH — they are TWO acts (D39). Absence of a current ending is not a',
+    'stored word. To bring a seat back you must issue a session that DECLARES the ending:',
     '',
     '    launch --only <seat> --declare-only <p-*/d-* or message ref>',
     '',
@@ -588,7 +477,7 @@ function reconcileGoal({
   // goal_cli.lane_is_paused). Lazy-require — lane-watch requires this module at
   // top level; a cycle at load would leave the reader undefined.
   const { laneIsPaused } = require('./lane-watch');
-  if (goalFolder && laneIsPaused(goalFolder)) {
+  if (goalFolder && laneIsPaused(goalFolder, heartStore)) {
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is paused', { goal });
     return { skipped: 'paused', goal };
@@ -596,12 +485,13 @@ function reconcileGoal({
 
   let readyAnswer = readyInjected;
   if (readyAnswer === undefined) {
-    readyAnswer = readySeats(goalFolder);
+    readyAnswer = readySeats(goalFolder, { heartStore, goal });
   }
 
   const queued = queuedSeats(heartStore, goal);
-  const derived = deriveOwed(goalFolder, {
+  const derived = classifyOwedFromLedgers(goalFolder, {
     readyAnswer, live, queued, summoned: summonedSeats(say),
+    heartStore, goal,
   });
   const leader = leaderSeat(goalFolder);
 
@@ -652,7 +542,7 @@ function reconcileGoal({
     launchTargets.push({
       seat: leader,
       reason: 'nonterm',
-      signature: `nonterm:${nonterm.map((x) => `${x.seat}=${x.disposition}`).sort().join(',')}`,
+      signature: `nonterm:${nonterm.map((x) => `${x.seat}=${x.ending}`).sort().join(',')}`,
       source: 'a',
       promptFn: (gf, seat) => {
         const head = promptFn ? promptFn(gf, seat) : seatBootPrompt(gf, seat).prompt;
@@ -765,15 +655,16 @@ function maybeReconcile(args) {
 module.exports = {
   CADENCE_MS,
   STRIKE_LIMIT,
-  RECORD_DISPOSITIONS,
-  NON_TERMINAL_DISPOSITIONS,
   STAFF_CHAIRS,
-  deriveOwed,
+  classifyOwedFromLedgers,
   summonedSeats,
   reconcileGoal,
   maybeReconcile,
   launchSitting,
   loadSessions,
   loadMessages,
-  isNonTerminal,
+  lastBySeat,
+  liveSeatsFromLedgers,
+  checkinOf,
+  tsAfter,
 };

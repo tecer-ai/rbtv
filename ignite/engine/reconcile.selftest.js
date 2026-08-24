@@ -6,8 +6,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
 const {
-  deriveOwed, reconcileGoal, STRIKE_LIMIT, NON_TERMINAL_DISPOSITIONS, summonedSeats,
+  classifyOwedFromLedgers, reconcileGoal, STRIKE_LIMIT, summonedSeats,
 } = require('./reconcile');
+const { classifyEnding } = require('./owed-from-endings');
+const { bind } = require('../state-store');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reconcile-selftest-'));
 const lines = [];
@@ -26,6 +28,43 @@ function writeTaskforce(goalFolder, seats) {
   const rows = seats.map((s) => `tf,${s},,bash,probe-reconcile,high,35,`);
   fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
     `taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n${rows.join('\n')}\n`);
+}
+
+function endingFromLegacy(disp) {
+  if (disp === 'done') return { ending: 'done', armed: null };
+  if (disp === 'incomplete') return { ending: 'incomplete', armed: 1 };
+  if (disp === 'unverified') return { ending: 'failed', armed: null, reason_class: 'outputs-missing' };
+  return { ending: 'failed', armed: null, reason_class: 'crash' };
+}
+
+function endingsMap(pairs) {
+  const m = new Map();
+  for (const [seat, disp, armed] of pairs) {
+    const spec = endingFromLegacy(disp);
+    if (armed !== undefined) spec.armed = armed;
+    m.set(seat, spec);
+  }
+  return m;
+}
+
+function stampEndings(store, goal, pairs) {
+  const api = bind(store.db);
+  for (const [seat, disp, armed] of pairs) {
+    const spec = endingFromLegacy(disp);
+    if (armed !== undefined) spec.armed = armed;
+    const fields = {
+      goal, seat, ending: spec.ending, evidence_pointer: `selftest:${seat}`, replace: true,
+    };
+    if (spec.ending === 'done') {
+      api.stampSeatDeclare({ ...fields, declared_outputs: [] });
+    } else if (spec.ending === 'incomplete' && Number(spec.armed) === 0) {
+      api.stampSystem({ ...fields, armed: 0, diagnostic: 'blocked-on-human' });
+    } else if (spec.ending === 'incomplete') {
+      api.stampSeatDeclare({ ...fields, armed: 1, diagnostic: 'context full' });
+    } else {
+      api.stampSystem({ ...fields, reason_class: spec.reason_class });
+    }
+  }
 }
 
 function writeSessions(goalFolder, rows) {
@@ -119,7 +158,7 @@ function fixtureBound() {
   return goalFolder;
 }
 
-function boundRows(goalFolder, rows) {
+function boundRows(goalFolder, rows, store, goal) {
   writeSessions(goalFolder, [
     { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 09:00',
       ended: '2026-08-19 09:30', disposition: 'done', 'disposition-writer': 'seat',
@@ -129,6 +168,9 @@ function boundRows(goalFolder, rows) {
       disposition, 'disposition-writer': 'seat',
     })),
   ]);
+  if (store && goal) {
+    stampEndings(store, goal, [['leader', 'done'], ...rows.map(([seat, disposition]) => [seat, disposition])]);
+  }
 }
 
 // D35 · one chair, three messages, and the check-in stamp moved around them.
@@ -186,17 +228,22 @@ function fixtureSummoned() {
 
 const readyEmpty = { ready: new Map(), granted: new Map(), rows: [], reason: null };
 
-say('── dispositions ──');
-assert.deepStrictEqual([...NON_TERMINAL_DISPOSITIONS].sort(),
-  ['exited', 'incomplete', 'renew', 'revive', 'unverified']);
-say('ok  closed non-terminal set is coord RECORD_DISPOSITION_WRITER minus done');
+say('── endings ──');
+assert.strictEqual(classifyEnding({ ending: 'done' }), null);
+assert.strictEqual(classifyEnding({ ending: 'incomplete', armed: 1 }).reason, 'incomplete');
+assert.strictEqual(classifyEnding({ ending: 'incomplete', armed: 0 }), null);
+assert.strictEqual(classifyEnding({ ending: 'failed' }).reason, 'nonterm');
+say('ok  classifyEnding reads ending+armed (done/disarmed drop out; incomplete armed relaunches; failed is nonterm)');
 
 say('── class (a) ──');
 {
-  const d = deriveOwed(fixtureA(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  const d = classifyOwedFromLedgers(fixtureA(), {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+    endings: endingsMap([['plan-planner', 'incomplete'], ['leader', 'done']]),
+  });
   assert.strictEqual(d.classA.length, 1, JSON.stringify(d.classA));
   assert.strictEqual(d.classA[0].seat, 'plan-planner');
-  assert.strictEqual(d.classA[0].disposition, 'incomplete');
+  assert.strictEqual(d.classA[0].ending, 'incomplete');
   assert.strictEqual(d.owed, true);
   say('ok  incomplete plan-planner with no later sitting is class (a)');
 }
@@ -213,23 +260,42 @@ say('── F-1: a sitting that starts and ends inside ONE minute is still class
       ended: '2026-08-20 05:38', disposition: 'exited', 'disposition-writer': 'kit' },
   ]);
   writeMessages(goalFolder, []);
-  const d = deriveOwed(goalFolder, { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  const f1Endings = endingsMap([['plan-3-plan-check-edges', 'exited']]);
+  const d = classifyOwedFromLedgers(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: f1Endings,
+  });
   assert.deepStrictEqual(d.classA.map((x) => x.seat), ['plan-3-plan-check-edges'],
     `same-minute sitting lost its class (a): ${JSON.stringify(d.classA)}`);
   assert.strictEqual(d.owed, true);
   say('ok  started 05:38:40Z / ended 05:38 is owed, not superseded by itself');
 
-  // RED arm: restore the deleted `laterSitting` guard, compiled from a COPY of the live source.
-  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, 'owed-from-endings.js'), 'utf8');
   const ANCHOR = '    if (!ended) continue;';
   assert.ok(src.includes(ANCHOR), 'F-1 anchor missing');
   const Module = require('node:module');
-  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
-  mut.filename = path.join(__dirname, 'reconcile.js');
+  const mut = new Module(path.join(__dirname, 'owed-from-endings.js'), null);
+  mut.filename = path.join(__dirname, 'owed-from-endings.js');
   mut.paths = Module._nodeModulePaths(__dirname);
   mut._compile(src.replace(ANCHOR, `${ANCHOR}\n    if (sessions.some((r) => (r.seat || '').trim() === seat && tsAfter(r.started, ended))) continue;`), mut.filename);
-  const red = mut.exports.deriveOwed(goalFolder, {
-    readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+  const red = mut.exports.classifyOwed(goalFolder, {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: f1Endings,
+    loadSessions: require('./reconcile').loadSessions,
+    loadMessages: require('./reconcile').loadMessages,
+    lastBySeat: (rows) => {
+      const last = new Map();
+      for (const r of rows) {
+        const seat = (r.seat || '').trim();
+        if (!seat) continue;
+        const prev = last.get(seat);
+        if (!prev || String(r.started) > String(prev.started)) last.set(seat, r);
+      }
+      return last;
+    },
+    liveSeatsFromLedgers: () => new Set(),
+    checkinOf: () => '',
+    tsAfter: (a, b) => String(a).replace('T', ' ').replace(/Z$/, '') > String(b).replace('T', ' ').replace(/Z$/, ''),
+    STAFF_CHAIRS: ['leader', 'goal-master'],
+    SYSTEM_MAIL_SENDER: 'ignite-daemon',
   });
   assert.deepStrictEqual(red.classA, [], `mutant kept the row: ${JSON.stringify(red.classA)}`);
   assert.strictEqual(red.owed, false);
@@ -238,7 +304,7 @@ say('── F-1: a sitting that starts and ends inside ONE minute is still class
 
 say('── class (b) ──');
 {
-  const d = deriveOwed(fixtureB(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
+  const d = classifyOwedFromLedgers(fixtureB(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
   assert.strictEqual(d.classB.length, 1, JSON.stringify(d.classB));
   assert.strictEqual(d.classB[0].seat, 'leader');
   assert.strictEqual(d.classB[0].unreadCount, 1);
@@ -247,12 +313,17 @@ say('── class (b) ──');
 
 say('── D33(a): class (a) splits by WORD ──');
 {
-  const d = deriveOwed(fixtureSplit(), { readyAnswer: readyEmpty, live: new Set(), queued: new Set() });
-  const byWord = Object.fromEntries(d.classA.map((x) => [x.seat, `${x.disposition}/${x.reason}`]));
+  const d = classifyOwedFromLedgers(fixtureSplit(), {
+    readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+    endings: endingsMap([
+      ['writer', 'incomplete'], ['checker', 'unverified'], ['runner', 'exited'], ['leader', 'done'],
+    ]),
+  });
+  const byWord = Object.fromEntries(d.classA.map((x) => [x.seat, `${x.ending}/${x.reason}`]));
   assert.deepStrictEqual(byWord, {
     writer: 'incomplete/incomplete',
-    checker: 'unverified/nonterm',
-    runner: 'exited/nonterm',
+    checker: 'failed/nonterm',
+    runner: 'failed/nonterm',
   }, JSON.stringify(byWord));
   assert.strictEqual(d.classC, undefined, 'classC survived the D33(a) delete');
   say(`ok  ${JSON.stringify(byWord)} — and classC is gone`);
@@ -263,6 +334,9 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
   const store = openStore();
   try {
     const goalFolder = fixtureSplit();
+    stampEndings(store, 'fx-split', [
+      ['writer', 'incomplete'], ['checker', 'unverified'], ['runner', 'exited'], ['leader', 'done'],
+    ]);
     const r = reconcileGoal({
       goal: 'fx-split', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
@@ -289,7 +363,7 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     // the F-3 defect: a tool advertising a return path that returns nothing. `rule-disposition`
     // (the ruling/HOLD verb) was deleted [T2-R12, T1-R9] — the payload must say so, not name it
     // as a live instrument.
-    for (const needle of ['checker', 'unverified', 'runner', 'exited',
+    for (const needle of ['checker', 'failed', 'runner',
       'No runtime ruling instrument exists', '[T2-R12, T1-R9]',
       'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH',
       'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT']) {
@@ -314,55 +388,39 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
 // so the leader was re-woken every 300s forever. The BEFORE/AFTER pair on ONE fixture is what
 // makes this a measurement — an arm that only ran the held case would pass against a scan that
 // dropped `unverified` rows for any reason at all.
-say('── D42: a leader HOLD leaves class A, and the row is otherwise untouched ──');
+say('── D42: a disarmed incomplete leaves class A ──');
 {
   const goalFolder = fixtureSplit();
-  const before = deriveOwed(goalFolder);
-  assert.ok(before.classA.some((r) => r.seat === 'checker' && r.disposition === 'unverified'),
+  const before = classifyOwedFromLedgers(goalFolder, {
+    endings: endingsMap([
+      ['writer', 'incomplete'], ['checker', 'unverified'], ['runner', 'exited'], ['leader', 'done'],
+    ]),
+  });
+  assert.ok(before.classA.some((r) => r.seat === 'checker' && r.ending === 'failed'),
     `control: the unheld row is owed to start with: ${JSON.stringify(before.classA)}`);
-  assert.ok(before.classA.some((r) => r.seat === 'runner' && r.disposition === 'exited'),
+  assert.ok(before.classA.some((r) => r.seat === 'runner' && r.ending === 'failed'),
     'control: the crashed row is owed to start with');
 
-  // The ONE thing that moves: the hold cell on `checker`. Its disposition stays `unverified`.
-  const csv = path.join(goalFolder, 'sessions.csv');
-  const lines = fs.readFileSync(csv, 'utf8').split('\n');
-  const cols = lines[0].split(',');
-  const at = cols.indexOf('hold-anchor');
-  assert.ok(at >= 0, 'the fixture header carries hold-anchor');
-  for (let i = 1; i < lines.length; i += 1) {
-    if (!lines[i].trim()) continue;
-    const cells = lines[i].split(',');
-    if (cells[cols.indexOf('seat')] !== 'checker') continue;
-    while (cells.length < cols.length) cells.push('');
-    cells[at] = 'p-leader-0820-1748';
-    lines[i] = cells.join(',');
-  }
-  fs.writeFileSync(csv, lines.join('\n'));
-
-  const after = deriveOwed(goalFolder);
+  const after = classifyOwedFromLedgers(goalFolder, {
+    endings: endingsMap([
+      ['writer', 'incomplete'], ['checker', 'incomplete', 0], ['runner', 'exited'], ['leader', 'done'],
+    ]),
+  });
   assert.ok(!after.classA.some((r) => r.seat === 'checker'),
-    `the HELD row is still owed: ${JSON.stringify(after.classA)}`);
-  assert.ok(after.classA.some((r) => r.seat === 'runner' && r.disposition === 'exited'),
-    `the hold leaked past its own row: ${JSON.stringify(after.classA)}`);
-  // The cell the hold must NOT have touched — `ready-seats` blocks the successors off this value.
-  const reread = fs.readFileSync(csv, 'utf8').split('\n').filter((l) => l.trim());
-  const rcols = reread[0].split(',');
-  const held = reread.slice(1).map((l) => Object.fromEntries(l.split(',').map((v, i) => [rcols[i], v])))
-    .find((r) => r.seat === 'checker');
-  assert.strictEqual(held.disposition, 'unverified');
-  assert.strictEqual(held['disposition-writer'], 'seat');
-  assert.strictEqual(held['hold-anchor'], 'p-leader-0820-1748');
-  say(`ok  checker HELD -> out of class A (${after.classA.length} owed, was ${before.classA.length}); `
-    + `disposition still '${held.disposition}'`);
+    `the disarmed row is still owed: ${JSON.stringify(after.classA)}`);
+  assert.ok(after.classA.some((r) => r.seat === 'runner' && r.ending === 'failed'),
+    `the disarm leaked past its own row: ${JSON.stringify(after.classA)}`);
+  say(`ok  checker disarmed -> out of class A (${after.classA.length} owed, was ${before.classA.length})`);
 }
 
 say('── dead seats excluded ──');
 {
   const goalFolder = fixtureA();
-  const d = deriveOwed(goalFolder, {
+  const d = classifyOwedFromLedgers(goalFolder, {
     readyAnswer: {
       ready: new Map(), granted: new Map(), reason: null,
-      rows: [{ seat: 'plan-planner', verdict: 'BLOCKED', dead: true }],
+      rows: [{ seat: 'plan-planner', dead: true }],
+      endings: endingsMap([['plan-planner', 'incomplete'], ['leader', 'done']]),
     },
     live: new Set(), queued: new Set(),
   });
@@ -376,6 +434,7 @@ say('── launch class (a): the incomplete seat, not deduped ──');
   const store = openStore();
   try {
     const goalFolder = fixtureA();
+    stampEndings(store, 'fx-a', [['plan-planner', 'incomplete'], ['leader', 'done']]);
     const sent = [];
     const r = reconcileGoal({
       goal: 'fx-a', goalFolder, engine: { heartStore: store },
@@ -428,6 +487,7 @@ say('── D34: 2 strikes on a REFUSED launch, exactly one stuck ──');
   const store = openStore();
   try {
     const goalFolder = fixtureUncast();
+    stampEndings(store, 'fx-u', [['worker', 'unverified']]);
     const sent = [];
     const passes = [];
     for (let i = 0; i < 5; i += 1) {
@@ -474,6 +534,7 @@ say('── count durable across store close/reopen ──');
   const goalFolder = fixtureUncast();
   let store = openHeartStore({ dbPath });
   try {
+    stampEndings(store, 'fx-d', [['worker', 'unverified']]);
     for (let i = 0; i < 2; i += 1) {
       reconcileGoal({
         goal: 'fx-d', goalFolder, engine: { heartStore: store },
@@ -531,7 +592,7 @@ say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; change
     const goalFolder = fixtureBound();
     const sent = [];
 
-    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-bound');
     const p1 = boundPass(store, goalFolder, sent, 1);
     assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
     assert.strictEqual(Number(p1.stuck_emitted), 0);
@@ -547,7 +608,7 @@ say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; change
     say(`  stuck body: ${sent[0]}`);
 
     // PROGRESS: the owed CONTENT changed (a second row appeared). Same seat, same reason.
-    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']]);
+    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']], store, 'fx-bound');
     const p3 = boundPass(store, goalFolder, sent, 3);
     assert.strictEqual(Number(p3.attempts), 1, JSON.stringify(p3));
     assert.strictEqual(Number(p3.stuck_emitted), 0, JSON.stringify(p3));
@@ -556,7 +617,7 @@ say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; change
     say(`  pass 3 (owed CHANGED):     attempts=${p3.attempts} stuck_emitted=${p3.stuck_emitted} sig=${p3.signature}`);
 
     // The leader ruled both rows `done` — the owed set is empty and the row goes.
-    boundRows(goalFolder, [['worker-a', 'done'], ['worker-b', 'done']]);
+    boundRows(goalFolder, [['worker-a', 'done'], ['worker-b', 'done']], store, 'fx-bound');
     const p4 = boundPass(store, goalFolder, sent, 4);
     assert.ok(!p4, `owed set empty but the attempt row survived: ${JSON.stringify(p4)}`);
     say('  pass 4 (owed EMPTY):       attempt row cleared');
@@ -603,7 +664,7 @@ say('── D44: once `stuck` is out, the SAME signature issues NO launch; a CHA
     const goalFolder = fixtureBound();
     const sent = [];
 
-    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-brake');
     const p1 = brakePass(store, goalFolder, sent);
     assert.strictEqual(p1.act.kind, 'enqueue', JSON.stringify(p1.act));
     assert.strictEqual(Number(p1.row.stuck_emitted), 0);
@@ -625,7 +686,7 @@ say('── D44: once `stuck` is out, the SAME signature issues NO launch; a CHA
 
     // D34/D40 INTACT — the owed CONTENT changed, so this is PROGRESS: the counter resets to 1 and
     // the launch is armed again in the very same pass.
-    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']]);
+    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']], store, 'fx-brake');
     const p5 = brakePass(store, goalFolder, sent);
     assert.strictEqual(Number(p5.row.attempts), 1, JSON.stringify(p5.row));
     assert.strictEqual(Number(p5.row.stuck_emitted), 0, JSON.stringify(p5.row));
@@ -666,7 +727,7 @@ say('── RED arm: D44 — restore the UNCONDITIONAL launch (the pre-ruling co
       recoverFn: () => ({ ok: true }),
     }).actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm');
     const drain = () => { for (const q of store.listQueue()) store.removeQueueRow({ queueId: q.queue_id }); };
-    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-brake-red');
     pass(); drain(); pass(); drain();      // pass 2 emits stuck
     red = pass();                         // pass 3 — braked in the live code
   } finally {
@@ -701,7 +762,7 @@ ${SKIP_ANCHOR}`);
   const store = openStore();
   try {
     const goalFolder = fixtureBound();
-    boundRows(goalFolder, [['worker-a', 'unverified']]);
+    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-bound');
     const sent = [];
     const seen = [];
     for (let i = 0; i < 4; i += 1) {
@@ -745,7 +806,7 @@ say('── D40: same seat, same word, DIFFERENT `ended` → attempts still reac
     const goalFolder = fixtureBound();
     const sent = [];
 
-    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 10:05']]);
+    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 10:05']], store, 'fx-inc');
     const p1 = incPass(store, goalFolder, sent);
     assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
     assert.strictEqual(Number(p1.stuck_emitted), 0, JSON.stringify(p1));
@@ -753,7 +814,7 @@ say('── D40: same seat, same word, DIFFERENT `ended` → attempts still reac
     say(`  pass 1 (ended 10:05): attempts=${p1.attempts} stuck_emitted=${p1.stuck_emitted} sig=${p1.signature}`);
 
     // The seat was relaunched, worked, and gave up again: SAME word, a LATER `ended`.
-    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 14:47']]);
+    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 14:47']], store, 'fx-inc');
     const p2 = incPass(store, goalFolder, sent);
     assert.strictEqual(Number(p2.attempts), 2, JSON.stringify(p2));
     assert.strictEqual(Number(p2.stuck_emitted), 1, JSON.stringify(p2));
@@ -787,7 +848,7 @@ say('── RED arm: restore `:${item.ended}` in the incomplete signature ──
     const sent = [];
     const seen = [];
     for (const ended of ['2026-08-19 10:05', '2026-08-19 14:47', '2026-08-19 18:12']) {
-      boundRows(goalFolder, [['worker-a', 'incomplete', ended]]);
+      boundRows(goalFolder, [['worker-a', 'incomplete', ended]], store, 'fx-inc');
       mut.exports.reconcileGoal({
         goal: 'fx-inc', goalFolder, engine: { heartStore: store },
         say: () => {}, force: true, readyAnswer: readyEmpty,
@@ -817,7 +878,7 @@ say('── D35: unread is a timestamp comparison, not a message number ──')
     ['no row at all', { checkin: '', row: false }, 3],
   ];
   for (const [label, opts, want] of cases) {
-    const d = deriveOwed(fixtureMail(opts), {
+    const d = classifyOwedFromLedgers(fixtureMail(opts), {
       readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
     });
     const got = d.classB.length ? d.classB[0].unreadCount : 0;
@@ -829,16 +890,25 @@ say('── D35: unread is a timestamp comparison, not a message number ──')
 
 say('── RED arm: restore the numeric mail cursor ──');
 {
-  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const rec = require('./reconcile');
+  const src = fs.readFileSync(path.join(__dirname, 'owed-from-endings.js'), 'utf8');
   const ANCHOR = '&& (!since || tsAfter(m.ts, since)));';
   assert.ok(src.includes(ANCHOR), 'class (b) unread anchor missing');
   const Module = require('node:module');
-  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
-  mut.filename = path.join(__dirname, 'reconcile.js');
+  const mut = new Module(path.join(__dirname, 'owed-from-endings.js'), null);
+  mut.filename = path.join(__dirname, 'owed-from-endings.js');
   mut.paths = Module._nodeModulePaths(__dirname);
   mut._compile(src.replace(ANCHOR, '&& m.num > (Number(since) || 0));'), mut.filename);
-  const d = mut.exports.deriveOwed(fixtureMail({ checkin: '2026-08-19 13:30' }), {
+  const d = mut.exports.classifyOwed(fixtureMail({ checkin: '2026-08-19 13:30' }), {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(),
+    loadSessions: rec.loadSessions,
+    loadMessages: rec.loadMessages,
+    lastBySeat: rec.lastBySeat,
+    liveSeatsFromLedgers: rec.liveSeatsFromLedgers,
+    checkinOf: rec.checkinOf,
+    tsAfter: rec.tsAfter,
+    STAFF_CHAIRS: rec.STAFF_CHAIRS,
+    SYSTEM_MAIL_SENDER: 'ignite-daemon',
   });
   assert.strictEqual(d.classB.length, 1, JSON.stringify(d.classB));
   assert.strictEqual(d.classB[0].unreadCount, 3, JSON.stringify(d.classB));
@@ -859,6 +929,7 @@ say('── paused goal is not reconciled ──');
   const store = openStore();
   try {
     const goalFolder = fixtureA();
+    stampEndings(store, 'fx-pause', [['plan-planner', 'incomplete'], ['leader', 'done']]);
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
     const logs = [];
     const r = reconcileGoal({
@@ -930,6 +1001,7 @@ say('── red arm: mutation of the strike guard ──');
   const store = openStore();
   try {
     const goalFolder = fixtureUncast();
+    stampEndings(store, 'fx-red', [['worker', 'unverified']]);
     const sent = [];
     for (let i = 0; i < 4; i += 1) {
       mut.exports.reconcileGoal({
@@ -951,16 +1023,17 @@ say('── red arm: mutation of the strike guard ──');
 say('── red arm: mutation of the pause gate ──');
 {
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = 'if (goalFolder && laneIsPaused(goalFolder))';
+  const ANCHOR = 'if (goalFolder && laneIsPaused(goalFolder, heartStore))';
   assert.ok(src.includes(ANCHOR), 'pause gate anchor missing');
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
   mut.filename = path.join(__dirname, 'reconcile.js');
   mut.paths = Module._nodeModulePaths(__dirname);
-  mut._compile(src.replace(ANCHOR, 'if (false && goalFolder && laneIsPaused(goalFolder))'), mut.filename);
+  mut._compile(src.replace(ANCHOR, 'if (false && goalFolder && laneIsPaused(goalFolder, heartStore))'), mut.filename);
   const store = openStore();
   try {
     const goalFolder = fixtureA();
+    stampEndings(store, 'fx-pause-red', [['plan-planner', 'incomplete'], ['leader', 'done']]);
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
     const r = mut.exports.reconcileGoal({
       goal: 'fx-pause-red', goalFolder, engine: { heartStore: store },
@@ -989,15 +1062,20 @@ say('── D24: summoned seats are never owed ──');
 
   // RED: the same fixture with NO summoned set — the pre-fix behaviour, and the shape that
   // relaunched meet's goal-master every cadence.
-  const red = deriveOwed(goalFolder, {
+  const summonedEndings = endingsMap([
+    ['goal-master', 'incomplete'], ['leader', 'incomplete'],
+  ]);
+  const red = classifyOwedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: new Set(),
+    endings: summonedEndings,
   });
   assert.ok(red.classA.some((x) => x.seat === 'goal-master'), JSON.stringify(red.classA));
   assert.ok(red.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(red.classB));
   say('  red (summoned set empty): goal-master derives in BOTH class (a) and class (b)');
 
-  const green = deriveOwed(goalFolder, {
+  const green = classifyOwedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned,
+    endings: summonedEndings,
   });
   assert.ok(!green.classA.some((x) => x.seat === 'goal-master'), JSON.stringify(green.classA));
   assert.ok(!green.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(green.classB));
@@ -1013,6 +1091,7 @@ say('── D24: a full pass enqueues the leader and never the summoned chair �
   const store = openStore();
   try {
     const goalFolder = fixtureSummoned();
+    stampEndings(store, 'fx-d24', [['goal-master', 'incomplete'], ['leader', 'incomplete']]);
     const r = reconcileGoal({
       goal: 'fx-d24', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
@@ -1046,8 +1125,9 @@ say('── D24: an unreadable coord degrades to the OLD behaviour, not a silent
   assert.strictEqual(set.size, 0, JSON.stringify([...set]));
   assert.ok(warns.some((w) => w.startsWith('warn:')), JSON.stringify(warns));
   const goalFolder = fixtureSummoned();
-  const d = mut.exports.deriveOwed(goalFolder, {
+  const d = mut.exports.classifyOwedFromLedgers(goalFolder, {
     readyAnswer: readyEmpty, live: new Set(), queued: new Set(), summoned: set,
+    endings: endingsMap([['goal-master', 'incomplete'], ['leader', 'incomplete']]),
   });
   assert.ok(d.classB.some((x) => x.seat === 'goal-master'), JSON.stringify(d.classB));
   say('ok  unreadable coord → empty set + a warn, and derivation falls back to the old behaviour');

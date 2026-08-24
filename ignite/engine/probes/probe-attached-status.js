@@ -90,7 +90,14 @@ const { readySeats } = require('../seeding');
 const byJob = new Map();
 const queued = new Set();
 const rows = [{ seat: 'alpha', after: '' }, { seat: 'beta', after: 'alpha' }];
-const frontier = () => readySeats(goalFolder).ready;
+const frontier = () => {
+  const dbPath = path.join(goalFolder, 'heart.db');
+  if (!fs.existsSync(dbPath)) return readySeats(goalFolder).ready;
+  const { openHeartStore, closeHeartStore } = require('../../server/heart/heart-store');
+  const hs = openHeartStore({ dbPath });
+  try { return readySeats(goalFolder, { heartStore: hs, goal: path.basename(goalFolder) }).ready; }
+  finally { hs.close(); closeHeartStore(); }
+};
 check('the ready set is the ONE eligibility predicate, shared with the enqueue pass',
   rows.filter((r) => attached.seatState(r, byJob, queued, { ready: frontier() }) === 'ready')
     .map((r) => r.seat).join() === st.ready.join());
@@ -102,6 +109,17 @@ fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
   'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
   + 'disposition,disposition-writer,execution,checkin,model\n'
   + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,done,seat,,,\n');
+{
+  const { openHeartStore, closeHeartStore } = require('../../server/heart/heart-store');
+  const { bind } = require('../../state-store');
+  const hs = openHeartStore({ dbPath: path.join(goalFolder, 'heart.db') });
+  bind(hs.db).stampSeatDeclare({
+    goal: path.basename(goalFolder), seat: 'alpha', ending: 'done',
+    evidence_pointer: 'probe-attached-status', declared_outputs: [],
+  });
+  hs.close();
+  closeHeartStore();
+}
 byJob.set(attached.jobIdFor('alpha'), [{ status: 'done' }]);
 const advanced = frontier();
 check('a CHECKED-OUT predecessor releases its dependent (the wave advances)',
@@ -114,6 +132,7 @@ fs.writeFileSync(path.join(goalFolder, 'sessions.csv'),
   'session-id,seat,harness,native-session-id,workdir,recorded,started,ended,pid,pid-starttime,tty,'
   + 'disposition,disposition-writer,execution,checkin,model\n'
   + 'sid-alpha,alpha,claude,,,,2026-08-11T10:00Z,2026-08-11T10:05Z,,,,,,,,\n');
+try { fs.unlinkSync(path.join(goalFolder, 'heart.db')); } catch { /* none */ }
 check('…and with the SAME store turn but NO check-out, the dependent stays WAITING (UNDECLARED)',
   attached.seatState(rows[1], byJob, queued, { ready: frontier() }) === 'waiting');
 fs.unlinkSync(path.join(goalFolder, 'sessions.csv'));

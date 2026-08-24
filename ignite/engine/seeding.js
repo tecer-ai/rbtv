@@ -52,7 +52,9 @@ const { execFileSync } = require('node:child_process');
 // consumer sweep was ordered by grep rather than by memory. What replaced its QUESTION is
 // `recordView`'s `done` set, and that set no longer comes from this file at all: it comes from the
 // seats' own check-out dispositions on coord's `ready-seats --json` answer.
-const { readExecutionRecord, CLEAN, PROCESS_OUTCOME_OF } = require('./execution-record');
+const {
+  recordView, readyFromEndings, isPendingWork, bindEnding, goalNameOf,
+} = require('./ending-reads');
 // The ONE interpreter resolver this repo already has (`python3` is a Microsoft-Store LIE on
 // Windows — it is on PATH, is executable, and runs no python).
 const { requirePythonCmd } = require('../lib/python-cmd');
@@ -71,29 +73,6 @@ const TASKFORCE = 'taskforce.csv';
 // names: READY, or BLOCKED and not dead. An unknown verdict is NOT waitable (falls OUT).
 // `probe-verdict-vocabulary.js` extracts coord's live vocabulary and asserts every value
 // is a key here — a new coord verdict becomes a commit-time failure, never a silent alarm.
-const CLASSIFIED_VERDICTS = Object.freeze({
-  READY: 'waitable',
-  BLOCKED: 'waitable-if-alive',
-  IDLE: 'not-waitable',
-  DONE: 'not-waitable',
-  HELD: 'not-waitable',
-  RUNNING: 'not-waitable',
-  SKEW: 'not-waitable',
-  RENEWING: 'not-waitable',
-  'RENEW-BLOCKED': 'not-waitable',
-  UNBUILT: 'not-waitable',
-  UNDECLARED: 'not-waitable',
-  STOPPED: 'not-waitable',
-});
-
-function isWaitableWork(row) {
-  if (!row || !row.verdict) return false;
-  const kind = CLASSIFIED_VERDICTS[row.verdict];
-  if (kind === 'waitable') return true;
-  if (kind === 'waitable-if-alive') return !row.dead;
-  return false;
-}
-
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -164,29 +143,23 @@ const COORD_TIMEOUT_MS = 60000;
 // existing STALL_MS 5-minute persistence. Do not add a second timer.
 const ENQUEUE_UNFIRED_GRACE_MS = 60 * 1000;
 
-function readySeats(goalFolder) {
+function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows = null } = {}) {
   const refuse = (reason) => ({ ready: null, rows: [], reason });
-  let raw;
-  try {
-    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'ready-seats', '--json'], {
-      encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (err) {
-    return refuse(`\`ready-seats --json\` did not answer (${err.code || err.message})`
-      + `${err.stderr ? `: ${String(err.stderr).trim().slice(0, 400)}` : ''}`);
+  let rows = taskRows;
+  if (!rows) {
+    let raw;
+    try {
+      raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'ready-seats', '--json'], {
+        encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (err) {
+      return refuse(`\`ready-seats --json\` did not answer (${err.code || err.message})`
+        + `${err.stderr ? `: ${String(err.stderr).trim().slice(0, 400)}` : ''}`);
+    }
+    try { rows = JSON.parse(raw); } catch { return refuse(`\`ready-seats --json\` returned no JSON: ${String(raw).slice(0, 200)}`); }
+    if (!Array.isArray(rows)) return refuse('`ready-seats --json` returned no row array');
   }
-  let rows;
-  try { rows = JSON.parse(raw); } catch { return refuse(`\`ready-seats --json\` returned no JSON: ${String(raw).slice(0, 200)}`); }
-  if (!Array.isArray(rows)) return refuse('`ready-seats --json` returned no row array');
-  // seat -> its predecessors' declared outputs, resolved absolute (§ D4, coord's own resolution).
-  // ⚠ AN ABSENT `seed` FIELD IS `[]` AND IS NEVER GUESSED AT HERE: resolving a predecessor's
-  // declared outputs in JS would be the second reader this whole design deletes.
-  const ready = new Map();
-  for (const r of rows) {
-    if (!r || !r.seat) continue;
-    if (r.verdict !== 'READY') continue;
-    ready.set(r.seat, Array.isArray(r.seed) ? r.seed : []);
-  }
+  const ready = readyFromEndings(heartStore, goalFolder, { rows, goal });
   return { ready, rows, reason: null };
 }
 
@@ -563,121 +536,7 @@ function uncastSeats(goalFolder) {
 // Derived, not stored: the last row per seat, out of the same file `done` and `foreign` come from.
 // A LATER row clears it — which is exactly what the owner's answer mints (a revival session at the
 // seat's home), so the hold releases through machinery that already existed.
-// ── W2 — `done` AND `blocked` NO LONGER COME OUT OF THE RECORD ────────────────────────────────
-//
-// `readyRows` is coord's `ready-seats --json` answer, handed in by the caller that already paid for
-// it (ONE subprocess per goal per pass — see `readySeats`). Two of the four sets below now read it
-// instead of the record's `outcome` column:
-//
-//   done      the seat's CHECK-OUT DISPOSITION is `done` — the seat's own word for its own work,
-//             which is the only surface that ever knew it. The record's `outcome` column cannot
-//             answer this any more and never honestly could: it said `done` for a seat that
-//             fail-blocked, because it was derived from a process exiting 0.
-//   blocked   coord's `HELD` verdict — a seat with an unanswered ask to the owner. UNIVERSAL: no
-//             `fallback: block-and-queue` gate and no ferry-delivery gate, both of which were the
-//             root cause of the original silent stall. The map's VALUE is coord's own reason
-//             string, so this file states nothing about why a seat is held.
-//
-// `foreign` and the OPEN half of `notFinished` still come from the record, because they are facts
-// about PROCESSES and lanes, which is exactly what the record now carries.
-//
-// ⚠ `readyRows` ABSENT DEGRADES TO "NOTHING IS DONE, NOTHING IS HELD", never to the old column
-// read. Two callers pass none today — the `--status` verb on a goal whose readiness coord refused,
-// and any caller written before this parameter. Both directions of a wrong guess are unsafe, but
-// they are not equally unsafe: an empty `done` set makes a finished seat merely look unfinished,
-// and the STORE's own no-double-fire guard (`seatHasRun`) plus `foreign` still stop it being
-// re-run. Reading the stale column instead would advance a wave off a value the migration
-// deliberately left inert (adv, C-migration: old `outcome` values are inert, files are NOT
-// rewritten).
-function recordView(heartStore, goalFolder, { readyRows = null } = {}) {
-  const rows = readExecutionRecord(goalFolder).rows;
-  const done = new Set();
-  const foreign = new Map();
-  const notFinished = new Map();
-  const blocked = new Map();
-  // THE ATTESTATION, read first and independently of the record: a seat can carry a disposition
-  // with no record row at all (the measured `forg-intake` shape — a daemon execution that wrote no
-  // `sessions.csv`, and its mirror, a seat coord knows about that this record never saw).
-  for (const r of readyRows || []) {
-    if (!r || !r.seat) continue;
-    if ((r.disposition || '').trim() === 'done') done.add(r.seat);
-    if (r.verdict === 'HELD') {
-      blocked.set(r.seat, r.reason || 'coord reports HELD — an unanswered ask to the owner');
-      notFinished.set(r.seat, blocked.get(r.seat));
-    }
-  }
-  if (!rows.length) {
-    const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
-    return { done, finished, foreign, notFinished, blocked };
-  }
-
-  // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
-  // its most recent execution. `failed`/`killed` are terminal words that were never `done`; they
-  // keep the behaviour they had (the seat is not done), so only the two non-finishes below are
-  // collected here.
-  // The seat's LAST row, in file order — the record is append-only, so the last row for a seat is
-  // its most recent execution. ⚠ ONLY THE **OPEN** CASE IS COLLECTED HERE NOW. The `blocked` arm
-  // that stood beside it read the record's outcome column, and W2 deleted that word from this
-  // vocabulary: a held seat is coord's `HELD` verdict, folded in above. Every terminal process word
-  // (`clean`/`crashed`/`killed`) is silent here, exactly as `failed`/`killed` always were — the
-  // seat is not done, and its done-ness is decided by its disposition, not by how its process ended.
-  const last = new Map();
-  for (const r of rows) last.set(r.seat, r);
-  for (const [seat, r] of last) {
-    if (!(r.outcome || '').trim()) {
-      notFinished.set(seat, `its last execution is still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
-    }
-  }
-
-  // A NULL store is the `--status` case on a goal this lane has never run: nothing is ours, so
-  // every non-done row is somebody else's — which is exactly what is true there.
-  const ours = new Set();
-  if (heartStore) {
-    for (const status of ALL_TURN_STATUSES) {
-      // `withThread: false` — only `session_id` is read here, and the attach is a recursive CTE
-      // PER ROW. This runs once per goal per cadence over the store's WHOLE history.
-      for (const row of heartStore.listExecutionsByStatus(status, { withThread: false })) {
-        if (row.session_id) ours.add(row.session_id);
-      }
-    }
-  }
-  for (const r of rows) {
-    const outcome = (r.outcome || '').trim();
-    // ⚠ THE `done` BRANCH THAT STOOD HERE IS GONE AND ITS ABSENCE IS THE WHOLE REPOINT. It read
-    // `outcome === 'done'` and both ADDED to `done` and skipped the foreign test. Done-ness is the
-    // disposition now (folded in at the top), and the foreign test is applied to every row on its
-    // own merits — a seat coord attests `done` has its foreign hold cleared below, by the same
-    // `finished` deletion that always cleared it.
-    if (ours.has(r['session-id'])) continue;            // our own store already governs this one
-    foreign.set(r.seat, outcome
-      ? `ended '${outcome}' in the ${r.lane || 'other'} lane (session ${r['session-id']})`
-      : `still OPEN in the ${r.lane || 'other'} lane (session ${r['session-id']})`);
-  }
-  // ── `finished` — "IS THIS SEAT DONE **NOW**", AND THE ONE ANSWER EVERY OUTRANKING TEST TAKES ──
-  //
-  // ⚠ THIS SET EXISTS BECAUSE `done` AND `notFinished` ARE INDEPENDENT, AND EVERY TEST THAT USED TO
-  // WRITE `done.has(seat)` MEANT THIS. Since W2 the two come from DIFFERENT SURFACES, which makes
-  // the independence structural rather than incidental: `done` is the seat's CHECK-OUT DISPOSITION
-  // on coord's answer, `notFinished` is the record's last row (still OPEN) plus coord's `HELD`
-  // verdict. A seat can carry both at once and it is the ordinary case — it checked out `done` on
-  // an earlier turn and something is running for it now, or it checked out `done` with a question
-  // to the owner still unanswered. Review findings F1 and F2 were both that gap, at the two call
-  // sites below — the review's own words, a signature change that did not sweep its callers.
-  //
-  //   F1 (HIGH): the relaunch grant (since DELETED, D12) bailed on `done.has(seat)`, so the
-  //   documented escape did nothing for a seat held on its SECOND ask (`blocked, done, blocked`).
-  //   F2: the `foreign` deletion did the same, so a crashed foreign revival (`done, open`) was
-  //   reported by NOTHING while `skippedAsFinished` called it finished and `states` called it live.
-  //   F2's fix is what stands; F1's subject is gone with the grant.
-  const finished = new Set([...done].filter((seat) => !notFinished.has(seat)));
-
-  // An attested `done` clears a foreign hold — the seat IS finished, and the lane that ran it is
-  // nobody's business at that point. But only while nothing outranks the attestation: an OPEN
-  // record row, or coord's `HELD`, is the seat's current state and `finished` above already
-  // excluded it.
-  for (const seat of finished) foreign.delete(seat);
-  return { done, finished, foreign, notFinished, blocked };
-}
+// recordView lives in ending-reads.js — done-set = ending=done; hold-set = §2.1.
 
 function jobIdFor(seat, goal = null) {
   return goal ? `seat-${goal}-${seat}` : `seat-${seat}`;
@@ -820,7 +679,7 @@ function enqueueEligible(heartStore, rows, {
       // ⚠ THE WORD IS `HELD`, NOT `BLOCKED` (adv, C82). `ready-seats` already spells `BLOCKED` for
       // "an `after` member is unsatisfied", and the two are different things — a message calling
       // this one BLOCKED sends an operator to the DAG when the answer is a person.
-      logger({ level: 'info', message: 'seat HELD — an unanswered ask to the owner, and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
+      logger({ level: 'info', message: 'seat waiting — an unanswered ask to the owner, and its dependents wait with it', seat: row.seat, evidence: blocked.get(row.seat) });
     }
     // ⚠ THE SILENT DROP THIS LINE USED TO BE (task 7.776). It was a bare `continue` with no logger
     // call, and it is where the measured 18-hour stall lived: coord answered READY, this store's
@@ -1022,7 +881,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // goal this pass — not a partial enqueue, and not even the create-only job registration, which
   // would be store rows written off an answer nobody has. The next pass retries; missing any
   // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
-  const { ready, rows: readyRows, reason } = readySeats(goalFolder);
+  const { ready, rows: readyRows, reason } = readySeats(goalFolder, { heartStore, goal });
   if (!ready) {
     if (logger) {
       logger({
@@ -1042,24 +901,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       skewed: [], frozen: null, suppressedEnqueues: {}, enqueueUnfired: [],
     };
   }
-  // Q2a — THE SKEW IS STILL LOUD; IT JUST NO LONGER STOPS THE GOAL (owner-ruled 2026-08-18).
-  // Before the ruling a skew reached a human (if at all) as the refusal above, which got a `warn`
-  // with its evidence. It now arrives as an ordinary row and the goal seeds around it — so without
-  // this line the one thing on the pass that a human MUST adjudicate would be the only thing
-  // nothing says out loud, and "quieter" was never part of the ruling. Every pass, naming the
-  // seats: it is a standing condition that lifts only when someone rules on the row.
-  const skewed = (readyRows || []).filter((r) => r && r.verdict === 'SKEW');
-  if (skewed.length && logger) {
-    logger({
-      level: 'warn',
-      message: 'seat disposition SKEW — the two records of that seat\'s own ending DISAGREE, so it and its '
-        + 'dependents advance on neither until a human rules. The REST of the goal is seeded normally.',
-      goal,
-      goalFolder,
-      evidence: skewed.map((r) => `${r.seat}: ${r.reason}`).join('  ·  '),
-    });
-  }
-  const view = recordView(heartStore, goalFolder, { readyRows });
+  const view = recordView(heartStore, goalFolder, { readyRows, goal });
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
   const suppressedEnqueues = {};
@@ -1111,7 +953,11 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   // if coord grows a verdict this table does not name.
   const deadSeats = new Set((readyRows || []).filter((r) => r && r.dead).map((r) => r.seat));
   const moving = seats.some((s) => states[s] === 'live' || states[s] === 'queued');
-  const waitableSeats = (readyRows || []).filter(isWaitableWork).map((r) => r.seat);
+  const api = bindEnding(heartStore);
+  const gid = goalNameOf(goalFolder, goal);
+  const waitableSeats = (readyRows || [])
+    .filter((r) => r && r.seat && !r.dead && isPendingWork(api, gid, r.seat))
+    .map((r) => r.seat);
   const pendingUnseeded = (ready.size || moving) ? []
     : waitableSeats;
   if (pendingUnseeded.length && logger) {
@@ -1128,12 +974,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     goal,
     seats,
     readinessRefused: null,
-    // ⚠ THE SAME `skewed` THE WARN ABOVE NAMED, RETURNED RATHER THAN RE-DERIVED (owner alarm,
-    // Q3a). The daemon's owner alarm (`server/ticker/goal-stall-alarm.js`) fires on an unresolved
-    // SKEW, and it must fire on the set THIS pass acted on. A second filter over `readyRows` in
-    // the caller would be free to disagree with the one that decided what to dispatch — the defect
-    // class this codebase has closed twice. One computation, one consumer per surface.
-    skewed,
+    skewed: [],
     // The predecessors' declared outputs coord resolved for each seat this pass launched (§ D4).
     // Reported rather than submitted — see the enqueue call's note on the door's registered keys.
     seeds: Object.fromEntries(enqueued.map((s) => [s, ready.get(s) || []])),
@@ -1169,8 +1010,8 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
       // D22: THE EXCLUDED-DEAD COUNT IS PART OF THE ALARM, not a debug line — this string is what
       // reaches the owner over Slack (`server/ticker/goal-stall-alarm.js`), and a reader who
       // cannot see how many rows were discounted cannot audit the alarm that discounted them.
-      detail: '`ready-seats` ruled NO seat READY (of ' + readyRows.length + ' row(s) answered, '
-        + deadSeats.size + ' of them DEAD by design and excluded) while these taskforce seats are pending — coord ruled on nothing dispatchable, so nothing can be seeded',
+      detail: 'no launchable seat (of ' + readyRows.length + ' row(s) answered, '
+        + deadSeats.size + ' of them DEAD by design and excluded) while these taskforce seats are pending',
     } : null,
     states,
   };
@@ -1201,6 +1042,4 @@ module.exports = {
   // against a fixture goal without standing up the whole enqueue path.
   surfaceCageRefusal,
   seedGoal,
-  CLASSIFIED_VERDICTS,
-  isWaitableWork,
 };
