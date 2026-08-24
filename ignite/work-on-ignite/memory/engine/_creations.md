@@ -12,3 +12,4 @@
 2026-08-24 · change · delete goal-stall-alarm module [T4-R10] · Delete `server/ticker/goal-stall-alarm.js` outright (stallAlarmDecision, conditionOf, STALL_MS, · 2d7b0da0 · server · ⚠
 2026-08-24 · change · engine reads ending store · verdict/outcome path now reads seat_endings+armed → 23d95ec3 · server · ⚠
 2026-08-24 · creation · Manifest-derived planning seat divergence alarm · The manifest is the source of truth for the planning seat ids, because · 8713ca14 · planning,meta-planning · ⚠
+2026-08-24 · creation · Persisted supervisor registry + boot re-adopt · A new component `ignite/supervisor/` — the home `spec-component-map` names, replacing · b7a174ca · server,team-kit · ⚠
