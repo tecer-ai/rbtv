@@ -1,5 +1,5 @@
 ---
-description: Read before asking whether a seat is alive, or before stamping any ending on boot - the persisted supervised-sitting registry and its boot re-adopt pass.
+description: Read before asking whether a seat is alive, before stamping any ending from an observed exit, or before reaping a finished sitting - the persisted registry, its boot re-adopt pass, and the one death-stamp path.
 ---
 
 # supervisor
@@ -52,6 +52,33 @@ incident report bought:
 - Nothing may stamp or launch owed work before this pass. `assertReadoptDone`
   refuses a caller that skipped it.
 
+## Death truth - the one stamp path
+
+`stampDeath(evidence, { store, registryFile })` is where an observed exit BECOMES an
+ending, and it is the only such place [T4-R7, T1-R1, T1-R18]. Every door that used
+to stamp on its own - `spawn.js#closeSeatSessionRow`, coord's `attest-exit
+--force-dead`, and the boot pass over `readopt().dead` - now hands it the facts it
+witnessed and stamps nothing itself.
+
+| evidence | stamp / act |
+|---|---|
+| checkout `done` present | confirm-and-reap the process, EVERY seat, never only `ephemeral: yes`. No `failed` |
+| checkout `incomplete` present | the seat-declared ending stands; reap |
+| dead, no checkout, never checked in | `failed: crash` - a strike |
+| dead, no checkout, DID check in | `failed: crash` + exit code + transcript-tail pointer |
+| evidence is provider-shaped | `failed: provider-error` (the strike/reroute policy is spec-recovery's) |
+
+`exited` is dead vocabulary and is not reachable from here by convention: the ending
+store refuses it at the write boundary.
+
+The reap half - `confirmAndReap` - CONFIRMS before it acts. The only question asked is
+the registry probe; a live process is signalled, waited for within a bounded budget,
+and only then is its row dropped. A process that survives keeps its row, because a row
+dropped for something still running is a leak nobody can see afterwards.
+
+The ending store is INJECTED (`store`), the same posture `awaitingReap` takes with
+`hasEnding`: liveness and endings stay two files that one caller wires together.
+
 ## The reap-debt surface
 
 `awaitingReap(hasEnding, file)` is the successor to team-kit's retired
@@ -63,12 +90,19 @@ is injected, so this component holds no ending-store handle.
 
 Probe: `isAliveProcess` · `isRowAlive` · `processStartTime` · `isZombie`
 
+Death truth: `stampDeath` · `confirmAndReap` · `providerShaped` · `buildEvidence` ·
+`waitGone`
+
 Registry: `loadRegistry` · `saveRegistry` · `makeRecord` · `recordSpawn` ·
 `recordCheckIn` · `dropRow` · `awaitingReap` · `registryPath`
 
 Boot: `readopt` · `assertReadoptDone`
 
-Kit door (for team-kit's python): `cli.js --op NAME [--registry PATH]
-[--payload JSON|PATH|-]`, one JSON document on stdout.
+Kit door (for team-kit's python): `cli.js --op NAME [--registry PATH] [--db PATH]
+[--payload JSON|PATH|-]`, one JSON document on stdout. `--db` is required by the ops
+that need an ENDING - `stampDeath` and `awaitingReap` - and by no other. The python
+side of that door is `team-kit/supervisor_door.py`; `SUPERVISOR_REGISTRY` overrides the
+registry file for a probe, a selftest or a second instance.
 
-Selftests: `node registry.selftest.js` - prints `ALL PASS` / exits 0.
+Selftests: `node registry.selftest.js` and `node death-stamp.selftest.js` - each prints
+`ALL PASS` / exits 0.

@@ -1,3 +1,4 @@
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 supervisor-registry,library,path,,index.js,"Persisted supervised-sitting registry, the one liveness probe (kill+start-time), the four write moments, and the boot re-adopt pass that runs before any ending stamp",
-supervisor-registry-cli,tool,path,,cli.js,"JSON CLI over the registry for non-node callers: --op NAME [--registry PATH] [--payload JSON|PATH|-]",
+supervisor-death-stamp,library,path,,death-stamp.js,"The ONE evidence-to-ending path: a done/incomplete checkout stands and is reaped, a death with no checkout is stamped failed with a mandatory reason class, and confirm-and-reap frees the process for every seat",
+supervisor-registry-cli,tool,path,,cli.js,"JSON CLI over the registry and the death stamp for non-node callers: --op NAME [--registry PATH] [--db PATH] [--payload JSON|PATH|-]",
