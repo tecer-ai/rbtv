@@ -35,9 +35,8 @@ proving runs; the run records live in that vault under
 - **`coord.py` changes MUST pass the self-test before use:** `python3 coord.py selftest` (exit 0),
   run from INSIDE this folder — it aborts on missing sibling assets elsewhere. The save gate is
   deliberately not the done gate: it does not run the self-test, so run it yourself after saving.
-  The same rule applies to the surviving sensor `team_monitor.py`
-  (`python3 orchestration/team-monitor/tool/team_monitor.py selftest`, from the repo root) —
-  it replaced the retired `watch.py --selftest` gate. Extend the self-test in the
+  (The former sensor `team_monitor.py` carried its own `selftest` gate; the sensor is deleted
+  [T4-R8, del-observers] and the gate deleted with it.) Extend the self-test in the
   same change that adds or alters a mechanic — an untested mechanic is how the previous tooling
   shipped six latent defects.
 - **Protocol changes are evidence-gated.** `protocol.md` rules — and equally those in its two

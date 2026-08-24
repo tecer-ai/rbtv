@@ -330,7 +330,7 @@ while [ "$#" -gt 0 ]; do
       printf '       RBTV_IGNITE_JOURNAL_LINES · RBTV_IGNITE_UNSTABLE_WINDOW_SECONDS · RBTV_IGNITE_DEPLOY\n'
       printf '  --json applies to `unit` only.\n'
       printf '  `unit` exit code = did the READ succeed. Health is the `health` field, never the exit code.\n'
-      printf '  the watch loop is NOT one of these: it has no fixed unit — see `orchestration/team-monitor/tool/team_monitor.py`.\n'; exit 0 ;;
+      printf '  there is no standalone watch loop: the pane-sensor is retired (T4-R8) with no fixed-unit replacement built yet.\n'; exit 0 ;;
     -*) die "unknown option: $1" ;;
     *)  [ -z "$VERB" ] || die "one verb at a time (got '$VERB' and '$1')"; VERB="$1" ;;
   esac

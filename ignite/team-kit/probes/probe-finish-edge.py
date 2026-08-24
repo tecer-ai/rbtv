@@ -28,10 +28,6 @@ THE ARMS, and every green one has the red twin that makes it mean something:
   F6  the package is derived from the ROOM (7.607 E3b: off the lease's own room row — the
       `resolve_live_run` accessor that used to wrap this is deleted), and with no room there is no
       package: a readable "not executing", never a guess
-  F7  ⚠ THE TWO SPELLINGS AGREE. `team_monitor.FINISH_MARKER` is a deliberate second copy of
-      `coord.FINISH_MARKER` (separate custody — the disclosure is in both files). A drift between
-      them makes team-monitor blind to a finish edge the room already fired, and nothing else on
-      this box would notice. Compared here, byte for byte, by READING BOTH FILES.
 
 ⚠ IT NEVER TOUCHES A REAL ROOM OR A REAL GOAL. Every tmux command runs against an ISOLATED server
 (`TMUX_TMPDIR` redirected into this probe's own temp dir, `TMUX`/`TMUX_PANE` unset), killed at
@@ -177,16 +173,6 @@ def main():
                   f"detail={detail3[:80]!r} live={lease3.get('live')!r}")
         finally:
             subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=20)
-
-        # ── F7 — the two spellings, read from the two files ──────────────────────────────────
-        tm = KIT.parent.parent / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
-        m = re.search(r'^FINISH_MARKER = "(.*)"$', tm.read_text(encoding="utf-8"), re.M)
-        check("⚠ F7 the DISCLOSED second spelling agrees byte for byte with coord's. team-monitor "
-              "cannot import coord (separate custody, and `ignite/CLAUDE.md` rule 4 from the other "
-              "side), so this comparison is the only thing standing between a drifted constant and "
-              "a sensor silently blind to a fired finish edge",
-              m is not None and m.group(1) == coord.FINISH_MARKER,
-              f"team_monitor={m.group(1) if m else None!r} coord={coord.FINISH_MARKER!r}")
 
 
 try:

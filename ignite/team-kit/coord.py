@@ -13,8 +13,10 @@ drifted from the code and taught commands that no longer existed. Run `coordinat
 grouped command list, `coordinate <command> -h` for one command's arguments, one example and the
 step that usually follows. Briefing frontmatter keys: `briefing-template.md` beside this script.
 
-Stdlib only; no PATH install. Liveness/context monitoring lives in `team_monitor.py`
-(`orchestration/team-monitor/tool/`), which replaced the retired `watch.py`.
+Stdlib only; no PATH install. The pane-sensor `team_monitor.py` (`orchestration/team-monitor/`,
+successor to the retired `watch.py`) is deleted [T4-R8, del-observers]: a terminal pane is a
+viewport, never a heartbeat, and "is it alive" is answered by the supervisor registry (not yet
+built), never by a standalone monitor.
 """
 import argparse
 import csv
@@ -3163,7 +3165,7 @@ def session_trace_safe(fn, *a, **kw):
     folder, a full disk, or a malformed csv would otherwise raise out of `launch_seat` AFTER the
     harness is already up — leaving a live seat the roster believes failed, which is G-11's exact
     shape wearing the bookkeeping mask. Failures are printed LOUDLY and swallowed; the same
-    trade-off `refresh_mirrors_for`, `write_seat_statusline` and `ensure_team_monitor` already make.
+    trade-off `refresh_mirrors_for` and `write_seat_statusline` already make.
     """
     try:
         return fn(*a, **kw), ""
@@ -4080,209 +4082,20 @@ def write_seat_statusline(w):
         return path, "skipped"
 
 
-# ---------- team-monitor start (task 7.33's room-creation line; p-monitor-start-is-lane-K...) ----------
-
-def team_monitor_script():
-    return Path(__file__).resolve().parents[2] / "orchestration" / "team-monitor" / "tool" / "team_monitor.py"
-
-
-def team_monitor_holder(base):
-    """Which pid holds the monitor slot right now, or None.
-
-    ⚠ ASKED THE WAY `team_monitor.py`'s OWN `lock_holder` ASKS IT — pid file plus `/proc` — so the
-    two cannot disagree about who is running. Deliberately NOT parsed out of `ensure`'s stdout:
-    that output is vocabulary ("already running" / "started"), and a report keyed on a sibling's
-    wording breaks silently the day the wording changes. This reads the same PROPERTY the sibling
-    reads.
-    """
-    p = base / "team-monitor.lock"
-    try:
-        pid = int(p.read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
-        return None
-    return pid if pid and Path(f"/proc/{pid}").exists() else None
-
-
 def load_state_snapshot(base):
-    """team-monitor's `state.json` snapshot as a dict, or `None` on anything short of a clean
-    read — missing, unreadable, unparseable, or the wrong shape. NEVER raises.
+    """A `state.json` snapshot as a dict, or `None` on anything short of a clean read —
+    missing, unreadable, unparseable, or the wrong shape. NEVER raises.
 
-    ONE reader (PRIN-11). Three consumers want three different things on failure — a bound
-    (`team_monitor_last_seen`), nothing (`state_agent_types`), a refusal (`attest_exit_blockers`)
-    — and each keeps its own fail-safe direction; what they no longer keep is a private copy of
-    the read. CMP-20's architecture is exactly this: ONE component touches the raw sources and
-    writes one canonical snapshot, and every consumer reads that snapshot only."""
+    ONE reader (PRIN-11). Its writer, team-monitor, is deleted [T4-R8, del-observers] — every
+    room now reads as a missing snapshot, permanently. Kept because its two remaining callers
+    (`state_agent_types`, a refusal path in `attest_exit_blockers`) already treat `None` as their
+    ordinary fail-safe direction rather than raising or inventing a value; deleting this reader
+    too would mean re-deriving their own `state.json` parse, a second copy of the same read."""
     try:
         snap = json.loads((base.parent / "state.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     return snap if isinstance(snap, dict) else None
-
-
-def team_monitor_last_seen(base):
-    """The DEAD sensor's own final heartbeat: (written_at_iso, writer_pid), or None.
-
-    ⚠⚠ THIS IS WHAT MAKES THE OUTAGE BOUNDABLE, AND IT IS A MEASUREMENT, NOT AN INFERENCE.
-    `state.json` carries `written_at_iso` and `writer_pid`, rewritten by the monitor itself every
-    pass — so the last line the dead process wrote is still on disk when we replace it. That gives
-    LAST OBSERVED ALIVE. The restart instant gives DEAD BY.
-
-    ⚠ WHAT IT DOES **NOT** GIVE, and the report must never claim otherwise: the DEATH INSTANT.
-    Nothing was watching. The monitor died somewhere inside (last_seen, restart] — so that interval
-    is an UPPER BOUND ON THE OUTAGE, never the outage. "Down for 28 minutes" would be a fabrication;
-    "down for AT MOST 28 minutes, last observed alive at T" is what the disk actually supports.
-
-    Returns None whenever the bound cannot be READ — no file, unparseable, no timestamp, or a
-    `written_at` in the future (a clock moved; a bound derived from it would be fiction). The
-    caller then reports the death instant as unknown, which is the honest floor.
-    """
-    snap = load_state_snapshot(base)
-    if snap is None:
-        return None
-    iso, at, pid = snap.get("written_at_iso"), snap.get("written_at"), snap.get("writer_pid")
-    if not iso or not isinstance(at, (int, float)):
-        return None
-    if at > time.time() + 60:  # clock skew — refuse to derive a window from it
-        return None
-    return iso, pid
-
-
-def ensure_team_monitor(args, session=""):
-    """Start the run's team-monitor, deterministically WITH THE ROOM rather than by hand.
-
-    `ensure` is idempotent by construction (flock: a second writer exits 3), detaches immediately,
-    and needs no teardown — the monitor polls `tmux has-session` and exits when the room is gone.
-    So this is safe to call on every launch, which is what makes it deterministic: no one has to
-    remember, and a retry costs nothing.
-
-    ORDERING (monitor-builder, #524): it must not run before the tmux session exists — a monitor
-    that starts first sees no session on its first pass and exits cleanly, leaving no lock and no
-    monitor. It is called from `launch`, which already refuses outside tmux, and only after the
-    seats are up.
-
-    ⚠⚠ TASK 7.552. THE ROOM'S SESSION IS HANDED OVER, NOT LEFT TO BE RESOLVED — and the ordering
-    above is exactly why it has to be. `team_monitor.py` resolves the room FROM THE ROSTER, and a
-    roster row's pane is written at the seat's own CHECK-IN, which has not happened at the instant
-    this runs. So on a package no seat has ever checked into, the sensor refused ("the roster
-    carries no pane at all", exit 4), NO `state.json` was ever produced, and every SUBSEQUENT
-    launch read `CAP UNENFORCEABLE` and deferred every counted candidate — the cold-start bound
-    (7.406) admits the FIRST launch of a fresh package and, before this, nothing admitted the
-    second. `launch` already knows the room, because it just launched into it, so it says so.
-
-    ASKED OF THE ROOM FIRST — the caller reads it with `tmux_session_name` off the pane this launch
-    actually used, which is the same discipline `resolve_session` states for itself (`G-296`: a
-    derived session name can only be right by coincidence).
-
-    ⚠⚠ TASK 7.607 E4b — THE COLD-BOOT FALLBACK, AND WHY IT IS NOT `G-296`'s BANNED DERIVATION.
-    An EMPTY `session` means "I could not ask". It USED to fall through to the sensor's own roster
-    resolution — and on a COLD or STALE roster that resolution REFUSES (`SessionUnresolved`,
-    exit 4) or aims at a name that was never alive (exit 5). The sensor then dies instantly, no
-    `state.json` is ever written, the census stays stale, and every counted candidate DEFERS on
-    `CAP UNENFORCEABLE` — the first seat gated on a census that cannot exist before a seat lives.
-    Measured in the E4 live acceptance: three consecutive deferred fires.
-    `G-296` outlawed GUESSING a room's name off a package path at a time when NOTHING defined a
-    session's name, so any derivation could only be right by coincidence. `decisions.md`
-    `#d-extinguishment-design-lock` item 2 (owner, 2026-08-09) DEFINES it — room name = goal name,
-    ONE room per goal — and item 8 makes the goal folder BE the package. So `package_dir(args).name`
-    is the room's name BY CONSTRUCTION, not by coincidence. It is supplied HERE, by the caller that
-    knows the goal, so `resolve_session`'s own no-derivation ban stays intact: the sensor is never
-    left to derive, it is TOLD. The measured room still WINS whenever tmux could be asked.
-
-    Never blocks or fails a launch: an unstarted monitor is a run with a weaker sensor; a launch
-    that died starting one is a run with fewer seats.
-
-    ⚠⚠ TASK 7.88 (`G-259`, reporting half). THIS USED TO RETURN `("ok", script)` WHETHER IT FOUND
-    THE SENSOR ALIVE OR RAISED IT FROM THE DEAD, and the launch line printed "ensured for this run"
-    for both. The run's ONLY raw-source sensor died and was silently respawned here; every consumer
-    of `state.json` read a stale room until a LAUNCH happened to repair it, and nothing said so.
-    ⇒ A REPAIR THAT LEAVES NO REPORT IS INDISTINGUISHABLE, FROM EVERY SURFACE THE ROOM READS, FROM
-    NOTHING HAVING BEEN WRONG. Starting a dead monitor is CORRECT and is not being removed; doing
-    it silently is the defect.
-
-    The two outcomes are now distinct statuses — `already` and `started` — decided by reading the
-    lock slot BEFORE and AFTER, never by parsing the child's wording.
-    """
-    base = base_dir(args)
-    script = team_monitor_script()
-    if not script.is_file():
-        return "absent", {"why": f"{script} does not exist yet — 7.33 has not landed"}
-    before = team_monitor_holder(base)
-    # Read the outgoing snapshot BEFORE starting anything: the replacement immediately begins
-    # overwriting `state.json`, and with it the dead process's last heartbeat. Read it after the
-    # start and the bound is gone — this ordering IS the measurement.
-    last_seen = team_monitor_last_seen(base) if before is None else None
-    pkg = package_dir(args)
-    # 7.607 E4b — the cold-boot fallback; the docstring carries the whole reason.
-    session = session or pkg.name
-    try:
-        subprocess.run([sys.executable, str(script), "ensure",
-                        "--package", str(pkg), "--session", session],
-                       capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return "fail", {"why": str(exc)}
-    after = team_monitor_holder(base)
-    if before is not None:
-        return "already", {"pid": before}
-    if after is None:
-        # Started nothing and nothing is holding the slot: the sensor is DOWN and the room is
-        # unobserved. Reported as a failure rather than as a quiet success — the pre-7.88 code
-        # returned "ok" here too.
-        return "fail", {"why": "ensure returned but no process holds the monitor lock"}
-    record = {"event": "team-monitor-restarted", "at": now(), "pid": after,
-              "last_seen": last_seen[0] if last_seen else None,
-              "last_seen_pid": last_seen[1] if last_seen else None}
-    append_sensor_event(base, record)
-    return "started", record
-
-
-def append_sensor_event(base, record):
-    """Durable, greppable record of a repair we performed — criterion 1's "a surface the room reads".
-
-    ⚠ `team-monitor.log` was NOT enough and that is measured, not assumed: it already carried all
-    three `team-monitor up:` lines for this run, so the restart WAS logged and still went
-    unreported for the length of a milestone. A log nothing consumes is not a report.
-
-    This records only what we DID, at the instant we did it. It watches nothing and it is not a
-    detector — noticing a dead sensor WITHOUT waiting for a launch is 7.32/7.33's flag-set work and
-    is deliberately absent here.
-    """
-    try:
-        base.mkdir(parents=True, exist_ok=True)
-        with (base / "sensor-events.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record, sort_keys=True) + "\n")
-    except OSError:
-        pass  # never fail a launch over its own bookkeeping (the posture this file already takes)
-
-
-def render_monitor_report(status, detail):
-    """The launch line. Returns (text, tone, to_stderr).
-
-    ⚠ CRITERION 2: `already` and `started` MUST NOT render alike. Everything below the status word
-    exists so a reader with no out-of-band knowledge can tell "the sensor was fine" from "the
-    sensor was DEAD and I just raised it".
-    """
-    if status == "already":
-        return f"team-monitor: already up (pid {detail['pid']}) — not restarted", C_ALIVE, False
-    if status == "absent":
-        return f"team-monitor: NOT started — {detail['why']}", C_HINT, False
-    if status == "fail":
-        return (f"WARNING team-monitor start FAILED — {detail['why']}; the room runs UNOBSERVED",
-                C_DEAD, True)
-    # started — the sensor was DEAD. Say so, and say exactly how much is known.
-    line = (f"⚠ team-monitor WAS DEAD — RESTARTED (pid {detail['pid']}) at {detail['at']}. "
-            f"Until now every reader of state.json saw a STALE room.")
-    if detail.get("last_seen"):
-        line += (f"\n  last observed alive: {detail['last_seen']} (its own final state.json write, "
-                 f"pid {detail['last_seen_pid']})"
-                 f"\n  ⇒ the sensor was down AT MOST from then until now. The DEATH INSTANT IS "
-                 f"UNKNOWN — nothing was watching — so that span is an UPPER BOUND on the outage, "
-                 f"never the outage itself.")
-    else:
-        line += ("\n  last observed alive: UNKNOWN — no readable final write from the dead process, "
-                 "so the outage cannot be bounded at all. Not estimated.")
-    line += ("\n  a dead sensor is still only noticed by a launch (G-259 detection half, 7.32/7.33)"
-             " — this reports the repair, it does not detect the death.")
-    return line, C_DEAD, True
 
 
 # ---------- workers.md ----------
@@ -9459,9 +9272,8 @@ def state_agent_types(base):
 
     Returns {} on anything short of a clean snapshot — missing file, unparseable, wrong shape,
     or a pre-7.80 snapshot with no such key on any row — so `workers` degrades to its
-    pre-7.80 rendering rather than raising or inventing a value (same fail-safe shape as
-    `team_monitor_last_seen`, same file, read independently here because the two callers want
-    different things on failure: a bound there, nothing here).
+    pre-7.80 rendering rather than raising or inventing a value (`load_state_snapshot`'s own
+    fail-safe: never raises, this caller's fail-safe direction is an empty dict).
 
     ⚠⚠ DISPLAY ONLY, NEVER A GATE. This field is a SENSOR OBSERVATION of a descriptor's
     declared claim, not an authorization — the identity gate (`resolve_agent`/`gate`) is the
@@ -12150,7 +11962,7 @@ def discover_workers(wdir):
     Returns per-seat dicts: agent, agent_type (str — the DECLARED type, "" when the descriptor
     declares none; 7.278's capacity term sizes `counting.counts_toward_cap` off this and nothing
     else), briefing, harness, model, effort, cwd, window, ephemeral,
-    ctx_refresh (int|None — the seat's own context-refresh threshold, consumed by team_monitor.py),
+    ctx_refresh (int|None — the seat's own context-refresh threshold),
     folder (the seat's worker folder in folder form, else None)."""
     found = []
     for p in briefing_files(wdir):
@@ -13229,9 +13041,9 @@ def mark_dead_rows(rows):
     `unmet-predecessor` — whose verdict IS `BLOCKED`. A new `DEAD` verdict word would therefore
     have to land in the admission predicate too, which reads FIELDS and deliberately never reads
     `verdict` (`no-class-clause`). A dead seat IS blocked; `dead` says the block is permanent. Every
-    existing consumer — `seeding.js`' `verdict === 'READY'` door, its `HELD` and `SKEW` filters,
-    `team_monitor.py`'s READY count — is untouched by construction, and a consumer that has never
-    heard of `dead` keeps the answer it has today.
+    existing consumer — `seeding.js`' `verdict === 'READY'` door, its `HELD` and `SKEW` filters —
+    is untouched by construction, and a consumer that has never heard of `dead` keeps the answer
+    it has today.
 
     ⚠ ONLY A `BLOCKED` ROW IS A CANDIDATE. Every verdict above `BLOCKED` in the ladder is a fact
     about the seat ITSELF (a check-out, a skew, an owner ask, an occupied roster row), and none of
@@ -15903,10 +15715,11 @@ CAPACITY_EMPTY_LINE = ("  capacity: NO PANE WAS OPENED — every counted candida
 CAPACITY_UNENFORCEABLE_LINE = (
     "  capacity: CAP UNENFORCEABLE — {reason} | cap.agent_panes cannot be checked at all, so NO "
     "counted candidate is admitted on the memory floor alone | {stamp}\n"
-    "  capacity: this is a WAIT, not a refusal — the act exits ZERO. PICKUP LANE: restore the census "
-    "(`team_monitor.py once --package {pkg}`, or restart the sensor) and the cadence sweep "
-    "re-admits every deferred seat with no further act (deferred-pickup-lane.md). No override flag "
-    "carries this term, and none may be attached to --force or --force-memory.")
+    "  capacity: this is a WAIT, not a refusal — the act exits ZERO. PICKUP LANE: the census sensor "
+    "is retired and no replacement is built yet, so this state persists until one lands; the "
+    "cadence sweep re-admits every deferred seat with no further act once it does "
+    "(deferred-pickup-lane.md). No override flag carries this term, and none may be attached to "
+    "--force or --force-memory.")
 CAPACITY_CENSUS_DEFER_LINE = (
     "  {agent}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN for this act: the census "
     "could not be read, and this act will not admit a counted seat blind. Pickup lane above.")
@@ -15951,12 +15764,17 @@ CAPACITY_NOTE_UNDECLARED = ("  {agent}: capacity — descriptor declares NO `age
 #
 # 7.363 made an ABSENT-or-STALE census DEFER — correct for a room that has run before and whose
 # sensor died. It also defers a VIRGIN package, one no sensor has EVER run against and no seat has
-# EVER launched into, because the wired entry starts the sensor AFTER the launch loop
-# (`ensure_team_monitor`, called post-loop in this same command) — so a virgin package's `state.json`
-# can never exist at the point this term reads it. The pickup lane 7.363 names ("restore the
-# census") can never fire on a room nothing has ever written to, so every package the wired entry
-# creates launched ZERO seats on its own first act. This section admits exactly that one state, on
-# the empty-room bound, and touches no other reading.
+# EVER launched into — the census reader below never finds a `state.json` to read there. The
+# pickup lane 7.363 names ("restore the census") can never fire on a room nothing has ever written
+# to, so every package the wired entry creates launched ZERO seats on its own first act. This
+# section admits exactly that one state, on the empty-room bound, and touches no other reading.
+#
+# ⚠ THE SENSOR THAT USED TO WRITE `state.json` IS DELETED [T4-R8, del-observers]: "is it alive" is
+# answered by the supervisor registry (not yet built), never by a pane or a census file. Every
+# room now reads as this same cold-start/absent-census state, permanently — this section's
+# admission logic already treats that as a valid, handled state rather than a crash, so nothing
+# here needed to change to keep functioning; it simply now fires on every room, not only virgin
+# ones.
 def _cap_marker_absent(path):
     """True ONLY on a positively-confirmed absence (`FileNotFoundError`). Present, unreadable, or
     any other `OSError` (permission denied, a path segment that is a file, ...) all return False —
@@ -17367,8 +17185,8 @@ def cmd_launch(args):
             # G-2335's answer. The room cannot count itself, so `headroom` is UNKNOWN — not zero,
             # not large — and admitting a counted seat here is admitting blind. Every counted
             # candidate WAITS. What keeps this an enforcement and not an outage is the pickup lane
-            # printed with it: the census is restorable by one command, and the cadence sweep
-            # re-admits with no further act. Uncounted seats (the owner door, a descriptor
+            # printed with it: the cadence sweep re-admits with no further act once a census
+            # source exists again. Uncounted seats (the owner door, a descriptor
             # declaring no type) still proceed — `budget.json` says they spend no slot, so nothing
             # about the cap bears on them, and blocking them would be enforcing a term they were
             # never under. The exit code is untouched: a WAIT is not a failure.
@@ -17621,14 +17439,6 @@ def cmd_launch(args):
                             f"succeeded; only the durable reason record is missing.", C_DEAD),
                           file=sys.stderr)
 
-    # 7.552: the room's session travels WITH the call — see `ensure_team_monitor`. Read off the
-    # pane this launch used, so it is a measurement of the room and not a derivation from its path.
-    status, detail = ensure_team_monitor(args, session=tmux_session_name(target))
-    # ^ after the seats: the room is up by now
-    # 7.88: ONE renderer for every outcome, so "already up" and "was dead, restarted" cannot drift
-    # back into printing the same thing — which is the defect this row exists to fix.
-    text, tone, to_stderr = render_monitor_report(status, detail)
-    print(c(text, tone), **({"file": sys.stderr} if to_stderr else {}))
     # ---- the launch's VERDICT (leader ruling, exit-code semantics) -------------------------
     #
     # Every PRE-SPAWN refusal in this command — PROP-8, the role gate, the memory gate — already
@@ -18698,8 +18508,8 @@ def isolate_tmux_for_selftest():
     """Bind THIS process to a PRIVATE tmux server before any check runs. Returns the tmpdir.
 
     The suite shells out to REAL tmux ~170 times a run — `new-session`, `pipe-pane`,
-    `list-panes -a`, `display-message`, plus the sensor's `team_monitor.py ensure` — and
-    `fire_finish_edge` reaches `tmux kill-session`. Every one of those acts on whichever server
+    `list-panes -a`, `display-message` — and `fire_finish_edge` reaches `tmux kill-session`.
+    Every one of those acts on whichever server
     THIS process is bound to. Bound to the operator's server, the suite is not a self-test, it is
     an unattended agent typing into the room it is running in: on 2026-08-14 a session
     orchestrating a landing DAG died with `coord.py selftest` as its last recorded act.
@@ -19527,7 +19337,7 @@ def _selftest_checks(args, failures, names):
               and by["gamma"]["folder"] == gdir)
         check("v2: ephemeral codex seat discovered; model empty -> plan default",
               by["delta"]["harness"] == "codex" and by["delta"]["ephemeral"] and by["delta"]["model"] == "")
-        check("T5 ctx-refresh: the frontmatter key is exposed per seat (int|None) for team_monitor.py",
+        check("T5 ctx-refresh: the frontmatter key is exposed per seat (int|None)",
               by["hk-1"]["ctx_refresh"] == 40 and by["alpha"]["ctx_refresh"] is None)
         check("leader renew: discovered by name, excluded from the bare mass sweep",
               "leader" in by
@@ -20233,7 +20043,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- T1: identity resolution + verification (F1) ----
         calling_pane["v"] = ""
-        check("T1: an explicit args.agent (team_monitor.py's internal Namespace calls) resolves as --as",
+        check("T1: an explicit args.agent (an internal caller's own Namespace) resolves as --as",
               resolve_agent(ns(agent="lookout")) == "lookout")
         os.environ["COORD_AGENT"] = "alpha"
         check("T1: COORD_AGENT (injected at launch) resolves the caller with nothing typed",
@@ -21890,8 +21700,8 @@ def _selftest_checks(args, failures, names):
                   sender_origin(ns(pane="%9999"), "zeta") is None)
         finally:
             os.chdir(_cwd)
-        check("stage 4: an unresolvable pane changes NOTHING — out-of-pane callers (team_monitor.py, an "
-              "--as claim from outside tmux) keep today's behaviour, because under-labelling is "
+        check("stage 4: an unresolvable pane changes NOTHING — an out-of-pane caller (an "
+              "--as claim from outside tmux) keeps today's behaviour, because under-labelling is "
               "the safe direction and over-labelling would re-serve a seat its own sends",
               sender_origin(ns(pane=""), "zeta") is None)
         check("stage 4: `pending` asks the SAME identity question — a foreign same-named seat's "
@@ -23905,8 +23715,8 @@ def _selftest_checks(args, failures, names):
               _u97_t[1][1] == "executing" and _u97_t[2][1] == "blocked")
 
         # ARM 4 — THE OFF-VOCABULARY RED ARM, driven through the FUNCTION and not argparse: the
-        # parser's `choices=` refuses at the CLI, but team_monitor.py and every internal caller build a
-        # Namespace directly, so the guard that matters is the one inside the command.
+        # parser's `choices=` refuses at the CLI, but an internal caller can build a Namespace
+        # directly, so the guard that matters is the one inside the command.
         _u97_before = state_csv(_u97_pkg).read_bytes()
         _u97_o, _u97_c = _u97_go(state="in-progress")
         check("7.97 (THE VOCABULARY ARM): an off-vocabulary state is REFUSED LOUDLY and by name, "
@@ -25228,10 +25038,10 @@ def _selftest_checks(args, failures, names):
               _s3_tokens == set(REFUSAL_LAYERS) and not _s3_opaque)
 
         # ---- L-b: THE EXIT CODES ARE UNCHANGED. The sites exited with a MIX of 1 and 2 before the
-        # sweep, and `team_monitor.py`'s undelivered-flag path keys on coord's EXIT CODE rather than
-        # on this text — so a conversion that uniformized them would change behaviour for it and
-        # for every scripted caller while every text assertion above stayed green. Three sites,
-        # spanning both codes; the first is ALSO L-c (3 of 3), the third continuation-literal site.
+        # sweep, and a scripted caller may key on coord's EXIT CODE rather than on this text — so a
+        # conversion that uniformized them would change behaviour for it while every text assertion
+        # above stayed green. Three sites, spanning both codes; the first is ALSO L-c (3 of 3), the
+        # third continuation-literal site.
         _s3_lb_cont, _s3_lb_cont_code = refuse(
             cmd_checkin, agent="s12-03-lb", summary="x" * (SUMMARY_MAX + 25), pane="%1",
             force=False)
@@ -25243,7 +25053,7 @@ def _selftest_checks(args, failures, names):
               "`input`, an ordinary head site still exits 1, and the F17 asserted-identity bound "
               "still exits 2 and names `identity` (the role gate this row used to read is gone "
               "[T2-R10, D24, F-simplicity-7]; `identity` is the exit-2 layer that survives it). "
-              "The codes are behaviour (team_monitor.py keys on them), not decoration",
+              "The codes are behaviour a scripted caller may key on, not decoration",
               _s3_lb_cont_code == 1 and _s3_lb_head_code == 1 and _f17_code == 2
               and re.search(r"^refused \[coord input\]: ", _s3_lb_cont, re.M) is not None
               and re.search(r"^refused \[coord state\]: ", _s3_lb_head, re.M) is not None
@@ -28756,12 +28566,12 @@ def _selftest_checks(args, failures, names):
               "OUTPUT. This is the clause that separates an enforcement from an outage: a seat "
               "told only that it was deferred has been stopped, while a seat told HOW the term "
               "clears has been queued. The lane is A4's own (`deferred-pickup-lane.md`) — the "
-              "cadence sweep re-admits with no further act once the census is restored — and the "
-              "restore command is named beside it. Each deferred seat is ALSO named individually, "
-              "the same never-filter-silently bar the full-capacity branch is held to",
-              "PICKUP LANE: restore the census" in _c3_d1
+              "cadence sweep re-admits with no further act once a census source exists again — "
+              "and that state is named beside it (the census sensor is retired, no replacement "
+              "built yet). Each deferred seat is ALSO named individually, the same "
+              "never-filter-silently bar the full-capacity branch is held to",
+              "PICKUP LANE: the census sensor is retired" in _c3_d1
               and "deferred-pickup-lane.md" in _c3_d1
-              and "team_monitor.py once --package" in _c3_d1
               and all(f"{_s}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN"
                       in _c3_d1 for _s in ("cap1", "cap2", "cap3")))
         check("7.363 A CENSUS-FAILURE DEFERRAL IS A **WAIT**, NOT A REFUSAL, and NO OVERRIDE FLAG "
@@ -28982,7 +28792,7 @@ def _selftest_checks(args, failures, names):
               "all, which is precisely the wrong fail direction this branch is bounded to avoid; "
               "7.363 changed WHO WAITS on a dead sensor and changed NOTHING about who refuses",
               _c3_r1n_code == 0 and "CAP UNENFORCEABLE" in _c3_r1n
-              and "PICKUP LANE: restore the census" in _c3_r1n
+              and "PICKUP LANE: the census sensor is retired" in _c3_r1n
               and "declares no floors.launch_refuse_mb" not in _c3_r1n)
 
         # ============ 7.406: COLD-START ADMISSION — G-leader-0805-2036 ===========================
@@ -29027,9 +28837,10 @@ def _selftest_checks(args, failures, names):
               "cap.agent_panes — with ONE visible line naming the cold-start reading, the way "
               "CAP UNENFORCEABLE names its own. Before this row every package the wired entry "
               "creates launched ZERO seats on its first act (G-leader-0805-2036, "
-              "JEA2-20260805T203059Z): the only sensor start runs AFTER the launch loop "
-              "(`ensure_team_monitor`), so `state.json` could never exist at the point this term "
-              "reads it, and the consumer ran before its producer on every first launch",
+              "JEA2-20260805T203059Z): the only sensor start used to run AFTER the launch loop, "
+              "so `state.json` could never exist at the point this term reads it, and the "
+              "consumer ran before its producer on every first launch. The sensor is now deleted "
+              "entirely [T4-R8, del-observers] and every room reads this same cold-start state",
               _c4a_code == 0 and "[dry-run] cs1" in _c4a and "[dry-run] cs2" in _c4a
               and "capacity: COLD-START" in _c4a and "EMPTY-ROOM BOUND" in _c4a
               and "CAP UNENFORCEABLE" not in _c4a)
@@ -32796,141 +32607,11 @@ def _selftest_checks(args, failures, names):
               "roster believes failed (G-11's shape wearing the bookkeeping mask)",
               _swallows() and session_trace_safe(lambda: "sid-1") == ("sid-1", ""))
 
-        # ---- 7.33's room-creation line (p-monitor-start-is-lane-K-and-restart-is-732)
-        mstatus, mdetail = ensure_team_monitor(a4)
-        check("7.33: the team-monitor start line reports ABSENT rather than failing when "
-              "team_monitor.py has not landed — a launch must never die because its monitor is "
-              "not built yet, and 'absent' is the report monitor-builder reads as PENDING-WIRING",
-              # 7.88 changed this contract: the old flat "ok" split into `already`/`started`, and
-              # `detail` became a dict. Updated in the SAME change rather than left to break later.
-              mstatus in ("already", "started", "absent", "fail")
-              and (mstatus != "absent" or "does not exist" in mdetail["why"]))
-
-        # ---- 7.607 E4b: the SENSOR COLD-BOOT SEAM — a sessionless `ensure` is never emitted ----
-        # ⚠ ASSERTED ON THE ARGV, WHICH IS THE ONLY STABLE SURFACE THAT CARRIES THE DEFECT. The
-        # status this function returns is NOT a reliable witness: the child dies on its own
-        # resolution refusal (exit 4/5) moments AFTER `ensure` returns, so the sessionless call
-        # reads `fail` or `started` depending on a race with that death — `fail` when the lock
-        # slot is already empty at the read (measured, E4b review, probe arm S3 at 02ad3d3).
-        # A check on the verdict would pass or fail with the timing; the command line cannot.
-        # Vacuity guard: the FIRST arm proves the caller's MEASURED room still wins — a fallback
-        # that overrode it would pass a bare "--session present" test for the wrong reason.
-        _argvs = []
-
-        def _cap_run(argv, *a, **kw):
-            _argvs.append(list(argv))
-            return subprocess.CompletedProcess(argv, 0, "", "")
-
-        _real_run, _real_script = subprocess.run, team_monitor_script
-        try:
-            subprocess.run = _cap_run
-            globals()["team_monitor_script"] = lambda: Path(__file__).resolve()  # any real file
-            ensure_team_monitor(a4, session="measured-room")
-            ensure_team_monitor(a4)
-        finally:
-            subprocess.run = _real_run
-            globals()["team_monitor_script"] = _real_script
-        _measured = _argvs[0] if _argvs else []
-        _cold = _argvs[1] if len(_argvs) > 1 else []
-        check("7.607 E4b: the room MEASURED off the launch pane still wins — the cold-boot "
-              "fallback may never override an answer the caller actually asked tmux for "
-              "(vacuity guard for the arm below)",
-              "--session" in _measured
-              and _measured[_measured.index("--session") + 1] == "measured-room")
-        check("7.607 E4b: a sessionless `ensure` is NEVER emitted — with no room to measure, the "
-              "goal name is passed explicitly (`#d-extinguishment-design-lock` item 2: room name "
-              "= goal name; item 8: the goal folder IS the package). Before this, the child fell "
-              "through to team-monitor's roster resolution, which REFUSES on a cold or stale "
-              "roster (exit 4/5) — the sensor died instantly, state.json was never written, and "
-              "every counted first-seat launch DEFERRED on CAP UNENFORCEABLE (E4: 3 fires)",
-              "--session" in _cold
-              and _cold[_cold.index("--session") + 1] == pkg4.name == "goal")
-
-        # ---- 7.88 (G-259 reporting half): a silent repair is indistinguishable from no fault ----
-        # ⚠ THE DECISION IS A PURE FUNCTION OF (before, after, last_seen), so all four outcomes are
-        # exercised here deterministically. The LIVE arm — kill a real monitor, watch the report
-        # fire, then run it again with the monitor alive and watch it NOT fire — is criterion 4 and
-        # is run against a real tmux session outside the suite; it is reported in the record, not
-        # asserted here, because a suite that spawns real sensors is a suite that leaks them.
-        started = {"event": "team-monitor-restarted", "at": "2026-07-28 16:28",
-                   "pid": 3630881, "last_seen": "2026-07-28T16:00:12Z", "last_seen_pid": 3181095}
-        t_started, _tone, t_err = render_monitor_report("started", started)
-        t_already, _tone2, a_err = render_monitor_report("already", {"pid": 3630881})
-        check("7.88 criterion 2: 'the sensor was already up' and 'the sensor was DEAD and I "
-              "restarted it' render DIFFERENTLY — that collapse IS the defect. Before this, both "
-              "printed 'team-monitor: ensured for this run'",
-              t_started != t_already and "WAS DEAD" in t_started and "WAS DEAD" not in t_already
-              and "not restarted" in t_already)
-        check("7.88 criterion 3: the report names WHAT IT CANNOT KNOW — it gives `last observed "
-              "alive` from the dead process's OWN final write and calls the span an UPPER BOUND, "
-              "and it never states an outage duration as fact. An inferred window is worse than "
-              "none, so the bound is offered only as a bound",
-              "last observed alive: 2026-07-28T16:00:12Z" in t_started
-              and "UPPER BOUND" in t_started and "DEATH INSTANT IS UNKNOWN" in t_started)
-        no_bound, _t3, _e3 = render_monitor_report(
-            "started", {**started, "last_seen": None, "last_seen_pid": None})
-        check("7.88 criterion 3, the honest floor: when the dead process left NO readable final "
-              "write, the report says the outage CANNOT BE BOUNDED and estimates nothing — the "
-              "one case where 'unknown' is the whole truth",
-              "UNKNOWN" in no_bound and "cannot be bounded" in no_bound
-              and "UPPER BOUND" not in no_bound)
-        check("7.88 criterion 5: the report does NOT claim the detection half — it says in its own "
-              "text that a dead sensor is still only noticed by a launch, and names 7.32/7.33. "
-              "Closing this row must not read as closing G-259",
-              "only noticed by a launch" in t_started and "7.32/7.33" in t_started
-              and "it does not detect the death" in t_started)
-        check("7.88: a `started` report goes to STDERR and an `already` report does not — the "
-              "repair is an exception the launcher must see, not a routine line to scroll past",
-              t_err is True and a_err is False)
-        fail_txt, _t4, _e4 = render_monitor_report("fail", {"why": "boom"})
-        check("7.88: `ensure` returning with NOTHING holding the lock is a FAILURE, not a quiet "
-              "success — the pre-7.88 code returned 'ok' on that path, so a launch that started no "
-              "sensor at all reported exactly like one that did",
-              "UNOBSERVED" in fail_txt and "boom" in fail_txt)
-        # The bound-reader itself, against real files rather than a hand-made dict.
-        # ⚠ ITS OWN TEMP PACKAGE, DELIBERATELY. The first version of these four arms wrote
-        # `state.json` into the SUITE'S SHARED package and the run ABORTED on the unlink — the file
-        # was gone before I removed it, so something else in the suite owns that path's lifecycle.
-        # Sharing a fixture with the rest of the suite made these arms depend on machinery they do
-        # not test; a private directory makes each arm's precondition entirely mine to state.
-        _tmb = Path(tempfile.mkdtemp(prefix="coord-788-")) / "pkg"
-        (_tmb / "coordination").mkdir(parents=True, exist_ok=True)
-        _tmbase = _tmb / "coordination"
-        (_tmb / "state.json").write_text(json.dumps(
-            {"written_at_iso": "2026-07-28T16:00:12Z", "written_at": time.time() - 300,
-             "writer_pid": 3181095}), encoding="utf-8")
-        check("7.88: the outage bound is READ off state.json's own `written_at_iso`/`writer_pid` "
-              "— the dead sensor's final heartbeat, which is a MEASUREMENT and not an inference",
-              team_monitor_last_seen(_tmbase) == ("2026-07-28T16:00:12Z", 3181095))
-        (_tmb / "state.json").write_text(json.dumps(
-            {"written_at_iso": "2099-01-01T00:00:00Z", "written_at": time.time() + 8000,
-             "writer_pid": 1}), encoding="utf-8")
-        check("7.88: a `written_at` in the FUTURE yields NO bound — a clock moved, and a window "
-              "derived from it would be fiction presented as a measurement",
-              team_monitor_last_seen(_tmbase) is None)
-        (_tmb / "state.json").write_text("{not json", encoding="utf-8")
-        check("7.88: an unreadable state.json yields NO bound rather than an exception — the "
-              "report degrades to 'unknown' and the launch is never failed over its bookkeeping",
-              team_monitor_last_seen(_tmbase) is None)
-        (_tmb / "state.json").unlink()
-        check("7.88: and a MISSING state.json likewise — this is the first launch of a fresh run, "
-              "not a sensor that died",
-              team_monitor_last_seen(_tmbase) is None)
-        check("7.88: the lock slot is read as a PROPERTY (pid file + /proc), the same question "
-              "team_monitor.py's own lock_holder asks — never parsed out of the child's wording, "
-              "which would break silently the day that wording changes",
-              team_monitor_holder(_tmbase) is None)
-        check("7.33: the monitor is resolved beside the rbtv orchestration CLIs, not guessed from "
-              "cwd — the same __file__-derived discipline that keeps G-72 from recurring",
-              team_monitor_script().name == "team_monitor.py"
-              and "orchestration" in str(team_monitor_script()))
-
         # ---- 7.57: the gateway client's mode split — DETECT half only (fork 1: the SPEAK half's
         # coordination routing is RULED NOT MET, so nothing here calls the network; call_gateway
         # is exercised live, once, outside selftest — this suite stays "no tmux, no run package,
-        # no network" per its own docstring). Own temp packages throughout, same reason as the
-        # 7.88 block above: a shared fixture would make each arm depend on machinery it does not
-        # test.
+        # no network" per its own docstring). Own temp packages throughout — a shared fixture
+        # would make each arm depend on machinery it does not test.
         _g757 = Path(tempfile.mkdtemp(prefix="coord-757-"))
 
         # A. THE STANDALONE CONTROL: no server.json at all is what every workspace looks like
