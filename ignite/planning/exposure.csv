@@ -4,5 +4,6 @@ planning-lock,reference,path,,lock.py,"Exclusive flock over <goal>/planning/curr
 supervised-materialize,reference,path,,wrapper.py,"Supervised materialize wrapper both planning-door paths call — uncast-in-sheet + five failure classes, no Slack",
 planning-mint-argv,reference,path,,argv.py,"Path A argv builder — --package at the existing goal; never --milestone-id, never --nested",
 planning-path-a,reference,path,,path_a.py,"Path A mint: uncast + wrapper + one materialize invocation",
+planning-path-b,reference,path,,path_b.py,"Path B birth: validate then scaffold then mint; reclaim half-goal",
 planning-door,reference,path,,door.js,"Goal-wide trigger: planning goal + unminted five-seat chain fires once",
 planning-failure-record,reference,path,,failure.py,"C-16 failure record writer + origin routing (approval-thread / gate-lane)",

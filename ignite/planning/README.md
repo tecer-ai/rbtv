@@ -1,6 +1,6 @@
 # `ignite/planning/` — planning-door lock + supervised-materialize wrapper
 
-Replacement splice door (spec-planning-door §1–§4). Path A (this seat) is the goal-wide planning-seat mint. Path B (birth) reuses argv + wrapper. Does not Slack-post. Does not touch `materialize-seats.py` KEEP bodies.
+Replacement splice door (spec-planning-door §1–§4). Path A is the goal-wide planning-seat mint. Path B is execution-goal birth via `rbtv-goal scaffold` then Path-A-style mint. Does not Slack-post. Does not touch `materialize-seats.py` KEEP bodies.
 
 | Module | Responsibility |
 |---|---|
@@ -8,6 +8,7 @@ Replacement splice door (spec-planning-door §1–§4). Path A (this seat) is th
 | `wrapper.py` | `supervised_materialize` — validate → uncast → (B) scaffold → lock → mint → release |
 | `argv.py` | Path A argv builder — one `--workflow` invocation, no `--milestone-id`, no `--nested` |
 | `path_a.py` | Path A mint through the wrapper |
+| `path_b.py` | Path B: approve-package → validate → scaffold → mint; reclaim on half-goal |
 | `door.js` | Goal-wide trigger the daemon tick calls |
 | `failure.py` | six-field failure record + origin routing + gate-lane stamp |
 

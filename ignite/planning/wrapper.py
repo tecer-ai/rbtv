@@ -93,19 +93,23 @@ def supervised_materialize(
     envelope_stamp=None,
     sessions_path=None,
     uncast=None,
+    record_goal_folder=None,
 ):
     """validate → uncast → (path B) scaffold → take lock → mint → release lock.
 
     Callers inject validate/scaffold/mint. `uncast` (callable → list of seat
     names) refuses the whole act if any seat would land uncast. No Slack.
+    Path B: `goal_folder` is the new execution goal (lock + mint target);
+    `record_goal_folder` is the planning goal that receives the D12 record.
     """
     if path not in (PATH_A, PATH_B):
         raise ValueError(f"path must be {PATH_A!r} or {PATH_B!r}")
     if origin not in (ORIGIN_APPROVAL_THREAD, ORIGIN_GATE_LANE):
         raise ValueError(f"origin must be approval-thread or gate-lane")
+    record_at = record_goal_folder if record_goal_folder is not None else goal_folder
     if envelope_stamp == ENVELOPE_REFUSED_STAMP:
         return _fail_arm(
-            goal_folder=goal_folder,
+            goal_folder=record_at,
             origin=origin,
             origin_id=origin_id,
             class_=CLASS_ENVELOPE_REFUSAL,
@@ -144,7 +148,7 @@ def supervised_materialize(
         if scaffolded and reclaim is not None:
             reclaim()
         return _fail_arm(
-            goal_folder=goal_folder,
+            goal_folder=record_at,
             origin=origin,
             origin_id=origin_id,
             class_=CLASS_LOCK_COLLISION,
@@ -157,7 +161,7 @@ def supervised_materialize(
         if scaffolded and reclaim is not None:
             reclaim()
         return _fail_arm(
-            goal_folder=goal_folder,
+            goal_folder=record_at,
             origin=origin,
             origin_id=origin_id,
             class_=exc.class_,
