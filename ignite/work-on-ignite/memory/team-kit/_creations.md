@@ -8,3 +8,4 @@
 2026-08-22 · change · seeded · component-first-migration · module-root team-kit rows invisible to install2 → own exposure.csv + shared two-tree discovery.py (D86) · da69c086,0563266b · meta-installer · ⚠
 2026-08-22 · creation · seeded · goal-root-relative-outputs · cmd_checkout left review-goal-completeness/structure-milestone-dag leader-flipped — declared_outputs resolved ./name.ext against seat cwd only · ffdf2dc2 · meta-planning · ⚠
 2026-08-23 · creation · memory commit verb + daily commit job · caged distill seat can write memory but not commit → file-issue memory commit (pathspec) fired by the daemon fire-tool job memory-commit daily 11:05Z after the 10:33Z distill; a new tools: entry needs deploy, not restart · dd271085 · work-on-ignite,config · ⚠
+2026-08-24 · change · move-only split of coord.py into 16 loaded siblings · Sixteen map-named units left the monolith as sibling files under `team-kit/`, and `coord.py` · 867a240f · — · ⚠
