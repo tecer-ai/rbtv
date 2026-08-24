@@ -9,8 +9,8 @@ until 2026-08-23.
 When you create, rename, delete, or materially change ANY component in this repo (skill, command, rule, subagent, persona, workflow, task), you MUST in the SAME change:
 
 1. Update `README.md` if the change affects what the README documents (component inventory, usage, install steps, module list).
-2. Update the relevant file in `modules/` so the module's component list and descriptions reflect reality.
-3. Update `admin/install/module-manifest.json` if a component was added, removed, or renamed.
+2. Update the owning `<module>/module.md` so the module's component list and descriptions reflect reality — that file IS the module list `rbtv` reads.
+3. Update the component's own `exposure.csv` if what it exposes changed. There is no central install manifest: `admin/install/module-manifest.json` was deleted with the predecessor installer on 2026-08-24, and every inventory is now read off the tree.
 
 A component change without a matching docs/module/manifest update is incomplete. Do not stop at the component edit.
 

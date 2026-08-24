@@ -38,8 +38,8 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
 > `meta/installer/selftest/`, decisions in `meta/installer/design-decisions.md`) and took
 > the plain name; the predecessor — repo-root `install.py` plus its `admin/install/`
 > package, which installed flat module components into `.claude/` and kept state in
-> `rbtv.json` — is being retired, and its package is already absent from this tree, so
-> the steps under "Clone RBTV" below no longer run as written.
+> `rbtv.json` — was DELETED on 2026-08-24. Its content lives in git history, and the
+> `rbtv.json` it wrote in a workspace is not read by anything any more.
 >
 > The installer manages **only NEW-STANDARD component folders** — a `<module>/<component>/`
 > directory holding an `exposure.csv` (that manifest at depth 2 IS the component; the former
@@ -123,23 +123,25 @@ Each module is documented in detail in [`modules/`](./modules/). The doc covers 
    rbtv install                 # or: python rbtv/meta/installer/install.py
    ```
 
-   > The rest of this numbered section documents the PREDECESSOR installer (repo-root
-   > `install.py` + `admin/install/`), including its `--mirror` flags. That package is
-   > absent from this tree and the commands below do not run as written; the section is
-   > kept until the retirement is finished. What runs today is `rbtv install` — its verbs
-   > are the callout above.
-
-   The predecessor installer prompted for:
-   - Modules to install (core is always included)
-   - Orchestration dispatch (when the `orchestration` module is selected): the live roster is the **cast catalog** (`cast route --catalog`; routable set = catalog ∩ availability). Cards and the planner CALL `cast route`; conductor dispatch is plain `cast`; API workers go through `cast api`. There is no install-time model-package election. The retired models-tree router is gone. The installer reconciles the workspace's `.claude/settings.local.json` permission allowlist from the catalog's `permission_rules` (only the catalog-declared strings are touched — hand-added entries survive). Electing the orchestration module also **renders the worker mirror** in the target workspace (shared `.agents/` library and per-model config dirs) via the mirror driver at `ignite/team-kit/mirror/driver/` (team-kit owns the one implementation; decision 5 of the 2026-08-18 models-tree-retirement build). **Guidance files (`AGENTS.md`/`QWEN.md`) are NOT rendered** — that leg is RETIRED (owner ruling `d-hard-guard-retire-model-mirror`, 2026-08-10): no flag or recorded state can make this installer write a guidance file; a render prints a one-line skip. The modern installer (`meta/installer/install.py`) owns guidance files. Mirror state is persisted in a single `model_mirror` block in `rbtv.json`. Use `--mirror` to refresh mirror artifacts only (skips component install; empty package list means every driver-known package). Use `install.py --mirror --check` to ask whether the mirror is current WITHOUT refreshing it: a read-only probe that writes nothing, names every managed file missing or fallen behind its source, and exits 1 on drift / 0 in sync (gating-ready for CI and pre-flight checks) — worth having because mirrors are gitignored and refresh only when the installer runs, so drift is per-machine and invisible to git. `--check` applies only with `--mirror`, and is mutually exclusive with `--uninstall` (exit 2). `--exclude PATH [PATH ...]` is now INERT for rendering (it only ever constrained the guidance walk) but is still recorded in `rbtv.json` (`model_mirror.excluded_paths`) for state compatibility: passing it REPLACES the recorded list, omitting it PRESERVES it. The prune-on-exclude deletion was removed with the guidance retirement — installer-1 no longer deletes a guidance file a render would have orphaned. `ALWAYS_EXCLUDED_PREFIXES` in `driver/state.py` survives for the teardown side only: a goal folder's routers — `CLAUDE.md` AND `AGENTS.md` — are written by the goals-tree scaffold (owner ruling Q18, 2026-08-09), and uninstall consults the constant: a workspace upgraded from a pre-exclusion driver still carries those routers in its recorded managed-file list, so `install.py --mirror --uninstall` (and a deselection teardown) partitions them OUT of its delete set instead of deleting them (`UninstallResult.protected`) — they stay on disk, un-managed, and are reported under a `protected` label beside the deleted/spared counts. Use `install.py --mirror --uninstall` for a full mirror teardown: removes ALL generated mirror artifacts for the target (the shared `.agents/` library, per-model config dirs, and any guidance file still RECORDED from a pre-retirement install — banner-guarded, so a file installer-1 did not write is spared) — except any recorded path under `ALWAYS_EXCLUDED_PREFIXES`, which is protected (left on disk, un-managed) rather than deleted — and clears the `model_mirror` block from `rbtv.json`; `--uninstall` applies only with `--mirror`.
-
-   Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and workspace CLAUDE.md conventions to propose paths.
+   With no arguments it runs the guided flow: choose the workspace, tick the
+   components with the arrow keys (space toggles, `i` shows what a component
+   installs, `a` ticks everything), tick which AI tools get files written for
+   them, choose which root guidance file you author, then confirm. Piped or
+   scripted, every question falls back to a numbered list. The scripted verbs
+   are in the callout at the top of this section.
 
 3. After install, your workspace has:
-   - `.claude/skills/rbtv-*/` — thin loaders for skills
-   - `.claude/commands/rbtv-*.md` — slash commands
-   - `.claude/rules/rbtv-*.md` — rule content (copied — includes `rbtv-output-resolution` which governs how components resolve output paths at runtime)
-   - `rbtv.json` — your install config
+   - `.claude/skills/<name>/SKILL.md` — thin loaders for skills
+   - `.claude/commands/<name>.md` — slash commands
+   - `.claude/rules/<name>.md` — rules
+   - `.claude/agents/<name>.md` — sub-agents
+   - `.rbtv/config/install.json` — the book: every file and every shared-config
+     key the installer wrote, and the only thing an uninstall removes
+
+   Names are the bare part id; ownership is a `rbtv2-managed` marker inside each
+   file, never a prefix on its name.
+
+   Output paths are resolved at runtime by the `rbtv-output-resolution` rule, which uses conversation context and workspace CLAUDE.md conventions to propose paths.
 
 ### Optional dependencies (per module)
 
@@ -222,13 +224,14 @@ cd /path/to/your/workspace/rbtv
 git pull
 ```
 
-Content changes appear live. You only need to re-run `install.py` when:
-- Adding or removing modules
-- RBTV's own module manifest or loader templates change
+Content changes appear live. You only need to re-run `rbtv install` when:
+- Adding or removing components
+- A component's exposure manifest (`exposure.csv`) changes what it exposes, or
+  how a loader is rendered changes
 
 ## Source of truth
 
-Installed files in `.claude/skills/rbtv-*`, `.claude/commands/rbtv-*.md`, `.claude/rules/rbtv-*.md`, `.claude/agents/rbtv-*.md` are regenerated on every `install.py` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](./modules/builder.md)).
+Installed files under `.claude/skills/`, `.claude/commands/`, `.claude/rules/` and `.claude/agents/` that carry the `rbtv2-managed` marker are regenerated on every `rbtv install` run. **Do not edit them in your workspace** — edit the source in this repo and re-install. This section is the canonical statement of that principle for installs without the **builder** module; workspaces that install builder also get the always-on `rbtv-source-of-truth` rule enforcing it (recovered from retirement — see [modules/builder.md](./modules/builder.md)).
 
 ## Retired components
 
