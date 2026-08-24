@@ -8,3 +8,5 @@
 2026-08-22 · creation · seeded · Admission brake door · watcher D34/D44 brake could be opted out of via enqueue() queue-mode; 356-sitting burn → fail-closed door inside HeartStore.enqueue() · 8478c7a5,affceae2,6c997616,c833046e · server,gateway · ⚠
 2026-08-22 · change · seeded · Unverified into dispositions · RECORD_DISPOSITIONS omitted unverified even though coord.py writes it → parked in EXTRA_NON_TERMINAL next to synthetic renew-interrupted; selftest matched the bug · 23578584,0afe6f88,c666cb9b,243f3aa1,acd38230 · — · ⚠
 2026-08-24 · change · Path A goal-wide planning-seat mint · IE-2 splice re-nested planning.csv per milestone → goal-wide mint once through the wrapper · 88ac3206 · planning,server · ⚠
+2026-08-24 · change · Fix stale rule-disposition references cross-component · No replacement instrument was invented — [T2-R5] forbids new daemon remedy verbs, and the owner-ask · a6913c6f · bridges,capabilities,meta-leader,team-kit · ⚠
+2026-08-24 · change · delete goal-stall-alarm module [T4-R10] · Delete `server/ticker/goal-stall-alarm.js` outright (stallAlarmDecision, conditionOf, STALL_MS, · 2d7b0da0 · server · ⚠
