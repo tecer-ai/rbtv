@@ -19,7 +19,7 @@ const { createForwardPath } = require('./forward-path');
 const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
-const askStore = require('./ask-store');
+const { createAskRecord } = require('./ask-store');
 const { createOutbox, outboxStorePath } = require('./outbox');
 
 const STATE_VERSION = 1;
@@ -48,8 +48,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // deliver is the bridge's own outbound delivery (deliverToOwner, hoisted below) —
   // injected so the forward path can post an honest decline notice (D111 part 2) on
   // a MAPPED conversation whose follow-up cannot reach the running work, never silence.
+  // ONE sender for the ask record, shared with the forward path so both acts on a thread — the
+  // open and the reap — travel the same intent through the same forwarder. Two constructions would
+  // be two places to get the intent's name and its refusal handling right.
+  const askRecord = createAskRecord({ forwarder, logger });
+
   const forwardPath = createForwardPath({
-    forwarder, threadMap, allowlist, config, logger,
+    forwarder, threadMap, allowlist, config, logger, askStore: askRecord,
     deliver: (args) => deliverToOwner(args),
     listAgentThreads: (goalId) => {
       const prefix = `${goalId}#`;
@@ -947,31 +952,25 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // ONE place every conversation-addressed post passes through, which is why the
     // clear hangs here and not in the reply leg.
     if (posted && posted.delivered !== false) clearPending(chatThreadId);
-    // D57/D75 — the SAME store `unanswered_ask_block` reads, marked at the ONE place every
-    // owner-facing post passes through. `answersOwnerAsk` is true only for a GENUINELY
-    // conformant fenced reply (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a
-    // FALLBACK_TEXT/GIVE_UP_NOTICE/DEAD_AIR_NOTICE post is a system stand-in, never marks
-    // answered (Q1 = A, owner-ruled D89: only a conformant reply counts). No `askId` is passed
-    // here — under D89 Q4 several asks can be open at once, and with none supplied `markAnswered`
-    // settles the OLDEST open one (see ask-store.js's own header for the full rule); this call
-    // site has no per-ask thread reference to pass a more specific one.
+    // The `open_asks` row this reply settles, reaped at the ONE place every owner-facing post
+    // passes through. `answersOwnerAsk` is true only for a GENUINELY conformant fenced reply
+    // (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a FALLBACK_TEXT/GIVE_UP_NOTICE/
+    // DEAD_AIR_NOTICE post is a system stand-in and never settles an ask (Q1 = A, owner-ruled D89:
+    // only a conformant reply counts).
     //
-    // ⚠ NOT YET MIGRATED TO `open_asks`, AND THE REASON IS A WALL, NOT AN OVERSIGHT.
-    // spec-state-store §3 replaces this file with the daemon-owned `open_asks` table. The bridge
-    // is a SEPARATE PROCESS that reaches the daemon ONLY over the gateway (bridges/chat/index.js
-    // header; `probes/probe-chat-boundary.js` enforces no store handle and no child process here),
-    // so it cannot write that table without becoming a second writer process into heart.db —
-    // which §7's "one writer path per row" forbids for the same reason. Closing this needs a
-    // daemon-side writer reached by a gateway intent, and a new intent is an owner-ruled act
-    // (the twelfth, `record-bus-answer`, cites ruling 2026-08-11). Surfaced, not decided here.
+    // ⚠ THE ASK IS NAMED BY ITS THREAD, and that is the whole release rule [D-4-ruling, T1-R12]:
+    // an authorized reply releases the ask bound to THAT EXACT thread. The old "with no askId,
+    // settle the OLDEST open one" fallback is DELETED — it is how a reply to one question closed a
+    // different one — so `chatThreadId` is passed and the reap refuses without it.
+    //
+    // ⚠ THE REAP AND THE SEAT'S RELAUNCH SIGNAL ARE ONE TRANSACTION, daemon-side (§2.8): no orphan
+    // and no twin. This process holds no store handle (owner ruling 2026-08-24, option (a)) — it
+    // makes one `record-owner-ask` gateway call and logs whatever comes back, never changing course
+    // on the result, because the owner's post has already landed by here.
     if (answersOwnerAsk && posted && posted.delivered !== false && goalChannels) {
       const goalId = goalChannels.goalForChannel(chatThreadId);
       if (goalId) {
-        try {
-          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master' });
-        } catch (err) {
-          log('warn', 'owner-ask record NOT marked answered — it may re-inject even though this reply landed', { chatThreadId, goalId, error: err.message });
-        }
+        await askRecord.reapAsk({ goalId, seat: 'goal-master', chatThreadId });
       }
     }
     return posted;

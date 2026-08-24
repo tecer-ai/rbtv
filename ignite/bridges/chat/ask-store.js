@@ -1,131 +1,103 @@
 'use strict';
 
-// ask-store — the durable record of owner asks to a goal's `goal-master` that have not yet been
-// answered (D57/D75, widened D89 Q4). ONE writer (this module, called from the bridge); coord.py's
-// `boot_prompt` and `owed-answers.py` read the same file read-only — see their own headers for why.
+// ask-store — the bridge's SENDER for the owner-ask record. It holds no record and no handle: it
+// turns the bridge's vocabulary into `record-owner-ask` gateway calls and reports what came back.
 //
-// Storage is a plain JSON file at `{goalDir}/coordination/owner-asks.json`, keyed by seat name
-// (today only ever `goal-master`) — each value a LIST of asks, oldest first (append order), not a
-// single object (D89 Q4: a second owner message arriving before the first is answered is QUEUED
-// alongside it, never overwrites it). This is still a DELIBERATE placeholder for the owner's
-// still-open storage-location ruling (bridge state vs heart.db, Q3) — every caller goes through
-// this interface, so the location can move without touching a caller.
+// ⚠ `owner-asks.json` IS GONE, AND THIS FILE IS WHY IT COULD GO. `spec-state-store` §3 makes the
+// daemon-owned `open_asks` table in `heart.db` the ONE record of an owner ask, so a seat's wait is
+// DERIVED (§2.1: an ask that is `posted` and still `open`) instead of stored in a file a second
+// component owns. The bridge could not simply write that table — `bridges/chat` runs as a SEPARATE
+// PROCESS and `probes/probe-chat-boundary.js` forbids a store handle, a child process and a
+// sibling require here, because a write from this process would be a second WRITER PROCESS into
+// `heart.db` (spec §7). The owner ruled option (a) on 2026-08-24
+// (`redesign-implementation/decisions.md`): ask-writes get their own gateway intent, and the
+// daemon stamps the table. That is the same authorizing shape the twelfth intent
+// (`record-bus-answer`) cites, and the same division of labour — the bridge keeps a caller, the
+// capability stays server-side (`server/heart/ask-record.js`).
 //
-// A legacy file written by the pre-D89 single-object shape (`store[seat]` = one bare entry, not a
-// list) is migrated to a one-element list ON READ — see `readStore`. Every write from this module
-// on writes the list shape only; an old file keeps working with no separate migration step.
+// TWO CONSEQUENCES FOLLOW, AND NEITHER IS AN OVERSIGHT:
 //
-// Timestamps use coord.py's own `now()` format (`YYYY-MM-DD HH:MM`, local clock, no seconds) so
-// `coord.age_of()` can parse them — an ISO timestamp would silently read as unparseable ('?') on
-// the Python side.
+//   1. `ask_id` IS THE SLACK THREAD [T5-R7]. No allocator, no per-seat queue of asks. A second
+//      owner message in a thread that already carries an open ask is the SAME ask; a genuinely new
+//      question arrives in a new thread and mints a new record. The pre-D89 "a reply settles the
+//      OLDEST open ask" rule is DELETED [D-4-ruling, T1-R12] — an authorized reply releases the ask
+//      bound to THAT EXACT thread, which is why `reapAsk` requires a thread and refuses without it.
+//   2. NOTHING HERE WRITES A SEAT ENDING. Resolution reaps the ask and signals the bound seat's
+//      relaunch in ONE transaction (§2.8), daemon-side. This module only asks for that.
+//
+// ⚠ EVERY FAILURE IS A LOG, NEVER A THROW AND NEVER A CHANGED COURSE. Both callers run AFTER the
+// owner's message has been delivered, so the bookkeeping must not be able to undo the act. A
+// refusal that reached the owner as a failed message would be a lie about one that landed.
 
-const fs = require('node:fs');
-const path = require('node:path');
+const ASK_LABEL_DEFAULT = 'work-content';
 
-function coordTimestamp(d = new Date()) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function storePath(workspaceRoot, goalId) {
-  return path.join(workspaceRoot, '.rbtv', 'goals', String(goalId), 'coordination', 'owner-asks.json');
-}
-
-// Returns `{ [seat]: AskEntry[] }`, oldest-first per seat. A seat's value in the raw file may be
-// EITHER shape — the current list, or a legacy bare object (one ask, no `id`) written before D89
-// Q4 — both normalize to a list here, so every caller below only ever sees the list shape.
-function readStore(p) {
-  try {
-    const raw = fs.readFileSync(p, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const store = {};
-    for (const [seat, val] of Object.entries(parsed)) {
-      let list;
-      if (Array.isArray(val)) {
-        list = val.filter((e) => e && typeof e === 'object');
-      } else if (val && typeof val === 'object') {
-        // Legacy pre-D89 shape: one bare entry object per seat, not a list. Migrate in place.
-        list = [val];
-      } else {
-        list = [];
-      }
-      // Legacy entries (and any hand-written fixture) carry no `id` — assign one from array
-      // position. Stable across re-reads because entries are only ever APPENDED, never removed
-      // or reordered (an answered ask stays in the list, same as the pre-D89 single-entry store
-      // never deleted an answered entry either).
-      list.forEach((e, i) => { if (e.id == null) e.id = i + 1; });
-      store[seat] = list;
-    }
-    return store;
-  } catch {
-    return {};
-  }
-}
-
-function writeStore(p, store) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.tmp-${process.pid}-${coordTimestamp().replace(/[^0-9]/g, '')}`;
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
-  fs.renameSync(tmp, p);
-}
-
-// Append a new open ask for `seat` in `goalId`'s package. D89 Q4: this NEVER replaces an
-// already-open ask — a second, different owner message arriving before the first is answered is
-// QUEUED alongside it (both are stored, both re-inject) instead of overwriting the first.
-function createAsk({ workspaceRoot, goalId, seat, chatThreadId, text, execId = null }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  const list = store[seat] || (store[seat] = []);
-  const entry = {
-    id: list.length + 1,
-    seat: String(seat),
-    goalId: String(goalId),
-    chatThreadId: chatThreadId != null ? String(chatThreadId) : null,
-    text: String(text || ''),
-    execId: execId != null ? String(execId) : null,
-    status: 'open',
-    askedAt: coordTimestamp(),
-    answeredAt: null,
-    lastReinjectedAt: null,
+function createAskRecord({ forwarder, logger = null }) {
+  const log = (level, message, fields) => {
+    if (logger) logger({ level, message, ...fields });
   };
-  list.push(entry);
-  writeStore(p, store);
-  return entry;
+
+  async function send(payload, what, fields) {
+    try {
+      const res = await forwarder.forward('record-owner-ask', payload);
+      if (!res.ok) {
+        log('warn', `${what} — the gateway REFUSED the record; the message was still delivered`,
+          { ...fields, error: (res.error && res.error.code) || 'unknown' });
+        return { recorded: false, error: (res.error && res.error.code) || 'unknown' };
+      }
+      if (!res.result || res.result.recorded !== true) {
+        log('warn', `${what} — the daemon recorded nothing; the message was still delivered`,
+          { ...fields, reason: res.result && res.result.reason });
+        return { recorded: false, reason: (res.result && res.result.reason) || 'unknown' };
+      }
+      return { recorded: true, ...res.result };
+    } catch (err) {
+      log('warn', `${what} — the record call THREW; the message was still delivered`,
+        { ...fields, error: err.message });
+      return { recorded: false, error: err.message };
+    }
+  }
+
+  // Record an owner ask on `seat` in `goalId`, keyed by the Slack thread it arrived in.
+  //
+  // Called only after the forward landed (`forward-path.js` gates on `outcome.forwarded === true`),
+  // which is what lets the daemon mark the row `posted` at insert — §2.1 reads that flag, and a row
+  // left unposted is an ask nobody is waiting on.
+  async function openAsk({ goalId, seat, chatThreadId, text, label = ASK_LABEL_DEFAULT }) {
+    const thread = chatThreadId != null ? String(chatThreadId) : '';
+    if (!thread) {
+      log('warn', 'owner-ask NOT recorded — no thread id, and the thread IS the ask id [T5-R7]', { goalId, seat });
+      return { recorded: false, reason: 'no-thread' };
+    }
+    const out = await send(
+      { act: 'open', goal: String(goalId), seat: String(seat), thread, corpus: String(text || ''), label },
+      'owner-ask NOT recorded — a seat waiting on this question will not read as waiting',
+      { goalId, seat, thread });
+    if (out.recorded && !out.already) {
+      log('info', 'recorded an open owner ask', { goalId, seat, thread, askId: out.ask_id });
+    }
+    return out;
+  }
+
+  // Settle the ask a conformant owner-facing reply answered. `chatThreadId` is REQUIRED: it is the
+  // address [D-4-ruling], and there is no oldest-open fallback to guess with.
+  async function reapAsk({ goalId, seat, chatThreadId }) {
+    const thread = chatThreadId != null ? String(chatThreadId) : '';
+    if (!thread) {
+      log('warn', 'owner-ask NOT reaped — no thread id, and a reply settles the ask in ITS OWN thread only', { goalId, seat });
+      return { recorded: false, reason: 'no-thread' };
+    }
+    const out = await send(
+      { act: 'reap', goal: String(goalId), seat: String(seat), thread },
+      'owner-ask NOT reaped — the seat stays waiting to every reader even though this reply landed',
+      { goalId, seat, thread });
+    if (out.recorded) {
+      log('info', 'reaped the owner ask; the daemon signalled the seat\'s relaunch in the same transaction',
+        { goalId, seat, thread, askId: out.ask_id, idempotent: out.idempotent === true });
+    }
+    return out;
+  }
+
+  return { openAsk, reapAsk };
 }
 
-// Mark ONE of `seat`'s open asks answered. A no-op (returns null) when there is nothing open —
-// idempotent, and it never re-opens or invents a record for a reply nobody asked for.
-//
-// WHICH-ASK RULE (several asks can be open at once under D89 Q4): an explicit `askId` — the ask a
-// reply's thread/`--re` names — settles THAT ask; with none supplied, the OLDEST open ask settles.
-// The list is append-ordered (oldest first), so "first open entry found" IS the oldest. No caller
-// in this build passes `askId` yet — the chat bridge carries no per-ask thread reference today
-// (Slack threading here is one thread per goal conversation, not per ask), so every call resolves
-// to the oldest-open rule. `askId` exists so a future caller that DOES know which ask a reply
-// answers (a `--re`-style reference) can settle that one specifically without widening this
-// function's contract again.
-function markAnswered({ workspaceRoot, goalId, seat, askId = null }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  const list = store[seat] || [];
-  const entry = askId != null
-    ? list.find((e) => e && e.status === 'open' && String(e.id) === String(askId))
-    : list.find((e) => e && e.status === 'open');
-  if (!entry) return null;
-  entry.status = 'answered';
-  entry.answeredAt = coordTimestamp();
-  writeStore(p, store);
-  return entry;
-}
-
-// ALL of `seat`'s asks, oldest first — open and answered alike. Empty array when the seat has no
-// record. Widened from the pre-D89 single-object-or-null return: a caller that wants only the
-// still-open ones filters `status === 'open'` itself (both readers below do exactly that).
-function getAsk({ workspaceRoot, goalId, seat }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  return store[seat] || [];
-}
-
-module.exports = { storePath, createAsk, markAnswered, getAsk, coordTimestamp };
+module.exports = { createAskRecord, ASK_LABEL_DEFAULT };

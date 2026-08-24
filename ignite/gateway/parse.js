@@ -86,7 +86,7 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer', 'secret-add',
+  'record-bus-answer', 'secret-add', 'record-owner-ask',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -683,6 +683,66 @@ function parseRecordBusAnswer(payload) {
   return { goal: payload.goal, seat: payload.seat, corpus: payload.corpus };
 }
 
+// `record-owner-ask` (owner ruling 2026-08-24, option (a),
+// `redesign-implementation/decisions.md`) — SHAPE ONLY, like every parse here.
+//
+// ⚑ WHY A THIRTEENTH INTENT AND NOT A FILE. `spec-state-store` §3 makes the `open_asks` table the
+// ONE record of an owner ask; the bridge is a separate process walled off from `heart.db`
+// (`bridges/chat/probes/probe-chat-boundary.js`), so it can neither write the table nor keep its
+// old JSON file without being a second writer of one fact. The owner ruled the intent — the same
+// authorizing shape the TWELFTH intent cites above.
+//
+// ⚑ WHAT THE GATEWAY CANNOT CHECK AND MUST NOT GROW A HANDLE TO TRY: whether the goal exists,
+// whether the thread already carries a row, and whether the ask is bound to the pair the caller
+// names. All three are disk/store questions and all three are the CORE's complete re-validation
+// (DEC-3) — see `server/heart/ask-record.js`. What IS decidable from the payload alone is the
+// SHAPE of the three names and the closed sets, refused here as well as there.
+//
+// ⚑ `thread` IS THE ASK ID [T5-R7]. There is no allocator and no `ask_id` field to forge: the
+// Slack thread the message arrived in IS the record's key, so a caller cannot point an open or a
+// reap at an ask its own conversation does not own.
+//
+// ⚑ THE TWO ACTS ARE ONE INTENT, and their fields differ. `open` carries the ask's words and its
+// label; `reap` carries neither, because resolution is not a place to restate the question — and
+// accepting a corpus on a reap would let the reaping call rewrite the body the digest renders.
+// The field sets are therefore refused per-act rather than unioned, so a mistake is a refusal and
+// not a silently ignored key.
+function parseRecordOwnerAsk(payload) {
+  requireObject(payload);
+  if (payload.act !== 'open' && payload.act !== 'reap') {
+    bad("record-owner-ask act must be 'open' or 'reap'", 'act');
+  }
+  const allowed = payload.act === 'open'
+    ? new Set(['act', 'goal', 'seat', 'thread', 'corpus', 'label'])
+    : new Set(['act', 'goal', 'seat', 'thread']);
+  rejectUnknownKeys(payload, allowed, `record-owner-ask ${payload.act}`);
+  for (const key of ['goal', 'seat', 'thread']) {
+    if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+      bad(`record-owner-ask ${key} must be a bare name — letters, digits, '.', '_' or '-', starting alphanumeric (no path separators, no "..", no control characters)`, key);
+    }
+  }
+  if (payload.act === 'reap') {
+    return { act: 'reap', goal: payload.goal, seat: payload.seat, thread: payload.thread };
+  }
+  // AN EMPTY CORPUS IS REFUSED, for `record-bus-answer`'s reason turned around: this row is what
+  // makes a seat READ as waiting on the owner (§2.1), and an ask with no words is a wait nobody
+  // can answer — the seat stalls behind a question that was never asked.
+  if (typeof payload.corpus !== 'string' || payload.corpus.trim().length === 0) {
+    bad("record-owner-ask open requires a non-empty corpus (the owner's words)", 'corpus');
+  }
+  if (payload.label !== undefined && payload.label !== 'work-content' && payload.label !== 'recovery') {
+    bad("record-owner-ask label must be 'work-content' or 'recovery' [D-7-ruling]", 'label');
+  }
+  return {
+    act: 'open',
+    goal: payload.goal,
+    seat: payload.seat,
+    thread: payload.thread,
+    corpus: payload.corpus,
+    label: payload.label || 'work-content',
+  };
+}
+
 const SECRET_ADD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function parseSecretAdd(payload) {
@@ -715,6 +775,7 @@ function parseRequest({ intent, payload }) {
     case 'live-feed': return parseLiveFeed(payload);
     case 'send-message': return parseSendMessage(payload);
     case 'record-bus-answer': return parseRecordBusAnswer(payload);
+    case 'record-owner-ask': return parseRecordOwnerAsk(payload);
     case 'secret-add': return parseSecretAdd(payload);
   }
 }

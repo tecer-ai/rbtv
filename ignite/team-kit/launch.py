@@ -676,76 +676,65 @@ def harness_command(w, prompt=None, prompt_path=None):
     return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
 
 
-OWNER_ASKS_FILE = "owner-asks.json"
+def ask_body(row):
+    """The ask's words, read off the row's `evidence_pointer`, or `''`.
 
-
-def _owner_asks_entries(store, seat):
-    """`store[seat]` normalized to a list, for EITHER file shape: the current D89-Q4 list, or the
-    pre-D89 legacy shape (`store[seat]` = one bare entry object, not a list). Never raises — a
-    malformed entry is dropped, not fatal, matching `unanswered_ask_block`'s own never-raise
-    contract. This mirrors `ask-store.js#readStore`'s migration on the Python read side: two
-    independent readers of the same file must normalize the same way or one of them mis-renders
-    a legacy file the other reads fine."""
-    val = store.get(seat) if isinstance(store, dict) else None
-    if isinstance(val, list):
-        return [e for e in val if isinstance(e, dict)]
-    if isinstance(val, dict):
-        return [val]
-    return []
+    §3 keeps the BODY out of the store and defines `evidence_pointer` as the thread permalink or an
+    on-disk copy; `server/heart/ask-record.js` writes that copy when the daemon stamps the row. An
+    unreadable pointer yields no words rather than an error — a body that cannot be read must not
+    turn into an ask that cannot be seen, nor into a raised exception on a boot path."""
+    try:
+        return Path(row.get("evidence_pointer") or "").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def unanswered_ask_block(pkg):
-    """D57/D75, widened D89 Q4 — every still-open owner ask for `goal-master`'s NEXT sitting, or
-    `''`. Several asks can be open at once (Q4: a second owner message arriving before the first
-    is answered is QUEUED alongside it, never overwrites it) — this renders ALL of them, oldest
-    first, each with its own id and timestamp, not just one.
+    """Every still-open owner ask for `goal-master`'s NEXT sitting, or `''`.
 
-    READ-ONLY, and deliberately so: `ignite/bridges/chat/ask-store.js` is the ONE writer (the
-    bridge creates the record on an inbound owner message to a goal channel and marks it
-    `answered` at the ONE place every owner-facing post passes through, `deliverToOwner`) — a
-    second writer here would be the exact cross-process write-ownership problem the ask-store's
-    own header names as still open. This function only asks which records say `open`.
+    READ-ONLY, and deliberately so: `ignite/bridges/chat/ask-store.js` is the ONE WRITER of the
+    `open_asks` rows (spec-state-store §3) — it inserts on an inbound owner message to a goal
+    channel and reaps at the ONE place every owner-facing post passes through. A second writer here
+    would be the cross-process write-ownership problem the ONE store exists to end.
+
+    ⚠ `owner-asks.json` IS GONE. The per-goal JSON file this used to parse was a second record of
+    the same fact, so both shapes it once had to normalize (the D89-Q4 list and the pre-D89 bare
+    entry) are gone with it. `ask_id` is the Slack thread [T5-R7]; the ask body is read back off
+    `evidence_pointer`, which §3 defines as the thread permalink or the on-disk reply copy.
+
+    `list_open_asks` IS §2.1's own WHERE clause (`state='open' AND posted=1`) — the same two facts
+    a seat's derived wait is made of, asked once rather than re-filtered here, so this view and the
+    scheduler's can never disagree about which asks are open.
 
     NEVER RAISES. `boot_prompt` composes on EVERY relaunch of EVERY seat (`cmd_boot_prompt`'s own
-    docstring); a malformed or half-written JSON file must degrade to an absent ask, not a boot
-    prompt that never composes — that would break every seat's launch, not just goal-master's.
+    docstring); an unreadable or absent store must degrade to an absent ask, not a boot prompt that
+    never composes — that would break every seat's launch, not just goal-master's.
 
-    Checked AT FIRE TIME, against the SAME file `deliverToOwner` marks — so a re-inject racing a
-    just-delivered answer sees `answered` the moment the mark lands, not a snapshot taken when the
-    ask was first made. The one remaining window (the file is marked mid-flight while a boot
-    prompt is being composed) is the same eventual-consistency window every unsynchronized
-    reader/writer pair has; the corrective revive that answers the proven 99.6 s case rides the
-    SAME chain as a `send-message` follow-up, never a fresh `boot_prompt`, so it cannot race this
-    read at all."""
-    p = Path(pkg) / "coordination" / OWNER_ASKS_FILE
-    try:
-        raw = p.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    try:
-        store = json.loads(raw)
-    except (ValueError, TypeError):
-        return ""
+    Checked AT FIRE TIME against the SAME rows the bridge reaps, so a re-inject racing a
+    just-delivered answer sees the reap the moment it lands, not a snapshot taken when the ask was
+    first made.
+    """
     open_asks = []
-    for entry in _owner_asks_entries(store, "goal-master"):
-        if entry.get("status") != "open":
-            continue
-        text = str(entry.get("text") or "").strip()
+    try:
+        rows = ending_store.list_open_asks(pkg, seat="goal-master")
+    except Exception:                                  # noqa: BLE001 — see NEVER RAISES above
+        return ""
+    for row in rows:
+        text = ask_body(row)
         if not text:
             continue
-        asked_at = str(entry.get("askedAt") or "an earlier sitting")
-        open_asks.append((asked_at, text))
+        open_asks.append((str(row.get("posted_at") or "an earlier sitting"), text))
     if not open_asks:
         return ""
     if len(open_asks) == 1:
         asked_at, text = open_asks[0]
         return (
-            f"\n\n⚠ AN UNANSWERED OWNER ASK IS STILL OPEN (asked {asked_at}, D57) — no reply has "
+            f"\n\n⚠ AN UNANSWERED OWNER ASK IS STILL OPEN (asked {asked_at}) — no reply has "
             f"been recorded on it since. Answer it before anything else this sitting:\n\n{text}\n")
     numbered = "\n\n".join(
         f"{i}. (asked {asked_at}) {text}" for i, (asked_at, text) in enumerate(open_asks, 1))
     return (
-        f"\n\n⚠ {len(open_asks)} UNANSWERED OWNER ASKS ARE STILL OPEN (D57/D89 Q4) — no reply has "
+        f"\n\n⚠ {len(open_asks)} UNANSWERED OWNER ASKS ARE STILL OPEN — no reply has "
         f"been recorded on any of them since. Answer them before anything else this sitting, "
         f"oldest first:\n\n{numbered}\n")
 

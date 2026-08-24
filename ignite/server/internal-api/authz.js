@@ -449,6 +449,30 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
+  // BRIDGE ONLY — joint-narrowest with `canRecordBusAnswer`, and for a symmetrical reason.
+  //
+  // The act is not "write a row": OPENING an ask makes a seat READ as waiting on the owner (§2.1),
+  // and REAPING one releases a seat the owner may never have answered. A forged open stalls a seat
+  // behind a question nobody asked; a forged reap walks a run past a question the owner never saw —
+  // the exact failure D8 exists to prevent, reached from the other side. Both directions are why
+  // the predicate is `kind: bridge` and nothing else: the Slack bridge is the only component that
+  // can witness an owner ask arriving or an owner reply landing.
+  function canRecordOwnerAsk({ sender }) {
+    const allowed = !!sender && sender.kind === 'bridge';
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
+    return {
+      allowed,
+      principals: allowed ? ['bridge'] : [],
+      // S-3's rule, applied: state the predicate ACTUALLY ENFORCED and the kind SEEN.
+      reason: allowed
+        ? 'authorized as: the chat bridge'
+        : `record-owner-ask requires the chat BRIDGE token; you are ${seenAs}`,
+    };
+  }
+
   function canSecretAdd({ sender }) {
     const SECRET_ADD_MASTERS = ['goal-master', 'channel-master', 'console-master'];
     const bareSeat = (sender && typeof sender.seat === 'string' && sender.seat.length > 0)
@@ -473,7 +497,7 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canSecretAdd, principalsOf, PRINCIPALS };
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canSecretAdd, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

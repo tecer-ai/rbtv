@@ -337,7 +337,11 @@ directions are safe.
 
 ⚠ **THERE IS NO `--relaunch` ESCAPE ANY MORE (D12, 2026-08-20).** The one-shot grant that used to
 release a held seat is deleted with the rest of the grant machinery. A seat held on an unanswered
-owner ask is released by the ANSWER. `rule-disposition`, the leader verb that used to release a
+owner ask is released by the ANSWER — mechanically, by the reap of its `open_asks` row, which the
+daemon performs in the SAME transaction that signals the seat's relaunch (`spec-state-store` §2.8:
+no orphan ask, no twin relaunch). The hold itself is DERIVED and never stored (§2.1: an ask that is
+`posted` and still `open`), so there is no held-flag to clear.
+`rule-disposition`, the leader verb that used to release a
 seat nobody would answer, is itself deleted [T2-R12, T1-R9] — that release path does not currently
 exist; owner authorization is now an answer to a live ask, and that door is not wired here yet.
 

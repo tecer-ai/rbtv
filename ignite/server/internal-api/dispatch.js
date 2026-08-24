@@ -34,6 +34,9 @@ const { appendKillRecord } = require('./keys-audit');
 // The `record-bus-answer` act (task 7.771). Required rather than injected, like `appendKillRecord`
 // above and unlike `liveSessions`: it is a stateless call, not a manager holding processes.
 const { recordBusAnswer } = require('../../engine/bus-answer');
+// The `record-owner-ask` act (owner ruling 2026-08-24, option (a)). Required for the same reason
+// as `recordBusAnswer` above: a stateless call, not a manager holding processes.
+const { recordOwnerAsk } = require('../heart/ask-record');
 const { applySecretAdd } = require('./secret-add');
 const path = require('path');
 
@@ -97,10 +100,18 @@ const ENVELOPE_VERSION = 1;
 // ⚑ THE WRITE IS NOT PERFORMED HERE AND NOT IN JAVASCRIPT AT ALL: `coordination/messages.md` has
 // exactly one writer, `coord.py`, and `engine/bus-answer.js` shells to it. This handler validates,
 // authorizes, and delegates — the same shape `live-feed` has over the live-session manager.
+//
+// `record-owner-ask` is the THIRTEENTH intent, added ADDITIVELY by the owner's 2026-08-24 ruling
+// (option (a), `redesign-implementation/decisions.md`). It exists because `spec-state-store` §3
+// makes the daemon-owned `open_asks` table the ONE record of an owner ask, and the bridge — a
+// separate process walled off from `heart.db` by `probe-chat-boundary.js` — can neither write that
+// table nor keep its old JSON file without becoming a second writer of one fact. Same division as
+// the twelfth: the bridge validates nothing it cannot see, this handler validates and authorizes,
+// and `server/heart/ask-record.js` performs the store write.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer', 'secret-add',
+  'record-bus-answer', 'secret-add', 'record-owner-ask',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
@@ -1403,6 +1414,85 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { recorded: true, msg_id: out.msgId, re: out.re, goal: payload.goal, seat: payload.seat };
   }
 
+  // ── THE THIRTEENTH INTENT (owner ruling 2026-08-24, option (a)) ──────────────────────────────
+  //
+  // The daemon half of the ask record. Same ladder every sibling handler uses: strict schema, then
+  // shape, then authorization, then the act.
+  //
+  // ⚑ THE THREE NAMES ARE RE-CHECKED HERE. They arrived from an internet-facing component and
+  // become PATH SEGMENTS under `.rbtv/goals/`, so the front door's copy is not the only thing
+  // between a traversal and a directory write. `server/heart/ask-record.js` checks them a THIRD
+  // time against the module that owns the constant (`bus-ferry#isSafeName`) and then asks disk
+  // whether the goal exists — the question the gateway holds no handle for and must not grow one.
+  // ⚑ AUTHORIZATION IS BRIDGE-ONLY and is asked in the ONE policy module, never as an `if` here.
+  //   Forging an ask OPENS a wait on a seat that nobody can answer; forging a reap RELEASES one
+  //   the owner never answered. Both directions are why this is the narrowest predicate there is.
+  // ⚑ THE STORE WRITE IS SYNCHRONOUS AND THIS HANDLER IS NOT `async`, unlike its twelfth sibling:
+  //   that one shells out to coord, this one writes a table the daemon already holds open.
+  function handleRecordOwnerAsk(payload, sender) {
+    if (payload.act !== 'open' && payload.act !== 'reap') {
+      throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask act must be 'open' or 'reap'", { check: 'strict-schema', field: 'act' });
+    }
+    const allowed = payload.act === 'open'
+      ? ['act', 'goal', 'seat', 'thread', 'corpus', 'label']
+      : ['act', 'goal', 'seat', 'thread'];
+    for (const key of Object.keys(payload)) {
+      if (!allowed.includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field for record-owner-ask ${payload.act}: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    for (const key of ['goal', 'seat', 'thread']) {
+      if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+        throw new InternalApiError(VALIDATION_FAILED, `record-owner-ask ${key} must be a bare name (no path separators, no "..", no control characters)`, { check: 'name-shape', field: key });
+      }
+    }
+    if (payload.act === 'open' && (typeof payload.corpus !== 'string' || payload.corpus.trim().length === 0)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'record-owner-ask open requires a non-empty corpus', { check: 'corpus-shape', field: 'corpus' });
+    }
+    if (payload.label !== undefined && payload.label !== 'work-content' && payload.label !== 'recovery') {
+      throw new InternalApiError(VALIDATION_FAILED, "record-owner-ask label must be 'work-content' or 'recovery'", { check: 'label-shape', field: 'label' });
+    }
+
+    const decision = authz.canRecordOwnerAsk({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
+    }
+
+    const out = recordOwnerAsk(heartStore, {
+      workspaceRoot,
+      act: payload.act,
+      goal: payload.goal,
+      seat: payload.seat,
+      thread: payload.thread,
+      corpus: payload.corpus,
+      label: payload.label || 'work-content',
+    });
+    if (!out.recorded) {
+      // A REFUSAL AS DATA, not a throw — `handleRecordBusAnswer`'s reason, unchanged: the owner's
+      // message has already been delivered by the time the bridge calls, so the caller's job on
+      // this result is to LOG and never to change course. A typed error would be reported to the
+      // owner as a failed message, which would be a lie about one that landed.
+      log('warn', 'record-owner-ask did NOT record — the message was still delivered', {
+        act: payload.act, goal: payload.goal, seat: payload.seat, thread: payload.thread,
+        senderId: sender && sender.id, reason: out.reason, detail: out.detail || null,
+      });
+      return { recorded: false, reason: out.reason, act: payload.act, goal: payload.goal, seat: payload.seat };
+    }
+    log('info', payload.act === 'reap' ? 'reaped the owner ask and signalled the seat\'s relaunch' : 'recorded an open owner ask', {
+      act: payload.act, goal: payload.goal, seat: payload.seat, askId: out.ask_id,
+      state: out.state, senderId: sender && sender.id,
+    });
+    return {
+      recorded: true, act: payload.act, ask_id: out.ask_id, state: out.state,
+      goal: payload.goal, seat: payload.seat,
+      already: out.already === true, idempotent: out.idempotent === true,
+      relaunch: out.relaunch || null,
+    };
+  }
+
   function handleSecretAdd(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['name', 'from_file'].includes(key)) {
@@ -1593,6 +1683,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'live-feed': result = await handleLiveFeed(env.payload, env.sender); break;
         case 'send-message': result = handleSendMessage(env.payload, env.sender); break;
         case 'record-bus-answer': result = await handleRecordBusAnswer(env.payload, env.sender); break;
+        case 'record-owner-ask': result = handleRecordOwnerAsk(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 

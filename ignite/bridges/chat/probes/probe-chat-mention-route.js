@@ -54,10 +54,21 @@ function makeFakeSlack({ existing = [], authOk = true } = {}) {
 
 function makeFakeForwarder() {
   const enqueued = [];
+  const calls = [];
   let nextQueueId = 100;
   return {
     enqueued,
+    calls,
     async forward(intent, payload) {
+      // ⚠ `enqueued` IS A JOB LOG, NOT A CALL LOG, and the distinction is load-bearing. It used to
+      // record EVERY forward, while every assertion below reads its length as a count of JOBS
+      // ENQUEUED — true only while `enqueue-job` was the sole intent these routes reach. The
+      // thirteenth intent (`record-owner-ask`, owner ruling 2026-08-24) rides the SAME forwarder
+      // on the goal route, so a call log would have shifted every count here by one and reported
+      // a routing regression that did not happen. The full call log is `calls`, for anything that
+      // needs to assert on a non-job intent.
+      calls.push({ intent, payload });
+      if (intent !== 'enqueue-job') return { ok: true, result: { recorded: true } };
       const jobId = nextQueueId++;
       enqueued.push({ intent, payload, jobId });
       return { ok: true, result: { jobId } };

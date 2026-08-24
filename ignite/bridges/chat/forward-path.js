@@ -32,7 +32,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { nowIsoUtc } = require('./config');
-const askStoreDefault = require('./ask-store');
+const { createAskRecord } = require('./ask-store');
 
 // The EIGHT CMP-8 message types (closed vocabulary — mint nothing; W4 closed it at seven and D2's
 // routed types widened it to eight with `stuck`).
@@ -159,10 +159,15 @@ function resolveGoalSeat(workspaceRoot, goalId, seatName = 'goal-master') {
   return { ok: true, seatDir, seat: String(seatName) };
 }
 
-function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null, listAgentThreads = null, askStore = askStoreDefault }) {
+function createForwardPath({ forwarder, threadMap, allowlist, config, logger = null, deliver = null, listAgentThreads = null, askStore = null }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
+
+  // The ask record travels on the SAME injected forwarder as every other daemon call this module
+  // makes — it is a `record-owner-ask` sender and nothing else (see `ask-store.js`). Injectable so
+  // a probe can hand in a double; defaulted here so no caller has to know the intent's name.
+  const askRecord = askStore || createAskRecord({ forwarder, logger });
 
   // Best-effort owner notice on a refusal the owner can act on (D111 part 2): a DROPPED
   // reply path in the follow-up leg, or a goal channel with no goal-master seat. Both
@@ -727,26 +732,24 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const outcome = threadMap.has(chatThreadId)
       ? await forwardFollowUp({ chatThreadId, text, route })
       : await forwardSessionCreate({ chatThreadId, text, route });
-    // D57/D75 — durable record of an owner ask to `goal-master`, so an unanswered one survives
-    // to the seat's next daemon-fired sitting (`unanswered_ask_block`, folded into `boot_prompt`).
+    // The `open_asks` row for an owner ask to `goal-master` (spec-state-store §3), so an
+    // unanswered one survives to the seat's next daemon-fired sitting (`unanswered_ask_block`,
+    // folded into `boot_prompt`) and so §2.1 can DERIVE that the seat is waiting on the owner.
     // GOAL ROUTE ONLY: 'agent'/'master' traffic has no `goal-master` ask to lose, and
     // `recordBusAnswer` already covers the 'agent' direction. A REFUSED/undelivered turn records
-    // nothing — there is nothing durable to survive if the ask never reached the seat.
+    // nothing — there is nothing to wait on if the ask never reached the seat, and a row that is
+    // not `posted` is not a wait either.
     //
-    // ⚠ NOT YET MIGRATED TO `open_asks` — see the same note at `chat-bridge.js#deliverToOwner`.
-    // §3 rules this file replaced by the daemon-owned table; the bridge is a separate process
-    // walled off from the store, so the write has no boundary-legal home until a daemon-side
-    // writer is reached by a gateway intent. Surfaced, not decided here.
+    // ⚠ ONE ROW PER THREAD [T5-R7]. The ask IS `chatThreadId`; a second owner message in the same
+    // thread is the same ask, not a queued second one — the daemon refreshes the body and leaves
+    // the row alone, so a reopened conversation cannot resurrect an ask already answered. The
+    // write itself is the DAEMON's (owner ruling 2026-08-24, option (a)): this process holds no
+    // store handle, it makes one gateway call and logs whatever comes back.
     if (route && route.kind === 'goal' && route.goalId && outcome && outcome.forwarded === true
         && config && config.workspaceRoot) {
-      try {
-        askStore.createAsk({
-          workspaceRoot: config.workspaceRoot, goalId: route.goalId, seat: 'goal-master',
-          chatThreadId, text, execId: outcome.execId || (outcome.summon && outcome.summon.execId) || null,
-        });
-      } catch (err) {
-        log('warn', 'owner-ask record NOT written — re-inject will not see this ask if it goes unanswered', { chatThreadId, goalId: route.goalId, error: err.message });
-      }
+      await askRecord.openAsk({
+        goalId: route.goalId, seat: 'goal-master', chatThreadId, text,
+      });
     }
     return outcome;
   }
