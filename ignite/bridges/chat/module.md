@@ -91,3 +91,31 @@ injected — no store handle lives here. Probe:
 ports (`approvalPorts`, `endingStore`) are NOT wired by `index.js#main()`: the
 gateway intent set carries no materialize / goal-word intent, and minting one is
 an owner act. Until then both degrade loudly, never silently.
+
+## system-digest
+
+`system-digest.js` — the ONE changed-only SYSTEM digest (`spec-owner-io.md` §5
+[T5-R13, C-12]). Checks the ten America/Sao_Paulo slots (00, 06, 08, 10, 12, 14,
+16, 18, 20, 22 — no check in 00:00–06:00 beyond the 24:00 slot itself); builds the
+§5 snapshot of `(open ask ids + one_liners + open condition signatures)` and posts
+only when it differs from the last DELIVERED payload. Age is rendered but is not in
+the snapshot, so an ageing ask alone never posts. Unchanged → nothing is posted.
+The baseline is persisted and moves only on Slack's ack, so a restart does not
+re-post an unchanged digest and an unacked digest is re-offered at the next slot.
+One post, system channel only, `kind=digest` through the outbox, ordered asks →
+conditions → links. Open conditions come from an injected READ port over the
+alarm-signature registry (impl-alarms owns the emitter, `ignite/observation/`);
+with that interface absent the digest reads an empty set and renders `• none open`.
+No emitter and no stand-in registry here. Probe: `probes/probe-chat-glance.js`.
+
+## status-line
+
+`status-line.js` — the one standing glance surface (`spec-owner-io.md` §6
+[T4-R5, D-6-ruling]). Renders exactly `N waiting · oldest Xh · M blocked` (zero
+case `0 waiting · oldest 0h · 0 blocked`) from injected readers: open ask-records
+across all goals, and blocked-on-human lanes plus paused goals as one count.
+`Xh` is floored whole hours since the oldest open ask. It NEVER posts — it writes
+the bot's Slack status text through an injected port, and only on the seven §6
+triggers (ask minted / answered / closed, blocked-on-human stamp / clear, pause
+success, resume success). Any other event is refused. Unwired port → a warn, never
+a silent no-op. Probe: `probes/probe-chat-glance.js`.

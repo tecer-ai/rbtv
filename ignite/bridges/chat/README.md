@@ -1103,3 +1103,60 @@ the thirteenth intent, `record-owner-ask`, owner-ruled 2026-08-24). Until it
 exists both doors degrade LOUDLY — a missing `materialize` posts the [C-16]
 failure into the approval thread, a missing ending store logs a warn and applies
 nothing — never silently.
+
+## The glance surfaces — `system-digest.js` and `status-line.js`
+
+`spec-owner-io.md` §5 and §6 [T5-R13, C-12, T4-R5, D-6-ruling]. Two surfaces, one
+purpose: the owner can see everything that is waiting on them from a phone,
+without a per-ask re-ping and without a per-goal digest.
+
+### `system-digest.js` — the changed-only SYSTEM digest (§5)
+
+ONE digest, posted only in the system channel, checked every two hours at the ten
+America/Sao_Paulo slots `00:00, 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00,
+20:00, 22:00`. A check at any other time returns `{ ran: false }` and does
+nothing — 00:00–06:00 carries no check apart from the 24:00 slot, which IS 00:00.
+The local hour is resolved through `Intl` at `America/Sao_Paulo`, never through a
+fixed offset.
+
+When a post happens the order is fixed: open ❓ asks (`display_suffix`, seat,
+one-liner, age, link), then the open alarm CONDITIONS, then links.
+
+**Changed** is the snapshot of `(open ask ids + each ask's one_liner + open
+condition signatures)` — nothing else. Age is rendered but deliberately excluded:
+it ticks every minute and would make every slot post. Unchanged → the checker
+posts NOTHING.
+
+The comparison is against the last **DELIVERED** payload, not the last attempt. A
+digest the outbox minted but Slack never acked leaves the baseline where it was,
+so the next slot re-offers the same change instead of the owner losing it. The
+baseline is persisted (`statePath`, `{version, snapshot, delivered_at}`, tmp+rename),
+so a restart between two slots does not re-post an unchanged digest.
+
+The open conditions arrive from an INJECTED `readOpenConditions` port — the
+alarm-signature registry's published READ interface, which impl-alarms owns
+(`ignite/observation/`, §9). ⚠ **That interface is not landed yet.** With no
+reader wired the digest reads an EMPTY set, renders `• none open` under
+`Open conditions`, and does not crash. No emitter and no stand-in registry lives
+here: this module only READS.
+
+### `status-line.js` — the bot status line (§6)
+
+Exact format, `N waiting · oldest Xh · M blocked`; zero case
+`0 waiting · oldest 0h · 0 blocked`. `N` counts ask-records in state `open` across
+all goals; `Xh` is whole (floored) hours since the oldest one's `opened_at`, `0`
+when `N` is 0; `M` is lanes stamped `incomplete: blocked-on-human` plus goals in
+stored state `paused`.
+
+It **never posts** — no outbox, no channel, no transport reaches this module. It
+writes the bot's Slack status text through an injected `setStatusText` port, and
+only on the seven §6 triggers: `ask-minted`, `ask-answered`, `ask-closed`,
+`blocked-on-human-stamp`, `blocked-on-human-clear`, `pause-succeeded`,
+`resume-succeeded`. Every other event is refused and the text is left alone — a
+status line that redraws on every event is a poll loop against Slack. With no
+status port wired it computes the line, logs a warn, and writes nothing.
+
+Probe for both: `probes/probe-chat-glance.js` (mocked Slack, mocked clock, no
+live post). Both surfaces are BUILT AND PROVEN but not reachable in production
+yet — `index.js#main()` wires neither the 2-hourly slot driver, the ask/condition
+readers, nor the Slack status port.
