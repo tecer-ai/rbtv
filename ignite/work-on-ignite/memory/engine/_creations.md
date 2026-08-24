@@ -7,3 +7,4 @@
 2026-08-20 · creation · seeded · Stuck becomes a brake · after stuck, launchSitting still fired (audio-component-smith 17×/2h12m) → skip-stuck keyed on unchanged (seat, reason, signature) · 23de241f · — · ⚠
 2026-08-22 · creation · seeded · Admission brake door · watcher D34/D44 brake could be opted out of via enqueue() queue-mode; 356-sitting burn → fail-closed door inside HeartStore.enqueue() · 8478c7a5,affceae2,6c997616,c833046e · server,gateway · ⚠
 2026-08-22 · change · seeded · Unverified into dispositions · RECORD_DISPOSITIONS omitted unverified even though coord.py writes it → parked in EXTRA_NON_TERMINAL next to synthetic renew-interrupted; selftest matched the bug · 23578584,0afe6f88,c666cb9b,243f3aa1,acd38230 · — · ⚠
+2026-08-24 · change · Path A goal-wide planning-seat mint · IE-2 splice re-nested planning.csv per milestone → goal-wide mint once through the wrapper · 88ac3206 · planning,server · ⚠
