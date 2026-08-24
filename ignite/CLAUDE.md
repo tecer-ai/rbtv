@@ -94,7 +94,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   performs the act — because `fire-tool` argv is static, so a request BODY can only travel as a
   staged file, with `enqueue-job` the one gateway verb open to a `bridge` token. It was RETARGETED
   2026-08-12 off the retired `master_profile` key onto the master's own CASTING SHEET
-  (`.rbtv/config/modules/meta/master-agent/bindings/channel-master.json`), which its cage GRANTS it
+  (`.rbtv/config/modules/meta/master/bindings/channel-master.json`), which its cage GRANTS it
   — so it writes through `bindings.cast_seat` (one validator, one write, shared with
   `rbtv-bindings set`) and splits ONLY because the `materialize-seats.py --repass` that makes the
   write take effect writes `<goal>/seat.md`, and every seat cage refuses grants overlapping

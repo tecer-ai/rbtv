@@ -35,7 +35,7 @@ ignite/work-on-ignite/
       yyyymmdd-c-<name>.md   ← one creation or change entry
 ```
 
-The 19 components are the 15 top-level folders under `ignite/` except `node_modules` (`bridges`, `capabilities`, `cli`, `config`, `deploy`, `engine`, `gateway`, `injection-ladder`, `jobs`, `launch-profiles`, `lib`, `server`, `skills`, `team-kit`, `work-on-ignite`) plus the four `meta/` trees named `meta-installer`, `meta-leader`, `meta-master-agent`, `meta-planning`.
+The 19 components are the 15 top-level folders under `ignite/` except `node_modules` (`bridges`, `capabilities`, `cli`, `config`, `deploy`, `engine`, `gateway`, `injection-ladder`, `jobs`, `launch-profiles`, `lib`, `server`, `skills`, `team-kit`, `work-on-ignite`) plus the four `meta/` trees named `meta-installer`, `meta-leader`, `meta-master`, `meta-planning`.
 
 Rule: component = top-level folder. A cross-component entry is filed once, under the component where the fix landed; the other components it touched are named on its index line.
 

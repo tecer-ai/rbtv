@@ -581,7 +581,7 @@ async function main() {
   say('');
   say('C5 — the `rbtv run` verb itself, as a real subprocess');
 
-  const RBTV_BIN = path.resolve(IGNITE_SRC, '..', 'core', 'capabilities', 'rbtv-cli', 'tool', 'rbtv');
+  const RBTV_BIN = path.resolve(IGNITE_SRC, '..', 'meta', 'rbtv-cli', 'tool', 'rbtv');
   const runCli = (args) => {
     const res = require('node:child_process').spawnSync(RBTV_BIN, args, { encoding: 'utf8', timeout: 120000 });
     return { status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };

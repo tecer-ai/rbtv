@@ -28,7 +28,7 @@ python tool/capability_cards.py show console-master-prompt
 ```text
 part-id: console-master-prompt
 part-kind: prompt
-component: master-agent
+component: master
 module: meta
 method: agents.md
 entry-point: prompts.csv#console-master-prompt

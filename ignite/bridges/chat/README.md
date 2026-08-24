@@ -676,7 +676,7 @@ the two sentinel lines is Slack mrkdwn delivered VERBATIM:
 
 LAST complete pair wins, so an echoed prompt or a corrected first attempt is harmless.
 The instruction side reaches every master sitting through its seat descriptor — the
-`slack-message-format` reference in the `master-agent` mirror component — never through
+`slack-message-format` reference in the `master` mirror component — never through
 prompt injection (`r-bare-prompt-admits-one-correlation-id`: the bridge may prefix the
 owner's words with the chat-thread line and nothing else).
 

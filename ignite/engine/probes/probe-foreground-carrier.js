@@ -46,7 +46,7 @@ const { spawn: spawnProc, spawnSync } = require('node:child_process');
 const IGNITE_SRC = path.resolve(__dirname, '..', '..');
 const OUT_PATH = path.join(__dirname, 'probe-foreground-carrier.out');
 const COMMITTED_CONFIG = path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
-const RBTV_BIN = path.resolve(IGNITE_SRC, '..', 'core', 'capabilities', 'rbtv-cli', 'tool', 'rbtv');
+const RBTV_BIN = path.resolve(IGNITE_SRC, '..', 'meta', 'rbtv-cli', 'tool', 'rbtv');
 
 const start = Date.now();
 const lines = [];

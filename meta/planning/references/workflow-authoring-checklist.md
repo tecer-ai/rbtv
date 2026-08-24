@@ -40,7 +40,7 @@ An occupant never discovers its means. Anything the seat must reach is declared 
 
 ## 3 — Mark a user-facing seat interactive
 
-A seat whose ROLE includes reaching the human declares `human-interactive: yes` plus its typed `fallback` (`park` · `default-and-disclose` · `block-and-queue`), and its manifest row carries Modality `interactive`. Marking it is what auto-attaches the owner-facing message standard (`master-agent/slack-message-format`) as a skill, so every message the seat writes is already Slack-shaped, asks are separated from notes, and nothing dumps a file into chat.
+A seat whose ROLE includes reaching the human declares `human-interactive: yes` plus its typed `fallback` (`park` · `default-and-disclose` · `block-and-queue`), and its manifest row carries Modality `interactive`. Marking it is what auto-attaches the owner-facing message standard (`master/slack-message-format`) as a skill, so every message the seat writes is already Slack-shaped, asks are separated from notes, and nothing dumps a file into chat.
 
 Contact fires only when the flag AND the goal's execution mode agree, so the autonomous arm is the path and interaction is the enhancement: the procedure must CARRY the autonomous behaviour in its own words, never just name the arm.
 

@@ -3,7 +3,7 @@ id: console-master-prompt
 description: "The master's console-side seat prompt — cold at the rbtv install root, the user AT the keyboard; the harness console is its contact surface. Hands are not what distinguishes it: all three spawn reasons hold them (d-channel-master-has-hands)"
 staffing-recommendations: "the user's preferred harness and model, by construction; ephemeral sessions; persona RULED (d-personas-ruled), carried by the shared master-role unit"
 exposes:
-  skill: [meta/master-agent/master-instruments, meta/master-agent/master-scaffold-flow, meta/master-agent/master-bootstrap]
+  skill: [meta/master/master-instruments, meta/master/master-scaffold-flow, meta/master/master-bootstrap]
 ---
 
 <role>

@@ -4,7 +4,7 @@ description: "The goal's unblocker — triages what reaches it on evidence and f
 staffing-recommendations: "the highest-judgment tier the goal's budget allows — every item that reaches this seat is one no other seat could settle; a hint for the staffer, never a binding"
 exposes:
   path: [rbtv:ignite/team-kit/coordinate, ignite/team-kit/file-issue]
-  skill: [meta/master-agent/slack-message-format, ignite/team-kit/file-system-issue, ignite/work-on-ignite/work-on-ignite]
+  skill: [meta/master/slack-message-format, ignite/team-kit/file-system-issue, ignite/work-on-ignite/work-on-ignite]
 ---
 
 <role>

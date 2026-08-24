@@ -21,7 +21,7 @@ CHANGE MODEL, AND EFFORT."*
 The knob is the master's own **casting sheet**:
 
 ```
-.rbtv/config/modules/meta/master-agent/bindings/channel-master.json
+.rbtv/config/modules/meta/master/bindings/channel-master.json
   → seats["channel-master"].{harness, model, effort}
 ```
 

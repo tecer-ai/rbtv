@@ -12,7 +12,7 @@ refusal naming the correct target rather than half-retargeted. This IS that reta
 refusal is gone with it.
 
 The knob is now the channel master's own CASTING SHEET —
-`.rbtv/config/modules/meta/master-agent/bindings/channel-master.json`, the `harness` · `model` ·
+`.rbtv/config/modules/meta/master/bindings/channel-master.json`, the `harness` · `model` ·
 `effort` triple of its one seat. The master is cast exactly like every other seat; what makes it
 special is only that it is the seat allowed to re-cast ITSELF. `materialize-seats.py --repass`
 re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
@@ -165,7 +165,7 @@ MATERIALIZE = TEAM_KIT / "materialize-seats.py"      # the ONE re-render, never 
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
 _WORKSPACE = _IGNITE.parents[3]
 DEFAULT_SEAT = "channel-master"
-DEFAULT_BINDINGS = (_WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "master-agent"
+DEFAULT_BINDINGS = (_WORKSPACE / ".rbtv" / "config" / "modules" / "meta" / "master"
                     / "bindings" / f"{DEFAULT_SEAT}.json")
 DEFAULT_CATALOG_ROOT = _IGNITE.parent / "meta"
 
@@ -694,7 +694,7 @@ def main(argv=None):
         prog="rbtv-master-profile",
         description="read and change which harness+model — and at which reasoning RUNG — the "
                     "channel master's next sitting runs on: the harness/model/effort triple of its "
-                    "seat in .rbtv/config/modules/meta/master-agent/bindings/channel-master.json")
+                    "seat in .rbtv/config/modules/meta/master/bindings/channel-master.json")
     # ⚠ THE OPTIONS HANG OFF THE VERBS, NOT OFF THE ROOT PARSER — a FIX, not a style call. As root
     # options argparse accepts them only BEFORE the verb, while the `tools:` entry and every
     # documented example spell them after (`apply --inbox … --bindings X --profiles Y`). The twin

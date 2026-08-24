@@ -51,7 +51,7 @@ MEMORY_COMPONENTS = (
     "bridges", "capabilities", "cli", "config", "deploy", "engine", "gateway",
     "injection-ladder", "jobs", "launch-profiles", "lib", "server", "skills",
     "team-kit", "work-on-ignite",
-    "meta-installer", "meta-leader", "meta-master-agent", "meta-planning",
+    "meta-installer", "meta-leader", "meta-master", "meta-planning",
 )
 MEMORY_ISSUE_HEADINGS = (
     "Observed", "Mechanism", "Attempts", "Fix", "Consequences", "Verification",

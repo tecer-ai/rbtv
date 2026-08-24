@@ -14,7 +14,7 @@ Binds: the `ignite-engine` goal's seats at build/closure, AND any other console 
 
 ## Procedure
 
-1. **Name the components you will touch.** A component is a top-level folder under `ignite/` (`bridges capabilities cli config deploy engine gateway injection-ladder jobs launch-profiles lib server skills team-kit work-on-ignite`) or one of the four `meta/` trees (`meta-installer meta-leader meta-master-agent meta-planning`). List every one your edit will reach — a cross-component fix is filed once, under the component the fix lands in, with the others named on its index line.
+1. **Name the components you will touch.** A component is a top-level folder under `ignite/` (`bridges capabilities cli config deploy engine gateway injection-ladder jobs launch-profiles lib server skills team-kit work-on-ignite`) or one of the four `meta/` trees (`meta-installer meta-leader meta-master meta-planning`). List every one your edit will reach — a cross-component fix is filed once, under the component the fix lands in, with the others named on its index line.
 
 2. **Read each component's memory** — for every component named in step 1, read `ignite/work-on-ignite/memory/<component>/_summary.md`, `_issues.md`, and `_creations.md`.
 

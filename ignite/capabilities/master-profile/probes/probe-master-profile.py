@@ -3,7 +3,7 @@
 
 NOTHING HERE TOUCHES THE LIVE CASTING SHEET, THE LIVE GOAL PACKAGE, OR THE LIVE `seat.md`. Every act
 runs under `tempfile` on a byte-copy of
-`.rbtv/config/modules/meta/master-agent/bindings/channel-master.json`, and the RE-RENDER is a STUB
+`.rbtv/config/modules/meta/master/bindings/channel-master.json`, and the RE-RENDER is a STUB
 the module is pointed at (`mod.MATERIALIZE`). The real one rewrites the channel master's own
 descriptor, which decides what the owner's next sitting runs — a probe may not move that.
 

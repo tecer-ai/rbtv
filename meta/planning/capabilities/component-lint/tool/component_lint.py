@@ -15,7 +15,7 @@ Exit: 0 clean · 1 findings · 2 broken preconditions.
 Target scope (7.625 ruling): any mirror/meta component, not only planning. A
 component's seats.csv must share the five-column header PREFIX (seat-id,
 executor, task, staffing-hints, description) and may append columns after it
-(master-agent adds cage-grants, rw-paths — read positionally, extras ignored);
+(master adds cage-grants, rw-paths — read positionally, extras ignored);
 a header diverging inside the prefix is still a broken precondition. Checks
 whose surface is planning-shaped guard their vacuity tripwire per component
 shape (see check_dimension_roster) instead of failing components that
@@ -332,7 +332,7 @@ class Component:
         rows, offset = read_csv(path, "seats")
         header, data = rows[0], rows[1:]
         # Prefix match (7.625): a component may append columns after the shared
-        # five (master-agent adds cage-grants, rw-paths); rows are read
+        # five (master adds cage-grants, rw-paths); rows are read
         # positionally from the shared prefix, so extras are ignored, but a
         # header that diverges INSIDE the prefix is still refused.
         if header[:len(SEATS_HEADER)] != SEATS_HEADER:
@@ -932,7 +932,7 @@ def check_dimension_roster(c, out, census):
         # Vacuity tripwire, scoped (7.625): check-* task stems are the sign a
         # check swarm exists — zero dimension clauses AMONG check-* tasks means
         # the clause parse broke, but a component with no check-* tasks at all
-        # (master-agent) has no roster to check and passes clean.
+        # (master) has no roster to check and passes clean.
         if any(stem.startswith("check-") for stem in (c.tasks or {})):
             _fail(out, "dimension-roster", c.root / "tasks",
                   "check-* task files exist but 0 carry a dimension clause — nothing was checked")

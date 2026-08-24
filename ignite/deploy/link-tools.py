@@ -3,7 +3,7 @@
 
 The team-kit tools are NAMED as bare commands by things that cannot see this repo's layout:
 `module.md`'s "Reach it" column says `coordinate -h`, and the channel/console master prompts
-(`.rbtv/mirror/meta/master-agent/prompts/`) say `owed-answers`. On the ignite VPS those names
+(`.rbtv/mirror/meta/master/prompts/`) say `owed-answers`. On the ignite VPS those names
 resolved only because someone made `~/.local/bin` symlinks BY HAND — nothing created them, so a
 redeploy or a second machine leaves the name unresolvable and every caller falls back to the slow
 manual path it was built to delete (measured 2026-08-12: ~120 s vs ~0.15 s for `owed-answers`).

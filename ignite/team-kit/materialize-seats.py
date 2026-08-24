@@ -1670,7 +1670,7 @@ GOAL_LOCAL_COMPONENT = "goal-local"           # the one component inside it
 # lands in the goal's own `planning/current/`, where no module lives, so EVERY
 # cross-module reference a goal-authored seat carries dies with
 # `exposes-ref-dangling`. Measured 2026-08-15: the flagship's interactive seat
-# took that refusal on the `meta/master-agent/slack-message-format` skill the
+# took that refusal on the `meta/master/slack-message-format` skill the
 # interactive-seat injection folds in, and it refused the WHOLE lane on every
 # cadence. The mirror's module dirs are SYMLINKED in beside the module below so
 # the resolution finds them — outside the returned catalog root, because
@@ -10271,7 +10271,7 @@ def run_selftest() -> int:
     print("D50 master-prompt: access-wide/file-don't-fix sentence is pinned by refresh")
     with tempfile.TemporaryDirectory() as d50_td:
         # A master-shaped fixture, standing in for the real deployed
-        # `.rbtv/mirror/meta/master-agent/prompts/*.md` catalog this scenario
+        # `.rbtv/mirror/meta/master/prompts/*.md` catalog this scenario
         # exists to pin (decisions.md D50/D62) — this repo carries no
         # per-instance workspace paths (root CLAUDE.md § "RBTV Content Must
         # Be General"), so the pin is proven against a portable fixture that

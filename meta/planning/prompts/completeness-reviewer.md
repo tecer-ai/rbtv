@@ -5,7 +5,7 @@ staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  skill: [master-agent/slack-message-format]
+  skill: [master/slack-message-format]
   path: [rbtv:ignite/team-kit/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
@@ -33,7 +33,7 @@ exposes:
 </procedure>
 
 <resources>
-- `master-agent/slack-message-format` skill — the owner-facing Slack message standard: mrkdwn syntax, phone-first shape, the decision-ask format. Apply it to every ratification ask you send the owner; separate the ❓ ask from any 💭 note, never paste a file's contents inline.
+- `master/slack-message-format` skill — the owner-facing Slack message standard: mrkdwn syntax, phone-first shape, the decision-ask format. Apply it to every ratification ask you send the owner; separate the ❓ ask from any 💭 note, never paste a file's contents inline.
 - `researcher` sub-agent — a dispatched definition that finds out and returns facts with provenance; it holds no seat and no taskforce row. Fan it out when a claim you are about to write down rests on something you have not read. It returns findings; the judgment stays yours.
 - `diagnoser` sub-agent — a dispatched definition that investigates why an existing system behaves as it does and returns a cause, not a guess. Fan it out when an assumption about that behaviour has to hold for your output to be right. It holds no seat; the ruling stays yours.
 </resources>

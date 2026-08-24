@@ -730,7 +730,7 @@ def test_kg_unavailable_blocks_only_its_own_check():
 # -------------------------------------------------------- M10 dimension-roster
 
 def test_green_no_check_tasks_no_roster():
-    # 7.625: a component with no check-* tasks at all (master-agent) has no
+    # 7.625: a component with no check-* tasks at all (master) has no
     # roster to check — the zero-roster tripwire stays quiet.
     expect_green("no check swarm", {
         "tasks/check-demo.md": None,
@@ -1069,7 +1069,7 @@ def test_broken_frontmatter_is_exit_2():
 
 
 def test_green_seats_header_extra_trailing_columns():
-    # 7.625: master-agent appends cage-grants,rw-paths after the shared five —
+    # 7.625: master appends cage-grants,rw-paths after the shared five —
     # a superset header lints; rows are read from the shared prefix.
     expect_green("seats extra columns",
                  {"seats.csv": FILES["seats.csv"].replace(

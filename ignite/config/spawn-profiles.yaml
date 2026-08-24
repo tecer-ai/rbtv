@@ -1182,7 +1182,7 @@ tools:
       # than left to the tool's own defaults, so a reader of this entry can see WHICH cast a fire
       # changes without opening the script.
       - --bindings
-      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/master-agent/bindings/channel-master.json
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/master/bindings/channel-master.json
       - --seat
       - channel-master
       # Where the re-render reads the seat DEFINITION from (the component mirror), as distinct from

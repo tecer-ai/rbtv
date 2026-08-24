@@ -164,7 +164,7 @@ function findLiveCatalog() {
       if (fs.existsSync(path.join(comp, 'workflows', 'planning', 'planning.csv'))) {
         const sheet = path.join(dir, '.rbtv', 'config', 'modules', mod, 'planning', 'bindings', 'plan.json');
         // The WHOLE module is carried, not just `planning/`: a seat's `exposes:` may reference a
-        // SIBLING component (`master-agent/slack-message-format`), and a dangling reference is a
+        // SIBLING component (`master/slack-message-format`), and a dangling reference is a
         // materialize refusal by design.
         if (fs.existsSync(sheet)) return { workspace: dir, module: path.join(mirror, mod), sheet };
       }

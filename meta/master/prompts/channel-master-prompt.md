@@ -13,7 +13,7 @@ staffing-recommendations: "ONE SITTING PER Slack conversation, spawned by the da
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [web/capture/capture, web/browse/browse, meta/master-agent/slack-message-format, meta/master-agent/master-instruments, meta/master-agent/master-scaffold-flow, meta/master-agent/master-bootstrap]
+  skill: [web/capture/capture, web/browse/browse, meta/master/slack-message-format, meta/master/master-instruments, meta/master/master-scaffold-flow, meta/master/master-bootstrap]
   path: [rbtv:ignite/rbtv-master-profile, rbtv:ignite/rbtv-bindings, meta/planning/stools]
 ---
 

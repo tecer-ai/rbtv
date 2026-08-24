@@ -165,7 +165,7 @@ later materialize.
 For goals born BEFORE D79, the one-line manual mint is:
 
 ```
-scaffold-seats --package <abs-goal-dir> --catalog-root <ws>/3-resources/tools/rbtv/meta --seat goal-master --root --bindings <ws>/.rbtv/config/modules/meta/master-agent/bindings/goal-master.json --budget-json <that-goal-or-a-starter>/budget.json --claude-md <ws>/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
+scaffold-seats --package <abs-goal-dir> --catalog-root <ws>/3-resources/tools/rbtv/meta --seat goal-master --root --bindings <ws>/.rbtv/config/modules/meta/master/bindings/goal-master.json --budget-json <that-goal-or-a-starter>/budget.json --claude-md <ws>/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
 ```
 
 `--catalog-root <ws>/.rbtv/mirror` currently refuses (the file it named, `communication/module.md`,
