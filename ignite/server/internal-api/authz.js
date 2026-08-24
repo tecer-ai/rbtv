@@ -473,6 +473,40 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
+  // BRIDGE ONLY — joint-narrowest with `canRecordBusAnswer` and `canRecordOwnerAsk`, and the
+  // consequence of forging it is the largest on this surface.
+  //
+  // The act is not "write a row" and not "deliver a message": it BIRTHS AN EXECUTION GOAL and
+  // starts agents running against a bound commit [D12, D-5-ruling, CF-7]. It is the one
+  // irreversible effect the approval message warns the owner about in its own bold lead line, so
+  // the token that can ask for it is the Slack bridge and nothing else — the only component that
+  // can witness an owner's `approve` arriving in the thread that binds it.
+  //
+  // ⚑ `kind: agent` IS REFUSED: a seat that could start its own execution goal would be an agent
+  // approving its own plan, which is the whole failure the approval door exists to prevent.
+  // ⚑ `kind: owner` IS REFUSED TOO, for `canRecordBusAnswer`'s reason: the human owner has no need
+  // of this door — he approves in Slack, and the bridge carries it. A kind with no caller is dead
+  // flexibility on an authorization surface. Widen it the day something owner-shaped needs it.
+  // ⚑ NOT ASKED THROUGH `principalsOf`, verbatim as its two siblings: the resolver chain feeds
+  // canRemoveQueueRow / canKillSession too, so teaching it a bridge principal would silently widen
+  // decisions this ruling never touched. This function tests `sender.kind` directly and mints no
+  // PRINCIPALS entry, so nothing else can ever inherit the grant.
+  function canStartExecution({ sender }) {
+    const allowed = !!sender && sender.kind === 'bridge';
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
+    return {
+      allowed,
+      principals: allowed ? ['bridge'] : [],
+      // S-3's rule, applied: state the predicate ACTUALLY ENFORCED and the kind SEEN.
+      reason: allowed
+        ? 'authorized as: the chat bridge'
+        : `start-execution requires the chat BRIDGE token; you are ${seenAs}`,
+    };
+  }
+
   function canSecretAdd({ sender }) {
     const SECRET_ADD_MASTERS = ['goal-master', 'channel-master', 'console-master'];
     const bareSeat = (sender && typeof sender.seat === 'string' && sender.seat.length > 0)
@@ -497,7 +531,7 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canSecretAdd, principalsOf, PRINCIPALS };
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canStartExecution, canSecretAdd, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };

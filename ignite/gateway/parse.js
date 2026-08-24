@@ -83,10 +83,18 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // daemon shells to `coord.py`, which is the same split `live-feed` already carries for the warm
 // session manager. Authorization is `kind: bridge` ONLY (`authz.canRecordBusAnswer`) — narrower
 // than any sibling here, because forging an owner's answer clears another seat's mechanical hold.
+// ⚑ `start-execution` ADDED by owner ruling 2026-08-24, option (b)
+// (`redesign-implementation/decisions.md`, the 14th-intent entry): the FOURTEENTH intent — the
+// approval thread's `approve` reaching the Path-B execution-goal birth. It cites its ruling the
+// way the thirteenth (`record-owner-ask`) and the twelfth (`record-bus-answer`) cite theirs,
+// because a new intent widens the daemon's authenticated surface and is therefore an owner act.
+// The ruling minted THIS VERB AND NO OTHER: the pause-word intent it would have paired with is
+// deliberately NOT minted — pause stays store-side until the execution-lane reconcile gate
+// converges onto the goal-state row — so nothing here has a second act to fork on.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer', 'secret-add', 'record-owner-ask',
+  'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -743,6 +751,51 @@ function parseRecordOwnerAsk(payload) {
   };
 }
 
+// `start-execution` (owner ruling 2026-08-24, option (b),
+// `redesign-implementation/decisions.md`) — SHAPE ONLY, like every parse here.
+//
+// ⚑ WHY A FOURTEENTH INTENT AND NOT A PORT. `spec-owner-io` §4.2 makes `approve` in a
+// `kind=approval` thread the D12 trigger that births an execution goal, and the birth is
+// `planning/path_b.py#run_path_b` — a CHILD PROCESS. The bridge is walled off from one
+// (`bridges/chat/probes/probe-chat-boundary.js`), so `approve` reached a `materialize` port
+// nothing could wire and degraded loudly into the thread [C-16]. The owner ruled the intent —
+// the same authorizing shape the twelfth and thirteenth cite above.
+//
+// ⚑ WHAT THE GATEWAY CANNOT CHECK AND MUST NOT GROW A HANDLE TO TRY: whether this thread
+// carries an ask this daemon opened, whether an authorized owner reply released it, and whether
+// the commit named is the one the planning goal's approve-package is bound to. All three are
+// store/disk questions and all three are the CORE's complete re-validation (DEC-3) — see
+// `server/heart/start-execution.js`. What IS decidable from the payload alone is the SHAPE of the
+// two names and of the commit id, refused here as well as there.
+//
+// ⚑ `thread` IS THE ASK ID [T5-R7], the same address the thirteenth intent keys on. There is no
+// `execution_goal` field and no plan in this payload: WHAT gets built is the approve-package the
+// planning goal already carries, so a caller cannot approve one plan and start another.
+//
+// ⚑ THE COMMIT IS REQUIRED AND MUST BE HEX [T5-R5]. The approval message published a bound
+// `commit_id`; accepting a ref name here would let a moving binding stand in for the tree the
+// owner actually read, which is the exact failure the bound commit exists to prevent.
+//
+// ⚑ THERE IS NO `comments` FIELD, deliberately. The owner's prose after `approve` is a retry's
+// findings list [T3-R21], not an input to a birth that is fully determined by the package and the
+// commit. An unknown key is a REFUSAL rather than a silently ignored one, per the thirteenth's
+// per-act rule applied to this intent's single act.
+const START_EXECUTION_COMMIT_RE = /^[0-9a-f]{7,64}$/;
+
+function parseStartExecution(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['goal', 'thread', 'commit']), 'start-execution');
+  for (const key of ['goal', 'thread']) {
+    if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+      bad(`start-execution ${key} must be a bare name — letters, digits, '.', '_' or '-', starting alphanumeric (no path separators, no "..", no control characters)`, key);
+    }
+  }
+  if (typeof payload.commit !== 'string' || !START_EXECUTION_COMMIT_RE.test(payload.commit)) {
+    bad('start-execution requires the bound commit as lowercase hex (7-64 chars) [T5-R5] — a ref name is a moving binding', 'commit');
+  }
+  return { goal: payload.goal, thread: payload.thread, commit: payload.commit };
+}
+
 const SECRET_ADD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function parseSecretAdd(payload) {
@@ -777,6 +830,7 @@ function parseRequest({ intent, payload }) {
     case 'record-bus-answer': return parseRecordBusAnswer(payload);
     case 'record-owner-ask': return parseRecordOwnerAsk(payload);
     case 'secret-add': return parseSecretAdd(payload);
+    case 'start-execution': return parseStartExecution(payload);
   }
 }
 

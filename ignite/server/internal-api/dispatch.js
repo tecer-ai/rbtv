@@ -37,6 +37,9 @@ const { recordBusAnswer } = require('../../engine/bus-answer');
 // The `record-owner-ask` act (owner ruling 2026-08-24, option (a)). Required for the same reason
 // as `recordBusAnswer` above: a stateless call, not a manager holding processes.
 const { recordOwnerAsk } = require('../heart/ask-record');
+// The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
+// its two siblings above: a stateless call, not a manager holding processes.
+const { startExecution } = require('../heart/start-execution');
 const { applySecretAdd } = require('./secret-add');
 const path = require('path');
 
@@ -108,16 +111,33 @@ const ENVELOPE_VERSION = 1;
 // table nor keep its old JSON file without becoming a second writer of one fact. Same division as
 // the twelfth: the bridge validates nothing it cannot see, this handler validates and authorizes,
 // and `server/heart/ask-record.js` performs the store write.
+//
+// `start-execution` is the FOURTEENTH intent, added ADDITIVELY by the owner's 2026-08-24 ruling
+// (option (b), `redesign-implementation/decisions.md`). It exists because `spec-owner-io` §4.2
+// makes `approve` in a `kind=approval` thread the D12 trigger that BIRTHS an execution goal, and
+// the birth is a CHILD PROCESS (`planning/path_b.py`) the bridge may not hold
+// (`probe-chat-boundary.js`) — so the approval door's `materialize` port had nothing to wire to
+// and degraded loudly into the thread [C-16]. Same division as the twelfth and thirteenth: the
+// bridge validates nothing it cannot see, this handler validates and authorizes, and
+// `server/heart/start-execution.js` performs the act. The ENVELOPE VERSION IS UNCHANGED and no
+// existing intent's payload semantics move. The ruling minted this verb ONLY — the pause-word
+// intent is NOT here, because pause stays store-side until the execution-lane reconcile gate
+// converges onto the goal-state row.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
-  'record-bus-answer', 'secret-add', 'record-owner-ask',
+  'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
 // (`gateway/parse.js#BUS_NAME_RE`) — DEC-3: gateway origin is not trust, and these two tokens
 // become path segments under `.rbtv/goals/`.
 const BUS_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+// The bound-commit shape, re-checked at the core independently of the gateway's copy
+// (`gateway/parse.js#START_EXECUTION_COMMIT_RE`) — DEC-3, and [T5-R5]: a ref name would be a
+// MOVING binding standing in for the tree the owner actually read.
+const START_EXECUTION_COMMIT_RE = /^[0-9a-f]{7,64}$/;
 
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
 
@@ -1493,6 +1513,75 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // ── THE FOURTEENTH INTENT (owner ruling 2026-08-24, option (b)) ──────────────────────────────
+  //
+  // The daemon half of the approved goal's execution start. Same ladder every sibling handler
+  // uses: strict schema, then shape, then authorization, then the act.
+  //
+  // ⚑ THE TWO NAMES AND THE COMMIT ARE RE-CHECKED HERE. They arrived from an internet-facing
+  // component and the goal becomes a PATH SEGMENT under `.rbtv/goals/`, so the front door's copy
+  // is not the only thing between a traversal and a directory read.
+  // `server/heart/start-execution.js` checks the names a THIRD time against the module that owns
+  // the constant (`bus-ferry#isSafeName`), and then asks the STORE and DISK the questions the
+  // gateway holds no handle for: is this thread an ask this daemon opened, is it bound to this
+  // goal, did an authorized owner reply release it, and is this the commit the plan is bound to.
+  // ⚑ AUTHORIZATION IS BRIDGE-ONLY and is asked in the ONE policy module, never as an `if` here.
+  //   Forging this call starts an execution goal nobody approved — the largest consequence any
+  //   sender can ask for on this surface, which is why the predicate is the narrowest there is.
+  // ⚑ A REFUSAL IS DATA, NOT A THROW, and for the OPPOSITE reason to the thirteenth's: there,
+  //   the owner's message had already landed and the caller must not change course. Here NOTHING
+  //   has happened yet and the caller MUST change course — it has to tell the owner, in the
+  //   approval thread, that nothing started [C-16]. A refusal carrying the supervised-materialize
+  //   record is what makes that post-back truthful.
+  function handleStartExecution(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['goal', 'thread', 'commit'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field for start-execution: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    for (const key of ['goal', 'thread']) {
+      if (typeof payload[key] !== 'string' || !BUS_NAME_RE.test(payload[key])) {
+        throw new InternalApiError(VALIDATION_FAILED, `start-execution ${key} must be a bare name (no path separators, no "..", no control characters)`, { check: 'name-shape', field: key });
+      }
+    }
+    if (typeof payload.commit !== 'string' || !START_EXECUTION_COMMIT_RE.test(payload.commit)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'start-execution commit must be lowercase hex (7-64 chars) [T5-R5]', { check: 'commit-shape', field: 'commit' });
+    }
+
+    const decision = authz.canStartExecution({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
+    }
+
+    const out = startExecution(heartStore, {
+      workspaceRoot,
+      goal: payload.goal,
+      thread: payload.thread,
+      commit: payload.commit,
+    });
+    if (!out.started) {
+      log('warn', 'start-execution did NOT start anything — the approval thread is being told so [C-16]', {
+        goal: payload.goal, thread: payload.thread, commit: payload.commit,
+        senderId: sender && sender.id, reason: out.reason, detail: out.detail || null,
+      });
+      return {
+        started: false, reason: out.reason, detail: out.detail || null,
+        record: out.record || null, goal: payload.goal, thread: payload.thread,
+      };
+    }
+    log('info', 'D12: the approved goal\'s execution goal was born through the supervised Path-B materialize', {
+      goal: payload.goal, thread: payload.thread, commit: payload.commit,
+      executionGoal: out.execution_goal, senderId: sender && sender.id,
+    });
+    return {
+      started: true, execution_goal: out.execution_goal,
+      goal: payload.goal, thread: payload.thread, commit: payload.commit,
+    };
+  }
+
   function handleSecretAdd(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['name', 'from_file'].includes(key)) {
@@ -1684,6 +1773,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'send-message': result = handleSendMessage(env.payload, env.sender); break;
         case 'record-bus-answer': result = await handleRecordBusAnswer(env.payload, env.sender); break;
         case 'record-owner-ask': result = handleRecordOwnerAsk(env.payload, env.sender); break;
+        case 'start-execution': result = handleStartExecution(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 
