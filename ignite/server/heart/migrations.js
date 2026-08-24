@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 // migrations — bring an EXISTING heart store forward to the schema the code expects.
 //
 // WHY THIS EXISTS (G-135). `schema.sql` is a set of `CREATE TABLE IF NOT EXISTS` statements re-run on
@@ -559,6 +562,20 @@ const MIGRATION_ENQUEUE_LOG_BRAKED = {
 };
 MIGRATIONS.push(MIGRATION_ENQUEUE_LOG_BRAKED);
 
+const ENDING_TABLES_SQL = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'state-store', 'tables.sql'),
+  'utf8',
+);
+
+const MIGRATION_ENDING_STORE = {
+  version: 10,
+  name: 'ending-store',
+  up(db) {
+    db.exec(ENDING_TABLES_SQL);
+  },
+};
+MIGRATIONS.push(MIGRATION_ENDING_STORE);
+
 function userVersion(db) {
   const row = db.prepare('PRAGMA user_version').get();
   return Number(row.user_version || 0);
@@ -681,4 +698,5 @@ module.exports = {
   // is: a probe injects it directly to prove the rebuild and the re-run no-op on a store it built
   // itself, and to diff a fresh-vs-migrated enqueue_log schema for byte identity.
   MIGRATION_ENQUEUE_LOG_BRAKED,
+  MIGRATION_ENDING_STORE,
 };

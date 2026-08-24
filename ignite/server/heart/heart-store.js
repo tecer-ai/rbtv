@@ -22,6 +22,10 @@ const {
 const { minutesToTicks } = require('./warnings');
 
 const SCHEMA_SQL = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+const ENDING_TABLES_SQL = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'state-store', 'tables.sql'),
+  'utf8',
+);
 const { migrate, isFreshStore } = require('./migrations');
 const { checkTemplateArgs, checkFireToolWorkdir } = require('./argv-template');
 
@@ -698,6 +702,7 @@ class HeartStore {
 
       this.db.exec('PRAGMA journal_mode = WAL;');
       this.db.exec(SCHEMA_SQL);
+      this.db.exec(ENDING_TABLES_SQL);
       // schema.sql is six CREATE TABLE IF NOT EXISTS, so against an EXISTING store it has just done
       // nothing at all. Everything that brings such a store forward happens here instead.
       this.migration = migrate(this.db, { fresh });
