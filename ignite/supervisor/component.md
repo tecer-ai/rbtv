@@ -86,6 +86,47 @@ The ending store is INJECTED (`store`), the same posture `awaitingReap` takes wi
 ending is, by write moment 3, a reap that has not completed. The ending lookup
 is injected, so this component holds no ending-store handle.
 
+## The door list - and every launch is on it [T4-R7, C-15]
+
+`doors.js` carries spec-supervisor section 3 verbatim. A launch either flows
+through the supervisor or is MARKED `unsupervised`; there is no silent arm.
+
+| Door | Chokepoint | Disposition |
+|---|---|---|
+| seeding | `engine/seeding.js` `seedGoal` / `enqueueEligible` | wrapped |
+| reconcile | `engine/reconcile.js` `deriveOwed` / `launchSitting` | wrapped |
+| `--rerun` | `team-kit/launch.py` `cmd_launch --rerun` / `--declare-only` | wrapped |
+| attest-exit | `spawn.js` `closeSeatSessionRow` -> `attest-exit --force-dead` | wrapped (it BECAME the death stamp) |
+| console-uncaged | bare console / uncaged `claude` (IE-3) | marked-unsupervised until check-in |
+| `E_GOAL_NOT_LIVE` | `engine/seeding.js` `readLease` / `goalNotLive` (IE-1) | wrapped as a REFUSAL |
+
+The door NAME is derived from the identity a launch already carries - seeding's
+and reconcile's `enqueued_by` on the queue row, `--rerun`'s own `leader-<door>-…`
+reason token - so no call frame gained a parameter. A launcher the list does not
+know still gets a row, flagged `unsupervised`: an ad hoc caller must be visible,
+not refused and not invisible.
+
+`refuseLaunch` is the `E_GOAL_NOT_LIVE` arm and asserts its three absences by
+name: nothing spawned, nothing stamped, nothing enqueued. It is NOT a seat
+`failed` - that class is envelope's `launch-refused`.
+
+## Asking whether a sitting is alive
+
+`probe.js` — `probeSitting({goal, seat})` and `probeGoal(goal)`. The answer is
+three-valued and that is load-bearing:
+
+| `alive` | Means |
+|---|---|
+| `true` | a row exists and the pid+start-time pair still matches a live, non-zombie process |
+| `false` | a row exists and the process is gone |
+| `null` | NO row: the sitting is unsupervised. Never "probably running", never "dead" |
+
+Collapsing `null` into `true` re-invents the pane; collapsing it into `false`
+re-opens the mass-restamp hole. The seven legacy consumers - `coord.py`-lineage
+`tmux.py`, `messages.py`, `cli_main.py`, `launch.py`, `carrier.py`, `checkout.py`
+and `server/ticker/ticker.js` - all ask here now. The python side is
+`team-kit/liveness.py`, one `node supervisor/probe.js` call per render.
+
 ## APIs
 
 Probe: `isAliveProcess` · `isRowAlive` · `processStartTime` · `isZombie`
@@ -98,11 +139,17 @@ Registry: `loadRegistry` · `saveRegistry` · `makeRecord` · `recordSpawn` ·
 
 Boot: `readopt` · `assertReadoptDone`
 
+Doors: `DOORS` · `doorForLauncher` · `supervisionFor` · `superviseSpawn` ·
+`markUnsupervised` · `registerCheckIn` · `refuseLaunch`
+
+Probe: `probeSitting` · `probeGoal` (and `node probe.js --goal G [--seat S]`)
+
 Kit door (for team-kit's python): `cli.js --op NAME [--registry PATH] [--db PATH]
 [--payload JSON|PATH|-]`, one JSON document on stdout. `--db` is required by the ops
 that need an ENDING - `stampDeath` and `awaitingReap` - and by no other. The python
 side of that door is `team-kit/supervisor_door.py`; `SUPERVISOR_REGISTRY` overrides the
 registry file for a probe, a selftest or a second instance.
 
-Selftests: `node registry.selftest.js` and `node death-stamp.selftest.js` - each prints
+Selftests: `node registry.selftest.js`, `node death-stamp.selftest.js` and
+`node doors.selftest.js` - each prints
 `ALL PASS` / exits 0.
