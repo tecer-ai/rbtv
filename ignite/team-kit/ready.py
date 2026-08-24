@@ -1575,8 +1575,8 @@ def cmd_ready_seats(args):
               + (f"   ⚠ HELD by the leader, anchor `{_hold}` — the leader INVESTIGATED this row "
                  f"and ruled it STAYS AS IT IS, so the goal watcher skips it and stops re-waking "
                  f"the leader on it. It still BLOCKS its successors and it is still rulable: "
-                 f"`rule-disposition {rec['seat']} <destination> --anchor <a> --go` releases the "
-                 f"hold in the same act" if _hold else ""))
+                 f"`rule-disposition` was deleted [T2-R12, T1-R9]; no replacement ruling "
+                 f"instrument is wired here yet" if _hold else ""))
         # 7.224: rendered on EVERY seat, not only the ones it trips — same rule as the line above,
         # same reason. The NOTE is always printed because "no stop-state" and "nothing was read"
         # are the two readings a reader must never have to guess between, and an unenumerated
