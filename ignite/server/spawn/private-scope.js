@@ -214,9 +214,15 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   //     this per entry; this is the backstop for every grant class that does not.
   // A merely-BROADER opening (the read-root floor, a parent directory grant) is not a pierce: it
   // CONTAINS the entry rather than sitting inside it, so it never matches and the entry stays
-  // masked. EXCEPTION (D4, 2026-08-18): an opening of the `exposedCliCode` grant class that
-  // CONTAINS an enumerated deny entry DOES pierce — applied in TIER 2b by skipping the mask,
-  // not here (this loop matches openings inside entries, the inverse direction).
+  // masked.
+  //
+  // REMOVED (T2-R11, redesign D19): the `exposedCliCode` grant-class pierce (D4, 2026-08-18) that
+  // used to live in TIER 2b below — an opening of that class CONTAINING an enumerated deny entry
+  // (a declared CLI's own `config.yaml` / `credentials/`) used to re-open it whole. Owner ruling:
+  // credentials are env-injected, never caged — no mechanism in this compiler re-opens
+  // `credentials/`, `*.env`, `*.key`, or `*token*` for ANY caller/role, declared or not. This
+  // TIER-3 named-grant pierce is unaffected (it serves unrelated authored exceptions, e.g. the
+  // therapy-summarizer's health path) and still refuses the two HARDCODES unconditionally below.
   const pierced = [];
   const refused = [];
   const pierceOpenings = [];
@@ -255,24 +261,10 @@ function composePrivateScope(spec, { workspaceRoot, log = () => {} } = {}) {
   const maskedPaths = [];
   for (const e of entries) {
     if (!visible(e)) continue;
-    // D4 (2026-08-18): an exposedCliCode opening that CONTAINS an ENUMERATED deny
-    // entry pierces it — the CLI's own tree, config/credentials included, becomes
-    // readable to seats that CLI is exposed to. Pattern-floor entries (`**/.git`,
-    // `**/*.env`, …) share `entries` and MUST stay masked (gate on `seeded`).
-    // `3-resources/tools/stools/credentials/` is an ENUMERATED entry, so it pierces
-    // under an exposed stools CLI — that is D4's accepted tradeoff, not a bug.
-    // Hardcodes stay unoverrulable (adv C53). ONLY this grant class: a generic
-    // ro-bind must NOT pierce (the merely-broader rule stays for every other class).
-    if (seeded.has(e) && !scope.hardcoded.has(e)) {
-      const grantor = spec.find((opening) =>
-        opening.grantClass === 'exposedCliCode' && inside(opening.path, e));
-      if (grantor) {
-        const cli = grantor.exposedCliName || grantor.path;
-        pierced.push(`exposedCliCode:${e} via ${cli}`);
-        log('info', 'private-scope PIERCE', { entry: e, grantingCli: cli, grantClass: 'exposedCliCode' });
-        continue;
-      }
-    }
+    // REMOVED (T2-R11, redesign D19): the `exposedCliCode` grant-class pierce (D4, 2026-08-18)
+    // that used to skip the mask here for a CLI's own `config.yaml` / `credentials/` when that
+    // CLI was `exposed-clis:`-declared. Credentials are env-injected, never caged — every private
+    // entry masks unconditionally now, declared CLI or not.
     let st;
     try { st = fs.statSync(e); } catch { continue; }
     if (st.isDirectory()) {
@@ -341,14 +333,16 @@ function runningCages(workspaceRoot) {
   return live;
 }
 
-// ── W3 — THE PRIVATE-PATH REFUSAL, ASKED FROM OUTSIDE (widen-cage, ruling D-2) ─────────────────
+// ── W3 — THE PRIVATE-PATH REFUSAL ────────────────────────────────────────────────────────────
 //
-// `coordinate widen-cage` must refuse UNCONDITIONALLY any path that is, or lies inside, a private
-// entry — the PIERCE rule is a materialize-time authoring affordance and never a runtime one. That
-// question is THIS module's (the deny list, the hardcodes, the pattern floor and the realpath
-// matching all live here), so the verb ASKS rather than re-deciding: a second Python reader of
-// `private.json` is exactly the two-interpreters drift PRIN-11 forbids, and it would drift in the
-// permissive direction — the one that matters.
+// Any path that is, or lies inside, a private entry is refused UNCONDITIONALLY — the PIERCE rule
+// is a materialize-time authoring affordance and never a runtime one. That question is THIS
+// module's (the deny list, the hardcodes, the pattern floor and the realpath matching all live
+// here). Historically this was also asked from OUTSIDE the process, by coord.py's `widen-cage`
+// verb (ruling D-2) over a `--refuses` CLI answer — deleted with that verb ([T2-R6, C-6],
+// 2026-08-24). The design reason it asked rather than re-decided still holds for any future
+// caller: a second Python reader of `private.json` is exactly the two-interpreters drift PRIN-11
+// forbids, and it would drift in the permissive direction — the one that matters.
 //
 // Returns the REASON string when the path is refused, `null` when it is not. Realpath-matched in
 // both directions, so a symlink planted in a writable directory cannot smuggle a private target in.
@@ -392,9 +386,11 @@ function refusesPath(workspaceRoot, target) {
 // `scaffold-seats`, …, spawn.js's own PATH-builder comment) — their own directories hold nothing
 // this file would ever mask. Others (`stools`, `gtools`, …) read their own `config.yaml`/
 // `credentials/` at argument-parser build time — undeclared, that reachability is the D56 defect:
-// the D4 `exposedCliCode` pierce (TIER 2b above) only opens a tool's directory for a seat that
-// DECLARED it, so an undeclared seat reaching the name today hits the raw masked-path
-// `PermissionError` instead of a named refusal.
+// an undeclared seat reaching the name hits the raw masked-path `PermissionError` instead of a
+// named refusal. (Historical: before T2-R11/redesign D19 removed the `exposedCliCode` pierce, a
+// DECLARED seat's opening used to re-open the tool's own secrets; declaring no longer changes
+// whether the mask lifts — every private entry masks unconditionally, declared or not — so this
+// question now decides ONLY named-refusal-vs-raw-traceback, never reach.)
 //
 // The two classes are NOT named here (D74: the mechanism hardcodes no tool name). They are DERIVED
 // from the SAME deny-list/pattern-floor data every other tier of this file reads: a candidate
@@ -433,14 +429,10 @@ function needsDeclaration(workspaceRoot, dir, log = () => {}) {
 }
 
 if (require.main === module) {
-  // `--refuses <workspace-root> <path>` — the widen-cage question, answered as JSON on stdout.
-  // Exit 0 with `{"refused": …}` either way: a non-zero exit would be indistinguishable, to the
-  // caller, from node being absent — and THAT caller fails closed on any non-answer.
-  if (process.argv[2] === '--refuses') {
-    const reason = refusesPath(process.argv[3] || process.cwd(), process.argv[4] || '');
-    console.log(JSON.stringify({ refused: reason !== null, reason }));
-    return;
-  }
+  // The `--refuses <workspace-root> <path>` CLI answer (asked by coord.py's now-deleted
+  // `widen-cage` verb) was removed here when `widen-cage` was deleted (ruling [T2-R6, C-6],
+  // 2026-08-24) — it had no other caller. `refusesPath` itself stays: it is still called
+  // in-process by `probe-private-scope.js` and exported below.
   const ws = process.argv[2] || process.cwd();
   const live = runningCages(ws);
   if (live.length === 0) {

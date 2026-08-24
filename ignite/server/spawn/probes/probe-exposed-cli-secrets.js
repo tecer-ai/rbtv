@@ -1,7 +1,9 @@
 'use strict';
 
-// D4 (2026-08-18) — an exposedCliCode opening that CONTAINS an enumerated private
-// entry pierces it. Pattern-floor entries stay masked. A generic ro-bind does not pierce.
+// D4 (2026-08-18) used to let an exposedCliCode opening CONTAINING an enumerated private
+// entry pierce it. REMOVED (T2-R11, redesign D19, 2026-08-24): credentials are env-injected,
+// never caged — no grant class pierces credentials/.env/.key/token entries any more, declared
+// CLI or not. Legs below now assert the mask holds regardless of the exposedCliCode tag.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -125,16 +127,10 @@ capture('probe-exposed-cli-secrets', async (lines) => {
       { exposedCliCode: f.stools, exposedCliName: 'stools', grantClass: 'exposedCliCode' },
     ]);
     const taggedOpening = tagged.spec.find((o) => o.path === f.stools);
-    const configPierced = tagged.result.pierced.some((p) => p.includes(f.configYaml) && p.includes('stools'));
-    const credsPierced = tagged.result.pierced.some((p) => p.includes(f.creds) && p.includes('stools'));
-    const logsNameBoth = tagged.logs.filter((l) =>
-      l.msg === 'private-scope PIERCE' && l.extra && l.extra.grantingCli === 'stools'
-      && (l.extra.entry === f.configYaml || l.extra.entry === f.creds)).length === 2;
-
-    leg('1', 'exposedCliCode-tagged ro-bind of the CLI dir pierces enumerated config.yaml AND credentials/',
+    leg('1', 'REMOVED-PIERCE (T2-R11): an exposedCliCode-tagged ro-bind of the CLI dir does NOT pierce config.yaml or credentials/ — both stay masked',
       taggedOpening && taggedOpening.grantClass === 'exposedCliCode' && taggedOpening.exposedCliName === 'stools'
-      && !isMasked(tagged.result, f.configYaml) && !isMasked(tagged.result, f.creds)
-      && configPierced && credsPierced,
+      && isMasked(tagged.result, f.configYaml) && isMasked(tagged.result, f.creds)
+      && tagged.result.pierced.length === 0,
       `opening=${JSON.stringify(taggedOpening)}; configMasked=${isMasked(tagged.result, f.configYaml)}; `
       + `credsMasked=${isMasked(tagged.result, f.creds)}; pierced=${JSON.stringify(tagged.result.pierced)}`);
 
@@ -143,10 +139,10 @@ capture('probe-exposed-cli-secrets', async (lines) => {
       { exposedCliCode: f.stools },
     ]);
     const plainOpening = plain.spec.find((o) => o.path === f.stools);
-    leg('2', 'the same ro-bind WITHOUT the exposedCliCode class tag leaves config.yaml masked',
+    leg('2', 'the same ro-bind WITHOUT the exposedCliCode class tag also leaves config.yaml masked (no differentiation left)',
       plainOpening && plainOpening.grantClass === undefined
       && isMasked(plain.result, f.configYaml) && isMasked(plain.result, f.creds)
-      && !plain.result.pierced.some((p) => p.includes(f.configYaml)),
+      && plain.result.pierced.length === 0,
       `opening=${JSON.stringify(plainOpening)}; configMasked=${isMasked(plain.result, f.configYaml)}; `
       + `pierced=${JSON.stringify(plain.result.pierced)}`);
 
@@ -157,17 +153,10 @@ capture('probe-exposed-cli-secrets', async (lines) => {
       `gitInEntries=${gitCreatedByWalk}; gitMasked=${isMasked(tagged.result, f.gitDir)}; `
       + `entries.git=${f.gitDir}`);
 
-    const disclosure = tagged.logs
-      .filter((l) => l.msg === 'private-scope PIERCE')
-      .map((l) => `${l.msg} entry=${l.extra.entry} grantingCli=${l.extra.grantingCli}`);
-    leg('4', 'spawn disclosure names each pierced entry and its granting CLI',
-      logsNameBoth && disclosure.length === 2,
-      disclosure.join(' | '));
-
     const spawnSrc = fs.readFileSync(path.join(__dirname, '..', 'spawn.js'), 'utf8');
     const tagsGrant = /grantClass:\s*'exposedCliCode'/.test(spawnSrc)
       && /function resolveExposedCliGrants/.test(spawnSrc);
-    leg('5', 'resolveExposedCliGrants threads grantClass: exposedCliCode onto the grant',
+    leg('4', 'resolveExposedCliGrants threads grantClass: exposedCliCode onto the grant',
       tagsGrant, `spawn.js tags grantClass=${tagsGrant}`);
 
     // ── D56/D74 — NEW LEG: undeclared + `local-bin: true` gets the NAMED REFUSAL, not the real
