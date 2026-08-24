@@ -3023,8 +3023,9 @@ def seat_states(goal_dir: Path) -> dict[str, dict]:
     `clean | crashed | killed` — so a stamped cell says the RUN finished, never that the WORK
     is finished (a crashed seat stamps `crashed` and would have rendered `done` under the old
     word). Done-ness left this column entirely: it now lives in the seat's check-out
-    disposition, read via `coord.py ready-seats --json` (field `disposition`). Anything here
-    that wants "is the work done" must go there; this function answers process state only.
+    ending, read via the ending store / `coord.py ready-seats --json` (field `ending`
+    or `disposition`). Anything here that wants "is the work done" must go there;
+    this function answers process state only.
 
     ⚠ THE LAST ROW DECIDES, IN FILE ORDER — never "any row is open". The record is append-only
     and the engine keys on exactly this (`engine/execution-record.js`: "the seat's LAST word in

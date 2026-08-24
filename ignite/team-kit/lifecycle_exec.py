@@ -2036,7 +2036,16 @@ def cmd_lifecycle_exec(args):
             f"LIFECYCLE_INTENT_OF, so this executor cannot tell what checkout intent it should "
             f"correspond to. The enum and the mapping were widened apart; widen both.", 2, base, args=args)
     expected = LIFECYCLE_INTENT_OF[args.disposition]
-    record = load_awaiting(base).get(args.seat)
+    pkg = package_dir(args, register=False)
+    try:
+        _ending = ending_store.get_current_ending(pkg, args.seat)
+    except ending_store.EndingStoreError:
+        _ending = None
+    record = ({"disposition": (
+        "renew" if _ending and _ending.get("ending") == "incomplete"
+        and _ending.get("diagnostic") == "context full"
+        else (_ending or {}).get("ending")
+    )} if _ending else None)
     if record is not None and not isinstance(record, dict):
         lifecycle_alarm(
             "state",

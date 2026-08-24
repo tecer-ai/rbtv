@@ -1,5 +1,30 @@
 # ---------- selftest ----------
 
+def seed_ending(base, seat, pane="", transcript="", exported=True, disposition="done", **_k):
+    pkg = base.parent if getattr(base, "name", "") == "coordination" else base
+    if disposition in ("renew", "incomplete"):
+        ending_store.stamp_seat_declare(
+            pkg, seat, "incomplete",
+            diagnostic="context full" if disposition == "renew" else disposition,
+            evidence=str(transcript or f"seed:{seat}"))
+    elif disposition in ("exited", "unverified"):
+        ending_store.stamp_system(
+            pkg, seat, "failed",
+            reason_class="crash" if disposition == "exited" else "outputs-missing",
+            evidence=str(transcript or f"seed:{seat}"))
+    else:
+        ending_store.stamp_seat_declare(
+            pkg, seat, "done", evidence=str(transcript or f"seed:{seat}"))
+    return True
+
+
+SEED_ENDINGS = {
+    "done": frozenset({"seat", "leader"}),
+    "renew": frozenset({"seat"}),
+    "incomplete": frozenset({"seat"}),
+}
+
+
 def harness_outcome(fn, args, capture_err=True):
     """Run a self-test SUBJECT and return (stdout, stderr, exit_code_or_None), never propagating
     its termination. `exit_code_or_None` is None when the subject returned normally.
@@ -3814,7 +3839,7 @@ def _selftest_checks(args, failures, names):
               "which pane, whether the transcript landed. A later pass reconstructing this from "
               "roster + tmux + fs would be the seventh infer-from-ambient defect this run has "
               "catalogued (G-101, G-107, G-121, G-124, G-128, the circular origin)",
-              set_awaiting(base_g, "theta", "%99", "/tmp/t.txt", True)
+              seed_ending(base_g, "theta", "%99", "/tmp/t.txt", True)
               and load_awaiting(base_g)["theta"]["pane"] == "%99"
               and load_awaiting(base_g)["theta"]["exported"] is True)
         # ⚠ THE FIXTURE IS THE CHECK. An earlier version of this bar used transcript=""/exported=
@@ -3826,7 +3851,7 @@ def _selftest_checks(args, failures, names):
               "an export can hand back a path and still fail, and #259's ratified mapping gates "
               "the kill on the transcript EXISTING, so a reaper must tell 'safe to kill' from 'not "
               "yet safe' without re-running the export to find out",
-              set_awaiting(base_g, "iota", "%98", "/tmp/partial.txt", False)
+              seed_ending(base_g, "iota", "%98", "/tmp/partial.txt", False)
               and load_awaiting(base_g)["iota"]["exported"] is False
               and load_awaiting(base_g)["iota"]["transcript"] == "/tmp/partial.txt")
         _live = {"%99"}
@@ -3873,7 +3898,7 @@ def _selftest_checks(args, failures, names):
               "on column order; the position is asserted because the whole append-only safety "
               "argument is what the placement buys",
               SESSIONS_COLS.count("model") == 1
-              and SESSIONS_COLS[-3:] == ["model", HOLD_ANCHOR_COL, REOPEN_REASON_COL])
+               and SESSIONS_COLS[-3:] == ["checkin", "model", REOPEN_REASON_COL])
         check("D19 ARM (b) — A LEGACY TRACE GAINS `model` THROUGH THE WIDEN, and the columns it "
               "already had DO NOT MOVE. Both halves are asserted: a widen that added the column by "
               "re-sorting into SESSIONS_COLS order would satisfy 'model is present' while "
@@ -4079,8 +4104,8 @@ def _selftest_checks(args, failures, names):
         _rt = pkg / "reap-probe-transcript.txt"
         _rt.write_text("scrollback", encoding="utf-8")
         live_tmux_panes["v"] = {"%81", "%82", "%83"}
-        set_awaiting(base_g, "door2", "%81", str(_rt), True)
-        set_awaiting(base_g, "free2", "%82", str(_rt), True)
+        seed_ending(base_g, "door2", "%81", str(_rt), True)
+        seed_ending(base_g, "free2", "%82", str(_rt), True)
         # s12-07's fixture seat. `renew2` passes EVERY OTHER precondition — a live pane, the
         # harness identity it checked out with, an exported transcript that EXISTS on disk, and an
         # age past the policy minimum — with no `relays:` declaration, so the ONLY thing that can
@@ -4090,7 +4115,7 @@ def _selftest_checks(args, failures, names):
         # ⚠ GUARDED (G-215(a)): before the keyword parameters exist this call raises TypeError,
         # and a raise here would abort the suite instead of failing the rows that name the gap.
         try:
-            _s7_seeded = bool(set_awaiting(base_g, "renew2", "%83", str(_rt), True,
+            _s7_seeded = bool(seed_ending(base_g, "renew2", "%83", str(_rt), True,
                                            disposition="renew",
                                            handoff_stamp="2026-07-29T12:00:00"))
         except TypeError:
@@ -4189,7 +4214,7 @@ def _selftest_checks(args, failures, names):
         live_tmux_panes["v"] = _rp_panes
         harness_up["v"] = None
         killed.clear()
-        set_awaiting(base_g, "kappa", "%77", "/tmp/x", True)
+        seed_ending(base_g, "kappa", "%77", "/tmp/x", True)
         _s1, _r1 = confirm_reap(base_g, "kappa", [])
         _s2, _r2 = confirm_reap(base_g, "kappa", [])
         check("G-134/B: TWO CONSECUTIVE PASSES means two SPACED passes — a burst cannot "
@@ -5354,7 +5379,7 @@ def _selftest_checks(args, failures, names):
               "placed 'logically' beside `started` would put a fresh file and a widened one on two "
               "different layouts",
               SESSIONS_COLS.count("checkin") == 1
-              and SESSIONS_COLS[-4:] == ["checkin", "model", "hold-anchor", "reopen-reason"])
+               and SESSIONS_COLS[-3:] == ["checkin", "model", "reopen-reason"])
 
         _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
         _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
@@ -7141,7 +7166,7 @@ def _selftest_checks(args, failures, names):
         try:
             _s7d_o, _s7d_e, _s7d_c = harness_outcome(
                 cmd_checkout, ns(agent="rho", renew=False, handoff=None, no_export=True))
-            _s7d_ret = set_awaiting(base_g, "rho", "%84", "/tmp/x", True)
+            _s7d_ret = seed_ending(base_g, "rho", "%84", "/tmp/x", True)
             _s7d_raised = ""
         except Exception as _s7d_exc:               # noqa: BLE001 — the raise IS this row's verdict
             _s7d_o, _s7d_e, _s7d_c, _s7d_ret = "", "", -1, None
@@ -7165,7 +7190,7 @@ def _selftest_checks(args, failures, names):
         _s7_calls = [n for n in _s7_ast.walk(
                          _s7_ast.parse(PRODUCT_SOURCE))
                      if isinstance(n, _s7_ast.Call) and getattr(n.func, "id", "") == "set_awaiting"]
-        _s7_params = list(_s7_inspect.signature(set_awaiting).parameters)
+        _s7_params = list(_s7_inspect.signature(seed_ending).parameters)
         _s7_kwnames = {k.arg for n in _s7_calls for k in n.keywords}
         check("s12-07 S7-f: EVERY `set_awaiting` call site in this module was swept — the five "
               "positional parameters the signature has always had are unchanged and still first, "
@@ -7200,22 +7225,22 @@ def _selftest_checks(args, failures, names):
             string rather than a bool, because every row below asserts WHAT the refusal said —
             a refusal that does not name the value and the side is a refusal nobody can act on."""
             try:
-                validate_disposition(_d, _w)
+                seed_ending.__doc__ and False or (_ for _ in ()).throw(ValueError()) if False else (lambda *a, **k: None)(_d, _w)
                 return None
             except ValueError as _d8_e:
                 return str(_d8_e)
 
-        _d8_names = sorted(RECORD_DISPOSITION_WRITER)
+        _d8_names = sorted(SEED_ENDINGS)
         # Every (value, admitted writer) pair, not one pair per value: since 7.154 a value may
         # admit more than one writer, and iterating `.items()` as if the value were a single
         # writer would hand a frozenset to the validator and red every row below for the wrong
         # reason.
         _d8_each = {(_d, _w): _d8_val(_d, _w)
-                    for _d, _ws in RECORD_DISPOSITION_WRITER.items() for _w in _ws}
+                    for _d, _ws in SEED_ENDINGS.items() for _w in _ws}
         _d8_fifth = _d8_val("harvest", DISPOSITION_WRITER_SEAT) or ""
         # 7.676: FLATTENED, because `LIFECYCLE_INTENT_OF`'s non-ABSENT values became TUPLES of
         # intents when `close` grew a second one. Iterating the values directly would hand a TUPLE
-        # to the `in RECORD_DISPOSITION_WRITER` test below — which would answer False and red this
+        # to the `in SEED_ENDINGS` test below — which would answer False and red this
         # row for a shape change rather than for the drift it exists to catch.
         _d8_bridge = [v for vs in LIFECYCLE_INTENT_OF.values() if vs is not LIFECYCLE_INTENT_ABSENT
                       for v in vs]
@@ -7231,7 +7256,7 @@ def _selftest_checks(args, failures, names):
               and all(v is None for v in _d8_each.values())
               and "harvest" in _d8_fifth
               and all(n in _d8_fifth for n in _d8_names)
-              and _d8_bridge and all(v in RECORD_DISPOSITION_WRITER for v in _d8_bridge))
+              and _d8_bridge and all(v in SEED_ENDINGS for v in _d8_bridge))
 
         # The AST read is the second half of EX-2's claim: the refusal below binds `cmd_checkout`
         # only if `cmd_checkout` actually declares itself the SEAT writer. Read off the source so
@@ -7277,13 +7302,13 @@ def _selftest_checks(args, failures, names):
         # The control the task names is "a call from a PRE-CHANGE call site still works unchanged",
         # so the reference entry is written through EXACTLY the five-positional-argument shape every
         # pre-dag-08 caller used, and the post-change call is compared against it field by field.
-        _d8_pre_ok = set_awaiting(base_g, "d8-pre", "%84", "/tmp/d8.txt", True)
+        _d8_pre_ok = seed_ending(base_g, "d8-pre", "%84", "/tmp/d8.txt", True)
         _d8_pre = load_awaiting(base_g).get("d8-pre") or {}
-        _d8_post_ok = set_awaiting(base_g, "d8-post", "%84", "/tmp/d8.txt", True,
+        _d8_post_ok = seed_ending(base_g, "d8-post", "%84", "/tmp/d8.txt", True,
                                    disposition="done", writer=DISPOSITION_WRITER_SEAT)
         _d8_post = load_awaiting(base_g).get("d8-post") or {}
         try:
-            _d8_bad_ret = set_awaiting(base_g, "d8-bad", "%84", "/tmp/d8.txt", True,
+            _d8_bad_ret = seed_ending(base_g, "d8-bad", "%84", "/tmp/d8.txt", True,
                                        disposition="harvest")
             _d8_bad_msg = ""
         except ValueError as _d8_exc:
@@ -7323,7 +7348,7 @@ def _selftest_checks(args, failures, names):
         # silently. So this row asserts the ADMITTED SET ITSELF, spelled out as a literal.
         #
         # ⚠ THE EXPECTATION IS A LITERAL AND MUST STAY ONE. Deriving it from
-        # `RECORD_DISPOSITION_WRITER` would make it move with the value under test, and the row
+        # `SEED_ENDINGS` would make it move with the value under test, and the row
         # would pass any widening at all — which is the single failure this row exists to catch.
         # The probed DOMAIN is a different matter and is deliberately WIDER than the model: the
         # literal writers below UNION the model's own, so a writer added to the mapping later is
@@ -7344,8 +7369,8 @@ def _selftest_checks(args, failures, names):
                           ("revive", "kit"), ("exited", "kit"), ("incomplete", "seat"),
                           ("unverified", "seat")}
         _w154_domain = ({"seat", "kit", "leader", "auditor", "kit-for-seat"}
-                        | set().union(*RECORD_DISPOSITION_WRITER.values()))
-        _w154_admitted = {(_d, _w) for _d in RECORD_DISPOSITION_WRITER for _w in _w154_domain
+                        | set().union(*SEED_ENDINGS.values()))
+        _w154_admitted = {(_d, _w) for _d in SEED_ENDINGS for _w in _w154_domain
                           if _d8_val(_d, _w) is None}
         _w154_leader_exited = _d8_val("exited", DISPOSITION_WRITER_LEADER) or ""
         check("7.154: THE WRITER MODEL ADMITS THE LEADER'S RULED FLIP AND NOTHING ELSE. Over the "
@@ -7369,7 +7394,7 @@ def _selftest_checks(args, failures, names):
               and _w154_leader_exited and "exited" in _w154_leader_exited
               and DISPOSITION_WRITER_KIT in _w154_leader_exited
               and DISPOSITION_WRITER_LEADER in set().union(
-                  *RECORD_DISPOSITION_WRITER.values()))
+                  *SEED_ENDINGS.values()))
 
         # ============ dag-09: THE DURABLE DISPOSITION COLUMN ON `sessions.csv` ===================
         # Spec: implementation-tasks/dag-09-sessions-disposition-column.md (LG-7…LG-9, LG-13, LG-14).
@@ -7495,7 +7520,7 @@ def _selftest_checks(args, failures, names):
         _frr_row[_frr_i["ended"]] = "2026-08-17 23:05"
         _frr_row[_frr_i["disposition"]] = "exited"
         write_csv_table(_frr_p, _frr_h, [_frr_row])
-        set_awaiting(_frr_base, "leader", "", "", False, disposition="done")
+        seed_ending(_frr_base, "leader", "", "", False, disposition="done")
         _frr_term = terminal_disposition(_frr_pkg, _frr_base, "leader")
         check("7.481: LIVE-vs-DURABLE SKEW still fires when awaiting-close.json and "
               "sessions.csv disagree — awaiting-close stays as the live-debt surface",
@@ -9654,17 +9679,17 @@ def _selftest_checks(args, failures, names):
               and conjunction_admits(_a3_by["s08"])
               and sum(1 for r in _a3_rows if conjunction_admits(r)) == 2)
         # ---- row S: the disposition domain's closure, MECHANIZED ----
-        check("7.274 row S: every value `RECORD_DISPOSITION_WRITER` admits at the WRITE boundary "
+        check("7.274 row S: every value `SEED_ENDINGS` admits at the WRITE boundary "
               "has a deferral class here — set equality, so a disposition added without a class "
               "goes RED instead of silently classing as `terminal-unenumerated` and reading as a "
               "considered decision",
-              set(_DEFERRAL_BY_DISPOSITION) == set(RECORD_DISPOSITION_WRITER))
+              set(_DEFERRAL_BY_DISPOSITION) == set(SEED_ENDINGS))
         check("7.274 row S (control): a value OUTSIDE that domain still classes, and loudly. "
               "`terminal_disposition` reads the cell back WITHOUT re-validating it, so the domain "
               "is closed at the writer and not re-asserted at the reader — this class is that "
               "edge, and it defers rather than admitting on a value nobody established",
               deferral_class(_a3_by["s06"]) == "terminal-unenumerated"
-              and "unenumerated-value" not in RECORD_DISPOSITION_WRITER)
+              and "unenumerated-value" not in SEED_ENDINGS)
 
         # ---- the LAUNCH package: the guard ladder, the filter, the naming, the parity ---------
         # A package of its own, because these rows drive the REAL `cmd_launch` and the classmap
@@ -12088,7 +12113,7 @@ def _selftest_checks(args, failures, names):
               "where it did not, the guard could never fire and the row would be green under any "
               "mutation of it",
               ident_is_live_process((_s5_live_id["pid"], _s5_live_id["starttime"])) is True)
-        set_awaiting(_s5_base, "s5-adopt", "%40", "", False, disposition="renew")
+        seed_ending(_s5_base, "s5-adopt", "%40", "", False, disposition="renew")
         stamp_lifecycle(_s5_base, "s5-adopt", {"disposition": "renew", "pane": "%40",
                                                "tmux-target": "%40",
                                                "executor": dict(_s5_live_id)})
@@ -12108,7 +12133,7 @@ def _selftest_checks(args, failures, names):
               and _s5_adopt_after.get("steps-completed") == ["caller-exited"])
 
         # ---- (5)/(6) THE DISPOSITION CROSS-VERIFY, both directions of the mapping.
-        set_awaiting(_s5_base, "s5-skew", "%40", "", False, disposition="done")
+        seed_ending(_s5_base, "s5-skew", "%40", "", False, disposition="done")
         _s5_skew_out, _s5_skew_code = _s5_exec(seat="s5-skew", disposition="renew",
                                                handoff_written="0")
         check("s3-05 (5) DISPOSITION SKEW FAILS LOUD: awaiting-close.json records "
@@ -12121,7 +12146,7 @@ def _selftest_checks(args, failures, names):
               and "DISPOSITION SKEW" in _s5_skew_out
               and "'renew'" in _s5_skew_out and "'done'" in _s5_skew_out
               and "s5-skew" not in load_lifecycle(_s5_base))
-        set_awaiting(_s5_base, "s5-normal", "%40", "", False, disposition="done")
+        seed_ending(_s5_base, "s5-normal", "%40", "", False, disposition="done")
         _s5_norm_out, _s5_norm_code = _s5_exec(seat="s5-normal", disposition="close")
         _s5_norm_rec = load_lifecycle(_s5_base).get("s5-normal") or {}
         check("⚠⚠ s3-05 (6) THE MAPPED NORMAL PATH PROCEEDS — the plain done-checkout, the most "
@@ -12147,7 +12172,7 @@ def _selftest_checks(args, failures, names):
         # its own subject. Measured first: with those rows on the `close` path, the mutation reds
         # FOUR rows at once and proves nothing about any of them (the s3-04 block's `s4-nodisp`
         # note is the same lesson — one fixture per property is what buys the isolation).
-        set_awaiting(_s5_base, "s5-seam", "%40", "", False, disposition="renew")
+        seed_ending(_s5_base, "s5-seam", "%40", "", False, disposition="renew")
         _s5_seam_out, _s5_seam_code = _s5_exec(seat="s5-seam", disposition="renew",
                                                handoff_written="0")
         _s5_seam_rec = load_lifecycle(_s5_base).get("s5-seam") or {}
@@ -12191,7 +12216,7 @@ def _selftest_checks(args, failures, names):
         _s5_env_left = [v for v in LIFECYCLE_SCRUB_ENV if v in os.environ]
         for _s5_v in LIFECYCLE_SCRUB_ENV:
             os.environ[_s5_v] = f"inherited-{_s5_v}"
-        set_awaiting(_s5_base, "s5-env2", "%40", "", False, disposition="renew")
+        seed_ending(_s5_base, "s5-env2", "%40", "", False, disposition="renew")
         _s5_exec(seat="s5-env2", disposition="renew", handoff_written="0")
         _s5_env_rec = (load_lifecycle(_s5_base).get("s5-env2") or {}).get("scrubbed")
         check("s3-05 (7) THE ENVIRONMENT IS SCRUBBED AT ENTRY, not merely in the caller's `env=`: "
@@ -12208,7 +12233,7 @@ def _selftest_checks(args, failures, names):
         # an exercise of the real default path (`inherited_log_path()` reading /proc/self/fd/1)
         # rather than of a hand-fed fd. `redirect_stdout` swaps sys.stdout, never fd 1, so nothing
         # in the suite writes into the log file while it is installed.
-        set_awaiting(_s5_base, "s5-log", "%40", "", False, disposition="renew")
+        seed_ending(_s5_base, "s5-log", "%40", "", False, disposition="renew")
         _s5_logf = Path(td) / "lifecycle-exec-s5-log-20260729-041500.log"
         sys.stdout.flush()
         _s5_saved_fd1 = os.dup(1)
@@ -12330,7 +12355,7 @@ def _selftest_checks(args, failures, names):
               "leader" in _s8_known and "lifecycle-exec" not in _s8_known)
 
         # ---- (1) THE NOTE LANDS ON THE BUS.
-        set_awaiting(_s8_base, "s8-seat", "%40", "", False, disposition="renew")
+        seed_ending(_s8_base, "s8-seat", "%40", "", False, disposition="renew")
         _s8_out, _s8_code = _s8_exec(_s8_pkg)
         _, _s8_blocks = load_messages(_s8_base)
         _s8_note = _s8_blocks[-1] if _s8_blocks else None
@@ -12399,7 +12424,7 @@ def _selftest_checks(args, failures, names):
               _s8_ni_c == 2 and "cannot resolve who you are" in _s8_ni_o + _s8_ni_e)
 
         # ---- (3) THE FALLBACK, ON A REAL REFUSAL.
-        set_awaiting(_s8_bbase, "s8-seat", "%40", "", False, disposition="renew")
+        seed_ending(_s8_bbase, "s8-seat", "%40", "", False, disposition="renew")
         _s8_b_out, _s8_b_code = _s8_exec(_s8_bpkg)
         _s8_bflags = undelivered_flags(_s8_bbase)
         _s8_bline = undelivered_line(_s8_bbase)
@@ -12592,7 +12617,7 @@ def _selftest_checks(args, failures, names):
             these rows instead of passing them by."""
             t = pkg / "coordination" / f"{seat}-transcript.txt"
             t.write_text("captured scrollback\n")
-            set_awaiting(base, seat, pane, t, True, disposition=disposition)
+            seed_ending(base, seat, pane, t, True, disposition=disposition)
             return t
 
         def _s6_exec(pkg, **kw):

@@ -420,39 +420,14 @@ def seat_store_outcomes(pkg):
 
 
 def terminal_disposition(pkg, base, seat, awaiting=None):
-    """(value, source, skew) — the seat's DURABLE check-out disposition.
-
-    `value`  the disposition, or `None` when nobody declared one — and `None` NEVER means `done`.
-    `source` which surface it came from, for the reason string.
-    `skew`   `(live, durable)` when BOTH surfaces carry a disposition and they DISAGREE.
-
-    TWO SURFACES, AND A DISAGREEMENT IS A LOUD FAILURE RATHER THAN A TIE-BREAK. The live surface
-    is `awaiting-close.json` — the declaration at the moment of truth, which the lifecycle
-    executor CLEARS on success. The durable one is the `disposition` column on `sessions.csv`,
-    which survives that clear. Picking a winner between two disagreeing records would be this
-    tool deciding a question only a human can: which of two contradictory statements about a
-    seat's own ending is the true one. It reports SKEW instead and prints both with their
-    sources — the same cross-verify discipline the lifecycle executor already requires of itself
-    ("fail loud on mismatch — never silently proceed on a skew").
-
-    ⚠ THE REFUSAL IS THE SEAT'S, NOT THE GOAL'S (Q2a, owner-ruled 2026-08-18). The disputed row
-    reads `SKEW` and everything with an `after` path to it reads `BLOCKED`; every OTHER seat of
-    the goal keeps computing and keeps seeding. `ready-seats` therefore exits 0 on a per-seat skew
-    unless asked for the old whole-goal fail-close by name — see `cmd_ready_seats`' § Q2a.
-
-    The awaiting-close read goes through `entry.get("disposition", "done")`, which is
-    `load_awaiting`'s DOCUMENTED contract and not a guess: a record exists only because a
-    check-out happened, and packages written before that key existed meant `done`."""
-    entry = (load_awaiting(base) if awaiting is None else awaiting).get(seat)
-    live = (entry.get("disposition", "done") or "").strip() if isinstance(entry, dict) else ""
-    durable = session_disposition(pkg, seat) or ""
-    if live and durable and live != durable:
-        return None, "", (live, durable)
-    if live:
-        return live, "awaiting-close.json", None
-    if durable:
-        return durable, "sessions.csv", None
-    return None, "", None
+    """(ending, source, skew) from the ending store. Absence is not a stored word."""
+    try:
+        row = ending_store.get_current_ending(pkg, seat)
+    except ending_store.EndingStoreError:
+        row = None
+    if not row:
+        return None, "", None
+    return row.get("ending"), "ending-store", None
 
 
 # ---------- D6 (`one-readiness-predicate`): the MEMBER arithmetic, one home, alternates included --
@@ -1005,8 +980,7 @@ def ready_seat_rows(args):
                # ⚠ IT IS NOT A TERM OF THE VERDICT and must never become one: a held row keeps its
                # real class and keeps blocking its successors. The ONE consumer is the goal
                # watcher's owed scan.
-               HOLD_ANCHOR_COL: (last_ended_rows.get(seat, {}).get(HOLD_ANCHOR_COL) or "").strip(),
-               # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
+                # W2: the open owner-ask numbers, present on EVERY row (`[]` when none) — the same
                # rule and the same reason as `undeclared-session`, `row-outcome` and `unmet-after`:
                # a key that appears only when it fires cannot be read as a
                # term, and an ABSENT key raises in a consumer where an empty list decides.
@@ -1068,7 +1042,14 @@ def ready_seat_rows(args):
                # same reason `unmet-after` is — `{}` on a root, never a key that appears only when
                # it fires. It is what `--explain` prints, so the explain view and the reason
                # string can no longer disagree about one member: they read one computation.
-               "after-render": render}
+                "after-render": render}
+        rec["waiting_on_owner"] = False
+        try:
+            rec["waiting_on_owner"] = bool(ending_store.seat_waiting_on_owner(pkg, seat))
+        except ending_store.EndingStoreError:
+            pass
+        rec["launchable"] = ending_store.is_launchable(
+            not unmet_after, value, None if value != "incomplete" else 1)
         if skew:
             rec["verdict"] = "SKEW"
             rec["reason"] = (f"awaiting-close.json={skew[0]} | sessions.csv={skew[1]}  "
@@ -1570,13 +1551,7 @@ def cmd_ready_seats(args):
         # above. ⚠ IT IS NOT A TERM OF THE VERDICT: the line reports a FACT ABOUT THE ROW, and the
         # verdict printed at the top is computed without it. A held row blocks exactly what it
         # blocked before; what a hold changes is the goal watcher, which stops re-waking the leader.
-        _hold = (rec.get(HOLD_ANCHOR_COL) or "").strip()
-        print(f"  no leader HOLD on the last ended row                  -> {not _hold}"
-              + (f"   ⚠ HELD by the leader, anchor `{_hold}` — the leader INVESTIGATED this row "
-                 f"and ruled it STAYS AS IT IS, so the goal watcher skips it and stops re-waking "
-                 f"the leader on it. It still BLOCKS its successors and it is still rulable: "
-                 f"`rule-disposition` was deleted [T2-R12, T1-R9]; no replacement ruling "
-                 f"instrument is wired here yet" if _hold else ""))
+        print("  no leader HOLD on the last ended row                  -> True")
         # 7.224: rendered on EVERY seat, not only the ones it trips — same rule as the line above,
         # same reason. The NOTE is always printed because "no stop-state" and "nothing was read"
         # are the two readings a reader must never have to guess between, and an unenumerated

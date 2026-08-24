@@ -2053,8 +2053,12 @@ def cmd_launch(args):
                 f"If you expected an ended row, read it first: {coord_invocation(args)} "
                 f"ready-seats --explain {_rot}",
                 1)
-        _ro_disp = _ro_row.get("disposition", "")
-        _ro_writer = _ro_row.get("disposition-writer", "")
+        try:
+            _ro_end = ending_store.get_current_ending(_ro_pkg, _rot) or {}
+        except ending_store.EndingStoreError:
+            _ro_end = {}
+        _ro_disp = _ro_end.get("ending") or _ro_row.get("disposition", "")
+        _ro_writer = _ro_end.get("who_stamped") or _ro_row.get("disposition-writer", "")
         if _ro_disp != "done":
             # ⚠ THE REFUSAL NAMES THE RIGHT DOOR FOR THE CLASS IT FOUND, mirroring `--rerun`'s
             # own routing table — a fifth copy of it is not built; this is `--reopen`'s own,
@@ -2083,16 +2087,11 @@ def cmd_launch(args):
                 f"caller intended. Here, {_ro_door}.\n"
                 f"Read the row: {coord_invocation(args)} ready-seats --explain {_rot}",
                 1)
-        if _ro_writer not in RECORD_DISPOSITION_WRITER.get("done", frozenset()):
-            # Not reachable through any writer this file admits today (only `seat`/`leader` may
-            # write `done` at all) — held as a named refusal rather than a silent admit, so a
-            # future widening of `RECORD_DISPOSITION_WRITER["done"]` cannot silently widen this
-            # door too.
+        if _ro_writer not in ("seat", "leader"):
             refuse(
                 "state",
                 f"'{_rot}'s `done` row was written by `{_ro_writer or '(nobody)'}`, which is not "
-                f"an admitted writer of `done` (`{sorted(RECORD_DISPOSITION_WRITER['done'])}`) — "
-                f"an inconsistent record, not a re-openable one. Nothing was written.",
+                f"seat or leader — an inconsistent record, not a re-openable one.",
                 1)
         # D66: the (goal, seat, reason) brake budget — see the block comment above for why this
         # is coord.py-LOCAL rather than a read/write against brief 07's `heart.db` counter.

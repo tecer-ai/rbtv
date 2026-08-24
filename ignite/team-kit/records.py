@@ -165,21 +165,8 @@ SID_PANE_PREFIX = "sid:"
 SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir",
                  "recorded", "started", "ended", "pid", "pid-starttime", "tty", "disposition",
                  "disposition-writer", "execution", "checkin", "model",
-                 # D42 (owner, 2026-08-20) — THE LEADER'S HOLD ANCHOR. APPENDED, NEVER INSERTED,
-                 # for `widen_header`'s own reason: a freshly-born file and a widened legacy file
-                 # must agree on column order.
-                 #
-                 # ⚠ IT IS NOT A GRANT AND NOT A LATCH, AND D12 IS INTACT. It authorizes nothing,
-                 # expires on nothing, suppresses no gate and nothing spends it. It records ONE
-                 # fact: that the `leader` INVESTIGATED this non-terminal row and ruled that it
-                 # STAYS AS IT IS. Written by `rule-disposition --hold`, RELEASED by the next real
-                 # ruling on the same row, and read by exactly one consumer — the goal watcher's
-                 # class-A owed scan (`engine/reconcile.js#deriveOwed`), which stops re-waking the
-                 # leader every cadence on a row that leader has already ruled on. `ready-seats`
-                 # still reports the row's REAL class and it still blocks its successors.
-                 "hold-anchor",
                  # D54/D72 (owner, 2026-08-22) — THE `--reopen` DOOR'S RECORDED REASON. APPENDED,
-                 # NEVER INSERTED, the same `widen_header` reason `hold-anchor` was appended for.
+                 # NEVER INSERTED.
                  #
                  # ⚠ WRITTEN ONLY ON THE NEW ROW A `--reopen` ADMISSION OPENS, NEVER ON THE `done`
                  # ROW IT RE-OPENS. D54: "the `done` row stands unrewritten" — this column's writer
@@ -194,14 +181,17 @@ SESSIONS_COLS = ["session-id", "seat", "harness", "native-session-id", "workdir"
                  # the durable note — see `reopen_downstream_seats` and the `--reopen` block for
                  # why `messages.md` and not a second column is that flag's durable home.
                  "reopen-reason"]
-# The one name for that column. Three readers spell it, and a fourth spelling is how a hold
-# becomes invisible to the surface meant to show it.
-HOLD_ANCHOR_COL = "hold-anchor"
 REOPEN_REASON_COL = "reopen-reason"
 NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close re-resolves
 
 
-# ---- dag-08: THE RECORD DISPOSITION ENUM — the value space the DAG reads --------------------
+# Work endings live in the ending store (spec-state-store §4.1). sessions.csv is session
+# bookkeeping (open/ended/pane), never a second work-state writer.
+DISPOSITION_WRITER_SEAT = "seat"
+DISPOSITION_WRITER_KIT = "kit"
+DISPOSITION_WRITER_LEADER = "leader"
+
+# ---- dag-08-retired ----
 #
 # ⚠⚠ THIS IS NOT `LIFECYCLE_DISPOSITIONS` (defined much further down, beside the executor), AND
 # THE TWO SHARE NO VALUE. Two enums live in this file and conflating them is the readiest way to
@@ -312,81 +302,6 @@ NATIVE_ID_WAIT = 8.0   # seconds; a boot writes its transcript within ~1s, close
 # resolved by a default. THE WIDENING ABOVE DOES NOT WEAKEN THIS: no code maps one value to the
 # other, and the leader's `done` is the OUTCOME OF AN INVESTIGATION it performed, never a
 # translation of the `exited` value it started from.
-DISPOSITION_WRITER_SEAT = "seat"
-DISPOSITION_WRITER_KIT = "kit"
-DISPOSITION_WRITER_LEADER = "leader"
-RECORD_DISPOSITION_WRITER = {
-    "done": frozenset({DISPOSITION_WRITER_SEAT, DISPOSITION_WRITER_LEADER}),
-    "renew": frozenset({DISPOSITION_WRITER_SEAT}),
-    "revive": frozenset({DISPOSITION_WRITER_KIT}),
-    "exited": frozenset({DISPOSITION_WRITER_KIT}),
-    "incomplete": frozenset({DISPOSITION_WRITER_SEAT}),
-    "unverified": frozenset({DISPOSITION_WRITER_SEAT})}
-
-
-def validate_disposition(disposition, writer):
-    """Refuse a disposition AT THE MOMENT IT IS WRITTEN. RAISES ValueError; never normalizes.
-
-    Three refusals out of one mapping: an unknown writer, a value outside the enum, and a legal
-    value reached for by the side that does not own it.
-
-    ⚠ IT RAISES, AND THAT IS THE POINT. Every other failure around this record is best-effort —
-    a disk that will not take the write costs a debt nobody recorded, and `set_awaiting` answers
-    False rather than taking the checkout down with it. This one is a different KIND of failure:
-    a value outside the enum, or a writer reaching across the bound, can only be introduced by
-    somebody EDITING THIS FILE, never by the environment. Answering False would leave the DAG
-    reading a surface that silently stopped being written, and normalizing would leave it
-    advancing on a fact nobody established. Loud, at the boundary, is the only safe direction
-    (R-8).
-
-    The writer set is derived from the mapping's own values rather than kept as a second
-    constant, so a new writer cannot exist without a value that names it. Since 7.154 each value
-    is a SET of admitted writers, so the derivation is a union rather than a collection of
-    singletons — the property it exists for is unchanged: a writer nobody's value names does not
-    exist here, and adding one is a single edit to the mapping."""
-    # ⚠ D33(b) (owner, 2026-08-20) — THE ONE VALUE OUTSIDE THE ENUM, AND IT IS A DESTINATION,
-    # NEVER A RECORDED ENDING. The leader's `rule-disposition` gained a second destination beside
-    # `done`: the EMPTY cell, which CLEARS a row back to "nobody declared an ending". A CLEAR does
-    # NOT re-seed the row — the daemon reads UNDECLARED as not-waitable — so the leader brings it
-    # back itself with `launch --only <seat> --declare-only <anchor>`, a session that DECLARES the
-    # ending (D39: two acts, by design). ⚠ D42: that is the CLEARED row's door and it is not a
-    # re-run. A CRASHED (`exited`) row is re-run in ONE act with `launch --only <seat> --rerun
-    # <anchor>` and is never cleared first — the CLEAR would destroy the `exited` word, which is
-    # the run's only record of how that session ended.
-    # It is admitted HERE, at the one boundary, and
-    # for the LEADER ALONE — never by a caller bypassing this function, which is the edit the whole
-    # boundary exists to prevent. It is deliberately NOT a key of `RECORD_DISPOSITION_WRITER`: that
-    # mapping is the space of ENDINGS a row may CARRY, its key set is asserted equal to
-    # `_DEFERRAL_BY_DISPOSITION`'s, and an empty cell is the ABSENCE of an ending — the state
-    # `undeclared_endings` already reports and `RULED_FLIP_FROM_STATES` already admits as a
-    # FROM-state. Adding it as a key would mint a deferral class for "no class".
-    # The writer check below still runs FIRST: an unknown writer clearing a row is not a clear.
-    writers = set().union(*RECORD_DISPOSITION_WRITER.values())
-    if writer not in writers:
-        raise ValueError(
-            f"unknown disposition writer {writer!r} — the writers are "
-            f"{', '.join(sorted(writers))}. A writer is DECLARED by its call site so this "
-            f"boundary can tell a seat's own check-out from an act of the kit; an undeclared "
-            f"one cannot be checked against anything.")
-    if disposition == "" and writer == DISPOSITION_WRITER_LEADER:
-        return                                   # D33(b): the leader's CLEAR. See the note above.
-    if disposition not in RECORD_DISPOSITION_WRITER:
-        raise ValueError(
-            f"{disposition!r} is not a recorded disposition. The enum is exactly "
-            f"{', '.join(sorted(RECORD_DISPOSITION_WRITER))}. The value is REFUSED here rather "
-            f"than normalized to a neighbour: the DAG advances on this field, and a normalized "
-            f"guess advances it on something nobody established.")
-    owners = RECORD_DISPOSITION_WRITER[disposition]
-    if writer not in owners:
-        raise ValueError(
-            f"the {writer} may not write disposition {disposition!r} — that value belongs to the "
-            f"{', '.join(sorted(owners))}. The bound is not decoration: `exited` is the kit "
-            f"attesting that a harness terminated, a fact a seat cannot witness about itself, and "
-            f"`done` is a seat reporting its own work finished, a fact the kit never witnessed. "
-            f"Each side writes only what it saw. The one act by which a THIRD side writes a value "
-            f"it did not itself perform is the leader's `done` on an investigated `exited` row "
-            f"(`d-exited-row-closure`), and it is admitted for that value ALONE — this refusal is "
-            f"what keeps it there.")
 
 
 def goal_dir(pkg):
@@ -1325,9 +1240,10 @@ def session_identity_line(seat, session_id, native, scratch):
             f"scratchpad: {scratch or SESSION_UNRESOLVED}")
 
 
-def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
+def session_close(args, seat, disposition="", writer=""):
     """Complete the seat's open session row: stamp `ended`, and fill `native-session-id` if the
     launch could not resolve it yet. Returns the session-id closed, or ''.
+    `disposition`/`writer` are ignored — work endings go to the ending store only.
 
     A silent no-op when the seat has NO open row — a seat closed twice, or one launched before
     this writer existed, must not gain a phantom row. The close path is reached by three commands
@@ -1367,23 +1283,6 @@ def session_close(args, seat, disposition="", writer=DISPOSITION_WRITER_SEAT):
         if target is None:
             return ""
         target[idx["ended"]] = now()
-        # dag-09: validated through the SAME boundary `awaiting-close.json`'s writer uses, so the
-        # two surfaces cannot hold values from two different vocabularies AND the writer bound
-        # holds on BOTH of them — `exited` is the attest arm's on this surface exactly as it is
-        # over there. `writer` is a PARAMETER and not looked up from the mapping: deriving it from
-        # the very table it is then checked against would be a guard that cannot fire.
-        # An empty string is the one value that skips validation, because "nobody declared one" is
-        # not a disposition — it is the absence of one, and it is recorded as such.
-        if disposition and "disposition" in idx:
-            validate_disposition(disposition, writer)
-            target[idx["disposition"]] = disposition
-            # 7.155: the AUTHOR, written from the SAME pair the line above validated — never
-            # re-derived, never looked up. It is recorded here and not only on the ruled-flip path
-            # because a column filled on one path and blank on the others cannot be read: a blank
-            # would mean both "written before this column existed" and "written by a path that does
-            # not bother", and the second reading would make the first unprovable.
-            if "disposition-writer" in idx:
-                target[idx["disposition-writer"]] = writer
         if ("native-session-id" in idx and not target[idx["native-session-id"]].strip()
                 and target[idx.get("harness", 0)].strip() == "claude"):
             since = None

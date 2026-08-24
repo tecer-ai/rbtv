@@ -172,14 +172,16 @@ def attest_exit_seat(args, seat):
     steps.append(f"roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
     # `exited`, from the KIT writer. Both bounds are structural: this arm CANNOT write `done`
     # (the writer bound refuses it) and a seat CANNOT write `exited` (the same bound, other side).
-    if set_awaiting(base, seat, row.get("pane", ""), out, not err,
-                    disposition="exited", writer=DISPOSITION_WRITER_KIT):
-        steps.append("awaiting-close.json: disposition `exited` recorded")
-    else:
-        steps.append("awaiting-close.json: NOT recorded — the debt is unrecorded, say so")
-    sid, cerr = session_trace_safe(session_close, args, seat,
-                                   disposition="exited", writer=DISPOSITION_WRITER_KIT)
-    steps.append(f"sessions.csv: {sid} ended, disposition `exited`" if not cerr
+    pkg = package_dir(args, register=False)
+    try:
+        ending_store.stamp_system(
+            pkg, seat, "failed", reason_class="crash",
+            evidence=out or f"attest-exit:{seat}", diagnostic="crash")
+        steps.append("ending store: failed/crash stamped")
+    except ending_store.EndingStoreError as exc:
+        steps.append(f"ending store: NOT stamped — {exc}")
+    sid, cerr = session_trace_safe(session_close, args, seat)
+    steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
     return steps
 
@@ -238,8 +240,7 @@ def close_session_row_by_id(pkg, base, sid, disposition, writer):
     It is `session_close`'s twin, keyed differently and NOT a rewrite of it: `session_close` targets
     a SEAT's last open row (right for a check-out, which is the occupant speaking) and this targets
     ONE session-id (right for a closer, which is a third party speaking about a specific ending)."""
-    if disposition:
-        validate_disposition(disposition, writer)
+    # Work endings are not written here.
     with coord_lock(base):
         path = sessions_csv(pkg)
         if not path.exists():
@@ -326,13 +327,19 @@ def close_session_seat(args, sid, seat):
     pkg = package_dir(args, register=False)
     steps = []
     entry = load_awaiting(base).get(seat)
-    value, writer = "exited", DISPOSITION_WRITER_KIT
-    steps.append("declaration: ignored — closer originates `exited` under `kit` "
-                 "(crash-stamp; checkout writes seat-declared values itself)")
-    # DURABLE FIRST — it is the surface that survives the lifecycle executor's clear.
-    closed_seat, cerr = close_session_row_by_id(pkg, base, sid, value, writer)
-    steps.append(f"sessions.csv: {sid} ended, disposition `{value}` by `{writer}`" if not cerr
+    steps.append("closer is the system failed:crash path — checkout already wrote any seat declare")
+    closed_seat, cerr = close_session_row_by_id(pkg, base, sid, "", "")
+    steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
+    try:
+        ending_store.stamp_system(
+            pkg, seat, "failed", reason_class="crash",
+            evidence=((entry or {}).get("transcript", "") if isinstance(entry, dict) else "")
+            or f"session:{sid}",
+            diagnostic="crash", replace=False)
+        steps.append("ending store: failed/crash stamped")
+    except ending_store.EndingStoreError as exc:
+        steps.append(f"ending store: NOT stamped — {exc}")
     row = current_row(load_workers(base)[2], seat) or {}
     if row.get("active") == "yes":
         def flip(r):
@@ -341,24 +348,8 @@ def close_session_seat(args, sid, seat):
 
         ok, note = update_row(base, seat, flip)
         steps.append("roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
-    if set_awaiting(base, seat, row.get("pane", ""), (entry or {}).get("transcript", "")
-                    if isinstance(entry, dict) else "",
-                    bool((entry or {}).get("exported")) if isinstance(entry, dict) else False,
-                    disposition=value, writer=writer,
-                    # W3 — CARRIED, not dropped. This call REWRITES the whole entry, so a route
-                    # flag the occupant declared at check-out would be erased by the very act that
-                    # reads it if it were not threaded back through.
-                    route=(entry or {}).get("route", "") if isinstance(entry, dict) else ""):
-        steps.append(f"awaiting-close.json: disposition `{value}` recorded — BOTH SURFACES, ONE "
-                     f"VALUE")
-    else:
-        steps.append("awaiting-close.json: NOT recorded — the debt is unrecorded, say so")
-    # W3 — THE STAFF-MAIL ARM. The interim note that stood here (adv, C10 — "an `exited` row routes
-    # to a LEADER and no leader seat is staffed on this lane yet") is REMOVED WITH ITS CONDITION:
-    # the leader now exists, is minted into every goal's taskforce at materialize, and this is the
-    # act that reaches it. A row that ends non-`done` no longer sits waiting for somebody to notice.
-    steps.extend(close_staff_mail_arm(args, base, pkg, seat, value, entry, sid))
-    return steps, closed_seat, value
+    steps.extend(close_staff_mail_arm(args, base, pkg, seat, "failed", entry, sid))
+    return steps, closed_seat, "failed"
 
 
 # ═══ W3 · THE STAFF WIRING — a signal that reaches an OCCUPIED chair ══════════════════════════

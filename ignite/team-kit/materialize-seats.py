@@ -5160,8 +5160,7 @@ def mint_staff_chairs(result: dict, package: Path, args,
     # ledger this gate reads must be ONE reader. `sys.path` is primed by
     # `_coord_staff_seats` above, and `load_awaiting` never raises — an
     # unreadable ledger is "no debt" by its own documented contract.
-    from coord import load_awaiting
-    debts = load_awaiting(package / "coordination")
+    import ending_store
     minted = []
     for seat in staff:
         if seat in existing:
@@ -5169,20 +5168,17 @@ def mint_staff_chairs(result: dict, package: Path, args,
         row = seats_catalog.get(seat)
         if row is None:
             continue
-        debt = debts.get(seat)
+        try:
+            debt = ending_store.get_current_ending(package, seat)
+        except ending_store.EndingStoreError:
+            debt = None
         if isinstance(debt, dict):
             result["warnings"].append(
-                f"staff chair '{seat}' NOT minted: this goal carries an "
-                f"UNSETTLED awaiting-close debt under that name (since "
-                f"{debt.get('since') or '(unstamped)'}, pane "
-                f"{debt.get('pane') or '(none)'}, disposition "
-                f"`{debt.get('disposition', 'done')}`). A chair minted over it "
-                f"reads that record as its OWN check-out and is born DONE — an "
-                f"absorbing state whose only wake is a grant nobody will mint, "
-                f"so the chair would exist and never sit. Settle the debt "
-                f"first — `coord.py --as {seat} close-seat {seat}` once you "
-                f"have confirmed its pane is dead (or `reap --go`) — then "
-                f"re-run this materialize")
+                f"staff chair '{seat}' NOT minted: this goal already has a "
+                f"seat_endings row for that name (ending="
+                f"`{debt.get('ending')}`, stamped {debt.get('stamped_at') or '(unstamped)'}). "
+                f"A chair minted over a current ending inherits it. "
+                f"Re-run this materialize after that row is gone")
             continue
         sheet = staff_sheet_path(row, seat)
         if sheet is None or not sheet.is_file():

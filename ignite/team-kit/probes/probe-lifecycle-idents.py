@@ -185,18 +185,19 @@ def dead(ident, wait_s=6.0):
 
 
 def make_package(root, seat, disposition="done"):
-    """The state a real checkout leaves behind, written through the SAME `set_awaiting` a checkout
-    calls — never a hand-built dict. Returns (pkg, base, args)."""
+    """The state a real checkout leaves behind, written through the ending store."""
     pkg = Path(root) / f"pkg-{seat}"
     base = pkg / "coordination"
     base.mkdir(parents=True)
     (pkg / "seats" / seat).mkdir(parents=True)
     transcript = base / f"{seat}-transcript.txt"
     transcript.write_text("captured scrollback\n")
-    coord.set_awaiting(base, seat, "", transcript, True, disposition=disposition)
-    # `set_awaiting` stamps `since` at MINUTE granularity; step 7 refuses a transcript whose mtime
-    # PRE-DATES it. Nudge the mtime forward so the fixture cannot fail on the clock's rounding
-    # rather than on its subject.
+    kind = "incomplete" if disposition in ("renew", "incomplete") else "done"
+    coord.ending_store.stamp_seat_declare(
+        pkg, seat, kind,
+        diagnostic="context full" if disposition == "renew" else disposition,
+        evidence=str(transcript))
+    # Nudge the transcript mtime forward so step 7 cannot fail on clock rounding.
     future = time.time() + 120
     os.utime(transcript, (future, future))
 

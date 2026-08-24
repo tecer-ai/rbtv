@@ -146,120 +146,35 @@ def undelivered_line(base):
             f"  Read them all: {base / 'undelivered-flags.md'}")
 
 
-def awaiting_path(base):
-    return base / "awaiting-close.json"
-
-
 def load_awaiting(base):
-    """{seat: {"since", "pane", "transcript", "exported", "pids", "disposition", "handoff_stamp"}}
-    — seats that finished their own lifecycle and whose resources the leader has not yet freed.
-
-    ⚠ EVERY CONSUMER READS `entry.get("disposition", "done")`, NEVER `entry["disposition"]`. This
-    returns whatever is on disk, and run packages written before s12-07 hold records with neither
-    of the last two keys. The absent-key reading is `done`, which is what those records meant.
-
-    Never fatal, same as `load_closing`: an unreadable file reads as "no debt". The fail-safe
-    direction differs from closing's for a reason worth stating — a lost entry costs a leaked pane
-    someone must find by hand (recoverable, and the roster still shows the seat inactive), whereas
-    raising here would take down `checkout`, the one act a finishing seat must always be able to
-    complete."""
-    path = awaiting_path(base)
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    """Debt file is gone. Current ending is the ending store row (or its absence)."""
+    return {}
 
 
-def set_awaiting(base, seat, pane, transcript, exported, disposition="done", handoff_stamp="",
-                 writer=DISPOSITION_WRITER_SEAT, route=""):
-    """Record the debt at checkout. Best-effort: bookkeeping ABOUT a checkout must never break the
-    checkout itself — 7.37 already ruled that shape for the session trace, and a seat that cannot
-    check out is worse than a debt nobody recorded.
-
-    `exported` is stored rather than inferred from `transcript` being truthy, because the two
-    genuinely differ: an export can be SKIPPED (a dead pane, `--no-export`) and #259's mapping
-    gates the kill on the transcript EXISTING. A reaper must be able to tell "safe to kill" from
-    "not yet safe" without re-running the export to find out.
-
-    s12-07: `disposition` is `done` or `renew` — WHICH checkout this was — and `handoff_stamp` is
-    the ISO stamp of the block that checkout appended (`""` when it appended none). Both are
-    STORED for the same reason `exported` is: they are known FOR CERTAIN here, at the moment of
-    truth, and at no later moment. `reap` gates a pane KILL on the disposition, so inferring it
-    from an adjacent observable would be the seventh infer-from-ambient defect this run has
-    catalogued — and the first one that kills a pane a renewal is about to respawn into.
-
-    The default is `done` so every pre-s12-07 caller keeps its meaning unchanged; the checkout
-    passes BOTH arms explicitly anyway, because a default a reader must chase is not an assertion.
-    `handoff_stamp` is coerced with `str()` at the boundary for the reason the record below states.
-
-    dag-08: `writer` DECLARES WHICH SIDE IS WRITING — a seat's own check-out, or an act of the
-    kit — and it defaults to the seat because every call site that existed before dag-08 is a
-    seat check-out path. `disposition` is no longer coerced-with-a-fallback: it is validated
-    against `RECORD_DISPOSITION_WRITER` and written EXACTLY as validated, so the value the DAG
-    later reads is the value a caller asserted, never one this function chose."""
-    # dag-08 — THE BOUNDARY, and it sits OUTSIDE the try below ON PURPOSE. The handler there
-    # catches (OSError, ValueError) to keep this function best-effort, so a validation raised
-    # inside it would be swallowed into a `False` that reads exactly like a full disk. The two
-    # failures are different in kind and must stay so: a disk failure is the environment's and is
-    # survivable (S7-d's subject — bookkeeping about a checkout must never break the checkout);
-    # an out-of-enum value, or a writer reaching across the bound, is a CALLER CONTRACT BREACH
-    # that only an edit to this file can introduce, and it must be loud (R-8).
-    validate_disposition(disposition, writer)
-    try:
-        with coord_lock(base):
-            data = load_awaiting(base)
-            # str() at the boundary: `export_transcript` hands back a Path, and a Path is not JSON
-            # serializable — an uncoerced one raises INSIDE the checkout it is bookkeeping for.
-            # Caught by the selftest before it ever reached a live room, which is the whole point
-            # of writing the record through a fixture that runs the real verb.
-            data[seat] = {"since": now(), "pane": str(pane or ""),
-                          # W3 — THE ROUTE FLAG: which STAFF CHAIR this ending's staff mail is
-                          # addressed to. Written at check-out because the occupant is the only
-                          # party that knows whether its blocker is guidance-shaped; ONLY the
-                          # session-closer reads it, and an empty value means the default (the
-                          # unblocker, i.e. the `leader`). It is a HINT and never an authority —
-                          # `staff_route_target` re-resolves it against the roster, so naming a
-                          # chair this goal does not staff falls back rather than mailing a void.
-                          "route": str(route or ""),
-                          "transcript": str(transcript or ""), "exported": bool(exported),
-                          # The harness identity AS THE SEAT LEFT IT, in the pid+starttime form
-                          # every teardown already uses (PID reuse cannot forge it). `reap` later
-                          # requires the pane to still hold EXACTLY these processes — which is how
-                          # "no human on this pane" becomes an ASSERTION recorded at the moment it
-                          # was true, rather than a guess made at kill time about a pane someone
-                          # may have repurposed in between.
-                          "pids": [[p, s] for p, s in (pane_harness_idents(pane) if pane else [])],
-                          # s12-07, str()-coerced for the same reason the transcript is: these
-                          # arrive from a caller, and a non-serializable value here would raise
-                          # INSIDE the checkout this record is bookkeeping for.
-                          # dag-08: written EXACTLY as validated. The former
-                          # `str(disposition or "done")` normalized an empty value into `done`,
-                          # which is the one normalization this record can never afford — `done`
-                          # is the single value that advances a DAG edge.
-                          "disposition": disposition,
-                          "handoff_stamp": str(handoff_stamp or "")}
-            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-        return True
-    except (OSError, ValueError):
-        return False
+def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evidence=""):
+    """Seat-declare / system rewrite for one checkout (spec §4.1 cell map)."""
+    pkg = package_dir(args, register=False)
+    root = pkg / "workers" / seat
+    abs_decl = []
+    for p in declared or []:
+        pp = Path(p)
+        abs_decl.append(str(pp if pp.is_absolute() else (root / pp).resolve()))
+    ev = evidence or (abs_decl[0] if abs_decl else f"checkout:{seat}")
+    if kind == "done":
+        return ending_store.stamp_seat_declare(
+            pkg, seat, "done", declared_outputs=abs_decl, evidence=ev)
+    if kind == "incomplete":
+        return ending_store.stamp_seat_declare(
+            pkg, seat, "incomplete", diagnostic=diagnostic or "context full", evidence=ev)
+    if kind == "outputs-missing":
+        return ending_store.stamp_system(
+            pkg, seat, "failed", reason_class="outputs-missing",
+            diagnostic="outputs-missing", evidence=ev)
+    raise ValueError(f"unknown checkout stamp {kind!r}")
 
 
 def clear_awaiting(base, seat):
-    """Drop the debt — the leader has freed the seat's resources. Returns True when one was
-    actually cleared, so the caller can say so rather than claim it unconditionally."""
-    try:
-        with coord_lock(base):
-            data = load_awaiting(base)
-            if seat not in data:
-                return False
-            del data[seat]
-            atomic_write(awaiting_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
-        return True
-    except (OSError, ValueError):
-        return False
+    return False
 
 
 def awaiting_debts(base, live=None):
@@ -1560,8 +1475,11 @@ def cmd_checkout(args):
     # the gate does not run, so the `checkout_disposition` expression below reads one name on
     # every path rather than a value that exists only on one branch.
     outputs_unverified = False
+    outputs_missing = False
+    _declared_paths, _missing_paths = [], []
     if not renew and not incomplete:
         _declared, _missing, _has_block, _chat = declared_outputs(args, me)
+        _declared_paths, _missing_paths = list(_declared), list(_missing)
         # D3's three honest answers, in words: verified (tokens declared and present),
         # `outputs-undeclarable` (an `## Outputs` section EXISTS but is prose — zero resolvable
         # tokens; loud, never a silent nothing; D5 refuses the WORD `done` on this answer),
@@ -1584,21 +1502,14 @@ def cmd_checkout(args):
                                     "VERIFIED (the seat.md carries no io-spec `## Outputs` "
                                     "section)"))
         if _missing:
-            refuse(
+            outputs_missing = True
+            print(refusal_text(
                 "state",
-                f"'{me}' declared {len(_declared)} output(s) in its descriptor and "
-                f"{len(_missing)} of them {'is' if len(_missing) == 1 else 'are'} NOT on disk, so "
-                f"this check-out will not record `done`. `done` is the ONE disposition that "
-                f"ADVANCES the run's DAG — successors are launched on it — and advancing it on "
-                f"work that does not exist is how a run continues past a seat that produced "
-                f"nothing (measured 2026-08-09). Nothing was written, nothing was exported and "
-                f"your roster row is still ACTIVE.\n"
-                + "".join(f"  MISSING (or empty): {p}\n" for p in _missing) +
-                f"Produce them, then re-run: {coord_invocation(args)} checkout\n"
-                f"Or END HONESTLY, if they are not coming — the run records that you said so, and "
-                f"leader picks the work up:\n"
-                f"  {coord_invocation(args)} checkout --incomplete \"<why they are unmet>\"",
-                1)
+                f"'{me}' declared {len(_declared)} output(s) and "
+                f"{len(_missing)} {'is' if len(_missing) == 1 else 'are'} missing or empty. "
+                f"`done` is not written. Ending is `failed` / outputs-missing.\n"
+                + "".join(f"  MISSING (or empty): {p}\n" for p in _missing)),
+                  file=sys.stderr)
         # ---- D3 (`one-readiness-predicate`): THE SECOND QUESTION AT THE SAME GATE ---------------
         #
         # Does this seat owe a GUARD VALUE that is not on disk? A guarded edge
@@ -1792,6 +1703,18 @@ def cmd_checkout(args):
     # ending never reaches the flag. The order is stated rather than relied upon.
     checkout_disposition = ("renew" if renew else "unverified" if outputs_unverified
                             else "incomplete" if incomplete else "done")
+    if outputs_missing:
+        checkout_kind = "outputs-missing"
+    elif renew:
+        checkout_kind = "incomplete"
+    elif outputs_unverified:
+        checkout_kind = "outputs-missing"
+    elif incomplete:
+        checkout_kind = "incomplete"
+    else:
+        checkout_kind = "done"
+    checkout_diagnostic = ("context full" if renew
+                           else (incomplete if incomplete else ""))
     _checkout_landed = []
     if renew:
         if handoff is None:
@@ -1894,8 +1817,7 @@ def cmd_checkout(args):
     # has its own must-land-first contract). A failed sessions.csv write REFUSES the checkout
     # — a failed ledger write is not a done (D5). No swallow, no kit-for-seat proxy.
     try:
-        sid = session_close(args, me, disposition=checkout_disposition,
-                            writer=DISPOSITION_WRITER_SEAT)
+        sid = session_close(args, me)
     except Exception as exc:
         _already = "; ".join(_checkout_landed) if _checkout_landed else "none"
         refuse(
@@ -1938,15 +1860,17 @@ def cmd_checkout(args):
     # dag-09 (LG-9): ONE VARIABLE, READ BY BOTH SURFACES. `awaiting-close.json` is the live
     # declaration and `sessions.csv` is the durable copy the executor's `clear_awaiting` cannot
     # erase. Both take `checkout_disposition`.
-    if set_awaiting(base, me, (row or {}).get("pane", ""), out, not err,
-                    disposition=checkout_disposition, handoff_stamp=handoff_stamp,
-                    writer=DISPOSITION_WRITER_SEAT,
-                    # W3 — THE ROUTE FLAG, recorded at the one moment its value is known: the
-                    # occupant is the only party that can say whether its blocker is
-                    # guidance-shaped. ONLY the session-closer reads it.
-                    route=(getattr(args, "route", None) or "")):
-        print(f"awaiting close: {me} recorded — its pane is STILL LIVE until leader runs "
-              f"`{coord_invocation(args)} close-seat {me}`")
+    try:
+        stamped = stamp_checkout_ending(
+            args, me, checkout_kind,
+            declared=_declared_paths + _missing_paths,
+            diagnostic=checkout_diagnostic,
+            evidence=((_missing_paths[0] if _missing_paths else None)
+                      or out or f"checkout:{me}"))
+        print(f"ending store: {me} {stamped.get('ending') if isinstance(stamped, dict) else checkout_kind}"
+              f"{('/' + stamped['reason_class']) if isinstance(stamped, dict) and stamped.get('reason_class') else ''}")
+    except ending_store.EndingStoreError as exc:
+        refuse("state", f"ending-store write FAILED — {exc}. Checkout REFUSED.", 1)
     if renew:
         # ---- STAGE 3 (s3-09): THE FORK. The seam s12-06 left greppable here is DISCHARGED. -----
         # Everything above ran in-pane and is safe in-pane; the renewal is not, so it leaves with a
