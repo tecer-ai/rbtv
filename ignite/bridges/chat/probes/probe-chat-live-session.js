@@ -56,13 +56,19 @@ const DEFAULT_CAST = 'harness: claude\nmodel: claude-sonnet-5\n';
 const NONCLAUDE_CAST = 'harness: opencode\nmodel: probe-opencode-live\n';
 
 function scratchWorkspace({ humanInteractive = true, cast = DEFAULT_CAST } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'p7-live-'));
+  // ⚠ NOT under `os.tmpdir()`/`/tmp`: the envelope template bakes both RW into families 4 and 7,
+  // so a workspace rooted there is RW and RO at once and the launch refuses a mixed-access cover.
+  // `/var/tmp` is in no baked family.
+  const root = fs.mkdtempSync(path.join('/var/tmp', 'p7-live-'));
   const ws = path.join(root, 'ws');
   const seatDir = path.join(ws, '.rbtv', 'goals', 'livegoal', 'seats', 'liveseat');
   fs.mkdirSync(seatDir, { recursive: true });
   // The seat cage ro-binds the goal package's `coordination/` dir; bwrap refuses a bind whose
   // source does not exist, so the package has to be shaped like a real one.
   fs.mkdirSync(path.join(ws, '.rbtv', 'goals', 'livegoal', 'coordination'), { recursive: true });
+  // Envelope family 6 ro-binds `{workspace}/.rbtv/mirror` and the compiler refuses a baked path
+  // that does not resolve — a real workspace always has one.
+  fs.mkdirSync(path.join(ws, '.rbtv', 'mirror', 'x'), { recursive: true });
   fs.writeFileSync(path.join(ws, '.rbtv', 'goals', 'livegoal', 'seats', 'liveseat', 'seat.md'),
     // ⚑ CAST since owner ruling D2 (2026-08-11): `eligible()` resolves the seat's cast FIRST, because
   // the gates below it must reason about the profile that will actually run, not the one the caller
