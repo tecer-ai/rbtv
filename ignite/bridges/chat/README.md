@@ -1040,3 +1040,66 @@ reply text; output is `{ok, outcome, comments, family, findings, goal}` or a
 parse failure carrying the verbatim §4.5 NACK (`nackKind` `ask` vs `mechanical`).
 Does not post, touch Slack, or read or write any store. Callers wire it later.
 Probe: `probes/probe-chat-reply-grammar.js`.
+
+## The approval thread — `approval-thread.js`
+
+The §3 approval FIRST MESSAGE and the §4.2 post-parse dispatch, for asks whose
+record carries `kind = approval` (`spec-owner-io`; law `DESIGN-BASELINE.md` v2
+§Planning approval rows).
+
+`composeApprovalBody({goalName, digest, commitId, canvasLink})` builds the body
+that goes under `ask-thread.js`'s §3 lead line: the **GOAL NAME** and the
+**IRREVERSIBLE EFFECT** (`a reply of approve starts execution.`) each as their
+own bold lead line before any other body, then the phone-sized digest, the bound
+`commit_id` [T5-R5], the canvas link (or `none — artifacts on disk`), and the six
+accepted tokens. It REFUSES to compose without a goal name or a commit id — an
+unbound approval approves whatever the tree holds later.
+
+`createApprovalDispatch({materialize, closeGoal, pauseGoal, relaunchDraftVerify,
+postBack})` decides what an outcome DOES. The fork is on the ask's `kind`, never
+on the token [D-5-ruling, CF-7]: `approve` in a `kind=approval` thread is the D12
+trigger; the same word anywhere else is an outcome delivered to the seat.
+`reject-and-close` / `close` close the planning goal; `reject-and-pause` pauses it
+and keeps the thread as the ONLY door out [T3-R22]; `reject-and-retry` and
+`retry with:` relaunch draft + verify with the comments as the findings list
+[T3-R21]. Inside a `reject-and-pause`d thread only `retry with:` / `approve` /
+`close` are exits; anything else the grammar recognizes changes nothing and is
+answered in-thread.
+
+Every effect is an INJECTED PORT, because this process may not spawn
+`planning/path_b.py`, close a goal or write a lane (`probes/probe-chat-boundary.js`).
+A port that refuses — including a port that is not wired — reports back into the
+SAME approval thread [C-16] and leaves the thread usable. Probe:
+`probes/probe-chat-approval.js`.
+
+## The mechanical door — `pause-resume.js`
+
+`pause {goal}` / `resume {goal}` (`spec-owner-io` §4.2/§4.4/§4.5) plus the
+resume-semantics table (`spec-recovery` §4 [C-14]). A first token of `pause` or
+`resume` is handled by the daemon/bot and BYPASSES the goal master; every other
+owner-initiated message still goes to the master doors [T5-R14]. In a goal
+channel a bare verb targets that channel's goal; in the system channel or a DM
+the slug is required, and a slug matching zero or several live goals gets the
+verbatim §4.5 mechanical NACK with nothing changed.
+
+`pause` is the inverse of the paused-goal row only: `running` → `paused`. It does
+not disarm a lane and does not open an ask. `resume` applies EVERY matching row:
+the goal flips `paused` → `running`; a counter-exhausted lane is re-armed through
+the `named-external-input` named event (the relaunch budget is not spent); a
+`blocked-on-human` lane and a gate-cap lane are REFUSED and pointed at their asks.
+Neither verb ever flips an ask off `open`.
+
+The ending-store API arrives INJECTED (`state-store/index.js#bind(db)` plus a
+`listSeats(goal)` enumerator) — this module holds no store handle and opens no
+database. Probe: `probes/probe-chat-pause-resume.js`.
+
+### ⚠ Both doors are BUILT AND PROVEN, NOT REACHABLE IN PRODUCTION YET
+
+`chat-bridge.js` constructs both and routes to them, but `index.js#main()` wires
+neither `approvalPorts` nor `endingStore`: the bridge is a separate process and
+reaches the daemon only over the gateway, whose intent set is closed and carries
+no materialize / goal-word intent. Minting one is an owner act (the precedent is
+the thirteenth intent, `record-owner-ask`, owner-ruled 2026-08-24). Until it
+exists both doors degrade LOUDLY — a missing `materialize` posts the [C-16]
+failure into the approval thread, a missing ending store logs a warn and applies
+nothing — never silently.

@@ -51,3 +51,43 @@ Inbound: `onChatMessage` checks `askThreads` BEFORE every other leg. A message i
 an ask's thread is handled at the release door and does not fall through — a
 fall-through would mint a sitting on an unauthorized remark and answer an
 authorized one twice.
+
+## approval-thread
+
+`approval-thread.js` — the §3 approval first message and the §4.2 post-parse
+dispatch (`spec-owner-io.md`; law `DESIGN-BASELINE.md` v2 §Planning approval
+rows). `composeApprovalBody` puts the **GOAL NAME** and the **IRREVERSIBLE
+EFFECT** on their own bold lead lines before any other body, then the digest, the
+bound `commit_id` [T5-R5], the canvas link and the six accepted tokens; it
+refuses to compose without a goal name or a commit.
+
+`createApprovalDispatch` forks on the ask's `kind`, never on the token
+[D-5-ruling, CF-7]: `approve` in a `kind=approval` thread is the D12 trigger, the
+same word elsewhere is an outcome delivered to the seat. reject-and-close /
+close close the planning goal; reject-and-pause pauses it and keeps the thread as
+the sole door out, whose only later exits are `retry with:` / `approve` / `close`
+[T3-R22]; reject-and-retry and `retry with:` relaunch draft + verify with the
+comments as the findings list [T3-R21]. Every effect is an injected port — the
+bridge may not spawn `planning/path_b.py` or write a lane — and a refusing or
+unwired port reports back into the SAME approval thread [C-16]. Probe:
+`probes/probe-chat-approval.js`.
+
+## pause-resume
+
+`pause-resume.js` — the mechanical door (`spec-owner-io.md` §4.2/§4.4/§4.5) and
+the resume-semantics table (`spec-recovery.md` §4 [C-14]). A first token of
+`pause`/`resume` is the daemon's and bypasses the goal master [T5-R14]. A bare
+verb in a goal channel targets that goal; elsewhere the slug is required, and
+zero or several matches get the verbatim §4.5 mechanical NACK with no state
+change. `pause` flips `running` → `paused` and nothing else. `resume` applies
+every matching row: goal `paused` → `running`; counter-exhausted lane re-armed
+via the `named-external-input` named event without spending the relaunch budget;
+blocked-on-human and gate-cap lanes refused and pointed at their asks. Neither
+verb flips an ask off `open`. The ending-store API and the lane enumerator are
+injected — no store handle lives here. Probe:
+`probes/probe-chat-pause-resume.js`.
+
+⚠ Both doors are constructed and routed by `chat-bridge.js` but their production
+ports (`approvalPorts`, `endingStore`) are NOT wired by `index.js#main()`: the
+gateway intent set carries no materialize / goal-word intent, and minting one is
+an owner act. Until then both degrade loudly, never silently.

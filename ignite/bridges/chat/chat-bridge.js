@@ -21,11 +21,35 @@ const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-
 const { createBusFerry, seatIsHumanInteractive } = require('./bus-ferry');
 const { createAskThreads } = require('./ask-thread');
 const { createAskRecord } = require('./ask-store');
+const { createApprovalDispatch } = require('./approval-thread');
+const { createPauseResume } = require('./pause-resume');
 const { createOutbox, outboxStorePath } = require('./outbox');
 
 const STATE_VERSION = 1;
 
-function createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null, replyLegOptions = {}, busFerryOptions = {} }) {
+function createChatBridge({
+  config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null,
+  replyLegOptions = {}, busFerryOptions = {},
+  // ── THE TWO PORTS THIS PROCESS CANNOT HOLD ITSELF ─────────────────────────────────────────
+  // The bridge runs SEPARATE from the daemon and holds no store handle and no spawn path
+  // (`probes/probe-chat-boundary.js`), so the two acts an approval outcome and a mechanical verb
+  // ultimately perform live behind injected ports:
+  //
+  //   approvalPorts — `{materialize, closeGoal, pauseGoal, relaunchDraftVerify}` (approval-thread.js).
+  //                   `materialize` is D12: `planning/path_b.py#run_path_b`, whoever can run it.
+  //   endingStore   — the bound ending-store API (`state-store/index.js#bind(db)`) the
+  //                   pause/resume door applies the resume-semantics table through, plus
+  //                   `listSeats(goal)` to enumerate the goal's lanes.
+  //
+  // ⚠ NEITHER IS WIRED IN PRODUCTION YET and both degrade LOUDLY, never silently: a missing
+  // `materialize` posts the [C-16] failure back into the approval thread, and a missing ending
+  // store logs a warn and applies nothing. The production wiring is a gateway intent this seat
+  // did not mint (see this module's README section).
+  approvalPorts = {},
+  endingStore = null,
+  listSeats = null,
+  listLiveGoals = null,
+}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -92,26 +116,68 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
   // hold: the goal→channel resolution (`resolveChannel`, never `channelForGoal` — see
   // routeToAgentThread's header for why a map miss is not proof of absence) and the bookkeeping
   // that makes the owner's reply findable again.
-  async function postOwnerAsk({ goalId, seatName, label = 'work-content', body, marker = 'ask' }) {
+  async function postOwnerAsk({ goalId, seatName, label = 'work-content', body, marker = 'ask', kind = 'ordinary', commitId = null }) {
     const resolved = await goalChannelFor(goalId);
     const channel = resolved.channelId;
     if (!channel) return { posted: false, reason: resolved.reason };
     const fn = marker === 'note' ? askDoor.postNote : askDoor.postAsk;
-    const out = await fn({ goalId, channelId: channel, seatName, label, body });
+    const out = await fn({ goalId, channelId: channel, seatName, label, body, kind });
     if (!out || out.posted !== true) return out || { posted: false, reason: 'post-failed' };
     const threadTs = out.askId || out.threadTs;
     const key = `${channel}:${threadTs}`;
     // A 💭 note mints NO record [§2.1] and therefore nothing to release — it is not entered in
     // the map. Its thread still gets a reply address so the owner can be answered in it.
-    if (out.askId) askThreads.set(key, { goalId: String(goalId), seat: String(seatName), askId: String(threadTs), label });
+    // ⚑ `kind` IS WHAT DECIDES THE POST-PARSE DISPATCH (§2.2 / §4.2), never the token. A bare
+    // `approve` fires D12 only because THIS entry says `kind: 'approval'` — the same word in an
+    // ordinary thread is an outcome delivered to the seat [D-5-ruling, CF-7].
+    if (out.askId) {
+      askThreads.set(key, {
+        goalId: String(goalId), seat: String(seatName), askId: String(threadTs), label,
+        kind: String(kind), commitId: commitId == null ? null : String(commitId), paused: false,
+      });
+    }
     replyAddr.set(key, { channel, threadTs });
     saveState();
     return out;
   }
 
+  // ── THE APPROVAL DISPATCH (`approval-thread.js`, spec-owner-io §4.2) ────────────────────────
+  // What happens AFTER an approval thread's reply parses. Every effect is a port this process
+  // cannot perform itself; a missing one reports back INTO the approval thread [C-16].
+  const approvalDispatch = createApprovalDispatch({
+    materialize: approvalPorts.materialize || null,
+    closeGoal: approvalPorts.closeGoal || null,
+    pauseGoal: approvalPorts.pauseGoal || null,
+    relaunchDraftVerify: approvalPorts.relaunchDraftVerify || null,
+    postBack: ({ channelId, goalId, askId, text }) =>
+      postSlack({ kind: 'nack', channel: channelId, threadTs: askId, text, goal_id: goalId, ask_id: askId }),
+    logger,
+  });
+
+  // ── THE MECHANICAL DOOR (`pause-resume.js`, spec-owner-io §4.4) ─────────────────────────────
+  // A first token of `pause`/`resume` is the daemon's, and it BYPASSES the goal master [T5-R14].
+  const mechanicalDoor = createPauseResume({
+    store: endingStore,
+    listSeats,
+    post: ({ channelId, threadTs, goalId, text }) =>
+      postSlack({ kind: 'nack', channel: channelId, threadTs, text, goal_id: goalId }),
+    logger,
+  });
+
+  // The live-goal roster a `pause {slug}` / `resume {slug}` resolves against (§4.2): a slug that
+  // matches ZERO or SEVERAL live goals is the ambiguity §4.5 answers with its verbatim NACK.
+  // INJECTED, because the roster is the daemon's fact and this process holds no store — with no
+  // port wired, `liveGoals` is null and the grammar accepts a well-formed slug as typed, which is
+  // the honest degradation (the applier is the one that will find no such goal).
+  function liveGoalNames() {
+    if (typeof listLiveGoals !== 'function') return null;
+    try { const n = listLiveGoals(); return Array.isArray(n) && n.length ? n.map(String) : null; } catch { return null; }
+  }
+
   // THE RELEASE, called from the inbound path below and nowhere else.
   async function releaseAskFor(entry, chatMsg) {
     const channelGoal = goalChannels ? goalChannels.goalForChannel(chatMsg._channel) : null;
+    const isApproval = entry.kind === 'approval';
     const out = await askDoor.release({
       goalId: entry.goalId,
       channelId: chatMsg._channel,
@@ -121,7 +187,47 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       senderId: chatMsg.chatUserId,
       text: chatMsg.text,
       channelGoal,
+      liveGoals: liveGoalNames(),
+      // [T3-R22] a `reject-and-pause`d approval thread was already released once. Later messages
+      // in it are authorized and parsed by the same door but must NOT reap a second time.
+      reap: !(isApproval && entry.paused === true),
     });
+
+    // A mechanical verb inside an ask thread is NOT an ask outcome (§4.2) — it goes to the
+    // pause/resume door and the ask stays `open`. [C-14] an approval-thread `resume {goal}`
+    // carrying comments is resume-with-instructions, which is why the comments travel with it.
+    if (out && out.reason === 'mechanical') {
+      const mech = await mechanicalDoor.handle({
+        text: chatMsg.text,
+        channelId: chatMsg._channel,
+        threadTs: entry.askId,
+        channelGoal: channelGoal || entry.goalId,
+        liveGoals: liveGoalNames(),
+      });
+      return {
+        ...out,
+        mechanical: true,
+        withInstructions: isApproval && Boolean(mech.instructions),
+        mech,
+      };
+    }
+
+    // THE `kind` FORK [D-5-ruling, CF-7]. Only a genuine approval thread dispatches approval
+    // outcomes; in every other thread the SAME token is an outcome delivered to the seat, and the
+    // release above already did that.
+    let dispatched = null;
+    if (isApproval && out && (out.released === true || out.parsedOnly === true) && out.outcome) {
+      dispatched = await approvalDispatch.dispatch({
+        entry: { goalId: entry.goalId, channelId: chatMsg._channel, askId: entry.askId, commitId: entry.commitId, paused: entry.paused === true },
+        parsed: { outcome: out.outcome, comments: out.comments, findings: out.findings },
+      });
+      const key = `${chatMsg._channel}:${chatMsg._threadTs}`;
+      if (dispatched.done === true) askThreads.delete(key);
+      else askThreads.set(key, { ...entry, paused: dispatched.paused === true });
+      saveState();
+      return { ...out, dispatched, approval: true };
+    }
+
     // The map entry is dropped only on an ACTUAL release. Every other outcome — wrong thread,
     // unauthorized, unparsed, a mechanical verb — leaves the ask `open`, and an ask still open
     // whose thread the bridge has forgotten is an ask that can never be answered.
@@ -592,6 +698,35 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       }
     }
 
+    // ── THE MECHANICAL DOOR, BEFORE THE MASTER DOORS (spec-owner-io §4.4) ─────────────────────
+    //
+    // [T5-R14] owner-initiated free text still goes to a master — top-level in a goal channel to
+    // the goal master, a DM to the Channel master. The ONE exception is a first token of `pause`
+    // or `resume`: the daemon/bot handles it and the master is bypassed. That is the whole point
+    // of the ruling — two words that admit no judgment must not cost a model turn, and a goal the
+    // owner wants stopped must not wait for one.
+    //
+    // ⚑ IN A GOAL CHANNEL A BARE `pause` / `resume` TARGETS THAT CHANNEL'S GOAL (unambiguous,
+    //   §4.2). In the system channel or a DM there is no channel goal, so the slug is REQUIRED and
+    //   its absence is the §4.5 mechanical NACK — `channelGoal` is what carries that difference,
+    //   and passing it wrongly looks exactly like a parser bug.
+    //
+    // ⚑ IT NEVER RELEASES AN ASK. The ask-thread door above already ran, so a message that is an
+    //   ANSWER never reaches here; and the door itself writes no `open_asks` row.
+    if (rawMsg && rawMsg._channel && !rawMsg._inThread && rawMsg.text) {
+      const channelGoal = goalChannels ? goalChannels.goalForChannel(rawMsg._channel) : null;
+      const mech = await mechanicalDoor.handle({
+        text: rawMsg.text,
+        channelId: rawMsg._channel,
+        threadTs: rawMsg._msgTs || null,
+        channelGoal,
+        liveGoals: liveGoalNames(),
+      });
+      if (mech.mechanical === true) {
+        return { forwarded: false, leg: 'mechanical', route: 'mechanical', ...mech };
+      }
+    }
+
     const route = routeOf(rawMsg);
     // The conversation id the whole bridge keys on: the Slack thread for master
     // traffic, the CHANNEL for goal traffic. An unroutable message keeps its raw id
@@ -1022,7 +1157,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     askThreads.clear();
     for (const [k, v] of Object.entries(doc.askThreads || {})) {
       if (v && typeof v === 'object' && v.askId && v.goalId && v.seat) {
-        askThreads.set(String(k), { goalId: String(v.goalId), seat: String(v.seat), askId: String(v.askId), label: v.label || 'work-content' });
+        askThreads.set(String(k), {
+          goalId: String(v.goalId), seat: String(v.seat), askId: String(v.askId), label: v.label || 'work-content',
+          // Additive, and both matter across a restart: without `kind` a restarted bridge would
+          // treat an approval thread as ordinary and a bare `approve` would never fire D12;
+          // without `paused` a [T3-R22] pause would silently reopen to every token.
+          kind: v.kind || 'ordinary', commitId: v.commitId == null ? null : String(v.commitId), paused: v.paused === true,
+        });
       }
     }
     // ⚠ A STATE FILE FROM THE PRE-QUEUE BRIDGE (P2). Held re-submits used to ride this file, and
@@ -1178,7 +1319,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   return {
     onChatMessage, deliverToOwner, start, stop,
-    postOwnerAsk, askDoor,
+    postOwnerAsk, askDoor, approvalDispatch, mechanicalDoor,
     registerGoal, closeGoal, routeOf, outbox,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
     _replyAddr: replyAddr, _agentThreads: agentThreads, _askThreads: askThreads, _lastForwarded: lastForwarded,
