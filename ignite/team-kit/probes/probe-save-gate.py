@@ -66,6 +66,13 @@ def kit_siblings():
             names.update(a.name.split(".")[0] for a in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names.add(node.module.split(".")[0])
+        # …and the files coord.py LOADS rather than imports: the move-only split [D23, T4-R12]
+        # put most of the product in siblings named by `SPLIT_MODULES`, and a stand-in kit
+        # missing them dies at load exactly the way a missing `budget` used to. Read from the
+        # tuple for the same reason the imports are read: the next split file arrives for free.
+        elif isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "SPLIT_MODULES" for t in node.targets):
+            names.update(e.value for e in node.value.elts if isinstance(e, ast.Constant))
     return sorted(p for p in (kit / f"{n}.py" for n in names) if p.is_file())
 
 
@@ -140,11 +147,21 @@ def main():
         # `p = argparse.ArgumentParser(`; coord.py's build_parser() now constructs a local
         # `_RefusingParser`, so the anchor matched nothing, the mutant was a byte-identical copy
         # of a healthy file, and the arm went red for rot rather than for a regression (7.633).
+        # ⚠ AND NO LONGER ON A STRING INSIDE `build_parser`: the move-only split [D23, T4-R12]
+        # carried that function into `cli_main.py`, so a CANDIDATE coord.py contains no anchor
+        # inside it — the old `p.add_subparsers(` replace matched nothing and the mutant became a
+        # byte-identical copy of a healthy file, the exact 7.633 rot this comment warns about, one
+        # move later. The mutation stays on the argparse API and stays inside the candidate: the
+        # module is rebound to None just BEFORE the __main__ guard, so the body still executes to
+        # completion (the import arm above stays green) and parser CONSTRUCTION dies on the first
+        # argparse attribute it touches — the half a bare import check would miss.
         pmut = work / "mutant-parser.py"
         pmut.write_text(
-            live_src.replace('p.add_subparsers(', 'p.add_subparsers_NO_SUCH_METHOD(', 1),
+            live_src.replace('if __name__ == "__main__":',
+                             'argparse = None\n\n\nif __name__ == "__main__":', 1),
             encoding="utf-8")
-        broke_parser = 'p.add_subparsers_NO_SUCH_METHOD(' in pmut.read_text(encoding="utf-8")
+        broke_parser = ('argparse = None' in pmut.read_text(encoding="utf-8")
+                        and 'if __name__ == "__main__":' in live_src)
         check("the parser mutant was actually constructed (the string it targets exists)",
               broke_parser)
         r = run([sys.executable, str(SAVE_COORD), "--check", str(pmut)], home)

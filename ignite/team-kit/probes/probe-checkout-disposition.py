@@ -171,7 +171,10 @@ def build_mutant(dest_dir):
     replacements assert they matched — a mutation that did not apply is scored as a probe failure,
     not as a passing red arm (a no-op mutant is the classic false catch).
     """
-    src = COORD.read_text(encoding="utf-8")
+    # The move-only split [D23, T4-R12] carried both seams into `checkout.py`; the mutant
+    # is that file, and the scratch kit still runs through its own `coord.py` entry.
+    subject = KIT / "checkout.py"
+    src = subject.read_text(encoding="utf-8")
     seams = [
         # (1) the verification gate never runs — the pre-7.676 check-out opened nothing
         ("    if not renew and not incomplete:\n        _declared, _missing",
@@ -192,10 +195,9 @@ def build_mutant(dest_dir):
             return None, f"mutation seam NOT FOUND, mutant not built: {old[:60]!r}"
         src = src.replace(old, new, 1)
     dest = Path(dest_dir) / "coord.py"
-    dest.write_text(src, encoding="utf-8")
     for sib in KIT.glob("*.py"):                        # a mutant runs only beside its siblings
-        if sib.name != "coord.py":
-            shutil.copyfile(sib, Path(dest_dir) / sib.name)
+        shutil.copyfile(sib, Path(dest_dir) / sib.name)
+    (Path(dest_dir) / subject.name).write_text(src, encoding="utf-8")
     return dest, ""
 
 
