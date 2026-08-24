@@ -65,10 +65,11 @@ const { openOwnerAsks } = require('./execution-record');
 // from an internet-facing component.
 const { isSafeName } = require('../bridges/chat/bus-ferry');
 
-// The two ON-DEMAND chairs, mirrored from `coord.py#STAFF_SEATS` — the same one-line mirror the
-// ferry keeps of that file's name guard. Two words that have not moved since W3; a require across
-// the Python boundary does not exist to be had.
-const STAFF_SEATS = ['leader', 'consultant'];
+// The ON-DEMAND chair, mirrored from `coord.py#STAFF_SEATS` — the same one-line mirror the
+// ferry keeps of that file's name guard. The `consultant` chair this list used to also carry is
+// deleted [T2-R17, D-7-ruling]; `leader` is the only member now. A require across the Python
+// boundary does not exist to be had, so this mirror stays hand-kept.
+const STAFF_SEATS = ['leader'];
 
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const BUS_RELPATH = ['coordination', 'messages.md'];
@@ -117,12 +118,14 @@ function recordBusAnswer({ workspaceRoot, goal, seat, corpus, timeoutMs = DEFAUL
   // addressed to nobody — but it stays, because it refuses HERE with a named reason
   // (`no-such-seat`) the bridge can report, instead of surfacing as a generic `coord-refused`.
   // A seat with a folder but no roster row and no briefing would now be refused by coord itself.
-  // ⚑ W8 (adv, C78) — A STAFF CHAIR IS EXEMPT FROM THE DIRECTORY TEST. `leader` and `consultant`
-  // are ON-DEMAND: coord admits them as recipients unconditionally (`known_recipients` unions
-  // `STAFF_SEATS` in), precisely so mail always reaches an occupied chair whether or not one is
-  // sitting. Their seat FOLDER, by contrast, appears when the chair is materialized or first
-  // spawned — measured 2026-08-14: of six live goals only one had a `seats/leader/` on disk. A
-  // directory test would therefore refuse the owner's REPLY TO AN ESCALATION on five of them, and
+  // ⚑ W8 (adv, C78) — THE STAFF CHAIR IS EXEMPT FROM THE DIRECTORY TEST. `leader` (the only
+  // member of `STAFF_SEATS` — the `consultant` chair this comment used to also name is deleted
+  // [T2-R17, D-7-ruling]) is ON-DEMAND: coord admits it as a recipient unconditionally
+  // (`known_recipients` unions `STAFF_SEATS` in), precisely so mail always reaches the chair
+  // whether or not it is sitting. Its seat FOLDER, by contrast, appears when the chair is
+  // materialized or first spawned — measured 2026-08-14: of six live goals only one had a
+  // `seats/leader/` on disk. A directory test would therefore refuse the owner's REPLY TO AN
+  // ESCALATION on five of them, and
   // an escalation the owner answered into a `no-such-seat` is the silent stall this program is
   // about, arriving from the one direction nobody watches. The typo protection this test exists
   // for is unaffected: coord's own unknown-recipient gate is `--force`-proof and still refuses

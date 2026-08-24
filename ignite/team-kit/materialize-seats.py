@@ -5116,10 +5116,10 @@ def mint_staff_chairs(result: dict, package: Path, args,
         with no staff component in it, and a materialize against it must render
         exactly as it did before (the `_interactive_expose_refs` precedent);
       · the chair has no casting sheet — a WARNING for the `leader`, which the
-        wake path requires, and silence for the `consultant`, whose absent
-        sheet IS the instance declaring it does not staff one (the seat catalog
-        marks it OPTIONAL); a summoned chair with no sheet is also a WARNING
-        (the owner-message path has nobody to sit);
+        wake path requires (the `consultant` chair this branch used to fall
+        silent for is deleted [T2-R17, D-7-ruling] — `leader` is the only
+        member of `STAFF_SEATS` now); a summoned chair with no sheet is also
+        a WARNING (the owner-message path has nobody to sit);
       · the goal carries an UNSETTLED awaiting-close debt under this chair's
         name — a WARNING for either chair, see the gate below.
     A refusal from the staff pass itself degrades to a warning for one reason:

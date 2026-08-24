@@ -38,7 +38,7 @@ Carve-outs: an `ask` still goes to the leader; so does any disclosure the leader
 | you send | recipient the system picks | escalates when |
 |---|---|---|
 | `--type stuck` | the **leader**, always | the leader escalates to the owner what it cannot solve |
-| `--type ask` | the **consultant** where this goal staffs one, else the **leader** | the consultant routes to the leader anything needing authority |
+| `--type ask` | the **leader**, always | — (the `consultant` chair this row used to route through where one was staffed is deleted [T2-R17, D-7-ruling]) |
 | `--type ask`, and your own `seat.md` says `human-interactive:` | the **owner**, directly | — |
 
 `send auto "<what you are blocked on>" --type stuck --inline` is the WHOLE of being stuck: say it,

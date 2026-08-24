@@ -90,8 +90,9 @@ the planning of the next milestone.
 
 **A scaffolded planning workflow rosters ONE meta seat: the `leader` staff chair** — a real
 `taskforce.csv` row minted at goal-materialize, holding no workflow node and no `after`. It is the
-authority seat, and `consultant` is its optional sibling (minted only where the workspace casts one).
-Still RETIRED, and not to be confused with them: **`chief-of-staff` and `closer`**. Any meta seat's
+authority seat, and the only staff chair — the `consultant` chair this line used to name as its
+optional sibling is DELETED [T2-R17, D-7-ruling]. Still RETIRED, and not to be confused with them:
+**`chief-of-staff` and `closer`**. Any meta seat's
 definition is materialized from its own component folder under `3-resources/tools/rbtv/meta/`, never
 hand-written here.
 

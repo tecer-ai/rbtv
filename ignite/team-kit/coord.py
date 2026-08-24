@@ -184,9 +184,8 @@ WRITER_HELD_TYPES = ()
 #   ask      a seat whose seat.md says                     `owner`. Its question needs no relay,
 #            `human-interactive: yes|true`                 and the existing owner gate below then
 #                                                          admits it on its own merits.
-#   ask      anyone else                                   the `consultant` where this goal STAFFS
-#                                                          one, else the `leader` — resolved by
-#                                                          `staff_route_target`, the ONE ladder.
+#   ask      anyone else                                   `leader`, ALWAYS. The `consultant` chair
+#                                                          is deleted [T2-R17, D-7-ruling].
 #   *        anyone                                        `auto` is REFUSED. The token is defined
 #                                                          only for the routed types; every other
 #                                                          type addresses a seat BY NAME.
@@ -4870,19 +4869,19 @@ def launch_gates(args, command, n_seats):
     return caller
 
 
-# ── W3 · THE STAFF CHAIRS (`meta/leader`, ruling D-10) ────────────────────────────────────────
+# ── W3 · THE STAFF CHAIR (`meta/leader`) ──────────────────────────────────────────────────────
 #
-# The two ON-DEMAND seats a goal's taskforce staffs. They hold NO workflow node and NO checkin /
+# The ON-DEMAND seat a goal's taskforce staffs. It holds NO workflow node and NO checkin /
 # checkout: a sitting is spawned when the chair has unread mail and ends when the mail is drained.
 # Every silent stall this program closes was a correct signal delivered to an EMPTY chair.
 #
 # ⚠ THE LIST IS A SEAT-NAME LIST AND NOTHING ELSE. It confers no authority.
 #
-# ⚠ NO LIVE GOAL STAFFS A `consultant`, AND THAT IS THE DESIGN — not an oversight, not a migration
-# left half-done. The consultant chair is OPTIONAL PER WORKFLOW and homed at
-# `.rbtv/mirror/meta/leader/` (D-10, sd `decisions.md#d-consultant-optional-per-workflow`);
-# ratified by the owner 2026-08-15 (closeout R5.3). Do not staff one to "fix" the absence.
-STAFF_SEATS = ("leader", "consultant")
+# ⚠ THE `consultant` ROLE IS DELETED [T2-R17, D-7-ruling] — not "unstaffed", removed. There is no
+# workflow that can cast one and no code path that routes to one; a `--type ask` always reaches
+# the `leader`. `work-content` / `recovery` survive only as ASK LABELS (what an ask is about),
+# never as a chair. Do not reintroduce a second staff chair to "fix" this.
+STAFF_SEATS = ("leader",)
 
 
 def is_staff_seat(name):
@@ -4915,8 +4914,8 @@ def is_summoned_seat(name):
 # read at four sites (`is_staff_seat`, the staff-mail arm, launch admission, `--route` choices)
 # — D24 rejected widening it to buy one behaviour. `SUMMONED_SEATS` is worse: the daemon's
 # `engine/reconcile.js` EXECS THIS MODULE and reads `SUMMONED_SEATS` by that exact name to
-# decide who is NEVER OWED. Putting `leader`/`consultant` there would stop reconcile waking a
-# chair on its unread mail (its class B) — the chair's only wake term.
+# decide who is NEVER OWED. Putting `leader` there would stop reconcile waking the chair
+# on its unread mail (its class B) — the chair's only wake term.
 #
 # ⚠ IT IS A NAME LIST BECAUSE THE DESCRIPTOR CANNOT ANSWER THE QUESTION. `agent_type: staff` is
 # carried by 171 live seats, of which two are chairs and the rest are planning workers that
@@ -8880,8 +8879,9 @@ def cmd_checkout(args):
         # ⚠ D29 (2026-08-20), EXTENDED 2026-08-20 by the owner's `r-owner-122-b` (a): a
         # CONVERSATIONAL CHAIR is EXEMPT from this one downgrade — its product is conversation,
         # not files, so its `done` STANDS without path tokens. D29 named the summoned chair;
-        # the extension adds the staff chairs (`leader`, `consultant`), whose `## Outputs` is
-        # prose for the identical reason of NATURE, not by an authoring oversight.
+        # the extension adds the staff chair (`leader` — the `consultant` chair is deleted
+        # [T2-R17, D-7-ruling]), whose `## Outputs` is prose for the identical reason of NATURE,
+        # not by an authoring oversight.
         # Keyed on `is_conversational_chair` (CONVERSATIONAL_CHAIRS), never a seat name at this
         # site; ordinary seats — including the 171 `agent_type: staff` PLANNING seats, which are
         # not chairs — remain bound by the `elif` below, unchanged.
@@ -14467,18 +14467,14 @@ ROUTE_PAYLOAD_DIR = "route-payloads"
 
 
 def staff_route_target(args, base, flag, who="the check-out"):
-    """`(chair, why)` — WHICH staff chair an ending's mail (or a routed `ask`) goes to.
+    """`(chair, why)` — WHICH staff chair an ending's mail goes to.
 
-    The ladder, and it is three lines because the ruling is three lines: the caller's route flag
-    when it names a chair this goal actually staffs; the `consultant` only where one is staffed;
-    the `leader` otherwise. The leader is the DEFAULT because it is the unblocker — the chair that
-    holds the goal's authority — and a guidance-shaped question reaching it costs a hop, while an
-    authority-shaped one reaching the consultant reaches a seat that cannot act on it.
-
-    ⚠ ONE LADDER, TWO CALLERS (D2). The session-closer's staff mail passes the check-out's `--route`
-    flag; `routed_recipient` passes a fixed `consultant` for a `--type ask` sent to `auto`. `who`
-    names the caller in the `why` string and changes NOTHING else — a second ladder free to
-    disagree with this one is the defect class the routed types exist to close."""
+    The `consultant` chair is DELETED [T2-R17, D-7-ruling]: `STAFF_SEATS` now names only
+    `leader`, so this always resolves there unless the caller's own `--route` flag names it
+    explicitly. Kept as a named function (not inlined) because the session-closer's staff-mail
+    arm calls it with a caller-supplied flag that can still be garbage or a stale value — the
+    "flag is a HINT, never an authority" fallback ladder still earns its keep even with one
+    destination."""
     try:
         known = known_recipients(args, base)
     except Exception:                                          # noqa: BLE001
@@ -14499,9 +14495,9 @@ def routed_recipient(args, base, mtype, sender):
     """`(to, why)` — WHO a ROUTED type reaches, when the sender did not choose (owner ruling D2).
 
     THE TABLE IS HERE AND NOWHERE ELSE IN CODE. It is stated for humans in the `ROUTED TYPES`
-    comment beside `AUTO_TOKEN`, in `team-kit/communication.md` §4 and in `team-kit/roles.md`'s
-    `consultant` entry — and in NO agent prompt, which is the point of the ruling: an agent emits a
-    TYPE and never has to discover who to contact.
+    comment beside `AUTO_TOKEN` and in `team-kit/communication.md` §4 — and in NO agent prompt,
+    which is the point of the ruling: an agent emits a TYPE and never has to discover who to
+    contact.
 
     Callers must only reach this for a type in `ROUTED_TYPES`; anything else is a caller bug and
     raises rather than inventing a default."""
@@ -14517,7 +14513,8 @@ def routed_recipient(args, base, mtype, sender):
         if seat_is_human_interactive(package_dir(args), sender):
             return OWNER_TOKEN, (f"`{sender}` declares `human-interactive:` in its seat.md, so its "
                                  f"questions go STRAIGHT to the owner")
-        return staff_route_target(args, base, "consultant", who="the routed-`ask` table")
+        return "leader", ("the `consultant` chair is deleted [T2-R17, D-7-ruling] — `ask` always "
+                          "reaches the `leader`")
     raise ValueError(f"routed_recipient called for non-routed type {mtype!r}")
 
 
@@ -26384,7 +26381,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- D24: a minted goal-master is NOT READY (summoned, not seeded) ----
         check("D24: STAFF_SEATS is not widened — goal-master is summoned, not a staff chair",
-              STAFF_SEATS == ("leader", "consultant")
+              STAFF_SEATS == ("leader",)
               and "goal-master" not in STAFF_SEATS
               and is_summoned_seat("goal-master")
               and not is_summoned_seat("leader")
@@ -26397,10 +26394,9 @@ def _selftest_checks(args, failures, names):
               # once. Spelled out as LITERALS, never re-read off the constants under test.
               and CONVERSATIONAL_CHAIRS == SUMMONED_SEATS + STAFF_SEATS
               and is_conversational_chair("leader")
-              and is_conversational_chair("consultant")
               and is_conversational_chair("goal-master")
               and not is_conversational_chair("alpha")
-              and STAFF_SEATS == ("leader", "consultant")
+              and STAFF_SEATS == ("leader",)
               and SUMMONED_SEATS == ("goal-master",))
         _d24_pkg = _rs_make("d24summon", [("goal-master", ""), ("alpha", "")])
         _d24_v, _d24_c = _rs_v(_d24_pkg)
@@ -27554,7 +27550,7 @@ def _selftest_checks(args, failures, names):
         _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
                                   ("chatty", ""), ("goalrel", ""), ("seatrel", ""),
                                   ("norel", ""), ("dotgoal", ""), ("dotdeep", ""),
-                                  ("goal-master", ""), ("consultant", "")],
+                                  ("goal-master", ""), ("leader", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
             "---\nagent: keyed\nmodel: opus\noutputs: deliverable.md\n---\nbrief\n",
@@ -27571,12 +27567,12 @@ def _selftest_checks(args, failures, names):
             "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
             encoding="utf-8")
         # r-owner-122-b (a), the STAFF-CHAIR arm — the SAME zero-token shape again, on a
-        # STAFF chair this time. `consultant` and not `leader`: the leader is the default
-        # `staff_route_target`, so a leader row would drag the mail/route machinery into an
-        # outputs fixture for no gain. Three rows now share ONE `## Outputs` string and differ
-        # in exactly ONE fact — who is checking out.
-        (Path(_ou_pkg) / "seats" / "consultant" / "seat.md").write_text(
-            "---\nagent: consultant\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+        # STAFF chair this time. The `consultant` chair this arm used to exercise is DELETED
+        # [T2-R17, D-7-ruling]; `leader` is now the only member of `STAFF_SEATS`, so it carries
+        # the arm instead. Three rows now share ONE `## Outputs` string and differ in exactly
+        # ONE fact — who is checking out.
+        (Path(_ou_pkg) / "seats" / "leader" / "seat.md").write_text(
+            "---\nagent: leader\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
             "- Schema: the authored contract set at the task-declared home.\n</io-spec>\n",
             encoding="utf-8")
         # D36 (2026-08-20): the TYPED NON-FILE arm — an ORDINARY seat (no chair name, no
@@ -27635,7 +27631,7 @@ def _selftest_checks(args, failures, names):
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
                              ("chatty", "%94"), ("goalrel", "%92"), ("seatrel", "%93"),
                              ("norel", "%91"), ("dotgoal", "%89"), ("dotdeep", "%88"),
-                             ("goal-master", "%98"), ("consultant", "%99")):
+                             ("goal-master", "%98"), ("leader", "%99")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
                          {"agent": _ou_s, "harness": "probe", "model": "opus",
@@ -27662,7 +27658,7 @@ def _selftest_checks(args, failures, names):
         _ou_go, _ou_ge, _ou_gc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
         _ou_co, _ou_ce, _ou_cc = harness_outcome(
-            cmd_checkout, _d3_ns(_ou_pkg, as_agent="consultant"))
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="leader"))
 
         def _ou_rec(s):
             _h, _r = read_csv_table(sessions_csv(_ou_pkg), SESSIONS_COLS)
@@ -27781,13 +27777,13 @@ def _selftest_checks(args, failures, names):
               and "exempt (D29" in (_ou_go + _ou_ge)
               and "will not record `done`" not in (_ou_go + _ou_ge))
         check("r-owner-122-b (2026-08-20) A STAFF CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
-              "DOWNGRADE ITS `done` — `consultant` (`is_conversational_chair`, never the name at "
+              "DOWNGRADE ITS `done` — `leader` (`is_conversational_chair`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control is "
               "refused on, and is ACCEPTED. The `prose` row is this row's control: delete the "
               "exemption and this arm reds while `prose` holds; widen the predicate to "
               "`agent_type` and `prose` reds",
-              _ou_cc is None and _ou_rec("consultant").get("disposition") == "done"
-              and _ou_rec("consultant").get("disposition-writer") == DISPOSITION_WRITER_SEAT
+              _ou_cc is None and _ou_rec("leader").get("disposition") == "done"
+              and _ou_rec("leader").get("disposition-writer") == DISPOSITION_WRITER_SEAT
               and "exempt (D29" in (_ou_co + _ou_ce)
               and "will not record `done`" not in (_ou_co + _ou_ce))
 
@@ -34080,12 +34076,11 @@ def _selftest_checks(args, failures, names):
     # ---- D2 (owner ruling, 2026-08-19): THE ROUTED TYPES — the agent never decides who to contact -
     #
     # Every arm is red-first against the pre-D2 file: `stuck` was not a type, `auto` was not an
-    # address, and `routed_recipient` did not exist. TWO fixture packages are built because the
-    # consultant arm is only discriminating with both — one that STAFFS a consultant and one that
-    # does not — and they are driven in the SAME run so the fallback cannot pass by there being no
-    # cast arm to compare it against.
+    # address, and `routed_recipient` did not exist. The `consultant` chair this suite used to
+    # cast a second fixture package for is DELETED [T2-R17, D-7-ruling]; `ask` now resolves to
+    # `leader` unconditionally, so one package covers every arm.
     with tempfile.TemporaryDirectory() as tdD2:
-        def _mk_d2_pkg(root, consultant):
+        def _mk_d2_pkg(root):
             pkg = Path(root)
             (pkg / "coordination").mkdir(parents=True)
             (pkg / "workers").mkdir()
@@ -34098,20 +34093,9 @@ def _selftest_checks(args, failures, names):
                     f"---\nseat: {_a}\n"
                     + ("human-interactive: yes\n" if _flag else "") + "---\nbrief\n",
                     encoding="utf-8")
-            if consultant:
-                # HOW A GOAL STAFFS A CHAIR, as the materializer records it: a `taskforce.csv` row,
-                # which is what `registered_seats` (and so `known_recipients`) reads. The casting
-                # SHEET under `.rbtv/config/…/bindings/consultant.json` is what mints that row on a
-                # real goal — driven here from the package it produces, because a selftest that
-                # wrote into the live config would be casting a role, which this change may not do.
-                (pkg / "taskforce.csv").write_text("seat,node\nconsultant,\n", encoding="utf-8")
-                (pkg / "seats" / "consultant").mkdir(parents=True)
-                (pkg / "seats" / "consultant" / "seat.md").write_text(
-                    "---\nseat: consultant\n---\nbrief\n", encoding="utf-8")
             return pkg
 
-        _d2_none = _mk_d2_pkg(Path(tdD2) / "none" / "runs" / "run-1", consultant=False)
-        _d2_cast = _mk_d2_pkg(Path(tdD2) / "cast" / "runs" / "run-1", consultant=True)
+        _d2_none = _mk_d2_pkg(Path(tdD2) / "none" / "runs" / "run-1")
         pD2 = build_parser()
 
         def _d2_send(pkg, sender, to, body, *extra):
@@ -34123,10 +34107,9 @@ def _selftest_checks(args, failures, names):
         def _d2_rows(pkg):
             return load_messages(pkg / "coordination")[1]
 
-        for _pkg in (_d2_none, _d2_cast):
-            for _a in ("leader", "alpha", "hi"):
-                _ns = pD2.parse_args(["--package", str(_pkg), "checkin", _a, "x"])
-                harness_outcome(_ns.func, _ns)
+        for _a in ("leader", "alpha", "hi"):
+            _ns = pD2.parse_args(["--package", str(_d2_none), "checkin", _a, "x"])
+            harness_outcome(_ns.func, _ns)
 
         # arm 1 — the whole ruling in one send: a seat says it is STUCK, names NOBODY, and the row
         # lands addressed to the chair the TABLE picked. RED mutation: change the `stuck` branch of
@@ -34161,25 +34144,19 @@ def _selftest_checks(args, failures, names):
               and f"send {AUTO_TOKEN}" in _d2_pick_out
               and len(_d2_rows(_d2_none)) == _d2_n2)
 
-        # arm 3 — THE CONSULTANT LADDER, BOTH ARMS IN ONE RUN. No live goal staffs a consultant
-        # today, by design, so the fallback is the only behaviour a single-package arm could ever
-        # observe — and a fallback nothing contrasts with is a check that cannot tell routing from
-        # a hardcoded `leader`. RED mutation: replace the `staff_route_target` call in
-        # `routed_recipient` with a bare `"leader"` — the cast arm goes false, the fallback stays
-        # true, and exactly this row reds.
+        # arm 3 — an `--type ask` to `auto` from an ORDINARY seat resolves to `leader`,
+        # unconditionally: the `consultant` chair this arm used to fall back FROM is deleted
+        # [T2-R17, D-7-ruling], so there is no second package left to contrast against. RED
+        # mutation: change the `ask` branch of `routed_recipient` to return anything but
+        # `"leader"`.
         _d2_a_out, _d2_a_code = _d2_send(_d2_none, "alpha", AUTO_TOKEN, "which format do I emit?",
                                          "--type", "ask")
-        _d2_ac_out, _d2_ac_code = _d2_send(_d2_cast, "alpha", AUTO_TOKEN, "which format do I emit?",
-                                           "--type", "ask")
-        _d2_a_row, _d2_ac_row = _d2_rows(_d2_none)[-1], _d2_rows(_d2_cast)[-1]
-        check("D2 arm 3: an `--type ask` to `auto` from an ORDINARY seat resolves through the ONE "
-              "staff ladder — the `consultant` on the package that STAFFS one, the `leader` on the "
-              "package that staffs none. Both packages are driven in this same run: the fallback "
-              "alone cannot distinguish a routing table from a hardcoded chair",
-              _d2_a_code is None and _d2_ac_code is None
-              and (_d2_a_row["type"], _d2_a_row["to"]) == ("ask", "leader")
-              and (_d2_ac_row["type"], _d2_ac_row["to"]) == ("ask", "consultant")
-              and "does NOT staff" in _d2_a_out and "staffs it" in _d2_ac_out)
+        _d2_a_row = _d2_rows(_d2_none)[-1]
+        check("D2 arm 3: an `--type ask` to `auto` from an ORDINARY seat resolves to `leader` — "
+              "the `consultant` chair the ruling once fell back FROM is deleted, so `ask` has one "
+              "destination now",
+              _d2_a_code is None
+              and (_d2_a_row["type"], _d2_a_row["to"]) == ("ask", "leader"))
 
         # arm 4 — THE ONE EXCEPTION the ruling names, with its control one fact away on the SAME
         # package: `hi` declares `human-interactive:` and its routed ask reaches the owner; `alpha`
@@ -34887,12 +34864,9 @@ def build_parser():
     s.add_argument("--incomplete", metavar="REASON", default=None,
                    help="end this session UNFINISHED and say so, quoted — your done-contract is unmet and no successor is booted. It records disposition `incomplete` instead of `done`, so NO DAG EDGE ADVANCES and leader is routed the row carrying your reason. Use it instead of a plain checkout whenever your briefing asked for something that does not exist; never together with --renew, which says the opposite (the seat CONTINUES)")
     s.add_argument("--route", metavar="CHAIR", default=None, choices=list(STAFF_SEATS),
-                   help="which STAFF CHAIR the session-closer mails this ending to. Default (and "
-                        "the right answer nearly always): `leader`, the unblocker that holds this "
-                        "goal's authority. Name `consultant` only when what you are stuck on is "
-                        "GUIDANCE — a question above your scope that needs no authority to answer; "
-                        "a goal that staffs none falls back to the leader. It is a HINT, never an "
-                        "authority, and only the closer reads it")
+                   help="which STAFF CHAIR the session-closer mails this ending to. There is only "
+                        "one: `leader`, the unblocker that holds this goal's authority. It is a "
+                        "HINT, never an authority, and only the closer reads it")
     add_identity_flags(s)
     s.set_defaults(func=cmd_checkout)
 
@@ -34904,10 +34878,10 @@ def build_parser():
         "example:\n"
         "  coordinate send leader \"views build green; 12/12 pages render\" --type completion --inline\n"
         "next: coordinate pending — after an ask, it shows whether anyone settled it")
-    s.add_argument("to", help="recipient: an agent name, a group name, 'all', 'owner' — or 'auto', which means THE SYSTEM PICKS (owner ruling D2): `auto` is the only address for --type stuck, and on --type ask it resolves to the consultant this goal staffs, else the leader (or straight to the owner if your seat.md says `human-interactive:`). Everything else is validated against the roster, the briefings and the groups, so a typo is refused")
+    s.add_argument("to", help="recipient: an agent name, a group name, 'all', 'owner' — or 'auto', which means THE SYSTEM PICKS (owner ruling D2): `auto` is the only address for --type stuck, and on --type ask it resolves to the leader (or straight to the owner if your seat.md says `human-interactive:`). Everything else is validated against the roster, the briefings and the groups, so a typo is refused")
     s.add_argument("message", nargs="?", help="the body, quoted — needs --inline when typed at a shell, because a shell eats backticks and $(...) before coord.py sees them. Anything with backticks, quotes or newlines goes through --file")
     s.add_argument("--type", required=True, choices=MESSAGE_TYPES,
-                   help="completion (my briefing/milestone is done) | ask (I need an answer — send it to `auto` and the system routes it: the consultant where one is staffed, else the leader; from a `human-interactive:` seat, straight to the owner) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | stuck (I am BLOCKED and cannot proceed — address it to `auto` and the system routes it: it always reaches the leader, who escalates to the owner what it cannot solve. You never pick the recipient, and naming one is refused) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal: the pass-opener asking the daemon to seed the next wave — first body line is `queue-request: <milestone-id>/<verdict-id>/<pass-kind>`; the engine drains it, no seat is woken)")
+                   help="completion (my briefing/milestone is done) | ask (I need an answer — send it to `auto` and the system routes it: the leader; from a `human-interactive:` seat, straight to the owner) | answer (replying to an ask) | verdict (a judge/checker ruling) | note (FYI) | stuck (I am BLOCKED and cannot proceed — address it to `auto` and the system routes it: it always reaches the leader, who escalates to the owner what it cannot solve. You never pick the recipient, and naming one is refused) | escalation (leader/judge only: a halt nobody in the run can clear — it wakes the owner) | queue-request (engine-internal: the pass-opener asking the daemon to seed the next wave — first body line is `queue-request: <milestone-id>/<verdict-id>/<pass-kind>`; the engine drains it, no seat is woken)")
     # W4 (adv, C42) — the two chat-routing sigils, promoted from body text to header mechanics.
     s.add_argument("--chat-thread", dest="chat_thread", metavar="ID",
                    help="route this row into a chat thread you already know: `<CHANNEL>:<ts>`, the plain `chat-thread:` line at the top of your prompt. Without it the row takes the owner's DM")

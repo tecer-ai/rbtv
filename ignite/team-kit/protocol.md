@@ -47,7 +47,7 @@ $COORD add-to-group <group> <member ...>        # leader only
 $COORD export-transcript <agent> [--label L]    # full pane scrollback -> workers/<agent>/transcripts/
 $COORD checkout                                 # on finish (done disposition) — exports your transcript first (--no-export skips)
 $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-step, the CLI teaches it; the handoff REPLACES your memory.md (item 9). --handoff-file PATH for a note the shell would mangle
-$COORD checkout --incomplete "<reason>" [--route leader|consultant]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and fallback: leader)
+$COORD checkout --incomplete "<reason>" [--route leader]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and only value: leader)
 $COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
 $COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — the daemon's or leader's remedy for a seat that cannot check itself out, or a dead pane. FAILURE PATH: a healthy seat renews itself (line above), never through this
@@ -72,18 +72,17 @@ one-line index) and `coordinate <command> -h` (arguments, one example, the step 
 seats (observers), and the `panel` overview pane — target ≤6 panes.
 Working seats declare `window: yes` and live in their own named windows (tabs).
 
-**Staff chairs — always addressable, never waited on.** A goal's `leader` (mandatory) and
-`consultant` (optional) are ON-DEMAND seats: real `taskforce.csv` rows minted at goal-materialize,
-holding no workflow node. They CHECK IN when they sit and CHECK OUT when they rise, like every
-other seat (F1, 2026-08-17 — the former exclusion is retracted: it is what left the leader chair
-with no roster row, so its read cursor never persisted, `ready-seats` could not report it RUNNING,
-and one staff-wake grant opened two leader sittings 4 s apart — that grant is deleted, D12). A send
-to one ALWAYS succeeds and is queued — the goal watcher reconciles a chair's UNREAD MAIL into a
-sitting within one 5-minute cadence, and the sitting ends when the mail is drained — so `ready-seats`
-reporting a chair `IDLE` means it has no mail, never that it stalled. Which chairs a goal staffs is
-declared by CASTING them: a chair is minted only where a casting sheet exists at
-`.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`, and an absent `consultant.json`
-is the workspace stating it staffs none — everything addressed to it falls back to the `leader`.
+**The staff chair — always addressable, never waited on.** A goal's `leader` (mandatory, and the
+only staff chair — the `consultant` chair this section used to also cover is deleted [T2-R17,
+D-7-ruling]) is an ON-DEMAND seat: a real `taskforce.csv` row minted at goal-materialize, holding
+no workflow node. It CHECKS IN when it sits and CHECKS OUT when it rises, like every other seat
+(F1, 2026-08-17 — the former exclusion is retracted: it is what left the leader chair with no
+roster row, so its read cursor never persisted, `ready-seats` could not report it RUNNING, and one
+staff-wake grant opened two leader sittings 4 s apart — that grant is deleted, D12). A send to it
+ALWAYS succeeds and is queued — the goal watcher reconciles the chair's UNREAD MAIL into a sitting
+within one 5-minute cadence, and the sitting ends when the mail is drained — so `ready-seats`
+reporting the chair `IDLE` means it has no mail, never that it stalled. It is minted only where a
+casting sheet exists at `.rbtv/config/modules/<module>/<component>/bindings/leader.json`.
 
 State files (`{package}/coordination/`) are script-managed: NEVER edit them by hand;
 `messages.md` is append-only.
@@ -153,8 +152,10 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    instruction that cannot be executed as written) — goes to `leader`, naming the exact path or line
    you could not reach; the cage envelope is fixed at plan time now ([T2-R6, C-6]), so there is no
    runtime widen — the leader escalates a narrow cage as a planning defect instead of repairing it;
-   guidance-shaped — a question above your scope that needs no authority — goes to `consultant`
-   where the goal staffs one. The same two shapes pick `checkout --incomplete --route`.
+   guidance-shaped — a question above your scope that needs no authority — also goes to `leader`,
+   the only staff chair now (the `consultant` this line used to route guidance questions to is
+   deleted [T2-R17, D-7-ruling]). The shape still names what kind of `ask` it is; only the
+   destination collapsed to one.
 8. **Check out last — completion first.** When your briefing is complete: send your completion
    DIRECT to `leader` (`--type completion`; to `all` only when it carries a milestone or roster
    consequence — the broadcast `--why` gate enforces exactly that), then `checkout`. The transcript export is no longer yours to remember —

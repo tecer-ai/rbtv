@@ -1,6 +1,6 @@
 # team-kit — role catalogue
 
-**Read this when you HOLD one of the special roles below** — leader, consultant, deputy, scientist,
+**Read this when you HOLD one of the special roles below** — leader, deputy, scientist,
 judge, verifier — **or when your seat runs a codex or opencode harness** (the Harness note
 closes the file). Read it at boot, right after you know which role you are. A plain worker seat does
 not: its own entry states only what `protocol.md` already binds it to. Split out of `protocol.md`
@@ -50,21 +50,13 @@ entries below cite.
   `approve` and the failure-path close of ANOTHER seat — bottlenecks on one seat by agreement, not
   by a coord.py refusal: see **deputy**.
   Anchors resolve in the owning goal's `decisions.md` ledger (2026-07-29/30 rulings).
-- **consultant** — the goal's OPTIONAL second staff chair, same lifecycle as the leader (on-demand,
-  no node, no checkin/checkout): the same judgment surface MINUS the authorities — no close gate, no
-  acceptance, no permission or relaunch verb, no owner contact. It answers GUIDANCE-shaped questions
-  a seat cannot settle from its own scope and routes anything needing authority to the `leader`.
-  **It is the FIRST STOP for every routed question** (owner ruling D2, 2026-08-19): a seat sends
-  `--type ask` to the reserved token `auto` and the system resolves it — the `consultant` where one
-  is staffed, else the `leader`; a seat whose own `seat.md` says `human-interactive:` reaches the
-  owner directly instead. The seat never picks. (`--type stuck` routes the same way and always
-  lands on the `leader`, which escalates to the owner what it cannot solve — see
-  `communication.md` §4 for the whole table.)
-  **Whether a goal staffs one is declared by CASTING it:** a chair is minted at materialize only
-  where a casting sheet exists at `.rbtv/config/modules/<module>/<component>/bindings/<chair>.json`,
-  so an absent `consultant.json` is the workspace stating it staffs none — mail and check-out routes
-  aimed at it fall back to the `leader`. The `leader`'s sheet is required; its absence is a
-  materialize warning, because then a goal has no chair for a routed FAIL or staff mail to reach.
+- **consultant seats — DELETED (owner-ruled [T2-R17, D-7-ruling]: the second staff chair is
+  removed from coord.py and its component, 2026-08-24).** No run staffs a consultant. Every
+  routed `ask` reaches the `leader` — the only staff chair now — unconditionally: a seat sends
+  `--type ask` to the reserved token `auto` and the system resolves it there, or straight to the
+  owner where the seat's own `seat.md` says `human-interactive:`. The seat never picks.
+  (`--type stuck` routes the same way and always lands on the `leader`, which escalates to the
+  owner what it cannot solve — see `communication.md` §4 for the whole table.)
 - **deputy** (optional, rosters past ~8 seats or any AFK run) — a second seat briefed to take over
   SEAT LIFECYCLE only: launch, `approve`, deterministic-layer restarts, and the failure-path close (`close`,
   `close --renew`) for a seat that cannot check itself out — a healthy seat renews itself. It does

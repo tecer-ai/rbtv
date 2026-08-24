@@ -57,7 +57,8 @@ const NON_TERMINAL_DISPOSITIONS = Object.freeze(
 // module's OWN synthetic label for a renew marker whose successor session never showed up. It
 // stays in its own list, separate from RECORD_DISPOSITIONS (coord.py's real recorded enum).
 const EXTRA_NON_TERMINAL = Object.freeze(['renew-interrupted']);
-const STAFF_CHAIRS = Object.freeze(['leader', 'consultant', 'goal-master']);
+// The `consultant` chair this list used to also carry is deleted [T2-R17, D-7-ruling].
+const STAFF_CHAIRS = Object.freeze(['leader', 'goal-master']);
 
 // D24 · A SUMMONED SEAT IS NEVER OWED. It is spawned ONLY when the owner summons it (a
 // goal-channel message or an `@rbtv` bot tag) — mail is NOT a wake term for it. Without this
