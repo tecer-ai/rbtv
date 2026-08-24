@@ -956,6 +956,48 @@ say('── paused goal is not reconciled ──');
     assert.ok(enq, JSON.stringify(unpaused.actions));
     assert.ok(enq.enq && !enq.enq.deduped, JSON.stringify(enq.enq));
     say(`ok  control: same folder unpaused enqueued ${enq.jobId || enq.seat}`);
+
+    // ── ONE PAUSE RECORD: THE STORE ROW WINS OVER THE `execution-lane` MARKER ──────────────────
+    //
+    // Two records of "is this goal paused" used to exist and the FILE could win: the store answer
+    // was consulted only for a TRUE, so a goal-state row reading `running` fell through to a stale
+    // `paused` marker on disk and the goal stayed frozen against the record that had been updated.
+    // Both halves are asserted, because a gate that only ever answers one way cannot be told from
+    // a gate that reads nothing.
+    fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
+    // ⚠ THE ROW IS WRITTEN THROUGH THE GATE'S OWN RESOLUTION, never through `store.db` directly:
+    // `bindEnding` walks for a workspace root first and only falls back to the lane store, so a
+    // hand-picked handle can be a DIFFERENT database and the arm would measure a store the gate
+    // never reads.
+    const { bindEnding, goalNameOf } = require('./ending-reads');
+    const api = bindEnding(store, goalFolder);
+    // ⚠ THE GATE KEYS THE ROW ON THE FOLDER BASENAME, not on the `goal` argument — `laneIsPaused`
+    // takes no goal name and derives it with `goalNameOf(goalFolder)`. On a real goal the two are
+    // the same string by construction (`<ws>/.rbtv/goals/<goal>`); in this flat fixture they are
+    // not, so the row is written under the name the gate will actually look up.
+    const pauseGoalId = goalNameOf(goalFolder);
+    api.writeGoalWord({ goal: pauseGoalId, stored: 'running', who_stamped: 'system',
+      evidence_pointer: 'selftest:one-pause-record' });
+    const rowWins = reconcileGoal({
+      goal: 'fx-pause', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.notStrictEqual(rowWins.skipped, 'paused',
+      `a stale \`paused\` marker beat the goal-state row: ${JSON.stringify(rowWins)}`);
+    api.writeGoalWord({ goal: pauseGoalId, stored: 'paused', who_stamped: 'owner',
+      evidence_pointer: 'selftest:one-pause-record' });
+    fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
+    const rowPauses = reconcileGoal({
+      goal: 'fx-pause', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.strictEqual(rowPauses.skipped, 'paused',
+      `the goal-state row said paused and the pass ran anyway: ${JSON.stringify(rowPauses)}`);
+    say('ok  one pause record: row `running` beats a stale `paused` marker, row `paused` stops the pass');
   } finally {
     store.close();
     closeHeartStore();

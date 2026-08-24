@@ -91,12 +91,31 @@ function readLane(goalFolder) {
 // operator's explicit act, and `rbtv-goal pause` CREATES the file on a goal that never had one
 // (`read_lane_raw` supplies `console\n`), so every goal is pausable and an unpaused goal keeps
 // its exact current behaviour.
+//
+// ── ONE PAUSE RECORD, AND THE STORE ROW IS IT ─────────────────────────────────────────────────
+//
+// There were TWO records of "is this goal paused": the goal-state row in the ending store, and
+// the first word of the `execution-lane` file. This function read both and the FILE could win —
+// the store answer was consulted only for a TRUE, so a store row reading `running` fell through
+// to a stale `paused` marker on disk and the goal stayed frozen against the record that had
+// actually been updated. That is the two-records shape, one function down from the two owed-work
+// computers, and it converges the same way: THE ROW IS THE RECORD.
+//
+// ⚠ AND `isGoalPaused` CANNOT CARRY THE CONVERGENCE BY ITSELF, because it flattens two different
+// answers into `false`: "the row says running" and "there is no row at all". Only the first is an
+// answer. So the row is read directly and its EXISTENCE is the test — a goal the store knows about
+// is answered by the store, full stop, and the file shim is reached only by a goal the store has
+// never recorded (every goal predating the goal-state table, and every fixture that pauses by
+// writing the marker). ABSENT OR UNREADABLE IS STILL NOT PAUSED, on both surfaces.
 function laneIsPaused(goalFolder, heartStore) {
   try {
     const { bindEnding, goalNameOf } = require('./ending-reads');
     const api = bindEnding(heartStore, goalFolder);
-    if (api && api.isGoalPaused(goalNameOf(goalFolder))) return true;
-  } catch { /* fall through to file shim */ }
+    if (api && typeof api.getGoalState === 'function') {
+      const row = api.getGoalState(goalNameOf(goalFolder));
+      if (row && row.stored) return row.stored === 'paused';
+    }
+  } catch { /* the store could not be asked at all — fall through to the file shim */ }
   let raw;
   try {
     raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
