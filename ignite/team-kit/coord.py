@@ -1997,56 +1997,15 @@ def memory_gate(n_seats, avail_mb, floor_mb):
             f"of that — and this gate holds {reserve:.2f} spikes of reserve so a spiking seat "
             f"cannot make the kernel SIGKILL a bystander (how the watcher died twice on "
             f"2026-07-27). Close a seat first, or override with --force-memory and say so on "
-            f"the log. NOT --force: that flag carries the ROLE gate only and will not lift "
-            f"this one (campaign issue S-8(c) — this text used to name it, at the exact "
-            f"moment an unattended run is blocked and reaching for the documented escape).")
+            f"the log.")
 
 
-# ---------- the flag -> gate binding, in ONE place (campaign issue S-6(a)) ----------
-# The standing invariant is "no gate may ever be re-attached to --force": `--force` carries the
-# ROLE gate, `--force-memory` carries the MEMORY gate, and NEITHER CARRIES THE OTHER. Until this
-# map existed the invariant lived in prose and in two independent getattr() reads, so recombining
-# them was a one-line edit nothing would notice.
-#
-# WHY THAT MATTERS MORE HERE THAN ANYWHERE ELSE: jobs/recover-room.py — the daemon-fired self-heal
-# path — passes `--force` on EVERY firing, at whatever hour the room dies, with nobody awake. That
-# override is correct by necessity (a timer-fired exec has no pane, hence no seat identity, hence
-# cannot pass an identity-keyed gate). Its SAFETY, however, rests entirely on `--force` not also
-# carrying memory — and nothing in that path asserted the dependency.
-#
-# This map is the ONLY place the binding exists and `gate_forced` is its ONLY reader, so adding
-# "memory" to --force's tuple genuinely ARMS it — the map cannot drift from behaviour. `coordinate
-# gates --json` publishes it, and recover-room.py ASSERTS against that output before it overrides
-# anything: undo the split and the unattended recovery REFUSES instead of silently arming a
-# memory override at 4am.
-GATE_FLAGS = {
-    "--force": ("role",),
-    "--force-memory": ("memory",),
-}
-
-
-def gate_forced(args, gate_name):
-    """True iff a flag the caller ACTUALLY passed carries `gate_name`, per GATE_FLAGS."""
-    for flag, gates in GATE_FLAGS.items():
-        if gate_name in gates and bool(getattr(args, flag[2:].replace("-", "_"), False)):
-            return True
-    return False
-
-
-def cmd_gates(args):
-    """Publish the flag -> gate binding so an UNATTENDED caller can assert it before overriding.
-
-    Exists for jobs/recover-room.py, which force-overrides the role gate on every firing with
-    nobody in the loop. It reads this and refuses to run if `--force` ever starts carrying the
-    memory gate. Printing the map is not the point — being the SAME map launch_gates reads is."""
-    payload = {flag: list(gates) for flag, gates in sorted(GATE_FLAGS.items())}
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        for flag, gates in sorted(payload.items()):
-            print(f"{flag:16} carries: {', '.join(gates)}")
-        print("neither flag carries the other — no gate may ever be re-attached to --force")
-    return 0
+# `gate_forced`/`GATE_FLAGS`/`cmd_gates` (the flag->gate binding map + the `coordinate gates`
+# verb) were deleted [T2-R10, D24, F-simplicity-7]: they existed solely to stop `--force` from
+# ever re-acquiring the ROLE gate's old override alongside the MEMORY gate's, and the role gate
+# they guarded against is itself gone. `--force-memory` is the memory floor's only override now,
+# read directly (see `launch_gates` below) — there is no second flag left for it to be confused
+# with. jobs/recover-room.py no longer asserts a split at runtime for the same reason.
 
 
 def ps_snapshot():
@@ -4967,9 +4926,10 @@ def launch_gates(args, command, n_seats):
     is a per-verb role check — so `launch`, `close`, and `relaunch-pane` no longer refuse on WHO
     is calling. Only the memory floor survives here.
 
-    `--force` no longer carries anything at this gate (there is nothing left for it to override);
-    GATE_FLAGS is untouched (a different subsystem's territory) so `--force-memory` still carries
-    the memory half exactly as before."""
+    `--force` carries nothing at this gate (there is nothing left for it to override);
+    `--force-memory` is the memory floor's only override, read directly off `args` — the
+    `gate_forced`/`GATE_FLAGS` indirection that used to broker this is gone along with the role
+    gate it existed to keep separate from [T2-R10, D24, F-simplicity-7]."""
     # ⚠ THE FLOOR IS READ HERE, PER LAUNCH, FROM THE RUN PACKAGE — never held as a constant
     # (task 7.82, `r-floor-single-source`). `floor_why` is not decoration: criterion 8's acceptance
     # is that the gate SAYS WHICH VALUE IT USED AND WHY, so an operator can never be silently
@@ -4990,7 +4950,7 @@ def launch_gates(args, command, n_seats):
                      "say so on the log." % exc)
 
     mgate = floor_err if floor_err else memory_gate(n_seats, available_mb(), floor_mb)
-    mem_forced = gate_forced(args, "memory")   # via GATE_FLAGS, never a bare getattr (S-6(a))
+    mem_forced = getattr(args, "force_memory", False)
     lines, refused = [], False
 
     # ⚠⚠ THE PROVENANCE LINES ARE KEPT SEPARATE FROM THE VERDICT LINES, AND THAT IS THE WHOLE
@@ -22837,16 +22797,6 @@ def _selftest_checks(args, failures, names):
               "the ask/identity PAIRING, never on daemon senders, whose own-name attribution is "
               "deliberate",
               code == 0 and "sent message #" in out)
-        check("S-6(a): GATE_FLAGS is the single flag->gate binding and `--force` carries the "
-              "ROLE gate ONLY — jobs/recover-room.py force-overrides on every unattended firing "
-              "and asserts this map before it does",
-              GATE_FLAGS["--force"] == ("role",)
-              and GATE_FLAGS["--force-memory"] == ("memory",))
-        check("S-6(a): gate_forced reads that map rather than the flag, so recombining the "
-              "flags genuinely ARMS the gate instead of merely mislabelling it",
-              gate_forced(argparse.Namespace(force=True, force_memory=False), "role") is True
-              and gate_forced(argparse.Namespace(force=True, force_memory=False), "memory") is False
-              and gate_forced(argparse.Namespace(force=False, force_memory=True), "memory") is True)
         check("S-8(c): the memory-gate refusal names --force-memory, the flag that actually "
               "lifts it — it used to name --force, which carries the ROLE gate only, at the "
               "exact moment an unattended run is blocked and reaching for the documented escape",
@@ -29788,9 +29738,7 @@ def _selftest_checks(args, failures, names):
         # ---- criterion 2: THE REFUSAL CARRIES NO OVERRIDE ------------------------------------
         # Driven, not asserted: the same empty-set refusal is run three ways — bare, with
         # `--force`, with `--force-memory` — and the three outputs are compared for BYTE identity.
-        # A row that only asserted `GATE_FLAGS` would be satisfied by a build that read the flag
-        # somewhere else entirely, and a row that only drove `--force` would miss the other half of
-        # the family.
+        # A row that only drove `--force` would miss the other half of the family.
         _o3_open_before = len(opened)
         _o3_bare, _o3_bare_code = _a3l_run(only="done1", dry_run=False)
         _o3_forced, _o3_forced_code = _a3l_run(only="done1", dry_run=False, force=True)
@@ -29798,16 +29746,11 @@ def _selftest_checks(args, failures, names):
         check("O3-3 (criterion 2 — NO OVERRIDE CARRIES THE REFUSAL): the empty-set refusal is "
               "BYTE-IDENTICAL and exits 1 with `--force`, with `--force-memory`, and with "
               "neither, and NO pane opens on any of the three — asserted on the pane ledger, not "
-              "on the absence of a success line. `GATE_FLAGS` is additionally asserted against a "
-              "SPELLED-OUT literal pair rather than against itself: a guard written in terms of "
-              "the symbol under change moves with the change and passes any edit to it. `--force` "
-              "carries the ROLE gate alone and `--force-memory` the MEMORY gate alone; no gate is "
-              "ever re-attached to either, by this change or any successor",
+              "on the absence of a success line. Neither flag carries this refusal",
               _o3_bare_code == 1 and _o3_forced_code == 1 and _o3_fmem_code == 1
               and _o3_bare == _o3_forced == _o3_fmem
               and "NO pane was opened" in _o3_bare
-              and len(opened) == _o3_open_before
-              and GATE_FLAGS == {"--force": ("role",), "--force-memory": ("memory",)})
+              and len(opened) == _o3_open_before)
         # ---- criterion 3: THE CARVE-OUT IS CONSULTED, NOT RE-IMPLEMENTED ---------------------
         _o3_stmt_src = _a3_block[_a3_block.index("# ---- the filter: ADMIT(w)"):]
         _o3_decl_src = _a3_src[_a3_src.index("_decl_anchor = ("):
@@ -34794,7 +34737,7 @@ def add_identity_flags(s, force=True):
                    help="act as this agent instead of the resolved identity")
     if force:
         s.add_argument("--force", action="store_true",
-                       help="override this command's refusal (identity mismatch, role gate, validation)")
+                       help="override this command's refusal (identity mismatch, validation)")
 
 
 def add_pretty_flag(s):
@@ -34832,7 +34775,7 @@ other
   create-group       open a message group for one workstream
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
-  selftest / gates   built-in self-test (temp dir, no tmux) · which flag carries which gate
+  selftest    built-in self-test (temp dir, no tmux)
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
 
@@ -35504,18 +35447,6 @@ def build_parser():
     s.set_defaults(func=cmd_queue_requests)
 
     s = command(
-        "gates",
-        "Print the flag -> gate binding: which override flag carries which launch gate.\n"
-        "Exists so an UNATTENDED caller can assert the split before it overrides anything —\n"
-        "jobs/recover-room.py reads this and refuses to run if `--force` ever starts carrying\n"
-        "the memory gate. Reads the same map launch_gates enforces, so it cannot drift.",
-        "example:\n"
-        "  coordinate gates --json\n"
-        "next: nothing — this command reads state and changes none")
-    s.add_argument("--json", action="store_true", help="machine-readable, for an asserting caller")
-    s.set_defaults(func=cmd_gates)
-
-    s = command(
         "read",
         f"Show the messages you have not read yet, {READ_LIMIT} at a time. A plain read advances\n"
         "your persisted cursor through the last message SHOWN — nothing else. Every filter\n"
@@ -35653,7 +35584,8 @@ def build_parser():
                         "REFUSED on a goal whose execution-lane is `daemon` (E22): that lane opens "
                         "no pane, and a flag silently ignored is a flag that lies")
     s.add_argument("--force-memory", action="store_true",
-                   help="override the MEMORY gate only (--force does not: it covers the role gate)")
+                   help="override the MEMORY gate only (--force is a separate flag, for this "
+                        "command's other refusals)")
     # 7.251 (C1.2): NOT an override and NOT a member of the --force family. It admits ONE named
     # seat whose last session ENDED UNDECLARED, for a session that declares its own ending and
     # does nothing else. Its VALUE is the written trail, so the instrument cannot be invoked
@@ -35800,7 +35732,8 @@ def build_parser():
                    help="after closing, relaunch the seat fresh (it reads the updated memory.md)")
     s.add_argument("--dry-run", action="store_true", help="print the closer prompt without launching")
     s.add_argument("--force-memory", action="store_true",
-                   help="override the MEMORY gate only (--force does not: it covers the role gate)")
+                   help="override the MEMORY gate only (--force is a separate flag, for this "
+                        "command's other refusals)")
     s.add_argument("--no-export", action="store_true", default=False,
                    help="skip the transcript export (only reached by a `close: mechanical` seat, "
                         "which closes without a closer)")
@@ -35972,8 +35905,8 @@ def build_parser():
     s.add_argument("--dry-run", action="store_true",
                     help="print the command that would start, respawn/launch nothing")
     s.add_argument("--force-memory", action="store_true",
-                    help="override the MEMORY gate only (--force does not: it covers the role "
-                         "gate and the roster-still-active refusal)")
+                    help="override the MEMORY gate only (--force is a separate flag, for the "
+                         "roster-still-active refusal)")
     add_identity_flags(s)
     s.set_defaults(func=cmd_relaunch_pane)
 

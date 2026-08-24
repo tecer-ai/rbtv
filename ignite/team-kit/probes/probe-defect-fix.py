@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""probe-defect-fix.py — the fix-wave probes for the coord.py half (campaign issues S-4(b), S-6(a),
-S-7, S-8(c)).
+"""probe-defect-fix.py — the fix-wave probes for the coord.py half (campaign issues S-4(b), S-7,
+S-8(c)).
 
 WHAT THIS SCORES OVER — stated per defect, because "probes pass" reads as a clean class and is not:
 
@@ -9,15 +9,15 @@ WHAT THIS SCORES OVER — stated per defect, because "probes pass" reads as a cl
       backticks intact, and — the red half — that forcing past the gate logs a body the author
       never wrote. It does NOT score an interactive human shell: there is no `-c` string to compare
       against there, that case is genuinely undetectable, and the code says so.
-  S-6(a) gate split — `coordinate gates --json` agreeing with GATE_FLAGS, and recover-room.py
-      REFUSING against a mutant coord.py whose flags have been recombined. The mutant is the point:
-      an assertion that cannot go red is not an assertion.
+  S-6(a) gate split — DELETED [T2-R10, D24, F-simplicity-7]. It probed `coordinate gates --json`
+      against `GATE_FLAGS` and recover-room.py's split-verification, both removed with the ROLE
+      gate `--force` used to carry: there is no second gate left for `--force-memory` to be
+      recombined with, so nothing here is left to mutate.
   S-7 unclosable ask — an `ask` from an identity with no roster row / briefing / group is refused
       and nothing is appended; the SAME sender's `note` is accepted, and an ADDRESSABLE sender's
       `ask` is accepted. Without those two the probe would not distinguish the fix from a blanket ban.
   S-8(c) refusal wording — memory_gate's refusal names `--force-memory` and no longer tells the
-      operator to reach for `--force`. Paired with a behavioural check that `--force` alone really
-      does NOT lift the memory gate, so the wording is verified against conduct, not itself.
+      operator to reach for `--force`.
 
 Every write lands in a temp package. The LIVE run package and the live message log are never
 touched. HOME is redirected into the temp tree for every subprocess (G-75: a mutation test runs the
@@ -26,10 +26,7 @@ mutant with the full write authority of the real program).
 Run: python3 probe-defect-fix.py    ->  exit 0 all green, exit 1 on any failure.
 """
 
-import ast
-import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -38,42 +35,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 KIT = HERE.parent
 COORD = KIT / "coord.py"
-RECOVER = KIT.parent / "jobs" / "recover-room.py"
 
 RESULTS = []
 SKIPPED = []
-
-
-# ⚠ A MUTANT COPY OF coord.py IS ONLY RUNNABLE WITH ITS SIBLINGS BESIDE IT, and the sibling set
-# GROWS: budget.py arrived with task 7.82, gateway_client.py with task 7.57, and the probe was
-# hardcoded to the first — so the mutant died at import (ModuleNotFoundError / ImportError),
-# `gates --json` exited non-zero, and the arm read a crash as the guarded defect regressing. A
-# second hardcoded name would rot exactly the same way on the next sibling, so the set is DERIVED
-# from the source under test: every top-level import naming a `.py` file in the same directory,
-# followed transitively, is copied. Nothing to update the day a third sibling lands.
-def copy_local_siblings(src, dest_dir):
-    copied, seen, todo = [], set(), [src]
-    while todo:
-        cur = todo.pop()
-        try:
-            tree = ast.parse(cur.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
-            continue
-        names = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names.update(a.name.split(".")[0] for a in node.names)
-            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
-                names.add(node.module.split(".")[0])
-        for n in sorted(names):
-            sib = src.parent / (n + ".py")
-            if n in seen or not sib.exists():
-                continue
-            seen.add(n)
-            shutil.copy2(sib, dest_dir / sib.name)
-            copied.append(sib.name)
-            todo.append(sib)
-    return copied
 
 
 def check(label, cond, detail=""):
@@ -237,63 +201,11 @@ def main():
         check("S-7 control: an ADDRESSABLE sender's `ask` is still accepted",
               r.returncode == 0, r.stderr[:300])
 
-        # ── S-6(a) ─────────────────────────────────────────────────────────
-        r = subprocess.run([sys.executable, str(COORD), "gates", "--json"],
-                           capture_output=True, text=True, timeout=60, env=env_for(home))
-        gates = json.loads(r.stdout) if r.returncode == 0 else {}
-        check("S-6(a): `gates --json` publishes the flag->gate map",
-              r.returncode == 0 and gates.get("--force") == ["role"]
-              and gates.get("--force-memory") == ["memory"], r.stdout[:200])
-
-        recover_args = ["--session", "tw-probe-never-created", "--package", str(pkg),
-                        "--seat", "tw-x", "--dry-run"]
-        # G-194(b): RECOVER lives OUTSIDE this kit, so it is absent whenever team-kit is copied
-        # alone — which is a documented gating practice here. Absent means INOPERATIVE, never FAIL.
-        recover_here = RECOVER.exists()
-        why_no_recover = (f"{RECOVER} is absent — it sits outside team-kit, so a copy of the kit "
-                          f"alone cannot reach it. This says nothing about the code under test.")
-        if recover_here:
-            r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(COORD)] + recover_args,
-                               capture_output=True, text=True, timeout=120, env=env_for(home))
-            check("S-6(a): the unattended recovery path ASSERTS the split and proceeds when it holds",
-                  r.returncode == 0 and "precondition OK" in r.stdout, (r.stdout + r.stderr)[:300])
-        else:
-            skip("S-6(a): the unattended recovery path ASSERTS the split and proceeds when it holds",
-                 why_no_recover)
-
-        # The mutant: the two gates recombined onto --force, exactly the silent recombination the
-        # standing rule forbids and nothing used to detect.
-        mutant = td / "coord-mutant.py"
-        src = COORD.read_text(encoding="utf-8")
-        old = '    "--force": ("role",),'
-        check("S-6(a) mutation is constructible — GATE_FLAGS is where the probe thinks it is",
-              src.count(old) == 1)
-        mutant.write_text(src.replace(old, '    "--force": ("role", "memory"),', 1), encoding="utf-8")
-        # The mutant is a RUNNABLE copy of coord.py, so every sibling module it imports travels
-        # with it — derived, never listed (see `copy_local_siblings`).
-        siblings = copy_local_siblings(COORD, td)
-        check("S-6(a): the mutant carries coord.py's OWN sibling modules — derived from its "
-              "imports, so a new sibling never silently breaks this arm again",
-              bool(siblings), f"copied={siblings}")
-        r = subprocess.run([sys.executable, str(mutant), "gates", "--json"],
-                           capture_output=True, text=True, timeout=60, env=env_for(home))
-        mgates = json.loads(r.stdout) if r.returncode == 0 else {}
-        # ⚠ CARRY THE STDERR INTO THE FAILURE. Without it a non-zero exit renders as an empty map
-        # and this check reports "the map did not change" — blaming the mechanism under test for an
-        # import error. A check that fails for the wrong stated reason costs more than a red.
-        check("S-6(a): the mutant's map really did change (the map is the mechanism, not a label)",
-              "memory" in (mgates.get("--force") or []),
-              f"exit={r.returncode} stderr={(r.stderr or '')[-200:]}")
-        if recover_here:
-            r = subprocess.run([sys.executable, str(RECOVER), "--coord", str(mutant)] + recover_args,
-                               capture_output=True, text=True, timeout=120, env=env_for(home))
-            check("S-6(a) RED HALF: against the recombined map the unattended recovery REFUSES "
-                  "(exit 2) instead of silently arming a memory override at 4am",
-                  r.returncode == 2 and "REFUSING to recover" in r.stdout,
-                  (r.stdout + r.stderr)[:300])
-        else:
-            skip("S-6(a) RED HALF: against the recombined map the unattended recovery REFUSES "
-                 "(exit 2) instead of silently arming a memory override at 4am", why_no_recover)
+        # S-6(a) (the `gates`/GATE_FLAGS flag->gate split probe) is deleted along with the
+        # mechanism it tested: the per-verb ROLE gate `--force` used to carry is gone whole
+        # [T2-R10, D24, F-simplicity-7], so there is no second gate left for `--force-memory` to
+        # be recombined with, and `coordinate gates` / `GATE_FLAGS` / `gate_forced` no longer
+        # exist to probe.
 
         # ── S-8(c) ─────────────────────────────────────────────────────────
         sys.path.insert(0, str(KIT))
@@ -309,10 +221,11 @@ def main():
         check("S-8(c): ...and no longer tells the operator to override with `--force`",
               "override with --force " not in refusal and "override with --force." not in refusal,
               refusal[-200:])
-        check("S-8(c) paired behaviour: `--force` really does NOT carry the memory gate, so the "
-              "new wording matches conduct rather than itself",
-              coord.gate_forced(_ns(force=True), "memory") is False
-              and coord.gate_forced(_ns(force_memory=True), "memory") is True)
+        # The S-8(c) paired-behaviour check that used to run this wording assertion against
+        # `coord.gate_forced` is deleted with that function [T2-R10, D24, F-simplicity-7]: there
+        # is no indirection left between `--force-memory` and the memory gate to verify — the
+        # live call site reads `args.force_memory` directly, and coord.py's own selftest (#230)
+        # already drives `cmd_launch` end-to-end to prove `--force` alone does not lift it.
 
     failed = [l for ok, l in RESULTS if not ok]
     # THREE OUTCOMES, DISTINCT IN BOTH THE TEXT AND THE EXIT CODE, so a reader skimming exit codes
