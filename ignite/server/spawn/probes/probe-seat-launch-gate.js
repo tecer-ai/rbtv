@@ -201,10 +201,14 @@ capture('probe-seat-launch-gate', async (lines) => {
     const argv = (dry.wrappedArgv || []).join(' ');
     const chdirOk = argv.includes(`--chdir ${f.seatDir}`);
     const cageOk = Array.isArray(dry.seatCage) && dry.seatCage.length > 0;
-    const peerAbsent = argv.includes(`--tmpfs ${path.join(f.runDir, 'seats')}`);
+    // ⚠ THE PEER-SEAT ARM MOVED WITH THE MODEL. The retired per-seat grant template hid sibling
+    // seats behind `--tmpfs {goalDir}/seats`. The envelope has no such line: `seats/` is a
+    // DAEMON-OWNED DIRECTORY (daemon-owned-records.yaml), so family 1's goal-folder RW is carved
+    // by an RO bind over it — peers are readable and unwritable, which is the ruled shape.
+    const peersReadOnly = argv.includes(`--ro-bind ${path.join(f.runDir, 'seats')}`);
     leg('P9-launch', 'a REAL seat composes: launch home is the seat folder, the cage is applied',
-      Boolean(dry.dryRun) && chdirOk && cageOk && peerAbsent,
-      `chdir->seatDir=${chdirOk} cage-entries=${cageOk ? dry.seatCage.length : 0} peer-tmpfs=${peerAbsent}`);
+      Boolean(dry.dryRun) && chdirOk && cageOk && peersReadOnly,
+      `chdir->seatDir=${chdirOk} cage-entries=${cageOk ? dry.seatCage.length : 0} peers-ro-bind=${peersReadOnly}`);
 
     // ── P10 — THE PRODUCTION CALL SHAPE (task 7.11, G9). `server/index.js` is the ONLY route to
     // spawnSeat (dispatch.js's error map says so, and a tree-wide grep confirms it), and it
