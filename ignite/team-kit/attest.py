@@ -16,10 +16,16 @@ from pathlib import Path
 #
 # ⚠⚠ WHAT THIS ARM ATTESTS IS ONE FACT AND ONLY ONE: THE HARNESS TERMINATED. It does NOT decide
 # whether the work succeeded, and it MUST NOT — an attestation by a third party to a fact it did
-# not witness is exactly the misgrading R-6 bars. It writes `exited`, never `done`, and the writer
-# bound makes `done` structurally unreachable from here. An `exited` row then routes to the LEADER,
-# which investigates and either relaunches the seat or flips the row to `done`; this arm performs
-# neither of those exits.
+# not witness is exactly the misgrading R-6 bars.
+#
+# ⚠⚠ AND IT NO LONGER STAMPS ANYTHING ITSELF [spec-supervisor §3, T4-R7]. This door BECAME the
+# supervisor death stamp: it hands the supervisor the facts it witnessed — which sitting, that the
+# process is gone, the exit code, the transcript tail — and the supervisor's ONE evidence-to-ending
+# table (`supervisor/death-stamp.js`) decides the ending and performs the reap. Two independent
+# stampers was the defect: this arm and the daemon-lane closer below each wrote the reason-less
+# word `exited` onto an open row, and a terminal carrying no reason left the recovery ladder with
+# nothing to classify. `exited` is dead vocabulary now — the ending store refuses it at the write
+# boundary, so it cannot come back by anyone's convention.
 #
 # WHY THE KIT AND NOT THE CHIEF-OF-STAFF: the CoS is barred from lifecycle actuation, and its pane
 # is the measured-unreliable surface. This is pure code; the CoS may READ its report.
@@ -170,23 +176,21 @@ def attest_exit_seat(args, seat):
 
     ok, note = update_row(base, seat, flip)
     steps.append(f"roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
-    # The SYSTEM `failed`/`crash` stamp — never `exited`, which is a killed word [T1-R3, §1.7].
-    # Both bounds are structural: this arm CANNOT write `done` (the writer bound refuses it) and a
-    # seat CANNOT write `failed` (the same bound, other side).
+    # THE SUPERVISOR DEATH STAMP, and this arm decides NOTHING about the ending [spec-supervisor
+    # §4]. It reports the evidence it holds; the supervisor reads the checkout (a `done` or
+    # `incomplete` the seat declared for itself STANDS and is merely reaped) and otherwise stamps
+    # `failed` with a mandatory reason class. The killed word `exited` is unreachable from here —
+    # not by this arm's restraint, but because the ending store refuses it at the boundary.
     #
     # ⚠ THE CALLER'S EVIDENCE WINS. `--evidence` carries the exit code and transcript-tail path the
     # witness read (`spawn.js#crashEvidence`); §1.4 requires the pointer to name the observed
     # death, and this process can see neither fact. The exported transcript is the fallback, and
     # the seat name the last resort — the store refuses an empty pointer outright.
     pkg = package_dir(args, register=False)
-    try:
-        ending_store.stamp_system(
-            pkg, seat, "failed", reason_class="crash",
-            evidence=(getattr(args, "evidence", "") or "").strip() or out or f"attest-exit:{seat}",
-            diagnostic="crash")
-        steps.append("ending store: failed/crash stamped")
-    except ending_store.EndingStoreError as exc:
-        steps.append(f"ending store: NOT stamped — {exc}")
+    _res, _step = supervisor_stamp(args, pkg, seat,
+                                   checked_in=bool(row.get("checkin")),
+                                   fallback_evidence=out or f"attest-exit:{seat}")
+    steps.append(_step)
     sid, cerr = session_trace_safe(session_close, args, seat)
     steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
@@ -208,12 +212,13 @@ def attest_exit_seat(args, seat):
 # for that name RIGHT NOW, which under concurrent sittings is a LIVE one: F4's race, performed by
 # the mechanism built to close F3.
 #
-# ⚠⚠ THE VALUE IS ORIGINATED, NEVER TRANSCRIBED. Checkout writes `sessions.csv` itself. This
-# closer runs only when the process died without checking out (or died mid-checkout before the
-# ledger write). It stamps `exited` under `kit` — the harness terminated, nothing about the work.
-# A declaration sitting on `awaiting-close.json` with an OPEN row is an unverified mid-checkout
-# death; `exited` is the honest answer (D5). `daemon_close_blockers` (a) refuses to re-stamp a
-# row checkout already closed.
+# ⚠⚠ THE ENDING IS THE SUPERVISOR'S, NEVER THIS CLOSER'S. Checkout writes `sessions.csv` itself.
+# This closer runs only when the process died without checking out (or died mid-checkout before the
+# ledger write), and all it does with that fact is HAND IT TO `supervisor_door.death_stamp`. It used
+# to originate the reason-less word `exited` under `kit`; that word is dead [T1-R3, T4-R7] and the
+# supervisor's evidence table answers in its place — a dead process with no declared ending is a
+# `failed: crash`, and a mid-checkout death that DID leave a declaration has that declaration stand.
+# `daemon_close_blockers` (a) still refuses to re-stamp a row checkout already closed.
 
 
 def session_row_by_id(pkg, sid):
@@ -325,28 +330,52 @@ def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
     return why
 
 
+def supervisor_stamp(args, pkg, seat, *, session="", checked_in=False, fallback_evidence=""):
+    """Call the ONE death-stamp path. `(result_or_None, step_string)`.
+
+    Both closers share it deliberately: a second spelling of "hand the supervisor the evidence" is
+    how two doors start disagreeing again, which is the whole defect spec-supervisor §3 closes.
+    NEVER RAISES — a closer that dies on an unreachable stamper leaves the world worse than the
+    silent arm it replaced, so every failure is REPORTED as its step and the caller's remaining
+    steps still run."""
+    try:
+        res = supervisor_door.death_stamp(
+            pkg, seat, session=session,
+            checked_in=checked_in,
+            evidence=(getattr(args, "evidence", "") or "").strip() or fallback_evidence)
+    except (supervisor_door.SupervisorError, OSError, ValueError) as exc:
+        return None, f"supervisor death stamp: NOT stamped — {exc}"
+    act = (res or {}).get("act", "")
+    ending = (res or {}).get("ending", "")
+    reason = (res or {}).get("reason_class") or ""
+    reaped = "reaped" if (res or {}).get("reaped") else ((res or {}).get("reason") or "not reaped")
+    if (res or {}).get("stamped"):
+        return res, f"supervisor death stamp: {ending}/{reason} stamped · {reaped}"
+    return res, f"supervisor death stamp: {act} — the seat's own `{ending}` stands · {reaped}"
+
+
 def close_session_seat(args, sid, seat):
     """Perform the daemon-lane close for ONE session-id. Returns the list of step strings.
 
-    Always originates `exited` under `kit`. Checkout already wrote any seat-declared value;
-    this path is the crash-stamp for a process that died without a complete checkout."""
+    Originates NOTHING. Checkout already wrote any seat-declared value; for a process that died
+    without a complete checkout the supervisor's evidence table stamps the ending and reaps."""
     base = base_dir(args, register=False)
     pkg = package_dir(args, register=False)
     steps = []
-    entry = load_awaiting(base).get(seat)
-    steps.append("closer is the system failed:crash path — checkout already wrote any seat declare")
+    steps.append("closer hands the supervisor its evidence — it stamps no ending of its own")
     closed_seat, cerr = close_session_row_by_id(pkg, base, sid, "", "")
     steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
-    try:
-        ending_store.stamp_system(
-            pkg, seat, "failed", reason_class="crash",
-            evidence=(getattr(args, "evidence", "") or "").strip() or f"session:{sid}",
-            diagnostic="crash", replace=False)
-        steps.append("ending store: failed/crash stamped")
-    except ending_store.EndingStoreError as exc:
-        steps.append(f"ending store: NOT stamped — {exc}")
     row = current_row(load_workers(base)[2], seat) or {}
+    res, step = supervisor_stamp(args, pkg, seat, session=sid,
+                                 checked_in=bool(row.get("checkin")),
+                                 fallback_evidence=f"session:{sid}")
+    steps.append(step)
+    # The ENDING IS WHATEVER THE SUPERVISOR SAYS IT IS — never a constant this closer chose. It used
+    # to return the literal `"exited"` (then, briefly, the literal `"failed"`), which reported a
+    # crash even for the row the evidence table's FIRST line covers: a seat that checked out `done`
+    # and whose process simply had to be reaped.
+    ending = (res or {}).get("ending") or "failed"
     if row.get("active") == "yes":
         def flip(r):
             r["active"] = "no"
@@ -354,8 +383,14 @@ def close_session_seat(args, sid, seat):
 
         ok, note = update_row(base, seat, flip)
         steps.append("roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
-    steps.extend(close_staff_mail_arm(args, base, pkg, seat, "failed", entry, sid))
-    return steps, closed_seat, "failed"
+    # A `done` seat's work IS done: mailing a staff chair "its work is NOT done" about a completed
+    # sitting is exactly the misgrading this arm's own header bars.
+    if ending == "done":
+        steps.append("staff mail: NOT minted — the seat declared `done`; the reap is not a failure")
+    else:
+        entry = {"reason": (res or {}).get("row", {}).get("diagnostic") or ""}
+        steps.extend(close_staff_mail_arm(args, base, pkg, seat, ending, entry, sid))
+    return steps, closed_seat, ending
 
 
 # ═══ W3 · THE STAFF WIRING — a signal that reaches an OCCUPIED chair ══════════════════════════
@@ -441,8 +476,8 @@ def staff_mail_body(args, seat, value, entry, sid):
     if isinstance(entry, dict):
         reason = str(entry.get("reason") or entry.get("incomplete-reason") or "").strip()
     pkg = package_dir(args, register=False)
-    reason = reason or ("(none recorded — the ending was attested by the kit, not declared by "
-                        "the seat)")
+    reason = reason or ("(none recorded — the ending was stamped from evidence by the supervisor, "
+                        "not declared by the seat)")
     return "\n".join([
         f"STAFF MAIL — seat '{seat}' ended `{value}` and its work is NOT done.",
         f"reason given at check-out: {reason}",
@@ -458,7 +493,7 @@ def staff_mail_body(args, seat, value, entry, sid):
         "replacement ruling instrument is wired here yet. Where the harness simply DIED and the "
         "work must RUN AGAIN: "
         "`launch --only " + seat + " --rerun <anchor>` — ONE act, an ordinary working session, "
-        "and the `exited` row stays on the record (D42).",
+        "and the `failed` row stays on the record (D42).",
     ])
 
 
@@ -469,15 +504,14 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     the 2026-08-20 extension of D29 it may even record `done` — and it is excluded here regardless:
     mailing a chair about its own row would mail the chair about itself, and each such mail would
     mint the wake for the sitting that writes the next one. Its row is closed silently. WHAT CLOSES
-    A STAFF SITTING'S SESSION ROW is this same closer, silently: the row is ended and stamped
-    `exited` exactly as any other, the roster is flipped, and NO mail is minted.
+    A STAFF SITTING'S SESSION ROW is this same closer, silently: the row is ended and its ending
+    stamped from evidence exactly as any other, the roster is flipped, and NO mail is minted.
 
-    ⚠ IT MAILS ON EVERY TERMINAL NON-`done` ENDING and reads no further into the value. `incomplete`
-    is the seat's own honest declaration and reaches the chair IMMEDIATELY; `exited` is the kit's
-    attestation after the retry chain is exhausted; `unverified` (D32) is the seat's `done` the
-    gate could not grade. All three are endings nobody has ruled on, which is the only property
-    this arm needs — the value is passed through to the mail body and never branched on here, so
-    D32's sixth word reached this arm with no edit."""
+    ⚠ IT MAILS ON EVERY TERMINAL NON-`done` ENDING and reads no further into the value.
+    `incomplete` is the seat's own honest declaration and reaches the chair IMMEDIATELY; `failed`
+    is the supervisor's evidence stamp for a process that died without declaring anything. Both are
+    endings nobody has ruled on, which is the only property this arm needs — the value is passed
+    through to the mail body and never branched on here."""
     steps = []
     if value == "done":
         return steps
@@ -710,8 +744,9 @@ def cmd_attest_exit(args):
             print(f"    {step}")
         acted += 1
     if acted:
-        print(c(f"\n{acted} seat(s) attested `exited`. THAT IS THE ONLY CLAIM MADE: the harness "
-                f"terminated. Whether the work is done is NOT established here — each row routes "
+        print(c(f"\n{acted} seat(s) handed to the supervisor death stamp. THE ONLY CLAIM THIS ARM "
+                f"MAKES IS THAT THE HARNESS TERMINATED; the ending is stamped from evidence. "
+                f"Whether the work is done is NOT established here — each row routes "
                 f"to the LEADER, which investigates and either relaunches the seat or, where the "
                 f"work had in fact concluded, records that ruling — `rule-disposition` was deleted "
                 f"[T2-R12, T1-R9]; no replacement ruling instrument is wired here yet. Until then "

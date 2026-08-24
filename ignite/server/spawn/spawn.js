@@ -431,13 +431,18 @@ function appendRowEnsuringHeader(csvPath, values, log) {
 // ending — which every reader takes as "still working, forever". Ten hours of silent stall,
 // measured 2026-08-13.
 //
-// ⚠ THIS PATH WRITES `failed` / `reason_class=crash`, NEVER `exited` [T1-R1, T1-R18, T4-R7].
-// `exited` was a fifth ending word carrying no reason, and a reason-less terminal is what left the
-// recovery ladder with nothing to classify. A dead process with no declared ending IS a crash, and
-// the store refuses the write unless it carries an evidence pointer naming the observed death
-// (spec-state-store §1.4, §4.5) — which is why `exitCode` and `logPath` are parameters here and
-// not an afterthought. Checkout has already written any ending the seat declared for itself; this
-// arm only speaks for the deaths no seat can witness about itself.
+// ⚠ THIS PATH IS THE SUPERVISOR DEATH STAMP, REACHED THROUGH COORD [spec-supervisor §3, T4-R7].
+// `attest-exit --force-dead` no longer stamps anything of its own: it hands the supervisor the
+// evidence and `supervisor/death-stamp.js` decides. The word `exited` — a fifth ending carrying no
+// reason, and the reason-less terminal that left the recovery ladder with nothing to classify — is
+// dead [T1-R3], and the ending store refuses it at the write boundary rather than trusting anyone's
+// convention. A dead process with no declared ending IS a `failed: crash`, and the store refuses
+// that write unless it carries an evidence pointer naming the observed death (spec-state-store
+// §1.4, §4.5) — which is why `exitCode` and `logPath` are parameters here and not an afterthought.
+// A seat that DID declare `done` or `incomplete` keeps its own ending and is merely reaped: that is
+// the stamp table's first two rows, and this door never overrides them.
+// Checkout has already written any ending the seat declared for itself; this arm only speaks for
+// the deaths no seat can witness about itself.
 //
 // ⚠ THE ENGINE STILL DECIDES NO WORK OUTCOME. It supplies only the facts it alone holds — WHICH
 // row (`--session`, the id it wrote itself), THAT the process is gone (`--force-dead`, which it

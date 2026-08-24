@@ -4099,63 +4099,62 @@ def _selftest_checks(args, failures, names):
                                            handoff_stamp="2026-07-29T12:00:00"))
         except TypeError:
             _s7_seeded = False
-        _aw2 = load_awaiting(base_g)
-        for _s in ("door2", "free2", "renew2"):
-            if _s not in _aw2:      # G-215(a): an unseeded fixture fails its rows, never the suite
-                continue
-            # Aged past the policy minimum and already confirmed once, so READY is genuinely
-            # REACHABLE here. Without that, a mutant would be stopped one guard later by the
-            # two-pass rule and these rows could not fail whatever the guard did (bar 11).
-            _aw2[_s]["since"] = (datetime.now()
-                                 - timedelta(minutes=REAP_MIN_AGE_MIN + 5)).strftime(
-                                     "%Y-%m-%d %H:%M")
-            _aw2[_s]["confirmed"] = ["2026-01-01 00:00"]
-        atomic_write(awaiting_path(base_g), json.dumps(_aw2, indent=2, sort_keys=True) + "\n")
-        killed.clear()
-        _rpo = run(cmd_reap, agent="leader", go=False)
-        check("G-134/B: an observe pass that found a READY seat ends with the EXACT command that "
-              "frees it, naming the pane — the two-pass rule makes the dry sweep the normal way "
-              "to reach a reap, so a pass that reports a ready seat and no route forward sends "
-              "the reader to improvise the destructive command from memory",
-              "READY to reap" in _rpo and "%82" in _rpo
-              and "reap --go" in _rpo and killed == [])
-        check("s12-07 S2-h: a renew disposition HOLDS THE REAPER, and the dry pass says WHY — the "
-              "HELD line names `disposition=renew` and states the remedy in the leader's own "
-              "terms: the renewal executor has not acted yet, and the pane a reap would free is "
-              "the one that renewal needs. A gate that answers only yes/no teaches nobody why the "
-              "run is leaking, and this is the one blocker whose remedy is another act, not time",
-              _s7_seeded and "renew2" in _rpo and "HELD" in _rpo
-              and "disposition=renew" in _rpo
-              and "reaping now would kill the pane the renewal needs" in _rpo)
-        _aw3 = load_awaiting(base_g)
-        _aw3["free2"]["confirmed"] = []
-        atomic_write(awaiting_path(base_g), json.dumps(_aw3, indent=2, sort_keys=True) + "\n")
-        _rpq = run(cmd_reap, agent="leader", go=False)
-        check("G-134/B: and it is SILENT when nothing is READY — a hint printed on every pass is "
-              "one nobody reads, and this one names a command that kills panes",
-              "reap --go" not in _rpq and "READY to reap" not in _rpq)
-        _aw4 = load_awaiting(base_g)
-        for _s in ("door2", "free2", "renew2"):
-            if _s not in _aw4:      # G-215(a), same reason as the seeding loop above
-                continue
-            _aw4[_s]["confirmed"] = ["2026-01-01 00:00"]
-        atomic_write(awaiting_path(base_g), json.dumps(_aw4, indent=2, sort_keys=True) + "\n")
-        killed.clear()
-        _rgo = run(cmd_reap, agent="leader", go=True)
-        check("G-134/B: on the KILLING pass a blocked debt is held WITH ITS REASON NAMED, beside "
-              "an unblocked one that is actually freed — the blocker list is computed for every "
-              "debt and nothing asserted the branch that consumes it. Reporting the owner door as "
-              "'every precondition holds' states the opposite of the one fact that matters about "
-              "it. (The kill itself is separately barred by the two-pass ledger, which resets on "
-              "a blocked pass — this row claims the REPORT, not the kill)",
-              "DOOR, not a leak" in _rgo and "%81" not in killed and "%82" in killed)
-        check("s12-07 S7-b: `reap` and `reap --go` AGREE about a renew entry — the same seat is "
-              "held on the DRY pass and on the KILLING one, and --go frees NOTHING for it while "
-              "freeing its neighbour in the same sweep. The blocker lives in `reap_blockers`, "
-              "which BOTH passes call, precisely so a guard cannot exist on the pass that reports "
-              "and be missing from the pass that kills",
-              _s7_seeded and "renew2" in _rpo and "renew2" in _rgo
-              and "%83" not in killed and "%82" in killed)
+        # ⚠ THE SEEDED-DEBT ROWS ARE GONE WITH THEIR SUBJECT. They mutated `awaiting-close.json`
+        # in place (`awaiting_path`) to drive `cmd_reap`'s branches; the debt file was deleted with
+        # spec-state-store §4.1's second ending writer, and `awaiting_path` no longer exists — the
+        # rows aborted the whole suite here rather than failing. Re-pointing them at a hand-built
+        # dict would manufacture a subject the design removed. What replaces them is the LIVE
+        # subject, asserted on the real verb: the supervisor's reap debt (a registry row still
+        # present while its sitting already carries an ending) and `cmd_reap`'s arm over it.
+        _sv_reg = pkg / "coordination" / "selftest-registry.jsonl"
+        _sv_old_reg = os.environ.get("SUPERVISOR_REGISTRY")
+        os.environ["SUPERVISOR_REGISTRY"] = str(_sv_reg)
+        try:
+            # A row for a process that is REALLY GONE: this interpreter's own pid is alive, so a pid
+            # that cannot exist is used instead. A fake-but-live pid would make the reap's confirm
+            # step answer "still alive" and the row would be held for the right reason by accident.
+            _sv_dead_pid = 2 ** 22 - 1
+            _sv_reg.parent.mkdir(parents=True, exist_ok=True)
+            _sv_reg.write_text(json.dumps({
+                "goal": pkg.name, "seat": "reapme", "pid": _sv_dead_pid,
+                "start_time": "424242", "launch_token": "t", "supervision": "supervised",
+            }) + "\n", encoding="utf-8")
+            seed_ending(base_g, "reapme", disposition="done")
+            _sv_debt = supervisor_door.awaiting_reap(pkg)
+            check("G-134 successor: THE REAPER FINDS DEBTS AGAIN. `awaiting-close.json` is deleted, "
+                  "so `load_awaiting` answers `{}` by construction and this sweep could never find "
+                  "a debt — a leak guard that can never fire guards nothing. The successor fact is "
+                  "DERIVED and needs no second store: a supervisor registry row STILL PRESENT while "
+                  "its sitting ALREADY CARRIES AN ENDING is, by registry write moment (iii), a reap "
+                  "that did not complete",
+                  any(r.get("seat") == "reapme" for r in _sv_debt))
+            _sv_dry = run(cmd_reap, agent="leader", go=False)
+            check("G-134 successor: OBSERVING FREES NOTHING and says what is owed — the dry pass "
+                  "names the seat and the route forward, and the registry row is untouched. Same "
+                  "two-form rule the pane arm has: the destructive form is the one that is typed",
+                  "reapme" in _sv_dry and "reap OWED" in _sv_dry
+                  and "reapme" in _sv_reg.read_text(encoding="utf-8"))
+            _sv_go = run(cmd_reap, agent="leader", go=True)
+            check("G-134 successor: `--go` CONFIRMS THE PROCESS IS GONE AND DROPS THE ROW. Both "
+                  "halves are asserted because either alone is the bug: dropping a row for a live "
+                  "process is an invisible leak, and confirming without dropping leaves a debt that "
+                  "can never clear. The confirm is the registry probe (kill(pid,0) + /proc "
+                  "start-time), never a pane — a pane is a viewport [T4-R8]",
+                  "reapme" in _sv_go and "registry row dropped" in _sv_go
+                  and "reapme" not in _sv_reg.read_text(encoding="utf-8"))
+            check("G-134 successor: and a SECOND sweep is silent — the debt is paid, so nothing is "
+                  "reported. A guard that keeps naming a seat it already freed is one nobody reads",
+                  "reapme" not in run(cmd_reap, agent="leader", go=False))
+        finally:
+            if _sv_old_reg is None:
+                os.environ.pop("SUPERVISOR_REGISTRY", None)
+            else:
+                os.environ["SUPERVISOR_REGISTRY"] = _sv_old_reg
+            try:
+                _sv_reg.unlink()
+            except OSError:
+                pass
+
         # ---- S7-a: the field is STORED, never inferred ----
         # ⚠ THE FIXTURE IS THE CHECK — the same lesson the `exported` row one block above records.
         # The CONTROL passes every precondition and is blocked by NOTHING, so whatever blocks the
@@ -4184,40 +4183,18 @@ def _selftest_checks(args, failures, names):
               _s7_b_control == []
               and len(_s7_b_renew) == 1 and "disposition=renew" in _s7_b_renew[0]
               and _s7_b_stamped == [])
-        clear_awaiting(base_g, "door2")
-        clear_awaiting(base_g, "free2")
-        clear_awaiting(base_g, "renew2")
         _rt.unlink()
         _sh_rp = __import__("shutil")
         _sh_rp.rmtree(pkg / "workers" / "door2")
         live_tmux_panes["v"] = _rp_panes
         harness_up["v"] = None
         killed.clear()
-        seed_ending(base_g, "kappa", "%77", "/tmp/x", True)
-        _s1, _r1 = confirm_reap(base_g, "kappa", [])
-        _s2, _r2 = confirm_reap(base_g, "kappa", [])
-        check("G-134/B: TWO CONSECUTIVE PASSES means two SPACED passes — a burst cannot "
-              "manufacture a trend. Without the spacing rule `reap; reap` in one shell would "
-              "satisfy a bare counter instantly and the whole guarantee would be decorative",
-              len(_s1) == 1 and _r1 is False and len(_s2) == 1 and _r2 is False)
-        check("G-134/B: a pass whose condition FAILED resets the ledger — the rule is two "
-              "CONSECUTIVE passes, so an interruption costs the trend rather than leaving a stale "
-              "half-confirmation for an unrelated sweep an hour later to complete",
-              confirm_reap(base_g, "kappa", ["something broke"]) == ([], False))
-        _aw = load_awaiting(base_g)
-        _aw["kappa"]["confirmed"] = ["2026-01-01 00:00"]
-        atomic_write(awaiting_path(base_g), json.dumps(_aw, indent=2, sort_keys=True) + "\n")
-        check("G-134/B: and a genuinely separate second pass DOES confirm — the gate is spacing, "
-              "never a refusal to ever confirm",
-              confirm_reap(base_g, "kappa", [])[1] is True)
-        clear_awaiting(base_g, "kappa")
-        awaiting_path(base_g).write_text("{ not json", encoding="utf-8")
-        check("G-134: a corrupt awaiting-close.json reads as NO DEBT rather than raising — the "
-              "fail-safe direction differs from closing's deliberately: a lost entry costs a pane "
-              "someone finds by hand, but raising here would break `checkout`, the one act a "
-              "finishing seat must always be able to complete",
-              load_awaiting(base_g) == {} and awaiting_debts(base_g, set()) == [])
-        awaiting_path(base_g).unlink()
+        # ⚠ THE TWO-PASS LEDGER ROWS ARE GONE WITH THE SAME SUBJECT. `confirm_reap`'s spacing rule
+        # recorded its observations INSIDE the awaiting-close entry, so every row that drove it had
+        # to write `awaiting_path` — the file that no longer exists. The supervisor's reap is not a
+        # pane kill and needs no trend before it acts: its confirm step is a DIRECT observation of
+        # the process (kill(pid,0) + /proc start-time), which is the evidence the two-pass rule was
+        # a proxy for. Nothing was re-pointed; the rows above assert the act that replaced it.
 
         # ---- kill-pane (task 7.91): a direct, single-pane reap; close-seat's shape, narrower ----
         # scope (kills the pane only -- no transcript export, no roster mutation, no session

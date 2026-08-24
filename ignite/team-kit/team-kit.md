@@ -12,8 +12,12 @@ with the full improvement set that run's observer logged. Run-agnostic and reusa
 workspace's builds; promoted into the rbtv repo (ignite module) on 2026-07-26 after three proving
 runs.
 
-Checkout and the session closer write the ONE ending store via `ending_store.py`
-(`state-store/cli.js`). `sessions.csv` is session bookkeeping, not a second work-state writer.
+Checkout writes the ONE ending store via `ending_store.py` (`state-store/cli.js`).
+The session closer (`attest-exit`, both lanes) writes NO ending of its own: it hands the
+witnessed evidence to the supervisor through `supervisor_door.py`
+(`supervisor/cli.js --op stampDeath`), and the supervisor's one evidence table decides
+the ending and performs the reap [spec-supervisor §3/§4]. The word `exited` is retired.
+`sessions.csv` is session bookkeeping, not a second work-state writer.
 
 | File | What it is |
 |------|-----------|

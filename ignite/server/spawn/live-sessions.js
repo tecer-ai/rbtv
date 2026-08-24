@@ -289,7 +289,11 @@ function createLiveSessions({
     child.stdout.on('data', (d) => onStdout(s, d));
     child.stderr.on('data', (d) => { try { s.logStream.write(d); } catch {} });
     child.on('error', (err) => finish(s, `carrier-error:${err.message}`));
-    child.on('exit', (code, signal) => finish(s, `exited:${code == null ? signal : code}`));
+    // `process-exit:`, NOT `exited:` — this string travels into the death stamp's evidence
+    // pointer, and `exited` is killed vocabulary [T1-R3]: a reader who finds that word on an
+    // ending record cannot tell a retired ending word from a log fragment that happens to
+    // spell it. The fact is the same; only the spelling that collides is gone.
+    child.on('exit', (code, signal) => finish(s, `process-exit:${code == null ? signal : code}`));
 
     // Held on `s` so `finish()` can order its close AFTER the row exists — a close that outran
     // the append would leave the very open row it exists to prevent.
@@ -402,10 +406,11 @@ function createLiveSessions({
     // execution row BY DESIGN (header ⚑), so the ticker's status-keyed sweep never reaches it,
     // and a row left OPEN leaves the seat with no ending at all (2026-08-18 incident).
     //
-    // Same closer, same `--force-dead` witnessed-death claim as the ticker's own sweep, so the
-    // ending it stamps is the same one: `failed` / `reason_class=crash`, never `exited`
-    // [T1-R1, T1-R18, T4-R7]. Ordered after `recordSitting`'s append so a fast death cannot close
-    // a row that isn't written yet.
+    // Same closer, same `--force-dead` witnessed-death claim as the ticker's own sweep, and the
+    // closer no longer decides the ending at all: it hands the SUPERVISOR the evidence and the
+    // supervisor's one table stamps `failed` / `reason_class=crash` for a death nobody declared
+    // [T1-R1, T1-R18, T4-R7, spec-supervisor §3/§4]. Ordered after `recordSitting`'s append so a
+    // fast death cannot close a row that isn't written yet.
     //
     // ⚠ THE EVIDENCE IS THIS MODULE'S TO SUPPLY. §1.4 requires a `crash` pointer to name the
     // observed death; a live session has no carrier exit status, so the REASON it ended plus its

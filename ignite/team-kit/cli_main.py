@@ -1242,22 +1242,24 @@ def build_parser():
         "The kit writes the check-out a one-shot harness could not (dag-11, F1). A seat is\n"
         "EXIT-ATTESTABLE when the sensor reports it in state.json's roster_absent, its descriptor\n"
         "declares `mode: one-shot`, it has no check-out of its own, no live lifecycle executor\n"
-        "holds it, and the absence has held longer than one full sensor cadence. It then records\n"
-        "disposition `exited` — THE HARNESS TERMINATED, and nothing more: whether the work is\n"
-        "done is NOT established here, and the row routes to the leader. BARE = report only.",
+        "holds it, and the absence has held longer than one full sensor cadence. It then hands\n"
+        "the SUPERVISOR the evidence it witnessed and the supervisor stamps the ending: a seat\n"
+        "that declared `done`/`incomplete` has that declaration stand and is reaped; a process\n"
+        "that died declaring nothing is `failed` with a mandatory reason class. This door stamps\n"
+        "nothing of its own [spec-supervisor §3]. BARE = report only.",
         "example:\n"
         "  coordinate attest-exit                    # report every candidate, write nothing\n"
         "  coordinate attest-exit --seat oc2 --go    # act on one\n"
-        "next: coordinate ready-seats — an `exited` row advances no edge until the leader "
-        "relaunches the seat or flips its disposition to `done`")
+        "next: coordinate ready-seats — a `failed` row advances no edge until the leader "
+        "relaunches the seat")
     s.add_argument("--seat", help="one seat to consider; default is every roster_absent candidate")
     # ── W1, THE DAEMON-LANE ARM. `--session` is the ROW KEY and never a filter: it selects the one
     # row the caller opened, which is what keeps a close off a concurrent sitting's live row.
     s.add_argument("--session", metavar="ID",
                    help="(daemon lane) close the sessions.csv row carrying THIS session-id — the "
                         "id the daemon itself wrote at spawn. Checkout has already written any "
-                        "ending the seat declared for itself; this arm stamps the system "
-                        "`failed`/`crash` for a death no seat could witness. No tmux, no sensor "
+                        "ending the seat declared for itself; this arm hands the supervisor the "
+                        "evidence for a death no seat could witness. No tmux, no sensor "
                         "snapshot, no name matching")
     s.add_argument("--force-dead", action="store_true",
                    help="(daemon lane, with --session) the CALLER witnessed the process exit, so "
@@ -1269,10 +1271,11 @@ def build_parser():
     # Absent, the stamp falls back to the transcript path, which is a weaker pointer, never none.
     s.add_argument("--evidence", metavar="TEXT", default="",
                    help="(daemon lane) the witnessed-death evidence pointer — exit code plus the "
-                        "transcript-tail path. Stored verbatim on the `failed`/`crash` row")
+                        "transcript-tail path. Passed to the supervisor and stored verbatim on "
+                        "the `failed`/`crash` row it stamps")
     s.add_argument("--go", action="store_true",
-                   help="ACT: export, flip the roster row, stamp `failed`/`crash`, close the "
-                        "session row")
+                   help="ACT: export, flip the roster row, close the session row, and hand the "
+                        "supervisor the evidence it stamps the ending from")
     s.set_defaults(func=cmd_attest_exit)
 
     s = command(

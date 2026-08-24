@@ -424,15 +424,15 @@ function appendForegroundSessionRow({ goalFolder, seat, sessionId, harness, mode
 // row we added; the row needs its closer or it should not exist.
 //
 // THE CARRIER IS THE ONE HONEST WITNESS. It blocks on the child, so it OBSERVES the termination —
-// which is exactly the fact `coord.py` reserves the value `exited` for: *"the kit attesting that a
-// harness terminated, a fact a seat cannot witness about itself"* (`RECORD_DISPOSITION_WRITER`:
-// `exited` belongs to the `kit`). So:
+// the one fact a seat cannot witness about itself. And observing a termination is ALL it does here:
 //   `ended`              stamped, which is what closes the sitting
-//   `disposition`        `exited` — NEVER `done`. `done` is the seat reporting its own work
-//                        finished, which no exit code can assert; `exited` marks NOT-done for every
-//                        reader (edge-runner: `renew`/`revive`/`exited` do not advance the fast
-//                        path), so nothing is advanced on an attestation nobody made.
-//   `disposition-writer` `kit`, the pair the value was validated against.
+//   `disposition`        NOT WRITTEN. It used to be stamped `exited`, a fifth ending word carrying
+//                        no reason; that word is dead [T1-R3, T4-R7] and this carrier is not the
+//                        place its successor is decided. An ENDING is the supervisor's to stamp
+//                        from evidence (`supervisor/death-stamp.js`), and a `done` is the seat's
+//                        own to declare — neither is derivable from an exit code, so this closer
+//                        asserts neither and leaves the cell to whichever of the two writes it.
+//   `disposition-writer` likewise untouched.
 // The child's exit CODE is not a column of this schema and is not invented into one: it is already
 // on the `jobs_log` row this session id joins to (`done` / `failed`, written a few lines below).
 //
@@ -590,10 +590,10 @@ function runForegroundSeat({
   // …and its CLOSE half, from the one witness of the termination. Before the execution row is
   // touched: an unclosed trace row is what makes a finished seat read as an open sitting forever.
   closeForegroundSessionRow({ goalFolder, sessionId, logger });
-  // The record's outcome, from the same witness. The TRACE says the process ended (`exited` — a
-  // fact about a process, which is all an exit code can attest); the RECORD says what became of the
-  // WORK, in the store's own turn vocabulary. That is the `done`-vs-`exited` divergence dissolving:
-  // two surfaces, two questions, one answer each (#d-s23-single-execution-record-now).
+  // The record's outcome, from the same witness. The TRACE says the process ENDED (a fact about a
+  // process, which is all an exit code can attest); the RECORD says what became of the WORK, in the
+  // store's own turn vocabulary. That is the process-vs-work divergence dissolving: two surfaces,
+  // two questions, one answer each (#d-s23-single-execution-record-now).
   closeExecution({ goalFolder, sessionId, outcome: '', endedAt: isoNow() });
   // ⚠ NO HOLD IS DECIDED HERE ANY MORE (W2). This site used to call `outcomeForSeat`, which read
   // the goal's bus and the ferry's gates to decide whether a carried seat's `done` should publish
@@ -653,25 +653,19 @@ function runForegroundSeat({
 //   blocking child returns, before any tick can look — and the runner's tick loop cannot even run
 //   while that child holds the terminal. Different stores, besides: this lane's is `<goal>/heart.db`.
 //
-//   THEY CANNOT DISAGREE ON A VALUE, TODAY. The daemon closer's value comes from the seat's own
-//   `awaiting-close.json` declaration and falls back to `exited` when nobody declared — and on THIS
-//   lane nobody can: a console-lane seat's check-out is refused `E_GOAL_NOT_LIVE` (there is no tmux
-//   room), which is the very reason the constant below exists. So both closers write `exited`.
-//
-// ⚠ TRIPWIRE — the second paragraph is a fact about TODAY, not a law. The day a console-lane seat
-// can check out, `FOREGROUND_DISPOSITION` starts overwriting a real declaration with `exited`, and
-// THAT is disposition skew manufactured by this file. At that moment this function and its sibling
-// must route through the one coord closer instead (the upgrade path `closeForegroundSessionRow`'s
-// own ponytail note already names). It is not done pre-emptively: it would trade an in-process
-// write for a python subprocess on the lane where the owner watches it run, to fix nothing yet.
+//   THEY CANNOT DISAGREE ON A VALUE, and no longer because the two values happen to match: this
+//   lane's closer writes NO disposition at all (see the block above), and the daemon closer writes
+//   none either — it hands the supervisor its evidence and the supervisor stamps the ENDING, in the
+//   ending store, which is a different surface from `sessions.csv` entirely [spec-supervisor §3].
+//   The skew this paragraph used to guard against needed two writers of one cell; there is one.
 //
 // ⚠ WHAT IS *NOT* FIXED HERE, AND WHY IT IS LEFT STANDING. This function ends the STORE rows and
 // closes NO `sessions.csv` row, so an interrupted foreground seat leaks an open sitting forever —
 // F3 on the attached lane. The one-line fix (call `closeForegroundSessionRow` for each row before
-// ending it) was WRITTEN AND REVERTED inside W1's build: measured 2026-08-13, it turns
-// `probe-foreground-carrier` from PASS to FAIL on three checks, because stamping `ended`+`exited`
-// on that row changes what coord's readiness view says about the seat — a real behaviour change
-// that W1 neither scoped nor land-tests. It is a follow-up with its own acceptance, not a rider.
+// ending it) was WRITTEN AND REVERTED inside W1's build: measured 2026-08-13, it turned
+// `probe-foreground-carrier` from PASS to FAIL on three checks, because stamping the row changed
+// what coord's readiness view said about the seat — a real behaviour change that W1 neither scoped
+// nor land-tests. It is a follow-up with its own acceptance, not a rider.
 function reconcileForegroundOrphans(heartStore, { logger = null, endedAt = new Date() } = {}) {
   const ended = [];
   for (const status of LIVE_TURN_STATUSES) {

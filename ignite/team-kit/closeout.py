@@ -316,8 +316,53 @@ def cmd_panel(args):
             C_HINT))
 
 
+# ── THE REAP DEBT, AFTER THE DEBT FILE ────────────────────────────────────────────────────────
+#
+# `awaiting-close.json` is gone (spec-state-store §4.1 Row A deleted the second ending writer), and
+# with it the reaper's whole subject: `load_awaiting` answers `{}` by construction, so this sweep
+# could never find a debt again and the G-134 pane-leak guard became decorative. The SUCCESSOR fact
+# needs no second store and is the supervisor's: a registry row STILL PRESENT while its sitting
+# ALREADY CARRIES AN ENDING is, by registry write moment (iii), a reap that has not completed.
+#
+# ⚠ IT IS THE PROCESS THAT IS REAPED HERE, NOT A PANE, and that is the redesign's direction, not an
+# omission. [T4-R8] deletes the pane as a liveness surface — it is a viewport — so a reaper keyed on
+# pane ids would rebuild the predicate spec-supervisor §6 retires. The confirm step is the registry
+# probe (`kill(pid,0)` + /proc start-time) and the reap is the row drop, both inside the supervisor.
+def supervisor_reap_arm(args, go):
+    """The supervisor-backed half of the sweep. `(freed_lines, held_lines)`; never raises.
+
+    OBSERVING IS UNGATED, exactly as the pane arm below: a bare `reap` reports the debt and frees
+    nothing. `--go` is what acts."""
+    freed, held = [], []
+    try:
+        pkg = package_dir(args, register=False)
+        rows = supervisor_door.awaiting_reap(pkg)
+    except (supervisor_door.SupervisorError, OSError, ValueError) as exc:
+        return [], [f"supervisor reap debt: UNREADABLE — {exc}"]
+    for row in rows or []:
+        seat = row.get("seat") or "(unnamed)"
+        pid = row.get("pid")
+        if not go:
+            held.append(f"{seat}: reap OWED — its sitting carries an ending and its registry row is "
+                        f"still here (pid {pid}, "
+                        + ("still ALIVE" if row.get("alive") else "process gone")
+                        + "). Re-run with --go.")
+            continue
+        try:
+            res = supervisor_door.confirm_and_reap(pkg, seat, pid=pid,
+                                                   start_time=row.get("start_time"))
+        except (supervisor_door.SupervisorError, OSError, ValueError) as exc:
+            held.append(f"{seat}: reap FAILED — {exc}")
+            continue
+        if (res or {}).get("reaped"):
+            freed.append(f"{seat}: process confirmed gone; registry row dropped")
+        else:
+            held.append(f"{seat}: HELD — {(res or {}).get('reason') or 'the reap did not complete'}")
+    return freed, held
+
+
 def cmd_reap(args):
-    """One sweep pass over the awaiting-close debt: observe, confirm, and — only with --go — free.
+    """One sweep pass over the reap debt: observe, confirm, and — only with --go — free.
 
     OBSERVES BY DEFAULT AND SAYS SO. `reap` kills panes, so the destructive form is the one that
     must be typed, not the safe one. A bare `reap` reports the debt and records this pass's
@@ -344,12 +389,18 @@ def cmd_reap(args):
         gate(args, "reap --go")
     base = base_dir(args)
     panes = live_panes()
+    supervisor_reaped, supervisor_held = supervisor_reap_arm(args, go)
     debts = awaiting_debts(base, panes)
     if not debts:
-        print("no awaiting-close debt — every finished seat has been closed")
+        for line in supervisor_held:
+            print(c(f"  {line}", C_HINT))
+        for line in supervisor_reaped:
+            print(c(f"  {line}", C_ALIVE))
+        if not (supervisor_held or supervisor_reaped):
+            print("no reap debt — every sitting with an ending has been reaped")
         return
     decls = inbox_decls(args)
-    freed, held = [], []
+    freed, held = list(supervisor_reaped), list(supervisor_held)
     for seat, entry, age, _alive in debts:
         # ponytail: `base.parent` is the goal folder because `base_dir` builds it as
         # `<goal>/coordination`; under an explicit `--base` override it is not, and the pipe-pane

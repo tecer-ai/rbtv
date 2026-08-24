@@ -46,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import budget as budget_mod  # noqa: E402 — the ONE reader of the run's declared floor (task 7.82)
 import gateway_client  # noqa: E402 — stdlib-only gateway wire, `gateway-status` (task 7.57)
 import ending_store  # noqa: E402 — kit door onto the ONE ending store (spec-state-store §4.1)
+import supervisor_door  # noqa: E402 — kit door onto the ONE death stamp (spec-supervisor §3/§4)
 
 try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
     import fcntl
