@@ -38,7 +38,9 @@ Refuse is a **value**: `kind: conflict` carries the pair; `kind: unresolved` car
 
 `require('./stamp')`: `stampLaunchRefused` writes `failed` / `reason_class: launch-refused` through the ending-store WRITE API.
 
-`require('./shims')`: `writeConfigShims` copies harness stores and stools/gtools `config.yaml` into `{goal}/scratch/config-shims/` at launch. Real store paths never join the bind list.
+`require('./shims')`: `writeConfigShims` copies an **enumerated set of config files** — never a store directory — into `{goal}/scratch/config-shims/` at launch: `~/.claude.json`, `~/.claude/settings.json`, `~/.claude/.credentials.json`, `~/.codex/config.toml`, `~/.codex/auth.json`, `~/.config/opencode/opencode.json{,c}`, `~/.local/share/opencode/{auth,mcp-auth}.json`, and the stools/gtools `config.yaml`. Real store paths never join the bind list. A store's data tree is orders of magnitude larger than its config (`~/.local/share/opencode` is a 6.4 GB session database) — widening an entry to its parent directory fills the disk on one launch.
+
+`admitLaunch` **creates `{goal}/scratch` before it compiles**. Template family 4 bakes that path and the compiler refuses any baked path that does not resolve, so the launch step that writes the shims into scratch is also the step that materializes it; compiling first refused every first launch of every goal.
 
 `require('./wall-report')`: `writeWallReport` writes `{path, family-match, seat, goal}`. `family-match` is `cache` / `config` / `temp` / `none`. No Slack post.
 

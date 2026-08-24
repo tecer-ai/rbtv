@@ -6,12 +6,27 @@ const path = require('node:path');
 
 const SHIM_DIRNAME = 'config-shims';
 
+// ⚠ EVERY ENTRY IS A CONFIG *FILE*, NEVER A STORE DIRECTORY. Spec §8's shim carries "the config
+// the tool reads", and a harness store is config files sitting inside a data tree: `~/.claude`
+// holds 3.7 GB of transcripts beside its 3 KB `settings.json`, and `~/.local/share/opencode`
+// holds a 6.4 GB session database beside its 1.5 KB `auth.json`. The first cut of this file
+// copied the store trees and wrote ~11 GB into goal scratch on ONE launch, filling the disk.
+// A store that grows a new config file is added here by name — never by widening to its parent.
 const HARNESS_STORES = {
-  claude: (home) => [path.join(home, '.claude'), path.join(home, '.claude.json')],
-  codex: (home) => [path.join(home, '.codex')],
+  claude: (home) => [
+    path.join(home, '.claude.json'),
+    path.join(home, '.claude', 'settings.json'),
+    path.join(home, '.claude', '.credentials.json'),
+  ],
+  codex: (home) => [
+    path.join(home, '.codex', 'config.toml'),
+    path.join(home, '.codex', 'auth.json'),
+  ],
   opencode: (home) => [
-    path.join(home, '.config', 'opencode'),
-    path.join(home, '.local', 'share', 'opencode'),
+    path.join(home, '.config', 'opencode', 'opencode.jsonc'),
+    path.join(home, '.config', 'opencode', 'opencode.json'),
+    path.join(home, '.local', 'share', 'opencode', 'auth.json'),
+    path.join(home, '.local', 'share', 'opencode', 'mcp-auth.json'),
   ],
 };
 
@@ -20,12 +35,7 @@ const TOOL_CONFIGS = {
   gtools: (...roots) => roots.map((r) => path.join(r, '3-resources', 'tools', 'gtools', 'config.yaml')),
 };
 
-function copyInto(src, dest) {
-  const st = fs.statSync(src);
-  if (st.isDirectory()) {
-    fs.cpSync(src, dest, { recursive: true, dereference: true });
-    return;
-  }
+function copyFileInto(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.copyFileSync(src, dest);
 }
@@ -52,7 +62,7 @@ function writeConfigShims(input) {
       if (!fs.existsSync(src)) continue;
       sources.push(src);
       const dest = path.join(dir, 'harness', harness, path.basename(src));
-      copyInto(src, dest);
+      copyFileInto(src, dest);
       files.push({ kind: 'harness', harness, source: src, dest });
     }
   }
@@ -63,7 +73,7 @@ function writeConfigShims(input) {
     if (!src) continue;
     sources.push(src);
     const dest = path.join(dir, 'tools', tool, 'config.yaml');
-    copyInto(src, dest);
+    copyFileInto(src, dest);
     files.push({ kind: 'tool', tool, source: src, dest });
   }
 

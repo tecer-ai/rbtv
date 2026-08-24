@@ -54,15 +54,29 @@ function extraPathsOf(fill) {
   return fill.extraPaths || [];
 }
 
+// ⚠ THE GOAL SCRATCH FOLDER IS MATERIALIZED HERE, BEFORE THE COMPILE — ORDER IS LOAD-BEARING.
+// Template family 4 (`scratch-temp`) bakes `{workspace}/.rbtv/goals/{goal}/scratch`, and the
+// compiler resolves every baked family path or refuses `unresolved`. Nothing else on the launch
+// path creates that folder, so a compile-first order refused EVERY first launch of every goal
+// with `E_LAUNCH_REFUSED unresolved …/scratch`. Scratch is a launch-time daemon artifact — the
+// same launch step that writes the §8 config shims into it is the step that creates it.
+function ensureGoalScratch(goalDir) {
+  if (!goalDir) return null;
+  const dir = path.join(goalDir, 'scratch');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function admitLaunch(raw) {
-  const compiled = consumeLaunch(raw);
-  if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
+  ensureGoalScratch(raw.goalDir);
   const shims = writeConfigShims({
     goalDir: raw.goalDir,
     home: raw.home || os.homedir(),
     workspaceRoot: raw.workspaceRoot,
     rbtvRepo: raw.rbtvRepo,
   });
+  const compiled = consumeLaunch(raw);
+  if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
   return {
     spawn: true,
     binds: compiled.binds,
