@@ -40,6 +40,7 @@ const {
 const { authorizedCarve } = require('../../envelope/compiler');
 const { loadCentralStore, injectDeclaredEnv } = require('../../envelope/credentials');
 const { stampLaunchRefused } = require('../../envelope/stamp');
+const { superviseSpawn } = require('../../supervisor/doors');
 const {
   generateSessionId,
   selectCarrier,
@@ -1673,6 +1674,51 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     const pidStarttime = await resolvePidStarttime(carrier, pid, unitName);
     const startedAt = new Date();
 
+    // ── SUPERVISOR SPAWN — registry write moment (i) [spec-supervisor §1, §3, T4-R7, C-15] ────
+    //
+    // THE PID EXISTS AND NOTHING DURABLE KNOWS IT YET. That gap is the whole of C-15: the daemon's
+    // view of what it had spawned lived in memory, so a watchdog restart came up empty, absence
+    // read as death, and every live seat was eligible to be stamped `failed` at once. This is the
+    // FIRST line after the pair (pid + /proc start-time) is resolvable, and it is deliberately
+    // AHEAD of the `sessions.csv` row and the heart-store status update: those two are records
+    // ABOUT the launch, and a crash between the spawn and them would leave a live process this
+    // daemon could never re-adopt.
+    //
+    // The DOOR is derived from `enqueuedBy`, the identity the launch already carried in from its
+    // queue row (`seeding.js` → `attached-execution`, `reconcile.js` → `goal-watcher`, the
+    // `--rerun` composer → its own `leader-rerun-…` reason token). A launcher the door list does
+    // not know is NOT refused — a process is already running, so refusing here would be a lie —
+    // it is recorded `unsupervised` and said out loud [T4-R7].
+    //
+    // `launch_token` is the session id: the daemon-minted identity this door mints before argv is
+    // composed, and NOT the pane and NOT the cgroup [T2-R8]. Minting is untouched by this call.
+    //
+    // Failure is LOUD and never fatal, the same posture the session-row write one block below
+    // takes and for the same reason: a live process must never be lost to a bookkeeping throw.
+    try {
+      const supervised = superviseSpawn({
+        launcher: enqueuedBy,
+        goal: dispatchSeat.goal || '',
+        seat: dispatchSeat.seat,
+        pid,
+        start_time: pidStarttime,
+        launch_token: sessionId,
+      });
+      if (supervised.unsupervised) {
+        log('warn', 'launch is on NO supervisor door — recorded UNSUPERVISED, not silently live [T4-R7]', {
+          seat: dispatchSeat.seat, goal: dispatchSeat.goal || '', enqueuedBy, sessionId,
+        });
+      } else {
+        log('info', 'supervised sitting registered', {
+          door: supervised.door, seat: dispatchSeat.seat, goal: dispatchSeat.goal || '', pid,
+        });
+      }
+    } catch (err) {
+      log('warn', 'supervisor registry write FAILED — this sitting cannot be re-adopted after a restart', {
+        seat: dispatchSeat.seat, goal: dispatchSeat.goal || '', pid, error: err.message,
+      });
+    }
+
     // ── Task 7.75 · THE AT-DISPATCH RECORD ───────────────────────────────────────────────────
     //
     // The other half of the clause, and the half that makes the refusal above worth having: an
@@ -1981,6 +2027,30 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // is NOT identity either: an in-place respawn reuses the pane id (run issue G-12). The scope
     // unit name is the third handle, and the only one a respawn cannot reproduce.
     const pidStarttime = panePid ? (setsidStatus(panePid).pidStarttime || null) : null;
+
+    // SUPERVISOR SPAWN — the SAME write moment on the headed door. The two doors are the daemon's
+    // whole launch surface, and a registry that only one of them writes to is a registry that says
+    // a headed seat was never born. The pane is not the identity here either: it is the pid pair
+    // that is registered, because an in-place respawn reuses the pane id (G-12) [T4-R8].
+    try {
+      const supervised = superviseSpawn({
+        launcher: enqueuedBy,
+        goal: seatPath.goal || '',
+        seat: seatPath.seat,
+        pid: panePid,
+        start_time: pidStarttime,
+        launch_token: sessionId,
+      });
+      if (supervised.unsupervised) {
+        log('warn', 'seat launch is on NO supervisor door — recorded UNSUPERVISED, not silently live [T4-R7]', {
+          seat: seatPath.seat, goal: seatPath.goal || '', enqueuedBy, sessionId,
+        });
+      }
+    } catch (err) {
+      log('warn', 'supervisor registry write FAILED — this sitting cannot be re-adopted after a restart', {
+        seat: seatPath.seat, goal: seatPath.goal || '', pid: panePid, error: err.message,
+      });
+    }
 
     // ── Task 7.11 §4a — register the occupant in the run-level session log ───────────────────
     //

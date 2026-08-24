@@ -66,6 +66,7 @@ const { deriveLease } = require('../server/lease/lease');
 // The ONE quote-aware row splitter this module already has (`execution-record.js` reads the goal's
 // record with it). Reusing it is the whole CSV fix — see below.
 const { splitRow } = require('../server/seat-identity/csv');
+const { DOORS, refuseLaunch } = require('../supervisor/doors');
 
 const TASKFORCE = 'taskforce.csv';
 
@@ -792,7 +793,13 @@ function enqueueEligible(heartStore, rows, {
       sessionMode: 'headless',
       triggerKind: 'scheduled',
       runAt: isoNow(),
-      enqueuedBy: 'attached-execution',
+      // ── THE SEEDING DOOR'S NAME [spec-supervisor §3, T4-R7] ────────────────────────────────
+      // Read off the supervisor's door list rather than spelled here, because this string is what
+      // travels: the queue row carries it as `enqueued_by`, `ticker.js#launchAgent` threads it
+      // into `spawn()`, and `doors.js#doorForLauncher` turns it back into the door name at the pid
+      // moment. Two spellings of it — one here, one in the door list — is a launch that silently
+      // becomes UNSUPERVISED the day either side is edited.
+      enqueuedBy: DOORS.seeding.launcher,
     });
     if (enq && enq.deduped) {
       if (suppressedEnqueues) {
@@ -867,7 +874,17 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
         });
       }
       surfaceCageRefusal(goalFolder, goal, notLive, logger);
+      // ── E_GOAL_NOT_LIVE IS A SUPERVISOR-OWNED REFUSAL [spec-supervisor §3, T4-R7] ───────────
+      //
+      // The room is down, so no process can be born — and the refusal is the SUPERVISOR's word,
+      // not seeding's own, because the three absences it asserts are the supervisor's subject:
+      // nothing spawned (no registry row), nothing stamped (a refused launch is not a dead seat,
+      // and stamping one would put a `failed` on a seat that never ran), nothing enqueued
+      // (G-leader-0818-1830 burned two relaunch grants on launches the spawn door was always
+      // going to refuse). It is NOT a seat `failed` — that class is envelope's `launch-refused`.
+      const refusal = refuseLaunch({ door: 'goal-not-live', goal, evidence: notLive });
       return {
+        launchRefused: refusal,
         goalFolder, goal, seats: readTaskforce(goalFolder).map((r) => r.seat), enqueued: [], seeds: {},
         skippedAsFinished: [], heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {},
         readinessRefused: null, goalNotLive: notLive, skewed: [], frozen: null,

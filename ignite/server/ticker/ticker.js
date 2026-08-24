@@ -25,6 +25,7 @@ const { expandArgv, checkFireToolWorkdir } = require('../heart/argv-template');
 // spelling here would be a second definition that drifts (that module's own opening argument).
 const { resolveSeatHome, parseSeatPath } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
+const { probeSitting } = require('../../supervisor/probe');
 // `bindingOf` — the resume-ref foreign-harness gate below (D28) needs "which harness will this
 // spec run?". It is answered by the SAME reader `profiles.js#validateSpecKey` trusts to keep a
 // spec's key honest (basename of exec.argv[0]) — NOT `injection-ladder#harnessOf`, which matches
@@ -1884,7 +1885,30 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     for (const exec of liveBeforeCrash) {
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
-      if (!info.live) {
+      // ── "IS IT ALIVE" IS THE REGISTRY'S ANSWER, NOT THE CARRIER'S [spec-supervisor §6, T4-R8] ─
+      //
+      // This sweep is the DEATH DOOR, so the predicate it forks on decides whether a seat gets
+      // stamped. It used to fork on `spawnManager.status().live` — a carrier reading (a systemd
+      // unit's state, a setsid pid, a tmux pane), which is one of the three disjoint predicates
+      // spec-supervisor §6 retires: a pane is a viewport, a carrier is identity, and neither is a
+      // heartbeat. The supervisor registry answers now, on the pid + /proc start-time pair it
+      // persisted at the spawn door.
+      //
+      // ⚠ THE `null` ARM IS LOAD-BEARING AND IS NOT "PROBABLY DEAD". `alive: null` means the
+      // sitting has NO registry row — a seat born outside the daemon and not yet checked in, or a
+      // store row predating this registry. Treating that as death is precisely the mass-restamp
+      // hole (C-15), so an unsupervised sitting falls back to the carrier reading rather than
+      // being swept, and a supervised one is decided by the registry alone.
+      //
+      // `info` is still read either way: the exit code and carrier marker below are EVIDENCE for
+      // the stamp (§1.4 requires a `crash` row to carry one), which is a different question from
+      // liveness and the one the carrier can actually answer.
+      const seatOfExec = exec.workdir ? parseSeatPath(exec.workdir) : null;
+      const probed = seatOfExec
+        ? probeSitting({ goal: seatOfExec.goal || '', seat: seatOfExec.seat })
+        : { alive: null };
+      const processGone = probed.alive === null ? !info.live : probed.alive === false;
+      if (processGone) {
         // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
         // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.
         //

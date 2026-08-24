@@ -30,6 +30,7 @@ const {
   readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce,
 } = require('./seeding');
 const { classifyOwed } = require('./owed-from-endings');
+const { DOORS } = require('../supervisor/doors');
 // D52/D66 (2026-08-22) — ONE shared bound, owned by the door (heart-store.js), imported here
 // rather than kept as a second literal. This is a VALUE import only (a number) — HeartStore
 // still must not import engine code, and this direction (engine → server) is the existing one
@@ -375,7 +376,13 @@ function launchSitting({
     sessionMode: 'headless',
     triggerKind: 'scheduled',
     runAt: isoNow(),
-    enqueuedBy: 'goal-watcher',
+    // ── THE RECONCILE DOOR'S NAME [spec-supervisor §3, T4-R7] ──────────────────────────────
+    // Off the supervisor's door list for the same reason seeding's is: this string is what turns
+    // back into the door name at the pid moment (`doors.js#doorForLauncher`), so a second spelling
+    // of it here is a reconcile launch that silently registers UNSUPERVISED. Reconcile's launches
+    // therefore go through supervisor spawn and never become a second enqueue — `deriveOwed` stays
+    // the owed COMPUTER, and the unification of the two computers is owed-unify's act, not this.
+    enqueuedBy: DOORS.reconcile.launcher,
     onSeatBusy: 'queue',
     // D52/D66 — the watcher already derives BOTH of these (reconcileGoal's launchTargets); they
     // used to be dropped before enqueue. Threaded through as first-class request fields (never as
