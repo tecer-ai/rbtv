@@ -85,8 +85,8 @@ verdict — a stage that receives a markerless or thin upstream artifact never r
 that should have produced it.
 
 **Next-stage launch** is the ordinary task-graph `after` edge — no splice, no new mechanism. The old
-17-row per-milestone splice (goal-level phase + a per-milestone team of nine) is retired teaching:
-it does not run inside this workflow. `plan-interviewer`, `plan-completeness-reviewer`,
-`plan-splitter`, `plan-dag-structurer`, and every per-milestone-phase seat (`plan-task-definer`
-through `plan-planner`) remain cataloged in `seats.csv` — their retirement from the catalog is a
-later change, not this one — but none of them holds a node in `planning.csv` any longer.
+17-row per-milestone splice (a goal-level phase plus a per-milestone team) is GONE, not merely
+unused: its seventeen seat rows and their orphaned prompt/task files were deleted from `seats.csv`
+and the pools on 2026-08-24. Nothing in this component defines an interviewer, a splitter, a
+dag-structurer, a per-milestone definer/assembler/binder, a check swarm, or a collapsed-mode
+planner any more, and no `planning-mode` fork exists to choose between them.

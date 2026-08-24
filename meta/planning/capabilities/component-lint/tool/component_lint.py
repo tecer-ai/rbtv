@@ -122,8 +122,7 @@ GUARD = re.compile(r"^([A-Za-z0-9_.-]+)(?:\[([A-Za-z0-9_.-]+)=([^\]]+)\])?$")
 # read declares nothing, whatever it says.
 DECLARED_PATH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
 OUTPUTS_SECTION = re.compile(r"##\s*Outputs\s*(.*?)(?=\n##\s|\Z)", re.S)
-# Owner: the authored convention in prompts/dag-structurer.md and
-# prompts/interviewer.md, stated as a rule in references/kind-io-spec.md — a
+# Owner: the convention stated as a rule in references/kind-io-spec.md — a
 # `.json` output NAMES its top-level fields as backticked bare tokens in the
 # same bullet that declares the artifact.
 FIELD_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+)`")
@@ -929,11 +928,18 @@ def check_dimension_roster(c, out, census):
             roster[stem] = m.group(1)
     census["dimensions"] = len(roster)
     if not roster:
-        # Vacuity tripwire, scoped (7.625): check-* task stems are the sign a
-        # check swarm exists — zero dimension clauses AMONG check-* tasks means
-        # the clause parse broke, but a component with no check-* tasks at all
-        # (master) has no roster to check and passes clean.
-        if any(stem.startswith("check-") for stem in (c.tasks or {})):
+        # Vacuity tripwire, scoped (7.625): the sign a check SWARM exists is a
+        # check-* task held by a MANIFEST ROW — the same sign the converse
+        # branch at the end of this check uses. Zero dimension clauses under
+        # that sign means the clause parse broke. A check-* task STEM alone is
+        # NOT the sign: a component may hold a lone check-* task that is no
+        # dimension at all (planning's `check-unblocked`, a judge-pool seat
+        # with no manifest node, after the check swarm was retired), and a
+        # component with no check rows at all (master) has no roster to check
+        # and passes clean.
+        swarm_seats = {r["seat"] for m in (c.manifests or []) for r in m["rows"]}
+        if any(row["task"].startswith("check-") and row["seat-id"] in swarm_seats
+               for row in (c.seats["rows"] if c.seats else [])):
             _fail(out, "dimension-roster", c.root / "tasks",
                   "check-* task files exist but 0 carry a dimension clause — nothing was checked")
         return

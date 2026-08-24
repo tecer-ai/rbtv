@@ -1,25 +1,8 @@
 seat-id,executor,task,staffing-hints,description,goal-writes,cage-grants,rw-paths,on-fail-relaunch
-plan-interviewer,interviewer,interview-goal,,"Goal-level: owner interview to a ratified goal.md + definition of done",goal.md
-plan-completeness-reviewer,completeness-reviewer,review-goal-completeness,,"Goal-level: adversarial completeness review of the ratified definition of done — missing actors, unstated inputs, undefined failure behaviour, implicit assumptions, uncovered edges",goal.md
-plan-splitter,splitter,split-goal,,"Goal-level: split the goal into parallelizable pieces (run-surface scratch)",
-plan-dag-structurer,dag-structurer,structure-milestone-dag,,"Goal-level: milestones.csv DAG with done contracts and planning-mode stamp",milestones.csv
-plan-task-definer,task-definer,define-tasks,,"Per-milestone: decompose the milestone into a task DAG",
-plan-resource-definer,resource-definer,define-resources,,"Per-milestone: shop capability cards; assign resources/permissions; plan toolsmith tasks",
-plan-assembler,assembler,assemble-plan,,"Per-milestone: assemble draft manifest + seats, adding judge-pool closing seats",
-plan-check-edges,checker,check-edges,,"Check swarm: edges dimension",
-plan-check-resources,checker,check-resources,,"Check swarm: resources dimension",
-plan-check-permissions,checker,check-permissions,,"Check swarm: permissions dimension",
-plan-check-scope,checker,check-scope,,"Check swarm: scope-is-small dimension",
-plan-check-clarity,checker,check-clarity,,"Check swarm: instructions-are-clear dimension",
-plan-check-consistency,checker,check-consistency,,"Check swarm: consistency-with-milestone-DoD dimension",
-plan-check-assembler,check-assembler,digest-check-findings,,"Per-milestone: digest swarm findings, fix small, route big, loop until clean",taskforce.csv
-plan-binder,binder,bind-taskforce,,"Per-milestone: late-bind executors, register taskforce, verify materialization on disk",taskforce.csv
-plan-planner,planner,plan-milestone,,"Collapsed mode: one seat runs the whole per-milestone phase alone",taskforce.csv,read-root
 plan-researcher,researcher,research,,"Standard sub-agent fan-out definition: sourced web research (no manifest row — R12)",
 plan-diagnoser,diagnoser,diagnose,,"Standard sub-agent fan-out definition: local/codebase diagnosis (no manifest row — R12)",
 plan-dod-judge,dod-judge,judge-milestone,"claude-family harness (a profile declaring headed:) — this seat is human-interactive, and on the console lane a held seat with no headed: block throws rather than degrading; a hint for the staffer, never a binding","Judge pool: closing trial of a finished milestone against its done contract; consecutive-FAIL count derived from the verdict log, never stored; the bar is per-goal configuration",,read-root
 plan-unblock-checker,unblock-checker,check-unblocked,,"Judge pool: on acceptance, queue passes for exactly the newly unblocked milestones (deterministic tool seat; the queue-request mechanism exists (W7) — interim in its OCCUPANT only, an agent seat until its CLI exists)",
-plan-check-mechanization,mechanizer,check-mechanization,,"Check swarm: mechanization dimension (runs only for the scaffolding-output use cases — optimize, port, scaffold)",
 plan-understander,understander,understand-goal,,"Understand stage: restate the goal, name constraints, inventory salvage and credentials/preferences",planning/facts-brief.md
 plan-designer,designer,design-approach,,"Design stage: choose one approach and the full milestone list with per-milestone done-criteria",planning/design.md
 plan-drafter,drafter,draft-plan,,"Draft stage: write the complete plan — every milestone detailed, execution seats/workflow, envelope + credential-name sections, interact flags, outputs, relaunch budget",planning/draft-plan.md

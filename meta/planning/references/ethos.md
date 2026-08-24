@@ -7,9 +7,9 @@ tags: [planning]
 
 Everything between the two markers below is the CANONICAL ethos block. A carrying prompt copies it VERBATIM into a `<constraints source="references/ethos.md">` XML section — the `source` attribute is what marks the section as a carried copy. A deterministic drift-check script diffs every carrying prompt's copy against this block and fails loud on mismatch; the two marker lines are its extraction anchors — never rename them.
 
-**Carrying prompts (these eleven, only these):** interviewer · splitter · dag-structurer · task-definer · resource-definer · assembler · check-assembler · binder · the collapsed-mode planner · intake · builder.
+**Carrying prompts (these nine, only these):** understander · designer · drafter · reviewer · verifier · intake · builder · dod-judge · unblock-checker.
 
-**Excluded (context tax — their jobs are narrow):** the check swarm · the judge/eval seats · researcher · diagnoser · writer.
+**Excluded (context tax — their jobs are narrow):** researcher · diagnoser · writer — the three sub-agent definitions, fanned out and folded back inside one step.
 
 <!-- ethos:start -->
 - **The goal is the result.** A workflow is judged only by the result it produces. Workflow complexity is cost, never achievement; an elaborate plan that ships a worse result lost to a plain plan that shipped a better one.

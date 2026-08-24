@@ -23,7 +23,7 @@ One file per reusable task, in the component's `tasks/` pool. Before creating on
 
 The id is both the file name and the `id:` field, and it MUST name the ACT the task commissions, verb first: `interview-goal`, `split-goal`, `assemble-plan`, `bind-taskforce`, `judge-milestone`.
 
-NEVER name a task after the workflow that runs it. A task lives in the COMPONENT's pool and any workflow in that component may pair it into a seat, so a workflow name in the id claims an ownership the model does not grant, and it goes false the moment a second workflow reuses it. The workflow code belongs to the SEAT id and nowhere else: seat `plan-interviewer` pairs prompt `interviewer` with task `interview-goal`. The verb's OBJECT may still name a subject one workflow owns — `judge-forge-build` judges a forge build — because that says WHAT is acted on, not who runs it. A collision inside the pool means the act name is too vague — sharpen it, NEVER prefix it.
+NEVER name a task after the workflow that runs it. A task lives in the COMPONENT's pool and any workflow in that component may pair it into a seat, so a workflow name in the id claims an ownership the model does not grant, and it goes false the moment a second workflow reuses it. The workflow code belongs to the SEAT id and nowhere else: seat `plan-understander` pairs prompt `understander` with task `understand-goal`. The verb's OBJECT may still name a subject one workflow owns — `judge-forge-build` judges a forge build — because that says WHAT is acted on, not who runs it. A collision inside the pool means the act name is too vague — sharpen it, NEVER prefix it.
 
 ## what belongs — and what never does
 

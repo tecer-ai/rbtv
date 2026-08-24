@@ -5,7 +5,7 @@ tags: [planning]
 
 # Component anatomy — which files, when each exists, what goes in each
 
-You are about to create or change component artifacts — as an assembler, a binder, a collapsed planner, or a toolsmith task registering a capability; the same procedure serves an ad-hoc goal, an optimize pass, a port, and a scaffold build. Legality (what each artifact IS) lives in the knowledge graph — `sd-graph show <term>` every artifact before writing it; this page's own cargo is the judgment no record carries: whether a file should exist at all.
+You are about to create or change component artifacts — as a drafter, a forge builder, or a toolsmith task registering a capability; the same procedure serves an ad-hoc goal, an optimize pass, a port, and a scaffold build. Legality (what each artifact IS) lives in the knowledge graph — `sd-graph show <term>` every artifact before writing it; this page's own cargo is the judgment no record carries: whether a file should exist at all.
 
 ## 1 — The artifact set (legality by record)
 

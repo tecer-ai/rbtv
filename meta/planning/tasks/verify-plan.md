@@ -31,4 +31,3 @@ Outcome map:
 - **A check fails, cap already reached** (two prior `REGRESSION-PASS` lines) → no further FAIL; the digest ships with the `unresolved regression` red flag instead.
 - **Markerless review package** → repair enough to run the two checks from what is on disk, log the gap among the digest's red flags, complete. Never reject. Never re-enter an earlier stage.
 </done-contract>
-</output>

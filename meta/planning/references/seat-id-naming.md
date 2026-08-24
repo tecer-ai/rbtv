@@ -9,7 +9,7 @@ Record first: `sd-graph show "workflow code"` (`concepts/workflow-code.md`). The
 
 ## the law
 
-- A workflow's CODE is the one prefix shared by EVERY seat-id in its manifest (`plan-interviewer`, `plan-splitter`, … → `plan`). It is DERIVED from the manifest, never typed.
+- A workflow's CODE is the one prefix shared by EVERY seat-id in its manifest (`plan-understander`, `plan-designer`, … → `plan`). It is DERIVED from the manifest, never typed.
 - A workflow code MUST be exactly FOUR ASCII letters (owner-ruled 2026-08-10, settled by `decisions.md#d-workflow-code-mint`). Pick the four-letter prefix BEFORE writing the first seat row; every row then carries it.
 - The code is load-bearing twice: it NAMES the workflow's casting sheet (`.rbtv/config/modules/<module>/<component>/bindings/<code>.json`) and it is the prefix a branch's seats carry inside a goal.
 

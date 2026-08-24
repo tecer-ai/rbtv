@@ -21,9 +21,9 @@ One file per reusable prompt, in the component's `prompts/` pool. Before creatin
 
 ## naming the id
 
-The id is both the file name and the `id:` field, and it MUST name the prompt's ROLE — the occupant's job as a noun: `interviewer`, `splitter`, `assembler`, `binder`, `checker`, `dod-judge`.
+The id is both the file name and the `id:` field, and it MUST name the prompt's ROLE — the occupant's job as a noun: `understander`, `designer`, `drafter`, `reviewer`, `verifier`, `dod-judge`.
 
-NEVER name a prompt after the workflow that runs it. A prompt lives in the COMPONENT's pool and any workflow in that component may pair it into a seat, so a workflow name in the id claims an ownership the model does not grant, and it goes false the moment a second workflow reuses it. The workflow code belongs to the SEAT id and nowhere else: seat `plan-interviewer` pairs prompt `interviewer` with task `interview-goal`. A collision inside the pool means the role name is too vague — sharpen it, NEVER prefix it.
+NEVER name a prompt after the workflow that runs it. A prompt lives in the COMPONENT's pool and any workflow in that component may pair it into a seat, so a workflow name in the id claims an ownership the model does not grant, and it goes false the moment a second workflow reuses it. The workflow code belongs to the SEAT id and nowhere else: seat `plan-understander` pairs prompt `understander` with task `understand-goal`. A collision inside the pool means the role name is too vague — sharpen it, NEVER prefix it.
 
 ## what belongs — and what never does
 

@@ -21,7 +21,7 @@ Read the part's AUDIENCE (who reaches it) and its TRIGGER (what makes it arrive)
 | any agent working in the folder | folder-ambient | `agents.md` |
 | a shell | reached as a tool | `path` |
 | the harness | registration payload | `config` |
-| the assembler | shopped as a closing seat | `pool` |
+| a produced taskforce | shopped into it as a closing seat | `pool` |
 
 Audience is what separates `skill` from `command`; trigger is what separates `skill` from `rule`.
 
@@ -43,7 +43,7 @@ Tie-breakers, in order:
 1. The caller reasons over the output turn by turn → `skill`.
 2. The work is a bounded unit with a return schema → `sub-agent`.
 
-Live precedent in this component's `exposure.csv`: `researcher` and `diagnoser` are `method=sub-agent` — each is a bounded probe whose reading would flood the interviewer and whose product returns as a foldable result. `workflow-authoring-checklist` and `create-cli` are `method=skill` — the seat that opens either must hold it while it authors.
+Live precedent in this component's `exposure.csv`: `researcher` and `diagnoser` are `method=sub-agent` — each is a bounded probe whose reading would flood the seat that dispatched it and whose product returns as a foldable result. `workflow-authoring-checklist` and `create-cli` are `method=skill` — the seat that opens either must hold it while it authors.
 
 ## 3 — One canonical method per part
 

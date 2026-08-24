@@ -740,6 +740,22 @@ def test_green_no_check_tasks_no_roster():
             's-check-demo,s-ta,"in: draft; out: findings (demo dimension)",agentic\n', "")})
 
 
+def test_green_lone_pool_check_task_no_swarm():
+    # The sign of a check SWARM is a check-* task held by a MANIFEST ROW, not a
+    # check-* task STEM. planning's `check-unblocked` is the live instance: a
+    # judge-pool seat, sanctioned by a method=pool exposure row, holding no
+    # manifest node and carrying no dimension clause. The tripwire stays quiet.
+    expect_green("lone pool check task", {
+        "tasks/check-demo.md": TASK.replace("id: ta", "id: check-demo"),
+        "exposure.csv": FILES["exposure.csv"] + "pb,prompt,pool,,prompts/pb.md,,\n",
+        "prompts/pb.md": PROMPT.replace("id: pa", "id: pb"),
+        "seats.csv": FILES["seats.csv"].replace(
+            "s-check-demo,pa,check-demo,,\"Check swarm: demo dimension\"\n",
+            "s-check-demo,pb,check-demo,,\"Judge pool: demo\"\n"),
+        "workflows/w/w.csv": FILES["workflows/w/w.csv"].replace(
+            's-check-demo,s-ta,"in: draft; out: findings (demo dimension)",agentic\n', "")})
+
+
 def test_red_check_task_without_dimension_clause():
     # 7.625: check-* stems exist but the clause parse finds none — the scoped
     # vacuity tripwire fires.

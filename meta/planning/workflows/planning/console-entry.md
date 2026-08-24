@@ -199,42 +199,17 @@ Materialization emits one `seats/<seat>/seat.md` per row plus the `taskforce.csv
 definition declares `human-interactive:` carries that flag into its `seat.md` — that is the flag
 step 1's status verb reads.
 
-### 2e. ARM the advance hook — REQUIRED, because this workflow FORKS
+### 2e. Nothing to arm — this workflow does not fork
 
-`planning.csv` carries three CONDITIONAL rows — `plan-task-definer` and `plan-planner` fork on
-`plan-dag-structurer[planning-mode=…]`, and `plan-check-mechanization` joins an alternate over
-`plan-interviewer[use-case=…]`. **The engine's own seeding cannot advance any of them**: a member
-carrying a guard or an alternate is skipped loudly and left `waiting`, in both engine lanes. The one
-evaluator that discharges them is the **edge-runner**, and it stands down on a goal that is not
-ARMED. Arming is one file, and it is mechanical:
+`planning.csv` is five linear rows: every `after` is a bare seat-id, with no guard and no
+alternate. The same is true of `d13-replan.csv` and `forge.csv`. So there is **no edge to
+discharge** and nothing to arm here — no `coordination/edge-fastpath.json`, no edge-runner, no
+`args_allowlist:` entry, on either lane.
 
-```
-mkdir -p <workspace>/.rbtv/goals/<goal>/coordination
-cat > <workspace>/.rbtv/goals/<goal>/coordination/edge-fastpath.json <<'JSON'
-{"job-id": "<registered launch-agent job id>", "profile": "<launch profile name>"}
-JSON
-```
-
-- **Both keys are REQUIRED and neither has a default.** An absent, unreadable, or half-filled file
-  arms NOTHING — fail-closed, by design — and the run advances no fork.
-- `profile` is the same profile NAME step 3 hands over. `job-id` is the REGISTERED catalogue job in
-  the serving machine's heart store whose fire launches a seat: read it off `ignite inspect jobs`.
-  It is per-machine runtime state — never invent one, and never write a placeholder, because a
-  placeholder arms the hook and then fails every enqueue.
-- **What this buys, unattended:** the check-out fast path. When a seat ends `done` through
-  `coordinate checkout`, that command fires the edge-runner IN-PROCESS, which discharges the guards
-  and enqueues whatever the fork opened — through the `job-id` above. Beyond that one registered
-  launch-agent job, this path needs no `edge-runner` catalogue entry and no daemon restart: the arm
-  file is the whole act.
-- **What it does NOT buy:** the daemon's own periodic `edge-runner` pass. That one additionally
-  needs this goal's folder listed under `tools: edge-runner: args_allowlist: goal:` in
-  `<rbtv-repo>/ignite/config/spawn-profiles.yaml` — a reviewed config diff plus an
-  integrator-owned daemon restart, by design (that list is a security boundary, not a filter). Say
-  so rather than implying the daemon will pick the forks up on its own.
-- **⚠ On the `console` lane there is no edge-runner at all.** `rbtv run` advances bare `after`
-  members only; it will run this goal up to `plan-dag-structurer` and then sit, logging
-  `seat held — its 'after' carries member(s) THIS LANE CANNOT EVALUATE`. A goal that must get past
-  the fork runs on the daemon lane, or its forked seats are advanced by hand.
+The old planning DAG did fork (a `planning-mode` guard and a `use-case` alternate), and this step
+used to hand over the arming file that discharged them. Both forks are retired along with the
+17-row per-milestone splice; if you find an arm file or an edge-runner allowlist entry left behind
+for this workflow, it is dead configuration, not a prerequisite.
 
 ---
 
@@ -287,6 +262,6 @@ Tell them, in the same message:
 
 ## The workflow you are setting up
 
-`workflow.md` in this folder is the planning workflow's own orientation — its four use cases, its
-two phases, its loop. Read it when the user asks what planning will actually do, not to perform
-these three steps.
+`workflow.md` in this folder is the planning workflow's own orientation — its five seats, its four
+lean stages, and its regression loop. Read it when the user asks what planning will actually do,
+not to perform these three steps.
