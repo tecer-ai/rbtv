@@ -763,10 +763,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         tick_interval_pending_restart: configuredTick === null
           ? null
           : configuredTick !== (configKnobs.tick_interval_ms ?? 10000),
-        stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
-        stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
-        // The hung-kill rung's window, in ticks of silence past `stalled`. 0 = the rung is off.
-        stall_kill_ticks: configKnobs.stall_kill_ticks ?? 60,
         // How long a seat-busy-deferred queue row may wait before the ticker drops it with an
         // owner note. Seconds.
         seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,
@@ -841,10 +837,6 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       owner_feed_notes: ownerFeedNotes,
       config: {
         tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
-        stall_warn_ticks: configKnobs.stall_warn_ticks ?? 12,
-        stall_halt_ticks: configKnobs.stall_halt_ticks ?? 24,
-        // The hung-kill rung's window, in ticks of silence past `stalled`. 0 = the rung is off.
-        stall_kill_ticks: configKnobs.stall_kill_ticks ?? 60,
         // How long a seat-busy-deferred queue row may wait before the ticker drops it with an
         // owner note. Seconds.
         seat_queue_max_age_s: configKnobs.seat_queue_max_age_s ?? 3600,

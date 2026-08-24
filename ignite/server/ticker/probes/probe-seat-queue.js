@@ -32,11 +32,8 @@ function makeTicker(ctx, config = {}) {
   return createTicker({
     heartStore: ctx.store,
     spawnManager: stubManager(ctx),
-    // The stall ladder is parked out of range: this probe measures dispatch, and a stall or a
-    // hung kill mid-scenario would free the seat for reasons the checks do not control.
     config: {
-      tick_interval_ms: 10000, stall_warn_ticks: 10000, stall_halt_ticks: 10000,
-      stall_kill_ticks: 0, max_live_agent_sessions: 4, slot_max_repeats: 10, ...config,
+      tick_interval_ms: 10000, max_live_agent_sessions: 4, slot_max_repeats: 10, ...config,
     },
     feedPath: ctx.feedPath,
     logPath: ctx.logPath,

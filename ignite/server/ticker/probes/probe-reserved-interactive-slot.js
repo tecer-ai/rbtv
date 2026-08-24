@@ -161,7 +161,7 @@ async function scenarioRedByMutation(lines) {
     const broken = createTicker({
       heartStore: ctx.store,
       spawnManager: ctx.mgr,
-      config: { tick_interval_ms: 10000, stall_warn_ticks: 12, stall_halt_ticks: 24, max_live_agent_sessions: 2, slot_max_repeats: 10 },
+      config: { tick_interval_ms: 10000, max_live_agent_sessions: 2, slot_max_repeats: 10 },
       feedPath: ctx.feedPath,
       logPath: ctx.logPath,
     });

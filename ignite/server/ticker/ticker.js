@@ -59,14 +59,6 @@ function isReservedInteractiveRow(queueRow, job) {
 
 const DEFAULT_CONFIG = {
   tick_interval_ms: 10000,
-  stall_warn_ticks: 12,
-  stall_halt_ticks: 24,
-  // The HUNG-KILL rung, above `stalled` on the same ladder. Total ticks of silence (not ticks
-  // since the stall) at which a turn that is ALREADY `stalled` and whose process has written no
-  // log bytes AND burnt no CPU time is killed, freeing its seat. ~10s per tick → ~10 minutes.
-  // `0` disables the rung entirely; `stalled` keeps its meaning either way — it still pages, it is
-  // still non-terminal, and it is still the owner's cue to look.
-  stall_kill_ticks: 60,
   max_live_agent_sessions: 14,
   slot_max_repeats: 10,
   history_compact_chars: 60000,
@@ -435,18 +427,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       if (row.thread === thread) return row;
     }
     return null;
-  }
-
-  function hasMessagesSinceStart(execRow) {
-    const thread = execRow.thread;
-    if (!thread) return false;
-    const startedAt = execRow.started_at || execRow.fired_at;
-    if (!startedAt) return false;
-    const rows = allSql(
-      "SELECT 1 FROM messages WHERE thread = ? AND sender != 'ticker' AND created_at >= ? LIMIT 1",
-      thread, startedAt
-    );
-    return rows.length > 0;
   }
 
   function hasPendingInput(execRow, completionMsgId) {
@@ -1845,34 +1825,16 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return text;
   }
 
-  function getLogSize(logPath) {
-    if (!logPath || !fs.existsSync(logPath)) return 0;
-    try { return fs.statSync(logPath).size; } catch { return 0; }
-  }
-
-  function lastEnforceSessions() {
-    const lastTick = heartStore.getLastTick();
-    if (!lastTick) return {};
-    const actions = safeJsonParse(lastTick.actions_json, []);
-    for (let i = actions.length - 1; i >= 0; i--) {
-      const a = actions[i];
-      if (a.phase === 'enforce' && a.action === 'state' && a.sessions) {
-        return a.sessions;
-      }
-    }
-    return {};
-  }
-
   async function enforce(now, tick, actions) {
-    // Crash sweep first so stall ladder only applies to still-live sessions.
+    // Crash sweep first.
     //
     // `stalled` executions STAY in the swept set (owner ruling 2026-07-20,
     // batch-08 item 4 half B): `stalled` means "owner should look", never "no
     // longer tracked". A stalled worker whose unit later goes inactive still
     // gets its synthetic completion + exit code exactly as a `running` row
     // does — without this, the exit is recorded by nothing and the outcome is
-    // unrecoverable. Dispatch semantics are unchanged: the stall ladder below
-    // and every re-dispatch path still exclude `stalled` (owner-halted).
+    // unrecoverable. Dispatch semantics are unchanged: every re-dispatch path
+    // still excludes `stalled` (owner-halted).
     // 7.46: the crash sweep asks a SESSION question — has the process gone? — so it reads the
     // session table. `stalled` turns stay in the swept set exactly as before (the owner ruling
     // above): stalled is a TURN state whose session is still alive, so those rows already arrive
@@ -1902,14 +1864,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         .concat(liveTurns())
     );
     const crashedThisTick = new Set();
-    // Every `status()` this tick already paid for, keyed by exec — the stall ladder's hung-kill
-    // rung needs `cpuNsec` for the same rows the sweep below is about to ask about, and asking
-    // twice would double the `systemctl show` count on every tick of a live daemon.
-    const statusThisTick = new Map();
-    // ONE hung kill per tick. A kill is a process act with a grace period inside a loop that runs
-    // INSIDE the tick — the same reason the session closer above is capped. A backlog drains one
-    // per tick; nothing else clears it, so nothing is lost.
-    let killBudget = 1;
     // ── W1 · THE SESSION-CLOSER'S BUDGET FOR THIS TICK (adv, C14) ──────────────────────────────
     // Each close is a BLOCKING `execFileSync` of python, and this loop runs INSIDE the tick. A
     // backlog — a daemon restarted onto a store holding dozens of leaked rows — would otherwise
@@ -1920,7 +1874,6 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     for (const exec of liveBeforeCrash) {
       let info;
       try { info = await spawnManager.status(exec.exec_id); } catch { continue; }
-      statusThisTick.set(exec.exec_id, info);
       if (!info.live) {
         // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
         // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.
@@ -2047,133 +2000,12 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       }
     }
 
-    // Stall ladder.
-    const lastSessions = lastEnforceSessions();
-    const sessions = {};
-    // 7.46: the stall ladder is a TURN question — it asks whether the WORK is progressing, and it
-    // writes `stalled`, a turn state whose session stays alive. (This seat's own design brief
-    // listed it among the session-level readers; reading it settled that it is not. Corrected in
-    // the design rather than quietly implemented the other way.)
-    //
-    // ── THE HUNG-KILL RUNG'S PREREQUISITE: `stalled` ROWS STAY ON THE LADDER ────────────────────
-    //
-    // They used to LEAVE it. `liveTurns()` is `launching` + `running`, so the tick that wrote
-    // `stalled` was the last tick that tracked that exec's silence: its `sessions` entry stopped
-    // being written, `lastEnforceSessions()` stopped carrying it, and the counter froze at the
-    // value that tripped the stall. Nothing above `stalled` could ever be measured. Including the
-    // stalled rows here is what makes a rung above it possible at all; the `stalled` WRITE and its
-    // owner note are guarded on `exec.status !== 'stalled'` below so they still fire exactly once.
-    for (const exec of dedupeByExecId(liveTurns().concat(heartStore.listExecutionsByStatus('stalled')))) {
-      // (No guard needed against the sweep above: both queries here are re-read AFTER it, and a
-      // swept row's status is already terminal, so it is not in either set.)
-      // D101: headed sessions are EXEMPT from the silence stall ladder. A headed session emits no
-      // `completion` and is expected to sit idle (an owner-driven terminal awaiting a human),
-      // so silence must NEVER warn or stall it — that would drop it from the live-only session
-      // picker while its pty stays fully attachable, breaking browser take-over. The CRASH SWEEP
-      // above (a dead headed session → `failed`) still applies, and `runtime_max` / explicit kill
-      // still bound it; only the silence warn/stall path is skipped.
-      if (exec.session_mode === 'headed') continue;
-
-      const last = lastSessions[exec.exec_id] || { lastActivityTick: exec.fired_tick, lastLogSize: 0 };
-      let lastActivityTick = last.lastActivityTick;
-      let lastLogSize = last.lastLogSize;
-
-      if (hasMessagesSinceStart(exec)) {
-        lastActivityTick = tick;
-      }
-      const currentLogSize = getLogSize(exec.log_path);
-      if (currentLogSize > lastLogSize) {
-        lastActivityTick = tick;
-        lastLogSize = currentLogSize;
-      }
-
-      const silenceTicks = tick - lastActivityTick;
-
-      // The SECOND silence signal, read for stalled rows only (the rung is the only reader, and a
-      // `systemctl show` per live exec per tick for nobody is not worth paying). `null` where the
-      // carrier reports no CPU accounting — a setsid exec, always.
-      const lastCpuNsec = last.lastCpuNsec === undefined ? null : last.lastCpuNsec;
-      let cpuNsec = lastCpuNsec;
-      if (exec.status === 'stalled' && cfg.stall_kill_ticks > 0) {
-        // The crash sweep above already asked `status()` for every row in its set — which
-        // includes every `stalled` row — so this is a Map read, not a second systemctl call. The
-        // fallback covers only a row the sweep could not reach.
-        let info = statusThisTick.get(exec.exec_id);
-        if (info === undefined) {
-          try { info = await spawnManager.status(exec.exec_id); } catch { info = null; }
-        }
-        cpuNsec = info ? (info.cpuNsec ?? null) : null;
-      }
-      sessions[exec.exec_id] = { lastActivityTick, lastLogSize, silenceTicks, lastCpuNsec: cpuNsec };
-
-      // ── THE HUNG-KILL RUNG (owner-ruled) ──────────────────────────────────────────────────────
-      //
-      // `stalled` says "the owner should look"; it pages and it is NOT terminal, and none of that
-      // changes. This rung says something strictly narrower: this turn is already stalled AND its
-      // process has written no log bytes AND burnt no CPU time across the kill window — it is not
-      // slow, it is HUNG, and the seat it holds is dead capacity. Killing it frees the seat. No
-      // new status word: `spawnManager.kill` writes the existing terminal `killed` through
-      // `endTurnAndCloseSession` and closes the seat's session row.
-      //
-      // ⚠ ORDERING DEPENDENCY: the crash sweep runs BEFORE this loop and already handles a stalled
-      // row whose PROCESS is gone. This rung is therefore only ever reached by a stalled row whose
-      // process is still alive — which is exactly the case a sweep cannot see.
-      //
-      // ⚠ BOTH SIGNALS REQUIRED, and `cpuNsec === null` EXCLUDES rather than defaults (owner
-      // ruling: one frozen signal is too weak to kill on). That excludes every setsid exec by
-      // construction. The log-bytes half needs no separate test: any growth resets
-      // `lastActivityTick` to this tick, so `silenceTicks >= stall_kill_ticks` already asserts it
-      // — a second check here could never fail and would be evidence of nothing.
-      if (killBudget > 0
-          && cfg.stall_kill_ticks > 0
-          && exec.status === 'stalled'
-          && silenceTicks >= cfg.stall_kill_ticks
-          && cpuNsec !== null && lastCpuNsec !== null && cpuNsec === lastCpuNsec) {
-        killBudget -= 1;
-        let how = 'killed';
-        try {
-          await spawnManager.kill(exec.exec_id);
-        } catch (err) {
-          // THE SEAT MUST BE FREED EITHER WAY. A carrier that cannot be killed is a worse reason
-          // to leave a seat occupied forever than no reason at all, so the turn is ended
-          // terminally here even though the process may survive — and the note says so.
-          how = `unkillable (${err.message})`;
-          try {
-            heartStore.endTurnAndCloseSession(exec.exec_id, {
-              turnStatus: 'failed',
-              sessionStatus: 'crashed',
-              endedAt: now,
-              reason: `stall-kill: carrier unkillable`,
-            });
-          } catch (err2) {
-            log('warn', 'hung-kill could not end the turn', { execId: exec.exec_id, error: err2.message });
-          }
-        }
-        recordOwnerNote(
-          `hung slot killed: exec ${exec.exec_id} was stalled and silent for ${silenceTicks} ticks `
-          + `with its log frozen at ${lastLogSize} bytes and its CPU time frozen at ${cpuNsec} ns — ${how}`,
-          now, tick,
-        );
-        actions.push({ phase: 'enforce', action: 'hung-kill', execId: exec.exec_id, silenceTicks });
-        continue;
-      }
-
-      // A row already `stalled` has had its stall write and its owner note. Both fire exactly
-      // once — without this the ladder would re-page it every tick now that stalled rows stay on
-      // it, which is the noise `stalled` exists to replace.
-      if (exec.status === 'stalled') continue;
-
-      if (silenceTicks >= cfg.stall_halt_ticks) {
-        heartStore.updateExecutionStatus(exec.exec_id, { status: 'stalled' });
-        recordOwnerNote(`slot stalled after ${silenceTicks} ticks of silence`, now, tick);
-        actions.push({ phase: 'enforce', action: 'stalled', execId: exec.exec_id, silenceTicks });
-      } else if (silenceTicks >= cfg.stall_warn_ticks) {
-        recordOwnerNote(`silent warning after ${silenceTicks} ticks of silence`, now, tick);
-        actions.push({ phase: 'enforce', action: 'warn', execId: exec.exec_id, silenceTicks });
-      }
-    }
-
-    actions.push({ phase: 'enforce', action: 'state', sessions });
+    // Unconditional closing action: proof enforce() ran to completion this tick rather than
+    // aborting partway (a caller with only the crash-sweep/rowless-unit actions above, which fire
+    // only when there is something to report, cannot otherwise tell "nothing happened" from "this
+    // tick was abandoned"). Used to ride the deleted stall ladder's per-session `state` action;
+    // that payload is gone, the marker stays.
+    actions.push({ phase: 'enforce', action: 'state' });
   }
 
   async function broadcast(tick, actions) {

@@ -360,6 +360,8 @@ there must be no dead code"*), together with its 12 dedicated probes. Goal-level
 per-goal reconcile pass alone.
 
 ⚠ The ticker's per-execution silence ladder (`stall_warn_ticks` / `stall_halt_ticks` /
-`stall_kill_ticks`) is PROCESS plumbing, not goal health, and was deliberately left untouched:
-reconcile asks the GOAL's ledgers, never a process's log bytes or CPU time. The hung-kill rung is
-still the only thing that frees a seat held by a wedged process.
+`stall_kill_ticks`, and the hung-kill rung that read a process's log bytes/CPU time off it) is
+DELETED [T4-R1, del-observers, 2026-08]: "is it alive" is answered by the supervisor registry, and
+no-progress is measured off work-product (`last_progress_at`), never off ticks of silence. Nothing
+frees a seat held by a wedged process any more — that is the new registry's surface to build, not
+reconcile's; reconcile still asks only the GOAL's ledgers.

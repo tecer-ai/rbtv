@@ -358,12 +358,10 @@ async function main() {
     'the wave structure is the taskforce\'s `after` column, honoured');
 
 
-  // The stall ladder is not a separate build: it rides in with createTicker. Assert it is LIVE in
-  // THIS engine's config rather than that the constant exists somewhere.
-  const tickerSrc = fs.readFileSync(path.join(IGNITE_SRC, 'server', 'ticker', 'ticker.js'), 'utf8');
-  check('C2 the stall ladder is the ticker\'s, and the attached lane gets the ticker',
-    /stall_warn_ticks/.test(tickerSrc) && /stall_halt_ticks/.test(tickerSrc)
-      && all.ticks.length > 0,
+  // The attached lane gets the REAL ticker (createTicker), not a stub — evidenced by ticks
+  // actually being recorded in the store, with no daemon running.
+  check('C2 the attached lane gets the ticker',
+    all.ticks.length > 0,
     `${all.ticks.length} tick(s) recorded by the attached engine, with no daemon running`);
 
   // ── C2/C3 · the exit conditions, read from the store ────────────────────────────────────────

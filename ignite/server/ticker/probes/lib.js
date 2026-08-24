@@ -92,7 +92,7 @@ function setup(configOverrides = {}, extraProfiles = {}, extraHarnesses = null) 
   const ticker = createTicker({
     heartStore: store,
     spawnManager: mgr,
-    config: { tick_interval_ms: 10000, stall_warn_ticks: 12, stall_halt_ticks: 24, max_live_agent_sessions: 2, slot_max_repeats: 10, ...configOverrides },
+    config: { tick_interval_ms: 10000, max_live_agent_sessions: 2, slot_max_repeats: 10, ...configOverrides },
     feedPath,
     logPath,
   });

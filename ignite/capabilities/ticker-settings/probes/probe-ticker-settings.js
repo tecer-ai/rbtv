@@ -289,7 +289,8 @@ async function main() {
     check('an accepted edit says it is NOT in effect until a restart',
       r.stdout.includes('NOT IN EFFECT YET'), r.stdout.split('\n').slice(-6).join(' / '));
     check('...and prints the tick-denominated ladder the new cadence implies',
-      r.stdout.includes('stall halt') && r.stdout.includes('360s'), 'stall halt @24 ticks x 15s = 360s');
+      r.stdout.includes('standing-warning re-announce') && r.stdout.includes('90s'),
+      'standing-warning re-announce @6 ticks x 15s = 90s');
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

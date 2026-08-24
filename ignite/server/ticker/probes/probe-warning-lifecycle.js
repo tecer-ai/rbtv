@@ -63,7 +63,7 @@ async function makeBlockedBudgetExhaustedSeat(ctx, lines) {
 }
 
 async function run(lines) {
-  const ctx = setup({ slot_max_repeats: 1, stall_warn_ticks: 1000, stall_halt_ticks: 10000 });
+  const ctx = setup({ slot_max_repeats: 1 });
   try {
     // ---------- Part A: raise, no duplicate, cadence ----------
     const exec = await makeBlockedBudgetExhaustedSeat(ctx, lines);

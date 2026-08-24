@@ -98,21 +98,16 @@ function resolveWorkspaceRoot() {
 
 // § 2.3 step 4 — print the ladder the new cadence implies, BEFORE it takes effect.
 //
-// The stall ladder is still tick-denominated in the built engine (`ticker.js` DEFAULT_CONFIG:
-// stall_warn_ticks 12, stall_halt_ticks 24, stall_kill_ticks 60; `warnings.js` announce every 6
-// ticks). Design § 2.2
-// rules those re-expressed in wall-clock — that is R3's coupling fix and is NOT this task. Until it
-// lands, a cadence edit silently retimes all four, so this surface makes the consequence VISIBLE
-// at the moment of the edit. Showing it is not a substitute for fixing it, and this says so.
+// `warnings.js` announce-every is still tick-denominated in the built engine (6 ticks). Design
+// § 2.2 rules it re-expressed in wall-clock — that is R3's coupling fix and is NOT this task.
+// Until it lands, a cadence edit silently retimes it, so this surface makes the consequence
+// VISIBLE at the moment of the edit. Showing it is not a substitute for fixing it, and this says
+// so. (The tick-silence stall ladder this table used to also show — `stall_warn_ticks` /
+// `stall_halt_ticks` / `stall_kill_ticks` — is deleted [T4-R1]: no-progress is measured off
+// work-product, never off ticks of silence.)
 function ladderAt(intervalMs) {
   const s = intervalMs / 1000;
   return [
-    ['stall warning', 12, `${12 * s}s`],
-    ['stall halt', 24, `${24 * s}s`],
-    // The hung-kill rung, above `stalled` on the same ladder — tick-denominated like its
-    // siblings, so a cadence edit retimes it too. At a 1s tick this KILLS a hung turn at 60
-    // seconds of silence, which is why it belongs on the surface that makes the coupling visible.
-    ['hung kill', 60, `${60 * s}s`],
     ['standing-warning re-announce', 6, `${6 * s}s`],
   ];
 }

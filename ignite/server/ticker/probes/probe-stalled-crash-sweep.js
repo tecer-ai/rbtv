@@ -7,6 +7,11 @@
 // This probe stalls a silent worker, kills its unit, and asserts the sweep
 // still writes the synthetic completion + exit, while `stalled` keeps its
 // dispatch semantics (owner-halted — never re-dispatched).
+//
+// `stalled` is reached by writing the status directly — the tick-silence ladder that used to be
+// the only producer of `stalled` rows is deleted [T4-R1]; a `stalled` row can still exist (a
+// pre-existing one, or one a future supervisor-registry mechanism writes) and crash-sweep must
+// still handle it exactly as before.
 
 const { setup, teardown, registerLaunchAgentJob, enqueueLaunchAgent, capture, sleep } = require('./lib');
 
@@ -23,17 +28,9 @@ async function run(lines) {
     const exec = ctx.store.dump().jobs_log[0];
     lines.push(`exec id=${exec.exec_id}, status=${exec.status}`);
 
-    // Ride the silence ladder until the row is marked stalled.
-    let stalled = false;
-    for (let i = 0; i < 30; i++) {
-      r = await ctx.ticker.tick(new Date());
-      if (r.actions.some(a => a.phase === 'enforce' && a.action === 'stalled')) {
-        stalled = true;
-        lines.push(`stalled at tick ${r.tick}`);
-        break;
-      }
-    }
-    if (!stalled) throw new Error('expected the worker to be marked stalled');
+    // Mark the row stalled directly (the ladder that used to do this is deleted).
+    ctx.store.updateExecutionStatus(exec.exec_id, { status: 'stalled' });
+    lines.push('marked stalled directly');
     let row = ctx.store.getExecution(exec.exec_id);
     if (row.status !== 'stalled') throw new Error(`expected stalled, got ${row.status}`);
 
