@@ -15,7 +15,7 @@ Record first: `sd-graph show "workflow code"` (`concepts/workflow-code.md`). The
 
 ## what the prefix is independent of
 
-The seat-id prefix owes nothing to the workflow's NAME or to its prompt file names. The precedent already in the tree: workflow `planning`, seats `plan-*`, sheet `plan.json`, prompts named bare (`interviewer.md`). A prompt id is not a seat id — the code belongs to the SEAT id and nowhere else (`file-prompt.md`, `file-task.md` § naming the id).
+The seat-id prefix owes nothing to the workflow's NAME or to its prompt file names. The precedent already in the tree: workflow `plan-console`, seats `plan-*`, sheet `plan.json`, prompts named bare (`interviewer.md`). A prompt id is not a seat id — the code belongs to the SEAT id and nowhere else (`file-prompt.md`, `file-task.md` § naming the id).
 
 ## why you read this NOW, not at deploy
 

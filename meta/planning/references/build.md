@@ -37,10 +37,10 @@ anything.
 | The request is… | Route |
 |---|---|
 | ONE small part of a component that already EXISTS — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition | **forge** — `workflows/forge/console-entry.md` (setup + run handover; the per-kind authoring table is §2 below) |
-| a NEW component, a NEW workflow, a DAG change larger than one seat row, or pieces spanning components | **planning** — `workflows/planning/console-entry.md` |
+| a NEW component, a NEW workflow, a DAG change larger than one seat row, or pieces spanning components | **plan-console** — `workflows/plan-console/console-entry.md` |
 | already-decided work to structure as a console-orchestrated seat plan (no goal/daemon run) | **plan-in-session-run** — `references/plan-in-session-run.md` |
 
-Three further conditions escalate a forge-shaped request to planning whatever the kind: the pieces
+Three further conditions escalate a forge-shaped request to plan-console whatever the kind: the pieces
 span more than one component in a way one build pass cannot carry; a new workflow or DAG is needed;
 the request is a symptom of an unstated bigger goal. `forg-intake` runs that test itself — you
 route, it rules.
@@ -51,11 +51,11 @@ route, it rules.
 
 Read the request and stop at the FIRST row that holds. The row names the guide the part is authored
 against, the shape of its target path, the registration act that makes it real, and the condition
-that sends the request to planning instead of forge.
+that sends the request to plan-console instead of forge.
 
 | Piece kind | Authoring guide | Target-path shape | Registration act | Escalates when |
 |---|---|---|---|---|
-| **a NEW COMPONENT** | — | — | — | **ALWAYS — forge never mints a component. Route the request to the planning workflow.** |
+| **a NEW COMPONENT** | — | — | — | **ALWAYS — forge never mints a component. Route the request to the plan-console workflow.** |
 | reference | `references/kind-reference.md` | `<component-root>/references/<name>.md` | none by default — a reference is reached by an explicit prose read; an `exposure.csv` row appears only on a real exposure decision | its subject belongs to a component that does not exist |
 | prompt | `references/file-prompt.md` plus the kind guide of each section it carries | `<component-root>/prompts/<id>.md` | a `seats.csv` row pairing it with a task; an `exposure.csv` row only where an agent must reach it on its own | it needs a manifest node in a workflow that does not exist |
 | task | `references/file-task.md` | `<component-root>/tasks/<id>.md` | a `seats.csv` row pairing it with a prompt | the same |

@@ -22,13 +22,13 @@ read it now and confirm the request truly is forge-shaped before scaffolding any
 
 ## 2 — Goal scaffolding
 
-The generic procedure is NOT repeated here. Read the planning workflow's console entry point —
-`workflows/planning/console-entry.md`, a sibling folder of this one — and run its steps 0 through 3
+The generic procedure is NOT repeated here. Read the plan-console workflow's console entry point —
+`workflows/plan-console/console-entry.md`, a sibling folder of this one — and run its steps 0 through 3
 exactly. Forge substitutes five values into them, and nothing else changes:
 
 | Where planning says | Forge uses |
 |---|---|
-| workflow `planning` | workflow `forge` (`--workflow forge`; the manifest resolves as `<catalog-root>/planning/workflows/forge/forge.csv`) |
+| workflow `plan-console` | workflow `forge` (`--workflow forge`; the manifest resolves as `<catalog-root>/planning/workflows/forge/forge.csv`) |
 | a goal name of the user's choosing | `forge-<kind>-<subject>`, lowercase kebab-case — e.g. `forge-reference-cage-grants` |
 | the goal contract file | the user's request text, verbatim — it IS the goal seed `forg-intake` reads |
 | the goal's retry threshold | `2` (owner ruling 2026-08-12) — up to two automatic FAIL→rebuild rounds through the judge's `on-fail-relaunch` loop, then the owner (`rbtv-goal retry-threshold`) |

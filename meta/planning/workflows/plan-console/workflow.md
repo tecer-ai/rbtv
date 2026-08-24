@@ -1,12 +1,12 @@
 ---
-name: planning
+name: plan-console
 default-execution-mode: interactive
 four-letters: plan
 ---
 
-# planning — the workflow
+# plan-console — the workflow
 
-**Four letters (`plan`).** The prefix every seat-id in `planning.csv` shares (`plan-understander`,
+**Four letters (`plan`).** The prefix every seat-id in `plan-console.csv` shares (`plan-understander`,
 `plan-designer`, …) — mechanically required by the bindings capability's `workflow_code()`, which
 REFUSES a manifest whose rows share no single four-letter prefix. It names this workflow's casting
 sheet (`.rbtv/config/modules/meta/planning/bindings/plan.json`) and is the prefix this workflow's
@@ -38,7 +38,7 @@ results return to the dispatcher and die with the step). All five seats may ask 
 an ask-cap and none has a wall-clock deadline (a planning seat's only clock is the daemon's shared
 ~30-min no-progress kill).
 
-**Procedure (`planning.csv` is the whole DAG — five rows, linear, no forks, no guards).**
+**Procedure (`plan-console.csv` is the whole DAG — five rows, linear, no forks, no guards).**
 
 1. `plan-understander` — reads the goal seed and every artifact it names, grounds itself with
    `plan-researcher` / `plan-diagnoser` where needed, and writes `planning/facts-brief.md`: the

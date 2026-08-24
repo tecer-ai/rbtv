@@ -149,7 +149,7 @@ D9 wants a `goal-master` sitting available on the next owner message. The leader
 itself on every later materialize once `.rbtv/config/modules/meta/leader/bindings/leader.json`
 exists. As of D79 the goal-master is minted automatically by the materialize staff pass
 (`mint_staff_chairs`) on every goal whose catalog carries the seat and whose casting sheet exists —
-at creation for the request path (`scaffold-seats --workflow planning`) and at materialize for a
+at creation for the request path (`scaffold-seats --workflow plan-console`) and at materialize for a
 console scaffold. It is **not** a staff chair.
 
 **Never widen `STAFF_SEATS` to buy this mint.** The chair stays a SUMMONED seat

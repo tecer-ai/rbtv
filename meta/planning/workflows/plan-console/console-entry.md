@@ -1,8 +1,8 @@
-# planning — the console entry point
+# plan-console — the console entry point
 
-**You are reading this because a user invoked the planning entry skill in a plain interactive
+**You are reading this because a user invoked the plan-console entry skill in a plain interactive
 session.** Your job is orientation and setup, not planning: you get the user from "I want to plan
-X" to **one command they type in a real terminal**. You never run the planning workflow yourself,
+X" to **one command they type in a real terminal**. You never run the plan-console workflow yourself,
 and you never plan the goal yourself — the workflow's own seats do that.
 
 Written to be read cold. Nothing below assumes you saw an earlier turn.
@@ -80,8 +80,8 @@ absent.
 **First resolve the workflow's own default** (owner ruling 2026-08-10). It lives in the workflow's
 scaffolding, and you read it rather than assume it:
 
-- `default-execution-mode:` in the workflow definition's frontmatter — for planning,
-  `<workspace>/3-resources/tools/rbtv/meta/planning/workflows/planning/workflow.md`.
+- `default-execution-mode:` in the workflow definition's frontmatter — for plan-console,
+  `<workspace>/3-resources/tools/rbtv/meta/planning/workflows/plan-console/workflow.md`.
 - Where the workflow declares none, derive it from its manifest: any row whose **Modality** column
   reads `interactive` means `interactive`; none means `autonomous`.
 
@@ -146,7 +146,7 @@ goal — and it is authored only through the `bindings` tool. Never hand-write t
 
 ```
 <rbtv-repo>/ignite/capabilities/bindings/tool/rbtv-bindings inspect \
-  <workspace>/3-resources/tools/rbtv/meta/planning/workflows/planning/planning.csv
+  <workspace>/3-resources/tools/rbtv/meta/planning/workflows/plan-console/plan-console.csv
 ```
 
 That one command shows you the workflow's seats, each seat's definition file, its staffing hints,
@@ -163,8 +163,8 @@ and whether a sheet already exists at
 
 ```
 rbtv-bindings catalog                       # every harness+model this box can spawn, effort NUMBERED
-rbtv-bindings scaffold <planning.csv>       # create the sheet, every seat uncast
-rbtv-bindings set <planning.csv> <seat> <harness> <model> <effort-number>   # once per uncast seat
+rbtv-bindings scaffold <plan-console.csv>       # create the sheet, every seat uncast
+rbtv-bindings set <plan-console.csv> <seat> <harness> <model> <effort-number>   # once per uncast seat
 ```
 
 `catalog` is also the validator — a pair or effort number it does not list is refused here rather
@@ -176,7 +176,7 @@ than at goal creation, where nobody is watching. The effort operand is a NUMBER 
 ```
 python3 <rbtv-repo>/ignite/team-kit/materialize-seats.py \
   --package <workspace>/.rbtv/goals/<goal> \
-  --workflow planning \
+  --workflow plan-console \
   --catalog-root <workspace>/3-resources/tools/rbtv/meta \
   --root \
   --bindings <bindings.json> \
@@ -184,10 +184,10 @@ python3 <rbtv-repo>/ignite/team-kit/materialize-seats.py \
 ```
 
 - `--catalog-root` is the MODULE folder (`meta`), not the component folder — the workflow is
-  resolved as `<catalog-root>/<component>/workflows/planning/planning.csv` and catalogs merge
+  resolved as `<catalog-root>/<component>/workflows/plan-console/plan-console.csv` and catalogs merge
   across the root.
 - `--bindings` is the casting sheet from step 2c — `<workspace>/.rbtv/config/modules/meta/planning/bindings/plan.json`.
-  It names **every** seat in `planning.csv` and no others; a missing or extra key is a refusal,
+  It names **every** seat in `plan-console.csv` and no others; a missing or extra key is a refusal,
   never a default. That is exactly what `rbtv-bindings` keeps true, which is why the file is never
   hand-edited.
 - `--conduct` / `--claude-md` / `--budget-json` are caller-supplied base texts, byte-copied into
@@ -201,7 +201,7 @@ step 1's status verb reads.
 
 ### 2e. Nothing to arm — this workflow does not fork
 
-`planning.csv` is five linear rows: every `after` is a bare seat-id, with no guard and no
+`plan-console.csv` is five linear rows: every `after` is a bare seat-id, with no guard and no
 alternate. The same is true of `d13-replan.csv` and `forge.csv`. So there is **no edge to
 discharge** and nothing to arm here — no `coordination/edge-fastpath.json`, no edge-runner, no
 `args_allowlist:` entry, on either lane.
@@ -262,6 +262,6 @@ Tell them, in the same message:
 
 ## The workflow you are setting up
 
-`workflow.md` in this folder is the planning workflow's own orientation — its five seats, its four
+`workflow.md` in this folder is the plan-console workflow's own orientation — its five seats, its four
 lean stages, and its regression loop. Read it when the user asks what planning will actually do,
 not to perform these three steps.

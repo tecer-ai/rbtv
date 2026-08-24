@@ -11,7 +11,7 @@ four-letters: repl
 capability's `workflow_code()`, which REFUSES a manifest whose rows share no single prefix, and any
 prefix that is not exactly four ASCII LETTERS. `d13` is not a legal code (digits), so the workflow
 FOLDER carries the D13 name and the SEAT ids carry `repl`; the code owes nothing to the workflow's
-name (precedent: workflow `planning`, seats `plan-*`). It names this workflow's casting sheet
+name (precedent: workflow `plan-console`, seats `plan-*`). It names this workflow's casting sheet
 (`.rbtv/config/modules/meta/planning/bindings/repl.json`) and is the prefix these seats carry
 inside the goal they are minted into.
 
