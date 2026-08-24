@@ -5,11 +5,19 @@
 // [T5-R5, T3-R20, T3-R21, T3-R22, D12, D-5-ruling, C-16, CF-7].
 //
 // NO SLACK AND NO DAEMON. The transport and the gateway forwarder are fakes, and every effect an
-// approval outcome ultimately has — materialize, close, pause, relaunch — is an injected port
-// whose CALLS ARE COUNTED. That counting is the point: [D-5-ruling] is not "approve usually works
-// in the right place", it is "the D12 path fires exactly once, and only from a genuine approval
-// thread". A probe that only asserted the happy path would pass on a bridge where `approve` in any
-// thread started an execution goal.
+// approval outcome ultimately has — materialize, close, pause, relaunch — has its CALLS COUNTED.
+// That counting is the point: [D-5-ruling] is not "approve usually works in the right place", it
+// is "the D12 path fires exactly once, and only from a genuine approval thread". A probe that only
+// asserted the happy path would pass on a bridge where `approve` in any thread started an
+// execution goal.
+//
+// ⚑ D12 IS COUNTED AT THE GATEWAY, NOT AT A PORT, since the fourteenth intent landed (owner
+// ruling 2026-08-24, option (b)). `materialize` is no longer injectable — `chat-bridge.js` builds
+// it from the forwarder and REFUSES an injected one — so the D12 counter here is the fake
+// forwarder's `start-execution` log. That is deliberate: counting a stub port would prove the
+// bridge calls a function, and what [D-5-ruling] needs proven is that it crosses the daemon
+// boundary as an authenticated intent, exactly once, carrying the bound commit. The other three
+// ports are still injected, because their intents were deliberately not minted.
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -31,7 +39,7 @@ const SEAT = 'verify-seat';
 const COMMIT = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
 
 // ── The bridge harness (mock Socket-Mode transport + fake gateway forwarder) ──────────────────
-function harness() {
+function harness(extraApprovalPorts = null) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'approval-'));
   const goalDir = path.join(root, '.rbtv', 'goals', GOAL);
   fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
@@ -59,18 +67,25 @@ function harness() {
     async start() { return { connected: true }; },
     stop() {},
   };
+  // The four counters. `materialize` is counted where it now happens — on the wire, as the
+  // fourteenth intent — and the other three on their still-injected ports. `materializeOk`
+  // decides whether the DAEMON says the birth happened; the [C-16] failure post-back is measured
+  // on the same path, not on a second fixture.
+  const calls = { materialize: [], closeGoal: [], pauseGoal: [], relaunchDraftVerify: [] };
+  let materializeOk = true;
   const forwarder = {
-    async forward(intent, payload) {
+    async forward(intent, payload, opts) {
+      if (intent === 'start-execution') {
+        calls.materialize.push({ payload, opts: opts || null });
+        return materializeOk
+          ? { ok: true, result: { started: true, execution_goal: 'exec-goal-1', goal: payload.goal, thread: payload.thread, commit: payload.commit } }
+          : { ok: true, result: { started: false, reason: 'materialize-failed', detail: 'commit collision on planning/current', record: { code: 'lock-collision' } } };
+      }
       return { ok: true, result: { recorded: true, ask_id: payload.thread || null, state: payload.act === 'reap' ? 'closed' : 'open', relaunch: { queued: true } } };
     },
     async inspect() { return { ok: true, result: { live_sessions: [], recent_ticks: [] } }; },
   };
-  // The four ports, each COUNTING its calls. `materializeOk` decides whether D12 succeeds — the
-  // [C-16] failure post-back is measured on the same port, not on a second fixture.
-  const calls = { materialize: [], closeGoal: [], pauseGoal: [], relaunchDraftVerify: [] };
-  let materializeOk = true;
   const approvalPorts = {
-    materialize: async (a) => { calls.materialize.push(a); return materializeOk ? { ok: true, record: 'exec-goal-1' } : { ok: false, error: 'commit collision on planning/current' }; },
     closeGoal: async (a) => { calls.closeGoal.push(a); return { ok: true }; },
     pauseGoal: async (a) => { calls.pauseGoal.push(a); return { ok: true }; },
     relaunchDraftVerify: async (a) => { calls.relaunchDraftVerify.push(a); return { ok: true }; },
@@ -83,7 +98,7 @@ function harness() {
   }, {
     logger: () => {}, makeTransport: () => slack, forwarderImpl: forwarder,
     replyLegOptions: { pollMs: 3600000 }, busFerryOptions: { pollMs: 3600000 },
-    approvalPorts,
+    approvalPorts: extraApprovalPorts ? { ...approvalPorts, ...extraApprovalPorts } : approvalPorts,
   });
   return {
     root, slack, posted, calls, built, bridge: built.bridge,
@@ -96,6 +111,8 @@ function harness() {
     },
   };
 }
+
+const harnessWith = (ports) => harness(ports);
 
 (async () => {
   // ── A. THE §3 APPROVAL FIRST MESSAGE ────────────────────────────────────────────────────────
@@ -144,9 +161,20 @@ function harness() {
     const b2 = await h.reply(reg.channelId, approval.askId, 'approve');
     check('B2: bare `approve` in a genuine approval thread fires the D12 path EXACTLY ONCE, bound to the approval\'s commit [D12, T5-R5]',
       b2.approval === true && b2.dispatched.action === 'materialize' && b2.dispatched.ok === true
-      && h.calls.materialize.length === 1 && h.calls.materialize[0].commitId === COMMIT
-      && h.calls.materialize[0].askId === approval.askId,
+      && h.calls.materialize.length === 1 && h.calls.materialize[0].payload.commit === COMMIT
+      && h.calls.materialize[0].payload.thread === approval.askId,
       { action: b2.dispatched && b2.dispatched.action, calls: h.calls.materialize });
+
+    // THE CROSSING ITSELF. The bridge holds no child process, so D12 is only real if it left this
+    // process as the fourteenth intent — naming the planning goal, the approval thread and the
+    // bound commit, and NOTHING else (the payload schema is closed at the gateway, so a comments
+    // field would be a refusal, not an ignored key).
+    const sent = h.calls.materialize[0];
+    check('B2b: D12 crossed the daemon boundary as the `start-execution` intent carrying goal + thread + commit and no other key [owner ruling 2026-08-24 (b)]',
+      JSON.stringify(Object.keys(sent.payload).sort()) === JSON.stringify(['commit', 'goal', 'thread'])
+      && sent.payload.goal === GOAL
+      && Number(sent.opts && sent.opts.timeoutMs) > 10000,
+      { payload: sent.payload, opts: sent.opts });
 
     // B3. The thread is finished, so the bridge forgets it — a second `approve` cannot re-fire.
     const b3 = await h.reply(reg.channelId, approval.askId, 'approve');
@@ -290,6 +318,24 @@ function harness() {
     });
     check('F1: with NO materialize port wired, `approve` reports a [C-16] failure into the thread — it never reads as approved',
       out.action === 'materialize-failed' && out.ok === false && /no materialize port/.test(out.error), { out });
+  }
+
+  // ── G. `materialize` CANNOT BE STUBBED AROUND THE GATEWAY ───────────────────────────────────
+  // The worst lie this surface can tell is "execution started" when nothing did, and the shortest
+  // road to it is an embedder injecting `materialize: async () => ({ok:true})` to make a test
+  // pass. Since the fourteenth intent landed there is no such seam: the bridge builds the port
+  // from its own forwarder and REFUSES an injected one at construction — loudly, where it is
+  // impossible to miss, not at the first approve.
+  {
+    let refused = null;
+    try {
+      const h = harnessWith({ materialize: async () => ({ ok: true }) });
+      h.bridge.stop();
+    } catch (err) {
+      refused = err.message;
+    }
+    check('G1: an injected `materialize` port is REFUSED at construction — D12 goes through the fourteenth intent, never around it',
+      typeof refused === 'string' && /start-execution/.test(refused), { refused });
   }
 
   const pass = checks.every((c) => c.pass);

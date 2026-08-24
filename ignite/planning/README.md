@@ -9,6 +9,8 @@ Replacement splice door (spec-planning-door §1–§4). Path A is the goal-wide 
 | `argv.py` | Path A argv builder — one `--workflow` invocation, no `--milestone-id`, no `--nested` |
 | `path_a.py` | Path A mint through the wrapper |
 | `path_b.py` | Path B: approve-package → validate → scaffold → mint; reclaim on half-goal |
+
+WHO CALLS PATH B. The approval thread's `approve` (D12). It crosses the daemon boundary as the fourteenth gateway intent `start-execution` (owner ruling 2026-08-24, option (b)); `server/heart/start-execution.js` validates the approval binding, stamps the package fields the daemon owns (`planning_goal`, `goals_root`, `origin_id` = the approval thread) and runs `path_b.py --package`. The planning goal's own `planning/approve-package.json` is the plan it reads — a birth with a guessed package is a birth of something nobody read.
 | `door.js` | Goal-wide trigger the daemon tick calls |
 | `failure.py` | six-field failure record + origin routing + gate-lane stamp |
 

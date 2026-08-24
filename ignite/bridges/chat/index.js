@@ -40,9 +40,11 @@ function jsonLog(entry) {
 // Socket-Mode transport.
 function buildBridge(config, {
   logger = jsonLog, makeTransport = null, forwarderImpl = null, replyLegOptions = {}, busFerryOptions = {},
-  // The two ports the bridge process cannot hold itself — see createChatBridge's header.
-  // main() wires NEITHER: production reaches them through a daemon-side path this seat did not
-  // mint, and a stub here would read as wired.
+  // The ports the bridge process cannot hold itself — see createChatBridge's header. `materialize`
+  // is NOT among them any more: D12 is the fourteenth gateway intent `start-execution` (owner
+  // ruling 2026-08-24, option (b)) and the bridge builds that sender from its own forwarder,
+  // always. `endingStore` is still unwired here — its goal-word intent was deliberately not minted
+  // — and a stub would read as wired.
   approvalPorts = {}, endingStore = null, listSeats = null, listLiveGoals = null,
 } = {}) {
   const forwarder = forwarderImpl || createGatewayForwarder({ gatewayAddr: config.gatewayAddr, token: config.bridgeToken });

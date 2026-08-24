@@ -67,10 +67,25 @@ same word elsewhere is an outcome delivered to the seat. reject-and-close /
 close close the planning goal; reject-and-pause pauses it and keeps the thread as
 the sole door out, whose only later exits are `retry with:` / `approve` / `close`
 [T3-R22]; reject-and-retry and `retry with:` relaunch draft + verify with the
-comments as the findings list [T3-R21]. Every effect is an injected port — the
-bridge may not spawn `planning/path_b.py` or write a lane — and a refusing or
-unwired port reports back into the SAME approval thread [C-16]. Probe:
-`probes/probe-chat-approval.js`.
+comments as the findings list [T3-R21]. Every effect is a port — the bridge may
+not spawn `planning/path_b.py` or write a lane — and a refusing port reports back
+into the SAME approval thread [C-16]. Probe: `probes/probe-chat-approval.js`.
+
+## start-execution
+
+`start-execution.js` — the sender for the FOURTEENTH gateway intent
+`start-execution` (owner ruling 2026-08-24, option (b),
+`redesign-implementation/decisions.md`), which fills `approval-thread.js`'s D12
+`materialize` port. The payload is the planning goal, the approval thread and the
+bound commit [T5-R5] and nothing else: WHAT gets built is the approve-package the
+planning goal carries, read daemon-side, and the daemon-side executor
+(`server/heart/start-execution.js`) validates the approval binding before running
+the supervised Path-B birth. The call carries a per-call timeout override
+(`live-feed`'s precedent) because a birth is scaffold + mint, not a store write.
+`chat-bridge.js` builds this port from its own forwarder ALWAYS and REFUSES an
+injected `materialize` at construction — a stub `{ok:true}` there would tell the
+owner an execution started when nothing did. Probes:
+`probes/probe-chat-approval.js`, `server/internal-api/probes/probe-start-execution.js`.
 
 ## pause-resume
 
@@ -87,10 +102,14 @@ verb flips an ask off `open`. The ending-store API and the lane enumerator are
 injected — no store handle lives here. Probe:
 `probes/probe-chat-pause-resume.js`.
 
-⚠ Both doors are constructed and routed by `chat-bridge.js` but their production
-ports (`approvalPorts`, `endingStore`) are NOT wired by `index.js#main()`: the
-gateway intent set carries no materialize / goal-word intent, and minting one is
-an owner act. Until then both degrade loudly, never silently.
+⚠ The approval door's D12 effect IS reachable in production: the owner minted the
+fourteenth intent `start-execution` on 2026-08-24 (option (b)) and `chat-bridge.js`
+builds that sender itself. The MECHANICAL door is not: `endingStore` is still NOT
+wired by `index.js#main()`, because the same ruling deliberately did NOT mint the
+pause-word intent — pause stays store-side until the execution-lane reconcile gate
+converges onto the goal-state row. Until then it degrades loudly, never silently.
+The approval door's other three ports (`closeGoal`, `pauseGoal`,
+`relaunchDraftVerify`) are likewise still unwired and still report [C-16].
 
 ## system-digest
 

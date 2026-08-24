@@ -22,6 +22,7 @@ const { createBusFerry, seatIsHumanInteractive } = require('./bus-ferry');
 const { createAskThreads } = require('./ask-thread');
 const { createAskRecord } = require('./ask-store');
 const { createApprovalDispatch } = require('./approval-thread');
+const { createExecutionStart } = require('./start-execution');
 const { createPauseResume } = require('./pause-resume');
 const { createOutbox, outboxStorePath } = require('./outbox');
 
@@ -35,16 +36,24 @@ function createChatBridge({
   // (`probes/probe-chat-boundary.js`), so the two acts an approval outcome and a mechanical verb
   // ultimately perform live behind injected ports:
   //
-  //   approvalPorts — `{materialize, closeGoal, pauseGoal, relaunchDraftVerify}` (approval-thread.js).
-  //                   `materialize` is D12: `planning/path_b.py#run_path_b`, whoever can run it.
+  //   approvalPorts — `{closeGoal, pauseGoal, relaunchDraftVerify}` (approval-thread.js).
   //   endingStore   — the bound ending-store API (`state-store/index.js#bind(db)`) the
   //                   pause/resume door applies the resume-semantics table through, plus
   //                   `listSeats(goal)` to enumerate the goal's lanes.
   //
-  // ⚠ NEITHER IS WIRED IN PRODUCTION YET and both degrade LOUDLY, never silently: a missing
-  // `materialize` posts the [C-16] failure back into the approval thread, and a missing ending
-  // store logs a warn and applies nothing. The production wiring is a gateway intent this seat
-  // did not mint (see this module's README section).
+  // ⚑ `materialize` IS NO LONGER ONE OF THEM, AND IT IS NOT INJECTABLE HERE. D12 is the
+  // FOURTEENTH gateway intent `start-execution` (owner ruling 2026-08-24, option (b),
+  // `redesign-implementation/decisions.md`): the bridge sends the approved goal's start through
+  // the gateway and a daemon-side executor runs the supervised Path-B birth. It is built below
+  // from the forwarder this bridge already holds, ALWAYS — because the one thing this surface
+  // must never do is tell the owner an execution started when nothing did, and an injectable
+  // `materialize` is exactly the seam where a stub `{ok:true}` would do that. An embedder that
+  // passes one is REFUSED at construction, not quietly ignored.
+  //
+  // ⚠ `endingStore` IS STILL NOT WIRED IN PRODUCTION, and it degrades LOUDLY, never silently: a
+  // missing ending store logs a warn and applies nothing. Its production wiring waits on a
+  // goal-word intent the 2026-08-24 ruling deliberately did NOT mint — pause stays store-side
+  // until the execution-lane reconcile gate converges onto the goal-state row.
   approvalPorts = {},
   endingStore = null,
   listSeats = null,
@@ -144,8 +153,15 @@ function createChatBridge({
   // ── THE APPROVAL DISPATCH (`approval-thread.js`, spec-owner-io §4.2) ────────────────────────
   // What happens AFTER an approval thread's reply parses. Every effect is a port this process
   // cannot perform itself; a missing one reports back INTO the approval thread [C-16].
+  if (approvalPorts && approvalPorts.materialize) {
+    throw new Error('materialize is not an injectable port — D12 goes through the fourteenth gateway intent `start-execution` (owner ruling 2026-08-24), never around it');
+  }
+  // D12's port, filled by the intent the owner ruled. `approval-thread.js` was written against
+  // exactly this signature and is unchanged by the wiring.
+  const executionStart = createExecutionStart({ forwarder, logger });
+
   const approvalDispatch = createApprovalDispatch({
-    materialize: approvalPorts.materialize || null,
+    materialize: executionStart.materialize,
     closeGoal: approvalPorts.closeGoal || null,
     pauseGoal: approvalPorts.pauseGoal || null,
     relaunchDraftVerify: approvalPorts.relaunchDraftVerify || null,

@@ -14,6 +14,7 @@ The planning-door lock, Path A mint, Path B birth, and supervised-materialize wr
 | `argv.py` `planning_mint_argv` | Path A argv: `--package` at the existing goal; never `--milestone-id`, never `--nested`, never full/collapsed |
 | `path_a.py` `run_path_a` | Path A caller: uncast + wrapper + one materialize invocation |
 | `path_b.py` `run_path_b` | Path B birth: validate-then-scaffold-then-mint; reclaim folder+catalogue on mint fail |
+| `path_b.py` `main --package` | The daemon's entry into Path B: `server/heart/start-execution.js` writes the approve-package and runs this on the fourteenth gateway intent `start-execution` (owner ruling 2026-08-24 (b)) |
 | `door.js` `runPlanningMintPass` | Goal-wide trigger: planning goal + five seats absent → mint once; already-minted is a quiet no-op |
 | `pipeline-seats.json` | Mirror of the `plan-console` manifest's `Seat/workflow` column — the names already-minted is decided by; divergence = a forever re-mint |
 | `failure.py` | Record fields `origin`/`origin-id`/`class`/`code`/`subject`/`reason`; D12 approval-thread; D13 gate-lane `incomplete: materialize-failed` |

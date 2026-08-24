@@ -1066,11 +1066,40 @@ and keeps the thread as the ONLY door out [T3-R22]; `reject-and-retry` and
 `close` are exits; anything else the grammar recognizes changes nothing and is
 answered in-thread.
 
-Every effect is an INJECTED PORT, because this process may not spawn
-`planning/path_b.py`, close a goal or write a lane (`probes/probe-chat-boundary.js`).
-A port that refuses — including a port that is not wired — reports back into the
-SAME approval thread [C-16] and leaves the thread usable. Probe:
+Every effect is a PORT, because this process may not spawn `planning/path_b.py`,
+close a goal or write a lane (`probes/probe-chat-boundary.js`). A port that
+refuses — including a port that is not wired — reports back into the SAME approval
+thread [C-16] and leaves the thread usable. Probe:
 `probes/probe-chat-approval.js`.
+
+### D12's port is the fourteenth intent — `start-execution.js`
+
+`materialize` is NO LONGER injectable. The owner ruled the fourteenth gateway
+intent on 2026-08-24 (option (b), `redesign-implementation/decisions.md`):
+`approve` reaches the daemon as `start-execution`, and a daemon-side executor
+(`server/heart/start-execution.js`) runs the supervised Path-B birth
+(`planning/path_b.py#run_path_b` through `wrapper.py#supervised_materialize`).
+
+`createExecutionStart({forwarder})` is that sender. It forwards
+`{goal, thread, commit}` and nothing else — the plan is the approve-package the
+planning goal already carries, so a caller cannot approve one plan and start
+another, and the owner's comments after `approve` do not travel (they are a
+retry's findings list [T3-R21], and the payload schema is closed at the gateway,
+so sending them would be a refusal rather than an ignored key). The call carries a
+per-call timeout override, `live-feed`'s precedent: a birth is scaffold + mint
+under the materialize lock, not a store write.
+
+The daemon trusts the bridge for NOTHING about the approval: a `kind=approval`
+thread is a fact of this process's own map. The executor instead checks the record
+the daemon itself wrote — the thread is an ask this daemon opened (`ask_id` IS the
+thread [T5-R7]), it is bound to the goal named, and an authorized owner reply
+RELEASED it (`authorized_reply_at` is stamped only by the §2.4 release door) —
+plus that the commit named is the package's `bound_commit` [T5-R5]. Anything else
+is a refusal, and a supervised-materialize failure comes back carrying the
+wrapper's six-field record so the [C-16] post-back can show it. `chat-bridge.js`
+REFUSES an injected `materialize` at construction: a stub `{ok: true}` there would
+tell the owner an execution started when nothing did. Probe:
+`server/internal-api/probes/probe-start-execution.js`.
 
 ## The mechanical door — `pause-resume.js`
 
@@ -1093,16 +1122,19 @@ The ending-store API arrives INJECTED (`state-store/index.js#bind(db)` plus a
 `listSeats(goal)` enumerator) — this module holds no store handle and opens no
 database. Probe: `probes/probe-chat-pause-resume.js`.
 
-### ⚠ Both doors are BUILT AND PROVEN, NOT REACHABLE IN PRODUCTION YET
+### ⚠ The mechanical door is BUILT AND PROVEN, NOT REACHABLE IN PRODUCTION YET
 
-`chat-bridge.js` constructs both and routes to them, but `index.js#main()` wires
-neither `approvalPorts` nor `endingStore`: the bridge is a separate process and
-reaches the daemon only over the gateway, whose intent set is closed and carries
-no materialize / goal-word intent. Minting one is an owner act (the precedent is
-the thirteenth intent, `record-owner-ask`, owner-ruled 2026-08-24). Until it
-exists both doors degrade LOUDLY — a missing `materialize` posts the [C-16]
-failure into the approval thread, a missing ending store logs a warn and applies
-nothing — never silently.
+The approval door's D12 effect IS reachable now: the fourteenth intent
+`start-execution` was minted on 2026-08-24 (option (b)) and `chat-bridge.js`
+builds its sender from the forwarder it already holds.
+
+The mechanical door is not. `index.js#main()` still wires no `endingStore`,
+because the SAME ruling deliberately did not mint the pause-word intent — pause
+stays store-side until the execution-lane reconcile gate converges onto the
+goal-state row. The approval door's other three ports (`closeGoal`, `pauseGoal`,
+`relaunchDraftVerify`) are also still unwired. All of them degrade LOUDLY — an
+unwired approval port posts the [C-16] failure into the approval thread, a missing
+ending store logs a warn and applies nothing — never silently.
 
 ## The glance surfaces — `system-digest.js` and `status-line.js`
 
