@@ -64,6 +64,7 @@ OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode")
+HARNESS_PROCS = HARNESSES
 # tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
 HISTORY_LIMIT = "100000"
 # Observers may read the FULL message log, not just their own inbox; auto-wake recipients are
@@ -316,7 +317,6 @@ from records import (
 )
 
 from process import (
-    HARNESS_PROCS,
     HARNESS_UP_TIMEOUT,
     HARNESS_UP_POLL,
     EXIT_INDETERMINATE,

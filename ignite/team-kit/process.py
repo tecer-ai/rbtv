@@ -3,8 +3,6 @@ import subprocess
 import time
 from pathlib import Path
 
-from coord import HARNESSES
-
 # ---------- process truth: is the harness actually running, and did it actually die? ----------
 # Two failures on one night proved the roster is not evidence about processes:
 #   G-11 — a closer's multi-line prompt was typed into the pane's SHELL, which executed it line by
@@ -20,7 +18,6 @@ from coord import HARNESSES
 # so the launch surface and the process-matching surface are ONE list. Re-declaring it here let a
 # 4th harness reach `validate_seat` while every live pane of it read as DEAD — the same second-copy
 # drift 7.689 closed in edge-runner-job.py. The name stays: it reads right at the `ps` sites.
-HARNESS_PROCS = HARNESSES
 HARNESS_UP_TIMEOUT = 25.0   # cold claude start measured ~2-4s on this box; generous, bounded
 HARNESS_UP_POLL = 0.5
 # 7.567: the THIRD launch outcome gets its own exit code. `exit 0` from `launch` must mean a
