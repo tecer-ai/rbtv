@@ -562,6 +562,11 @@ function createBusFerry({
   knowsThread = () => false,
   ownerUser = null,
   outbox = null,
+  // POST A `to: owner` ROW AS A REAL ❓ ASK THREAD — `ask-thread.js#postAsk`, injected by the
+  // bridge, which owns the goal↔channel resolution and the ask-record sender this module
+  // deliberately does not hold. Unwired (probes, any embedder that wires nothing) the row takes
+  // the agent-thread / DM legs it always took. What is GONE either way is the park.
+  postAsk = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -763,19 +768,15 @@ function createBusFerry({
           }
         }
 
-        // GATE 2 is a property of the GOAL, so it is read once per run pass — never per row.
-        // GATE 1 is a property of the SENDING SEAT, memoized per pass: at most one descriptor
-        // read per distinct `from:` name actually seen, and zero on a pass with no `to: owner`
-        // row at all.
+        // ⚑ THE TWO GATE READS ARE GONE WITH THE GATES. The goal's `execution-mode` was read once
+        // per pass and the seat's `human-interactive:` flag once per distinct sender, purely to
+        // decide whether to PARK — and neither question is asked here any more (see the deleted
+        // rungs below). `goalExecutionMode` / `seatIsHumanInteractive` are still EXPORTED: other
+        // consumers hold them, and deleting the gate is not deleting the predicate.
         const goalDir = path.join(workspaceRoot, '.rbtv', 'goals', goalId);
-        const executionMode = goalExecutionMode(workspaceRoot, goalId);
-        const humanInteractiveMemo = new Map();
-        const isHumanInteractive = (name) => {
-          if (!humanInteractiveMemo.has(name)) humanInteractiveMemo.set(name, seatIsHumanInteractive(goalDir, name));
-          return humanInteractiveMemo.get(name);
-        };
-        // The FALLBACK ARM is a property of the sending seat too, memoized the same way and read
-        // only past both gates — a goal nobody can reach never opens a descriptor for it.
+        // The FALLBACK ARM is a property of the sending seat, memoized per pass: at most one
+        // descriptor read per distinct `from:` name actually seen, and zero on a pass with no
+        // `to: owner` row at all. It is a RENDER MARK now, never a disposition.
         const fallbackMemo = new Map();
         const fallbackArm = (name) => {
           if (!fallbackMemo.has(name)) fallbackMemo.set(name, seatFallback(goalDir, name));
@@ -844,24 +845,35 @@ function createBusFerry({
           // it a second time on a WEAKER question and park exactly the goals it exists for: the
           // autonomous ones, whose seats are never `human-interactive` (the staff chairs least of
           // all — `meta/leader/component.md` declares that absence deliberate).
-          let arm = null;
-          if (!chatThread && !isEscalation) {
-            const gate = executionMode !== INTERACTIVE_MODE ? 'execution-mode'
-              : !isHumanInteractive(row.from) ? 'human-interactive'
-              : fallbackArm(row.from) === FALLBACK_PARK ? 'fallback-park'
-              : null;
-            if (gate) {
-              cursors.set(key, row.id);
-              persist();
-              log('info', 'bus ferry PARKED a row — agent-initiated contact is gated, nothing posted anywhere', { key, msgId: row.id, from: row.from, gate, executionMode });
-              continue;
-            }
-            arm = fallbackArm(row.from);
-          }
+          // ── THE THREE PARK RUNGS ARE DELETED [D24, T2-R17, D-7-ruling, T2-R14] ──────────────
+          //
+          // A `to: owner` row used to be swallowed by any of three gates — the GOAL's
+          // `execution-mode`, the SEAT's `human-interactive:` flag, or the seat's own
+          // `fallback: park` arm — and "parking on the bus" is not a queue: the cursor advanced
+          // and nothing ever re-delivered the row. Work-content questions died there in silence,
+          // which is the failure this redesign exists to end.
+          //
+          // Every rung is now answered by a ruling rather than by a gate. Goal-level
+          // interactive/autonomous mode is DEAD [D24] — interactivity is a per-seat property, so
+          // the goal can no longer mute a seat. A NON-INTERACT seat never knows a human exists
+          // and its work-content question becomes a DAEMON-POSTED ask labelled `work-content`
+          // [T2-R17, D-7-ruling] — which is a real ❓ thread, not a park. And `fallback: park`
+          // described what a seat did when the owner was UNREACHABLE; under thread-per-ask he is
+          // reachable, so the arm survives only as a render mark.
+          //
+          // ⚑ [T2-R14] STILL BINDS, AT ITS OWN DOOR. A non-designated seat's owner-ask is refused
+          // AT SEND — `ask-thread.js#postAsk` refuses it and says so. Refusal is not parking: the
+          // caller learns, and nothing is silently swallowed here.
+          const arm = chatThread || isEscalation ? null : fallbackArm(row.from);
+          // Two ask LABELS reach the owner and only two [D-7-ruling]: the leader's traffic and any
+          // escalation are `recovery`, everything else — including the deleted consultant's former
+          // work-content traffic — is `work-content`.
+          const askLabel = isEscalation || row.from === 'leader' ? 'recovery' : 'work-content';
           const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
           let delivered = false;
           let error = null;
           let viaAgentThread = false;
+          let viaAskThread = false;
           // The render ACTUALLY posted — the two legs render the same row differently (the
           // agent-thread header leads with the agent name), so a log that always reported the DM
           // render's length would misreport the agent leg's every time.
@@ -880,7 +892,28 @@ function createBusFerry({
             // row stays undelivered, the bounded retry below re-tries it every pass (by then
             // `resolveChannel` has re-asked Slack — chat-bridge.js), and at NOTICE_AT_ATTEMPT the
             // owner is told the CHANNEL is missing, with none of the row's content.
-            if (!chatThread && routeToAgentThread) {
+            // ⚑ A REAL ❓ THREAD FIRST [D18, T5-R8, spec-owner-io §3]. One new thread per ask
+            // batch, carrying the §3 opening line and minting the ask record the digest, the
+            // status count and the kill-clock suspension all read. Injected, because the thread
+            // and the record are the BRIDGE's (`ask-thread.js`); an embedder that wires nothing
+            // gets the legs below unchanged, so this is additive and never a second ask model.
+            if (!chatThread && postAsk) {
+              const asked = await postAsk({
+                goalId, seatName: row.from, label: askLabel,
+                body: formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser }),
+              });
+              if (asked && asked.posted) {
+                res = { delivered: true, ts: asked.askId };
+                viaAskThread = true;
+                postedText = asked.text || postedText;
+              } else if (asked && asked.reason === 'seat-not-interact') {
+                // [T2-R14] refused AT SEND, and SAID so — the one outcome that posts nothing and
+                // is still not a park: it is reported, and the row does not sit unread forever.
+                log('warn', 'bus row REFUSED at the ask door — this seat is not designated to reach the owner [T2-R14]', { key, msgId: row.id, from: row.from });
+                res = { delivered: false, reason: 'seat-not-interact' };
+              }
+            }
+            if (!res && !chatThread && routeToAgentThread) {
               const threadText = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser });
               res = await routeToAgentThread({ goalId, agent: row.from, text: threadText });
               // ⚑ `if (res)`, never a bare `else`: an injected `routeToAgentThread` that
@@ -911,6 +944,7 @@ function createBusFerry({
             else jumped.add(`${key}#${row.id}`);
             persist();
             log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
+              : viaAskThread ? 'bus ferry posted a bus row as a NEW ❓ ask thread in the goal channel'
               : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
               : 'bus ferry delivered a bus row to the owner DM',
                 { key, msgId: row.id, from: row.from, chars: postedText.length, arm, ...(chatThread ? { chatThread } : {}) });

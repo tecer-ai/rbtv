@@ -183,31 +183,46 @@ seat-busy notice; if the seat is **gone** (its run closed, or it was never mater
 the currently-open run) nothing is enqueued and the thread gets the fixed notice
 `⚠ that agent's seat is no longer open — its thread can't be answered`.
 
-### The two gates on agent-initiated contact
+### The two gates on agent-initiated contact — ⛔ DELETED (core redesign, 2026-08-24)
 
-⚠ **This is the one rung where the ferry's "fail toward delivery" default is deliberately
-REVERSED.** Every other branch routes a row because *nobody read it* — a defect. An agent
-*opening* a conversation at the owner is the opposite kind of thing, so the ratified default is
-**zero pings** and these two declarations are what earn one.
+⚠ **BOTH GATES AND THE PARK ARE GONE** [D24, T2-R17, D-7-ruling, T2-R14]. They are described below
+only so a reader of older code, an older probe, or the `messages.md` history knows what the deleted
+rungs were. **Nothing in `bus-ferry.js` reads either gate any more**, and the module emits no
+`PARKED` line at all.
 
-| Gate | Where it is declared | Absent means |
+What they were: the ferry reversed its "fail toward delivery" default here — an agent *opening* a
+conversation at the owner defaulted to **zero pings**, and two declarations earned one. A row that
+earned neither was **swallowed**: nothing posted, cursor advanced, nothing ever re-delivering it.
+That is the silence the redesign exists to end — work-content questions died there.
+
+What replaced each rung, none of them a gate:
+
+| Deleted rung | What answers it now |
+|---|---|
+| **1 — the seat is human-interactive** | Interactivity is a **per-seat** property and a non-interact seat never knows a human exists; its work-content question becomes a **daemon-posted ask** labelled `work-content` [T2-R17, D-7-ruling] — a real ❓ thread, not a park. The flag still binds at the seat's own **send door**: `ask-thread.js#postAsk` REFUSES a non-designated seat's owner-ask and says so [T2-R14]. A refusal is reported; a park was not. |
+| **2 — the goal is interactive** | Goal-level interactive/autonomous mode is **dead** [D24] — a goal can no longer mute a seat. `goalExecutionMode` is still exported and still read by other consumers; the ferry asks it nothing. |
+| **the seat's `fallback: park` arm** | `park` described what a seat did when the owner was **unreachable**. Under thread-per-ask he is reachable, so the arm survives as a **render mark only** (and `park` carries none) — see the arm table below. |
+
+The two gates, as they were declared while they existed:
+
+| Gate | Where it was declared | Absent meant |
 |------|----------------------|--------------|
 | **1 — the seat is human-interactive** | `human-interactive: yes\|true` in the sending seat's `seat.md` **frontmatter** — the first `---`-fenced block only, so a briefing line in the BODY that quotes the flag cannot open the gate (one file read, memoized per pass) | not human-interactive |
 | **2 — the goal is interactive** | a THREE-RUNG ladder (owner ruling 2026-08-10, issue C-4): **(1)** one word in `.rbtv/goals/<goal>/execution-mode` if that file is there — the PER-RUN POSTURE, which always wins, because the console flow writes `autonomous` there when the owner walks away and a birth attribute must not override a human saying "not now" (`goal_creation_request.py` also writes this file at creation now, per the same 2026-08-10 ruling — a workflow declares a default, creation writes it, a requester may override per goal); **(2)** file absent → the goal's BIRTH ATTRIBUTE, `goal-kind: interactive` in `goal.md` frontmatter (rung 1 covers every daemon-created goal today, but a goal born some other way can still land here); **(3)** neither → `autonomous` | **`autonomous`** — an unreadable file and any other word read that way at rung 1, and so does any `goal-kind` that is not exactly `interactive`, no key, no frontmatter or no `goal.md` at rung 2. A goal nobody declared reachable is not reachable; the owner flips it when he is |
 
-**A blocked row PARKS ON THE BUS.** It is not re-routed, not downgraded into the owner's DM and
-not swallowed: **nothing is posted anywhere**, the cursor advances because the row was disposed
-of *by policy* (logged, naming which gate), and the durable record is the goal's own escalation
-ladder / `doubts.md` park — where an unanswered escalation already belongs. Flipping the mode
-therefore applies to **future rows only**, by construction; the gate never replays what it
-parked.
+⛔ **THE PARK IS DELETED.** A blocked row used to be disposed of *by policy*: nothing posted
+anywhere, the cursor advanced, and no retry, replay or queue ever surfaced it again. Every
+`to: owner` row now **travels** — as a real ❓ ask thread where `postAsk` is wired, and otherwise
+down the agent-thread / DM legs it always had. The ONE outcome that still posts nothing is the
+[T2-R14] refusal at `ask-thread.js#postAsk`, and that is not a park: the caller is told.
 
-**The gates apply to every `to: owner` row** — that address IS agent-initiated contact, so there is no nobody-home precondition. Owner-initiated flows are untouched by
+**Every `to: owner` row is carried** — that address IS agent-initiated contact. Owner-initiated flows were untouched by
+construction even while the gates existed — that address IS agent-initiated contact, so there is no nobody-home precondition. Owner-initiated flows are untouched by
 construction: DMs, mentions, owner replies, and a row answering **into** a thread the owner
 wrote in — the latter carries a `[chat-thread:]` token and takes the return leg *before* either
 gate is read.
 
-### The seat's fallback arm — what happens PAST both gates (task 7.626, owner ruling `d-s19-fallback-rides-goal-channels`)
+### The seat's fallback arm — now a RENDER MARK ONLY (task 7.626, owner ruling `d-s19-fallback-rides-goal-channels`; `park` retired by D-7-ruling, 2026-08-24)
 
 A `human-interactive:` seat is REQUIRED to declare, in the same frontmatter, what it does when the
 owner is not standing at a terminal — `fallback: park | default-and-disclose | block-and-queue`
@@ -218,19 +233,17 @@ at run time by nothing, so all three arms behaved identically. They now differ *
 
 | `fallback:` | the row | the seat |
 |---|---|---|
-| `park` | **nothing is posted.** It takes the same park the gates take, with the arm as the reason (`gate: fallback-park`) — the question stays on the bus, which is what `park` means | proceeds |
+| `park` | ⛔ **NO LONGER A DISPOSITION.** The row is **delivered unmarked**, exactly like an absent arm — the mark table deliberately carries no entry for `park`. The word described an owner who could not be reached; under thread-per-ask he can be [D-7-ruling] | proceeds |
 | `default-and-disclose` | delivered into the seat's thread, header marked `· ℹ proceeding on its default` | proceeds |
 | `block-and-queue` | delivered into the seat's thread, header marked `· ⏸ WAITING ON YOU` | **is HELD — mechanically.** Its dependents do not start until it is answered; see below |
 | **absent** | delivered **unmarked** — the header is byte-identical to the pre-7.626 one | proceeds |
 
-⚠ **WHAT "PARKS ON THE BUS" DOES AND DOES NOT MEAN, for this arm exactly as for the gates.** The
-cursor **advances** and nothing ever re-delivers the row: there is no retry, no replay when the mode
-or the arm changes, and no queue that surfaces it — `owner` is a reserved address with no seat, so
-`coord.py`'s pending-message view can never show it either. A parked row is discoverable from the
-`messages.md` log and from the asking seat's own live session, and nowhere else. **The durable record
-is the goal's own escalation ladder** — tier 1 parks the question in `doubts.md`, which is where an
-unanswered escalation belongs and the reason the ladder exists (starter-set `conduct.md`). A seat
-declaring `park` is declaring that its question lives there, not that something will carry it later.
+⛔ **WHAT "PARKS ON THE BUS" MEANT — kept only so the deleted behaviour is legible.** The cursor
+advanced and nothing ever re-delivered the row: no retry, no replay when the mode or the arm
+changed, no queue that surfaced it — `owner` is a reserved address with no seat, so `coord.py`'s
+pending-message view could never show it either. A parked row was discoverable from the
+`messages.md` log and from the asking seat's own live session, and nowhere else. **That is the
+defect, not the design**, and it is why nothing in this module parks any more.
 
 **`block-and-queue`'s answer leg is not new — it is § *The loop, end to end* above.** The owner
 replies in that thread → `kind: 'agent'` → a `session-create` at the asking seat's own home with his
@@ -244,8 +257,7 @@ about exactly that case on the daemon lane and names the check.
 **The reader is `seatFallback` in `bus-ferry.js`**, beside the two gate readers and scoped to the
 same first `---`-fenced block — a line in a seat's PROSE cannot arm anything. The daemon lane imports
 it rather than parsing the descriptor a second time. ⚠ **The arm is the SEAT's declaration and this
-module has no lane**, so `park` applies on the attached lane too: such a seat has its terminal, and
-the bus rows it *also* addresses `to: owner` park.
+module has no lane** — which now costs nothing, since the arm only decides a header mark.
 
 ⚠ **AN UNANSWERED OWNER-ASK HOLDS THE SEAT — and NOT because of the arm** (W2, superseding
 `d-block-and-queue-mechanical-hold`, 2026-08-10). The arm's one-home definition

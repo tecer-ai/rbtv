@@ -211,12 +211,14 @@ const MUTANT_DIR = path.join(__dirname, '..', '..', `__chatmut-${process.pid}`);
 // `expect` = substrings of the check names this mutation MUST turn red. Extra reds are allowed
 // (one defect often breaks several claims); a missing one is the failure.
 const MUTATIONS = [
-  { name: 'gates-removed', file: 'bus-ferry.js', from: 'if (gate) {', to: 'if (false) {',
-    expect: ['GATE 2 (absent', 'GATE 1: a seat', 'MUTATION (gate 2)', 'MUTATION (gate 1)'] },
+  // ⚑ `gates-removed` IS GONE, and so is the gate it mutated. The rung it flipped —
+  // `if (gate) { … park }` — no longer exists in `bus-ferry.js` [D24, T2-R17, D-7-ruling], so the
+  // anchor would be absent and the arm would report "anchor missing" while measuring nothing.
+  // What replaced it is the pair of TRAVEL claims in arms 2 and 3, each with its own mutation.
   { name: 'owner-token-is-master', file: 'bus-ferry.js', from: "const OWNER_TOKEN = 'owner';", to: "const OWNER_TOKEN = 'master';",
-    expect: ['RULING (gates OPEN)', 'MUTATION (gate 1)'] },
+    expect: ['RULING (gates OPEN)', 'T2-R17 PAIR'] },
   { name: 'every-address-ferried', file: 'bus-ferry.js', from: '.some((t) => t === OWNER_TOKEN)', to: '.some(() => true)',
-    expect: ['RULING (gates OPEN)', 'RULING (gates shut)'] },
+    expect: ['RULING (gates OPEN)', 'RULING (autonomous goal)'] },
   // ⚑ THE ANCHOR CARRIES ITS KEY. `frontmatterOf(fm).match` alone stopped being unique the moment
   // 7.626's `seatFallback` read the same file the same way — and an ambiguous anchor is not applied
   // at all, so this arm would have gone red claiming "anchor absent" while measuring nothing.
@@ -224,9 +226,9 @@ const MUTATIONS = [
     from: 'frontmatterOf(fm).match(/^human-interactive:', to: 'String(fm).match(/^human-interactive:',
     expect: ['scoped to the FRONTMATTER block'] },
   // 7.626 — the three arms, each proven to be the thing doing the work.
-  { name: 'fallback-park-rung-removed', file: 'bus-ferry.js',
-    from: ": fallbackArm(row.from) === FALLBACK_PARK ? 'fallback-park'", to: ": false ? 'fallback-park'",
-    expect: ['ARM `park`'] },
+  // ⚑ `fallback-park-rung-removed` IS GONE for the same reason: there is no `fallback-park` rung
+  // left to remove. `fallback:` survives as a RENDER MARK only, which `arm-marker-dropped` below
+  // is the mutation for.
   { name: 'fallback-not-scoped-to-frontmatter', file: 'bus-ferry.js',
     from: 'frontmatterOf(fm).match(/^fallback:', to: 'String(fm).match(/^fallback:',
     expect: ['FRONTMATTER BLOCK ONLY'] },
@@ -252,14 +254,17 @@ const MUTATIONS = [
     from: "if (String(seatName) === RESERVED_SEAT_NAME) return { ok: false, reason: 'owner-is-reserved' };", to: '',
     expect: ['`owner` is RESERVED'] },
   { name: 'absent-mode-reads-interactive', file: 'bus-ferry.js', from: '} catch { return goalKindMode(goalDir); }', to: '} catch { return INTERACTIVE_MODE; }',
-    expect: ['an ABSENT execution-mode file reads as autonomous', 'GATE 2 (absent'] },
+    // ⚑ ONE expectation now, not two. `goalExecutionMode` is still EXPORTED and still read by other
+    // consumers, so its ladder is still measured — but the BUS FERRY no longer asks it anything
+    // [D24], so no delivery check can be red for it any more.
+    expect: ['an ABSENT execution-mode file reads as autonomous'] },
   // C-4's fix and its red arm: cut rung 2 back to the old behaviour and the goal-kind fallback
   // arm must die, while the two arms around it (file wins, neither resolves) stay green — which
   // is what makes the fallback the discriminator rather than a check that passes either way.
   { name: 'goal-kind-fallback-removed', file: 'bus-ferry.js', from: '} catch { return goalKindMode(goalDir); }', to: '} catch { return AUTONOMOUS_MODE; }',
     expect: ['THE THREE-RUNG LADDER'] },
-  { name: 'agent-thread-leg-not-tried', file: 'bus-ferry.js', from: 'if (!chatThread && routeToAgentThread) {', to: 'if (false) {',
-    expect: ['ANCHORS a thread', 'MUTATION (gate 2)'] },
+  { name: 'agent-thread-leg-not-tried', file: 'bus-ferry.js', from: 'if (!res && !chatThread && routeToAgentThread) {', to: 'if (false) {',
+    expect: ['ANCHORS a thread', 'D24 PAIR'] },
   { name: 'header-not-agent-led', file: 'bus-ferry.js', from: 'const header = (agentLead', to: 'const header = (false',
     expect: ['ANCHORS a thread'] },
   { name: 'routeof-agent-branch-removed', file: 'chat-bridge.js', from: "if (agent) return { kind: 'agent'", to: "if (false) return { kind: 'agent'",
@@ -473,8 +478,11 @@ async function main() {
       seatIsHumanInteractive(goalDir, 'seat-blank') === false, {});
   }
 
-  // 2 — GATE 2 PARKS THE ROW, and parking means NOTHING POSTED ANYWHERE. The pair is the
-  //     point: the same row, same seat, same everything except the goal's one-word mode.
+  // 2 — THE GOAL'S MODE NO LONGER DECIDES ANYTHING [D24]. This arm used to pin the opposite:
+  //     an AUTONOMOUS goal PARKED its owner-bound rows, which is how work-content questions died
+  //     in silence. Interactivity is a per-seat property now, so the goal can no longer mute a
+  //     seat — and the pair below is what makes that a measurement rather than an assumption:
+  //     the same row, same seat, with `interactive` on disk, travels IDENTICALLY.
   {
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-auto', { executionMode: null, seats: { leader: 'yes' } });
@@ -486,43 +494,52 @@ async function main() {
     const postsBefore = a.slack.posted.length;
 
     append(file, msgRow(2, 'leader', 'owner', 'ask', 'ruling needed — may I ping the owner?'));
-    // Beside it, the row the ruling says this ferry must NEVER carry — same seat, same pass. With
-    // the gates SHUT both are undelivered, so the discriminator is the DISPOSITION: the owner row
-    // is PARKED (gated, logged as such), the master row was never this ferry's business at all and
-    // is not logged as parked. Gates-OPEN is the other half of the pair, in arm 4.
+    // Beside it, the row the ruling says this ferry must NEVER carry — same seat, same pass. The
+    // ADDRESS is the only discriminator left: the `to: owner` row travels, the `to: master` row
+    // was never this ferry's business at all. Arm 4 is the other half of that pair.
     append(file, msgRow(3, 'leader', 'master', 'ask', 'MASTER-ADDRESSED with the gates shut'));
     await a.bridge.busFerry.tick();
-    const parked = logs.filter((l) => /PARKED/.test(l.message));
-    check('GATE 2 (absent → autonomous): the row is PARKED — nothing posted to the goal channel, nothing to the owner DM — and the cursor still advances',
-      a.slack.posted.length === postsBefore
-      && a.slack.postsIn(reg.channelId).length === 0 && a.slack.postsIn(DM).length === 0
+    // ⚑ THE PARK IS MEASURED BY ITS ABSENCE FROM THE LOG, not by a count of a message that no
+    // longer exists: `/PARK/i` over every line the pass emitted. A future re-introduction of any
+    // park — under any wording — reddens this the moment it logs.
+    const parked = logs.filter((l) => /PARK/i.test(l.message));
+    check('D24 (the goal mode is DEAD): on an AUTONOMOUS goal the owner-bound row TRAVELS — posted into the goal channel, NOTHING parked, cursor advanced past both rows',
+      a.slack.postsIn(reg.channelId).length === 1 && /#2/.test(a.slack.postsIn(reg.channelId)[0].text)
+      && a.slack.postsIn(DM).length === 0
       && a.bridge.busFerry._cursors.get('goal-auto/2026-08-03a') === 3
-      && parked.length === 1 && parked[0].gate === 'execution-mode' && parked[0].executionMode === 'autonomous',
-      { posted: a.slack.posted.length, cursor: a.bridge.busFerry._cursors.get('goal-auto/2026-08-03a'), parked });
-    check('RULING (gates shut): the `to: master` row beside it is not posted AND not even PARKED — it was never this ferry\'s business',
-      a.slack.posted.length === postsBefore && parked.length === 1 && parked[0].msgId === 2
+      && parked.length === 0,
+      { posted: a.slack.posted.length, channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-auto/2026-08-03a'), parked });
+    check('RULING (autonomous goal): the `to: master` row beside it is not posted anywhere — the ADDRESS, not a gate, is what keeps it off this ferry',
+      a.slack.posted.length === postsBefore + 1
+      && !a.slack.posted.some((p) => /MASTER-ADDRESSED/.test(p.text))
       && addressesOwner('owner') === true && addressesOwner('master') === false
       && addressesOwner('owner, leader') === true && addressesOwner('goal-owner') === false,
-      { parkedMsgIds: parked.map((l) => l.msgId) });
-    check('a parked row mints NOTHING either — no session-create anywhere',
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]) });
+    check('the travelling row mints NOTHING — a delivered agent-thread row is not a session-create',
       a.forwarder.enqueued.length === 0, { enqueued: a.forwarder.enqueued.length });
     a.bridge.stop();
 
-    // THE PAIR: flip the goal to interactive and the NEXT row travels. Without this the check
-    // above would pass just as well against a ferry that ferries nothing at all.
+    // THE PAIR: flip the goal to `interactive` and the NEXT row travels THE SAME WAY. Under the
+    // deleted gate this pair was the discriminator between park and travel; it is now the proof
+    // that the word on disk changes nothing at all — and it still fails against a ferry that
+    // ferries nothing, or one that has lost the agent-thread leg.
     fs.writeFileSync(path.join(root, '.rbtv', 'goals', 'goal-auto', 'execution-mode'), 'interactive\n');
     const b = makeBridge({ workspaceRoot: root, slack: a.slack, forwarder: a.forwarder });
     await b.bridge.start();
     b.bridge.busFerry._cursors.set('goal-auto/2026-08-03a', 3);
     append(file, msgRow(4, 'leader', 'owner', 'ask', 'now that the goal is interactive'));
     await b.bridge.busFerry.tick();
-    check('MUTATION (gate 2): with `interactive` on disk the same row from the same seat DOES travel — into the goal channel',
-      b.slack.postsIn(reg.channelId).length === 1 && /#4/.test(b.slack.postsIn(reg.channelId)[0].text),
+    check('D24 PAIR: with `interactive` on disk the same row from the same seat travels into the goal channel exactly as it did under `autonomous` — the goal-level mode word decides nothing',
+      b.slack.postsIn(reg.channelId).length === 2 && /#4/.test(b.slack.postsIn(reg.channelId)[1].text),
       { channelPosts: b.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
     b.bridge.stop();
   }
 
-  // 3 — GATE 1 PARKS THE ROW: the goal is reachable, the SEAT is not declared. Same pairing.
+  // 3 — THE SEAT FLAG NO LONGER SWALLOWS A ROW [T2-R17, D-7-ruling]. `human-interactive:` used to
+  //     PARK the rows of any seat that did not declare it — which is every autonomous seat, i.e.
+  //     exactly the ones whose questions nobody was watching for. A non-interact seat's
+  //     work-content question is now an ask that REACHES the owner; what the flag still governs is
+  //     the seat's own SEND door ([T2-R14], `ask-thread.js#postAsk`), not this ferry's disposition.
   {
     const root = mkroot();
     const { file, goalDir } = seedGoal(root, 'goal-seatflag', { seats: { leader: null, 'chief-of-staff': 'no' } });
@@ -535,20 +552,22 @@ async function main() {
     append(file, msgRow(2, 'leader', 'owner', 'ask', 'undeclared seat'));
     append(file, msgRow(3, 'chief-of-staff', 'owner', 'ask', 'seat declaring human-interactive: no'));
     await a.bridge.busFerry.tick();
-    const parked = logs.filter((l) => /PARKED/.test(l.message));
-    check('GATE 1: a seat with no `human-interactive:` line and a seat declaring `no` are both PARKED, nothing posted on either surface',
-      a.slack.posted.length === 0
-      && parked.length === 2 && parked.every((l) => l.gate === 'human-interactive')
+    const parked = logs.filter((l) => /PARK/i.test(l.message));
+    check('T2-R17: a seat with no `human-interactive:` line and a seat declaring `no` BOTH TRAVEL — each into its own thread in the goal channel, with NOTHING parked',
+      a.slack.postsIn(reg.channelId).length === 2
+      && /#2/.test(a.slack.postsIn(reg.channelId)[0].text) && /#3/.test(a.slack.postsIn(reg.channelId)[1].text)
+      && parked.length === 0
       && a.bridge.busFerry._cursors.get('goal-seatflag/2026-08-03a') === 3,
-      { posted: a.slack.posted.length, parked: parked.map((l) => ({ from: l.from, gate: l.gate })) });
+      { channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]), parked: parked.map((l) => l.message) });
 
-    // MUTATION: declare the seat and the next row travels. The seat is the same seat.
+    // THE PAIR: declare the seat and its next row travels the SAME WAY. The seat is the same seat.
     fs.writeFileSync(path.join(goalDir, 'seats', 'leader', 'seat.md'),
       '---\nseat: leader\nhuman-interactive: yes\n---\nbody\n');
     append(file, msgRow(4, 'leader', 'owner', 'ask', 'now declared'));
     await a.bridge.busFerry.tick();
-    check('MUTATION (gate 1): declaring `human-interactive: yes` on that seat lets its next row travel',
-      a.slack.postsIn(reg.channelId).length === 1 && /#4/.test(a.slack.postsIn(reg.channelId)[0].text),
+    check('T2-R17 PAIR: declaring `human-interactive: yes` on that seat changes NOTHING here — its next row travels exactly as the undeclared ones did, and it lands on the SAME thread the undeclared row anchored',
+      a.slack.postsIn(reg.channelId).length === 3 && /#4/.test(a.slack.postsIn(reg.channelId)[2].text)
+      && a.slack.postsIn(reg.channelId)[2].threadTs === a.slack.postsIn(reg.channelId)[0].ts,
       { channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
     a.bridge.stop();
   }
@@ -625,26 +644,29 @@ async function main() {
     append(file, msgRow(5, 'undeclared', 'owner', 'ask', 'no arm declared anywhere'));
     await a.bridge.busFerry.tick();
 
-    const headerOf = (from) => {
-      const p = a.slack.postsIn(reg.channelId).find((q) => q.text.includes(`🧵 ${from}`));
+    // ⚑ KEYED ON THE ROW ID, not just the seat. `parker` no longer posts at most once (its arm
+    // stopped being a disposition), so a find-by-seat would hand every later check the FIRST
+    // header that seat ever posted and each pair below would measure the wrong message.
+    const headerOf = (from, id = null) => {
+      const p = a.slack.postsIn(reg.channelId).find((q) => q.text.includes(`🧵 ${from}`)
+        && (id === null || q.text.includes(`#${id}`)));
       return p ? p.text.split('\n')[0] : null;
     };
-    const parked = logs.filter((l) => /PARKED/.test(l.message));
-    check('ARM `park`: BOTH GATES OPEN and the row still PARKS — nothing in the goal channel, nothing in the owner DM, cursor advanced, and the gate reason is the ARM (`fallback-park`) on an `interactive` goal',
-      headerOf('parker') === null && a.slack.postsIn(DM).length === 0
-      && parked.length === 1 && parked[0].gate === 'fallback-park' && parked[0].from === 'parker'
-      && parked[0].executionMode === 'interactive'
+    const parked = () => logs.filter((l) => /PARK/i.test(l.message));
+    check('ARM `park` NO LONGER PARKS [D-7-ruling]: the seat\'s row is DELIVERED into its own thread and rendered UNMARKED — `park` described an owner who could not be reached, and under thread-per-ask he can be, so the word survives as a render mark the table deliberately does not carry',
+      headerOf('parker', 2) === '*🧵 parker* — goal-arms · ask · #2'
+      && a.slack.postsIn(DM).length === 0 && parked().length === 0
       && a.bridge.busFerry._cursors.get('goal-arms/2026-08-03a') === 5,
-      { parked, channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
+      { header: headerOf('parker', 2), parked: parked().map((l) => l.message), channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
     check('ARM `default-and-disclose`: DELIVERED into the seat\'s own thread and MARKED as a disclosure',
-      headerOf('discloser') === '*🧵 discloser* — goal-arms · ask · #3 · ℹ proceeding on its default',
-      { header: headerOf('discloser') });
+      headerOf('discloser', 3) === '*🧵 discloser* — goal-arms · ask · #3 · ℹ proceeding on its default',
+      { header: headerOf('discloser', 3) });
     check('ARM `block-and-queue`: DELIVERED into the seat\'s own thread and MARKED as BLOCKING — the owner\'s phone can tell a question from an FYI, which is the whole difference between the two delivered arms',
-      headerOf('blocker') === '*🧵 blocker* — goal-arms · ask · #4 · ⏸ WAITING ON YOU',
-      { header: headerOf('blocker') });
+      headerOf('blocker', 4) === '*🧵 blocker* — goal-arms · ask · #4 · ⏸ WAITING ON YOU',
+      { header: headerOf('blocker', 4) });
     check('NO `fallback:` IS NOT A FOURTH ARM: the row is delivered UNMARKED — the header is byte-identical to the pre-7.626 one — because a `component-lint` violation must not ACQUIRE a behaviour nobody declared',
-      headerOf('undeclared') === '*🧵 undeclared* — goal-arms · ask · #5',
-      { header: headerOf('undeclared') });
+      headerOf('undeclared', 5) === '*🧵 undeclared* — goal-arms · ask · #5',
+      { header: headerOf('undeclared', 5) });
     check('none of the four minted anything — the arms change WHERE a row goes, never whether a session is born',
       a.forwarder.enqueued.length === 0, { enqueued: a.forwarder.enqueued.length });
 
@@ -674,9 +696,17 @@ async function main() {
       '---\nseat: undeclared\nhuman-interactive: yes\n---\nthe procedure below states this seat\'s arm:\nfallback: park\n');
     append(file, msgRow(6, 'undeclared', 'owner', 'note', 'the arm is only in my prose'));
     await a.bridge.busFerry.tick();
-    check('the arm is read from the FRONTMATTER BLOCK ONLY — `fallback: park` in the descriptor BODY parks nothing',
-      a.slack.postsIn(reg.channelId).some((p) => /#6/.test(p.text)) && parked.length === 1,
-      { channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]), parked: parked.length });
+    // ⚑ MEASURED ON THE READER NOW, not on a park. With the rung deleted the row travels either
+    // way, so "did the BODY line take effect?" is answered where the arm is actually resolved:
+    // `seatFallback` must still return null for this seat, and the delivered header must carry no
+    // mark. An unscoped reader would resolve `park` here — and `park` renders no mark either, so
+    // the reader assertion is the discriminating half and the header is the corroboration.
+    check('the arm is read from the FRONTMATTER BLOCK ONLY — `fallback: park` in the descriptor BODY resolves to NO arm, and the row is delivered unmarked',
+      seatFallback(goalDir, 'undeclared') === null,
+      { resolved: seatFallback(goalDir, 'undeclared'), channelPosts: a.slack.postsIn(reg.channelId).map((p) => p.text.split('\n')[0]) });
+    check('and that BODY-declared row still TRAVELS, unmarked, into the seat\'s own thread',
+      headerOf('undeclared', 6) === '*🧵 undeclared* — goal-arms · note · #6' && parked().length === 0,
+      { header: headerOf('undeclared', 6), parked: parked().length });
 
     // THE PAIR for `park`: change that ONE word on that ONE seat and its next row travels. Without
     // it the park check above would pass just as well against a ferry that ferries nothing at all.
@@ -684,9 +714,10 @@ async function main() {
       '---\nseat: parker\nhuman-interactive: yes\nfallback: default-and-disclose\n---\nbody\n');
     append(file, msgRow(7, 'parker', 'owner', 'ask', 'arm flipped, same seat, same goal'));
     await a.bridge.busFerry.tick();
-    check('MUTATION (the arm): flipping that seat\'s ONE word from `park` to `default-and-disclose` lets its next row travel — into its own thread, marked as a disclosure',
-      headerOf('parker') === '*🧵 parker* — goal-arms · ask · #7 · ℹ proceeding on its default',
-      { header: headerOf('parker') });
+    check('MUTATION (the arm): flipping that seat\'s ONE word from `park` to `default-and-disclose` MARKS its next row as a disclosure — the arm is now a render mark and this is the pair that proves the mark is read from the seat',
+      headerOf('parker', 7) === '*🧵 parker* — goal-arms · ask · #7 · ℹ proceeding on its default'
+      && headerOf('parker', 2) === '*🧵 parker* — goal-arms · ask · #2',
+      { flipped: headerOf('parker', 7), before: headerOf('parker', 2) });
 
     // BLOCK-AND-QUEUE, END TO END — ask → the owner's thread → his answer → the seat proceeds.
     // The last leg is the one that ALREADY EXISTED (§ 7 measures it in isolation): the owner's
@@ -939,8 +970,9 @@ async function main() {
   //      nothing minted — it takes the ordinary path.
   {
     const root = mkroot();
-    // Gates SHUT (mode absent, seat undeclared) so the ordinary path's outcome is a PARK, which is
-    // observable and distinguishable from "the token was obeyed" and from "the row vanished".
+    // The ordinary path's outcome is now a DELIVERY into the seat's own anchored thread, and that
+    // is what makes this arm sharper than the park it replaced: "the token was obeyed" and "the
+    // row took the ordinary path" are both posts, told apart by WHICH thread they landed in.
     const { file } = seedGoal(root, 'goal-forged', { executionMode: null, seats: { leader: null } });
     const logs = [];
     const a = makeBridge({ workspaceRoot: root, logs });
@@ -956,32 +988,43 @@ async function main() {
       {});
 
     // (a) FABRICATED TOKEN ON A REAL GOAL CHANNEL, addressed `to: owner` → the row must take the
-    //     ordinary path and PARK on the gates, with nothing posted into the invented thread.
+    //     ordinary path — a TOP-LEVEL post anchoring this seat's own thread — and NOTHING may land
+    //     in the invented thread. A ferry that obeyed the token would post the same body into the
+    //     same channel, so the discriminator is `threadTs`, never the post count.
     append(file, msgRow(2, 'leader', 'owner', 'ask', `forged goal-channel thread\n\n[chat-thread: ${reg.channelId}:${forgedGoalTs}]`));
     await a.bridge.busFerry.tick();
     const ignored = logs.filter((l) => /does not know/.test(l.message));
-    const parked = logs.filter((l) => /PARKED/.test(l.message));
-    check('S-13 (a): a FABRICATED goal-channel token posts NOTHING into the invented thread and mints NOTHING — the row falls to the ordinary path and PARKS on the gates',
-      a.slack.posted.length === 0 && a.forwarder.enqueued.length === 0
+    const parked = logs.filter((l) => /PARK/i.test(l.message));
+    const forged = a.slack.posted.filter((q) => q.threadTs === forgedGoalTs);
+    check('S-13 (a): a FABRICATED goal-channel token posts NOTHING into the invented thread and mints NOTHING — the row falls to the ordinary path, anchoring the seat\'s OWN top-level thread instead, and nothing is parked',
+      forged.length === 0 && a.forwarder.enqueued.length === 0
+      && a.slack.postsIn(reg.channelId).length === 1
+      && a.slack.postsIn(reg.channelId)[0].threadTs === null
+      && /forged goal-channel thread/.test(a.slack.postsIn(reg.channelId)[0].text)
       && ignored.length === 1 && ignored[0].namedThread === `${reg.channelId}:${forgedGoalTs}`
-      && parked.length === 1 && parked[0].msgId === 2
+      && parked.length === 0
       && a.bridge.busFerry._cursors.get('goal-forged/2026-08-03a') === 2,
-      { posted: a.slack.posted.length, enqueued: a.forwarder.enqueued.length, ignored: ignored.length, parked: parked.map((l) => l.gate) });
+      { forged: forged.length, enqueued: a.forwarder.enqueued.length, ignored: ignored.length, parked: parked.length, channelPosts: a.slack.postsIn(reg.channelId).map((q) => ({ threadTs: q.threadTs, head: q.text.split('\n')[0] })) });
 
     // (b) FABRICATED DM-SHAPED TOKEN → must mint NO sitting. Same row shape, different invented
     //     surface: this is the leg that used to hand an agent a channel-master sitting on demand.
+    const postedBeforeB = a.slack.posted.length;
     append(file, msgRow(3, 'leader', 'channel-master', 'answer', `forged DM thread\n\n[chat-thread: ${DM}:1.0]`));
     await a.bridge.busFerry.tick();
-    check('S-13 (b): a FABRICATED DM-shaped token mints NO sitting and posts nothing — and being `to: channel-master` the row is not even owner-bound, so the ordinary path just advances the cursor',
-      a.forwarder.creates().length === 0 && a.slack.posted.length === 0
+    check('S-13 (b): a FABRICATED DM-shaped token mints NO sitting and posts NOTHING NEW — and being `to: channel-master` the row is not even owner-bound, so the ordinary path just advances the cursor',
+      a.forwarder.creates().length === 0 && a.slack.posted.length === postedBeforeB
+      && a.slack.postsIn(DM).length === 0
       && a.bridge.busFerry._cursors.get('goal-forged/2026-08-03a') === 3,
-      { creates: a.forwarder.creates().length, posted: a.slack.posted.length });
+      { creates: a.forwarder.creates().length, postedDelta: a.slack.posted.length - postedBeforeB, dm: a.slack.postsIn(DM).length });
 
-    // (c) THE GREEN HALF, same run, same seat, same shut gates: make the thread KNOWN by anchoring
+    // (c) THE GREEN HALF, same run, same seat: make the thread KNOWN by anchoring
     //     it through the bridge, and the very same token shape now routes verbatim into it. Without
     //     this pair, (a) and (b) would pass just as well against a ferry that had stopped reading
     //     tokens at all.
-    const opened = await a.bridge.routeToAgentThread({ goalId: 'goal-forged', agent: 'leader', text: 'anchor' });
+    // ⚑ A SEAT THAT HAS NO THREAD YET. `leader` anchored one in (a) — its ordinary path is a
+    // delivery now, not a park — so a second `routeToAgentThread` for it would REPLY on that
+    // anchor and hand this check the reply's ts, which is not a thread id at all.
+    const opened = await a.bridge.routeToAgentThread({ goalId: 'goal-forged', agent: 'scribe', text: 'anchor' });
     const postsBefore = a.slack.posted.length;
     append(file, msgRow(4, 'leader', 'channel-master', 'answer', `known thread\n\n[chat-thread: ${reg.channelId}:${opened.ts}]`));
     await a.bridge.busFerry.tick();

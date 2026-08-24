@@ -338,11 +338,13 @@ async function main() {
   // 6b — W8 (adv, C76): THE ESCALATION TRANSPORT CONTRACT. Three arms, each of which fails on a
   //      naive `if (row.type === 'escalation') deliver()` branch bolted onto the gate ladder.
   {
-    // W8-A — THE GATE BYPASS, on the fixture where it is DISCRIMINATING: an AUTONOMOUS goal whose
-    // seat is NOT `human-interactive`, i.e. both gates shut. That is the ONLY interesting case —
-    // the staff chairs are deliberately not flagged (`meta/leader/component.md`) and escalation
-    // exists for the goals nobody is watching. The `note` on the same pass from the SAME seat is
-    // the control: it must still PARK, or the arm would be measuring "gates removed".
+    // W8-A — NO GATE LEFT TO BYPASS [D24, T2-R17, D-7-ruling]. This arm used to pin that an
+    // `escalation` cleared two gates a plain `note` could not: an AUTONOMOUS goal whose seat is
+    // NOT `human-interactive`, with the note PARKING as the control. Both gates are DELETED —
+    // goal-level interactive mode is dead and a non-interact seat's work-content question is a
+    // daemon-posted ask, never a swallowed row — so the discriminating fixture now measures the
+    // opposite claim, which is the one the redesign asserts: on the WORST fixture the old ladder
+    // had, BOTH rows travel, the cursor sweeps both, and nothing is parked.
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-w8a', '2026-08-14a',
       { backlogRows: 1, executionMode: 'autonomous', senders: [] });
@@ -353,9 +355,10 @@ async function main() {
     append(file, msgRow(2, 'leader', 'owner', 'note', 'an ordinary word to the human'));
     append(file, msgRow(3, 'leader', 'owner', 'escalation', 'nobody in this run can clear this'));
     await a.bridge.busFerry.tick();
-    check('W8-A: on an AUTONOMOUS goal with a NON-human-interactive seat — both gates shut — the '
-      + '`escalation` is DELIVERED and the same seat\'s `note` on the same pass still PARKS',
-      a.slack.posted.length === 1 && /#3/.test(a.slack.posted[0].text)
+    check('W8-A: on an AUTONOMOUS goal with a NON-human-interactive seat — the fixture both deleted '
+      + 'gates used to shut — the `escalation` AND the same seat\'s `note` both TRAVEL, and the '
+      + 'cursor sweeps both: no row is parked [D24, T2-R17]',
+      a.slack.posted.length === 2 && /#2/.test(a.slack.posted[0].text) && /#3/.test(a.slack.posted[1].text)
       && a.bridge.busFerry._cursors.get('goal-w8a/2026-08-14a') === 3,
       { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8a/2026-08-14a') });
     a.bridge.stop();
