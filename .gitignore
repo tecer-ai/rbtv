@@ -46,3 +46,10 @@ tecer-gsmm-introduction*.html
 # destroys nothing", save-coord.py:142). One was committed by accident in e5dff4b8 at
 # 31,586 lines; this keeps the next one out.
 ignite/team-kit/coord-candidate*.py
+
+# Supervisor registry — RUNTIME state, one live row per supervised sitting, written by the
+# spawn/check-in/reap doors as the daemon runs. spec-supervisor pins the file beside its own
+# module, so it lands inside the source tree; committing it would ship one box's live process
+# table as another box's boot state, and boot re-adopt would then classify strangers' pids.
+ignite/supervisor/registry.jsonl
+ignite/supervisor/registry.jsonl.tmp-*

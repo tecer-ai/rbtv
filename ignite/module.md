@@ -26,6 +26,7 @@ is where the detail lives — progressive disclosure (`PRIN-3`), one rung at a t
 | gateway client | Enqueue and remove scheduled/periodic jobs, inspect runtime state. | `rbtv ignite <command>` · `-h` |
 | team-kit | Run a coordinated parallel multi-agent team in tmux: checkin, typed append-only messaging, bounded reads, staged launches, close/renew ceremonies. | `coordinate -h` |
 | ending store | One seat-ending / goal-word / open-ask store plus derived wait and launchability predicates. Hosted in `heart.db`; APIs in `state-store/`. Engine readers (`seeding.js`, `reconcile.js`, `lane-watch.js`) consume those predicates — no verdict enum. | `ignite/state-store/` · `cli.js --help` via `--db` `--op` |
+| supervisor | The ONE liveness surface: a persisted registry of supervised sittings (seat, pid, `/proc` start-time, launch token, supervised/unsupervised), the `kill(pid,0)`+start-time probe every "is it alive" question is answered by, and the boot re-adopt pass that runs BEFORE any ending stamp — so an empty registry after a restart can never mass-stamp live seats `failed`. Pane, carrier and tick silence are not liveness. Not a CLI (kit door: `cli.js --op`). | `ignite/supervisor/` |
 | planning | Planning-door Path A mint + lock + supervised wrapper (goal-wide trigger, `.materialize.lock`, five failure classes). Not a CLI. | `planning/` |
 
 ## Drilling
