@@ -107,62 +107,47 @@ def age_minutes(age):
     return sys.maxsize
 
 
-def collect_unanswered_asks(label, base):
-    """D57/D75, widened D89 Q4 — the OTHER direction: every owner ask TO `goal-master` nothing has
-    answered yet. Several can be open at once (Q4: a second owner message arriving before the
-    first is answered is QUEUED alongside it, never overwrites it) — this returns ONE row per open
-    ask, oldest first, each carrying its own id as `num` so a reader can tell them apart.
+def collect_unanswered_asks(label, base, coord=None):
+    """The OTHER direction: every owner ask TO `goal-master` nothing has answered yet — ONE row per
+    open ask, oldest first, each carrying its Slack thread id as `num` so a reader can tell them
+    apart and reply in the right thread.
 
     A NEW union member, never a widen of `coord.open_asks` (`p-owed-answers-locus` forbids that —
-    four hold gates read it). Read-only over `ignite/bridges/chat/ask-store.js`'s ONE file; a
-    missing or malformed file is an ABSENT ask, never an error — the caller's `except Exception`
-    still owns genuine unreadability (a directory that exists but is not a file, a permissions
-    error), this function's own job is only to make "the file simply is not there yet" silent.
+    four hold gates read it). Read-only over the `open_asks` table in `.rbtv/runtime/ignite/heart.db`
+    (spec-state-store §3); `ignite/bridges/chat/ask-store.js` is the ONE writer.
 
-    `store[seat]` may be EITHER shape: the current D89-Q4 list, or the pre-D89 legacy shape (one
-    bare entry object, not a list) — normalized the same way `coord.py#_owner_asks_entries` does,
-    so the two readers of this one file never disagree on what a legacy record means."""
-    import json
-    p = base / "owner-asks.json"
-    try:
-        raw = p.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    try:
-        store = json.loads(raw)
-    except (ValueError, TypeError):
-        return []
-    if not isinstance(store, dict):
-        return []
+    ⚠ `owner-asks.json` IS GONE, and with it both shapes this used to normalize. The ONE record is
+    the store row, `ask_id` IS the Slack thread [T5-R7], and the ask body is read back off
+    `evidence_pointer` — §3 defines it as the thread permalink or the on-disk reply copy.
+
+    A row is owed only when it is `posted` AND `state='open'` — the same two facts §2.1 derives a
+    seat's wait from. An absent or unreadable store is an ABSENT ask, never an error: the caller's
+    `except Exception` still owns genuine unreadability of the package around it.
+    """
+    ending_store = (coord or load_coord()).ending_store
     rows = []
-    for seat, val in store.items():
-        if isinstance(val, list):
-            entries = [e for e in val if isinstance(e, dict)]
-        elif isinstance(val, dict):
-            entries = [val]  # legacy pre-D89 shape: one bare entry object per seat
-        else:
+    for row in ending_store.open_asks(base.parent, seat="goal-master"):
+        if row.get("state") != "open" or not int(row.get("posted") or 0):
             continue
-        for i, entry in enumerate(entries, 1):
-            if entry.get("status") != "open":
-                continue
-            text = str(entry.get("text") or "").strip()
-            if not text:
-                continue
-            rows.append({
-                "kind": "waiting",
-                "label": label,
-                "num": str(entry.get("id") or i),
-                "sender": str(seat),
-                "age": age_of_coord_ts(entry.get("askedAt") or ""),
-                "body": text[:200],
-            })
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        rows.append({
+            "kind": "waiting",
+            "label": label,
+            "num": str(row.get("ask_id") or "?"),
+            "sender": str(row.get("seat") or "goal-master"),
+            "age": age_of_coord_ts(row.get("posted_at") or ""),
+            "body": text[:200],
+        })
     return rows
 
 
 def age_of_coord_ts(ts):
     """`coord.age_of` needs a live `coord` module handle this file does not carry at import time
     (it is loaded per-call via `load_coord()`), so the ONE parse this predicate needs — the same
-    `YYYY-MM-DD HH:MM` local-clock format `ask-store.js#coordTimestamp` writes — is inlined rather
+    `YYYY-MM-DD HH:MM` local-clock format `ask-store.js#coordTimestamp` stamps `posted_at` with —
+    is inlined rather
     than threading `coord` through one more argument for a single call."""
     import datetime
     try:
@@ -199,7 +184,7 @@ def collect(coord, workspace, only=None):
                     "age": coord.age_of(b["ts"]),
                     "body": coord.truncate(coord.body_of(b)),
                 })
-            rows.extend(collect_unanswered_asks(label, base))
+            rows.extend(collect_unanswered_asks(label, base, coord))
         except Exception as exc:                      # noqa: BLE001 — one bad package never hides the rest
             unreadable.append(f"{label}: {exc}")
     # Halts FIRST, then oldest-first within each kind — reverse makes True (halt) lead and the
@@ -286,55 +271,50 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
     assert kinds(ask) == ["ask"], "the ask path changed"
     assert kinds(esc + "\n" + ask)[0] == "halt", "a halt did not sort above an ask"
 
-    # THE OWNER-ASK ARM (D57/D75) — the OTHER direction. Both polarities, same fixture package,
-    # so a wrong predicate that reports everything (or nothing) cannot pass by accident.
-    import json
-    open_ask = {"goal-master": {"seat": "goal-master", "goalId": "fixture", "text": "still open?",
-                                 "status": "open", "askedAt": "2026-08-20 03:00", "answeredAt": None}}
-    (pkg / "owner-asks.json").write_text(json.dumps(open_ask), encoding="utf-8")
-    assert kinds("") == ["waiting"], "an OPEN unanswered owner ask is not reported owed"
-    answered_ask = {"goal-master": {**open_ask["goal-master"], "status": "answered",
-                                     "answeredAt": "2026-08-20 03:05"}}
-    (pkg / "owner-asks.json").write_text(json.dumps(answered_ask), encoding="utf-8")
-    assert kinds("") == [], "an ANSWERED owner ask is still reported owed"
+    # THE OWNER-ASK ARM — the OTHER direction. Both polarities, same fixture package, so a wrong
+    # predicate that reports everything (or nothing) cannot pass by accident.
+    #
+    # ⚠ SEEDED THROUGH THE REAL WRITER PATH (`insertAsk` / `postAsk` / `reapAndRelaunch` on the ONE
+    # store), never by writing a file this reader then parses. The old fixture hand-wrote
+    # `owner-asks.json`, so it asserted a shape rather than the store, and it stayed green over
+    # anything that produced the same JSON. The store's own CHECK constraints now gate the seed.
+    es = coord.ending_store
+    asks_dir = pkg / "asks"
+    asks_dir.mkdir(parents=True, exist_ok=True)
 
-    # D89 Q4 — THE QUEUE ARM: a second, different owner message arriving before the first is
-    # answered is QUEUED alongside it, never overwrites it — both are reported owed, oldest
-    # first, each its own row. Answering the OLDEST (ask-store.js#markAnswered's no-`askId`
-    # rule — this fixture writes the file directly, mirroring what that call does) leaves
-    # exactly the second one open. RED before D89 Q4 (the old single-object shape could not
-    # even represent two open asks — the second write clobbered the first); GREEN now.
-    queued = {"goal-master": [
-        {"id": 1, "seat": "goal-master", "goalId": "fixture", "text": "ship today?",
-         "status": "open", "askedAt": "2026-08-20 03:00", "answeredAt": None},
-        {"id": 2, "seat": "goal-master", "goalId": "fixture", "text": "or wait for review?",
-         "status": "open", "askedAt": "2026-08-20 03:10", "answeredAt": None},
-    ]}
-    (pkg / "owner-asks.json").write_text(json.dumps(queued), encoding="utf-8")
+    def seed_ask(ask_id, text):
+        """Insert one POSTED open ask, with the on-disk copy `evidence_pointer` names (§3)."""
+        copy = asks_dir / f"{ask_id}.txt"
+        copy.write_text(text, encoding="utf-8")
+        es.ending_store_op("insertAsk", {"ask_id": ask_id, "goal": "fixture",
+                                         "seat": "goal-master", "label": "work-content",
+                                         "evidence_pointer": str(copy)}, start=pkg.parent)
+        es.ending_store_op("postAsk", {"ask_id": ask_id, "posted_at": "2026-08-20 03:00"},
+                           start=pkg.parent)
+
+    seed_ask("t-1", "still open?")
+    assert kinds("") == ["waiting"], "an OPEN unanswered owner ask is not reported owed"
+    es.ending_store_op("reapAndRelaunch", {"ask_id": "t-1"}, start=pkg.parent)
+    assert kinds("") == [], "a REAPED owner ask is still reported owed"
+
+    # TWO THREADS, TWO ASKS [T5-R7]: the ask IS its Slack thread, so two open questions are two
+    # rows and answering one leaves exactly the other open. This replaces the old per-seat QUEUE
+    # arm — a second message in the SAME thread is the same ask now, not a queued second one, and
+    # the "settle the oldest open ask" rule it tested is deleted [D-4-ruling].
+    seed_ask("t-2", "ship today?")
+    seed_ask("t-3", "or wait for review?")
     (pkg / "messages.md").write_text("", encoding="utf-8")
     rows = collect(coord, str(tmp), "fixture")[0]
-    bodies = [r["body"] for r in rows]
     assert len(rows) == 2 and all(r["kind"] == "waiting" for r in rows), \
-        f"a queued pair of open asks is not both reported owed, one row each: {rows}"
-    assert bodies == ["ship today?", "or wait for review?"], \
-        f"a queued pair of open asks did not both render, oldest first: {bodies}"
-    queued["goal-master"][0]["status"] = "answered"
-    queued["goal-master"][0]["answeredAt"] = "2026-08-20 03:05"
-    (pkg / "owner-asks.json").write_text(json.dumps(queued), encoding="utf-8")
+        f"two open asks on two threads are not both reported owed, one row each: {rows}"
+    assert [r["body"] for r in rows] == ["ship today?", "or wait for review?"], \
+        f"two open asks did not both render, oldest first: {[r['body'] for r in rows]}"
+    assert [r["num"] for r in rows] == ["t-2", "t-3"], \
+        f"an ask's `num` is not its thread id, so a reply cannot be aimed: {[r['num'] for r in rows]}"
+    es.ending_store_op("reapAndRelaunch", {"ask_id": "t-2"}, start=pkg.parent)
     rows2 = collect(coord, str(tmp), "fixture")[0]
     assert [r["body"] for r in rows2] == ["or wait for review?"], \
-        f"answering the OLDEST queued ask did not leave exactly the second one open: {rows2}"
-
-    # Same arm, on the LEGACY pre-D89 single-object shape (`store[seat]` = one bare entry, not a
-    # list) — it must still migrate and render, exactly as it did before this change.
-    legacy = {"goal-master": {"seat": "goal-master", "goalId": "fixture", "text": "legacy shape ask",
-                               "status": "open", "askedAt": "2026-08-20 02:00", "answeredAt": None}}
-    (pkg / "owner-asks.json").write_text(json.dumps(legacy), encoding="utf-8")
-    rows3 = collect(coord, str(tmp), "fixture")[0]
-    assert [r["body"] for r in rows3] == ["legacy shape ask"], \
-        f"the legacy pre-D89 single-object shape did not migrate/render: {rows3}"
-
-    (pkg / "owner-asks.json").unlink()
+        f"answering ONE thread did not leave exactly the other open: {rows2}"
 
     shutil.rmtree(tmp, ignore_errors=True)
     return f"OK — {len(pkgs)} package(s), {elapsed_ms} ms"

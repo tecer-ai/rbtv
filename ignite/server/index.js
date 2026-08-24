@@ -911,6 +911,11 @@ async function main() {
   // A LIVE session's artifacts are never swept: the predicate consults the store per pass.
   const runRetentionSweep = () => {
     try {
+      // ⚠ HISTORY, USED AS A DELETION FENCE [T4-R8]. `jobs_log.status` is a turn-audit column, so
+      // these three words are read the ONLY way they are safe to read: not as proof a session is
+      // alive, but as proof its artifacts are NOT YET SETTLED HISTORY and must not be swept. The
+      // conservative direction is the point — a stale `running` row costs a retained log; a
+      // liveness claim built on this column would cost a live session's transcript.
       const liveIds = new Set(
         ['running', 'launching', 'stalled']
           .flatMap((s) => heartStore.listExecutionsByStatus(s))

@@ -88,10 +88,12 @@ const ENVELOPE_VERSION = 1;
 // (`authz.canRecordBusAnswer` — BRIDGE ONLY, the narrowest in the policy module). The ENVELOPE
 // VERSION IS UNCHANGED and no existing intent's payload semantics move. Before it, the bus kept
 // every question and no reply, so nothing could see an ask close and a run could walk past a
-// question the owner had already answered. The seeing is now done by `coord.py ready-seats`: an
-// unanswered owner ask makes the seat `HELD` — for EVERY seat since W2, with no `fallback:`
-// arm and no ferry-delivery gate in the way — and `engine/seeding.js#recordView` holds that
-// seat's dependents until this row lands and the verdict clears.
+// question the owner had already answered. The seeing is DERIVED, never stored: spec-state-store
+// §2.1 makes a seat `waiting-on-owner` iff an `open_asks` row for it is `posted` and still `open`
+// [C-3, D15, T4-R5]. `coord.py ready-seats` renders that predicate as the presentation word `HELD`
+// and `engine/seeding.js#recordView` holds the seat's dependents while it is true. No stored
+// `waiting-on-owner` state exists to flip — reaping the ask is what ends the wait, and this row is
+// what triggers the reap.
 // ⚑ THE WRITE IS NOT PERFORMED HERE AND NOT IN JAVASCRIPT AT ALL: `coordination/messages.md` has
 // exactly one writer, `coord.py`, and `engine/bus-answer.js` shells to it. This handler validates,
 // authorizes, and delegates — the same shape `live-feed` has over the live-session manager.
@@ -710,6 +712,9 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
 
   async function handleInspectDaemon() {
     const lastTick = heartStore.getLastTick();
+    // HISTORY, REPORTED AS SUCH [T4-R8]: `jobs_log.status` is the turn-audit column, so this is
+    // "turn rows still recorded open", never a measured liveness count. `inspect daemon` is a
+    // report; nothing schedules off it.
     const liveRows = heartStore.listExecutionsByStatus('running')
       .concat(heartStore.listExecutionsByStatus('launching'));
     const liveAgentSessions = liveRows.filter((r) => r.action_type === 'launch-agent').length;

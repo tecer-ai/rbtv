@@ -419,19 +419,26 @@ function appendRowEnsuringHeader(csvPath, values, log) {
   return appendRow(csvPath, values);
 }
 
-// ── W1 · THE SESSION-CLOSER CALL — the engine half of F3 ────────────────────────────────────────
+// ── W1 · THE SESSION-CLOSER CALL — the engine half of F3, and the DEATH-TRUTH door ─────────────
 //
 // WHAT WAS BROKEN. The daemon opens a `sessions.csv` row at spawn (§ THE AT-DISPATCH RECORD above)
-// and NOTHING ever closed it. A daemon-lane seat's own check-out reaches `awaiting-close.json` and
-// EROFSes on the row (the trace is carved read-only into every cage on purpose), so on every exit
-// the durable surface stayed open with an empty disposition — which every reader in coord takes as
-// "still working, forever". Ten hours of silent stall, measured 2026-08-13.
+// and NOTHING ever closed it, so on every exit the durable surface stayed open with an empty
+// ending — which every reader takes as "still working, forever". Ten hours of silent stall,
+// measured 2026-08-13.
 //
-// ⚠ THE ENGINE DECIDES NOTHING HERE. It supplies the two facts it alone holds — WHICH row
-// (`--session`, the id it wrote itself) and THAT the process is gone (`--force-dead`, which it
-// witnessed) — and coord decides the VALUE by reading the seat's own declaration. An engine that
-// passed a disposition would be putting words in a seat's mouth from the one side that cannot
-// witness the work.
+// ⚠ THIS PATH WRITES `failed` / `reason_class=crash`, NEVER `exited` [T1-R1, T1-R18, T4-R7].
+// `exited` was a fifth ending word carrying no reason, and a reason-less terminal is what left the
+// recovery ladder with nothing to classify. A dead process with no declared ending IS a crash, and
+// the store refuses the write unless it carries an evidence pointer naming the observed death
+// (spec-state-store §1.4, §4.5) — which is why `exitCode` and `logPath` are parameters here and
+// not an afterthought. Checkout has already written any ending the seat declared for itself; this
+// arm only speaks for the deaths no seat can witness about itself.
+//
+// ⚠ THE ENGINE STILL DECIDES NO WORK OUTCOME. It supplies only the facts it alone holds — WHICH
+// row (`--session`, the id it wrote itself), THAT the process is gone (`--force-dead`, which it
+// witnessed) and the EVIDENCE of that death (exit code + the transcript tail's path). An engine
+// that passed a work disposition would be putting words in a seat's mouth from the one side that
+// cannot witness the work.
 //
 // ⚠ `--as ignite-daemon`, for `seeding.js`'s reason: the daemon's MAIN process is not a
 // daemon-fired exec, so coord's cgroup-keyed identity lane resolves nobody here.
@@ -441,7 +448,18 @@ function appendRowEnsuringHeader(csvPath, values, log) {
 // reason the ticker CAPS the number of closes per tick (adv, C14): this runs inside the tick.
 const CLOSER_TIMEOUT_MS = 30000;
 
-function closeSeatSessionRow({ workdir, sessionId, log }) {
+// The `evidence_pointer` §1.4 requires for `reason_class=crash`: the exit code the witness read
+// plus the path of the transcript whose tail carries what the process was doing when it died.
+// Built here rather than inside coord because BOTH facts belong to the observer — coord sees
+// neither the carrier's exit status nor the daemon's log path.
+function crashEvidence({ sessionId, exitCode, logPath }) {
+  const parts = [`session:${sessionId}`];
+  parts.push(exitCode === null || exitCode === undefined ? 'exit=unknown' : `exit=${exitCode}`);
+  if (logPath) parts.push(`transcript-tail:${logPath}`);
+  return parts.join('; ');
+}
+
+function closeSeatSessionRow({ workdir, sessionId, log, exitCode = null, logPath = null }) {
   const sid = String(sessionId || '').trim();
   if (!sid) return { closed: false, reason: 'no session-id' };
   const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
@@ -450,7 +468,8 @@ function closeSeatSessionRow({ workdir, sessionId, log }) {
     'team-kit', 'coord.py');
   try {
     const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
-      '--as', 'ignite-daemon', 'attest-exit', '--session', sid, '--force-dead', '--go'],
+      '--as', 'ignite-daemon', 'attest-exit', '--session', sid, '--force-dead',
+      '--evidence', crashEvidence({ sessionId: sid, exitCode, logPath }), '--go'],
     { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     if (log) log('info', 'session-closer: the seat session row was closed', { sessionId: sid, goalDir: seatPath.goalDir, seat: seatPath.seat, evidence: out.trim().slice(0, 600) });
     return { closed: true, reason: '', output: out };
@@ -2062,7 +2081,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     // turns whose session is still `alive` — never sees this exec again. Without this line a
     // killed seat's `sessions.csv` row stays open forever, which is exactly the state the enforce
     // arms were taught to close, reached by the one door they cannot watch.
-    closeSeatSessionRow({ workdir: row.workdir, sessionId: row.session_id, log });
+    closeSeatSessionRow({
+      workdir: row.workdir, sessionId: row.session_id, log,
+      exitCode: result.signal ? `signal:${result.signal}` : null, logPath: row.log_path || null,
+    });
     return { execId, killed: result.killed, signal: result.signal };
   }
 
@@ -2085,6 +2107,11 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
   }
 
   async function orphanRescan() {
+    // `jobs_log.status` IS HISTORY, never liveness [T4-R8]. These two reads only enumerate the
+    // TURN ROWS this rescan must re-check; whether the process is actually there is answered one
+    // line down by `systemdStatus` — the measured fact. A reader that took `running` here as the
+    // answer would be trusting a column nothing refreshes when a process dies unobserved, which
+    // is the whole reason this rescan exists.
     const launching = heartStore.listExecutionsByStatus('launching');
     const running = heartStore.listExecutionsByStatus('running');
     const results = { reattached: [], markedFailed: [], rowLessUnits: [], errors: [] };

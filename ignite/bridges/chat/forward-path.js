@@ -191,10 +191,12 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   // A reply in an AGENT'S OWN THREAD is delivered as a session-create at that seat's home — and
   // until this call NOTHING recorded anywhere that the ask had been answered. The coordination bus
   // kept every question and no reply, so nothing could see the pairing close and a run could walk
-  // past a question the owner had answered. The pairing is now read by `coord.py ready-seats`,
-  // which reports a seat with an unanswered owner ask as `HELD` (W2 — for every seat, with no
-  // `fallback:` arm and no ferry-delivery gate deciding who qualifies); `engine/seeding.js
-  // #recordView` treats that set as the seats whose dependents wait. This row is what releases it.
+  // past a question the owner had answered. The pairing is now DERIVED, never stored: the wait is
+  // an `open_asks` row that is `posted` and still `open` (spec-state-store §2.1) plus the seat's
+  // current `seat_endings` row; `coord.py ready-seats` renders it as `HELD` and
+  // `engine/seeding.js#recordView` treats that set as the seats whose dependents wait. This row is
+  // what reaps the ask — and §2.8 makes the reap and the relaunch signal ONE transaction, so there
+  // is never an open ask whose seat was already released, nor a release whose ask stayed open.
   //
   // ⚑ ONE GATEWAY CALL, NO SPAWN, NO SECOND WRITER. This subtree may not hold a child process
   // (`chat-bridge-spec.md` lines 14/26; `probes/probe-chat-boundary.js` scans every runtime `.js`
@@ -725,13 +727,16 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
     const outcome = threadMap.has(chatThreadId)
       ? await forwardFollowUp({ chatThreadId, text, route })
       : await forwardSessionCreate({ chatThreadId, text, route });
-    // D57/D75 — durable record of an owner ask to `goal-master`, so an unanswered one survives
-    // to the seat's next daemon-fired sitting (`coord.py#unanswered_ask_block`, folded into
-    // `boot_prompt`). GOAL ROUTE ONLY: 'agent'/'master' traffic has no `goal-master` ask to lose,
-    // and `recordBusAnswer` already covers the 'agent' direction. A REFUSED/undelivered turn
-    // records nothing — there is nothing durable to survive if the ask never reached the seat.
-    // D89 Q4: `createAsk` APPENDS, never replaces — a second owner message arriving before the
-    // first is answered is a SECOND queued ask, not an overwrite of the first; both re-inject.
+    // The `open_asks` row for an owner ask to `goal-master` (spec-state-store §3), so an
+    // unanswered one survives to the seat's next daemon-fired sitting and so §2.1 can DERIVE that
+    // the seat is waiting on the owner. GOAL ROUTE ONLY: 'agent'/'master' traffic has no
+    // `goal-master` ask to lose, and `recordBusAnswer` already covers the 'agent' direction. A
+    // REFUSED/undelivered turn records nothing — there is nothing to wait on if the ask never
+    // reached the seat, and a row that is not `posted` is not a wait either.
+    //
+    // ⚠ ONE ROW PER THREAD [T5-R7]. The ask IS `chatThreadId`; a second owner message in the same
+    // thread is the same ask, not a queued second one. A genuinely new question arrives in a new
+    // thread and therefore mints a new `ask_id`.
     if (route && route.kind === 'goal' && route.goalId && outcome && outcome.forwarded === true
         && config && config.workspaceRoot) {
       try {

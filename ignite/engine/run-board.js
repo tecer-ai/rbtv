@@ -77,6 +77,9 @@ function isChatter(m) {
 function snapshotFrom(heartStore, rows, {
   isHeld = null, view, ready = null, tick, goal, asks = [],
 } = {}) {
+  // A BOARD IS A RENDERING OF HISTORY [T4-R8]. `jobs_log.status` is the turn-audit column, so what
+  // these rows say is "the last thing recorded about this turn", never "this seat is alive" — that
+  // question belongs to the supervisor registry, and nothing on this board is a scheduling input.
   const running = new Map();
   for (const status of ['launching', 'running', 'stalled']) {
     for (const ex of heartStore.listExecutionsByStatus(status)) {

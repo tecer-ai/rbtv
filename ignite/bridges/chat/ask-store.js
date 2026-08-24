@@ -1,131 +1,144 @@
 'use strict';
 
-// ask-store — the durable record of owner asks to a goal's `goal-master` that have not yet been
-// answered (D57/D75, widened D89 Q4). ONE writer (this module, called from the bridge); coord.py's
-// `boot_prompt` and `owed-answers.py` read the same file read-only — see their own headers for why.
+// ask-store — the bridge's door onto the ONE open-ask record (spec-state-store §3, [T5-R7,
+// D-4-ruling, C-3]). It is an ADAPTER, not a store: the rows live in the `open_asks` table inside
+// `.rbtv/runtime/ignite/heart.db`, written through `state-store`'s API, and this module only
+// translates the bridge's vocabulary (workspace root + goal id + Slack thread) into that API's.
 //
-// Storage is a plain JSON file at `{goalDir}/coordination/owner-asks.json`, keyed by seat name
-// (today only ever `goal-master`) — each value a LIST of asks, oldest first (append order), not a
-// single object (D89 Q4: a second owner message arriving before the first is answered is QUEUED
-// alongside it, never overwrites it). This is still a DELIBERATE placeholder for the owner's
-// still-open storage-location ruling (bridge state vs heart.db, Q3) — every caller goes through
-// this interface, so the location can move without touching a caller.
+// ⚠ `owner-asks.json` IS GONE. The per-goal JSON file this module used to own was a SECOND record
+// of a fact the ending store now holds, and the pair is exactly the dual-writer defect the
+// redesign exists to close. Two consequences follow, and neither is an oversight:
 //
-// A legacy file written by the pre-D89 single-object shape (`store[seat]` = one bare entry, not a
-// list) is migrated to a one-element list ON READ — see `readStore`. Every write from this module
-// on writes the list shape only; an old file keeps working with no separate migration step.
+//   1. `ask_id` IS THE SLACK THREAD ID. There is no allocator and no per-seat queue of asks
+//      [T5-R7]. The pre-D89 rule that a reply settles "the oldest open ask" is DELETED: an
+//      authorized reply releases the ask bound to THAT EXACT THREAD [D-4-ruling, T1-R12]. A second
+//      owner message in the same thread is the same ask, not a second row; a genuinely new
+//      question opens a NEW thread and therefore a new `ask_id`.
+//   2. THE ASK'S TEXT IS NOT A STORE COLUMN. `open_asks` carries an `evidence_pointer`, which
+//      §3 defines as the thread permalink or an ON-DISK REPLY COPY. This module writes that copy
+//      (one file per ask under the goal's `coordination/asks/`) and stores its path, so the
+//      re-inject readers on the Python side still have the body to read while the STATE of the ask
+//      lives in exactly one place.
 //
-// Timestamps use coord.py's own `now()` format (`YYYY-MM-DD HH:MM`, local clock, no seconds) so
-// `coord.age_of()` can parse them — an ISO timestamp would silently read as unparseable ('?') on
-// the Python side.
+// Wait is DERIVED, never stored (§2.1): a seat is waiting-on-owner iff a row here is `posted=1`
+// and still `open`. Nothing in this module writes a seat ending — resolution reaps the ask and
+// signals the relaunch in ONE transaction (`reapAndRelaunch`, §2.8), which is the store's job.
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { openHeartStore } = require('../../server/heart/heart-store');
+const { bind, endingStorePath } = require('../../state-store');
+
+const ASK_LABEL_DEFAULT = 'work-content';
 
 function coordTimestamp(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function storePath(workspaceRoot, goalId) {
-  return path.join(workspaceRoot, '.rbtv', 'goals', String(goalId), 'coordination', 'owner-asks.json');
+// The ONE store file (spec §1.1). Kept exported under its old name so a caller that logs "where
+// does this live" keeps working; it now names heart.db, never a per-goal JSON file.
+function storePath(workspaceRoot) {
+  return endingStorePath(workspaceRoot);
 }
 
-// Returns `{ [seat]: AskEntry[] }`, oldest-first per seat. A seat's value in the raw file may be
-// EITHER shape — the current list, or a legacy bare object (one ask, no `id`) written before D89
-// Q4 — both normalize to a list here, so every caller below only ever sees the list shape.
-function readStore(p) {
+// A thread id is a Slack ts (`1723480000.123456`) or a fixture string; neither is safe as a bare
+// filename, so the on-disk copy is named from a sanitized form. The ROW still carries the raw id.
+function askCopyPath(workspaceRoot, goalId, askId) {
+  const safe = String(askId).replace(/[^A-Za-z0-9._-]/g, '_');
+  return path.join(workspaceRoot, '.rbtv', 'goals', String(goalId), 'coordination', 'asks', `${safe}.txt`);
+}
+
+function withStore(workspaceRoot, fn) {
+  const dbPath = endingStorePath(workspaceRoot);
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const heart = openHeartStore({ dbPath });
   try {
-    const raw = fs.readFileSync(p, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const store = {};
-    for (const [seat, val] of Object.entries(parsed)) {
-      let list;
-      if (Array.isArray(val)) {
-        list = val.filter((e) => e && typeof e === 'object');
-      } else if (val && typeof val === 'object') {
-        // Legacy pre-D89 shape: one bare entry object per seat, not a list. Migrate in place.
-        list = [val];
-      } else {
-        list = [];
-      }
-      // Legacy entries (and any hand-written fixture) carry no `id` — assign one from array
-      // position. Stable across re-reads because entries are only ever APPENDED, never removed
-      // or reordered (an answered ask stays in the list, same as the pre-D89 single-entry store
-      // never deleted an answered entry either).
-      list.forEach((e, i) => { if (e.id == null) e.id = i + 1; });
-      store[seat] = list;
-    }
-    return store;
-  } catch {
-    return {};
+    return fn(bind(heart.db), heart.db);
+  } finally {
+    heart.close();
   }
 }
 
-function writeStore(p, store) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.tmp-${process.pid}-${coordTimestamp().replace(/[^0-9]/g, '')}`;
-  fs.writeFileSync(tmp, JSON.stringify(store, null, 2));
-  fs.renameSync(tmp, p);
+// Rows for one (goal, seat), oldest first. A plain SELECT rather than an API call because the
+// store exposes single-ask and counting reads only — this module CONSUMES the table, it never
+// writes it outside the API above.
+function selectRows(db, goalId, seat) {
+  return db.prepare(
+    `SELECT ask_id, goal, seat, label, state, posted, posted_at, authorized_reply_at, evidence_pointer
+       FROM open_asks WHERE goal = ? AND seat = ? ORDER BY rowid ASC`,
+  ).all(String(goalId), String(seat));
 }
 
-// Append a new open ask for `seat` in `goalId`'s package. D89 Q4: this NEVER replaces an
-// already-open ask — a second, different owner message arriving before the first is answered is
-// QUEUED alongside it (both are stored, both re-inject) instead of overwriting the first.
-function createAsk({ workspaceRoot, goalId, seat, chatThreadId, text, execId = null }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  const list = store[seat] || (store[seat] = []);
-  const entry = {
-    id: list.length + 1,
-    seat: String(seat),
-    goalId: String(goalId),
-    chatThreadId: chatThreadId != null ? String(chatThreadId) : null,
-    text: String(text || ''),
-    execId: execId != null ? String(execId) : null,
-    status: 'open',
-    askedAt: coordTimestamp(),
-    answeredAt: null,
-    lastReinjectedAt: null,
+// The bridge's view of one row: the store's fields plus the ask body read back off the evidence
+// pointer. `text` is '' when the copy is gone — a missing body never turns into a missing ask.
+function present(row) {
+  let text = '';
+  try { text = fs.readFileSync(row.evidence_pointer, 'utf8'); } catch { text = ''; }
+  return {
+    id: row.ask_id,
+    askId: row.ask_id,
+    seat: row.seat,
+    goalId: row.goal,
+    chatThreadId: row.ask_id,
+    label: row.label,
+    text,
+    status: row.state,
+    posted: Number(row.posted) === 1,
+    askedAt: row.posted_at || null,
+    answeredAt: row.authorized_reply_at || null,
+    evidencePointer: row.evidence_pointer,
   };
-  list.push(entry);
-  writeStore(p, store);
-  return entry;
 }
 
-// Mark ONE of `seat`'s open asks answered. A no-op (returns null) when there is nothing open —
-// idempotent, and it never re-opens or invents a record for a reply nobody asked for.
-//
-// WHICH-ASK RULE (several asks can be open at once under D89 Q4): an explicit `askId` — the ask a
-// reply's thread/`--re` names — settles THAT ask; with none supplied, the OLDEST open ask settles.
-// The list is append-ordered (oldest first), so "first open entry found" IS the oldest. No caller
-// in this build passes `askId` yet — the chat bridge carries no per-ask thread reference today
-// (Slack threading here is one thread per goal conversation, not per ask), so every call resolves
-// to the oldest-open rule. `askId` exists so a future caller that DOES know which ask a reply
-// answers (a `--re`-style reference) can settle that one specifically without widening this
-// function's contract again.
+// Record an owner ask on `seat` in `goalId`. Idempotent per thread: a second message arriving in a
+// thread that already carries an open ask updates the on-disk copy and returns the SAME row — the
+// ask is the thread, so there is nothing new to open.
+function createAsk({ workspaceRoot, goalId, seat, chatThreadId, text, execId = null, label = ASK_LABEL_DEFAULT }) {
+  const askId = chatThreadId != null ? String(chatThreadId) : '';
+  if (!askId) throw new Error('createAsk requires chatThreadId — the Slack thread IS the ask id');
+  const copy = askCopyPath(workspaceRoot, goalId, askId);
+  fs.mkdirSync(path.dirname(copy), { recursive: true });
+  fs.writeFileSync(copy, String(text || ''));
+  return withStore(workspaceRoot, (api, db) => {
+    const existing = api.getAsk(askId);
+    if (!existing) {
+      api.insertAsk({
+        ask_id: askId, goal: String(goalId), seat: String(seat), label, evidence_pointer: copy,
+      });
+      // POSTED AT INSERT, because the only caller records an ask AFTER its forward landed
+      // (`forward-path.js` gates on `outcome.forwarded === true`). §2.1 reads `posted`, so a row
+      // left at 0 would be an ask nobody is waiting on — the state this record exists to prevent.
+      api.postAsk({ ask_id: askId, posted_at: coordTimestamp() });
+    }
+    const row = selectRows(db, goalId, seat).find((r) => r.ask_id === askId);
+    const out = present(row);
+    out.execId = execId != null ? String(execId) : null;
+    return out;
+  });
+}
+
+// Settle the ask a conformant owner-facing reply answered, and signal the bound seat's relaunch in
+// the SAME transaction (§2.8 — no orphan-or-twin). `askId` is the thread the reply landed in; it
+// is REQUIRED, because "the oldest open ask" is the rule [D-4-ruling] deletes. Returns null when
+// the thread carries no ask, so a reply nobody asked for never invents a record.
 function markAnswered({ workspaceRoot, goalId, seat, askId = null }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  const list = store[seat] || [];
-  const entry = askId != null
-    ? list.find((e) => e && e.status === 'open' && String(e.id) === String(askId))
-    : list.find((e) => e && e.status === 'open');
-  if (!entry) return null;
-  entry.status = 'answered';
-  entry.answeredAt = coordTimestamp();
-  writeStore(p, store);
-  return entry;
+  const id = askId != null ? String(askId) : '';
+  if (!id) return null;
+  return withStore(workspaceRoot, (api, db) => {
+    const row = api.getAsk(id);
+    if (!row || String(row.goal) !== String(goalId) || String(row.seat) !== String(seat)) return null;
+    if (row.state === 'closed') return present(row);
+    api.reapAndRelaunch({ ask_id: id, authorized_reply_at: coordTimestamp() });
+    const after = selectRows(db, goalId, seat).find((r) => r.ask_id === id);
+    return after ? present(after) : null;
+  });
 }
 
-// ALL of `seat`'s asks, oldest first — open and answered alike. Empty array when the seat has no
-// record. Widened from the pre-D89 single-object-or-null return: a caller that wants only the
-// still-open ones filters `status === 'open'` itself (both readers below do exactly that).
+// ALL of `seat`'s asks in `goalId`, oldest first — open, answered and closed alike. A caller that
+// wants only the live ones filters `status === 'open'` (§2.1 also requires `posted`).
 function getAsk({ workspaceRoot, goalId, seat }) {
-  const p = storePath(workspaceRoot, goalId);
-  const store = readStore(p);
-  return store[seat] || [];
+  return withStore(workspaceRoot, (_api, db) => selectRows(db, goalId, seat).map(present));
 }
 
-module.exports = { storePath, createAsk, markAnswered, getAsk, coordTimestamp };
+module.exports = { storePath, askCopyPath, createAsk, markAnswered, getAsk, coordTimestamp };

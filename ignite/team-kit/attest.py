@@ -170,13 +170,20 @@ def attest_exit_seat(args, seat):
 
     ok, note = update_row(base, seat, flip)
     steps.append(f"roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
-    # `exited`, from the KIT writer. Both bounds are structural: this arm CANNOT write `done`
-    # (the writer bound refuses it) and a seat CANNOT write `exited` (the same bound, other side).
+    # The SYSTEM `failed`/`crash` stamp — never `exited`, which is a killed word [T1-R3, §1.7].
+    # Both bounds are structural: this arm CANNOT write `done` (the writer bound refuses it) and a
+    # seat CANNOT write `failed` (the same bound, other side).
+    #
+    # ⚠ THE CALLER'S EVIDENCE WINS. `--evidence` carries the exit code and transcript-tail path the
+    # witness read (`spawn.js#crashEvidence`); §1.4 requires the pointer to name the observed
+    # death, and this process can see neither fact. The exported transcript is the fallback, and
+    # the seat name the last resort — the store refuses an empty pointer outright.
     pkg = package_dir(args, register=False)
     try:
         ending_store.stamp_system(
             pkg, seat, "failed", reason_class="crash",
-            evidence=out or f"attest-exit:{seat}", diagnostic="crash")
+            evidence=(getattr(args, "evidence", "") or "").strip() or out or f"attest-exit:{seat}",
+            diagnostic="crash")
         steps.append("ending store: failed/crash stamped")
     except ending_store.EndingStoreError as exc:
         steps.append(f"ending store: NOT stamped — {exc}")
@@ -334,8 +341,7 @@ def close_session_seat(args, sid, seat):
     try:
         ending_store.stamp_system(
             pkg, seat, "failed", reason_class="crash",
-            evidence=((entry or {}).get("transcript", "") if isinstance(entry, dict) else "")
-            or f"session:{sid}",
+            evidence=(getattr(args, "evidence", "") or "").strip() or f"session:{sid}",
             diagnostic="crash", replace=False)
         steps.append("ending store: failed/crash stamped")
     except ending_store.EndingStoreError as exc:

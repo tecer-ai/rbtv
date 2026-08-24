@@ -262,13 +262,17 @@ what every seat declared, from the bus it already parses; **nothing in JS parses
 again**. `engine/execution-record.js#blockAndQueueVerdict`, `#askParkedAtGate` and `#outcomeForSeat`
 are **deleted**.
 
-**And it is NOT in the execution record.** That column narrowed to a **process** vocabulary —
-`clean | crashed | killed` — because the asking session really did exit 0 and a tidy exit is all the
-lane that watched it can attest. `blocked` is no longer an outcome word: it meant two things at once
-(what became of the process, and whether the work was finished) and the two collided. The engine's
-role is CONSUMPTION — `engine/seeding.js#recordView` folds coord's `verdict: HELD` into
-`view.blocked` and its `disposition: done` into `view.done`, and every downstream reader
-(`seatState`, `attached-execution.js#evaluateExit`, `--status`) inherits that one view.
+**And it is NOT in the execution record.** The process record publishes **no work outcome at all**:
+`clean | crashed | killed` are killed as work words (spec-state-store §1.7, §4.4 Row D), because
+they said what became of a PROCESS while readers took them for what became of the WORK. What the
+observer saw survives as the `evidence_pointer` and the required `reason_class` on a `failed`
+ending — a crash is `failed` / `crash` carrying the exit code and transcript tail, never a bare
+outcome word with no reason. `blocked` is not an outcome word either, for the same collision.
+
+The engine's role is CONSUMPTION — `engine/seeding.js#recordView` folds the DERIVED wait (§2.1: an
+`open_asks` row that is `posted` and still `open`, which `ready-seats` renders as `HELD`) into
+`view.blocked` and the ending store's `ending: done` rows into `view.done`, and every downstream
+reader (`seatState`, `attached-execution.js#evaluateExit`, `--status`) inherits that one view.
 
 **What releases it: the owner's answer, recorded onto the bus** — § *The answer goes back onto the
 bus* below. Once the ask carries an `answer` row naming it, `ready-seats` stops reporting `HELD` and

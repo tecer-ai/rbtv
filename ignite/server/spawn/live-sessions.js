@@ -400,13 +400,24 @@ function createLiveSessions({
     log('info', 'live session ended', { conversationId: s.conversationId, sessionId: s.sessionId, reason, turns: s.turns, orphanedTurns: orphaned.length, ageMs: Date.now() - s.startedAt });
     // Close the sitting row this module opened. Nobody else can: a live session writes no
     // execution row BY DESIGN (header ⚑), so the ticker's status-keyed sweep never reaches it,
-    // and a row left OPEN blocks any ruling on the whole seat (2026-08-18 incident; the verb
-    // that ruling used at the time, `rule-disposition`, is since deleted [T2-R12, T1-R9] —
-    // the OPEN-row hazard this comment documents is unchanged).
-    // Same closer, same `--force-dead` witnessed-death claim as the ticker's own sweep — ordered
-    // after `recordSitting`'s append so a fast death cannot close a row that isn't written yet.
+    // and a row left OPEN leaves the seat with no ending at all (2026-08-18 incident).
+    //
+    // Same closer, same `--force-dead` witnessed-death claim as the ticker's own sweep, so the
+    // ending it stamps is the same one: `failed` / `reason_class=crash`, never `exited`
+    // [T1-R1, T1-R18, T4-R7]. Ordered after `recordSitting`'s append so a fast death cannot close
+    // a row that isn't written yet.
+    //
+    // ⚠ THE EVIDENCE IS THIS MODULE'S TO SUPPLY. §1.4 requires a `crash` pointer to name the
+    // observed death; a live session has no carrier exit status, so the REASON it ended plus its
+    // own log path is the honest pointer — passing nothing would leave the store's evidence
+    // requirement satisfied by a bare session id that says nothing about the death.
     Promise.resolve(s.recorded).catch(() => {}).then(() => {
-      try { closeSeatSessionRow({ workdir: s.workdir, sessionId: s.sessionId, log }); } catch {}
+      try {
+        closeSeatSessionRow({
+          workdir: s.workdir, sessionId: s.sessionId, log,
+          exitCode: `live-session-ended:${reason}`, logPath: s.logPath || null,
+        });
+      } catch {}
     });
   }
 

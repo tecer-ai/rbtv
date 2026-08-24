@@ -199,7 +199,8 @@ const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // FIRST segment is taken and not the last.
 //
 // ⚠ THE LEGACY NAME FORM STILL FLOWS TODAY — it is not "historical". `jobs_log` was not migrated
-// (nothing in it is re-read as a launch instruction — it is an audit column), and the bridge's own
+// (nothing in it is re-read as a launch instruction — the whole table is HISTORY / turn audit
+// [T4-R8], and `profile` is an audit column like every other on the row), and the bridge's own
 // enqueue path was still writing `claude-sonnet` on 2026-08-12, on live execs THIS leg was
 // watching. A slashless name has no `/`, so the first segment is the whole string; the resolver
 // below therefore matches on a `-` boundary too, and treats "unrecognized" as an event to report

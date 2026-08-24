@@ -1615,6 +1615,13 @@ class HeartStore {
     return this._attachThread(stmt.get(execId) || null);
   }
 
+  // ⚠ A HISTORY READ [T4-R8]. `jobs_log.status` is the daemon's turn-audit column and this is its
+  // listing API — it answers "which turn rows carry this word", never "which seats are alive" and
+  // never "how did this seat's work end". The two questions it used to be asked have their own
+  // surfaces now: MEASURED liveness on the supervisor registry, and the WORK ending on
+  // `seat_endings` in this same file's ending store (spec-state-store §1.1, §4.3). A caller that
+  // schedules, launches, relaunches or waits on what this returns is reading the wrong surface.
+  //
   // `withThread: false` skips the per-row `_chainThread` walk. It is not a micro-optimisation: the
   // walk is a RECURSIVE CTE per row, so a caller that scans every status pays one such query per
   // execution in the store's whole history — 743 ms of the 874 ms this call cost on the daemon's

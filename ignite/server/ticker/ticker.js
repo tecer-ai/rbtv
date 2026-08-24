@@ -363,8 +363,15 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // two places, so when a session outlives its turn they diverge correctly instead of one
   // silently standing in for the other.
 
-  // TURN level — is the WORK in flight? Reads jobs_log.status.
-  function liveTurns() {
+  // TURN level — which turn rows does `jobs_log` still have OPEN? Reads `jobs_log.status`, and
+  // that column is HISTORY / turn-audit, never liveness and never work-state [T4-R8].
+  //
+  // ⚠ THE SET IS A WORK LIST, NOT AN ANSWER. Every consumer below re-asks the real question of the
+  // real source: `spawnManager.status()` for "is the process there", `seat_endings` for "how did
+  // the work end". A row reads `running` for as long as nothing got round to stamping it, which is
+  // exactly the state a crash produces — so treating this column as liveness would report a dead
+  // seat as working for as long as the row stays unswept.
+  function openTurnRows() {
     return heartStore.listExecutionsByStatus('running')
       .concat(heartStore.listExecutionsByStatus('launching'));
   }
@@ -423,7 +430,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   }
 
   function findLiveExecutionForThread(thread) {
-    for (const row of liveTurns()) {
+    for (const row of openTurnRows()) {
       if (row.thread === thread) return row;
     }
     return null;
@@ -1500,6 +1507,9 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     }
 
     // Re-dispatch blocked slots when genuinely new input arrives on the thread.
+    // `jobs_log.status='blocked'` is TURN HISTORY [T4-R8] — a record that this chat slot's turn
+    // ended awaiting input, never a seat work-state and never a liveness claim. What re-dispatches
+    // it is new input on the thread, re-measured below, not the word in the column.
     for (const exec of heartStore.listExecutionsByStatus('blocked')) {
       if (!hasNewInputSinceBlock(exec)) continue;
       if (isSlotLiveOrRearmed(exec)) {
@@ -1842,7 +1852,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // session row is absent (a pre-7.46 row on a store not yet migrated), and the dedupe below
     // keeps a row from being swept twice.
     //
-    // ── W1 · V1's FOLD-IN, FIRST HALF: `liveTurns()` JOINS THE SWEPT SET ────────────────────────
+    // ── W1 · V1's FOLD-IN, FIRST HALF: `openTurnRows()` JOINS THE SWEPT SET ────────────────────────
     //
     // The verification found `orphanRescan` runs NOWHERE in production — its only caller is its own
     // probe, and the "boot rescan" comments elsewhere are stale (`server/index.js` boots retention
@@ -1861,7 +1871,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const liveBeforeCrash = dedupeByExecId(
       liveSessionTurns()
         .concat(heartStore.listExecutionsByStatus('stalled'))
-        .concat(liveTurns())
+        .concat(openTurnRows())
     );
     const crashedThisTick = new Set();
     // ── W1 · THE SESSION-CLOSER'S BUDGET FOR THIS TICK (adv, C14) ──────────────────────────────
@@ -1877,15 +1887,25 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       if (!info.live) {
         // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
         // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.
-        // What the ENGINE observed (clean exit / crash / already-reported) is a fact about the
-        // TURN; what the seat's row needs is the seat's OWN declaration, which coord reads off
-        // `awaiting-close.json`. Passing the engine's verdict down would be the engine asserting
-        // something about work only the occupant witnessed.
+        //
+        // ⚠ THIS IS THE DEATH DOOR, AND IT STAMPS `failed` / `crash`, NEVER `exited`
+        // [T1-R1, T1-R18, T4-R7]. The seat's own declaration, if it made one, was already written
+        // at checkout; what this sweep witnessed is the one fact no seat can witness about itself.
+        // The engine still asserts nothing about the WORK — it hands over only the death and its
+        // evidence (exit code, transcript-tail path), which §1.4 requires of a `crash` row, and
+        // coord performs the stamp.
         //
         // Failure is never fatal and never breaks a `continue` below: the helper swallows and logs.
         if (closerBudget > 0 && exec.workdir && exec.session_id) {
           closerBudget -= 1;
-          closeSeatSessionRow({ workdir: exec.workdir, sessionId: exec.session_id, log });
+          const marker = readExitMarker(exec);
+          closeSeatSessionRow({
+            workdir: exec.workdir,
+            sessionId: exec.session_id,
+            log,
+            exitCode: marker.present ? marker.raw : (info.exitCode ?? info.carrierInfo?.exitCode ?? null),
+            logPath: exec.log_path || null,
+          });
         }
         // ── G-222 · THE TURN ALREADY REPORTED. Write the SESSION, never the turn.
         //

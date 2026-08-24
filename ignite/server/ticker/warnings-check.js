@@ -15,6 +15,9 @@ const OWNER_NOTE_THREAD = 'owner-feed';
 // (p7-multiturn scope note: the sender-triggered recycle/wake paths are
 // UNGATED per the owner's budget ruling; this warning and the blocked gate
 // keep the chain-total arithmetic.)
+// `jobs_log.status='blocked'` is read HERE AS HISTORY [T4-R8] — the audit record that this chat
+// slot's turn ended awaiting input. It is not a seat work-state and not a liveness claim; the
+// arithmetic below counts recycles ON that history, which is exactly what a turn log is for.
 function findBlockedBudgetExhaustedSubjects(heartStore, slotMaxRepeats) {
   const subjects = new Set();
   for (const exec of heartStore.listExecutionsByStatus('blocked')) {

@@ -67,10 +67,11 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // `one-readiness-predicate.md` § D8): the TWELFTH intent — the owner's Slack reply, recorded on the
 // asking seat's coordination bus. Before it the bus kept every question and no reply, so nothing
 // mechanical could tell an answered ask from an unanswered one and a seat could walk past the
-// owner's question. The reader of that pairing is now `coord.py ready-seats`, which computes a
-// `HELD` verdict for EVERY seat with an unanswered owner ask (W2 — universal, no `fallback:
-// block-and-queue` gate and no ferry-delivery gate) and hands it to `engine/seeding.js#recordView`
-// as the set whose dependents wait. This row is what lets that verdict flip back to ready.
+// owner's question. The pairing is now DERIVED at read, never stored: spec-state-store §2.1 makes
+// a seat `waiting-on-owner` iff an `open_asks` row for it is `posted` and still `open` [C-3, D15,
+// T4-R5]. `coord.py ready-seats` renders that predicate as the presentation word `HELD` and hands
+// it to `engine/seeding.js#recordView` as the set whose dependents wait. This row is what reaps
+// the ask, and the predicate goes false the moment it does.
 // ⚑ WHY A NEW INTENT AND NOT AN `enqueue-job` VARIANT — the owner's ruling, with the alternative it
 // beat: `enqueue-job` carrying a `fire-tool` job needs a `config/spawn-profiles.yaml` entry plus a
 // CREATE-ONLY `register-job` row on the live box (open issue S-2: no in-place repair, and that box

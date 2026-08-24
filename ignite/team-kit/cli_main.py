@@ -1255,15 +1255,24 @@ def build_parser():
     # row the caller opened, which is what keeps a close off a concurrent sitting's live row.
     s.add_argument("--session", metavar="ID",
                    help="(daemon lane) close the sessions.csv row carrying THIS session-id — the "
-                        "id the daemon itself wrote at spawn. Reads the seat's own declaration "
-                        "from awaiting-close.json and carries it; attests `exited` only when "
-                        "nobody declared anything. No tmux, no sensor snapshot, no name matching")
+                        "id the daemon itself wrote at spawn. Checkout has already written any "
+                        "ending the seat declared for itself; this arm stamps the system "
+                        "`failed`/`crash` for a death no seat could witness. No tmux, no sensor "
+                        "snapshot, no name matching")
     s.add_argument("--force-dead", action="store_true",
                    help="(daemon lane, with --session) the CALLER witnessed the process exit, so "
                         "skip the pid liveness re-check. For the engine's enforce/kill arms, "
                         "which observed the death directly; never for a human")
+    # The ONE fact only the observer holds. `reason_class=crash` REQUIRES an evidence pointer
+    # naming the observed death (spec-state-store §1.4, §4.5), and neither the exit code nor the
+    # daemon's log path is visible from inside this process — so the witness passes them in.
+    # Absent, the stamp falls back to the transcript path, which is a weaker pointer, never none.
+    s.add_argument("--evidence", metavar="TEXT", default="",
+                   help="(daemon lane) the witnessed-death evidence pointer — exit code plus the "
+                        "transcript-tail path. Stored verbatim on the `failed`/`crash` row")
     s.add_argument("--go", action="store_true",
-                   help="ACT: export, flip the roster row, record `exited`, close the session row")
+                   help="ACT: export, flip the roster row, stamp `failed`/`crash`, close the "
+                        "session row")
     s.set_defaults(func=cmd_attest_exit)
 
     s = command(

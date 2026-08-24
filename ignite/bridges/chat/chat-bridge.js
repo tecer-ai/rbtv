@@ -534,6 +534,11 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
         // (server/spawn/live-sessions.js § what it does not do), so there is no spawn action
         // for the leg to capture and nothing to arm it for.
         //
+        // ⚠ ROW PRESENCE ONLY, AND THAT IS A HISTORY QUESTION [T4-R8]. What is read here is
+        // whether the turn-audit log HAS a row, never what `status` word it carries — a warm
+        // session is not "running" in `jobs_log`, it is absent from it. Its ending, when it has
+        // one, is stamped in the ending store by the live-session closer.
+        //
         // ⚑ THE FENCE IS EXTRACTED HERE, through the COLD PATH'S OWN extractor. A live
         // session's `result` event carries the WHOLE final turn text, and the reply contract
         // asks the agent to end that turn with its message between two sentinel lines — so a
@@ -942,19 +947,20 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // ONE place every conversation-addressed post passes through, which is why the
     // clear hangs here and not in the reply leg.
     if (posted && posted.delivered !== false) clearPending(chatThreadId);
-    // D57/D75 — the SAME store `unanswered_ask_block` reads, marked at the ONE place every
-    // owner-facing post passes through. `answersOwnerAsk` is true only for a GENUINELY
-    // conformant fenced reply (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a
-    // FALLBACK_TEXT/GIVE_UP_NOTICE/DEAD_AIR_NOTICE post is a system stand-in, never marks
-    // answered (Q1 = A, owner-ruled D89: only a conformant reply counts). No `askId` is passed
-    // here — under D89 Q4 several asks can be open at once, and with none supplied `markAnswered`
-    // settles the OLDEST open one (see ask-store.js's own header for the full rule); this call
-    // site has no per-ask thread reference to pass a more specific one.
+    // The `open_asks` row this reply settles, reaped at the ONE place every owner-facing post
+    // passes through. `answersOwnerAsk` is true only for a GENUINELY conformant fenced reply
+    // (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a FALLBACK_TEXT/GIVE_UP_NOTICE/
+    // DEAD_AIR_NOTICE post is a system stand-in and never settles an ask.
+    //
+    // ⚠ THE ASK IS NAMED BY ITS THREAD, and that is the whole release rule [D-4-ruling, T1-R12]:
+    // an authorized reply releases the ask bound to THAT EXACT thread. The old "with no askId,
+    // settle the oldest open one" fallback is DELETED — it is how a reply to one question closed
+    // a different one — so `chatThreadId` is passed here and `markAnswered` refuses without it.
     if (answersOwnerAsk && posted && posted.delivered !== false && goalChannels) {
       const goalId = goalChannels.goalForChannel(chatThreadId);
       if (goalId) {
         try {
-          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master' });
+          askStore.markAnswered({ workspaceRoot: config.workspaceRoot, goalId, seat: 'goal-master', askId: chatThreadId });
         } catch (err) {
           log('warn', 'owner-ask record NOT marked answered — it may re-inject even though this reply landed', { chatThreadId, goalId, error: err.message });
         }

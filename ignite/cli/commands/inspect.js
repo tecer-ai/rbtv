@@ -11,6 +11,12 @@
 // ONE status, paged. It is the only way to ask "every failed run" or "every stalled
 // worker"; every other target answers about one execution or about the fleet as a
 // whole, never about a state across it.
+//
+// ⚠ WHAT IT LISTS IS HISTORY [T4-R8]. `jobs_log.status` is the turn-audit column and this target
+// is a reader of it — a `running` row means "the last thing written about this turn", never "this
+// seat is working". Liveness is the supervisor registry's answer; how the WORK ended is the ending
+// store's (`seat_endings`). A caller that pages this listing to decide whether to launch something
+// is reading the wrong surface.
 
 const { CliUsageError } = require('../lib/errors');
 const { takeValue, requirePositional } = require('../lib/args');

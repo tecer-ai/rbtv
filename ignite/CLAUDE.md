@@ -298,7 +298,23 @@ ignite's state lives in exactly TWO roots, split by ONE membership test: **"can 
 
 Canonical vocabulary for every spec, task, dispatch, review, and code file of this module (owner ruling D23, 2026-07-14, `…/phase-7-plan/decisions.md`). Specs and code MUST use exactly these words for these things. A term is invented or changed ONLY when necessary, and every invented or changed term is OWNER-APPROVED before it binds; if a term already exists for what you are writing, USE it — never create an alias.
 
-### Session lifecycle states (`jobs_log.status` — the ONE stored lifecycle, closed enum)
+### Turn-audit states (`jobs_log.status` — HISTORY, closed enum)
+
+⚠ **`jobs_log.status` IS HISTORY. IT IS NEVER LIVENESS AND NEVER WORK-STATE** [T4-R8]. The seven
+words below stay writable on `jobs_log` and only on `jobs_log`, as the daemon's audit/turn log of
+what a fired execution last recorded about itself. Nothing schedules, launches, relaunches or waits
+on them. The three questions they used to be asked stand answered elsewhere, and a reader that asks
+them here is reading the wrong surface:
+
+| the question | the surface that answers it |
+|---|---|
+| is this seat's process alive? | the supervisor registry — MEASURED liveness, never a stored word |
+| how did this seat's work END? | the ending store `seat_endings` — `done` / `incomplete` / `failed`, one current row per (goal, seat) |
+| may this seat launch, or is it waiting? | the DERIVED predicates of `spec-state-store` §2 — launchability off the task graph, `waiting-on-owner` off a posted, still-open `open_asks` row |
+
+A `running` row means "the last thing written about this turn", not "this seat is working" — a
+process that dies unobserved leaves that word in place until a sweep gets to it, which is precisely
+why liveness moved off this column.
 
 | Term | Definition | Where it appears |
 |------|------------|------------------|
