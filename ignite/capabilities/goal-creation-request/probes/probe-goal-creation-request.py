@@ -589,7 +589,7 @@ def check_drain_writes_lane_at_birth(src, mod):
         old_path = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{binz}{os.pathsep}{old_path}"
         try:
-            out = mod.scaffold_and_queue(inbox, root, "planning", td, td, td, td, td,
+            out = mod.scaffold_and_queue(inbox, root, "plan-console", td, td, td, td, td,
                                          dry_run=False)
         except Exception as exc:                       # noqa: BLE001 — reported, never swallowed
             return False, f"the drain raised {type(exc).__name__}: {exc}"
@@ -625,7 +625,7 @@ def check_drain_writes_lane_at_birth(src, mod):
         if not argv_log.is_file():
             return False, "the ruled name was never invoked — no argv captured"
         seats_argv = json.loads(argv_log.read_text(encoding="utf-8"))
-        for expect in ("--package", str(goal_dir), "--workflow", "planning", "--root"):
+        for expect in ("--package", str(goal_dir), "--workflow", "plan-console", "--root"):
             if expect not in seats_argv:
                 return False, f"the ruled name was invoked without {expect!r}: {seats_argv}"
 

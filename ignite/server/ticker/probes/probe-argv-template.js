@@ -53,7 +53,7 @@ const storeScratch = path.join(__dirname, '..', '..', 'heart', `heart-store.__c5
 const allowScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c7559scratch-${process.pid}.js`);
 
 const GOAL = 'test-c5-fixture';
-const WORKFLOW = 'planning';
+const WORKFLOW = 'plan-console';
 const ENTRY_SEAT = 'elicitator';
 
 let passed = 0;
@@ -147,8 +147,8 @@ async function run(lines) {
     // ── H · the hostile-arm suite. Each attempt MUST be refused at the ENQUEUE gate ─────────────
     const HOSTILE = [
       ['H1a shell metacharacter `;` in a seat value', { ...goodArgs, 'entry-seat': 'elicitator; rm -rf /' }],
-      ['H1b command substitution `$(` in a workflow value', { ...goodArgs, workflow: 'planning$(id)' }],
-      ['H1c backtick in a workflow value', { ...goodArgs, workflow: 'planning`id`' }],
+      ['H1b command substitution `$(` in a workflow value', { ...goodArgs, workflow: 'plan-console$(id)' }],
+      ['H1c backtick in a workflow value', { ...goodArgs, workflow: 'plan-console`id`' }],
       ['H1d pipe in a seat value', { ...goodArgs, 'entry-seat': 'elicitator|nc' }],
       ['H3a path traversal in a seat value', { ...goodArgs, 'entry-seat': '../../etc/passwd' }],
       ['H3b path traversal in a workdir value', { ...goodArgs, workdir: `${goalDir}/../../../etc` }],

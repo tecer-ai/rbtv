@@ -154,7 +154,7 @@ of a per-goal `start-workflow` row. Renumbered here because the two were being r
 Out of order, step 2 logs one `catalogue-paths` error per boot for an `--inbox` that does not exist
 yet (that check logs; it never refuses the boot).
 
-⚠ **`--workflow` is RULED — `planning`** (owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08;
+⚠ **`--workflow` is RULED — `plan-console`** (owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08; the workflow was named `planning` until its 2026-08-24 rename, which moved the shipped value and nothing else;
 task C5). It names what EVERY master-created goal that does not route to a pre-existing workflow is
 materialized with: the meta component `3-resources/tools/rbtv/meta/planning/`, whose chain root is
 `plan-interviewer`. ⚠ **`--entry-seat` is GONE** (7.778): it existed only to fill the deleted

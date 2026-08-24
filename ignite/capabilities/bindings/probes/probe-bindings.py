@@ -76,7 +76,7 @@ STARTER = IGNITE / "team-kit" / "starter-set"
 WORKSPACE = IGNITE.parents[3]
 REPO = IGNITE.parent
 LIVE_MANIFEST = (REPO / "meta" / "planning"
-                 / "workflows" / "planning" / "planning.csv")
+                 / "workflows" / "plan-console" / "plan-console.csv")
 
 failures: list[str] = []
 inoperative: list[str] = []
@@ -147,7 +147,7 @@ mod = load()
 print("check 0 — resolve_workflow accepts the repo tree and the mirror tree")
 wf0 = mod.resolve_workflow(LIVE_MANIFEST)
 sheet0 = mod.bindings_path(wf0)
-check("live repo planning.csv derives module=meta, component=planning, workspace=vault, "
+check("live repo plan-console.csv derives module=meta, component=planning, workspace=vault, "
       "sheet at .rbtv/config/modules/meta/planning/bindings/plan.json",
       wf0["module"] == "meta" and wf0["component"] == "planning"
       and Path(wf0["workspace"]) == WORKSPACE
@@ -440,7 +440,7 @@ with tempfile.TemporaryDirectory() as td:
     def materialize():
         return subprocess.run(
             [sys.executable, str(MATERIALIZE),
-             "--package", str(pkg), "--workflow", "planning",
+             "--package", str(pkg), "--workflow", "plan-console",
              "--catalog-root", str(REPO / "meta"),
               "--root", "--bindings", str(sheet),
               "--claude-md", str(STARTER / "CLAUDE.md"),

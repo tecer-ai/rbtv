@@ -1089,7 +1089,7 @@ tools:
   # planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` —
   # was DELETED, and every daemon-fired creation refused `workflow-unknown` at `create-package`
   # until this edit. The live component is `3-resources/tools/rbtv/meta/planning/`, the planning REWRITE:
-  # 16 manifest seats in `workflows/planning/planning.csv`. The ruling is unchanged — a
+  # 16 manifest seats in `workflows/plan-console/plan-console.csv`. The ruling is unchanged — a
   # master-created goal still starts in planning; only the component it names moved.
   #
   # ⚠ `--entry-seat` AND `--delay-seconds` ARE GONE (7.778, owner-ruled). They fed the
@@ -1127,9 +1127,9 @@ tools:
       - --goals-root
       - /home/henri/ht-wkdir/second-brain/.rbtv/goals
       - --workflow
-      - planning
+      - plan-console
       # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning COMPONENT FOLDER. The workflow is
-      # resolved as `<catalog-root>/<component>/workflows/planning/planning.csv`, so the root must
+      # resolved as `<catalog-root>/<component>/workflows/plan-console/plan-console.csv`, so the root must
       # be the MODULE folder that CONTAINS the component. (Under the retired planning-deprecated
       # component this was additionally load-bearing because `ledger-groomer` was cataloged in a
       # sibling component — measured in `evidence/c5e/c5e-01-premise-probes.txt` P1. All 16 seats

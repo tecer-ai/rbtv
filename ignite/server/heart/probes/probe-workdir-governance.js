@@ -68,7 +68,7 @@ const GREEN = [
   // 25552), whose catalogue entry died with the Python edge-runner. The SHAPE stays guarded: it is
   // legal, W1 is in the root set for it, and M4 below is what proves the rule still admits it.
   { id: 'G2', label: 'workdir = default_workdir_root exactly (the shape exec 25552 supplied — the ONE fire-tool row that ever did)', args: { tool: 'a-fire-tool', workdir: ROOT } },
-  { id: 'G3', label: 'planning: workdir = a run package under .rbtv/goals/<goal>', args: { workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` } },
+  { id: 'G3', label: 'plan-console: workdir = a run package under .rbtv/goals/<goal>', args: { workflow: 'plan-console', workdir: `${GOALDIR}/runs/run-1` } },
 ];
 
 // Build a scratch copy of argv-template.js with one guard removed, and return its exports.
@@ -293,9 +293,9 @@ try {
     check(checkFireToolWorkdir({ workdir: escape }, WS) === null,
       'S5 with NO cached root the resolve-compare never runs — the pre-ruling behaviour is intact',
       String(checkFireToolWorkdir({ workdir: escape }, WS)));
-    check(checkFireToolWorkdir({ workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` }, ROOT) === null,
+    check(checkFireToolWorkdir({ workflow: 'plan-console', workdir: `${GOALDIR}/runs/run-1` }, ROOT) === null,
       'S5b G3 still passes unbooted — the fixture root that exists on no disk is untouched',
-      String(checkFireToolWorkdir({ workflow: 'planning', workdir: `${GOALDIR}/runs/run-1` }, ROOT)));
+      String(checkFireToolWorkdir({ workflow: 'plan-console', workdir: `${GOALDIR}/runs/run-1` }, ROOT)));
   }
 
   say('');

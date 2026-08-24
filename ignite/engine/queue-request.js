@@ -16,7 +16,7 @@ const unbuilt = require('./unbuilt-seats');
 
 const PLANNING_MODULE = 'meta';
 const PLANNING_COMPONENT = 'planning';
-const PLANNING_WORKFLOW = 'planning';
+const PLANNING_WORKFLOW = 'plan-console';
 const PLANNING_CODE = 'plan';
 const MATERIALIZE_PY = path.join(__dirname, '..', 'team-kit', 'materialize-seats.py');
 const SUBPROCESS_TIMEOUT_MS = 120000;

@@ -4382,7 +4382,9 @@ def render_taskforce_rows(plan: dict) -> None:
     Q8 second-carrier note (d-spec-open-points-ruled Q8; verified at dag-05
     implementation): the verbatim 15-rule DAG-authoring block is carried by
     TWO surfaces, both under .rbtv/mirror/meta/planning-deprecated/ (pre-rename planner-workflow) —
-    (1) workflows/planning/workflow.md § "DAG-authoring rules" (the source),
+    (1) that DELETED component's own workflows/planning/workflow.md § "DAG-authoring
+        rules" (the source; git history only — unrelated to the live meta/planning
+        component, whose workflow is plan-console since the 2026-08-24 rename),
     (2) prompts/cognitive-units/procedures/workflow-designer.md § "The
     DAG-authoring rules — carried VERBATIM" (the byte-identical copy).
     Of the 15 rules, THIS command enforces MECHANICALLY:
