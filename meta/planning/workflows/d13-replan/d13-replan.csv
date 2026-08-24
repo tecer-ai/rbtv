@@ -1,0 +1,4 @@
+Seat/workflow,after,i/o,Modality
+repl-understander,,"in: the gate verdict for the failed milestone, that milestone's unchanged done contract, its plan and seats, and every artifact those seats declared at its declared path; out: planning/replan/gap-brief.md (verdict, what execution produced, the gap clause by clause, salvage, and the boundary call contained|cross-milestone)",interactive
+repl-drafter,repl-understander,"in: planning/replan/gap-brief.md + the failed milestone's plan and seats + the goal's compiled permission envelope; out: planning/replan/patch-plan.md (first line PATCH-PLAN, second line disposition: patch|escalate — a patch confined to that one milestone and inside the unwidened envelope, or the escalation analysis with zero patch content)",interactive
+repl-verifier,repl-drafter,"in: planning/replan/patch-plan.md + the milestone's unchanged done contract; out: planning/approval-digest.md (composed only, not posted)",interactive
