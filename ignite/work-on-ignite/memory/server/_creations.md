@@ -3,3 +3,4 @@
 2026-08-21 · creation · seeded · Truly everything master cage · D-6 wall was only at home (tmpfs discarded peer writes); D49 MasterBinds makes all *-master roles workspace-RW with secrets still masked, D48 worker seats/ overlay refuses EROFS · 92e7156c · — · ⚠
 2026-08-24 · creation · plan-time envelope compiler · composeCageFor 14-source stack → ignite/envelope compile() bind list · 570131d9 · — · ⚠
 2026-08-24 · creation · Ending store stamp API · four machines → one heart.db ending store + derived reads · 28c464b0,3b2469cf · — · ⚠
+2026-08-24 · creation · envelope launch refuse and inject · composeCageFor 14-source → admitLaunch refuse+stamp · c9615ca2 · — · ⚠
