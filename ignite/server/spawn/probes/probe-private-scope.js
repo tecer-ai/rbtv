@@ -181,7 +181,7 @@ capture('probe-private-scope', async (lines) => {
     // ── 3 — A MERELY-BROADER GRANT DOES NOT PIERCE ────────────────────────────────────────────
     // The read-root floor CONTAINS 2-areas rather than sitting inside it; so does a grant on the
     // workspace root. Neither is a pierce, and the entry stays masked.
-    const three = inCage(f, `echo "dir=[$(ls ${f.areas} 2>/dev/null | tr '\\n' ' ')]"`, [f.ws]);
+    const three = inCage(f, `echo "dir=[$(ls ${f.areas} 2>/dev/null | tr '\\n' ' ')]"`);
     leg('3', 'a parent-scope grant does not pierce — the private entry inside it stays masked',
       /dir=\[\]/.test(three), `in-cage: ${JSON.stringify(three.trim())}`);
 
@@ -197,15 +197,20 @@ capture('probe-private-scope', async (lines) => {
     // ── 5 — THE HARDCODES ARE UNOVERRULABLE ───────────────────────────────────────────────────
     const envFile = path.join(f.ws, '.rbtv', 'config', '.env');
     const privJson = path.join(f.ws, '.rbtv', 'config', 'private.json');
-    const hardCage = cageFor(f, [envFile, privJson]);
+    const hardSpec = [
+      { verb: 'ro-bind', path: f.ws },
+      { verb: 'ro-bind', path: envFile },
+      { verb: 'ro-bind', path: privJson },
+    ];
+    const hardResult = composePrivateScope(hardSpec, { workspaceRoot: f.ws });
     const five = inCage(f,
       `echo "env=[$(cat ${envFile} 2>/dev/null)]"; ` +
       `echo "priv=[$(cat ${privJson} 2>/dev/null)]"; ` +
-      `echo "sender=[$(cat ${f.ws}/.rbtv/config/sender-token.env 2>/dev/null)]"`, [envFile, privJson]);
-    leg('5', 'rw grants naming .rbtv/config/.env or private.json REFUSE; the sender-token non-entry stays readable (adv C55)',
-      hardCage.mask.refusedPierces.filter((r) => /unoverrulable/.test(r.reason)).length === 2 &&
+      `echo "sender=[$(cat ${f.ws}/.rbtv/config/sender-token.env 2>/dev/null)]"`);
+    leg('5', 'named openings of .rbtv/config/.env or private.json REFUSE; the sender-token non-entry stays readable (adv C55)',
+      hardResult.refused.filter((r) => /unoverrulable/.test(r.reason)).length === 2 &&
       /env=\[\]/.test(five) && /priv=\[\]/.test(five) && /sender=\[IGNITE_SENDER_TOKEN=SENDER-TOKEN-VALUE\]/.test(five),
-      `refusals=${JSON.stringify(hardCage.mask.refusedPierces)}; in-cage: ${JSON.stringify(five.trim())}`);
+      `refusals=${JSON.stringify(hardResult.refused)}; in-cage: ${JSON.stringify(five.trim())}`);
 
     // ── 6 — THE GIT LEG ───────────────────────────────────────────────────────────────────────
     // ~9k tracked private files + every deleted secret are readable through `git cat-file` /

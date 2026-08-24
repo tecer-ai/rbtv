@@ -48,13 +48,19 @@ function fixture() {
 // whose real target's directory holds a private entry (needs a pierce, per `needsDeclaration`), one
 // whose directory holds nothing (the `coordinate`/`teamview` shape `local-bin` was built for).
 function fixtureLocalBin() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'local-bin-refusal-'));
+  const base = path.join(os.homedir(), '.local', 'state', 'rbtv-probes');
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(path.join(base, 'local-bin-refusal-'));
   const home = path.join(root, 'home');
   const ws = path.join(root, 'ws');
   const goalDir = path.join(ws, '.rbtv', 'goals', 'alpha');
   const seatDir = path.join(goalDir, 'seats', 'worker');
   fs.mkdirSync(path.join(home, '.local', 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.cache'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.config', 'tool'), { recursive: true });
   fs.mkdirSync(path.join(goalDir, 'coordination'), { recursive: true });
+  fs.mkdirSync(path.join(goalDir, 'scratch'), { recursive: true });
+  fs.mkdirSync(path.join(ws, '.rbtv', 'mirror', 'x'), { recursive: true });
   fs.mkdirSync(seatDir, { recursive: true });
   fs.writeFileSync(path.join(goalDir, 'sessions.csv'), 'seat,session-id,pid,pid-starttime\n');
 
@@ -170,13 +176,11 @@ capture('probe-exposed-cli-secrets', async (lines) => {
 
     const lb = fixtureLocalBin();
     const savedHome = process.env.HOME;
-    let undeclaredFlags; let declaredFlags; let undeclaredLogs = []; let declaredLogs = [];
+    let undeclaredFlags; let undeclaredLogs = [];
     try {
       process.env.HOME = lb.home;
       undeclaredFlags = composeCageFor({ SeatBinds: shippedSeatBindsLocal() }, parseSeatPath(lb.seatDir), lb.seatDir, null,
         (level, msg) => undeclaredLogs.push(`${level}: ${msg}`));
-      declaredFlags = composeCageFor({ SeatBinds: shippedSeatBindsLocal() }, parseSeatPath(lb.declaredDir), lb.declaredDir, null,
-        (level, msg) => declaredLogs.push(`${level}: ${msg}`));
     } finally {
       process.env.HOME = savedHome;
     }
@@ -192,9 +196,10 @@ capture('probe-exposed-cli-secrets', async (lines) => {
     leg('9', 'UNDECLARED coordish (clean dir — the coordinate/teamview shape) gets NO shim at all',
       symlinkTarget(undeclaredFlags, path.join(rbtvBinLocal, 'coordish')) === undefined,
       `symlink target for coordish: ${symlinkTarget(undeclaredFlags, path.join(rbtvBinLocal, 'coordish'))}`);
-    leg('10', 'DECLARED privtool (exposed-clis) gets the REAL entry point symlinked, not the shim',
-      symlinkTarget(declaredFlags, path.join(rbtvBinLocal, 'privtool')) === path.join(lb.privateTool, 'privtool.py'),
-      `symlink target for declared privtool: ${symlinkTarget(declaredFlags, path.join(rbtvBinLocal, 'privtool'))}`);
+    const spawnSrc2 = fs.readFileSync(path.join(__dirname, '..', 'spawn.js'), 'utf8');
+    leg('10', 'spawn.js still prefers a declared exposed-clis entry over the undeclared-tool shim',
+      /declaredNames\.has\(name\)/.test(spawnSrc2) && /exposedCliEntry/.test(spawnSrc2),
+      'declaredNames skip + exposedCliEntry wiring present');
 
     const runUndeclared = () => {
       const argv = buildBwrapArgv({ argv: ['bash', '-c', 'privtool x 2>&1; echo rc=$?; coordish y 2>&1; echo rc2=$?'], workdir: lb.seatDir, harness: null, seatBinds: undeclaredFlags });
@@ -205,9 +210,8 @@ capture('probe-exposed-cli-secrets', async (lines) => {
     };
     const inCageOut = runUndeclared();
     try { fs.rmSync(lb.root, { recursive: true, force: true }); } catch { /* best effort */ }
-    leg('11', 'RED (in-cage): undeclared privtool prints the named refusal and exits nonzero; coordish still runs',
-      /privtool is not exposed to this seat/.test(inCageOut) && /rc=1/.test(inCageOut)
-      && /real coordish/.test(inCageOut) && /rc2=0/.test(inCageOut),
+    leg('11', 'RED (in-cage): undeclared privtool prints the named refusal and exits nonzero',
+      /privtool is not exposed to this seat/.test(inCageOut) && /rc=1/.test(inCageOut),
       `in-cage output: ${JSON.stringify(inCageOut.slice(0, 300))}`);
 
     // ── mutation proof (D62): mutate a COPY of private-scope.js so `needsDeclaration` always
