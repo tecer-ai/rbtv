@@ -1,0 +1,220 @@
+'use strict';
+
+// system-digest — the ONE changed-only SYSTEM digest (`spec-owner-io.md` §5 [T5-R13, C-12]).
+//
+// THERE IS EXACTLY ONE DIGEST AND IT IS SYSTEM-WIDE. No per-goal digest, no per-ask re-ping: the
+// owner's phone-glance surface is this post plus the standing status line (`status-line.js` §6).
+// A goal channel's top level carries asks, alarms and big lifecycle events [T5-R11, CF-9] — a
+// second, per-goal digest would be the re-ping the baseline deleted.
+//
+// ⚠ CHANGED IS MEASURED AGAINST THE LAST *DELIVERED* PAYLOAD, NEVER AGAINST THE LAST ATTEMPT. The
+// outbox (§7 / C-17) mints a record `pending-delivery` and flips it to `delivered` only on Slack's
+// own ack, so a post Slack never acked did NOT reach the owner. Advancing the baseline on the
+// attempt would silence the next slot and the owner would never see the change at all. The
+// baseline therefore moves ONLY on `delivered === true`, and it is PERSISTED — a daemon restart
+// between two slots must not re-post an unchanged digest, which is the whole point of §5.
+//
+// ⚠ AGE IS RENDERED BUT IS NOT PART OF THE SNAPSHOT. §5 pins the snapshot to
+// `(open ask ids + one_liners + open condition signatures)`. Age ticks every minute; if it entered
+// the snapshot the digest would post at every one of the ten slots and "changed-only" would mean
+// nothing.
+//
+// ⚠ THE ALARM CONDITIONS ARE READ, NEVER EMITTED. The alarm-signature registry and its emitter are
+// impl-alarms' (`spec-owner-io.md` §9, component `ignite/observation/`). This module holds a READER
+// port and nothing else: with no registry wired it reads an EMPTY set and the digest still renders
+// its ask rows. No stand-in registry lives here.
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const { displaySuffix } = require('./ask-thread');
+
+// §5: every 2 hours at 06:00…22:00 plus the 24:00 slot (which IS 00:00 of the next day).
+// 00:00–06:00 carries no other check — the four missing even hours (02, 04) are the deliberate
+// quiet window, so the set is written out rather than computed from a step.
+const SLOT_HOURS = Object.freeze([0, 6, 8, 10, 12, 14, 16, 18, 20, 22]);
+const SLOT_SET = new Set(SLOT_HOURS);
+const DIGEST_TZ = 'America/Sao_Paulo';
+
+const HOUR_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: DIGEST_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+// The wall-clock hour and minute AT the digest's timezone. The daemon's own clock may be UTC and
+// the ten slots are owner-facing local times — resolving this any other way (a fixed offset) breaks
+// twice a year on a DST edge.
+function localHourMinute(at) {
+  const parts = HOUR_FMT.formatToParts(at);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return { hour: get('hour'), minute: get('minute') };
+}
+
+function isSlot(at) {
+  const { hour, minute } = localHourMinute(at);
+  return minute === 0 && SLOT_SET.has(hour);
+}
+
+function slotLabel(at) {
+  const { hour } = localHourMinute(at);
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+// Whole minutes under an hour, whole hours above it — matching the §5 example's `40m` and `3h`.
+// Anything absent renders nothing rather than a fabricated `0m`.
+function renderAge(sinceMs, nowMs) {
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return null;
+  const mins = Math.max(0, Math.floor((nowMs - sinceMs) / 60000));
+  return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`;
+}
+
+function toMs(value) {
+  if (value == null) return NaN;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? NaN : parsed;
+}
+
+function joinRow(fields) {
+  return `• ${fields.filter((f) => f != null && String(f) !== '').join(' · ')}`;
+}
+
+// §5's snapshot, and ONLY §5's snapshot. Sorted so a reader returning the same set in a different
+// order is not mistaken for a change.
+function snapshotOf(asks, conditions) {
+  return JSON.stringify({
+    asks: asks
+      .map((a) => [String(a.id), String(a.one_liner == null ? '' : a.one_liner)])
+      .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0)),
+    conditions: conditions.map((c) => String(c.signature)).sort(),
+  });
+}
+
+function renderDigest({ at, asks, conditions, nowMs }) {
+  const lines = [`*System digest · ${slotLabel(at)}*`];
+
+  lines.push('', '❓ open asks');
+  if (asks.length === 0) {
+    lines.push('• none open');
+  } else {
+    for (const ask of asks) {
+      lines.push(joinRow([
+        displaySuffix(ask.id),
+        ask.seat,
+        ask.one_liner,
+        renderAge(toMs(ask.opened_at), nowMs),
+        ask.link ? `<${ask.link}|open>` : null,
+      ]));
+    }
+  }
+
+  lines.push('', 'Open conditions');
+  if (conditions.length === 0) {
+    lines.push('• none open');
+  } else {
+    for (const cond of conditions) {
+      lines.push(joinRow([
+        cond.condition,
+        cond.subject,
+        renderAge(toMs(cond.first_emitted_at), nowMs),
+        cond.link ? `<${cond.link}|open>` : null,
+      ]));
+    }
+  }
+
+  // §5 order slot (3). The rows above are what name the on-disk paths, so with no row carrying an
+  // `evidence_pointer` there is nothing to link and the section is omitted rather than left empty.
+  const links = [
+    ...asks.map((a) => a.evidence_pointer),
+    ...conditions.map((c) => c.evidence_pointer),
+  ].filter((p) => p != null && String(p) !== '');
+  if (links.length > 0) {
+    lines.push('', 'Links');
+    for (const link of [...new Set(links.map(String))]) lines.push(`• ${link}`);
+  }
+
+  return lines.join('\n');
+}
+
+function loadBaseline(statePath) {
+  if (!statePath) return null;
+  try {
+    const doc = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    return doc && typeof doc.snapshot === 'string' ? doc.snapshot : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveBaseline(statePath, snapshot, deliveredAt) {
+  if (!statePath) return;
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  const tmp = `${statePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, `${JSON.stringify({ version: 1, snapshot, delivered_at: deliveredAt }, null, 2)}\n`);
+  fs.renameSync(tmp, statePath);
+}
+
+// `readOpenAsks` → [{ id, seat, one_liner, opened_at, link?, evidence_pointer? }]
+// `readOpenConditions` → [{ signature, condition, subject, first_emitted_at, link?, evidence_pointer? }]
+//   — the alarm-signature registry's published READ interface. Absent → the default empty reader.
+// `post` → the outbox's `post` (kind is stamped here, never by the caller).
+function createSystemDigest({
+  post,
+  systemChannelId,
+  readOpenAsks,
+  readOpenConditions = () => [],
+  statePath = null,
+  now = () => new Date(),
+  logger = null,
+} = {}) {
+  if (typeof post !== 'function') throw new Error('createSystemDigest requires post');
+  if (!systemChannelId) throw new Error('createSystemDigest requires systemChannelId');
+  if (typeof readOpenAsks !== 'function') throw new Error('createSystemDigest requires readOpenAsks');
+  const log = (level, message, fields) => { if (logger) logger({ level, message, ...fields }); };
+
+  let baseline = loadBaseline(statePath);
+
+  // The 2-hourly check. Returns what it decided so a caller (and a probe) can see WHY nothing was
+  // posted — "posted nothing" and "was not a slot" are different facts and must not collapse.
+  async function check(when = null) {
+    const at = when || now();
+    if (!isSlot(at)) return { ran: false, reason: 'not-a-slot', posted: false };
+
+    const asks = (await readOpenAsks()) || [];
+    const conditions = (await readOpenConditions()) || [];
+    const snapshot = snapshotOf(asks, conditions);
+    if (snapshot === baseline) {
+      log('info', 'system digest slot: snapshot unchanged since the last DELIVERED digest — posting nothing',
+        { slot: slotLabel(at) });
+      return { ran: true, reason: 'unchanged', posted: false, snapshot };
+    }
+
+    const payload = renderDigest({ at, asks, conditions, nowMs: at.getTime() });
+    const result = await post({
+      kind: 'digest', channel_id: systemChannelId, thread_ts: null, goal_id: null, ask_id: null, payload,
+    });
+    if (result && result.delivered) {
+      baseline = snapshot;
+      saveBaseline(statePath, snapshot, at.toISOString());
+      return { ran: true, reason: 'changed', posted: true, delivered: true, snapshot, payload, outbox_id: result.outbox_id };
+    }
+    // Not acked: the record stays `pending-delivery` in the outbox and the baseline does NOT move,
+    // so the next slot re-offers the same change instead of the owner losing it.
+    log('warn', 'system digest was NOT acked by Slack — the baseline stays put and the next slot retries',
+      { slot: slotLabel(at), error: result && result.error });
+    return { ran: true, reason: 'changed', posted: true, delivered: false, snapshot: baseline, payload, outbox_id: result && result.outbox_id };
+  }
+
+  return { check, isSlot, render: (opts) => renderDigest(opts), snapshotOf, lastDelivered: () => baseline };
+}
+
+module.exports = {
+  createSystemDigest,
+  isSlot,
+  slotLabel,
+  renderAge,
+  snapshotOf,
+  renderDigest,
+  SLOT_HOURS,
+  DIGEST_TZ,
+};
