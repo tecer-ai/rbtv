@@ -1114,47 +1114,6 @@ function resolveSeatGrants(seatPath) {
   return grants;
 }
 
-// ── r-seats-only-architecture (5) — HARNESS-CREDENTIAL grants ────────────────────────────────
-//
-// Read-only mounts for the harness credentials/config a seat is entitled to DISPATCH WITH — its
-// delegation children (the orchestration skill's headless CLI workers, which run INSIDE the
-// seat's cage and would otherwise find every other harness's credentials simply absent under the
-// HOME tmpfs). Grant-gated exactly like the worktree grants above: no grant, no mount. The seat's
-// OWN harness needs no grant here — bwrap.js binds its state back over the HOME tmpfs on every
-// spawn (harnessStateBinds), read-WRITE, because a harness must write its own session state.
-//
-// The path table MIRRORS bwrap.js's harnessStateBinds (not exported from that module; converging
-// the two is a one-line export in a file outside this change's set) — a PRIN-11 residual,
-// DISCLOSED rather than hidden.
-//
-// ZERO GRANTS IS THE CORRECT ANSWER TODAY, and it is not a stub — the same posture the worktree
-// resolver held before task 7.38 landed. No entitlement record names which harnesses a seat may
-// dispatch with yet: that producer is the delegation lane's (r-seats-only-architecture (4), the
-// orchestration skill's routing). When it lands, it hands harness NAMES here and the mounts
-// simply appear; until then a template's `ro-bind:{grant:harnessCreds}` line composes to nothing.
-const HARNESS_CRED_PATHS = {
-  claude: (home) => [path.join(home, '.claude'), path.join(home, '.claude.json')],
-  codex: (home) => [path.join(home, '.codex')],
-  opencode: (home) => [
-    path.join(home, '.config', 'opencode'),
-    path.join(home, '.local', 'share', 'opencode'),
-    path.join(home, '.cache', 'opencode'),
-  ],
-};
-
-function resolveHarnessCredGrants(entitledHarnesses = []) {
-  const home = require('node:os').homedir();
-  const grants = [];
-  for (const harness of entitledHarnesses) {
-    const paths = HARNESS_CRED_PATHS[harness];
-    if (!paths) continue; // an unknown harness has no known credential paths — nothing to mount
-    for (const p of paths(home)) {
-      if (fs.existsSync(p)) grants.push({ harness, harnessCreds: p });
-    }
-  }
-  return grants;
-}
-
 // ── r-seats-only-architecture (1) — ONE cage composer for BOTH spawn doors ───────────────────
 //
 // The seat cage (task 7.11's SeatBinds stack) is now the ONE sandbox shape for every daemon
