@@ -23,8 +23,8 @@
 //     enumeration. `G-225` was found by a failure measurement, never by a grep. This probe covers
 //     crossings that EXIST; it will never find a missing one.
 //  2. TRANSITIVE CROSSINGS ARE ATTRIBUTED TO THE WRAPPER, NOT THE CONSUMER. `isSlotLiveOrRearmed`
-//     asks its question through `findLiveExecutionForThread` -> `liveTurns()`; the enumerator sees
-//     the crossing at `liveTurns` and the consumer's own question is TWO hops away.
+//     asks its question through `findLiveExecutionForThread` -> `openTurnRows()`; the enumerator
+//     sees the crossing at `openTurnRows` and the consumer's own question is TWO hops away.
 //     ⚠⚠ THIS BLIND SPOT WAS NOT HYPOTHETICAL AND IS NO LONGER FULLY OPEN. The consumer ladder was
 //     swept to a fixpoint (`FINDING-wrapper-sweep.md`): 11 crossings + 6 at depth 1 + 2 at depth 2,
 //     closing at depth 3 — complete FOR CALLS, which does not make every ROUTE enumerated. All 19
@@ -98,9 +98,12 @@ const MANIFEST = [
   { site: 'server/spawn/spawn.js:orphanRescan',
     asks: 'SESSION', reads: 'TURN', row: 'G-229' },
 
-  { site: 'server/ticker/ticker.js:liveTurns',
+  { site: 'server/ticker/ticker.js:openTurnRows',
     asks: 'TURN', reads: 'TURN',
-    note: '7.46 half one — is the WORK in flight?' },
+    note: '7.46 half one — WHICH TURN ROWS ARE STILL RECORDED OPEN? Renamed from `liveTurns` when '
+        + '`jobs_log.status` was demoted to history [T4-R8]: the old name asserted liveness, which '
+        + 'is the one thing this column may not be read for. It still asks a TURN question of a '
+        + 'TURN column — correctly levelled — and every consumer re-asks liveness of the process.' },
 
   { site: 'server/ticker/ticker.js:liveSessionTurns',
     asks: 'SESSION', reads: 'SESSION',

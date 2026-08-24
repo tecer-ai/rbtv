@@ -78,7 +78,7 @@ const MANIFEST = [
   ['server/internal-api/dispatch.js', 'handleInspectTicker'],
   ['server/spawn/spawn.js', 'orphanRescan'],
   ['server/ticker/ticker.js', 'advance'], ['server/ticker/ticker.js', 'enforce'],
-  ['server/ticker/ticker.js', 'liveSessionTurns'], ['server/ticker/ticker.js', 'liveTurns'],
+  ['server/ticker/ticker.js', 'liveSessionTurns'], ['server/ticker/ticker.js', 'openTurnRows'],
   ['server/ticker/warnings-check.js', 'findBlockedBudgetExhaustedSubjects'],
 ];
 
