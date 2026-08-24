@@ -1,5 +1,7 @@
 'use strict';
 
+const { createOutbox } = require('./outbox');
+
 // THE BUS FERRY — coordination bus → the owner (a thread in the goal's channel, else his DM).
 // One way, outbound only.
 //
@@ -559,9 +561,26 @@ function createBusFerry({
   // silently restore the surface the ruling closed.
   knowsThread = () => false,
   ownerUser = null,
+  outbox = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
+  }
+
+  const box = outbox || createOutbox({
+    storePath: null,
+    send: ({ channel, threadTs, text }) => transport.sendToOwner({ channel, threadTs, text }),
+  });
+
+  function postOwner({ kind, channel, threadTs, text, goal_id = null }) {
+    return box.post({
+      kind,
+      channel_id: channel,
+      thread_ts: threadTs == null ? null : threadTs,
+      payload: text,
+      goal_id,
+      ask_id: null,
+    });
   }
 
   // `<goalId>/<execution-stamp>` -> last-ferried msg id. PERSISTED (state file `busFerry` block).
@@ -871,7 +890,7 @@ function createBusFerry({
               if (res) { viaAgentThread = true; postedText = threadText; }
             }
             if (!res) {
-              const send = routeToMaster || ((a) => transport.sendToOwner(a));
+              const send = routeToMaster || ((a) => postOwner({ kind: 'notification', channel: a.channel, threadTs: a.threadTs, text: a.text, goal_id: goalId }));
               // `deliver` rides ONLY with `chatThread` — it says what to do at a named thread and
               // means nothing without one (see `deliverToken`'s header).
               res = await send({ channel: dmChannel, threadTs: null, text, chatThread, deliver: chatThread ? rowDeliver(row) : null });
@@ -908,9 +927,11 @@ function createBusFerry({
           // sitting can be minted from it and no agent ever reads the row.
           if (n === NOTICE_AT_ATTEMPT && error === 'no-channel') {
             try {
-              await transport.sendToOwner({
+              await postOwner({
+                kind: 'notification',
                 channel: dmChannel, threadTs: null,
                 text: `:warning: goal *${goalId}* has no Slack channel — seat *${row.from}* is trying to reach you and cannot. Nothing of its message is shown here. Create the channel (\`goal-channel-cli.js ensure ${goalId}\`) and it is delivered on the next pass.`,
+                goal_id: goalId,
               });
               log('warn', 'bus ferry told the owner a goal channel is MISSING — the row is held, not downgraded', { key, msgId: row.id, from: row.from, attempts: n });
             } catch (err) {
@@ -933,9 +954,11 @@ function createBusFerry({
             let escalationDelivered = false;
             if (isEscalation) {
               try {
-                await transport.sendToOwner({
+                await postOwner({
+                  kind: 'alarm',
                   channel: dmChannel, threadTs: null,
                   text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* could NOT be posted to its channel after ${n} attempts (${error}). It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
+                  goal_id: goalId,
                 });
                 escalationDelivered = true;
                 log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead, cursor advanced', { key, msgId: row.id, from: row.from, attempts: n, error });

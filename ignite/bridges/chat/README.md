@@ -872,6 +872,7 @@ Bodies over ~3000 chars are cut at a **line boundary** and end
 | `gateway-forwarder.js` | outbound HTTP client to the gateway (self-contained; no sibling import). `forward(intent, payload, { timeoutMs })` — the per-call override exists for `live-feed`, the one intent that holds a request open for an agent turn |
 | `config.js` | config + secret resolution (secrets from env only) |
 | `probes/` | the spec's Test Plan probes (see below) |
+| `outbox.js` | durable Slack outbox [C-17]: record first as `pending-delivery`, flip `delivered` only on Slack ack; local query surface (spec-owner-io §7) |
 
 Relocatable subtree (ignite/CLAUDE.md rule 4): the runtime source imports NO sibling
 module (`server/`, `gateway/`, `cli/`) — it reaches the daemon only over the gateway
@@ -959,6 +960,7 @@ graded for staleness (`ignite/CLAUDE.md` § probes). Evidence → `probe-chat-<n
 | `probe-chat-warm-post` | #4 | **the warm turn's POSTING path** — the half `probe-chat-live-session` does not reach (it proves the harness answers; this proves what the owner then reads). Both owner-reported defects of 2026-08-10, each with the mutation that reds it: a fenced warm reply posts **only** the fenced content — asserted on the WHOLE posted string, so a post that also carries the prose half and the sentinels cannot pass — while an UNFENCED reply is posted byte-for-byte (the extraction may only ever remove a duplication that is there); and the ⏳ read-receipt is stamped on the owner's OWN message **before** the feed and taken off when the answer lands, in that order, on the WARM turn as well as the cold one, marked exactly ONCE when a refused feed falls through to the cold path. Plus the negative claim only the bridge can carry: a warm-answered turn is posted ONCE and enqueues NOTHING — the cold leg did not also run |
 | `probe-chat-boundary` | #5 | bridge source holds no spawn/queue handle, opens no server, imports no sibling |
 | `probe-chat-followup` | #6 | follow-up forwards as `send-message` on the chain thread (NEVER send-to-session), reply type `answer`/`note`; queue_id → exec_id learned from ticker dispatch actions; **exec KNOWN but NOT live → derives `exec-<firstExecId>`** (D111 convention fallback); **first-exec immutability** (a later exec-id bind is ignored); **exec-id-unknown FALLS BACK to session-create** (chat-launch enqueued, stale mapping dropped, no decline notice) while an allowlist-refused user gets nothing |
+| `probe-chat-outbox` | C-17 | mocked Slack `ok:false` / network error keeps the record `pending-delivery` with `last_error` + incremented `attempt_count`; retry does not mint a second record; ack flips `delivered` with `slack_ts`/`delivered_at`; §7.2 filters + newest-first + get-by-id; no strike |
 
 ## Flagged seams (task-7.5 / p7-checkpoint — surfaced, not resolved here)
 

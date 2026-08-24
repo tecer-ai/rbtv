@@ -1,3 +1,4 @@
 # chat-bridge exposure (append-only). Columns match concepts/exposure-manifest.md.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 reply-grammar,reference,path,,reply-grammar.js,"Parse an owner Slack reply into a canonical first-token outcome plus comments, or a verbatim §4.5 NACK (spec-owner-io §4). Pure; does not post.",
+outbox,library,path,,outbox.js,"Durable Slack outbox (spec-owner-io §7 / C-17): pending-delivery until Slack ack; local query by state/kind/channel_id/goal_id/ask_id and get-by-id.",

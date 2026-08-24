@@ -20,12 +20,29 @@ const { createLiveLeg } = require('./live-sessions');
 const { createReplyLeg, checkReplyContract, bestEffortText } = require('./reply-leg');
 const { createBusFerry } = require('./bus-ferry');
 const askStore = require('./ask-store');
+const { createOutbox, outboxStorePath } = require('./outbox');
 
 const STATE_VERSION = 1;
 
 function createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null, replyLegOptions = {}, busFerryOptions = {} }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
+  }
+
+  const outbox = createOutbox({
+    storePath: (config && config.workspaceRoot) ? outboxStorePath(config.workspaceRoot) : null,
+    send: ({ channel, threadTs, text }) => transport.sendToOwner({ channel, threadTs, text }),
+  });
+
+  function postSlack({ kind, channel, threadTs, text, goal_id = null, ask_id = null }) {
+    return outbox.post({
+      kind,
+      channel_id: channel,
+      thread_ts: threadTs == null ? null : threadTs,
+      payload: text,
+      goal_id,
+      ask_id,
+    });
   }
 
   // deliver is the bridge's own outbound delivery (deliverToOwner, hoisted below) —
@@ -123,7 +140,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // cursor advanced, which is the same discipline every other undeliverable row gets.
       const tokenGoalId = tokenChannel && goalChannels ? goalChannels.goalForChannel(tokenChannel) : null;
       if (tokenGoalId) {
-        const intoThread = await transport.sendToOwner({ channel: tokenChannel, threadTs: tokenThreadTs, text });
+        const intoThread = await postSlack({ kind: 'notification', channel: tokenChannel, threadTs: tokenThreadTs, text, goal_id: tokenGoalId });
         if (intoThread && intoThread.delivered) {
           log('info', 'bus row posted verbatim into its goal-channel thread — no sitting minted', { chatThreadId: chatThread, goalId: tokenGoalId, deliver });
           if (deliver === 'wake') log('warn', 'the row asked to WAKE a sitting on a goal channel — posted only; a master sitting is never minted on a goal surface', { chatThreadId: chatThread, goalId: tokenGoalId });
@@ -144,7 +161,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       // for the goal-channel branch above. Minting on a failed post would run the follow-up work
       // for a message the owner never saw.
       if (deliver === 'post' || deliver === 'wake') {
-        const intoThread = await transport.sendToOwner({ channel: tokenChannel, threadTs: tokenThreadTs, text });
+        const intoThread = await postSlack({ kind: 'notification', channel: tokenChannel, threadTs: tokenThreadTs, text });
         if (!intoThread || !intoThread.delivered) {
           log('warn', 'bus row could NOT be posted into its named thread — the ferry retries it (nothing minted)', { chatThreadId: chatThread, deliver, error: intoThread && intoThread.error });
           return intoThread || { delivered: false, reason: 'post-failed' };
@@ -200,7 +217,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     // bridge KNOWS this thread (`knowsThread`, S-13) and how it would post into it — dropping it
     // with the mint would quietly narrow the return leg's known set, which is a second change
     // nobody ruled.
-    const posted = await transport.sendToOwner({ channel, threadTs: null, text });
+    const posted = await postSlack({ kind: 'notification', channel, threadTs: null, text });
     if (posted && posted.delivered && posted.ts) {
       replyAddr.set(`${channel}:${posted.ts}`, { channel, threadTs: posted.ts });
       saveState();
@@ -315,7 +332,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     const channel = resolved.channelId;
     if (!channel) return { delivered: false, reason: resolved.reason };
     const known = agentThreadFor(goalId, agent);
-    const posted = await transport.sendToOwner({ channel, threadTs: known, text });
+    const posted = await postSlack({ kind: 'notification', channel, threadTs: known, text, goal_id: goalId });
     if (!posted || !posted.delivered) return posted || { delivered: false, reason: 'post-failed' };
     const threadTs = known || posted.ts;
     if (!threadTs) {
@@ -336,9 +353,10 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
     return posted;
   }
 
-  const busFerry = createBusFerry({
+    const busFerry = createBusFerry({
     workspaceRoot: (config && config.workspaceRoot) || null,
     transport,
+    outbox,
     dmUserId: (config && config.busFerryDmUser) || null,
     logger,
     onMutate: () => saveState(),
@@ -912,7 +930,13 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
       return { delivered: false, reason: 'no-reply-address' };
     }
     if (markAsk) threadMap.setPendingAsk(chatThreadId, true);
-    const posted = await transport.sendToOwner({ channel: addr.channel, threadTs: addr.threadTs, text });
+    const posted = await postSlack({
+      kind: 'notification',
+      channel: addr.channel,
+      threadTs: addr.threadTs,
+      text,
+      goal_id: goalChannels ? goalChannels.goalForChannel(chatThreadId) : null,
+    });
     // Something owner-facing landed in the thread — the reply, or the honest
     // give-up notice. Either way the wait is over, so the ⏳ comes off. This is the
     // ONE place every conversation-addressed post passes through, which is why the
@@ -1022,7 +1046,7 @@ function createChatBridge({ config, forwarder, transport, allowlist, threadMap, 
 
   return {
     onChatMessage, deliverToOwner, start, stop,
-    registerGoal, closeGoal, routeOf,
+    registerGoal, closeGoal, routeOf, outbox,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
     _replyAddr: replyAddr, _agentThreads: agentThreads, _lastForwarded: lastForwarded,
     forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
