@@ -5,3 +5,4 @@
 2026-08-21 · issue · seeded · Heart store perf fixes · inspect timed out 40-60s while daemon stayed healthy → listExecutionsByStatus re-scanned 29k done rows ~20×/10s and listEnqueueUnfired SCAN'd 31k-row jobs_log · fecd3b6a,6fc989bc · — · ⚠
 2026-08-22 · issue · seeded · Ro mask private scope fix · daemon-fired meet-transcript-summarizer leaders died on bwrap EROFS mkdir because visible() still treated D48's ro-mask seats cover as worth a second deeper mask · 6b55b1c4 · — · ⚠
 2026-08-23 · issue · seeded · Lane aware launch doors · ignite-engine #43 / stools #237 parked owner on console → cmd_launch→launch_seat never read execution-lane, always opened an uncaged tmux pane · a554197b · team-kit · ⚠
+2026-08-24 · issue · envelope launch: unresolved goal scratch + 11GB shim copy · compile ran before the shim write that creates {goal}/scratch, so every first launch refused; and the shim copied whole harness store trees (~11 GB/launch) · 21aed149 · — · ⚠

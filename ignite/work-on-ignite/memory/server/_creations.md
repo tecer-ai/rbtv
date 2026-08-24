@@ -8,3 +8,4 @@
 2026-08-24 · change · Delete permission-edits.csv runtime surface · Deletion, not a replacement. `resolvePermissionEditGrants` (seat-grants.js, read additively · de4deb59 · engine,team-kit,meta-leader · ⚠
 2026-08-24 · change · delete tick-silence stall ladder [T4-R1] · Delete the three tick knobs from `ticker.js` DEFAULT_CONFIG and the entire silenceTicks · c72ba544 · capabilities,engine · ⚠
 2026-08-24 · creation · wall-report + scratch-config shims · wall record + goal-scratch shims; drop harness remounts · 7dd03133,0b08e042,be0458b9,1d0f4903 · — · ⚠
+2026-08-24 · change · probe fixtures migrated to the envelope model · fixtureRoot at /var/tmp + a seeded .rbtv/mirror; P9-launch asserts the peer RO bind, not the retired tmpfs · ea10c914,bddb247d,1fa6e8dc,5f3c5871 · bridges,capabilities · ⚠
