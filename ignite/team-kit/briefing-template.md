@@ -2,8 +2,8 @@
 
 One FOLDER per seat: `workers/{agent}/` holds `agent.md` (this briefing), a thin `CLAUDE.md` +
 `AGENTS.md` loader pair (read briefing → memory → package protocol; mark memoryless seats
-MEMORYLESS), `memory.md` (written by the seat's own `checkout --renew --handoff`, and by a closer
-on the leader-initiated failure close — persistent seats only, never pre-created), and
+MEMORYLESS), `memory.md` (written ONLY by the seat's own `checkout --renew --handoff` —
+persistent seats only, never pre-created), and
 `transcripts/` (created by export). Fill every section; delete the guidance comments. Rules for
 authoring briefings: `briefing-authoring.md` beside the protocol (isolation, folder form +
 frontmatter keys, verifiable premises, pre-declared done gate) — read it before filling this
@@ -67,7 +67,7 @@ ctx-refresh: 50            # optional; context-refresh threshold % for THIS seat
 
 {Absolute paths, each with one line saying what the agent needs FROM it.
  Two kit files are role-scoped and reach a seat ONLY through this list — omit them for every other
- seat: `{team-kit}/roles.md` for a leader, deputy, scientist, judge, verifier or closer
+ seat: `{team-kit}/roles.md` for a leader, deputy, scientist, judge, or verifier
  seat and for any codex/opencode seat; `{team-kit}/briefing-authoring.md` for the seat that
  authors this run's briefings or seat descriptors.}
 

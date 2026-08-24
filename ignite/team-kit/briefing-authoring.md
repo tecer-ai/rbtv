@@ -17,9 +17,9 @@ can actually run). Both are decided once, per run, and the briefings below only 
   or inlined as file paths. Only leader reads workers' briefings, lazily (on first contact).
 - **Folder form (preferred):** one folder per seat, `workers/<agent>/`, holding `agent.md` (the
   briefing), a thin `CLAUDE.md` + `AGENTS.md` loader pair (so any harness landing in the folder
-  reads briefing + memory + package protocol), `memory.md` (written by the seat's own `checkout
-  --renew --handoff`, and by a closer on the leader-initiated failure close; persistent seats
-  only), and `transcripts/` (export target). The legacy flat `workers/<agent>.md` still launches.
+  reads briefing + memory + package protocol), `memory.md` (written ONLY by the seat's own
+  `checkout --renew --handoff`; persistent seats only), and `transcripts/` (export target). The
+  legacy flat `workers/<agent>.md` still launches.
 - Briefings carry `agent:` frontmatter (the roster signature `launch` discovers), plus optional
   `harness:` (claude | codex | opencode; default claude), `model:` (claude alias, or the
   provider/model slug for opencode — REQUIRED there; omitted on codex = plan default),

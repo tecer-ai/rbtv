@@ -2306,9 +2306,11 @@ def _descriptor_frontmatter(seat: str, b: dict, package: str,
 
     close = str(b.get("close", "") or "").strip()
     if not close and mode == "one-shot" and agent_type == "worker":
-        # F8 — cmd_close spawns a claude closer regardless of the closed
-        # seat's harness; a memoryless one-shot worker gets the mechanical
-        # close (G-23, no memory.md) by construction.
+        # F8 — a memoryless one-shot worker gets the mechanical close (G-23, no memory.md) by
+        # construction, so `close-seat` never has anything to write for it. (The rationale this
+        # comment used to cite — that the deleted `cmd_close` spawned a claude closer regardless
+        # of the closed seat's harness — no longer applies: that verb and its closer-seat spawn
+        # path were deleted whole [T2-R9].)
         close = "mechanical"
 
     fm: dict = {

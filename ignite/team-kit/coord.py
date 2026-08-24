@@ -61,8 +61,6 @@ OPENCODE_BIN = os.environ.get("COORD_OPENCODE_BIN", "opencode")
 AGENT_TMPDIR = "/home/henri/.cache/agent-tmp"
 DEFAULT_EFFORT = "high"
 HARNESSES = ("claude", "codex", "opencode")
-CLOSER_MODEL = "claude-sonnet-5"
-CLOSERS_WINDOW = "closers"  # every closer pane lands here, never in the control-panel window
 # tmux default history (2000 lines) truncates transcript exports; raise it before creating seats.
 HISTORY_LIMIT = "100000"
 # Observers may read the FULL message log, not just their own inbox; auto-wake recipients are
@@ -4663,7 +4661,7 @@ def resolve_agent(args, required=True):
     every command and never verified; a sender/recipient reversal recorded leader as the sender
     of another seat's message, and impersonation-by-typo was silent).
 
-    Order: `--as NAME` > `COORD_AGENT` (injected into every launched/closed/renewed seat's
+    Order: `--as NAME` > `COORD_AGENT` (injected into every launched/renewed seat's
     harness command) > the calling pane's registered roster row > the DAEMON-EXEC lane
     (`daemon_exec_identity`, F16 — see its block above). An explicit `args.agent`
     attribute carries --as semantics — that is the internal API watch.py calls through, and it
@@ -4981,10 +4979,12 @@ def in_broadcast_scope(agent, mtype, decls=None):
 
 # ---------- closing state (G-21) ----------
 #
-# CLOSING is a STATE, not a role: from the moment `close <seat>` spawns its closer, the seat has
-# exactly one job left — co-write its memory.md, answer the harvest, go. Every other message
-# arriving in that window is work it will never do and context the co-write needs. G-20 bounds WHO
-# a seat is; G-21 bounds WHEN. Inbox while closing: its CLOSER plus `leader`, nothing else.
+# CLOSING is a STATE, not a role: from the moment a seat's own `checkout --renew` arms its
+# renewal, it has exactly one job left — write its handoff, go. Every other message arriving in
+# that window is work it will never do and context the handoff needs. G-20 bounds WHO a seat is;
+# G-21 bounds WHEN. Inbox while closing: the seat's OWN mute plus `leader`, nothing else. (The
+# `closer-*` seat this state was originally cut for `close <seat>` spawning is deleted [T2-R9] —
+# `entry["closer"]` below now always names the closing seat itself.)
 #
 # Kept in its own file rather than a roster column: workers.md's row grammar is frozen (WORKER_ROW
 # / row_text) and every reader parses it positionally, so widening it to carry a flag that lives
@@ -5949,13 +5949,16 @@ def lifecycle_line(base):
 # this executor and to Stage 4's revival arm, and nothing here gives any agent a new path to
 # terminate a session.
 #
-# ⚠ IT IS NOT A CLOSER, AND MUST NEVER BE DESCRIBED AS ONE. `closer` is a settled term of the rbtv
-# system definition (`sd-graph show closer`; `concepts/closer.md`, settled by
-# `system-definition/decisions.md#d-agent-taxonomy`): a closer is a STAFF AGENT, spawned when a
-# seat crosses its ctx-refresh threshold, that MESSAGES the seat and NEGOTIATES the handoff,
+# ⚠ IT WAS NEVER A CLOSER, AND MUST NEVER BE DESCRIBED AS ONE. `closer` was a settled term of the
+# rbtv system definition (`sd-graph show closer`; `concepts/closer.md`, settled by
+# `system-definition/decisions.md#d-agent-taxonomy`): a closer was a STAFF AGENT, spawned when a
+# seat crossed its ctx-refresh threshold, that MESSAGED the seat and NEGOTIATED the handoff,
 # landing the close at a turn boundary. Nothing here messages anybody, negotiates anything, or is
-# an agent. The closer machinery is untouched by this whole stage (spec § Ruled, owner, design doc
-# D7: the closer stays as-is, failure-path only, ZERO code change).
+# an agent. The closer machinery was untouched by this whole stage when it was written (spec §
+# Ruled, owner, design doc D7: the closer stays as-is, failure-path only, ZERO code change) — that
+# ruling was superseded and the `closer-*` seat class (spawned by the now-deleted `close` verb) was
+# deleted whole under [T2-R9], "only the daemon acts on other seats". This executor's distinction
+# from a closer stands regardless: it still never messages, negotiates, or holds a seat identity.
 #
 # WHY IT LIVES INSIDE coord.py RATHER THAN AS A SIBLING MODULE (settled — do not "simplify" it
 # out). `save-coord.py` gates coord.py ONLY, and it gates by IMPORTING the candidate AND running
@@ -8964,7 +8967,7 @@ def cmd_checkout(args):
                 f"closed — your note is not lost.\n"
                 f"Its renewal is the LEADER-SIDE close-and-relaunch path instead — end this "
                 f"session with `{coord_invocation(args)} checkout`, and leader brings the next one "
-                f"up with `{coord_invocation(args)} close {me} --renew`.",
+                f"up with `{coord_invocation(args)} close-seat {me} --renew`.",
                 2)
         folder = seat.get("folder") if seat else None
         if folder is None:
@@ -9195,7 +9198,7 @@ def checkout_renew_arm(args, base, me):
             f"muted and your session is untouched.\n"
             f"Its renewal is the LEADER-SIDE close-and-relaunch path instead — end this session "
             f"with `{coord_invocation(args)} checkout`, and leader brings the next one up with "
-            f"`{coord_invocation(args)} close {me} --renew`.",
+            f"`{coord_invocation(args)} close-seat {me} --renew`.",
             2)
     folder = seat.get("folder") if seat else None
     if folder is None:
@@ -12393,7 +12396,7 @@ def cmd_descriptors(args):
 
 # ---------- descriptor vs taskforce.csv (G-51) ----------
 #
-# The SEAT DESCRIPTOR binds: `launch` and `close --renew` build the harness command from its
+# The SEAT DESCRIPTOR binds: `launch` and `close-seat --renew` build the harness command from its
 # frontmatter. `taskforce.csv` is the run's binding REGISTRY — and until this check, the kit never
 # opened it (`grep -n taskforce coord.py` returned nothing), so the two could disagree silently and
 # permanently. They did: a seat re-bound in the registry after an owner-departure event still
@@ -17721,179 +17724,8 @@ def cmd_export_transcript(args):
             f"{coord_invocation(args)} workers",
             1)
     print(f"transcript exported: {out}")
-    print(c(f"next: {coord_invocation(args)} close {args.target} — the closer reads this export "
-            f"to write the seat's memory.md", C_HINT))
-
-
-def closer_prompt(args, target, renew):
-    """Fill the closer prompt template for one target seat. A package-local
-    closer-prompt.md at the run-package root overrides the kit template (a run may
-    extend the ceremony, e.g. ledger grooming); kit default when the file is absent."""
-    pkg = package_dir(args)
-    template = pkg / "closer-prompt.md"
-    if not template.is_file():
-        template = Path(__file__).resolve().parent / "closer-prompt.md"
-    text = template.read_text(encoding="utf-8")
-    if text.startswith("# closer prompt template"):  # template header is meta, not prompt
-        text = text.split("\n", 1)[1].lstrip("\n")
-    wfolder = workers_dir(args) / target
-    renew_flag = " --renew" if renew else ""
-    renew_note = (
-        "RENEW IS ON: after you run close-seat the seat relaunches fresh and will read the "
-        "memory.md you just wrote — write it as the revival briefing it is."
-        if renew else
-        "Renew is OFF: the seat stays closed; memory.md is for a possible future revival."
-    )
-    for token, value in (
-        ("{TARGET}", target),
-        ("{CLOSER}", f"closer-{target}"),
-        ("{PACKAGE}", str(pkg)),
-        ("{COORD}", coord_invocation(args)),
-        ("{WORKER_DIR}", str(wfolder)),
-        ("{MEMORY}", str(wfolder / "memory.md")),
-        ("{TRANSCRIPTS}", str(wfolder / "transcripts")),
-        ("{MESSAGES}", str(base_dir(args) / "messages.md")),
-        ("{RENEW_FLAG}", renew_flag),
-        ("{RENEW_NOTE}", renew_note),
-    ):
-        text = text.replace(token, value)
-    return text
-
-
-def closer_placement(existing_pane):
-    """Pure placement decision for the next closer pane — no tmux I/O, so selftest can exercise
-    it headless. `existing_pane` is the result of looking up a pane already in the shared
-    CLOSERS_WINDOW ("" if that window doesn't exist yet). Returns ("split", pane_to_split) when
-    the window is already open, or ("new_window", CLOSERS_WINDOW) to create it fresh."""
-    if existing_pane:
-        return ("split", existing_pane)
-    return ("new_window", CLOSERS_WINDOW)
-
-
-def resolve_closer_pane(target, cwd):
-    """Open (or reuse) the shared 'closers' tmux window and return the pane for the next closer.
-    Every closer lands here as a pane, titled by its target agent — never in the control-panel
-    window `target` sits in. Returns (pane_id, err)."""
-    session = tmux_session_name(target)
-    existing = tmux_find_window_pane(session, CLOSERS_WINDOW)
-    action, dest = closer_placement(existing)
-    if action == "split":
-        return tmux_split_pane(dest, cwd)
-    return tmux_new_window(target, dest, cwd)
-
-
-def ns_like(args, **overrides):
-    """A copy of the caller's namespace with fields overridden — so a delegating command keeps the
-    package/identity flags (`--run`, `--package`, `--as`, `--force`) instead of rebuilding them and
-    silently resolving a different package than the one the caller named."""
-    data = dict(vars(args))
-    data.update(overrides)
-    return argparse.Namespace(**data)
-
-
-def mechanical_close_seat(args, target):
-    """The seat's briefing, when it declares `close: mechanical` (G-23) — else None."""
-    for w in discover_workers(workers_dir(args)):
-        if w["agent"] == target and w.get("mechanical_close"):
-            return w
-    return None
-
-
-def cmd_close(args):
-    # No role check here anymore [T2-R10, D24, F-simplicity-7] — `close` is callable by any
-    # resolved identity. #210: `close` still carries the memory gate too, but ONLY on the path
-    # that actually spawns a closer — a `--dry-run` opens nothing, and a `close: mechanical` seat
-    # (G-23) spawns no closer at all, so neither can spend the memory the gate protects.
-    mech_seat = mechanical_close_seat(args, args.target)
-    if args.dry_run or mech_seat is not None:
-        gate(args, "close")
-    else:
-        launch_gates(args, "close", 1)
-    # G-23 (owner-directed): a seat whose entire state is EXTERNAL and machine-owned finishes one
-    # session and opens another — no closer agent, no memory.md, no harvest. Its memory would be a
-    # hand-maintained copy of files its own loop recomputes every pass, which is the stale-derived-
-    # value class this run hit repeatedly; and a harvest is spent on a seat scheduled to stop being
-    # an agent at all (tasks 7.33 + 7.32). What it learns it files to the ledgers DURING its life.
-    # The transcript is still exported by close-seat: evidence outlives memory.
-    mech = mech_seat
-    if mech is not None:
-        renew = getattr(args, "renew", False)
-        print(f"'{args.target}' declares `close: mechanical` — closing WITHOUT a closer seat "
-              f"(no memory.md, no harvest; transcript still exported)."
-              + ("  Relaunching it fresh from its briefing." if renew else
-                 "  NOT relaunching: pass --renew to open the next session."))
-        if args.dry_run:
-            print(f"[dry-run] would run: close-seat {args.target}"
-                  + (" --renew" if renew else "")
-                  + " — no closer pane is opened, so no memory gate applies")
-            return
-        return cmd_close_seat(ns_like(args, target=args.target, renew=renew,
-                                      no_export=getattr(args, "no_export", False)))
-    prompt = closer_prompt(args, args.target, args.renew)
-    closer = {
-        "agent": f"closer-{args.target}", "briefing": None, "harness": "claude",
-        "model": CLOSER_MODEL, "effort": DEFAULT_EFFORT, "cwd": VAULT_ROOT,
-        "window": False, "ephemeral": True, "folder": None,
-    }
-    title = f"closer-{args.target}"
-    if args.dry_run:
-        print(f"[dry-run] closer seat: claude/{CLOSER_MODEL}, pane '{title}' in the shared "
-              f"'{CLOSERS_WINDOW}' window. Prompt:\n\n{prompt}")
-        return
-    target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
-    if not target:
-        refuse(
-            "environment",
-            "close spawns a closer seat in tmux and this shell is not inside tmux (no "
-            "$TMUX_PANE).\nRun it from leader's tmux pane, or use --dry-run to see the closer "
-            "prompt.",
-            1)
-    # The memory gate for this spawn was answered up front by `launch_gates` (no role gate
-    # anymore [T2-R10, D24, F-simplicity-7]).
-    # G-11: the closer prompt is MULTI-LINE markdown, and it used to be typed into the pane as
-    # literal keystrokes — every newline arriving as Enter, so the pane's shell executed the
-    # briefing line by line. It checked the closer in for real and printed a completion report
-    # while claude never started. It now boots exactly as `launch` does: prompt in a file, start
-    # line on ONE line, and the row is only trusted once the process is verified up.
-    cmd, err = harness_command(closer, prompt_path=prompt_file(args, closer["agent"], prompt))
-    if cmd is None:
-        print(f"closer launch FAILED: {err}", file=sys.stderr)
-        sys.exit(1)
-    pane, err = resolve_closer_pane(target, closer["cwd"])
-    if not pane:
-        print(f"closer launch FAILED: {err}", file=sys.stderr)
-        sys.exit(1)
-    set_pane_title(pane, title)
-    ok, terr = wake(pane, cmd)
-    if not ok:
-        print(f"closer launch FAILED: pane opened but harness start FAILED: {terr}", file=sys.stderr)
-        sys.exit(1)
-    _, uerr = wait_harness_up(pane)
-    # 7.567: an INDETERMINATE verdict must not be reported as a failed closer. This path's refusal
-    # says "nothing ran" and tells the operator to kill the pane — false, and destructive, on a box
-    # that merely could not look. Same asymmetry the checkin path already rules on: losing a real
-    # closer to a false refusal is worse than proceeding unverified. Loud, and passed through.
-    if uerr.startswith(HARNESS_UP_UNVERIFIABLE):
-        print(c(f"WARNING closer for '{args.target}': {uerr}. Proceeding as if it booted — verify "
-                f"the pane by hand.", C_DEAD), file=sys.stderr)
-        uerr = ""
-    if uerr:
-        print(f"closer launch FAILED: {uerr}\nThe seat '{args.target}' was NOT closed — nothing "
-              f"ran. Kill the dead pane BY ID (tmux kill-pane -t {pane}) and retry.",
-              file=sys.stderr)
-        sys.exit(1)
-    schedule_session_rename(pane, closer["agent"], expected_title=title)
-    # G-21: the state opens only once the closer is VERIFIED up. Setting it earlier would narrow a
-    # live seat's inbox on the strength of a closer that might never have started — which is
-    # exactly how G-11 burned seven minutes of this run on a closer that was only ever a shell.
-    set_closing(base_dir(args), args.target, closer["agent"])
-    print(f"closer launched for '{args.target}' in {pane} (window '{CLOSERS_WINDOW}', pane '{title}')"
-          + (", renew ON" if args.renew else ""))
-    print(f"inbox: '{args.target}' is now CLOSING — broadcasts stop reaching it and a peer's direct "
-          f"message is refused at the CLI (sender keeps it); {closer['agent']} and leader still get "
-          f"through. Clears when close-seat completes.")
-    print(c(f"next: {coord_invocation(args)} workers — closer-{args.target} checks in, co-writes "
-            f"memory.md with the seat, then closes it", C_HINT))
+    print(c(f"next: {coord_invocation(args)} close-seat {args.target} — the mechanical close, "
+            f"once the memory.md this seat owes is written", C_HINT))
 
 
 def renew_in_place(seat, pane, pane_live, pane_window_name=None):
@@ -17924,7 +17756,9 @@ def renew_in_place(seat, pane, pane_live, pane_window_name=None):
 
 
 def cmd_close_seat(args):
-    # The closer runs this as the tail of its own close; leader runs it directly for dead panes.
+    # The daemon or leader runs this directly — a live seat that is finished or near its context
+    # limit, or a dead pane needing cleanup. [T2-R9] deleted the `closer-*` seat class that used to
+    # run this as the tail of its own spawned close; nothing spawns a seat to call it anymore.
     #
     # No role check here anymore [T2-R10, D24, F-simplicity-7] — `close-seat` is callable by any
     # resolved identity, closing ANY seat including a foreign one. `_caller` is still resolved,
@@ -18025,7 +17859,7 @@ def cmd_close_seat(args):
         print(f"sessions.csv: {sid} ended")
     # G-21: the state dies WITH the close, and unconditionally — including the renew path, where
     # the successor is a fresh seat that must boot with a full inbox, and including a close-seat
-    # run directly by leader on a dead pane, which never had a closer to clear it. A closing flag
+    # run directly by leader on a dead pane, which never had its own renewal arm it to clear. A closing flag
     # that outlives its seat would quietly filter a live successor's messages, which is the failure
     # this whole change exists to prevent, wearing the other mask.
     if clear_closing(base, args.target):
@@ -18040,7 +17874,7 @@ def cmd_close_seat(args):
     # WHAT THE WIPE COST. `incomplete` is the seat's own statement that its work is unfinished.
     # Clearing the live entry here used to erase it while the durable row was still empty; the
     # ledger is now written at checkout, but the live entry still carries route/handoff/debt
-    # the closer and `close-seat` read, so an `incomplete` is kept until relaunch.
+    # `close-seat` reads, so an `incomplete` is kept until relaunch.
     #
     # ⚠ THE RENEW ARM STILL WIPES, AND THE EXCEPTION IS LOAD-BEARING (adv, C5, G-134's own reason).
     # A renew brings the seat straight BACK: the successor is live, checked in and working, and a
@@ -18081,8 +17915,8 @@ def cmd_close_seat(args):
             sys.exit(1)
         # A pane seat relaunches into the window its old pane occupied (if it survived the
         # kill) — e.g. a renewed leader lands back in the control panel — NEVER the caller's
-        # window: a closer runs this from the shared 'closers' window, which must not
-        # inherit the renewed seat. Window/shared seats re-place from their briefing as before.
+        # own window, so a leader running this on a foreign seat cannot accidentally strand
+        # the renewed seat there. Window/shared seats re-place from their briefing as before.
         launch_target = ""  # a tmux pane, not an agent — args.target is the seat being renewed
         if in_place:
             launch_target = old_pane
@@ -19303,19 +19137,14 @@ def _selftest_checks(args, failures, names):
                                            or (f"%9{len(opened)}", ""))
     pane_windows = {}  # pane id -> window id, for the renew-placement stub
     tmux_pane_window = lambda pane: pane_windows.get(pane, "")
-    closers_window_pane = {"v": ""}  # models the shared 'closers' window's first pane, once opened
     shared_windows = {}              # name -> first pane, for shared (wave) windows
     def _fake_new_window(target, name, cwd):
         opened.append(("window", name))
         pane = f"%8{len(opened)}"
-        if name == CLOSERS_WINDOW:
-            closers_window_pane["v"] = pane
         shared_windows[name] = pane
         return pane, ""
     tmux_new_window = _fake_new_window
-    tmux_find_window_pane = lambda session, window: (closers_window_pane["v"]
-                                                     if window == CLOSERS_WINDOW
-                                                     else shared_windows.get(window, ""))
+    tmux_find_window_pane = lambda session, window: shared_windows.get(window, "")
     tmux_kill_pane = lambda pane: (killed.append(pane) or (True, ""))
     tmux_capture = lambda pane: (f"captured scrollback of {pane}", "")
     tmux_raise_history_limit = lambda: None
@@ -20102,30 +19931,10 @@ def _selftest_checks(args, failures, names):
         check("v2: export-transcript writes into the worker folder",
               "transcript exported" in out and any((gdir / "transcripts").glob("*-gamma-test.txt")))
 
-        # ---- v2: closer prompt + close dry-run ----
-        text = closer_prompt(ns(), "gamma", renew=True)
-        check("v2: closer prompt filled (target, memory path, renew)",
-              "closer-gamma" in text and str(gdir / "memory.md") in text
-              and "close-seat gamma --renew" in text and "RENEW IS ON" in text)
-        check("T1 doc: the closer template teaches the identity-less grammar (no seat types its "
-              "own name into send/read/depart)",
-              " send gamma " in text and " read`" in text and " depart`" in text
-              and "send closer-gamma" not in text and "read closer-gamma" not in text
-              and "depart closer-gamma" not in text)
-        out = run(cmd_close, agent="leader", target="gamma", renew=False, dry_run=True)
-        check("v2: close --dry-run shows the claude-sonnet-5 closer + prompt + shared 'closers' window",
-              "claude-sonnet-5" in out and "closer-gamma" in out and CLOSERS_WINDOW in out)
-
-        # ---- closer placement: pure decision function (headless, no tmux) ----
-        check("closer_placement: no existing pane -> create the shared window",
-              closer_placement("") == ("new_window", CLOSERS_WINDOW))
-        check("closer_placement: existing pane -> split into it",
-              closer_placement("%77") == ("split", "%77"))
-
         # ---- v2: close-seat kills, checks out, renews ----
         killed.clear()
         opened.clear()
-        out = run(cmd_close_seat, agent="closer-gamma", target="gamma", renew=True, no_export=False)
+        out = run(cmd_close_seat, agent="leader", target="gamma", renew=True, no_export=False)
         _, _, rows = load_workers(base_dir(ns()))
         g = current_row(rows, "gamma")
         check("v2: close-seat checks the row out and kills the pane",
@@ -20251,41 +20060,6 @@ def _selftest_checks(args, failures, names):
               "success path it was carved out of",
               _c7_c == 0 and "launch INDETERMINATE" not in _c7_o
               and "launch INCOMPLETE" not in _c7_o)
-
-        # ---- guard sweep, slice 1 sites 6-7: a CLOSER that never booted must not open CLOSING --
-        # `cmd_close` sets the CLOSING state only after the closer is verified up, and its own
-        # comment says why: setting it earlier "would narrow a live seat's inbox on the strength of
-        # a closer that might never have started — which is exactly how G-11 burned seven minutes
-        # of this run on a closer that was only ever a shell". Both failure guards that protect
-        # that ordering — the wake, and the harness-up verify — were asserted by NOTHING: every
-        # cmd_close in this suite runs the happy path. The assertion that matters is not the exit
-        # code, it is that THE TARGET IS NOT LEFT CLOSING: an inbox narrowed for an absent closer
-        # is a live seat cut off from the room with nobody coming to close it.
-        # FIXTURE HYGIENE: a failing close still RESOLVES its closer pane, which creates the
-        # shared 'closers' window as a side effect — and a later row asserts that the FIRST close
-        # of a run is what creates it. Saved and restored so this block cannot consume a window a
-        # later check needs. (It did: that row went red before this restore existed.)
-        _cw_saved = closers_window_pane["v"]
-        wake_ok["v"] = False
-        _co1, _cc1 = refuse(cmd_close, agent="leader", target="alpha", renew=False, dry_run=False)
-        wake_ok["v"] = True
-        check("G-11/G-21: a close whose closer START LINE was never delivered FAILS, and leaves "
-              "the target NOT CLOSING — the state that narrows a live seat's inbox must not open "
-              "on the strength of a pane that exists, or the seat is cut off from the room with "
-              "no closer coming",
-              _cc1 == 1 and "closer launch FAILED" in _co1
-              and closing_entry(base_dir(ns()), "alpha") is None)
-        harness_up["v"] = []            # wake lands, nothing comes up
-        _co2, _cc2 = refuse(cmd_close, agent="leader", target="alpha", renew=False, dry_run=False)
-        check("G-11/G-21: and the same when the wake LANDS but no harness comes up — a distinct "
-              "guard one line later, with the same consequence. The refusal also names the pane "
-              "BY ID to kill, because the pane outlives the failure and nothing else will say "
-              "which one it was",
-              _cc2 == 1 and "NOT closed" in _co2 and "kill-pane" in _co2
-              and closing_entry(base_dir(ns()), "alpha") is None)
-        harness_up["v"] = None
-        closers_window_pane["v"] = _cw_saved
-        opened.clear()
 
         # G-12: the renew respawns the seat's own pane instead of killing it and splitting a new
         # one, so an arranged window layout survives. Exercised through the real command.
@@ -20415,31 +20189,6 @@ def _selftest_checks(args, failures, names):
         out = run(cmd_panel, agent="leader")
         check("panel: idempotent when an overview pane exists",
               not opened and "already open" in out)
-        # closer placement (owner-directed layout fix): closers NEVER open in the control-panel
-        # window; the first close of a run creates the shared 'closers' window, every closer
-        # after that splits into that SAME window as an additional pane, titled by its target.
-        opened.clear()
-        out = run(cmd_close, agent="leader", target="gamma", renew=False, dry_run=False)
-        check("closer placement: first closer creates the shared 'closers' window (not a pane "
-              "in the caller's own window)",
-              ("window", CLOSERS_WINDOW) in opened
-              and not any(k == "pane" for k, _ in opened)
-              and any(t == "closer-gamma" for _, t in titles))
-
-        opened.clear()
-        out = run(cmd_close, agent="leader", target="beta", renew=False, dry_run=False)
-        check("closer placement: second closer splits into the EXISTING 'closers' window, "
-              "never opens a second one",
-              not any(k == "window" for k, _ in opened)
-              and any(k == "pane" for k, _ in opened)
-              and any(t == "closer-beta" for _, t in titles))
-        # These two closes are real closes, so they really did put gamma and beta into the G-21
-        # CLOSING state — and neither runs close-seat, so nothing would clear it. This section's
-        # subject is PANE PLACEMENT, and both seats keep working as ordinary recipients in a dozen
-        # later sections, so the state is cleared HERE rather than left to refuse thirty unrelated
-        # sends. G-21's own behaviour is exercised deliberately in its section below.
-        for seat in ("gamma", "beta"):
-            clear_closing(base_dir(ns()), seat)
 
         # ---- v2: depart (self close) ----
         run(cmd_checkin, agent="delta", summary="one pass", pane="%7")
@@ -21287,7 +21036,7 @@ def _selftest_checks(args, failures, names):
         check("T6 help: a target positional says it is the SEAT ACTED ON, never the caller "
               "(F14 — positional #1 used to mean SELF on some commands and TARGET on others)",
               all("TARGET seat" in per_cmd[n]
-                  for n in ("close", "close-seat", "approve", "export-transcript")))
+                  for n in ("close-seat", "approve", "export-transcript")))
 
         # ---- G-181: the advice surface must not coach a command the tool refuses ----
         # Three advice populations (runtime `next:` hints, per-command -h epilogs, refusal texts)
@@ -23878,14 +23627,12 @@ def _selftest_checks(args, failures, names):
               bool(ordinary) and "PREDECESSOR'S HANDOFF" in boot_prompt(ordinary[0], ns()))
         run(cmd_checkin, agent="theta", summary="mechanical-close sensor", pane="%24")
         opened.clear()
-        out = run(cmd_close, agent="leader", target="theta", renew=False, dry_run=False,
-                  no_export=True)
+        out = run(cmd_close_seat, agent="leader", target="theta", renew=False, no_export=True)
         _, _, rows_t = load_workers(base_g)
-        check("G-23: `close` on it spawns NO closer pane and closes the seat mechanically — no "
-              "closer seat, so no ~500 MB launch against the memory gate either",
-              "WITHOUT a closer seat" in out and not opened
-              and not any(t.startswith("closer-theta") for _, t in titles)
-              and current_row(rows_t, "theta")["active"] == "no")
+        check("G-23: `close-seat` on it closes the seat directly with no pane opened for it — "
+              "[T2-R9] deleted the closer-spawn path this row used to prove was skipped, so "
+              "there is no ~500 MB launch against the memory gate to skip anymore",
+              not opened and current_row(rows_t, "theta")["active"] == "no")
 
         # ---- G-51: the descriptor vs the registry nothing used to read ----
         # `taskforce.csv` is the run's binding REGISTRY and the kit never opened it, so the two
@@ -34610,7 +34357,6 @@ HELP_EPILOG = """everyday
 
 leader
   launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
-  close       spawn a closer that co-writes a seat's memory.md, then closes it
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
   approve     answer a seat's permission prompt by sending keys to its pane
   panel       open the control-panel overview strip in this window
@@ -34891,7 +34637,7 @@ def advice_refused_sends(path=None):
 
     WHY IT CANNOT BE WIDENED: `send` is extractable because THE QUOTED BODY IS A DELIMITER — the
     quotes around a body give the command an unambiguous end. Nothing else has one. Advice reads
-    `close <agent> — the closer reads this export`, and no rule separates argv from English without
+    `close-seat <agent> --renew`, and no rule separates argv from English without
     guessing; placeholders also carry semantic constraints a generic fixture cannot satisfy (a
     group name must not collide with an agent name). Measured, a widened check flags ~28% of sites
     spuriously. A check whose only value is being trusted, wrong a quarter of the time, is WORSE
@@ -35129,7 +34875,7 @@ def build_parser():
         "  coordinate checkout\n"
         "  coordinate checkout --renew\n"
         "  coordinate checkout --incomplete \"the spec I was to review was never written\"\n"
-        "next: ending for good — nothing on your side, leader runs `close <you>` if the seat must\n"
+        "next: ending for good — nothing on your side, leader runs `close-seat <you>` if the seat must\n"
         "      go; renewing — run the second call the first one printed for you")
     s.add_argument("--no-export", action="store_true", help="skip the automatic transcript export (e.g. the pane is already dead)")
     s.add_argument("--renew", action="store_true",
@@ -35560,42 +35306,20 @@ def build_parser():
         "you are about to close.",
         "example:\n"
         "  coordinate export-transcript builder --label milestone2\n"
-        "next: coordinate close builder — the closer reads the export")
+        "next: coordinate close-seat builder — once the memory.md this seat owes is written")
     s.add_argument("target", help="the TARGET seat whose pane is captured (the seat acted on, not the caller)")
     s.add_argument("--label", default="", help="optional filename suffix, e.g. 'milestone2'")
     s.set_defaults(func=cmd_export_transcript)
 
     s = command(
-        "close",
-        "(leader) Spawn a closer seat for one target: it reads the seat's transcript and the log,\n"
-        "co-writes the seat's memory.md WITH the worker, then runs close-seat and departs. Use it\n"
-        "when a seat is finished, or is near its context limit (--renew gives it a fresh session\n"
-        "with the same briefing and its new memory).",
-        "example:\n"
-        "  coordinate close builder --renew\n"
-        "next: coordinate workers — closer-<target> checks in, then the seat goes")
-    s.add_argument("target", help="the TARGET seat being closed (the seat acted on, never your own name)")
-    s.add_argument("--renew", action="store_true",
-                   help="after closing, relaunch the seat fresh (it reads the updated memory.md)")
-    s.add_argument("--dry-run", action="store_true", help="print the closer prompt without launching")
-    s.add_argument("--force-memory", action="store_true",
-                   help="override the MEMORY gate only (--force is a separate flag, for this "
-                        "command's other refusals)")
-    s.add_argument("--no-export", action="store_true", default=False,
-                   help="skip the transcript export (only reached by a `close: mechanical` seat, "
-                        "which closes without a closer)")
-    add_identity_flags(s)
-    s.set_defaults(func=cmd_close)
-
-    s = command(
         "close-seat",
-        "The mechanical tail of a close: export the target seat's transcript, check its row out,\n"
-        "kill its pane — and with --renew relaunch it fresh. The closer runs this at the end of\n"
-        "its own job; leader runs it directly to clean up a dead pane.",
+        "Export the target seat's transcript, check its row out, kill its pane — and with\n"
+        "--renew relaunch it fresh. Only the daemon or leader runs this, directly, on a seat\n"
+        "that is finished, near its context limit, or a dead pane needing cleanup.",
         "example:\n"
         "  coordinate close-seat builder --renew\n"
         "next: coordinate workers — confirm the seat is gone (or back, with --renew)")
-    s.add_argument("target", help="the TARGET seat being closed (the seat acted on — a closer never passes its own name)")
+    s.add_argument("target", help="the TARGET seat being closed (the seat acted on, never the caller's own name)")
     s.add_argument("--renew", action="store_true", help="relaunch the seat fresh after killing it")
     s.add_argument("--no-export", action="store_true", help="skip the transcript export (e.g. pane already dead)")
     add_identity_flags(s)

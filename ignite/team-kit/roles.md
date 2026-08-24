@@ -1,7 +1,7 @@
 # team-kit — role catalogue
 
 **Read this when you HOLD one of the special roles below** — leader, consultant, deputy, scientist,
-judge, verifier, closer — **or when your seat runs a codex or opencode harness** (the Harness note
+judge, verifier — **or when your seat runs a codex or opencode harness** (the Harness note
 closes the file). Read it at boot, right after you know which role you are. A plain worker seat does
 not: its own entry states only what `protocol.md` already binds it to. Split out of `protocol.md`
 (beside this file) so a seat stops loading another role's discipline; `protocol.md` remains the
@@ -95,14 +95,11 @@ entries below cite.
   seat is never the fixer.
 - **workers** — everyone else: execute exactly one briefing, message at coordination points,
   escalate decisions.
-- **closer seats** (`closer-<target>`, spawned by `close`, kit prompt `closer-prompt.md`) —
-  one-shot, and a FAILURE PATH ONLY: leader spawns one to dirty-close or salvage a seat that
-  cannot check itself out. A healthy seat renews itself with `checkout --renew --handoff "<note>"`
-  and no closer is in that path. The ceremony: co-write the target seat's `memory.md` with the
-  target (transcript + log + a draft the worker corrects), run `close-seat` (with `--renew` when
-  leader ordered the salvaged seat brought back), depart.
-  A closer never touches deliverables, never rules open questions, never messages beyond target
-  and leader.
+- **closer seats — DELETED (owner-ruled [T2-R9]: "only the daemon acts on other seats"; the
+  `close` verb and its spawn path removed from coord.py 2026-08-24).** No run staffs a closer.
+  A seat that cannot check itself out is closed directly, by the daemon or leader, with
+  `close-seat` — the mechanical kill/relaunch verb, unchanged and still callable. A healthy seat
+  still renews itself with `checkout --renew --handoff "<note>"`, with no agent in that path.
 - **watcher seats — RETIRED (owner-ruled, `d-watcher-deterministic-chain`; name removed from
   coord.py 2026-08-13).** No run staffs a watcher seat. DETECTION is deterministic: team-monitor
   (CMP-20) is the sole raw sensor writing the goal’s `state.json`, and the daemon's own per-goal

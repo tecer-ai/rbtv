@@ -50,8 +50,7 @@ $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-st
 $COORD checkout --incomplete "<reason>" [--route leader|consultant]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and fallback: leader)
 $COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
-$COORD close <agent> [--renew]                  # leader only — FAILURE PATH: spawn a closer to dirty-close/salvage a seat that cannot check itself out. A healthy seat renews itself (line above), never through this
-$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — leader's remedy for a dead pane, and the closer's own tail step
+$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — the daemon's or leader's remedy for a seat that cannot check itself out, or a dead pane. FAILURE PATH: a healthy seat renews itself (line above), never through this
 $COORD panel                                    # leader only — open the control-panel overview pane (live tmux-overview + plan usage)
 ```
 
@@ -70,7 +69,7 @@ states, not a refusal coord.py enforces — every command is callable by any res
 one-line index) and `coordinate <command> -h` (arguments, one example, the step that follows).
 
 **Control-panel layout.** The leader window is the run's control panel: leader, the oversight
-seats (observers), on-demand closers, and the `panel` overview pane — target ≤6 panes.
+seats (observers), and the `panel` overview pane — target ≤6 panes.
 Working seats declare `window: yes` and live in their own named windows (tabs).
 
 **Staff chairs — always addressable, never waited on.** A goal's `leader` (mandatory) and
@@ -181,7 +180,8 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    tmux target (a seat that has drifted out of the window its descriptor names is one), an
    unreadable caller identity, or an unwritable marker/log. Each refusal exits 2 and says YOUR
    CHECKOUT STANDS: the handoff is written and the roster flipped, only the relaunch did not
-   happen, and the printed remedy is leader's `close-seat <you> --renew` — never a closer.
+   happen, and the printed remedy is leader's `close-seat <you> --renew` — run directly, no
+   spawned agent in the path.
    (`depart` = export + checkout + killing the seat's own pane, one command, no name — a seat
    can only depart itself.) Leader checks out only after all workers have.
 9. **Memory and the seat-folder write contract (persistent seats only).** This item is the ONE
@@ -200,13 +200,13 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
      --handoff "<note>"`, which REPLACES the file wholesale with your new handoff block
      (`--handoff-file <path>` when the note is too long, or too quote-hazardous, for a shell
      argument). No folding, no editing between checkouts, no appending: the previous handoff was
-     already delivered and the CLI drops it (r-checkout-selfclose companion, 2026-07-31). At a
-     CLOSE it is co-written with a closer seat; no closer is in the RENEWAL path (evidence: the
-     same run-2 15:1x gate refusal item 8 cites — the closer ceremony was the only renewal path
-     and it never composed with a seat's own act). If it exists at boot, read it after your
-     briefing and trust it as your own notes (re-verify what is cheap to verify). When a closer
-     contacts you with a draft memory (`--type ask`), answering it IS briefing work: correct it,
-     fill what only you know, reply promptly — an unanswered closer writes your memory alone.
+     already delivered and the CLI drops it (r-checkout-selfclose companion, 2026-07-31). No agent
+     is in the RENEWAL path, nor in any close: the `closer-*` seat that used to co-write this file
+     on a leader-initiated failure close is deleted [T2-R9], "only the daemon acts on other
+     seats" — a `close-seat` on a seat that never renewed itself leaves `memory.md` as that
+     seat's own last self-written handoff (or empty, if it never wrote one). If it exists at boot,
+     read it after your briefing and trust it as your own notes (re-verify what is cheap to
+     verify).
    - **`handoff-log.md` (run level) — the past; append-only; CONDITIONAL.** A sitting block is
      written ONLY when ALL hold: (i) the sitting produced narrative a future auditor/groomer
      genuinely needs; (ii) the content is not already in a ledger, ruling, or deliverable;
@@ -340,5 +340,5 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
 
 - **Authoring a run's briefings or seat descriptors** (the assembler at bootstrap, or a live run's
   seat-authoring role, at the moment it writes one): read `briefing-authoring.md`.
-- **Holding a leader, deputy, scientist, judge, verifier or closer role — or running a
+- **Holding a leader, deputy, scientist, judge, or verifier role — or running a
   codex/opencode harness**: read `roles.md`.
