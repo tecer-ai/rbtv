@@ -7,7 +7,7 @@ description: Read before adding a verb, a flag or a router skill to the rbtv ign
 The `rbtv ignite` front door. Law is
 `1-projects/build-ignite/redesign/specs/spec-component-map.md` §1 and §7 under
 [D22], [T4-R11], [C-15]. Named `ignite-cli` by owner ruling at CP1; it is the same
-tree that used to sit at `ignite/cli/`.
+tree that used to sit at `ignite/ignite-cli/`.
 
 Audience: **dual** - an owner console and an agent both invoke it (§7.1).
 

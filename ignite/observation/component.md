@@ -69,7 +69,7 @@ of a hundred transient observations went away; the row simply stops appearing in
 Nothing here writes mail, enqueues, or touches the owed set. An alarm never counts as unread
 work that wakes a seat, a master or a leader [T4-R10].
 
-Every post goes through the durable outbox (`bridges/chat/outbox.js`) with `kind: 'alarm'`
+Every post goes through the durable outbox (`chat/outbox.js`) with `kind: 'alarm'`
 stamped here, never by the caller — so a bridge outage leaves a `pending-delivery` record
 rather than a lost alarm [C-17].
 
@@ -113,7 +113,7 @@ and hand in the four fields. There is no registration step and no second emitter
 
 Appended by `impl-alarms-watchdog`. `capabilities/daemon-watchdog` is an ordinary caller of
 `emit`, and the first one from outside this process: it is Python, so it reaches the emitter
-through its own sibling shim (`capabilities/daemon-watchdog/tool/watchdog-alarm.js`) rather
+through its own sibling shim (`observation/daemon-watchdog/tool/watchdog-alarm.js`) rather
 than through a second emitter. Nothing in this component changed to admit it.
 
 | | |
@@ -133,22 +133,22 @@ emitter: it is the channel that has to work when this whole path, Slack included
 
 Appended by the integration pass of 2026-08-25. `frozen.js` shipped uncalled — nothing
 supplied it observations and nothing read `frozen_window_min` for it. Its caller is
-`engine/frozen-pass.js`, run once a cadence from the daemon loop (`server/index.js`)
+`runtime/frozen-pass.js`, run once a cadence from the daemon loop (`runtime/index.js`)
 IMMEDIATELY AFTER the lane watch, on the facts that pass already computed. Nothing in this
 component changed to admit it.
 
 | | |
 |---|---|
-| Facts | `engine/lane-watch.js#frozenFactsFor`, one observation per goal the pass actually SEEDED — the goal-state row, the pause, `pickup.enqueued` as `eligible_launch`, `countOpenAsks` as `open_ask`, and the two [C-5] exclusions off the provider lanes. A goal the pass stepped over is not observed at all |
+| Facts | `supervisor/lane-watch.js#frozenFactsFor`, one observation per goal the pass actually SEEDED — the goal-state row, the pause, `pickup.enqueued` as `eligible_launch`, `countOpenAsks` as `open_ask`, and the two [C-5] exclusions off the provider lanes. A goal the pass stepped over is not observed at all |
 | Window | `supervisor/recovery-config.js#loadRecoveryConfig` → `frozen_window_min`. A pass that cannot read that file arms NOTHING and says so; there is no fallback window anywhere on this path |
 | Channel | `RBTV_SYSTEM_CHANNEL_ID` [T5-R1]. A goal's OWN channel id is not knowable daemon-side (the bridge holds that map, in its own process), so a goal alarm posts in the system channel — stated, not guessed. Unset ⇒ not armed |
 | Delivery | The daemon resolves no Slack credential (`r-cutover-gated`), so the post is minted `pending-delivery` in the durable outbox with the reason on the row [C-17], and the owner reads the condition through the 2-hourly digest, which re-surfaces it [§9.2] |
-| Suppression | A stall/latency alarm inside the window of a WATCHDOG-DETECTED daemon restart is held (task #113 criterion 2). The whole pass is suppressed, not one alarm — after a restart every goal is late for the same reason. The fact is read off the watchdog's append-only outage ledger (`engine/restart-window.js`), because the daemon's own memory is what the restart erased. The window is `RBTV_RESTART_ALARM_SUPPRESS_MIN`, deliberately NOT a ninth key in `recovery.json` (spec-recovery §2.1 closes that schema at eight and its loader refuses extras); unset ⇒ no suppression at all |
+| Suppression | A stall/latency alarm inside the window of a WATCHDOG-DETECTED daemon restart is held (task #113 criterion 2). The whole pass is suppressed, not one alarm — after a restart every goal is late for the same reason. The fact is read off the watchdog's append-only outage ledger (`observation/restart-window.js`), because the daemon's own memory is what the restart erased. The window is `RBTV_RESTART_ALARM_SUPPRESS_MIN`, deliberately NOT a ninth key in `recovery.json` (spec-recovery §2.1 closes that schema at eight and its loader refuses extras); unset ⇒ no suppression at all |
 | Proof | `engine/probes/probe-frozen-driver.js` |
 
 ## The published read interface has a wired consumer
 
-`bridges/chat/glance.js` builds an emitter instance over the registry FILE this component
+`chat/glance.js` builds an emitter instance over the registry FILE this component
 writes and asks it `readOpenConditions()` — reloading before every read, because the writer is
 the daemon and a constructor-time snapshot would render the alarm set as it stood when the
 bridge last started. That instance is handed a `post` that THROWS: the bridge reads alarms and
@@ -158,15 +158,15 @@ boundary.
 ## Not this component
 
 Liveness itself (`supervisor/`). The watchdog, the outage ledger and the non-Slack dead-man
-(`capabilities/daemon-watchdog/`). The digest, the status line, the reply grammar and the
-outbox transport (`bridges/chat/`). Kill triggers, attempt counters and the provider tables
+(`observation/daemon-watchdog/`). The digest, the status line, the reply grammar and the
+outbox transport (`chat/`). Kill triggers, attempt counters and the provider tables
 (`supervisor/` + spec-recovery).
 
 ## What moved in with the component-first migration
 
 `spec-component-map` §2 landed these here, with history, as part of impl-structure:
 
-- from `capabilities/`: `daemon-watchdog/` - the out-of-process watchdog, its units and
+- from `operator/`: `daemon-watchdog/` - the out-of-process watchdog, its units and
   its probes. It observes and alarms; it is not an operator verb, so it does not live in
   `operator/`.
 - from `engine/`: `restart-window.js` - the post-restart suppression window that answers

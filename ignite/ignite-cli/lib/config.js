@@ -1,7 +1,7 @@
 'use strict';
 
 // Client config resolution — gateway-cli-spec.md § Client config + ADX-3/D27
-// (the ignite install model, canonically stated in `ignite/CLAUDE.md` §
+// (the ignite install model, canonically stated in `ignite/deploy/component.md` §
 // Installation model).
 //
 // Resolution order for the gateway address:
@@ -135,7 +135,7 @@ function resolveGatewayAddr() {
 
   throw new CliUsageError(
     `no gateway address configured. Set IGNITE_GATEWAY_ADDR, or run ignite from a workspace where ` +
-    `${recordPath} names an installed server (D27 install model — ignite/CLAUDE.md § Installation model).`
+    `${recordPath} names an installed server (D27 install model — ignite/deploy/component.md § Installation model).`
   );
 }
 
@@ -165,7 +165,7 @@ function resolveGatewayAddr() {
 // daemon's unit ships `EnvironmentFile=-/dev/null`, so the token is not in
 // it. Every seat promised the `ignite` CLI therefore met AUTH_REFUSED on its
 // first call (measured against the shipped cage, 2026-08-07). The `.env` was
-// ALREADY the ruled distribution channel for this token — ignite/CLAUDE.md
+// ALREADY the ruled distribution channel for this token — ignite/deploy/component.md
 // § Installation model ("distributed out-of-band into a gitignored env
 // surface"), and spawn.js's own note that it "is already readable under the
 // read-root grant" — it simply had no reader. This is that reader.

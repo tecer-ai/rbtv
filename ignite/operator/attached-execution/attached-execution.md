@@ -1,6 +1,6 @@
 # attached-execution — the `rbtv run` verb
 
-> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `config/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
+> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `envelope/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
 
 
 **Built for core-build task 7.44.** Owner ruling `decisions.md#d-attached-run-embedded-engine`:
@@ -15,7 +15,7 @@ the calling terminal, and it dies with that terminal.
 | entry | `rbtv ignite daemon start` | `rbtv run <goal-folder>` |
 | store | `{state_root}/heart.db` | `<goal-folder>/heart.db` |
 | lifetime | outlives the terminal | dies with it |
-| recovery | the daemon's per-goal reconcile pass (`engine/reconcile.js`) | **the owner re-runs the verb** — no watcher, ruled |
+| recovery | the daemon's per-goal reconcile pass (`supervisor/reconcile.js`) | **the owner re-runs the verb** — no watcher, ruled |
 | engine | `ignite/engine/` | `ignite/engine/` — the same one |
 
 ## Entry point
@@ -55,7 +55,7 @@ copy of what the run can compute; the record carries what a single lane's store 
   `interactive` — or, with no such file, its `goal.md` declares `goal-kind: interactive` (the
   three-rung ladder of issue C-4, owner-ruled 2026-08-10; neither resolving = `autonomous`, the
   ratified default). Both readers are the chat bridge's
-  own (`bridges/chat/bus-ferry.js`), so this surface and the gate that actually parks an
+  own (`chat/bus-ferry.js`), so this surface and the gate that actually parks an
   owner-addressed message cannot drift apart.
 - **Only UNANSWERED questions are listed** — and since console-run B1 the RUN LOOP uses the same
   correlation. It previously filtered asks against a per-loop `seenAskIds` set that nothing ever
@@ -100,7 +100,7 @@ changes for one class of seat is the **carriage**, and nothing else.
 
 **Which seat: two gates, both of them** (ruling 5 / D14) — the seat declares `human-interactive:` in
 its `seat.md` frontmatter AND the goal's `execution-mode` reads `interactive`. Both readers are the
-chat bridge's own (`bridges/chat/bus-ferry.js`), the same ones the `--status` verb reports from.
+chat bridge's own (`chat/bus-ferry.js`), the same ones the `--status` verb reports from.
 
 **What happens:** instead of a detached caged child, the engine launches that seat's harness session
 as a **foreground child of the runner**, sharing this terminal (`stdio: inherit`). The tick loop
@@ -216,7 +216,7 @@ would have ended it died with the child. This is what happens, and none of it is
 | the seat's session exits **0** | turn `done`, session `closed` — the same exit-code rule the ticker's sweep applies to every other seat. The DAG advances on the next pass. |
 | the session exits **non-zero** | turn `failed`, session `crashed`. The run does not advance past the seat: it returns `seat-failed`, exit **1**, naming it. |
 | the seat **asked a question** and its session exited non-zero | both are true and both are reported: the run returns `question` / exit **3** (an unanswered ask is checked first), and the seat's row is already `failed` / `crashed`. Resuming therefore needs the answer AND a later sitting, which the goal watcher enqueues once the row is non-terminal (D12). |
-| **Ctrl-C / SIGKILL / a closed terminal** mid-seat | the row is left non-terminal. At the **next run's boot**, before the first pass, `reconcileForegroundOrphans` ends every non-terminal `attached-foreground` row as `failed` / `crashed` — a foreground child cannot outlive the terminal it was attached to, so this is an observation, not a guess. It is NOT the only guard against a ghost row: the ticker's crash sweep (`server/ticker/ticker.js`, `enforce()` ~:1537-1645) overlaps it — measured under a mutation that no-ops the reconciliation (review F5), the sweep still ends the row `failed` at the first tick. What the boot reconciliation uniquely buys: **(a)** the row is ended *before the first enqueue pass*, so eligibility never reads a live-looking row whose runner is gone; **(b)** the record carries an honest "runner is gone" reason instead of the sweep's fabricated `crash sweep: exit=...` completion message and its `slot halted` owner note. The run then behaves as the row above: it refuses, naming the seat. |
+| **Ctrl-C / SIGKILL / a closed terminal** mid-seat | the row is left non-terminal. At the **next run's boot**, before the first pass, `reconcileForegroundOrphans` ends every non-terminal `attached-foreground` row as `failed` / `crashed` — a foreground child cannot outlive the terminal it was attached to, so this is an observation, not a guess. It is NOT the only guard against a ghost row: the ticker's crash sweep (`runtime/ticker/ticker.js`, `enforce()` ~:1537-1645) overlaps it — measured under a mutation that no-ops the reconciliation (review F5), the sweep still ends the row `failed` at the first tick. What the boot reconciliation uniquely buys: **(a)** the row is ended *before the first enqueue pass*, so eligibility never reads a live-looking row whose runner is gone; **(b)** the record carries an honest "runner is gone" reason instead of the sweep's fabricated `crash sweep: exit=...` completion message and its `slot halted` owner note. The run then behaves as the row above: it refuses, naming the seat. |
 
 **It NEVER blindly re-enqueues.** Seeding is create-only, and re-firing a seat because its row looks
 unfinished is exactly the false-relaunch that rule exists to prevent.
@@ -224,7 +224,7 @@ unfinished is exactly the false-relaunch that rule exists to prevent.
 **`--relaunch <seat>` IS DELETED (D12, 2026-08-20), and so is every other grant.** The flag, its
 file store, the mint and the spend are gone: RC-B measured that single-use, session-bound
 authorizations latch in both directions, and the successor is the goal watcher
-(`engine/reconcile.js`), which derives owed work from the LEDGERS every 5 minutes and enqueues it
+(`supervisor/reconcile.js`), which derives owed work from the LEDGERS every 5 minutes and enqueues it
 directly. A seat whose last ended row is non-terminal, or a chair with unread mail, comes back
 because the ledger says so — there is nothing to mint, nothing to lose and nothing to suppress.
 
@@ -312,10 +312,10 @@ each, and neither overloaded into the other.
 **Who writes it, and when.**
 
 - **At the tick**, for every seat execution in the writing store — `engine.tick()` in
-  `engine/index.js` calls `publishToRecord`. The publish sits at the ONE thing both lanes call, so no
+  `runtime/engine.js` calls `publishToRecord`. The publish sits at the ONE thing both lanes call, so no
   hook is needed in the completion path, the crash sweep, the kill path or the spawn door: whatever
   ended a seat's turn, the next tick sees the terminal row and publishes it.
-  ⚠ **`engine.tick()` — not `ticker.tick()`.** The daemon's loop (`server/index.js`) calls the engine
+  ⚠ **`engine.tick()` — not `ticker.tick()`.** The daemon's loop (`runtime/index.js`) calls the engine
   façade for exactly this reason. It called the raw ticker in the first version of this build, which
   meant the daemon lane published NOTHING and a daemon-run seat stayed invisible to the record —
   caught in review. A probe arm now asserts the daemon loop's call site, alongside the behavioural one.
@@ -370,7 +370,7 @@ empty file.
 
 Until this build **the daemon lane had no path that seeds a goal's taskforce at all** (measured: one
 seeding function, one non-probe caller — the attached lane's own boot). Seeding has been moved out of
-this capability into `engine/seeding.js`, unchanged in behaviour, because none of it was ever a
+this capability into `supervisor/seeding.js`, unchanged in behaviour, because none of it was ever a
 property of the terminal a run is attached to; the engine BOTH lanes boot now exposes it:
 
 ```js
@@ -398,8 +398,8 @@ by a CLI, read by the daemon once a cadence.**
 | Piece | Where |
 |---|---|
 | the marker | `<goal>/execution-lane` — one word, the `execution-mode` file's precedent exactly. A `daemon` assignment carries its launch profile as a second token: `daemon claude-sonnet` |
-| the writer | `rbtv goal lane <goal> [--set daemon \| --set console]` (`capabilities/goals-tree/`). Read-only with no `--set`. **Works daemon-down** — which is most of why the trigger is a file and not a gateway intent |
-| the watch | `engine/lane-watch.js#runLaneWatch`, called by `server/index.js` immediately **before** every tick (boot tick included), so a seat the pass enqueues is dispatched by that same tick |
+| the writer | `rbtv goal lane <goal> [--set daemon \| --set console]` (`operator/goals-tree/`). Read-only with no `--set`. **Works daemon-down** — which is most of why the trigger is a file and not a gateway intent |
+| the watch | `supervisor/lane-watch.js#runLaneWatch`, called by `runtime/index.js` immediately **before** every tick (boot tick included), so a seat the pass enqueues is dispatched by that same tick |
 | the seeding | `engine.seedGoal` and nothing else — the pass decides WHICH goals, never HOW to seed (`PRIN-11`) |
 
 ⚠ **ABSENT MEANS `console`, and the daemon adopts only goals EXPLICITLY assigned to it.** An
@@ -417,7 +417,7 @@ argument, so the slot could be answered but never emptied. That requirement is D
 (`heart-store.js#REQUIRED_ARGS_BY_ACTION` for `launch-agent` is now empty), so the token has
 nothing left to fill, and a marker able to name what a seat runs is a marker able to contradict the
 seat's own cast. Every seat resolves its own launch spec at spawn
-(`launch-profiles/catalog.js#specForSeatCast`, applied at `spawn.js#launchSpecForSeat`).
+(`supervisor/launch-profiles/catalog.js#specForSeatCast`, applied at `spawn.js#launchSpecForSeat`).
 
 ⚠ **A MARKER STILL CARRYING TWO TOKENS IS A LEGACY MARKER.** Its whole text is not `daemon`, so
 both readers resolve it to `console` under the fail-closed rule — and because a goal silently
@@ -482,7 +482,7 @@ executes at the ferry.
 | `block-and-queue` | delivered into the seat's thread, **marked** `⏸ WAITING ON YOU`; the owner's reply in that thread mints a session **at that seat's own home** — the existing leg, and what "the seat proceeds" is made of | **HELD, mechanically** — its record row says `blocked`, so its dependents do not start until it is answered. See (2) |
 | absent | delivered **unmarked**, byte-identical to the pre-7.626 header | proceeds |
 
-The reader is `bridges/chat/bus-ferry.js#seatFallback`, beside the two gate readers and scoped to the
+The reader is `chat/bus-ferry.js#seatFallback`, beside the two gate readers and scoped to the
 same frontmatter block — **no second parser of a seat descriptor** (7.626 criterion 2). The pass still
 passes **no `isHeld`**, and 7.626 confirmed that rather than changing it: holding such a seat would
 park it forever with nobody to release it, and would stop it ASKING, which every arm needs.
@@ -536,7 +536,7 @@ reader that fell back to them would advance a wave off values the migration deli
 
 **The release is the owner's answer, and it lifts the hold at its source.** The reply is written to
 the bus by its one writer (`coord.py send --type answer --re <n>`, driven by
-`engine/bus-answer.js#recordBusAnswer`, which resolves the ask id via the surviving
+`chat/bus-answer.js#recordBusAnswer`, which resolves the ask id via the surviving
 `execution-record.js#openOwnerAsks` pairing). Once the ask is answered `ready-seats` stops reporting
 `HELD`, and coord's `cmd_checkout` — which refuses a `done` while the seat's ask is open — admits
 the check-out that advances the successors' `after` members. When no answer is coming, there is
@@ -618,7 +618,7 @@ GRAMMAR is not.
 
 ⚠ **THE ENGINE NO LONGER EVALUATES `after` AT ALL** (owner ruling `build/one-readiness-predicate.md`
 § D1). There were three implementations of "is this seat ready to launch" — `coord.py`'s, the
-edge-runner's and `engine/seeding.js`'s — they drifted, and the drift is what stalled the live goal.
+edge-runner's and `supervisor/seeding.js`'s — they drifted, and the drift is what stalled the live goal.
 The split is now total: **coord answers the DAG** (`coordinate ready-seats --json`, run once per
 goal per pass) and **seeding answers the store** (has this store already registered, queued or fired
 this seat — it can only ever *decline*, never promote). A bare name, a guard `ref[key=value]` and an
@@ -639,8 +639,8 @@ surface has been deleted, so there is one evaluator and nothing left to disagree
 `build/one-readiness-predicate.md`.
 
 **Nothing profile-shaped is passed, and nothing is derived HERE (7.787).** Mapping an elected (harness, model) onto
-one profile name is core-build task **7.54**'s catalog — built at `launch-profiles/catalog.js` and
-applied at the one shared launch point (`server/spawn/spawn.js#profileForSeatCast`, ruling D19), so
+one profile name is core-build task **7.54**'s catalog — built at `supervisor/launch-profiles/catalog.js` and
+applied at the one shared launch point (`supervisor/spawn/spawn.js#profileForSeatCast`, ruling D19), so
 a seat runs its own cast and this name is what an uncast seat falls back to. A second mapping *here*
 would still be exactly the drift `DEC-1` § Shared profile source exists to prevent. All four properties of the widened sole-spawn
 gate hold: a pinned NAMED profile from the one shared config · picked by name · caller free text
@@ -664,7 +664,7 @@ command. Do not build a watchdog for this lane and do not file its absence as a 
 
 The verb runs on Windows as a **supported, DEGRADED substrate**
 (`decisions.md#d-windows-degraded-attached-lane`) — but **the degraded branch bodies are not built
-yet, and it says so rather than pretending.** `ignite/engine/substrate.js` refuses a non-POSIX host
+yet, and it says so rather than pretending.** `ignite/runtime/substrate.js` refuses a non-POSIX host
 with a typed `E_SUBSTRATE_UNSUPPORTED` naming all four sites (carrier · tree-kill ·
 filesystem-wall · seat-room) and **core-build task 7.84**, which carries them.
 
@@ -702,7 +702,7 @@ direction); its arms now measure the resume, behaviourally, in both:
   the half that could only be measured structurally before.
 - **D2 daemon -> attached.** A daemon-side execution is synthesized and then published by the
   DAEMON'S OWN CALLER — a daemon-rooted `engine.tick()`, plus a second arm asserting that
-  `server/index.js` is what calls it (the first version of this probe called `publishToRecord`
+  `runtime/index.js` is what calls it (the first version of this probe called `publishToRecord`
   directly, which measured the function and not its caller — and that is precisely how a daemon loop
   on the raw ticker shipped). The attached lane then runs the goal and re-runs nothing.
   **Discriminating mutation:** delete alpha's ROW from the record and the same fixture re-runs the
@@ -720,12 +720,12 @@ direction); its arms now measure the resume, behaviourally, in both:
   `--status` answers `done` off the record with no store at all, the false-positive **control** (the
   attached lane re-running its own goal re-fires nothing), and the **BOUND** (a trace row with no
   record row neither refuses nor stops a re-run).
-- **D3 is DISCHARGED** (7.626). It read: nothing under `server/` asks whether a seat is
+- **D3 is DISCHARGED** (7.626). It read: nothing under the daemon tree (`runtime/`) asks whether a seat is
   `human-interactive`, so a daemon-dispatched held seat's `fallback:` fires nowhere. It now fires —
   at the ferry, on the goal-channel surface `#d-s19` ruled, per the arm table above. Still true, and
-  deliberately so: nothing under `server/` reads the flag; the daemon dispatches the seat and the
+  deliberately so: nothing under the daemon tree (`runtime/`) reads the flag; the daemon dispatches the seat and the
   BUS is where the arm is executed.
-- D1's former **measured bound** — "`seedGoal` exists and nothing under `server/` calls it" — is
+- D1's former **measured bound** — "`seedGoal` exists and nothing under the daemon tree (`runtime/`) calls it" — is
   RETIRED with the trigger it named: the pass and its call site are measured next door.
 
 `ignite/engine/probes/probe-daemon-lane-watch.js` — **the trigger** (`#d-daemon-lane-button`). The
@@ -739,7 +739,7 @@ pass after the lock is gone (the pair, so "not seeded" can never pass for an ine
 the other lane has not finished HELD **and reported on the log line** · the SWITCH end to end — the
 daemon enqueues and dispatches `alpha`, its own tick publishes `alpha=done/daemon`, the owner flips
 the marker, the daemon lets go on the next pass, and `rbtv run` runs `bravo` having never fired
-`alpha` · the call site asserted in `server/index.js` with comments stripped, and asserted to run
+`alpha` · the call site asserted in `runtime/index.js` with comments stripped, and asserted to run
 BEFORE the tick. Then the FAILURE SURFACE (review F1/F2/F3): both broken markers a hand-edit can
 still produce — an unknown profile (skipped typed, with **nothing registered in the store**) and no
 profile at all (skipped with its own fix hint) — each loud ONCE and loud AGAIN the moment the marker

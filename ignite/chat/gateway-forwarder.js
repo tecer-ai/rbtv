@@ -7,7 +7,7 @@
 // result }` or `{ ok: false, error: { code, message, details? } }` (internal-
 // api-contract-spec.md §2; gateway/gateway.js).
 //
-// ⚑ RELOCATABLE SUBTREE (ignite/CLAUDE.md rule 4): this file deliberately does
+// ⚑ RELOCATABLE SUBTREE (root CLAUDE.md § "ignite/ — Runnable Service Code"): this file deliberately does
 // NOT require ../../cli/lib/gateway-client — a bridge must not reach into a
 // sibling module at import level. It re-implements the tiny HTTP client itself,
 // mirroring that pattern. Its ONLY dependency is node:http.

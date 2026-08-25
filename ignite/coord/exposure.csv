@@ -1,7 +1,7 @@
 # team-kit's exposure manifest. Component-first placement: this file sits beside the tools it
 # declares, so install2.py sees them (a directory at depth 2 holding exposure.csv IS the
 # component). Moved out of the module-root ignite/exposure.csv on 2026-08-22, exactly as that
-# file's own note anticipated — the `team-kit/` prefixes dropped with the move and nothing
+# file's own note anticipated — the `coord/` prefixes dropped with the move and nothing
 # else changed. Columns are the seven of concepts/exposure-manifest.md, in its order.
 #
 # The folder became `ignite/coord/` with the component-first move (spec-component-map §2).

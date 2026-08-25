@@ -66,7 +66,7 @@ const DAEMON_ONLY_ROOT_KEYS = new Set(['ticker', 'tools', 'workflows', 'network'
 // OPTIONAL at 7.42. Every profile shipped before this task declares neither and is unaffected —
 // which is what makes the daemon's behaviour byte-unchanged rather than merely "tested to be".
 // `resume` is the OTHER command template a launch profile has always been defined to carry
-// (ignite/CLAUDE.md § Terminology: "a named, config-pinned command-template set
+// (ignite/state-store/component.md § Terminology: "a named, config-pinned command-template set
 // (exec/resume/caps/sandbox)") and that nothing had yet declared. Same shape and same validator as
 // `exec` — argv + carriage — and OPTIONAL: a profile without one simply never resumes
 // (r-chat-chain-resumes-session's declared fallback).

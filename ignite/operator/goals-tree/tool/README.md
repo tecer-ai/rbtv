@@ -28,7 +28,7 @@ rbtv-goal selftest
 
 **⚠ `teardown` is the ONE verb here that requires the daemon to be running**, and it is the one
 exception to the local-file-operations property every other verb has. What it reclaims is the job
-CATALOGUE, which lives in the machine's `heart.db` and is served only by the gateway (`ignite/CLAUDE.md`
+CATALOGUE, which lives in the machine's `heart.db` and is served only by the gateway (`ignite/state-store/component.md`
 § State layout — "the jobs catalogue is not readable without the daemon"). It refuses typed
 (`daemon-unreachable`) rather than half-working, and it reads auth from the environment the `ignite`
 client already reads (`IGNITE_SENDER_TOKEN`, `IGNITE_GATEWAY_ADDR` / `server.json`).
@@ -107,7 +107,7 @@ rbtv-goal lane <goal> --set console
 ```
 
 One word in `<goal>/execution-lane`, on the `execution-mode` file's precedent. The ignite daemon's
-watch pass (`ignite/engine/lane-watch.js`, fired by the daemon loop before every tick) reads it and
+watch pass (`ignite/supervisor/lane-watch.js`, fired by the daemon loop before every tick) reads it and
 seeds the goals assigned to it through `engine.seedGoal`; the console lane is `rbtv run`.
 
 - **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
@@ -120,7 +120,7 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   sub-ruling 3, 2026-08-12). This door once demanded `--profile <name>` as the fallback such a seat
   would launch on; the flag and the fallback are both gone, so an uncast seat has nothing to run as
   and handing the goal to the daemon would queue rows whose only possible outcome is
-  `E_UNCAST_SEAT` at spawn, hours later. The predicate is `engine/seeding.js#uncastSeats` — the
+  `E_UNCAST_SEAT` at spawn, hours later. The predicate is `supervisor/seeding.js#uncastSeats` — the
   same one `rbtv run` and the daemon's own lane watch ask — so no two doors can disagree.
   An UNMATERIALIZED goal is its own refusal (`lane-cast-unknown`): "unknown" is not "none".
 - **The marker is written temp + rename**, like the execution record beside it: a truncate-then-write
@@ -129,7 +129,7 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   resumes from the goal's execution record with nothing re-run — start in the daemon, finish in the
   console, or the reverse. A goal a console runner is attached to right now is never seeded against
   (the run lock is READ, never taken). Measured end to end:
-  `ignite/engine/probes/probe-daemon-lane-watch.js`.
+  `ignite/supervisor/probes/probe-daemon-lane-watch.js`.
 - The marker's TERM is **lane assignment**, values `daemon | console` — minted registry-side
   2026-08-10 (`system-definition/decisions.md#d-lane-assignment`, `concepts/lane-assignment.md`);
   this build coined no noun and the filename stays descriptive. `console` (who SHOULD run the goal)
@@ -146,7 +146,7 @@ rbtv-goal resume <goal>      # …and back, byte for byte
 **The marker grammar is one token wider, and NEITHER READER CHANGED.** `pause` rewrites
 `<goal>/execution-lane` to `paused ` + whatever it said before, verbatim; `resume` strips exactly
 that prefix and writes the remainder back. Both lane readers — `goal_cli.read_lane` and
-`engine/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
+`supervisor/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
 `console`, so a paused marker reads as "not assigned to the daemon" on both sides with zero reader
 change. The daemon lets go on its next watch pass; the stashed assignment is still on disk, and
 `lane --json` reports `paused` / `paused_from` so nothing has to be inferred.
@@ -155,7 +155,7 @@ change. The daemon lets go on its next watch pass; the stashed assignment is sti
 The verbs that ADDRESS an existing goal — `lane`, `pause`, `resume`, `relaunch`, and `lint`'s name
 check — validate through `GOAL_REF_NAME_RE`, which is `GOAL_NAME_RE` plus an optional SINGLE
 leading `_`. `scaffold` deliberately still validates through the narrower `GOAL_NAME_RE`, so no NEW
-underscore goal can be minted (the daemon-side argv gate, `server/heart/argv-template.js#NAME_RE`,
+underscore goal can be minted (the daemon-side argv gate, `state-store/heart/argv-template.js#NAME_RE`,
 is kebab-only and would refuse such a name at enqueue). Before this split the leading underscore
 refused `goal-name-invalid` at every marker verb, so **no landing had ever been able to hold that
 goal** and every deploy ran with it free to spawn straight through.
@@ -254,7 +254,7 @@ Each refuses with a CODE (machine-readable on `--json`, so an agent never matche
 | `splice-target-has-run` | a `--before` seat already has execution-record rows, so its `after` cell was resolved once — re-parenting now makes the registry describe a graph that never ran |
 | `attached-run-live` | the goal carries `.attached-run.lock`: an `rbtv run` engine is advancing the same graph |
 | `bindings-missing-seat` | the shared sheet has no entry for the seat (which harness/model/effort it runs on has no honest default) |
-| `daemon-complex-cell` | the run would write a multi-member or guarded `after` cell AND the stashed lane is `daemon`. WARNS under `--dry-run`; `--allow-daemon-complex-cell` accepts it deliberately. The parallel seeder fix (`engine/seeding.js`) lifts this concern once deployed |
+| `daemon-complex-cell` | the run would write a multi-member or guarded `after` cell AND the stashed lane is `daemon`. WARNS under `--dry-run`; `--allow-daemon-complex-cell` accepts it deliberately. The parallel seeder fix (`supervisor/seeding.js`) lifts this concern once deployed |
 | `splice-before-unknown` · `splice-not-an-insertion` · `splice-no-row` | a `--before` seat with no row · a `--before` cell sharing no member with `--after` (so the new seat would not be BETWEEN anything) · a new seat with no registry row (`--splice-only` before the mint) |
 | `taskforce-noncanonical` | a registry row that does not re-render byte-identically through the append's own csv writer — see below. **CRLF line endings refuse under this code with a message naming them**: the registry's canonical form is LF-only and nothing is normalized for you |
 | `spliced-graph-invalid` · `taskforce-changed-underfoot` | the MUTATED graph fails the same `check_acyclic` + `check_after_grammar` pair `materialize` runs, in the same order · another writer touched the registry between the read and the write |
@@ -285,8 +285,8 @@ rbtv-goal teardown my-goal --yes         # the ORPHAN path, when the folder is a
 ```
 
 Scaffolding a goal WRITES job-catalogue rows — one `seat-<goal>-<seat>` per seat from
-`engine/seeding.js#seedTaskforce` on the goal's first seed. *(A `<goal>-workflow-start` row from
-`capabilities/goal-creation-request` was the other producer until task 7.778 deleted that door;
+`supervisor/seeding.js#seedTaskforce` on the goal's first seed. *(A `<goal>-workflow-start` row from
+`operator/goal-creation-request` was the other producer until task 7.778 deleted that door;
 rows minted before then are still on disk and are still this verb's to reclaim.)* Deleting the goal folder removed none
 of them, and `register-job` is create-only, so **the goal's NAME was burnt**: 18 stranded rows for
 one goal on the live box, and a same-name re-scaffold refused `E_JOB_EXISTS`. `ignite
@@ -363,7 +363,7 @@ The router also carries the **tooling-gap filing rule** (owner ruling 2026-08-10
 `i-wrote-outside-own-seat-first`): a defect found in a TOOL goes to the `issues.md` of the goal that
 OWNS that tooling, with this goal's own `issues.md` as the fallback when that ledger is unreachable.
 It is materialized rather than remembered, and it reaches every seat under the goal because
-`server/spawn/cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`. The same text —
+`supervisor/spawn/cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`. The same text —
 from the ONE `TOOLING_FINDING_BLOCK` constant here — is rendered into each seat's own `AGENTS.md` by
 `planning/materialize-seats.py`, which imports it rather than restating it (the carriage a
 hand-authored goal `CLAUDE.md`, e.g. a standing seat's, does not get from this template).

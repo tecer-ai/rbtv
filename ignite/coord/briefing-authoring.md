@@ -44,7 +44,7 @@ can actually run). Both are decided once, per run, and the briefings below only 
   `## Outputs` block in the briefing BODY — `<io-spec>` … `## Outputs` … `</io-spec>` — read by
   BOTH readers through one shared resolver: the done-contract grading at `checkout`
   (`coord.py#iospec_outputs`) and the caged-launch admission gate
-  (`engine/cage-admission.js#parseDeclaredOutputs`). A declared output is a BACKTICKED
+  (`envelope/cage-admission.js#parseDeclaredOutputs`). A declared output is a BACKTICKED
   goal-relative token carrying a `/` and an extension: `` `seats/<seat>/plan.md` ``, or
   `` `./plan.md` `` for a file in the seat's own cwd. Semantics: these are the paths the seat
   must have PRODUCED. PRESENT means a file that exists AND is non-empty (a zero-byte file is

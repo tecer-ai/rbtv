@@ -140,7 +140,7 @@ content — file names, bytes, and directory structure — is chosen by the requ
 
 ### Arming it is two gated acts, in this order
 
-The catalogue entry `tools: goal-creation-request` in `config/spawn-profiles.yaml` is landed **dark**.
+The catalogue entry `tools: goal-creation-request` in `envelope/spawn-profiles.yaml` is landed **dark**.
 Landing it does not arm it:
 
 1. create the inbox directory the entry names (`.rbtv/goals/_channel-master/requests`);
@@ -193,7 +193,7 @@ starter set at `coord/starter-set/` (`d-owner-starter-set-approved-0808`). F7 ab
 ⚠ **The per-row argv TEMPLATING mechanism is unchanged and still live** — `{{workflow}}` /
 `{{entry-seat}}` / `{{goal}}` / `{{workdir}}` expand from a queue row's own args, so one generic
 entry can serve every workflow. Contract, injection argument and value rules:
-`server/heart/argv-template.js`. Suite: `server/ticker/probes/probe-argv-template.js`. ⚠ **This
+`state-store/heart/argv-template.js`. Suite: `runtime/ticker/probes/probe-argv-template.js`. ⚠ **This
 capability is no longer one of its consumers** (7.778): it registers no `start-workflow` job, so
 nothing here fills those tokens.
 
@@ -213,7 +213,7 @@ that had to guess how long to wait — which is why `goal-launch-delay`, the cap
 that guess, is deleted too.
 
 ⚠ The `start-workflow` **action type** survives: it is a generic dispatch category with live
-consumers (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`). Only this
+consumers (`runtime/ticker/one-live-run.js`, `runtime/ticker/goal-channel-start.js`). Only this
 capability's use of it is gone.
 
 ## The request schema it validates against — THE LIVE CLAUSE
@@ -466,7 +466,7 @@ stops looking: `probe-planning-entry.py` (the `workflows: planning:` argv compos
 `probe-sensor-start.py` (the census sensor starting with the room's first seat) and
 `probe-launcher-attribution.py` (the launcher grading a fire by its own reported pane). All three
 asserted `workflow_launcher.py`, which no longer exists. The lane-at-birth behaviour that replaced
-the door is guarded at the creation verb — `capabilities/goals-tree/probes/probe-lane-at-birth.py`
+the door is guarded at the creation verb — `operator/goals-tree/probes/probe-lane-at-birth.py`
 and `probe-goal-scaffold-standard-files.py`, which asserts `execution-lane` in the ruled file set.
 
 ## The other probe, and why it carries mutants

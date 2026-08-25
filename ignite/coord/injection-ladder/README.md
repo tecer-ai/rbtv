@@ -1,4 +1,4 @@
-# `injection-ladder/` — THE one per-harness injection ladder
+# `coord/injection-ladder/` — THE one per-harness injection ladder
 
 The single place that answers **which METHOD drives each harness**: an ordered preference of
 injection rungs, tried best-first — **headless one-shot → hooks → keystroke**.
@@ -12,13 +12,13 @@ Built by task 7.45. Governing records: `CMP-9` (`sd-graph show CMP-9`), registry
 
 > It answers ONE question — **the METHOD**. Given a harness, which injection rung is available and
 > preferred. **It never answers what the command line is**; that is the ONE shared launch-profile
-> resolver's answer (`ignite/launch-profiles/`, task 7.42, DEC-1 § Shared profile source), and the
+> resolver's answer (`ignite/supervisor/launch-profiles/`, task 7.42, DEC-1 § Shared profile source), and the
 > two are consumed together — the caller names a profile and walks this ladder for that profile's
 > harness.
 
 It **exposes no command, holds no state, spawns nothing, and writes nothing.** That last clause is
 why `hooksConfigFor()` returns a *descriptor* of files and performs no I/O: the daemon adapter does
-the writing (`server/spawn/harness-config.js`).
+the writing (`supervisor/spawn/harness-config.js`).
 
 The rungs' concrete surfaces are **owned elsewhere and cited, never restated** (§ Interface (3)):
 keystroke is `tmux send-keys` into the seat's pane (`CMP-19` § Interface (2)); headless is the
@@ -28,7 +28,7 @@ harness's own one-shot invocation; hooks reaches the harness through its harness
 
 | # | Consumer | State |
 |---|----------|-------|
-| 1 | the daemon's spawn path (`server/spawn/harness-config.js`, a thin adapter over this) | **LIVE** |
+| 1 | the daemon's spawn path (`supervisor/spawn/harness-config.js`, a thin adapter over this) | **LIVE** |
 | 2 | the attached dispatch surface — the rbtv CLI run verb | task **7.44** — NOT BUILT. Its former other half, the sub-agent dispatch capability (7.43), is **RETIRED** per `r-seats-only-architecture` (2026-08-06): the daemon's sub-agent lane is gone; delegation is seat-side |
 | 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT |
 
@@ -82,7 +82,7 @@ which asserts the hooks-less harness plans zero files *and* that opencode still 
 own (a discrimination, not a function that stopped planning for everyone).
 
 ⚠ **Naming a harness also gives it its credential bind.** `harnessOf` returning `null` meant a kimi
-seat got the `default: return []` arm of `server/spawn/bwrap.js` `harnessStateBinds` — no state bound
+seat got the `default: return []` arm of `supervisor/spawn/bwrap.js` `harnessStateBinds` — no state bound
 back over the throwaway HOME tmpfs, so a caged kimi seat had no credentials at all. `~/.kimi/` (the
 one dir: `config.toml`, `credentials`, `device_id`, `kimi.json`, `logs` — measured; no
 `~/.config/kimi`, `~/.local/share/kimi` or `~/.cache/kimi` exists) lands in that table WITH the row
@@ -130,7 +130,7 @@ node coord/injection-ladder/probes/probe-injection-ladder.js
 store and no config file. That is the assertion, not a convenience: `CMP-9` dropped the
 `uses → server` edge, and a probe that needed the daemon to exercise the ladder would disprove the
 property the module exists to have. Leg 9 asserts it mechanically (no module file requires anything
-under `server/`).
+under the daemon tree `runtime/`).
 
 **Every leg was mutation-tested — 10 mutations, 10 red.** The sweep found one real hole in the probe
 itself, which is recorded here because the hole is the more useful artifact than the fix:
@@ -147,7 +147,7 @@ rather than merely "not headless", which is what makes that mutation visible.
 
 ## The daemon seam, and how it was proved
 
-`server/spawn/harness-config.js` is now a **thin adapter**: the per-harness knowledge moved here; the
+`supervisor/spawn/harness-config.js` is now a **thin adapter**: the per-harness knowledge moved here; the
 filesystem writes and the daemon's log line stayed there. `harnessOf` is re-exported rather than
 redefined, so its other call sites in `spawn.js` are untouched. (A fourth site in `pty-host.js` was
 cited here until task 7.29 deleted that module; the line numbers are the original citation's and
@@ -172,7 +172,7 @@ are not re-derived — see the file itself, which is the source of truth for whe
    `#d-cmp9-preset-data-home`). **That relocation is unbuilt and carries no task** — measured
    2026-07-28: grepping the whole Phase-7 core-build tasks file for those anchors and for
    `harnesses.json` returns **zero hits**. This module therefore sits beside 7.42's
-   `ignite/launch-profiles/` precedent and **says so**, rather than quietly becoming the
+   `ignite/supervisor/launch-profiles/` precedent and **says so**, rather than quietly becoming the
    destination. Inventing the runtime-root catalog inside 7.45 would mint a structural convention
    by accident; the orphaned ruling is filed for routing instead.
 2. **The repo still holds more than one per-harness method table, BY DESIGN at this task.**

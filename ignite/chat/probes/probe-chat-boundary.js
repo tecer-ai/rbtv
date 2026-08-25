@@ -3,7 +3,7 @@
 // Test Plan #5 — Bridge holds no privileged capability (chat-bridge-spec.md
 // Behavior #5). Static scan of the bridge RUNTIME source (never the probes):
 // the bridge must hold NO spawn/queue handle, open NO server/listener, and reach
-// into NO sibling module (relocatable subtree, ignite/CLAUDE.md rule 4). Comments
+// into NO sibling module (relocatable subtree, root CLAUDE.md § "ignite/ — Runnable Service Code"). Comments
 // are stripped first so a token that appears only in prose ("holds NO spawn…")
 // never counts as a capability.
 

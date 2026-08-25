@@ -79,7 +79,7 @@ function isoNow() {
 //
 // ⚑ THE REQUIRE IS LAZY, AT THE CALL, and that is the same shape `operator/attached-execution.js`
 // uses for the same two gates: the bridge is a relocatable subtree, so the daemon holds no LOAD-time
-// dependency on it (ignite/CLAUDE.md's relocatable-subtree convention runs in both directions).
+// dependency on it (the root CLAUDE.md relocatable-subtree convention runs in both directions).
 //
 // ⚑ THE IMPORT IS THE SEAT-DIR CORE, NOT THE `(goalDir, seat)` WRAPPER, and the difference is the
 // whole warm path. A `workdir` here is the seat's OWN folder; splitting it back into a goal dir and

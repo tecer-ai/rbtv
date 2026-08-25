@@ -1,4 +1,4 @@
-# `launch-profiles/` — the ONE shared launch-spec resolver
+# `supervisor/launch-profiles/` — the ONE shared launch-spec resolver
 
 The single policy point through which every launch resolves a **launch spec**: a config-pinned
 command-template set (exec/resume/caps/sandbox/effort ladder), keyed by **(harness, model)**.
@@ -21,14 +21,14 @@ Built by task 7.42, re-keyed by task 7.787. Governing records: registry
 `#d-sub-agent-standing-lane` (3) made the launch profiles ONE shared config file. That was not
 enough: **"a second interpreter of the one file is the same drift as a second file."** So
 resolution, slot validation, the carriage vocabulary, the workdir guard and the pinned-flag
-pre-flight live in ONE module that requires **nothing under `server/`** — usable from a CLI, a
+pre-flight live in ONE module that requires **nothing under the daemon tree (`runtime/`)** — usable from a CLI, a
 skill, or a test with no daemon in the picture.
 
 ## The three consumers
 
 | # | Consumer | State |
 |---|----------|-------|
-| 1 | the daemon's spawn path (`server/spawn/config.js`, a thin adapter over this) | **LIVE** |
+| 1 | the daemon's spawn path (`supervisor/spawn/config.js`, a thin adapter over this) | **LIVE** |
 | 2 | the sub-agent dispatch capability | task **7.43** — built, then **RETIRED** per `r-seats-only-architecture` (2026-08-06): the daemon's sub-agent lane is gone; delegation is seat-side |
 | 3 | the orchestration conductor's CLI-worker dispatch | task **7.54** — NOT BUILT (its *catalog* half is — see below) |
 
@@ -39,8 +39,8 @@ plainly so no reader infers more completeness than exists.
 
 Built 2026-08-11 under owner ruling **D19** (extending D16). It answers the one question this
 module could not: *given a seat cast as `harness: claude` / `model: claude-fable-5`, which launch
-profile RUNS that?* Four call sites — `engine/seeding.js`, `engine/lane-watch.js`,
-`engine/attached-execution.js` and `bridges/chat/forward-path.js` — each held a cast and could not
+profile RUNS that?* Four call sites — `supervisor/seeding.js`, `supervisor/lane-watch.js`,
+`operator/attached-execution.js` and `chat/forward-path.js` — each held a cast and could not
 name its profile, so every one of them launched a caller-named profile instead. A planning seat
 cast as a frontier model silently ran the deployment's chat model whenever it was revived from
 Slack, and `sessions.csv` recorded the launch as if nothing had diverged.
@@ -57,7 +57,7 @@ Three bounds, each earned:
 
 - **THE DERIVATION LAW IS DELETED, NOT SHARED.** Until 7.787 the pair a row ran was DERIVED from
   its argv (`harness = basename(argv[0])`; `model = the token after the first of --model / -m,
-  never last`) identically here and in `capabilities/bindings/tool/bindings.py#catalog`, because
+  never last`) identically here and in `operator/bindings/tool/bindings.py#catalog`, because
   the document was keyed by an arbitrary name. Re-keying by the pair removed the derivation from
   BOTH sides: each READS the keys. What survives of the law is one **config-LOAD guard** —
   `profiles.js#validateSpecKey` refuses a spec whose argv runs a different model than its key
@@ -70,7 +70,7 @@ Three bounds, each earned:
   (`E_AMBIGUOUS_BINDING` is RETIRED: two specs claiming one pair was expressible under a flat
   name-keyed map; under `launch-specs: { <harness>: { <model>: … } }` it is a duplicate YAML key —
   unspellable rather than refused.)
-- **Applied at ONE point**, `server/spawn/spawn.js#launchSpecForSeat`, which is downstream of
+- **Applied at ONE point**, `supervisor/spawn/spawn.js#launchSpecForSeat`, which is downstream of
   every lane and upstream of both records (`jobs_log.profile` and the at-dispatch `sessions.csv`
   row), so what launched and what was recorded cannot drift apart. A seat declaring no cast — the
   channel master's `open_binding` case, and every unmaterialized seat — falls back to the caller's
@@ -146,7 +146,7 @@ tokens).
 ⚠ **A caller of `resolveProfile()` must now supply a `session_ref` slot value for the shipped
 claude profiles** — a declared slot with no value is `E_MISSING_KEY` by construction, because this
 module never emits a literal `{slot}` onto a command line. The daemon's own path
-(`server/spawn/spawn.js` `composeArgv`) supplies it: the predecessor's ref on a resume, this
+(`supervisor/spawn/spawn.js` `composeArgv`) supplies it: the predecessor's ref on a resume, this
 session's id on a fresh launch.
 
 ## The declared slot vocabulary — `{extra_dir}` (task 7.87)
@@ -175,7 +175,7 @@ assertion in `resolveProfile`) — but **which** directory is handed in is the c
 the caller's confinement to make.
 
 **Additive, and the daemon is byte-unchanged.** No shipped profile declares `{extra_dir}`, so every
-profile in `config/spawn-profiles.yaml` resolves the identical argv before and after the widening
+profile in `envelope/spawn-profiles.yaml` resolves the identical argv before and after the widening
 (measured over all 14, task 7.42's criterion re-asserted). Probe legs 16 / 17 / 17b cover it, and
 17 is the discriminating one: it **plants an unknown slot** and asserts the `E_UNKNOWN_SLOT` refusal
 still fires — proving the new slot being accepted means *the vocabulary grew by one*, not *the
@@ -227,11 +227,11 @@ reverted.
 
 ## Known residuals — disclosed, not hidden
 
-1. **`DAEMON_ONLY_ROOT_KEYS` is duplicated** with `server/index.js:42`. The profile surface ignores
+1. **`DAEMON_ONLY_ROOT_KEYS` is duplicated** with `runtime/index.js:42`. The profile surface ignores
    those namespaces so an outside consumer can load the committed file; index.js strips them.
    Convergence is a one-line edit to live daemon **boot** code and was not smuggled into this task.
-2. **`scanPath` is duplicated** with `server/spawn/bwrap.js`. The shared module may not import from
-   `server/`; the fix is bwrap.js consuming this one when the seat cage is adopted (built, not
+2. **`scanPath` is duplicated** with `supervisor/spawn/bwrap.js`. The shared module may not import from
+   the daemon tree (`runtime/`); the fix is bwrap.js consuming this one when the seat cage is adopted (built, not
    applied — `G-124`).
 3. **⚠ PRESENCE IS NOT CAPABILITY — the highest-severity residual, and it fails UNSAFE.**
    `detectHostCapability()` decides the half from the mere PRESENCE of a `bwrap` binary, never
@@ -245,7 +245,7 @@ reverted.
    whoever wires `resolveProfile()` into a live consumer. Filed `G-148`.
 4. **`spawn.js` reads `profile.exec` unguarded** (`:160`, `:487`), so a half-shaped profile in the
    shipped config would crash the daemon with a `TypeError` instead of a typed refusal. This is why
-   no half-shaped profile ships in `config/spawn-profiles.yaml` — the probe uses a runtime temp
+   no half-shaped profile ships in `envelope/spawn-profiles.yaml` — the probe uses a runtime temp
    fixture instead, which also keeps criterion 6 (no second profile file in the repo) true.
 
 ## Probe
@@ -260,7 +260,7 @@ fail-closed branch each turns the intended leg red.
 
 ## ⚠ ONE argv element this module does not author (owner ruling 2026-08-07)
 
-`server/spawn/spawn.js` `composeArgv` appends `--append-system-prompt-file <workdir>/seat.md`
+`supervisor/spawn/spawn.js` `composeArgv` appends `--append-system-prompt-file <workdir>/seat.md`
 after slot resolution — `claude` profiles only, and **only when that file exists**. It is
 disclosed here because it is the single exception to "the profile writes the command line", and
 the reason it cannot live in a profile argv is measured, not stylistic: `claude
@@ -276,7 +276,7 @@ first word, which a one-turn headless sitting does not make (measured on the cha
 answered as a generic assistant). The descriptor now rides the system prompt, which needs no
 compliance to arrive.
 
-Guarded by `server/spawn/probes/probe-flag-injection.js` — present / absent / non-claude, each
+Guarded by `supervisor/spawn/probes/probe-flag-injection.js` — present / absent / non-claude, each
 mutation-tested (3 mutations, 3 red). Folding it in properly means a profile-level opt-in key
 with its own validation; worth doing when a second harness gains a MEASURED equivalent, never
 on a guessed one.
@@ -308,6 +308,6 @@ spelling is the profile's own.
 standalone `kimi` harness — which once carried its own 1..2 `--no-thinking·--thinking` ladder — is
 retired; its models are reached through `opencode` instead.)
 
-**`resolveEffort` is exported, and that is the point.** `server/spawn/spawn.js#composeArgv` calls
+**`resolveEffort` is exported, and that is the point.** `supervisor/spawn/spawn.js#composeArgv` calls
 it — the daemon composes its own argv (G-144 still stands, half selection is still 7.43/7.54) but
 does NOT own a second reading of the `effort:` table. One interpreter, two callers.

@@ -9,8 +9,8 @@ The chat bridge. Law is `1-projects/build-ignite/redesign/specs/spec-component-m
 so the child IS the component now. Same tree, moved with history; nothing was
 reshaped and no symbol changed.
 
-Arrived with the same move (`spec-component-map` §2): `engine/bus-answer.js` (the
-bus-answer leg), `config/chat-session-settings.json` and `config/senders.example.yaml`
+Arrived with the same move (`spec-component-map` §2): `chat/bus-answer.js` (the
+bus-answer leg), `chat/chat-session-settings.json` and `chat/senders.example.yaml`
 (the chat session config that had no other home).
 
 The module inventory below is append-only and predates the move.
@@ -96,13 +96,13 @@ into the SAME approval thread [C-16]. Probe: `probes/probe-chat-approval.js`.
 `materialize` port. The payload is the planning goal, the approval thread and the
 bound commit [T5-R5] and nothing else: WHAT gets built is the approve-package the
 planning goal carries, read daemon-side, and the daemon-side executor
-(`server/heart/start-execution.js`) validates the approval binding before running
+(`state-store/heart/start-execution.js`) validates the approval binding before running
 the supervised Path-B birth. The call carries a per-call timeout override
 (`live-feed`'s precedent) because a birth is scaffold + mint, not a store write.
 `chat-bridge.js` builds this port from its own forwarder ALWAYS and REFUSES an
 injected `materialize` at construction — a stub `{ok:true}` there would tell the
 owner an execution started when nothing did. Probes:
-`probes/probe-chat-approval.js`, `server/internal-api/probes/probe-start-execution.js`.
+`probes/probe-chat-approval.js`, `runtime/internal-api/probes/probe-start-execution.js`.
 
 ## pause-resume
 

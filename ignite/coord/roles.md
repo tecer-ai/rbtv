@@ -95,7 +95,7 @@ entries below cite.
 - **watcher seats — RETIRED (owner-ruled, `d-watcher-deterministic-chain`; name removed from
   coord.py 2026-08-13).** No run staffs a watcher seat. DETECTION is deterministic: team-monitor
   (CMP-20) is the sole raw sensor writing the goal’s `state.json`, and the daemon's own per-goal
-  reconcile pass (`ignite/engine/reconcile.js`, D1/D15) acts on goal health. The former `watch.py`
+  reconcile pass (`ignite/supervisor/reconcile.js`, D1/D15) acts on goal health. The former `watch.py`
   was dissolved into team-monitor and `goal-watcher-job` (task 7.35); `goal-watcher-job` was in
   turn dequeued 2026-08-20 and DELETED 2026-08-21, its half of the job now reconcile's.
 - **Harness note.** codex and opencode seats follow this protocol in full — their loaders

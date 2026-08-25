@@ -23,7 +23,7 @@ cadence that wedged the box needs changing.
 
 **One home, and it is the registry's:** `architecture/CMP-1-rbtv-runtime-root.md` § *Ticker settings
 schema*. This document does not restate the schema (`PRIN-11`); it states how to drive it. In code
-the one home is `ignite/server/settings.js`, shared by this surface and the daemon's boot path so
+the one home is `ignite/runtime/settings.js`, shared by this surface and the daemon's boot path so
 the two cannot drift.
 
 ```

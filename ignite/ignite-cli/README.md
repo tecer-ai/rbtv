@@ -16,13 +16,13 @@ There is no build step and no npm dependency (`ignite/dependencies.txt` — this
 CLI adds none; it uses only Node.js built-ins). Run it directly:
 
 ```bash
-node /path/to/ignite/cli/ignite.js <command> ...
+node /path/to/ignite/ignite-cli/ignite.js <command> ...
 ```
 
 Or symlink it onto `PATH` for a bare `ignite` command:
 
 ```bash
-ln -s /path/to/ignite/cli/ignite.js ~/.local/bin/ignite
+ln -s /path/to/ignite/ignite-cli/ignite.js ~/.local/bin/ignite
 chmod +x ~/.local/bin/ignite   # cli/ignite.js already carries the shebang + exec bit
 ```
 

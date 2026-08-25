@@ -25,7 +25,7 @@ different lifetime — so it lives under `.rbtv/config/` beside the other deploy
 
 This path is ONE INSTANCE of the general configuration convention — owner-specific values live at
 `.rbtv/config/modules/<module>/<component>/…` (`ignite/coord/starter-set/conduct.md`, which
-once stated this, was abolished by owner ruling F7, 2026-08-17; `capabilities/bindings/tool/bindings.py`
+once stated this, was abolished by owner ruling F7, 2026-08-17; `operator/bindings/tool/bindings.py`
 now carries the canonical path).
 
 ⚠ **The pre-D15 spelling `.rbtv/config/bindings/{module}/{component}/{code}.json` still READS.** A
@@ -59,7 +59,7 @@ only way to keep N copies honest is to not have them.
 A planning pass can author a seat inside the goal — `planning/current/seats/<seat>/` holding the
 definition itself rather than a `source.md` pointer at a cataloged one. **Those seats belong to no
 workflow**, so the canonical path above cannot address them: `bindings/{code}.json` is keyed by a
-workflow code they do not have. `ignite/engine/unbuilt-seats.js` (`sheetForSeat`) states exactly this and is
+workflow code they do not have. `ignite/planning/unbuilt-seats.js` (`sheetForSeat`) states exactly this and is
 the reason the two paths differ — it is a design, not a bug, and the reader must never be "fixed" to
 look under `.rbtv/config/`.
 
@@ -159,7 +159,7 @@ a standing-seat MODE, or let `master-profile` write the file itself — was reso
 extreme: `master-profile` owns the transport and the path, and this capability owns the validation
 and the write.** No second opinion about what may go in the file exists, and no verb here grew a
 standing-seat surface nobody asked for. The imports are pinned by object identity in
-`capabilities/master-profile/probes/probe-master-profile.py` check 10d.
+`operator/master-profile/probes/probe-master-profile.py` check 10d.
 
 ## ⚠ The write is `ensure_ascii=False`, and that is a fix
 
@@ -176,7 +176,7 @@ sheets on this deployment still carry escaped dashes from earlier writes.
 against — one derivation, two consumers, so the answer an agent reads and the answer that refuses it
 can never disagree. It is composed from exactly two measured sources:
 
-1. **Which harness+model pairs exist** — `launch-specs:` in `ignite/config/spawn-profiles.yaml` (the block is KEYED by the pair since `#d-abolish-profile-names`, so the pairs are READ, never derived), which
+1. **Which harness+model pairs exist** — `launch-specs:` in `ignite/envelope/spawn-profiles.yaml` (the block is KEYED by the pair since `#d-abolish-profile-names`, so the pairs are READ, never derived), which
    `r-seats-only-architecture` makes *"ONE PROFILE PER HARNESS+MODEL … nothing else is identity"*.
    That IS the workspace's spawnable set. The harness is the profile's `argv[0]`; the model is the
    literal its `exec` argv PINS.
@@ -203,14 +203,14 @@ runtime**:
 
 | Reader | What it is |
 |--------|------------|
-| `launch-profiles/profiles.js#loadConfig` | The authoritative `js-yaml` parse: the loader the daemon itself boots on, which also VALIDATES the block (an empty `rungs:` list, or `inert: true` beside a translation, is refused at load). |
+| `supervisor/launch-profiles/profiles.js#loadConfig` | The authoritative `js-yaml` parse: the loader the daemon itself boots on, which also VALIDATES the block (an empty `rungs:` list, or `inert: true` beside a translation, is refused at load). |
 | `bindings.py#profile_effort` | The one PYTHON reader, a `yaml.safe_load` parse. Three-way answer: `None` = no dial · `[]` = an INERT dial (G-270 — accepts a rung, applies none) · a list = the rungs. **`master_profile.effort_ladder` IS this function object**, imported. |
 
 There were THREE readers until 2026-08-11, and the two Python ones disagreed on identical bytes: a
 `rungs:` line sitting above an `effort: { inert: true }` line read as INERT to one and as a five-rung
 ladder to the other, and a `rungs:` written as a YAML block sequence was invisible to both while the
 authoritative reader read it correctly. Both scrapes were replaced by the one parse. The remaining
-two are pinned by **object identity** in `capabilities/master-profile/probes/probe-master-profile.py`
+two are pinned by **object identity** in `operator/master-profile/probes/probe-master-profile.py`
 — never by value equality, which is what two copies report right up until they drift.
 
 ⚠ **Reading is not writing.** Reads of `spawn-profiles.yaml` are PARSES; writes to it stay

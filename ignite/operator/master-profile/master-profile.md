@@ -1,6 +1,6 @@
 # master-profile — the channel master choosing its own harness and model
 
-> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `config/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
+> ⚠ **`#d-abolish-profile-names` (owner, 2026-08-12) — task 7.787.** Profile NAMES are abolished as a caller-selectable variable everywhere in ignite. A seat runs the launch spec its CAST resolves (`launch-specs:` in `envelope/spawn-profiles.yaml`, keyed by `(harness, model)`); an UNCAST seat is a NAMED refusal. Retired in the same change: `rbtv run --profile`, `rbtv-goal scaffold/lane --profile`, the `execution-lane` marker's second token, `cli add-job --profile`, the chat bridge's `session_profile`, and `launch-agent`'s `profile` argument. The KG term **launch profile** is RETIRED — its successor is **launch spec** (`#d-abolition-terminology`).
 
 
 Issue **C-1** (owner-ruled 2026-08-10). Twin of `goal-launch-delay`: same ruling, same two-part
@@ -29,9 +29,9 @@ which is the same kind of file `rbtv-bindings` writes for every workflow seat. P
 `d-master-is-cast-like-any-other-seat` the SEAT governs and this CLI's job is to **re-cast the
 seat** — never to pass a per-dispatch override on the wire. `materialize-seats.py --repass`
 re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
-(`launch-profiles/catalog.js#specForSeatCast`, `readFileSync` per launch, never boot-cached).
+(`supervisor/launch-profiles/catalog.js#specForSeatCast`, `readFileSync` per launch, never boot-cached).
 
-⚠ **THE AGENT-FACING UNIT IS `harness` + `model`, NOT A NAME** (`#d-abolish-profile-names`, 2026-08-12 — `request <harness> <model> [--effort N]`). The capability KEEPS ITS OWN NAME (`#d-master-profile-keeps-its-name`); only its caller contract changed. The sentence that stood here — "the agent-facing unit is still a spawn-profile NAME from `profiles:` in `config/spawn-profiles.yaml`"
+⚠ **THE AGENT-FACING UNIT IS `harness` + `model`, NOT A NAME** (`#d-abolish-profile-names`, 2026-08-12 — `request <harness> <model> [--effort N]`). The capability KEEPS ITS OWN NAME (`#d-master-profile-keeps-its-name`); only its caller contract changed. The sentence that stood here — "the agent-facing unit is still a spawn-profile NAME from `profiles:` in `envelope/spawn-profiles.yaml`"
 — one profile IS one harness+model pair (`r-seats-only-architecture`), so a name is a complete cast
 and the requester keeps one vocabulary. `show` prints the askable set rather than this document
 restating it, because a roster written into a document goes stale silently.
@@ -56,10 +56,10 @@ built rather than the knob dropped, explicitly overriding that reservation. What
 
 | Link | What it does now |
 |---|---|
-| ~~`bridges/chat/config.js` reads `master_effort`~~ | **HISTORY.** Deleted by D2 the same week it shipped — the transport names no execution |
+| ~~`chat/config.js` reads `master_effort`~~ | **HISTORY.** Deleted by D2 the same week it shipped — the transport names no execution |
 | ~~`forward-path.js#effortFor`~~ · ~~the widened job id~~ | **HISTORY**, same ruling. The per-SURFACE effort lane is gone |
-| `server/ticker/ticker.js#launchAgent` | reads `args.effort`, passes it to `spawnManager.spawn(...)` |
-| `server/spawn/spawn.js#composeArgv` | composes it through `resolveEffort()` — the **same** function `launch-profiles/resolveProfile` calls, never a second reading of the table |
+| `runtime/ticker/ticker.js#launchAgent` | reads `args.effort`, passes it to `spawnManager.spawn(...)` |
+| `supervisor/spawn/spawn.js#composeArgv` | composes it through `resolveEffort()` — the **same** function `launch-profiles/resolveProfile` calls, never a second reading of the table |
 
 ⚠ **The first two rows are history and the last two are the load-bearing half.** The rung reaches
 `composeArgv` from the SEAT'S DESCRIPTOR now, on every lane, so the effort this tool writes is
@@ -70,8 +70,8 @@ raised live. **Half selection is still refused** (G-144) and still belongs to 7.
 effort ladder was separable from it, which is why this could ship without that refactor.
 
 ⚠ **The MODEL half is built too** (ruling D19, 2026-08-11, run `ignite-planning-hardening`). Task
-7.54's `(harness, model) → profile-name` catalog is live — `launch-profiles/catalog.js`, applied at
-`server/spawn/spawn.js#profileForSeatCast` — so a seat that declares `harness:`/`model:` in its own
+7.54's `(harness, model) → profile-name` catalog is live — `supervisor/launch-profiles/catalog.js`, applied at
+`supervisor/spawn/spawn.js#profileForSeatCast` — so a seat that declares `harness:`/`model:` in its own
 `seat.md` now launches on the profile it is cast as, on every lane, including a chat revival. That
 is now the mechanism this capability RUNS ON. ⚠ The sentence that stood here until 2026-08-12 —
 *"the channel master declares no cast by design … its harness and model stay the chat bridge's to
@@ -185,9 +185,9 @@ A casting sheet is not boot-read by anything:
 
 | Link | What makes the switch land |
 |---|---|
-| `server/spawn/spawn.js` | reads `seat.md` per launch (`readFileSync`), never cached |
-| `launch-profiles/catalog.js#specForSeatCast` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
-| `server/spawn/live-sessions.js` | re-resolves the cast on EVERY owner message and REAPS a warm session whose conversation now names a different profile (§ *REAP ON A PROFILE SWITCH*) |
+| `supervisor/spawn/spawn.js` | reads `seat.md` per launch (`readFileSync`), never cached |
+| `supervisor/launch-profiles/catalog.js#specForSeatCast` | maps the descriptor's `(harness, model)` to the profile name, and the seat's cast BEATS the caller's |
+| `supervisor/spawn/live-sessions.js` | re-resolves the cast on EVERY owner message and REAPS a warm session whose conversation now names a different profile (§ *REAP ON A PROFILE SWITCH*) |
 
 So the ordering is **write (atomic `os.replace` via `bindings._write`) → outcome record on disk →
 re-render last**, the switch takes effect on the owner's next word, and the thread that requested it
@@ -210,7 +210,7 @@ the staged payload carries it as `"chat-thread"`, and `apply` reports the outcom
 **This tool posts nothing.** It appends ONE row to the requesting goal's coordination bus
 (`<goal>/coordination/messages.md`, derived from the inbox — never a named goal), addressed
 `to: owner`, whose body carries the **bracketed** `[chat-thread: <id>]` token;
-`bridges/chat/bus-ferry.js`'s return leg is what carries it into the thread. Bracketed is the
+`chat/bus-ferry.js`'s return leg is what carries it into the thread. Bracketed is the
 routing form — the plain form a prompt carries is deliberately inert — and the return leg is read
 **before** the two contact gates, so the report travels on a goal that may not *initiate* contact.
 The append goes through `coord.py#append_message`, the one allocator of bus ids (and the owner of
@@ -222,7 +222,7 @@ channel-master sitting from it and posts **nothing** (ruled 2026-08-07, for a se
 owner). Measured on this exact path at `2026-08-10T12:46:46Z` — the switch report minted queue row
 361 and the owner was shown nothing. A settled switch is a fact this tool already composed, so it
 asks to be POSTED verbatim: no agent, no inference, no ~12 s spawn pipeline. Vocabulary and the
-`wake` sibling: `bridges/chat/bus-ferry.js` § `deliverToken`; design `live-session-design.md` §3a.
+`wake` sibling: `chat/bus-ferry.js` § `deliverToken`; design `live-session-design.md` §3a.
 
 | Property | Why |
 |---|---|
@@ -333,7 +333,7 @@ silently after, which is the defect that earned this check. `Refusal` joined the
 because the two classes being distinct made every refusal `cast_seat` raised escape `main`'s handler
 as a traceback instead of the `{"ok": false, "refusal": …}` envelope.
 
-The daemon side of the lane has its own probe, `server/spawn/probes/probe-effort-lane.js`: the
+The daemon side of the lane has its own probe, `supervisor/spawn/probes/probe-effort-lane.js`: the
 composer applies a rung on three differently-spelled harnesses, refuses out of range naming it,
 leaves an inert profile's argv byte-identical, is byte-identical again when no rung is asked for,
 and — the control that matters — shows the pre-ruling `args_schema` shape STILL refusing `effort`

@@ -35,7 +35,7 @@ continuity as a feature, covering (1) owner↔channel-master, (2) ferry to/from 
 
 ## Components
 
-### 1. Live session manager — **BUILT 2026-08-10** (`ignite/server/spawn/live-sessions.js`)
+### 1. Live session manager — **BUILT 2026-08-10** (`ignite/supervisor/spawn/live-sessions.js`)
 
 Registry: chatThreadId → { pid/unit, sessionId, seat, profile, lastOwnerMsgAt, state: idle|in-turn }.
 
@@ -99,24 +99,24 @@ are now **measured**, and the manager-side FIFO fallback is **not needed**:
 
 | Piece | File |
 |---|---|
-| The manager — registry, eligibility, launch, feed, reaper, LRU, shutdown | `server/spawn/live-sessions.js` (new) |
-| Live-pipe carriage (`--pipe --quiet`, no `StandardOutput/Input` properties) | `server/spawn/carrier.js` — `buildSystemdRunArgs({ …, live: true })` |
-| The wire: `live-feed` intent | `gateway/parse.js` (`INTENTS`, `parseLiveFeed`), `server/internal-api/dispatch.js` (`INTENTS`, `LIVE_FEED_KEYS`, `handleLiveFeed`) |
-| Construction + shutdown | `server/index.js` (`createLiveSessions`, `liveSessions.stop()` in `shutdown`) |
-| The bridge's caller | `bridges/chat/live-sessions.js` (new), hooked in `chat-bridge.js#onChatMessage` before the forward path |
-| Config | `bridges/chat/config.js` — `live_sessions` (default **true**) |
-| Proof — the harness half | `bridges/chat/probes/probe-chat-live-session.js` — 29 checks, 7 arms, 1 mutation arm |
-| Proof — the POSTING half | `bridges/chat/probes/probe-chat-warm-post.js` — the fence extraction, the ⏳ receipt, and the posted-once claim (§ the two defects below) |
+| The manager — registry, eligibility, launch, feed, reaper, LRU, shutdown | `supervisor/spawn/live-sessions.js` (new) |
+| Live-pipe carriage (`--pipe --quiet`, no `StandardOutput/Input` properties) | `supervisor/spawn/carrier.js` — `buildSystemdRunArgs({ …, live: true })` |
+| The wire: `live-feed` intent | `runtime/gateway/parse.js` (`INTENTS`, `parseLiveFeed`), `runtime/internal-api/dispatch.js` (`INTENTS`, `LIVE_FEED_KEYS`, `handleLiveFeed`) |
+| Construction + shutdown | `runtime/index.js` (`createLiveSessions`, `liveSessions.stop()` in `shutdown`) |
+| The bridge's caller | `chat/live-sessions.js` (new), hooked in `chat-bridge.js#onChatMessage` before the forward path |
+| Config | `chat/config.js` — `live_sessions` (default **true**) |
+| Proof — the harness half | `chat/probes/probe-chat-live-session.js` — 29 checks, 7 arms, 1 mutation arm |
+| Proof — the POSTING half | `chat/probes/probe-chat-warm-post.js` — the fence extraction, the ⏳ receipt, and the posted-once claim (§ the two defects below) |
 
 ### The four deltas from the sketch — each forced, each measured
 
 1. **The manager is DAEMON-SIDE, not bridge-side.** `probe-chat-boundary` scans every runtime `.js`
-   under `bridges/chat/` for `child_process|\bspawn\s*\(` and fails the suite on a hit —
+   under `chat/` for `child_process|\bspawn\s*\(` and fails the suite on a hit —
    chat-bridge-spec.md Behavior #5's "no spawn path" is a STRUCTURAL invariant of that subtree. A
    bridge-side manager would also have had to re-implement the seat cage, the carrier, profile
    resolution and the at-dispatch record. §4's ruling is intact: the feed is DIRECT (one loopback
    call, no queue row, no tick), which is the thing the ruling chose. Only the process's holder moved.
-   This is also what §1's own path (`ignite/server/spawn/live-sessions.js`) said all along.
+   This is also what §1's own path (`ignite/supervisor/spawn/live-sessions.js`) said all along.
 2. **§4's fire-and-forget accounting event collapsed to ZERO code.** It existed because a
    bridge-held process would have to TELL the daemon what it did. Daemon-side, the manager writes
    the `sessions.csv` sitting row itself (same writer as the dispatch door) and tees the
@@ -159,7 +159,7 @@ The cold path had been correct on both counts since 30fba1e.
    regex: last complete pair wins, sentinels matched as whole trimmed lines. An unfenced reply is
    posted unchanged, so the fix can only ever remove a duplication that is there.
    ⚑ The bridge is the right layer and the daemon is not: `extractFenced` lives in the bridge
-   subtree, the manager is daemon-side, and `ignite/CLAUDE.md`'s relocatable-subtree rule runs in
+   subtree, the manager is daemon-side, and the root CLAUDE.md relocatable-subtree rule runs in
    both directions. A conformance verdict is the reply contract's business — which is a CHAT
    contract — so it belongs where the contract lives.
 2. **NO READ RECEIPT ON A FOLLOW-UP.** The ⏳ marker was stamped only on the cold-forward branch,
@@ -280,7 +280,7 @@ adaptable) stream-json input mechanism.
 
 Implementation agents restart the ignite daemon and verify end-to-end (real Slack round-trip)
 after each phase. VPS runbook: `1-projects/rbtv-sb-merge-refactor/build/ignite-vps.md`.
-Defaults confirmed: doc home `ignite/bridges/chat/live-session-design.md`, idle window 10 min
+Defaults confirmed: doc home `ignite/chat/live-session-design.md`, idle window 10 min
 (`live_session_idle_ms: 600000`), warm-session cap 4 LRU (`live_session_max: 4`).
 
 ## Risks & mitigations

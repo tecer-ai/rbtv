@@ -1,7 +1,7 @@
-# `ignite/jobs/` — detector scripts fired by the daemon as `fire-tool` jobs
+# `ignite/runtime/jobs/` — detector scripts fired by the daemon as `fire-tool` jobs
 
 Built for tasks 7.71 (`r-selfheal-job`) and 7.72 (run issue G-2). A `fire-tool` job runs a
-catalogue entry's `argv` verbatim (`server/ticker/ticker.js` `runToolLikeExec`), so these
+catalogue entry's `argv` verbatim (`runtime/ticker/ticker.js` `runToolLikeExec`), so these
 scripts are the deterministic half of a self-healing job: the daemon decides *when* to look,
 the script decides *whether* to act. A periodic `launch-agent` job would instead spawn a
 recovery agent every period regardless of health — an unbounded paid path.
@@ -16,7 +16,7 @@ recovery agent every period regardless of health — an unbounded paid path.
 7.35, commit `c23c770c`, and its queue row deregistered 2026-08-11. Do not re-add it: the surviving
 mentions of the id elsewhere in this tree are HISTORY in prose, not a file that exists.)
 Since task 7.715 the module LOADS anywhere (lazy imports) but only ACTS on the VPS — author any
-brief that exercises its real behaviour against it (`ignite/CLAUDE.md § jobs/`).
+brief that exercises its real behaviour against it.
 
 (`restart-daemon.py` and `recover-room.py` are also in this folder and are NOT in the table above —
 noticed while adding the (since deleted) `edge-runner` row, left alone rather than back-filled from
@@ -42,7 +42,7 @@ it, performed the mechanical fixes inline (stale-sensor restart via team-monitor
 `ensure`, the observe-only `reap` pass, ruled seat revival through `systemd-run`) and nudged the
 seat then the leader.
 
-**It had been dark since 2026-08-20**, when the per-goal reconciliation loop (`engine/reconcile.js`,
+**It had been dark since 2026-08-20**, when the per-goal reconciliation loop (`supervisor/reconcile.js`,
 D1/D15) took over goal-level health and every `goal-watcher*` catalogue row and profile block was
 retired. Measured before deletion on 2026-08-21: no systemd unit or timer, no cron entry, zero rows
 matching `%watcher%` in `heart.db`'s `jobs` and `queue` tables, last fire ever
@@ -68,9 +68,9 @@ actuator, which fired `lifecycle-exec` through a second `systemd-run` hop.
 ## `edge-runner-job.py` — DELETED 2026-08-11, and nothing replaced it here
 
 Owner ruling `build/one-readiness-predicate.md`. There were THREE implementations of "is this seat
-ready to launch" — `coord.py`'s, this file's, and `engine/seeding.js`'s — they drifted, and the
+ready to launch" — `coord.py`'s, this file's, and `supervisor/seeding.js`'s — they drifted, and the
 drift is what stalled the live goal. The ruling keeps ONE: `coord.py`'s `ready_seat_rows`, consumed
-by `engine/seeding.js` through `coordinate ready-seats --json`. The script, its `tools: edge-runner`
+by `supervisor/seeding.js` through `coordinate ready-seats --json`. The script, its `tools: edge-runner`
 catalogue entry, its probe and its audit record are gone; the `edge-runner` catalogue row in each
 machine's `heart.db` is per-machine runtime state and is removed by hand.
 
@@ -79,13 +79,13 @@ this job's alone:
 
 - registering a `fire-tool` job, and the ⚠ **CREATE-ONLY registration whose wrong schema burns the
   id permanently** (`E_JOB_EXISTS`, no UPDATE surface and no DELETE surface) —
-  `server/heart/heart-store.js` above `registerJob`. The stop-the-bleeding pair is
+  `state-store/heart/heart-store.js` above `registerJob`. The stop-the-bleeding pair is
   `ignite deregister-job <fn>` (sets `enabled = 0`) then `ignite remove-job <queue-id>`; neither
   frees the id.
 - ⚠ **why a fired job needs `--ignite-bin` and an explicit `workdir`** — a `fire-tool` exec inherits
   the systemd `--user` MANAGER's PATH and is passed `envFile: null`, so the gateway CLI resolves its
   endpoint and its token from its CWD. Stated on the surviving entries in
-  `config/spawn-profiles.yaml`.
+  `envelope/spawn-profiles.yaml`.
 - the Q9 IDEMPOTENT DOOR (`d-q9-door`) that makes a periodic re-submission harmless — measured on
   this job, binding on every enqueuer, and documented at `heartStore.enqueue`.
 
@@ -120,7 +120,7 @@ would hand its 256 MB cap to the very sensor or recovery agent it is resurrectin
 its own, and that grandchild inherits the cap. **node dies under it** — V8 reserves GBs of VIRTUAL
 address space at startup and aborts with SIGTRAP. Measured on the since-deleted
 `goal-watcher-job.py` — the hazard is this library's, not that script's — where
-`coord.derive_lease()` → `server/lease/lease.js` read the lease as `unreadable (exit -5)` and the
+`coord.derive_lease()` → `runtime/lease/lease.js` read the lease as `unreadable (exit -5)` and the
 job REFUSED TO START on ~200 consecutive fires (2026-08-11 → 2026-08-15) while reporting IGNORANCE
 about a lease that is perfectly readable from a shell. Wrap any such call in
 `with jobcontain.uncapped():` — the AS cap is lifted for that block only, the wall-clock alarm and
@@ -134,7 +134,7 @@ probe if node ever SURVIVES the cap (a green U2 could not otherwise be told from
   recovery through the daemon would widen that invariant, would be dead code tonight
   (`RBTV_IGNITE_TMUX_ROOM` is deliberately unset), and would be exactly the control-loop cutover
   `r-cutover-gated` forbids. (`selfheal-room.py`, which carried that reasoning, was deleted
-  2026-08-20; `engine/reconcile.js` now detects the dead room and shells `recover-room.py`.)
+  2026-08-20; `supervisor/reconcile.js` now detects the dead room and shells `recover-room.py`.)
 - **One catalogue entry per target.** Each detector's target is in its argv, not its cwd, so
   re-pointing a job at a live target requires a config edit plus a daemon restart rather than a
   different enqueue.

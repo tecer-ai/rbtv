@@ -30,7 +30,7 @@ observes and alarms rather than serving an operator verb.
 
 ## Where its parts came from
 
-`capabilities/` (all of it except `daemon-watchdog/`) and `engine/attached-execution.js`,
+`operator/` (all of it except `daemon-watchdog/`) and `operator/attached-execution.js`,
 plus the three engine probes that travel with the attached lane
 (`probes/probe-attached-status.js`, `probe-cross-lane-resume.js`,
 `probe-foreground-carrier.js`) - moved with history by impl-structure-moves-js per

@@ -23,7 +23,7 @@ side and never on ignite):
 
 ⚠ `teardown` IS THE EXCEPTION TO THE LOCAL-ONLY PROPERTY ABOVE, and it cannot be
 otherwise: what it reclaims is the job CATALOGUE, which lives in the machine's
-`heart.db` and is served only by the gateway (ignite/CLAUDE.md § State layout —
+`heart.db` and is served only by the gateway (ignite/state-store/component.md § State layout —
 "the jobs catalogue is not readable without the daemon"). It refuses typed
 (`daemon-unreachable`) rather than half-working, and it changes no file in the
 goals tree — it deletes catalogue rows and leaves the goal FOLDER alone
@@ -3605,7 +3605,7 @@ def cmd_add_seat(args) -> int:
 # ⚠⚠ THE ONE VERB IN THIS FILE THAT NEEDS THE DAEMON UP (see the module docstring's amendment).
 # Every other verb here is a local file operation precisely so it works with the daemon down; this
 # one cannot be, because the thing it reclaims — the job CATALOGUE — lives in `heart.db` under the
-# machine's state root and is reachable only through the gateway (ignite/CLAUDE.md § State layout:
+# machine's state root and is reachable only through the gateway (ignite/state-store/component.md § State layout:
 # "the jobs catalogue is not readable without the daemon", an accepted consequence of the ruling
 # that the store stays ONE per-machine file). It refuses typed when the daemon is unreachable
 # rather than half-working.

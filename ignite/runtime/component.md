@@ -18,7 +18,7 @@ says (`observation/`), or what a cage admits (`envelope/`).
 | Part | File | What it is |
 |---|---|---|
 | daemon entry | `index.js` | The systemd unit's `ExecStart`: boots the engine, gateway, internal API, cockpit, retention, settings, and runs the cadence loop |
-| engine composition root | `engine.js` | `createEngine` - ONE workflow-advancement implementation, TWO attachments (daemon here, `rbtv run` in `operator/`). Was `engine/index.js`; renamed only to free `index.js` for the daemon entry, no symbol changed |
+| engine composition root | `engine.js` | `createEngine` - ONE workflow-advancement implementation, TWO attachments (daemon here, `rbtv run` in `operator/`). Was `runtime/engine.js`; renamed only to free `index.js` for the daemon entry, no symbol changed |
 | tick driver | `ticker/` | The tick algorithm and its per-cadence passes |
 | frozen pass driver | `frozen-pass.js` | Calls `observation/frozen.js` once a cadence with the facts `supervisor/lane-watch.js` already computed. Driver only - the frozen DECISION is observation's |
 | gateway | `gateway/` | The typed-message seam: sender auth, parse, dispatch boundary. Reaches nothing in the core by construction (`gateway/probes/probe-gateway-boundary.js`) |

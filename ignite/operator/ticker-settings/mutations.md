@@ -8,8 +8,8 @@ Reproduce any row by making the edit, running the probe, and restoring.
 
 | # | Mutation | Probe | Result |
 |---|---|---|---|
-| **M1** | remove the settings overlay from `server/index.js` | cadence-flow | ⚠ **INVALID — see below** |
-| **M1′** | overlay `settings.DEFAULTS.ticker` instead of the machine's block (`server/index.js`) — daemon HEALTHY, adoption BROKEN | cadence-flow | **RED: 15/18**, exit 1 |
+| **M1** | remove the settings overlay from `runtime/index.js` | cadence-flow | ⚠ **INVALID — see below** |
+| **M1′** | overlay `settings.DEFAULTS.ticker` instead of the machine's block (`runtime/index.js`) — daemon HEALTHY, adoption BROKEN | cadence-flow | **RED: 15/18**, exit 1 |
 | **M2** | `from` hardcoded to `null` in `setValue` (the installer's defect, transplanted) | ticker-settings | **RED: 41/43**, exit 1 |
 | **M3** | `validateMachine` returns `[]` unconditionally | ticker-settings | **RED: 38/43**, exit 1 |
 | — | control, unmutated, before and after every row above | both | **GREEN: 43/43 and 18/18**, exit 0 |

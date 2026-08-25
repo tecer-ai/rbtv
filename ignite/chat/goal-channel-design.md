@@ -46,7 +46,7 @@ Three parts, each load-bearing:
    the ADOPT path: resolve the existing channel by name and bind it.
 
 **The caller (settled 2026-08-08, task C3): the daemon's ticker, at a goal's *run start*** —
-`server/ticker/goal-channel-start.js`, gated on `one-live-run.js#isRunStart` and on the goal
+`runtime/ticker/goal-channel-start.js`, gated on `one-live-run.js#isRunStart` and on the goal
 resolving `interactive` through `seat-folder.js#goalKind` (owner ruling `d-owner-batch1` (2)).
 It launches the CLI's own `ensure` verb as a child process, so the boundary in (1) holds
 unchanged: the daemon composes an argv and never touches a token. Requires the systemd
@@ -58,7 +58,7 @@ either lane, and C3 wired only the QUEUED one — so a DAEMON-LANE goal got no c
 Measured on `forge-reference-seat-id-naming`: journalctl over its whole 2026-08-11 seeding carries
 zero `goal-channel-cli` lines, and `bus-ferry.js` gates owner messaging behind an existing channel,
 so its seats' to-owner messages had nowhere to land. The second caller is
-`engine/lane-watch.js#runLaneWatch`, on the pass that first ADOPTS a goal off its `execution-lane`
+`supervisor/lane-watch.js#runLaneWatch`, on the pass that first ADOPTS a goal off its `execution-lane`
 marker; it reaches the performer as `engine.ticker.ensureGoalChannel` and passes `{ goal }` where
 the queue lane passes `{ job }`. `channelEnsureDecision` owns the difference in ONE branch — the
 `isRunStart` row gate applies to the job entry only, because on the daemon lane the CALLER is the

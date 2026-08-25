@@ -13,7 +13,7 @@ campaign's `system-definition/architecture/`. Not restated here (`PRIN-11`).
 
 | Not | Because |
 |-----|---------|
-| the daemon's own reconcile loop | that runs INSIDE the ignite daemon (`engine/reconcile.js`), so it can watch everything except ignite being down — the hole this fills |
+| the daemon's own reconcile loop | that runs INSIDE the ignite daemon (`supervisor/reconcile.js`), so it can watch everything except ignite being down — the hole this fills |
 | the scheduled probe suite | that grades CORRECTNESS on an hourly sweep; this grades LIVENESS every 60s and restores it |
 | `Restart=on-failure` | unit-level restart policy catches a crashing process, not a hung one, a dead timer, or a service that exited cleanly into wrongness |
 | the daemon-operator | that is the OPERATOR surface a human or a script drives by hand. This CALLS it — the restart-and-verify implementation is not written twice |
@@ -77,7 +77,7 @@ and compares it against the previous pass's reading on disk.
 | **RESTARTED** | the unit's `InvocationID` differs from the previous pass's. Keyed on the NEW invocation, never on a change record existing, so one restart is announced exactly once — including a restart that happened while the watchdog itself was down |
 | **CRASH-LOOP** | systemd's own `NRestarts` CLIMBING across passes. A steady outage is binary and is announced once; a crash loop is monotonic (2026-07-27: `NRestarts=32`, climbing every 5s, found by hand) and re-announces while it worsens. Read from systemd's counter, never counted from this pass's sampling — a 60s watchdog counting a 5s loop would undercount by two orders of magnitude |
 | **IDENTITY** | `MainPID` **and** `InvocationID` compared against the previous pass — not merely printed. A pid that moved under an unchanged invocation is reported as CHANGED, never folded into "same" |
-| **STALE CODE** | `.rbtv/runtime/daemon-code.json` (written at boot by `ignite/server/code-fingerprint.js`) correlated **`InvocationID`-FIRST**, then the named files re-hashed from disk |
+| **STALE CODE** | `.rbtv/runtime/daemon-code.json` (written at boot by `ignite/runtime/code-fingerprint.js`) correlated **`InvocationID`-FIRST**, then the named files re-hashed from disk |
 
 **Two rules that are load-bearing and must not be "simplified".**
 
@@ -106,7 +106,7 @@ swallow the very restart the next real pass exists to announce.
 the pass the same day, and on 2026-08-21 the program itself was deleted under the owner ruling
 *"if the program is dead, delete it — there must be no dead code"*. The arm, its
 `RBTV_WATCHDOG_WATCH_JOB` variable and `probes/probe-watchdog-goal-watcher-arm.py` went with it.
-Goal-level health is now the daemon's own per-goal reconcile pass (`engine/reconcile.js`, D1/D15),
+Goal-level health is now the daemon's own per-goal reconcile pass (`supervisor/reconcile.js`, D1/D15),
 which is INSIDE the daemon and therefore covered by the `daemon` row above. Four rulings died with
 the arm and are recorded here only so nobody re-derives them: the job had no systemd unit of its
 own (the only lever was a full daemon restart); its overdue bar was read from the queue row's own
@@ -267,7 +267,7 @@ goes through the durable outbox, so an unreachable Slack leaves a queryable
 `pending-delivery` record rather than a lost alarm [C-17].
 
 **The shim's transport is WIRED** (integration pass, 2026-08-25). `resolveSend()` builds the
-chat bridge's OWN sender (`bridges/chat/slack-socket-mode.js#sendToOwner`, one outbound
+chat bridge's OWN sender (`chat/slack-socket-mode.js#sendToOwner`, one outbound
 `chat.postMessage` on `SLACK_BOT_TOKEN`) rather than composing a second `chat.postMessage`
 here; `createSlackSocketMode` opens nothing until `start()`, which this process never calls,
 so no Socket-Mode session is held. Two walls stand in front of it, in this order:
