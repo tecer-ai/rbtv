@@ -10,6 +10,23 @@ You are seated in a goal. This file is a routing table, not a manual: it carries
 About to change ignite's own source rather than run inside a goal? →
 [`working-on-ignite.md`](working-on-ignite.md).
 
+## Which tool for the job — the router skills
+
+Five FUNCTION-bundle routers say which CLI answers a given need, and never restate a
+tool's own `-h`. They live in the front door's component, next to the audience map.
+
+| Your need is about | Read |
+|---|---|
+| The team you are seated in — check in, the bus, checkout, filing an issue, linting your floor | [`ignite-cli/coord-ops.md`](ignite-cli/coord-ops.md) |
+| A goal — requesting one, its tree, its seats, a worktree, running it attached | [`ignite-cli/goal-ops.md`](ignite-cli/goal-ops.md) |
+| Seeing what the fleet is doing — jobs, queue, executions, logs, open asks, panes, spend | [`ignite-cli/observe.md`](ignite-cli/observe.md) |
+| Who works — seat identity, bindings, the master's cast, building a team | [`ignite-cli/staffing.md`](ignite-cli/staffing.md) |
+| The daemon itself — operating it, the ticker, the probe suite, PATH links | [`ignite-cli/daemon-ops.md`](ignite-cli/daemon-ops.md) |
+
+Which of these your role loads is [`ignite-cli/cli-role-bundles.md`](ignite-cli/cli-role-bundles.md).
+A router is DISCOVERY, not a grant — what you may actually run is your seat's
+`exposed-clis:` block.
+
 ## What you may touch — the fence
 
 Your sandbox is a **fence**, not a cage: one plan-time compiler turns the template, the deny
