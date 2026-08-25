@@ -59,7 +59,7 @@ const HARNESSES = Object.freeze({
         available: true,
         // The ONLY harness of the three whose local config actually restrains anything.
         enforceable: true,
-        basis: 'server/spawn/harness-config.js (D58(4)) — .claude/settings.json permissions.additionalDirectories',
+        basis: 'supervisor/spawn/harness-config.js (D58(4)) — .claude/settings.json permissions.additionalDirectories',
       }),
       keystroke: Object.freeze({
         available: true,
@@ -84,7 +84,7 @@ const HARNESSES = Object.freeze({
         // Written for TRANSPARENCY only: the profile runs --sandbox danger-full-access, so codex's
         // own sandbox is off and no local config can restrain its writes.
         enforceable: false,
-        basis: 'server/spawn/harness-config.js (D58(4)) — .codex/config.toml, advisory only',
+        basis: 'supervisor/spawn/harness-config.js (D58(4)) — .codex/config.toml, advisory only',
       }),
       keystroke: Object.freeze({
         available: true,
@@ -113,7 +113,7 @@ const HARNESSES = Object.freeze({
         // key killed every opencode session at startup. So the hooks rung here carries LESS than
         // the other two: the advisory cannot ride in the file the harness parses.
         strictValidates: true,
-        basis: 'server/spawn/harness-config.js (POC finding 3) — opencode.json + sidecar advisory',
+        basis: 'supervisor/spawn/harness-config.js (POC finding 3) — opencode.json + sidecar advisory',
       }),
       keystroke: Object.freeze({
         available: true,

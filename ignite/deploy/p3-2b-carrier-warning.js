@@ -38,8 +38,8 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
-const ENTRY = path.join(IGNITE_SRC, 'server', 'index.js');
-const CONFIG_PATH = process.env.RBTV_IGNITE_CONFIG_PATH || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
+const ENTRY = path.join(IGNITE_SRC, 'runtime', 'index.js');
+const CONFIG_PATH = process.env.RBTV_IGNITE_CONFIG_PATH || path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml');
 const OUT_PATH = path.join(__dirname, 'p3-2b-carrier-warning.out');
 
 const WARN_MESSAGE_MATCH = 'carrier degraded';

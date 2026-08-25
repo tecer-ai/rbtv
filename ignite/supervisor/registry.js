@@ -20,7 +20,7 @@
 // spec-state-store's record, written elsewhere), not an in-memory Map. It holds NO outcome: nothing
 // here stamps anything. Liveness is a fact about a process; an ending is a fact about a sitting.
 //
-// THE PROBE IS SPELLED HERE, and that is deliberate. `engine/attached-execution.js` carries the
+// THE PROBE IS SPELLED HERE, and that is deliberate. `operator/attached-execution.js` carries the
 // same `kill(pid, 0)` + start-time comparison today (`runnerAlive` / `processStartTime`) - it is the
 // LEGACY copy, reached by the attached-operator lane, and the doors seat retires it into this one.
 // Depending on it from here would point the dependency the wrong way: the operator lane is a

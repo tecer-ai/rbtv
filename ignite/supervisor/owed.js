@@ -5,10 +5,10 @@
 // WHAT WAS BROKEN. Two functions answered "is this seat owed a launch?", on two cadences, from two
 // different pictures, and both of them called `heartStore.enqueue` (CODE-GROUND-TRUTH §4):
 //
-//   * `engine/seeding.js` `enqueueEligible` — ~10 s. Graph half: whose `after` is satisfied and who
+//   * `supervisor/seeding.js` `enqueueEligible` — ~10 s. Graph half: whose `after` is satisfied and who
 //     has never fired. It carried five extra pre-queue gates of its own (store-disagree, hold, cage
 //     admit, lane reach, boot prompt) and a sixth on the far side of the door (the store's dedup).
-//   * `engine/reconcile.js` `classifyOwedFromLedgers` — ~300 s. Ledger half: class A (a seat whose
+//   * `supervisor/reconcile.js` `classifyOwedFromLedgers` — ~300 s. Ledger half: class A (a seat whose
 //     last ending is non-terminal) and class B (a chair with unread mail).
 //
 // They could disagree, and when they did nothing could say which was right: a seat "not owed" by
@@ -27,7 +27,7 @@
 // construction and the property this file was written to hold is gone. `reconcile.selftest.js`
 // `single owed computer` asserts exactly that against this file's source.
 
-const { classifyOwed } = require('../engine/owed-from-endings');
+const { classifyOwed } = require('./owed-from-endings');
 
 const EMPTY_LEDGER = Object.freeze({
   seats: [],

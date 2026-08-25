@@ -38,14 +38,14 @@ const DOORS = Object.freeze({
     door: 'seeding',
     disposition: WRAPPED,
     launcher: 'attached-execution',
-    chokepoint: 'engine/seeding.js seedGoal / launchOwed',
+    chokepoint: 'supervisor/seeding.js seedGoal / launchOwed',
     note: 'daemon first-launches go through supervisor spawn',
   },
   reconcile: {
     door: 'reconcile',
     disposition: WRAPPED,
     launcher: 'goal-watcher',
-    chokepoint: 'engine/reconcile.js deriveOwed / launchSitting',
+    chokepoint: 'supervisor/reconcile.js deriveOwed / launchSitting',
     note: 'its launches go through supervisor spawn, never a second enqueue',
   },
   rerun: {
@@ -65,7 +65,7 @@ const DOORS = Object.freeze({
     door: 'attest-exit',
     disposition: WRAPPED,
     launcher: null,          // a REAP door, not a birth: it ends sittings, it never starts one
-    chokepoint: 'server/spawn/spawn.js closeSeatSessionRow -> attest-exit --force-dead',
+    chokepoint: 'supervisor/spawn/spawn.js closeSeatSessionRow -> attest-exit --force-dead',
     note: 'wrapped by impl-supervisor-death-stamp: this door BECAME the supervisor death stamp',
   },
   'console-uncaged': {
@@ -80,7 +80,7 @@ const DOORS = Object.freeze({
     disposition: WRAPPED,
     launcher: null,
     refusal: 'E_GOAL_NOT_LIVE',
-    chokepoint: 'engine/seeding.js readLease / goalNotLive (tmux room down; IE-1)',
+    chokepoint: 'supervisor/seeding.js readLease / goalNotLive (tmux room down; IE-1)',
     note: 'a supervisor-owned REFUSAL: no process born, no death stamp, nothing enqueued',
   },
 });

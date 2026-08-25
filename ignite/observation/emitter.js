@@ -3,7 +3,7 @@
 // -- THE ONE ALARM EMITTER [T4-R10, spec-owner-io §9] -------------------------------------------
 //
 // WHAT WAS BROKEN. Alarms were composed at whatever call site noticed the condition. The frozen-goal
-// pager (`server/ticker/goal-stall-alarm.js`, deleted 2026-08-24 by del-observers) is the worked
+// pager (`runtime/ticker/goal-stall-alarm.js`, deleted 2026-08-24 by del-observers) is the worked
 // example: it built its own Slack text, carried its own dedup in a process-lifetime `Map`, and had
 // no schema at all - so an alarm could reach the owner reading `frozen: undefined` and stand there
 // for 13 hours (memory `engine/20260823-i-frozen-alarm-said-undefined-fo.md`), and a daemon restart
@@ -124,7 +124,7 @@ function renderAlarm(row) {
   ].join('\n');
 }
 
-// `post` is the outbox's own `post` (`bridges/chat/outbox.js`) - the durable one, so a bridge outage
+// `post` is the outbox's own `post` (`chat/outbox.js`) - the durable one, so a bridge outage
 // leaves a `pending-delivery` record rather than a lost alarm [C-17]. `kind` is stamped here and
 // never by the caller.
 function createAlarmEmitter({ storePath = null, post, systemChannelId = null, now = null } = {}) {
@@ -227,7 +227,7 @@ function createAlarmEmitter({ storePath = null, post, systemChannelId = null, no
 
   // -- THE PUBLISHED READ INTERFACE ------------------------------------------------------------
   //
-  // This exact shape is what `bridges/chat/system-digest.js` documents as `readOpenConditions` and
+  // This exact shape is what `chat/system-digest.js` documents as `readOpenConditions` and
   // renders under "Open conditions". `subject` flattens to the bare id there because the digest row
   // already reads as a sentence; the full `{ type, id }` stays on the registry row for anyone else.
   function readOpenConditions() {

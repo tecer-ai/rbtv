@@ -28,8 +28,8 @@ const yaml = require('js-yaml');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
 const OUT_PATH = path.join(__dirname, 'p3-5-mutation.out');
-const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'server', 'heart', 'heart-store'));
-const { createSpawnManager } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'spawn'));
+const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'state-store', 'heart', 'heart-store'));
+const { createSpawnManager } = require(path.join(IGNITE_SRC, 'supervisor', 'spawn', 'spawn'));
 
 const lines = [];
 const log = (s) => lines.push(s);

@@ -1,0 +1,12 @@
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+ignite-daemon,service,path,,index.js,"The daemon process: boots the engine, gateway, internal API and cockpit, runs the cadence loop (lane watch, frozen pass, queue-request pass, retention) and owns no recovery, store or alarm policy of its own",
+ignite-engine,library,path,,engine.js,"createEngine - the ONE workflow-advancement composition (store + spawn manager + ticker) both attachments boot: this daemon and the attached rbtv run verb",
+ignite-ticker,library,path,,ticker/ticker.js,"The tick algorithm and its per-cadence passes (advance, enforce, warnings, one-live-run, goal-channel start, queued-start notify)",
+ignite-frozen-pass,library,path,,frozen-pass.js,"The frozen invariant's tick DRIVER [T1-R15]: hands observation/frozen.js the lane-watch facts once a cadence and decides nothing about what frozen means",
+ignite-gateway,library,path,,gateway/gateway.js,"The typed-message gateway seam: sender auth, parse, and dispatch injected as a constructor argument - it may not name the store, the spawn path or server-core internals",
+ignite-internal-api,library,path,,internal-api/dispatch.js,"The daemon-local intent dispatch the CLI and the chat bridge reach through",
+ignite-lease,library,path,,lease/lease.js,"The one-live-run lease derivation every consumer reads instead of deriving its own",
+rbtv-seat-identity,tool,path,,seat-identity/rbtv-seat-identity,"Resolve the calling seat's identity and seat folder from the environment, for callers that cannot ask the daemon",
+ignite-python-cmd,library,path,,python-cmd.js,"The ONE python interpreter resolver every JS caller that shells to python goes through",
+ignite-run-board,library,path,,run-board.js,"The attached run's board - what an attached rbtv run prints and returns",
+ignite-jobs,library,path,,jobs/jobcontain.py,"The fire-tool job payloads the queue invokes, with jobcontain.py as the containment wrapper the rest run under",

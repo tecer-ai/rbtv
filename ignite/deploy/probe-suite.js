@@ -68,7 +68,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { pythonCmd } = require('../lib/python-cmd');
+const { pythonCmd } = require('../runtime/python-cmd');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_TIMEOUT_MS = 180000;

@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
-const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
+const { openHeartStore, closeHeartStore } = require('./heart/heart-store');
 const store = require('./index');
 
 const OPS = new Set([

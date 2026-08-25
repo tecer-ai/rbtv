@@ -35,8 +35,8 @@ const TEST_FOLDER = path.join(VAULT_ROOT, '1-projects', 'rbtv-sb-merge-refactor-
 const REAL_HEART = path.join(VAULT_ROOT, '.rbtv', 'heart');
 const OUT_PATH = path.join(__dirname, 'p3-5-kernel-write.out');
 
-const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'server', 'heart', 'heart-store'));
-const { createSpawnManager } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'spawn'));
+const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'state-store', 'heart', 'heart-store'));
+const { createSpawnManager } = require(path.join(IGNITE_SRC, 'supervisor', 'spawn', 'spawn'));
 
 const lines = [];
 const log = (s) => lines.push(s);

@@ -7,3 +7,5 @@ planning-path-a,reference,path,,path_a.py,"Path A mint: uncast + wrapper + one m
 planning-path-b,reference,path,,path_b.py,"Path B birth: validate then scaffold then mint; reclaim half-goal",
 planning-door,reference,path,,door.js,"Goal-wide trigger: planning goal + unminted five-seat chain fires once",
 planning-failure-record,reference,path,,failure.py,"C-16 failure record writer + origin routing (approval-thread / gate-lane)",
+planning-queue-request,reference,path,,queue-request.js,"The queue-request pass the daemon runs each cadence, carrying the Path A planning-seat mint door (moved from engine/ by spec-component-map §2; the door replacement itself is spec-planning-door)",
+planning-unbuilt-seats,reference,path,,unbuilt-seats.js,"Unbuilt-seat repair and the goal-local lane (D5) - extracted from queue-request.js before the move and travelling with it",

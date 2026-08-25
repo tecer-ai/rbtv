@@ -41,7 +41,7 @@ const { execFileSync } = require('node:child_process');
 const yaml = require('js-yaml');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
-const SOURCE_DIR = path.join(IGNITE_SRC, 'server', 'spawn');
+const SOURCE_DIR = path.join(IGNITE_SRC, 'supervisor', 'spawn');
 // D26: no literal instance path/username. The vault is the workspace that roots `.rbtv/`; on the
 // box it lives at $HOME/ht-wkdir/second-brain, so os.homedir() supplies the instance value. An
 // explicit RBTV_IGNITE_WORKSPACE_ROOT overrides (the same knob index.js resolves the workspace by).
@@ -50,10 +50,10 @@ const TEST_FOLDER = path.join(VAULT_ROOT, '1-projects', 'rbtv-sb-merge-refactor-
 const REAL_HEART = path.join(VAULT_ROOT, '.rbtv', 'heart');
 const OUT_PATH = path.join(__dirname, 'p3-6-bwrap-write.out');
 
-const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'server', 'heart', 'heart-store'));
-const { createSpawnManager } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'spawn'));
-const { listSystemdUnits } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'carrier'));
-const { E_FS_SANDBOX_UNAVAILABLE } = require(path.join(IGNITE_SRC, 'server', 'spawn', 'errors'));
+const { openHeartStore, closeHeartStore } = require(path.join(IGNITE_SRC, 'state-store', 'heart', 'heart-store'));
+const { createSpawnManager } = require(path.join(IGNITE_SRC, 'supervisor', 'spawn', 'spawn'));
+const { listSystemdUnits } = require(path.join(IGNITE_SRC, 'supervisor', 'spawn', 'carrier'));
+const { E_FS_SANDBOX_UNAVAILABLE } = require(path.join(IGNITE_SRC, 'supervisor', 'spawn', 'errors'));
 
 const lines = [];
 const log = (s) => lines.push(s);

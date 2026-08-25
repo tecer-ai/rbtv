@@ -22,7 +22,7 @@ const { spawn, execFileSync } = require('node:child_process');
 
 const { stampDeath, confirmAndReap, providerShaped } = require('./death-stamp');
 const { recordSpawn, loadRegistry, isAliveProcess } = require('./registry');
-const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
+const { openHeartStore, closeHeartStore } = require('../state-store/heart/heart-store');
 const endingStore = require('../state-store');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'supervisor-death-'));

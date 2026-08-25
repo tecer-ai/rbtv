@@ -3,19 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
+const { openHeartStore, closeHeartStore } = require('./heart/heart-store');
 
 const OPERATIONAL_TABLES = Object.freeze([
-  'jobs',
-  'queue',
-  'messages',
-  'sessions',
-  'jobs_log',
-  'enqueue_log',
-  'ticks',
-  'warnings',
-  'reconcile_attempts',
-  'reconcile_pass',
+  'jobs', 'queue', 'messages', 'sessions', 'jobs_log', 'enqueue_log', 'ticks', 'warnings', 'reconcile_attempts', 'reconcile_pass',
 ]);
 
 function tableExists(db, name) {

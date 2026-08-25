@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
+const { openHeartStore, closeHeartStore } = require('./heart/heart-store');
 const {
   bind,
   EndingStoreError,

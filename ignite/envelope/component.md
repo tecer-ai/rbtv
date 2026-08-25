@@ -52,3 +52,13 @@ Conflict and unresolved predicates live in `server/spawn/seat-grants.js` (`confl
 `node ignite/envelope/envelope-launch.selftest.js` — stdout contains `PASS refusal` and `PASS injection`.
 `node ignite/envelope/wall-report.selftest.js` — stdout contains `PASS wall-report`.
 `node ignite/envelope/envelope-shims.selftest.js` — stdout contains `PASS shims`.
+
+## What moved in with the component-first migration
+
+`spec-component-map` §2 landed these here, with history, as part of impl-structure
+(move-only; no symbol changed):
+
+- from `engine/`: `cage-admission.js` - the pre-enqueue admission test - plus its two
+  probes (`probes/probe-cage-workspace-grammar.js`, `probes/probe-outputs-resolver.js`)
+- from `config/`: `spawn-profiles.yaml`, the boot-read launch configuration
+  `RBTV_IGNITE_CONFIG_PATH` points at. There is no top-level `ignite/config/` any more.

@@ -3,8 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { requirePythonCmd } = require('../lib/python-cmd');
-const { readLane, laneIsPaused, consoleRunIsLive, DAEMON } = require('../engine/lane-watch');
+const { requirePythonCmd } = require('../runtime/python-cmd');
+const { readLane, laneIsPaused, consoleRunIsLive, DAEMON } = require('../supervisor/lane-watch');
 
 const PLANNING_DIR = __dirname;
 const ARGV_PY = path.join(PLANNING_DIR, 'argv.py');
@@ -15,8 +15,8 @@ const PATH_A_PY = path.join(PLANNING_DIR, 'path_a.py');
 // actually writes onto `taskforce.csv`. The two vocabularies MUST be one string set: this
 // file compares the json against that column, so any divergence makes `pipelineMinted()`
 // permanently false and the door re-mints every cadence, forever. The json is a bare array
-// and carries no comment field; `engine/queue-request.js` `planningManifestSeats()` reads
-// the manifest, and `engine/probes/probe-queue-request-pass.js` leg M fails on divergence.
+// and carries no comment field; `planning/queue-request.js` `planningManifestSeats()` reads
+// the manifest, and `planning/probes/probe-queue-request-pass.js` leg M fails on divergence.
 const SEATS_FILE = path.join(PLANNING_DIR, 'pipeline-seats.json');
 const PLANNING_SEATS = Object.freeze(JSON.parse(fs.readFileSync(SEATS_FILE, 'utf8')));
 const ROLE_RE = /^role:[ \t]*planning(?:[ \t].*)?$/m;

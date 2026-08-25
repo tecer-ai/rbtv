@@ -7,7 +7,7 @@ const path = require('node:path');
 const { admitLaunch, consumeLaunch, isStaffUncaged } = require('./launch');
 const { loadCentralStore, resolveCredentials, injectDeclaredEnv } = require('./credentials');
 const { stampLaunchRefused } = require('./stamp');
-const { conflictBind } = require('../server/spawn/seat-grants');
+const { conflictBind } = require('../supervisor/spawn/seat-grants');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'envelope-launch-'));
 const workspace = path.join(root, 'ws');
@@ -55,7 +55,7 @@ function run() {
   assert.equal(clash.spawn, false, 'conflicting-bind must not spawn');
   assert.equal(clash.refuse.kind, 'conflict');
 
-  const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
+  const { openHeartStore, closeHeartStore } = require('../state-store/heart/heart-store');
   const dbPath = path.join(root, 'heart.db');
   const heart = openHeartStore({ dbPath });
   try {

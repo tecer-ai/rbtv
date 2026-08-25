@@ -569,3 +569,15 @@ Table: `eligibleAlternates` · `readTable` · `tablePath` · `RoutingTableError`
 Selftests: `node --test provider-classify.selftest.js`,
 `node --test provider-lanes.selftest.js` and (the per-lane skip, in the engine)
 `node --test ../engine/lane-skip.selftest.js` - exit 0.
+
+## What moved in with the component-first migration
+
+`spec-component-map` §2 landed these here, with history, as part of impl-structure
+(move-only; no symbol changed, no body split):
+
+- from `engine/`: `reconcile.js`, `lane-watch.js`, `seeding.js`, `execution-record.js`,
+  and the two ending-store readers they consume (`ending-reads.js`, `owed-from-endings.js`)
+- from `server/spawn/`: the whole spawn/fire path, now `spawn/`
+- from `launch-profiles/`: the shared launch-spec resolver, now `launch-profiles/`
+- from `config/`: `worker-session-settings.json`
+- the probes that travel with those product files, now `probes/`

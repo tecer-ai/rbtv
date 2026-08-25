@@ -2,7 +2,7 @@
 
 // -- THE WRAPPED SPAWN DOOR'S ADMIT CHECKS AND ITS ONE ENQUEUE [spec-supervisor §5, T4-R7] ------
 //
-// WHERE THIS CAME FROM. `engine/seeding.js` `enqueueEligible` was retired as an owed-work computer
+// WHERE THIS CAME FROM. `supervisor/seeding.js` `enqueueEligible` was retired as an owed-work computer
 // (see `owed.js`), and it did not only compute: it also ran five pre-queue gates and then called
 // `heartStore.enqueue` itself. The computer half moved to `deriveOwed`. THE GATES MOVED HERE, and
 // spec-supervisor §5 says what they became — "launch-door refusals on the wrapped spawn", not a
@@ -84,7 +84,7 @@ function admitLaunch({
     });
   }
 
-  const { admitDeclaredOutputs, admitLaneReach } = require('../engine/cage-admission');
+  const { admitDeclaredOutputs, admitLaneReach } = require('../envelope/cage-admission');
 
   // § D5 · CAGE ADMISSIBILITY. Could this seat actually WRITE its declared outputs once sandboxed,
   // and could a successor READING them read them? A row that declares a token the cage refuses

@@ -13,7 +13,7 @@
 //       daemon restart is the whole reason the registry is persisted.
 //
 // The outbox is a recording stub: what this file must prove is what the emitter HANDS the outbox and
-// when, not that the real outbox delivers (that is `bridges/chat/`'s own selftest).
+// when, not that the real outbox delivers (that is `chat/`'s own selftest).
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -166,7 +166,7 @@ async function caseReadInterfaceMatchesDigest() {
   const emitter = createAlarmEmitter({ storePath, post: box.post });
   await emitter.emit(GOOD);
   const [cond] = emitter.readOpenConditions();
-  // `bridges/chat/system-digest.js` documents exactly these keys on its `readOpenConditions`.
+  // `chat/system-digest.js` documents exactly these keys on its `readOpenConditions`.
   for (const key of ['signature', 'condition', 'subject', 'first_emitted_at', 'evidence_pointer']) {
     assert.ok(cond[key] !== undefined, `the digest reads \`${key}\``);
   }

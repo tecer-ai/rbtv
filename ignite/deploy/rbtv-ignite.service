@@ -110,7 +110,7 @@ Environment="PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:
 # RBTV_IGNITE_SRC names the live per-invocation tree (team-kit, coord.py), not the booted one.
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
-Environment="RBTV_IGNITE_CONFIG_PATH=@@DEPLOY_ROOT@@/ignite/config/spawn-profiles.yaml"
+Environment="RBTV_IGNITE_CONFIG_PATH=@@DEPLOY_ROOT@@/ignite/envelope/spawn-profiles.yaml"
 Environment="RBTV_IGNITE_WORKDIR_ROOT=@@WORKDIR_ROOT@@"
 Environment="RBTV_IGNITE_DATA_ROOT=%S/rbtv-ignite"
 Environment="RBTV_IGNITE_USER_MANAGER=true"
@@ -124,7 +124,7 @@ Environment="RBTV_IGNITE_LOG_RETENTION_DAYS=90"
 StateDirectory=rbtv-ignite
 # 0700: the state root holds heart.db + logs; keep it unreadable to other local users (task 7.26).
 StateDirectoryMode=0700
-ExecStart=@@NODE_BIN@@ @@DEPLOY_ROOT@@/ignite/server/index.js
+ExecStart=@@NODE_BIN@@ @@DEPLOY_ROOT@@/ignite/runtime/index.js
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

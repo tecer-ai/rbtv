@@ -16,7 +16,7 @@ const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
 const IGNITE_SRC = path.resolve(__dirname, '..');
-const ENTRY = path.join(IGNITE_SRC, 'server', 'index.js');
+const ENTRY = path.join(IGNITE_SRC, 'runtime', 'index.js');
 const OUT_PATH = path.join(__dirname, 'smoke.out');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'p3-2-smoke-'));
@@ -46,7 +46,7 @@ const env = {
   ...process.env,
   RBTV_IGNITE_SRC: IGNITE_SRC,
   RBTV_IGNITE_WORKSPACE_ROOT: workspaceRoot,
-  RBTV_IGNITE_CONFIG_PATH: path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml'),
+  RBTV_IGNITE_CONFIG_PATH: path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml'),
   RBTV_IGNITE_WORKDIR_ROOT: workRoot,
   RBTV_IGNITE_DATA_ROOT: dataRoot,
   RBTV_IGNITE_USER_MANAGER: 'true',

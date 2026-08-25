@@ -161,3 +161,15 @@ Liveness itself (`supervisor/`). The watchdog, the outage ledger and the non-Sla
 (`capabilities/daemon-watchdog/`). The digest, the status line, the reply grammar and the
 outbox transport (`bridges/chat/`). Kill triggers, attempt counters and the provider tables
 (`supervisor/` + spec-recovery).
+
+## What moved in with the component-first migration
+
+`spec-component-map` §2 landed these here, with history, as part of impl-structure:
+
+- from `capabilities/`: `daemon-watchdog/` - the out-of-process watchdog, its units and
+  its probes. It observes and alarms; it is not an operator verb, so it does not live in
+  `operator/`.
+- from `engine/`: `restart-window.js` - the post-restart suppression window that answers
+  whether a latency or stall alarm may fire at all. The spec dispositions no engine row
+  for this file (it post-dates the spec); it lands here because it is alarm POLICY, while
+  its caller `frozen-pass.js` is a tick DRIVER and went to `runtime/` per §1.

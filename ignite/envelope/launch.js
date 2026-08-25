@@ -6,7 +6,7 @@ const path = require('node:path');
 const { compile, compilePlanning } = require('./compiler');
 const { covers, realpathOrNull } = require('./paths');
 const { writeConfigShims } = require('./shims');
-const { reasonFrom } = require('../server/spawn/seat-grants');
+const { reasonFrom } = require('../supervisor/spawn/seat-grants');
 
 const STAFF = new Set(['leader', 'goal-master', 'channel-master']);
 const FILL_IN_NAME = 'envelope.json';

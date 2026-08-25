@@ -24,3 +24,9 @@ Read: `getCurrentEnding` · `getGoalState` · `getAsk` · `seatWaitingOnOwner` �
 
 Kit/engine door: `cli.js` (`--db` `--op` `--payload`). One-shot cutover copy:
 `copy-home.js` (do not run against a live daemon).
+
+## What moved in with the component-first migration
+
+`spec-component-map` §2 landed `server/heart/` here, with history, as `heart/` -
+move-only, no body split (`heart-store.js` is a named over-budget leftover this plan
+does not touch). The daemon's own process host is `runtime/`; this component is the store.

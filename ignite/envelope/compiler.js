@@ -278,7 +278,7 @@ module.exports = {
   compilePlanning,
   loadConfig,
   CONFIG_DIR,
-  // Exported for `server/spawn/cage.js#lastCovering`, which must answer "is this covering pair at
+  // Exported for `supervisor/spawn/cage.js#lastCovering`, which must answer "is this covering pair at
   // different access a conflict?" with THIS function and not a second copy of it (spec-envelope §2
   // makes the compiler the source of truth). The carve rules are why a fixture workspace under a
   // baked temp family compiles: re-deriving them elsewhere refused launches the compiler admitted.

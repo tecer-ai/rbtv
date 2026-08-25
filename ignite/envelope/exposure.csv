@@ -1,3 +1,5 @@
 # envelope's exposure manifest. Depth-2 exposure.csv is the component marker.
 # The compiler and launch consumer are require()-able libraries, not a first-party CLI — no method=path row.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+envelope-cage-admission,library,path,,cage-admission.js,"The pre-enqueue cage admission test: declared outputs and lane reach judged against the seat own cage template before anything is enqueued (moved from engine/ by spec-component-map §2)",
+envelope-spawn-profiles,reference,path,,spawn-profiles.yaml,"The boot-read launch configuration: launch-specs keyed by (harness, model), the cage defaults, the tools and ticker daemon-only sections (moved from config/; RBTV_IGNITE_CONFIG_PATH points here)",
