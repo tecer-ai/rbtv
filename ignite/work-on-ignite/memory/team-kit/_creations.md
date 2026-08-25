@@ -21,3 +21,4 @@
 2026-08-24 · change · delete team-monitor CLI and teamview [T4-R8] · Design-baseline v2 [T4-R8, C-15, C6] settles is it alive on the supervisor registry alone — a terminal pane is a viewport · 549a0f8b · orchestration,capabilities · ⚠
 2026-08-24 · change · delete widen-cage verb · Owner ruling [T2-R6, C-6] (redesign-plan, 2026-08-24): runtime auto-widen is dead — a seat's cage envelope is fixed at plan time · 35bdffd4 · engine,server,meta-leader · ⚠
 2026-08-24 · change · delete the oldest-open escalation release door [D-4-ruling] · The arm is deleted rather than repaired, because the fact it was reconstructing now lives · 7672db10 · bridges · ⚠
+2026-08-25 · change · the selftest speaks the ending store · Rows were RETARGETED where the claim survived the vocabulary change, and DELETED where the claim's · 489fa4ec,df716f29,c41ab9c0 · — · ⚠
