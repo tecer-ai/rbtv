@@ -77,6 +77,11 @@ const dataRoot = path.join(tmp, 'data');
 fs.mkdirSync(dataRoot, { recursive: true });
 const PYTHON = requirePythonCmd();
 const COORD_PY = path.join(IGNITE_SRC, 'coord', 'coord.py');
+// ⚠ `ready-seats` IS NOT ON THIS DOOR. The front door split by audience on 2026-08-25:
+// `coordinate` keeps the seat-facing verbs (`checkin` / `checkout` below) and the readiness
+// arithmetic went to `supervise`. Driving it through `coord.py` gets a refusal, and this
+// probe's `JSON.parse` then hands `null` to a `.find` — a TypeError, not a readable verdict.
+const SUPERVISE_PY = path.join(IGNITE_SRC, 'supervisor', 'supervise.py');
 const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml'), 'utf8'));
@@ -129,14 +134,16 @@ function bus(goalDir, { from, to, type, body, re = null }) {
 // `.rbtv`, and the engine's `bindEnding` walks the goal folder back to the same root. If either
 // side reverted to the store its own lane opened — `{data_root}/heart.db` here — the arms below
 // would read an empty one, so "one ending store" is what this fixture would lose first.
-function coord(dir, args) {
+function runDoor(door, dir, args) {
   try {
-    return { ok: true, out: execFileSync(PYTHON, [COORD_PY, '--package', dir, ...args],
+    return { ok: true, out: execFileSync(PYTHON, [door, '--package', dir, ...args],
       { cwd: dir, encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] }) };
   } catch (err) {
     return { ok: false, out: `${err.stdout || ''}${err.stderr || ''}`.trim() };
   }
 }
+const coord = (dir, args) => runDoor(COORD_PY, dir, args);
+const supervise = (dir, args) => runDoor(SUPERVISE_PY, dir, args);
 
 // A seat ENDING ITS SESSION for real. The check-in is not optional (`checkout` refuses a seat with
 // no ACTIVE roster row); `--force` is the re-check-in lift and `--no-export` skips a transcript
@@ -147,7 +154,7 @@ function checkOut(dir, seat) {
 }
 
 function readyRowsOf(dir) {
-  const r = coord(dir, ['ready-seats', '--json']);
+  const r = supervise(dir, ['ready-seats', '--json']);
   try { return JSON.parse(r.out); } catch { return null; }
 }
 const verdicts = (rows) => Object.fromEntries((rows || []).map((x) => [x.seat, x.verdict]));

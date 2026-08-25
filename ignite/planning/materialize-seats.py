@@ -7295,7 +7295,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # rows assert; they assert the materialize -> launch coupling.
         cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
-        check("SC-1: coordinate launch --dry-run --only alpha resolves "
+        check("SC-1: supervise launch --dry-run --only alpha resolves "
               "a harness command (root seat, before its own check-out)",
               cpl.returncode == 0
               and "claude --model claude-opus-5" in cpl.stdout
@@ -7336,7 +7336,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
               str(landed)[:200])
         cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
-        check("SC-1: coordinate launch --dry-run --only beta resolves "
+        check("SC-1: supervise launch --dry-run --only beta resolves "
               "a harness command (dependent seat, predecessor done)",
               cpl.returncode == 0
               and "claude --model claude-opus-5" in cpl.stdout
@@ -7845,7 +7845,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # CP-6: the created package is LAUNCHABLE.
         cpl = supervise(["--package", str(pkg), "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
-        check("CP-6: coordinate launch --dry-run --only alpha resolves a "
+        check("CP-6: supervise launch --dry-run --only alpha resolves a "
               "harness command against the freshly created package",
               cpl.returncode == 0
               and "claude --model claude-opus-5" in cpl.stdout
@@ -8162,7 +8162,7 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "SK-7": (("SK-7: no local unit emitter",
               "SK-7: assemble_seat is imported"), ("SK-7 control",)),
     "SC-1": (("SC-1: a full-workflow add creates",
-              "SC-1: coordinate launch --dry-run --only"),
+              "SC-1: supervise launch --dry-run --only"),
              ("SC-1 control: a divergent registry row",
               "SC-1 control: a deleted row",
               "SC-1 control: with its predecessor not checked out")),
@@ -8226,7 +8226,7 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
               "CP-5 control: the caller-supplied budget.json IS read"),
              ("CP-5 control: the numeric-default detector fires",
               "CP-5 comparator control")),
-    "CP-6": (("CP-6: coordinate launch --dry-run --only alpha resolves",
+    "CP-6": (("CP-6: supervise launch --dry-run --only alpha resolves",
               "CP-6: a REAL launch reads the created budget.json"),
              ("CP-6 control: without budget.json", "CP-6/CP-8 red")),
     "CP-7": (("CP-7: dry-run against an uncompleted goal folder exits 0",

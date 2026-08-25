@@ -127,6 +127,16 @@ def build_mutant(dest_dir):
     dest = Path(dest_dir) / "coord.py"
     for sib in KIT.glob("*.py"):
         shutil.copyfile(sib, Path(dest_dir) / sib.name)
+    # ⚠ THE PRODUCT SPANS TWO COMPONENT FOLDERS — STAGE BOTH. Since the 2026-08-25 split,
+    # `coord.py` imports six modules from `<its parent>/../supervisor/` and reads every product
+    # file to build `PRODUCT_SOURCE`, so a mutant kit staged FLAT dies at load with
+    # FileNotFoundError on `supervisor/process.py` and the A3 arm never runs. The sibling folder
+    # is copied WHOLE, off disk, so a seventh module arriving there needs no edit here.
+    sup_src = KIT.parent / "supervisor"
+    sup_dest = Path(dest_dir).parent / "supervisor"
+    sup_dest.mkdir(parents=True, exist_ok=True)
+    for sup in sup_src.glob("*.py"):
+        shutil.copyfile(sup, sup_dest / sup.name)
     (Path(dest_dir) / subject.name).write_text(src, encoding="utf-8")
     return dest, ""
 
