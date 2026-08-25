@@ -88,7 +88,9 @@ function saveHolds(holdsPath, holds) {
 
 // `frozenWindowMin` is REQUIRED and has no default, not even a silent one: spec-recovery §2.1 puts
 // all five recovery knobs in one config file and forbids a hardcoded fallback, precisely so a
-// number the owner tuned in that file cannot be quietly overridden by a constant in a module.
+// number the owner tuned in that file cannot be quietly overridden by a constant in a module. The
+// caller reads it with `supervisor/recovery-config.js#loadRecoveryConfig` - which is where every
+// knob is read, so this module never opens that file and never grows a second reader of it.
 function createFrozenInvariant({
   emitter,
   frozenWindowMin,

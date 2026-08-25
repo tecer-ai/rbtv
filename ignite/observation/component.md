@@ -99,8 +99,10 @@ The hold clock is persisted beside the registry, so a restart mid-freeze does no
 `frozen_window_min` is REQUIRED from the caller and has no default, not even a silent one:
 spec-recovery §2.1 puts all five recovery knobs in one config file
 (`{workspace}/.rbtv/config/ignite/recovery.json`) and forbids a hardcoded fallback, so a
-number the owner tuned there cannot be quietly overridden by a constant in a module. The
-hourly repeat is NOT a knob — [T1-R15] rules it, and it is absent from that file on purpose.
+number the owner tuned there cannot be quietly overridden by a constant in a module. Read it
+with `supervisor/recovery-config.js#loadRecoveryConfig` and hand the number in — that is the
+one reader of that file, and this component deliberately is not a second one. The hourly
+repeat is NOT a knob — [T1-R15] rules it, and it is absent from that file on purpose.
 
 ## Adding an alarm
 
