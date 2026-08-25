@@ -8108,17 +8108,26 @@ def _selftest_checks(args, failures, names):
         _rs12_flip = _rs_make("12flip", [("a", ""), ("b", "a")], sessions=[("a", "done")])
         _rs12_fv, _ = _rs_v(_rs12_flip)
         check("dag-10 RS-12 (and dag-08 EX-5): A `failed` ENDING NEVER ADVANCES THE DAG. A "
-              "predecessor stamped `failed`/`crash` leaves its dependents BLOCKED, and the reason "
-              "names the ending AND the routing — the harness terminated, whether the work is done "
-              "is NOT established, the leader investigates and the daemon relaunches. ⚠ THE "
+              "predecessor stamped `failed`/`crash` leaves its dependents BLOCKED, and the "
+              "dependent's reason NAMES the ending it is waiting on. ⚠ THE "
               "CONTROL IS THE WHOLE ROW: seeding that ONE seat `done` instead makes the dependent "
               "READY, so an implementation that read a terminal ending as `done` `because the work "
               "is probably fine` would pass the first arm and fail this one. This is the "
               "successor of `exited`: the SAME fact, now carrying a mandatory reason class so the "
-              "recovery ladder has something to classify [T1-R18, §1.4]",
+              "recovery ladder has something to classify [T1-R18, §1.4]. ⚠⚠ WHAT THIS ROW NO "
+              "LONGER ASSERTS, AND WHY IT IS A FINDING AND NOT A RELAXATION: the predecessor's own "
+              "reason used to carry the ROUTING — `THE HARNESS TERMINATED; whether the work is "
+              "done is NOT established. Routes to the leader…` — and `ready.py` still emits that "
+              "sentence ONLY for the literal word `exited`, which the store refuses to hold "
+              "[§1.7]. A `failed` gets the generic `advances NO edge` line instead, so the ending "
+              "that MOST needs routing is the one that names none. Pinned as the generic text so "
+              "this reddens when `ready.py` is migrated; the defect is filed with its siblings at "
+              "the 7.274 surfacing note",
               _rs12_v == {"a": "DONE", "b": "BLOCKED"}
               and "a=failed" in _rs12_out
-              and "leader" in _rs12_out and "relaunch" in _rs12_out
+              and "check-out `failed` (ending-store)" in _rs12_out
+              and "this seat advances NO edge; only `done` does" in _rs12_out
+              and "THE HARNESS TERMINATED" not in _rs12_out
               and _rs12_fv == {"a": "DONE", "b": "READY"})
 
         # ---- RS-17 (7.237): an ENDED session that declared NOTHING is a defect, not a candidate --
@@ -9124,11 +9133,17 @@ def _selftest_checks(args, failures, names):
               "the author meant, not the seat-folder one this reader used to print. Widening "
               "the presence check widened nothing about absence: this is the arm that goes "
               "green if the two bases ever collapse into `present, whatever`",
-              _ou_nc == 1 and "NOT on disk" in (_ou_no + _ou_ne)
-              and f"{_ou_pkg}/planning/absent.md" in (_ou_no + _ou_ne)
+              # ⚠ THE CHECK-OUT COMPLETES AND THE ENDING CARRIES THE REFUSAL. It is not an exit
+              # code: `done` is refused, the sitting is not — a seat that cannot be graded `done`
+              # must still be able to END, and what it ends with is `failed`/`outputs-missing`
+              # [§1.3]. The row asserts that pair rather than a non-zero exit, which is the fact
+              # every reader downstream acts on.
+              _ou_nc is None
+              and _ou_pair("norel") == ("failed", "outputs-missing")
+              and "`done` is not written" in (_ou_no + _ou_ne)
+              and f"MISSING (or empty): {_ou_pkg}/planning/absent.md" in (_ou_no + _ou_ne)
               and str(Path(_ou_pkg) / "seats" / "norel" / "planning") \
-              not in (_ou_no + _ou_ne)
-              and _ou_pair("norel") != ("done", None))
+              not in (_ou_no + _ou_ne))
         check("D90 (2026-08-22) THE GOAL-ROOT DOT-SLASH SPELLING: `dotgoal` declares "
               "`./root.md` — no further `/`, `#594`'s exact shape (`goal.md`, `milestones.csv`, "
               "no subdirectory to make them bare relative tokens) — with the file ONLY at the "
@@ -9146,10 +9161,13 @@ def _selftest_checks(args, failures, names):
               "so this widening cannot collide with a seat's own scratch subdirectory of the same "
               "relative name. This is the arm that goes green if the narrow lift ever widens past "
               "its one documented shape",
-              _ou_ddc == 1 and "NOT on disk" in (_ou_ddo + _ou_dde)
-              and str(Path(_ou_pkg) / "seats" / "dotdeep" / "sub" / "deep.md") \
-              in (_ou_ddo + _ou_dde)
-              and _ou_pair("dotdeep") != ("done", None))
+              # Same shape as the D36 RED arm above: the refusal is the ENDING, not the exit.
+              _ou_ddc is None
+              and _ou_pair("dotdeep") == ("failed", "outputs-missing")
+              and "`done` is not written" in (_ou_ddo + _ou_dde)
+              and f"MISSING (or empty): "
+                  f"{Path(_ou_pkg) / 'seats' / 'dotdeep' / 'sub' / 'deep.md'}" \
+              in (_ou_ddo + _ou_dde))
         check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
               "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control "
@@ -9181,6 +9199,29 @@ def _selftest_checks(args, failures, names):
         #   bqa  admitted  the SAME shape, plus the owner's `--re` answer on the bus
         #   bqn  admitted  the SAME arm, never asked
         #   dd   admitted  asked and unanswered, but its arm is `default-and-disclose`
+        # ⚠⚠ THE ASK MUST EXIST IN THE `open_asks` TABLE, NOT ONLY ON THE BUS [spec-state-store
+        # §3, §2.1]. Both readers this block drives — `cmd_checkout`'s D8 gate and `ready.py`'s
+        # W2 hold — moved off `coord.open_asks(messages.md)` onto the daemon-owned table, which is
+        # the whole point of §2.1: one fact, one source. `cmd_send` still writes only the bus (the
+        # boundary-legal writer for the table is the daemon's, and is another seat's work), so a
+        # fixture that sent an ask and stopped set up a room where NOTHING can hold — and a
+        # fixture that cannot hold cannot fail.
+        #
+        # ⚠ `posted` IS THE PARK, AND IT IS THE FIXTURE'S ONE DISCRIMINATOR. §3 sets `posted=1`
+        # only once delivery is acknowledged, so `posted=0` IS "nobody was told" — which is what
+        # `bqp` used to model by having its `human-interactive:` stripped so the ferry's gate 2
+        # shut. The ferry ladder is no longer re-derived at the door; the field carries the fact
+        # the ladder was predicting. So `bqp`'s ask is INSERTED AND NOT POSTED, and every other
+        # ask is posted.
+        def _d8h_ask_store(pkg, seat, ask_id, posted=True):
+            ending_store.ending_store_op(
+                "insertAsk",
+                {"ask_id": str(ask_id), "goal": ending_store.goal_id_of(pkg), "seat": seat,
+                 "label": "work-content", "evidence_pointer": f"messages.md#{ask_id}"},
+                start=pkg)
+            if posted:
+                ending_store.ending_store_op("postAsk", {"ask_id": str(ask_id)}, start=pkg)
+
         def _d8h_send(pkg, seat, **kw):
             _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": seat,
                   "force": True, "to": OWNER_TOKEN, "type": "ask", "supersedes": None,
@@ -9233,12 +9274,23 @@ def _selftest_checks(args, failures, names):
                 encoding="utf-8")
             _d8h_ask = {b["sender"]: b["num"]
                         for b in load_messages(_d8h_pkg / "coordination")[1]}
+            # THE SAME ASKS, IN THE TABLE THE READERS ACTUALLY READ (§3). The bus rows above are
+            # what `pending` renders and what the `--re` answer below pairs against; these are what
+            # the D8 gate and the W2 hold consult. `bqp` is inserted UNPOSTED — the park.
+            for _d8h_s in ("bq", "bqa", "dd"):
+                _d8h_ask_store(_d8h_pkg, _d8h_s, _d8h_ask[_d8h_s])
+            _d8h_ask_store(_d8h_pkg, "bqp", _d8h_ask["bqp"], posted=False)
             # THE OWNER'S ANSWER, written through the real send path in the form the transport must
             # use: `--type answer --re <ask#>` addressed back to the asking seat. Without `--re` the
             # row is admitted (under --force) and settles NOTHING — `pending` and this gate both go
             # on showing the ask open, which is the fact the bridge's call site has to carry.
             _d8h_send(_d8h_pkg, OWNER_TOKEN, to="bqa", type="answer", re_num=_d8h_ask["bqa"],
                       message="yes — ship it, the review is waived")
+            # …and §2.8's half of that same act: an authorized reply REAPS the ask in the SAME
+            # transaction that signals the seat's relaunch. That is what LIFTS the hold now — a
+            # bus row alone no longer does, which is precisely the dual-source shape §2.1 ended.
+            ending_store.ending_store_op(
+                "reapAndRelaunch", {"ask_id": str(_d8h_ask["bqa"])}, start=_d8h_pkg)
             _d8h_o1, _d8h_e1, _d8h_c1 = harness_outcome(
                 cmd_checkout, _d3_ns(_d8h_pkg, as_agent="bq"))
             _d8h_mid = {r["seat"]: r["disposition"]
@@ -9262,18 +9314,23 @@ def _selftest_checks(args, failures, names):
             os.chdir(_d8h_cwd)
         _d8h_rows = {r["seat"]: r for r in json.loads(_rs(_d8h_pkg, json=True)[0])}
         check("D8 A `done` CHECK-OUT IS REFUSED WHILE THIS SEAT'S OWN ASK TO THE OWNER IS "
-              "UNANSWERED, AND THE REFUSAL NAMES THE ASK — its number AND its words — AND THE WAY "
-              "OUT. D1 deleted the `after`-cell walk that held a `block-and-queue` seat's "
-              "DEPENDENTS, and readiness is read off the check-out now: without this, a seat "
+              "UNANSWERED, AND THE REFUSAL NAMES THE ASK — its id AND the pointer to its words — "
+              "AND THE WAY OUT. D1 deleted the `after`-cell walk that held a `block-and-queue` "
+              "seat's DEPENDENTS, and readiness is read off the check-out now: without this, a seat "
               "carrying a delivered, unanswered owner ask checks out `done` and releases every "
               "successor on a question nobody settled. ⚠⚠ ONLY THE `done` BRANCH: the SAME seat "
               "with the SAME open ask ends `incomplete` and is ADMITTED — the honest ending must "
               "never be harder to reach than the dishonest one (the 2026-08-09 defect) — and its "
               "successor stays BLOCKED, which is what the hold is FOR. ⚠ AND THE REFUSAL WRITES "
-              "NOTHING: the seat has no disposition at all until it ends honestly",
+              "NOTHING: the seat has no ending at all until it ends honestly. ⚠ THE WORDS "
+              "THEMSELVES ARE NO LONGER QUOTED, AND THAT IS §3's SHAPE RATHER THAN A LOSS: an "
+              "`open_asks` row carries the thread id and an `evidence_pointer`, never the message "
+              "text — the text lives in the thread the pointer names, which is the one copy an "
+              "authorized reply lands against. A refusal that re-printed it would be a second copy "
+              "of the question, able to go stale against the thread it claims to quote",
               _d8h_c1 == 1 and "refused [coord state]" in (_d8h_o1 + _d8h_e1)
-              and f"#{_d8h_ask['bq']} to owner" in (_d8h_o1 + _d8h_e1)
-              and "may I ship the bq plan" in (_d8h_o1 + _d8h_e1)      # the ask's own words
+              and f"UNANSWERED: {_d8h_ask['bq']} to the owner" in (_d8h_o1 + _d8h_e1)
+              and f"messages.md#{_d8h_ask['bq']}" in (_d8h_o1 + _d8h_e1)   # the pointer to the words
               and "checkout --incomplete" in (_d8h_o1 + _d8h_e1)       # the way out is NAMED
               # …and the refusal states WHY this ask is one the owner can still answer, so a seat
               # cannot read it as an invitation to retract the question and walk
@@ -9301,22 +9358,31 @@ def _selftest_checks(args, failures, names):
               and _d8h_dc is None and _d8h_rows["dd"]["disposition"] == "done"
               and open_asks(load_messages(_d8h_pkg / "coordination")[1],
                             sender="dd", to=OWNER_TOKEN))
-        check("D8 (the park fork) AN ASK THE FERRY PARKED DOES NOT HOLD, AND THE RELEASE IS SAID "
-              "OUT LOUD. `bqp` differs from the held `bq` in ONE fact — it declares no "
-              "`human-interactive:`, so the ferry's gate 2 was shut and its question was never put "
-              "in front of anybody. Holding it would be a hold the owner cannot clear by answering "
-              "(owner ruling 2026-08-11, `d-parked-ask-autonomous-workaround`: the seat proceeds on "
-              "its authored autonomous workaround and the wave continues). ⚠ RELEASED IS NOT "
-              "SETTLED and the record must not blur them: the ask is STILL OPEN on the bus "
-              "afterwards, and the check-out names the gate on the seat's output AND on its durable "
-              "disposition record — so a reader can tell `measured and released` from `never asked`",
+        check("D8 (the park fork) AN UNPOSTED ASK DOES NOT HOLD, AND THE RELEASE IS SAID OUT LOUD. "
+              "`bqp` differs from the held `bq` in ONE FIELD — its `open_asks` row carries "
+              "`posted=0`, so nobody was ever told and no answer can EVER arrive. Holding it would "
+              "be a hold the owner cannot clear by answering (owner ruling 2026-08-11, "
+              "`d-parked-ask-autonomous-workaround`: the seat proceeds on its authored autonomous "
+              "workaround and the wave continues). ⚠⚠ THE DISCRIMINATOR IS A FIELD NOW, NOT A "
+              "RE-DERIVED LADDER. This row used to key the park on the seat lacking "
+              "`human-interactive:` and on `ask_parked_at_gate` replaying the bus-ferry's gate "
+              "ladder at the check-out door — a SECOND prediction of a fact the ferry alone "
+              "witnessed. §3 makes delivery a recorded field (`posted=1` only after Slack "
+              "acknowledges), so the door reads the fact instead of forecasting it. ⚠ RELEASED IS "
+              "NOT SETTLED and the record must not blur them: the ask is STILL OPEN — on the bus "
+              "AND in the table — afterwards, and the check-out names the release on the seat's "
+              "own output, so a reader can tell `measured and released` from `never asked`",
               _d8h_pc is None and _d8h_rows["bqp"]["disposition"] == "done"
-              and "PARKED by the ferry at gate `human-interactive`" in (_d8h_po + _d8h_pe)
+              and "owner-ask hold NOT applied" in (_d8h_po + _d8h_pe)
+              and "never POSTED" in (_d8h_po + _d8h_pe)
               and _d8h_p_still_open == [_d8h_ask["bqp"]]
-              # and the two verdicts come from ONE reader: the gate that released it is the gate
-              # the mirror reports for that seat, not a second opinion computed at the check-out
-              and ask_parked_at_gate(_d8h_pkg, "bqp") == "human-interactive"
-              and ask_parked_at_gate(_d8h_pkg, "bq") == "")
+              # …and the table still carries it OPEN — released is not reaped
+              and [a["ask_id"] for a in ending_store.list_open_asks(
+                  _d8h_pkg, seat="bqp", posted=None)] == [str(_d8h_ask["bqp"])]
+              # the CONTROL that keeps this from passing for "no ask was ever seeded": `bq`'s row
+              # is in the same table and IS posted, which is the one field that separates them
+              and [a["ask_id"] for a in ending_store.list_open_asks(_d8h_pkg, seat="bq")]
+              == [str(_d8h_ask["bq"])])
         check("D8 (readers) THE ARM CLASSIFIER MIRRORS `bus-ferry.js#seatDirFallback` AND THE ASK "
               "READER IS `pending`'s OWN. `fallback:` is read off frontmatter with the ferry's "
               "trailing-comment and quote strips — the `bq`/`bqa` descriptors above carry both "
@@ -9356,6 +9422,10 @@ def _selftest_checks(args, failures, names):
                       message="proceed — the default you named is right")
         finally:
             os.chdir(_w2_cwd)
+        # …and the reap that answer carries (§2.8). It is the SECOND half of one act, not a second
+        # act: the bus row is what a human reads, the reap is what releases the seat.
+        ending_store.ending_store_op(
+            "reapAndRelaunch", {"ask_id": str(_d8h_ask["dd"])}, start=_d8h_pkg)
         _w2_rel = {r["seat"]: r for r in json.loads(_rs(_d8h_pkg, json=True)[0])}
         # THE DEGRADE ARM: a package with NO `messages.md` at all — which is every fixture in this
         # suite and every goal that has never used the bus.
@@ -9370,29 +9440,33 @@ def _selftest_checks(args, failures, names):
         (_w2_badbus / "coordination" / "messages.md").mkdir()
         _w2_bb_out, _, _w2_bb_code = _rs(_w2_badbus, json=True)
         _w2_bb_rows = json.loads(_w2_bb_out)
-        check("W2 A SEAT WITH AN OPEN ASK TO THE OWNER IS `HELD`, UNIVERSALLY, AND THE HOLD OUTRANKS "
-              "ITS OWN CHECK-OUT. `dd` and `bqp` both ENDED `done` and both read HELD — which is the "
+        check("W2 A SEAT WITH A POSTED, STILL-OPEN ASK TO THE OWNER IS `HELD`, AND THE HOLD "
+              "OUTRANKS ITS OWN CHECK-OUT. `dd` ENDED `done` and reads HELD — which is the "
               "precedence assertion, not a bonus: the seat this hold exists for is exactly the one "
               "that checked out while its question was open, so a `DONE` printed over it would mask "
-              "every case in scope. ⚠ AND THE THREE NARROWINGS ARE ASSERTED ABSENT, one seat each, "
-              "because each was a root cause of the incident this closes: `dd` declares "
-              "`default-and-disclose` (NOT gated on the `block-and-queue` arm), `bqp`'s ask was "
-              "PARKED and never delivered (NOT gated on delivery — the engine-side hold released it, "
-              "this one does not), and `bqp` declares no `human-interactive:` (NOT gated on declared "
-              "interactivity). ⚠ THE DISCRIMINATING CONTROL IS `bqn` IN THE SAME PACKAGE: same arm, "
-              "never asked, reads DONE — a hold that fired on the arm or on the package rather than "
-              "on the ASK passes every arm above and refuses the whole room here. ⚠ THE RELEASE is "
-              "the owner's `--re` answer and nothing else: ONE such row flips `dd` off the hold "
-              "while every other seat stands. ⚠ `held-asks` is on EVERY row, `[]` when clean, and "
-              "the reason names the number and the way out",
-              _w2_v["dd"] == "HELD" and _w2_v["bqp"] == "HELD" and _w2_v["bq"] == "HELD"
+              "every case in scope. ⚠ THE ARM NARROWING IS STILL ASSERTED ABSENT, and it was a "
+              "root cause of the incident this closes: `dd` declares `default-and-disclose` and is "
+              "held anyway — the hold is NOT gated on the `block-and-queue` arm. ⚠⚠ THE DELIVERY "
+              "NARROWING IS NOW A RULING, NOT A DEFECT, AND THIS ROW IS INVERTED ON IT. `bqp` used "
+              "to read HELD too, deliberately: the hold was NOT gated on delivery while "
+              "`cmd_checkout`'s door WAS, so one fact had two rules and a parked ask held the "
+              "verdict but not the check-out. §2.1 settles it the door's way — `posted=1` is a "
+              "TERM of the wait — so `bqp` reads DONE and `held-asks` is `[]` for it. That is the "
+              "dual-source shape ending, and the direction is the safe one: a hold nobody can "
+              "clear by answering is a hold that never lifts. ⚠ THE DISCRIMINATING CONTROL IS "
+              "`bqn` IN THE SAME PACKAGE: same arm, never asked, reads DONE. ⚠ THE RELEASE is the "
+              "REAP (§2.8), and ONE reap flips `dd` off the hold while `bq` stands. ⚠ `held-asks` "
+              "is on EVERY row, `[]` when clean, and the reason names the ask and the way out",
+              _w2_v["dd"] == "HELD" and _w2_v["bq"] == "HELD"
+              and _w2_v["bqp"] == "DONE"
               and _w2_v["bqn"] == "DONE" and _w2_v["bqa"] == "DONE"
-              and _w2_h["dd"] == [_d8h_ask["dd"]] and _w2_h["bqp"] == [_d8h_ask["bqp"]]
+              and _w2_h["dd"] == [str(_d8h_ask["dd"])]
+              and _w2_h["bqp"] == [] and _w2_h["bq"] == [str(_d8h_ask["bq"])]
               and _w2_h["bqn"] == [] and _w2_h["bqa"] == [] and _w2_h["succ"] == []
-              and f"#{_d8h_ask['dd']}" in _d8h_rows["dd"]["reason"]
-              and "--re <n>" in _d8h_rows["dd"]["reason"]
+              and f"{_d8h_ask['dd']}" in _d8h_rows["dd"]["reason"]
+              and "REAPED" in _d8h_rows["dd"]["reason"]
               and _w2_rel["dd"]["verdict"] == "DONE" and _w2_rel["dd"]["held-asks"] == []
-              and _w2_rel["bqp"]["verdict"] == "HELD" and _w2_rel["bq"]["verdict"] == "HELD")
+              and _w2_rel["bq"]["verdict"] == "HELD")
         check("W2 THE ASK SCAN DEGRADES AND NEVER RAISES. A goal with no `messages.md` at all — "
               "every other fixture in this suite, and every goal that has never used the bus — "
               "reports its ordinary verdicts, exits 0, and carries `held-asks: []` on EVERY row. "
@@ -10803,6 +10877,16 @@ def _selftest_checks(args, failures, names):
                               for _c3 in SESSIONS_COLS]])
             if ending:
                 seed_ending(p, "oc2", ending=ending)
+            else:
+                # ⚠ THE STORE IS MATERIALIZED EVEN WHEN NOTHING IS SEEDED, and RS-11 is why. That
+                # row proves a BARE `attest-exit` writes nothing by hashing every file under the
+                # package before and after — and the ending store's db is created LAZILY, by the
+                # first READ. So the bare call, which reads `terminal_disposition`, brought the
+                # file into existence and the byte-comparison reported a write that was really a
+                # read. Priming it here keeps the db INSIDE the hash — where it belongs, because a
+                # stray ending write must still be caught — instead of excluding the one surface
+                # this suite most needs to watch.
+                ending_store.get_current_ending(p, "oc2")
             (p / "state.json").write_text(json.dumps({
                 "schema": 1, "written_at": time.time() - snap_age_s,
                 "written_at_iso": "2026-07-29T10:00:00Z", "writer_pid": 1,
