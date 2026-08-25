@@ -1329,9 +1329,10 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"{coord.coord_invocation(args)} close-seat {seat_name} --renew",
             layer="environment")
     # ⚠ THE DOOR THAT CARRIES `lifecycle-exec`, NOT THIS FILE. This module is imported, never
-    # run — `python3 lifecycle_exec.py` defines that verb nowhere. The fork re-enters through
-    # the CLI, which is `coord.COORD_PY`.
-    argv = ["setsid", sys.executable, str(coord.COORD_PY), "lifecycle-exec",
+    # run — `python3 lifecycle_exec.py` defines that verb nowhere. And the verb sits on the
+    # SUPERVISION door since the 2026-08-25 entry-point split, so the fork re-enters through
+    # `supervise.py`; `coord.py` would refuse it by name.
+    argv = ["setsid", sys.executable, str(coord.SUPERVISE_PY), "lifecycle-exec",
             "--package", str(coord.package_dir(args)),
             "--seat", seat_name,
             "--disposition", "renew",

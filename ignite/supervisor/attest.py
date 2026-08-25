@@ -25,7 +25,7 @@ import lifecycle_exec
 import process
 import ready
 
-# ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
+# ---------- dag-11: the attest-exit arm (`supervise attest-exit`) ----------
 #
 # THE MEASURED FAILURE THIS CLOSES (F1, 2026-07-28, seat `oc2`). The seat DID THE WORK — `done.txt`
 # read `OK` — and its one-shot harness exited without checking out. Afterwards: the roster still

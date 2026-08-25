@@ -7213,6 +7213,15 @@ def run_dag05_acceptance(check, env: dict) -> None:
         return subprocess.run([sys.executable, str(coord_py), *argv],
                               capture_output=True, text=True, env=env)
 
+    # ⚠ THE OTHER DOOR. `launch`, `descriptors` and the rest of the remedial surface left
+    # `coordinate` for `supervise` when the entry point split by audience (owner ruling
+    # 2026-08-25); driving them through `coord.py` would exercise a refusal, not the verb.
+    supervise_py = coord_py.parent.parent / "supervisor" / "supervise.py"
+
+    def supervise(argv):
+        return subprocess.run([sys.executable, str(supervise_py), *argv],
+                              capture_output=True, text=True, env=env)
+
     # ---- group 1: SC-1 (full add + launch coupling), SC-9, SC-10 arm 1,
     #      topo order ---------------------------------------------------
     with tempfile.TemporaryDirectory() as td:
@@ -7284,7 +7293,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # bound refuses an uncorroborated claim only on a non-dry run — see CP-6's
         # own note below). The claim stays because no role gate is what these
         # rows assert; they assert the materialize -> launch coupling.
-        cpl = coord(["--package", fx["pkg"], "--as", "leader",
+        cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
         check("SC-1: coordinate launch --dry-run --only alpha resolves "
               "a harness command (root seat, before its own check-out)",
@@ -7295,7 +7304,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         # SC-1 control (unmet-predecessor half): while the predecessor has NOT
         # checked out, the dependent seat is refused BY CLASS — the term that
         # makes the green arm below a coupling rather than a second root.
-        cpu = coord(["--package", fx["pkg"], "--as", "leader",
+        cpu = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1 control: with its predecessor not checked out, the "
               "dependent seat is DEFERRED with class unmet-predecessor",
@@ -7325,7 +7334,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
               "ending store",
               (landed or {}).get("ending") == "done",
               str(landed)[:200])
-        cpl = coord(["--package", fx["pkg"], "--as", "leader",
+        cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1: coordinate launch --dry-run --only beta resolves "
               "a harness command (dependent seat, predecessor done)",
@@ -7341,7 +7350,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         check("SC-1 control setup: the beta row mutation actually lands",
               mutated != text)
         tf.write_text(mutated, encoding="utf-8")
-        cpl = coord(["--package", fx["pkg"], "--as", "leader",
+        cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1 control: a divergent registry row REFUSES the dry-run "
               "through check_bindings",
@@ -7352,13 +7361,13 @@ def run_dag05_acceptance(check, env: dict) -> None:
         deleted = "\n".join(l for l in text.splitlines()
                             if not l.startswith("tf-1,beta")) + "\n"
         tf.write_text(deleted, encoding="utf-8")
-        cpd = coord(["--package", fx["pkg"], "descriptors"])
+        cpd = supervise(["--package", fx["pkg"], "descriptors"])
         check("SC-1 control: a deleted row is NAMED by the descriptor audit "
               "(no-registry-row) and the audit exits nonzero",
               cpd.returncode == 1 and "no-registry-row" in cpd.stdout
               and "beta" in cpd.stdout,
               (cpd.stdout + cpd.stderr).strip()[:200])
-        cpl = coord(["--package", fx["pkg"], "--as", "leader",
+        cpl = supervise(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         # MEASURED, not asserted as policy: check_bindings compares only rows
         # that EXIST, so launch --dry-run does NOT refuse a deleted row — the
@@ -7576,7 +7585,7 @@ def run_dag05_acceptance(check, env: dict) -> None:
         print(f"  info SC-8 measured: goal-lint findings naming the orphan "
               f"folders: {len(lint_named)} (rows-only walk — the naming "
               f"surface is coord.py `descriptors`)")
-        cpd = coord(["--package", str(run1), "descriptors"])
+        cpd = supervise(["--package", str(run1), "descriptors"])
         check("SC-8: the orphan-folder half-state IS named — coord "
               "descriptors reports no-registry-row for both added seats",
               cpd.returncode == 1
@@ -7663,6 +7672,14 @@ def run_dag06_acceptance(check, env: dict) -> None:
 
     def coord(argv):
         return subprocess.run([sys.executable, str(coord_py), *argv],
+                              capture_output=True, text=True, env=env)
+
+    # ⚠ THE OTHER DOOR — see the same pair in the SC-1 suite above. `launch` and `descriptors`
+    # left `coordinate` for `supervise` when the entry point split by audience (2026-08-25).
+    supervise_py = coord_py.parent.parent / "supervisor" / "supervise.py"
+
+    def supervise(argv):
+        return subprocess.run([sys.executable, str(supervise_py), *argv],
                               capture_output=True, text=True, env=env)
 
     # ---- group 1: creation + launch coupling (CP-1/2/5/6/7/8) ----------
@@ -7826,7 +7843,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
               (cp.stdout + cp.stderr).strip()[:200])
 
         # CP-6: the created package is LAUNCHABLE.
-        cpl = coord(["--package", str(pkg), "--as", "leader",
+        cpl = supervise(["--package", str(pkg), "--as", "leader",
                      "launch", "--dry-run", "--only", "alpha"])
         check("CP-6: coordinate launch --dry-run --only alpha resolves a "
               "harness command against the freshly created package",
@@ -7854,7 +7871,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # still dies at the absent-tmux-pane gate, which is exactly what this
         # row asserts. Gate verdicts print on stdout and the refusal on
         # stderr, so both arms read the COMBINED output.
-        cpl = coord(["--package", str(pkg),
+        cpl = supervise(["--package", str(pkg),
                      "launch", "--only", "alpha", "--force"])
         check("CP-6: a REAL launch reads the created budget.json (floor "
               "provenance = 64) and refuses only for the absent tmux pane",
@@ -7865,7 +7882,7 @@ def run_dag06_acceptance(check, env: dict) -> None:
         # CP-6 control: remove budget.json — the SAME real launch now
         # refuses for the undeclared floor. The surface list is load-bearing.
         (pkg / "budget.json").unlink()
-        cpl = coord(["--package", str(pkg),
+        cpl = supervise(["--package", str(pkg),
                      "launch", "--only", "alpha", "--force"])
         check("CP-6 control: without budget.json the launch gate REFUSES "
               "for the undeclared floor (FloorUndeclared, "

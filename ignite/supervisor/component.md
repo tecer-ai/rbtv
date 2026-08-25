@@ -1,5 +1,5 @@
 ---
-description: Read before asking whether a seat is alive, before stamping any ending from an observed exit, or before reaping a finished sitting - the persisted registry, its boot re-adopt pass, and the one death-stamp path.
+description: Read before asking whether a seat is alive, before stamping any ending from an observed exit, before reaping a finished sitting, or before reaching for a launch or remedial verb - the `supervise` CLI, the persisted registry, its boot re-adopt pass, and the one death-stamp path.
 ---
 
 # supervisor
@@ -13,6 +13,57 @@ The ONE liveness surface. Law is
 viewport, a cgroup carrier is identity, a stored ledger status is history, and
 tick silence is not liveness at all - none of the three legacy predicates is an
 answer to this question. The registry is.
+
+## The supervision CLI, and the six Python modules behind it
+
+`supervise.py` is this component's front door — the daemon's and a leader's remedial surface over
+a run, and the OTHER half of what used to be the single `coordinate` entry point. The owner split
+that entry point by AUDIENCE on 2026-08-25: "one for the daemon or for leaders (if smth broken),
+the other for all agents working on ignite (checkin, checkout, message, etc)". Seat-facing
+coordination stayed at `coordinate` (`coord/coord.py`); nothing else moved and no verb's
+behaviour, flags or output changed.
+
+`supervise -h` is the command list. Sixteen verbs, in three groups: the launch composer
+(`launch`, `session-open`, `descriptors`, `boot-prompt`), the readiness arithmetic (`ready-seats`,
+plus the daemon-only `renewal-state` and `surface-refusal`), and the remedies (`close-seat`,
+`reap`, `kill-pane`, `relaunch-pane`, `terminate-pid`, `approve`, the daemon-forked
+`lifecycle-exec`, and the death stamp's `attest-exit` / `route-fail`).
+
+⚠ AUDIENCE, NOT MODULE HOME. `rule-guard` is defined in `attest.py` here and is an AGENT command
+on the other door: the seat named in the (seat, key) pair is the only writer of its own guard
+value. The door table (`cli_main.py#SUPERVISION_COMMANDS`) is the one place that mapping is
+spelled, and everything not in it is a `coordinate` command by default.
+
+| Part | File | What it is |
+|---|---|---|
+| the CLI entry | `supervise.py` | The `supervise` front door. A thin door and nothing else: it imports the kit and dispatches into the same `main()` `coordinate` uses, telling it which door it is |
+| process truth | `process.py` | ps snapshot, process identity, the live-process and live-harness predicates, exit verification, the pid reaper. Registry probe INPUT, never a second liveness surface |
+| lifecycle remedies | `lifecycle_exec.py` | The lifecycle-inflight marker, the hidden `lifecycle-exec` verb, the bus alarm, the caller-side fork, the disposition sequences |
+| readiness | `ready.py` | The ready-seat arithmetic, the derived `dead` state, the launch-admission predicate |
+| the launch composer | `launch.py` | Seat discovery, descriptor validation, the boot prompt, harness command resolution, `session-open` |
+| the death stamp | `attest.py` | The attest-exit arm and the session closer |
+| the carrier bound | `carrier.py` | The asserted-identity launch bound — the paneless cgroup predicate that corroborates a `--as` claim |
+
+### How the seam works, and why it is shaped this way
+
+These six are REAL Python modules: imported, never `exec`d. That was measured before they moved —
+an AST walk over the kit's 17 product files found 1,506 cross-module references and exactly ONE
+of them at module level. Every other reference is read inside a function body, so the module cycle
+the two halves form resolves at CALL time and plain module-object imports are sound. There is no
+shared layer to extract: the halves are mutually recursive, and these six need 192 distinct
+agent-side names, so the structure is `supervisor/` depending on `coord` as a library and `coord`
+naming the six back.
+
+⚠ QUALIFY, NEVER COPY. Every name one of these takes from the kit is spelled `coord.NAME`, and
+every name the kit takes from them is `<module>.NAME`. A `from coord import NAME` here would be a
+SNAPSHOT taken at import: the selftest rebinds ~60 kit names at runtime, and a copied name leaves
+every stub inert — measured 2026-08-24 as 913 ok under a copying bind against 1039 ok / PASS
+through call-time lookup. `coord.py` also re-exports these modules' public names for callers
+OUTSIDE the kit (`spec-component-map` §3); nothing in the kit may read one of those aliases, for
+the same reason.
+
+⚠ A module-level read of a peer's attribute would break the import cycle. Adding one is a measure,
+not an edit.
 
 ## What is persisted
 

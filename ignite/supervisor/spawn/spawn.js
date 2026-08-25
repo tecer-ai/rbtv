@@ -475,10 +475,13 @@ function closeSeatSessionRow({ workdir, sessionId, log, exitCode = null, logPath
   if (!sid) return { closed: false, reason: 'no session-id' };
   const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
   if (!seatPath || !seatPath.goalDir) return { closed: false, reason: 'workdir is not a seat home' };
-  const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
-    'coord', 'coord.py');
+  // ⚠ THE SUPERVISION DOOR. `attest-exit` is the death stamp and moved to `supervise` with the
+  // rest of the remedial surface when the entry point split by audience (2026-08-25);
+  // `coord.py` refuses the verb by name.
+  const supervisePy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
+    'supervisor', 'supervise.py');
   try {
-    const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
+    const out = execFileSync(requirePythonCmd(), [supervisePy, '--package', seatPath.goalDir,
       '--as', 'ignite-daemon', 'attest-exit', '--session', sid, '--force-dead',
       '--evidence', crashEvidence({ sessionId: sid, exitCode, logPath }), '--go'],
     { encoding: 'utf8', timeout: CLOSER_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });

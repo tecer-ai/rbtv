@@ -406,9 +406,9 @@ def cmd_kill_pane(args):
     raw `tmux kill-pane` is refused by the harness auto-mode classifier and `close-seat` needs a
     roster-known SEAT NAME rather than a bare pane id (task 7.91, owner-directed).
 
-    MEASURED (leader #1580), not guessed: `coordinate launch --force` -- also a `coordinate` verb
+    MEASURED (leader #1580), not guessed: `supervise launch --force` -- also a `coordinate` verb
     -- is ALSO blocked by the classifier from the chief-of-staff's pane, so wrapping a verb in
-    coord.py is not by itself sufficient; `coordinate close-seat --force` PASSES from that same
+    coord.py is not by itself sufficient; `supervise close-seat --force` PASSES from that same
     pane, and close-seat kills panes too, so killing a pane is not by itself what is refused. The
     ONE shape measured to pass while killing panes from that pane is close-seat's -- so this
     mirrors it as closely as the row allows: the same `tmux_kill_pane` + `verify_pids_gone` kill

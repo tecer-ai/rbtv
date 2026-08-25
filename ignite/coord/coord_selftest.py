@@ -37,6 +37,24 @@ def called_name(node):
     return ""
 
 
+def _example_door(help_text):
+    """Which door a command's `example:` line invokes — `coordinate`/`coord.py` or
+    `supervise`/`supervise.py`, with or without a `python3` prefix. "" when it names neither."""
+    line = help_text.split("example:\n  ", 1)[-1].split("\n", 1)[0].split()
+    if line and line[0] == "python3":
+        line = line[1:]
+    head = line[0].rsplit("/", 1)[-1].removesuffix(".py") if line else ""
+    # `coordinate` is a symlink to `coord.py`; both spellings name the same door.
+    return {"coord": COORDINATION_DOOR, COORDINATION_DOOR: COORDINATION_DOOR,
+            SUPERVISION_DOOR: SUPERVISION_DOOR}.get(head, "")
+
+
+def _door_cmds(parser):
+    """The command names ONE door's parser accepts."""
+    return [a for act in parser._actions if getattr(act, "choices", None)
+            for a in act.choices]
+
+
 def is_plain_ref(node):
     """True for a bare name or `<product module>.name` — a REFERENCE, not a computed expression."""
     import ast as _pr_ast
@@ -2485,20 +2503,33 @@ def _selftest_checks(args, failures, names):
         # ---- T6/F2: the help is an INDEX, not a manual (it used to print the module docstring) ----
         saved_cols = os.environ.get("COLUMNS")
         os.environ["COLUMNS"] = "100"  # deterministic wrapping for the line count
-        parser = build_parser()
+        # BOTH DOORS, always. The entry point is two CLIs since 2026-08-25, and a fixture that
+        # rendered only one would grade half the surface while reporting on all of it — the
+        # `supervise` door could lose its whole index and every row below would stay green.
+        parser = build_parser(COORDINATION_DOOR)
+        sup_parser = build_parser(SUPERVISION_DOOR)
         top = parser.format_help()
+        sup_top = sup_parser.format_help()
         per_cmd = {name: sp.format_help() for name, sp in parser.command_parsers.items()}
         if saved_cols is None:
             os.environ.pop("COLUMNS", None)
         else:
             os.environ["COLUMNS"] = saved_cols
-        check("T6 help: the top-level -h is a one-screen index — 30 lines or fewer, grouped "
-              "everyday/leader/other, pointing at the per-command help (F2/F18: it used to dump "
-              "a ~120-line docstring listing every subcommand a second time)",
-              len(top.splitlines()) <= 30
-              and all(f"\n{g}\n" in top for g in ("everyday", "leader", "other"))
-              and "coordinate <command> -h" in top
+        check("T6 help: EACH DOOR's top-level -h is a one-screen index — 30 lines or fewer, "
+              "grouped, pointing at that door's own per-command help (F2/F18: it used to dump a "
+              "~120-line docstring listing every subcommand a second time)",
+              len(top.splitlines()) <= 30 and len(sup_top.splitlines()) <= 30
+              and all(f"\n{g}\n" in top
+                      for g in ("everyday", "the goal's own record", "the room", "other"))
+              and all(f"\n{g}\n" in sup_top
+                      for g in ("launch", "readiness", "remedy — when something is broken"))
+              and "coordinate <command> -h" in top and "supervise <command> -h" in sup_top
               and "--last-read" not in top and "read <agent>" not in top)
+        check("T6 help: the two doors PARTITION the command surface — every command the tool "
+              "accepts is on exactly one of them, and neither door accepts the other's "
+              "(a verb reachable through both would make the audience split decorative)",
+              set(_door_cmds(parser)) | set(_door_cmds(sup_parser)) == set(per_cmd)
+              and not (set(_door_cmds(parser)) & set(_door_cmds(sup_parser))))
         # T6: the command inventory is DERIVED from the epilog index, never counted. A hardcoded
         # count (`len(per_cmd) == 19`) is a check that passes while the claim it stands for goes
         # false: add a command and document nothing, bump the number to make the suite green, and
@@ -2506,7 +2537,7 @@ def _selftest_checks(args, failures, names):
         # command, only a miscounted one. The set difference sees both, and names which command
         # and which side is missing it.
         documented = set()
-        for epi_line in HELP_EPILOG.splitlines():
+        for epi_line in (HELP_EPILOG + "\n" + SUPERVISE_EPILOG).splitlines():
             listed = re.match(r"^  (\S(?:.*?\S)?)\s{2,}\S", epi_line)
             if listed:
                 documented.update(name.strip() for name in listed.group(1).split("/"))
@@ -2522,8 +2553,11 @@ def _selftest_checks(args, failures, names):
         check("T6 help: every command's own -h carries a worked example and the step that "
               "usually follows",
               per_cmd
-              and all("example:\n  coordinate" in h or "example:\n  python3" in h
-                      for h in per_cmd.values())
+              # Each command's example must INVOKE THE DOOR THAT ACCEPTS IT. An example teaching
+              # `coordinate launch` after the entry-point split coaches a command that door
+              # refuses — advice for a CLI that does not exist. Both spellings of a door count
+              # (`supervise …` and `python3 supervise.py …`); anything else is a wrong door.
+              and all(_example_door(h) == door_of(n) for n, h in per_cmd.items())
               and all("\nnext: " in h for h in per_cmd.values()))
         check("T6 help: a target positional says it is the SEAT ACTED ON, never the caller "
               "(F14 — positional #1 used to mean SELF on some commands and TARGET on others)",
@@ -12190,18 +12224,22 @@ def _selftest_checks(args, failures, names):
             return refuse(lifecycle_exec.cmd_lifecycle_exec, **d)
 
         # ---- (1) THE PARSER BUILDS, AND THE COMMAND IS HIDDEN.
-        _s5_parser = build_parser()
+        # `lifecycle-exec` sits on the SUPERVISION door since the 2026-08-25 entry-point
+        # split — the daemon forks it, no seat ever types it. Built from that door here, or
+        # every row below would grade a parser that legitimately refuses the command.
+        _s5_parser = build_parser(SUPERVISION_DOOR)
         _s5_top = _s5_parser.format_help()
         _s5_own_help = harness_outcome(
             lambda _a: _s5_parser.parse_args(["lifecycle-exec", "--help"]), ns())
         check("s3-05 (1) THE PARSER BUILDS AND THE COMMAND IS HIDDEN: `lifecycle-exec` is a real "
-              "subparser (so save-coord.py's `--help` gate build-verifies it — the whole reason it "
-              "lives inside coord.py rather than beside it), its own -h exits 0, and it appears "
+              "subparser on the SUPERVISION door (so save-coord.py's `--help` gate build-verifies "
+              "it — the whole reason it lives inside the kit rather than beside it), its own -h "
+              "exits 0 and names that door, and it appears "
               "NOWHERE in the top-level help, which IS the command list a seat reads. Hidden is "
               "declared in HIDDEN_COMMANDS, so the epilog-vs-parser check reads the omission as "
               "intended rather than as drift",
               "lifecycle-exec" in _s5_parser.command_parsers
-              and _s5_own_help[2] == 0 and "usage: coordinate lifecycle-exec" in _s5_own_help[0]
+              and _s5_own_help[2] == 0 and "usage: supervise lifecycle-exec" in _s5_own_help[0]
               and "lifecycle-exec" not in _s5_top
               and "lifecycle-exec" in HIDDEN_COMMANDS)
 
@@ -12211,7 +12249,8 @@ def _selftest_checks(args, failures, names):
                     "--caller-pid", "41190", "--caller-starttime", "884118"]
 
         def _s5_parse(argv):
-            _o, _e, _c = harness_outcome(lambda _a: build_parser().parse_args(argv), ns())
+            _o, _e, _c = harness_outcome(
+                lambda _a: build_parser(SUPERVISION_DOOR).parse_args(argv), ns())
             return _o + _e, _c
 
         check("s3-05 (2) THE PREMISE FOR ALL SIX OMISSION ROWS: the COMPLETE argv parses cleanly. "
@@ -13117,14 +13156,14 @@ def _selftest_checks(args, failures, names):
             return [s.split(":", 1)[0] for s in steps]
 
         # ---- (1) THE ENUM ACCEPTS EXACTLY THREE VALUES, AND REFUSES A FOURTH BY NAME.
-        _s7_parser = build_parser()
+        _s7_parser = build_parser(SUPERVISION_DOOR)   # the door `lifecycle-exec` lives on
         _s7_choices = None
         for _s7_act in _s7_parser.command_parsers["lifecycle-exec"]._actions:
             if "--disposition" in (_s7_act.option_strings or []):
                 _s7_choices = tuple(_s7_act.choices or ())
 
         def _s7_parse(value):
-            _o, _e, _c = harness_outcome(lambda _a: build_parser().parse_args(
+            _o, _e, _c = harness_outcome(lambda _a: build_parser(SUPERVISION_DOOR).parse_args(
                 ["lifecycle-exec", "--package", str(td), "--seat", "s7", "--disposition", value,
                  "--tmux-target", "%61", "--caller-pid", "1", "--caller-starttime", "1"]), ns())
             return _o + _e, _c
@@ -13621,16 +13660,18 @@ def _selftest_checks(args, failures, names):
             _f9_vals[_f9_flag] = (_f9_argv[_f9_at + 1]
                                   if 0 <= _f9_at < len(_f9_argv) - 1 else "")
         _f9_parsed = harness_outcome(
-            lambda _a: build_parser().parse_args(_f9_argv[3:]), ns()) if len(_f9_argv) > 3 else \
+            lambda _a: build_parser(SUPERVISION_DOOR).parse_args(_f9_argv[3:]), ns()) \
+            if len(_f9_argv) > 3 else \
             ("", "", 2)
         check("s3-09 (1) ARGV IS COMPLETE AND ABSOLUTE: the spawn begins `setsid`, this "
               "interpreter, this file's ABSOLUTE path and `lifecycle-exec`, carries all EIGHT "
-              "flags with non-empty values, and PARSES CLEANLY through the real `build_parser()`. "
-              "A relative coord.py path would resolve against the child's cwd, which is the dying "
+              "flags with non-empty values, and PARSES CLEANLY through the real `build_parser()` "
+              "for the SUPERVISION door, which is the one that accepts the verb. A relative "
+              "supervise.py path would resolve against the child's cwd, which is the dying "
               "pane's and is not guaranteed to be anything",
               len(_f9_argv) > 3 and _f9_argv[0] == "setsid" and _f9_argv[1] == sys.executable
               and os.path.isabs(_f9_argv[2])
-              and Path(_f9_argv[2]).resolve() == Path(__file__).resolve()
+              and Path(_f9_argv[2]).resolve() == SUPERVISE_PY.resolve()
               and _f9_argv[3] == "lifecycle-exec"
               and all(v and not v.startswith("--") for v in _f9_vals.values())
               and _f9_parsed[2] is None)

@@ -25,7 +25,7 @@ import coord
 import launch
 import lifecycle_exec
 
-# ---------- dag-10: the ready-SEAT arithmetic (`coordinate ready-seats`) ----------
+# ---------- dag-10: the ready-SEAT arithmetic (`supervise ready-seats`) ----------
 #
 # The ruling this realizes (`d-advancement-on-checkout`): the whole workflow's seat rows are
 # registered at materialization, and A SEAT IS READY WHEN EVERY `after` PREDECESSOR HAS A CLEAN
@@ -1307,7 +1307,7 @@ _DEFERRAL_BY_DISPOSITION = {"done": "finished", "renew": "renewing",
 #
 # ⚠ W2's `HELD` IS DELIBERATELY NOT A LIMB HERE, AND THAT IS A SCOPE STATEMENT, NOT AN OMISSION.
 # The hold's consumer is the READY SURFACE — the ignite daemon's seeding door, a `verdict ==
-# "READY"` filter. This map serves `coordinate launch`'s admission predicate, where the owner-ask
+# "READY"` filter. This map serves `supervise launch`'s admission predicate, where the owner-ask
 # hold is already enforced ONE door earlier and from the seat's own side: `cmd_checkout` REFUSES a
 # `done` while the seat's ask to the owner is open. A held seat can therefore still be hand-launched
 # by a human who types `launch --only <seat>`, which is a human overriding a hold in front of him,
@@ -1507,13 +1507,13 @@ def arm1_fails_under_transposition(rows, x, y):
     return False
 
 
-# ---------- D2 (2026-08-19): the daemon's seed-refusal surfacing (`coordinate surface-refusal`) --
+# ---------- D2 (2026-08-19): the daemon's seed-refusal surfacing (`supervise surface-refusal`) --
 #
 # WHAT IT IS: the ignite daemon lands ONE cage-admission refusal on the goal's own bus. The
 # measured failure (G-owner-console-0818-2030): a seat refused at every 10s seed pass for hours,
 # journal-only — no surface an operator reads ever said so. The engine may not write coordination
 # files itself (the runtime boundary: neither side reads or writes the other's files), so the
-# refusal crosses as a command — the daemon runs `coordinate surface-refusal`, it never
+# refusal crosses as a command — the daemon runs `supervise surface-refusal`, it never
 # opens a coordination file itself.
 #
 # IDEMPOTENT PER (seat, reason), and that is the whole verb: the seed pass repeats forever, so a

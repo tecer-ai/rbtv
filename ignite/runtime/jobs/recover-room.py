@@ -180,7 +180,14 @@ def launch_argv(args, package):
     EXACTLY the low-memory state that kills seats and calls for recovery. Tonight's readings
     touched 2449 / 2757 / 2837 against a 2800 floor. A run whose healing fails precisely when it
     is needed is worse than one with no healing, because the second is honest about it."""
-    return [sys.executable, args.coord, "--package", str(package),
+    # ⚠ THE SUPERVISION DOOR, DERIVED FROM `--coord`, NOT `--coord` ITSELF. `launch` left
+    # `coord.py` for `supervise` when the entry point split by audience (owner ruling
+    # 2026-08-25) and `coord.py` refuses it by name. The flag still points at `coord.py`
+    # because that is where this job imports the lease accessor from; the kit names the other
+    # door, so this file holds no second spelling of where it lives.
+    sys.path.insert(0, str(Path(args.coord).resolve().parent))
+    import coord  # noqa: E402 — the same import the lease resolution above takes
+    return [sys.executable, str(coord.SUPERVISE_PY), "--package", str(package),
             "launch", "--only", args.seat, "--force", "--force-memory"]
 
 

@@ -21,7 +21,12 @@ def add_pretty_flag(s):
 # grouped 1-line-per-command index; each command's own -h carries the detail, an example and the
 # step that follows. Global flags are summarised in the footer instead of an options block —
 # argparse renders one line per flag, and the whole point of this help is that it fits on a
-# screen. Groups are LIFECYCLE-ordered, not alphabetical: everyday work, leader-only, the rest.
+# screen. Groups are LIFECYCLE-ordered, not alphabetical.
+#
+# ONE EPILOG PER DOOR. The `coordinate` surface is what every working seat types; the remedial
+# and launch surface is `supervise`'s, and each door's help lists only what that door accepts
+# (owner ruling 2026-08-25). Every command's one-line description below is the SAME text it
+# carried as one CLI — the split regrouped the index, it rewrote no verb's help.
 HELP_EPILOG = """everyday
   checkin     register this session — binds this tmux pane to your agent name
   status      where you stand: identity, pane, owner, unread, cursor, open asks
@@ -30,22 +35,81 @@ HELP_EPILOG = """everyday
   pending     open asks: waiting on you, open to everyone, yours unanswered
   rule-guard / checkout  record YOUR OWN seat's value for a guard a live `after` member reads — the seat named in the (seat, key) pair writes it, no other seat may, --source mandatory (--go; reports bare) · end your session, exports your transcript first — REFUSED while a declared output or a guard you owe is missing, or an ask of yours to the owner is unanswered; --renew --handoff hands this seat to your own next session
 
-leader
-  launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
-  close-seat / reap / kill-pane / relaunch-pane / terminate-pid / finish-goal / advance-state / execution / attest-exit / route-fail  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded · FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP · record that a one-shot harness terminated (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
-  approve     answer a seat's permission prompt by sending keys to its pane
-  panel       open the control-panel overview strip in this window
+the goal's own record
+  finish-goal / advance-state / execution  FIRE THE FINISH EDGE: the one act that finishes the goal and stops every watcher · stamp ONE append-only row on the goal's state cursor (state.csv), session-id resolved from your open row · print (or --mint) this goal's dated EXECUTION STAMP
+
+the room
   owner / secret-add  set owner presence: present | reachable | afk · append one env NAME from a drop file (masters; value never logged)
+  create-group       open a message group for one workstream
   add-to-group / remove-from-group  join or drop an existing group's members
+  panel       open the control-panel overview strip in this window
 
 other
-  workers / descriptors / ready-seats / boot-prompt / gateway-status  who is alive and on what · seat-descriptor audit · which seats are launchable NOW, recomputed from disk (a seat is READY when every `after` predecessor checked out done) · the exact boot prompt ONE seat launches on, for a launcher that is not `launch` · is a daemon serving this workspace (--probe proves the wire)
-  create-group       open a message group for one workstream
+  workers / gateway-status  who is alive and on what · is a daemon serving this workspace (--probe proves the wire)
   export-transcript  capture a seat's pane scrollback into its worker folder
   depart      ephemeral seats: export + check out + kill your own pane
   selftest    built-in self-test (temp dir, no tmux)
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: coordinate <command> -h · --force overrides a refusal, where one exists""".format(limit=READ_LIMIT)
+
+SUPERVISE_EPILOG = """launch
+  launch / session-open  open one tmux seat per worker briefing and start its harness · open ONE already-up seat's session-trace row, for a launcher that is NOT `launch` (the daemon's spawn path)
+  descriptors / boot-prompt  seat-descriptor audit · the exact boot prompt ONE seat launches on, for a launcher that is not `launch`
+
+readiness
+  ready-seats  which seats are launchable NOW, recomputed from disk (a seat is READY when every `after` predecessor checked out done)
+
+remedy — when something is broken
+  close-seat / reap / kill-pane / relaunch-pane / terminate-pid  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded
+  approve     answer a seat's permission prompt by sending keys to its pane
+  attest-exit / route-fail  record that a one-shot harness terminated (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
+global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
+details + examples: supervise <command> -h · --force overrides a refusal, where one exists"""
+
+
+# ---- the two doors, by AUDIENCE (owner ruling 2026-08-25) --------------------------------------
+# "coordinate must also be split at entry point. two different systems: one for the daemon or for
+# leaders (if smth broken), the other for all agents working on ignite (checkin, checkout,
+# message, etc)." — the owner, console, 2026-08-25.
+#
+# `supervise` is that first system: the launch composer, the readiness arithmetic, the mechanical
+# remedies and the death stamp — the concerns `spec-component-map` §3 homes in `supervisor/`.
+# `coordinate` is the second: everything a working seat types. EVERY command below sits on exactly
+# ONE door, and a command missing from this tuple is a `coordinate` command — the default is the
+# agent surface, because that is the door a seat has, and a verb that silently appeared there is a
+# far smaller failure than a remedial verb silently vanishing from the daemon's.
+#
+# ⚠ AUDIENCE, NOT MODULE HOME. `rule-guard` is defined in `supervisor/attest.py` and is an AGENT
+# command: the seat named in the (seat, key) pair is the only writer of its own guard value. A
+# door table derived from the module layout would have taken it away from every seat.
+SUPERVISION_COMMANDS = (
+    "launch", "session-open", "descriptors", "boot-prompt",
+    "ready-seats", "renewal-state", "surface-refusal", "lifecycle-exec",
+    "close-seat", "reap", "kill-pane", "relaunch-pane", "terminate-pid", "approve",
+    "attest-exit", "route-fail",
+)
+COORDINATION_DOOR = "coordinate"
+SUPERVISION_DOOR = "supervise"
+DOOR_EPILOG = {COORDINATION_DOOR: HELP_EPILOG, SUPERVISION_DOOR: SUPERVISE_EPILOG}
+DOOR_USAGE = {
+    COORDINATION_DOOR: "coordinate [--run TAG | --package DIR] [--as NAME] [--pretty] "
+                       "<command> [args]",
+    SUPERVISION_DOOR: "supervise [--run TAG | --package DIR] [--as NAME] [--pretty] "
+                      "<command> [args]",
+}
+DOOR_DESCRIPTION = {
+    COORDINATION_DOOR: "Coordination CLI for a multi-agent tmux team run — all state lives in "
+                       "the run package.\nIdentity is resolved, never typed: --as NAME > "
+                       "$COORD_AGENT > this pane's roster row.",
+    SUPERVISION_DOOR: "Supervision CLI — the daemon's and a leader's remedial surface over a run: "
+                      "launch,\nreadiness, and the acts that repair a seat. Seat-facing "
+                      "coordination is `coordinate`.",
+}
+
+
+def door_of(name):
+    """Which door accepts this command. The default is the agent surface (see the tuple above)."""
+    return SUPERVISION_DOOR if name in SUPERVISION_COMMANDS else COORDINATION_DOOR
 
 # Commands that are ACCEPTED by the parser and deliberately ABSENT from HELP_EPILOG above.
 #
@@ -476,15 +540,20 @@ class _RefusingParser(argparse.ArgumentParser):
         sys.exit(2)
 
 
-def build_parser():
-    """The whole CLI surface. Split out of main() so the self-test can render the help texts."""
+def build_parser(door=COORDINATION_DOOR):
+    """ONE door's CLI surface. Split out of main() so the self-test can render the help texts.
+
+    Every command is registered exactly as before; the ones belonging to the OTHER door are
+    registered onto a discard parser instead of this one, so each door accepts only its own
+    commands while `command_parsers` still carries the whole inventory for the help audits. That
+    is deliberate: the audits ask "is every command documented", which is a question about the
+    tool, not about one of its doors.
+    """
     p = _RefusingParser(
-        prog="coordinate",
-        usage="coordinate [--run TAG | --package DIR] [--as NAME] [--pretty] <command> [args]",
-        description="Coordination CLI for a multi-agent tmux team run — all state lives in the "
-                    "run package.\nIdentity is resolved, never typed: --as NAME > $COORD_AGENT > "
-                    "this pane's roster row.",
-        epilog=HELP_EPILOG,
+        prog=door,
+        usage=DOOR_USAGE[door],
+        description=DOOR_DESCRIPTION[door],
+        epilog=DOOR_EPILOG[door],
         add_help=False,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     # -h stays, but out of the options block: with every global flag summarised in the epilog,
@@ -503,12 +572,17 @@ def build_parser():
                            parser_class=_RefusingParser)
 
     made = {}
+    # Where a command registers when it belongs to the OTHER door: built, help-rendered, and
+    # reachable from `command_parsers`, but not on `p` — so this door refuses it by name.
+    _elsewhere = _RefusingParser(prog=door, add_help=False).add_subparsers(
+        parser_class=_RefusingParser)
 
     def command(name, description, epilog):
-        """One subcommand. No `help=` on purpose: the grouped epilog above IS the command list,
-        and argparse would otherwise render a second, ungrouped one."""
-        made[name] = sub.add_parser(name, description=description, epilog=epilog,
-                                    formatter_class=argparse.RawDescriptionHelpFormatter)
+        """One subcommand, onto its own door. No `help=` on purpose: the grouped epilog above IS
+        the command list, and argparse would otherwise render a second, ungrouped one."""
+        target = sub if door_of(name) == door else _elsewhere
+        made[name] = target.add_parser(name, description=description, epilog=epilog,
+                                       formatter_class=argparse.RawDescriptionHelpFormatter)
         return made[name]
 
     s = command(
@@ -767,7 +841,7 @@ def build_parser():
         "tmux panes, so a seat whose pane is gone shows DEAD?.",
         "example:\n"
         "  coordinate workers\n"
-        "next: coordinate close-seat <agent> for a DEAD? row; send to reach a live one")
+        "next: supervise close-seat <agent> for a DEAD? row; send to reach a live one")
     s.add_argument("--full", action="store_true", help="do not truncate the 'working on' summaries")
     s.add_argument("--history", action="store_true", help="every historical row, not just each agent's current one")
     add_pretty_flag(s)
@@ -807,7 +881,7 @@ def build_parser():
         "a seat this package has no descriptor for; a no-op (exit 0) when the seat already has an\n"
         "open row, so a retrying launcher cannot double-write.",
         "example:\n"
-        "  coordinate --package /abs/run-3 session-open builder\n"
+        "  supervise --package /abs/run-3 session-open builder\n"
         "next: coordinate workers — the seat must still CHECK IN; the trace row is not a check-in")
     s.add_argument("seat", help="the TARGET seat whose session row is opened, as in its descriptor's `agent:` key — never the caller")
     s.add_argument("--pane", default=None,
@@ -831,7 +905,7 @@ def build_parser():
         "seat's sessions.csv row; a dedup/brake refusal from that door is reported as a refusal.\n"
         "Admission is identical on both lanes; --tmux-target is refused on the daemon lane.",
         "example:\n"
-        "  coordinate launch --only judge-ux,judge-parity\n"
+        "  supervise launch --only judge-ux,judge-parity\n"
         "next: coordinate workers — every seat must check in; one that does not never booted")
     s.add_argument("--only", help="comma-separated agent names to launch (stages: e.g. --only judge-ux,judge-parity)")
     s.add_argument("--dry-run", action="store_true", help="print the command each seat would start with, open nothing")
@@ -926,7 +1000,7 @@ def build_parser():
         "is the body's first line (`seed-refusal: <seat> <sha256[:12] of reason>`), and the scan\n"
         "and the append share one lock hold.",
         "example:\n"
-        "  coordinate --as ignite-daemon surface-refusal audio-component-smith --reason \"...\" --json\n"
+        "  supervise --as ignite-daemon surface-refusal audio-component-smith --reason \"...\" --json\n"
         "next: nothing by hand — the daemon's seeding pass calls this; read the row with "
         "coordinate read — the cage envelope is fixed at plan time now, so a refusal here is a "
         "planning fix, not a runtime widen")
@@ -946,7 +1020,7 @@ def build_parser():
         "successor was already placed) and the seat is NOT dead; `no-successor` means nothing is\n"
         "coming and the seat's records mean what they say.",
         "example:\n"
-        "  coordinate --package <goal-folder> renewal-state <seat> --json\n"
+        "  supervise --package <goal-folder> renewal-state <seat> --json\n"
         "next: nothing by hand — the engine's exit decision consumes this; a human reads the "
         "same fact in `status`'s lifecycle block")
     s.add_argument("seat", help="the seat whose renewal is being asked about")
@@ -970,7 +1044,7 @@ def build_parser():
         "who has unread mail; a bare payload with no non-terminal row would strand the seat on its\n"
         "STALE SEED with nothing to bring it back.",
         "example:\n"
-        "  coordinate route-fail \"the contract in step 3 contradicts step 1\" --go\n"
+        "  supervise route-fail \"the contract in step 3 contradicts step 1\" --go\n"
         "next: coordinate read — the routed seat relaunches on the next seeding pass")
     s.add_argument("message", nargs="?",
                    help="the fail, quoted. Anything with "
@@ -987,7 +1061,7 @@ def build_parser():
         "you are about to close.",
         "example:\n"
         "  coordinate export-transcript builder --label milestone2\n"
-        "next: coordinate close-seat builder — once the memory.md this seat owes is written")
+        "next: supervise close-seat builder — once the memory.md this seat owes is written")
     s.add_argument("target", help="the TARGET seat whose pane is captured (the seat acted on, not the caller)")
     s.add_argument("--label", default="", help="optional filename suffix, e.g. 'milestone2'")
     s.set_defaults(func=cmd_export_transcript)
@@ -998,7 +1072,7 @@ def build_parser():
         "--renew relaunch it fresh. Only the daemon or leader runs this, directly, on a seat\n"
         "that is finished, near its context limit, or a dead pane needing cleanup.",
         "example:\n"
-        "  coordinate close-seat builder --renew\n"
+        "  supervise close-seat builder --renew\n"
         "next: coordinate workers — confirm the seat is gone (or back, with --renew)")
     s.add_argument("target", help="the TARGET seat being closed (the seat acted on, never the caller's own name)")
     s.add_argument("--renew", action="store_true", help="relaunch the seat fresh after killing it")
@@ -1064,8 +1138,8 @@ def build_parser():
         f"{REAP_MIN_PASS_GAP_MIN}min apart — one reading is a snapshot, two is a trend.\n"
         "Reaping frees the PANE only; each seat still owes a close-seat afterwards.",
         "example:\n"
-        "  coordinate reap            # observe and confirm, kill nothing\n"
-        "  coordinate reap --go       # free the panes already confirmed READY\n"
+        "  supervise reap            # observe and confirm, kill nothing\n"
+        "  supervise reap --go       # free the panes already confirmed READY\n"
         "next: coordinate workers — the debt is listed there until close-seat settles it")
     s.add_argument("--go", action="store_true",
                    help="actually free the confirmed panes (without it, reap only observes)")
@@ -1082,7 +1156,7 @@ def build_parser():
         "belongs to a seat carrying `relays:` (a human-contact door). Refuses, escapable with\n"
         "--force, if the pane's row is still roster-ACTIVE (not roster-done).",
         "example:\n"
-        "  coordinate kill-pane %482\n"
+        "  supervise kill-pane %482\n"
         "next: coordinate workers -- confirm the pane is gone; the seat still owes a close-seat")
     # dest is `pane_id`, NEVER `pane` -- `args.pane` is reserved: resolve_agent()/detect_pane()
     # read it as an override for the CALLING pane (the same attribute `checkin --pane` sets), so a
@@ -1108,8 +1182,8 @@ def build_parser():
         "Sends the ONE signal it was asked for and then VERIFIES from /proc; a SIGTERM that does\n"
         "not take is reported and exits non-zero, never silently escalated to SIGKILL.",
         "example:\n"
-        "  coordinate terminate-pid 1302382 --reason \"stray watch.py loop, G-303 case 2\"\n"
-        "  coordinate terminate-pid 1302382 --starttime 884118 --reason \"...\"   # pid-reuse guard\n"
+        "  supervise terminate-pid 1302382 --reason \"stray watch.py loop, G-303 case 2\"\n"
+        "  supervise terminate-pid 1302382 --starttime 884118 --reason \"...\"   # pid-reuse guard\n"
         "next: coordinate read -- the authorization and its outcome are on the log for the audit")
     s.add_argument("pid", type=int,
                    help="the pid to terminate -- NAMED, never inherited: there is no 'current "
@@ -1147,7 +1221,7 @@ def build_parser():
         "stopgap, restoring the memory floor, check_bindings (G-51), and the roster/session-\n"
         "trace writes that stopgap skipped.",
         "example:\n"
-        "  coordinate relaunch-pane owner-liaison %501\n"
+        "  supervise relaunch-pane owner-liaison %501\n"
         "next: coordinate workers -- confirm the seat checked back in on the SAME pane")
     s.add_argument("target", help="the TARGET seat to relaunch (the seat acted on)")
     s.add_argument("pane_id", metavar="pane",
@@ -1168,7 +1242,7 @@ def build_parser():
         "registered pane, then echo the pane tail so you can verify what happened. Inspect the\n"
         "pane and DECIDE first — this only presses the button.",
         "example:\n"
-        "  coordinate approve builder --keys 2\n"
+        "  supervise approve builder --keys 2\n"
         "next: run it again if the echoed tail still shows the prompt")
     s.add_argument("target", help="the TARGET seat whose pane is showing the prompt (the seat acted on)")
     s.add_argument("--keys", default="", help="literal keys before Enter (e.g. 1, 2, 3, n); empty = Enter only")
@@ -1182,7 +1256,7 @@ def build_parser():
         "overview pane is already open.",
         "example:\n"
         "  coordinate panel\n"
-        "next: coordinate launch — the strip tracks the seats it opens")
+        "next: supervise launch — the strip tracks the seats it opens")
     add_identity_flags(s)
     s.set_defaults(func=cmd_panel)
 
@@ -1242,7 +1316,7 @@ def build_parser():
         "folder, cwd, orphans both directions, duplicate names, binding divergence. Opens no\n"
         "briefing body — fields and paths only — so no seat's instructions reach the caller.",
         "example:\n"
-        "  coordinate descriptors\n"
+        "  supervise descriptors\n"
         "next: nothing — findings are reported to whoever owns seats/, never fixed here")
     s.set_defaults(func=launch.cmd_descriptors)
 
@@ -1257,9 +1331,9 @@ def build_parser():
         "that died declaring nothing is `failed` with a mandatory reason class. This door stamps\n"
         "nothing of its own [spec-supervisor §3]. BARE = report only.",
         "example:\n"
-        "  coordinate attest-exit                    # report every candidate, write nothing\n"
-        "  coordinate attest-exit --seat oc2 --go    # act on one\n"
-        "next: coordinate ready-seats — a `failed` row advances no edge until the leader "
+        "  supervise attest-exit                    # report every candidate, write nothing\n"
+        "  supervise attest-exit --seat oc2 --go    # act on one\n"
+        "next: supervise ready-seats — a `failed` row advances no edge until the leader "
         "relaunches the seat")
     s.add_argument("--seat", help="one seat to consider; default is every roster_absent candidate")
     # ── W1, THE DAEMON-LANE ARM. `--session` is the ROW KEY and never a filter: it selects the one
@@ -1344,10 +1418,10 @@ def build_parser():
         "\n"
         "READ-ONLY: launches nothing, writes nothing, messages nobody.",
         "example:\n"
-        "  coordinate ready-seats\n"
-        "  coordinate ready-seats --json\n"
-        "  coordinate ready-seats --explain execution-strategist\n"
-        "next: launch what it reports READY — `coordinate launch --only <seat>`")
+        "  supervise ready-seats\n"
+        "  supervise ready-seats --json\n"
+        "  supervise ready-seats --explain execution-strategist\n"
+        "next: launch what it reports READY — `supervise launch --only <seat>`")
     s.add_argument("--json", action="store_true",
                    help="the same rows as JSON, each carrying its verdict, reason, disposition, "
                         "source and `seed` (the resolved absolute paths of the declared outputs "
@@ -1377,7 +1451,7 @@ def build_parser():
         "defect this verb exists to close. READ-ONLY on the package: composes and prints, opens\n"
         "no pane, writes no prompt file, wakes nobody.",
         "example:\n"
-        "  coordinate --package /abs/path/to/goal boot-prompt plan-interviewer\n"
+        "  supervise --package /abs/path/to/goal boot-prompt plan-interviewer\n"
         "next: the caller launches that seat with these bytes as its prompt — this verb never does")
     s.add_argument("seat", metavar="SEAT",
                    help="the TARGET seat whose boot prompt to print, as in its descriptor's "
@@ -1460,7 +1534,7 @@ def build_parser():
         "ALL ARGV, NOTHING FROM THE ENVIRONMENT — it scrubs TMUX/TMUX_PANE/COORD_AGENT/\n"
         "COORD_LAUNCH_TARGET at entry and refuses rather than guessing a tmux target.",
         "example:\n"
-        "  python3 coord.py lifecycle-exec --package /abs/run-3 --seat engineer \\\n"
+        "  python3 supervise.py lifecycle-exec --package /abs/run-3 --seat engineer \\\n"
         "      --disposition close --pane %37 --tmux-target %37 \\\n"
         "      --caller-pid 41190 --caller-starttime 884118\n"
         "next: nothing by hand — read the seat's marker through `coordinate status`, which names "
@@ -1566,7 +1640,7 @@ def assert_argv_body_shell_safe(args):
             f"sent as typed.",
             1)
 
-def main():
+def main(door=COORDINATION_DOOR):
     # S-4(b): only a real CLI invocation had its argv parsed by a shell. watch.py and the
     # daemon jobs call cmd_send() IN-PROCESS with a Namespace — no argv, no shell, never
     # exposed — and must not pay for a hazard they cannot have. This flag is the difference,
@@ -1574,7 +1648,7 @@ def main():
     # caller started from a shell has a shell parent too and would otherwise be caught.
     global CLI_INVOCATION
     CLI_INVOCATION = True
-    args = build_parser().parse_args()
+    args = build_parser(door).parse_args()
     set_pretty(args)
     # S-4(b)/G-101 — argv provenance is a property of the INVOCATION, so it is judged here,
     # at the boundary, and never inside a function that also serves synthetic callers.

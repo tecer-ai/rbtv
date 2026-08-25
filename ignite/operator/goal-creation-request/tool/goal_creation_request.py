@@ -698,7 +698,9 @@ def launch(package, only=None, dry_run=False):
     This handler INVOKES the launcher; it does not reimplement it, and it opens no pane itself. The
     role gate on that command is the launcher's, and it stays the launcher's.
     """
-    cmd = ["coordinate", "--package", str(package), "launch"]
+    # `launch` sits on the SUPERVISION door since the 2026-08-25 entry-point split — it is
+    # the launch composer, not a seat-facing act. `coordinate` refuses it by name.
+    cmd = ["supervise", "--package", str(package), "launch"]
     if only:
         cmd += ["--only", only]
     if dry_run:

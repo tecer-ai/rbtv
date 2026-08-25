@@ -427,7 +427,7 @@ def check_bindings(args, workers, command):
 
     7.99, measured by dag-05: this loop used to compare only the rows that EXIST, so a seat whose
     registry row was lost — a crash between materialize's two steps, a hand-deletion — passed the
-    binding check by having nothing to check. `coordinate descriptors` names that half-state
+    binding check by having nothing to check. `supervise descriptors` names that half-state
     (`no-registry-row`) and gates NOTHING, so the launch went through unbound. A MISSING row is not
     a weaker divergence, it is the absence of the record the check exists to compare against; the
     registry being non-empty is what makes the absence a defect rather than a legacy package.
@@ -1495,7 +1495,7 @@ def cmd_session_open(args):
 # enqueues for a watcher relaunch. The daemon then composes the cage (`server/spawn/spawn.js`:
 # `composeCageFor` + `buildBwrapArgv`, the real `seat.md` descriptor) and — because a caged caller
 # cannot compose it — the boot prompt (`server/ticker/ticker.js#launchAgent` asks
-# `supervisor/seeding.js#seatBootPrompt`, i.e. `coordinate boot-prompt --lane daemon`, at dispatch),
+# `supervisor/seeding.js#seatBootPrompt`, i.e. `supervise boot-prompt --lane daemon`, at dispatch),
 # and opens the seat's `sessions.csv` row at dispatch exactly as for every watcher relaunch. One
 # composer per lane; no second copy of the cage; no second Python writer into `heart.db` (the
 # gateway IS the daemon's single writer — the hazard `--reopen`'s wall names).

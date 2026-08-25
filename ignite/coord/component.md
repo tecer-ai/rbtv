@@ -28,8 +28,8 @@ is alive (`supervisor/`), what an ending means (`state-store/`), what an alarm s
 
 | Part | File | What it is |
 |---|---|---|
-| the CLI entry | `coord.py` | The `coordinate` front door and the thin re-export shim: constants, the shared namespace, and the `SPLIT_MODULES` load |
-| split modules | `addressing.py`, `outputs.py`, `tmux.py`, `records.py`, `identity.py`, `checkout.py`, `messages.py`, `closeout.py`, `cli_main.py` | Bodies moved verbatim out of `coord.py` by the move-only split [D23, T4-R12]; one shared runtime namespace, never separate imports |
+| the CLI entry | `coord.py` | The `coordinate` front door — the AGENT half of the entry point (owner ruling 2026-08-25): check in, check out, message, read, the goal's record, groups, identity. Also the kit's one namespace: constants, the `SPLIT_MODULES` load, the six imported `supervisor/` modules, and the §3 re-export shim external callers read moved names off. The daemon's and a leader's remedial surface is the OTHER door, `supervisor/supervise.py` |
+| split modules | `addressing.py`, `outputs.py`, `tmux.py`, `records.py`, `identity.py`, `checkout.py`, `messages.py`, `closeout.py`, `cli_main.py` | Bodies moved verbatim out of `coord.py` by the move-only split [D23, T4-R12]; one shared runtime namespace, never separate imports. ⚠ A NEW FILE HERE MUST BE ADDED TO `SPLIT_MODULES` and to `PRODUCT_ORDER`, nothing else. A supervision name they read is spelled `<module>.NAME` — never through `coord.py`'s re-export alias, which is a snapshot a selftest stub can never reach |
 | kit doors onto other components | `ending_store.py`, `supervisor_door.py`, `liveness.py`, `gateway_client.py` | Thin Python doors onto `state-store/`, `supervisor/` and the gateway — no second implementation of either |
 | shipped tools | `file-issue.py`, `floor-lint.py`, `owed-answers.py`, `worktree-flow.py`, `save-coord.py`, `budget.py`, `overview-compact.py`, `provider-usage.py`, `statusline-usage.py`, `tmux-overview` | The kit's first-party CLIs; each is an `exposure.csv` `method=path` row |
 | injection ladder | `injection-ladder/` | The ONE per-harness injection ladder (CMP-9) the spawn path resolves a rung through |
@@ -46,13 +46,11 @@ The former `ignite/coord/` whole, plus `ignite/coord/injection-ladder/` and `ign
 with history per `spec-component-map` §2. Two files left the kit in the same move:
 `cagespec.py` to `envelope/` and the intact `materialize-seats.py` to `planning/`.
 
-⚠ The six §3 modules whose named landing is `supervisor/` (`process`, `lifecycle_exec`,
-`ready`, `launch`, `attest`, `carrier`) are still here. `coord.py` **execs its
-`SPLIT_MODULES` siblings out of its own directory** into one shared namespace, and two
-probes derive their file list the same flat way, so moving those six would require
-redesigning the loader rather than re-pointing a caller. That is a spec-vs-disk conflict
-recorded for a ruling, not a silent decision — see the seat report for
-`impl-structure-moves-py`.
+The six §3 modules whose named landing is `supervisor/` (`process`, `lifecycle_exec`,
+`ready`, `launch`, `attest`, `carrier`) LEFT for it on 2026-08-25, with history, when the
+owner ruled the loader be redesigned to permit it. They are real modules there now,
+imported rather than `exec`d; the recorded spec-vs-disk conflict is closed. What crosses
+the seam and how is `supervisor/component.md`'s subject.
 
 ## Ledger custody (D3, 2026-08-19)
 

@@ -41,7 +41,8 @@ census paths are pre-migration and have drifted.
 | `rbtv-master-profile` | `ignite/operator/master-profile/tool/rbtv-master-profile` | agent-facing |
 | `rbtv-seat-identity` | `ignite/runtime/seat-identity/rbtv-seat-identity` | agent-facing |
 | `rbtv-ignite-watchdog` | `ignite/observation/daemon-watchdog/tool/rbtv-ignite-watchdog` | internal-daemon |
-| `coordinate` | `ignite/coord/coord.py` | agent-facing |
+| `coordinate` | `ignite/coord/coord.py` | agent-facing — the seat-facing half of the split front door (check in, check out, message, records, groups) |
+| `supervise` | `ignite/supervisor/supervise.py` | **dual** — `owner-console` for a leader's remedial acts, `internal-daemon` for `lifecycle-exec` / `renewal-state` / `surface-refusal`, which no seat ever types. The other half of the `coordinate` entry point, split by AUDIENCE on owner ruling 2026-08-25 |
 | `owed-answers` | `ignite/coord/owed-answers.py` | agent-facing |
 | `materialize-seats` | `ignite/planning/materialize-seats.py` | agent-facing |
 | `scaffold-seats` (alias of the row above) | `ignite/planning/materialize-seats.py` | agent-facing |

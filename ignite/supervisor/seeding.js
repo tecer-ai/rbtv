@@ -154,7 +154,10 @@ function readCsv(file) {
 // ponytail: one python invocation per daemon-assigned goal per cadence. At the current scale that
 // is noise; if it stops being noise, batch the VERB (`ready-seats` over N packages) — never
 // reintroduce a JS reader.
-const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
+// ⚠ THE SUPERVISION DOOR, NOT `coordinate`. The entry point split by AUDIENCE on 2026-08-25:
+// `ready-seats`, `renewal-state` and `boot-prompt` are the daemon's surface and live on
+// `supervise`, which sits beside this file. `coord.py` refuses them by name.
+const SUPERVISE_PY = path.join(__dirname, 'supervise.py');
 const COORD_TIMEOUT_MS = 60000;
 // Lane-watch cadence is ~10 s and a fire follows its queue row within one tick, so 60 s is
 // comfortably past "one full cadence" while the real thresholding is left to the alarm's
@@ -167,7 +170,7 @@ function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows
   if (!rows) {
     let raw;
     try {
-      raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'ready-seats', '--json'], {
+      raw = execFileSync(requirePythonCmd(), [SUPERVISE_PY, '--package', goalFolder, 'ready-seats', '--json'], {
         encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch (err) {
@@ -197,7 +200,7 @@ function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows
 function renewalState(goalFolder, seat) {
   let raw;
   try {
-    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'renewal-state', seat, '--json'], {
+    raw = execFileSync(requirePythonCmd(), [SUPERVISE_PY, '--package', goalFolder, 'renewal-state', seat, '--json'], {
       encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch { return null; }
@@ -282,7 +285,7 @@ function seatBootPrompt(goalFolder, seat) {
   try { lane = require('./lane-watch').readLane(goalFolder).lane; } catch { /* console, fail-closed */ }
   let raw;
   try {
-    raw = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder, 'boot-prompt', seat, '--lane', lane], {
+    raw = execFileSync(requirePythonCmd(), [SUPERVISE_PY, '--package', goalFolder, 'boot-prompt', seat, '--lane', lane], {
       encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (err) {
@@ -644,7 +647,7 @@ function seatState(row, byJob, queued, opts = {}) {
 // verdict: a surfacing failure must not change whether the seat is enqueued.
 function surfaceCageRefusal(goalFolder, seat, refusal, logger) {
   try {
-    const out = execFileSync(requirePythonCmd(), [COORD_PY, '--package', goalFolder,
+    const out = execFileSync(requirePythonCmd(), [SUPERVISE_PY, '--package', goalFolder,
       '--as', 'ignite-daemon', 'surface-refusal', seat, '--reason', refusal, '--json'],
     { encoding: 'utf8', timeout: COORD_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     const res = JSON.parse(out);

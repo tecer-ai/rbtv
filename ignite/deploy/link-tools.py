@@ -31,6 +31,9 @@ IGNITE = pathlib.Path(__file__).resolve().parent.parent
 # spec-component-map: the kit is `coord/` and the materializer landed in `planning/`.
 TOOLS = {
     "coordinate": "coord/coord.py",
+    # The other half of the entry point, split by AUDIENCE (owner ruling 2026-08-25):
+    # the daemon's and a leader's remedial surface. `coordinate` is the seat-facing half.
+    "supervise": "supervisor/supervise.py",
     "scaffold-seats": "planning/materialize-seats.py",
     "owed-answers": "coord/owed-answers.py",
     "tmux-overview": "coord/tmux-overview",
