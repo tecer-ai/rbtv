@@ -16,11 +16,11 @@ The knob is now the channel master's own CASTING SHEET —
 `effort` triple of its one seat. The master is cast exactly like every other seat; what makes it
 special is only that it is the seat allowed to re-cast ITSELF. `materialize-seats.py --repass`
 re-renders `seat.md` from the sheet, and every launch door resolves the cast from that descriptor
-(`launch-profiles/catalog.js#specForSeatCast`, read fresh per message), so the change lands on the
+(`supervisor/launch-profiles/catalog.js#specForSeatCast`, read fresh per message), so the change lands on the
 owner's next word.
 
 The AGENT-FACING unit is still a spawn-profile NAME from `profiles:` in
-`ignite/config/spawn-profiles.yaml` — one profile IS one harness+model pair
+`ignite/envelope/spawn-profiles.yaml` — one profile IS one harness+model pair
 (`r-seats-only-architecture`), so a name is a complete cast and the requester keeps the one
 vocabulary `show` prints. The name is resolved to its pair and validated at BOTH halves: an
 unknown or uncastable name does not fail at the sheet, it fails at the SPAWN, one owner message
@@ -159,8 +159,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 _IGNITE = Path(__file__).resolve().parents[3]
-DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
-TEAM_KIT = _IGNITE / "team-kit"      # `coord.py` — the ONE allocator of bus message ids
+DEFAULT_PROFILES = _IGNITE / "envelope" / "spawn-profiles.yaml"
+TEAM_KIT = _IGNITE / "coord"      # `coord.py` — the ONE allocator of bus message ids
 MATERIALIZE = TEAM_KIT / "materialize-seats.py"      # the ONE re-render, never a second renderer
 # The workspace root is the folder that roots `.rbtv/` — <workspace>/3-resources/tools/rbtv/ignite
 _WORKSPACE = _IGNITE.parents[3]
@@ -209,10 +209,10 @@ REFUSED_DIR = "refused"
 #
 # The direction is bindings ← master-profile, and it is acyclic: `bindings` imports nothing from
 # here, and its ONE cross-tool import (`coord.py#validate_seat`) is function-scoped and lazy, so
-# importing it here does not drag `team-kit/` in. Enforced as OBJECT IDENTITY by
+# importing it here does not drag `coord/` in. Enforced as OBJECT IDENTITY by
 # `probes/probe-master-profile.py`, not as value equality — equality is what two drifting copies
 # report right up until they drift.
-_BINDINGS_TOOL = str(_IGNITE / "capabilities" / "bindings" / "tool")
+_BINDINGS_TOOL = str(_IGNITE / "operator" / "bindings" / "tool")
 if _BINDINGS_TOOL not in sys.path:
     sys.path.insert(0, _BINDINGS_TOOL)
 from bindings import (                                    # noqa: E402
@@ -370,7 +370,7 @@ def read_value(bindings=DEFAULT_BINDINGS, seat=DEFAULT_SEAT, profiles_path=DEFAU
     else:
         where = (f"{bindings} — the `harness`/`model`/`effort` of seat `{seat}`, rendered into "
                  f"{seat}'s `seat.md` by `materialize-seats.py --repass` and resolved at every "
-                 f"launch door by `launch-profiles/catalog.js#specForSeatCast`. Read per launch, "
+                 f"launch door by `supervisor/launch-profiles/catalog.js#specForSeatCast`. Read per launch, "
                  f"never boot-cached: a change lands on the owner's next message.")
     return {"pair": pair, "harness": harness, "model": model, "effort": effort,
             "rung": rung, "bindings": str(bindings), "seat": seat, "where": where}

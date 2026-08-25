@@ -1,6 +1,6 @@
 'use strict';
 
-// ignite/injection-ladder — THE one per-harness injection ladder (CMP-9).
+// ignite/coord/injection-ladder — THE one per-harness injection ladder (CMP-9).
 //
 // Task 7.45; registry decisions.md#d-injection-ladder-shared + #d-profile-source-unification.
 // Three consumers read this module and no other (CMP-9 § Interface (1)):

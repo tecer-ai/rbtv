@@ -14,7 +14,7 @@
 //
 // THE DISCRIMINATING PAIR, and why it is the point: a probe that only asserts the frozen case would
 // pass on code that alarms unconditionally. Both fixtures are real seats that coord (the real
-// `team-kit/coord.py`, not a stub) rules on for real:
+// `coord/coord.py`, not a stub) rules on for real:
 //   FROZEN  — `onlyseat`'s `after` names `missing-dep`, a REAL row (D16, dag-hardening, forbids a
 //             dangling reference) whose own session ENDED with no declared disposition — it exists
 //             as a seat but never checked out. coord rules `missing-dep` UNDECLARED (concluded, not
@@ -106,7 +106,7 @@ function fixture(hasAfter) {
     + `tf,onlyseat,missing-dep,bash,probe-frozen,high,35,\n`);
   const cols = require('node:child_process').execFileSync(requirePythonCmd(),
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+      path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
   const now = new Date().toISOString();
   const row = { 'session-id': 'sess-missing-dep', seat: 'missing-dep', harness: 'bash',
     workdir: path.join(goalFolder, 'seats', 'missing-dep'), started: now, ended: now };
@@ -253,7 +253,7 @@ function fixtureDead(withPending) {
     + 'struct,planning-mode,collapsed,probe,struct,2026-08-19T00:00:00Z\n');
   const cols = require('node:child_process').execFileSync(requirePythonCmd(),
     ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-      path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+      path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
   const now = new Date().toISOString();
   const sess = [{ 'session-id': 'sess-struct', seat: 'struct', harness: 'bash',
     workdir: path.join(goalFolder, 'seats', 'struct'), started: now, ended: now,
@@ -374,7 +374,7 @@ function fixtureIdle(withPending) {
   if (withPending) {
     const cols = require('node:child_process').execFileSync(requirePythonCmd(),
       ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-        path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim().split(',');
+        path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim().split(',');
     const now = new Date().toISOString();
     const sess = [{ 'session-id': 'sess-undeclared-dep', seat: 'undeclared-dep', harness: 'bash',
       workdir: path.join(goalFolder, 'seats', 'undeclared-dep'), started: now, ended: now }];

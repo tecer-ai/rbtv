@@ -155,7 +155,7 @@ SID_PANE_PREFIX = "sid:"
 # exact drift the one-schema-owner rule exists to prevent.
 #
 # WHAT WRITES IT: this kit's own `session_open` (from the roster row's cast), and the daemon's two
-# launch doors — `server/spawn/spawn.js` and `engine/attached-execution.js` — which read it off
+# launch doors — `supervisor/spawn/spawn.js` and `operator/attached-execution.js` — which read it off
 # the RESOLVED launch profile's own `--model` pin. Both write the model that ACTUALLY launched,
 # never the one a seat was cast as: the point of the column is that a divergence between the two
 # becomes visible in the seat's own trace instead of only in the system journal (design proposal
@@ -549,7 +549,7 @@ def pad_row(row, header):
 # one home; one home with two language bindings costs one subprocess per ask, at a 30-second
 # cadence, and buys a predicate that cannot fork.
 
-LEASE_JS = Path(__file__).resolve().parent.parent / "server" / "lease" / "lease.js"
+LEASE_JS = Path(__file__).resolve().parent.parent / "runtime" / "lease" / "lease.js"
 
 
 def derive_lease(goal):
@@ -942,7 +942,7 @@ def session_open(args, w, since=None, wait=None, pane=None, session_id=None, rec
     # 7.96: the per-session scratchpad, created HERE — the one place a session-id is minted, so
     # every door that opens a session row (launch, `close-seat --renew`, `cmd_session_open`) gets
     # it with no second call site to forget. Parity with the daemon's spawn path, which already
-    # does this (`server/spawn/spawn.js`). `exist_ok`: a re-run against an existing id is not an
+    # does this (`supervisor/spawn/spawn.js`). `exist_ok`: a re-run against an existing id is not an
     # error, and this is created BEFORE the seat is told the id at its check-in, so the folder the
     # instruction names always exists by the time the seat reads it.
     scratch = seat_scratchpad(w.get("folder"), sid)
@@ -1326,7 +1326,7 @@ REORIENT_NUDGE = ("You were RESUMED after your session's process died — this i
                   "lost with the process (recovery, not survival) — re-derive it, never assume it "
                   "landed.")
 
-# The harness's OWN resume vocabulary. Keyed to `ignite/config/spawn-profiles.yaml`'s
+# The harness's OWN resume vocabulary. Keyed to `ignite/envelope/spawn-profiles.yaml`'s
 # `session_ref:` source for each harness, verified against the installed CLIs 2026-08-05:
 #   claude   `session_ref: {source: stdout-json, field: session_id}`        -> `--resume <id>`
 #   codex    `session_ref: {source: stdout-json-event, field: thread_id}`   -> `resume <id>`

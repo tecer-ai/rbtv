@@ -161,7 +161,7 @@ capture('probe-envelope-walls', async (lines) => {
     // exposed CLI (code tree overlapping nothing at a different access) admits, and a CLI whose
     // code tree lands ro inside an opening the envelope holds rw still refuses. The second arm is
     // what says this is a carve, not a disabled check.
-    const cliCode = path.join(rbtvRepo, 'ignite', 'team-kit');
+    const cliCode = path.join(rbtvRepo, 'ignite', 'coord');
     fs.mkdirSync(cliCode, { recursive: true });
     const sourcesFor = (codeDir) => [
       ...(punched.binds || []).map((b) => ({

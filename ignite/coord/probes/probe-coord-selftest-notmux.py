@@ -3,7 +3,7 @@
 
 WHAT THIS ENFORCES. `coord.py` is re-read by every seat on every invocation and has no fallback, and
 its selftest went green for the FIRST time on 2026-08-10 (8fe4fb8). Nothing then kept it green:
-`team-kit/CLAUDE.md` tells an author to run it after saving, and a rule nothing executes is a hope.
+`coord/CLAUDE.md` tells an author to run it after saving, and a rule nothing executes is a hope.
 This probe is the execution — auto-discovered by `deploy/probe-suite.js`, so the VPS's hourly suite
 enforces the baseline within the hour of any `coord.py` change, from ANY harness.
 

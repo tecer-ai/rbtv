@@ -46,7 +46,7 @@ DISCLOSED SUBSTITUTIONS AND SKIPS (R-6 — an unrun arm reported as absent is th
   * Part 2 row 6 drives the REAL `cmd_lifecycle_exec` — all five entry guards, then
     `run_lifecycle_sequence` — on a throwaway package, disposition `close`, no pane.
 
-RUN IT:  cd <repo>/ignite/team-kit   # this file's parent directory
+RUN IT:  cd <repo>/ignite/coord   # this file's parent directory
          python3 probes/probe-lifecycle-idents.py
 
 Exit 0 = every arm passed. Exit 1 = a property is broken. Exit 2 = the probe could not run (never
@@ -57,7 +57,7 @@ Runtime ~25s: the settle wait is exercised at its REAL budget (LIFECYCLE_SETTLE_
 """
 
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import ast

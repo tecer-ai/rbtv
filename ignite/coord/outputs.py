@@ -8,7 +8,7 @@ from pathlib import Path
 # ---- D3 (2026-08-18): THE ONE DECLARED-OUTPUTS RESOLVER ----------------------------------------
 # The io-spec `## Outputs` block in the seat.md BODY is the single declared-outputs surface.
 # Two readers consume it: this function (D4 seed computation + 7.676 done-contract grading) and
-# `engine/cage-admission.js#parseDeclaredOutputs` (the caged-launch admission gate). They are TWO
+# `envelope/cage-admission.js#parseDeclaredOutputs` (the caged-launch admission gate). They are TWO
 # PARSERS OF ONE GRAMMAR, deliberately — a cross-language subprocess call would put node on
 # coord.py's runtime path (probes and caged runs execute without it) and a per-checkout process
 # spawn on the hot path — held equivalent by ONE shared fixture set,
@@ -37,7 +37,7 @@ _IOSPEC_PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
 # ⚠ SCHEMA POSITION ONLY, deliberately: the word `chat` occurs in ordinary output prose all over
 # this catalog ("...posted to the chat bridge"), and matching it loose would silently exempt real
 # file producers. The bullet must OPEN with it — `- Schema: chat …`.
-# Mirrored in `engine/cage-admission.js#CHAT_SCHEMA` and pinned by the shared fixture set.
+# Mirrored in `envelope/cage-admission.js#CHAT_SCHEMA` and pinned by the shared fixture set.
 _IOSPEC_CHAT = re.compile(r"^[ \t]*[-*][ \t]*\**Schema:?\**:?[ \t]*`?chat`?\b",
                           re.MULTILINE)
 

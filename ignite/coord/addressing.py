@@ -26,8 +26,8 @@ from pathlib import Path
 # The rule above says WHERE an address is legal. This one says the agent does not pick an address
 # at all for two types: it emits a TYPED message to the reserved token `auto` and the SYSTEM routes
 # it. The owner's reason is the whole of it — communication is complex, and no agent should have to
-# discover who to contact — so the table is encoded HERE, once, and in `team-kit/communication.md`
-# §4 + `team-kit/roles.md`. It is NEVER written into an agent prompt.
+# discover who to contact — so the table is encoded HERE, once, and in `coord/communication.md`
+# §4 + `coord/roles.md`. It is NEVER written into an agent prompt.
 #
 #   type     sender                                       -> resolved recipient
 #   ------   ------------------------------------------   -------------------------------------
@@ -190,7 +190,7 @@ FM_KEY = {
     "mode": re.compile(r"^mode:\s*(\S+)\s*$", re.MULTILINE),
     # 7.676 -> D3 (unblock-goals-plan, 2026-08-18): RETIRED. Declared outputs live in ONE
     # surface — the seat.md BODY's io-spec `## Outputs` block, read by `iospec_outputs` (the
-    # shared resolver, held equivalent to `engine/cage-admission.js#parseDeclaredOutputs` by
+    # shared resolver, held equivalent to `envelope/cage-admission.js#parseDeclaredOutputs` by
     # `outputs-resolver-fixtures.json`). This regex survives ONLY as the retirement TRIPWIRE:
     # a descriptor still carrying the key is refused LOUDLY (`_fm_outputs_defect` ->
     # `declared_outputs` at check-out; materialize-seats.py at materialize) — never read as a
@@ -307,7 +307,7 @@ def _fm_fallback(fm):
 # drift this whole design deleted; the pin is the part that makes the mirror legitimate.
 #
 # SOURCE OF TRUTH, mirrored function for function:
-#   `engine/execution-record.js#askParkedAtGate`  → `ask_parked_at_gate`
+#   `supervisor/execution-record.js#askParkedAtGate`  → `ask_parked_at_gate`
 #   `bridges/chat/bus-ferry.js#goalExecutionMode` → `goal_execution_mode`   (rung 1 + the rejoin)
 #   `bridges/chat/bus-ferry.js#goalKindMode`      → `_goal_kind_mode`       (rung 2)
 #   `bridges/chat/bus-ferry.js#seatIsHumanInteractive` → `seat_is_human_interactive`

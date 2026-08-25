@@ -7,7 +7,7 @@ install.py). The materializer passes the workspace mirror and `rbtv.json`'s
 Hub discovery (`discover_hub`, D15) lives here because `scan_tree` calls it.
 
 This module deliberately sits BESIDE install.py rather than inside its `lib/`
-package: `ignite/team-kit/materialize-seats.py` imports it from this directory
+package: `ignite/planning/materialize-seats.py` imports it from this directory
 by bare name, so the path is a contract with another tool (D1).
 """
 from __future__ import annotations

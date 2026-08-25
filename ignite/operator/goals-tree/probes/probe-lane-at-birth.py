@@ -16,7 +16,7 @@ THE THREE PROPERTIES:
      — which then refuses its own re-creation as "already exists". The placement assertion is the
      one that can go red alone, and it is the point of the arm.
   2. THE WRITER AND THE READER AGREE. Arm C does not stop at "the marker says what I wrote": it
-     feeds the scaffolded folder to `engine/lane-watch.js#readLane` — the function the daemon's
+     feeds the scaffolded folder to `supervisor/lane-watch.js#readLane` — the function the daemon's
      watch pass actually uses — and asserts the lane it answers. A writer checked against itself
      proves the writer, never the grammar.
   3. ONE COMPOSER. Arm F scaffolds a goal `--lane daemon` and moves a second goal onto the same
@@ -31,7 +31,7 @@ THE THREE PROPERTIES:
 
 Arm G is DELETED (D12, 2026-08-20): `rbtv-goal relaunch` and the grant file it wrote are gone with
 the rest of the grant machinery. A seat comes back through the goal watcher's owed-work launch
-(`engine/reconcile.js`), which has no verb at this door.
+(`supervisor/reconcile.js`), which has no verb at this door.
 
 ⚠ THE GREEN AND RED ARMS DISCRIMINATE EACH OTHER. "It refused" is also what a tool that refuses
 everything produces (arms C, E, F require creation and exact bytes); "it accepted" is what a
@@ -52,7 +52,7 @@ for _v in ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET", "COORD_PAC
 
 HERE = Path(__file__).resolve().parent
 TOOL = HERE.parent / "tool" / "goal_cli.py"
-LANE_WATCH = HERE.parents[2] / "engine" / "lane-watch.js"
+LANE_WATCH = HERE.parents[2] / "supervisor" / "lane-watch.js"
 OUT = HERE / "probe-lane-at-birth.out"
 
 # The RETIRED flag, planted at both doors below. It carried the fallback launch profile until

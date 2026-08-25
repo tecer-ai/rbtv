@@ -113,7 +113,7 @@ def discover_workers(wdir):
             # with no `model:` used to be handed DEFAULT_MODEL and a seat with no `effort:` was
             # handed DEFAULT_EFFORT, so an UNCAST seat launched silently on somebody else's
             # choice and the record said otherwise. The daemon door already refuses exactly this
-            # (`launch-profiles/catalog.js`, `E_UNCAST_SEAT`: "declares no cast — `harness:` and
+            # (`supervisor/launch-profiles/catalog.js`, `E_UNCAST_SEAT`: "declares no cast — `harness:` and
             # `model:` must BOTH be present"); with the fallbacks gone, `validate_seat` refuses it
             # here too, on the rules that were already written. The CONSTANTS stay: `DEFAULT_EFFORT`
             # is the closer pane's OWN authored literal (see `closer` composition), which is a
@@ -462,13 +462,13 @@ CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
 OPENCODE_MODEL_RE = re.compile(r"[^/\s]+/[^/\s]+\Z")
 
 
-# ---------- the seat's cast -> its PROFILE'S OWN effort dial (config/spawn-profiles.yaml) --------
+# ---------- the seat's cast -> its PROFILE'S OWN effort dial (envelope/spawn-profiles.yaml) --------
 #
 # ⚑ THE FRAGMENT IS AUTHORED PER PROFILE, NEVER HERE. `--effort {w['effort']}` was hardcoded on the
 # claude branch of `harness_command` and nowhere else, so a codex seat (a real 3-rung ladder), a
 # kimi seat and all seven opencode seats launched with their declared effort SILENTLY DROPPED. The
-# daemon door composes the same thing from `effort.argv` in `config/spawn-profiles.yaml`
-# (`launch-profiles/profiles.js#resolveEffort`); this reads that same authored list, so the two
+# daemon door composes the same thing from `effort.argv` in `envelope/spawn-profiles.yaml`
+# (`supervisor/launch-profiles/profiles.js#resolveEffort`); this reads that same authored list, so the two
 # doors agree BY CONSTRUCTION and the next harness added to that file is honoured here with no code
 # change. `probe-bindings.py`'s both-doors sweep is what holds the two spellings together.
 #
@@ -482,7 +482,7 @@ OPENCODE_MODEL_RE = re.compile(r"[^/\s]+/[^/\s]+\Z")
 # document was keyed by an arbitrary name. `launch-specs:` is keyed by the pair, so the lookup is
 # now a two-level dict access and the law it re-implemented (harness = basename(argv[0]); model =
 # the token after the first `--model`/`-m`) exists in exactly one place: the daemon's config-LOAD
-# guard `launch-profiles/profiles.js#validateSpecKey`. The recursion hazard that forced the third
+# guard `supervisor/launch-profiles/profiles.js#validateSpecKey`. The recursion hazard that forced the third
 # copy — both siblings reach the answer only through a call that re-enters `validate_seat` — is
 # moot now that no call is needed at all.
 #
@@ -529,7 +529,7 @@ def _cast_effort(w):
     a binary. `validate_seat` refuses the off-ladder word one guard earlier; this returns nothing
     for it, so neither door can emit one."""
     try:
-        tool = Path(__file__).resolve().parents[1] / "capabilities" / "bindings" / "tool"
+        tool = Path(__file__).resolve().parents[1] / "operator" / "bindings" / "tool"
         if str(tool) not in sys.path:
             sys.path.append(str(tool))
         from bindings import DEFAULT_PROFILES
@@ -645,7 +645,7 @@ def harness_command(w, prompt=None, prompt_path=None):
         # and a seat folder's hooks.json is DERIVED — regenerated on every re-materialize —
         # so persisted trust re-breaks and the seat boots with its hooks SKIPPED, pending an
         # interactive `/hooks` review no agent performs. The daemon half of the ruling already
-        # carries it (config/spawn-profiles.yaml, `codex-gpt-5-5`); this is the kit half.
+        # carries it (envelope/spawn-profiles.yaml, `codex-gpt-5-5`); this is the kit half.
         # ⚠ SCOPE GUARD, CHECKED NOT ASSUMED: `harness_command` and `resume_command` are the
         # only two codex compositions in this file, and BOTH build agent-seat commands. The
         # flag rides agent seats ONLY — if a human-interactive codex composition is ever added
@@ -791,7 +791,7 @@ def boot_prompt(w, args, daemon_lane=False):
     # no second template, no per-seat snippet, no leftover "read conduct.md" line. Model policy
     # does not survive here: nothing enforced it.
     #
-    # ⚠ IT IS INSIDE THE CAGE. `config/spawn-profiles.yaml`'s `cage.SeatBinds` opens
+    # ⚠ IT IS INSIDE THE CAGE. `envelope/spawn-profiles.yaml`'s `cage.SeatBinds` opens
     # `ro-bind:{grant:readRoot}` — the whole workspace root, read-only, FIRST in the stack — and
     # the kit lives under it. `cage.js#composeAncestorMasks` cuts only `CLAUDE.md`/`AGENTS.md` and
     # the harness config dirs, and only on the walk-up from the seat's launch folder, which the kit
@@ -902,7 +902,7 @@ def cmd_boot_prompt(args):
     THE ONE COMPOSER, REACHED FROM OUTSIDE. `boot_prompt` above is what `launch_seat` boots every
     seat on, and it is the only place that knows the ephemeral/persistent split, the memory-file
     instruction, the leader's resume-first form and the scratchpad sentence. A LAUNCHER THAT IS NOT
-    `launch` — the daemon's seeding pass, `engine/seeding.js` — needs those same bytes, and until
+    `launch` — the daemon's seeding pass, `supervisor/seeding.js` — needs those same bytes, and until
     this verb existed it had no way to ask for them: its queue row carried `{profile, workdir}` and
     no `prompt` at all, so the spawn path wrote a 0-BYTE prompt file and the harness exited 1 on
     "Input must be provided either through stdin or as a prompt argument when using --print"
@@ -936,7 +936,7 @@ def cmd_boot_prompt(args):
                f"{package_dir(args, register=False)}",
                2)
     # ⚠ W1 (adv, C4) — THE LANE IS TOLD, NEVER DERIVED HERE. `execution-lane`'s grammar already
-    # has exactly two spellings that DEC-1 binds to change together (`engine/lane-watch.js#readLane`
+    # has exactly two spellings that DEC-1 binds to change together (`supervisor/lane-watch.js#readLane`
     # and `goals-tree/tool/goal_cli.py#read_lane`); a third one in this file would be a third thing
     # to keep in step for a one-bit answer the CALLER already holds. `seeding.js` reads the marker
     # through the existing JS speller and passes the result. Absent flag = the tmux lane = the
@@ -1453,12 +1453,12 @@ def cmd_session_open(args):
 # gated on, is gone [T2-R10, D24, F-simplicity-7] — `launch` is callable by any resolved identity
 # now.) What moves is the COMPOSER: on the daemon lane the admitted seats are handed
 # to the daemon's OWN spawn door — gateway intent `enqueue-job` on the seat's registered job
-# (`seat-<goal>-<seat>`, the id `engine/seeding.js#jobIdFor` registers at seeding), headless, the
-# canonical seat folder as workdir and NO prompt — the same row `engine/reconcile.js#launchSitting`
+# (`seat-<goal>-<seat>`, the id `supervisor/seeding.js#jobIdFor` registers at seeding), headless, the
+# canonical seat folder as workdir and NO prompt — the same row `supervisor/reconcile.js#launchSitting`
 # enqueues for a watcher relaunch. The daemon then composes the cage (`server/spawn/spawn.js`:
 # `composeCageFor` + `buildBwrapArgv`, the real `seat.md` descriptor) and — because a caged caller
 # cannot compose it — the boot prompt (`server/ticker/ticker.js#launchAgent` asks
-# `engine/seeding.js#seatBootPrompt`, i.e. `coordinate boot-prompt --lane daemon`, at dispatch),
+# `supervisor/seeding.js#seatBootPrompt`, i.e. `coordinate boot-prompt --lane daemon`, at dispatch),
 # and opens the seat's `sessions.csv` row at dispatch exactly as for every watcher relaunch. One
 # composer per lane; no second copy of the cage; no second Python writer into `heart.db` (the
 # gateway IS the daemon's single writer — the hazard `--reopen`'s wall names).
@@ -1475,7 +1475,7 @@ def cmd_session_open(args):
 # is no leader-only admission on `launch` anymore either [T2-R10, D24, F-simplicity-7] — the role
 # predicate that used to gate it here (`is_authorized_launcher`) is deleted.
 
-_GOAL_CLI_TOOL_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
+_GOAL_CLI_TOOL_DIR = Path(__file__).resolve().parent.parent / "operator" / "goals-tree" / "tool"
 
 
 def goal_execution_lane(pkg):
@@ -1513,7 +1513,7 @@ RERUN_ADMITTED_REASON_CLASSES = frozenset({"crash", "provider-error"})
 def daemon_lane_reason(door, why):
     """The admission brake's `reason` token for a leader-direct daemon-lane launch: the DOOR and the
     leader's own anchor/reason, folded to the door's token grammar (`^[a-z][a-z0-9_-]{0,63}$`,
-    gateway/parse.js). Per-anchor ON PURPOSE: the brake (heart-store.js, D52/D66) admits at most
+    runtime/gateway/parse.js). Per-anchor ON PURPOSE: the brake (heart-store.js, D52/D66) admits at most
     ADMISSION_BRAKE_LIMIT launches per (goal, seat, reason) with an unchanged signature, and this
     door's signature is the args bytes — constant per seat — so the anchor is what separates one
     investigation's budget from the next (D66's own `(goal, seat, reason)` shape, one token)."""
@@ -1592,7 +1592,7 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
                         "(the one file a seat cage never masks)")
             elif "unknown job" in str(msg):
                 hint = (f" — the daemon has no registered job `{job_id}` for this seat: this goal "
-                        f"was never seeded on the daemon lane (engine/seeding.js registers one per "
+                        f"was never seeded on the daemon lane (supervisor/seeding.js registers one per "
                         f"taskforce row on its first daemon pass)")
             print(f"  {label}: FAILED — the daemon's door refused the enqueue: "
                   f"{code or 'UNKNOWN'}: {msg}{hint}", file=sys.stderr)
@@ -2040,7 +2040,7 @@ def cmd_launch(args):
     # mail-cursor/disposition progress signals), so it can only OVER-brake relative to the full
     # ruling, never under-brake. A seat's DOWNSTREAM relaunches — the watcher picking up the new
     # sitting's own non-`done` ending — DO reach brief 07's queue-side brake normally: nothing in
-    # this block or in `engine/reconcile.js`/`engine/seeding.js` (untouched, per this seat's own
+    # this block or in `supervisor/reconcile.js`/`supervisor/seeding.js` (untouched, per this seat's own
     # scope wall) exempts a reopened row from that path.
     _reopen_raw = getattr(args, "reopen", None)
     _reopen_reason = (_reopen_raw or "").strip()
@@ -2269,7 +2269,7 @@ def cmd_launch(args):
     #                       set is CONSULTED here, never re-tested, so one act keeps one mechanism)
     #          or clause J  (no row joined — fail-OPEN where it is REACHED, and NAMED)
     # D12 (2026-08-20): clause I′ — the ruled-relaunch GRANT — is DELETED. A checked-out seat comes
-    # back through the goal watcher's owed-work launch (`engine/reconcile.js`), which enqueues
+    # back through the goal watcher's owed-work launch (`supervisor/reconcile.js`), which enqueues
     # directly and needs no authorization to mint, lose or latch.
     #          or the A–G conjunction over named row fields.
     #

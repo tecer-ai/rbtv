@@ -12,7 +12,7 @@ _HERE = Path(__file__).resolve().parent
 _SEATS_FILE = _HERE / "pipeline-seats.json"
 PLANNING_SEATS = tuple(json.loads(_SEATS_FILE.read_text(encoding="utf-8")))
 PLANNING_WORKFLOW = "plan-console"
-MATERIALIZE_PY = _HERE.parent / "team-kit" / "materialize-seats.py"
+MATERIALIZE_PY = _HERE / "materialize-seats.py"
 
 
 def planning_mint_argv(*, goal_folder, catalog_root, sheet, workflow=PLANNING_WORKFLOW):

@@ -34,7 +34,7 @@
 // name shapes exist and anything PARSING a seat name handles both; no rename ever occurs when a
 // second instance appears. This parser is unaffected either way — a seat name is one path segment
 // to it and it reads no structure inside one — which is exactly why the wrong shape could sit in
-// this comment unnoticed. Composed by `team-kit/materialize-seats.py#compose_seat_name`, the one
+// this comment unnoticed. Composed by `planning/materialize-seats.py#compose_seat_name`, the one
 // place the shape is spelled.
 //
 // SEAT LIVENESS IS NOT ANSWERED HERE ANY MORE. "Is this goal executing" is `runtime/lease/lease.js`

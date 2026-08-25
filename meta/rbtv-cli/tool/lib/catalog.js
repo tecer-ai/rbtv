@@ -15,7 +15,7 @@
 // What IS now read (owner-ruled 2026-08-24, option a — cli-drill seat): component
 // FOLDERS. Since 2026-08-22 some components moved their manifest one level down
 // (`component.md` + `exposure.csv` beside the parts they declare, e.g.
-// `ignite/team-kit/`, `ignite/work-on-ignite/` — component-anatomy.md §1: "a
+// `ignite/coord/`, `ignite/work-on-ignite/` — component-anatomy.md §1: "a
 // directory at depth 2 holding exposure.csv IS the component"). `componentFolders()`
 // below enumerates those directly, and `component.md`'s frontmatter + a component's
 // own `exposure.csv` rows are what level 2 delivers for them — the settled CMP-5
@@ -154,7 +154,7 @@ function components(moduleName) {
 }
 
 // Component folders — a direct child of a MODULE folder carrying `component.md`
-// OR `exposure.csv` IS a component (component-anatomy.md §1; team-kit/exposure.csv's
+// OR `exposure.csv` IS a component (component-anatomy.md §1; coord/exposure.csv's
 // own header note). `node_modules`, dot-directories and `probes` are never
 // components — the first is a dependency tree, the second is bookkeeping, the third
 // is test fixtures, per the seat ruling that added this reader.
@@ -242,7 +242,7 @@ function stripFrontmatter(text) {
 // A component's own exposure.csv — same 7-column schema as the module-root
 // manifest (concepts/exposure-manifest.md), read with a quoted-field-aware line
 // parser (a naive split corrupts any description carrying a comma inside quotes,
-// which team-kit's and work-on-ignite's both do).
+// which coord's and work-on-ignite's both do).
 function parseExposureCsv(absPath) {
   let text;
   try {

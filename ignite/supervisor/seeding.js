@@ -100,7 +100,7 @@ function isoNow() {
 // replaces.
 //
 // ⚠ THE DEFECT THE PLAIN SPLIT WAS. `taskforce.csv` is NOT written by hand: the writer is
-// `team-kit/materialize-seats.py#_render_csv_line`, which is `csv.writer` (QUOTE_MINIMAL) — so a
+// `planning/materialize-seats.py#_render_csv_line`, which is `csv.writer` (QUOTE_MINIMAL) — so a
 // MULTI-PREDECESSOR `after` cell is written QUOTED, because it carries commas. Split naively, that
 // one cell became several and EVERY COLUMN TO ITS RIGHT SHIFTED: `harness`, `model`, `effort` and
 // `milestone-id` were read off the wrong fields, and the `after` the wave math saw was the first
@@ -127,7 +127,7 @@ function readCsv(file) {
 //
 // ONE subprocess per goal per pass:
 //
-//   python3 <ignite>/team-kit/coord.py --package <goal-folder> ready-seats --json
+//   python3 <ignite>/coord/coord.py --package <goal-folder> ready-seats --json
 //
 // ⚠ THE INTERPRETER AND THE SCRIPT ARE BOTH NAMED, NEVER RESOLVED ON PATH. A daemon-fired exec
 // inherits the systemd --user manager's PATH, which does NOT carry `~/.local/bin`, so `coordinate`
@@ -154,7 +154,7 @@ function readCsv(file) {
 // ponytail: one python invocation per daemon-assigned goal per cadence. At the current scale that
 // is noise; if it stops being noise, batch the VERB (`ready-seats` over N packages) — never
 // reintroduce a JS reader.
-const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
 const COORD_TIMEOUT_MS = 60000;
 // Lane-watch cadence is ~10 s and a fire follows its queue row within one tick, so 60 s is
 // comfortably past "one full cadence" while the real thresholding is left to the alarm's
@@ -183,7 +183,7 @@ function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows
 
 // ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
 //
-// `coord.renewal_state` (team-kit/coord.py) is THE ONE READER of the successor-pending signal —
+// `coord.renewal_state` (coord/coord.py) is THE ONE READER of the successor-pending signal —
 // its own header says so: nothing else parses `lifecycle-inflight.json`, in any language. The
 // one JS-side consumer (`operator/attached-execution.js`) TRANSPORTS that answer through the
 // read-only `renewal-state` verb exactly as `readySeats` above transports the frontier: JS carries
@@ -252,7 +252,7 @@ function seedTaskforce(heartStore, goalFolder, { logger, goal = null, rows = nul
 
 // ── THE BOOT PROMPT — coord's, consumed here, composed nowhere ────────────────────────────────
 //
-//   python3 <ignite>/team-kit/coord.py --package <goal-folder> boot-prompt <seat> --lane <lane>
+//   python3 <ignite>/coord/coord.py --package <goal-folder> boot-prompt <seat> --lane <lane>
 //
 // A queued seat that carries no `prompt` reaches `spawn.js#ensurePromptFile`, which writes a
 // 0-BYTE file, and the harness exits 1 on "Input must be provided either through stdin or as a

@@ -25,8 +25,8 @@ from failure import (
 )
 from wrapper import PATH_B, supervised_materialize, uncast_in_sheet
 
-GOAL_CLI = _HERE.parent / "capabilities" / "goals-tree" / "tool" / "goal_cli.py"
-MATERIALIZE_PY = _HERE.parent / "team-kit" / "materialize-seats.py"
+GOAL_CLI = _HERE.parent / "operator" / "goals-tree" / "tool" / "goal_cli.py"
+MATERIALIZE_PY = _HERE / "materialize-seats.py"
 BOUND_PLAN_NAME = "bound-plan.json"
 PASS_ID = "approve-birth"
 

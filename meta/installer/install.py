@@ -39,7 +39,7 @@ new-standard component folders (D2).
 
 BOUNDARY (core-build `decisions.md#d-materializer-seat-loaders`). The installer
 exposes components at the INSTALL ROOT and NEVER writes under `.rbtv/goals/`.
-Seat-folder exposure belongs to the materializer (`ignite/team-kit/
+Seat-folder exposure belongs to the materializer (`ignite/planning/
 materialize-seats.py`), which is not imported here — `ignite/` must stay a
 relocatable subtree (repo CLAUDE.md), so the forms below are re-implemented
 against CMP-12, the one form authority.
@@ -69,7 +69,7 @@ ones above it, so there is no cycle:
     commands      one handler per verb, and the dispatch
 
 `discovery.py` sits BESIDE this file, not in `lib/`: it is imported from this
-directory by name by `ignite/team-kit/materialize-seats.py`, so its path is a
+directory by name by `ignite/planning/materialize-seats.py`, so its path is a
 contract with another tool. `selftest/` holds the runnable check, one module
 per subject. The decisions all of this was built to: `design-decisions.md`.
 """

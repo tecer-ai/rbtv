@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { capture } = require('./lib');
 
-const CODE_TREE = path.resolve(__dirname, '..', '..', '..', 'team-kit');
+const CODE_TREE = path.resolve(__dirname, '..', '..', '..', 'coord');
 const ENTRY = path.join(CODE_TREE, 'coord.py');
 
 capture('probe-seat-exposed-clis', async (lines) => {

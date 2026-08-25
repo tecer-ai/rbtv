@@ -756,7 +756,7 @@ def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
     """SCAFFOLD — the daemon-executed half of a caged requester's ask (task C2).
 
     ⚠ THE NAME STILL SAYS `and-queue` AND IT NO LONGER QUEUES ANYTHING (7.778). The verb name is
-    the tool's CLI contract and the `tools:` key in `config/spawn-profiles.yaml` that fires it, so
+    the tool's CLI contract and the `tools:` key in `envelope/spawn-profiles.yaml` that fires it, so
     renaming it is a separate act with its own call sites; what it DOES is stated here.
 
     THE MEASUREMENT THIS SHAPE IS BUILT ON (evidence/c2/, probe-c2.js, 2026-08-08). Under the
@@ -906,8 +906,8 @@ def scaffold_and_queue(inbox, goals_root, workflow, catalog_root, bindings,
             # daemon's watch pass reads to seed it.
             #
             # Room selfheal is NOT armed here any more (retire-health, 2026-08-20): the
-            # per-goal reconciliation loop (engine/reconcile.js, D1/D15) detects a dead or
-            # empty room on every pass and shells `jobs/recover-room.py` itself. No
+            # per-goal reconciliation loop (supervisor/reconcile.js, D1/D15) detects a dead or
+            # empty room on every pass and shells `runtime/jobs/recover-room.py` itself. No
             # per-goal job to register, so nothing to arm at creation.
 
             failed = [s for s in steps if s.get("rc", 0) != 0]
@@ -1105,7 +1105,7 @@ def main(argv=None):
     # `scaffold-seats` REFUSES `create-inputs-missing` without the last two and states why:
     # "this command never invents run conventions and never defaults a floor". Those base texts are
     # the goal-generic STARTER SET the owner authored and approved for exactly this path
-    # (`d-owner-starter-set-approved-0808`), shipped at `ignite/team-kit/starter-set/`. They are
+    # (`d-owner-starter-set-approved-0808`), shipped at `ignite/coord/starter-set/`. They are
     # named as PATHS here rather than resolved relative to this file: a default would make this tool
     # the author of a run's constitution, which is the one thing that refusal exists to prevent.
     q.add_argument("--catalog-root", required=True,

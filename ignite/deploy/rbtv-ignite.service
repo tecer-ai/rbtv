@@ -2,7 +2,7 @@
 #
 # The daemon boots from a detached deploy worktree (D6, 2026-08-19): ExecStart and
 # RBTV_IGNITE_CONFIG_PATH resolve into @@DEPLOY_ROOT@@. RBTV_IGNITE_SRC still names
-# the live per-invocation tree (team-kit, coord.py), not the booted one.
+# the live per-invocation tree (coord/, coord.py), not the booted one.
 # Per-instance values are substituted at install time.
 #
 # Install-time substitution points (replace each @@NAME@@ with the instance value):
@@ -107,7 +107,7 @@ EnvironmentFile=-@@ENVIRONMENT_FILE@@
 # %h expands to the invoking user's home for a systemd USER unit — machine-agnostic,
 # no @@PLACEHOLDER@@ needed.
 Environment="PATH=%h/.local/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
-# RBTV_IGNITE_SRC names the live per-invocation tree (team-kit, coord.py), not the booted one.
+# RBTV_IGNITE_SRC names the live per-invocation tree (coord/, coord.py), not the booted one.
 Environment="RBTV_IGNITE_SRC=@@IGNITE_SRC@@"
 Environment="RBTV_IGNITE_WORKSPACE_ROOT=@@WORKSPACE_ROOT@@"
 Environment="RBTV_IGNITE_CONFIG_PATH=@@DEPLOY_ROOT@@/ignite/envelope/spawn-profiles.yaml"

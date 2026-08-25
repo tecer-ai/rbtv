@@ -58,7 +58,7 @@ const DOORS = Object.freeze({
     // aliases are listed rather than the token grammar being loosened — a loose prefix would
     // silently adopt any future `leader-*` composer into this door's disposition.
     aliases: ['leader-declare-only', 'leader-reopen', 'leader-launch'],
-    chokepoint: 'team-kit/launch.py cmd_launch --rerun / --declare-only',
+    chokepoint: 'coord/launch.py cmd_launch --rerun / --declare-only',
     note: 'the leader-direct relaunch door, on both the daemon and the console lane',
   },
   'attest-exit': {

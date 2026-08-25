@@ -30,7 +30,7 @@ Nothing here reads or writes a live goals package. Every mutant lives under `tem
 """
 
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import ast
@@ -46,7 +46,7 @@ from pathlib import Path
 CAP = Path(__file__).resolve().parents[1]
 HANDLER = CAP / "tool" / "goal_creation_request.py"
 # A file known to carry the very constructs check 3 scans for — the positive control's subject.
-CONTROL_SUBJECT = CAP.parents[1] / "team-kit" / "coord.py"
+CONTROL_SUBJECT = CAP.parents[1] / "coord" / "coord.py"
 
 # Seat-materialization / harness-launch constructs that are NOT the ruled name. `scaffold-seats`
 # itself is deliberately absent from this alternation: the check asks what the call site reaches
@@ -780,7 +780,7 @@ def main():
             # temp path raises at IMPORT — and the check then goes red on the path, not on the
             # mutation. Measured: check 1's first mutant arm reported "module did not import" and
             # would have been recorded as a proven red control while proving nothing at all.
-            mdir = Path(td) / name.split()[0] / "ignite" / "capabilities" / "goal-creation-request" / "tool"
+            mdir = Path(td) / name.split()[0] / "ignite" / "operator" / "goal-creation-request" / "tool"
             mdir.mkdir(parents=True, exist_ok=True)
             mpath = mdir / "goal_creation_request.py"
             mpath.write_text(mutant_src, encoding="utf-8")

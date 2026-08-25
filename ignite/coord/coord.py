@@ -130,7 +130,7 @@ REAP_MIN_PASS_GAP_MIN = 5
 #                  spawns a sitting on unread mail, and `stuck` is addressed to the leader.
 # The enum is copied at SEVEN sites and they move in ONE change (adv, C39): here, `TYPE_COLOR`
 # below, both argparse `--type` sites, `server/heart/heart-store.js`, `server/internal-api/
-# dispatch.js`, `gateway/parse.js`, `bridges/chat/forward-path.js`, plus `heart/schema.sql`'s CHECK
+# dispatch.js`, `runtime/gateway/parse.js`, `chat/forward-path.js`, plus `heart/schema.sql`'s CHECK
 # (a table REBUILD — migration 5 `message-types-seven-w4`, then migration 7
 # `message-types-eight-stuck`). A partial move recreates the D3 silent class: the row lands in this
 # append-only log and the daemon door then refuses it.

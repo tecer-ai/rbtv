@@ -402,7 +402,7 @@ def close_session_seat(args, sid, seat):
 #      chair, carrying the seat's own check-out reason. Mechanical: no agent decides whether to
 #      mail, so no agent can decide not to.
 #   2. THE WAKE                     — D12 (2026-08-20): THE MAIL *IS* THE WAKE. There is no grant,
-#      no store and no latch. The goal watcher (`engine/reconcile.js`, cadence 300 s) derives a
+#      no store and no latch. The goal watcher (`supervisor/reconcile.js`, cadence 300 s) derives a
 #      chair with UNREAD MAIL as owed work and launches the sitting itself. The three grant stores
 #      that used to carry this — `relaunch-grants.csv`, the bare `relaunch-grants`, and
 #      `disposition-grants.csv` — are deleted from the code; the files that exist in older goal
@@ -447,7 +447,7 @@ def routed_recipient(args, base, mtype, sender):
     """`(to, why)` — WHO a ROUTED type reaches, when the sender did not choose (owner ruling D2).
 
     THE TABLE IS HERE AND NOWHERE ELSE IN CODE. It is stated for humans in the `ROUTED TYPES`
-    comment beside `AUTO_TOKEN` and in `team-kit/communication.md` §4 — and in NO agent prompt,
+    comment beside `AUTO_TOKEN` and in `coord/communication.md` §4 — and in NO agent prompt,
     which is the point of the ruling: an agent emits a TYPE and never has to discover who to
     contact.
 
@@ -534,7 +534,7 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
                      f"recorded and NOBODY WAS TOLD; say so.")
         return steps
     # D12 · THE MAIL *IS* THE WAKE. No grant is minted here and none exists to mint: the goal
-    # watcher (`engine/reconcile.js`) derives a chair with unread mail as owed work on every
+    # watcher (`supervisor/reconcile.js`) derives a chair with unread mail as owed work on every
     # 5-minute pass and launches the sitting itself. The chair's own ENDED row no longer has to be
     # superseded by anything — reconcile reads the mail, not a disposition.
     steps.append(f"staff wake: none needed — `{to}` has unread mail, which the goal watcher "
@@ -550,7 +550,7 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
 #
 # ⚠ D12 (2026-08-20) — IT GRANTS NOTHING. The verb used to mint a relaunch grant per route target
 # in both stores; those stores are deleted. What it writes now is the MAIL and the PAYLOAD, and
-# what makes the routed seat sit again is `engine/reconcile.js`: a chair is owed work while its
+# what makes the routed seat sit again is `supervisor/reconcile.js`: a chair is owed work while its
 # mail is unread, and an ordinary seat is owed work while its last ended row is non-terminal.
 # ⚠ A ROUTED SEAT WHOSE OWN ROW READS `done` IS NOT OWED WORK and will not come back on its own.
 # That is a REAL narrowing of this verb and it is stated rather than papered over — the `--go`
@@ -655,7 +655,7 @@ def cmd_route_fail(args):
     print(c("\nD12 · THIS VERB GRANTS NOTHING. The payload and the message are RECORDS: the boot "
             "prompt of the routed seat's NEXT sitting carries the payload, so it is never re-run "
             "on the stale seed. WHAT MAKES THAT SITTING HAPPEN is the goal watcher "
-            "(`engine/reconcile.js`), which relaunches a seat whose last ended row is NON-TERMINAL "
+            "(`supervisor/reconcile.js`), which relaunches a seat whose last ended row is NON-TERMINAL "
             "and a chair that has unread mail. A routed seat whose own row reads `done` is NOT "
             "owed work to it and will NOT come back on its own — say so to the leader rather than "
             "assuming this routed it.", C_HINT))

@@ -59,7 +59,7 @@ by the owner or by master — not by this tool, which refuses to touch main.
 
 PROPOSE-MERGE (D4).  `propose-merge` never merges. It refuses if X is missing (E_NO_X) or
 has no commits ahead of `--main` (E_NOT_AHEAD). Self-repo OR no GitHub `origin` → bus
-route (compose an owner-facing body; send via team-kit/coord.py `--file`, never an inline
+route (compose an owner-facing body; send via coord/coord.py `--file`, never an inline
 shell arg). Otherwise → PR route: push X to origin, `gh pr create` (never merge, never
 push main). `--body-out PATH` writes the composed body; `--dry-run` prints the argv that
 would run and performs no network/bus side effect.

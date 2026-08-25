@@ -41,7 +41,7 @@ for _v in ("TMUX", "TMUX_PANE"):
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "ignite" / "jobs" / "jobcontain.py"
+TARGET = ROOT / "ignite" / "runtime" / "jobs" / "jobcontain.py"
 OUT = HERE / "probe-jobcontain-uncapped.out"
 
 lines, failures, inoperative = [], [], []

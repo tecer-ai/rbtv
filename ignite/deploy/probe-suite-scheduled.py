@@ -36,7 +36,7 @@ checking whether RED reaches anyone found a line saying it did. The TRUE deliver
     `failed`, so the verdict the watchdog reads is meaningful and not permanently RED on the
     by-design unattended refusals (task 7.107).
 ⚠ This script MUST NOT be extended to notify anyone itself: the obvious route
-is `watch.py`, which is `ignite/team-kit/` and barred to this seat (r-engineer-not-team-kit).
+is `watch.py`, which is `ignite/coord/` and barred to this seat (r-engineer-not-team-kit).
 
 COVERAGE — derived, never hand-listed:
     dirs to run = every discovered probe dir MINUS the excluded ones
@@ -109,7 +109,7 @@ REQUIRED_BINARIES = ('node', 'python3', 'claude')
 # How many past runs stay on disk. Each fire leaves `<stamp>.txt` + `<stamp>-captures/` and nothing
 # ever removed them: measured 2026-08-10 on the VPS, 1015 stamps / 981 capture trees / 231 MB
 # (task 7.698). 48 = two days of hourly fires — enough to walk back over a night's reds, bounded.
-# The daemon's own retention (task 7.13, server/retention.js) does NOT cover this: it enumerates
+# The daemon's own retention (task 7.13, runtime/retention.js) does NOT cover this: it enumerates
 # the PER-MACHINE state root's classes, and this pile is per-WORKSPACE (.rbtv/runtime/).
 RETAINED_RUNS = int(os.environ.get('PROBE_SUITE_RETAINED_RUNS', 48))
 

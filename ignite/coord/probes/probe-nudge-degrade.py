@@ -4,7 +4,7 @@ LOUDLY off where `fcntl` is absent.
 
 WHAT IT SCORES. `nudge.py` had `import fcntl` at module scope, so on a non-POSIX host `import
 nudge` died before a line of its own code ran — the same defect class 7.715 fixed in
-`jobs/jobcontain.py`. The import now lives inside `main()`'s lock block, keyed on the import
+`runtime/jobs/jobcontain.py`. The import now lives inside `main()`'s lock block, keyed on the import
 FAILING (never on a platform name). The failure mode guarded against is the opposite of the first
 one: a nudge that loads on Windows and then runs on the Linux box with its single-loop lock quietly
 switched off, two loops sharing a heartbeat and destroying the gap signal. Both halves are measured
@@ -19,7 +19,7 @@ against the REAL module, never a stub:
       even against that same held lock — proving the lock is genuinely OFF rather than merely
       quiet — AND writes the one-line "fcntl unavailable — NO single-loop lock" warning to stderr.
 
-RED-FIRST. `RBTV_PROBE_TREE` re-points TARGET at another tree's `ignite/team-kit/nudge.py`.
+RED-FIRST. `RBTV_PROBE_TREE` re-points TARGET at another tree's `ignite/coord/nudge.py`.
 Pointed at the pre-fix source, P1 goes red.
 
 ⚠ AN ABSENT/UNIMPORTABLE TARGET IS THE FAILURE, NEVER A SKIP. Run it through the suite —
@@ -39,10 +39,10 @@ for _v in ("TMUX", "TMUX_PANE"):
     os.environ.pop(_v, None)
 
 HERE = Path(__file__).resolve().parent
-# HERE = <root>/ignite/team-kit/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is
+# HERE = <root>/ignite/coord/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is
 # the RED-FIRST knob (see the docstring): it re-points TARGET at another tree's source.
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "ignite" / "team-kit" / "nudge.py"
+TARGET = ROOT / "ignite" / "coord" / "nudge.py"
 OUT = HERE / "probe-nudge-degrade.out"
 
 lines, failures, inoperative = [], [], []

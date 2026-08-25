@@ -704,7 +704,7 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // ── E22 (owner ruling, 2026-08-23) · THE BOOT PROMPT OF A PROMPT-LESS FIRST EXECUTION ────────
   //
   // The leader-direct daemon-lane launch door (`coordinate launch …` on a goal whose
-  // `execution-lane` reads `daemon`, team-kit/coord.py#launch_daemon_lane) enqueues a seat sitting
+  // `execution-lane` reads `daemon`, coord/coord.py#launch_daemon_lane) enqueues a seat sitting
   // with NO `prompt` in its args — on purpose: a CAGED leader cannot read a sibling seat's
   // descriptor (SeatBinds `ro-mask:{goalDir}/seats`), so a prompt it composed would read "Read your
   // briefing None first" (G-leader-0822-2058). The daemon, uncaged, composes it HERE at dispatch

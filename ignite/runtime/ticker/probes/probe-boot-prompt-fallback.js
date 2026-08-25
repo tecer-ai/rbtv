@@ -4,7 +4,7 @@
 // BOOT PROMPT, COMPOSED BY THE DAEMON AT DISPATCH.
 //
 // The leader-direct daemon-lane launch door (`coordinate launch …` on a goal whose `execution-lane`
-// reads `daemon` — team-kit/coord.py#launch_daemon_lane) enqueues a seat sitting with NO `prompt`
+// reads `daemon` — coord/coord.py#launch_daemon_lane) enqueues a seat sitting with NO `prompt`
 // in its args, because a CAGED leader cannot read a sibling seat's descriptor and must not compose
 // one (G-leader-0822-2058: "Read your briefing None first"). The ticker composes it at dispatch
 // through the ONE composer the seeding pass and the watcher already ask (`engine/seeding.js#

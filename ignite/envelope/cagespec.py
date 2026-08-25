@@ -4,12 +4,12 @@
 WHAT THIS IS. `server/spawn/cage.js#composeSeatCage` is the daemon's cage composer and stays the
 only thing that composes a real bwrap spec. This module is its MIRROR for the two Python gates that
 must answer "is this goal-relative path writable / readable in the seat cage?" BEFORE any process
-exists. Its ONE caller today is `team-kit/materialize-seats.py`'s generation-time preflight; a
+exists. Its ONE caller today is `planning/materialize-seats.py`'s generation-time preflight; a
 second reading in it would be a second place the wall is reasoned about, which is the defect the
 shared reader exists to remove.
 
-⚠ ITS SECOND CALLER — `jobs/edge-runner-job.py`'s enqueue-time declared-output admission check —
-WAS DELETED (`build/one-readiness-predicate.md`). Its successor `engine/cage-admission.js` drives
+⚠ ITS SECOND CALLER — `runtime/jobs/edge-runner-job.py`'s enqueue-time declared-output admission check —
+WAS DELETED (`build/one-readiness-predicate.md`). Its successor `envelope/cage-admission.js` drives
 `cage.js#composeSeatCage` LIVE in JavaScript rather than mirroring it, which is the improvement the
 ruling names. So the two admission gates no longer share this evaluator: they share the TEMPLATE
 (`cage.SeatBinds`), and this module is now one side of a mirror whose held-against check went with

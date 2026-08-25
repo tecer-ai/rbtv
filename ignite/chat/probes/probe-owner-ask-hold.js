@@ -76,7 +76,7 @@ const workspace = path.join(tmp, 'workspace');
 const dataRoot = path.join(tmp, 'data');
 fs.mkdirSync(dataRoot, { recursive: true });
 const PYTHON = requirePythonCmd();
-const COORD_PY = path.join(IGNITE_SRC, 'team-kit', 'coord.py');
+const COORD_PY = path.join(IGNITE_SRC, 'coord', 'coord.py');
 const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml'), 'utf8'));

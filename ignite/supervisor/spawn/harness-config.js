@@ -11,7 +11,7 @@
 //
 // ⚠ TASK 7.45 — THIS FILE IS NOW A THIN ADAPTER, NOT A HOME. The per-harness KNOWLEDGE it used to
 // carry (which harness an argv[0] names, and what each harness's config file is) moved to the ONE
-// shared injection ladder, `ignite/injection-ladder/` (CMP-9, decisions.md#d-injection-ladder-shared).
+// shared injection ladder, `ignite/coord/injection-ladder/` (CMP-9, decisions.md#d-injection-ladder-shared).
 // What stays here is the DAEMON's half and only that: the filesystem writes and the daemon's log
 // line. The split follows CMP-9 § Interface literally — the ladder "exposes no command, holds no
 // state, spawns nothing, and WRITES nothing" — which is exactly what lets the no-daemon lanes
@@ -26,7 +26,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { harnessOf, hooksConfigFor } = require('../../injection-ladder');
+const { harnessOf, hooksConfigFor } = require('../../coord/injection-ladder');
 
 // Execute the ladder's hooks-rung descriptor. The bytes, paths, modes and returned object are the
 // ladder's; the I/O is the daemon's. A null harness (sleep/test/bash profiles) descriptor carries

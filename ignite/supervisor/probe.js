@@ -58,7 +58,7 @@ function probeGoal(goal, pathOverride) {
 
 module.exports = { probeSitting, probeGoal };
 
-// The JSON door for team-kit's python (`team-kit/liveness.py`). Deliberately this file's own main
+// The JSON door for team-kit's python (`coord/liveness.py`). Deliberately this file's own main
 // rather than a second op on `supervisor/cli.js`: that CLI opens the ENDING STORE for the ops that
 // need one, and a liveness question that cannot be answered on a machine where the store will not
 // open is a liveness question with a second failure mode it does not need.

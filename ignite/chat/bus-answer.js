@@ -71,7 +71,7 @@ const { isSafeName } = require('./bus-ferry');
 // boundary does not exist to be had, so this mirror stays hand-kept.
 const STAFF_SEATS = ['leader'];
 
-const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
 const BUS_RELPATH = ['coordination', 'messages.md'];
 // coord's send path does a roster read, an append under its own lock, and a best-effort wake pass.
 // Milliseconds on a room with no panes; the bound is here so a wedged wake can never hold a

@@ -317,21 +317,21 @@ def main() -> int:
         #
         # THE MUTANT MUST SIT AT THE TOOL'S OWN DEPTH. `goal_cli.py` resolves the `after`-member
         # grammar through `coord_source_path()`, which is `Path(__file__).resolve().parents[3] /
-        # "team-kit" / "coord.py"`. A mutant dropped in a FLAT temp dir has no such ancestor, so
+        # "coord" / "coord.py"`. A mutant dropped in a FLAT temp dir has no such ancestor, so
         # the grammar import failed and `materialize` died inside `after_pred_names` with a
         # traceback — before it ever reached the escape this arm exists to reproduce. The arm
         # then reported `mutant exit=1, wrote nothing` and declared itself INOPERATIVE, which is
         # exactly right and exactly useless: the red control for a CRITICAL defect could not
         # fire, so rows 1-2 had been scoring nothing since the day it was written.
         #
-        # So the temp tree MIRRORS the real depth (`<mut>/capabilities/goals-tree/tool/`) and
-        # `team-kit` is symlinked to the real one, putting `coord.py` exactly where
+        # So the temp tree MIRRORS the real depth (`<mut>/operator/goals-tree/tool/`) and
+        # `coord` is symlinked to the real one, putting `coord.py` exactly where
         # `parents[3]` looks. The link is READ-ONLY by construction — nothing here writes
         # through it, and `coord.py` is certified and never edited by a probe.
         mut_root = td / "mut"
-        mutant = mut_root / "capabilities" / "goals-tree" / "tool" / TOOL.name
+        mutant = mut_root / "operator" / "goals-tree" / "tool" / TOOL.name
         mutant.parent.mkdir(parents=True)
-        (mut_root / "team-kit").symlink_to(TOOL.resolve().parents[3] / "team-kit")
+        (mut_root / "coord").symlink_to(TOOL.resolve().parents[3] / "coord")
         src = TOOL.read_text(encoding="utf-8")
         sites = len(CALL_SITE_RE.findall(src))
         mutated, applied = MUTATE_RE.subn(MUTATE_SUB, src)

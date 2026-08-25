@@ -2,10 +2,10 @@
 """gateway_client.py — the coordinate CLI's gateway wire (task 7.57).
 
 Ports, field-for-field, the reference JS client this task was built against:
-    ignite/cli/lib/config.js          -> resolve_workspace_root / server_json_path /
+    ignite/ignite-cli/lib/config.js          -> resolve_workspace_root / server_json_path /
                                           read_server_json / select_machine_entry /
                                           resolve_gateway_addr / resolve_token
-    ignite/cli/lib/gateway-client.js  -> call_gateway
+    ignite/ignite-cli/lib/gateway-client.js  -> call_gateway
 
 Stdlib only (coord.py's own module-level-import bar: a third-party import there is a
 new hard dependency for every seat on every `coordinate` invocation — the exact outage
@@ -50,12 +50,12 @@ _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 
 class GatewayUsageError(Exception):
     """A local, never-reaches-the-gateway problem: bad config, bad address, an
-    ambiguous server.json. Mirrors CliUsageError (ignite/cli/lib/errors.js)."""
+    ambiguous server.json. Mirrors CliUsageError (ignite/ignite-cli/lib/errors.js)."""
 
 
 class GatewayTransportError(Exception):
     """The gateway could not be reached, or its response was not valid JSON. Mirrors
-    CliTransportError (ignite/cli/lib/errors.js)."""
+    CliTransportError (ignite/ignite-cli/lib/errors.js)."""
 
 
 def resolve_workspace_root(default, env=None):

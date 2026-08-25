@@ -162,7 +162,7 @@ def main() -> int:
 
     # ── 4. THE RED CONTROL — swap the two scans and row 1 MUST land in the poison ──────────────
     #
-    # THE MUTANT SITS AT THE TOOL'S OWN DEPTH. `goal_cli.py` reaches `team-kit/coord.py` through
+    # THE MUTANT SITS AT THE TOOL'S OWN DEPTH. `goal_cli.py` reaches `coord/coord.py` through
     # `Path(__file__).resolve().parents[3]`; a mutant in a flat temp dir has no such ancestor and
     # dies on the import — a crash wearing a red verdict, which would report this control as
     # firing when it never ran the code under test.
@@ -183,9 +183,9 @@ def main() -> int:
                 inoperative("4. the swapped source is valid Python", f"{exc}")
             else:
                 mut_root = td / "mut"
-                mutant = mut_root / "capabilities" / "goals-tree" / "tool" / TOOL.name
+                mutant = mut_root / "operator" / "goals-tree" / "tool" / TOOL.name
                 mutant.parent.mkdir(parents=True)
-                (mut_root / "team-kit").symlink_to(TOOL.resolve().parents[3] / "team-kit")
+                (mut_root / "coord").symlink_to(TOOL.resolve().parents[3] / "coord")
                 mutant.write_text(mutated, encoding="utf-8")
                 real, seat, poison, contract = build(td)
                 rc, so, se = scaffold(mutant, seat, "probe-goal-a", contract)

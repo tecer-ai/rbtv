@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """probe-g188-daemon-identity.py — the daemon's four systemd verdicts, and the traps they must
 not fall into. REPOINTED at the daemon-watchdog capability (task 7.35, run decision D8) when
-`ignite/team-kit/watch.py`, its original subject, was deleted.
+`ignite/coord/watch.py`, its original subject, was deleted.
 
 WHAT IS UNDER TEST (run issue G-188): the run had no detector for "the ignite daemon restarted".
 It tracked MainPID in prose, in a handoff doc, by hand — and prose does not execute. Twice on

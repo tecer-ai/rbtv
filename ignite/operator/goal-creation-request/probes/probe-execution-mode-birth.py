@@ -70,7 +70,7 @@ from pathlib import Path
 TOOL = Path(__file__).resolve().parents[1] / "tool" / "goal_creation_request.py"
 GOAL_CLI = Path(__file__).resolve().parents[2] / "goals-tree" / "tool" / "goal_cli.py"
 # Check 8's subject: the control plane's own execution-mode reader, required as the real module.
-BUS_FERRY = Path(__file__).resolve().parents[3] / "bridges" / "chat" / "bus-ferry.js"
+BUS_FERRY = Path(__file__).resolve().parents[3] / "chat" / "bus-ferry.js"
 
 REAL_WORKFLOW = "plan-console"
 

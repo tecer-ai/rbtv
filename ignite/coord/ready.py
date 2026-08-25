@@ -583,7 +583,7 @@ def reopen_downstream_seats(pkg, reopened_seat):
 # `plan-dag-structurer[planning-mode=full]` and `plan-planner` behind the `collapsed` twin — copied
 # verbatim from the workflow manifest at materialization. The lane's structurer rules ONE value, so
 # the other variant, and every seat downstream of it, is BLOCKED FOREVER BY CONSTRUCTION. Nothing
-# said so: `engine/seeding.js`' frozen-at-seeding guard counted "not `done`" as pending and fired a
+# said so: `supervisor/seeding.js`' frozen-at-seeding guard counted "not `done`" as pending and fired a
 # goal-frozen alarm on a healthy goal (14 of stools' 16 non-done rows, 13 of meet's 31). An alarm
 # that fires on healthy goals is an alarm the owner learns to ignore, which reinstates the failure
 # mode the whole redesign exists to close. Root-cause record:
@@ -820,7 +820,7 @@ def ready_seat_rows(args):
     # the same reason as every hoist above — N seats must cost ONE read, not N.
     #
     # ⚠ THE SOURCE IS `open_asks` AND NO LONGER THE BUS, and that swap IS the fix. This row used
-    # to key `HELD` on `coord.open_asks(messages.md, to=owner)` while `engine/ending-reads.js#
+    # to key `HELD` on `coord.open_asks(messages.md, to=owner)` while `supervisor/ending-reads.js#
     # recordView` keyed the SAME fact on the `open_asks` table — one fact, two sources, which is
     # the dual-source shape §2.1 exists to end. The two disagreed the moment either surface moved:
     # a posted ask that never reached this room's `messages.md` held the engine and not this
@@ -1000,7 +1000,7 @@ def ready_seat_rows(args):
         # W2 moved done-ness OUT of the execution record's `outcome` column (now the process
         # vocabulary `clean|crashed|killed`) and onto the seat's own check-out — which is this
         # pair, already emitted on EVERY row, with `terminal(S)` deriving the `DONE` verdict from
-        # it. `engine/seeding.js#recordView` is the consumer. Stated here because the obvious W2
+        # it. `supervisor/seeding.js#recordView` is the consumer. Stated here because the obvious W2
         # move is to add a field for what these two have always carried.
         _rn_state, _rn_why = (renewal_state(base, seat, lifecycle=lifecycle)
                               if value == "renew" else (None, ""))
@@ -1192,7 +1192,7 @@ def ready_seat_rows(args):
                 f"seat working: an empty sitting spends a launch to read an empty inbox. It wakes "
                 f"the moment anything is addressed to `{seat}` (the session-closer's staff mail, a "
                 f"routed FAIL, a seat's ask, a lifecycle alarm): D12 — UNREAD MAIL IS THE WAKE, "
-                f"and the goal watcher (`engine/reconcile.js`, every 5 min) is what turns it into "
+                f"and the goal watcher (`supervisor/reconcile.js`, every 5 min) is what turns it into "
                 f"a sitting. Nothing is minted and nothing can be lost. It advances NO edge "
                 f"meanwhile")
         elif is_summoned_seat(seat):
@@ -1530,7 +1530,7 @@ def cmd_surface_refusal(args):
 
 # ---------- LE-10 (2026-08-19): the renewal answer, exported read-only (`renewal-state`) ----------
 #
-# WHY A VERB EXISTS FOR A ONE-LINE ANSWER: `evaluateExit` (ignite/engine/attached-execution.js) was
+# WHY A VERB EXISTS FOR A ONE-LINE ANSWER: `evaluateExit` (ignite/operator/attached-execution.js) was
 # the last reader collapsing stuck-vs-unfinished — it could end a console run `blocked` on a seat
 # whose `--renew` successor was mid-hand-over. The single source of renewal truth is
 # `renewal_state` (rbtv 3b43bda1), a PYTHON function with, by doctrine, no JS reader deriving its
@@ -1652,7 +1652,7 @@ def cmd_ready_seats(args):
     # ── Q2a — A SKEW BLOCKS ITS OWN SEAT, NEVER THE WHOLE GOAL (owner-ruled 2026-08-18) ───────
     #
     # THE DEFECT THIS CLOSES, measured 2026-08-18. This was an unconditional `sys.exit(1)` on any
-    # SKEW row, and the one JS consumer (`engine/seeding.js#readySeats`) runs the verb under
+    # SKEW row, and the one JS consumer (`supervisor/seeding.js#readySeats`) runs the verb under
     # `execFileSync` — where a non-zero exit lands in the catch and the COMPLETE answer is thrown
     # away. ONE disputed seat on `meet-transcript-summarizer` therefore froze 65 healthy siblings
     # for 4.5 hours across 1,704 refusals, one every ~10s, with zero owner-facing signal.

@@ -1133,7 +1133,7 @@ def resolved_outputs(w):
 
     ⚠ THE SECOND BASE IS `declared_outputs`', NOT THIS FUNCTION'S (D36 extension, 2026-08-20).
     A BARE relative token means GOAL-RELATIVE to the other half of this grammar
-    (`engine/cage-admission.js#admitDeclaredOutputs`, in its own refusal words: "a declared output
+    (`envelope/cage-admission.js#admitDeclaredOutputs`, in its own refusal words: "a declared output
     is GOAL-RELATIVE") and to every task that writes one. This function keeps the `cwd` base
     UNCHANGED because its second caller is D4's SEED, whose contract (RS-28) is that a
     predecessor's relative output resolves against that predecessor's own `cwd` — a settled
@@ -1211,7 +1211,7 @@ def declared_outputs(args, seat):
                    1)
         # ⚠⚠ TWO BASES, AND THE MEASUREMENT THAT FORCED THEM (D36 extension, 2026-08-20).
         # A BARE relative token (`planning/current/findings-clarity.md`) is GOAL-RELATIVE — that
-        # is what `engine/cage-admission.js#admitDeclaredOutputs` means by it in its own refusal
+        # is what `envelope/cage-admission.js#admitDeclaredOutputs` means by it in its own refusal
         # text ("a declared output is GOAL-RELATIVE"), what every task's `<scope>` `Write:` clause
         # says in words ("relative to the goal folder"), and what D36 projects. This check read
         # ONLY the `cwd` base — the SEAT folder — so the two readers of ONE declaration looked in
@@ -1504,7 +1504,7 @@ def cmd_checkout(args):
         # IS THIS SEAT SITTING ON A QUESTION THE OWNER NEVER ANSWERED? `d-block-and-queue-
         # mechanical-hold` says a `fallback: block-and-queue` seat that asked the owner and exited
         # with no answer is not `done` TO THE DAG — its dependents do not start. That hold lived in
-        # `engine/seeding.js`, inside the `after`-cell walk `seatState` used to do. D1 DELETED that
+        # `supervisor/seeding.js`, inside the `after`-cell walk `seatState` used to do. D1 DELETED that
         # walk: seeding now consumes `ready-seats --json`, and readiness is read off the CHECK-OUT.
         # So the seat still reads `live` locally and is not re-dispatched, but its SUCCESSORS are
         # gated by coord alone — and a held seat checking out `done` released every one of them,

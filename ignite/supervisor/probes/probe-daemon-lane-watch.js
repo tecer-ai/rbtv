@@ -311,11 +311,13 @@ async function main() {
   //
   // THE DEFECT: `seeding.js#readCsv` split every line on a bare comma, so a QUOTED multi-predecessor
   // `after` cell became several fields and every column to its right shifted. Measured against the
-  // REAL Python writer — `team-kit/materialize-seats.py#_render_csv_line` (`csv.writer`,
+  // REAL Python writer — `planning/materialize-seats.py#_render_csv_line` (`csv.writer`,
   // QUOTE_MINIMAL), loaded by path in a subprocess — never a hand-written fixture line.
   say('L0 — the taskforce reader, pinned to the REAL Python writer');
   const seeding = require('../seeding');
-  const TEAM_KIT = path.join(IGNITE_SRC, 'team-kit');
+  const TEAM_KIT = path.join(IGNITE_SRC, 'coord');
+  // The materializer landed in `planning/` with the component-first move; the kit stayed `coord/`.
+  const MATERIALIZE_PY = path.join(IGNITE_SRC, 'planning', 'materialize-seats.py');
   function pythonJson(body) {
     const script = path.join(tmp, `l0-${Math.random().toString(36).slice(2)}.py`);
     fs.writeFileSync(script, body);
@@ -334,7 +336,7 @@ async function main() {
   // quoting under test is the quoting production emits and not this probe's idea of it.
   const SIX = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'];
   const rendered = pythonJson(LOADER
-    + 'ms = load("ms", "materialize-seats.py")\n'
+    + `ms = load("ms", ${JSON.stringify(MATERIALIZE_PY)})\n`
     + `print(json.dumps(ms._render_csv_line(["tf-l0", "check-assembler", "${SIX.join(',')}", `
     + '"claude", "opus", "high", "", "m-1"])))\n');
   check('L0a the REAL writer QUOTES a multi-predecessor `after` cell — the shape the reader must survive',
@@ -1155,7 +1157,7 @@ async function main() {
   // above) and the prompt now differs by lane. Without the flag this expectation would be the
   // CONSOLE bytes and the identity check below would red on a correct pass — the failure mode a
   // computed expectation exists to avoid, reintroduced by computing the wrong thing.
-  const coordArgv = (...extra) => [path.join(IGNITE_SRC, 'team-kit', 'coord.py'),
+  const coordArgv = (...extra) => [path.join(IGNITE_SRC, 'coord', 'coord.py'),
     '--package', promptGoal, 'boot-prompt', 'alpha', ...extra];
   const expectedPrompt = execFileSync(requirePythonCmd(), coordArgv('--lane', 'daemon'),
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

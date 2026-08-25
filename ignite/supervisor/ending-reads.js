@@ -26,7 +26,7 @@ function workspaceRootOf(goalFolder) {
 // out) bound whichever store THIS lane happened to open: `<goal>/heart.db` under `rbtv run`,
 // `{data_root}/heart.db` under the daemon. Two lanes, two files, one seat — so a seat the attached
 // lane finished read UNFINISHED to the daemon, which is exactly the cross-lane resume this build
-// exists to guarantee. It is also how the kit already resolves it: `team-kit/ending_store.py`
+// exists to guarantee. It is also how the kit already resolves it: `coord/ending_store.py`
 // walks up for `.rbtv` and lands on the same path, so coord and the engine agree by construction
 // rather than by configuration.
 //

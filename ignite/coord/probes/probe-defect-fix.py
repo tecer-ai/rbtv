@@ -49,7 +49,7 @@ def skip(label, why):
     """Record a check that COULD NOT RUN. Run issue G-194(b).
 
     ⚠ WHY THIS EXISTS: `RECOVER` sits OUTSIDE this kit (`KIT.parent/"jobs"`), so a copy of
-    `team-kit` alone cannot find it — and this probe used to report that as TWO FAILING ASSERTIONS.
+    `coord` alone cannot find it — and this probe used to report that as TWO FAILING ASSERTIONS.
     Identical bytes gave 20/21 in the live kit and 18/21 in a copy. A failed assertion claims THE
     BEHAVIOUR IS BROKEN; a missing dependency means THE PROBE COULD NOT RUN, and they are different
     claims. The false red mattered because copy-and-run is a documented gating practice in this

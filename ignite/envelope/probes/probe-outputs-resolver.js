@@ -5,14 +5,14 @@
 //
 // D3 (outputs-unify, 2026-08-18): the io-spec `## Outputs` block in seat.md is the ONE
 // declared-outputs surface, consumed by two readers — `envelope/cage-admission.js` (this side,
-// `parseDeclaredOutputs`, the caged-launch admission gate) and `team-kit/coord.py#iospec_outputs`
+// `parseDeclaredOutputs`, the caged-launch admission gate) and `coord/coord.py#iospec_outputs`
 // (seed computation + done-contract grading). The measured defect this closes: the two readers
 // read two DIFFERENT surfaces (block vs the retired `outputs:` frontmatter key), so a seat
 // declaring on one was invisible to the other — 23 of 26 meet-transcript-summarizer dispositions
 // read "none-declared" while their seats carried `## Outputs` blocks.
 //
 // The unification mechanism is two parsers of ONE grammar held equivalent by ONE fixture set
-// (`team-kit/outputs-resolver-fixtures.json`) exercised by both sides' scheduled checks: this
+// (`coord/outputs-resolver-fixtures.json`) exercised by both sides' scheduled checks: this
 // probe (hourly suite) and coord.py's selftest. This probe is therefore deliberately dumb — it
 // asserts this side's parse against the shared file, case by case, plus the file-level read
 // (`declaredOutputs`) on a real fixture tree. A grammar change that lands on one side only
@@ -24,7 +24,7 @@ const path = require('node:path');
 
 const HERE = __dirname;
 const OUT_PATH = path.join(HERE, 'probe-outputs-resolver.out');
-const FIXTURES = path.join(HERE, '..', '..', 'team-kit', 'outputs-resolver-fixtures.json');
+const FIXTURES = path.join(HERE, '..', '..', 'coord', 'outputs-resolver-fixtures.json');
 const { parseDeclaredOutputs, declaredOutputs } = require('../cage-admission');
 
 const start = Date.now();

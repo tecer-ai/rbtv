@@ -15,8 +15,8 @@ sentinel).
 
 Runs under pytest (``tmp_path``) like its siblings, and — because a machine
 without pytest must still be able to exercise this — as a plain script:
-    python -m pytest ignite/team-kit/mirror/tests/test_driver_goals_exclusion.py -q
-    python ignite/team-kit/mirror/tests/test_driver_goals_exclusion.py
+    python -m pytest ignite/coord/mirror/tests/test_driver_goals_exclusion.py -q
+    python ignite/coord/mirror/tests/test_driver_goals_exclusion.py
 """
 from __future__ import annotations
 

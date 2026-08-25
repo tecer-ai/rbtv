@@ -13,7 +13,7 @@ function seatWaitingOnOwner(db, { goal, seat }) {
 }
 
 // §2.1 restated as a LIST rather than a count, for the reader that must NAME the asks it holds
-// on (`team-kit/ready.py`'s `HELD` row prints them). The WHERE clause is character-for-character
+// on (`coord/ready.py`'s `HELD` row prints them). The WHERE clause is character-for-character
 // `seatWaitingOnOwner`'s, and that is the point: the boolean and the list are one predicate read
 // two ways, so a row can never be held by one and clean by the other. Ordered by `posted_at` so
 // two readers of the same goal print the same order.

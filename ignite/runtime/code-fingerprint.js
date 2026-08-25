@@ -25,11 +25,11 @@
  * ⚠ CAPTURED ONCE, AT BOOT, FROM FILE BYTES — NEVER RECOMPUTED WHEN ASKED. Recomputation hashes a
  * file against itself and can only ever report agreement: a detector that cannot fire, over the
  * defect it exists to detect. This is proven for the Python twin by
- * `team-kit/probes/probe-g158-stale-code.py` (arm A vs arm B), and it is the single design point
+ * `coord/probes/probe-g158-stale-code.py` (arm A vs arm B), and it is the single design point
  * most likely to be "simplified" by someone who finds the caching odd.
  *
  * ⚠ THE SET IS DERIVED FROM `require.cache`, NOT ENUMERATED. An entry-file-only marker certifies
- * exactly the state it exists to detect — measured on the twin (the retired `team-kit/watch.py`
+ * exactly the state it exists to detect — measured on the twin (the retired `coord/watch.py`
  * loop, 2026-07): its own module was current while `coord.py` had drifted four commits
  * underneath it. The process's code is its whole
  * import closure, so the closure is the unit.
@@ -128,7 +128,7 @@ function writeCodeMarker(workspaceRoot, fingerprint) {
       pid: process.pid,
       // The absolute root the fingerprint's paths are relative to. CARRIED, never re-derived by the
       // reader: the reader is `daemon_code_state` in the daemon-watchdog capability's
-      // `rbtv-ignite-watchdog` (it replaced the retired `team-kit/watch.py` reader, task 7.35),
+      // `rbtv-ignite-watchdog` (it replaced the retired `coord/watch.py` reader, task 7.35),
       // a component every install runs, and a literal like `3-resources/tools/rbtv/ignite/server`
       // there would freeze this vault's layout into it. G-107's lesson: carry the subject, never
       // infer it.

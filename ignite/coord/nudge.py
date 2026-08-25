@@ -60,7 +60,7 @@ import time
 from pathlib import Path
 
 # The roster row grammar. This is a DELIBERATE COPY of `WORKER_ROW` in
-# `3-resources/tools/rbtv/ignite/team-kit/coord.py` (coord.py:157-161), not an import: coord.py is
+# `3-resources/tools/rbtv/ignite/coord/coord.py` (coord.py:157-161), not an import: coord.py is
 # under another seat's custody, it is 600 KB, and importing it for a regex would couple this loop
 # to that module's import-time behaviour — a broken save there already took `coordinate` down
 # room-wide once. The copy is drift-checked by `test_nudge.py` claim C6, which re-extracts the

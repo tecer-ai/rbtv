@@ -635,17 +635,22 @@ def identity_verdict(prev, now):
 def code_scope_note(root, entries):
     """The verdict's OWN SCOPE, said in the verdict (closeout task 23, 2026-08-17). WHY THE
     SCOPE-STATEMENT ROUTE AND NOT A WIDER FINGERPRINT: the marker covers only what sat in the
-    DAEMON's require.cache under the marker's root at boot — `ignite/engine/**` is outside that
-    root today, and `ignite/bridges/**` runs in a DIFFERENT process (the chat bridge unit), so
-    its modules can never appear in this daemon's require.cache at all. Widening the boot capture
-    is daemon JS (inert until a restart this program does not have) and still could not reach the
-    bridge — so `current` names what it covers instead, because a bare `current` was read as
-    whole-tree-current and hid a landed-but-inert file for ~15h (the W8 failure). Computed per
-    pass from the marker itself, never hardcoded: a future boot that widens the root makes the
-    uncovered list shrink on its own instead of printing a stale disclaimer."""
-    base = root.parent if root.name == "server" else root
+    DAEMON's require.cache under the marker's root at boot. That root is the daemon's own
+    component tree (`ignite/runtime/`, and `ignite/server/` on a marker written before the
+    component-first move), so EVERY sibling component the daemon loads from is outside it —
+    `supervisor/`, `planning/`, `envelope/`, `operator/`, `observation/` and `state-store/` all
+    sat inside the old root as `engine/**` and no longer do — and `chat/**` runs in a DIFFERENT
+    process (the chat bridge unit), so its modules can never appear in this daemon's
+    require.cache at all. Widening the boot capture is daemon JS (inert until a restart this
+    program does not have) and still could not reach the bridge — so `current` names what it
+    covers instead, because a bare `current` was read as whole-tree-current and hid a
+    landed-but-inert file for ~15h (the W8 failure). Computed per pass from the marker itself,
+    never hardcoded: a future boot that widens the root makes the uncovered list shrink on its
+    own instead of printing a stale disclaimer."""
+    base = root.parent if root.name in ("runtime", "server") else root
     blind = []
-    for name in ("engine", "bridges"):
+    for name in ("supervisor", "planning", "envelope", "operator", "observation",
+                 "state-store", "chat"):
         tree = base / name
         try:
             if tree.is_dir() and not any(

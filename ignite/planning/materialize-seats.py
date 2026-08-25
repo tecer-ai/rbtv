@@ -142,7 +142,7 @@ a PER-MACHINE symlink, never synced by git — the same form `coordinate` uses
 for coord.py, so on a box where nobody has run it the ruled name resolves to
 nothing and this paragraph is the only record that it exists:
 
-    # run from THIS file's own directory (ignite/team-kit); the target must be
+    # run from THIS file's own directory (ignite/planning); the target must be
     # absolute, because a symlink stores the text it was given
     ln -s "$(pwd)/materialize-seats.py" ~/.local/bin/scaffold-seats
     command -v scaffold-seats   # rc=0 once it resolves
@@ -155,7 +155,7 @@ invocation through the symlink resolves the kit dir, not ~/.local/bin.
 from __future__ import annotations
 
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import argparse
@@ -176,17 +176,20 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-# The ONE Python reading of `cage.SeatBinds` — this file's sibling in the kit, and
-# the reading THIS gate uses (IPH-2). ⚠ It used to be shared with the edge-runner's
-# enqueue-time admission check; that check is now `engine/cage-admission.js`, which
-# drives `cage.js` LIVE instead of mirroring it (`build/one-readiness-predicate.md`
-# § D5), so what the two gates share is the TEMPLATE, not this evaluator.
-# `self_isolate` above already bound this folder onto sys.path.
-import cagespec  # noqa: E402 — team-kit is on sys.path from line 157
+# The ONE Python reading of `cage.SeatBinds` — it lives in `ignite/envelope/` since the
+# component-first move, so its folder is bound here rather than riding the kit's sys.path
+# entry. ⚠ It used to be shared with the edge-runner's enqueue-time admission check; that
+# check is now `envelope/cage-admission.js`, which drives `cage.js` LIVE instead of
+# mirroring it (`build/one-readiness-predicate.md` § D5), so what the two gates share is
+# the TEMPLATE, not this evaluator.
+_ENVELOPE_DIR = _pl.Path(__file__).resolve().parent.parent / "envelope"
+if str(_ENVELOPE_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_ENVELOPE_DIR))
+import cagespec  # noqa: E402 — envelope/ bound just above
 
-# goal_cli.py is the goals-tree capability sibling of this team-kit — resolved
+# goal_cli.py is the goals-tree surface under `ignite/operator/` — resolved
 # relative to this file, never from a hardcoded workspace path.
-_GOAL_CLI_DIR = Path(__file__).resolve().parent.parent / "capabilities" / "goals-tree" / "tool"
+_GOAL_CLI_DIR = Path(__file__).resolve().parent.parent / "operator" / "goals-tree" / "tool"
 if str(_GOAL_CLI_DIR) not in sys.path:
     sys.path.insert(0, str(_GOAL_CLI_DIR))
 
@@ -216,7 +219,7 @@ SCRUBBED_ENV_VARS = ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # The goals-tree folder the goal-direct package bar keys on (7.607 E2b, design-lock
 # item 8: the PACKAGE IS THE GOAL FOLDER). Positional, exactly like the daemon-side
-# grammar in `server/seat-identity/seat-folder.js` — no second reading of goal
+# grammar in `runtime/seat-identity/seat-folder.js` — no second reading of goal
 # identity, and it answers for a folder that does not exist yet.
 GOALS_DIR_NAME = "goals"
 MANIFEST_SEAT_COLUMN = "Seat/workflow"
@@ -276,7 +279,7 @@ CREATION_INPUTS = (
 # set: a member absent and unsupplied refuses `create-inputs-missing` in the
 # full/bootstrap mode. Adding this file there would make every caller that does
 # not pass a new option start refusing — including the ARMED goal-creation loop
-# (`config/spawn-profiles.yaml`'s fire-tool argv, which fires on a cadence). A
+# (`envelope/spawn-profiles.yaml`'s fire-tool argv, which fires on a cadence). A
 # change that turns the live creation path into a refusal is an outage, not a
 # build, so the register lands as an OPTIONAL input instead: supplied by the
 # caller when it wants a specific register, DERIVED FROM DISK when it does not,
@@ -362,7 +365,7 @@ ALLOWED_BINDING_KEYS = frozenset((
 # ---- the SEAT CAGE declaration (owner-ruled 2026-08-10) ----
 #
 # The bwrap sandbox a daemon-spawned seat runs inside is composed by
-# `ignite/server/spawn/spawn.js` from keys it reads OUT OF `seat.md`'s
+# `ignite/supervisor/spawn/spawn.js` from keys it reads OUT OF `seat.md`'s
 # frontmatter at spawn time (`seatDeclares` / `seatDeclaresList`). Until this
 # ruling those keys had NO SOURCE: they were typed into the live descriptors by
 # hand and existed nowhere else, so nothing could re-render a seat.md without
@@ -419,16 +422,16 @@ CAGE_GOAL_WRITES_COLUMN = "goal-writes"
 #   seats.csv:  on-fail-relaunch     "forg-builder,forg-judge"
 ON_FAIL_RELAUNCH_COLUMN = "on-fail-relaunch"
 
-# The cage template's home — the ignite config sibling of this team-kit,
+# The cage template's home — `ignite/envelope/` since the component-first move,
 # resolved relative to THIS file exactly as goal_cli's tool dir is above.
-_SPAWN_PROFILES = Path(__file__).resolve().parent.parent / "config" / "spawn-profiles.yaml"
+_SPAWN_PROFILES = Path(__file__).resolve().parent.parent / "envelope" / "spawn-profiles.yaml"
 
 def _cage_rw_covers(rel: str) -> bool:
     """True when the seat cage composes a READ-WRITE opening over `rel`, a path
     relative to the goal folder.
 
     THE GENERATION-TIME PREFLIGHT (owner ruling D13). Read out of
-    `config/spawn-profiles.yaml`'s `cage.SeatBinds` — the very list spawn.js
+    `envelope/spawn-profiles.yaml`'s `cage.SeatBinds` — the very list spawn.js
     composes the sandbox from — so what a seat is told it may write and what the
     kernel will actually let it write cannot drift into disagreeing. That
     disagreement, with nothing anywhere comparing the two surfaces, is the whole
@@ -444,7 +447,7 @@ def _cage_rw_covers(rel: str) -> bool:
 
     ⚠ THE READING ITSELF LIVES IN `cagespec.py` SINCE IPH-2, not here. This gate
     keeps only its own load of the live template. (The enqueue-time admission
-    check it once shared that evaluator with is now `engine/cage-admission.js`,
+    check it once shared that evaluator with is now `envelope/cage-admission.js`,
     driving `cage.js` live.) `rel` is passed as the goal-writes
     declaration because that is what it IS at every call site — the line
     `bind-try:{grant:goalWrite}` is the one this declaration fills.
@@ -505,7 +508,7 @@ def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
 # ledgers the router sends every seat to.
 _WRITE_SURFACE_BLOCK = """\
 
-<!-- DERIVED at materialize from config/spawn-profiles.yaml's `cage.SeatBinds` — the
+<!-- DERIVED at materialize from envelope/spawn-profiles.yaml's `cage.SeatBinds` — the
      very list spawn.js composes your sandbox from, read through the one evaluator
      (cagespec.py) the materializer's own refusal gate uses. WHERE ANY PROSE ABOVE
      DISAGREES WITH THIS SECTION, THIS SECTION IS RIGHT: the prose is authored, this
@@ -2444,7 +2447,7 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         # it. The first word of each named lane becomes a machine-readable
         # `- cli `<name>`` entry in the io-spec's `## Requires-reach`
         # section — the D3 single-surface idiom — which the pre-enqueue gate
-        # (`engine/cage-admission.js#admitLaneReach`) checks against the
+        # (`envelope/cage-admission.js#admitLaneReach`) checks against the
         # seat's `exposed-clis:` declarations. `path` entries are authorable
         # in the io-spec unit directly; nothing here derives them. A
         # hand-authored section is respected: derivation only ADDS entries
@@ -3565,7 +3568,7 @@ def _assembled_is_interactive(assembled: str) -> bool:
     — the one marker the code already carries for "a human is on the other end"
     (goal_cli#assemble_seat reads it off the prompt definition and passes it
     through; see EMITTER_OWNED_KEYS). Tolerances match the daemon's reader
-    (`server/spawn/live-sessions.js`): `yes`/`true`, quoted or not."""
+    (`supervisor/spawn/live-sessions.js`): `yes`/`true`, quoted or not."""
     m = _FM_RE.match(assembled or "")
     if not m:
         return False
@@ -4099,7 +4102,7 @@ def resolve_seat_exposes(plan: dict, seats_cat: dict) -> None:
                 # tree instead of the referencing component's own tree —
                 # `rbtv:<component>/<part>` at whatever depth the repo puts
                 # the manifest (`rbtv:ignite/coordinate` today, module root;
-                # `rbtv:ignite/team-kit/coordinate` after the CMP-5 move,
+                # `rbtv:ignite/coord/coordinate` after the CMP-5 move,
                 # same line). Unprefixed references are untouched.
                 ref_dir, pid = _ref_target(
                     comp_dir, ref, f"seat '{seat}' exposes '{ref}' ({method})")
@@ -5015,7 +5018,9 @@ def _live_import(dir_path: Path, module: str):
 def _coord_import(name: str):
     """Import one coord.py vocabulary set. NEVER re-list the names here (F6)."""
     try:
-        _coord = _live_import(Path(__file__).resolve().parent, "coord")
+        # coord.py is `ignite/coord/`'s since the component-first move — a SIBLING
+        # component of this one, no longer this file's own directory.
+        _coord = _live_import(Path(__file__).resolve().parent.parent / "coord", "coord")
         return tuple(getattr(_coord, name))
     except Exception as exc:  # loud, machine-readable — never a crash
         raise Refuse(
@@ -6698,7 +6703,7 @@ def run_dag04_acceptance(check, env: dict) -> None:
         # D5 (seed-gates, 2026-08-19): a done-contract NAMING a probe lane
         # (`probe lane: `stools workspaces``) emits a machine-readable
         # `- cli `stools`` entry under `## Requires-reach` INSIDE the io-spec
-        # block — the surface `engine/cage-admission.js#admitLaneReach` reads
+        # block — the surface `envelope/cage-admission.js#admitLaneReach` reads
         # at the pre-enqueue gate — and the unmutated control emits none.
         _d5_plan, _d5_code = render_mutated(lambda a: a.replace(
             "Outputs exist and are non-empty.",
@@ -10389,7 +10394,7 @@ def run_selftest() -> int:
               str(seat_home(Path(tmp_cg) / "goals" / "_exp-seat", "exp-seat")))
         # The generation-time preflight, asserted against the LIVE cage template
         # rather than a fixture: the gate is worth exactly as much as its
-        # agreement with `config/spawn-profiles.yaml`, so this row goes red the
+        # agreement with `envelope/spawn-profiles.yaml`, so this row goes red the
         # day the ledger carve, the goal-writes line or the ground-truth carve
         # leaves that file — which is the one way the gate could start passing
         # seats the sandbox will refuse.

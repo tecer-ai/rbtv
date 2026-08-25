@@ -966,7 +966,7 @@ def build_parser():
         "A declared target is checked for EXISTENCE (a well-formed name that names no seat is how a\n"
         "routed FAIL reached nobody) and for a bindable ENDED SESSION, then handed a PAYLOAD FILE\n"
         "that its next boot prompt folds in. D12 · THIS VERB GRANTS NOTHING — the goal watcher\n"
-        "(`engine/reconcile.js`) is what relaunches a seat whose last ended row is NON-TERMINAL and\n"
+        "(`supervisor/reconcile.js`) is what relaunches a seat whose last ended row is NON-TERMINAL and\n"
         "who has unread mail; a bare payload with no non-terminal row would strand the seat on its\n"
         "STALE SEED with nothing to bring it back.",
         "example:\n"

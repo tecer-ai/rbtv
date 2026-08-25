@@ -217,7 +217,7 @@ function goalKindMode(goalDir) {
 
 // ⚑ THE CORE TAKES A SEAT DIR, and that is the ONLY shape that answers for every seat there is.
 // The `(goalDir, seat)` wrapper below joins `seats/<seat>/`, which is the GOAL-SEAT layout and not
-// the only one: a STANDING-SEAT HOME (`materialize-seats.py#standing_seat`, `r-master-seat-homes`)
+// the only one: a STANDING-SEAT HOME (`planning/materialize-seats.py#standing_seat`, `r-master-seat-homes`)
 // IS the seat folder — `seat.md` sits at its root with no `seats/` layer — so `_channel-master`
 // only resolves through this entry point. A caller that already holds the seat's own directory
 // calls THIS, never the wrapper via a `dirname`² split: that split answered FALSE for the channel

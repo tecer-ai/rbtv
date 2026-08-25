@@ -104,7 +104,7 @@ const HARNESSES = Object.freeze({
         // (G-13), and the failure it caused was silent: the pre-G-13 form exited 0 having run
         // nothing, so any check that only asserted the flag was present read green.
         resumable: false,
-        basis: 'ignite/team-kit/coord.py harness_command() G-13 note (live-verified on deepseek + glm-5.2)',
+        basis: 'ignite/coord/coord.py harness_command() G-13 note (live-verified on deepseek + glm-5.2)',
       }),
       hooks: Object.freeze({
         available: true,

@@ -295,7 +295,7 @@ module.exports = {
 // the lease is live or not (an absent lease is an ANSWER); exit 1 only when it is UNREADABLE, so a
 // shell caller can tell ignorance from absence without parsing prose.
 //
-// It exists so `team-kit/coord.py derive_lease` can be a THIN ACCESSOR over this one home
+// It exists so `coord/coord.py derive_lease` can be a THIN ACCESSOR over this one home
 // (7.607 E3b: it named `resolve_live_run` until that wrapper was deleted — the package IS the goal
 // folder, so the wrapper's whole answer had collapsed to the goal's own name)
 // rather than a second implementation of the room predicate in Python. That second implementation

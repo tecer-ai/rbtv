@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const provider = require(path.join(__dirname, '..', '..', '..', 'teambuild', 'tool', 'lib', 'provider'));
+const provider = require(path.join(__dirname, '..', '..', '..', '..', 'ignite', 'teambuild', 'tool', 'lib', 'provider'));
 
 const KEY_VAR = 'VOYAGE_API_KEY';
 const VAULT_ENV = path.join('.user', 'config', 'env', '.env');

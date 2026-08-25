@@ -29,7 +29,7 @@
 // moment `cage.SeatBinds` changed — and it was: `d-s31-planning-workspace-shared-rw` added the
 // `planning/` opening on 2026-08-11 and the table did not know, so the one artifact surface a
 // multi-seat phase hands work across read `undecided` and refused. It then grew a Python MIRROR of
-// the composer (`team-kit/cagespec.py`) held against the real thing by a cross-language check.
+// the composer (`envelope/cagespec.py`) held against the real thing by a cross-language check.
 //
 // ⚠ NEITHER IS NEEDED IN JAVASCRIPT, AND THAT IS THE POINT: `supervisor/spawn/cage.js` IS the composer.
 // This module drives `composeSeatCage` — the same function `spawn.js#composeCageFor` drives on
@@ -71,10 +71,10 @@ const PATHISH = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]{1,6})`/g;
 
 // D3 (outputs-unify, 2026-08-18): THE SHARED DECLARED-OUTPUTS RESOLVER — the io-spec
 // `## Outputs` block is the ONE declared-outputs surface, and this parse is its JS half.
-// `team-kit/coord.py#iospec_outputs` is the Python half (seed computation + done-contract
+// `coord/coord.py#iospec_outputs` is the Python half (seed computation + done-contract
 // grading read it); the two are TWO PARSERS OF ONE GRAMMAR — a cross-language subprocess call
 // was refused because coord.py's runtime path (probes, caged runs) carries no node — held
-// equivalent by `team-kit/outputs-resolver-fixtures.json`, exercised by BOTH sides' scheduled
+// equivalent by `coord/outputs-resolver-fixtures.json`, exercised by BOTH sides' scheduled
 // checks (`envelope/probes/probe-outputs-resolver.js`; coord.py selftest). Change the grammar in
 // both files and the fixtures in the same commit, or one side's check goes red.
 //
@@ -90,7 +90,7 @@ const PATHISH = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]{1,6})`/g;
 // coord.py's checkout gate and materialize's zero-token check DO branch on it.
 // ⚠ SCHEMA POSITION ONLY — the word `chat` appears in ordinary Outputs prose ("...posted to the
 // chat bridge") and matching it loose would exempt real file producers. Mirror of
-// `team-kit/coord.py#_IOSPEC_CHAT`.
+// `coord/coord.py#_IOSPEC_CHAT`.
 const CHAT_SCHEMA = /^[ \t]*[-*][ \t]*\**Schema:?\**:?[ \t]*`?chat`?\b/m;
 
 function parseDeclaredOutputs(text) {

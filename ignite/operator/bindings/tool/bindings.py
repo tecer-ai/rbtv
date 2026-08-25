@@ -7,7 +7,7 @@ WHAT A BINDINGS FILE IS, AND WHERE IT LIVES
 A workflow is the program: an ordered set of seats (`workflows/<w>/<w>.csv` inside a mirrored
 component). A TASKFORCE is its running instance. The bindings file is what casts one into the
 other — per seat, WHICH harness, WHICH model, WHICH effort, plus the lane fields the descriptor
-carries. It is read ONCE, by `ignite/team-kit/materialize-seats.py --bindings`, at the moment a
+carries. It is read ONCE, by `ignite/planning/materialize-seats.py --bindings`, at the moment a
 goal's seats are materialized. Nothing boot-reads it, no daemon holds it open: **every write here
 is a plain file write and no restart is ever needed** — which is why this tool, unlike its
 `goal-launch-delay` / `master-profile` siblings, has no staged-inbox/daemon-fire second half.
@@ -39,7 +39,7 @@ THE VALIDATION SOURCE, AND WHY IT IS THIS ONE
 against — one derivation, two consumers, so the printed answer and the enforced answer can never
 disagree. It is composed from exactly two measured sources, and nothing else:
 
-  1. WHICH harness+model pairs exist — `ignite/config/spawn-profiles.yaml` `launch-specs:`, which
+  1. WHICH harness+model pairs exist — `ignite/envelope/spawn-profiles.yaml` `launch-specs:`, which
      `#d-abolish-profile-names` KEYS BY THE PAIR ITSELF (2026-08-12) — `launch-specs: { <harness>:
      { <model>: … } }` — so the pairs are READ, not derived. That IS this workspace's spawnable
      set; a roster frozen in this file would admit a model the box cannot spawn or refuse one it
@@ -101,7 +101,7 @@ THE VERBS
 EVERY VERB ALSO TAKES A GOAL FOLDER in place of `<workflow.csv>` — the GOAL-LOCAL mode (owner
 ruling 2026-08-14). Seats a planning pass authored inside the goal belong to no workflow, so the
 canonical path above cannot name them; their sheet is `<goal>/planning/current/bindings.json`, read
-by `ignite/engine/queue-request.js#buildGoalLocalSeats`, which refuses `goal-local-sheet-absent`
+by `ignite/planning/queue-request.js#buildGoalLocalSeats`, which refuses `goal-local-sheet-absent`
 without it. Same verbs, same validator, same write — see `resolve_goal` below.
 
 ⚠ A FULL json.load/json.dump ROUND TRIP IS CORRECT HERE and is deliberately unlike this capability's
@@ -120,8 +120,8 @@ from pathlib import Path
 import yaml
 
 _IGNITE = Path(__file__).resolve().parents[3]
-DEFAULT_PROFILES = _IGNITE / "config" / "spawn-profiles.yaml"
-TEAM_KIT = _IGNITE / "team-kit"
+DEFAULT_PROFILES = _IGNITE / "envelope" / "spawn-profiles.yaml"
+TEAM_KIT = _IGNITE / "coord"
 
 # The harness's OWN ordered effort levels — the strings the binary itself accepts, which is what a
 # bindings value becomes. Measured, each with its source; never the profile translation table.
@@ -173,7 +173,7 @@ def spec_effort(harness, model, profiles_path=DEFAULT_PROFILES):
     reads of `spawn-profiles.yaml` are PARSES, writes to it stay line-precise edits, because the
     document is hand-authored and its comments are its documentation. A scrape bought nothing on the
     read side and cost this drift: `rungs:` written as a YAML block sequence (`rungs:` / `  - low`)
-    is read correctly by the authoritative `launch-profiles/profiles.js#loadConfig` and was invisible
+    is read correctly by the authoritative `supervisor/launch-profiles/profiles.js#loadConfig` and was invisible
     to BOTH scrapers (also measured 2026-08-11). One parser, one answer.
 
     `inert: true` alongside `rungs:` answers INERT regardless of line order — `profiles.js`
@@ -220,7 +220,7 @@ class Refusal(Exception):
 # A planning pass can AUTHOR seats inside the goal itself — `planning/current/seats/<seat>/` holding
 # the definition, not a `source.md` pointer at a cataloged one. Those seats belong to NO workflow, so
 # the cataloged path above cannot name them: `bindings/<code>.json` is keyed by a workflow code they
-# do not have (`ignite/engine/queue-request.js:390-399`). Their sheet therefore sits INSIDE the goal
+# do not have (`ignite/planning/queue-request.js:390-399`). Their sheet therefore sits INSIDE the goal
 # at `planning/current/bindings.json` — the path `buildGoalLocalSeats` reads and refuses
 # `goal-local-sheet-absent` without (`queue-request.js:425-433`). Nothing wrote it until this mode
 # existed, which is why the engine's own comment calls the cast of a goal-authored seat an open
@@ -412,7 +412,7 @@ def _launch_specs(profiles_path):
     `#d-abolish-profile-names`, 2026-08-12). This used to be a LINE SCAN of a flat `profiles:` map
     plus `_exec_argv`, which re-derived each row's pair from its argv (`harness = basename(argv[0])`,
     `model = the token after --model/-m`) under a law spelled identically in
-    `launch-profiles/catalog.js`. Re-keying the document by the pair deleted that law from both
+    `supervisor/launch-profiles/catalog.js`. Re-keying the document by the pair deleted that law from both
     sides: the config STATES the pair, and the JS twin reads the same keys. What remains of the old
     derivation is a single LOAD-TIME GUARD on the daemon side (`profiles.js#validateSpecKey`),
     proving a spec's argv agrees with the key it is filed under — so this reader can trust the key

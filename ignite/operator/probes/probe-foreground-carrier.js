@@ -808,7 +808,7 @@ async function main() {
   const askPython = (src) => spawnSync(requirePythonCmd(), ['-c', src], { encoding: 'utf8', cwd: IGNITE_SRC });
   const readersSay = askPython(`
 import sys, pathlib, importlib.util
-sys.path.insert(0, 'team-kit')
+sys.path.insert(0, 'coord')
 import coord
 def open_session_seats(pkg):
     path = coord.sessions_csv(pkg)

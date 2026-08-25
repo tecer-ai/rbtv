@@ -9,7 +9,7 @@ deletes a file it did not create.
 
 Exercises the real ``driver.render`` / ``driver.uninstall`` against scratch
 workspaces (pytest ``tmp_path``) — no mocks. Run from the rbtv repo root:
-    python -m pytest ignite/team-kit/mirror/tests/test_driver_uninstall.py -q
+    python -m pytest ignite/coord/mirror/tests/test_driver_uninstall.py -q
 """
 from __future__ import annotations
 

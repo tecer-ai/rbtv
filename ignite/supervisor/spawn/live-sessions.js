@@ -84,7 +84,7 @@ function isoNow() {
 // ⚑ THE IMPORT IS THE SEAT-DIR CORE, NOT THE `(goalDir, seat)` WRAPPER, and the difference is the
 // whole warm path. A `workdir` here is the seat's OWN folder; splitting it back into a goal dir and
 // a name to feed the wrapper assumes a `seats/<seat>/` layer, which a STANDING-SEAT HOME does not
-// have (`materialize-seats.py#standing_seat`, `r-master-seat-homes`) — `_channel-master` IS the
+// have (`planning/materialize-seats.py#standing_seat`, `r-master-seat-homes`) — `_channel-master` IS the
 // seat folder. That split read `.rbtv/seats/_channel-master/seat.md`, which does not exist, so the
 // one seat the warm path was built for went ineligible SILENTLY (every ineligibility falls through
 // to the cold path by design). Task 7.642.

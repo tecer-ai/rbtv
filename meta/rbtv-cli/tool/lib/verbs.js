@@ -27,7 +27,7 @@ const ATTACHED_EXECUTION = path.join(
   RBTV_ROOT, 'ignite', 'capabilities', 'attached-execution', 'tool', 'rbtv-execution',
 );
 const TEAMBUILD = path.join(
-  RBTV_ROOT, 'meta', 'teambuild', 'tool', 'rbtv-teambuild',
+  RBTV_ROOT, 'ignite', 'teambuild', 'tool', 'rbtv-teambuild',
 );
 const EMBED_SEARCH = path.join(
   RBTV_ROOT, 'meta', 'embed-search', 'tool', 'rbtv-embed-search',

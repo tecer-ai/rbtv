@@ -42,7 +42,7 @@ const { createSpawnManager } = require('../spawn');
 // code under test, rather than spelling it a second time here — a probe carrying its own copy of
 // the header would stay green against a fix that hardcoded a STALE header, which is precisely the
 // failure this leg exists to catch.
-const KIT = path.resolve(__dirname, '../../../team-kit');
+const KIT = path.resolve(__dirname, '../../../coord');
 function ownerHeader() {
   return execFileSync(requirePythonCmd(), ['-c',
     'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',

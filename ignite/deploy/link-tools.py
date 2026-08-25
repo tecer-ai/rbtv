@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""link-tools — put the team-kit's bare-name commands on PATH, idempotently.
+"""link-tools — put the coordination kit's bare-name commands on PATH, idempotently.
 
-The team-kit tools are NAMED as bare commands by things that cannot see this repo's layout:
+The kit's tools are NAMED as bare commands by things that cannot see this repo's layout:
 `module.md`'s "Reach it" column says `coordinate -h`, and the channel/console master prompts
 (`.rbtv/mirror/meta/master/prompts/`) say `owed-answers`. On the ignite VPS those names
 resolved only because someone made `~/.local/bin` symlinks BY HAND — nothing created them, so a
@@ -17,7 +17,7 @@ Idempotent: a link already pointing at the right target is left untouched and re
 symlink pointing elsewhere is repaired. A REGULAR FILE with one of these names is never clobbered —
 that is somebody else's binary and the step refuses loudly rather than deleting it.
 
-Scope is the ignite team-kit ONLY. Other repos' PATH names (`rbtv`, `teamview`, `acct`, `sb-task`,
+Scope is the ignite coordination kit ONLY. Other repos' PATH names (`rbtv`, `teamview`, `acct`, `sb-task`,
 `sd-graph`) have the same gap and their own owners; each module exposes its own.
 """
 import argparse
@@ -25,14 +25,15 @@ import os
 import pathlib
 import sys
 
-KIT = pathlib.Path(__file__).resolve().parent.parent / "team-kit"
+IGNITE = pathlib.Path(__file__).resolve().parent.parent
 
-# bare name on PATH -> the file in team-kit/ it must resolve to
+# bare name on PATH -> the module-relative file it must resolve to. Component-first since
+# spec-component-map: the kit is `coord/` and the materializer landed in `planning/`.
 TOOLS = {
-    "coordinate": "coord.py",
-    "scaffold-seats": "materialize-seats.py",
-    "owed-answers": "owed-answers.py",
-    "tmux-overview": "tmux-overview",
+    "coordinate": "coord/coord.py",
+    "scaffold-seats": "planning/materialize-seats.py",
+    "owed-answers": "coord/owed-answers.py",
+    "tmux-overview": "coord/tmux-overview",
 }
 
 
@@ -69,7 +70,7 @@ def main():
 
     bad = False
     for name, filename in sorted(TOOLS.items()):
-        state, note = link(bindir, name, KIT / filename, args.check)
+        state, note = link(bindir, name, IGNITE / filename, args.check)
         bad = bad or state in ("stale", "REFUSED", "MISSING-TARGET")
         print(f"{state:>14}  {name}  {note}")
 

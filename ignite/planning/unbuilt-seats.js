@@ -8,7 +8,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { requirePythonCmd } = require('../runtime/python-cmd');
 
-const MATERIALIZE_PY = path.join(__dirname, '..', 'team-kit', 'materialize-seats.py');
+const MATERIALIZE_PY = path.join(__dirname, 'materialize-seats.py');
 const SUBPROCESS_TIMEOUT_MS = 120000;
 const PLANNING_MODULE = 'meta';
 

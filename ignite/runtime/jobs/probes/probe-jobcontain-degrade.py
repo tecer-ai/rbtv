@@ -41,7 +41,7 @@ HERE = Path(__file__).resolve().parent
 # HERE = <root>/ignite/jobs/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is the
 # RED-FIRST knob (see the docstring): it re-points TARGET at another tree's source.
 ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
-TARGET = ROOT / "ignite" / "jobs" / "jobcontain.py"
+TARGET = ROOT / "ignite" / "runtime" / "jobs" / "jobcontain.py"
 OUT = HERE / "probe-jobcontain-degrade.out"
 
 lines, failures, inoperative = [], [], []

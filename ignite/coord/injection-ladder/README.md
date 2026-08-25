@@ -40,7 +40,7 @@ structural reason. Stated plainly so no reader infers more completeness than exi
 ## The walk — and the one thing a caller must never do
 
 ```js
-const { resolveRung, harnessOf } = require('../injection-ladder');
+const { resolveRung, harnessOf } = require('../coord/injection-ladder');
 
 resolveRung(harnessOf(profile), { phase: 'launch', needResumable: true });
 //  -> { harness, rung, phase, entry, skipped[] }   or a typed LadderError
@@ -123,7 +123,7 @@ Recorded so it is not re-discovered.
 ## Probe
 
 ```
-node injection-ladder/probes/probe-injection-ladder.js
+node coord/injection-ladder/probes/probe-injection-ladder.js
 ```
 
 12 legs. **Self-contained** — requires only this module and node builtins, with no daemon, no heart
@@ -200,6 +200,6 @@ work.** The carve-outs, each named with why:
 
 | Copy | Why it stands |
 |------|---------------|
-| `ignite/injection-ladder/` | this module — the one home |
+| `ignite/coord/injection-ladder/` | this module — the one home |
 | `orchestration/skills/orchestrating/cards/` (call `cast`) | Cards remain and CALL `cast` / `cast route`. Historical: `orchestration/models/*/{manifest.yaml,delta.md}` retired with the tree 2026-08-18. |
 | `ignite/team-kit/coord.py` `harness_command()` | **`G-146`**, explicitly out of 7.45's scope by the run leader's directive. Custody of that file is held elsewhere; it was neither read into this module nor edited. |

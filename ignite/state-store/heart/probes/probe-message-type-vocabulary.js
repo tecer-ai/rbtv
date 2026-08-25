@@ -43,10 +43,10 @@ const SITES = [
   ['runtime/gateway/parse.js', /const MESSAGE_TYPES = new Set\(\[([^\]]*)\]\)/],
   ['chat/forward-path.js', /const CMP8_TYPES = new Set\(\[([^\]]*)\]\)/],
   ['state-store/heart/schema.sql', /CHECK \(type IN \(([^)]*)\)\)/],
-  ['team-kit/coord.py', /^MESSAGE_TYPES = \[([^\]]*)\]/m],
+  ['coord/coord.py', /^MESSAGE_TYPES = \[([^\]]*)\]/m],
   // TYPE_COLOR is the seventh site and the one a partial move breaks LOUDLY but late: a view
   // rendering a colourless type raises KeyError on the row a reader most needs to see.
-  ['team-kit/coord.py', /^TYPE_COLOR = \{([^}]*)\}/m, 'TYPE_COLOR'],
+  ['coord/coord.py', /^TYPE_COLOR = \{([^}]*)\}/m, 'TYPE_COLOR'],
   // The EIGHTH copy, found by a tree sweep during the D2 change and named by no site list before
   // it: the goal-scoped `threads.sql` schema TEMPLATE that `goal scaffold` writes. Nothing opens
   // that file as a database today, so it is inert — which is exactly why it drifted unnoticed and

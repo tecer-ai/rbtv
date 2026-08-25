@@ -28,7 +28,7 @@ BUDGET_S = 165
 def run(probe_file, pane):
     """`pane` = the TMUX_PANE handed to the selftest child, or None for the unset mode."""
     here = Path(probe_file).resolve()
-    kit = here.parent.parent                      # <tree>/ignite/team-kit — coord.py's own folder
+    kit = here.parent.parent                      # <tree>/ignite/coord — coord.py's own folder
     out = here.with_suffix(".out")
     label = f"TMUX_PANE={pane}" if pane else "TMUX/TMUX_PANE unset"
     lines, started = [], time.time()

@@ -231,7 +231,7 @@ cage:
     - "bind:{grant:rwPath}"
     # W6 · CLI-WRITE-ROOTS grant: the write roots declared by the CLIs this seat's exposed SKILLS
     # route to (`write-roots` in exposure.csv, resolved seat -> skill -> CLI -> root by
-    # `team-kit/materialize-seats.py` and baked into seat.md as `cli-write-roots:`). Beside its
+    # `planning/materialize-seats.py` and baked into seat.md as `cli-write-roots:`). Beside its
     # `rwPath` sibling and for the identical reason: every entry lies inside the workspace root,
     # which `ro-bind:{grant:readRoot}` covers read-only at the top of this stack, so an opening
     # placed above that floor composes to nothing. It carries its own grant key rather than reusing
@@ -1008,7 +1008,7 @@ tools:
   memory-commit:
     argv:
       - /usr/bin/python3
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/file-issue.py
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/coord/file-issue.py
       - memory
       - commit
       - --json
@@ -1140,9 +1140,9 @@ tools:
       - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/planning/bindings/plan.json
       # The OWNER-APPROVED starter set (CLAUDE.md + budget.json). F7 abolished conduct.md.
       - --claude-md
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/coord/starter-set/CLAUDE.md
       - --budget-json
-      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/coord/starter-set/budget.json
       - --ignite-bin
       - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/ignite-cli/ignite.js
 

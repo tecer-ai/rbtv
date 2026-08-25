@@ -298,7 +298,7 @@ def main() -> int:
               rc == 0, f"exit={rc} {so.strip()[:200]}")
         reset_registry()
         # A SUPERSEDED open row is NOT live — the seat's LAST row decides, exactly as the engine
-        # reads the record (`engine/seeding.js#recordView`).
+        # reads the record (`supervisor/seeding.js#recordView`).
         (goal / "executions.csv").write_text(
             "seat,session-id,lane,started,ended,outcome\n"
             "a,s1,attached,t0,,\na,s2,attached,t1,t2,clean\n", encoding="utf-8", newline="")
@@ -445,11 +445,11 @@ def main() -> int:
         # ── 9. THE CROSS-LANGUAGE PIN on the attached-run lock filename ──────────────────────
         #
         # ⚠ THE PYTHON CONSTANT WAS PINNED TO ITSELF. `goal_cli.ATTACHED_RUN_LOCK` names a file
-        # `engine/attached-execution.js` creates, and the "pin" was a Python arm comparing the
+        # `operator/attached-execution.js` creates, and the "pin" was a Python arm comparing the
         # literal to a copy of the literal — it could not go red on a JS rename, which is the
         # only event it exists to catch. This asks NODE for its own export.
         # HERE = …/ignite/capabilities/goals-tree/probes → parents[2] is …/ignite
-        engine = (HERE.parents[2] / "engine" / "attached-execution.js").resolve()
+        engine = (HERE.parents[2] / "operator" / "attached-execution.js").resolve()
         if not engine.is_file():
             inoperative("9. the JS side of the lock-name pin", f"{engine} does not exist")
         else:

@@ -203,7 +203,7 @@ def memory_gate(n_seats, avail_mb, floor_mb):
 # ever re-acquiring the ROLE gate's old override alongside the MEMORY gate's, and the role gate
 # they guarded against is itself gone. `--force-memory` is the memory floor's only override now,
 # read directly (see `launch_gates` below) — there is no second flag left for it to be confused
-# with. jobs/recover-room.py no longer asserts a split at runtime for the same reason.
+# with. runtime/jobs/recover-room.py no longer asserts a split at runtime for the same reason.
 
 
 def ps_snapshot():

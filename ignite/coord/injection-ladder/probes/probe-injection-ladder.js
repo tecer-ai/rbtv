@@ -192,7 +192,7 @@ const outPath = path.join(__dirname, 'probe-injection-ladder.out');
 const header = [
   'probe: probe-injection-ladder',
   `started: ${new Date().toISOString()}`,
-  'command: node injection-ladder/probes/probe-injection-ladder.js',
+  'command: node coord/injection-ladder/probes/probe-injection-ladder.js',
 ];
 let status = 'PASS';
 let exit = 0;

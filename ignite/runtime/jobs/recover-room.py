@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-create a dead team-kit room and boot a recovery seat into it (task 7.71).
+"""Re-create a dead coordination-kit room and boot a recovery seat into it (task 7.71).
 
 This is the recovery argv `selfheal-room.py` runs when the room is gone. It exists because
 the obvious recovery — `coordinate launch --only <seat> --force` — CANNOT DO THE JOB, for

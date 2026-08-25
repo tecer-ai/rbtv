@@ -153,7 +153,7 @@ const isoNow = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 // `--status`/`recordView` correctly answer "not done" for it.
 const HEADER = require('node:child_process').execFileSync(requirePythonCmd(),
   ['-c', 'import sys; sys.path.insert(0, sys.argv[1]); import coord; print(",".join(coord.SESSIONS_COLS))',
-    path.join(IGNITE_SRC, 'team-kit')], { encoding: 'utf8' }).trim();
+    path.join(IGNITE_SRC, 'coord')], { encoding: 'utf8' }).trim();
 const HEADER_COLS = HEADER.split(',');
 const cell = (m) => HEADER_COLS.map((c) => m[c] || '').join(',');
 

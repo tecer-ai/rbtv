@@ -409,7 +409,7 @@ function appendRowEnsuringHeader(csvPath, values, log) {
   const before = readCsv(csvPath);
   if (before.exists && before.header.length > 0) return written;
   try {
-    const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'team-kit');
+    const kit = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'), 'coord');
     const header = execFileSync(requirePythonCmd(), [...SESSIONS_HEADER_ARGV, kit],
       { encoding: 'utf8', timeout: 30000 }).trim();
     if (!header.includes(',')) throw new Error(`the schema owner returned no header: ${JSON.stringify(header)}`);
@@ -476,7 +476,7 @@ function closeSeatSessionRow({ workdir, sessionId, log, exitCode = null, logPath
   const seatPath = workdir ? (parseSeatPath(workdir) || parseServiceSeatPath(workdir)) : null;
   if (!seatPath || !seatPath.goalDir) return { closed: false, reason: 'workdir is not a seat home' };
   const coordPy = path.join(process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '../..'),
-    'team-kit', 'coord.py');
+    'coord', 'coord.py');
   try {
     const out = execFileSync(requirePythonCmd(), [coordPy, '--package', seatPath.goalDir,
       '--as', 'ignite-daemon', 'attest-exit', '--session', sid, '--force-dead',
@@ -505,7 +505,7 @@ function closeSeatSessionRow({ workdir, sessionId, log, exitCode = null, logPath
 // out of git's own record instead of guessed from a repo list this module would have to be told.
 //
 // ZERO GRANTS IS THE CORRECT ANSWER FOR A SEAT WITH NO WORKTREE, and it is not a stub. Task 7.38
-// (the worktree flow) landed 2026-08-05: `team-kit/worktree-flow.py` creates the
+// (the worktree flow) landed 2026-08-05: `coord/worktree-flow.py` creates the
 // `{repo}--{goal}--{seat}` directories this resolver reads, so a seat that has one resolves its
 // grants here and a seat that does not carries no W2/W3 openings. Nothing in this function changed
 // when 7.38 landed — the directories simply appeared.
@@ -596,7 +596,7 @@ function launchSpecForSeat(launchSpecs, seatDir, log) {
 // end. The tool's own discipline makes that safe: every gate in `materialize-seats.py --refresh`
 // fires BEFORE any write, and the write itself is `_rewrite_in_place` (one `pwrite` under an
 // exclusive `flock`, same inode) — a refusal leaves the existing sheet byte-identical.
-const MATERIALIZE_PY = path.join(__dirname, '..', '..', 'team-kit', 'materialize-seats.py');
+const MATERIALIZE_PY = path.join(__dirname, '..', '..', 'planning', 'materialize-seats.py');
 const REFRESH_TIMEOUT_MS = 60000;   // measured cost of one seat's refresh: 0.34 s
 
 // The catalog root `--refresh` renders from, read off the seat's OWN `component:` line — the
@@ -834,7 +834,7 @@ function leasedGoals(workspaceRoot) {
 }
 
 // `goals-write: true` — RW on the GOAL FOLDER of every goal in the workspace but its own, so a
-// seat holding the materializer (`team-kit/materialize-seats.py`) can seat a cataloged seat into a
+// seat holding the materializer (`planning/materialize-seats.py`) can seat a cataloged seat into a
 // goal: it writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an atomic
 // tmp-file-plus-rename IN THE GOAL DIR — which is why the grant is the goal dir and not `seats/`
 // alone.
@@ -941,7 +941,7 @@ function resolveTmuxSocketGrant(seatPath) {
 // resolving a part-id to a manifest row is materialize's job and is not written twice (PRIN-11).
 //
 // BOTH ENDS, because one without the other is not a grant (7.607 E4/E4b measured a seat instructed
-// to check in whose `coordinate` was on no PATH and whose team-kit target was unbound):
+// to check in whose `coordinate` was on no PATH and whose coord-kit target was unbound):
 //   1. the CODE TREE at its real path, READ-ONLY — the entry point's own directory. A CLI reads its
 //      siblings through `Path(__file__).resolve().parent`, so the script must live where it really
 //      lives; a bwrap `--ro-bind` of the host's `~/.local/bin/<name>` symlink DEREFERENCES it

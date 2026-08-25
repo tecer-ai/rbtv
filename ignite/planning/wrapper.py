@@ -33,7 +33,7 @@ PATH_B = "B"
 def uncast_in_sheet(sheet_path, seat_names):
     """Refuse-before-write pattern (KEEP). Cast = harness and model both non-empty.
 
-    Same predicate as launch-profiles/catalog.js `declaresBinding`. Call site is
+    Same predicate as supervisor/launch-profiles/catalog.js `declaresBinding`. Call site is
     this wrapper: a non-empty result refuses the whole act.
     """
     try:

@@ -48,7 +48,7 @@ both inversions are the point:
   7. THE MUTANT — the name lookup is neutered in a copy of the module source and check 3 is re-run.
      It MUST now be accepted; otherwise check 3 is scoring nothing and this probe exits 2
      INOPERATIVE rather than reporting a pass it did not earn.
-  8. THE REGISTERED ARGV ITSELF — the argv `config/spawn-profiles.yaml` declares for
+  8. THE REGISTERED ARGV ITSELF — the argv `envelope/spawn-profiles.yaml` declares for
      `tools: master-profile`, read out of that file and run as a SUBPROCESS with only the
      live-state operands substituted. Added after the twin capability's first live fire died on
      `error: unrecognized arguments: --config` with every function-level check green: the daemon
@@ -92,7 +92,7 @@ import tempfile
 from pathlib import Path
 
 TOOL = Path(__file__).resolve().parents[1] / "tool" / "master_profile.py"
-LIVE_PROFILES = Path(__file__).resolve().parents[3] / "config" / "spawn-profiles.yaml"
+LIVE_PROFILES = Path(__file__).resolve().parents[3] / "envelope" / "spawn-profiles.yaml"
 # The live sheet and seat are taken from the TOOL's own resolution (`mod.DEFAULT_BINDINGS` /
 # `mod.DEFAULT_SEAT`), not recomputed here: two spellings of the same path is how a probe ends up
 # proving a file the tool never reads. Bound at the top of main(), once the module is loaded.
@@ -104,7 +104,7 @@ inoperative: list[str] = []
 
 
 def registered_argv(entry):
-    """The argv the LIVE `config/spawn-profiles.yaml` declares for one `tools:` entry.
+    """The argv the LIVE `envelope/spawn-profiles.yaml` declares for one `tools:` entry.
 
     Read from the config rather than retyped here: a retyped copy proves the probe author's memory
     of the entry, which is the very thing that was wrong."""
@@ -424,7 +424,7 @@ def main():
     #
     # ⚠ THIS ARM EXISTS BECAUSE ITS ABSENCE COST A LIVE FIRE. Every check above calls `apply()` as a
     # PYTHON FUNCTION, which is exactly the surface the daemon never touches: the daemon execs the
-    # wrapper with the argv `config/spawn-profiles.yaml` declares. `--config` was a ROOT option and
+    # wrapper with the argv `envelope/spawn-profiles.yaml` declares. `--config` was a ROOT option and
     # that argv puts it after the verb, so the first real fire died with
     # `error: unrecognized arguments: --config …`, drained nothing, and recorded `failed` — while
     # every function-level check stayed green. A check that cannot see the caller's shape is not
@@ -662,7 +662,7 @@ def main():
     # whether the module the tool imported is the bindings TOOL, and a path taken from the tool's
     # own resolution could not tell. A `bindings` shadowed from anywhere else on sys.path would
     # satisfy the identity assertions below while pointing at the wrong file.
-    want = Path(__file__).resolve().parents[3] / "capabilities" / "bindings" / "tool" / "bindings.py"
+    want = Path(__file__).resolve().parents[3] / "operator" / "bindings" / "tool" / "bindings.py"
     check(bindings_mod is not None
           and Path(bindings_mod.__file__).resolve() == want,
           f"the tool imported the bindings TOOL itself "

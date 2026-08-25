@@ -100,7 +100,7 @@ GOAL_KIND_DEFAULT = "interactive"
 #
 # One word in a small file at the goal root — the `execution-mode` file's precedent exactly —
 # saying which lane currently runs this goal. It is THE DAEMON'S PICKUP TRIGGER: the daemon's
-# watch pass (`ignite/engine/lane-watch.js`) reads it once a cadence and seeds the goals assigned
+# watch pass (`ignite/supervisor/lane-watch.js`) reads it once a cadence and seeds the goals assigned
 # to it, so flipping this file is how a goal starts in one lane and finishes in the other.
 #
 # ⚠ NAMING. The marker's TERM is **lane assignment**, values `daemon | console` — MINTED
@@ -136,7 +136,7 @@ LANES = ("daemon", "console")
 # `pause <goal>` rewrites the marker to `paused ` + WHATEVER IT SAID BEFORE, byte for byte;
 # `resume` strips exactly that prefix and writes the remainder back. Nothing else in the system
 # learns a new word, and that is the whole design: BOTH lane readers — `read_lane` below and
-# `engine/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
+# `supervisor/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
 # `console`, so a paused marker reads as "not assigned to the daemon" on both sides with ZERO
 # reader change. The daemon lets go on its next pass; the stashed assignment is still on disk.
 #
@@ -247,7 +247,7 @@ WRITE_IF_SOMETHING = {
 # coordination log. The ruling's second half is that the destination is MATERIALIZED into the docs a
 # seat reads, never left to memory, so it lands in both carriages: the router below (inherited by
 # every seat under this goal — `cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`)
-# and the per-seat `AGENTS.md`, which `team-kit/materialize-seats.py` renders from THIS constant
+# and the per-seat `AGENTS.md`, which `planning/materialize-seats.py` renders from THIS constant
 # rather than restating it. `{issues}` is the caller's concrete fallback path.
 TOOLING_FINDING_BLOCK = """\
 ## A tooling gap goes in an issues ledger, never in chat
@@ -282,7 +282,7 @@ where things are and where to write. What this goal IS lives in `goal.md`.
 ## Read next — protocol, from SOURCE
 
 The coordination protocol — messaging, identity, lifecycle mechanics — is
-`ignite/team-kit/protocol.md` in the rbtv repo (its path is `rbtv_path` in the workspace's
+`ignite/coord/protocol.md` in the rbtv repo (its path is `rbtv_path` in the workspace's
 `rbtv.json`). Read it from the kit's source. This router carries no protocol.
 
 ## Write-if-something files
@@ -732,7 +732,7 @@ def cmd_scaffold(args) -> int:
 
 
 def read_lane(goal_dir: Path) -> tuple[str, bool]:
-    """(lane, legacy) — the SAME grammar `engine/lane-watch.js#readLane` reads with.
+    """(lane, legacy) — the SAME grammar `supervisor/lane-watch.js#readLane` reads with.
 
     ⚠ ONE WORD, WHOLE (`#d-abolish-profile-names` sub-ruling 3, 2026-08-12). The whole trimmed text
     must BE the lane word. Trimmed, case-insensitive, and everything else is `console`: a missing
@@ -1138,7 +1138,7 @@ def cmd_retry_threshold(args) -> int:
 # ⚠ `_spawn_profile_names()` IS DELETED (`#d-abolish-profile-names`, 2026-08-12). It took the KEYS
 # of `profiles:` so `--profile NAME` could be validated against them. Both the flag and the flat
 # name-keyed section are gone; the castable set now has ONE derivation — `launch-specs:`' keys, read
-# by `capabilities/bindings/tool/bindings.py#catalog` and by `launch-profiles/catalog.js#catalogOf`
+# by `operator/bindings/tool/bindings.py#catalog` and by `supervisor/launch-profiles/catalog.js#catalogOf`
 # — and this file asks neither, because it no longer has a name to check. DEC-1's no-second-reader
 # rule is satisfied by having no reader here at all.
 
@@ -1151,10 +1151,10 @@ class _CastUnknown(RuntimeError):
 
 # ── WHICH SEATS ARE NOT CAST — ASKED, NEVER RE-DERIVED ────────────────────────────────────────
 #
-# ⚠ THE ANSWER IS NOT COMPUTED HERE, AND NOT COMPUTED IN PYTHON AT ALL. `engine/seeding.js`
+# ⚠ THE ANSWER IS NOT COMPUTED HERE, AND NOT COMPUTED IN PYTHON AT ALL. `supervisor/seeding.js`
 # exports `uncastSeats`, which reads what the LAUNCH reads through the launch's own reader
 # (`spawn.js#seatDeclaresValue` over `seats/<seat>/seat.md`) and answers with the catalog's own
-# predicate (`launch-profiles/catalog.js#declaresBinding`). One home, two callers: the daemon's
+# predicate (`supervisor/launch-profiles/catalog.js#declaresBinding`). One home, two callers: the daemon's
 # watch pass asks the same function, so what this door accepts and what that pass seeds cannot
 # disagree. A python re-implementation would be a second reader of the same fact — the drift
 # DEC-1 § Shared launch-spec source forbids, and the precedent is `probe-bindings.py`'s "one `node`
@@ -1174,7 +1174,7 @@ def _uncast_seats(goal_dir: Path) -> list[str]:
     """The seats of this goal that declare NO harness+model cast. Raises `_CastUnknown`."""
     import subprocess
 
-    seeding = Path(__file__).resolve().parents[3] / "engine" / "seeding.js"
+    seeding = Path(__file__).resolve().parents[3] / "supervisor" / "seeding.js"
     try:
         proc = subprocess.run(
             ["node", "-e",
@@ -1354,7 +1354,7 @@ def _coord_grammar():
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, str(coord_path.parent))
     # `lint` WRITES NOTHING, EVER, and an import is otherwise a write: measured, a
-    # plain exec_module drops three `.pyc` files into `team-kit/__pycache__/`. They
+    # plain exec_module drops three `.pyc` files into `coord/__pycache__/`. They
     # are gitignored and harmless, and that is exactly the argument that erodes a
     # read-only contract one exception at a time. Suppressed, then restored.
     bytecode = sys.dont_write_bytecode
@@ -1941,7 +1941,7 @@ def coord_source_path() -> Path:
     Resolved relative to THIS file, never to a caller's cwd: the same anchor
     `materialize-seats.py` uses to reach this module from the other direction.
     """
-    return Path(__file__).resolve().parents[3] / "team-kit" / "coord.py"
+    return Path(__file__).resolve().parents[3] / "coord" / "coord.py"
 
 
 def read_live_classes(coord_path: Path) -> tuple[set | None, set | None, str | None]:
@@ -2986,7 +2986,7 @@ def cmd_materialize(args) -> int:
 # every edge rewired in one atomic act that refuses anything it cannot do safely.
 
 EXECUTIONS_FILE = "executions.csv"
-# `engine/attached-execution.js#RUN_LOCK`. Stated, not imported — it is one filename across a
+# `operator/attached-execution.js#RUN_LOCK`. Stated, not imported — it is one filename across a
 # language boundary and there is no bridge, so BOTH sides hold their own literal.
 # ⚠ THE PIN IS NOT IN THIS FILE, AND A SELFTEST CANNOT BE IT: a Python arm comparing this literal
 # to itself proves nothing about the JS side, which is what it was doing. The real pin is
@@ -3028,8 +3028,8 @@ def seat_states(goal_dir: Path) -> dict[str, dict]:
     this function answers process state only.
 
     ⚠ THE LAST ROW DECIDES, IN FILE ORDER — never "any row is open". The record is append-only
-    and the engine keys on exactly this (`engine/execution-record.js`: "the seat's LAST word in
-    the record is what every reader keys on"; `engine/seeding.js#recordView` takes the last row
+    and the engine keys on exactly this (`supervisor/execution-record.js`: "the seat's LAST word in
+    the record is what every reader keys on"; `supervisor/seeding.js#recordView` takes the last row
     per seat in file order and calls a seat with an unstamped last row not-finished). A seat with
     rows [done, open] read `open` here while a seat with [open, done] read `open` too — so a
     revived seat that finished still reported as running, and the two readers disagreed about the
@@ -3462,7 +3462,7 @@ def cmd_add_seat(args) -> int:
                 f"{detail} — this splice writes multi-member or guarded `after` cell(s) and the "
                 f"stashed lane assignment is `{stashed}`, so resuming hands the daemon seeder "
                 "exactly the cell class it reads least reliably today. The parallel seeder fix "
-                "(engine/seeding.js) lifts this concern once deployed; until then, either resume "
+                "(supervisor/seeding.js) lifts this concern once deployed; until then, either resume "
                 "into the console lane (`rbtv-goal resume`, then `lane --set console`) or pass "
                 "--allow-daemon-complex-cell to accept the risk deliberately.",
                 "daemon-complex-cell")
@@ -3488,7 +3488,7 @@ def cmd_add_seat(args) -> int:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump({"defaults": sheet.get("defaults", {}),
                            "seats": {seat: sheet["seats"][seat]}}, fh, indent=2)
-            materializer = Path(__file__).resolve().parents[3] / "team-kit" / "materialize-seats.py"
+            materializer = Path(__file__).resolve().parents[3] / "planning" / "materialize-seats.py"
             if not materializer.is_file():
                 raise Refusal(f"{materializer}: the seat materializer is absent — this verb mints "
                               "through it and never re-implements assembly", "materializer-absent")
@@ -3612,7 +3612,7 @@ def cmd_add_seat(args) -> int:
 #
 # WHY IT EXISTS (IPH-27). Scaffolding a goal WRITES catalogue rows — `<goal>-workflow-start` from
 # `capabilities/goal-creation-request`, and one `seat-<goal>-<seat>` per seat from
-# `engine/seeding.js#seedTaskforce` on the goal's first seed. Deleting the goal folder removed none
+# `supervisor/seeding.js#seedTaskforce` on the goal's first seed. Deleting the goal folder removed none
 # of them, and registration is create-only, so the goal's NAME was burnt: 18 stranded rows for one
 # goal, and a same-name re-scaffold refused `E_JOB_EXISTS`. `deregister-job --purge` made the rows
 # reclaimable; this verb is what CALLS it, so a teardown is one command instead of an undocumented
@@ -3636,14 +3636,14 @@ def _ignite_bin(explicit: str | None) -> list[str]:
     """The argv prefix that runs the ignite client.
 
     NAMED, never resolved on PATH — the same fact every daemon-fired entry in
-    `config/spawn-profiles.yaml` states: a systemd --user manager's PATH does not carry
+    `envelope/spawn-profiles.yaml` states: a systemd --user manager's PATH does not carry
     `~/.local/bin`, so a bare `ignite` resolves interactively and nowhere else.
     """
     if explicit:
         # A `.js` path needs an interpreter; anything else (a symlink on PATH, a wrapper) is
         # already executable and is run as given.
         return ["node", explicit] if explicit.endswith(".js") else [explicit]
-    return ["node", str(Path(__file__).resolve().parents[3] / "cli" / "ignite.js")]
+    return ["node", str(Path(__file__).resolve().parents[3] / "ignite-cli" / "ignite.js")]
 
 
 def _ignite(prefix: list[str], *argv: str) -> dict:
@@ -5386,7 +5386,7 @@ def build_parser() -> argparse.ArgumentParser:
              "leaves the goal folder alone)"))
     p.add_argument("goal_name")
     p.add_argument("--ignite-bin", default=None,
-                   help="path to the ignite client (default: this repo's cli/ignite.js under node). "
+                   help="path to the ignite client (default: this repo's ignite-cli/ignite.js under node). "
                         "Auth and gateway address come from the environment the client already "
                         "reads — IGNITE_SENDER_TOKEN and IGNITE_GATEWAY_ADDR / server.json")
     p.add_argument("--yes", action="store_true",

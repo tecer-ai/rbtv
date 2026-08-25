@@ -2,7 +2,7 @@
 """probe-checkout-disposition.py — checkout writes the ending store (spec §4.1 / §2.7)."""
 
 import os as _os, sys as _sys, pathlib as _pl
-_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "team-kit" / "self_isolate.py").is_file()) / "team-kit"))
+_sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
 
 import argparse

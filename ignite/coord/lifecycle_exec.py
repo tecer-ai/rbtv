@@ -376,7 +376,7 @@ def renewal_from_entry(entry, now_str=None):
 
 def renewal_state(base, seat, now_str=None, lifecycle=None):
     """(state, why) — `renewal_from_entry` against the marker on disk. THE ONE READER of the
-    successor-pending signal: `ready_seat_rows` here, and `engine/attached-execution.js` on the JS
+    successor-pending signal: `ready_seat_rows` here, and `operator/attached-execution.js` on the JS
     side, transported through the `renewal-state` verb rather than re-deriving it. Two gates
     re-deriving one seat's state from one file is how they come to disagree about it.
 
@@ -1108,7 +1108,7 @@ def lifecycle_fork_target(seat, pane):
         both unset, tmux resolves an empty target to the MOST RECENT session — measured, it
         answered `build-core-daemon-mvp`, the LIVE room. A recovery that opens agents into the
         live room believing it is repairing a dead one is worse than no recovery at all.
-        — ignite/jobs/recover-room.py:13-19
+        — ignite/runtime/jobs/recover-room.py:13-19
 
     So the answer here is a target or a REFUSAL, never a blank a caller might pass on.
 

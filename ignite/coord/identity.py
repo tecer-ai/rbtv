@@ -26,7 +26,7 @@ def pane_agent(base, pane):
 # override the match", because an asserted `COORD_AGENT` once outranked verified pane resolution
 # and two agents ran under one roster name (G-111). Measured consequence: a daemon-fired
 # `coord.py … launch` could pass the role gate ONLY by writing `--as leader` into
-# `config/spawn-profiles.yaml` — an assertion dressed as configuration.
+# `envelope/spawn-profiles.yaml` — an assertion dressed as configuration.
 #
 # So this lane gives the daemon path an identity it does not have to CLAIM. It follows identity.js
 # link for link: the caller supplies MEASURABLES, never a name, and every link is something the
@@ -51,7 +51,7 @@ def pane_agent(base, pane):
 # this one's). Zero behaviour change for every caller that already resolved.
 DAEMON_IDENTITY = "ignite-daemon"
 IGNITE_UNIT = "rbtv-ignite.service"
-DAEMON_DATA_ROOT_DEFAULT = "/var/lib/rbtv-ignite"   # config/spawn-profiles.yaml's seeded data_root
+DAEMON_DATA_ROOT_DEFAULT = "/var/lib/rbtv-ignite"   # envelope/spawn-profiles.yaml's seeded data_root
 # `spawn/carrier.js` mints `rbtv-worker-<sessionId>`; systemd renders that as a .service unit and
 # the cgroup line carries it as the path LEAF. Anchored on the separator and on `.service` so a
 # substring appearing anywhere else in the line cannot smuggle a unit name in.
@@ -407,7 +407,7 @@ def is_summoned_seat(name):
 # ⚠ AND IT WIDENS NEITHER SOURCE, WHICH IS THE WHOLE POINT OF ITS EXISTING. `STAFF_SEATS` is
 # read at four sites (`is_staff_seat`, the staff-mail arm, launch admission, `--route` choices)
 # — D24 rejected widening it to buy one behaviour. `SUMMONED_SEATS` is worse: the daemon's
-# `engine/reconcile.js` EXECS THIS MODULE and reads `SUMMONED_SEATS` by that exact name to
+# `supervisor/reconcile.js` EXECS THIS MODULE and reads `SUMMONED_SEATS` by that exact name to
 # decide who is NEVER OWED. Putting `leader` there would stop reconcile waking the chair
 # on its unread mail (its class B) — the chair's only wake term.
 #

@@ -53,7 +53,7 @@ const counters = require('./attempt-counters');
 const { exhaust } = require('./exhaustion');
 const { loadRecoveryConfig } = require('./recovery-config');
 
-const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
+const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
 const RECOVER_ROOM = path.join(__dirname, '..', 'runtime', 'jobs', 'recover-room.py');
 
 const CADENCE_MS = 5 * 60 * 1000;

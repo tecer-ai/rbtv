@@ -2,7 +2,7 @@
 """probe-bindings.py — the casting-sheet tool, proven against copies.
 
 NOTHING HERE TOUCHES THE LIVE BINDINGS TREE OR THE LIVE MIRROR. Every write lands under `tempfile`:
-the catalog is derived from a byte-copy of `ignite/config/spawn-profiles.yaml`, the casting sheets
+the catalog is derived from a byte-copy of `ignite/envelope/spawn-profiles.yaml`, the casting sheets
 are written under a throwaway `--config-root`, and the one materialize exercise runs into a
 throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is read by nothing here.
 
@@ -41,8 +41,8 @@ throwaway goal package with `--dry-run`. The live `.rbtv/config/modules/` is rea
      writes is the artifact the consumer reads. Its negative twin: the SAME call with one seat left
      uncast must refuse.
   8. THE BOTH-DOORS SWEEP — every rung of every CASTABLE ladder is composed twice, by the daemon
-     door (`launch-profiles/profiles.js#resolveEffort`, loaded through the daemon's own
-     `server/spawn/config.js`) and by the tmux door (`team-kit/coord.py#harness_command`), and the
+     door (`supervisor/launch-profiles/profiles.js#resolveEffort`, loaded through the daemon's own
+     `supervisor/spawn/config.js`) and by the tmux door (`coord/coord.py#harness_command`), and the
      two must yield the same tokens in the same order. Its COVERAGE FLOOR is the check, not its
      setup: the sweep refuses to grade until it has seen more than one harness and more than one
      dialect, because every live seat is claude and a claude-only matrix would pass every cell
@@ -70,9 +70,9 @@ from pathlib import Path
 _PROBE_FILE = Path(__file__).resolve()
 TOOL = _PROBE_FILE.parents[1] / "tool" / "bindings.py"
 IGNITE = _PROBE_FILE.parents[3]
-LIVE_PROFILES = IGNITE / "config" / "spawn-profiles.yaml"
-MATERIALIZE = IGNITE / "team-kit" / "materialize-seats.py"
-STARTER = IGNITE / "team-kit" / "starter-set"
+LIVE_PROFILES = IGNITE / "envelope" / "spawn-profiles.yaml"
+MATERIALIZE = IGNITE / "planning" / "materialize-seats.py"
+STARTER = IGNITE / "coord" / "starter-set"
 WORKSPACE = IGNITE.parents[3]
 REPO = IGNITE.parent
 LIVE_MANIFEST = (REPO / "meta" / "planning"
@@ -403,7 +403,7 @@ for i, (label, needle, replacement, arm) in enumerate(MUTANTS):
         # The mutant is planted four levels deep because the module resolves its own repo roots
         # from `__file__` at import; the two roots are then repointed at the live ones, so the
         # ONLY difference between mutant and control is the removed guard.
-        mpath = td / "capabilities" / "bindings" / "tool" / f"mutant_{i}.py"
+        mpath = td / "operator" / "bindings" / "tool" / f"mutant_{i}.py"
         mpath.parent.mkdir(parents=True, exist_ok=True)
         mpath.write_text(src.replace(needle, replacement), encoding="utf-8")
         mut = load(mpath, f"bindings_mutant_{i}")
@@ -469,9 +469,9 @@ with tempfile.TemporaryDirectory() as td:
 # ────────────────────────────────────────────────────────────────────────────────── check 8
 #
 # THE BOTH-DOORS SWEEP. A seat's declared effort reaches a binary through two independent
-# compositions: the DAEMON door (`launch-profiles/profiles.js#resolveEffort`, reached here through
-# `server/spawn/config.js` so the loader is the daemon's own) and the TMUX door
-# (`team-kit/coord.py#harness_command`). Until 2026-08-11 the second one hardcoded claude's
+# compositions: the DAEMON door (`supervisor/launch-profiles/profiles.js#resolveEffort`, reached here through
+# `supervisor/spawn/config.js` so the loader is the daemon's own) and the TMUX door
+# (`coord/coord.py#harness_command`). Until 2026-08-11 the second one hardcoded claude's
 # `--effort {word}` and nothing else, so a codex seat (a real 3-rung ladder), a kimi seat and all
 # seven opencode seats launched with their declared effort SILENTLY DROPPED — and an invalid
 # opencode `--variant` exits 0 applying nothing, so even the binary would not have said so.
@@ -504,10 +504,10 @@ for (const [key, p] of Object.entries(cfg.launchSpecs || {})) {
 process.stdout.write(JSON.stringify(out));
 """
 
-sys.path.insert(0, str(IGNITE / "team-kit"))
+sys.path.insert(0, str(IGNITE / "coord"))
 import coord as coord_mod  # noqa: E402 — the tmux door itself, never a re-implementation of it
 
-_r = subprocess.run(["node", "-e", _DOOR_A, str(IGNITE / "server" / "spawn" / "config.js"),
+_r = subprocess.run(["node", "-e", _DOOR_A, str(IGNITE / "supervisor" / "spawn" / "config.js"),
                      str(LIVE_PROFILES)], capture_output=True, text=True)
 if _r.returncode != 0:
     inoperative.append("door A did not run — the whole sweep scored nothing")
@@ -610,9 +610,9 @@ process.stdout.write(JSON.stringify(out));
 """
 _hr = subprocess.run(
     ["node", "-e", _DOOR_A_HEADED,
-     str(IGNITE / "server" / "spawn" / "config.js"),
+     str(IGNITE / "supervisor" / "spawn" / "config.js"),
      str(LIVE_PROFILES),
-     str(IGNITE / "server" / "spawn" / "spawn.js")],
+     str(IGNITE / "supervisor" / "spawn" / "spawn.js")],
     capture_output=True, text=True)
 if _hr.returncode != 0:
     check("door A headed composeArgv answers for headed+ladder specs",
@@ -732,7 +732,7 @@ with tempfile.TemporaryDirectory() as td:
         inoperative.append("the set-many all-or-nothing mutation target is not uniquely locatable")
         check("mutant — the all-or-nothing guard", False, "mutation target not uniquely locatable")
     else:
-        mpath = td / "capabilities" / "bindings" / "tool" / "mutant_batch.py"
+        mpath = td / "operator" / "bindings" / "tool" / "mutant_batch.py"
         mpath.parent.mkdir(parents=True, exist_ok=True)
         mpath.write_text(src9.replace(needle, needle.replace("dry_run=True)", "dry_run=dry_run)")),
                          encoding="utf-8")
@@ -844,7 +844,7 @@ with tempfile.TemporaryDirectory() as td:
         inoperative.append("the goal-local reuse-filter mutation target is not uniquely locatable")
         check("mutant — the goal-local seat set", False, "mutation target not uniquely locatable")
     else:
-        mpath = td / "capabilities" / "bindings" / "tool" / "mutant_goal_local.py"
+        mpath = td / "operator" / "bindings" / "tool" / "mutant_goal_local.py"
         mpath.parent.mkdir(parents=True, exist_ok=True)
         mpath.write_text(src10.replace(needle, "             ]"), encoding="utf-8")
         mut = load(mpath, "bindings_mutant_goal_local")

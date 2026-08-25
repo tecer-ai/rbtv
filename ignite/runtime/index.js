@@ -75,7 +75,7 @@ function log(level, message, extra = {}) {
 }
 
 // D6 pin: ExecStart and RBTV_IGNITE_CONFIG_PATH resolve into the pinned deploy
-// tree; RBTV_IGNITE_SRC names the live per-invocation tree (team-kit, coord.py).
+// tree; RBTV_IGNITE_SRC names the live per-invocation tree (coord/, coord.py).
 function resolveIgniteSrc() {
   return process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..');
 }

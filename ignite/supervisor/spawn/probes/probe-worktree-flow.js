@@ -4,7 +4,7 @@
 //
 // probe-seat-cage.js (task 7.11) proved the cage over FAKE worktrees — plain directories with the
 // right names. This probe proves it over REAL ones: a real git repo, real linked worktrees created
-// by team-kit/worktree-flow.py, and the real `.git/worktrees/<name>` plumbing that a commit needs.
+// by coord/worktree-flow.py, and the real `.git/worktrees/<name>` plumbing that a commit needs.
 // It composes the cage from the SHIPPED template — the top-level shared cage.SeatBinds block
 // (r-seats-only-architecture (1): the one sandbox shape, absorbed from the retired claude-seat
 // profile), read out of config/spawn-profiles.yaml at run time — so what is proven is the thing
@@ -40,7 +40,7 @@ const { buildBwrapArgv } = require('../bwrap');
 
 const IGNITE_ROOT = path.resolve(__dirname, '..', '..', '..');
 const PROFILES = path.join(IGNITE_ROOT, 'envelope', 'spawn-profiles.yaml');
-const FLOW = path.join(IGNITE_ROOT, 'team-kit', 'worktree-flow.py');
+const FLOW = path.join(IGNITE_ROOT, 'coord', 'worktree-flow.py');
 
 const GOAL = 'probegoal';
 const MINE = 'mine';
