@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/coord/coordinate]
+  path: [rbtv:ignite/coord/coordinate, rbtv:ignite/planning/approve-package]
 ---
 
 <role>
@@ -20,12 +20,15 @@ exposes:
 2. Run exactly two checks. Add no others.
    (a) Every finding tagged `blocking` in the review package is addressed in the revised plan. Non-blocking stay residue.
    (b) Every milestone id in the design is still present with its done-criteria unbroken — no silent drop, merge, or rewrite of the contract.
-3. Count prior regression sittings in this seat's `memory.md` (lines beginning `REGRESSION-PASS `). Cap is TWO fix passes.
+3. Where the paired task declares itself NOTIFY-ONLY, skip this whole step: issue no FAIL, record no verdict, count no pass, and instead do what that task's notify clause names — the problem is reported and the work continues. The cap below exists only for a paired task that declares one.
+   Otherwise, count prior regression sittings in this seat's `memory.md` (lines beginning `REGRESSION-PASS `). Cap is TWO fix passes.
    - Either check fails AND the count is 0 or 1: append `REGRESSION-PASS <n>` to `memory.md`, record FAIL with a body naming only the failed check items (this is the closed findings list for the revision seat). `on-fail-relaunch` re-fires `review+finalize` then this seat. Stop.
    - Either check fails AND the count is already 2: do not FAIL again. Compose the digest with a red flag `unresolved regression` and complete.
    - Both checks pass: compose the digest with no that flag.
 4. Record the git commit that currently contains the plan artifacts (`git rev-parse HEAD` from the workspace that holds them). If there is no commit, write `commit: uncommitted` as a red flag. Approval binds to that recorded commit, not to a canvas.
-5. Compose the digest at the path the paired task's Write clause names. First line is exactly `APPROVAL-DIGEST`. Phone-sized. APPLY `master/slack-message-format` shape (mrkdwn, ❓). Do not send it. Fields, all required:
+5. Compose the product at the path the paired task's Write clause names. Where that product is a notice rather than a plan-approval digest, the task's own field list governs and the digest fields below do not apply — a lane that only notifies must not be handed approval outcomes to offer.
+   For the approval digest:
+   First line is exactly `APPROVAL-DIGEST`. Phone-sized. APPLY `master/slack-message-format` shape (mrkdwn, ❓). Do not send it. Fields, all required:
    - milestones (ids + one-line aims)
    - seat count
    - envelope summary (deltas vs the shipped planning envelope)
@@ -35,12 +38,14 @@ exposes:
    - paths to the on-disk artifacts (facts brief, design, draft, review package, this digest)
    - recorded git commit
    - the four owner outcomes, named verbatim: `approve` (execution starts; irreversible; name the execution-goal name the plan declared) / `reject-close` / `reject-pause` / `reject-retry` (relaunch draft + verify only; owner comments become the closed findings list; approach rethink is a full pipeline and only if the owner says so)
-6. Autonomous arm — when nobody can answer: there is nothing to ask for this seat's product. Write the digest from the checks. Default: `credential-resolve` is `not-checked-here` unless a name's presence in the configured store is already observable without opening a secret value. Never post.
+6. Where the paired task's done contract calls for the approve-package, write it with `rbtv:ignite/planning/approve-package` — one run, after the checks, never by hand. The package is what the daemon reads on `approve` to learn WHAT to build, so it is written from the plan you just checked and from the commit you recorded in step 4, and from nothing else. Pass NO planning-goal and NO goals-root: the daemon derives both and refuses a package that disagrees, which is how a package copied from another goal is caught. A refusal from the writer is a red flag on the digest, never a hand-written file.
+7. Autonomous arm — when nobody can answer: there is nothing to ask for this seat's product. Write the digest from the checks. Default: `credential-resolve` is `not-checked-here` unless a name's presence in the configured store is already observable without opening a secret value. Never post.
 </procedure>
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it; do not post.
-- `rbtv:ignite/coord/coordinate` — check out. Owner asks are not this seat's product; do not open an approval thread.
+- `rbtv:ignite/coord/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
+- `rbtv:ignite/planning/approve-package` — write the approve-package the `start-execution` intent reads on `approve`. Validates the execution-goal name and the bound commit, writes atomically, and refuses the daemon-stamped keys.
 </resources>
 
 <io-spec>
@@ -51,19 +56,19 @@ exposes:
 The two checks were run; no new finding was added; at most two fix-pass FAILs were issued; a digest file exists with the required fields and the four owner outcomes. A posted message, a third FAIL, or a new finding is this seat's failure.
 
 ## Outputs
-- Schema: a markdown approval digest whose first line is `APPROVAL-DIGEST` and whose body carries milestones, seat count, envelope summary, interactive seats, credential-resolve result, red flags, artifact paths, recorded commit, and the four owner outcomes. Description: the verify-stage artifact a later Slack seat posts; composing is the product, posting is not.
+- Schema (where the paired task names the digest): a markdown approval digest whose first line is `APPROVAL-DIGEST` and whose body carries milestones, seat count, envelope summary, interactive seats, credential-resolve result, red flags, artifact paths, recorded commit, and the four owner outcomes. Description: the verify-stage artifact a later Slack seat posts; composing is the product, posting is not.
 </io-spec>
 
 <permissions>
 - Read: the goal folder; review package; design; draft; this seat's `memory.md`.
-- Write: the digest the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`).
-- Run: `coordinate` (checkout); `git rev-parse` for the binding commit.
+- Write: the products the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`).
+- Run: `coordinate` (checkout; and `send`, ONLY where the paired task's Send clause names it); `git rev-parse` for the binding commit; the writers the paired task's done contract names.
 </permissions>
 
 <restrictions>
-- Within the goal folder, write only the digest the task names plus APPENDS to the five ledgers and this seat's `memory.md` regression lines — never a new findings list, never a Slack post, never an outbox record.
+- Within the goal folder, write only what the paired task's Write clause names plus APPENDS to the five ledgers and this seat's `memory.md` regression lines — never a new findings list, never a Slack post, never an outbox record.
 - Dispatch no sub-agent.
-- Send on no channel.
+- Send on no channel, except the ONE message the paired task's Send clause names, sent once, on the goal's ordinary owner-contact path. No such clause means no send at all.
 - Never add a finding. Never issue a third FAIL. Never parse an owner reply.
 </restrictions>
 
