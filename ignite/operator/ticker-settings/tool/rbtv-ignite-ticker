@@ -27,7 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const S = require('../../../server/settings.js');
+const S = require('../../../runtime/settings.js');
 
 const DAEMON_OPERATOR = path.resolve(__dirname, '..', '..', 'daemon-operator', 'tool', 'rbtv-ignite-daemon');
 const BY = `rbtv-ignite-ticker(${process.env.USER || process.env.LOGNAME || 'unknown'})`;
