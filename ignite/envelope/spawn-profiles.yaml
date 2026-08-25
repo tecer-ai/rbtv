@@ -357,14 +357,14 @@ launch-specs:
                "--session-id", "{session_ref}",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/chat/chat-session-settings.json"]
         prompt: stdin
       resume:
         argv: ["claude", "-p", "--resume", "{session_ref}",
                "--model", "claude-fable-5",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/chat/chat-session-settings.json"]
         prompt: stdin
       headed:
         tui: { argv: ["claude", "--model", "claude-fable-5"] }
@@ -387,14 +387,14 @@ launch-specs:
                "--session-id", "{session_ref}",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/supervisor/worker-session-settings.json"]
         prompt: stdin
       resume:
         argv: ["claude", "-p", "--resume", "{session_ref}",
                "--model", "claude-opus-5",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/supervisor/worker-session-settings.json"]
         prompt: stdin
       headed:
         tui: { argv: ["claude", "--model", "claude-opus-5"] }
@@ -413,14 +413,14 @@ launch-specs:
                "--session-id", "{session_ref}",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/chat/chat-session-settings.json"]
         prompt: stdin
       resume:
         argv: ["claude", "-p", "--resume", "{session_ref}",
                "--model", "claude-sonnet-5",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/chat/chat-session-settings.json"]
         prompt: stdin
       headed:
         tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
@@ -445,14 +445,14 @@ launch-specs:
                "--session-id", "{session_ref}",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/supervisor/worker-session-settings.json"]
         prompt: stdin
       resume:
         argv: ["claude", "-p", "--resume", "{session_ref}",
                "--model", "claude-haiku-4-5",
                "--output-format", "stream-json", "--verbose",
                "--permission-mode", "bypassPermissions",
-               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/supervisor/worker-session-settings.json"]
         prompt: stdin
       headed:
         tui: { argv: ["claude", "--model", "claude-haiku-4-5"] }
