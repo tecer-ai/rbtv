@@ -22,7 +22,7 @@ const { checkIdentity, readProcStat } = require('../../../runtime/seat-identity/
 const { parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../../../runtime/seat-identity/seat-folder');
 const { deriveLease } = require('../../../runtime/lease/lease');
 
-const CLI = path.join(__dirname, '..', '..', 'seat-identity', 'rbtv-seat-identity');
+const CLI = path.join(__dirname, '..', '..', '..', 'runtime', 'seat-identity', 'rbtv-seat-identity');
 
 // ── 7.607 E2a — THE GOAL MUST BE EXECUTING, AND THE EVIDENCE IS A REAL tmux ROOM ───────────────
 //

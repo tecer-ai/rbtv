@@ -208,7 +208,7 @@ async function main() {
 
   // ── M. RED-ARM BY MUTATION: delete the binding check, watch R1 turn into a birth ─────────────
   const mutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'start-execution-mut-'));
-  const srcPath = path.join(__dirname, '..', '..', 'heart', 'start-execution.js');
+  const srcPath = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'start-execution.js');
   const src = fs.readFileSync(srcPath, 'utf8');
   const needle = "  if (!row) return { reason: 'no-approval-record', detail: `no ask on thread ${thread} — this is not an approval thread` };";
   check('M1: red-proof — the mutation needle (the no-approval-record refusal) is found in the executor', src.includes(needle));

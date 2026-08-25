@@ -158,7 +158,7 @@ test('RED: the engine facade FORWARDS laneSkips — a destructuring facade drops
   // reached NOTHING until it was named there — every arm above passed while the production path
   // was inert, because they drive `launchOwed` directly. `probe-daemon-lane-watch` is what caught
   // it. This arm is the cheap standing guard for the same shape.
-  const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'engine.js'), 'utf8');
   const facade = src.slice(src.indexOf('seedGoal: ({'), src.indexOf('// Idempotent:'));
   assert.match(facade, /laneSkips = null,/, 'the facade must NAME laneSkips in its destructuring');
   assert.match(facade, /laneSkips,/, 'and pass it on to seedGoal');

@@ -249,7 +249,7 @@ try {
   // while the invariant holds. If someone later teaches `spawnSetsid` to carry an env file, this
   // arm goes RED and points at the skip that must then be revisited (and at
   // `goal-channel-design.md`'s bound, which such a change would also have to answer).
-  const carrierSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', 'spawn', 'carrier.js'), 'utf8');
+  const carrierSrc = fs.readFileSync(path.resolve(__dirname, '..', '..', '..', 'supervisor', 'spawn', 'carrier.js'), 'utf8');
   const setsidSig = /function spawnSetsid\(\{([^}]*)\}/.exec(carrierSrc);
   check(
     'spawnSetsid still accepts NO envFile — the invariant the ticker\'s non-systemd skip rests on',

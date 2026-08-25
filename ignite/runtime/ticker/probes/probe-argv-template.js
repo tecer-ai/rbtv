@@ -39,11 +39,11 @@ const yaml = require('js-yaml');
 const { setup, teardown, capture } = require('./lib');
 const { expandArgv, checkTemplateArgs, MAX_NAME, MAX_PATH } = require('../../../state-store/heart/argv-template');
 
-const TEMPLATE_SRC = path.join(__dirname, '..', '..', 'heart', 'argv-template.js');
+const TEMPLATE_SRC = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'argv-template.js');
 // The REAL catalogue, not a fixture — task 7.577 criterion (9) asks whether the entries that fire
 // on this box still compose, and a hand-built map would answer a different question.
 const SHIPPED_CONFIG = path.join(__dirname, '..', '..', '..', 'envelope', 'spawn-profiles.yaml');
-const HEART_STORE_SRC = path.join(__dirname, '..', '..', 'heart', 'heart-store.js');
+const HEART_STORE_SRC = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'heart-store.js');
 // Scratch copies MUST live beside their originals: both resolve siblings (`./errors`,
 // `./argv-template`, `schema.sql`) off their own __dirname. Removed in `finally`.
 const templateScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c5scratch-${process.pid}.js`);

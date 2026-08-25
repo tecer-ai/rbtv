@@ -67,6 +67,13 @@ const { openHeartStore, closeHeartStore } = require('../heart-store');
 
 const OUT = path.join(__dirname, 'probe-g225-atomic-turn-session.out');
 const SERVER_ROOT = path.resolve(__dirname, '..', '..');
+// The old `server/` tree that this arm used to walk in one piece now lives in three
+// component homes (spec-component-map §2): the store here, the process host in `runtime/`
+// and the spawn path in `supervisor/`. The enumerator walks all three, or it reports a
+// closed population by being blind to two thirds of it.
+const SERVER_ROOTS = [SERVER_ROOT,
+  path.resolve(SERVER_ROOT, '..', 'runtime'),
+  path.resolve(SERVER_ROOT, '..', 'supervisor')];
 const started = new Date();
 const lines = [];
 const checks = [];
@@ -292,6 +299,16 @@ try {
   // Enumerated, not remembered. The ONE sanctioned production close outside the store is the
   // `G-222` crash-sweep site, which closes a session and writes NO turn ("writes only what it
   // actually observed"). Every other production pairing is the defect returning.
+  function walkRoot(root, acc) {
+    for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+      if (e.name === 'node_modules' || e.name === 'probes' || e.name === '__pycache__') continue;
+      const p = path.join(root, e.name);
+      if (e.isDirectory()) walkRoot(p, acc);
+      else if (e.name.endsWith('.js')) acc.push(p);
+    }
+    return acc;
+  }
+
   {
     const files = [];
     (function walk(dir) {
@@ -301,7 +318,8 @@ try {
         if (e.isDirectory()) walk(p);
         else if (e.name.endsWith('.js') && p !== path.join(SERVER_ROOT, 'heart', 'heart-store.js')) files.push(p);
       }
-    }(SERVER_ROOT));
+    }(SERVER_ROOTS[0]));
+    SERVER_ROOTS.slice(1).forEach((r) => walkRoot(r, files));
 
     const sites = [];
     for (const f of files) {

@@ -33,7 +33,7 @@ const path = require('node:path');
 const start = Date.now();
 const outPath = path.join(__dirname, 'probe-workdir-governance.out');
 const SRC = path.join(__dirname, '..', 'argv-template.js');
-const TICKER_SRC = path.join(__dirname, '..', '..', 'ticker', 'ticker.js');
+const TICKER_SRC = path.join(__dirname, '..', '..', '..', 'runtime', 'ticker', 'ticker.js');
 const STORE_SRC = path.join(__dirname, '..', 'heart-store.js');
 
 const lines = [];
