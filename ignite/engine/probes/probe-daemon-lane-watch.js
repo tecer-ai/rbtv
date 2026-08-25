@@ -290,6 +290,18 @@ function collectingLogger(sink) {
   return (m) => sink.push(m);
 }
 
+// ⚠ WHOSE WARN IS IT. `runLaneWatch` calls `maybeReconcile`, and the watcher logs through the SAME
+// logger with the same `goal` tag — so a reconcile-owned line lands in the same sink as lane-watch's
+// own. The `-quiet` arms below are about what LANE-WATCH says (or no longer says) about a goal, so
+// they filter reconcile's lines out by their own prefix rather than asserting a silence the watcher
+// was never able to promise. Measured 2026-08-25: an absent recovery config makes the watcher warn
+// `reconcile: recovery config unreadable` on EVERY goal, which is a real line about a real absence
+// and nothing to do with the human-interactive report these arms measure.
+function laneWatchWarns(sink, goal) {
+  return sink.filter((m) => m.goal === goal && m.level === 'warn'
+    && !/^reconcile:/.test(m.message || ''));
+}
+
 async function main() {
   say('probe-daemon-lane-watch — the daemon lane\'s goal-pickup trigger (d-daemon-lane-button)');
   say(`fixture: ${tmp}`);
@@ -764,8 +776,8 @@ async function main() {
     hiPickup ? JSON.stringify(hiPickup.humanInteractiveDispatched || null) : 'goal not adopted');
   check('L5d …and a DECLARED arm is QUIET: no warn for that goal, because nothing is being stepped '
     + 'over any more — the arm executes at the ferry',
-    !log1.some((m) => m.goal === 'human-interactive-goal' && m.level === 'warn'),
-    JSON.stringify(log1.filter((m) => m.goal === 'human-interactive-goal').map((m) => m.level)));
+    laneWatchWarns(log1, 'human-interactive-goal').length === 0,
+    JSON.stringify(laneWatchWarns(log1, 'human-interactive-goal').map((m) => m.message)));
   check('L5d THE RESIDUAL, and the PAIR that makes the quiet above meaningful: a flagged seat with '
     + 'NO `fallback:` IS warned about, named to `component-lint`, in the SAME pass',
     Boolean(armlessPickup) && armlessPickup.enqueued.includes('alpha')
@@ -957,8 +969,11 @@ async function main() {
   // a job row per seat, `enqueue` then refuses, and the store keeps orphan rows for a goal that can
   // never run. The arm reads the STORE, not the skip list, because the harm is what was written.
   {
+    // Retargeted 2026-08-25 at the C-9 inversion: the branch is `uncastOnly` (the uncast seats
+    // that are not ALREADY skipped as unbuilt) and it fills a per-lane skip map instead of
+    // cancelling the goal. Removing it is still the same harm — the unlaunchable seat is seeded.
     const mutant = mutantWatch(
-      '    if (uncast.length) {',
+      '    if (uncastOnly.length) {',
       '    if (false) {');
     const mutRoot = path.join(tmp, 'm4-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['uncast-goal']);
@@ -979,8 +994,8 @@ async function main() {
   // of it left the probe green. Retargeted at 7.787 onto the branch that replaced it.
   {
     const mutant = mutantWatch(
-      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });",
-      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncast }); continue;");
+      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncastOnly });",
+      "      skipped.push({ goal, reason: 'uncast-seats', seats: uncastOnly }); continue;");
     const mutRoot = path.join(tmp, 'm5-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['uncast-goal']);
     const log = [];
@@ -1063,7 +1078,7 @@ async function main() {
       + 'and warns about nothing',
       Boolean(chi) && chi.humanInteractiveDispatched
         && chi.humanInteractiveDispatched.alpha === 'block-and-queue'
-        && !clog.some((m) => m.goal === 'm7-arm-goal' && m.level === 'warn'),
+        && laneWatchWarns(clog, 'm7-arm-goal').length === 0,
       chi ? JSON.stringify(chi.humanInteractiveDispatched || null) : 'goal not adopted');
     say(`T+${Date.now() - start}ms after L8 M7`);
   }

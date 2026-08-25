@@ -166,9 +166,16 @@ function createEngine({
     // this is the entry a SHARED store uses, and it is what the daemon lane never had.
     // `readLease` is the D9 goal-live check's injection point (probes supply a fixture lease
     // reading; production callers pass nothing and get the real `deriveLease`).
-    seedGoal: ({ goalFolder, goal, isHeld = null, readLease = undefined }) => {
+    // ⚠ EVERY ARGUMENT THE CALLER MAY PASS MUST BE NAMED HERE. This is a DESTRUCTURING facade, so
+    // a key it does not list is silently DROPPED — `laneSkips` was added to `seedGoal` for the C-9
+    // per-lane skip and reached nothing until it was named here [D16, C-9].
+    seedGoal: ({
+      goalFolder, goal, isHeld = null, readLease = undefined, laneSkips = null,
+    }) => {
       publishToRecord(heartStore, { logger });
-      return seedGoal({ heartStore, goalFolder, goal, isHeld, logger, ...(readLease ? { readLease } : {}) });
+      return seedGoal({
+        heartStore, goalFolder, goal, isHeld, logger, laneSkips, ...(readLease ? { readLease } : {}),
+      });
     },
 
     // Idempotent: an attached run closes on its own exit path AND on a signal, and the second
