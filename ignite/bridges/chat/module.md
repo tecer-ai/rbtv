@@ -138,3 +138,45 @@ the bot's Slack status text through an injected port, and only on the seven §6
 triggers (ask minted / answered / closed, blocked-on-human stamp / clear, pause
 success, resume success). Any other event is refused. Unwired port → a warn, never
 a silent no-op. Probe: `probes/probe-chat-glance.js`.
+
+## glance-wiring
+
+`glance.js` — what makes §5 and §6 REACHABLE. Both surfaces above were built and
+proven with every port injected and nothing injecting them: `index.js#main()`
+wired no clock, no readers and no status transport, so the digest never ran and the
+status line reported `no-status-port` forever. This module composes them from parts
+the bridge already holds and `index.js#buildBridge` constructs it; `main()` starts
+the clock.
+
+The three seams it closes:
+
+- **The slot driver.** A 30-second beat calling the §5 slot check (twice a minute,
+  so one skipped beat under load cannot silence a whole slot); `isSlot` is asked
+  FIRST, so the other ~2,870 beats a day cost no gateway call at all. Re-entrant
+  passes are refused. Started only from `main()` — building a bridge never acquires
+  a live 2-hourly clock.
+- **The readers.** Open asks come back over the gateway (`ask-store.js#listOpenAsks`
+  → the `inspect asks` target); open conditions come from
+  `observation/emitter.js`'s OWN `readOpenConditions`, reloaded off the
+  daemon-written registry before every read (a constructor-time snapshot would
+  render the alarm set as it stood when the bridge last started). The emitter
+  instance here is handed a `post` that THROWS: the bridge reads alarms and may
+  never compose one [T4-R10].
+- **The status transport.** `slack-socket-mode.js#setStatusText`
+  (`users.profile.set`, `status_text` only).
+
+⚠ AN UNREADABLE ASK SET SKIPS THE SLOT. `listOpenAsks` answers `null` on a refusal
+and `[]` when nothing waits; `system-digest.js` collapses both to `[]` by
+construction, so the distinction is made HERE, before the digest is asked anything
+— otherwise a gateway outage would post "• none open", move the baseline on Slack's
+ack, and re-post everything when the daemon came back.
+
+⚠ NO SYSTEM CHANNEL IS A LOUD REFUSAL: `createGlance` returns `null` and warns
+(`RBTV_SYSTEM_CHANNEL_ID`, or `system_channel_id` in the bridge config). It never
+picks a channel, and the bridge still carries every message it carried before.
+
+Still open, and deliberately not invented here: the §6 triggers are not FIRED yet
+(they live in the ask door, the mechanical door and the reply leg — each needs a
+`glance.onTrigger(...)` call at its own moment), and `readBlockedCount` stays at its
+default `0` because no read door for blocked-on-human lanes or paused goals exists
+from this process. Probe: `probes/probe-chat-glance-wiring.js`.

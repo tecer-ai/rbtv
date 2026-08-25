@@ -1336,7 +1336,10 @@ function createChatBridge({
   return {
     onChatMessage, deliverToOwner, start, stop,
     postOwnerAsk, askDoor, approvalDispatch, mechanicalDoor,
-    registerGoal, closeGoal, routeOf, outbox,
+    // `askRecord` is EXPOSED so the glance wiring reads open asks through the bridge's ONE ask
+    // sender rather than constructing a second one — the same reason this constructor builds one
+    // and shares it between the forward path and the ask door.
+    registerGoal, closeGoal, routeOf, outbox, askRecord,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
     _replyAddr: replyAddr, _agentThreads: agentThreads, _askThreads: askThreads, _lastForwarded: lastForwarded,
     forwardPath, replyLeg, busFerry, goalChannels, liveLeg,

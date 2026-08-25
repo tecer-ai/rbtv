@@ -1189,6 +1189,33 @@ status line that redraws on every event is a poll loop against Slack. With no
 status port wired it computes the line, logs a warn, and writes nothing.
 
 Probe for both: `probes/probe-chat-glance.js` (mocked Slack, mocked clock, no
-live post). Both surfaces are BUILT AND PROVEN but not reachable in production
-yet — `index.js#main()` wires neither the 2-hourly slot driver, the ask/condition
-readers, nor the Slack status port.
+live post).
+
+### `glance.js` — the wiring that makes them reachable
+
+Both surfaces were built with every port injected and, until the integration pass of
+2026-08-25, nothing injecting them. `glance.js` composes them from parts the bridge
+already holds; `index.js#buildBridge` constructs it and `main()` starts its clock.
+
+- **The slot driver** — a 30-second beat calling the §5 slot check. Twice a minute, so
+  one skipped beat under load cannot silence a whole slot; `isSlot` is asked first, so
+  every other beat costs no gateway call. Started only from `main()`.
+- **The readers** — open asks over the gateway (`ask-store.js#listOpenAsks` → the
+  `inspect asks` target, the read half of the `record-owner-ask` write); open conditions
+  from `observation/emitter.js`'s own `readOpenConditions`, reloaded off the
+  daemon-written registry before every read. That emitter instance is handed a `post`
+  that THROWS — the bridge READS alarms and may never compose one [T4-R10].
+- **The status transport** — `slack-socket-mode.js#setStatusText`
+  (`users.profile.set`, `status_text` only; needs the `users.profile:write` scope).
+
+An unreadable ask set SKIPS the slot instead of rendering "• none open": the reader
+answers `null` on a refusal and `[]` when nothing waits, and the digest collapses both
+to `[]` by construction, so the distinction is drawn before the digest is asked. With no
+`RBTV_SYSTEM_CHANNEL_ID` (or `system_channel_id` in the config) the glance is not wired
+and says so; it never picks a channel.
+
+Still open: the §6 triggers are not fired yet — they live in the ask door, the mechanical
+door and the reply leg, and each needs a `glance.onTrigger(...)` call at its own moment —
+and `readBlockedCount` stays at its default `0` because no read door for blocked-on-human
+lanes or paused goals exists from this process. Probe:
+`probes/probe-chat-glance-wiring.js`.

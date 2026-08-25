@@ -57,6 +57,36 @@ function createAskRecord({ forwarder, logger = null }) {
     }
   }
 
+  // THE READ SIDE — every OPEN owner ask, ALL GOALS, for the 2-hourly system digest (§5). One
+  // ordinary `inspect` call, for the same reason the two write acts are gateway calls: the record
+  // is `open_asks` in `heart.db` and this process may not open it. `inspect asks` is a read-only
+  // TARGET of the existing intent (ce-5/D3), never a new one — the bridge still holds "no new
+  // intent of its own".
+  //
+  // ⚠ A FAILED READ ANSWERS `null`, NEVER `[]`. An empty list is a real answer ("nothing is
+  // waiting on the owner") and the digest's changed-only comparison acts on it: a gateway outage
+  // rendered as `[]` would post "• none open" and then re-post every ask when the daemon came
+  // back. `null` is what lets the caller skip the slot instead of lying about it.
+  async function listOpenAsks() {
+    try {
+      const res = await forwarder.forward('inspect', { target: 'asks' });
+      if (!res.ok) {
+        log('warn', 'open asks NOT read — the gateway refused; this digest slot is skipped rather than posted empty',
+          { error: (res.error && res.error.code) || 'unknown' });
+        return null;
+      }
+      const rows = res.result && Array.isArray(res.result.rows) ? res.result.rows : null;
+      if (!rows) {
+        log('warn', 'open asks NOT read — the daemon returned no rows array; this digest slot is skipped', {});
+        return null;
+      }
+      return rows;
+    } catch (err) {
+      log('warn', 'open asks NOT read — the read call THREW; this digest slot is skipped', { error: err.message });
+      return null;
+    }
+  }
+
   // Record an owner ask on `seat` in `goalId`, keyed by the Slack thread it arrived in.
   //
   // Called only after the forward landed (`forward-path.js` gates on `outcome.forwarded === true`),
@@ -97,7 +127,7 @@ function createAskRecord({ forwarder, logger = null }) {
     return out;
   }
 
-  return { openAsk, reapAsk };
+  return { openAsk, reapAsk, listOpenAsks };
 }
 
 module.exports = { createAskRecord, ASK_LABEL_DEFAULT };

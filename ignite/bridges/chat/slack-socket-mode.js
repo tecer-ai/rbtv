@@ -258,6 +258,29 @@ function createSlackSocketMode({
     return { delivered: true, ts: resp.ts };
   }
 
+  // THE STATUS-LINE TRANSPORT (`status-line.js` §6, [T4-R5, D-6-ruling]) — `users.profile.set` on
+  // the bot's own profile. Another outbound POST on the bot token; the outbound-only property this
+  // module exists to preserve is untouched, and `probe-chat-outbound` still holds.
+  //
+  // ⚠ IT WRITES THE STATUS TEXT AND NOTHING ELSE. Only `status_text` travels, so the bot's emoji,
+  // name and every other profile field are left exactly as they are — an unspecified field is
+  // unchanged at Slack's end. This is the one owner-facing surface allowed to STAND precisely
+  // because it costs no notification; a version of it that posted would recreate the per-ask
+  // re-ping [T5-R13] the baseline deleted.
+  //
+  // Needs the `users.profile:write` bot scope. A refusal is REPORTED and never retried here: the
+  // line is recomputed and rewritten on the next §6 trigger anyway, so a retry would only add
+  // calls to an API the caller is already rate-limited against.
+  async function setStatusText(text) {
+    if (!botToken) return { updated: false, error: 'no-bot-token' };
+    const resp = await slackPost('users.profile.set', botToken, { profile: { status_text: String(text) } });
+    if (!resp || !resp.ok) {
+      log('warn', 'users.profile.set failed — the owner\'s glance line is stale, not wrong', { error: resp && resp.error });
+      return { updated: false, error: resp && resp.error };
+    }
+    return { updated: true };
+  }
+
   // REWRITE a message already posted — `chat.update`. The ONE caller is `ask-thread.js#postAsk`:
   // the §3 opening line prints a suffix of the ask id, the ask id IS this message's `thread_ts`
   // [D-8], and Slack mints that only on the way back. So the opener is posted and then stamped.
@@ -417,7 +440,7 @@ function createSlackSocketMode({
   }
 
   return {
-    start, stop, sendToOwner, updateMessage, react, unreact, authTest, openDm, openConnection, toChatMessage,
+    start, stop, sendToOwner, setStatusText, updateMessage, react, unreact, authTest, openDm, openConnection, toChatMessage,
     createChannel, listChannels, archiveChannel, inviteToChannel,
   };
 }

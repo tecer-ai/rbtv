@@ -14,6 +14,7 @@ const { createThreadMap } = require('./thread-map');
 const { createSlackSocketMode } = require('./slack-socket-mode');
 const { createGoalChannelMap } = require('./goal-channel-map');
 const { createChatBridge } = require('./chat-bridge');
+const { createGlance } = require('./glance');
 
 function log_noGoalChannels(logger) {
   if (logger) logger({ level: 'warn', message: 'transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable' });
@@ -77,7 +78,31 @@ function buildBridge(config, {
 
   bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions, busFerryOptions, approvalPorts, endingStore, listSeats, listLiveGoals });
 
-  return { bridge, forwarder, allowlist, threadMap, transport, goalChannels };
+  // ── THE OWNER'S GLANCE SURFACES (spec-owner-io §5 + §6) ─────────────────────────────────────
+  //
+  // Built HERE and not inside `createChatBridge`, because both surfaces are composed entirely of
+  // parts the bridge already owns — its one outbox, its one ask sender, its transport's status
+  // port — and neither is reachable from a message the bridge routes. `glance.js` holds the
+  // composition; this line is the wiring, and `main()` below is what starts the slot clock.
+  //
+  // ⚠ THE STATUS LINE IS CONSTRUCTED AND ITS TRANSPORT IS WIRED, BUT ITS SEVEN TRIGGERS ARE NOT
+  // FIRED YET. §6's triggers (ask minted/answered/closed, blocked-on-human stamped/cleared, pause
+  // and resume succeeded) live inside the ask door, the mechanical door and the reply leg; calling
+  // `glance.onTrigger(...)` from those call sites is the remaining half, and it is deliberately not
+  // invented here — an eighth trigger, or a trigger fired at the wrong moment, is a poll loop
+  // against Slack's API (`status-line.js` ATTENTION 5).
+  const glance = createGlance({
+    outbox: bridge.outbox,
+    askRecord: bridge.askRecord,
+    setStatusText: (typeof transport.setStatusText === 'function')
+      ? (text) => transport.setStatusText(text)
+      : null,
+    systemChannelId: config.systemChannelId,
+    workspaceRoot: config.workspaceRoot,
+    logger,
+  });
+
+  return { bridge, forwarder, allowlist, threadMap, transport, goalChannels, glance };
 }
 
 async function main() {
@@ -91,11 +116,16 @@ async function main() {
     process.exit(1);
   }
 
-  const { bridge } = buildBridge(config);
+  const { bridge, glance } = buildBridge(config);
   await bridge.start();
+
+  // The §5 slot driver. It is started only in `main()` — a probe or a test that builds a bridge
+  // must never acquire a live 2-hourly clock as a side effect of construction.
+  if (glance) glance.start();
 
   const shutdown = (sig) => {
     jsonLog({ level: 'info', message: `received ${sig}, stopping chat bridge` });
+    try { if (glance) glance.stop(); } catch {}
     try { bridge.stop(); } catch {}
     process.exit(0);
   };

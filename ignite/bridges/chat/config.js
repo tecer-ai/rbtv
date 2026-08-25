@@ -32,6 +32,7 @@ const ENV = {
   slackAppToken: 'SLACK_APP_TOKEN',        // SECRET — Socket Mode app-level token (xapp-…)
   slackBotToken: 'SLACK_BOT_TOKEN',        // SECRET — bot token for chat.postMessage (xoxb-…)
   slackApiBase: 'SLACK_API_BASE',          // override for the Slack Web API base (tests point it at a mock)
+  systemChannelId: 'RBTV_SYSTEM_CHANNEL_ID', // the ONE system channel [T5-R1] — daemon-level events, alarms, the §5 digest
 };
 
 const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
@@ -52,6 +53,8 @@ const DEFAULT_SLACK_API_BASE = 'https://slack.com/api';
 //     "bus_ferry_dm_user": "U0123ABC",     // whose DM (default: the FIRST allowlist entry)
 //     "owner_user": "U0123ABC",            // the ONE user auto-invited to a new REAL goal channel
 //                                          // (default: the FIRST allowlist entry)
+//     "system_channel_id": "C0123ABC",     // the ONE system channel [T5-R1]: daemon-level events
+//                                          // and the 2-hourly system digest (spec-owner-io §5)
 //     "allowlist": ["U0123ABC", "U0456DEF"] // Slack user IDs allowed to drive the bridge
 //   }
 function readConfigFile(filePath) {
@@ -174,6 +177,14 @@ function resolveConfig(overrides = {}) {
   const ownerUser =
     overrides.ownerUser || file.owner_user || (allowlist.length ? allowlist[0] : null);
 
+  // The system channel — where daemon-level events and the 2-hourly system digest go [T5-R1,
+  // spec-owner-io §5]. NON-SECRET (a channel id), so it may come from the config file; the ENV name
+  // is the SAME one `capabilities/daemon-watchdog/tool/watchdog-alarm.js` reads, because there is
+  // one system channel and two processes that post to it. Unset is not fatal and is not guessed:
+  // the digest is not wired and says so (`glance.js`), and every other surface is unaffected.
+  const systemChannelId =
+    overrides.systemChannelId || env[ENV.systemChannelId] || file.system_channel_id || null;
+
   const slackApiBase =
     overrides.slackApiBase || env[ENV.slackApiBase] || file.slack_api_base || DEFAULT_SLACK_API_BASE;
   const slackAppToken = overrides.slackAppToken || env[ENV.slackAppToken] || null;
@@ -192,6 +203,7 @@ function resolveConfig(overrides = {}) {
     busFerryDmUser,
     liveSessions,
     ownerUser,
+    systemChannelId,
     allowlist,
     slack: {
       apiBase: slackApiBase,
