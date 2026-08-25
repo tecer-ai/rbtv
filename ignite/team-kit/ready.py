@@ -805,7 +805,10 @@ def ready_seat_rows(args):
     # disposition cell come from THE SAME selected row and the file is still read exactly once.
     last_ended_rows = sessions_last_ended_rows(pkg)
     last_ended = last_ended_pairs(last_ended_rows)
-    undeclared = undeclared_endings(pkg, last_ended=last_ended)
+    # ⚠ THE UNDECLARED TERM IS COMPUTED AFTER THE `term` MAP, NOT HERE, and the move is a cost
+    # fix rather than a reordering preference: it needs each seat's ENDING, `term` already reads
+    # exactly that, and the store's client is a subprocess. Its first USE is far below, so nothing
+    # between here and there sees a different value. `last_ended` stays hoisted at this line.
     # 7.224: hoisted ONCE for the same reason `awaiting` and `undeclared` are — N seats must cost
     # one read of the store file, not N. `seat_store_outcomes` caches per resolved path internally.
     outcomes = seat_store_outcomes(pkg)
@@ -914,6 +917,13 @@ def ready_seat_rows(args):
             _name = after_member_parts(_limb)[0]
             if _name and _name not in term:
                 term[_name] = terminal_disposition(pkg, base, _name)
+
+    # 7.237's undeclared term, computed HERE so it spends the endings `term` has already read
+    # rather than asking the store a second time per seat (see the note where `last_ended` is
+    # hoisted). A seat with an ended row and no `after` entry is absent from `term` and is read
+    # by `undeclared_endings` itself — the injection is a saving, never a narrowing.
+    undeclared = undeclared_endings(pkg, last_ended=last_ended,
+                                    endings={_s: _v[0] for _s, _v in term.items()})
 
     out = []
     for seat, preds in after.items():

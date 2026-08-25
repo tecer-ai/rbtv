@@ -1565,7 +1565,7 @@ def sessions_open_ids(pkg):
         return {}
 
 
-def undeclared_endings(pkg, last_ended=None):
+def undeclared_endings(pkg, last_ended=None, endings=None):
     """{seat: session-id} for every seat whose LAST ENDED row DECLARES NO DISPOSITION.
 
     THE STATE `session_disposition` CANNOT REPORT, AND THE WHOLE REASON THIS EXISTS. That reader
@@ -1617,15 +1617,27 @@ def undeclared_endings(pkg, last_ended=None):
 
     An unreadable store yields NO undeclared seats, matching this function's own pre-existing
     can-not-answer direction (`{}` for an absent `sessions.csv`): "cannot establish" must not
-    become "established missing" on a path whose consumer refuses work."""
+    become "established missing" on a path whose consumer refuses work.
+
+    ⚠ `endings` IS INJECTABLE FOR THE REASON `last_ended` IS, and it matters MORE. The store's
+    client is a `node` SUBPROCESS (~140 ms a call), so a caller that has already asked for a seat's
+    ending must not make this ask again — `ready_seat_rows` reads every taskforce seat's ending for
+    its own `term` map, and without this it paid twice per seat on a pass the daemon runs on a 10 s
+    cadence. `{seat: ending-or-None}`; a seat ABSENT from the map is still read here, because a
+    seat can have an ended session row and no taskforce row and must not be silently skipped."""
     le = sessions_last_ended(pkg) if last_ended is None else last_ended
+    known = endings if endings is not None else {}
     out = {}
     for seat, (sid, _disp) in le.items():
-        try:
-            if ending_store.get_current_ending(pkg, seat):
+        if seat in known:
+            if known[seat]:
                 continue
-        except ending_store.EndingStoreError:
-            continue
+        else:
+            try:
+                if ending_store.get_current_ending(pkg, seat):
+                    continue
+            except ending_store.EndingStoreError:
+                continue
         out[seat] = sid or "(session-id unrecorded)"
     return out
 
