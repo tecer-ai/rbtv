@@ -1,0 +1,1 @@
+2026-08-25 · issue · Two probes assumed the pre-split door and kit shape · The full 207-probe suite, run chunked after the front door split in two, came back with two reds → Two different faces of one cause — a caller that still assumed the pre-split shape. · 505ddfd5 · supervisor,chat,planning · ⚠
