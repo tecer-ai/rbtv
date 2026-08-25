@@ -34,11 +34,19 @@ none has an ask-cap and none has a wall-clock deadline (the only clock is the da
 ~30-min no-progress kill). [T3-R13, T3-R18, CF-1, D24]
 
 **Reuse, not a second pipeline.** All three seats REUSE the main planning pipeline's prompt
-definitions — `understander`, `drafter`, `verifier` — unchanged. What is D13-specific is the TASK
-each is paired with: `gap-understand` (the combined understand: gate verdict + what execution
-produced) and `patch-draft` (the patch). The verify seat reuses `verify-plan` as written, because
-its check (b) — every milestone id still present with its done-criteria unbroken — IS the
-unchanged-contract check D13 needs. [T3-R9, T3-R16]
+definitions — `understander`, `drafter`, `verifier`. What is D13-specific is the TASK each is
+paired with: `gap-understand` (the combined understand: gate verdict + what execution produced),
+`patch-draft` (the patch), and `verify-patch` (the notify-only check). [T3-R9, T3-R16]
+
+**Why verify has its own task (owner ruling 2026-08-25).** The verify seat used to reuse
+`verify-plan` as written, on the grounds that its check (b) — every milestone id still present with
+its done-criteria unbroken — IS the unchanged-contract check D13 needs. The check was right and the
+CONTRACT around it was wrong in kind: `verify-plan` issues a FAIL verdict that re-fires the drafter
+and withholds its product until a cap is reached, and it composes a plan-APPROVAL digest offering
+`approve` / `reject-close` / `reject-pause` / `reject-retry`. Both of those are GATES, and this lane
+does not gate — its baseline behaviour is to continue autonomously and notify [D13]. So D13 owns its
+own verify task. `verify-patch` runs the same unchanged-contract check, adds the two patch walls as
+its second check, and its product is a NOTICE, not a digest and not a verdict.
 
 **Where it runs, and how it is minted.** Inside the EXISTING execution goal, on the same milestone
 — no new goal is created. The mint is path A of the supervised materialize wrapper (same-goal
@@ -62,15 +70,20 @@ the door, not to this workflow. [C-16]
    seats, and it MUST NOT widen the permission envelope. A gap that crosses milestone boundaries —
    or that needs one more grant — is NOT patched: the seat escalates to the owner with its
    analysis and zero patch content. [T3-R19]
-3. `repl-verifier` (prompt `verifier` + task `verify-plan`, reused) — checks the patch against the
-   milestone's UNCHANGED contract and composes its digest. It composes only; it never posts and
-   never parses a reply.
+3. `repl-verifier` (prompt `verifier` + task `verify-patch`) — runs two checks against the patch:
+   the milestone's contract is UNCHANGED, and the patch stayed inside `patch-draft`'s two walls.
+   Writes `planning/replan/replan-notice.md`, whose second line is `check: pass` or
+   `check: problems`, and sends it once to the owner. It never parses a reply.
 
-**The regression loop.** `repl-verifier` is the only seat with an `on-fail-relaunch` entry —
-`repl-drafter,repl-verifier` — declared on the seat that ISSUES the verdict, per
-`workflow-authoring-checklist`. A failed check re-fires the drafter (fix the named items only,
-never a widened patch) then the verifier itself. At most two such fix passes inside ONE replan;
-this is the verify seat's own cap and it is a different thing from the daemon cap below.
+**There is no regression loop, and that is the ruling's load-bearing word — NOTIFY-ONLY.** No seat
+in this workflow declares an `on-fail-relaunch` entry, so `coord`'s loop re-fire
+(`on_fail_relaunch_route`, which reads that frontmatter key off the issuing seat's own `seat.md`)
+resolves to the empty route and re-dispatches nothing. `repl-verifier` issues no verdict either:
+the verdict verb is the ONE door that arms the escalation gate, and an armed gate halts the
+milestone's contract until the owner answers. A problem `verify-patch` finds is therefore written
+into the notice, sent once, and the replan finishes anyway — the milestone re-runs and the owner
+intervenes only by choice. Nothing here is withheld, capped or counted; the only cap in D13 is the
+daemon's, below.
 
 **The two-failed-replan cap — DAEMON policy, documented here, implemented nowhere in this
 workflow.** After TWO failed re-plans of the SAME milestone, the daemon stops replanning it: there

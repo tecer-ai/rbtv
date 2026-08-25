@@ -72,10 +72,11 @@ Outcome map:
 - **`disposition: patch`** → the patch seeds the verify stage, which checks it against the
   milestone's unchanged contract.
 - **`disposition: escalate`** → the analysis seeds the verify stage too; verify checks that the
-  file carries no patch content and that the crossing is named. The escalation reaches the owner
+  file carries no patch content and that the crossing is named, and notifies. The escalation reaches the owner
   through the goal's ordinary owner-contact path, not by this task posting.
 - **Markerless or thin gap brief** → repair forward from the verdict and what is on disk, log the
   gap, complete. Never reject. Never re-enter the understand stage.
-- **A fix pass relaunched by the verify seat** → treat the failed check's items as the only fix
-  targets; do not reopen the patch beyond them, and do not widen the milestone.
+- **A problem the verify seat reports** → nothing re-fires here. `verify-patch` is notify-only
+  (owner ruling 2026-08-25): it names the problem to the owner and the replan finishes. This task
+  is dispatched once per replan and holds no fix pass.
 </done-contract>
