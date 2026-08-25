@@ -35,6 +35,7 @@ store directly: an operator tool talks to the daemon, and the daemon owns its ow
 | To change how often the ticker fires, or to read the cadence it is on | `rbtv ignite ticker <verb>` |
 | To PROVE the tree still works after an edit — the repo-wide probe suite | `probe-suite` |
 | To re-link the shared bin dir after a tool moved, was added, or went missing from PATH | `link-tools` |
+| To act ON A RUN as the daemon or a leader does — launch a seat, read readiness, close, reap, relaunch, stamp a death | `supervise <verb>` — the remedial half of the front door (owner ruling 2026-08-25); the seat-facing half is `coordinate` |
 
 **The skipped rung is the one before this file.** Reaching for `rbtv ignite daemon` to answer
 "is it alive?" is the common waste — a read is a read, and `observe` already answers it.

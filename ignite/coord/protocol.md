@@ -23,6 +23,12 @@ A **`PROP-n`** pointer cites the 2026-07-24 tv-ux-review run — the third provi
 
 ```
 COORD="coordinate --run {run-tag}"     # or: python3 {team-kit}/coord.py --package {abs-run-package}
+SUPERVISE="supervise --run {run-tag}"  # the OTHER door — the daemon's and a leader's remedial
+                                       # surface (launch, ready-seats, close-seat, reap,
+                                       # relaunch-pane, attest-exit). `coordinate` refuses those
+                                       # by name since the entry point split by audience
+                                       # (owner ruling 2026-08-25). Every $COORD line below is a
+                                       # seat's own act and stays on `coordinate`.
                                        # from inside the package folder, neither flag is needed
 
 $COORD checkin <agent> "<summary ≤560 chars>"   # on start — binds this pane to your name, supersedes any prior row (P1); REFUSED while a live pane still holds the name (P37)
@@ -50,7 +56,7 @@ $COORD checkout --renew --handoff "<note>"      # renewal disposition — two-st
 $COORD checkout --incomplete "<reason>" [--route leader]  # unfinished ending — no edge advances; the closer mails the named staff chair (default and only value: leader)
 $COORD route-fail "<the fail>" --inline [--go]  # route a FAIL to the receiver your seat.md declares in `on-fail-relaunch:`; an UNDECLARED fail goes to leader. Bare = report only
 $COORD depart                                   # ephemeral seats: export + checkout + kill own pane
-$COORD close-seat <agent> [--renew] [--no-export]  # mechanical close — the daemon's or leader's remedy for a seat that cannot check itself out, or a dead pane. FAILURE PATH: a healthy seat renews itself (line above), never through this
+$SUPERVISE close-seat <agent> [--renew] [--no-export]  # mechanical close — the daemon's or leader's remedy for a seat that cannot check itself out, or a dead pane. FAILURE PATH: a healthy seat renews itself (line above), never through this
 $COORD panel                                    # leader only — open the control-panel overview pane (live tmux-overview + plan usage)
 ```
 
@@ -181,7 +187,7 @@ State files (`{package}/coordination/`) are script-managed: NEVER edit them by h
    tmux target (a seat that has drifted out of the window its descriptor names is one), an
    unreadable caller identity, or an unwritable marker/log. Each refusal exits 2 and says YOUR
    CHECKOUT STANDS: the handoff is written and the roster flipped, only the relaunch did not
-   happen, and the printed remedy is leader's `close-seat <you> --renew` — run directly, no
+   happen, and the printed remedy is leader's `supervise close-seat <you> --renew` — run directly, no
    spawned agent in the path.
    (`depart` = export + checkout + killing the seat's own pane, one command, no name — a seat
    can only depart itself.) Leader checks out only after all workers have.

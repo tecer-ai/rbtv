@@ -1157,7 +1157,9 @@ async function main() {
   // above) and the prompt now differs by lane. Without the flag this expectation would be the
   // CONSOLE bytes and the identity check below would red on a correct pass — the failure mode a
   // computed expectation exists to avoid, reintroduced by computing the wrong thing.
-  const coordArgv = (...extra) => [path.join(IGNITE_SRC, 'coord', 'coord.py'),
+  // `boot-prompt` is on the SUPERVISION door since the 2026-08-25 entry-point split; `coord.py`
+  // refuses it by name, and a refusal here would red this arm for the wrong reason.
+  const coordArgv = (...extra) => [path.join(IGNITE_SRC, 'supervisor', 'supervise.py'),
     '--package', promptGoal, 'boot-prompt', 'alpha', ...extra];
   const expectedPrompt = execFileSync(requirePythonCmd(), coordArgv('--lane', 'daemon'),
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });

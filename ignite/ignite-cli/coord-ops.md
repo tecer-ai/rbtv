@@ -30,6 +30,7 @@ already names the underlying tool (§7.4).
 | You need | Reach for |
 |---|---|
 | To arrive, read the bus, send a typed message, declare outputs, or check out | `coordinate <verb>` — then `coordinate -h` for the verb surface |
+| To LAUNCH a seat, read who is ready, or REPAIR one — close, reap, relaunch, kill a pane, stamp a death | `supervise <verb>` — the daemon's and a leader's door, split off `coordinate` by audience (owner ruling 2026-08-25); `coordinate` refuses these by name |
 | To record a defect, gap or change notice on the ignite/meta surface — file it, do not fix it | `file-issue` |
 | To check authored floor content before the next reader inherits it | `floor-lint` |
 

@@ -110,7 +110,7 @@ On `codex` and `opencode` your seat folder carries a generated `AGENTS.md` whose
 to send you to `seat.md` **before your first word**; obey it. (It closes with one standing rule for
 every harness — where a tooling-gap finding is filed; the goal folder's router carries the same
 text.) A seat launched by hand or by
-`coordinate launch` gets no system-prompt append on any harness: read your `seat.md` yourself, first,
+`supervise launch` gets no system-prompt append on any harness: read your `seat.md` yourself, first,
 and do not ask whether to.
 
 The normative home of the `memory.md` / `handoff-log.md` write contract is the team-kit

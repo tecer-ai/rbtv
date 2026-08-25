@@ -90,7 +90,8 @@ gap and their own owners — each module exposes its own.
    many seats the box can carry.
 2. The owner starts `leader` by hand in a tmux pane (first boot only — renewals relaunch it
    automatically, see 3); leader runs
-   `python3 {team-kit}/coord.py --package {package} launch` (optionally `--only a,b` for staged
+   `python3 {ignite}/supervisor/supervise.py --package {package} launch` (optionally `--only a,b`
+   for staged
    launches) — one seat per briefing, harness/model/effort/cwd from each briefing's frontmatter;
    `window: yes` seats get their own named window (tab), the rest tile as panes in the leader
    window (hybrid layout). Launch auto-names everything: pane/window titled with the agent's

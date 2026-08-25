@@ -46,6 +46,7 @@ its own `-h` is the command surface — no second copy of it exists in prose.
 | The run-time protocol and the addressing table | [`coord/protocol.md`](coord/protocol.md) · [`coord/communication.md`](coord/communication.md) |
 | What your seat role is expected to do | [`coord/roles.md`](coord/roles.md) |
 | The command surface itself | `coordinate -h` |
+| A LAUNCH or REPAIR verb — launch, ready-seats, close-seat, reap, relaunch-pane, attest-exit | `supervise -h`. The front door split in two by audience (owner ruling 2026-08-25): `coordinate` is every seat's, `supervise` is the daemon's and a leader's |
 
 ## Where your work is written down
 

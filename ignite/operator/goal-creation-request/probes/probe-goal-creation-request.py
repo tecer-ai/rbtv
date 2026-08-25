@@ -380,7 +380,10 @@ def _drive(mod, *, selection, insertion=("--root",), no_launch=False, dry_run=Fa
         return ([[t.replace(str(pkg), "{PKG}") for t in c] for c in captured], result, None)
 
 
-BARE = ["coordinate", "--package", "{PKG}", "launch"]
+# `launch` sits on the SUPERVISION door since the 2026-08-25 entry-point split, so the argv this
+# tool forwards names `supervise`. The expectation is the tool's CONTRACT, not a restatement of
+# its code — it is typed here on purpose so a door change reds this probe rather than riding along.
+BARE = ["supervise", "--package", "{PKG}", "launch"]
 
 
 def _argv_check(mod, expected, *, selection, dry_run=False):

@@ -452,7 +452,7 @@ if (require.main === module) {
     console.log(`private.json: ${live.length} cage(s) running with the PREVIOUS list: ` +
       live.map((s) => `${s.goal}/${s.seat}(pid ${s.pid})`).join(', '));
     console.log('A running cage keeps the list it was composed with. To close them on the new list, ' +
-      'end each session (coordinate close-seat, or `ignite kill-session <session-id>`); the next ' +
+      'end each session (supervise close-seat, or `ignite kill-session <session-id>`); the next ' +
       'dispatch composes against the edited file.');
   }
 }
