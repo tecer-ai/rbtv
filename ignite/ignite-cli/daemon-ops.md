@@ -20,8 +20,10 @@ store directly: an operator tool talks to the daemon, and the daemon owns its ow
 ## Do you need this at all?
 
 - **A goal, a seat, or a run** is your subject → `goal-ops`, not this file.
-- **Reading what the daemon is currently doing** — its queue, its executions, its logs →
-  `observe`. This file is for acting ON the daemon; `observe` is for reading THROUGH it.
+- **Reading what the daemon is currently doing** — whether it is up at all, its queue, its
+  executions, its logs → `observe`, whose cheapest rung (`rbtv ignite status`) answers "is it
+  alive" for one gateway call and no privilege. This file is for acting ON the daemon;
+  `observe` is for reading THROUGH it.
 - **The daemon looks wrong and you want it restarted** → that is an owner-console act, and
   `rbtv ignite daemon` is the door. Never `systemctl` behind its back.
 
@@ -29,14 +31,13 @@ store directly: an operator tool talks to the daemon, and the daemon owns its ow
 
 | You need | Reach for |
 |---|---|
-| To know whether the daemon is up, and what it thinks its state is | `rbtv ignite status` (`observe`'s cheapest rung — it costs one gateway call and no privilege) |
 | To START, STOP, RELOAD or otherwise operate the daemon process | `rbtv ignite daemon <verb>` |
 | To change how often the ticker fires, or to read the cadence it is on | `rbtv ignite ticker <verb>` |
 | To PROVE the tree still works after an edit — the repo-wide probe suite | `probe-suite` |
 | To re-link the shared bin dir after a tool moved, was added, or went missing from PATH | `link-tools` |
 
-**The skipped rung is the first one.** Reaching for `rbtv ignite daemon` to answer "is it
-alive?" is the common waste — a read is a read, and the front door already answers it.
+**The skipped rung is the one before this file.** Reaching for `rbtv ignite daemon` to answer
+"is it alive?" is the common waste — a read is a read, and `observe` already answers it.
 
 **The over-reached rung is `link-tools`.** A tool missing from PATH is almost always a
 missing or misplaced `method=path` row on its owning component's `exposure.csv`; re-linking
