@@ -1,1 +1,3 @@
 2026-08-25 · creation · Provider split, one-pass reroute, per-lane skip · Three small modules: the word, what the word does, and the shared table. · 213cea90 · engine,launch-profiles · ⚠
+2026-08-25 · change · The six supervision modules become real imports · The proof came first and it decided the structure. An AST walk over all 17 product files found · 1cbb7c76,bc0af66f · coord,planning · ⚠
+2026-08-25 · creation · supervise — the second front door, split by audience · `coordinate` keeps the 25 seat-facing verbs; `supervise` — a new thin door at · 7dd08887,d60c73df · coord,ignite-cli,planning,runtime,deploy,operator · ⚠
