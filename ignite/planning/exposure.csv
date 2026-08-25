@@ -9,5 +9,6 @@ planning-door,reference,path,,door.js,"Goal-wide trigger: planning goal + unmint
 planning-failure-record,reference,path,,failure.py,"C-16 failure record writer + origin routing (approval-thread / gate-lane)",
 planning-queue-request,reference,path,,queue-request.js,"The queue-request pass the daemon runs each cadence, carrying the Path A planning-seat mint door (moved from engine/ by spec-component-map §2; the door replacement itself is spec-planning-door)",
 planning-unbuilt-seats,reference,path,,unbuilt-seats.js,"Unbuilt-seat repair and the goal-local lane (D5) - extracted from queue-request.js before the move and travelling with it",
+approve-package,tool,path,,approve_package.py,"Writes <planning goal>/planning/approve-package.json — the package the start-execution intent reads on approve. Validates name + bound commit, refuses the daemon-stamped keys, atomic tmp+rename through the derived-tree guard (its target is the GOAL folder, never a repo path — no write-roots)",
 materialize-seats,tool,path,,materialize-seats.py,,
 scaffold-seats,tool,path,,materialize-seats.py,"ALIAS of materialize-seats, kept because 24 files and a probe hardcode this name (owner ruling 2026-08-22). Retire it with the rename filed in redesign-plan/loose-ends.md",
