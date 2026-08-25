@@ -68,8 +68,11 @@ def main():
         "RBTV_WATCHDOG_BRIDGE_UNIT": UNIT,
         "RBTV_WATCHDOG_NOTIFY_FILE": notify_file,
         "RBTV_WATCHDOG_STATE": state_file,
+        # The operator verb is a sibling COMPONENT since the component-first move: the
+        # watchdog is `observation/`'s, `daemon-operator/` is `operator/`'s.
         "RBTV_WATCHDOG_OPERATOR": os.path.join(
-            os.path.dirname(os.path.dirname(HERE)), "daemon-operator", "tool", "rbtv-ignite-daemon"),
+            os.path.dirname(os.path.dirname(os.path.dirname(HERE))),
+            "operator", "daemon-operator", "tool", "rbtv-ignite-daemon"),
         "RBTV_IGNITE_SETTLE_SECONDS": "2",
     })
 

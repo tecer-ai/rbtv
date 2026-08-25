@@ -38,9 +38,10 @@ for _v in ("TMUX", "TMUX_PANE"):
     os.environ.pop(_v, None)
 
 HERE = Path(__file__).resolve().parent
-# HERE = <root>/ignite/jobs/probes -> parents[2] is the rbtv repo root. `RBTV_PROBE_TREE` is the
-# RED-FIRST knob (see the docstring): it re-points TARGET at another tree's source.
-ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[2])
+# HERE = <root>/ignite/runtime/jobs/probes -> parents[3] is the rbtv repo root (the probe went
+# one level deeper when jobs/ moved into runtime/). `RBTV_PROBE_TREE` is the RED-FIRST knob
+# (see the docstring): it re-points TARGET at another tree's source.
+ROOT = Path(os.environ.get("RBTV_PROBE_TREE") or HERE.parents[3])
 TARGET = ROOT / "ignite" / "runtime" / "jobs" / "jobcontain.py"
 OUT = HERE / "probe-jobcontain-degrade.out"
 

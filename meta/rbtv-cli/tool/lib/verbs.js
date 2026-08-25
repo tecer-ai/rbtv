@@ -11,20 +11,20 @@ const path = require('path');
 const { RBTV_ROOT } = require('./catalog');
 
 const DAEMON_OPERATOR = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'daemon-operator', 'tool', 'rbtv-ignite-daemon',
+  RBTV_ROOT, 'ignite', 'operator', 'daemon-operator', 'tool', 'rbtv-ignite-daemon',
 );
-const GATEWAY_CLIENT = path.join(RBTV_ROOT, 'ignite', 'cli', 'ignite.js');
+const GATEWAY_CLIENT = path.join(RBTV_ROOT, 'ignite', 'ignite-cli', 'ignite.js');
 const GOALS_TREE = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'goals-tree', 'tool', 'rbtv-goal',
+  RBTV_ROOT, 'ignite', 'operator', 'goals-tree', 'tool', 'rbtv-goal',
 );
 const TICKER_SETTINGS = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'ticker-settings', 'tool', 'rbtv-ignite-ticker',
+  RBTV_ROOT, 'ignite', 'operator', 'ticker-settings', 'tool', 'rbtv-ignite-ticker',
 );
 // 7.607 E3 renamed the capability and its entry point (`attached-run/tool/rbtv-run` ->
 // `attached-execution/tool/rbtv-execution`, design-lock item 7). The `run` VERB below is
 // deliberately unchanged — it is this CLI's user surface, not the renamed component.
 const ATTACHED_EXECUTION = path.join(
-  RBTV_ROOT, 'ignite', 'capabilities', 'attached-execution', 'tool', 'rbtv-execution',
+  RBTV_ROOT, 'ignite', 'operator', 'attached-execution', 'tool', 'rbtv-execution',
 );
 const TEAMBUILD = path.join(
   RBTV_ROOT, 'ignite', 'teambuild', 'tool', 'rbtv-teambuild',

@@ -120,9 +120,13 @@ def operator_path():
     p = env("RBTV_WATCHDOG_OPERATOR")
     if p:
         return p
-    sibling = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "daemon-operator", "tool", "rbtv-ignite-daemon")
+    # The operator verb is a sibling COMPONENT, not a sibling capability: the
+    # component-first move put the watchdog under `observation/` and left
+    # `daemon-operator/` under `operator/`, so this walks to the module root.
+    ignite_root = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+    sibling = os.path.join(ignite_root, "operator", "daemon-operator", "tool",
+                           "rbtv-ignite-daemon")
     return sibling if os.path.exists(sibling) else "rbtv-ignite-daemon"
 
 

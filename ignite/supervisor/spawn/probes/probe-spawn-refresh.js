@@ -47,7 +47,7 @@ function buildCatalog(root) {
   const r = py(['-c', [
     'import importlib.util, json, sys',
     'from pathlib import Path',
-    `sys.path.insert(0, ${JSON.stringify(TEAM_KIT)})`,
+    `sys.path.insert(0, ${JSON.stringify(COORD_KIT)})`,
     `spec = importlib.util.spec_from_file_location("ms", ${JSON.stringify(MATERIALIZE_PY)})`,
     'ms = importlib.util.module_from_spec(spec); spec.loader.exec_module(ms)',
     `fx = ms.build_fixture(Path(${JSON.stringify(root)}))`,

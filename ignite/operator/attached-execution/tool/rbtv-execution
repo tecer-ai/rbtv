@@ -27,7 +27,7 @@ const path = require('node:path');
 // the rbtv root and the engine require fails with a module-not-found that names a path nobody
 // wrote. Verified by running the verb, not by counting the segments.
 const IGNITE_SRC = process.env.RBTV_IGNITE_SRC || path.resolve(__dirname, '..', '..', '..');
-const { executeAttached, statusAttached } = require(path.join(IGNITE_SRC, 'engine', 'attached-execution.js'));
+const { executeAttached, statusAttached } = require(path.join(IGNITE_SRC, 'operator', 'attached-execution.js'));
 
 const EXIT_OK = 0;
 const EXIT_REFUSED = 1;
@@ -151,7 +151,7 @@ async function main(argv) {
   // ITS SEATS, and this file cannot see them — it holds no config and reads no descriptor.
   // `executeAttached` asks `seeding.js#uncastSeats` once the config is loaded, and its refusal
   // NAMES the seats. A gate here would be a second, blinder answer to the same question.
-  const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'config', 'spawn-profiles.yaml');
+  const spawnConfigPath = opts.config || path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml');
 
   let result;
   try {
