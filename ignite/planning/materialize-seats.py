@@ -5176,6 +5176,83 @@ def staff_sheet_path(seat_row: dict, seat: str) -> Path | None:
             / comp_dir.name / STAFF_BINDINGS_DIR / f"{seat}.json")
 
 
+# ── THE STANDING-ENDING GATE, ONE READER FOR BOTH CHAIR LOOPS ─────────────────
+#
+# A chair minted over an ending that already stands under its NAME inherits it:
+# the goal's readiness derivation reads that row as the chair's OWN, and `done`
+# is absorbing, so the chair exists and can never sit. Measured 2026-08-14 on
+# `meet-transcript-summarizer` — a freshly minted `leader` read `done` from a
+# record a hand-driven console sitting had left behind, and it was found only
+# because a Definition of done demanded the chair read IDLE.
+#
+# THE SURFACE MOVED, THE GATE DID NOT. The gate used to read
+# `coordination/awaiting-close.json` — a debt ledger settled by `close-seat` /
+# `reap`. spec-state-store §4.1 Row A deleted that file with the second ending
+# writer (see `coord/closeout.py`, `coord/ready.py`, `coord/checkout.py`, all
+# three of which record it as gone), and spec-component-map §3 gives the
+# `AWAITING-CLOSE debt` banner no landing module: the LEDGER and its settlement
+# vocabulary are dead. The QUESTION survives, retargeted at the ONE ending
+# store — "does a current ending already stand under this name?" — which is
+# what a chair would inherit.
+#
+# ⚠ ONE READER, DELIBERATELY. This was two copies of one gate, and the §4.1
+# retarget updated the staff copy while the summoned copy stayed bound to the
+# deleted ledger's variable — a `NameError` on every goal that declares a
+# summoned chair. Both loops now call this; a future retarget cannot reach one
+# and miss the other.
+#
+# ⚠ THE ROW IS NOT THIS PASS'S TO CLEAR, dead sitting or live one. The store's
+# writers are the check-out door and the system stamper; a minter that deleted
+# endings would be a second writer of the one surface that records them. So
+# this SKIPS and WARNS — no chair is better than a dead chair, because a
+# warning is read and an absorbing `done` is not.
+def _es():
+    """The kit's ending-store door, imported not re-implemented (F6).
+
+    Takes no `sys.path` priming of its own: this module's import header already
+    puts `ignite/coord/` on the path unconditionally (it has to — `self_isolate`
+    is imported from there before anything else runs). Named as a function
+    rather than imported at module scope so the store stays a lazy dependency,
+    the way every other coord door here is."""
+    import ending_store
+    return ending_store
+
+
+def _chair_current_ending(package: Path, seat: str) -> dict | None:
+    """The ending standing under `seat` in this goal's store, or None.
+
+    Imported from the kit rather than re-read here for the same reason
+    `STAFF_SEATS` is (F6): the store the chair's own verdict reads and the store
+    this gate reads must be ONE reader. `sys.path` is primed by
+    `_coord_staff_seats`, which every caller runs first.
+
+    An UNREACHABLE store reads as "no ending", by the same contract the deleted
+    ledger carried: a fixture or foreign catalog with no `state-store` beside it
+    must materialize exactly as it did before, and a gate that refused whenever
+    it could not answer would block every one of them."""
+    store = _es()
+    try:
+        ending = store.get_current_ending(package, seat)
+    except store.EndingStoreError:
+        return None
+    return ending if isinstance(ending, dict) else None
+
+
+def _chair_ending_warning(kind: str, seat: str, ending: dict) -> str:
+    """The skip warning for either chair — one sentence, so the two cannot drift.
+
+    It names the ending and its stamp because the reader's next act is to find
+    the sitting that left it; it does NOT name a verb that settles it, because
+    §4.1 deleted the settlement vocabulary along with the ledger."""
+    return (f"{kind} chair '{seat}' NOT minted: this goal already carries a "
+            f"CURRENT ENDING under that name in the ending store (ending "
+            f"`{ending.get('ending')}`, stamped "
+            f"{ending.get('stamped_at') or '(unstamped)'}). A chair minted over "
+            f"it reads that row as its OWN ending and is born terminal — it "
+            f"would exist and never sit. Re-run this materialize once that row "
+            f"is no longer the current ending for '{seat}'")
+
+
 def mint_staff_chairs(result: dict, package: Path, args,
                       seats_catalog: dict) -> dict:
     """Append the goal's staff rows if they are absent, and return `result`
@@ -5193,8 +5270,8 @@ def mint_staff_chairs(result: dict, package: Path, args,
         silent for is deleted [T2-R17, D-7-ruling] — `leader` is the only
         member of `STAFF_SEATS` now); a summoned chair with no sheet is also
         a WARNING (the owner-message path has nobody to sit);
-      · the goal carries an UNSETTLED awaiting-close debt under this chair's
-        name — a WARNING for either chair, see the gate below.
+      · a CURRENT ENDING already stands under this chair's name in the ending
+        store — a WARNING for either chair, see the gate below.
     A refusal from the staff pass itself degrades to a warning for one reason:
     the main rows are already on disk by then, and exiting non-zero over a
     chair would make the caller's retry impossible (`seat-exists`) while
@@ -5210,30 +5287,6 @@ def mint_staff_chairs(result: dict, package: Path, args,
         return result
     existing = {(r.get("seat") or "").strip()
                 for r in _csv_rows(package / TASKFORCE_NAME)}
-    # THE UNSETTLED-DEBT GATE. `awaiting-close.json` is a DEBT LEDGER, not an
-    # archive, and a record under a chair's NAME is read by `ready-seats` as
-    # that chair's own check-out (`coord.terminal_disposition`, whose live
-    # surface this file is). DONE is an ABSORBING state whose only wake is an
-    # unspent grant a closer mints — and no closer minted one for a sitting
-    # that predates the chair — so a chair minted on top of a standing debt is
-    # BORN PERMANENTLY DEAD, with nothing to detect it. Measured 2026-08-14 on
-    # `meet-transcript-summarizer`: the freshly minted `leader` read check-out
-    # `done` from a debt a hand-driven console sitting left behind (pane %121,
-    # pid 2846816, both long dead), and it was found only because a Definition
-    # of done demanded the chair read IDLE.
-    #
-    # ⚠ THE DEBT IS NOT THIS PASS'S TO SETTLE, dead pane or live one. Only
-    # `coord.py close-seat`/`reap` discharges a ledger entry, and a minter that
-    # cleared debts would be a second writer of the one surface that records
-    # them. So this SKIPS and WARNS — no chair is better than a dead chair,
-    # because a warning is read and an absorbing DONE is not.
-    #
-    # Imported through `coord`, never re-read here, for the same reason
-    # `STAFF_SEATS` is (F6): the ledger the chair's verdict reads and the
-    # ledger this gate reads must be ONE reader. `sys.path` is primed by
-    # `_coord_staff_seats` above, and `load_awaiting` never raises — an
-    # unreadable ledger is "no debt" by its own documented contract.
-    import ending_store
     minted = []
     for seat in staff:
         if seat in existing:
@@ -5241,17 +5294,9 @@ def mint_staff_chairs(result: dict, package: Path, args,
         row = seats_catalog.get(seat)
         if row is None:
             continue
-        try:
-            debt = ending_store.get_current_ending(package, seat)
-        except ending_store.EndingStoreError:
-            debt = None
-        if isinstance(debt, dict):
-            result["warnings"].append(
-                f"staff chair '{seat}' NOT minted: this goal already has a "
-                f"seat_endings row for that name (ending="
-                f"`{debt.get('ending')}`, stamped {debt.get('stamped_at') or '(unstamped)'}). "
-                f"A chair minted over a current ending inherits it. "
-                f"Re-run this materialize after that row is gone")
+        ending = _chair_current_ending(package, seat)
+        if ending is not None:
+            result["warnings"].append(_chair_ending_warning("staff", seat, ending))
             continue
         sheet = staff_sheet_path(row, seat)
         if sheet is None or not sheet.is_file():
@@ -5289,20 +5334,9 @@ def mint_staff_chairs(result: dict, package: Path, args,
         row = seats_catalog.get(seat)
         if row is None:
             continue
-        debt = debts.get(seat)
-        if isinstance(debt, dict):
-            result["warnings"].append(
-                f"summoned chair '{seat}' NOT minted: this goal carries an "
-                f"UNSETTLED awaiting-close debt under that name (since "
-                f"{debt.get('since') or '(unstamped)'}, pane "
-                f"{debt.get('pane') or '(none)'}, disposition "
-                f"`{debt.get('disposition', 'done')}`). A chair minted over it "
-                f"reads that record as its OWN check-out and is born DONE — an "
-                f"absorbing state whose only wake is a grant nobody will mint, "
-                f"so the chair would exist and never sit. Settle the debt "
-                f"first — `coord.py --as {seat} close-seat {seat}` once you "
-                f"have confirmed its pane is dead (or `reap --go`) — then "
-                f"re-run this materialize")
+        ending = _chair_current_ending(package, seat)
+        if ending is not None:
+            result["warnings"].append(_chair_ending_warning("summoned", seat, ending))
             continue
         sheet = staff_sheet_path(row, seat)
         if sheet is None or not sheet.is_file():
@@ -7280,15 +7314,17 @@ def run_dag05_acceptance(check, env: dict) -> None:
         (Path(fx["pkg"]) / "seats" / "alpha" / "alpha-notes.md").write_text(
             "SC-1 fixture notes\n", encoding="utf-8")
         coord(["--package", fx["pkg"], "--as", "alpha", "checkout"])
-        # Read DEFENSIVELY: an absent artifact must RED this check, never raise
-        # out of the suite — a check that aborts the run takes every row after
-        # it down with it and reports nothing.
-        acj = pkg / "coordination" / "awaiting-close.json"
-        awaiting = (json.loads(acj.read_text(encoding="utf-8"))
-                    if acj.is_file() else {})
-        check("SC-1 setup: alpha's check-out lands disposition done on disk",
-              awaiting.get("alpha", {}).get("disposition") == "done",
-              str(awaiting)[:200])
+        # Read the ending back from THE ONE ENDING STORE, which is where
+        # check-out has landed it since spec-state-store §4.1 Row A deleted the
+        # second writer `coordination/awaiting-close.json`. Read DEFENSIVELY: an
+        # unreachable store must RED this check, never raise out of the suite —
+        # a check that aborts the run takes every row after it down with it and
+        # reports nothing.
+        landed = _chair_current_ending(pkg, "alpha")
+        check("SC-1 setup: alpha's check-out lands ending `done` in the "
+              "ending store",
+              (landed or {}).get("ending") == "done",
+              str(landed)[:200])
         cpl = coord(["--package", fx["pkg"], "--as", "leader",
                      "launch", "--dry-run", "--only", "beta"])
         check("SC-1: coordinate launch --dry-run --only beta resolves "
@@ -8233,13 +8269,16 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     # a registry no other arm builds. A row that passes only when BOTH fire is
     # exactly the shape the lift needs — widen the gate and the red goes.
     "staff-mint-multi-tf": (("SM-6 green", "SM-13 green"), ("SM-7 red",)),
-    # The UNSETTLED-DEBT gate (task 05 defect B) — its own row for the same
-    # reason the multi-tf pair is: it is measured on a registry no other arm
-    # builds (a goal carrying an `awaiting-close.json` record under the chair's
-    # name), and it passes only when BOTH sides fire — the debt blocks, and the
-    # SETTLED ledger still mints. Widen the gate and the control alone would
-    # keep it green.
-    "staff-mint-debt": (("SM-12 control",), ("SM-10 red", "SM-11 red")),
+    # The STANDING-ENDING gate (task 05 defect B) — its own row for the same
+    # reason the multi-tf pair is: it is measured on a goal no other arm builds
+    # (one already carrying a current ending under a chair's name), and it
+    # passes only when BOTH sides fire — the ending blocks BOTH chair classes,
+    # and an empty store still mints. Widen the gate and the control alone
+    # would keep it green. The row name predates spec-state-store §4.1, which
+    # replaced the debt ledger it was named for; it is left alone because the
+    # name is a rollup key readers already know, not a claim about a surface.
+    "staff-mint-debt": (("SM-12 control",),
+                        ("SM-10 red", "SM-10b red", "SM-11 red")),
     # D79 — auto-mint of SUMMONED chairs at materialize. Own row: SM-1..SM-5
     # stay the staff-chair contract (SM-1's added_seats==[["leader"]] is
     # unchanged because summoned lands in result['summoned'], not staff).
@@ -8678,70 +8717,94 @@ def run_staff_mint_acceptance(check) -> None:
               f"{type(res).__name__} {getattr(res, 'code', '')} {str(res)[:160]}")
         shutil.rmtree(fx4["pkg"].parents[2].parent, ignore_errors=True)
 
-        # ---- SM-10..SM-12: THE BORN-DONE CHAIR (task 05 defect B).
-        # `awaiting-close.json` is a DEBT LEDGER, so a record under the chair's
-        # NAME is read by `ready-seats` as that chair's own check-out — and DONE
-        # is absorbing. Minting a chair over a standing debt therefore produces
-        # a chair that exists and can never sit, and nothing detects it: the
-        # flagship's was found only because a Definition of done demanded the
-        # chair read IDLE. The three arms are a set — the DEAD debt (the
-        # measured shape), the LIVE debt (the guard is not narrowed by
-        # liveness: this pass does not adjudicate a ledger), and the CONTROL
-        # that discriminates the gate from any other reason the mint could
-        # skip: the same fixture with the debt SETTLED mints the chair.
+        # ---- SM-10..SM-12: THE BORN-TERMINAL CHAIR (task 05 defect B).
+        # A chair minted over an ending that already stands under its NAME
+        # inherits it — the readiness derivation reads that row as the chair's
+        # own — so the chair exists and can never sit, and nothing detects it:
+        # the flagship's was found only because a Definition of done demanded
+        # the chair read IDLE. The surface these arms interrogate MOVED with
+        # spec-state-store §4.1 Row A: the debt ledger `awaiting-close.json` is
+        # deleted, and the standing ending lives in the ONE ending store. So the
+        # arms are stated in the store's vocabulary — a `done` ending, a
+        # non-`done` ending, and a chair of the OTHER class — never in panes and
+        # pids, which are the supervisor registry's facts and not an ending's
+        # [T4-R8].
         fx5 = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm5-")))
-        awaiting5 = fx5["pkg"] / "coordination" / "awaiting-close.json"
-        awaiting5.parent.mkdir(parents=True, exist_ok=True)
-        # The flagship's own record, verbatim in shape: a console sitting's
-        # pane and pid, both long dead, disposition `done`.
-        awaiting5.write_text(json.dumps({"leader": {
-            "since": "2026-08-13 22:41", "pane": "%121", "transcript": "",
-            "exported": False, "pids": [2846816], "disposition": "done"}}),
-            encoding="utf-8")
+        # The flagship's own shape, in the surviving vocabulary: a predecessor
+        # sitting checked out `done` under the chair's name before the chair
+        # existed.
+        _es().stamp_seat_declare(fx5["pkg"], "leader", "done")
         res = _staff_run(fx5, "w1")
         warned = [w for w in (res or {}).get("warnings", ())
-                  if "leader" in w and "awaiting-close debt" in w]
-        check("SM-10 red: a materialize against a goal carrying an UNSETTLED "
-              "awaiting-close debt under the chair's name does NOT mint the "
-              "chair — the goal still materializes, and the warning names the "
-              "debt's stamp and pane and the verb that settles it. Without "
-              "this gate the chair is minted and reads its predecessor's "
-              "check-out as its own: born DONE, absorbing, unwakeable",
+                  if "leader" in w and "CURRENT ENDING" in w]
+        check("SM-10 red: a materialize against a goal already carrying a "
+              "CURRENT ENDING under the chair's name does NOT mint the chair — "
+              "the goal still materializes, and the warning names the ending "
+              "and its stamp. Without this gate the chair is minted and reads "
+              "that row as its own: born terminal and unwakeable. It names NO "
+              "settlement verb, because §4.1 deleted the ledger that had one",
               not isinstance(res, Refuse)
               and "leader" not in [r["seat"] for r in _staff_rows(fx5)]
-              and len(warned) == 1 and "%121" in warned[0]
-              and "close-seat leader" in warned[0],
+              and len(warned) == 1 and "`done`" in warned[0]
+              and "close-seat" not in warned[0],
               str((res or {}).get("warnings"))[:400])
 
-        # SM-11: the LIVE debt — same refusal. Stated as its own arm because
-        # the alternative fix (teaching the DONE resolution to ignore a dead
-        # debt) would have had to distinguish these two, and this one must not
-        # regress into a lift: a live debt is a live pane somebody must free.
-        awaiting5.write_text(json.dumps({"leader": {
-            "since": "2026-08-15 09:00", "pane": "%0", "transcript": "",
-            "exported": False, "pids": [os.getpid()], "disposition": "renew"}}),
-            encoding="utf-8")
+        # SM-11: a NON-`done` ending blocks the mint too. Stated as its own arm
+        # because the gate must stay keyed on an ending STANDING and never on
+        # which ending it is: `incomplete` + `armed` is just as inheritable, and
+        # a guard narrowed to `done` would mint a chair born mid-relaunch. This
+        # is the arm the pre-§4.1 suite spent on dead-vs-live panes — liveness
+        # is the supervisor registry's fact, not an ending's, so the
+        # discrimination moved here rather than being dropped.
+        _es().stamp_system(fx5["pkg"], "leader", "incomplete", armed=1,
+                           diagnostic="context full")
         res = _staff_run(fx5, "w2", root=False, after="w1")
-        check("SM-11 red: a LIVE debt (its pid is this very process) blocks the "
-              "mint too — the gate is keyed on the DEBT STANDING, never on how "
-              "dead it looks, because settling a ledger entry is `close-seat`'s "
-              "act and not a minter's",
+        check("SM-11 red: a NON-`done` current ending (`incomplete`, armed) "
+              "blocks the mint too — the gate is keyed on an ending STANDING, "
+              "never on which ending it is, because every one of them is "
+              "inherited by a chair minted over it",
               not isinstance(res, Refuse)
               and "leader" not in [r["seat"] for r in _staff_rows(fx5)]
-              and any("awaiting-close debt" in w
+              and any("CURRENT ENDING" in w and "`incomplete`" in w
                       for w in (res or {}).get("warnings", ())),
               str((res or {}).get("warnings"))[:300])
 
-        # SM-12 CONTROL: settle the debt, mint the chair. Without this arm
-        # SM-10/SM-11 pass for any reason the chair fails to appear.
-        awaiting5.write_text("{}", encoding="utf-8")
-        res = _staff_run(fx5, "w1", force_partial=True)
-        check("SM-12 control: with the ledger SETTLED the same fixture mints "
-              "the chair — so the two arms above discriminate the debt gate "
-              "from every other reason a chair can fail to appear",
+        # SM-10b: THE SUMMONED chair takes the SAME gate. This arm exists
+        # because its absence is what shipped a defect: §4.1's retarget moved
+        # the staff loop onto the ending store and left the summoned loop bound
+        # to the deleted ledger's variable, so every goal declaring a summoned
+        # chair died on a `NameError` and no row here noticed. Both loops read
+        # one helper now, and this arm is what keeps that true.
+        fx5s = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm5s-")))
+        summoned_chair = _coord_summoned_seats()[0]
+        _es().stamp_seat_declare(fx5s["pkg"], summoned_chair, "done")
+        res = _staff_run(fx5s, "w1")
+        check("SM-10b red: a CURRENT ENDING under the SUMMONED chair's name "
+              f"('{summoned_chair}') blocks its mint with the same warning the "
+              "staff chair gets — one gate, one reader, both loops",
               not isinstance(res, Refuse)
-              and "leader" in [r["seat"] for r in _staff_rows(fx5)],
-              str(res)[:200] or str([r["seat"] for r in _staff_rows(fx5)]))
+              and summoned_chair not in [r["seat"] for r in _staff_rows(fx5s)]
+              and any(summoned_chair in w and "CURRENT ENDING" in w
+                      for w in (res or {}).get("warnings", ())),
+              str((res or {}).get("warnings"))[:400])
+        shutil.rmtree(fx5s["pkg"].parents[2].parent, ignore_errors=True)
+
+        # SM-12 CONTROL: the same fixture SHAPE with an empty store mints the
+        # chair. Without this arm the three reds pass for any reason the chair
+        # fails to appear. A FRESH fixture rather than a cleared one: the store
+        # is append-only by design and a minter that deleted endings would be a
+        # second writer of the surface that records them — exactly what the
+        # gate's own comment forbids.
+        fx5c = _staff_fixture(Path(tempfile.mkdtemp(prefix="ms-sm5c-")))
+        res = _staff_run(fx5c, "w1")
+        check("SM-12 control: the same fixture with NO current ending mints "
+              "the chair — so the three arms above discriminate the "
+              "standing-ending gate from every other reason a chair can fail "
+              "to appear",
+              not isinstance(res, Refuse)
+              and "leader" in [r["seat"] for r in _staff_rows(fx5c)],
+              str(res)[:200] or str([r["seat"] for r in _staff_rows(fx5c)]))
+        shutil.rmtree(fx5c["pkg"].parents[2].parent, ignore_errors=True)
         shutil.rmtree(fx5["pkg"].parents[2].parent, ignore_errors=True)
 
         # ---- SM-14/SM-15: D79 auto-mint of the summoned chair on the
