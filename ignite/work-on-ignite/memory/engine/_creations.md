@@ -20,3 +20,4 @@
 2026-08-25 · creation · One last_progress_at fact + recovery config/checkpoint · Four small modules in `ignite/supervisor/`, the home spec-component-map names for recovery · eec3367f · server,config · ⚠
 2026-08-25 · creation · One alarm emitter + frozen invariant [T4-R10, T1-R15] · Two modules under the new `ignite/observation/` component (`spec-component-map`'s home), and no · bd954a96,3d653ce9 · server,bridges · ⚠
 2026-08-25 · creation · Attempt counter replaces both byte-equality brakes · One counter keyed on (driver, subject, reason CLASS) replaces both, reset only by a named event. · 01196394,1cb188d3 · server,supervisor · ⚠
+2026-08-25 · creation · frozen tick driver + post-restart alarm suppression · TWO small modules in `engine/`, plus a fact collector in the pass that already computes the · 256b91ae · observation,server,supervisor,capabilities · ⚠

@@ -6,3 +6,4 @@
 2026-08-24 · creation · approval thread: §3 message, kind fork, thread-bound pause · Two modules, and the fork between them is the ask's `kind`, never the token. · 7f4fbefc · — · ⚠
 2026-08-24 · creation · mechanical pause/resume door + resume-semantics table · One module, `bridges/chat/pause-resume.js`, holding the verb end to end: target resolution, the · 5b6762f9 · engine,state-store · ⚠
 2026-08-24 · creation · changed-only system digest + bot status line · Two modules, split because they answer different questions and update on different clocks. · eddf1ee3,b26ae2de,a2a93494 · observation · ⚠
+2026-08-25 · creation · glance wiring: slot driver, readers, status transport · ONE new module, `bridges/chat/glance.js`, holding the composition and nothing else — no · b3d3425c · gateway,server,cli,state-store,observation · ⚠
