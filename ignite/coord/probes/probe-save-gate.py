@@ -60,7 +60,22 @@ def kit_siblings():
     Reading coord.py's own imports means the next sibling arrives for free.
     """
     kit = HERE.parent
-    names = set()
+    names, in_supervisor = _coord_module_names()
+    return (sorted(p for p in (kit / f"{n}.py" for n in names - in_supervisor) if p.is_file()),
+            sorted(p for p in (kit.parent / "supervisor" / f"{n}.py" for n in in_supervisor)
+                   if p.is_file()))
+
+
+def _coord_module_names():
+    """(every module name coord.py needs at load, the subset that lives in `supervisor/`).
+
+    DERIVED FROM coord.py'S OWN TEXT, never listed by hand — listing them by hand is what broke
+    this fixture twice (task 7.82 added `budget`, 7.57 added `gateway_client`, and each time the
+    copy site was swept a release late, reported as "the LIVE coord.py fails the gate": production
+    blamed for the probe's own kit). Parsed rather than imported on purpose — this probe's subject
+    is a stand-in kit, so it must not depend on the live one importing.
+    """
+    names, in_supervisor = set(), set()
     for node in ast.parse(LIVE_COORD.read_text(encoding="utf-8")).body:
         if isinstance(node, ast.Import):
             names.update(a.name.split(".")[0] for a in node.names)
@@ -73,12 +88,28 @@ def kit_siblings():
         elif isinstance(node, ast.Assign) and any(
                 getattr(t, "id", None) == "SPLIT_MODULES" for t in node.targets):
             names.update(e.value for e in node.value.elts if isinstance(e, ast.Constant))
-    return sorted(p for p in (kit / f"{n}.py" for n in names) if p.is_file())
+        # ⚠ AND WHICH OF THEM DO NOT LIVE BESIDE coord.py. The six supervisor-landing modules left
+        # `coord/` for the sibling component `supervisor/` (owner ruling 2026-08-25), and coord.py
+        # resolves them one directory up. A stand-in kit that stages every name FLAT reproduces a
+        # layout the real loader never sees, and the gate would pass on a fixture that cannot
+        # exist — so the split is read from coord.py's own tuple, exactly like the list above.
+        elif isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == "SUPERVISOR_MODULES" for t in node.targets):
+            in_supervisor.update(e.value for e in node.value.elts
+                                 if isinstance(e, ast.Constant))
+    return names, in_supervisor
 
 
-def stock_kit(dest, siblings):
+def stock_kit(dest, siblings, supervisor_siblings):
     for p in siblings:
         shutil.copy2(p, dest / p.name)
+    # The stand-in `supervisor/` is a SIBLING of the stand-in kit, because that is where coord.py
+    # looks: `Path(__file__).resolve().parent.parent / "supervisor"`.
+    if supervisor_siblings:
+        sup = dest.parent / "supervisor"
+        sup.mkdir(exist_ok=True)
+        for p in supervisor_siblings:
+            shutil.copy2(p, sup / p.name)
 
 
 def sha(p):
@@ -105,10 +136,13 @@ def main():
         # would then report "the LIVE coord.py fails the gate", blaming production for the probe's
         # own incomplete fixture. Measured: exactly the 10-failure red of 17:00, and again on
         # 2026-08-10 (task 7.669). The list is DERIVED from coord.py — see kit_siblings().
-        siblings = kit_siblings()
+        siblings, supervisor_siblings = kit_siblings()
         check("the stand-in kit carries every kit module coord.py imports at module level "
               f"(found: {[p.name for p in siblings]})", len(siblings) >= 2)
-        stock_kit(work, siblings)
+        check("the stand-in kit reproduces the sibling `supervisor/` half of the product "
+              f"(found: {[p.name for p in supervisor_siblings]})",
+              len(supervisor_siblings) == 6)
+        stock_kit(work, siblings, supervisor_siblings)
 
         # A stand-in target: a COPY of the live coord.py, so nothing here can touch the real one.
         target = work / "coord.py"
@@ -238,7 +272,7 @@ def main():
         # protects. So: a second kit-shaped directory, importable, and DIFFERENT from the target's.
         far_dir = td / "elsewhere-kit"
         far_dir.mkdir()
-        stock_kit(far_dir, siblings)
+        stock_kit(far_dir, siblings, supervisor_siblings)
         far = far_dir / "elsewhere.py"
         far.write_text(live_src, encoding="utf-8")
         r = run([sys.executable, str(SAVE_COORD), "--candidate", str(far),

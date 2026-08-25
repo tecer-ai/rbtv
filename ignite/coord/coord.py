@@ -177,10 +177,26 @@ WORKER_ROW = re.compile(
 SPLIT_MODULES = ("addressing", "outputs", "tmux", "process", "records", "identity", "carrier",
                  "closeout", "attest", "checkout", "lifecycle_exec", "messages", "launch",
                  "ready", "coord_selftest", "cli_main")
-_SPLIT_DIR = Path(__file__).resolve().parent
+# The six modules `spec-component-map` §3 homes in `supervisor/` now LIVE there (owner ruling
+# 2026-08-25, "SPLIT_MODULES / coordinate split"). Load ORDER is unchanged — only the directory
+# each file is read from. Everything else still sits beside this file.
+SUPERVISOR_MODULES = ("process", "carrier", "attest", "lifecycle_exec", "launch", "ready")
+_KIT_DIR = Path(__file__).resolve().parent
+_SUPERVISOR_DIR = _KIT_DIR.parent / "supervisor"
+
+
+def _split_path(name):
+    """Where one split module's file lives. The ONE place the two-directory layout is spelled."""
+    return (_SUPERVISOR_DIR if name in SUPERVISOR_MODULES else _KIT_DIR) / (name + ".py")
+
+
+# The kit's PRODUCT FILES in load order, this file first. Every scan that asks "what is this
+# module's source" derives its file list from HERE — a scan that walked one directory went
+# silently empty the moment the product spanned two.
+PRODUCT_FILES = (Path(__file__).resolve(),) + tuple(_split_path(n) for n in SPLIT_MODULES)
 _SPLIT_SOURCES = []
 for _split_name in SPLIT_MODULES:
-    _split_src = _SPLIT_DIR / (_split_name + ".py")
+    _split_src = _split_path(_split_name)
     _split_text = _split_src.read_text(encoding="utf-8")
     _SPLIT_SOURCES.append(_split_text)
     exec(compile(_split_text, str(_split_src), "exec"), globals())

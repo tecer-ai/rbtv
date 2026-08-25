@@ -330,9 +330,11 @@ def main():
     # The split moved these guarded acts out of coord.py into its sibling files [D23,
     # T4-R12]. The product is coord.py PLUS everything it loads, and that is what the
     # locator has always been reading — the scan target moved, its logic did not.
-    src = "\n".join([COORD_PY.read_text(encoding="utf-8")]
-                   + [(KIT / f"{_n}.py").read_text(encoding="utf-8")
-                      for _n in coord.SPLIT_MODULES])
+    # ⚠ THE PRODUCT SPANS TWO COMPONENT FOLDERS. The six supervisor-landing modules left `coord/`
+    # for `supervisor/` (owner ruling 2026-08-25); a list built by walking ONE directory would go
+    # silently EMPTY for them rather than red. `coord.PRODUCT_FILES` is the kit's own answer to
+    # "which files are the product", in load order — derived, never re-spelled here.
+    src = "\n".join(_p.read_text(encoding="utf-8") for _p in coord.PRODUCT_FILES)
     digest = hashlib.md5(src.encode()).hexdigest()
     print(f"\ncoord.py under test: {COORD_PY}\n  {len(src.splitlines())} lines · md5 {digest}")
     print(f"  LIFECYCLE_SETTLE_S={coord.LIFECYCLE_SETTLE_S}  "
@@ -564,9 +566,7 @@ def main():
         # the locator against the CURRENT file. That keeps both halves of the old coverage — the
         # freshness of part 3's verdict, and the refusal to accept a damaged coord.py (either
         # scratch mutant reddens guard 3 or guard 4 here) — without the byte-static premise.
-        after_src = "\n".join([COORD_PY.read_text(encoding="utf-8")]
-                           + [(KIT / f"{_n}.py").read_text(encoding="utf-8")
-                              for _n in coord.SPLIT_MODULES])
+        after_src = "\n".join(_p.read_text(encoding="utf-8") for _p in coord.PRODUCT_FILES)
         after = hashlib.md5(after_src.encode()).hexdigest()
         if after == digest:
             check("4c coord.py is byte-identical to the snapshot part 3 measured", True, digest)
