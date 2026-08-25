@@ -1,3 +1,37 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
+import csv
+import functools
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import coord
+import attest
+import carrier
+import process
+import ready
+
 # ---------- launch / lifecycle ----------
 
 def frontmatter_text(text):
@@ -45,7 +79,7 @@ def descriptor_yaml_findings(wdir):
         return [("(all seats)", wdir,
                  f"the YAML parse check COULD NOT RUN — {exc}. Reported as a finding rather than "
                  f"skipped. Install PyYAML.")]
-    for path in briefing_files(wdir):
+    for path in coord.briefing_files(wdir):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
@@ -72,7 +106,7 @@ def discover_workers(wdir):
     ctx_refresh (int|None — the seat's own context-refresh threshold),
     folder (the seat's worker folder in folder form, else None)."""
     found = []
-    for p in briefing_files(wdir):
+    for p in coord.briefing_files(wdir):
         text = p.read_text(encoding="utf-8")
         if not text.startswith("---"):
             continue
@@ -80,19 +114,19 @@ def discover_workers(wdir):
         if fm_end == -1:
             continue
         fm = text[:fm_end]
-        m = FM_KEY["agent"].search(fm)
+        m = coord.FM_KEY["agent"].search(fm)
         if not m:
             continue
         # G-14: the seat.md (KG run-folder) form resolved NO folder, so `memory.md` was invisible
         # to boot_prompt and every renewed PERSISTENT seat booted without being told to read its
         # own memory — the one artifact a close exists to produce. Both briefing names count.
         folder = p.parent if p.name in ("agent.md", "seat.md") and p.parent != wdir else None
-        mt = FM_KEY["agent_type"].search(fm)   # 7.278 (C3) — additive; no existing key changes
-        mh = FM_KEY["harness"].search(fm)
-        mm = FM_KEY["model"].search(fm)
-        me = FM_KEY["effort"].search(fm)
-        mc = FM_KEY["cwd"].search(fm)
-        mr = FM_KEY["ctx-refresh"].search(fm)
+        mt = coord.FM_KEY["agent_type"].search(fm)   # 7.278 (C3) — additive; no existing key changes
+        mh = coord.FM_KEY["harness"].search(fm)
+        mm = coord.FM_KEY["model"].search(fm)
+        me = coord.FM_KEY["effort"].search(fm)
+        mc = coord.FM_KEY["cwd"].search(fm)
+        mr = coord.FM_KEY["ctx-refresh"].search(fm)
         harness = mh.group(1) if mh else "claude"
         # A RELATIVE `cwd:` reaches `tmux -c` VERBATIM, and tmux resolves it against nothing —
         # it silently falls back to $HOME and the seat boots in the wrong tree, reporting
@@ -100,10 +134,10 @@ def discover_workers(wdir):
         # new-window, split), so no consumer needs its own guard. An ABSOLUTE value passes
         # through BYTE-IDENTICAL — deliberately NOT normalized, because other code compares
         # these strings. Measured: one hand-edited descriptor of 408 carried a relative value.
-        cwd = mc.group(1) if mc else (str(folder) if folder else VAULT_ROOT)
+        cwd = mc.group(1) if mc else (str(folder) if folder else coord.VAULT_ROOT)
         if not os.path.isabs(cwd):
-            cwd = os.path.join(VAULT_ROOT, cwd)
-        out_declared, out_tokens, out_chat = iospec_outputs(text)
+            cwd = os.path.join(coord.VAULT_ROOT, cwd)
+        out_declared, out_tokens, out_chat = coord.iospec_outputs(text)
         found.append({
             "agent": m.group(1), "briefing": p, "harness": harness,
             # 7.278 (C3): "" means the descriptor DECLARED NOTHING. Kept distinguishable from a
@@ -121,13 +155,13 @@ def discover_workers(wdir):
             "model": mm.group(1) if mm else "",
             "effort": me.group(1) if me else "",
             "cwd": cwd,
-            "window": _fm_window(fm),
-            "ephemeral": _fm_yes(fm, "ephemeral"),
+            "window": coord._fm_window(fm),
+            "ephemeral": coord._fm_yes(fm, "ephemeral"),
             "ctx_refresh": int(mr.group(1)) if mr else None,
-            "mode": (FM_KEY["mode"].search(fm).group(1)
-                     if FM_KEY["mode"].search(fm) else ""),
+            "mode": (coord.FM_KEY["mode"].search(fm).group(1)
+                     if coord.FM_KEY["mode"].search(fm) else ""),
             "folder": folder,
-            "mechanical_close": _fm_mechanical_close(fm),
+            "mechanical_close": coord._fm_mechanical_close(fm),
             # 7.676/D3: declared outputs are read off the BODY's io-spec `## Outputs` block via
             # `iospec_outputs` (the shared resolver), at THIS one parse point because `cwd` is
             # absolutized here and a declared output resolves against it. Parsing the descriptor
@@ -140,7 +174,7 @@ def discover_workers(wdir):
             # check-out can tell "declared nothing checkable" from "declared conversation".
             "outputs_chat": out_chat,
             # 7.711/D3: the RETIRED-key tripwire, read at the same parse point.
-            "outputs_defect": _fm_outputs_defect(fm),
+            "outputs_defect": coord._fm_outputs_defect(fm),
         })
     return found
 
@@ -161,7 +195,7 @@ def discover_workers(wdir):
 
 def descriptor_findings(args):
     """[(seat, kind, detail)] — every structural divergence in the run's descriptor set."""
-    wdir = workers_dir(args)
+    wdir = coord.workers_dir(args)
     registry = taskforce_bindings(args)
     seats = discover_workers(wdir)
     found = []
@@ -235,12 +269,12 @@ def boot_stale_findings(args):
     a seat writing its OWN memory.md trips it. A false positive costs a glance; the false negative
     this replaces cost the run a live seat planning against two dead constraints.
     """
-    base = base_dir(args)
-    _, _, rows = load_workers(base)
-    wdir = workers_dir(args)
+    base = coord.base_dir(args)
+    _, _, rows = coord.load_workers(base)
+    wdir = coord.workers_dir(args)
     out = []
     for name in dict.fromkeys(r["agent"] for r in rows):
-        row = current_row(rows, name)
+        row = coord.current_row(rows, name)
         if not row or row.get("active") != "yes":
             continue
         try:
@@ -252,7 +286,7 @@ def boot_stale_findings(args):
             continue
         for path in sorted(folder.rglob("*")):
             parts = path.relative_to(folder).parts
-            if not path.is_file() or any(d in parts for d in BOOT_STALE_SKIP_DIRS):
+            if not path.is_file() or any(d in parts for d in coord.BOOT_STALE_SKIP_DIRS):
                 continue
             try:
                 mtime = datetime.fromtimestamp(path.stat().st_mtime)
@@ -266,12 +300,12 @@ def boot_stale_findings(args):
 def cmd_descriptors(args):
     """Read-only structural audit of every seat descriptor (G-57). Opens no briefing body."""
     findings = descriptor_findings(args)
-    wdir = workers_dir(args)
-    print(f"{c('descriptors:', C_LABEL)} {wdir}")
-    print(f"{c('registry:', C_LABEL)} {package_dir(args) / 'taskforce.csv'}")
+    wdir = coord.workers_dir(args)
+    print(f"{coord.c('descriptors:', coord.C_LABEL)} {wdir}")
+    print(f"{coord.c('registry:', coord.C_LABEL)} {coord.package_dir(args) / 'taskforce.csv'}")
     if findings:
         for seat, kind, detail in sorted(findings):
-            print(f"  {c(seat, C_DEAD)}  {kind}: {detail}")
+            print(f"  {coord.c(seat, coord.C_DEAD)}  {kind}: {detail}")
     print(f"\nstructural findings: {len(findings)}")
     # The bound is printed on EVERY run, clean or not — the leader's own ruling generalised: a
     # clean result must never be readable as a clean class.
@@ -282,9 +316,9 @@ def cmd_descriptors(args):
     # dag-19 / G-256: its OWN section, appended after every line this command already printed,
     # so the pre-existing output is byte-identical to what it was before the check existed.
     yml = descriptor_yaml_findings(wdir)
-    print(f"\n{c('yaml-parse (G-256):', C_LABEL)} descriptors NO YAML READER CAN LOAD")
+    print(f"\n{coord.c('yaml-parse (G-256):', coord.C_LABEL)} descriptors NO YAML READER CAN LOAD")
     for _y_seat, _y_path, _y_detail in sorted(yml, key=lambda f: str(f[1])):
-        print(f"  {c(_y_seat, C_DEAD)}  {_y_path}: {_y_detail}")
+        print(f"  {coord.c(_y_seat, coord.C_DEAD)}  {_y_path}: {_y_detail}")
     print(f"yaml-parse findings: {len(yml)}")
     print("bound: the FRONTMATTER BLOCK ONLY, parsed by the same reader a consumer would use. "
           "Every other check on this command reads that block with REGEXES, which are delighted "
@@ -297,16 +331,16 @@ def cmd_descriptors(args):
     # heuristic, never a filter: nothing is hidden, and a boot-read document under a name not on
     # the list still appears, just lower.
     ranked = sorted(stale, key=lambda f: (f[1].name not in BOOT_READ_NAMES, f[0], str(f[1])))
-    print(f"\n{c('boot-stale (G-61):', C_LABEL)} files changed since the LIVE seat read them")
+    print(f"\n{coord.c('boot-stale (G-61):', coord.C_LABEL)} files changed since the LIVE seat read them")
     for name, rel, mtime in ranked:
         mark = "BOOT-READ" if rel.name in BOOT_READ_NAMES else "also"
-        print(f"  {c(name, C_DEAD)}  [{mark}] {rel} modified {mtime:%Y-%m-%d %H:%M} — after that "
+        print(f"  {coord.c(name, coord.C_DEAD)}  [{mark}] {rel} modified {mtime:%Y-%m-%d %H:%M} — after that "
               f"seat checked in; it is still running the version it booted on")
     high = sum(1 for _, rel, _ in stale if rel.name in BOOT_READ_NAMES)
     print(f"boot-stale findings: {len(stale)} "
           f"({high} BOOT-READ by name, {len(stale) - high} other)")
     print(f"bound: MTIME, not content, over the seat's folder minus "
-          f"{'/, '.join(BOOT_STALE_SKIP_DIRS)}/ — it over-reports "
+          f"{'/, '.join(coord.BOOT_STALE_SKIP_DIRS)}/ — it over-reports "
           "(a seat writing its own memory.md trips it) and it CANNOT see a ruling that invalidates "
           "a seat's instructions without anyone editing its files. Zero here is not proof a seat "
           "is current.")
@@ -329,7 +363,7 @@ def cmd_descriptors(args):
 def taskforce_bindings(args):
     """{seat: {harness, model, effort}} from the run package's taskforce.csv — {} when the file is
     absent (a legacy `workers/` package has no registry, and its seats must still launch)."""
-    path = package_dir(args) / "taskforce.csv"
+    path = coord.package_dir(args) / "taskforce.csv"
     if not path.is_file():
         return {}
     try:
@@ -354,9 +388,9 @@ def registered_seats(pkg):
         root = Path(pkg)
     except (TypeError, ValueError):
         return names
-    for path in (root / "taskforce.csv", sessions_csv(root)):
+    for path in (root / "taskforce.csv", coord.sessions_csv(root)):
         try:
-            header, rows = read_csv_table(path, [])
+            header, rows = coord.read_csv_table(path, [])
         except Exception:
             continue
         if "seat" not in header:
@@ -414,11 +448,11 @@ def check_bindings(args, workers, command):
     if not (problems or missing) or getattr(args, "force", False):
         for w, diff in problems:
             fields = ", ".join(f"{f}: descriptor {d} vs registry {r}" for f, d, r in diff)
-            print(c(f"WARNING --force: {w['agent']} binds from its DESCRIPTOR ({fields})",
-                    C_DEAD), file=sys.stderr)
+            print(coord.c(f"WARNING --force: {w['agent']} binds from its DESCRIPTOR ({fields})",
+                    coord.C_DEAD), file=sys.stderr)
         for w in missing:
-            print(c(f"WARNING --force: {w['agent']} has NO taskforce.csv row (no-registry-row) — "
-                    f"it binds from its DESCRIPTOR and the registry records nothing", C_DEAD),
+            print(coord.c(f"WARNING --force: {w['agent']} has NO taskforce.csv row (no-registry-row) — "
+                    f"it binds from its DESCRIPTOR and the registry records nothing", coord.C_DEAD),
                   file=sys.stderr)
         return
     lines = []
@@ -435,11 +469,11 @@ def check_bindings(args, workers, command):
                      f"the descriptor against")
         lines.append(f"    descriptor: {w['briefing']}")
     detail = "\n  ".join(lines)
-    refuse(
+    coord.refuse(
         "state",
         f"`{command}` — {len(problems) + len(missing)} seat(s) fail the run's registry check:\n  "
         f"{detail}\n"
-        f"  registry: {package_dir(args) / 'taskforce.csv'}\n"
+        f"  registry: {coord.package_dir(args) / 'taskforce.csv'}\n"
         f"THE DESCRIPTOR IS AUTHORITATIVE — it is what the harness command is built from, so "
         f"launching now would bind the DESCRIPTOR's value and the taskforce.csv row would stay "
         f"a wrong record.\n"
@@ -455,7 +489,7 @@ def identity_prefix(agent):
     redirect (7.400) off the quota'd tmpfs. Every command the seat then runs resolves
     `COORD_AGENT` — it never types its own name, and cannot mistype another seat's — and every
     tmp write it or its harness makes lands on `/dev/sda1` at AGENT_TMPDIR instead."""
-    return f"COORD_AGENT={shlex.quote(agent)} TMPDIR={shlex.quote(AGENT_TMPDIR)} "
+    return f"COORD_AGENT={shlex.quote(agent)} TMPDIR={shlex.quote(coord.AGENT_TMPDIR)} "
 
 
 CLAUDE_MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
@@ -570,8 +604,8 @@ def validate_seat(w):
     slug this function accepted as sanitized. It is written HERE because `bindings.py#catalog`
     imports this very function as its catalog validator, so the misreading is one import away.
     """
-    if w["harness"] not in HARNESSES:
-        return f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
+    if w["harness"] not in coord.HARNESSES:
+        return f"unknown harness '{w['harness']}' (expected one of {', '.join(coord.HARNESSES)})"
     if w["harness"] == "claude" and not (
             w["model"] in CLAUDE_MODEL_ALIASES or w["model"].startswith("claude-")):
         return (f"claude model '{w['model']}' is neither a known alias "
@@ -614,9 +648,9 @@ def prompt_file(args, agent, prompt):
     line is typed into the pane as literal keystrokes, and a prompt with newlines is executed line
     by line by the pane's shell (G-11 — see wake()). A file keeps the start line one line no matter
     how long the prompt grows, so launch and close share one path with one failure mode."""
-    d = base_dir(args) / "prompts"
+    d = coord.base_dir(args) / "prompts"
     d.mkdir(parents=True, exist_ok=True)
-    p = d / f"{agent}-{file_stamp()}.txt"
+    p = d / f"{agent}-{coord.file_stamp()}.txt"
     p.write_text(prompt, encoding="utf-8")
     return p
 
@@ -638,7 +672,7 @@ def harness_command(w, prompt=None, prompt_path=None):
     eff = _cast_effort(w)[1]
     eff = f" {eff}" if eff else ""
     if w["harness"] == "claude":
-        return f"{env}{CLAUDE_BIN} --model {shlex.quote(w['model'])}{eff} {arg}", ""
+        return f"{env}{coord.CLAUDE_BIN} --model {shlex.quote(w['model'])}{eff} {arg}", ""
     if w["harness"] == "codex":
         model = f" -m {shlex.quote(w['model'])}" if w["model"] else ""
         # 7.612 / `d-codex-hook-trust-bypass` (2026-08-09): codex trust-gates hooks BY HASH,
@@ -650,7 +684,7 @@ def harness_command(w, prompt=None, prompt_path=None):
         # only two codex compositions in this file, and BOTH build agent-seat commands. The
         # flag rides agent seats ONLY — if a human-interactive codex composition is ever added
         # here, it stays clean.
-        return f"{env}{CODEX_BIN} --dangerously-bypass-hook-trust{model}{eff} {arg}", ""
+        return f"{env}{coord.CODEX_BIN} --dangerously-bypass-hook-trust{model}{eff} {arg}", ""
     if w["harness"] == "opencode":
         if not w["model"]:
             return None, "opencode seats require an explicit model: (provider/model slug)"
@@ -672,8 +706,8 @@ def harness_command(w, prompt=None, prompt_path=None):
         #   `opencode run --auto -m X P`  -> returns the expected string
         # The wrong form is the dangerous one precisely because it exits 0: it would look like a
         # fix, pass any check that only asserts the flag is present, and launch nothing.
-        return f"{env}{OPENCODE_BIN} run --auto -m {shlex.quote(w['model'])}{eff} {arg}", ""
-    return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(HARNESSES)})"
+        return f"{env}{coord.OPENCODE_BIN} run --auto -m {shlex.quote(w['model'])}{eff} {arg}", ""
+    return None, f"unknown harness '{w['harness']}' (expected one of {', '.join(coord.HARNESSES)})"
 
 
 def ask_body(row):
@@ -716,7 +750,7 @@ def unanswered_ask_block(pkg):
     """
     open_asks = []
     try:
-        rows = ending_store.list_open_asks(pkg, seat="goal-master")
+        rows = coord.ending_store.list_open_asks(pkg, seat="goal-master")
     except Exception:                                  # noqa: BLE001 — see NEVER RAISES above
         return ""
     for row in rows:
@@ -743,8 +777,8 @@ def boot_prompt(w, args, daemon_lane=False):
     """The initial prompt every seat starts with, harness-independent. A leader seat whose
     memory.md already exists is only ever (re)launched to CONTINUE a run it was arbitrating
     (renew, or crash recovery) — its prompt is resume-first, never the generic fresh boot."""
-    pkg = package_dir(args)
-    wdir = workers_dir(args)
+    pkg = coord.package_dir(args)
+    wdir = coord.workers_dir(args)
     mem = (w["folder"] / "memory.md") if w["folder"] else None
     if w["agent"] == "leader" and mem and mem.exists():
         first = (f"You are RESUMING a prior session, not starting fresh: read {mem} FIRST — "
@@ -796,7 +830,10 @@ def boot_prompt(w, args, daemon_lane=False):
     # the kit lives under it. `cage.js#composeAncestorMasks` cuts only `CLAUDE.md`/`AGENTS.md` and
     # the harness config dirs, and only on the walk-up from the seat's launch folder, which the kit
     # is not on. Verified through `cagespec.py#evaluate` for a live flagship seat.
-    kit = Path(__file__).resolve().parent
+    # ⚠ THE KIT FOLDER, NOT THIS FILE'S. `protocol.md` lives beside `coord.py`, and this module
+    # no longer does — a bare `Path(__file__).parent` would compose a path under `supervisor/`
+    # that no seat can read, and a prompt naming a missing file fails silently.
+    kit = coord.KIT_DIR
     reads = (
         f"Then read {kit / 'protocol.md'} — THE coordination protocol, messaging, identity and "
         f"lifecycle mechanics — and follow it exactly. ({pkg}/CLAUDE.md is your goal's "
@@ -805,7 +842,7 @@ def boot_prompt(w, args, daemon_lane=False):
     if daemon_lane:
         opening = (
             reads +
-            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}) — the "
+            f"Then check in as '{w['agent']}' (coordination CLI: {coord.coord_invocation(args)}) — the "
             f"SAME protocol as every other lane, with ONE amendment: your check-in is PANELESS. "
             f"You have no tmux pane, so it registers you against the still-open session row already "
             f"opened for you in {pkg}/sessions.csv, and it says so on its own output. That roster "
@@ -818,7 +855,7 @@ def boot_prompt(w, args, daemon_lane=False):
     else:
         opening = (
             reads +
-            f"Then check in as '{w['agent']}' (coordination CLI: {coord_invocation(args)}). ")
+            f"Then check in as '{w['agent']}' (coordination CLI: {coord.coord_invocation(args)}). ")
     procedures = (
         f"A sitting ends by declaring `done` or `incomplete`; process exit is not a declaration. "
         f"CHECK OUT when you end — `checkout --incomplete \"<reason>\"` is the ONLY way to end a "
@@ -836,7 +873,7 @@ def boot_prompt(w, args, daemon_lane=False):
     # ⚠ IT IS APPENDED, NEVER SUBSTITUTED. The seat still reads its briefing and still follows the
     # protocol; the payload says why THIS sitting exists. A payload that replaced the prompt would
     # hand a relaunched seat no idea what it is.
-    payload = read_route_payload(base_dir(args, register=False), w["agent"])
+    payload = attest.read_route_payload(coord.base_dir(args, register=False), w["agent"])
     routed = ("\n\n⚠ THIS SITTING WAS ROUTED TO YOU — read this before your briefing's ordinary "
               "work; it is the reason you were relaunched and it is NOT in the inputs you ran on "
               f"last time:\n\n{payload}\n") if payload else ""
@@ -891,7 +928,7 @@ def scratchpad_instruction(w, daemon_lane=False):
              "printed to you by your own check-in, on its `session:` line, and the folder "
              "already exists")
     return (f"EVERY working file you produce this session goes in your per-session scratchpad "
-            f"{Path(w['folder']) / SEAT_SCRATCHPAD_DIR}/<session-id>/ — <session-id> is {where}. "
+            f"{Path(w['folder']) / coord.SEAT_SCRATCHPAD_DIR}/<session-id>/ — <session-id> is {where}. "
             f"Your seat.md/agent.md descriptor, your memory.md and any conventions.md STAY at "
             f"{w['folder']}/ — nothing already at that root moves into the scratchpad. ")
 
@@ -915,25 +952,25 @@ def cmd_boot_prompt(args):
     READ-ONLY ON THE PACKAGE: writes no prompt file, opens no pane, messages nobody, wakes
     nobody. It resolves the package like every other command, which (re-)registers the run tag
     in ~/.config/rbtv — the same idempotent best-effort write `launch` itself makes."""
-    wdir = workers_dir(args, register=False)
+    wdir = coord.workers_dir(args, register=False)
     seats = discover_workers(wdir)
     w = next((x for x in seats if x["agent"] == args.seat), None)
     if w is None:
-        pkg_bp = package_dir(args, register=False)
+        pkg_bp = coord.package_dir(args, register=False)
         if args.seat not in registered_seats(pkg_bp):
-            refuse("input",
+            coord.refuse("input",
                    f"'{args.seat}' is not a registered seat (no row in taskforce.csv or "
                    f"sessions.csv), so there is nothing to compose a boot prompt FROM.\n"
                    f"Registered seats: {', '.join(sorted(registered_seats(pkg_bp))) or '(none)'}",
                    2)
-        refuse("input",
+        coord.refuse("input",
                f"'{args.seat}' has no descriptor under {wdir}, so there is nothing to compose a "
                f"boot prompt FROM — and an empty prompt boots a harness that exits on empty "
                f"input. Seats with a descriptor here: "
                f"{', '.join(sorted(x['agent'] for x in seats)) or '(none)'}\n"
                f"Materialize the taskforce first: python3 "
-               f"{Path(__file__).resolve().parent / 'materialize-seats.py'} --package "
-               f"{package_dir(args, register=False)}",
+               f"{coord.KIT_DIR.parent / 'planning' / 'materialize-seats.py'} --package "
+               f"{coord.package_dir(args, register=False)}",
                2)
     # ⚠ W1 (adv, C4) — THE LANE IS TOLD, NEVER DERIVED HERE. `execution-lane`'s grammar already
     # has exactly two spellings that DEC-1 binds to change together (`supervisor/lane-watch.js#readLane`
@@ -1044,11 +1081,11 @@ def refresh_mirrors_for(workers):
         if status == "ok":
             print(f"mirror refreshed for {cwd}: {detail}")
         elif status == "skip":
-            print(c(f"mirror: skipped for {cwd} — {detail}", C_HINT))
+            print(coord.c(f"mirror: skipped for {cwd} — {detail}", coord.C_HINT))
         else:
-            print(c(f"WARNING mirror refresh FAILED for {cwd} — {detail}", C_DEAD), file=sys.stderr)
-            print(c("  the codex/opencode seats below may read STALE rules; refresh by hand with "
-                    "`python install.py --mirror --non-interactive --target <root>`", C_DEAD),
+            print(coord.c(f"WARNING mirror refresh FAILED for {cwd} — {detail}", coord.C_DEAD), file=sys.stderr)
+            print(coord.c("  the codex/opencode seats below may read STALE rules; refresh by hand with "
+                    "`python install.py --mirror --non-interactive --target <root>`", coord.C_DEAD),
                   file=sys.stderr)
 
 
@@ -1090,19 +1127,19 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None, strict_liv
     # (`launch` and `close-seat --renew` both arrive here), so the dir exists before the harness
     # command that names it ever runs. `exist_ok=True`: a seat launched moments earlier already
     # made it, and that is not an error.
-    os.makedirs(AGENT_TMPDIR, mode=0o700, exist_ok=True)
-    os.chmod(AGENT_TMPDIR, 0o700)
+    os.makedirs(coord.AGENT_TMPDIR, mode=0o700, exist_ok=True)
+    os.chmod(coord.AGENT_TMPDIR, 0o700)
     # Checked HERE because this is the one door every boot passes — `launch` and
     # `close-seat --renew` both arrive here, so a renew cannot drift where a launch is checked.
     # Peers are read from ALL briefings, not from the seats in this wave: a single-seat renew would
     # otherwise have no peers to compare against and skip the check exactly when it matters.
     if not getattr(args, "force", False):
-        derr = window_drift(w, peer_windows(discover_workers(workers_dir(args)), w["agent"]))
+        derr = ready.window_drift(w, ready.peer_windows(discover_workers(coord.workers_dir(args)), w["agent"]))
         if derr:
             return "", derr
     ppath = prompt_file(args, w["agent"], prompt or boot_prompt(w, args))
     if resume:
-        cmd, err = resume_command(w, resume, ppath)
+        cmd, err = coord.resume_command(w, resume, ppath)
     else:
         cmd, err = harness_command(w, prompt_path=ppath)
     if cmd is None:
@@ -1112,18 +1149,18 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None, strict_liv
     else:
         place, wname = seat_placement(w)
         if place == "own":
-            pane, err = tmux_new_window(target, wname, w["cwd"])
+            pane, err = coord.tmux_new_window(target, wname, w["cwd"])
         elif place == "shared":
-            existing = tmux_find_window_pane(tmux_session_name(target), wname)
+            existing = coord.tmux_find_window_pane(coord.tmux_session_name(target), wname)
             if existing:
-                pane, err = tmux_split_pane(existing, w["cwd"])
+                pane, err = coord.tmux_split_pane(existing, w["cwd"])
             else:
-                pane, err = tmux_new_window(target, wname, w["cwd"])
+                pane, err = coord.tmux_new_window(target, wname, w["cwd"])
         else:
-            pane, err = tmux_split_pane(target, w["cwd"])
+            pane, err = coord.tmux_split_pane(target, w["cwd"])
         if not pane:
             return "", err
-    set_pane_title(pane, w["agent"])
+    coord.set_pane_title(pane, w["agent"])
     # 7.31: TRANSCRIPT CAPTURE IS ARMED HERE — in the step that composes the pane command, at pane
     # BIRTH, before the harness is woken — and never at close: tmux scrollback dies with the tmux
     # server, so a close-time capture returns nothing exactly when the substrate-level backup
@@ -1134,53 +1171,53 @@ def launch_seat(w, args, target, prompt=None, pane=None, resume=None, strict_liv
     # branch and not inside it.
     sid31, rec31 = "", ""
     try:
-        pkg31 = package_dir(args)
-        sid31 = mint_session_id(pkg31, w["agent"])
-        tpath31 = session_transcript_path(pkg31, w["agent"], sid31)
-        started31, cerr31 = start_pane_capture(pane, tpath31)
+        pkg31 = coord.package_dir(args)
+        sid31 = coord.mint_session_id(pkg31, w["agent"])
+        tpath31 = coord.session_transcript_path(pkg31, w["agent"], sid31)
+        started31, cerr31 = coord.start_pane_capture(pane, tpath31)
         rec31 = str(tpath31) if started31 else ""
         if not started31:
-            print(c(f"WARNING {w['agent']}: pane transcript capture did NOT arm — {cerr31}. The "
+            print(coord.c(f"WARNING {w['agent']}: pane transcript capture did NOT arm — {cerr31}. The "
                     f"seat is fine and its harness-native transcript is unaffected; the "
                     f"substrate-level backup is NOT being written, and `recorded` stays blank "
-                    f"rather than naming a file nothing writes.", C_DEAD), file=sys.stderr)
+                    f"rather than naming a file nothing writes.", coord.C_DEAD), file=sys.stderr)
     except Exception as exc:                                   # noqa: BLE001 — deliberate
         # Same trade-off `session_trace_safe` makes one act later: bookkeeping ABOUT the boot must
         # never become a gate ON it. Loud, and swallowed.
-        print(c(f"WARNING {w['agent']}: pane transcript capture could not be armed — "
-                f"{type(exc).__name__}: {exc}", C_DEAD), file=sys.stderr)
+        print(coord.c(f"WARNING {w['agent']}: pane transcript capture could not be armed — "
+                f"{type(exc).__name__}: {exc}", coord.C_DEAD), file=sys.stderr)
         sid31, rec31 = "", ""
-    write_seat_statusline(w)   # 7.69: before the harness reads its settings, never after
+    coord.write_seat_statusline(w)   # 7.69: before the harness reads its settings, never after
     since = time.time()        # 7.37: the instant the transcript must post-date (renew-correct)
-    ok, terr = wake(pane, cmd)
+    ok, terr = coord.wake(pane, cmd)
     if not ok:
         return pane, f"pane opened but harness start FAILED: {terr}"
-    _, uerr = wait_harness_up(pane)
-    if uerr.startswith(HARNESS_UP_UNVERIFIABLE) and not strict_liveness:
-        print(c(f"WARNING {w['agent']}: {uerr}. Proceeding as if it booted (see "
-                f"`strict_liveness`).", C_DEAD), file=sys.stderr)
+    _, uerr = process.wait_harness_up(pane)
+    if uerr.startswith(process.HARNESS_UP_UNVERIFIABLE) and not strict_liveness:
+        print(coord.c(f"WARNING {w['agent']}: {uerr}. Proceeding as if it booted (see "
+                f"`strict_liveness`).", coord.C_DEAD), file=sys.stderr)
         uerr = ""
     if uerr:
         return pane, uerr
     if w["harness"] == "claude":
-        schedule_session_rename(pane, w["agent"])
+        coord.schedule_session_rename(pane, w["agent"])
     # 7.37: the session row is written by the RUN, here, on the one path every seat boot takes —
     # `launch` and `close-seat --renew` both arrive here. A renew is a NEW session of the same
     # seat, which is exactly the "one seat, several sessions within one run" the KG names.
     # Only AFTER the harness is verified up: a row for a seat that never booted is the G-11 lie
     # in a second file.
-    res, terr2 = session_trace_safe(session_open, args, w, since=since, pane=pane,
+    res, terr2 = coord.session_trace_safe(coord.session_open, args, w, since=since, pane=pane,
                                     session_id=sid31 or None, recorded=rec31)
     if terr2:
-        print(c(f"WARNING {w['agent']}: the seat IS UP but its sessions.csv row was NOT written "
-                f"— {terr2}. The trace is incomplete; the seat is fine.", C_DEAD), file=sys.stderr)
+        print(coord.c(f"WARNING {w['agent']}: the seat IS UP but its sessions.csv row was NOT written "
+                f"— {terr2}. The trace is incomplete; the seat is fine.", coord.C_DEAD), file=sys.stderr)
     elif res and res[1]:
-        print(c(f"  {w['agent']}: session {res[0]} — {res[1]}", C_HINT))
+        print(coord.c(f"  {w['agent']}: session {res[0]} — {res[1]}", coord.C_HINT))
     return pane, ""
 
 
 def seats_by_name(args, names=None):
-    workers = discover_workers(workers_dir(args))
+    workers = discover_workers(coord.workers_dir(args))
     if names is None:
         # A bare `launch` (no --only) never boots leader — the owner starts leader by hand;
         # only an explicit by-name launch or a close-seat --renew may target the leader seat.
@@ -1188,11 +1225,11 @@ def seats_by_name(args, names=None):
     wanted = [n.strip() for n in names.split(",") if n.strip()]
     picked = [w for w in workers if w["agent"] in wanted]
     have = {w["agent"] for w in picked}
-    registered = registered_seats(package_dir(args))
+    registered = registered_seats(coord.package_dir(args))
     missing = set(wanted) - have - registered
     if missing:
         known = ", ".join(sorted(registered | have)) or "(none)"
-        refuse(
+        coord.refuse(
             "state",
             f"no register carries seat `{', '.join(sorted(missing))}` "
             f"(taskforce.csv ∪ sessions.csv), so there is nothing to launch under that name.\n"
@@ -1211,7 +1248,7 @@ def seats_by_name(args, names=None):
             "agent_type": "",
             "model": (row.get("model") or "").strip(),
             "effort": (row.get("effort") or "").strip(),
-            "cwd": VAULT_ROOT,
+            "cwd": coord.VAULT_ROOT,
             "window": "",
             "ephemeral": False,
             "ctx_refresh": None,
@@ -1407,34 +1444,34 @@ def cmd_session_open(args):
         seat. HERE the write IS the whole act: a caller that asked for a row and got none must
         learn it, or it will believe a trace exists that does not.
     """
-    pkg = package_dir(args)
-    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.seat]
+    pkg = coord.package_dir(args)
+    seats = [w for w in discover_workers(coord.workers_dir(args)) if w["agent"] == args.seat]
     if not seats:
-        known = ", ".join(sorted(w["agent"] for w in discover_workers(workers_dir(args)))) or "(none)"
-        refuse("state",
-               f"no seat descriptor carries `agent: {args.seat}` in {workers_dir(args)}, so this "
+        known = ", ".join(sorted(w["agent"] for w in discover_workers(coord.workers_dir(args)))) or "(none)"
+        coord.refuse("state",
+               f"no seat descriptor carries `agent: {args.seat}` in {coord.workers_dir(args)}, so this "
                f"package has no such seat and there is nothing to open a session for. A trace row "
                f"is NEVER fabricated for a name the package does not know — a trace row asserts a "
                f"seat BOOTED, and one written for a name that has no descriptor asserts it about "
                f"nothing.\n"
                f"seats in this package: {known}", 1)
-    already = session_open_id(pkg, args.seat)
+    already = coord.session_open_id(pkg, args.seat)
     if already:
         print(f"{args.seat}: session {already} is ALREADY OPEN — nothing written. "
               f"(A second call for a live seat is a no-op, so a retrying launcher cannot "
               f"double-write the trace. Close it first if this is a NEW session: "
-              f"`{coord_invocation(args)} close-seat {args.seat}`.)")
+              f"`{coord.coord_invocation(args)} close-seat {args.seat}`.)")
         return
-    res, terr = session_trace_safe(session_open, args, seats[0],
+    res, terr = coord.session_trace_safe(coord.session_open, args, seats[0],
                                    since=time.time(), wait=args.wait, pane=args.pane)
     if terr:
-        refuse("environment",
+        coord.refuse("environment",
                f"the session row for {args.seat} was NOT written — {terr}. NOTHING was recorded, "
                f"so do not treat this package as traced.", 1)
     sid, note = res
-    print(f"{args.seat}: session {sid} opened in {sessions_csv(pkg)}")
+    print(f"{args.seat}: session {sid} opened in {coord.sessions_csv(pkg)}")
     if note:
-        print(c(f"  {note}", C_HINT))
+        print(coord.c(f"  {note}", coord.C_HINT))
 
 # ---------- E22 (owner ruling, 2026-08-23) · THE LANE-AWARE LAUNCH COMPOSER ----------------------
 #
@@ -1490,7 +1527,7 @@ def goal_execution_lane(pkg):
             sys.path.append(str(_GOAL_CLI_TOOL_DIR))
         from goal_cli import read_lane as _read_lane  # noqa: E402 — lazy by design
     except Exception as exc:  # noqa: BLE001 — any import failure is the same refusal
-        refuse("environment",
+        coord.refuse("environment",
                f"cannot read this goal's execution lane: the goals-tree speller "
                f"`goal_cli.read_lane` did not import from {_GOAL_CLI_TOOL_DIR} "
                f"({type(exc).__name__}: {exc}). A launch that cannot tell `daemon` from `console` "
@@ -1535,8 +1572,8 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
     # reads it back at the pid moment to decide which door the registry row names. A door spelled
     # here and not there produces a launch that silently registers as unsupervised, so the two
     # spellings are checked against each other in the act rather than trusted to stay in step.
-    if door == "rerun" and not supervisor_door.door_is_wrapped("rerun"):
-        refuse("state",
+    if door == "rerun" and not coord.supervisor_door.door_is_wrapped("rerun"):
+        coord.refuse("state",
                "the `--rerun` door is not wrapped by the supervisor, so this launch could not be "
                "registered as a supervised sitting. NOTHING was enqueued and NO pane was opened.",
                1)
@@ -1554,14 +1591,14 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
                   f"{'/' + w['effort'] if w['harness'] == 'claude' else ''}, daemon lane -> "
                   f"enqueue, workdir={seat_dir}): {('REFUSED — ' + verr) if verr else shape}")
         if adm_fold:
-            print(c(f"launch INCOMPLETE (dry-run): {len(adm_fold)} seat(s) would NOT launch "
+            print(coord.c(f"launch INCOMPLETE (dry-run): {len(adm_fold)} seat(s) would NOT launch "
                     f"({', '.join(adm_fold)}). The exit code is the same one a real launch of "
-                    f"this set would return.", C_DEAD), file=sys.stderr)
+                    f"this set would return.", coord.C_DEAD), file=sys.stderr)
             sys.exit(1)
         return
-    target = gateway_transport_target(args)
+    target = coord.gateway_transport_target(args)
     if not target:
-        refuse("environment",
+        coord.refuse("environment",
                "this goal's execution-lane is `daemon`, so launch hands the seat to the daemon's "
                "own spawn door — and no daemon serves this workspace (no server.json machine "
                "entry and no IGNITE_GATEWAY_ADDR). Nothing was enqueued and NO pane was opened: "
@@ -1574,9 +1611,9 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
         payload = {"job_id": job_id, "args": {"workdir": seat_dir}, "session_mode": "headless",
                    "trigger_kind": "scheduled", "run_at": run_at, "reason": reason}
         try:
-            _status, envelope = gateway_client.call_gateway(host, port, "enqueue-job", payload,
+            _status, envelope = coord.gateway_client.call_gateway(host, port, "enqueue-job", payload,
                                                             token=token)
-        except gateway_client.GatewayTransportError as exc:
+        except coord.gateway_client.GatewayTransportError as exc:
             print(f"  {label}: FAILED — the daemon's door could not be reached: {exc}",
                   file=sys.stderr)
             refused.append(seat)
@@ -1621,24 +1658,24 @@ def launch_daemon_lane(args, workers, pkg, adm_fold, blocked, adm_deferred, door
         down = (f" {len(reopen_downstream)} seat(s) already ran depending on the retracted "
                 f"`done`: {', '.join(reopen_downstream)} — flagged, NOT rolled back (D54/D72)."
                 if reopen_downstream else "")
-        num = append_message(base_dir(args), DISPOSITION_WRITER_KIT, "leader", "note",
+        num = coord.append_message(coord.base_dir(args), coord.DISPOSITION_WRITER_KIT, "leader", "note",
                              f"reopen: `{seat}` was re-opened on the daemon lane (reason `{why}`) "
                              f"on top of a `done` row; the daemon opens the new sessions.csv row "
                              f"at dispatch, so the reason is recorded HERE rather than on a row "
                              f"this act never wrote.{down}")
-        print(c(f"  {seat}: reopen reason recorded on the bus (messages.md #{num}) — on the "
+        print(coord.c(f"  {seat}: reopen reason recorded on the bus (messages.md #{num}) — on the "
                 f"daemon lane the new sessions.csv row is the daemon's, opened at dispatch, so "
-                f"the `{REOPEN_REASON_COL}` cell is not written by this act.", C_HINT))
+                f"the `{coord.REOPEN_REASON_COL}` cell is not written by this act.", coord.C_HINT))
     launched = len(workers) - len(refused)
     refused = refused + [w["agent"] for w in blocked] + [w["agent"] for w, _c_, _r_ in adm_deferred]
     if refused:
-        print(c(f"launch INCOMPLETE: {launched} enqueued, {len(refused)} refused "
+        print(coord.c(f"launch INCOMPLETE: {launched} enqueued, {len(refused)} refused "
                 f"({', '.join(refused)}). The enqueued seats are QUEUED with the daemon and were "
-                f"not rolled back.", C_DEAD), file=sys.stderr)
+                f"not rolled back.", coord.C_DEAD), file=sys.stderr)
         sys.exit(1)
-    print(c(f"next: {coord_invocation(args)} ready-seats --explain <seat> — the daemon dispatches "
+    print(coord.c(f"next: {coord.coord_invocation(args)} ready-seats --explain <seat> — the daemon dispatches "
             f"the queued sitting on its next tick and opens the seat's sessions.csv row; a "
-            f"refusal at dispatch lands on the bus", C_HINT))
+            f"refusal at dispatch lands on the bus", coord.C_HINT))
 
 
 def cmd_launch(args):
@@ -1646,29 +1683,29 @@ def cmd_launch(args):
     # resolved or opened. First statement of the command on purpose — the guard's whole claim is
     # that it acted on nothing, and every statement below it reads the package.
     if not args.dry_run:
-        _f17_claim, _f17_pane = asserted_launch_claim(args)
+        _f17_claim, _f17_pane = carrier.asserted_launch_claim(args)
         if _f17_claim:
-            refuse("identity", ASSERTED_LAUNCH_REFUSAL.format(
+            coord.refuse("identity", carrier.ASSERTED_LAUNCH_REFUSAL.format(
                 claim=_f17_claim,
-                pane_state=asserted_launch_pane_state(_f17_pane),
-                invocation=coord_invocation(args)), 2)
+                pane_state=carrier.asserted_launch_pane_state(_f17_pane),
+                invocation=coord.coord_invocation(args)), 2)
     # No role check here anymore [T2-R10, D24, F-simplicity-7] — `launch` is callable by any
     # resolved identity. #210: the roster is still resolved FIRST because the memory gate is
     # sized by seat COUNT; `--dry-run` opens nothing, so it skips the memory gate too.
     workers = seats_by_name(args, args.only)
     if args.dry_run:
-        gate(args, "launch")
+        coord.gate(args, "launch")
     else:
-        launch_gates(args, "launch", len(workers) or 1)
+        coord.launch_gates(args, "launch", len(workers) or 1)
     # G-51: the descriptor binds and the registry is a record nothing read until now. Checked on
     # the DRY-RUN path too — a dry-run exists to show what a real launch would do, and hiding a
     # divergence from it would make the one command meant for inspection the one that lies.
     check_bindings(args, workers, "launch")
     if not workers:
-        refuse(
+        coord.refuse(
             "state",
             f"no worker briefing carries an `agent:` frontmatter key in "
-            f"{workers_dir(args)}, so there is no roster to launch.\n"
+            f"{coord.workers_dir(args)}, so there is no roster to launch.\n"
             f"Each seat needs workers/<agent>/agent.md with `agent: <name>` "
             f"(template: briefing-template.md beside coord.py).",
             1)
@@ -1678,13 +1715,13 @@ def cmd_launch(args):
     # lanes. Read through the goals-tree's own speller (`goal_execution_lane`), never derived here.
     # `--tmux-target` is refused on the daemon lane AT ONCE — before any ADMITTED banner prints —
     # because it names a pane this lane never opens, and a flag silently ignored is a flag that lies.
-    _lane = goal_execution_lane(package_dir(args, register=False))
+    _lane = goal_execution_lane(coord.package_dir(args, register=False))
     if _lane == "daemon" and str(getattr(args, "tmux_target", "") or "").strip():
-        refuse("input",
+        coord.refuse("input",
                f"--tmux-target names a tmux pane, and this goal's `execution-lane` is `daemon`: "
                f"launch hands the seat to the daemon's own spawn door (a caged headless sitting) "
                f"and opens NO pane, so the flag has nothing to name here. Refused rather than "
-               f"ignored. Drop it: {coord_invocation(args)} launch --only <seat> ...", 2)
+               f"ignored. Drop it: {coord.coord_invocation(args)} launch --only <seat> ...", 2)
 
     # 7.241 (U4.6): THE UNDECLARED-ENDING REFUSAL — the CONSUMER of 7.237's detector on the ONE
     # path that opens panes. `undeclared_endings` is 7.237's function, called here and not
@@ -1749,23 +1786,23 @@ def cmd_launch(args):
         # reads an EXISTING function or field; this block adds NO detector, exactly as the 7.241
         # gate above adds none. P1 is the parameter itself (an INPUT, it detects nothing) and is
         # true by the `if`.
-        _pkg = package_dir(args, register=False)
+        _pkg = coord.package_dir(args, register=False)
         _only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
         # P2 — exactly ONE seat, explicitly named. The anchor cites the `leader`'s investigation
         # of ONE undeclared ending, so it cannot be spread over a set the caller did not name.
         if not _only:
-            refuse(
+            coord.refuse(
                 "state",
                 "--declare-only admits ONE named seat, and no seat was named. It carries the "
                 "`leader`'s anchor for a SPECIFIC undeclared ending, so it cannot be applied to "
                 "a set the caller did not name — a mass launch has no per-seat anchor to cite.\n"
-                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                f"Name the seat: {coord.coord_invocation(args)} launch --only <seat> "
                 "--declare-only <leader-anchor>\n"
                 "A mass launch needs no flag: undeclared seats are filtered out of it and every "
                 "other seat still opens.",
                 1)
         if len(_only) > 1:
-            refuse(
+            coord.refuse(
                 "state",
                 f"--declare-only admits ONE seat per invocation, and --only named {len(_only)}: "
                 f"{', '.join(_only)}.\nThe anchor you passed cites the `leader`'s investigation "
@@ -1776,16 +1813,16 @@ def cmd_launch(args):
         _t = _only[0]
         # P3 — the target's LAST ENDED row exists and its disposition cell is EMPTY. Both reads
         # are the 7.241 gate's own, and `last_ended` is injected so the file is read once.
-        _le = sessions_last_ended(_pkg)
-        _undec = undeclared_endings(_pkg, last_ended=_le)
+        _le = coord.sessions_last_ended(_pkg)
+        _undec = coord.undeclared_endings(_pkg, last_ended=_le)
         if _t not in _le:
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_t}' has no ENDED session row in this package, so there is no undeclared "
                 "ending to declare and --declare-only has nothing to admit.\n"
                 f"A seat that has not ended is an ordinary launch candidate: "
-                f"{coord_invocation(args)} launch --only {_t}\n"
-                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"{coord.coord_invocation(args)} launch --only {_t}\n"
+                f"If you expected an ended row, read it first: {coord.coord_invocation(args)} "
                 f"ready-seats --explain {_t}",
                 1)
         if _t not in _undec:
@@ -1794,7 +1831,7 @@ def cmd_launch(args):
             # passes the same flag as one who did not (the carve-out diff over every readable
             # field is EMPTY, `admission-predicate-spec.md` §8). P3 is package STATE and no caller
             # can assert it. So: P3 bounds the HARM, P1 bounds the ACT, and neither substitutes.
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_t}' last ENDED with a DECLARED disposition (`{_le[_t][1]}`), so it is not in "
                 "the undeclared class and --declare-only does not admit it. The ending is already "
@@ -1804,22 +1841,22 @@ def cmd_launch(args):
                 "the work CONCLUDED and was accounted for — relaunching it re-runs finished work, "
                 "which is the harm the launch gate exists to prevent, and an honest purpose does "
                 "not make that harm smaller.\n"
-                f"Read the row: {coord_invocation(args)} ready-seats --explain {_t}",
+                f"Read the row: {coord.coord_invocation(args)} ready-seats --explain {_t}",
                 1)
         # P4 — no LIVE pane already holds the name. This re-uses P37's own composition and adds no
         # detector; P37 remains the backstop at check-in. Without P4 the launch would succeed, a
         # pane would open, and the seat would fail one command later holding a pane nobody asked
         # for. P37 also tests `prior["pane"] != pane` (its caller's own), which has no meaning
         # here: at `launch` no candidate pane exists yet.
-        _, _, _rows = load_workers(base_dir(args))
-        _prior = current_row(_rows, _t)
+        _, _, _rows = coord.load_workers(coord.base_dir(args))
+        _prior = coord.current_row(_rows, _t)
         if (_prior and _prior.get("active") == "yes" and _prior.get("pane")
-                and liveness.occupied(package_dir(args, register=False), _t,
-                                      _prior["pane"] in live_panes())):
+                and coord.liveness.occupied(coord.package_dir(args, register=False), _t,
+                                      _prior["pane"] in coord.live_panes())):
             # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
             # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
             # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_t}' is already checked in on pane {_prior['pane']}, and tmux says that pane "
                 "is still ALIVE — admitting a declare-only session now would put two live "
@@ -1833,13 +1870,13 @@ def cmd_launch(args):
         # ADMITTED. P2 made the launch set exactly this one seat, so skipping the filter below
         # cannot let any OTHER undeclared seat through.
         _declare_only_admitted = True
-        print(c(f"  {_t}: ADMITTED by --declare-only — session "
+        print(coord.c(f"  {_t}: ADMITTED by --declare-only — session "
                 f"`{_undec[_t]}` ended UNDECLARED and stays UNDECLARED. This admits a session "
                 f"that DECLARES ITS OWN ENDING and does nothing else; it asserts nothing about "
                 f"the dead one, and the verdict clears only by supersession when this session "
                 f"writes its own ended row.\n  trail (the `leader`'s anchor, recorded not "
                 f"verified — no tool can check that an anchor names a real investigation): "
-                f"{_decl_anchor}", C_HINT))
+                f"{_decl_anchor}", coord.C_HINT))
 
     # ⚠⚠ D42 (owner, 2026-08-20) — `--rerun <LEADER-ANCHOR>` IS A FOURTH, INDEPENDENT PARAMETER,
     # AND IT IS NOT AN OVERRIDE. Everything the 7.251 wall above says about `--declare-only` says
@@ -1881,28 +1918,28 @@ def cmd_launch(args):
     _rerun_anchor = (_rerun_raw or "").strip()
     _rerun_admitted = False
     if _rerun_raw is not None and not _rerun_anchor:
-        refuse(
+        coord.refuse(
             "input",
             "--rerun carries the `leader`'s own investigation anchor as its VALUE, and an empty "
             "one would re-run a crashed seat citing nothing.\n"
-            f"Name it: {coord_invocation(args)} launch --only <seat> --rerun <leader-anchor>",
+            f"Name it: {coord.coord_invocation(args)} launch --only <seat> --rerun <leader-anchor>",
             2)
     if _rerun_anchor:
-        _rr_pkg = package_dir(args, register=False)
+        _rr_pkg = coord.package_dir(args, register=False)
         _rr_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
         # P2 — exactly ONE seat, explicitly named. The anchor cites ONE investigation of ONE
         # crashed session, so it cannot be spread over a set the caller did not name.
         if not _rr_only:
-            refuse(
+            coord.refuse(
                 "state",
                 "--rerun admits ONE named seat, and no seat was named. It carries the `leader`'s "
                 "anchor for a SPECIFIC crashed session, so it cannot be applied to a set the "
                 "caller did not name.\n"
-                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                f"Name the seat: {coord.coord_invocation(args)} launch --only <seat> "
                 "--rerun <leader-anchor>",
                 1)
         if len(_rr_only) > 1:
-            refuse(
+            coord.refuse(
                 "state",
                 f"--rerun admits ONE seat per invocation, and --only named {len(_rr_only)}: "
                 f"{', '.join(_rr_only)}.\nThe anchor you passed cites the `leader`'s "
@@ -1913,15 +1950,15 @@ def cmd_launch(args):
         _rt = _rr_only[0]
         # P3 — THE STATE BOUND, and it is the branch that keeps this from being an override. It
         # reads the ONE row-selection home (`sessions_last_ended_rows`) and adds no detector.
-        _rr_row = sessions_last_ended_rows(_rr_pkg).get(_rt)
+        _rr_row = coord.sessions_last_ended_rows(_rr_pkg).get(_rt)
         if _rr_row is None:
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rt}' has no ENDED session row in this package, so there is no crashed "
                 "session to re-run and --rerun has nothing to admit.\n"
                 f"A seat that has not ended is an ordinary launch candidate: "
-                f"{coord_invocation(args)} launch --only {_rt}\n"
-                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"{coord.coord_invocation(args)} launch --only {_rt}\n"
+                f"If you expected an ended row, read it first: {coord.coord_invocation(args)} "
                 f"ready-seats --explain {_rt}",
                 1)
         # ── THE FROM-STATE IS READ OFF THE ENDING STORE, AND THE WORD `exited` IS GONE ────────
@@ -1936,7 +1973,7 @@ def cmd_launch(args):
         # THE DOOR IS NOT WIDENED BY THE RENAME. `failed` with any OTHER reason class
         # (`outputs-missing`, the gate's verdict) is still refused here and still routed by name
         # below, exactly as `unverified` was: this admits a CLASS, never "anything but done".
-        _rr_ending = ending_store.get_current_ending(_rr_pkg, _rt) or {}
+        _rr_ending = coord.ending_store.get_current_ending(_rr_pkg, _rt) or {}
         _rr_disp = (_rr_ending.get("ending") or _rr_row.get("disposition", "") or "").strip()
         _rr_class = (_rr_ending.get("reason_class") or "").strip()
         _rr_writer = (_rr_ending.get("writer") or _rr_row.get("disposition-writer", "") or "").strip()
@@ -1961,7 +1998,7 @@ def cmd_launch(args):
                            f"`{_rr_class or '(none)'}` — not a crash. `outputs-missing` is the "
                            f"gate's verdict on a claim, which is a ruling and not a re-run"),
             }.get(_rr_disp, f"`{_rr_disp}` is not a crashed ending and this door does not admit it")
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rt}' last ENDED with disposition `{_rr_disp or '(empty)'}` written by "
                 f"`{_rr_writer or '(nobody)'}`, and --rerun admits EXACTLY ONE from-state: "
@@ -1971,19 +2008,19 @@ def cmd_launch(args):
                 f"(spec-supervisor §4; the reason-less word `exited` is retired [T1-R3]).\n"
                 f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
                 f"caller intended. Here, {_rr_door}.\n"
-                f"Read the row: {coord_invocation(args)} ready-seats --explain {_rt}",
+                f"Read the row: {coord.coord_invocation(args)} ready-seats --explain {_rt}",
                 1)
         # P4 — no LIVE pane already holds the name. `--declare-only`'s own composition, reused
         # verbatim; this adds no detector and P37 remains the backstop at check-in.
-        _, _, _rr_rows = load_workers(base_dir(args))
-        _rr_prior = current_row(_rr_rows, _rt)
+        _, _, _rr_rows = coord.load_workers(coord.base_dir(args))
+        _rr_prior = coord.current_row(_rr_rows, _rt)
         if (_rr_prior and _rr_prior.get("active") == "yes" and _rr_prior.get("pane")
-                and liveness.occupied(package_dir(args, register=False), _rt,
-                                      _rr_prior["pane"] in live_panes())):
+                and coord.liveness.occupied(coord.package_dir(args, register=False), _rt,
+                                      _rr_prior["pane"] in coord.live_panes())):
             # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
             # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
             # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rt}' is already checked in on pane {_rr_prior['pane']}, and tmux says that "
                 f"pane is still ALIVE — re-running it now would put two live sessions under one "
@@ -1996,14 +2033,14 @@ def cmd_launch(args):
                 1)
         # ADMITTED. P2 made the launch set exactly this one seat.
         _rerun_admitted = True
-        print(c(f"  {_rt}: ADMITTED by --rerun — session `{_rr_row.get('session-id') or '?'}` "
+        print(coord.c(f"  {_rt}: ADMITTED by --rerun — session `{_rr_row.get('session-id') or '?'}` "
                 f"ended `failed`/`{_rr_class}`, stamped by the supervisor from evidence: the "
                 f"harness DIED and the work is UNKNOWN, never finished. This admits an ORDINARY "
                 f"WORKING SESSION — the seat boots on its own boot prompt and does its job. The "
                 f"`failed` ending is NOT rewritten, cleared or relabelled by this act: it "
                 f"stays on the record and is superseded when this session writes its own ended "
                 f"row.\n  trail (the `leader`'s anchor, recorded not verified — no tool can check "
-                f"that an anchor names a real investigation): {_rerun_anchor}", C_HINT))
+                f"that an anchor names a real investigation): {_rerun_anchor}", coord.C_HINT))
 
     # ==== D54/D66/D72 (owner, 2026-08-22) — `--reopen`: RE-OPEN a `done` row by APPENDING =========
     #
@@ -2047,28 +2084,28 @@ def cmd_launch(args):
     _reopen_admitted = False
     _reopen_downstream = []
     if _reopen_raw is not None and not _reopen_reason:
-        refuse(
+        coord.refuse(
             "input",
             "--reopen carries the `leader`'s RECORDED REASON for re-opening a finished (`done`) "
             "seat as its VALUE, and an empty one would re-open finished work citing nothing.\n"
-            f"Name it: {coord_invocation(args)} launch --only <seat> --reopen <reason>",
+            f"Name it: {coord.coord_invocation(args)} launch --only <seat> --reopen <reason>",
             2)
     if _reopen_reason:
-        _ro_pkg = package_dir(args, register=False)
+        _ro_pkg = coord.package_dir(args, register=False)
         _ro_only = [n.strip() for n in (args.only or "").split(",") if n.strip()]
         # P2 — exactly ONE seat, explicitly named, same reasoning as `--rerun`'s own P2: the
         # reason cites ONE late finding against ONE seat's finished work.
         if not _ro_only:
-            refuse(
+            coord.refuse(
                 "state",
                 "--reopen admits ONE named seat, and no seat was named. It records the "
                 "`leader`'s reason for re-opening ONE finished seat, so it cannot be applied to "
                 "a set the caller did not name.\n"
-                f"Name the seat: {coord_invocation(args)} launch --only <seat> "
+                f"Name the seat: {coord.coord_invocation(args)} launch --only <seat> "
                 "--reopen <reason>",
                 1)
         if len(_ro_only) > 1:
-            refuse(
+            coord.refuse(
                 "state",
                 f"--reopen admits ONE seat per invocation, and --only named {len(_ro_only)}: "
                 f"{', '.join(_ro_only)}.\nThe reason you passed cites a late finding against ONE "
@@ -2079,19 +2116,19 @@ def cmd_launch(args):
         _rot = _ro_only[0]
         # P3 — THE STATE BOUND. Reads the ONE row-selection home (`sessions_last_ended_rows`),
         # the same one `--rerun` reads, adding no second selector.
-        _ro_row = sessions_last_ended_rows(_ro_pkg).get(_rot)
+        _ro_row = coord.sessions_last_ended_rows(_ro_pkg).get(_rot)
         if _ro_row is None:
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rot}' has no ENDED session row in this package, so there is no finished "
                 "work to re-open.\nAn unfinished seat is an ordinary launch candidate: "
-                f"{coord_invocation(args)} launch --only {_rot}\n"
-                f"If you expected an ended row, read it first: {coord_invocation(args)} "
+                f"{coord.coord_invocation(args)} launch --only {_rot}\n"
+                f"If you expected an ended row, read it first: {coord.coord_invocation(args)} "
                 f"ready-seats --explain {_rot}",
                 1)
         try:
-            _ro_end = ending_store.get_current_ending(_ro_pkg, _rot) or {}
-        except ending_store.EndingStoreError:
+            _ro_end = coord.ending_store.get_current_ending(_ro_pkg, _rot) or {}
+        except coord.ending_store.EndingStoreError:
             _ro_end = {}
         _ro_disp = _ro_end.get("ending") or _ro_row.get("disposition", "")
         _ro_writer = _ro_end.get("who_stamped") or _ro_row.get("disposition-writer", "")
@@ -2101,7 +2138,7 @@ def cmd_launch(args):
             # naming `--rerun` for the ONE class it is right about.
             _ro_door = {
                 "exited": ("the KIT says the harness TERMINATED and the work is UNKNOWN — never "
-                           f"finished. That door is `{coord_invocation(args)} launch --only "
+                           f"finished. That door is `{coord.coord_invocation(args)} launch --only "
                            f"{_rot} --rerun <leader-anchor>` (D42)"),
                 "incomplete": ("the SEAT said its work is unfinished, and the goal watcher "
                                "relaunches that class BY NAME on its own cadence (D33(a)) — this "
@@ -2114,17 +2151,17 @@ def cmd_launch(args):
                      f"door's own instrument for it is `--declare-only <leader-anchor>`"),
             }.get(_ro_disp, f"`{_ro_disp}` is not a finished ending and this door does not "
                             f"admit it")
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rot}' last ENDED with disposition `{_ro_disp or '(empty)'}` written by "
                 f"`{_ro_writer or '(nobody)'}`, and --reopen admits EXACTLY ONE from-state: "
                 f"`done` — a leader-written or seat-written FINISHED ending (D54).\n"
                 f"THIS REFUSAL IS BY STATE, NOT BY PURPOSE: it is the same refusal whatever the "
                 f"caller intended. Here, {_ro_door}.\n"
-                f"Read the row: {coord_invocation(args)} ready-seats --explain {_rot}",
+                f"Read the row: {coord.coord_invocation(args)} ready-seats --explain {_rot}",
                 1)
         if _ro_writer not in ("seat", "leader"):
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rot}'s `done` row was written by `{_ro_writer or '(nobody)'}`, which is not "
                 f"seat or leader — an inconsistent record, not a re-openable one.",
@@ -2132,9 +2169,9 @@ def cmd_launch(args):
         # D66: the (goal, seat, reason) brake budget — see the block comment above for why this
         # is coord.py-LOCAL rather than a read/write against brief 07's `heart.db` counter.
         _ro_budget = 2
-        _ro_prior = reopen_attempt_count(_ro_pkg, _rot, _reopen_reason)
+        _ro_prior = coord.reopen_attempt_count(_ro_pkg, _rot, _reopen_reason)
         if _ro_prior >= _ro_budget:
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rot}' has already been re-opened {_ro_prior} time(s) citing the SAME reason "
                 f"(`{_reopen_reason}`) — the (goal, seat, reason) brake budget (D52/D66) admits "
@@ -2142,15 +2179,15 @@ def cmd_launch(args):
                 f"needs its OWN reason string. Nothing was written.",
                 1)
         # P4 — no LIVE pane already holds the name, `--rerun`'s own composition, reused verbatim.
-        _, _, _ro_rows = load_workers(base_dir(args))
-        _ro_prior_row = current_row(_ro_rows, _rot)
+        _, _, _ro_rows = coord.load_workers(coord.base_dir(args))
+        _ro_prior_row = coord.current_row(_ro_rows, _rot)
         if (_ro_prior_row and _ro_prior_row.get("active") == "yes" and _ro_prior_row.get("pane")
-                and liveness.occupied(package_dir(args, register=False), _rot,
-                                      _ro_prior_row["pane"] in live_panes())):
+                and coord.liveness.occupied(coord.package_dir(args, register=False), _rot,
+                                      _ro_prior_row["pane"] in coord.live_panes())):
             # THE PREDICATE IS THE REGISTRY, NOT THE PANE [T4-R8, spec-supervisor §6]: a pane
             # outlives its harness and a daemon-lane sitting never had one. `occupied` collapses
             # the three-valued answer once and fails CLOSED where the sitting is unsupervised.
-            refuse(
+            coord.refuse(
                 "state",
                 f"'{_rot}' is already checked in on pane {_ro_prior_row['pane']}, and tmux says "
                 f"that pane is still ALIVE — re-opening it now would put two live sessions under "
@@ -2164,21 +2201,21 @@ def cmd_launch(args):
         # D72: THE WALK-FORWARD, computed at ADMISSION so it prints even on a dry run, and
         # re-read after the real launch (below) so the message it is recorded in can quote the
         # session-id the new row actually got.
-        _reopen_downstream = reopen_downstream_seats(_ro_pkg, _rot)
+        _reopen_downstream = ready.reopen_downstream_seats(_ro_pkg, _rot)
         # ADMITTED. P2 made the launch set exactly this one seat.
         _reopen_admitted = True
-        print(c(f"  {_rot}: ADMITTED by --reopen — session `{_ro_row.get('session-id') or '?'}` "
+        print(coord.c(f"  {_rot}: ADMITTED by --reopen — session `{_ro_row.get('session-id') or '?'}` "
                 f"ended `done` (writer `{_ro_writer}`): a LATE FINDING against FINISHED work "
                 f"(D54). This admits an ORDINARY WORKING SESSION — the seat boots on its own "
                 f"boot prompt and does its job. The `done` row is NOT rewritten, cleared or "
                 f"relabelled by this act: it stays on the record and is superseded when this "
                 f"session writes its own ended row.\n  reason (recorded on the NEW row's "
-                f"`{REOPEN_REASON_COL}` column): {_reopen_reason}", C_HINT))
+                f"`{coord.REOPEN_REASON_COL}` column): {_reopen_reason}", coord.C_HINT))
         if _reopen_downstream:
-            print(c(f"  ⚠ DOWNSTREAM (D72): {len(_reopen_downstream)} seat(s) already ran "
+            print(coord.c(f"  ⚠ DOWNSTREAM (D72): {len(_reopen_downstream)} seat(s) already ran "
                     f"depending on '{_rot}'s retracted `done`: {', '.join(_reopen_downstream)}. "
                     f"Flagged, NOT rolled back — D54/D72 grant a new sitting and a flag, never a "
-                    f"rewrite of anything downstream already did.", C_HINT))
+                    f"rewrite of anything downstream already did.", coord.C_HINT))
 
     # ⚠⚠ BOUND BEFORE THE BRANCH, AND THE PLACEMENT IS THE FIX (`G-admission-predicate-prover-
     # 0803-0155`). The launch VERDICT far below reads `blocked` UNCONDITIONALLY —
@@ -2201,12 +2238,12 @@ def cmd_launch(args):
     # all the way through this read — delete this binding and that row goes red.
     blocked = []
     if not _declare_only_admitted:
-        undeclared = undeclared_endings(package_dir(args, register=False))
+        undeclared = coord.undeclared_endings(coord.package_dir(args, register=False))
         blocked = [w for w in workers if w["agent"] in undeclared]
         if blocked:
             for w in blocked:
-                print(c(f"  {w['agent']}: session `{undeclared[w['agent']]}` ENDED with an EMPTY "
-                        f"disposition — NOT LAUNCHED", C_DEAD), file=sys.stderr)
+                print(coord.c(f"  {w['agent']}: session `{undeclared[w['agent']]}` ENDED with an EMPTY "
+                        f"disposition — NOT LAUNCHED", coord.C_DEAD), file=sys.stderr)
             workers = [w for w in workers if w["agent"] not in undeclared]
             detail = (f"{len(blocked)} seat(s) above have an UNDECLARED ending: their last session "
                       f"ENDED and nobody declared how. Their work CONCLUDED — relaunching re-runs "
@@ -2221,10 +2258,10 @@ def cmd_launch(args):
                       f"flag decides is ADMISSION of the UNDECLARED class. It is NOT the door for "
                       f"a CRASHED seat: an `exited` row is re-run with `--rerun <leader-anchor>`.)"
                       f"\nSee: "
-                      f"{coord_invocation(args)} ready-seats --explain <seat>")
+                      f"{coord.coord_invocation(args)} ready-seats --explain <seat>")
             if not workers:
-                refuse("state", detail + "\nNO pane was opened.", 1)
-            print(c(detail, C_DEAD), file=sys.stderr)
+                coord.refuse("state", detail + "\nNO pane was opened.", 1)
+            print(coord.c(detail, coord.C_DEAD), file=sys.stderr)
 
     # 7.274 (A3): THE ADMISSION FILTER — `cmd_launch` CONSULTS THE DEPENDENCY GRAPH AT LAST.
     #
@@ -2259,7 +2296,7 @@ def cmd_launch(args):
     # `check_bindings` validates bindings. A launch of N seats of which N−1 defer is still
     # memory-gated at N. That over-reserves and never under-reserves — fail-safe in direction,
     # unfixable by placement, and out of this change's scope.
-    _adm_rows = {r["seat"]: r for r in ready_seat_rows(args)}
+    _adm_rows = {r["seat"]: r for r in ready.ready_seat_rows(args)}
 
     # ---- the filter: ADMIT(w), one row-level boolean, evaluated per worker -------------------
     #
@@ -2302,15 +2339,15 @@ def cmd_launch(args):
     for w in workers:
         _adm_row = _adm_rows.get(w["agent"])
         if (_declare_only_admitted or _rerun_admitted or _reopen_admitted or _adm_row is None
-                or conjunction_admits(_adm_row)):
+                or ready.conjunction_admits(_adm_row)):
             _adm_kept.append(w)
             # THE TWO ADMITTED DISCLOSURES. An admission nobody can see is the same defect as a
             # silent filter, facing the other way — so both print, on STDOUT with C_HINT.
             if _adm_row is None:
-                print(c(f"  {w['agent']}: ADMITTED WITHOUT A READINESS TERM — no `taskforce.csv` "
+                print(coord.c(f"  {w['agent']}: ADMITTED WITHOUT A READINESS TERM — no `taskforce.csv` "
                         f"row joins this seat, so no term of the admission predicate could be "
                         f"evaluated for it. Admitting is the deliberate fail-OPEN direction: "
-                        f"deferring would turn a join gap into a launch outage.", C_HINT))
+                        f"deferring would turn a join gap into a launch outage.", coord.C_HINT))
             elif not (_declare_only_admitted or _rerun_admitted or _reopen_admitted):
                 # 7.280 (O3) · S-2 — THE ORDINARY ADMISSION, AND IT IS THE CASE NOBODY TESTS.
                 # Every other outcome at this door already speaks: three disclosures for the
@@ -2334,10 +2371,10 @@ def cmd_launch(args):
                 # printed its own ADMITTED line and its trail. Re-printing would state the same
                 # admission twice under two different sentences, which is how one act acquires a
                 # second mechanism. Nothing here re-runs P2–P4, and nothing here mints.
-                print(c(f"  {w['agent']}: ADMITTED — verdict {_adm_row['verdict']}; "
-                        f"{_adm_row['reason']}", C_HINT))
+                print(coord.c(f"  {w['agent']}: ADMITTED — verdict {_adm_row['verdict']}; "
+                        f"{_adm_row['reason']}", coord.C_HINT))
         else:
-            _adm_deferred.append((w, deferral_class(_adm_row), _adm_row))
+            _adm_deferred.append((w, ready.deferral_class(_adm_row), _adm_row))
     # NEVER FILTER SILENTLY: every deferred seat is named, with its class AND the field value that
     # decided it. A filter that removes without saying what it removed and why is indistinguishable
     # from a filter that never ran.
@@ -2351,15 +2388,15 @@ def cmd_launch(args):
     # The reader gains what the design asked for — the home's own verdict and its own reason, on
     # the line that named the class — and every prior assertion about that line stays true.
     for _adm_w, _adm_cls, _adm_r in _adm_deferred:
-        _adm_f, _adm_v = deferral_field(_adm_r)
-        print(c(f"  {_adm_w['agent']}: NOT LAUNCHED — {_adm_cls} ({_adm_f} = {_adm_v!r}); "
+        _adm_f, _adm_v = ready.deferral_field(_adm_r)
+        print(coord.c(f"  {_adm_w['agent']}: NOT LAUNCHED — {_adm_cls} ({_adm_f} = {_adm_v!r}); "
                 f"verdict {_adm_r['verdict']}; {_adm_r['reason']}",
-                C_DEAD), file=sys.stderr)
+                coord.C_DEAD), file=sys.stderr)
     workers = _adm_kept
     if _adm_deferred:
         _adm_detail = (
             f"{len(_adm_deferred)} seat(s) above were DEFERRED by the launch-admission filter: "
-            f"`{coord_invocation(args)} ready-seats` had already computed a term that says this "
+            f"`{coord.coord_invocation(args)} ready-seats` had already computed a term that says this "
             f"seat is not a launch candidate, and until now this command never read it.\nThe "
             f"class word says what to do: `unmet-predecessor` waits; `occupied` is already live; "
             f"`unbuilt` needs its descriptor materialized; `renewing`/`revived` belong to lanes "
@@ -2377,10 +2414,10 @@ def cmd_launch(args):
             f"`--rerun <leader-anchor>` — an ordinary working session, no CLEAR first, and the "
             f"`exited` row left standing. `--declare-only <leader-anchor>` remains this door's "
             f"one-seat instrument for an UNDECLARED ending and is not a way back to WORK.\nSee: "
-            f"{coord_invocation(args)} ready-seats --explain <seat>")
+            f"{coord.coord_invocation(args)} ready-seats --explain <seat>")
         if not workers:
-            refuse("state", _adm_detail + "\nNO pane was opened.", 1)
-        print(c(_adm_detail, C_DEAD), file=sys.stderr)
+            coord.refuse("state", _adm_detail + "\nNO pane was opened.", 1)
+        print(coord.c(_adm_detail, coord.C_DEAD), file=sys.stderr)
 
     # PROP-8 (tv-ux-review): validate EVERY seat's launch config BEFORE any pane opens. An
     # invalid model slug used to fail only at model-init, INSIDE each spawned pane — a whole
@@ -2389,7 +2426,7 @@ def cmd_launch(args):
     if invalid and not args.dry_run:
         for w, e in invalid:
             print(f"  {w['agent']}: {e}\n    briefing: {w['briefing']}", file=sys.stderr)
-        refuse(
+        coord.refuse(
             "state",
             f"{len(invalid)} seat(s) above carry an invalid harness/model — NO pane "
             f"was opened (not even for the valid seats). Fix the briefing frontmatter, then "
@@ -2458,7 +2495,7 @@ def cmd_launch(args):
     # written by the `team-monitor` sensor, so panes THIS act opens do not appear in it until the
     # sensor next runs. A mid-loop re-read would return the same `in_use`, hence the same
     # `headroom`, and the act would spend the same headroom twice.
-    _cap_pkg = package_dir(args, register=False)
+    _cap_pkg = coord.package_dir(args, register=False)
     _cap_c = None
     _cap_err = ""
     _cap_why = []          # the degrade reasons that fired, in the §3.1 read order
@@ -2468,15 +2505,15 @@ def cmd_launch(args):
     # carries a leading underscore, so this is a private-name coupling. It is nonetheless the ONE
     # loader in the repo; the alternative — a public loader in `budget.py` — would need C2, whose
     # contract is scoped to emitting A FIELD, which a loader is not.
-    _cap_b, _cap_eb = budget_mod._load(os.path.join(str(_cap_pkg), "budget.json"), "budget.json")
-    _cap_s, _cap_es = budget_mod._load(os.path.join(str(_cap_pkg), "state.json"), "state.json")
+    _cap_b, _cap_eb = coord.budget_mod._load(os.path.join(str(_cap_pkg), "budget.json"), "budget.json")
+    _cap_s, _cap_es = coord.budget_mod._load(os.path.join(str(_cap_pkg), "state.json"), "state.json")
     # `_cap_eb` is NOT this term's refusal: the floor read at the launch gate already refused an
     # unreadable budget (§5 R1) before this block runs. `_cap_es` is D1.
     if _cap_es:
         _cap_err = _cap_es
     else:
         try:
-            _cap_c = budget_mod.census(_cap_b or {}, _cap_s or {})
+            _cap_c = coord.budget_mod.census(_cap_b or {}, _cap_s or {})
         except Exception as _cap_exc:            # noqa: BLE001 — a sensor fault DEGRADES, never
             _cap_err = (f"census raised {_cap_exc.__class__.__name__}: {_cap_exc}")   # refuses
     if _cap_c is None:
@@ -2593,13 +2630,13 @@ def cmd_launch(args):
             # SAME `_cap_b` load every other branch reads `cap.agent_panes` from. Overflow beyond
             # the bound still WAITS, in the same never-filter-silently shape every other branch
             # here is held to.
-            print(c(CAPACITY_COLDSTART_LINE.format(pkg=str(_cap_pkg)), C_HINT))
+            print(coord.c(CAPACITY_COLDSTART_LINE.format(pkg=str(_cap_pkg)), coord.C_HINT))
             _cap_final, _cap_deferred, _cap_taken = _cap_admit_upto(workers, _cap_counts,
                                                                     _cap_agent_panes)
             workers = _cap_final
             for w in _cap_deferred:
-                print(c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
-                                                   m=_cap_taken + len(_cap_deferred)), C_DEAD))
+                print(coord.c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
+                                                   m=_cap_taken + len(_cap_deferred)), coord.C_DEAD))
         else:
             # ---- THE CENSUS-FAILURE BRANCH — IT DEFERS, AND IT STILL NEVER REFUSES -------------
             #
@@ -2611,8 +2648,8 @@ def cmd_launch(args):
             # declaring no type) still proceed — `budget.json` says they spend no slot, so nothing
             # about the cap bears on them, and blocking them would be enforcing a term they were
             # never under. The exit code is untouched: a WAIT is not a failure.
-            print(c(CAPACITY_UNENFORCEABLE_LINE.format(reason="; ".join(_cap_why), stamp=_cap_stamp,
-                                                       pkg=str(_cap_pkg)), C_HINT))
+            print(coord.c(CAPACITY_UNENFORCEABLE_LINE.format(reason="; ".join(_cap_why), stamp=_cap_stamp,
+                                                       pkg=str(_cap_pkg)), coord.C_HINT))
             _cap_final = []
             for w in workers:
                 if (w.get("agent_type") or "") in _cap_counts:
@@ -2622,7 +2659,7 @@ def cmd_launch(args):
             workers = _cap_final
             # NEVER FILTER SILENTLY — the same bar the full-capacity branch is held to.
             for w in _cap_deferred:
-                print(c(CAPACITY_CENSUS_DEFER_LINE.format(agent=w["agent"]), C_DEAD),
+                print(coord.c(CAPACITY_CENSUS_DEFER_LINE.format(agent=w["agent"]), coord.C_DEAD),
                       file=sys.stderr)
     elif _cap_why:
         # ---- THE DEGRADE BRANCH — IT NEVER REFUSES -------------------------------------------
@@ -2637,8 +2674,8 @@ def cmd_launch(args):
         # was not consulted, with every reason that fired and the snapshot stamp. Limb M — the
         # memory floor, read live at the launch gate — stands as the only capacity protection, and
         # the exit code is untouched: a degrade is not a failure.
-        print(c(CAPACITY_DEGRADE_LINE.format(reason="; ".join(_cap_why), n=len(workers),
-                                             stamp=_cap_stamp), C_HINT))
+        print(coord.c(CAPACITY_DEGRADE_LINE.format(reason="; ".join(_cap_why), n=len(workers),
+                                             stamp=_cap_stamp), coord.C_HINT))
     else:
         # ---- THE FULL-CAPACITY BRANCH — `headroom` IS USED ONLY FROM HERE ---------------------
         #
@@ -2657,13 +2694,13 @@ def cmd_launch(args):
         # this row must not over-correct into a permanent refusal.
         _cap_allow = max(0, _cap_c["headroom"] - _cap_in_run_n)
         if _cap_verdict == "BREACH":
-            print(c(CAPACITY_NOTE_BREACH, C_HINT))                                 # N3
+            print(coord.c(CAPACITY_NOTE_BREACH, coord.C_HINT))                                 # N3
         if _cap_c["unaccounted"]:                                                  # N1
-            print(c(CAPACITY_NOTE_UNACCOUNTED.format(k=len(_cap_c["unaccounted"])), C_HINT))
+            print(coord.c(CAPACITY_NOTE_UNACCOUNTED.format(k=len(_cap_c["unaccounted"])), coord.C_HINT))
         if _cap_in_run:                                                            # D5 (7.555)
-            print(c(CAPACITY_NOTE_IN_RUN.format(k=_cap_in_run_n), C_HINT))
+            print(coord.c(CAPACITY_NOTE_IN_RUN.format(k=_cap_in_run_n), coord.C_HINT))
         if _cap_cross_out:                                                         # N2
-            print(c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross_out)), C_HINT))
+            print(coord.c(CAPACITY_NOTE_CROSS_GOAL.format(k=len(_cap_cross_out)), coord.C_HINT))
         # COUNTED — the subsequence of ADMITTED, IN ADMITTED'S OWN ORDER, whose DECLARED
         # `agent_type` is a member of `counting.counts_toward_cap` (`_cap_counts`, read once above
         # the branch since 7.363 — both branches decide on it).
@@ -2684,14 +2721,14 @@ def cmd_launch(args):
             else:
                 _cap_final.append(w)
                 if not _cap_atype:
-                    print(c(CAPACITY_NOTE_UNDECLARED.format(agent=w["agent"]), C_HINT))
+                    print(coord.c(CAPACITY_NOTE_UNDECLARED.format(agent=w["agent"]), coord.C_HINT))
         workers = _cap_final
         # NEVER FILTER SILENTLY: every capacity-deferred seat is named, with how many of the
         # counted candidates were admitted. A filter that removes without saying what it removed
         # and why is indistinguishable from a filter that never ran.
         for w in _cap_deferred:
-            print(c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
-                                               m=_cap_taken + len(_cap_deferred)), C_DEAD),
+            print(coord.c(CAPACITY_DEFER_LINE.format(agent=w["agent"], k=_cap_taken,
+                                               m=_cap_taken + len(_cap_deferred)), coord.C_DEAD),
                   file=sys.stderr)
         # ⚠ AND WHEN THE TERM EMPTIES THE SET IT STILL DOES NOT REFUSE (§5.1). The act opens no
         # pane, names every deferral, and EXITS 0 — so the output has to carry the fact the exit
@@ -2700,7 +2737,7 @@ def cmd_launch(args):
         # `refuse()` here is unavailable — and it is also the honest reading, because an exit code
         # that reads as a refusal makes a WAIT indistinguishable from a DENIAL.
         if _cap_deferred and not workers:
-            print(c(CAPACITY_EMPTY_LINE, C_DEAD), file=sys.stderr)
+            print(coord.c(CAPACITY_EMPTY_LINE, coord.C_DEAD), file=sys.stderr)
 
     target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
     # 7.362 (F18, G-m4-demo-workflow-registrar-0803-2307): a DAEMON-FIRED exec holds NEITHER
@@ -2730,12 +2767,12 @@ def cmd_launch(args):
                                  else ("declare-only", _decl_anchor) if _declare_only_admitted
                                  else ("reopen", _reopen_reason) if _reopen_admitted
                                  else ("launch", ""))
-        launch_daemon_lane(args, workers, package_dir(args, register=False), _adm_fold, blocked,
+        launch_daemon_lane(args, workers, coord.package_dir(args, register=False), _adm_fold, blocked,
                            _adm_deferred, _lane_door, _lane_why,
                            reopen_downstream=_reopen_downstream)
         return
     if not target and not args.dry_run:
-        refuse(
+        coord.refuse(
             "environment",
             "launch opens tmux panes and this shell is not inside tmux (no $TMUX_PANE),"
             " so there is no window to open them in.\nRun it from leader's tmux pane, pass"
@@ -2746,8 +2783,8 @@ def cmd_launch(args):
         # The carriage has to be OBSERVABLE, or a capture cannot tell a resolved target from a
         # refusal that never fired. Printed only when the flag supplied it: an env-resolved
         # launch prints exactly what it printed before.
-        print(c(f"tmux target: {target} (from --tmux-target; the environment carried none)",
-                C_HINT), file=sys.stderr)
+        print(coord.c(f"tmux target: {target} (from --tmux-target; the environment carried none)",
+                coord.C_HINT), file=sys.stderr)
 
     if args.dry_run:
         for cwd in dict.fromkeys(w["cwd"] for w in workers
@@ -2758,7 +2795,7 @@ def cmd_launch(args):
             # The real spawn reads its prompt from a file (G-11); show that shape, not an inlined
             # prompt the launcher would never actually type.
             cmd, err = (None, verr) if verr else harness_command(
-                w, prompt_path=(base_dir(args) / "prompts" / f"{w['agent']}-<stamp>.txt"))
+                w, prompt_path=(coord.base_dir(args) / "prompts" / f"{w['agent']}-<stamp>.txt"))
             kind, wname = seat_placement(w)
             place = {"own": "window", "shared": f"window:{wname}"}.get(kind, "pane")
             print(f"[dry-run] {w['agent']} ({w['harness']}/{w['model'] or 'plan-default'}"
@@ -2767,11 +2804,11 @@ def cmd_launch(args):
         # 7.274 (A3): the dry run's exit instrument, reading the ONE fold computed above. Before
         # this the branch returned 0 unconditionally and the real path exited 1 on the same set.
         if _adm_fold:
-            print(c(f"launch INCOMPLETE (dry-run): {len(_adm_fold)} seat(s) would NOT launch "
+            print(coord.c(f"launch INCOMPLETE (dry-run): {len(_adm_fold)} seat(s) would NOT launch "
                     f"({', '.join(_adm_fold)}). The exit code is the same one a real launch of "
                     f"this set would return — a dry run exists to show what a real launch would "
                     f"do, and one that answered 0 where the real path answers 1 would make the "
-                    f"one command meant for inspection the one that lies.", C_DEAD),
+                    f"one command meant for inspection the one that lies.", coord.C_DEAD),
                   file=sys.stderr)
             sys.exit(1)
         return
@@ -2783,7 +2820,7 @@ def cmd_launch(args):
     # after the pane opens is a refresh the worker never sees.
     refresh_mirrors_for(workers)
 
-    tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
+    coord.tmux_raise_history_limit()  # exports capture full scrollback (see export-transcript)
     refused, indeterminate = [], []
     for w in workers:
         pane, err = launch_seat(w, args, target, strict_liveness=True)
@@ -2793,7 +2830,7 @@ def cmd_launch(args):
         if err:
             # 7.567: a seat this host could not OBSERVE is not a refused seat. Both are counted
             # out of `launched` — neither was seen up — but only a refusal is a positive finding.
-            (indeterminate if err.startswith(HARNESS_UP_UNVERIFIABLE) else refused).append(w["agent"])
+            (indeterminate if err.startswith(process.HARNESS_UP_UNVERIFIABLE) else refused).append(w["agent"])
             print(f"  {label}: FAILED — {err}", file=sys.stderr)
         else:
             print(f"launched {label} in {pane}"
@@ -2809,7 +2846,7 @@ def cmd_launch(args):
     # writing to the seat's LAST row in that case would silently touch the `done` row `--reopen`
     # is built to leave untouched — exactly the wrong-shape mutation D54 forbids.
     if _reopen_admitted:
-        _ro_new_sid = sessions_open_ids(_ro_pkg).get(_rot, "")
+        _ro_new_sid = coord.sessions_open_ids(_ro_pkg).get(_rot, "")
         if _ro_new_sid:
             _ro_msg_num = None
             if _reopen_downstream:
@@ -2822,8 +2859,8 @@ def cmd_launch(args):
                 # be the "new pattern, not a continuation of one" the mechanism lane warned about.
                 # The reason CELL still POINTS at the note (below), so a reader of the row alone
                 # is never left with a dangling reference.
-                _ro_msg_num = append_message(
-                    base_dir(args), DISPOSITION_WRITER_KIT, "leader", "note",
+                _ro_msg_num = coord.append_message(
+                    coord.base_dir(args), coord.DISPOSITION_WRITER_KIT, "leader", "note",
                     f"reopen: `{_rot}` was re-opened (session `{_ro_new_sid}`, reason "
                     f"`{_reopen_reason}`) on top of a `done` row that "
                     f"{len(_reopen_downstream)} seat(s) already ran depending on: "
@@ -2832,12 +2869,12 @@ def cmd_launch(args):
             _ro_reason_cell = _reopen_reason
             if _ro_msg_num is not None:
                 _ro_reason_cell += f" (downstream flagged in messages.md #{_ro_msg_num})"
-            with coord_lock(base_dir(args)):
-                _ro_path = sessions_csv(_ro_pkg)
-                _ro_header, _ro_rows = read_csv_table(_ro_path, SESSIONS_COLS)
-                _ro_header, _ro_widened = widen_header(_ro_header, SESSIONS_COLS)
+            with coord.coord_lock(coord.base_dir(args)):
+                _ro_path = coord.sessions_csv(_ro_pkg)
+                _ro_header, _ro_rows = coord.read_csv_table(_ro_path, coord.SESSIONS_COLS)
+                _ro_header, _ro_widened = coord.widen_header(_ro_header, coord.SESSIONS_COLS)
                 if _ro_widened:
-                    _ro_rows = [pad_row(r, _ro_header) for r in _ro_rows]
+                    _ro_rows = [coord.pad_row(r, _ro_header) for r in _ro_rows]
                 _ro_idx = {c: i for i, c in enumerate(_ro_header)}
                 # LAST row for this session-id — never "last row for the seat": the seat's LAST
                 # row is not necessarily THIS session if something else raced the append, and a
@@ -2846,18 +2883,18 @@ def cmd_launch(args):
                 _ro_target = None
                 if "session-id" in _ro_idx:
                     for r in _ro_rows:
-                        pad_row(r, _ro_header)
+                        coord.pad_row(r, _ro_header)
                         if r[_ro_idx["session-id"]].strip() == _ro_new_sid:
                             _ro_target = r
-                if _ro_target is not None and REOPEN_REASON_COL in _ro_idx:
-                    _ro_target[_ro_idx[REOPEN_REASON_COL]] = _ro_reason_cell
-                    write_csv_table(_ro_path, _ro_header, _ro_rows)
-                    print(c(f"  {_rot}: sessions.csv `{REOPEN_REASON_COL}` recorded on session "
-                            f"`{_ro_new_sid}`.", C_HINT))
+                if _ro_target is not None and coord.REOPEN_REASON_COL in _ro_idx:
+                    _ro_target[_ro_idx[coord.REOPEN_REASON_COL]] = _ro_reason_cell
+                    coord.write_csv_table(_ro_path, _ro_header, _ro_rows)
+                    print(coord.c(f"  {_rot}: sessions.csv `{coord.REOPEN_REASON_COL}` recorded on session "
+                            f"`{_ro_new_sid}`.", coord.C_HINT))
                 else:
-                    print(c(f"  WARNING {_rot}: the reopen reason could NOT be written — no open "
+                    print(coord.c(f"  WARNING {_rot}: the reopen reason could NOT be written — no open "
                             f"row `{_ro_new_sid}` was found to carry it. The launch itself "
-                            f"succeeded; only the durable reason record is missing.", C_DEAD),
+                            f"succeeded; only the durable reason record is missing.", coord.C_DEAD),
                           file=sys.stderr)
 
     # ---- the launch's VERDICT (leader ruling, exit-code semantics) -------------------------
@@ -2896,24 +2933,24 @@ def cmd_launch(args):
     # in the line above rather than hidden behind the weaker code. Exit EXIT_INDETERMINATE only
     # when nothing was positively refused and something could not be observed.
     if indeterminate:
-        print(c(f"launch INDETERMINATE for {len(indeterminate)} seat(s) "
+        print(coord.c(f"launch INDETERMINATE for {len(indeterminate)} seat(s) "
                 f"({', '.join(indeterminate)}): this host could not observe whether their harness "
                 f"came up — the per-seat reason is above. NOT counted as launched, and NOT a "
                 f"refusal: check them by hand before treating them either way.",
-                C_DEAD), file=sys.stderr)
+                coord.C_DEAD), file=sys.stderr)
     if refused:
-        print(c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
+        print(coord.c(f"launch INCOMPLETE: {launched} launched, {len(refused)} refused "
                 f"({', '.join(refused)}). The launched seats are UP and were not rolled back.",
-                C_DEAD), file=sys.stderr)
+                coord.C_DEAD), file=sys.stderr)
         # ⚠ AND THE NEXT-HINT IS ITSELF PART OF THE DEFECT: "every seat above must appear there"
         # is false the moment one was refused, and a reader who checks `workers` and finds the
         # refused seat missing would read the tool's own instruction as evidence something ELSE
         # broke. Fixing the exit code and leaving this sentence unqualified MOVES the lie.
-        print(c(f"next: {coord_invocation(args)} workers — the {launched} LAUNCHED seat(s) must "
+        print(coord.c(f"next: {coord.coord_invocation(args)} workers — the {launched} LAUNCHED seat(s) must "
                 f"appear there; the {len(refused)} refused one(s) will not, and that is this "
-                f"command's own result, not a second failure", C_HINT))
+                f"command's own result, not a second failure", coord.C_HINT))
         sys.exit(1)
     if indeterminate:
-        sys.exit(EXIT_INDETERMINATE)
-    print(c(f"next: {coord_invocation(args)} workers — every seat above must appear there; one "
-            f"that never checks in never booted", C_HINT))
+        sys.exit(process.EXIT_INDETERMINATE)
+    print(coord.c(f"next: {coord.coord_invocation(args)} workers — every seat above must appear there; one "
+            f"that never checks in never booted", coord.C_HINT))

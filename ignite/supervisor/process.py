@@ -1,7 +1,25 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
 import os
 import subprocess
 import time
 from pathlib import Path
+
+import coord
 
 # ---------- process truth: is the harness actually running, and did it actually die? ----------
 # Two failures on one night proved the roster is not evidence about processes:
@@ -244,9 +262,9 @@ def is_harness_argv(argv):
     tokens = argv.split()
     if not tokens:
         return False
-    if os.path.basename(tokens[0]) in HARNESS_PROCS:
+    if os.path.basename(tokens[0]) in coord.HARNESS_PROCS:
         return True
-    return any(os.path.basename(t.split("=")[-1]) in HARNESS_PROCS for t in tokens[1:4])
+    return any(os.path.basename(t.split("=")[-1]) in coord.HARNESS_PROCS for t in tokens[1:4])
 
 
 def harness_pids(snapshot, root_pid):
@@ -261,7 +279,7 @@ def pane_harness_pids(pane):
     running', and every caller must treat the two differently (fail-safe)."""
     if not pane:
         return [], False
-    root = tmux_pane_pid(pane)
+    root = coord.tmux_pane_pid(pane)
     if not root:
         return [], False
     snap = ps_snapshot()
@@ -275,7 +293,7 @@ def pane_harness_idents(pane):
     pane_harness_pids, and what every teardown captures before it kills anything."""
     if not pane:
         return []
-    root = tmux_pane_pid(pane)
+    root = coord.tmux_pane_pid(pane)
     if not root:
         return []
     return harness_idents(ps_snapshot(), root)
@@ -349,12 +367,12 @@ def seat_radius_pids(args):
     snap = ps_snapshot()
     if not snap:
         return {}, False
-    _, _, rows = load_workers(base_dir(args))
-    current = [current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
+    _, _, rows = coord.load_workers(coord.base_dir(args))
+    current = [coord.current_row(rows, a) for a in dict.fromkeys(r["agent"] for r in rows)]
     panes = [(r["agent"], r["pane"]) for r in current if r and r.get("pane")]
     out, resolved = {}, 0
     for agent, pane in panes:
-        root = tmux_pane_pid(pane)
+        root = coord.tmux_pane_pid(pane)
         if not root:
             continue
         resolved += 1
@@ -454,17 +472,17 @@ def wait_harness_up(pane, timeout=HARNESS_UP_TIMEOUT):
         if not verifiable:
             if not pane:
                 why = "no pane was given"
-            elif not tmux_pane_pid(pane):
+            elif not coord.tmux_pane_pid(pane):
                 why = f"tmux could not report a pid for pane {pane}"
             else:
                 why = "the process table could not be read (`ps -eo pid=,ppid=,args=` failed)"
             return [], (f"{HARNESS_UP_UNVERIFIABLE}: {why}, so neither the presence NOR the "
-                        f"absence of a {'/'.join(HARNESS_PROCS)} process could be observed. The "
+                        f"absence of a {'/'.join(coord.HARNESS_PROCS)} process could be observed. The "
                         f"start line WAS submitted; check by hand: tmux capture-pane -p -t {pane}")
         if time.time() >= deadline:
             break
         time.sleep(HARNESS_UP_POLL)
-    return [], (f"no {'/'.join(HARNESS_PROCS)} process is running in {pane} after "
+    return [], (f"no {'/'.join(coord.HARNESS_PROCS)} process is running in {pane} after "
                 f"{timeout:.0f}s — the start line was submitted to the pane but only its shell "
                 f"is there (G-11). Capture the pane to see what the shell did with it: "
                 f"tmux capture-pane -p -t {pane}")

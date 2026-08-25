@@ -311,7 +311,7 @@ def launch_gates(args, command, n_seats):
                      "floors.launch_refuse_mb there, or override this gate with --force-memory and "
                      "say so on the log." % exc)
 
-    mgate = floor_err if floor_err else memory_gate(n_seats, available_mb(), floor_mb)
+    mgate = floor_err if floor_err else process.memory_gate(n_seats, process.available_mb(), floor_mb)
     mem_forced = getattr(args, "force_memory", False)
     lines, refused = [], False
 
@@ -331,7 +331,7 @@ def launch_gates(args, command, n_seats):
     # divergence (#1254, #1380). Criterion 8 is about the mechanism, so the mechanism reports.
     provenance.append(
         "spike: %d MB per seat (%s) — a MEASUREMENT, not a policy number"
-        % (SEAT_SPIKE_MB, SEAT_SPIKE_SOURCE))
+        % (process.SEAT_SPIKE_MB, process.SEAT_SPIKE_SOURCE))
     lines.extend(provenance)
     if not mgate:
         lines.append("memory gate: PASS")

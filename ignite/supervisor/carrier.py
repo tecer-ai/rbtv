@@ -1,3 +1,22 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
+
+import coord
+
 # ---- F17 (store row 7.361; G-planner-0804-1501 arm 2) — THE ASSERTED-IDENTITY LAUNCH BOUND ----
 #
 # THE DEFECT. `--as NAME` is an ASSERTION, and `resolve_agent`'s contradiction check can only fire
@@ -65,7 +84,7 @@ def carrier_self_session(cgroup_text=None):
                 cgroup_text = fh.read()
         except OSError:
             return ""
-    unit = daemon_worker_unit(cgroup_text)
+    unit = coord.daemon_worker_unit(cgroup_text)
     if not unit.startswith(CARRIER_UNIT_PREFIX):
         return ""          # fails closed if the regex above ever stops carrying this prefix
     return unit[len(CARRIER_UNIT_PREFIX):]
@@ -85,8 +104,8 @@ def asserted_launch_claim(args):
     claim = (getattr(args, "as_agent", None) or "").strip()
     if not claim:
         return "", ""
-    pane = detect_pane(getattr(args, "pane", None))
-    if pane and pane_agent(base_dir(args, register=False), pane):
+    pane = coord.detect_pane(getattr(args, "pane", None))
+    if pane and coord.pane_agent(coord.base_dir(args, register=False), pane):
         return "", pane
     # ---- D43 (owner, 2026-08-20) — THE PANELESS CORROBORATION LANE ---------------------------
     # THE DEFECT D43 NAMES. A headless/caged leader has no TMUX_PANE, so the branch above can
@@ -119,8 +138,8 @@ def asserted_launch_claim(args):
     # new hole and it is strictly narrower than the `--pane %N` override the branch above accepts.
     sid, seat = carrier_corroborated_seat(args)
     if sid and seat == claim:
-        return "", SID_PANE_PREFIX + sid
-    return claim, (SID_PANE_PREFIX + sid if (sid and not pane) else pane)
+        return "", coord.SID_PANE_PREFIX + sid
+    return claim, (coord.SID_PANE_PREFIX + sid if (sid and not pane) else pane)
 
 
 def carrier_corroborated_seat(args):
@@ -144,7 +163,7 @@ def carrier_corroborated_seat(args):
     sid = carrier_self_session()
     if not sid:
         return "", ""
-    return sid, pane_agent(base_dir(args, register=False), SID_PANE_PREFIX + sid)
+    return sid, coord.pane_agent(coord.base_dir(args, register=False), coord.SID_PANE_PREFIX + sid)
 
 
 # THE REFUSAL NAMES ALL THREE WAYS OUT, and that is a requirement rather than courtesy (leader
@@ -181,7 +200,7 @@ def asserted_launch_pane_state(pane):
         return ("this process is not inside any tmux pane, and its own cgroup names no "
                 "daemon-minted session either, so there is no roster row to check it against at "
                 "all")
-    if pane.startswith(SID_PANE_PREFIX):
+    if pane.startswith(coord.SID_PANE_PREFIX):
         return (f"this process's OWN session ({pane}) carries no ACTIVE roster row under that "
                 f"claim — a paneless caller is corroborated only when the roster row registered "
                 f"against ITS OWN session id names the seat it is claiming")

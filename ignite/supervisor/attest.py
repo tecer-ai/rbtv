@@ -1,7 +1,29 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import coord
+import launch
+import lifecycle_exec
+import process
+import ready
 
 # ---------- dag-11: the attest-exit arm (`coordinate attest-exit`) ----------
 #
@@ -71,10 +93,10 @@ def attest_exit_blockers(args, seat, snap=None, now_ts=None):
     Two observations a cadence apart, both absent, provably about the same session. That is
     stronger than a tick count, because (e2) is taken AT ACT TIME: a classification carried from a
     snapshot is up to one cadence stale, and this arm must decide on the room as it stands."""
-    base = base_dir(args, register=False)
-    pkg = package_dir(args, register=False)
+    base = coord.base_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     now_ts = time.time() if now_ts is None else now_ts
-    snap = load_state_snapshot(base) if snap is None else snap
+    snap = coord.load_state_snapshot(base) if snap is None else snap
     why = []
     if snap is None:
         return ["no readable `state.json` snapshot — the sensor's observation is this arm's ONLY "
@@ -86,14 +108,14 @@ def attest_exit_blockers(args, seat, snap=None, now_ts=None):
     if row is None:
         why.append("(a) not in `state.json`'s roster_absent — the sensor does not report this "
                    "seat as an active roster row whose harness is gone")
-    decl = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == seat), None)
+    decl = next((w for w in launch.discover_workers(coord.workers_dir(args)) if w["agent"] == seat), None)
     mode = (decl or {}).get("mode") or ""
     if mode != "one-shot":
         why.append(f"(b) descriptor declares mode: {mode or '<undeclared>'} — attestation is only "
                    f"for a harness whose terminal state is EXPECTED to be absence. An undeclared "
                    f"mode is NOT one-shot: this refuses rather than assumes, so no existing seat "
                    f"becomes attestable by having said nothing")
-    value, source, skew = terminal_disposition(pkg, base, seat)
+    value, source, skew = ready.terminal_disposition(pkg, base, seat)
     if skew:
         why.append(f"(c) its two disposition records DISAGREE (awaiting-close.json={skew[0]} | "
                    f"sessions.csv={skew[1]}) — a skew is a human's to adjudicate, and attesting "
@@ -101,13 +123,13 @@ def attest_exit_blockers(args, seat, snap=None, now_ts=None):
     elif value is not None:
         why.append(f"(c) it already has a check-out: disposition `{value}` ({source}) — there is "
                    f"nothing left to attest")
-    entry = load_lifecycle(base).get(seat)
+    entry = lifecycle_exec.load_lifecycle(base).get(seat)
     # PLAIN pid+starttime liveness, NEVER `ident_is_live_harness`: the lifecycle executor is a
     # PYTHON process, and the harness predicate answers DEAD for every live one of them — which
     # would turn MID-RENEWAL into "exited" and attest a seat that is actively being renewed.
-    _ex = lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
+    _ex = lifecycle_exec.lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
     if (isinstance(entry, dict) and entry.get("state") == "in-flight" and _ex
-            and ident_is_live_process((_ex["pid"], _ex["starttime"]))):
+            and process.ident_is_live_process((_ex["pid"], _ex["starttime"]))):
         why.append("(d) a LIVE lifecycle executor holds this seat — it is mid-renewal, not exited")
     written = snap.get("written_at")
     age = (now_ts - written) if isinstance(written, (int, float)) else None
@@ -119,7 +141,7 @@ def attest_exit_blockers(args, seat, snap=None, now_ts=None):
                    f"longer than one full sensor cadence ({ATTEST_MIN_ABSENCE_S}s) — this would "
                    f"be a race with a slow exit, attesting a harness still shutting down")
     pane = (row or {}).get("pane") or ""
-    if pane and pane in live_panes() and pane_harness_idents(pane):
+    if pane and pane in coord.live_panes() and process.pane_harness_idents(pane):
         why.append(f"(e2) pane {pane} holds a LIVE harness right now — the snapshot's observation "
                    f"is up to one cadence stale and the room as it stands contradicts it")
     if isinstance(written, (int, float)):
@@ -136,16 +158,16 @@ def session_open_started(pkg, seat):
 
     `None` covers every unreadable case — no file, no columns, no open row, an unparseable stamp —
     and the caller treats it as "cannot establish", never as "old enough"."""
-    path = sessions_csv(pkg)
+    path = coord.sessions_csv(pkg)
     if not path.exists():
         return None
-    header, rows = read_csv_table(path, SESSIONS_COLS)
+    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
     idx = {c: i for i, c in enumerate(header)}
     if not {"seat", "ended", "started"} <= set(idx):
         return None
     found = None
     for r in rows:
-        pad_row(r, header)
+        coord.pad_row(r, header)
         if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
             found = r[idx["started"]].strip()
     if not found:
@@ -163,18 +185,18 @@ def attest_exit_seat(args, seat):
     diverge from the ones a normal check-out leaves: export, flip the roster row, record the debt,
     close the session row. A different order here would be a second definition of what a finished
     seat looks like."""
-    base = base_dir(args, register=False)
-    _, _, rows = load_workers(base)
-    row = current_row(rows, seat) or {}
+    base = coord.base_dir(args, register=False)
+    _, _, rows = coord.load_workers(base)
+    row = coord.current_row(rows, seat) or {}
     steps = []
-    out, err = export_transcript(args, seat, "attest-exit")
+    out, err = coord.export_transcript(args, seat, "attest-exit")
     steps.append(f"transcript: {out}" if not err else f"transcript SKIPPED — {err}")
 
     def flip(r):
         r["active"] = "no"
-        r["checkout"] = now()
+        r["checkout"] = coord.now()
 
-    ok, note = update_row(base, seat, flip)
+    ok, note = coord.update_row(base, seat, flip)
     steps.append(f"roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
     # THE SUPERVISOR DEATH STAMP, and this arm decides NOTHING about the ending [spec-supervisor
     # §4]. It reports the evidence it holds; the supervisor reads the checkout (a `done` or
@@ -186,12 +208,12 @@ def attest_exit_seat(args, seat):
     # witness read (`spawn.js#crashEvidence`); §1.4 requires the pointer to name the observed
     # death, and this process can see neither fact. The exported transcript is the fallback, and
     # the seat name the last resort — the store refuses an empty pointer outright.
-    pkg = package_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     _res, _step = supervisor_stamp(args, pkg, seat,
                                    checked_in=bool(row.get("checkin")),
                                    fallback_evidence=out or f"attest-exit:{seat}")
     steps.append(_step)
-    sid, cerr = session_trace_safe(session_close, args, seat)
+    sid, cerr = coord.session_trace_safe(coord.session_close, args, seat)
     steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
     return steps
@@ -226,15 +248,15 @@ def session_row_by_id(pkg, sid):
 
     Read-only and by SESSION-ID: this is the daemon lane's row key and the whole reason the closer
     cannot misattribute under concurrent sittings."""
-    path = sessions_csv(pkg)
+    path = coord.sessions_csv(pkg)
     if not path.exists():
         return None
-    header, rows = read_csv_table(path, SESSIONS_COLS)
+    header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
     idx = {c: i for i, c in enumerate(header)}
     if "session-id" not in idx or "seat" not in idx:
         return None
     for r in rows:
-        pad_row(r, header)
+        coord.pad_row(r, header)
         if r[idx["session-id"]].strip() == sid:
             return (r[idx["seat"]].strip(),
                     r[idx["ended"]].strip() if "ended" in idx else "",
@@ -253,30 +275,30 @@ def close_session_row_by_id(pkg, base, sid, disposition, writer):
     a SEAT's last open row (right for a check-out, which is the occupant speaking) and this targets
     ONE session-id (right for a closer, which is a third party speaking about a specific ending)."""
     # Work endings are not written here.
-    with coord_lock(base):
-        path = sessions_csv(pkg)
+    with coord.coord_lock(base):
+        path = coord.sessions_csv(pkg)
         if not path.exists():
             return "", f"no sessions.csv under {pkg}"
-        header, rows = read_csv_table(path, SESSIONS_COLS)
-        header, widened = widen_header(header, SESSIONS_COLS)
+        header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
+        header, widened = coord.widen_header(header, coord.SESSIONS_COLS)
         if widened:
-            rows = [pad_row(r, header) for r in rows]
+            rows = [coord.pad_row(r, header) for r in rows]
         idx = {c: i for i, c in enumerate(header)}
         if "session-id" not in idx or "ended" not in idx:
             return "", "sessions.csv carries no `session-id`/`ended` columns"
         target = None
         for r in rows:
-            pad_row(r, header)
+            coord.pad_row(r, header)
             if r[idx["session-id"]].strip() == sid and not r[idx["ended"]].strip():
                 target = r
         if target is None:
             return "", f"no OPEN row carries session-id `{sid}`"
-        target[idx["ended"]] = now()
+        target[idx["ended"]] = coord.now()
         if disposition and "disposition" in idx:
             target[idx["disposition"]] = disposition
             if "disposition-writer" in idx:
                 target[idx["disposition-writer"]] = writer
-        write_csv_table(path, header, rows)
+        coord.write_csv_table(path, header, rows)
         return target[idx["seat"]].strip(), ""
 
 
@@ -293,8 +315,8 @@ def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
       (c) the two disposition records do not SKEW    — a skew is a human's to adjudicate
       (d) no LIVE lifecycle executor holds the seat  — mid-renewal is not an exit
     """
-    base = base_dir(args, register=False)
-    pkg = package_dir(args, register=False)
+    base = coord.base_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     why = []
     if ended:
         why.append(f"(a) the row for session `{sid}` is ALREADY CLOSED (ended {ended}) — there is "
@@ -313,19 +335,19 @@ def daemon_close_blockers(args, sid, seat, ended, pid, pid_starttime):
         why.append("(b) the row carries no pid/pid-starttime pair, so this arm cannot establish "
                    "that the process is gone — and an absence of evidence is not evidence of an "
                    "exit. The engine caller passes `--force-dead` when IT witnessed the death")
-    elif ident_is_live_process((pid, pid_starttime)):
+    elif process.ident_is_live_process((pid, pid_starttime)):
         why.append(f"(b) pid {pid} (starttime {pid_starttime}) is STILL ALIVE — the process this "
                    f"row names has not exited, and closing its row would end a live session on "
                    f"paper while it keeps working")
-    _value, _source, skew = terminal_disposition(pkg, base, seat)
+    _value, _source, skew = ready.terminal_disposition(pkg, base, seat)
     if skew:
         why.append(f"(c) its two disposition records DISAGREE (awaiting-close.json={skew[0]} | "
                    f"sessions.csv={skew[1]}) — a skew is a human's to adjudicate, and closing on "
                    f"top of one would bury the contradiction")
-    entry = load_lifecycle(base).get(seat)
-    _ex = lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
+    entry = lifecycle_exec.load_lifecycle(base).get(seat)
+    _ex = lifecycle_exec.lifecycle_ident(entry.get("executor")) if isinstance(entry, dict) else None
     if (isinstance(entry, dict) and entry.get("state") == "in-flight" and _ex
-            and ident_is_live_process((_ex["pid"], _ex["starttime"]))):
+            and process.ident_is_live_process((_ex["pid"], _ex["starttime"]))):
         why.append("(d) a LIVE lifecycle executor holds this seat — it is mid-renewal, not exited")
     return why
 
@@ -339,11 +361,11 @@ def supervisor_stamp(args, pkg, seat, *, session="", checked_in=False, fallback_
     silent arm it replaced, so every failure is REPORTED as its step and the caller's remaining
     steps still run."""
     try:
-        res = supervisor_door.death_stamp(
+        res = coord.supervisor_door.death_stamp(
             pkg, seat, session=session,
             checked_in=checked_in,
             evidence=(getattr(args, "evidence", "") or "").strip() or fallback_evidence)
-    except (supervisor_door.SupervisorError, OSError, ValueError) as exc:
+    except (coord.supervisor_door.SupervisorError, OSError, ValueError) as exc:
         return None, f"supervisor death stamp: NOT stamped — {exc}"
     act = (res or {}).get("act", "")
     ending = (res or {}).get("ending", "")
@@ -359,14 +381,14 @@ def close_session_seat(args, sid, seat):
 
     Originates NOTHING. Checkout already wrote any seat-declared value; for a process that died
     without a complete checkout the supervisor's evidence table stamps the ending and reaps."""
-    base = base_dir(args, register=False)
-    pkg = package_dir(args, register=False)
+    base = coord.base_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     steps = []
     steps.append("closer hands the supervisor its evidence — it stamps no ending of its own")
     closed_seat, cerr = close_session_row_by_id(pkg, base, sid, "", "")
     steps.append(f"sessions.csv: {sid} ended" if not cerr
                  else f"sessions.csv: row NOT completed — {cerr}")
-    row = current_row(load_workers(base)[2], seat) or {}
+    row = coord.current_row(coord.load_workers(base)[2], seat) or {}
     res, step = supervisor_stamp(args, pkg, seat, session=sid,
                                  checked_in=bool(row.get("checkin")),
                                  fallback_evidence=f"session:{sid}")
@@ -379,9 +401,9 @@ def close_session_seat(args, sid, seat):
     if row.get("active") == "yes":
         def flip(r):
             r["active"] = "no"
-            r["checkout"] = f"closed {now()}"
+            r["checkout"] = f"closed {coord.now()}"
 
-        ok, note = update_row(base, seat, flip)
+        ok, note = coord.update_row(base, seat, flip)
         steps.append("roster: flipped to inactive" if ok else f"roster: NOT flipped — {note}")
     # A `done` seat's work IS done: mailing a staff chair "its work is NOT done" about a completed
     # sitting is exactly the misgrading this arm's own header bars.
@@ -428,13 +450,13 @@ def staff_route_target(args, base, flag, who="the check-out"):
     "flag is a HINT, never an authority" fallback ladder still earns its keep even with one
     destination."""
     try:
-        known = known_recipients(args, base)
+        known = coord.known_recipients(args, base)
     except Exception:                                          # noqa: BLE001
         known = set()
     want = (flag or "").strip()
-    if want and is_staff_seat(want) and want in known:
+    if want and coord.is_staff_seat(want) and want in known:
         return want, f"{who} named `{want}` and this goal staffs it"
-    if want and is_staff_seat(want):
+    if want and coord.is_staff_seat(want):
         return "leader", (f"{who} named `{want}`, which this goal does NOT staff — falling "
                           f"back to the unblocker rather than mailing a chair that does not exist")
     if want:
@@ -462,8 +484,8 @@ def routed_recipient(args, base, mtype, sender):
         # THE ONE EXCEPTION the ruling names: a seat the descriptor declares may talk to a human
         # asks the human. Read by PATH, the ferry's own read, so this answers the same question the
         # ferry will answer about delivery (see `seat_is_human_interactive`).
-        if seat_is_human_interactive(package_dir(args), sender):
-            return OWNER_TOKEN, (f"`{sender}` declares `human-interactive:` in its seat.md, so its "
+        if coord.seat_is_human_interactive(coord.package_dir(args), sender):
+            return coord.OWNER_TOKEN, (f"`{sender}` declares `human-interactive:` in its seat.md, so its "
                                  f"questions go STRAIGHT to the owner")
         return "leader", ("the `consultant` chair is deleted [T2-R17, D-7-ruling] — `ask` always "
                           "reaches the `leader`")
@@ -475,7 +497,7 @@ def staff_mail_body(args, seat, value, entry, sid):
     reason = ""
     if isinstance(entry, dict):
         reason = str(entry.get("reason") or entry.get("incomplete-reason") or "").strip()
-    pkg = package_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     reason = reason or ("(none recorded — the ending was stamped from evidence by the supervisor, "
                         "not declared by the seat)")
     return "\n".join([
@@ -515,7 +537,7 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     steps = []
     if value == "done":
         return steps
-    if is_staff_seat(seat) or is_summoned_seat(seat):
+    if coord.is_staff_seat(seat) or coord.is_summoned_seat(seat):
         steps.append(f"staff mail: NOT minted — '{seat}' is closed silently. A staff chair ends "
                      f"`{value}` by construction (it never checks out), so mailing here would mail "
                      f"the chair about itself forever; a SUMMONED chair ends one row PER OWNER "
@@ -526,7 +548,7 @@ def close_staff_mail_arm(args, base, pkg, seat, value, entry, sid):
     to, why = staff_route_target(args, base, (entry or {}).get("route") if isinstance(entry, dict)
                                  else "")
     try:
-        n = append_message(base, DISPOSITION_WRITER_KIT, to, "note",
+        n = coord.append_message(base, coord.DISPOSITION_WRITER_KIT, to, "note",
                            staff_mail_body(args, seat, value, entry, sid))
         steps.append(f"staff mail: #{n} -> `{to}` ({why}) — carrying '{seat}'s check-out reason")
     except Exception as exc:                                   # noqa: BLE001
@@ -595,21 +617,21 @@ def cmd_route_fail(args):
     read by `on_fail_relaunch_route`, the same function the verdict verb's loop re-fire reads.
     An UNDECLARED fail goes to the `leader`: a verdict with no declared receiver is exactly the
     case D6 lost, so the fallback is a chair rather than a silence."""
-    base = base_dir(args)
-    pkg = package_dir(args)
-    sender = resolve_agent(args)
-    body = message_body(args)
+    base = coord.base_dir(args)
+    pkg = coord.package_dir(args)
+    sender = coord.resolve_agent(args)
+    body = coord.message_body(args)
     go = bool(getattr(args, "go", False))
-    route = [r for r in on_fail_relaunch_route(base, sender)]
+    route = [r for r in coord.on_fail_relaunch_route(base, sender)]
     if not route:
         to, why = staff_route_target(args, base, "")
-        print(f"{c(sender, C_LABEL)}  UNDECLARED FAIL -> `{to}` ({why})")
+        print(f"{coord.c(sender, coord.C_LABEL)}  UNDECLARED FAIL -> `{to}` ({why})")
         if not go:
             print("    (report only — nothing was written. Re-run with --go to route it.)")
             return
-        n = append_message(base, sender, to, "note",
+        n = coord.append_message(base, sender, to, "note",
                            f"ROUTED FAIL — '{sender}' failed and declares no "
-                           f"`{ON_FAIL_RELAUNCH_KEY}` route.\n\n{body}")
+                           f"`{coord.ON_FAIL_RELAUNCH_KEY}` route.\n\n{body}")
         print(f"    routed: message #{n} -> `{to}`")
         print(f"    staff wake: none needed — the goal watcher reconciles a chair's unread mail "
               f"into a sitting on its next pass")
@@ -619,21 +641,21 @@ def cmd_route_fail(args):
     # that cell — a perfectly well-formed name that names no seat.
     plans = []
     for seat in route:
-        if not _ferry_safe_name(seat):
-            refuse("input",
-                   f"`{ON_FAIL_RELAUNCH_KEY}` entry {seat!r} on '{sender}'s seat.md is not a valid "
+        if not coord._ferry_safe_name(seat):
+            coord.refuse("input",
+                   f"`{coord.ON_FAIL_RELAUNCH_KEY}` entry {seat!r} on '{sender}'s seat.md is not a valid "
                    f"seat name. Fix the descriptor; this verb routes to seats, not to text.", 1)
-        if seat not in registered_seats(pkg) and seat not in briefing_frontmatters(workers_dir(args)):
-            refuse("state",
-                   f"`{ON_FAIL_RELAUNCH_KEY}` names `{seat}`, and this run has NO SEAT of that "
+        if seat not in launch.registered_seats(pkg) and seat not in coord.briefing_frontmatters(coord.workers_dir(args)):
+            coord.refuse("state",
+                   f"`{coord.ON_FAIL_RELAUNCH_KEY}` names `{seat}`, and this run has NO SEAT of that "
                    f"name (not in taskforce.csv or sessions.csv).\n"
                    f"That cell is checked for SYNTAX at every other door and for EXISTENCE at "
                    f"none, and a task id sitting in it is exactly how a routed FAIL reached "
-                   f"nobody. Fix '{sender}'s `{ON_FAIL_RELAUNCH_KEY}` cell in its seat.md and in "
+                   f"nobody. Fix '{sender}'s `{coord.ON_FAIL_RELAUNCH_KEY}` cell in its seat.md and in "
                    f"the workflow's seats.csv, or route this by hand to a seat that exists.", 1)
-        sid = (sessions_last_ended(pkg).get(seat) or ("", ""))[0]
+        sid = (coord.sessions_last_ended(pkg).get(seat) or ("", ""))[0]
         plans.append((seat, sid))
-    print(f"{c(sender, C_LABEL)}  DECLARED ROUTE -> {', '.join(s for s, _ in plans)}")
+    print(f"{coord.c(sender, coord.C_LABEL)}  DECLARED ROUTE -> {', '.join(s for s, _ in plans)}")
     if not go:
         for seat, sid in plans:
             print(f"    would write `{seat}`'s payload to {route_payload_path(base, seat)} "
@@ -641,24 +663,24 @@ def cmd_route_fail(args):
         print("    (report only — nothing was written. Re-run with --go to route it.)")
         return
     for seat, sid in plans:
-        n = append_message(base, sender, seat, "note",
+        n = coord.append_message(base, sender, seat, "note",
                            f"ROUTED FAIL from '{sender}' — you are being relaunched to address "
                            f"it.\n\n{body}")
         ok, why = write_route_payload(
             base, seat,
-            f"## Routed FAIL from `{sender}` ({now()})\n\nYou are being relaunched because of "
+            f"## Routed FAIL from `{sender}` ({coord.now()})\n\nYou are being relaunched because of "
             f"this, and it is NOT the seed you ran on last time — address it before anything "
             f"else.\n\n{body}\n")
         print(f"    `{seat}`: message #{n}")
         told = f"written to {route_payload_path(base, seat)}" if ok else f"NOT written — {why}"
         print(f"    `{seat}`: payload {told}")
-    print(c("\nD12 · THIS VERB GRANTS NOTHING. The payload and the message are RECORDS: the boot "
+    print(coord.c("\nD12 · THIS VERB GRANTS NOTHING. The payload and the message are RECORDS: the boot "
             "prompt of the routed seat's NEXT sitting carries the payload, so it is never re-run "
             "on the stale seed. WHAT MAKES THAT SITTING HAPPEN is the goal watcher "
             "(`supervisor/reconcile.js`), which relaunches a seat whose last ended row is NON-TERMINAL "
             "and a chair that has unread mail. A routed seat whose own row reads `done` is NOT "
             "owed work to it and will NOT come back on its own — say so to the leader rather than "
-            "assuming this routed it.", C_HINT))
+            "assuming this routed it.", coord.C_HINT))
 
 
 # ── `send`'s recipient wrapper (adv, C33) ─────────────────────────────────────────────────────
@@ -679,40 +701,40 @@ def send_recipients(args, base):
     to close. `departed` is the roster names whose rows are no longer active — accepted, and LOUDLY,
     because a message to a seat that has gone is not refused (its successor may read the log) but
     is never silent either."""
-    admitted = set(known_recipients(args, base))
-    admitted |= set(STAFF_SEATS)
+    admitted = set(coord.known_recipients(args, base))
+    admitted |= set(coord.STAFF_SEATS)
     departed = set()
     try:
-        _, _, rows = load_workers(base)
+        _, _, rows = coord.load_workers(base)
         for r in rows:
             if r.get("active") != "yes":
                 departed.add(r["agent"])
     except Exception:                                          # noqa: BLE001
         departed = set()
-    return admitted, departed - set(STAFF_SEATS)
+    return admitted, departed - set(coord.STAFF_SEATS)
 
 
 def cmd_attest_exit(args):
     """Attest that a one-shot harness terminated. BARE = report; `--go` = act."""
-    base = base_dir(args, register=False)
+    base = coord.base_dir(args, register=False)
     # ── W1: THE DAEMON-LANE ARM. Keyed on the session-id the caller HOLDS, so it never touches
     # `state.json` (there is no sensor on this lane) and never matches by seat name (adv, C6).
     sid = (getattr(args, "session", None) or "").strip()
     if sid:
-        pkg = package_dir(args, register=False)
+        pkg = coord.package_dir(args, register=False)
         found = session_row_by_id(pkg, sid)
         if found is None:
-            print(f"no candidate: no row in {sessions_csv(pkg)} carries session-id `{sid}`. "
+            print(f"no candidate: no row in {coord.sessions_csv(pkg)} carries session-id `{sid}`. "
                   f"This arm closes a row the daemon itself opened; it invents none.")
             return
         seat, ended, pid, pid_st = found
         why = daemon_close_blockers(args, sid, seat, ended, pid, pid_st)
         if why:
-            print(f"{c(seat, C_LABEL)}  NOT CLOSABLE (session `{sid}`)")
+            print(f"{coord.c(seat, coord.C_LABEL)}  NOT CLOSABLE (session `{sid}`)")
             for w in why:
                 print(f"    {w}")
             sys.exit(1)
-        print(f"{c(seat, C_LABEL)}  CLOSABLE — session `{sid}` is open and its process is gone")
+        print(f"{coord.c(seat, coord.C_LABEL)}  CLOSABLE — session `{sid}` is open and its process is gone")
         if not getattr(args, "go", False):
             print("    (report only — nothing was written. Re-run with --go to act.)")
             return
@@ -720,7 +742,7 @@ def cmd_attest_exit(args):
         for step in steps:
             print(f"    {step}")
         return
-    snap = load_state_snapshot(base)
+    snap = coord.load_state_snapshot(base)
     candidates = ([args.seat] if getattr(args, "seat", None)
                   else sorted({(r.get("seat") or "") for r in ((snap or {}).get("roster_absent")
                                                                or []) if isinstance(r, dict)}))
@@ -732,11 +754,11 @@ def cmd_attest_exit(args):
     for seat in candidates:
         why = attest_exit_blockers(args, seat, snap=snap)
         if why:
-            print(f"{c(seat, C_LABEL)}  NOT ATTESTABLE")
+            print(f"{coord.c(seat, coord.C_LABEL)}  NOT ATTESTABLE")
             for w in why:
                 print(f"    {w}")
             continue
-        print(f"{c(seat, C_LABEL)}  EXIT-ATTESTABLE — every term of the predicate holds")
+        print(f"{coord.c(seat, coord.C_LABEL)}  EXIT-ATTESTABLE — every term of the predicate holds")
         if not getattr(args, "go", False):
             print("    (report only — nothing was written. Re-run with --go to act.)")
             continue
@@ -744,13 +766,13 @@ def cmd_attest_exit(args):
             print(f"    {step}")
         acted += 1
     if acted:
-        print(c(f"\n{acted} seat(s) handed to the supervisor death stamp. THE ONLY CLAIM THIS ARM "
+        print(coord.c(f"\n{acted} seat(s) handed to the supervisor death stamp. THE ONLY CLAIM THIS ARM "
                 f"MAKES IS THAT THE HARNESS TERMINATED; the ending is stamped from evidence. "
                 f"Whether the work is done is NOT established here — each row routes "
                 f"to the LEADER, which investigates and either relaunches the seat or, where the "
                 f"work had in fact concluded, records that ruling — `rule-disposition` was deleted "
                 f"[T2-R12, T1-R9]; no replacement ruling instrument is wired here yet. Until then "
-                f"it advances NO edge ({coord_invocation(args)} ready-seats).", C_HINT))
+                f"it advances NO edge ({coord.coord_invocation(args)} ready-seats).", coord.C_HINT))
 
 
 def cmd_rule_guard(args):
@@ -787,47 +809,47 @@ def cmd_rule_guard(args):
     # `ruled_by` below wants the resolved caller's identity for the record it writes, not to
     # gate on it.
     seat = (args.seat or "").strip()
-    ruler = gate(args, "rule-guard")
-    pkg = package_dir(args)
-    base = base_dir(args)
+    ruler = coord.gate(args, "rule-guard")
+    pkg = coord.package_dir(args)
+    base = coord.base_dir(args)
     go = bool(getattr(args, "go", False))
 
     # LAYER 1, `input`: the SHAPE of what was typed. Checked before anything on disk is consulted,
     # so a malformed invocation never reports on a package it was never going to write to.
     raw_kv = (args.guard or "").strip()
     if raw_kv.count("=") != 1 or raw_kv.startswith("=") or raw_kv.endswith("="):
-        refuse("input",
+        coord.refuse("input",
                f"'{raw_kv}' is not a `<key>=<value>` pair. The guard is TWO halves and both are "
                f"required — a bare key rules nothing and a bare value rules nothing about what.\n"
-               f"  {coord_invocation(args)} rule-guard {seat or '<seat>'} "
+               f"  {coord.coord_invocation(args)} rule-guard {seat or '<seat>'} "
                f"retirement-safe=yes --source \"<where it was measured>\"", 2)
     key, value = (x.strip() for x in raw_kv.split("=", 1))
     source = (getattr(args, "source", None) or "").strip()
     if not source:
-        refuse("input",
+        coord.refuse("input",
                "--source is MANDATORY and was not given. It cites WHERE this value was measured "
                "or ruled — a ledger anchor, a record path, or a message id. A guard ruling with "
                "no source is folklore: by VALUE it is indistinguishable from a guess, and the "
                "party that reads it months from now cannot tell which it was.\n"
-               f"  {coord_invocation(args)} rule-guard {seat} {key}={value} "
+               f"  {coord.coord_invocation(args)} rule-guard {seat} {key}={value} "
                f"--source \"planning/<pass>/<record>.md §N (derived verdict)\"", 2)
 
     # LAYER 2, `state`: the WORLD. Both terms read the package the ruling would be written beside.
-    rows = taskforce_after(pkg)
+    rows = ready.taskforce_after(pkg)
     if seat not in rows:
-        refuse("state",
+        coord.refuse("state",
                f"'{seat}' has no row in this run's taskforce.csv, so no edge can ever consume a "
                f"ruling about it. Seats in this run: {', '.join(sorted(rows)) or '(none)'}", 1)
-    pairs = guarded_pairs(pkg)
+    pairs = ready.guarded_pairs(pkg)
     if (seat, key) not in pairs:
         _have = ", ".join(f"`{s}[{k}=…]`" for s, k in sorted(pairs)) or "(none — this run has no " \
                                                                         "guarded `after` member)"
-        refuse("state",
+        coord.refuse("state",
                f"no `after` member of this run references the guard `{seat}[{key}=…]`, so this "
                f"ruling would be consumed by nothing. A dead ruling is a typo until a live edge "
                f"reads it.\n  guarded pairs this run actually has: {_have}", 1)
 
-    current = load_guard_values(base).get((seat, key))
+    current = ready.load_guard_values(base).get((seat, key))
     consumers = ", ".join(f"`{t}`" for t in pairs[(seat, key)])
     # D2: the row names the CALLER, which the gate above has already proven is the seat the pair is
     # about — never a constant. `DISPOSITION_WRITER_LEADER` was right while the leader was the only
@@ -841,10 +863,10 @@ def cmd_rule_guard(args):
         # supersede its own earlier ruling must see the value it is superseding, and the file is
         # append-only precisely so that value still exists to be shown.
         if current is None:
-            print(f"{c(seat, C_LABEL)}  `{key}` is UNRULED — nothing is recorded for this pair "
+            print(f"{coord.c(seat, coord.C_LABEL)}  `{key}` is UNRULED — nothing is recorded for this pair "
                   f"yet.")
         else:
-            print(f"{c(seat, C_LABEL)}  `{key}` currently rules `{current['value']}` "
+            print(f"{coord.c(seat, coord.C_LABEL)}  `{key}` currently rules `{current['value']}` "
                   f"(source: {current['source'] or '(none recorded)'}, "
                   f"by {current['ruled-by'] or '(unrecorded)'}, {current['stamp'] or '(unstamped)'})"
                   + ("" if current["value"] != value else " — the SAME value you are about to "
@@ -855,18 +877,18 @@ def cmd_rule_guard(args):
         print(f"    consumed by: {consumers}")
         print("    (report only — nothing was written. Re-run with --go to record the ruling.)")
         return
-    written = append_guard_value(base, seat, key, value, source, ruled_by)
-    print(f"{c(seat, C_LABEL)}  RULED `{key}={value}` by {ruled_by}")
-    print(f"    {GUARD_VALUES_FILE}: appended — source `{written['source']}`, "
+    written = ready.append_guard_value(base, seat, key, value, source, ruled_by)
+    print(f"{coord.c(seat, coord.C_LABEL)}  RULED `{key}={value}` by {ruled_by}")
+    print(f"    {ready.GUARD_VALUES_FILE}: appended — source `{written['source']}`, "
           f"stamp {written['stamp']}")
     if current is not None and current["value"] != value:
         print(f"    SUPERSEDES the earlier `{current['value']}` — that row stays on disk; the "
               f"LAST row per (seat, key) wins, so the record of what was ruled first survives")
-    print(c(f"\nThe ruling is recorded, and the row names the party that made it and the source it "
+    print(coord.c(f"\nThe ruling is recorded, and the row names the party that made it and the source it "
             f"was measured at. It also DISCHARGES this seat's check-out debt for `{key}` — a "
             f"`done` check-out is refused while a guard the seat owes is unwritten (D3). "
-            f"Advancement follows the ordinary arithmetic ({coord_invocation(args)} ready-seats) "
+            f"Advancement follows the ordinary arithmetic ({coord.coord_invocation(args)} ready-seats) "
             f"— the guarded edge now reads this value, and still requires this seat's own `done`.",
-            C_HINT))
+            coord.C_HINT))
 
 

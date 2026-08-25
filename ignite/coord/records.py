@@ -824,7 +824,7 @@ def cmd_finish_goal(args):
     # The survivors are printed one per line and NAMED. A close that quietly left entries behind
     # would teach the leader that the marker is empty when it is not — and an in-flight entry at
     # close time is exactly the report worth reading.
-    swept, survivors = sweep_lifecycle(base_dir(args))
+    swept, survivors = lifecycle_exec.sweep_lifecycle(base_dir(args))
     if swept:
         print(f"lifecycle marker: swept {len(swept)} completed "
               f"{'entry' if len(swept) == 1 else 'entries'} ({', '.join(swept)})")
@@ -1480,7 +1480,7 @@ def resume_command(w, ref, prompt_path):
     launches nothing. The identity prefix and the prompt-from-file discipline are shared, and both
     are read from the same helpers, so neither can drift.
     """
-    env = identity_prefix(w["agent"])
+    env = launch.identity_prefix(w["agent"])
     arg = '"$(cat ' + shlex.quote(str(prompt_path)) + ')"'
     sid = shlex.quote(ref["native-session-id"])
     if ref["harness"] == "claude":
@@ -1516,7 +1516,7 @@ def restarter_prompt(w, args, why):
     return (f"Your prior session DIED and could NOT be resumed natively: {why}. "
             f"You are a FRESH session of seat '{w['agent']}' standing in for it — the lost "
             f"session's conversation is gone and is not recoverable. "
-            f"{boot_prompt(w, args)} "
+            f"{launch.boot_prompt(w, args)} "
             f"Before acting, run `coordinate status` and re-read whatever your next act touches: "
             f"work your predecessor reported may or may not have landed, so VERIFY it on disk "
             f"rather than trusting any record of intent.")

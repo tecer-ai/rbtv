@@ -156,7 +156,7 @@ def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evi
     candidate that EXISTS is stamped where there is one, and the check's own first candidate
     otherwise, so a genuinely missing output still names the path the author meant."""
     pkg = package_dir(args, register=False)
-    _w = next((x for x in discover_workers(workers_dir(args)) if x["agent"] == seat), None)
+    _w = next((x for x in launch.discover_workers(workers_dir(args)) if x["agent"] == seat), None)
     abs_decl = []
     for p in declared or []:
         pp = Path(p)
@@ -517,7 +517,7 @@ def cmd_checkin(args):
     # ONLY as the fallback for paneless callers running under no carrier unit (the attached lane,
     # and caged seats until the cage stops hiding /proc/self/cgroup — bwrap `--unshare-cgroup`).
     if not pane:
-        _open_sid = carrier_self_session() or \
+        _open_sid = carrier.carrier_self_session() or \
             sessions_open_ids(package_dir(args)).get(args.agent, "")
         if _open_sid:
             pane = SID_PANE_PREFIX + _open_sid
@@ -596,8 +596,8 @@ def cmd_checkin(args):
     # table or pane pid ("cannot tell") passes, since losing a real seat to a false refusal is
     # worse than the defect. COORD_SKIP_HARNESS_CHECK=1 is the escape hatch for an unrecognized
     # harness wrapper.
-    if is_tmux_pane(pane) and not SKIP_HARNESS_CHECK:
-        pids, verifiable = pane_harness_pids(pane)
+    if is_tmux_pane(pane) and not process.SKIP_HARNESS_CHECK:
+        pids, verifiable = process.pane_harness_pids(pane)
         if verifiable and not pids:
             refuse(
                 "environment",
@@ -692,7 +692,7 @@ def cmd_checkin(args):
     # in the wrong window is cosmetic, a door killed for the layout is an outage. So it FLAGS and
     # leaves, and the operational fix stays a human's.
     if is_tmux_pane(pane):
-        _decl = next((w["window"] for w in discover_workers(workers_dir(args))
+        _decl = next((w["window"] for w in launch.discover_workers(workers_dir(args))
                       if w["agent"] == args.agent), "")
         _actual = tmux_pane_window_name(pane)
         if _decl and _decl != "yes" and _actual and _actual != _decl:
@@ -727,7 +727,7 @@ def cmd_checkin(args):
     if _cierr:
         print(c(f"WARNING sessions.csv checkin stamp NOT written — {_cierr}. Your checkin STANDS; "
                 f"the trace cannot say when this session came alive.", C_DEAD), file=sys.stderr)
-    _sfolder = next((w["folder"] for w in discover_workers(workers_dir(args))
+    _sfolder = next((w["folder"] for w in launch.discover_workers(workers_dir(args))
                      if w["agent"] == args.agent), None)
     print(session_identity_line(args.agent, _sid, _snat, seat_scratchpad(_sfolder, _sid)))
     # T1: from here the seat never types its own name again — every other command resolves it.
@@ -1007,7 +1007,7 @@ def deliver_handoff(args, base, seat):
     dump an unbounded slice of the file into the seat's context) and a FLIP THAT FAILED after the
     block was already printed.
     """
-    found = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == seat), None)
+    found = next((w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == seat), None)
     folder = found.get("folder") if found else None
     if folder is None:
         return
@@ -1192,7 +1192,7 @@ def declared_outputs(args, seat):
     A seat with no descriptor at all returns `([], [], False, False)` — undeclared, like a
     descriptor with no block. It is the same answer for the same reason: nothing was declared, so nothing is
     checkable, and this function does not get to invent the difference."""
-    for w in discover_workers(workers_dir(args)):
+    for w in launch.discover_workers(workers_dir(args)):
         if w["agent"] != seat:
             continue
         # 7.711 — refused HERE, and only here, though the defect is detected at the parse point:
@@ -1474,8 +1474,8 @@ def cmd_checkout(args):
         # ⚠ AND IT REFUSES RATHER THAN WRITING A DEFAULT. Inventing a value would have the kit
         # assert a fact about work only the seat witnessed — the same misgrading the writer bound
         # bars, and the same reason the outputs check above refuses instead of downgrading.
-        _guard_pairs = guarded_pairs(package_dir(args))
-        _guard_have = load_guard_values(base)
+        _guard_pairs = ready.guarded_pairs(package_dir(args))
+        _guard_have = ready.load_guard_values(base)
         _guard_owed = sorted({k for (_s, k) in _guard_pairs
                               if _s == me and (me, k) not in _guard_have})
         if _guard_owed:
@@ -1699,7 +1699,7 @@ def cmd_checkout(args):
                 f"Re-word that phrase, then re-run: {coord_invocation(args)} checkout --renew "
                 f"--handoff \"<what the next session of this seat must do>\"",
                 2)
-        seat = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+        seat = next((w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == me), None)
         if seat is not None and seat.get("mechanical_close"):
             refuse(
                 "input",
@@ -1836,7 +1836,7 @@ def cmd_checkout(args):
         # the denylist argument for the child's environment. NOTHING BELOW MAY ASSUME THE PANE
         # SURVIVES: from the moment the child starts, this pane can be respawned out from under
         # this process at any instant.
-        fork_lifecycle_renewal(args, base, me, (row or {}).get("pane", ""))
+        lifecycle_exec.fork_lifecycle_renewal(args, base, me, (row or {}).get("pane", ""))
         print(c(f"next: nothing on your side — a detached executor is running '{me}'s renewal OUT "
                 f"of this pane and will bring the seat back. This session is over; do not type "
                 f"another command.", C_HINT))
@@ -1859,18 +1859,18 @@ def cmd_checkout(args):
         # finished-but-open, three of them 14-23 h. The debt record written above is settled by
         # the same act that makes it moot — the exact G-134 discipline `cmd_depart` states.
         # PERSISTENT seats (no `ephemeral: yes`) keep the leader-frees-the-pane path unchanged.
-        _seat_e = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+        _seat_e = next((w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == me), None)
         if _seat_e is not None and _seat_e.get("ephemeral"):
             clear_closing(base, me)
             _pane_e = (row or {}).get("pane") or detect_pane(None)
             if _pane_e:
-                _idents_e = pane_harness_idents(_pane_e)
+                _idents_e = process.pane_harness_idents(_pane_e)
                 if _idents_e:
                     print(f"arming the exit reaper for harness pid(s) "
                           f"{', '.join(str(p) for p, _ in _idents_e)} — no ghost survives this "
                           f"self-close (it fires only on an exact pid+starttime match, so a "
                           f"recycled pid is safe)")
-                    arm_pid_reaper(_idents_e)
+                    process.arm_pid_reaper(_idents_e)
                 print(f"ephemeral seat, session DONE — killing own pane {_pane_e} (self-close at "
                       f"checkout, r-checkout-selfclose: depart and done-checkout end the same "
                       f"way for ephemeral seats). Goodbye.")
@@ -1930,7 +1930,7 @@ def checkout_renew_arm(args, base, me):
     admitted set is {leader, me}, and a seat's own sends are never re-served nor woken, so the
     effective inbox is exactly `leader`: what the teaching text below claims.
     """
-    seat = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
+    seat = next((w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == me), None)
     if seat is not None and seat.get("mechanical_close"):
         refuse(
             "input",

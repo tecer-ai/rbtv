@@ -1,3 +1,30 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
+import difflib
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+import coord
+import launch
+import lifecycle_exec
+
 # ---------- dag-10: the ready-SEAT arithmetic (`coordinate ready-seats`) ----------
 #
 # The ruling this realizes (`d-advancement-on-checkout`): the whole workflow's seat rows are
@@ -33,13 +60,13 @@ def taskforce_after(pkg):
     know to ask for: every consumer that did not (`edge-runner-job.py`, `run-state-job.py`,
     `watch.py`) saw a guarded member as a literal seat name. The two readings are now one, and a
     consumer cannot obtain a member that has not been through it."""
-    header, rows = read_csv_table(pkg / "taskforce.csv", [])
+    header, rows = coord.read_csv_table(pkg / "taskforce.csv", [])
     if not rows or "seat" not in header:
         return {}
     idx = {c: i for i, c in enumerate(header)}
     out = {}
     for r in rows:
-        pad_row(r, header)
+        coord.pad_row(r, header)
         seat = r[idx["seat"]].strip()
         if not seat:
             continue
@@ -226,13 +253,13 @@ GUARD_VALUES_COLS = ["seat", "key", "value", "source", "ruled-by", "stamp"]
 
 def load_guard_values(base):
     """{(seat, key): {col: cell}} from `coordination/guard-values.csv`. `{}` when absent."""
-    header, rows = read_csv_table(Path(base) / GUARD_VALUES_FILE, [])
+    header, rows = coord.read_csv_table(Path(base) / GUARD_VALUES_FILE, [])
     if not rows or not {"seat", "key", "value"} <= set(header):
         return {}
     idx = {c: i for i, c in enumerate(header)}
     out = {}
     for r in rows:
-        pad_row(r, header)
+        coord.pad_row(r, header)
         seat, key = r[idx["seat"]].strip(), r[idx["key"]].strip()
         if seat and key:
             out[(seat, key)] = {c: (r[idx[c]].strip() if c in idx else "")
@@ -262,17 +289,17 @@ def guarded_pairs(pkg):
 def append_guard_value(base, seat, key, value, source, ruled_by):
     """APPEND one ruling row. Returns the row as written. Creates the file with its header."""
     path = Path(base) / GUARD_VALUES_FILE
-    header, rows = read_csv_table(path, GUARD_VALUES_COLS)
-    header, widened = widen_header(header, GUARD_VALUES_COLS)
+    header, rows = coord.read_csv_table(path, GUARD_VALUES_COLS)
+    header, widened = coord.widen_header(header, GUARD_VALUES_COLS)
     if widened:
-        rows = [pad_row(r, header) for r in rows]
+        rows = [coord.pad_row(r, header) for r in rows]
     idx = {c: i for i, c in enumerate(header)}
     row = ["" for _ in header]
     for col, val in (("seat", seat), ("key", key), ("value", value),
-                     ("source", source), ("ruled-by", ruled_by), ("stamp", now())):
+                     ("source", source), ("ruled-by", ruled_by), ("stamp", coord.now())):
         row[idx[col]] = val
     rows.append(row)
-    write_csv_table(path, header, rows)
+    coord.write_csv_table(path, header, rows)
     return {c: row[idx[c]] for c in header}
 
 
@@ -332,13 +359,13 @@ def taskforce_store_ids(pkg):
     """{seat: raw `store-id` cell} from `taskforce.csv`. `{}` when the column does not exist.
 
     One producer, one parse — the same discipline `taskforce_after` states for the `after` cell."""
-    header, rows = read_csv_table(pkg / "taskforce.csv", [])
+    header, rows = coord.read_csv_table(pkg / "taskforce.csv", [])
     if not rows or "seat" not in header or TASKFORCE_STORE_JOIN_COLUMN not in header:
         return {}
     idx = {c: i for i, c in enumerate(header)}
     out = {}
     for r in rows:
-        pad_row(r, header)
+        coord.pad_row(r, header)
         seat = r[idx["seat"]].strip()
         if seat:
             out[seat] = r[idx[TASKFORCE_STORE_JOIN_COLUMN]].strip()
@@ -428,8 +455,8 @@ def terminal_disposition(pkg, base, seat):
     disagree with. The tuple keeps its arity so no caller has to learn a new one; what changed is
     that the skew branch is now unreachable, which is the point of removing a second writer."""
     try:
-        row = ending_store.get_current_ending(pkg, seat)
-    except ending_store.EndingStoreError:
+        row = coord.ending_store.get_current_ending(pkg, seat)
+    except coord.ending_store.EndingStoreError:
         row = None
     if not row:
         return None, "", None
@@ -554,14 +581,14 @@ def reopen_downstream_seats(pkg, reopened_seat):
     a FLAG, never an undo. The caller (the `--reopen` admission block) is what prints and records
     this list; this function only computes it."""
     after = taskforce_after(pkg)
-    path = sessions_csv(pkg)
+    path = coord.sessions_csv(pkg)
     ran = set()
     if path.exists():
-        header, rows = read_csv_table(path, SESSIONS_COLS)
+        header, rows = coord.read_csv_table(path, coord.SESSIONS_COLS)
         idx = {c: i for i, c in enumerate(header)}
         if "seat" in idx:
             for r in rows:
-                pad_row(r, header)
+                coord.pad_row(r, header)
                 s = r[idx["seat"]].strip()
                 if s:
                     ran.add(s)
@@ -776,23 +803,23 @@ def ready_seat_rows(args):
     these seats even if it never reads the reason string, and a consumer that does not know the
     value simply fails to match it. Both directions are fail-safe; neither advances an edge.
     """
-    pkg = package_dir(args, register=False)
-    base = base_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
+    base = coord.base_dir(args, register=False)
     after = taskforce_after(pkg)
-    _, _, roster = load_workers(base)
+    _, _, roster = coord.load_workers(base)
     # `register=False`, for the same reason `package_dir`/`base_dir` above carry it: this command's
     # docstring says it writes nothing, and `workers_dir`'s default resolution (re-)registers the
     # run tag — a WRITE, in `~/.config/rbtv/coordinate-runs.json`. Resolved ONCE into a local: the
     # UNBUILT reason below spends the same value, and re-resolving it there was a second door onto
     # the same registration.
-    wdir = workers_dir(args, register=False)
+    wdir = coord.workers_dir(args, register=False)
     # D4: THE DESCRIPTORS ARE KEPT, not reduced to a name set on the spot. The seed below resolves
     # a predecessor's declared `outputs:` against that seat's own absolutized `cwd`, and both live
     # on this dict — so keeping it costs NOTHING (the same single `discover_workers` call this
     # line always made) while re-reading it per predecessor would cost one descriptor sweep per
     # edge. `built` is derived from it and is the identical set it always was.
-    seat_desc = {w["agent"]: w for w in discover_workers(wdir)}
-    built = registered_seats(pkg)
+    seat_desc = {w["agent"]: w for w in launch.discover_workers(wdir)}
+    built = launch.registered_seats(pkg)
     # ⚠ THE `awaiting-close.json` HOIST IS GONE WITH ITS FILE [spec-state-store §4.1 Row A]. It
     # read a debt map and threaded it into `terminal_disposition`, which has answered off the ONE
     # ending store since that migration and ignored the argument. A hoist of a stub that answers
@@ -803,8 +830,8 @@ def ready_seat_rows(args):
     # could straddle a concurrent append.
     # D42: the hoist now reads the WHOLE row and PROJECTS the pair, so the hold cell and the
     # disposition cell come from THE SAME selected row and the file is still read exactly once.
-    last_ended_rows = sessions_last_ended_rows(pkg)
-    last_ended = last_ended_pairs(last_ended_rows)
+    last_ended_rows = coord.sessions_last_ended_rows(pkg)
+    last_ended = coord.last_ended_pairs(last_ended_rows)
     # ⚠ THE UNDECLARED TERM IS COMPUTED AFTER THE `term` MAP, NOT HERE, and the move is a cost
     # fix rather than a reordering preference: it needs each seat's ENDING, `term` already reads
     # exactly that, and the store's client is a subprocess. Its first USE is far below, so nothing
@@ -815,7 +842,7 @@ def ready_seat_rows(args):
     # THE RENEW GATE'S SIGNAL, hoisted ONCE for the same reason every hoist above is — N seats must
     # cost one read of `lifecycle-inflight.json`, not N. It is spent through `renewal_state`, which
     # is the ONE reader of it (see that function's own note); nothing here re-derives its arms.
-    lifecycle = load_lifecycle(base)
+    lifecycle = lifecycle_exec.load_lifecycle(base)
     # W2: THE OWNER-ASK HOLD'S ONE READ OF THE ENDING STORE (spec-state-store §2.1), hoisted for
     # the same reason as every hoist above — N seats must cost ONE read, not N.
     #
@@ -840,7 +867,7 @@ def ready_seat_rows(args):
     # every row, exit 0, every other term intact.
     held = {}
     try:
-        for _ask in ending_store.list_open_asks(pkg):
+        for _ask in coord.ending_store.list_open_asks(pkg):
             held.setdefault(_ask["seat"], []).append(_ask["ask_id"])
     except Exception:                                          # noqa: BLE001 — see the note above
         held = {}
@@ -872,19 +899,19 @@ def ready_seat_rows(args):
     # bus must cost the run its WAKES, never its other verdicts, and zero is the fail-CLOSED
     # direction here: it leaves the chair IDLE rather than spawning one nobody asked for.
     staff_mail = {}
-    _staff_after = [_s for _s in after if is_staff_seat(_s)]
+    _staff_after = [_s for _s in after if coord.is_staff_seat(_s)]
     if _staff_after:
         try:
-            _sm_blocks = load_messages(base)[1]
-            _sm_rows = load_workers(base)[2]
-            _sm_gmap = group_map(base)
-            _sm_observers = observer_sets(args)[0]
-            _sm_closing = closing_seats(base)
+            _sm_blocks = coord.load_messages(base)[1]
+            _sm_rows = coord.load_workers(base)[2]
+            _sm_gmap = coord.group_map(base)
+            _sm_observers = coord.observer_sets(args)[0]
+            _sm_closing = coord.closing_seats(base)
             for _s in _staff_after:
-                _sm_row = current_row(_sm_rows, _s)
+                _sm_row = coord.current_row(_sm_rows, _s)
                 _sm_start = (int(_sm_row["lastread"])
                              if _sm_row and _sm_row["lastread"].isdigit() else 0)
-                staff_mail[_s] = len(unread_for(args, base, _s, _sm_start, _sm_blocks,
+                staff_mail[_s] = len(coord.unread_for(args, base, _s, _sm_start, _sm_blocks,
                                                 _sm_gmap, _sm_observers, _sm_closing))
         except Exception:                                      # noqa: BLE001 — see the note above
             staff_mail = {}
@@ -922,13 +949,13 @@ def ready_seat_rows(args):
     # rather than asking the store a second time per seat (see the note where `last_ended` is
     # hoisted). A seat with an ended row and no `after` entry is absent from `term` and is read
     # by `undeclared_endings` itself — the injection is a saving, never a narrowing.
-    undeclared = undeclared_endings(pkg, last_ended=last_ended,
+    undeclared = coord.undeclared_endings(pkg, last_ended=last_ended,
                                     endings={_s: _v[0] for _s, _v in term.items()})
 
     out = []
     for seat, preds in after.items():
         value, source, skew = term[seat]
-        row = current_row(roster, seat)
+        row = coord.current_row(roster, seat)
         active = bool(row) and row.get("active") == "yes"
         # 7.273: THE UNMET SET, HOISTED out of the terminal `else` below so that EVERY row reaches
         # it. The computation is unchanged and unmoved in substance — it is the SAME loop over the
@@ -992,7 +1019,7 @@ def ready_seat_rows(args):
                 # over an `exited` row — which does not open the descriptor. Hence the check.
                 if _w is None or _w["outputs_defect"]:
                     continue
-                for _tok, _path in resolved_outputs(_w):
+                for _tok, _path in coord.resolved_outputs(_w):
                     if _path not in seed_seen:
                         seed_seen.add(_path)
                         seed.append(_path)
@@ -1002,7 +1029,7 @@ def ready_seat_rows(args):
         # pair, already emitted on EVERY row, with `terminal(S)` deriving the `DONE` verdict from
         # it. `supervisor/seeding.js#recordView` is the consumer. Stated here because the obvious W2
         # move is to add a field for what these two have always carried.
-        _rn_state, _rn_why = (renewal_state(base, seat, lifecycle=lifecycle)
+        _rn_state, _rn_why = (lifecycle_exec.renewal_state(base, seat, lifecycle=lifecycle)
                               if value == "renew" else (None, ""))
         rec = {"seat": seat, "after": list(preds), "disposition": value, "source": source,
                # D42: present on EVERY row (`""` when unheld), same rule and same reason as
@@ -1080,7 +1107,7 @@ def ready_seat_rows(args):
         # read a different surface entirely, so the row could print `waiting_on_owner: false` beside
         # `verdict: HELD`. One read, one answer, N seats.
         rec["waiting_on_owner"] = bool(rec["held-asks"])
-        rec["launchable"] = ending_store.is_launchable(
+        rec["launchable"] = coord.ending_store.is_launchable(
             not unmet_after, value, None if value != "incomplete" else 1)
         if skew:
             rec["verdict"] = "SKEW"
@@ -1119,7 +1146,7 @@ def ready_seat_rows(args):
                 # moved nothing above it. A renew is a claim about this seat's own ending, and a
                 # contradiction about that ending (`SKEW`) or an unanswered owner ask (`HELD`)
                 # still decides first — the ladder's order is untouched by this change.
-                _rn_pending = rec["renewal"]["state"] == RENEW_PENDING
+                _rn_pending = rec["renewal"]["state"] == lifecycle_exec.RENEW_PENDING
                 rec["verdict"] = "RENEWING" if _rn_pending else "RENEW-BLOCKED"
                 rec["reason"] += (
                     f" — IN PROGRESS, NOT AN ENDING. This seat asked to come back and a SUCCESSOR "
@@ -1180,7 +1207,7 @@ def ready_seat_rows(args):
                 f"is the ROW, and it governs over every session-keyed surface. A terminal value "
                 f"never lifts; a holding value lifts only when its named exit event fires and the "
                 f"tag is cleared in that same act. It advances NO edge meanwhile")
-        elif is_staff_seat(seat) and not staff_mail.get(seat):
+        elif coord.is_staff_seat(seat) and not staff_mail.get(seat):
             # W3 · THE ON-DEMAND CHAIR, NOT WOKEN. See the `staff_mail` hoist above for why mail is
             # a term at all. Placed LAST before the `after` arithmetic deliberately: every refusal
             # above names a state a staff chair can genuinely reach (a skew, a hold, a ruled row),
@@ -1195,7 +1222,7 @@ def ready_seat_rows(args):
                 f"and the goal watcher (`supervisor/reconcile.js`, every 5 min) is what turns it into "
                 f"a sitting. Nothing is minted and nothing can be lost. It advances NO edge "
                 f"meanwhile")
-        elif is_summoned_seat(seat):
+        elif coord.is_summoned_seat(seat):
             # D24 · THE SUMMONED SEAT, NOT OFFERED. Narrower than the staff-chair branch
             # above: mail is NOT a wake term. The daemon's `verdict == "READY"` filter must
             # never spawn this seat; a bot-tag / forward-path enqueue (which does not read
@@ -1326,7 +1353,7 @@ _LIMB_CLASS = {
     # row's own `renewal` field. A row predating the field (`.get`, not `[...]`) reads `None` and
     # takes the loud arm — the same fail-safe direction `renewal_from_entry` takes.
     "disposition": lambda r: (
-        (("renewing" if (r.get("renewal") or {}).get("state") == RENEW_PENDING
+        (("renewing" if (r.get("renewal") or {}).get("state") == lifecycle_exec.RENEW_PENDING
           else "renew-blocked") if r["disposition"] == "renew"
          else _DEFERRAL_BY_DISPOSITION.get(r["disposition"], "terminal-unenumerated"))
         if r["disposition"] is not None else None),
@@ -1496,23 +1523,23 @@ def arm1_fails_under_transposition(rows, x, y):
 # append.
 def cmd_surface_refusal(args):
     """(daemon) surface ONE seed-time refusal on the goal bus, once per (seat, reason)."""
-    gate(args, "surface-refusal")
+    coord.gate(args, "surface-refusal")
     seat = args.seat
     reason = (args.reason or "").strip()
     if not reason:
-        refuse("input",
+        coord.refuse("input",
                "--reason is the refusal text being surfaced; an empty one would append a bus row "
                "that tells the operator nothing and dedup against every other empty refusal.", 2)
-    base = base_dir(args)
-    sender = resolve_agent(args)
+    base = coord.base_dir(args)
+    sender = coord.resolve_agent(args)
     key = hashlib.sha256(reason.encode("utf-8")).hexdigest()[:12]
     marker = f"seed-refusal: {seat} {key}"
     as_json = bool(getattr(args, "json", False))
-    with coord_lock(base):
-        _path, blocks = load_messages(base)
+    with coord.coord_lock(base):
+        _path, blocks = coord.load_messages(base)
         dup = next((b for b in blocks if any(marker in ln for ln in b["lines"])), None)
         if dup is None:
-            num = _append_message_unlocked(
+            num = coord._append_message_unlocked(
                 base, sender, "owner", "note",
                 # D5/D9 (seed-gates, 2026-08-19): the body line is GENERIC — this verb now
                 # carries every seed-pass refusal class (declared-output admission, lane
@@ -1544,7 +1571,7 @@ def cmd_surface_refusal(args):
 # answer about the run's own recorded state, computable by anyone who can read the package.
 def cmd_renewal_state(args):
     """(engine) ONE seat's renewal answer — READ-ONLY, verbatim from `renewal_state`."""
-    state, why = renewal_state(base_dir(args, register=False), args.seat)
+    state, why = lifecycle_exec.renewal_state(coord.base_dir(args, register=False), args.seat)
     if getattr(args, "json", False):
         print(json.dumps({"seat": args.seat, "state": state, "why": why},
                          indent=2, sort_keys=True))
@@ -1560,14 +1587,14 @@ def cmd_ready_seats(args):
     if target:
         rec = next((r for r in rows if r["seat"] == target), None)
         if rec is None:
-            refuse("input",
+            coord.refuse("input",
                    f"'{target}' has no row in this run's taskforce.csv, so there is no predicate "
                    f"to evaluate for it. Seats in this run: "
                    f"{', '.join(r['seat'] for r in rows) or '(none)'}\n"
-                   f"The whole frontier: {coord_invocation(args)} ready-seats", 2)
+                   f"The whole frontier: {coord.coord_invocation(args)} ready-seats", 2)
         # TERM BY TERM, in the predicate's own order, each with the value that decided it — so a
         # reader learns WHICH term held the seat, never merely that something did.
-        print(f"{c('seat:', C_LABEL)} {rec['seat']}    {c(rec['verdict'], C_LABEL)}")
+        print(f"{coord.c('seat:', coord.C_LABEL)} {rec['seat']}    {coord.c(rec['verdict'], coord.C_LABEL)}")
         print(f"  terminal(self)      = {rec['disposition'] or 'None'}"
               f"{' (' + rec['source'] + ')' if rec['source'] else ''}"
               f"   -> not itself finished: {rec['disposition'] is None}")
@@ -1625,7 +1652,7 @@ def cmd_ready_seats(args):
         print(f"  its `after` can still become satisfied                -> {not rec.get('dead')}"
               + ("   ⚠ DEAD — this seat can NEVER run and is NOT pending work. See the reason"
                  if rec.get("dead") else ""))
-        print(f"  {c('reason:', C_LABEL)} {rec['reason']}")
+        print(f"  {coord.c('reason:', coord.C_LABEL)} {rec['reason']}")
         return
     if getattr(args, "json", False):
         print(json.dumps(rows, indent=2, sort_keys=True))

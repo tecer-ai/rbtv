@@ -814,7 +814,7 @@ def build_parser():
                    help="the seat's tmux pane id, whose pid/starttime/tty become the row's identity pair (the pane's, never this process's). Omit it off tmux: the identity cells stay blank, which is honest — a fabricated one authenticates an impostor")
     s.add_argument("--wait", type=float, default=None,
                    help="seconds to wait for a claude seat's transcript before recording its native-session-id UNRESOLVED (default: the module's own budget). 0 records it unresolved immediately — checkin backfills it either way")
-    s.set_defaults(func=cmd_session_open)
+    s.set_defaults(func=launch.cmd_session_open)
 
     s = command(
         "launch",
@@ -916,7 +916,7 @@ def build_parser():
                         "here yet), and --force/--force-memory are "
                         "untouched and carry no part of this")
     add_identity_flags(s)
-    s.set_defaults(func=cmd_launch)
+    s.set_defaults(func=launch.cmd_launch)
 
     s = command(
         "surface-refusal",
@@ -936,7 +936,7 @@ def build_parser():
     s.add_argument("--json", action="store_true",
                    help="machine-readable result on stdout — the shape the daemon's seeding pass reads")
     add_identity_flags(s)
-    s.set_defaults(func=cmd_surface_refusal)
+    s.set_defaults(func=ready.cmd_surface_refusal)
 
     s = command(
         "renewal-state",
@@ -952,7 +952,7 @@ def build_parser():
     s.add_argument("seat", help="the seat whose renewal is being asked about")
     s.add_argument("--json", action="store_true",
                    help='{"seat", "state", "why"} — `state` is `successor-pending` or `no-successor`')
-    s.set_defaults(func=cmd_renewal_state)
+    s.set_defaults(func=ready.cmd_renewal_state)
 
     # ── W3 · the leader's actuator ─────────────────────────────────────────────────────────────
     # `widen-cage` (the leader's audited permission edit) was DELETED here (ruling [T2-R6, C-6],
@@ -978,7 +978,7 @@ def build_parser():
     s.add_argument("--file", metavar="PATH", help="read the body from a file instead")
     s.add_argument("--go", action="store_true", help="act (bare = report, write nothing)")
     add_identity_flags(s)
-    s.set_defaults(func=cmd_route_fail)
+    s.set_defaults(func=attest.cmd_route_fail)
 
     s = command(
         "export-transcript",
@@ -1244,7 +1244,7 @@ def build_parser():
         "example:\n"
         "  coordinate descriptors\n"
         "next: nothing — findings are reported to whoever owns seats/, never fixed here")
-    s.set_defaults(func=cmd_descriptors)
+    s.set_defaults(func=launch.cmd_descriptors)
 
     s = command(
         "attest-exit",
@@ -1285,7 +1285,7 @@ def build_parser():
     s.add_argument("--go", action="store_true",
                    help="ACT: export, flip the roster row, close the session row, and hand the "
                         "supervisor the evidence it stamps the ending from")
-    s.set_defaults(func=cmd_attest_exit)
+    s.set_defaults(func=attest.cmd_attest_exit)
 
     s = command(
         "rule-guard",
@@ -1315,7 +1315,7 @@ def build_parser():
     s.add_argument("--go", action="store_true",
                    help="ACT: append the ruling to guard-values.csv; without it nothing is written")
     add_identity_flags(s)
-    s.set_defaults(func=cmd_rule_guard)
+    s.set_defaults(func=attest.cmd_rule_guard)
 
     s = command(
         "ready-seats",
@@ -1365,7 +1365,7 @@ def build_parser():
                    help="exit 1 when ANY seat reports SKEW, instead of reporting it per-seat and "
                         "exiting 0. The rows are identical either way — this only changes the "
                         "exit status, for a caller that cannot parse them")
-    s.set_defaults(func=cmd_ready_seats)
+    s.set_defaults(func=ready.cmd_ready_seats)
 
     s = command(
         "boot-prompt",
@@ -1388,7 +1388,7 @@ def build_parser():
                         "PANELESS — it registers against the seat's already-open sessions.csv row "
                         "instead of a tmux pane — that no wake can reach it, and where its "
                         "session-id is readable. Default `console`")
-    s.set_defaults(func=cmd_boot_prompt)
+    s.set_defaults(func=launch.cmd_boot_prompt)
 
     s = command(
         "gateway-status",
@@ -1472,7 +1472,7 @@ def build_parser():
                    help="the run package, ABSOLUTE — the caller resolves it (package_dir) and passes it; never inferred here")
     s.add_argument("--seat", metavar="NAME", required=True,
                    help="the seat whose session is rotating")
-    s.add_argument("--disposition", required=True, choices=LIFECYCLE_DISPOSITIONS,
+    s.add_argument("--disposition", required=True, choices=lifecycle_exec.LIFECYCLE_DISPOSITIONS,
                    help="which lifecycle act this is — cross-verified against awaiting-close.json through LIFECYCLE_INTENT_OF: renew|close expect the intent their checkout recorded, revive (the crash arm) expects NO record at all and no stamped handoff block")
     s.add_argument("--pane", metavar="%N", default=None,
                    help="the seat's pane as the caller measured it")
@@ -1484,7 +1484,7 @@ def build_parser():
                    help="the forking process's /proc starttime — the half a recycled pid cannot forge")
     s.add_argument("--handoff-written", dest="handoff_written", choices=("0", "1"), default=None,
                    help="required on --disposition renew: the caller's assertion that it wrote a handoff block, which this executor RE-READS in memory.md before renewing")
-    s.set_defaults(func=cmd_lifecycle_exec)
+    s.set_defaults(func=lifecycle_exec.cmd_lifecycle_exec)
     p.command_parsers = made  # so the self-test can render every command's help
     return p
 

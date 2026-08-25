@@ -60,7 +60,7 @@ def renew_in_place(seat, pane, pane_live, pane_window_name=None):
     not been taught to measure the window cannot silently acquire the new path."""
     if not (bool(pane) and bool(pane_live)):
         return False
-    place, wname = seat_placement(seat)
+    place, wname = launch.seat_placement(seat)
     if place == "pane":
         return True                      # no window demand at all — wherever it sits is correct
     # `own`/`shared`: the briefing names a window. Respawn in place only when the pane ALREADY sits
@@ -142,16 +142,16 @@ def cmd_close_seat(args):
     row = current_row(rows, args.target)
     # Resolved BEFORE anything is killed: the in-place decision needs the seat's placement, and
     # the pids to verify dead are only readable while the pane still exists (G-10).
-    seats = ([w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
+    seats = ([w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == args.target]
              if args.renew else [])
     # G-51: checked BEFORE the seat is closed, not after. A renew that refuses halfway has already
     # killed the pane — the seat would be gone AND not relaunched, which is worse than either
     # outcome the check is choosing between. This is the exact path the run's live divergence sits
     # on: `close --renew` reads the DESCRIPTOR, so a registry re-bind never reaches it.
     if seats:
-        check_bindings(args, seats, "close --renew")
+        launch.check_bindings(args, seats, "close --renew")
     old_pane = (row or {}).get("pane") or ""
-    old_idents = pane_harness_idents(old_pane) if old_pane else []
+    old_idents = process.pane_harness_idents(old_pane) if old_pane else []
     # G-154: the window the pane is in RIGHT NOW is measured here, not inferred, because that is
     # the only thing that can say whether the seat is already where its briefing wants it.
     in_place = bool(seats) and renew_in_place(seats[0], old_pane, old_pane in live_panes(),
@@ -208,7 +208,7 @@ def cmd_close_seat(args):
             print(f"pane {old_pane}: {'killed' if ok else 'kill failed — ' + err}")
             # G-10: kill-pane SIGHUPs the process group and a blocked harness survives it as a
             # ghost the roster never mentions. Confirm the exit; escalate rather than assume.
-            survivors, note = verify_pids_gone(old_idents)
+            survivors, note = process.verify_pids_gone(old_idents)
             if old_idents:
                 print(f"process check: {len(old_idents)} harness pid(s) "
                       + (f"GONE{' — ' + note if note else ''}" if not survivors
@@ -227,7 +227,7 @@ def cmd_close_seat(args):
         launch_target = ""  # a tmux pane, not an agent — args.target is the seat being renewed
         if in_place:
             launch_target = old_pane
-        elif seat_placement(seats[0])[0] == "pane" and old_window and tmux_session_name(old_window):
+        elif launch.seat_placement(seats[0])[0] == "pane" and old_window and tmux_session_name(old_window):
             launch_target = old_window
         if not launch_target:
             launch_target = os.environ.get("COORD_LAUNCH_TARGET") or os.environ.get("TMUX_PANE")
@@ -239,14 +239,14 @@ def cmd_close_seat(args):
             sys.exit(1)
         # A renewed seat re-reads its rules at boot, so it needs a current mirror just as a
         # fresh launch does — and a renew lands mid-run, exactly when sources have been drifting.
-        refresh_mirrors_for(seats[:1])
+        launch.refresh_mirrors_for(seats[:1])
         tmux_raise_history_limit()
         same_cell = None
         if in_place:
             ok, rerr = tmux_respawn_pane(old_pane, seats[0]["cwd"])
             if ok:
                 same_cell = old_pane
-                survivors, note = verify_pids_gone(old_idents)
+                survivors, note = process.verify_pids_gone(old_idents)
                 if old_idents:
                     print(f"process check: {len(old_idents)} harness pid(s) "
                           + (f"GONE{' — ' + note if note else ''}" if not survivors
@@ -257,9 +257,9 @@ def cmd_close_seat(args):
                 print(f"respawn-in-place failed ({rerr}) — falling back to kill+split, which "
                       f"re-tiles this window", file=sys.stderr)
                 tmux_kill_pane(old_pane)
-                verify_pids_gone(old_idents)
+                process.verify_pids_gone(old_idents)
                 launch_target = old_window or launch_target
-        pane, err = launch_seat(seats[0], args, launch_target, pane=same_cell)
+        pane, err = launch.launch_seat(seats[0], args, launch_target, pane=same_cell)
         if err:
             print(f"renew FAILED: {err}", file=sys.stderr)
             sys.exit(1)
@@ -481,12 +481,12 @@ def cmd_kill_pane(args):
               f"because --force was given. Its roster row is UNCHANGED by this call and still "
               f"needs a close-seat.", file=sys.stderr)
 
-    idents = pane_harness_idents(target)
+    idents = process.pane_harness_idents(target)
     ok, err = tmux_kill_pane(target)
     print(f"pane {target} ({owner_row['agent']}): {'killed' if ok else 'kill FAILED -- ' + err}")
     if not ok:
         sys.exit(1)
-    survivors, note = verify_pids_gone(idents)
+    survivors, note = process.verify_pids_gone(idents)
     if idents:
         print(f"process check: {len(idents)} harness pid(s) "
               + (f"GONE{' -- ' + note if note else ''}" if not survivors
@@ -550,7 +550,7 @@ def cmd_terminate_pid(args):
             f"GROUP or an error, never one named process. terminate-pid takes exactly one pid.",
             1)
 
-    ident = process_identity(pid)
+    ident = process.process_identity(pid)
     if ident is None:
         refuse(
             "state",
@@ -568,7 +568,7 @@ def cmd_terminate_pid(args):
             f"catch.",
             1)
 
-    snap = ps_snapshot()
+    snap = process.ps_snapshot()
     if not snap:
         refuse(
             "environment",
@@ -576,7 +576,7 @@ def cmd_terminate_pid(args):
             "self-kill guard nor the seat radius can be evaluated. Cannot-tell is not "
             "not-a-seat, and this verb refuses rather than kill blind.",
             1)
-    if os.getpid() in descendant_pids(snap, pid):
+    if os.getpid() in process.descendant_pids(snap, pid):
         refuse(
             "state",
             f"pid {pid} is this very process or an ancestor of it — terminating it would kill "
@@ -584,7 +584,7 @@ def cmd_terminate_pid(args):
             f"decoration: an unrecorded terminate is the hand kill this verb replaces.",
             1)
 
-    radius, verifiable = seat_radius_pids(args)
+    radius, verifiable = process.seat_radius_pids(args)
     if not verifiable:
         refuse(
             "environment",
@@ -626,7 +626,7 @@ def cmd_terminate_pid(args):
         f"This record is written BEFORE the signal. The outcome follows as its own entry.")
     print(f"authorization recorded as message #{auth_n} (authorized by: {caller})")
 
-    ok, err = signal_pid(pid, sig)
+    ok, err = process.signal_pid(pid, sig)
     if not ok:
         append_message(base, caller, "all", "note",
                        f"OUTCOME — terminate-pid {pid}: the signal could NOT be sent ({err}). "
@@ -639,21 +639,21 @@ def cmd_terminate_pid(args):
     # Gone is asserted from /proc, never from os.kill's silence — os.kill returns None for a
     # delivered signal a process is free to ignore, and `terminate-pid` claiming a kill it did not
     # make is the one lie a terminate verb must never tell (S5, and G-10's shape at pid scale).
-    deadline = time.time() + PID_EXIT_TIMEOUT
-    while time.time() < deadline and process_identity(pid) == ident:
+    deadline = time.time() + process.PID_EXIT_TIMEOUT
+    while time.time() < deadline and process.process_identity(pid) == ident:
         time.sleep(0.3)
-    survived = process_identity(pid) == ident
+    survived = process.process_identity(pid) == ident
 
     append_message(
         base, caller, "all", "note",
         f"OUTCOME — terminate-pid {pid} (SIG{args.signal}, authorized by {caller}): "
-        + (f"the process SURVIVED {PID_EXIT_TIMEOUT}s and is still live. NOTHING was escalated: "
+        + (f"the process SURVIVED {process.PID_EXIT_TIMEOUT}s and is still live. NOTHING was escalated: "
            f"this verb sends the signal it was asked for and no other."
            if survived else "the process is GONE, verified from /proc, not from the signal call."),
         re_num=auth_n)
 
     if survived:
-        print(f"process check: pid {pid} is STILL LIVE {PID_EXIT_TIMEOUT}s after SIG{args.signal} "
+        print(f"process check: pid {pid} is STILL LIVE {process.PID_EXIT_TIMEOUT}s after SIG{args.signal} "
               f"— NOT terminated. No escalation was performed.")
         print(c(f"next: {coord_invocation(args)} terminate-pid {pid} --signal KILL --reason "
                 f"\"<why SIGTERM was not enough>\" — a deliberate second act, never this one's "
@@ -714,7 +714,7 @@ def cmd_relaunch_pane(args):
     inspection the one that lies."""
     # No role check here anymore [T2-R10, D24, F-simplicity-7] — `relaunch-pane` is callable by
     # any resolved identity.
-    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.target]
+    seats = [w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == args.target]
     if not seats:
         refuse(
             "state",
@@ -731,7 +731,7 @@ def cmd_relaunch_pane(args):
 
     # G-51, on the dry-run path too (see docstring) — check_bindings does not special-case
     # dry_run itself; it refuses on a real divergence regardless.
-    check_bindings(args, seats, "relaunch-pane")
+    launch.check_bindings(args, seats, "relaunch-pane")
 
     if not args.pane_id.startswith("%"):
         refuse(
@@ -776,7 +776,7 @@ def cmd_relaunch_pane(args):
             f"{args.target}` to open a fresh one instead.",
             1)
 
-    live_idents = pane_harness_idents(args.pane_id)
+    live_idents = process.pane_harness_idents(args.pane_id)
     if live_idents:
         refuse(
             "environment",
@@ -789,7 +789,7 @@ def cmd_relaunch_pane(args):
 
     seat = seats[0]
     if args.dry_run:
-        cmd, _err = harness_command(seat, prompt_path=(base_dir(args) / "prompts" /
+        cmd, _err = launch.harness_command(seat, prompt_path=(base_dir(args) / "prompts" /
                                                         f"{seat['agent']}-<stamp>.txt"))
         print(f"[dry-run] would respawn {args.pane_id} and start {seat['agent']} "
               f"({seat['harness']}/{seat['model'] or 'plan-default'}) in it, in place: "
@@ -798,7 +798,7 @@ def cmd_relaunch_pane(args):
 
     # A relaunch reads current rules just as a fresh launch does — it lands mid-run, exactly
     # when sources have been drifting (mirrors cmd_close_seat's own renew branch).
-    refresh_mirrors_for(seats[:1])
+    launch.refresh_mirrors_for(seats[:1])
     tmux_raise_history_limit()
     ok, rerr = tmux_respawn_pane(args.pane_id, seat["cwd"])
     if not ok:
@@ -807,7 +807,7 @@ def cmd_relaunch_pane(args):
             f"respawn of {args.pane_id} FAILED -- {rerr}. Nothing was started; verify "
             f"at tmux capture-pane -p -t {args.pane_id} before retrying.",
             1)
-    pane, err = launch_seat(seat, args, args.pane_id, pane=args.pane_id)
+    pane, err = launch.launch_seat(seat, args, args.pane_id, pane=args.pane_id)
     if err:
         print(f"relaunch FAILED: {err}\nThe pane was respawned but the harness never verified "
               f"up -- capture it: tmux capture-pane -p -t {args.pane_id}", file=sys.stderr)
@@ -856,12 +856,12 @@ def cmd_depart(args):
         # G-10: kill-pane SIGHUPs the process group; a harness blocked elsewhere survives as a
         # ghost holding ~450 MB that no roster row mentions. This process dies WITH the pane, so
         # it cannot check afterwards — a detached reaper outlives both and finishes the job.
-        idents = pane_harness_idents(pane)
+        idents = process.pane_harness_idents(pane)
         if idents:
             print(f"arming the exit reaper for harness pid(s) "
                   f"{', '.join(str(p) for p, _ in idents)} — no ghost survives this departure "
                   f"(it fires only on an exact pid+starttime match, so a recycled pid is safe)")
-            arm_pid_reaper(idents)
+            process.arm_pid_reaper(idents)
         print(f"killing own pane {pane} — goodbye")
         tmux_kill_pane(pane)
     else:
@@ -905,7 +905,7 @@ def _secret_add_authority(args):
     actual = (registered or os.environ.get("COORD_AGENT", "").strip()
               or daemon_exec_identity())
     try:
-        sid, seat = carrier_corroborated_seat(args)
+        sid, seat = carrier.carrier_corroborated_seat(args)
     except (SystemExit, OSError):
         sid, seat = "", ""
     if not actual and sid and seat:

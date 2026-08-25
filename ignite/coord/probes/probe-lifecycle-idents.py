@@ -159,7 +159,7 @@ def stub_harness(workdir, tag):
     # argv settles 40-190us later). Wait for the observable "exec happened" instead — a NON-EMPTY
     # cmdline, not a harness-matching one, so 1.1's own predicate is still free to fail.
     for _ in range(100):
-        ident = coord.process_identity(proc.pid)
+        ident = coord.process.process_identity(proc.pid)
         if ident and cmdline(proc.pid):
             return proc, ident
         time.sleep(0.05)
@@ -178,10 +178,10 @@ def dead(ident, wait_s=6.0):
     """True once `ident` no longer names a live process (a zombie counts as gone — s3-02)."""
     deadline = time.time() + wait_s
     while time.time() < deadline:
-        if not coord.ident_is_live_process(ident):
+        if not coord.process.ident_is_live_process(ident):
             return True
         time.sleep(0.1)
-    return not coord.ident_is_live_process(ident)
+    return not coord.process.ident_is_live_process(ident)
 
 
 def make_package(root, seat, disposition="done"):
@@ -230,14 +230,14 @@ def drive_close(root, seat, caller_ident):
     t0 = time.monotonic()
     outcome = "returned"
     try:
-        coord.cmd_lifecycle_exec(args)
+        coord.lifecycle_exec.cmd_lifecycle_exec(args)
     except SystemExit as exc:                                          # an alarm fired
         outcome = f"SystemExit({exc.code})"
     except Exception as exc:                                           # noqa: BLE001
         outcome = f"{type(exc).__name__}: {exc}"
     finally:
         coord.live_panes = saved
-    return time.monotonic() - t0, coord.load_lifecycle(base).get(seat) or {}, outcome
+    return time.monotonic() - t0, coord.lifecycle_exec.load_lifecycle(base).get(seat) or {}, outcome
 
 
 # =================================================================================================
@@ -337,8 +337,11 @@ def main():
     src = "\n".join(_p.read_text(encoding="utf-8") for _p in coord.PRODUCT_FILES)
     digest = hashlib.md5(src.encode()).hexdigest()
     print(f"\ncoord.py under test: {COORD_PY}\n  {len(src.splitlines())} lines · md5 {digest}")
-    print(f"  LIFECYCLE_SETTLE_S={coord.LIFECYCLE_SETTLE_S}  "
-          f"LIFECYCLE_STALE_MIN={coord.LIFECYCLE_STALE_MIN}  HARNESS_PROCS={coord.HARNESS_PROCS}")
+    # The two lifecycle budgets are named through the modules that OWN them: they left the kit's
+    # shared namespace for `supervisor/` and are no longer attributes of `coord` itself.
+    print(f"  LIFECYCLE_SETTLE_S={coord.process.LIFECYCLE_SETTLE_S}  "
+          f"LIFECYCLE_STALE_MIN={coord.process.LIFECYCLE_STALE_MIN}  "
+          f"HARNESS_PROCS={coord.HARNESS_PROCS}")
 
     tmp = tempfile.mkdtemp(prefix="probe-lifecycle-idents-")
     try:
@@ -377,31 +380,31 @@ def main():
         S_wrong = str(int(S) + 1)
         argv_a = cmdline(P)
         check("1.1 the stub is a real live process the kit reads as a harness",
-              coord.is_harness_argv(argv_a) and coord.process_identity(P) == (P, S),
+              coord.process.is_harness_argv(argv_a) and coord.process.process_identity(P) == (P, S),
               f"pid {P} starttime {S} — {argv_a}")
-        check("1.2 the predicate accepts the TRUE ident", coord.ident_is_live_harness((P, S)))
+        check("1.2 the predicate accepts the TRUE ident", coord.process.ident_is_live_harness((P, S)))
         check("1.3 ...and REFUSES the same pid with a wrong starttime — this is the whole guard",
-              coord.ident_is_live_harness((P, S_wrong)) is False, f"({P}, {S_wrong})")
+              coord.process.ident_is_live_harness((P, S_wrong)) is False, f"({P}, {S_wrong})")
         check("1.4 the plain-process predicate refuses it too (the guard is not harness-specific)",
-              coord.ident_is_live_process((P, S_wrong)) is False)
+              coord.process.ident_is_live_process((P, S_wrong)) is False)
 
-        script_wrong = coord.reaper_script([(P, S_wrong)], 1)
+        script_wrong = coord.process.reaper_script([(P, S_wrong)], 1)
         check("1.5 the emitted reaper text names P:S_wrong and NOT P:S — pure, so checkable "
               "without arming anything",
               f"{P}:{S_wrong}" in script_wrong and f"{P}:{S}" not in script_wrong,
               script_wrong[:70] + "…")
 
         t0 = time.monotonic()
-        survivors, note = coord.verify_pids_gone([(P, S_wrong)])
+        survivors, note = coord.process.verify_pids_gone([(P, S_wrong)])
         check("1.6 the close path's in-process verifier reports NO survivors for the stale ident "
               "— it correctly sees nothing matching",
               survivors == [] and note == "", f"{time.monotonic() - t0:.2f}s, note={note!r}")
 
-        coord.arm_pid_reaper([(P, S_wrong)], delay=1)
+        coord.process.arm_pid_reaper([(P, S_wrong)], delay=1)
         time.sleep(3.5)
         check("1.7 ⚠ THE ROW THIS PROBE EXISTS FOR: the DETACHED reaper armed with the stale ident "
               "left the live process ALIVE",
-              coord.ident_is_live_harness((P, S)) and coord.process_identity(P) == (P, S),
+              coord.process.ident_is_live_harness((P, S)) and coord.process.process_identity(P) == (P, S),
               f"pid {P} still holds starttime {S}")
 
         # RED ARM — acceptance 2. Without this, 1.6/1.7 are satisfied by a reaper that never fires.
@@ -409,7 +412,7 @@ def main():
         if not ident_b:
             print("INOPERATIVE: the red-arm stub never appeared in /proc")
             return 2
-        s_b, note_b = coord.verify_pids_gone([ident_b], timeout=0.0)
+        s_b, note_b = coord.process.verify_pids_gone([ident_b], timeout=0.0)
         red("the SAME in-process verifier, armed with the CORRECT ident, KILLS the process",
             s_b == [] and "reaped by signal" in note_b and dead(ident_b),
             f"pid {ident_b[0]} — {note_b or 'no escalation note'}")
@@ -418,22 +421,22 @@ def main():
         if not ident_c:
             print("INOPERATIVE: the red-arm stub never appeared in /proc")
             return 2
-        coord.arm_pid_reaper([ident_c], delay=1)
+        coord.process.arm_pid_reaper([ident_c], delay=1)
         red("the SAME detached reaper, armed with the CORRECT ident, KILLS the process",
             dead(ident_c, wait_s=8.0), f"pid {ident_c[0]}")
         check("1.8 and the first stub is STILL alive after both red arms — the reaper hit only "
               "what it owned",
-              coord.ident_is_live_harness((P, S)))
+              coord.process.ident_is_live_harness((P, S)))
 
         # ---- PART 2 — GUARD CONFORMANCE: the two predicates are not interchangeable. ------------
         print("\nPART 2 — the two predicates: the asymmetry guards 4, 5 and the staleness test rest on.")
-        me = coord.process_identity(os.getpid())
+        me = coord.process.process_identity(os.getpid())
         check("2.5a this probe's own python process is LIVE to ident_is_live_process",
-              coord.ident_is_live_process(me) is True, f"{me}")
+              coord.process.ident_is_live_process(me) is True, f"{me}")
         check("2.5b ...and DEAD to ident_is_live_harness — is_harness_argv matches only "
               f"{'/'.join(coord.HARNESS_PROCS)}",
-              coord.ident_is_live_harness(me) is False
-              and coord.is_harness_argv(cmdline(os.getpid())) is False,
+              coord.process.ident_is_live_harness(me) is False
+              and coord.process.is_harness_argv(cmdline(os.getpid())) is False,
               cmdline(os.getpid())[:60])
 
         # 2.6 — the settle wait, at its REAL budget, inside the REAL executor.
@@ -448,7 +451,7 @@ def main():
               bool(steps) and steps[0] == "caller-still-live-after-settle",
               f"{elapsed:.1f}s, outcome={outcome}, step0={steps[0] if steps else '(none)'!r}")
         check("2.6b ...for the FULL budget — a wait wired to the harness predicate returns at once",
-              elapsed >= coord.LIFECYCLE_SETTLE_S, f"{elapsed:.1f}s >= {coord.LIFECYCLE_SETTLE_S}s")
+              elapsed >= coord.process.LIFECYCLE_SETTLE_S, f"{elapsed:.1f}s >= {coord.process.LIFECYCLE_SETTLE_S}s")
         check("2.6c ...and the sequence PROCEEDED ANYWAY: it ran to completion and flipped the "
               "marker done",
               entry.get("state") == "done" and any("awaiting-and-closing-cleared" in s
@@ -470,7 +473,7 @@ def main():
 
         # 2.7 — the staleness side of the same trap.
         stamp = coord.now()
-        later = (datetime.now() + timedelta(minutes=coord.LIFECYCLE_STALE_MIN + 5)
+        later = (datetime.now() + timedelta(minutes=coord.process.LIFECYCLE_STALE_MIN + 5)
                  ).strftime("%Y-%m-%d %H:%M")
         live_entry = {"state": "in-flight", "stamped-at": stamp,
                       "executor": {"pid": me[0], "starttime": me[1]}}
@@ -478,20 +481,20 @@ def main():
                       "executor": {"pid": gone_ident[0], "starttime": gone_ident[1]}}
         check("2.7a an in-flight marker whose executor is a LIVE python process is NOT stale — "
               "that is MID-RENEWAL, and firing on it double-launches the seat",
-              coord.lifecycle_stale(live_entry, later) is False)
+              coord.lifecycle_exec.lifecycle_stale(live_entry, later) is False)
         check("2.7b ...and the same marker IS stale once its executor is reaped",
-              coord.lifecycle_stale(dead_entry, later) is True, f"executor pid {gone_ident[0]}")
+              coord.lifecycle_exec.lifecycle_stale(dead_entry, later) is True, f"executor pid {gone_ident[0]}")
         check("2.7c control: conjunct 2 is present — a young entry with a dead executor is not "
               "stale yet",
-              coord.lifecycle_stale(dead_entry, stamp) is False)
+              coord.lifecycle_exec.lifecycle_stale(dead_entry, stamp) is False)
 
         # ---- THE THREE MUTATIONS. One swap, three rows, three reds. ----------------------------
         print("\nPART 2 red arms — rewrite the predicate under test to the other one.")
-        saved_pred = coord.ident_is_live_process
+        saved_pred = coord.process.ident_is_live_process
         try:
-            coord.ident_is_live_process = coord.ident_is_live_harness
+            coord.process.ident_is_live_process = coord.process.ident_is_live_harness
             red("[row 5] with the predicates swapped, the probe's own live process reads DEAD",
-                coord.ident_is_live_process(me) is False)
+                coord.process.ident_is_live_process(me) is False)
             caller2, caller2_ident = stub_python_child(tmp)
             e2, entry2, _ = drive_close(tmp, "settle-mutant", caller2_ident)
             steps2 = [str(s) for s in (entry2.get("steps-completed") or [])]
@@ -503,12 +506,12 @@ def main():
             caller2.wait()
             red("[row 7] ...and a MID-RENEWAL marker reads STALE — Stage 4 would revive a seat "
                 "whose renewal is in progress",
-                coord.lifecycle_stale(live_entry, later) is True)
+                coord.lifecycle_exec.lifecycle_stale(live_entry, later) is True)
         finally:
-            coord.ident_is_live_process = saved_pred
+            coord.process.ident_is_live_process = saved_pred
         check("2.8 the mutation is undone — the live predicate is restored",
-              coord.ident_is_live_process is saved_pred
-              and coord.ident_is_live_process(me) is True)
+              coord.process.ident_is_live_process is saved_pred
+              and coord.process.ident_is_live_process(me) is True)
 
         # ---- PART 3 — THE SEVEN GUARDED ACTS, LOCATED IN THE SHIPPED CODE. ---------------------
         print("\nPART 3 — spec §4.1's seven guarded acts, located by symbol and line.")
@@ -523,9 +526,14 @@ def main():
 
         # RED ARM — acceptance 4. A scratch copy, never the live file, never coord.py.
         scratch = Path(tmp) / "coord-scratch-noreaper.py"
-        cut = re.sub(r"\n\s*arm_pid_reaper\(old_idents\)", "\n        pass", src, count=1)
+        # ⚠ THE MUTATION ANCHOR CARRIES THE MODULE PREFIX. `lifecycle_exec` and `process` are
+        # real modules since the 2026-08-25 split, so the call site reads `process.arm_pid_reaper(`
+        # — an anchor without it matches nothing, the "mutant" is a byte-identical copy, and the
+        # RED ARM passes for rot instead of for a regression.
+        cut = re.sub(r"\n\s*process\.arm_pid_reaper\(old_idents\)", "\n        pass", src,
+                     count=1)
         check("3.red-setup the scratch mutant actually differs from the shipped file",
-              cut != src and "arm_pid_reaper(old_idents)" not in cut)
+              cut != src and "process.arm_pid_reaper(old_idents)" not in cut)
         scratch.write_text(cut)
         v_cut, _ = locate(scratch.read_text())
         red("deleting guard 3's call site in a SCRATCH copy makes the locator report it MISSING",
@@ -536,8 +544,8 @@ def main():
         # The MINIMAL mutation — the settle wait's ONE call site, nothing else. A block-wide
         # replace would also rewrite the docstring that warns against this very swap, and the
         # locator reads calls, not prose: the red would then be over-determined.
-        needle = "        if not ident_is_live_process(caller):"
-        swapped = src.replace(needle, "        if not ident_is_live_harness(caller):", 1)
+        needle = "        if not process.ident_is_live_process(caller):"
+        swapped = src.replace(needle, "        if not process.ident_is_live_harness(caller):", 1)
         diff_lines = [i for i, (a, b) in enumerate(zip(src.splitlines(), swapped.splitlines()))
                       if a != b]
         check("3.red-setup2 the second scratch mutant changes EXACTLY ONE line — the settle "
@@ -625,7 +633,7 @@ def stub_python_child(workdir):
     # bug makes it pass. Wait for the observable "exec happened" — a NON-EMPTY cmdline, not a
     # python-shaped one, so the consuming predicate is still free to fail.
     for _ in range(100):
-        ident = coord.process_identity(proc.pid)
+        ident = coord.process.process_identity(proc.pid)
         if ident and cmdline(proc.pid):
             return proc, ident
         time.sleep(0.05)

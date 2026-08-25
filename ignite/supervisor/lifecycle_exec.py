@@ -1,3 +1,32 @@
+# ---- this module is IMPORTED, never `exec`d into `coord.py`'s namespace ----------------------
+# It left `coord/` for the home `spec-component-map` §3 names, under the owner's 2026-08-25 ruling
+# ("SPLIT_MODULES / coordinate split"). The move-only split loaded it by `exec` into ONE shared
+# namespace; it is a real module now, so everything it did not define itself is named through the
+# module that owns it.
+#
+# ⚠ QUALIFY — NEVER `from coord import NAME`. The selftest rebinds ~60 kit names at runtime
+# (`global wake, atomic_write, ...` plus the `globals()[...]` sites), and a name copied into this
+# module at import time is a SNAPSHOT: every later stub would be inert. Measured 2026-08-24 on the
+# same bytes — 913 ok under a copying bind vs 1039 ok / PASS through the shared namespace. Reading
+# `coord.NAME` at CALL time is what keeps a rebinding visible here.
+#
+# ⚠ The peer imports below are CIRCULAR by construction (`launch` <-> `attest`, `ready` <-> ...)
+# and that is sound ONLY because every cross-module name is read inside a function body. A
+# module-level read of a peer's attribute would break the import cycle — measure before adding one.
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import coord
+import launch
+import process
+
 # ---- STAGE 3 (s3-03): the LIFECYCLE-INFLIGHT marker ------------------------------------------
 # `{package}/coordination/lifecycle-inflight.json` — beside `awaiting-close.json` and
 # `closing.json`, ONE SHARED FILE, a dict keyed by seat, written the way both of them are
@@ -126,7 +155,7 @@ def load_lifecycle(base):
 
 
 def _write_lifecycle(base, data):
-    atomic_write(lifecycle_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
+    coord.atomic_write(lifecycle_path(base), json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
 def stamp_lifecycle(base, seat, record):
@@ -152,8 +181,8 @@ def stamp_lifecycle(base, seat, record):
         rec["failure"] = str(rec.get("failure") or "")
         rec["state"] = "in-flight"
         rec["steps-completed"] = []
-        rec["stamped-at"] = now()
-        with coord_lock(base):
+        rec["stamped-at"] = coord.now()
+        with coord.coord_lock(base):
             data = load_lifecycle(base)
             data[seat] = rec
             _write_lifecycle(base, data)
@@ -169,7 +198,7 @@ def append_lifecycle_step(base, seat, step):
     created. A step appended to nothing would be a claim about a renewal this file never saw
     start, and the caller must learn that immediately rather than read it back later as history."""
     try:
-        with coord_lock(base):
+        with coord.coord_lock(base):
             data = load_lifecycle(base)
             entry = data.get(seat)
             if not isinstance(entry, dict):
@@ -196,7 +225,7 @@ def finish_lifecycle(base, seat, state, failure=""):
     if state not in ("done", "FAILED"):
         return False
     try:
-        with coord_lock(base):
+        with coord.coord_lock(base):
             data = load_lifecycle(base)
             entry = data.get(seat)
             if not isinstance(entry, dict):
@@ -218,7 +247,7 @@ def clear_lifecycle(base, seat):
     called on success: a successful renewal FLIPS to `state: "done"` via `finish_lifecycle`, and
     deleting it there would erase the only record that the renewal happened out of pane."""
     try:
-        with coord_lock(base):
+        with coord.coord_lock(base):
             data = load_lifecycle(base)
             if seat not in data:
                 return False
@@ -273,12 +302,12 @@ def lifecycle_stale(entry, now_str=None):
     if not isinstance(entry, dict) or entry.get("state") != "in-flight":
         return False
     age = lifecycle_age_min(entry, now_str)
-    if age is None or age <= LIFECYCLE_STALE_MIN:
+    if age is None or age <= process.LIFECYCLE_STALE_MIN:
         return False
     ident = lifecycle_ident(entry.get("executor"))
     if not ident:
         return False
-    return not ident_is_live_process((ident["pid"], ident["starttime"]))
+    return not process.ident_is_live_process((ident["pid"], ident["starttime"]))
 
 
 # ---------- THE RENEW GATE: `renew` is not a failure, and "no successor" is not silence ---------
@@ -349,7 +378,7 @@ def renewal_from_entry(entry, now_str=None):
         _age = lifecycle_age_min(entry, now_str)
         return RENEW_NO_SUCCESSOR, (
             f"its lifecycle entry is STILL `in-flight` {_age}min after the stamp (bound "
-            f"{LIFECYCLE_STALE_MIN}min) and its executor is NOT a live process — the fork never "
+            f"{process.LIFECYCLE_STALE_MIN}min) and its executor is NOT a live process — the fork never "
             f"completed and no successor is coming")
     _age = lifecycle_age_min(entry, now_str)
     # ⚠ THE ARM THAT KEEPS `successor-pending` FROM BEING ABSORBING, and `lifecycle_stale` cannot
@@ -360,18 +389,18 @@ def renewal_from_entry(entry, now_str=None):
     # deliberately NO `executor` (the child writes its own pair as its first act), so an entry
     # still identless well past the bound is a child that never announced itself — nothing is
     # coming, and a reader who is told `successor-pending` waits forever. Aged out, said out loud.
-    if _age is not None and _age > LIFECYCLE_STALE_MIN and not lifecycle_ident(
+    if _age is not None and _age > process.LIFECYCLE_STALE_MIN and not lifecycle_ident(
             entry.get("executor")):
         return RENEW_NO_SUCCESSOR, (
             f"its lifecycle entry is STILL `in-flight` {_age}min after the stamp (bound "
-            f"{LIFECYCLE_STALE_MIN}min) and NO EXECUTOR EVER RECORDED ITSELF — the detached "
+            f"{process.LIFECYCLE_STALE_MIN}min) and NO EXECUTOR EVER RECORDED ITSELF — the detached "
             f"executor writes its own pid pair as its first act, so a marker this old without one "
             f"names a fork that never got that far. No successor is coming")
     return RENEW_PENDING, (
         f"its lifecycle entry is `in-flight`, stamped "
         f"{str(_age) + 'min ago' if _age is not None else 'unreadably'} — a successor IS being "
         f"forked. It flips to `no-successor` on its own once the stamp ages past "
-        f"{LIFECYCLE_STALE_MIN}min with a dead executor — or with none ever recorded")
+        f"{process.LIFECYCLE_STALE_MIN}min with a dead executor — or with none ever recorded")
 
 
 def renewal_state(base, seat, now_str=None, lifecycle=None):
@@ -686,7 +715,7 @@ def lifecycle_alarm_recipient(args, base):
     rather than send into the void. Never raises: this runs inside a refusal, and a traceback
     replacing a refusal is worse than the defect it reports (`refusal_text`'s own rule)."""
     try:
-        known = known_recipients(args, base)
+        known = coord.known_recipients(args, base)
     except Exception as exc:                                   # noqa: BLE001
         return "", (f"this package's recipient set could not be read at all "
                     f"({type(exc).__name__}: {exc})")
@@ -793,7 +822,7 @@ def lifecycle_record_undelivered(base, text, reason):
     through `now()`, so the stamp format cannot drift between them."""
     try:
         Path(base).mkdir(parents=True, exist_ok=True)
-        line = (f"- {now()} | UNDELIVERED ({reason}): "
+        line = (f"- {coord.now()} | UNDELIVERED ({reason}): "
                 f"{' '.join(str(text).split())}\n")
         with open(Path(base) / "undelivered-flags.md", "a", encoding="utf-8") as fh:
             fh.write(line)
@@ -825,8 +854,8 @@ def lifecycle_recipient_live(args, base, name):
     "assume the chair is empty", because the cost of being wrong is one extra durable flag and the
     cost of the other error is the silence this exists to end."""
     try:
-        _, _, rows = load_workers(base)
-        row = current_row(rows, name)
+        _, _, rows = coord.load_workers(base)
+        row = coord.current_row(rows, name)
     except Exception as exc:                                   # noqa: BLE001
         return False, (f"this package's roster could not be read at all "
                        f"({type(exc).__name__}: {exc}), so nothing vouches that anyone is sitting "
@@ -839,13 +868,13 @@ def lifecycle_recipient_live(args, base, name):
         return False, (f"'{name}''s roster row is NOT ACTIVE — its last sitting checked out, so "
                        f"the chair is empty until it is launched again")
     pane = str(row.get("pane") or "")
-    if is_tmux_pane(pane):
-        if pane in live_panes():
+    if coord.is_tmux_pane(pane):
+        if pane in coord.live_panes():
             return True, ""
         return False, (f"'{name}' is rostered ACTIVE in {pane}, but tmux no longer has that pane "
                        f"— the session died without checking out")
-    if pane.startswith(SID_PANE_PREFIX):
-        sid = pane[len(SID_PANE_PREFIX):]
+    if pane.startswith(coord.SID_PANE_PREFIX):
+        sid = pane[len(coord.SID_PANE_PREFIX):]
         try:
             # F-6 (2026-08-21): MEMBERSHIP among the seat's open rows, not equality with the LAST
             # one. The roster token is now the carrier-proven id (`cmd_checkin`'s F-6 note), and
@@ -854,7 +883,7 @@ def lifecycle_recipient_live(args, base, name):
             # legitimately name different rows of the SAME live seat. Measured 2026-08-20 22:23Z:
             # the live leader read as an empty chair for its whole sitting because the roster held
             # the stale row's id while its own row 404 was the last-open one.
-            open_ids = session_open_ids(package_dir(args), name)
+            open_ids = coord.session_open_ids(coord.package_dir(args), name)
         except Exception as exc:                               # noqa: BLE001
             return False, (f"'{name}' is PANELESS (rostered against session {sid}) and this "
                            f"package's open-session set could not be read "
@@ -863,7 +892,7 @@ def lifecycle_recipient_live(args, base, name):
             return True, ""
         return False, (f"'{name}' is a PANELESS seat rostered ACTIVE against session {sid}, and "
                        f"that session is no longer open in sessions.csv")
-    return False, (f"'{name}''s roster row carries neither a tmux pane nor a `{SID_PANE_PREFIX}` "
+    return False, (f"'{name}''s roster row carries neither a tmux pane nor a `{coord.SID_PANE_PREFIX}` "
                    f"token, so there is no identity to test liveness against")
 
 
@@ -918,7 +947,7 @@ def lifecycle_raise_alarm(layer, msg, base, args):
     prior = os.environ.pop("TMUX_PANE", None)
     reason = ""
     try:
-        cmd_send(ns)
+        coord.cmd_send(ns)
     except SystemExit as exc:
         reason = f"coord refused the send (exit {exc.code})"
     except Exception as exc:                                   # noqa: BLE001
@@ -1006,7 +1035,7 @@ def lifecycle_alarm(layer, msg, code=2, base=None, args=None, failure=None):
         if marker:
             text += "\n" + marker
     text += "\n" + alarm_line
-    refuse(layer, text, code)
+    coord.refuse(layer, text, code)
 
 
 def lifecycle_target_live(target):
@@ -1034,9 +1063,9 @@ def lifecycle_target_live(target):
     t = str(target or "").strip()
     if not t:
         return False, "it is EMPTY"
-    if t in live_panes():
+    if t in coord.live_panes():
         return True, ""
-    if tmux_session_name(t):
+    if coord.tmux_session_name(t):
         return True, ""
     return False, ("tmux resolves neither a live pane nor a session for it — it names nothing "
                    "that exists right now")
@@ -1124,7 +1153,7 @@ def lifecycle_fork_target(seat, pane):
     `renew_in_place` short-circuits on `pane_live` and a dead pane has no window to read. That is
     an elision of unreachable work, not a second rule.
     """
-    if not is_tmux_pane(pane):
+    if not coord.is_tmux_pane(pane):
         # ⚠ THE PANELESS LANE, ANSWERED FIRST AND BY ITS OWN NAME (2026-08-18). This arm used to
         # read `if not pane`, which a paneless row does not satisfy: F1 puts the seat's OPEN
         # session id in the pane cell, prefixed — `sid:<uuid>` is TRUTHY, so a daemon-lane seat
@@ -1143,11 +1172,11 @@ def lifecycle_fork_target(seat, pane):
                     + (f"the PANELESS token {pane!r}" if pane else "no pane at all")
                     + ", not a tmux pane id — a DAEMON-launched seat has never been in a tmux "
                       "room, so no pane, window or session can be measured from it")
-    pane_live = pane in live_panes()
-    if renew_in_place(seat, pane, pane_live, tmux_pane_window_name(pane) if pane_live else None):
+    pane_live = pane in coord.live_panes()
+    if coord.renew_in_place(seat, pane, pane_live, coord.tmux_pane_window_name(pane) if pane_live else None):
         return pane, ""
-    window = tmux_pane_window(pane) if pane_live else ""
-    if seat_placement(seat)[0] == "pane" and window and tmux_session_name(window):
+    window = coord.tmux_pane_window(pane) if pane_live else ""
+    if launch.seat_placement(seat)[0] == "pane" and window and coord.tmux_session_name(window):
         return window, ""
     if not pane_live:
         return "", (f"its pane {pane} is NOT LIVE, so neither that pane nor the window it sat in "
@@ -1253,13 +1282,13 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
     ⚠ RENEW ONLY. `d-cos-may-launch` bounds this: the fork is the SEAT's own act on its OWN
     checkout, and nothing here is reachable from a chief-of-staff-facing command, flag or path.
     """
-    seats = [w for w in discover_workers(workers_dir(args)) if w["agent"] == seat_name]
+    seats = [w for w in launch.discover_workers(coord.workers_dir(args)) if w["agent"] == seat_name]
     if not seats:
         lifecycle_no_successor(
             args, base, seat_name, pane,
-            f"no briefing in {workers_dir(args)} carries `agent: {seat_name}`, so its placement "
+            f"no briefing in {coord.workers_dir(args)} carries `agent: {seat_name}`, so its placement "
             f"cannot be read and no target can be computed for the successor.",
-            f"{coord_invocation(args)} launch --only {seat_name} (once the briefing exists)")
+            f"{coord.coord_invocation(args)} launch --only {seat_name} (once the briefing exists)")
     target, why = lifecycle_fork_target(seats[0], pane)
     if not target:
         lifecycle_no_successor(
@@ -1267,8 +1296,8 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"its tmux target could not be computed — {why}. Refusing rather than passing an "
             f"empty target down: tmux resolves an empty target to the MOST RECENT session, "
             f"measured to be the LIVE room.",
-            f"{coord_invocation(args)} close-seat {seat_name} --renew")
-    caller_start = proc_stat(os.getpid())[1]
+            f"{coord.coord_invocation(args)} close-seat {seat_name} --renew")
+    caller_start = process.proc_stat(os.getpid())[1]
     if not caller_start:
         lifecycle_no_successor(
             args, base, seat_name, pane,
@@ -1276,7 +1305,7 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"(pid, starttime) pair to hand over. The PAIR is what lets the executor tell 'my "
             f"caller exited' from 'a recycled pid landed on its number'; a pid alone is not an "
             f"identity.",
-            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            f"{coord.coord_invocation(args)} close-seat {seat_name} --renew",
             layer="environment")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = Path(base) / f"lifecycle-exec-{seat_name}-{stamp}.log"
@@ -1297,10 +1326,13 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"would leave a renewal running that nothing on disk records — invisible to `status`, "
             f"and invisible to the revival arm, which reads exactly this file. ⚠ THE ALARM BELOW "
             f"IS THE ONLY DURABLE SURFACE LEFT on this arm: the marker write is what just failed.",
-            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            f"{coord.coord_invocation(args)} close-seat {seat_name} --renew",
             layer="environment")
-    argv = ["setsid", sys.executable, str(Path(__file__).resolve()), "lifecycle-exec",
-            "--package", str(package_dir(args)),
+    # ⚠ THE DOOR THAT CARRIES `lifecycle-exec`, NOT THIS FILE. This module is imported, never
+    # run — `python3 lifecycle_exec.py` defines that verb nowhere. The fork re-enters through
+    # the CLI, which is `coord.COORD_PY`.
+    argv = ["setsid", sys.executable, str(coord.COORD_PY), "lifecycle-exec",
+            "--package", str(coord.package_dir(args)),
             "--seat", seat_name,
             "--disposition", "renew",
             "--pane", str(pane or ""),
@@ -1324,7 +1356,7 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"goes nowhere is the exact failure this room has already paid for once, so it is not "
             f"started at all. The marker is flipped FAILED so nothing reads this as a renewal in "
             f"progress.",
-            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            f"{coord.coord_invocation(args)} close-seat {seat_name} --renew",
             layer="environment")
     try:
         subprocess.Popen(argv, stdout=handle, stderr=handle,
@@ -1337,7 +1369,7 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             args, base, seat_name, pane,
             f"the spawn itself failed ({exc}). The marker is flipped FAILED so nothing reads this "
             f"as a renewal in progress.",
-            f"{coord_invocation(args)} close-seat {seat_name} --renew",
+            f"{coord.coord_invocation(args)} close-seat {seat_name} --renew",
             layer="environment")
     handle.close()
     print(f"lifecycle: detached executor forked for '{seat_name}' — target {target}, evidence "
@@ -1400,9 +1432,9 @@ def lifecycle_record_step(base, seat, step):
     than it actually reached. Reported, never swallowed."""
     if append_lifecycle_step(base, seat, step):
         return True
-    print(c(f"WARNING lifecycle-exec: step {step!r} VERIFIED but could NOT be appended to seat "
+    print(coord.c(f"WARNING lifecycle-exec: step {step!r} VERIFIED but could NOT be appended to seat "
             f"{seat!r}'s marker. The sequence continues; the marker is now BEHIND it, and anything "
-            f"reading `steps-completed` will understate how far this renewal got.", C_DEAD),
+            f"reading `steps-completed` will understate how far this renewal got.", coord.C_DEAD),
           file=sys.stderr)
     return False
 
@@ -1436,10 +1468,10 @@ def lifecycle_settle(caller, budget_s=None):
     sessions.csv row is closed — so per `concepts/session.md` invariants 1 and 3 nothing durable is
     left inside the session to rescue. That is why the budget is bounded and its EXPIRY is
     RECORDED rather than refused."""
-    budget = LIFECYCLE_SETTLE_S if budget_s is None else budget_s
+    budget = process.LIFECYCLE_SETTLE_S if budget_s is None else budget_s
     deadline = time.monotonic() + max(0.0, float(budget))
     while True:
-        if not ident_is_live_process(caller):
+        if not process.ident_is_live_process(caller):
             return "caller-exited"
         if time.monotonic() >= deadline:
             return "caller-still-live-after-settle"
@@ -1454,16 +1486,16 @@ def lifecycle_descriptor(args, base):
     one would boot a seat from a briefing nobody wrote. Resolved BEFORE anything is killed (G-51):
     a seat killed and then found unlaunchable is the worst-ordered failure this sequence can
     produce, so the refusal happens while the seat is still untouched."""
-    found = [w for w in discover_workers(workers_dir(args)) if w["agent"] == args.seat]
+    found = [w for w in launch.discover_workers(coord.workers_dir(args)) if w["agent"] == args.seat]
     if found:
         return found[0]
     lifecycle_alarm(
         "state",
-        f"NO DESCRIPTOR carries `agent: {args.seat}` in {workers_dir(args)}, so there is nothing "
+        f"NO DESCRIPTOR carries `agent: {args.seat}` in {coord.workers_dir(args)}, so there is nothing "
         f"to relaunch this seat FROM and this executor will not guess one. NOTHING HAS BEEN "
         f"KILLED — the descriptor is resolved before any kill precisely so a renew can never leave "
         f"a seat closed AND unlaunchable (G-51). Add the seat's briefing, then bring it back by "
-        f"hand: {coord_invocation(args)} launch --only {args.seat}",
+        f"hand: {coord.coord_invocation(args)} launch --only {args.seat}",
         3, base, args=args,
         failure=(f"no descriptor carries `agent: {args.seat}` — the renew stopped BEFORE any kill "
                  f"and the seat is untouched"))
@@ -1482,7 +1514,7 @@ def lifecycle_check_bindings(args, seats, base):
     the real check RUNS (its detail is already on the log) and only its EXIT is converted into the
     chokepoint every other failure branch leaves through."""
     try:
-        check_bindings(args, seats, f"lifecycle-exec --disposition {args.disposition}")
+        launch.check_bindings(args, seats, f"lifecycle-exec --disposition {args.disposition}")
         return
     except SystemExit:
         pass
@@ -1511,25 +1543,25 @@ def lifecycle_memory_floor(args, base):
     keeps them as two exception classes for that reason, and this consumer keeps them as two
     messages a reader can act on differently."""
     try:
-        return budget_mod.floor_source(package_dir(args), "refuse", None)
-    except budget_mod.FloorUnreadable as exc:
+        return coord.budget_mod.floor_source(coord.package_dir(args), "refuse", None)
+    except coord.budget_mod.FloorUnreadable as exc:
         lifecycle_alarm(
             "state",
             f"this run's budget.json IS DECLARED and could NOT be read: {exc}. That is NOT the same "
             f"fact as no budget being declared and is never treated as one — a wrong path and an "
             f"undeclared budget must not look alike. The relaunch needs a memory floor, this "
             f"executor may not invent one, and the seat's pane is already down. Repair the file, "
-            f"then bring the seat back by hand: {coord_invocation(args)} launch --only {args.seat}",
+            f"then bring the seat back by hand: {coord.coord_invocation(args)} launch --only {args.seat}",
             3, base, args=args,
             failure=(f"budget.json is DECLARED and unreadable ({exc}) — no floor could be resolved "
                      f"and the executor refused rather than defaulting"))
-    except budget_mod.FloorUndeclared as exc:
+    except coord.budget_mod.FloorUndeclared as exc:
         lifecycle_alarm(
             "state",
             f"NO memory floor is DECLARED for this run: {exc}. The floor's one home is the run's "
             f"budget.json (`r-floor-single-source`), a consumer that invents a number is the exact "
             f"defect that ruling deleted, and the seat's pane is already down. Declare the launch "
-            f"floor there, then bring the seat back by hand: {coord_invocation(args)} launch "
+            f"floor there, then bring the seat back by hand: {coord.coord_invocation(args)} launch "
             f"--only {args.seat}",
             3, base, args=args,
             failure=(f"no floor is declared for this run ({exc}) — the executor refused rather "
@@ -1559,7 +1591,7 @@ def lifecycle_memory_gate(args, base, n_seats=1):
     `_selftest_checks`, where `available_mb` is stubbed to exactly that."""
     floor_mb, floor_why = lifecycle_memory_floor(args, base)
     print(f"memory gate: floor {floor_why}")
-    reason = memory_gate(n_seats, available_mb(), floor_mb)
+    reason = process.memory_gate(n_seats, process.available_mb(), floor_mb)
     if not reason:
         return floor_mb
     _, first_line = lifecycle_raise_alarm(
@@ -1571,7 +1603,7 @@ def lifecycle_memory_gate(args, base, n_seats=1):
     print(first_line, file=sys.stderr)
     for attempt in range(1, LIFECYCLE_MEM_RETRIES + 1):
         time.sleep(LIFECYCLE_MEM_RETRY_S)
-        reason = memory_gate(n_seats, available_mb(), floor_mb)
+        reason = process.memory_gate(n_seats, process.available_mb(), floor_mb)
         if not reason:
             lifecycle_record_step(base, args.seat, f"memory-gate-cleared-on-retry-{attempt}")
             return floor_mb
@@ -1580,7 +1612,7 @@ def lifecycle_memory_gate(args, base, n_seats=1):
         f"the relaunch of '{args.seat}' is REFUSED ON MEMORY after {LIFECYCLE_MEM_RETRIES} "
         f"retries — {reason} The seat is checked out, its pane is down, and it is NOT coming back "
         f"on its own: bring it back by hand once memory is free — "
-        f"{coord_invocation(args)} launch --only {args.seat}",
+        f"{coord.coord_invocation(args)} launch --only {args.seat}",
         3, base, args=args,
         failure=(f"the relaunch was refused on memory after {LIFECYCLE_MEM_RETRIES} retries — the "
                  f"seat is closed and NOT relaunched"))
@@ -1652,7 +1684,7 @@ def run_lifecycle_sequence(args, base, target):
     # ---- STEP 1: RE-MEASURE THE OUTGOING HARNESS. A DEAD PANE IS A LEGAL INPUT. -----------------
     # Measured HERE, while the pane still exists (G-10), and NOT refused when it comes back empty:
     # a run that refused on a dead pane would strand exactly the seat most in need of a renew.
-    old_idents = pane_harness_idents(pane) if pane else []
+    old_idents = process.pane_harness_idents(pane) if pane else []
     lifecycle_record_step(base, seat_name, f"harness-idents-measured:{len(old_idents)}")
 
     if relaunching:
@@ -1660,8 +1692,8 @@ def run_lifecycle_sequence(args, base, target):
         # `renew_in_place` is PURE and stays pure: the window the pane is in RIGHT NOW is measured
         # by this caller and passed in, because that is the only thing that can say whether the
         # seat is already where its briefing wants it.
-        in_place = renew_in_place(descriptor, pane, pane in live_panes(),
-                                  tmux_pane_window_name(pane) if pane else None)
+        in_place = coord.renew_in_place(descriptor, pane, pane in coord.live_panes(),
+                                  coord.tmux_pane_window_name(pane) if pane else None)
         lifecycle_record_step(base, seat_name,
                               "in-place-decided:" + ("in-place" if in_place else "re-place"))
 
@@ -1671,13 +1703,13 @@ def run_lifecycle_sequence(args, base, target):
         # `refresh_mirrors_for`; anything it raises is caught here for the same reason, because a
         # stale mirror still carries the previous render's rules rather than none.
         try:
-            refresh_mirrors_for([descriptor])
-            tmux_raise_history_limit()
+            launch.refresh_mirrors_for([descriptor])
+            coord.tmux_raise_history_limit()
             lifecycle_record_step(base, seat_name, "mirror-and-history-refreshed")
         except Exception as exc:                                   # noqa: BLE001
-            print(c(f"WARNING lifecycle-exec: the pre-launch refresh raised "
+            print(coord.c(f"WARNING lifecycle-exec: the pre-launch refresh raised "
                     f"{type(exc).__name__}: {exc}. CONTINUING — its contract is that it never "
-                    f"blocks a launch, and a stale mirror beats no seat.", C_DEAD), file=sys.stderr)
+                    f"blocks a launch, and a stale mirror beats no seat.", coord.C_DEAD), file=sys.stderr)
 
     # ---- STEP 4: TAKE THE OUTGOING SESSION DOWN, AND PROVE IT WENT. -----------------------------
     # 4a in-place: respawn the SAME pane (G-12 — kill+split re-tiles the whole window and destroys
@@ -1691,35 +1723,35 @@ def run_lifecycle_sequence(args, base, target):
     # SAME pane, so an ancestry test would confirm the very process it must protect.
     same_cell = None
     if relaunching and in_place:
-        ok, rerr = tmux_respawn_pane(pane, descriptor["cwd"])
+        ok, rerr = coord.tmux_respawn_pane(pane, descriptor["cwd"])
         if ok:
             same_cell = pane
         else:
-            print(c(f"respawn-in-place FAILED ({rerr}) — falling back to kill+split, which "
-                    f"re-tiles this window", C_DEAD), file=sys.stderr)
+            print(coord.c(f"respawn-in-place FAILED ({rerr}) — falling back to kill+split, which "
+                    f"re-tiles this window", coord.C_DEAD), file=sys.stderr)
             in_place = False
-            tmux_kill_pane(pane)
+            coord.tmux_kill_pane(pane)
             lifecycle_record_step(base, seat_name, "respawn-failed-fell-back-to-kill")
     elif pane:
-        ok, kerr = tmux_kill_pane(pane)
+        ok, kerr = coord.tmux_kill_pane(pane)
         if not ok:
-            print(c(f"WARNING lifecycle-exec: `tmux kill-pane -t {pane}` reported {kerr!r}. The "
+            print(coord.c(f"WARNING lifecycle-exec: `tmux kill-pane -t {pane}` reported {kerr!r}. The "
                     f"process check below is what decides whether the session is actually gone.",
-                    C_DEAD), file=sys.stderr)
-    survivors, note = verify_pids_gone(old_idents)
+                    coord.C_DEAD), file=sys.stderr)
+    survivors, note = process.verify_pids_gone(old_idents)
     if survivors:
         # G-10: kill-pane SIGHUPs the process group and a blocked harness survives it as a ghost
         # the roster never mentions. The reaper is ARMED before the alarm — it outlives this
         # process, which the alarm's exit is about to end — and then the failure is reported. A
         # ghost holding a seat's memory is not something a renewal may launch on top of.
-        arm_pid_reaper(old_idents)
+        process.arm_pid_reaper(old_idents)
         lifecycle_alarm(
             "state",
             f"the outgoing harness of '{seat_name}' DID NOT DIE — {note} A detached reaper has "
             f"been armed for pid(s) {', '.join(str(p) for p, _ in survivors)}, but this sequence "
             f"STOPS here rather than launching a successor on top of a ghost that still holds the "
             f"seat's memory. Confirm the pid(s) are gone, then bring the seat back by hand: "
-            f"{coord_invocation(args)} launch --only {seat_name}",
+            f"{coord.coord_invocation(args)} launch --only {seat_name}",
             3, base, args=args,
             failure=(f"the outgoing harness survived kill-pane, SIGTERM and SIGKILL "
                      f"({', '.join(str(p) for p, _ in survivors)}); a reaper was armed and the "
@@ -1748,19 +1780,19 @@ def run_lifecycle_sequence(args, base, target):
         # 7.32 leaf (ii) exists to close. So: resume from the sessions row when the ROW ALONE can
         # drive it, else the restarter-agent fallback (leaf (iii)). The step recorded says WHICH,
         # because "the seat came back" is true of both and they are different facts.
-        resume_ref, resume_why = (sessions_resume_ref(args, seat_name) if not checked_out
+        resume_ref, resume_why = (coord.sessions_resume_ref(args, seat_name) if not checked_out
                                   else (None, "renew: the predecessor checked out and handed off"))
         boot = None
         if resume_ref:
-            boot = REORIENT_NUDGE
+            boot = coord.REORIENT_NUDGE
         elif not checked_out:
-            boot = restarter_prompt(descriptor, args, resume_why)
+            boot = coord.restarter_prompt(descriptor, args, resume_why)
         lifecycle_record_step(base, seat_name,
                               (f"resume-native:{resume_ref['harness']}:"
                                f"{resume_ref['native-session-id'] or 'cwd-implicit'}") if resume_ref
                               else (f"resume-REFUSED-fallback-restarter: {resume_why}"
                                     if not checked_out else "renew-recreates-from-descriptor"))
-        new_pane, lerr = launch_seat(descriptor, args, target, prompt=boot, pane=same_cell,
+        new_pane, lerr = launch.launch_seat(descriptor, args, target, prompt=boot, pane=same_cell,
                                      resume=resume_ref)
         # ---- 7.32 leaf (iii), THE SECOND TRIGGER: A CORRUPT TRANSCRIPT. -------------------------
         # `_Restart path (R4):_` names TWO fallback triggers — *"a non-resumable harness OR a
@@ -1779,9 +1811,9 @@ def run_lifecycle_sequence(args, base, target):
             lifecycle_record_step(base, seat_name,
                                   f"resume-FAILED-at-harness-fallback-restarter: "
                                   f"{lerr or 'launch_seat returned no pane'}")
-            new_pane, lerr = launch_seat(
+            new_pane, lerr = launch.launch_seat(
                 descriptor, args, target,
-                prompt=restarter_prompt(descriptor, args,
+                prompt=coord.restarter_prompt(descriptor, args,
                                         f"the recorded session {resume_ref['native-session-id'] or 'in this workdir'} "
                                         f"would not reopen — {lerr or 'the harness did not come up'}"))
         if lerr or not new_pane:
@@ -1792,7 +1824,7 @@ def run_lifecycle_sequence(args, base, target):
                 f"is ordered to avoid, and it STOPS here: nothing further is verified or cleared, "
                 f"so the awaiting-close debt and this marker both stay on the books where "
                 f"`status` and `workers` will keep showing them. Bring the seat back by hand: "
-                f"{coord_invocation(args)} launch --only {seat_name}",
+                f"{coord.coord_invocation(args)} launch --only {seat_name}",
                 3, base, args=args,
                 failure=(f"the relaunch (step 5) failed — {lerr or 'launch_seat returned no pane'} "
                          f"— the seat is CLOSED AND NOT RELAUNCHED"))
@@ -1819,7 +1851,7 @@ def run_lifecycle_sequence(args, base, target):
     # introduced, and it is superseded the moment the successor writes its own row at check-in.
     # It is RECORDED rather than repaired: repairing a roster row is `close-seat`'s act, and this
     # executor holds no seat identity to perform one with.
-    row = current_row(load_workers(base)[2], seat_name)
+    row = coord.current_row(coord.load_workers(base)[2], seat_name)
     row_pane = str((row or {}).get("pane") or "")
     row_active = bool(row) and (row or {}).get("active") == "yes"
     if checked_out and row_active and row_pane != new_pane:
@@ -1830,7 +1862,7 @@ def run_lifecycle_sequence(args, base, target):
                else ", and this close killed that pane") +
             ". A row reading ACTIVE for a session that is not there is the G-11 lie, and it is what "
             "every other seat routes messages by. Fix the roster before anything reads it: "
-            f"{coord_invocation(args)} close-seat {seat_name}",
+            f"{coord.coord_invocation(args)} close-seat {seat_name}",
             3, base, args=args,
             failure=(f"the roster shows an ACTIVE row for the seat on {row_pane or '(no pane)'} "
                      f"after the session was taken down"))
@@ -1871,9 +1903,9 @@ def run_lifecycle_sequence(args, base, target):
         lifecycle_record_step(base, seat_name, "no-checkout-no-transcript-to-verify")
     else:
         try:
-            record = ending_store.get_current_ending(
-                package_dir(args, register=False), seat_name) or {}
-        except ending_store.EndingStoreError as _ev_exc:
+            record = coord.ending_store.get_current_ending(
+                coord.package_dir(args, register=False), seat_name) or {}
+        except coord.ending_store.EndingStoreError as _ev_exc:
             # UNREADABLE IS NOT ABSENT. The store being unreachable says nothing about whether a
             # transcript was exported, and alarming `NO EXPORTED TRANSCRIPT` on it would report the
             # wrong break — the same conflation of "cannot establish" with "established false" that
@@ -1952,7 +1984,7 @@ def run_lifecycle_sequence(args, base, target):
         # deliberately returns "" when liveness is UNVERIFIABLE — so a launch can succeed on
         # "cannot tell". This asks the question again, at the end, and records the answer as the
         # marker's own evidence that a row reading ACTIVE would not be a lie this time.
-        new_idents = pane_harness_idents(new_pane)
+        new_idents = process.pane_harness_idents(new_pane)
         if not new_idents:
             lifecycle_alarm(
                 "state",
@@ -1984,7 +2016,7 @@ def run_lifecycle_sequence(args, base, target):
     # successor would inherit. Gating this step off would have re-opened G-21 on the one path where
     # nothing else clears the flag. Both calls are already absence-safe, so the correct widening
     # here was to widen NOTHING.
-    if clear_closing(base, seat_name):
+    if coord.clear_closing(base, seat_name):
         print(f"inbox: '{seat_name}' closing state cleared")
     lifecycle_record_step(base, seat_name, "awaiting-and-closing-cleared")
 
@@ -2068,7 +2100,7 @@ def cmd_lifecycle_exec(args):
             f"and opening a session into the wrong room is worse than not opening one at all.",
             2, args=args)
 
-    base = base_dir(args)
+    base = coord.base_dir(args)
 
     # ---- GUARD 3: THE ADOPTION CHECK — never a second executor on one seat. ---------------------
     # ⚠ `ident_is_live_process` OFFERS NO "CANNOT TELL" (s3-02): a zombie and an unreadable /proc
@@ -2086,7 +2118,7 @@ def cmd_lifecycle_exec(args):
     existing = load_lifecycle(base).get(args.seat)
     if isinstance(existing, dict) and existing.get("state") == "in-flight":
         held = lifecycle_ident(existing.get("executor"))
-        if held and ident_is_live_process((held["pid"], held["starttime"])):
+        if held and process.ident_is_live_process((held["pid"], held["starttime"])):
             steps = existing.get("steps-completed")
             steps = [str(s) for s in steps] if isinstance(steps, list) else []
             lifecycle_alarm(
@@ -2110,10 +2142,10 @@ def cmd_lifecycle_exec(args):
             f"LIFECYCLE_INTENT_OF, so this executor cannot tell what checkout intent it should "
             f"correspond to. The enum and the mapping were widened apart; widen both.", 2, base, args=args)
     expected = LIFECYCLE_INTENT_OF[args.disposition]
-    pkg = package_dir(args, register=False)
+    pkg = coord.package_dir(args, register=False)
     try:
-        _ending = ending_store.get_current_ending(pkg, args.seat)
-    except ending_store.EndingStoreError:
+        _ending = coord.ending_store.get_current_ending(pkg, args.seat)
+    except coord.ending_store.EndingStoreError:
         _ending = None
     record = ({"disposition": (
         "renew" if _ending and _ending.get("ending") == "incomplete"
@@ -2181,7 +2213,7 @@ def cmd_lifecycle_exec(args):
                 "handed the block this flag claims exists, and an unasserted claim cannot be "
                 "re-verified.", 2, base, args=args)
         if str(args.handoff_written) == "1":
-            memory = workers_dir(args) / args.seat / "memory.md"
+            memory = coord.workers_dir(args) / args.seat / "memory.md"
             try:
                 text = memory.read_text(encoding="utf-8")
             except OSError:
@@ -2190,11 +2222,11 @@ def cmd_lifecycle_exec(args):
             # and the reader must not hold two opinions about what a block looks like. READ ONLY —
             # this executor never writes, rewrites, or parses memory.md beyond the delimiters
             # (R-14; the one sanctioned memory touchpoint is s12's checkout).
-            if not handoff_blocks(text):
+            if not coord.handoff_blocks(text):
                 # `handoff_truncated` is the WRITER's own refusal test, reused rather than
                 # re-derived: a half-written block must look the same to both sides.
                 shape = ("the file's LAST delimiter is an OPENER, so a block was half-written and "
-                         "memory.md is TRUNCATED" if handoff_truncated(text)
+                         "memory.md is TRUNCATED" if coord.handoff_truncated(text)
                          else "no delimiter pair is present at all")
                 lifecycle_alarm(
                     "state",
@@ -2214,7 +2246,7 @@ def cmd_lifecycle_exec(args):
         # This process's own identity, in the (pid, starttime) form watch.py's revival detector
         # reads. `stamp_lifecycle` normalizes it; the tuple is handed over deliberately, because
         # the store owning that normalization is what keeps every writer honest.
-        "executor": (os.getpid(), proc_stat(os.getpid())[1]),
+        "executor": (os.getpid(), process.proc_stat(os.getpid())[1]),
         # The forking caller's identity, as the caller measured it — the input to `s3-06`'s settle
         # wait (LIFECYCLE_SETTLE_S) and to the died-mid-flight evidence.
         "caller": (args.caller_pid, args.caller_starttime),

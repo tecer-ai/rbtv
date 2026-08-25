@@ -14,6 +14,37 @@
 # `exited`, `unverified`, `revive` — are DELETED (§1.7), and translating them here would have kept
 # them alive in the one file the rest of the suite copies its spellings from. A caller that wants
 # what `renew` used to mean asks for what it always meant: `incomplete`, armed, `context full`.
+
+# ---- reading a call site BY NAME, now that the product spans real modules --------------------
+# The six supervision modules were imported rather than `exec`d into this namespace (owner ruling
+# 2026-08-25), so a call they make into the kit is `coord.refuse(...)` — an ast.Attribute — where
+# it used to be the bare Name `refuse(...)`. Every structural check below that identifies a call
+# site by its callee's NAME reads through this helper, so a qualified call is the same call. SCAN
+# TARGET ONLY: no check's logic moved, and an `.attr` match is bounded to the product's own module
+# names so an unrelated `x.session_close()` method call can never satisfy one.
+_PRODUCT_MODULES = ("coord", "process", "carrier", "attest", "lifecycle_exec", "launch", "ready")
+
+
+def called_name(node):
+    """A Call's callee as a simple name: `f(...)` and `<product module>.f(...)` both give "f"."""
+    import ast as _cn_ast
+    fn = getattr(node, "func", node)
+    if isinstance(fn, _cn_ast.Name):
+        return fn.id
+    if (isinstance(fn, _cn_ast.Attribute) and isinstance(fn.value, _cn_ast.Name)
+            and fn.value.id in _PRODUCT_MODULES):
+        return fn.attr
+    return ""
+
+
+def is_plain_ref(node):
+    """True for a bare name or `<product module>.name` — a REFERENCE, not a computed expression."""
+    import ast as _pr_ast
+    return (isinstance(node, _pr_ast.Name)
+            or (isinstance(node, _pr_ast.Attribute) and isinstance(node.value, _pr_ast.Name)
+                and node.value.id in _PRODUCT_MODULES))
+
+
 def seed_ending(base, seat, pane="", transcript="", exported=True, ending="done",
                 armed=None, reason_class=None, diagnostic="", **_k):
     pkg = base.parent if getattr(base, "name", "") == "coordination" else base
@@ -281,18 +312,16 @@ def _selftest_checks(args, failures, names):
     # `tmux_pane_window_name` SHELLS OUT to real tmux; `launch_seat` is wrapped by a spy that
     # DELEGATES, so the renew rows still exercise the real launch path. Both are saved and restored
     # inside the s3-06 block, not in the positional `real` tuple above.
-    global tmux_pane_window_name, launch_seat
+    global tmux_pane_window_name
     # s3-09: the CALLER-SIDE FORK. Declared with the others for the same reason the line above
     # states — a `global` after the name is read in this scope is a SyntaxError `ast.parse` does
     # not raise and only `compile()` catches.
-    global fork_lifecycle_renewal
     # 7.581 arm 4: rebound with a DELEGATING spy (records the hold, then takes the real lock),
     # restored in-block. Declared here with every other global for the reason the s3-06 comment
     # states — a `global` after the name is read in this scope is a SyntaxError only compile()
     # catches.
     global coord_lock
     # s3-06: the settle budget, zeroed for that block only (its own comment carries the clause).
-    global LIFECYCLE_SETTLE_S
     real = (wake, set_pane_title, tmux_split_pane, tmux_new_window, tmux_kill_pane, tmux_capture,
             tmux_raise_history_limit, schedule_session_rename, tmux_window_panes, tmux_session_name,
             tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
@@ -340,8 +369,7 @@ def _selftest_checks(args, failures, names):
     # and was refused, killing the suite mid-way. Stubbed to "cannot tell" (the fail-safe default),
     # with the branch-specific checks below flipping them deliberately. Kept in its own save/restore
     # pair rather than the indexed `real` tuple above, which is positional and easy to break.
-    global pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone
-    global arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb
+    global tmux_pane_pid, tmux_respawn_pane
     # 7.153: the three seams `terminate-pid`'s own block rebinds. DECLARED HERE, with every other
     # global, for the reason the s3-06 comment above states in full — a `global` placed after the
     # name is already read in this scope is a SyntaxError `ast.parse` does not raise and only
@@ -351,12 +379,11 @@ def _selftest_checks(args, failures, names):
     # lines below, in `verify_pids_gone`'s stub default. A `global` for it beside the 7.153 block
     # would therefore be a SyntaxError — the exact one this comment's neighbours describe, and the
     # exact one `ast.parse` reports OK on. Measured: writing it there first is how that was found.
-    global ps_snapshot, signal_pid, process_identity, PID_EXIT_TIMEOUT
-    proc_real = (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone,
-                 arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, available_mb)
+    proc_real = (process.pane_harness_pids, process.pane_harness_idents, process.wait_harness_up, process.verify_pids_gone,
+                 process.arm_pid_reaper, tmux_pane_pid, tmux_respawn_pane, process.available_mb)
     harness_up = {"v": None}   # None = unverifiable; [] = positively absent; [pid] = up
     reaped, respawned = [], []
-    pane_harness_pids = lambda pane: (([], False) if harness_up["v"] is None
+    process.pane_harness_pids = lambda pane: (([], False) if harness_up["v"] is None
                                       else (list(harness_up["v"]), True))
     # 7.567: the INDETERMINATE outcome is its OWN fixture switch, not a re-reading of
     # `harness_up["v"] is None`. That default is set once at the top and left alone by most rows,
@@ -364,27 +391,27 @@ def _selftest_checks(args, failures, names):
     # EXIT_INDETERMINATE — a fixture change wearing a behaviour change's clothes. Rows that want
     # the third outcome raise this deliberately, exactly as they raise `wake_ok`.
     harness_cant_tell = {"v": False}
-    wait_harness_up = lambda pane, timeout=HARNESS_UP_TIMEOUT: (
-        ([], f"{HARNESS_UP_UNVERIFIABLE}: stubbed — this fixture host cannot observe {pane}")
+    process.wait_harness_up = lambda pane, timeout=process.HARNESS_UP_TIMEOUT: (
+        ([], f"{process.HARNESS_UP_UNVERIFIABLE}: stubbed — this fixture host cannot observe {pane}")
         if harness_cant_tell["v"]
         else ([], "") if harness_up["v"] is None or harness_up["v"]
         else ([], f"no harness process is running in {pane} after {timeout:.0f}s (G-11)"))
-    pane_harness_idents = lambda pane: ([] if harness_up["v"] is None
+    process.pane_harness_idents = lambda pane: ([] if harness_up["v"] is None
                                         else [(p, f"stamp-{p}") for p in harness_up["v"]])
-    verify_pids_gone = lambda idents, timeout=PID_EXIT_TIMEOUT: (
+    process.verify_pids_gone = lambda idents, timeout=process.PID_EXIT_TIMEOUT: (
         reaped.extend(p for p, _ in idents) or ([], ""))
-    arm_pid_reaper = lambda idents, delay=4: reaped.extend(p for p, _ in idents)
+    process.arm_pid_reaper = lambda idents, delay=4: reaped.extend(p for p, _ in idents)
     tmux_pane_pid = lambda pane: 0
     tmux_respawn_pane = lambda pane, cwd: (respawned.append((pane, cwd)) or (True, ""))
-    available_mb = lambda: 0   # unmeasurable -> the memory gate passes (fail-safe)
+    process.available_mb = lambda: 0   # unmeasurable -> the memory gate passes (fail-safe)
     # s3-09: the caller-side fork, stubbed SUITE-WIDE so that no `checkout --renew` anywhere below
     # spawns a real detached executor against a fixture package (it would reach real tmux and a
     # real relaunch). Its OWN rows — the s3-09 block, far below — restore the real builder and stub
     # `subprocess.Popen` underneath it instead, so the argv, the `env=` and the kwargs the child
     # would actually receive are asserted against the REAL builder rather than against a recorder.
-    _fork_real = fork_lifecycle_renewal
+    _fork_real = lifecycle_exec.fork_lifecycle_renewal
     forked_renewals = []
-    fork_lifecycle_renewal = lambda _a, _b, _seat, _pane: forked_renewals.append((_seat, _pane))
+    lifecycle_exec.fork_lifecycle_renewal = lambda _a, _b, _seat, _pane: forked_renewals.append((_seat, _pane))
 
     # ---- P35 (round 2): wake()'s Enter-verify + bounded Enter-only retry, exercised against the
     # REAL wake() with only its three tmux primitives stubbed (wake itself is stubbed wholesale
@@ -978,7 +1005,7 @@ def _selftest_checks(args, failures, names):
         check("groups: creator + leader auto-included", set(gm["pair"]) == {"alpha", "beta", "leader"})
 
         # ---- v2: discovery over both briefing forms ----
-        ws = discover_workers(workers_dir(ns()))
+        ws = launch.discover_workers(workers_dir(ns()))
         by = {w["agent"]: w for w in ws}
         check("launch: per-seat model/effort from frontmatter (flat form) — and AN UNDECLARED CAST "
               "IS THE EMPTY STRING ON BOTH FIELDS, never a plan default. `model:` absent used to "
@@ -999,11 +1026,11 @@ def _selftest_checks(args, failures, names):
               by["hk-1"]["ctx_refresh"] == 40 and by["alpha"]["ctx_refresh"] is None)
         check("leader renew: discovered by name, excluded from the bare mass sweep",
               "leader" in by
-              and "leader" not in {w["agent"] for w in seats_by_name(ns())}
-              and [w["agent"] for w in seats_by_name(ns(), "leader")] == ["leader"])
+              and "leader" not in {w["agent"] for w in launch.seats_by_name(ns())}
+              and [w["agent"] for w in launch.seats_by_name(ns(), "leader")] == ["leader"])
 
         # ---- v2: harness command builders (+ T1 identity injection) ----
-        cmd, _ = harness_command(by["alpha"], "P")
+        cmd, _ = launch.harness_command(by["alpha"], "P")
         check("v2: claude command carries model+effort — AND THE EFFORT FRAGMENT IS THE PROFILE'S "
               "OWN, not a literal this file holds. `--effort {effort}` was hardcoded on this branch "
               "and nowhere else, so codex, kimi and all seven opencode seats dropped their declared "
@@ -1015,13 +1042,13 @@ def _selftest_checks(args, failures, names):
         # row"), so there is no ladder to read a fragment off and NO effort reaches the command
         # line. `validate_seat` still ACCEPTS it — the model vocabulary is not this door's ruling to
         # change — so the one thing that can go wrong here is that it goes unnoticed. It does not.
-        _alias_cmd, _ = harness_command(dict(by["alpha"], model="fable"), "P")
+        _alias_cmd, _ = launch.harness_command(dict(by["alpha"], model="fable"), "P")
         check("an ALIAS-cast claude seat emits its model and NO effort fragment: the alias resolves "
               "no profile, so no ladder and no `effort.argv` exist to compose from. The daemon door "
               "refuses this cast outright (E_UNMAPPED_BINDING); this door accepts it and drops the "
               "dial, and that divergence is stated here rather than found in a pane",
               "--model fable" in _alias_cmd and "--effort" not in _alias_cmd
-              and validate_seat(dict(by["alpha"], model="fable")) == "")
+              and launch.validate_seat(dict(by["alpha"], model="fable")) == "")
         # SHELL INJECTION, closed at the COMPOSITION SITE. `w['model']` was interpolated RAW on
         # the claude branch while the other three quoted it, and `validate_seat` accepts any
         # `claude-*` string — so an agent that can write a bindings casting sheet (a GRANTED
@@ -1032,7 +1059,7 @@ def _selftest_checks(args, failures, names):
         # arm built on one would be testing an input no descriptor can carry.
         _inj_bad = []
         for _inj_h in HARNESSES:
-            _inj_cmd, _ = harness_command(
+            _inj_cmd, _ = launch.harness_command(
                 dict(by["alpha"], harness=_inj_h, model="claude-5;touch/tmp/PWNED"), "P")
             _inj_flag = "--model" if _inj_h == "claude" else "-m"
             if (_inj_cmd is None
@@ -1060,7 +1087,7 @@ def _selftest_checks(args, failures, names):
         check("7.400: the claude command carries TMPDIR ahead of the binary, off the quota'd tmpfs",
               f"TMPDIR={AGENT_TMPDIR} " in cmd
               and cmd.index(f"TMPDIR={AGENT_TMPDIR} ") < cmd.index(CLAUDE_BIN))
-        cmd, _ = harness_command(by["gamma"], "P")
+        cmd, _ = launch.harness_command(by["gamma"], "P")
         # G-13: this asserted the flags `opencode --model X --prompt Y`, which THIS opencode has at
         # no level — the one-shot form is the `run` subcommand. The old string fell through to the
         # TUI and never ran the prompt, and the check passed for two months because it asserted the
@@ -1084,7 +1111,7 @@ def _selftest_checks(args, failures, names):
               "where `--variant` is declared",
               "--variant high" in cmd and "--effort" not in cmd
               and cmd.index(" run ") < cmd.index("--variant"))
-        cmd, _ = harness_command(by["delta"], "P")
+        cmd, _ = launch.harness_command(by["delta"], "P")
         check("v2: codex command uses plan default when model empty",
               cmd.startswith(f"COORD_AGENT=delta TMPDIR={AGENT_TMPDIR} {CODEX_BIN}")
               and " -m " not in cmd)
@@ -1097,10 +1124,10 @@ def _selftest_checks(args, failures, names):
               "ROW and is asserted, not assumed: the claude and opencode compositions do NOT "
               "carry it, so the flag rides the codex agent-seat command alone",
               "--dangerously-bypass-hook-trust" in cmd
-              and "--dangerously-bypass-hook-trust" not in harness_command(by["alpha"], "P")[0]
-              and "--dangerously-bypass-hook-trust" not in harness_command(by["gamma"], "P")[0])
+              and "--dangerously-bypass-hook-trust" not in launch.harness_command(by["alpha"], "P")[0]
+              and "--dangerously-bypass-hook-trust" not in launch.harness_command(by["gamma"], "P")[0])
         bad = dict(by["gamma"], model="")
-        cmd, err = harness_command(bad, "P")
+        cmd, err = launch.harness_command(bad, "P")
         check("v2: opencode without model refused", cmd is None and "require" in err)
 
         # ---- the other harness dialect, and the retired kimi door ----
@@ -1110,42 +1137,42 @@ def _selftest_checks(args, failures, names):
         # `config/spawn-profiles.yaml`, so nothing here spells any of them.
         _cx = {"agent": "cx", "harness": "codex", "model": "gpt-5.5", "effort": "high",
                "cwd": "/tmp"}
-        _cx_cmd, _ = harness_command(_cx, "P")
+        _cx_cmd, _ = launch.harness_command(_cx, "P")
         check("the codex seat's effort reaches its command line as `-c "
               "model_reasoning_effort=high` — codex owns a real ladder and this branch never "
               "read effort at all, so every codex seat ever launched from this kit ran at the "
               "binary's own default while its descriptor said otherwise",
-              "-c model_reasoning_effort=high" in _cx_cmd and validate_seat(_cx) == ""
+              "-c model_reasoning_effort=high" in _cx_cmd and launch.validate_seat(_cx) == ""
               and "--effort" not in _cx_cmd)
         # The kimi-code-cli harness is retired (2026-08-18). A cast naming it must refuse as
         # unknown-harness — never compose a `kimi` binary line, never treat it as on-ladder.
         _km = {"agent": "km", "harness": "kimi", "model": "kimi-code/kimi-for-coding",
                "effort": "--thinking", "cwd": "/tmp/kimi-cwd"}
-        _km_cmd, _km_err = harness_command(_km, "P")
+        _km_cmd, _km_err = launch.harness_command(_km, "P")
         check("kimi is an UNKNOWN harness: the kimi-code-cli door is retired, so a kimi "
               "seat is refused `unknown harness` and no launch line is composed. kimi models "
               "ride opencode now",
               "kimi" not in HARNESSES and _km_cmd is None
-              and "unknown harness" in validate_seat(_km)
+              and "unknown harness" in launch.validate_seat(_km)
               and "unknown harness" in (_km_err or ""))
         check("kimi: a retired-harness cast is refused as unknown-harness, never as an "
               "off-ladder word — the ladder check is unreachable once the harness itself is gone",
-              "unknown harness" in validate_seat(dict(_km, effort="high"))
-              and harness_command(dict(_km, effort="high"), "P")[0] is None)
+              "unknown harness" in launch.validate_seat(dict(_km, effort="high"))
+              and launch.harness_command(dict(_km, effort="high"), "P")[0] is None)
 
         # ---- PROP-8: pre-flight harness/model validation (local knowledge only) ----
         check("PROP-8: every fixture seat's launch config validates clean",
-              validate_seat(by["alpha"]) == "" and validate_seat(by["gamma"]) == ""
-              and validate_seat(by["delta"]) == "" and validate_seat(by["leader"]) == "")
+              launch.validate_seat(by["alpha"]) == "" and launch.validate_seat(by["gamma"]) == ""
+              and launch.validate_seat(by["delta"]) == "" and launch.validate_seat(by["leader"]) == "")
         check("PROP-8: a full claude-* model id is accepted alongside the aliases",
-              validate_seat(dict(by["alpha"], model="claude-fable-5")) == "")
+              launch.validate_seat(dict(by["alpha"], model="claude-fable-5")) == "")
         check("PROP-8: an unknown claude alias is refused with the accepted forms named",
-              "neither a known alias" in validate_seat(dict(by["alpha"], model="opsu")))
+              "neither a known alias" in launch.validate_seat(dict(by["alpha"], model="opsu")))
         check("PROP-8: an opencode slug missing its provider half is refused — the shape a "
               "launch can validate locally, without any provider call",
-              "provider/model" in validate_seat(dict(by["gamma"], model="deepseek-reasoner")))
+              "provider/model" in launch.validate_seat(dict(by["gamma"], model="deepseek-reasoner")))
         check("PROP-8: an unknown harness is refused at pre-flight, not mid-spawn",
-              "unknown harness" in validate_seat(dict(by["alpha"], harness="gemini")))
+              "unknown harness" in launch.validate_seat(dict(by["alpha"], harness="gemini")))
         # ---- PROP-8's effort term: the ONE thing this predicate did not know about a seat ----
         # It validated harness and model-slug SHAPE only, so a bad effort surfaced when the real
         # binary rejected the composed line INSIDE AN ALREADY-OPENED PANE — and on opencode not
@@ -1153,17 +1180,17 @@ def _selftest_checks(args, failures, names):
         check("PROP-8/effort: a cast whose profile carries a REAL ladder and no declared effort is "
               "refused BEFORE any pane opens, sharing materialize-seats' `effort-missing` reason so "
               "both doors' refusals read as one thing",
-              validate_seat(dict(by["alpha"], effort="")).startswith("effort-missing:"))
+              launch.validate_seat(dict(by["alpha"], effort="")).startswith("effort-missing:"))
         check("PROP-8/effort: a word off that ladder is refused with the ladder NUMBERED, so the "
               "author is told what to write instead of what is wrong",
               "1=low, 2=medium, 3=high, 4=xhigh, 5=max"
-              in validate_seat(dict(by["alpha"], effort="ultra")))
+              in launch.validate_seat(dict(by["alpha"], effort="ultra")))
         check("PROP-8/effort: an INERT dial ACCEPTS any rung and applies none (G-270, owner "
               "ruling) — haiku's profile states `effort: { inert: true }`, and a refusal there "
               "would make a harness with no dial unlaunchable rather than dial-less",
-              validate_seat({"agent": "hz", "harness": "claude", "model": "claude-haiku-4-5",
+              launch.validate_seat({"agent": "hz", "harness": "claude", "model": "claude-haiku-4-5",
                              "effort": "max"}) == ""
-              and "--effort" not in harness_command(
+              and "--effort" not in launch.harness_command(
                   {"agent": "hz", "harness": "claude", "model": "claude-haiku-4-5",
                    "effort": "max"}, "P")[0])
         check("PROP-8/effort: the term is gated on the KEY, not its truthiness — "
@@ -1171,9 +1198,9 @@ def _selftest_checks(args, failures, names):
               "{agent, harness, model} to ask the harness+model question, and a truthiness test "
               "would refuse that call site and empty the catalog the authoring tool offers. A "
               "caller who omits the key gets NO effort validation rather than a refusal",
-              validate_seat({"agent": "claude-opus", "harness": "claude",
+              launch.validate_seat({"agent": "claude-opus", "harness": "claude",
                              "model": "claude-opus-5"}) == ""
-              and validate_seat({"agent": "claude-opus", "harness": "claude",
+              and launch.validate_seat({"agent": "claude-opus", "harness": "claude",
                                  "model": "claude-opus-5", "effort": ""}) != "")
 
         # ---- v2: boot prompt mentions memory only for persistent folder seats ----
@@ -1185,10 +1212,10 @@ def _selftest_checks(args, failures, names):
         # now assert. The negative row would have gone red on a correct change; the POSITIVE row
         # is retightened in the same act, because a filename check the new sentence satisfies on
         # its own would have stayed green with the memory instruction deleted.
-        p = boot_prompt(by["gamma"], ns())
+        p = launch.boot_prompt(by["gamma"], ns())
         check("v2: persistent folder seat boot prompt names memory.md AND instructs reading it",
               "memory.md" in p and "PREDECESSOR'S HANDOFF" in p)
-        p = boot_prompt(by["delta"], ns())
+        p = launch.boot_prompt(by["delta"], ns())
         check("v2: ephemeral seat boot prompt omits the memory-read instruction",
               "PREDECESSOR'S HANDOFF" not in p)
         # ---- the boot READS: real protocol text, and BOTH lanes name the same bytes ----
@@ -1200,8 +1227,8 @@ def _selftest_checks(args, failures, names):
         # four procedures live in this composer, and no lane names that file.
         _bp_kit = Path(__file__).resolve().parent
         _bp_proto = _bp_kit / "protocol.md"
-        _bp_tmux = boot_prompt(by["gamma"], ns())
-        _bp_dmn = boot_prompt(by["gamma"], ns(), daemon_lane=True)
+        _bp_tmux = launch.boot_prompt(by["gamma"], ns())
+        _bp_dmn = launch.boot_prompt(by["gamma"], ns(), daemon_lane=True)
         check("boot reads: both lanes name the kit's protocol.md — "
               "identical bytes on both lanes, composed once",
               str(_bp_proto) in _bp_tmux and str(_bp_proto) in _bp_dmn)
@@ -1235,10 +1262,10 @@ def _selftest_checks(args, failures, names):
               and "check in as 'gamma'" in _bp_tmux
               and "$COORD checkout " in _bp_proto.read_text(encoding="utf-8"))
 
-        p = boot_prompt(by["leader"], ns())
+        p = launch.boot_prompt(by["leader"], ns())
         check("leader renew: no memory.md yet -> generic fresh boot prompt", "RESUMING" not in p)
         (mdir / "memory.md").write_text("# memory\n## Resume here\nstate\n")
-        p = boot_prompt(by["leader"], ns())
+        p = launch.boot_prompt(by["leader"], ns())
         check("leader renew: memory.md present -> resume-first prompt (memory before briefing, "
               "'Resume here' named, no re-run of completed work)",
               "RESUMING" in p and "Resume here" in p and "do not re-run" in p
@@ -1247,7 +1274,7 @@ def _selftest_checks(args, failures, names):
         # ---- v2: launch placement — window vs pane ----
         wake_ok["v"] = True  # harness starts must succeed from here on
         os.environ["COORD_LAUNCH_TARGET"] = "%0"
-        out = run(cmd_launch, agent="leader", only="gamma,beta", dry_run=False)
+        out = run(launch.cmd_launch, agent="leader", only="gamma,beta", dry_run=False)
         check("v2: window seat opens a window, pane seat opens a pane",
               ("window", "gamma") in opened and ("pane", VAULT_ROOT) in opened)
         check("v2: claude seat schedules /rename, opencode seat does not",
@@ -1300,11 +1327,11 @@ def _selftest_checks(args, failures, names):
 
         # ---- wave windows: `window: NAME` seats share one window, one pane each ----
         check("wave: placement plan — own / shared / pane",
-              (seat_placement({"window": "yes", "agent": "a"}),
-               seat_placement({"window": "wave-x", "agent": "a"}),
-               seat_placement({"window": "", "agent": "a"}))
+              (launch.seat_placement({"window": "yes", "agent": "a"}),
+               launch.seat_placement({"window": "wave-x", "agent": "a"}),
+               launch.seat_placement({"window": "", "agent": "a"}))
               == (("own", "a"), ("shared", "wave-x"), ("pane", None)))
-        out = run(cmd_launch, agent="leader", only="hk-1,hk-2", dry_run=False)
+        out = run(launch.cmd_launch, agent="leader", only="hk-1,hk-2", dry_run=False)
         check("wave: first seat creates the shared window, second splits into it",
               [o for o in opened if o == ("window", "wave-haiku")] == [("window", "wave-haiku")]
               and "window:wave-haiku" in out and out.count("launched") == 2)
@@ -1313,7 +1340,7 @@ def _selftest_checks(args, failures, names):
         badf = pkg / "workers" / "badseat.md"
         badf.write_text("---\nagent: badseat\nmodel: opsu\n---\nbrief\n")
         opened_before = len(opened)
-        out, code = refuse(cmd_launch, agent="leader", only="badseat,alpha", dry_run=False)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="badseat,alpha", dry_run=False)
         check("PROP-8: a launch containing an invalid seat is refused BEFORE any pane opens — "
               "the valid seat beside it is not launched either (an invalid slug used to kill "
               "the whole wave at model-init, after every pane had spawned)",
@@ -1326,7 +1353,7 @@ def _selftest_checks(args, failures, names):
         # sweep reads the exit code and nothing else, and a bad model slug is ordinary rather than
         # exotic, so 0-here/1-there was the defect arriving by PROP-8's door instead of the
         # admission's. The CONTENT assertions are unchanged and unweakened.
-        out, code = refuse(cmd_launch, agent="leader", only="badseat,alpha", dry_run=True)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="badseat,alpha", dry_run=True)
         check("PROP-8: dry-run shows the same per-seat pre-flight refusal instead of a command — "
               "and exits with the SAME code the real launch of the same set returns (7.274's one "
               "fold, computed above the returning dry-run branch and read by both paths' own exit "
@@ -1351,7 +1378,7 @@ def _selftest_checks(args, failures, names):
         # `refuse` (not `run`) because the per-seat failure is written to STDERR, and this helper
         # is the only one that returns both streams. Its exit code is captured and deliberately
         # NOT asserted — see below.
-        _wo, _wc = refuse(cmd_launch, agent="leader", only="drifty", dry_run=False)
+        _wo, _wc = refuse(launch.cmd_launch, agent="leader", only="drifty", dry_run=False)
         check("r-window-layout: the drift gate is WIRED INTO LAUNCH, not only into the predicate — "
               "a near-miss window stops the seat and NO pane is opened, and the message names the "
               "window it is one edit from. tmux does not refuse an unrecognised name: it SILENTLY "
@@ -1381,7 +1408,7 @@ def _selftest_checks(args, failures, names):
         # cleared by REINTRODUCING the defect. Raised to the leader as a behaviour question
         # (exit-code semantics are not the engineer's to change); this row asserts only what is
         # unambiguously correct today: the seat is stopped and no pane opens.
-        _fo2, _fc2 = refuse(cmd_launch, agent="leader", only="drifty", dry_run=False, force=True)
+        _fo2, _fc2 = refuse(launch.cmd_launch, agent="leader", only="drifty", dry_run=False, force=True)
         check("r-window-layout: and `--force` SKIPS it — the gate is conditional, which is the "
               "half a mutant removing `if not args.force` silently deleted. An exemption that "
               "cannot be exercised is untested, and a gate that cannot be overridden is a trap "
@@ -1475,7 +1502,7 @@ def _selftest_checks(args, failures, names):
 
         harness_up["v"] = []
         wake_ok["v"] = True
-        out, code = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
         check("G-11: a launch whose pane never brings a harness up FAILS LOUDLY instead of "
               "reporting a launched seat — the submitted start line is not evidence it ran",
               "FAILED" in out and "G-11" in out)
@@ -1489,7 +1516,7 @@ def _selftest_checks(args, failures, names):
         # guards, one covered, one not, under a check name that sounds like it covers both.
         harness_up["v"] = [4242]        # a harness IS up: isolates the wake failure as the cause
         wake_ok["v"] = False
-        _ko, _kc = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        _ko, _kc = refuse(launch.cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
         wake_ok["v"] = True
         check("G-11: a launch whose START LINE was never delivered FAILS — the pane is open and "
               "the harness was never told to run. Distinct from the row above: there the wake "
@@ -1504,23 +1531,23 @@ def _selftest_checks(args, failures, names):
         # to a scripted caller — the exit code.
         harness_up["v"] = [4242]        # a harness IS up: isolates indeterminacy as the only cause
         harness_cant_tell["v"] = True
-        _i7_o, _i7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        _i7_o, _i7_c = refuse(launch.cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
         harness_cant_tell["v"] = False
         check("7.567: a launch whose harness liveness this host could NOT OBSERVE exits "
               "EXIT_INDETERMINATE, not 0 — `exit 0` must mean a harness was POSITIVELY SEEN, and "
               "the indeterminate leg used to return the empty error string and read as success",
-              _i7_c == EXIT_INDETERMINATE and "launch INDETERMINATE" in _i7_o
-              and HARNESS_UP_UNVERIFIABLE in _i7_o)
+              _i7_c == process.EXIT_INDETERMINATE and "launch INDETERMINATE" in _i7_o
+              and process.HARNESS_UP_UNVERIFIABLE in _i7_o)
         check("7.567: and it is NOT reported as a refusal — an operator must not go hunting for a "
               "seat that failed when what happened is that nothing looked",
               "launch INCOMPLETE" not in _i7_o and "0 launched" not in _i7_o)
         harness_up["v"] = []            # positively absent again
-        _r7_o, _r7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        _r7_o, _r7_c = refuse(launch.cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
         check("7.567: a GENUINE refusal still exits 1 and still reads INCOMPLETE — the new code "
               "is a third outcome, never a softening of the second (precedence: refusal wins)",
               _r7_c == 1 and "launch INCOMPLETE" in _r7_o and "G-11" in _r7_o)
         harness_up["v"] = [4242]
-        _c7_o, _c7_c = refuse(cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
+        _c7_o, _c7_c = refuse(launch.cmd_launch, agent="leader", only="alpha", dry_run=False, force=False)
         check("7.567: and a CLEAN launch still exits 0 — the new code must not leak onto the "
               "success path it was carved out of",
               _c7_c == 0 and "launch INDETERMINATE" not in _c7_o
@@ -1590,14 +1617,14 @@ def _selftest_checks(args, failures, names):
             {"agent": "m5", "harness": "codex", "model": "gpt-5.5", "effort": "medium", "cwd": "/tmp"},
         ]
         _viol = [w["agent"] for w in _hc_matrix
-                 if harness_command(w, prompt_path="/tmp/p.txt")[0] is None
-                 and not validate_seat(w)]
+                 if launch.harness_command(w, prompt_path="/tmp/p.txt")[0] is None
+                 and not launch.validate_seat(w)]
         check("PROP-8: every input on which `harness_command` gives up is one `validate_seat` "
               "already refuses — which is WHY launch_seat's `cmd is None` branch cannot fire. The "
               "implication is one-way by design: validate_seat may be stricter. Break the coupling "
               "and a guard this suite cannot otherwise reach comes back to life unannounced",
-              _viol == [] and validate_seat(_hc_matrix[0]) == ""
-              and harness_command(_hc_matrix[1], prompt_path="/tmp/p.txt")[0] is None)
+              _viol == [] and launch.validate_seat(_hc_matrix[0]) == ""
+              and launch.harness_command(_hc_matrix[1], prompt_path="/tmp/p.txt")[0] is None)
 
         # G-10: a teardown proves the process died instead of assuming kill-pane was enough.
         harness_up["v"] = [98765]
@@ -1627,21 +1654,21 @@ def _selftest_checks(args, failures, names):
         # fail for the reason it claims to.
         FLOOR_FX = 2000
         check("mem gate: room for the spike reserve -> no refusal",
-              memory_gate(1, FLOOR_FX, FLOOR_FX) == "" and memory_gate(2, 4300, FLOOR_FX) == "")
+              process.memory_gate(1, FLOOR_FX, FLOOR_FX) == "" and process.memory_gate(2, 4300, FLOOR_FX) == "")
         check("mem gate: below the reserve -> refused, naming the peak and the reason a flat "
               "steady-state floor is the wrong shape",
-              "peaks at" in memory_gate(1, FLOOR_FX - 1, FLOOR_FX)
-              and "SIGKILL a bystander" in memory_gate(1, 1000, FLOOR_FX))
+              "peaks at" in process.memory_gate(1, FLOOR_FX - 1, FLOOR_FX)
+              and "SIGKILL a bystander" in process.memory_gate(1, 1000, FLOOR_FX))
         check("mem gate: an N-seat wave needs a spike per seat beyond the first",
-              memory_gate(3, FLOOR_FX + SEAT_SPIKE_MB, FLOOR_FX) != ""
-              and memory_gate(3, FLOOR_FX + 2 * SEAT_SPIKE_MB, FLOOR_FX) == "")
+              process.memory_gate(3, FLOOR_FX + process.SEAT_SPIKE_MB, FLOOR_FX) != ""
+              and process.memory_gate(3, FLOOR_FX + 2 * process.SEAT_SPIKE_MB, FLOOR_FX) == "")
         # ⚠ AND THE GATE MUST TRACK THE FLOOR IT IS GIVEN, not a remembered one. Without this, a
         # gate that ignored its floor_mb argument entirely would pass every check above.
         check("mem gate: the floor is the ARGUMENT — a higher floor refuses what a lower one "
               "allows, at identical available memory",
-              memory_gate(1, 2500, 2000) == "" and memory_gate(1, 2500, 3000) != "")
+              process.memory_gate(1, 2500, 2000) == "" and process.memory_gate(1, 2500, 3000) != "")
         check("mem gate: an unreadable sensor PASSES — a broken meter must not stop a run",
-              memory_gate(5, 0, FLOOR_FX) == "")
+              process.memory_gate(5, 0, FLOOR_FX) == "")
 
         # ---- v2: control panel — overview pane, idempotent ----
         opened.clear()
@@ -1810,7 +1837,7 @@ def _selftest_checks(args, failures, names):
         _f17_mark = "NOTHING CORROBORATES IT"     # this bound's own refusal, by its own words
         _f17_role = "refused [coord role gate]"   # the DOWNSTREAM gate, distinguished from it
         calling_pane["v"] = ""
-        _f17_out, _f17_code = refuse(cmd_launch, as_agent="leader", only="hk-1", dry_run=False)
+        _f17_out, _f17_code = refuse(launch.cmd_launch, as_agent="leader", only="hk-1", dry_run=False)
         check("F17: a role-gated `launch` whose identity came from `--as`, with NO corroborating "
               "roster row and NO --dry-run, is REFUSED — the identity contradiction check cannot "
               "fire without a row, so before this bound the claim simply STOOD and bought "
@@ -1818,7 +1845,7 @@ def _selftest_checks(args, failures, names):
               _f17_code == 2 and _f17_mark in _f17_out)
         # THE REFUSAL MUST BE ACTIONABLE (leader #3520). Its own call and its own claim, so the
         # mutant that guts the advice reds THIS row and not the refusal row above it.
-        _f17_rem, _f17_remc = refuse(cmd_launch, as_agent="delta", only="hk-1", dry_run=False)
+        _f17_rem, _f17_remc = refuse(launch.cmd_launch, as_agent="delta", only="hk-1", dry_run=False)
         check("F17: the refusal TELLS THE CALLER HOW TO CORROBORATE — check-in is the REGISTERING "
               "act and does not travel over `--as`, so a seat live in its pane before its row "
               "exists lands here correctly and must be able to tell a missing step from a bug",
@@ -1827,9 +1854,9 @@ def _selftest_checks(args, failures, names):
         # THE DISCRIMINATING CONTROL. A FABRICATED name and a REAL but unrelated one must take the
         # SAME branch: the test is "does a roster row corroborate this", never "does this string
         # look like a seat". A bound that only rejected malformed strings has verified NOTHING.
-        _f17_fab, _f17_fabc = refuse(cmd_launch, as_agent="xk3-not-a-real-seat", only="hk-1",
+        _f17_fab, _f17_fabc = refuse(launch.cmd_launch, as_agent="xk3-not-a-real-seat", only="hk-1",
                                      dry_run=False)
-        _f17_real_unrel, _f17_ruc = refuse(cmd_launch, as_agent="alpha", only="hk-1",
+        _f17_real_unrel, _f17_ruc = refuse(launch.cmd_launch, as_agent="alpha", only="hk-1",
                                            dry_run=False)
         check("F17 CONTROL: the refusal fires IDENTICALLY on a FABRICATED `--as` value and on a "
               "REAL but unrelated one — 'alpha' is a checked-in seat of this fixture, registered "
@@ -1839,7 +1866,7 @@ def _selftest_checks(args, failures, names):
         # `--force` CARRIES THE ROLE GATE AND NOTHING ELSE. An identity that could be forced would
         # be an assertion again under another spelling, and re-attaching a second gate to `--force`
         # is barred outright (`p-override-split-is-safety-critical`).
-        _f17_forced, _f17_fc = refuse(cmd_launch, as_agent="beta", only="hk-1", dry_run=False,
+        _f17_forced, _f17_fc = refuse(launch.cmd_launch, as_agent="beta", only="hk-1", dry_run=False,
                                       force=True)
         check("F17: `--force` does NOT carry this bound — the flag that overrides the ROLE gate "
               "leaves the identity bound standing, so no gate is re-attached to it",
@@ -1851,7 +1878,7 @@ def _selftest_checks(args, failures, names):
         # and a check that cannot fail is not a check.
         calling_pane["v"] = "%99"
         RUNS_INDEX.unlink(missing_ok=True)
-        _f17_noop, _f17_noopc = refuse(cmd_launch, as_agent="gamma", only="hk-1", dry_run=False)
+        _f17_noop, _f17_noopc = refuse(launch.cmd_launch, as_agent="gamma", only="hk-1", dry_run=False)
         _f17_registered = RUNS_INDEX.exists()
         calling_pane["v"] = ""
         check("F17: the bound refuses and WRITES NOTHING — a caller with no corroborated identity "
@@ -1866,7 +1893,7 @@ def _selftest_checks(args, failures, names):
         # to succeed refuses, so the mutant that CLOSES `--dry-run` would red two rows and be
         # evidence about neither (G-62). The capture helper returns the exit code as a VALUE, which
         # this row asserts explicitly — admission is read, never inferred from silence.
-        _f17_dry, _f17_dryc = refuse(cmd_launch, as_agent="leader", only="hk-1", dry_run=True)
+        _f17_dry, _f17_dryc = refuse(launch.cmd_launch, as_agent="leader", only="hk-1", dry_run=True)
         check("F17: the same uncorroborated claim under `--dry-run` is ADMITTED and shows what the "
               "launch would do — it opens nothing, and the refusal above names it as a remedy",
               _f17_dryc == 0 and "[dry-run] hk-1" in _f17_dry and _f17_mark not in _f17_dry)
@@ -1875,7 +1902,7 @@ def _selftest_checks(args, failures, names):
         # stubbed exactly as F16's own wiring row stubs it, and NO claim reaches `cmd_launch`.
         globals()["daemon_exec_identity"] = lambda **_kw: DAEMON_IDENTITY
         try:
-            _f17_k, _f17_kc = refuse(cmd_launch, only="hk-1", dry_run=False)
+            _f17_k, _f17_kc = refuse(launch.cmd_launch, only="hk-1", dry_run=False)
         finally:
             globals()["daemon_exec_identity"] = _f16_real
         check("F17: THE F16-RESOLVED PATH IS ADMITTED BY THIS BOUND — an identity resolved from "
@@ -1888,7 +1915,7 @@ def _selftest_checks(args, failures, names):
               _f17_mark not in _f17_k and _f17_role not in _f17_k)
         # ADMITTED (3 of 3): the corroborated claim, which is the whole point of keying on STATE.
         calling_pane["v"] = "%3"   # alpha's registered pane
-        _f17_corrob, _f17_cc = refuse(cmd_launch, as_agent="alpha", only="hk-1", dry_run=False)
+        _f17_corrob, _f17_cc = refuse(launch.cmd_launch, as_agent="alpha", only="hk-1", dry_run=False)
         calling_pane["v"] = ""
         check("F17: a claim the calling pane's ACTIVE roster row CORROBORATES is outside this "
               "bound — the SAME claim that was refused above is admitted here on the strength of "
@@ -2595,17 +2622,17 @@ def _selftest_checks(args, failures, names):
             "3,ghostrow,,claude,opus,medium,50,m1\n",   # registry row with no descriptor
             encoding="utf-8")
         dns = argparse.Namespace(package=str(dpkg), run=None, base=None, workers_dir=None)
-        kinds = {k for _, k, _ in descriptor_findings(dns)}
+        kinds = {k for _, k, _ in launch.descriptor_findings(dns)}
         check("G-57 descriptors: the sweep names each structural kind — a descriptor whose name "
               "disagrees with its folder, a descriptor with no registry row, a registry row with "
               "no descriptor, and a binding divergence — never just a count",
               kinds == {"name-vs-folder", "no-registry-row", "no-descriptor",
                         "binding-divergence"})
-        divergence = [d for s, k, d in descriptor_findings(dns) if k == "binding-divergence"]
+        divergence = [d for s, k, d in launch.descriptor_findings(dns) if k == "binding-divergence"]
         check("G-57 descriptors: a binding divergence says which side BINDS, because a reader "
               "told only that two files differ has been handed the confusion, not the answer",
               len(divergence) == 1 and "THE DESCRIPTOR BINDS" in divergence[0])
-        orphan = [s for s, k, _ in descriptor_findings(dns) if k == "no-descriptor"]
+        orphan = [s for s, k, _ in launch.descriptor_findings(dns) if k == "no-descriptor"]
         check("G-57 descriptors: an orphan registry row is reported under the SEAT NAME from the "
               "row, so the finding names the seat that cannot launch", orphan == ["ghostrow"])
         (dpkg / "seats" / "dup").mkdir()
@@ -2614,14 +2641,14 @@ def _selftest_checks(args, failures, names):
             encoding="utf-8")
         check("G-57 descriptors: two descriptors claiming ONE name is reported — launch would "
               "otherwise resolve it by directory walk order, not by anyone's intent",
-              any(k == "duplicate-name" for _, k, _ in descriptor_findings(dns)))
+              any(k == "duplicate-name" for _, k, _ in launch.descriptor_findings(dns)))
         def run_descriptors(namespace):
             """cmd_descriptors EXITS, and runs against its own fixture package — neither the
             shared run() helper (which builds the self-test's own namespace) nor refuse() fits."""
             buf, code = io.StringIO(), 0
             with redirect_stdout(buf):
                 try:
-                    cmd_descriptors(namespace)
+                    launch.cmd_descriptors(namespace)
                 except SystemExit as exc:
                     code = exc.code if isinstance(exc.code, int) else 1
             return buf.getvalue(), code
@@ -2636,7 +2663,7 @@ def _selftest_checks(args, failures, names):
             "1,solo,,claude,opus,medium,50,m1\n", encoding="utf-8")
         cns = argparse.Namespace(package=str(cleanpkg), run=None, base=None, workers_dir=None)
         check("G-57 descriptors: a structurally sound package yields ZERO findings — the sweep "
-              "does not manufacture noise", descriptor_findings(cns) == [])
+              "does not manufacture noise", launch.descriptor_findings(cns) == [])
         clean_out, clean_code = run_descriptors(cns)
         check("G-57 descriptors: the BOUND is printed even on a CLEAN run — owned-surfaces and "
               "mission prose are not checked, so zero findings must never read as a clean class "
@@ -2672,10 +2699,10 @@ def _selftest_checks(args, failures, names):
         (_y_pkg / "seats" / "tabseat" / "seat.md").write_text(
             "---\nseat: tabseat\nharness: claude\nmodel: opus\neffort: medium\n"
             "notes:\n\t- a tab where YAML forbids one\n---\nbody\n", encoding="utf-8")
-        _y_found = descriptor_yaml_findings(_y_pkg / "seats")
+        _y_found = launch.descriptor_yaml_findings(_y_pkg / "seats")
         _y_by = {s: d for s, _p, d in _y_found}
         _y_out, _y_code = run_descriptors(_y_ns)
-        _y_struct = {k for _, k, _ in descriptor_findings(_y_ns)}
+        _y_struct = {k for _, k, _ in launch.descriptor_findings(_y_ns)}
         check("dag-19 / G-256 (MM-10 + DS-1 + DS-2): A DESCRIPTOR NO YAML READER CAN LOAD IS "
               "REPORTED AS A FINDING — named, with the FILE PATH and THE PARSER'S OWN ERROR — and "
               "the command EXITS NON-ZERO for it. ⚠ A REPORT LINE WITH A ZERO EXIT IS A SKIP "
@@ -2697,8 +2724,8 @@ def _selftest_checks(args, failures, names):
               # their seat names happily. That is exactly why a green structural audit meant
               # nothing about them, and it is the reason this check had to exist.
               and {"colonseat", "tabseat"}
-                  <= {w["agent"] for w in discover_workers(_y_pkg / "seats")}
-              and not any(k.startswith("yaml") for _, k, _ in descriptor_findings(_y_ns)))
+                  <= {w["agent"] for w in launch.discover_workers(_y_pkg / "seats")}
+              and not any(k.startswith("yaml") for _, k, _ in launch.descriptor_findings(_y_ns)))
         _y_order = [clean_out.find(_y_h) for _y_h in
                     ("descriptors:", "registry:", "structural findings:", "bound:",
                      "yaml-parse (G-256):", "boot-stale (G-61):")]
@@ -2710,7 +2737,7 @@ def _selftest_checks(args, failures, names):
               clean_code == 0
               and "yaml-parse (G-256):" in clean_out
               and "yaml-parse findings: 0" in clean_out
-              and descriptor_yaml_findings(cleanpkg / "seats") == []
+              and launch.descriptor_yaml_findings(cleanpkg / "seats") == []
               # APPENDED, not interleaved: every pre-existing section header still renders, in
               # its original order, with the new one slotted between the structural audit and
               # boot-staleness. Positions are compared, never merely membership — a section that
@@ -2732,10 +2759,10 @@ def _selftest_checks(args, failures, names):
         boot_epoch = datetime(2026, 7, 27, 6, 0).timestamp()
         os.utime(seat_dir / "seat.md", (boot_epoch - 600, boot_epoch - 600))  # read at boot
         check("G-61 boot-stale: a seat whose folder has not changed since it checked in reports "
-              "NOTHING — the check does not fire on mere age", boot_stale_findings(cns) == [])
+              "NOTHING — the check does not fire on mere age", launch.boot_stale_findings(cns) == [])
         (seat_dir / "SEAT-STATE.md").write_text("superseded ruling, verbatim\n", encoding="utf-8")
         os.utime(seat_dir / "SEAT-STATE.md", (boot_epoch + 600, boot_epoch + 600))
-        stale_found = boot_stale_findings(cns)
+        stale_found = launch.boot_stale_findings(cns)
         check("G-61 boot-stale: a boot-read document that is NOT the descriptor — the widening "
               "that proved the class — is caught, because the scope is the seat's FOLDER and not "
               "seat.md alone",
@@ -2745,14 +2772,14 @@ def _selftest_checks(args, failures, names):
         os.utime(seat_dir / "transcripts" / "dump.txt", (boot_epoch + 900, boot_epoch + 900))
         check("G-61 boot-stale: transcripts/ is EXCLUDED — it is an export target written by the "
               "close ceremony, never read at boot, and every close would otherwise flag its own "
-              "seat", len(boot_stale_findings(cns)) == 1)
+              "seat", len(launch.boot_stale_findings(cns)) == 1)
         (cleanpkg / "seats" / "gone").mkdir()
         (cleanpkg / "seats" / "gone" / "seat.md").write_text(
             "---\nseat: gone\n---\nbody\n", encoding="utf-8")
         os.utime(cleanpkg / "seats" / "gone" / "seat.md", (boot_epoch + 900, boot_epoch + 900))
         check("G-61 boot-stale: a CHECKED-OUT seat is not flagged — nothing is running on those "
               "instructions, so a changed file there is an edit, not a stale boot",
-              all(s != "gone" for s, _, _ in boot_stale_findings(cns)))
+              all(s != "gone" for s, _, _ in launch.boot_stale_findings(cns)))
         (seat_dir / "scratch-output.txt").write_text("my own work product\n", encoding="utf-8")
         os.utime(seat_dir / "scratch-output.txt", (boot_epoch + 300, boot_epoch + 300))
         stale_out, stale_code = run_descriptors(cns)
@@ -2773,7 +2800,7 @@ def _selftest_checks(args, failures, names):
               "unlisted file is still reported and still counted, because a boot-read document "
               "under an unlisted name must not vanish",
               "1 BOOT-READ by name, 1 other" in stale_out
-              and len(boot_stale_findings(cns)) == 2)
+              and len(launch.boot_stale_findings(cns)) == 2)
 
         dirty_out, dirty_code = run_descriptors(dns)
         check("G-57 descriptors: a package WITH findings exits non-zero and still prints the "
@@ -3105,7 +3132,7 @@ def _selftest_checks(args, failures, names):
             json.dumps({"rbtv_path": "tools/rbtv"}), encoding="utf-8")
         (mroot / "tools" / "rbtv").mkdir(parents=True)
 
-        found_root, found_path = find_workspace_root(mroot / "deep" / "nested")
+        found_root, found_path = launch.find_workspace_root(mroot / "deep" / "nested")
         check("mirror: the workspace root is found by walking UP from the seat's cwd — a seat "
               "rooted deep in the tree (or in a worktree) must refresh ITS root, not the caller's",
               found_root == mroot.resolve())
@@ -3116,8 +3143,8 @@ def _selftest_checks(args, failures, names):
         orphan = Path(td) / "not-a-workspace"
         orphan.mkdir()
         check("mirror: a cwd under no rbtv.json resolves to no workspace",
-              find_workspace_root(orphan) == (None, None))
-        status, _ = refresh_mirror(orphan)
+              launch.find_workspace_root(orphan) == (None, None))
+        status, _ = launch.refresh_mirror(orphan)
         check("mirror: a non-rbtv workspace SKIPS, never fails — a team run in a plain folder has "
               "no mirror to refresh and must not be warned at every launch",
               status == "skip")
@@ -3125,27 +3152,27 @@ def _selftest_checks(args, failures, names):
         (mroot / "rbtv.json").write_text("{not json", encoding="utf-8")
         check("mirror: an unreadable rbtv.json FAILS loudly rather than silently skipping — a "
               "corrupt config is a real problem, not an absent mirror",
-              refresh_mirror(mroot)[0] == "fail")
+              launch.refresh_mirror(mroot)[0] == "fail")
         (mroot / "rbtv.json").write_text(
             json.dumps({"rbtv_path": "tools/rbtv"}), encoding="utf-8")
         check("mirror: an rbtv_path with no install.py FAILS (it points nowhere) — the installer "
               "is never invoked, so this costs nothing to detect",
-              refresh_mirror(mroot)[0] == "fail")
+              launch.refresh_mirror(mroot)[0] == "fail")
 
         # refresh_mirrors_for: who gets refreshed, and how many times.
         calls = []
-        _real_refresh = refresh_mirror
-        globals()["refresh_mirror"] = lambda cwd: (calls.append(cwd), ("skip", "stub"))[1]
+        _real_refresh = launch.refresh_mirror
+        launch.refresh_mirror = lambda cwd: (calls.append(cwd), ("skip", "stub"))[1]
         try:
             calls.clear()
-            refresh_mirrors_for([{"harness": "claude", "cwd": "/w"},
+            launch.refresh_mirrors_for([{"harness": "claude", "cwd": "/w"},
                                  {"harness": "claude", "cwd": "/w"}])
             check("mirror: a claude-only launch refreshes NOTHING — claude reads CLAUDE.md "
                   "natively and consumes no mirror, so the cost must not be paid for it",
                   calls == [])
             calls.clear()
             with redirect_stdout(io.StringIO()):
-                refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
+                launch.refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
                                      {"harness": "opencode", "cwd": "/w"},
                                      {"harness": "claude", "cwd": "/w"}])
             check("mirror: N seats sharing one root pay ONE refresh — a 10-seat wave must not "
@@ -3153,21 +3180,21 @@ def _selftest_checks(args, failures, names):
                   calls == ["/w"])
             calls.clear()
             with redirect_stdout(io.StringIO()):
-                refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
+                launch.refresh_mirrors_for([{"harness": "codex", "cwd": "/w"},
                                      {"harness": "opencode", "cwd": "/other"}])
             check("mirror: seats in DIFFERENT roots each get their own refresh — a worktree seat's "
                   "mirror lives in the worktree, not the parent workspace",
                   calls == ["/w", "/other"])
             calls.clear()
-            globals()["refresh_mirror"] = lambda cwd: (_ for _ in ()).throw(
+            launch.refresh_mirror = lambda cwd: (_ for _ in ()).throw(
                 AssertionError("should not be reached"))
-            refresh_mirrors_for([{"harness": "codex", "cwd": ""}])
+            launch.refresh_mirrors_for([{"harness": "codex", "cwd": ""}])
             check("mirror: a seat with no cwd is skipped rather than crashing the launch",
                   True)
         except AssertionError as exc:
             check(f"mirror: refresh_mirrors_for raised — {exc}", False)
         finally:
-            globals()["refresh_mirror"] = _real_refresh
+            launch.refresh_mirror = _real_refresh
 
         # ---- G-20 (inbox-scope) + G-21 (closing state): who a broadcast reaches ----
         # The owner's directive bounds the RECEIVING direction the protocol never bounded. The bar
@@ -3886,8 +3913,8 @@ def _selftest_checks(args, failures, names):
         check("S-8(c): the memory-gate refusal names --force-memory, the flag that actually "
               "lifts it — it used to name --force, which carries the ROLE gate only, at the "
               "exact moment an unattended run is blocked and reaching for the documented escape",
-              "--force-memory" in memory_gate(1, 100, 2000)
-              and "override with --force " not in memory_gate(1, 100, 2000))
+              "--force-memory" in process.memory_gate(1, 100, 2000)
+              and "override with --force " not in process.memory_gate(1, 100, 2000))
         _, pre3 = load_messages(base_g)
         mark5 = pre3[-1]["num"]
         sd("leader", "eta", "abort the close", type="verdict")
@@ -4051,21 +4078,21 @@ def _selftest_checks(args, failures, names):
         check("r-window-layout: a seat's own declaration NEVER authorizes itself — peers exclude "
               "the seat under test, or its typo appears in the set it is validated against and the "
               "check is vacuous. Nearly shipped that way",
-              peer_windows(_seats, "c") == {"control"}
-              and peer_windows([{"agent": "c", "window": "typo"}], "c") == set())
+              ready.peer_windows(_seats, "c") == {"control"}
+              and ready.peer_windows([{"agent": "c", "window": "typo"}], "c") == set())
         check("r-window-layout: a TYPO is refused because it is a NEAR MISS of a window peers "
               "declare — and the refusal names the intended value. An unrecognised window is not "
               "refused by tmux: it SILENTLY OPENS a new one, so the seat reads as correctly placed "
               "into furniture nobody ordered. Drift that looks like success",
-              "one edit from 'control'" in window_drift({"window": "controll"}, {"control",
+              "one edit from 'control'" in ready.window_drift({"window": "controll"}, {"control",
                                                                                  "workers"}))
         check("r-window-layout: a genuinely NEW window passes — no layout is hardcoded, by ruling. "
               "Freezing this campaign's four window names into a tool every run shares would "
               "refuse every launch in a differently-organized room, which is the mistake "
               "SPECIAL_CASE_SEATS was demoted for: a MANDATE cannot be a name list",
-              window_drift({"window": "hr"}, {"control", "workers"}) == ""
-              and window_drift({"window": "control"}, {"control"}) == ""
-              and window_drift({"window": ""}, {"control"}) == "")
+              ready.window_drift({"window": "hr"}, {"control", "workers"}) == ""
+              and ready.window_drift({"window": "control"}, {"control"}) == ""
+              and ready.window_drift({"window": ""}, {"control"}) == "")
         # THE WIRING, not just the predicate. Removing the refusal from cmd_close_seat left the
         # three rows above green — the helpers were covered and the path that actually kills was
         # not. Same seam gap as G-134's, caught the same way: by mutation, not by reading.
@@ -4341,12 +4368,12 @@ def _selftest_checks(args, failures, names):
         #   process_identity             — so a fixture pid can be alive, dead, or STUBBORN
         #     (signalled and still live) on demand; the stubborn case is the only way the
         #     no-silent-escalation row can be exercised at all.
-        _tp_real = (ps_snapshot, tmux_pane_pid, signal_pid, process_identity, PID_EXIT_TIMEOUT)
+        _tp_real = (process.ps_snapshot, tmux_pane_pid, process.signal_pid, process.process_identity, process.PID_EXIT_TIMEOUT)
         # Zeroed for THIS BLOCK ONLY. The wait's subject is never what these rows assert: every one
         # of them turns on which pid was signalled and what /proc says afterwards, and the stub
         # answers both instantly. The stubborn row would otherwise pay the full budget to reach the
         # outcome it was always going to reach.
-        PID_EXIT_TIMEOUT = 0.0
+        process.PID_EXIT_TIMEOUT = 0.0
 
         (pkg / "workers" / "tp-seat").mkdir(exist_ok=True)
         (pkg / "workers" / "tp-seat" / "agent.md").write_text(
@@ -4367,18 +4394,18 @@ def _selftest_checks(args, failures, names):
         _tp_ps_blind = {"v": False}
         _tp_tmux_blind = {"v": False}
 
-        ps_snapshot = lambda: ([] if _tp_ps_blind["v"]
+        process.ps_snapshot = lambda: ([] if _tp_ps_blind["v"]
                                else [r for r in _tp_table if r[0] in _tp_live])
         tmux_pane_pid = lambda pane: (0 if _tp_tmux_blind["v"]
                                       else (8100 if pane == "%711" else 0))
-        process_identity = lambda pid: ((pid, f"st-{pid}") if pid in _tp_live else None)
+        process.process_identity = lambda pid: ((pid, f"st-{pid}") if pid in _tp_live else None)
 
         def _tp_signal(pid, sig):
             _tp_signalled.append((pid, int(sig)))
             if pid not in _tp_stubborn:
                 _tp_live.discard(pid)
             return True, ""
-        signal_pid = _tp_signal
+        process.signal_pid = _tp_signal
 
         def _tp_args(**kw):
             d = {"agent": "leader", "pid": 9000, "reason": "a fixture terminate",
@@ -4490,8 +4517,8 @@ def _selftest_checks(args, failures, names):
               _tpj_c == 1 and _tp_signalled == [(9001, int(signal_mod.SIGTERM))]
               and 9001 in _tp_live)
 
-        (ps_snapshot, tmux_pane_pid, signal_pid, process_identity,
-         PID_EXIT_TIMEOUT) = _tp_real
+        (process.ps_snapshot, tmux_pane_pid, process.signal_pid, process.process_identity,
+         process.PID_EXIT_TIMEOUT) = _tp_real
         __import__("shutil").rmtree(pkg / "workers" / "tp-seat", ignore_errors=True)
         live_tmux_panes["v"].discard("%711")
 
@@ -4608,11 +4635,11 @@ def _selftest_checks(args, failures, names):
         # ---- criterion 3, gate 2: the launch memory floor, via the SAME launch_gates() ----
         # ---- cmd_launch itself uses -- exercised through a REAL call (dry_run=False), since ----
         # ---- --dry-run deliberately skips the memory gate (matches cmd_launch's own G-51/5). ----
-        avail_real_rp = available_mb
-        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
+        avail_real_rp = process.available_mb
+        process.available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
         _mem_o, _mem_c = refuse(cmd_relaunch_pane, agent="leader", target="rp-door",
                                 pane_id="%711", dry_run=False)
-        available_mb = avail_real_rp
+        process.available_mb = avail_real_rp
         check("relaunch-pane (criterion 3, gate 2 — the memory floor): one MB under the "
               "package's declared floor refuses through the SAME launch_gates() cmd_launch "
               "itself uses (PRIN-11), even though nothing else about this call is wrong",
@@ -4970,7 +4997,7 @@ def _selftest_checks(args, failures, names):
         (mdir2 / "agent.md").write_text(
             "---\nagent: theta\nharness: claude\nclose: mechanical\n---\nsensor loop\n",
             encoding="utf-8")
-        theta = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "theta"][0]
+        theta = [w for w in launch.discover_workers(workers_dir(ns())) if w["agent"] == "theta"][0]
         check("G-23: `close: mechanical` is exposed per seat from the descriptor",
               theta["mechanical_close"] is True
               and not theta["ephemeral"])          # long-lived, and still memoryless
@@ -4981,11 +5008,11 @@ def _selftest_checks(args, failures, names):
         # nothing about whether this seat is told to read one.
         check("G-23: its boot prompt does NOT instruct reading memory.md even though the file "
               "EXISTS and the seat is persistent — it boots fresh every session by design",
-              "PREDECESSOR'S HANDOFF" not in boot_prompt(theta, ns()))
-        ordinary = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"]
+              "PREDECESSOR'S HANDOFF" not in launch.boot_prompt(theta, ns()))
+        ordinary = [w for w in launch.discover_workers(workers_dir(ns())) if w["agent"] == "gamma"]
         check("G-23: the DEFAULT is untouched — a persistent seat with no `close:` key still "
               "reads its memory (the careful path stays the default)",
-              bool(ordinary) and "PREDECESSOR'S HANDOFF" in boot_prompt(ordinary[0], ns()))
+              bool(ordinary) and "PREDECESSOR'S HANDOFF" in launch.boot_prompt(ordinary[0], ns()))
         run(cmd_checkin, agent="theta", summary="mechanical-close sensor", pane="%24")
         opened.clear()
         out = run(cmd_close_seat, agent="leader", target="theta", renew=False, no_export=True)
@@ -5003,32 +5030,32 @@ def _selftest_checks(args, failures, names):
         # through unseen.
         check("G-51: with NO taskforce.csv the check is a no-op — a legacy `workers/` package has "
               "no registry and its seats must still launch",
-              taskforce_bindings(ns()) == {})
+              launch.taskforce_bindings(ns()) == {})
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,gamma,,opencode,zai-coding-plan/glm-5.2,high,,m0\n"   # matches gamma's briefing
             "tf-1,delta,,codex,,,,m0\n"                   # blank model/effort = not stated
             "tf-1,epsilon-x,,claude,sonnet,high,,m0\n",   # a row for a seat with no briefing
             encoding="utf-8")
-        reg = taskforce_bindings(ns())
+        reg = launch.taskforce_bindings(ns())
         check("G-51: the registry parses per seat, and a BLANK cell means 'not stated' rather "
               "than a value — the opencode verification seats legitimately carry no `effort`, and "
               "treating blank as a value would refuse every one of them",
               set(reg) == {"gamma", "delta", "epsilon-x"}
               and reg["delta"]["model"] == "" and reg["delta"]["harness"] == "codex"
-              and binding_divergence({"harness": "codex", "model": "anything", "effort": "low"},
+              and launch.binding_divergence({"harness": "codex", "model": "anything", "effort": "low"},
                                      reg["delta"]) == [])
-        gseat = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
+        gseat = [w for w in launch.discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
         check("G-51: a seat AGREEING with its row produces no divergence",
-              binding_divergence(gseat, reg["gamma"]) == [])
+              launch.binding_divergence(gseat, reg["gamma"]) == [])
         diverged = dict(reg["gamma"], model="deepseek/deepseek-v4-pro")
-        diff = binding_divergence(gseat, diverged)
+        diff = launch.binding_divergence(gseat, diverged)
         check("G-51: a disagreement is reported per FIELD with both values, descriptor first",
               diff == [("model", "zai-coding-plan/glm-5.2", "deepseek/deepseek-v4-pro")])
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,gamma,,opencode,deepseek/deepseek-v4-pro,high,,m0\n", encoding="utf-8")
-        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True)
         check("G-51: launch REFUSES the divergent seat, naming both values, both paths, and — the "
               "part that makes it usable at 3am — WHICH SIDE BINDS",
               code == 2 and "descriptor says zai-coding-plan/glm-5.2" in out
@@ -5055,7 +5082,7 @@ def _selftest_checks(args, failures, names):
         # takes the LAST ended row in file order, which is exactly how a real seat leaves this
         # class in a live run (a later session supersedes the empty cell). Nothing here rewrites
         # history, and nothing asserts what that earlier session meant.
-        _u46_g = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
+        _u46_g = [w for w in launch.discover_workers(workers_dir(ns())) if w["agent"] == "gamma"][0]
         session_open(ns(), _u46_g, since=time.time(), wait=0.0)
         session_close(ns(), "gamma")
         seed_ending(base_g, "gamma", ending="done")
@@ -5080,13 +5107,13 @@ def _selftest_checks(args, failures, names):
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,hk-1,,claude,deepseek/deepseek-v4-pro,,,m0\n", encoding="utf-8")
-        _g51_row = {r["seat"]: r for r in ready_seat_rows(ns())}.get("hk-1")
+        _g51_row = {r["seat"]: r for r in ready.ready_seat_rows(ns())}.get("hk-1")
         check("7.274 (fixture precondition): the `--force` binding row's subject is ADMITTED by "
               "the launch-admission filter, so the launch it asserts is reachable. Asserted and "
               "not assumed: a deferred subject would make the row below refuse for a reason it "
               "never names",
-              _g51_row is not None and conjunction_admits(_g51_row))
-        out, code = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True, force=True)
+              _g51_row is not None and ready.conjunction_admits(_g51_row))
+        out, code = refuse(launch.cmd_launch, agent="leader", only="hk-1", dry_run=True, force=True)
         check("G-51: --force launches on the DESCRIPTOR's value anyway and says so",
               code == 0 and "WARNING --force" in out and "binds from its DESCRIPTOR" in out)
         (pkg / "taskforce.csv").unlink()
@@ -5119,45 +5146,45 @@ def _selftest_checks(args, failures, names):
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,epsilon-x,,claude,sonnet,high,,m0\n", encoding="utf-8")  # a row — but not hk-1's
-        _u99_o, _u99_c = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        _u99_o, _u99_c = refuse(launch.cmd_launch, agent="leader", only="hk-1", dry_run=True)
         check("7.99: `launch` REFUSES a seat with NO taskforce.csv row while the registry HAS "
               "rows — LAYER-NAMED with the same `no-registry-row` words `coordinate descriptors` "
               "already uses (the audit that names this half-state and gates nothing), naming the "
               "registry's own path so the reader is handed the answer and not the confusion",
               _u99_c == 2 and "hk-1: NO taskforce.csv ROW (no-registry-row)" in _u99_o
               and str(pkg) in _u99_o)
-        _u99_fo, _u99_fc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True,
+        _u99_fo, _u99_fc = refuse(launch.cmd_launch, agent="leader", only="hk-1", dry_run=True,
                                   force=True)
         check("7.99: `--force` launches it anyway and SAYS SO — the escape every other refusal in "
               "this file offers, reused rather than a second one invented for this leg",
               _u99_fc == 0 and "WARNING --force" in _u99_fo and "no-registry-row" in _u99_fo)
-        _u99_seat = [w for w in discover_workers(workers_dir(ns())) if w["agent"] == "hk-1"][0]
+        _u99_seat = [w for w in launch.discover_workers(workers_dir(ns())) if w["agent"] == "hk-1"][0]
         (pkg / "taskforce.csv").write_text(
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-1,epsilon-x,,claude,sonnet,high,,m0\n"
             f"tf-1,hk-1,,{_u99_seat['harness']},{_u99_seat['model']},{_u99_seat['effort']},,m0\n",
             encoding="utf-8")   # hk-1's row, generated FROM its descriptor so it cannot diverge
-        _u99_po, _u99_pc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        _u99_po, _u99_pc = refuse(launch.cmd_launch, agent="leader", only="hk-1", dry_run=True)
         check("7.99 (THE CONTROL): restore hk-1's row — same seat, same package, same flags, and "
               "the row generated from the descriptor so the divergence half cannot fire either — "
               "and the launch goes through. Without this arm the refusal above is equally "
               "satisfied by a check that refuses everything",
               _u99_pc == 0 and "no-registry-row" not in _u99_po)
         (pkg / "taskforce.csv").unlink()
-        _u99_lo, _u99_lc = refuse(cmd_launch, agent="leader", only="hk-1", dry_run=True)
+        _u99_lo, _u99_lc = refuse(launch.cmd_launch, agent="leader", only="hk-1", dry_run=True)
         check("7.99: with NO registry at all the missing-row half stays a NO-OP — a legacy "
               "`workers/` package has no rows for a seat to be missing from, and refusing it "
               "would ground every such package on a record it was never meant to carry",
               _u99_lc == 0 and "no-registry-row" not in _u99_lo)
         import ast as _u99_ast, inspect as _u99_inspect, textwrap as _u99_tw
         _u99_fn = [_n for _n in _u99_ast.walk(
-                       _u99_ast.parse(_u99_tw.dedent(_u99_inspect.getsource(cmd_launch))))
+                       _u99_ast.parse(_u99_tw.dedent(_u99_inspect.getsource(launch.cmd_launch))))
                    if isinstance(_n, _u99_ast.FunctionDef) and _n.name == "cmd_launch"][0]
         _u99_all = [_n for _n in _u99_ast.walk(_u99_fn) if isinstance(_n, _u99_ast.Call)
-                    and getattr(_n.func, "id", "") == "check_bindings"]
+                    and called_name(_n) == "check_bindings"]
         _u99_top = [_s for _s in _u99_fn.body if isinstance(_s, _u99_ast.Expr)
                     and isinstance(_s.value, _u99_ast.Call)
-                    and getattr(_s.value.func, "id", "") == "check_bindings"]
+                    and called_name(_s.value) == "check_bindings"]
         check("7.99 (THE PLACEMENT CHECK — the DRY-RUN and the REAL branch agree by construction): "
               "`cmd_launch` calls `check_bindings` EXACTLY ONCE and as a DIRECT CHILD of its body, "
               "never inside either arm of `if args.dry_run:`. A per-branch call is how the two "
@@ -5374,7 +5401,7 @@ def _selftest_checks(args, failures, names):
               SESSIONS_COLS.count("checkin") == 1
                and SESSIONS_COLS[-3:] == ["checkin", "model", "reopen-reason"])
 
-        _u96_w = [w for w in discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
+        _u96_w = [w for w in launch.discover_workers(workers_dir(_u96_ns())) if w["agent"] == "zeta"][0]
         _u96_sid, _ = session_open(_u96_ns(), _u96_w, since=time.time(), wait=0.0)
         _u96_scratch = _u96_seat / "sessions" / _u96_sid
         check("7.96: the LAUNCH path CREATES `seats/{seat}/sessions/{session-id}/` — parity with "
@@ -5472,7 +5499,7 @@ def _selftest_checks(args, failures, names):
               and f"native: {SESSION_UNRESOLVED}" in _u96_o)
 
         # THE SEAT-FACING INSTRUCTION — one home (the boot prompt), and it must say BOTH halves.
-        _u96_bp = boot_prompt(_u96_w, _u96_ns())
+        _u96_bp = launch.boot_prompt(_u96_w, _u96_ns())
         check("7.96 (THE INSTRUCTION): the boot prompt — the ONE home, composed by the kit on "
               "every boot so it reaches packages written before this change too — tells the seat "
               "its working files go to the per-session scratchpad, and points at the check-in as "
@@ -5488,7 +5515,7 @@ def _selftest_checks(args, failures, names):
         check("7.96: a seat whose FOLDER cannot be resolved gets NO scratchpad sentence — naming "
               "a path under a folder that does not exist is worse than silence, because the seat "
               "would then create one somewhere of its own choosing",
-              scratchpad_instruction({"agent": "nofolder", "folder": None}) == "")
+              launch.scratchpad_instruction({"agent": "nofolder", "folder": None}) == "")
 
         # THE STALENESS DETECTOR — criterion 4, and it is a SAFETY-detector change, so it is
         # proven in BOTH directions on the SAME seat, in the SAME state, with the file's LOCATION
@@ -5503,7 +5530,7 @@ def _selftest_checks(args, failures, names):
         _u96_future = time.time() + 600
         for _p in (_u96_live / "notes.md", _u96_seat / "transcripts" / "t.txt"):
             os.utime(_p, (_u96_future, _u96_future))
-        _u96_f = [str(rel) for _n, rel, _m in boot_stale_findings(_u96_ns())]
+        _u96_f = [str(rel) for _n, rel, _m in launch.boot_stale_findings(_u96_ns())]
         check("7.96 (THE EXCLUSION): a file the LIVE seat wrote into its own scratchpad does NOT "
               "read as its instructions going stale. Without this the G-61 detector fires on "
               "every write a working seat makes — it would report the seat to itself, at a volume "
@@ -5517,7 +5544,7 @@ def _selftest_checks(args, failures, names):
         (_u96_seat / "seat.md").write_text(
             "---\nseat: zeta\nharness: claude\n---\nREVISED brief\n", encoding="utf-8")
         os.utime(_u96_seat / "seat.md", (_u96_future, _u96_future))
-        _u96_f2 = [str(rel) for _n, rel, _m in boot_stale_findings(_u96_ns())]
+        _u96_f2 = [str(rel) for _n, rel, _m in launch.boot_stale_findings(_u96_ns())]
         check("7.96 (THE RED CONTROL): a GENUINE change to the running seat's own `seat.md` "
               "STILL FIRES, at the same instant, on the same seat. Only the file's LOCATION "
               "differs between this row and the two above — which is what says the detector was "
@@ -5538,14 +5565,14 @@ def _selftest_checks(args, failures, names):
         session_open(ns(), _u46_g, since=time.time(), wait=0.0)
         session_close(ns(), "gamma")          # the trace closes; no ending is declared
         clear_ending(base_g, "gamma")         # …and any prior arm's ending is retracted
-        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
         check("7.241: a seat whose LAST ENDED session declared NO disposition is REFUSED BY "
               "`launch` — NO pane opens, and the refusal names the session, says the work "
               "CONCLUDED, and routes to the `leader` as a defect rather than a relaunch. 7.237's "
               "verdict alone could not stop this: the launch path never consults it",
               code == 1 and "UNDECLARED ending" in out
               and "NO pane was opened" in out and "[dry-run] gamma" not in out)
-        out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True,
+        out, code = refuse(launch.cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True,
                            force_memory=True)
         check("7.241: and NO FLAG CARRIES IT — a caller with `--force` AND `--force-memory` set "
               "is STILL refused here — the same refusal fires whether or not those flags are "
@@ -5557,7 +5584,7 @@ def _selftest_checks(args, failures, names):
         session_open(ns(), _u46_g, since=time.time(), wait=0.0)
         session_close(ns(), "gamma")
         seed_ending(base_g, "gamma", ending="done")
-        out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
+        out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True, force=True)
         check("7.241 (CONTROL): the SAME seat, the SAME flags, the SAME package — with the "
               "ending DECLARED it launches. The refusal above tracked the empty disposition "
               "cell and not some unrelated failure, and this gate refuses a class rather than "
@@ -5581,7 +5608,7 @@ def _selftest_checks(args, failures, names):
         # ---- DO-R4: a DECLARED ending is refused BY STATE, and this is the row that closes the
         # ---- re-run hole. The caller's purpose is honest and identical to DO-1's; only the
         # ---- package STATE differs. An instrument that admitted here would launder any relaunch.
-        _do_r4, _do_r4_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _do_r4, _do_r4_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      declare_only="#1825")
         check("7.251 R4: `--declare-only` on a seat whose last ending is DECLARED is REFUSED, "
               "non-zero, and NO pane opens. THE HOLE IS CLOSED BY STATE, NOT BY PURPOSE: this "
@@ -5592,7 +5619,7 @@ def _selftest_checks(args, failures, names):
               and "last ENDED with a DECLARED disposition" in _do_r4
               and "BY STATE, NOT BY PURPOSE" in _do_r4
               and "[dry-run] gamma" not in _do_r4)
-        _do_r4f, _do_r4f_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _do_r4f, _do_r4f_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                        declare_only="#1825", force=True, force_memory=True)
         check("7.251 R4 + BARRED FLAGS: the state refusal above does not move for `--force` OR "
               "`--force-memory`. The admission attaches to NEITHER flag and confers nothing on "
@@ -5612,7 +5639,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- DO-CONTROL (done criterion 6): the PLAIN relaunch of the SAME target still refuses.
         # ---- Run BEFORE the admission so no admitted launch can be mistaken for this verdict.
-        _do_plain, _do_plain_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True)
+        _do_plain, _do_plain_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True)
         check("7.251 CONTROL (criterion 6): with the instrument LANDED, the PLAIN relaunch of the "
               "same undeclared target STILL REFUSES — the general gate is not weakened by the "
               "carve-out, and the carve-out is reachable only by asking for it. Without this row "
@@ -5637,7 +5664,7 @@ def _selftest_checks(args, failures, names):
               and "NO flag overrides it" not in _do_plain)
 
         # ---- DO-1: the admission itself — the SAME seat, the SAME package, one flag added.
-        _do_ok, _do_ok_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _do_ok, _do_ok_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      declare_only="#1825")
         check("7.251 DO-1: `--declare-only <anchor>` ADMITS the undeclared target and the launch "
               "proceeds. Paired with the CONTROL above, the seat, the package and the flags are "
@@ -5660,13 +5687,13 @@ def _selftest_checks(args, failures, names):
               "#1825" in _do_ok and "recorded not verified" in _do_ok)
 
         # ---- DO-R1 / DO-R2 / DO-R3: the remaining closed branches. Each opens nothing.
-        _do_r1, _do_r1_code = refuse(cmd_launch, agent="leader", only=None, dry_run=True,
+        _do_r1, _do_r1_code = refuse(launch.cmd_launch, agent="leader", only=None, dry_run=True,
                                      declare_only="#1825")
         check("7.251 R1: `--declare-only` with NO `--only` is refused. The anchor cites the "
               "`leader`'s investigation of ONE undeclared ending, so it cannot be spread over a "
               "set the caller never named — a mass launch has no per-seat anchor to cite",
               _do_r1_code == 1 and "admits ONE named seat, and no seat was named" in _do_r1)
-        _do_r2, _do_r2_code = refuse(cmd_launch, agent="leader", only="gamma,delta",
+        _do_r2, _do_r2_code = refuse(launch.cmd_launch, agent="leader", only="gamma,delta",
                                      dry_run=True, declare_only="#1825")
         check("7.251 R2: `--declare-only` naming MORE THAN ONE seat is refused. Applying one "
               "anchor to several would cite one investigation as evidence for endings it never "
@@ -5674,7 +5701,7 @@ def _selftest_checks(args, failures, names):
               _do_r2_code == 1 and "admits ONE seat per invocation" in _do_r2)
         _do_le0 = sessions_last_ended(pkg)
         _do_noend = next((s for s in ("beta", "delta", "alpha") if s not in _do_le0), None)
-        _do_r3, _do_r3_code = refuse(cmd_launch, agent="leader", only=(_do_noend or "beta"),
+        _do_r3, _do_r3_code = refuse(launch.cmd_launch, agent="leader", only=(_do_noend or "beta"),
                                      dry_run=True, declare_only="#1825")
         check("7.251 R3: a target with NO ended session row is refused — there is no undeclared "
               "ending to declare, so the instrument has nothing to admit, and such a seat is an "
@@ -5721,8 +5748,8 @@ def _selftest_checks(args, failures, names):
                 session_close(ns(), "gamma")
                 seed_ending(base_g, "gamma", ending="done")
             _p_m = _p_markers[_p_label]
-            _p_dry, _p_dry_code = refuse(cmd_launch, agent="leader", dry_run=True, **_p_kw)
-            _p_real, _p_real_code = refuse(cmd_launch, agent="leader", dry_run=False, **_p_kw)
+            _p_dry, _p_dry_code = refuse(launch.cmd_launch, agent="leader", dry_run=True, **_p_kw)
+            _p_real, _p_real_code = refuse(launch.cmd_launch, agent="leader", dry_run=False, **_p_kw)
             _p_a, _p_b = _p_admission_text(_p_dry, _p_m), _p_admission_text(_p_real, _p_m)
             check(f"7.251 PARITY {_p_label}: the admission's verdict, its TEXT and its exit code "
                   f"are IDENTICAL with and without `--dry-run`. The block contains no "
@@ -5732,7 +5759,7 @@ def _selftest_checks(args, failures, names):
                   _p_a != "" and _p_a == _p_b
                   and _p_dry_code == _p_real_code and _p_real_code == 1)
         import inspect as _do_inspect
-        _do_src = _do_inspect.getsource(cmd_launch)
+        _do_src = _do_inspect.getsource(launch.cmd_launch)
         _do_block = _do_src[_do_src.index("_decl_anchor = "):_do_src.index("if not _declare_only_admitted:")]
         check("7.251 PARITY (construction): the admission block contains ZERO `dry_run` reads — "
               "the placement rule the parity rows above depend on, asserted at the SOURCE so it "
@@ -5777,7 +5804,7 @@ def _selftest_checks(args, failures, names):
         wake_ok["v"] = True                        # harness starts succeed: set, never inherited
         _crash_out, _crash_code, _crash_exc = "", None, None
         try:
-            _crash_out, _crash_code = refuse(cmd_launch, agent="leader", only="gamma",
+            _crash_out, _crash_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                              dry_run=False, declare_only="#1825")
         except Exception as _crash_e:              # noqa: BLE001
             _crash_exc = f"{type(_crash_e).__name__}: {_crash_e}"
@@ -5834,7 +5861,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- FROM-STATE REFUSALS FIRST, while the cell is still under this block's control. ----
         # gamma is `done` right now (the postcondition above left it so).
-        _d42_done, _d42_done_code = refuse(cmd_launch, agent="leader", only="gamma",
+        _d42_done, _d42_done_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                            dry_run=True, rerun=_d42_a)
         check("D42 R-DONE: `--rerun` on a `done` row is REFUSED — its own writer's word stands and "
               "its edge has already advanced, so there is nothing to re-run. The door admits ONE "
@@ -5866,7 +5893,7 @@ def _selftest_checks(args, failures, names):
                 clear_ending(base_g, "gamma")
             else:
                 seed_ending(base_g, "gamma", ending=_d42_end, reason_class=_d42_rc)
-            _d42_o, _d42_c = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+            _d42_o, _d42_c = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                     rerun=_d42_a)
             check(f"D42 {_d42_row}: `--rerun` on "
                   f"{('a `' + _d42_end + '`' + ('/`' + _d42_rc + '`' if _d42_rc else '') + ' ending') if _d42_end else 'a seat with NO declared ending'}"
@@ -5881,7 +5908,7 @@ def _selftest_checks(args, failures, names):
         # ---- the two cardinality/existence refusals run while the registry is still EMPTY,
         # ---- because `check_bindings` (G-51) refuses at exit 2 for a launched seat with no row
         # ---- and would answer before this door ever did.
-        _d42_two, _d42_two_code = refuse(cmd_launch, agent="leader", only="gamma,beta",
+        _d42_two, _d42_two_code = refuse(launch.cmd_launch, agent="leader", only="gamma,beta",
                                          dry_run=True, rerun=_d42_a)
         check("D42 R-TWO: `--rerun` naming MORE THAN ONE seat is refused. One anchor cites ONE "
               "investigation of ONE crashed session; applying it to several would cite that "
@@ -5893,7 +5920,7 @@ def _selftest_checks(args, failures, names):
         # package has a session history by now, and "no ended row" is the state under test.
         (pkg / "workers" / "d42norow.md").write_text(
             "---\nagent: d42norow\nmodel: opus\n---\nbrief\n", encoding="utf-8")
-        _d42_nr, _d42_nr_code = refuse(cmd_launch, agent="leader", only="d42norow",
+        _d42_nr, _d42_nr_code = refuse(launch.cmd_launch, agent="leader", only="d42norow",
                                        dry_run=True, rerun=_d42_a)
         (pkg / "workers" / "d42norow.md").unlink()
         check("D42 R-NOROW: a target with NO ended session row is refused — there is no crashed "
@@ -5924,7 +5951,7 @@ def _selftest_checks(args, failures, names):
         # claim — the general gate is NOT weakened by the door — is unaffected and is what the
         # exit code and the absent pane carry; the class word is pinned so this goes RED the day
         # `ready.py` is migrated. Full argument at the 7.274 block's surfacing note.
-        _d42_plain, _d42_plain_code = refuse(cmd_launch, agent="leader", only="gamma",
+        _d42_plain, _d42_plain_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                              dry_run=True)
         check("D42 R-CONTROL: with the instrument LANDED, the PLAIN relaunch of a supervisor-"
               "stamped `failed` row STILL DEFERS and opens nothing. The general "
@@ -5934,7 +5961,7 @@ def _selftest_checks(args, failures, names):
               _d42_plain_code == 1
               and "NOT LAUNCHED — terminal-unenumerated" in _d42_plain
               and "[dry-run] gamma" not in _d42_plain)
-        _d42_f, _d42_f_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _d42_f, _d42_f_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      force=True, force_memory=True)
         check("D42 R-BARRED: and NO OVERRIDE CARRIES IT — `--force` AND `--force-memory` together "
               "still leave the `failed` row deferred. The barred list is "
@@ -5945,7 +5972,7 @@ def _selftest_checks(args, failures, names):
               and "[dry-run] gamma" not in _d42_f)
 
         # ---- the two cardinality refusals and the empty-anchor refusal ----
-        _d42_na, _d42_na_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _d42_na, _d42_na_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                        rerun="   ")
         check("D42 R-NOANCHOR: `--rerun` with an EMPTY value is refused at the INPUT layer (exit "
               "2) and opens nothing. The anchor IS the instrument's trail, so an invocation "
@@ -5954,7 +5981,7 @@ def _selftest_checks(args, failures, names):
               and "re-run a crashed seat citing nothing" in _d42_na
               and "[dry-run] gamma" not in _d42_na)
         # ---- R-1: THE ADMISSION, and the row it does NOT touch ----
-        _d42_ok, _d42_ok_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _d42_ok, _d42_ok_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                        rerun=_d42_a)
         check("D42 R-1: `--rerun <anchor>` ADMITS the crashed target and the launch proceeds. "
               "Paired with R-CONTROL above the seat, the package and every other flag are "
@@ -5988,7 +6015,7 @@ def _selftest_checks(args, failures, names):
         # `--tmux-target` refusal removed, the dedup branch reporting `enqueued`.
         _e22_marker = pkg / "execution-lane"
         _e22_marker.write_text("daemon\n", encoding="utf-8")
-        _e22_d, _e22_d_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _e22_d, _e22_d_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      rerun=_d42_a)
         check("E22-1 DAEMON LANE: `launch --only gamma --rerun <anchor> --dry-run` on a goal whose "
               "`execution-lane` reads `daemon` is ADMITTED by the same `--rerun` wall and COMPOSES "
@@ -6011,7 +6038,7 @@ def _selftest_checks(args, failures, names):
         check("E22-1 (THE ROW IS UNTOUCHED, daemon lane): the dry-run wrote nothing — sessions.csv "
               "is byte-identical; the enqueue is the daemon's act at dispatch, never a coord write",
               sessions_csv(pkg).read_bytes() == _d42_bytes_before)
-        _e22_t, _e22_t_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _e22_t, _e22_t_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      rerun=_d42_a, tmux_target="%5")
         check("E22-2 `--tmux-target` ON THE DAEMON LANE IS REFUSED, NEVER SILENTLY IGNORED: the "
               "flag names a pane this lane will not open, so the command refuses at the INPUT "
@@ -6023,10 +6050,10 @@ def _selftest_checks(args, failures, names):
               and "enqueue-job" not in _e22_t and "[dry-run] gamma" not in _e22_t)
         # ---- the CONSOLE CONTROL: marker `console`, then the marker ABSENT — same invocation ----
         _e22_marker.write_text("console\n", encoding="utf-8")
-        _e22_c, _e22_c_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _e22_c, _e22_c_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      rerun=_d42_a)
         _e22_marker.unlink()
-        _e22_a, _e22_a_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _e22_a, _e22_a_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      rerun=_d42_a)
         _e22_line = lambda t: next((l for l in t.splitlines()
                                     if l.startswith("[dry-run] gamma")), "")
@@ -6070,14 +6097,14 @@ def _selftest_checks(args, failures, names):
                                                         "because": "live:exec-9",
                                                         "seat_key": "workdir:/x/seats/gamma",
                                                         "exec_id": 9}}
-            _e22_dd, _e22_dd_code = refuse(cmd_launch, agent="leader", only="gamma",
+            _e22_dd, _e22_dd_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                            dry_run=False, rerun=_d42_a)
             _e22_answer["v"] = {"ok": True, "result": {"jobId": "q-78"}}
-            _e22_ok, _e22_ok_code = refuse(cmd_launch, agent="leader", only="gamma",
+            _e22_ok, _e22_ok_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                            dry_run=False, rerun=_d42_a)
             _e22_answer["v"] = {"ok": False, "error": {"code": "AUTH_REFUSED",
                                                         "message": "authentication required"}}
-            _e22_au, _e22_au_code = refuse(cmd_launch, agent="leader", only="gamma",
+            _e22_au, _e22_au_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                            dry_run=False, rerun=_d42_a)
         finally:
             (gateway_client.resolve_gateway_addr, gateway_client.resolve_token,
@@ -6151,7 +6178,7 @@ def _selftest_checks(args, failures, names):
         wake_ok["v"] = True
         _d42_real, _d42_real_code, _d42_exc = "", None, None
         try:
-            _d42_real, _d42_real_code = refuse(cmd_launch, agent="leader", only="gamma",
+            _d42_real, _d42_real_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
                                                dry_run=False, rerun=_d42_a)
         except Exception as _d42_e:               # noqa: BLE001
             _d42_exc = f"{type(_d42_e).__name__}: {_d42_e}"
@@ -6176,7 +6203,7 @@ def _selftest_checks(args, failures, names):
               and ("every seat above must appear there" in _d42_real
                    or "launch INCOMPLETE" in _d42_real))
         import inspect as _d42_inspect
-        _d42_src = _d42_inspect.getsource(cmd_launch)
+        _d42_src = _d42_inspect.getsource(launch.cmd_launch)
         _d42_blk = _d42_src[_d42_src.index("_rerun_raw = "):
                             _d42_src.index("# ⚠⚠ BOUND BEFORE THE BRANCH")]
         check("D42 R-PARITY (construction): the `--rerun` admission block contains ZERO `dry_run` "
@@ -6196,7 +6223,7 @@ def _selftest_checks(args, failures, names):
         seed_ending(base_g, "gamma", ending="failed", reason_class="crash")
         run(cmd_checkin, agent="gamma", summary="the crashed seat's zombie pane", pane="%94")
         live_tmux_panes["v"] = {"%94"}
-        _d42_p4, _d42_p4_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
+        _d42_p4, _d42_p4_code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=True,
                                        rerun=_d42_a)
         check("D42 R-P4: `--rerun` is REFUSED while a LIVE pane already holds the name, and it "
               "reuses `--declare-only`'s own composition rather than adding a second detector. "
@@ -6293,7 +6320,7 @@ def _selftest_checks(args, failures, names):
                  "rerun": None, "reopen": None, "declare_only": None, "force_memory": False,
                  "tmux_target": ""}
             d.update(kw)
-            return refuse(cmd_launch, **d)
+            return refuse(launch.cmd_launch, **d)
 
         def _d54_cell(seat, col, sid=None):
             _h, _r = read_csv_table(sessions_csv(_d54), SESSIONS_COLS)
@@ -6328,9 +6355,9 @@ def _selftest_checks(args, failures, names):
         check("D54 R-STATE (control): `--rerun`'s OWN refusal-of-`done` is UNTOUCHED — its "
               "admitted from-set `--reopen` does NOT join. `origin`'s `done` row "
               "is refused by `--rerun` exactly as it always was",
-              refuse(cmd_launch, agent="leader", package=str(_d54), only="origin", dry_run=True,
+              refuse(launch.cmd_launch, agent="leader", package=str(_d54), only="origin", dry_run=True,
                      rerun="anchor", force=False)[1] == 1
-              and "already ADVANCED" in refuse(cmd_launch, agent="leader", package=str(_d54),
+              and "already ADVANCED" in refuse(launch.cmd_launch, agent="leader", package=str(_d54),
                                                only="origin", dry_run=True, rerun="anchor",
                                                force=False)[0])
 
@@ -6359,7 +6386,7 @@ def _selftest_checks(args, failures, names):
               and (ending_store.get_current_ending(_d54, "origin") or {}).get("ending") == "done")
         check("D54 (compute-only): `reopen_downstream_seats` in isolation names EXACTLY {ran1} — "
               "the direct assertion behind R-1's printed banner",
-              reopen_downstream_seats(_d54, "origin") == ["ran1"])
+              ready.reopen_downstream_seats(_d54, "origin") == ["ran1"])
 
         # ---- R-BUDGET: the (goal, seat, reason) brake, coord.py-LOCAL (D66) -------------------
         _d54_seed_row("origin", "incomplete", reopen_reason="budget-reason")
@@ -6406,7 +6433,7 @@ def _selftest_checks(args, failures, names):
         wake_ok["v"] = True
         _d54_real, _d54_real_code, _d54_exc = "", None, None
         try:
-            _d54_real, _d54_real_code = refuse(cmd_launch, agent="leader", package=str(_d54),
+            _d54_real, _d54_real_code = refuse(launch.cmd_launch, agent="leader", package=str(_d54),
                                                only="origin", dry_run=False,
                                                reopen="late-finding-2")
         except Exception as _d54_e:                      # noqa: BLE001
@@ -6461,7 +6488,7 @@ def _selftest_checks(args, failures, names):
         # ---- the OLD `done` row (last ENDED, not last OPEN); once it ends non-`done`, `succ` "
         # ---- un-advances for FUTURE reads. Neither `ran1` (already ran) nor the historical "
         # ---- fact that it ran is touched — only FUTURE evaluations of the edge change. -------
-        _d54_rows_before = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
+        _d54_rows_before = {r["seat"]: r for r in ready.ready_seat_rows(argparse.Namespace(
             package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
         check("D54 UN-ADVANCE (before): with the new sitting still OPEN, `succ` STILL reads "
               "READY — the reopened sitting has declared no ending of its own yet, so the "
@@ -6474,7 +6501,7 @@ def _selftest_checks(args, failures, names):
         session_close(argparse.Namespace(package=str(_d54), base=None, workers_dir=None,
                                          as_agent=None, force=False), "origin")
         seed_ending(_d54, "origin", ending="incomplete")
-        _d54_rows_after = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
+        _d54_rows_after = {r["seat"]: r for r in ready.ready_seat_rows(argparse.Namespace(
             package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
         check("D54 UN-ADVANCE (after): once the REOPENED sitting itself ends NON-`done` "
               "(`incomplete`), `origin`'s durable disposition is now that row (LAST ENDED), and "
@@ -6482,7 +6509,7 @@ def _selftest_checks(args, failures, names):
               "`ran1`'s past run is touched: this is a FUTURE-READ effect only (D54 edge case 2 "
               "— no rollback, no re-block of anything already launched)",
               _d54_rows_after["succ"]["verdict"] == "BLOCKED"
-              and terminal_disposition(_d54, base_dir(argparse.Namespace(
+              and ready.terminal_disposition(_d54, base_dir(argparse.Namespace(
                   package=str(_d54), base=None, workers_dir=None, as_agent=None,
                   force=False)), "origin")[0] == "incomplete")
 
@@ -6492,33 +6519,33 @@ def _selftest_checks(args, failures, names):
         # there is no role gate left to override — so these rows now prove only that the memory
         # gate refuses on its own, regardless of caller identity, and `--force` (which carries
         # nothing anymore) does not touch it.
-        avail_real2 = available_mb
+        avail_real2 = process.available_mb
         # One MB under the floor the FIXTURE PACKAGE declares (task 7.82 — the gate reads
         # pkg/budget.json now, so the number this test undercuts must be that same declaration,
         # not a module constant that no longer exists).
-        available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
+        process.available_mb = lambda: budget_mod.read_floor(pkg, "refuse") - 1
         try:
-            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+            out, code = refuse(launch.cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force=True)
             check("#230: a caller with `--force` alone is STILL REFUSED BY MEMORY — `--force` "
                   "carries nothing at this gate anymore [T2-R10, D24, F-simplicity-7]",
                   code == 2 and "memory gate: REFUSED" in out)
-            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+            out, code = refuse(launch.cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force=True, force_memory=True)
             check("#230: `--force-memory` lets it proceed, and the WARNING is distinguishable "
                   "from a refusal — it launches and names which gate was overridden",
                   code == 0 and "WARNING launching anyway" in out
                   and "overridden with --force-memory" in out and "refused [coord" not in out)
-            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=False,
+            out, code = refuse(launch.cmd_launch, agent="watcher", only="gamma", dry_run=False,
                                force_memory=True)
             check("#230: `--force-memory` alone is enough — there is no second (role) gate left "
                   "for a non-leader caller to also clear",
                   code == 0 and "WARNING launching anyway" in out)
-            out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+            out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=False)
             check("#230: the LEADER is refused by the memory gate like anyone else — the gate "
                   "binds every identity, not only the seats that used to hold lifecycle authority",
                   code == 2 and "memory gate: REFUSED" in out)
-            out, code = refuse(cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True)
+            out, code = refuse(launch.cmd_launch, agent="watcher", only="gamma", dry_run=True, force=True)
             check("#230: --dry-run skips the MEMORY gate entirely — it opens nothing, so refusing "
                   "it on available memory would refuse a command that cannot spend any",
                   "memory gate" not in out)
@@ -6528,14 +6555,14 @@ def _selftest_checks(args, failures, names):
             # starts anyway is the defect this criterion exists to catch." Asserted through a REAL
             # cmd_launch (dry_run=False), not a direct call to the gate — `--dry-run` deliberately
             # skips the memory gate, so a dry run could never show this.
-            available_mb = lambda: 999999          # ⚠ MASSES of memory: the ONLY thing that can
+            process.available_mb = lambda: 999999          # ⚠ MASSES of memory: the ONLY thing that can
             # refuse this launch is the missing declaration. Without this line the check would pass
             # off the previous below-floor stub and prove nothing about the floor being UNDECLARED.
             bjson = pkg / "budget.json"
             saved = bjson.read_text()
             bjson.unlink()
             try:
-                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=False)
                 check("7.82/5: with budget.json MOVED ASIDE the launch gate REFUSES — with memory "
                       "to spare, so the refusal can only be the missing declaration. A floor is "
                       "READ, never invented, and 'no declaration' is never a silent fallback",
@@ -6544,7 +6571,7 @@ def _selftest_checks(args, failures, names):
                 # ...and the positive twin, or the check above passes on a gate that refuses
                 # everything. Same command, same memory, declaration restored -> PASSES.
                 bjson.write_text(saved)
-                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=False)
                 check("7.82/5: restoring budget.json restores the launch — the refusal above "
                       "tracked the declaration and not some unrelated failure",
                       code == 0 and "refused [coord" not in out)
@@ -6563,15 +6590,15 @@ def _selftest_checks(args, failures, names):
                 # Asserted as an AGREEMENT, so it fails whichever of the two drifts.
                 check("7.82/8: the spike's SOURCE and its VALUE are captured at the same instant "
                       "— the label cannot claim an env override the number never saw",
-                      (SEAT_SPIKE_SOURCE == "COORD_SEAT_SPIKE_MB")
+                      (process.SEAT_SPIKE_SOURCE == "COORD_SEAT_SPIKE_MB")
                       == (os.environ.get("COORD_SEAT_SPIKE_MB") not in (None, ""))
-                      and ("(%s)" % SEAT_SPIKE_SOURCE) in out)
+                      and ("(%s)" % process.SEAT_SPIKE_SOURCE) in out)
 
                 # ⚠ A DECLARED-BUT-UNREADABLE budget.json IS A DIFFERENT FACT FROM AN ABSENT ONE,
                 # and this pair is the one that stops them collapsing. A wrong path and a corrupt
                 # declaration must never read alike to the operator holding the refusal.
                 bjson.write_text("{ not json")
-                out, code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=False)
+                out, code = refuse(launch.cmd_launch, agent="leader", only="gamma", dry_run=False)
                 check("7.82/5: a DECLARED but UNREADABLE budget.json refuses with its own reason, "
                       "distinct from 'nothing declares a floor' — collapsing the two is what made "
                       "a wrong path look identical to a package with no budget",
@@ -6580,7 +6607,7 @@ def _selftest_checks(args, failures, names):
             finally:
                 bjson.write_text(saved)
         finally:
-            available_mb = avail_real2
+            process.available_mb = avail_real2
 
         os.environ.pop("COORD_LAUNCH_TARGET", None)
 
@@ -6631,12 +6658,16 @@ def _selftest_checks(args, failures, names):
         _s3_tokens, _s3_opaque = set(), []
         for _s3_node in _s3_ast.walk(_s3_tree):
             if not (isinstance(_s3_node, _s3_ast.Call)
-                    and getattr(_s3_node.func, "id", None) in ("refuse", "refusal_text")
+                    and called_name(_s3_node) in ("refuse", "refusal_text")
                     and _s3_node.args):
                 continue
             _s3_a0 = _s3_node.args[0]
-            if isinstance(_s3_a0, _s3_ast.Name):
-                continue          # the selftest's own local `refuse(fn, **kw)` capture helper
+            if is_plain_ref(_s3_a0):
+                # The selftest's own local `refuse(fn, **kw)` capture helper, whose first
+                # argument is the FUNCTION under test. It reads `launch.cmd_launch` now that the
+                # supervision modules are real modules, so the exemption follows the reference —
+                # a COMPUTED layer (a call, an f-string, a conditional) is still opaque, still red.
+                continue
             _s3_lits = [x.value for x in _s3_ast.walk(_s3_a0)
                         if isinstance(x, _s3_ast.Constant) and isinstance(x.value, str)]
             if not _s3_lits:
@@ -7303,7 +7334,7 @@ def _selftest_checks(args, failures, names):
         # checkout intent. Asserting the old subset relation would now demand the executor speak
         # the store's vocabulary, which §4.1 never asked of it — the mapping from one to the other
         # is `stamp_checkout_ending`'s, and it is graded where it lives.
-        _d8_bridge = [v for vs in LIFECYCLE_INTENT_OF.values() if vs is not LIFECYCLE_INTENT_ABSENT
+        _d8_bridge = [v for vs in lifecycle_exec.LIFECYCLE_INTENT_OF.values() if vs is not lifecycle_exec.LIFECYCLE_INTENT_ABSENT
                       for v in vs]
         check("dag-08 EX-1: THE STORED ENDING SET IS EXACTLY `done|incomplete|failed`, EACH "
               "ACCEPTED FROM THE VOICE THAT MAY SPEAK IT, AND A VALUE OUTSIDE IT IS REFUSED BY "
@@ -7583,7 +7614,7 @@ def _selftest_checks(args, failures, names):
                         if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
         _d9_stamps = [n for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
                       if isinstance(n, _d8_ast.Call)
-                      and getattr(n.func, "id", "") == "stamp_checkout_ending"]
+                      and called_name(n) == "stamp_checkout_ending"]
         _d9_kind = [getattr(k.value, "id", "<not-a-plain-name>")
                     for n in _d9_stamps for k in n.keywords if k.arg is None] or [
                         getattr(a, "id", "<not-a-plain-name>")
@@ -7593,7 +7624,7 @@ def _selftest_checks(args, failures, names):
                        and any(getattr(t, "id", "") == "checkout_kind" for t in n.targets)]
         _d9_ledger = [n for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
                       if isinstance(n, _d8_ast.Call)
-                      and getattr(n.func, "id", "") == "session_close"
+                      and called_name(n) == "session_close"
                       and any(k.arg == "disposition" for k in n.keywords)]
         check("dag-09 LG-9: THE ENDING IS WRITTEN ONCE, FROM ONE VALUE, THROUGH ONE CALL — "
               "`cmd_checkout` reaches `stamp_checkout_ending` EXACTLY ONCE, passes it a bare name, "
@@ -7612,7 +7643,7 @@ def _selftest_checks(args, failures, names):
               and _d9_ledger == []
               # …and the counter-control: the AST walk really can see calls in this function, so
               # the empty list above is a measurement and not a walk that found nothing at all.
-              and any(getattr(n.func, "id", "") == "session_close"
+              and any(called_name(n) == "session_close"
                       for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
                       if isinstance(n, _d8_ast.Call)))
 
@@ -7726,7 +7757,7 @@ def _selftest_checks(args, failures, names):
                               for rid, tg in store),
                     encoding="utf-8")
             _sid = store_ids or {}
-            _extra_h = f",{TASKFORCE_STORE_JOIN_COLUMN}" if store_ids is not None else ""
+            _extra_h = f",{ready.TASKFORCE_STORE_JOIN_COLUMN}" if store_ids is not None else ""
             (p / "taskforce.csv").write_text(
                 "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id"
                 + _extra_h + "\n"
@@ -7788,11 +7819,11 @@ def _selftest_checks(args, failures, names):
                 (p / "coordination" / "lifecycle-inflight.json").write_text(
                     json.dumps(lifecycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             if guards is not None:
-                write_csv_table(p / "coordination" / GUARD_VALUES_FILE, GUARD_VALUES_COLS,
+                write_csv_table(p / "coordination" / ready.GUARD_VALUES_FILE, ready.GUARD_VALUES_COLS,
                                 [[{"seat": s, "key": k, "value": v, "source": "fixture §1",
                                    "ruled-by": "leader",
                                    "stamp": "2026-08-05 05:00"}.get(_c3, "")
-                                  for _c3 in GUARD_VALUES_COLS] for s, k, v in guards])
+                                  for _c3 in ready.GUARD_VALUES_COLS] for s, k, v in guards])
             return p
 
         def _rs(pkg, **kw):
@@ -7801,7 +7832,7 @@ def _selftest_checks(args, failures, names):
             _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": None,
                   "force": False, "json": False, "explain": None, "fail_on_skew": False}
             _d.update(kw)
-            return harness_outcome(cmd_ready_seats, argparse.Namespace(**_d))
+            return harness_outcome(ready.cmd_ready_seats, argparse.Namespace(**_d))
 
         def _rs_v(pkg, **kw):
             """({seat: verdict}, exit) read off the JSON — no row parses the human text."""
@@ -7872,11 +7903,11 @@ def _selftest_checks(args, failures, names):
                                           "caller": {"pid": 1, "starttime": "0"}}})
 
         def _rn(pkg, seat):
-            return harness_outcome(cmd_renewal_state, argparse.Namespace(
+            return harness_outcome(ready.cmd_renewal_state, argparse.Namespace(
                 package=str(pkg), run=None, base=None, workers_dir=None, seat=seat, json=True))
         _rn_o, _rn_e, _rn_c = _rn(_le10, "a")
         _rn_j = json.loads(_rn_o)
-        _rn_fn_state, _rn_fn_why = renewal_state(_le10 / "coordination", "a")
+        _rn_fn_state, _rn_fn_why = lifecycle_exec.renewal_state(_le10 / "coordination", "a")
         _rn2_o, _rn2_e, _rn2_c = _rn(_le10, "b")
         _rn2_j = json.loads(_rn2_o)
         check("LE-10: `renewal-state` prints `renewal_state`'s OWN answer verbatim — an in-flight "
@@ -7928,12 +7959,12 @@ def _selftest_checks(args, failures, names):
                                      as_agent="leader", force=False)
         check("dag-10 RS-4 (registers): registered_seats is taskforce.csv ∪ sessions.csv; a "
               "name in neither is absent, and empty/absent files never throw",
-              registered_seats(_rs4) == {"a", "b"}
-              and registered_seats(_rs4 / "no-such-pkg") == set()
-              and "ghost" not in registered_seats(_rs4))
-        _rs4_stub = seats_by_name(_rs4_ns, "b")
+              launch.registered_seats(_rs4) == {"a", "b"}
+              and launch.registered_seats(_rs4 / "no-such-pkg") == set()
+              and "ghost" not in launch.registered_seats(_rs4))
+        _rs4_stub = launch.seats_by_name(_rs4_ns, "b")
         _rs4_miss_o, _rs4_miss_e, _rs4_miss_c = harness_outcome(
-            lambda a: seats_by_name(a, "ghost"), _rs4_ns)
+            lambda a: launch.seats_by_name(a, "ghost"), _rs4_ns)
         check("dag-10 RS-4 (launch --only): a registered name with no folder is accepted as a "
               "taskforce_bindings stub; a name in neither CSV still refuses",
               [w["agent"] for w in _rs4_stub] == ["b"]
@@ -7992,9 +8023,9 @@ def _selftest_checks(args, failures, names):
                        None)
         _rs6_reg = {}
         for _rs6_n in _d8_ast.walk(_rs6_fn) if _rs6_fn else []:
-            if isinstance(_rs6_n, _d8_ast.Call) and getattr(_rs6_n.func, "id", "") in (
+            if isinstance(_rs6_n, _d8_ast.Call) and called_name(_rs6_n) in (
                     "package_dir", "base_dir"):
-                _rs6_reg[_rs6_n.func.id] = [getattr(k.value, "value", "<expr>")
+                _rs6_reg[called_name(_rs6_n)] = [getattr(k.value, "value", "<expr>")
                                             for k in _rs6_n.keywords if k.arg == "register"]
         check("dag-10 RS-6: THE COMMAND WRITES NOTHING AND IS PURE — every file under the package "
               "is byte- AND mtime-identical after two runs, and the two runs' output is identical. "
@@ -8515,12 +8546,12 @@ def _selftest_checks(args, failures, names):
               # brackets are neutralised BEFORE the alternate split, so a `|` INSIDE a guard value
               # is never read as a separator. The two homes stay in step or this row reds — and
               # the LIMBS are asserted, not merely the verdict, because D6 made them load-bearing.
-              and parse_after_member("s[k=a|b]") == ("s", "k", "a|b", False)
-              and parse_after_member("s[k=v]|t")[3] is True
-              and parse_after_member("s") == ("s", None, None, False)
-              and after_member_limbs("s[k=a|b]") == ["s[k=a|b]"]
-              and after_member_limbs("s[k=v]|t") == ["s[k=v]", "t"]
-              and after_member_limbs("a|b|c") == ["a", "b", "c"])
+              and ready.parse_after_member("s[k=a|b]") == ("s", "k", "a|b", False)
+              and ready.parse_after_member("s[k=v]|t")[3] is True
+              and ready.parse_after_member("s") == ("s", None, None, False)
+              and ready.after_member_limbs("s[k=a|b]") == ["s[k=a|b]"]
+              and ready.after_member_limbs("s[k=v]|t") == ["s[k=v]", "t"]
+              and ready.after_member_limbs("a|b|c") == ["a", "b", "c"])
         # ---- `--explain` reads the ONE computation, and no longer re-derives its own ----
         _rs24_out, _, _ = _rs(_rs21_ok, explain="g")
         _rs24_bout, _, _ = _rs(_rs21_ok, explain="bare")
@@ -8542,7 +8573,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- W1 (7.424): THE COLLAPSE — one decomposition site, reached by every member ----
         _w1_pkg = _rs_make("w1", _rs21_tf)
-        _w1_after = taskforce_after(_w1_pkg)
+        _w1_after = ready.taskforce_after(_w1_pkg)
         _w1_g = _w1_after["g"][0]
         _w1_bare = _w1_after["bare"][0]
         check("dag-10 W1-1 (7.424) `taskforce_after` HANDS OUT MEMBERS THAT ARE ALREADY DECOMPOSED, "
@@ -8555,10 +8586,10 @@ def _selftest_checks(args, failures, names):
               "arrives as must still be `==` the cell's own text, or the six untouched consumers "
               "break",
               _w1_g == "a[safe=yes]" and str(_w1_g) == "a[safe=yes]"
-              and after_member_parts(_w1_g) == ("a", "safe", "yes", False)
+              and ready.after_member_parts(_w1_g) == ("a", "safe", "yes", False)
               # the BARE control — a plain member is decomposed to itself and nothing else, which
               # is the `no behavior change for plain members` half of this task's contract
-              and _w1_bare == "a" and after_member_parts(_w1_bare) == ("a", None, None, False)
+              and _w1_bare == "a" and ready.after_member_parts(_w1_bare) == ("a", None, None, False)
               # and it is still a str everywhere a consumer treats it as one: dict key, set member,
               # join, format. This is the property the six untouched call sites rest on.
               and {"a[safe=yes]": 1}.get(_w1_g) == 1 and _w1_g in {"a[safe=yes]"}
@@ -8569,7 +8600,7 @@ def _selftest_checks(args, failures, names):
         # the operation that strips the decomposition — asserted here as a REFUSAL, not a fallback.
         _w1_lost = json.loads(json.dumps(_w1_g))
         try:
-            after_member_parts(_w1_lost)
+            ready.after_member_parts(_w1_lost)
             _w1_refused = False
         except TypeError as _w1_err:
             _w1_refused = "plain str" in str(_w1_err)
@@ -8584,11 +8615,11 @@ def _selftest_checks(args, failures, names):
               _w1_lost == _w1_g and _w1_refused
               # and the live member on the same path does NOT refuse — a check that refused
               # everything would pass this row while breaking the command
-              and after_member_parts(_w1_g)[1] == "safe")
+              and ready.after_member_parts(_w1_g)[1] == "safe")
         _w1_src = PRODUCT_SOURCE
         import inspect as _w1_inspect
-        _w1_body = _w1_inspect.getsource(parse_after_member)
-        _w1_altbody = _w1_inspect.getsource(after_member_limbs)
+        _w1_body = _w1_inspect.getsource(ready.parse_after_member)
+        _w1_altbody = _w1_inspect.getsource(ready.after_member_limbs)
         # Needles ASSEMBLED from fragments so this check's own source is not a hit for its own
         # search — the `run-state-job.py` criterion-3 precedent, for the same reason.
         _w1_re_tok = "GUARDED_" + "MEMBER_RE"
@@ -8629,7 +8660,7 @@ def _selftest_checks(args, failures, names):
             return argparse.Namespace(**_d)
 
         def _rg_values(pkg):
-            return load_guard_values(Path(pkg) / "coordination")
+            return ready.load_guard_values(Path(pkg) / "coordination")
 
         _rg_pkg = _rs_make("rg", _rs21_tf, sessions=[("a", "done")])
         # D2's arm that used to prove the wrong-seat REFUSAL (`bare` acting on `a`'s pair) and the
@@ -8638,18 +8669,18 @@ def _selftest_checks(args, failures, names):
         # (seat, key) pair it does not own. `ruled-by` (RS-26 below) is still stamped from the
         # ACTUAL caller, so the record of who wrote it is unaffected — only the REFUSAL is gone.
         _rg_src_o, _rg_src_e, _rg_src_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, source=None))
+            attest.cmd_rule_guard, _rg_ns(_rg_pkg, source=None))
         _rg_shape_o, _rg_shape_e, _rg_shape_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, guard="safe"))
+            attest.cmd_rule_guard, _rg_ns(_rg_pkg, guard="safe"))
         _rg_seat_o, _rg_seat_e, _rg_seat_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody", as_agent="nobody"))
+            attest.cmd_rule_guard, _rg_ns(_rg_pkg, seat="nobody", as_agent="nobody"))
         _rg_pair_o, _rg_pair_e, _rg_pair_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, guard="unreferenced=yes"))
+            attest.cmd_rule_guard, _rg_ns(_rg_pkg, guard="unreferenced=yes"))
         _rg_after_refusals = _rg_values(_rg_pkg)
         _rg_bare_o, _rg_bare_e, _rg_bare_c = harness_outcome(
-            cmd_rule_guard, _rg_ns(_rg_pkg, go=False))
+            attest.cmd_rule_guard, _rg_ns(_rg_pkg, go=False))
         _rg_after_bare = _rg_values(_rg_pkg)
-        _rg_go_o, _rg_go_e, _rg_go_c = harness_outcome(cmd_rule_guard, _rg_ns(_rg_pkg))
+        _rg_go_o, _rg_go_e, _rg_go_c = harness_outcome(attest.cmd_rule_guard, _rg_ns(_rg_pkg))
         _rg_after_go = _rg_values(_rg_pkg)
         _rg_ready, _ = _rs_v(_rg_pkg)
         check("dag-10 RS-25 (7.383 + D2, role gate deleted per [T2-R10, D24, F-simplicity-7]) "
@@ -8855,7 +8886,7 @@ def _selftest_checks(args, failures, names):
         _d3_checkin(_d3_pkg, "gp", "%91")
         _d3_checkin(_d3_pkg, "ug", "%92")
         _d3_o1, _d3_e1, _d3_c1 = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg))
-        _d3_after_refusal = load_guard_values(Path(_d3_pkg) / "coordination")
+        _d3_after_refusal = ready.load_guard_values(Path(_d3_pkg) / "coordination")
         _d3_uo, _d3_ue, _d3_uc = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg, as_agent="ug"))
         # the SAME seat, still owing the SAME key, ending honestly
         _d3_io, _d3_ie, _d3_ic = harness_outcome(
@@ -8887,7 +8918,7 @@ def _selftest_checks(args, failures, names):
         # successor moves. Without this arm a gate that refused EVERY `done` would pass the row.
         _d3_pkg2 = _rs_make("d3b", _d3_tf)
         _d3_checkin(_d3_pkg2, "gp", "%93")
-        harness_outcome(cmd_rule_guard, argparse.Namespace(
+        harness_outcome(attest.cmd_rule_guard, argparse.Namespace(
             package=str(_d3_pkg2), base=None, workers_dir=None, as_agent="gp", force=False,
             go=True, seat="gp", guard="shipped=yes", source="fixture §1"))
         _d3_o2, _d3_e2, _d3_c2 = harness_outcome(cmd_checkout, _d3_ns(_d3_pkg2))
@@ -9585,7 +9616,7 @@ def _selftest_checks(args, failures, names):
               "either without following through reds this row instead of going quiet",
               "rule-guard" in build_parser().command_parsers
               and "rule-guard" in _rg_help
-              and GUARD_VALUES_FILE == "guard-values.csv"
+              and ready.GUARD_VALUES_FILE == "guard-values.csv"
               and "rule-guard" in (_d8_ast.get_source_segment(
                   PRODUCT_SOURCE,
                   next(n for n in _d8_ast.walk(_d8_ast.parse(
@@ -9652,38 +9683,38 @@ def _selftest_checks(args, failures, names):
         _a3_pkg = _rs_make("a3-classmap", _a3_tf, built=_a3_built, active=_a3_active,
                            sessions=_a3_sessions,
                            store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids)
-        _a3_rows = ready_seat_rows(argparse.Namespace(
+        _a3_rows = ready.ready_seat_rows(argparse.Namespace(
             package=str(_a3_pkg), base=None, workers_dir=None, as_agent=None, force=False))
         _a3_by = {r["seat"]: r for r in _a3_rows}
 
         # ---- arm 1: the class map MIRRORS the home's own verdict precedence, on the FIXTURE ----
-        _a3_arm1 = [(r["seat"], deferral_class(r), r["verdict"]) for r in _a3_rows]
+        _a3_arm1 = [(r["seat"], ready.deferral_class(r), r["verdict"]) for r in _a3_rows]
         check("7.274 row P arm 1: every fixture row's DEFERRAL CLASS agrees with the verdict the "
               "home computed for it — `CLASS_TO_VERDICT[cls] == row['verdict']`, and class None "
               "iff READY. The class map is a HAND-COPY of `ready_seat_rows`' precedence and this "
               "is what makes the copy checkable rather than trusted",
               len(_a3_rows) == len(_a3_spec)
               and all((cls is None and v == "READY") or
-                      (cls is not None and CLASS_TO_VERDICT[cls] == v)
+                      (cls is not None and ready.CLASS_TO_VERDICT[cls] == v)
                       for _s, cls, v in _a3_arm1))
         # ---- arm 2N: the CONJUNCTIVE control, which survives the vocabulary change ----
         check("7.274 row P arm 2N (NEGATIVE control): an ENDED row that is ALSO OCCUPIED "
               "classes on the HIGHER limb (`occupied`), never on its disposition class. The "
               "predicate is a CONJUNCTION and no clause of it carries an admission exception — "
               "the classing of a row does not depend on how the tool was invoked",
-              deferral_class(_a3_by["p05"]) == "finished"
-              and deferral_class(_a3_by["p10"]) == "occupied"
-              and deferral_class(_a3_by["s07"]) == "occupied")
+              ready.deferral_class(_a3_by["p05"]) == "finished"
+              and ready.deferral_class(_a3_by["p10"]) == "occupied"
+              and ready.deferral_class(_a3_by["s07"]) == "occupied")
         # ---- arm 4: ADMIT <=> (deferral_class is None), SCOPED TO THE CONJUNCTION PATH ----
         check("7.274 row P arm 4: on the CONJUNCTION path the boolean and the class map are "
               "JOINTLY TOTAL and MUTUALLY EXCLUSIVE — `conjunction_admits(row)` is true exactly "
               "where `deferral_class(row)` is None, on every fixture row, and neither raises. "
               "SCOPED, because unscoped the biconditional is FALSE BY CONSTRUCTION: an instrument "
               "admits a row that still carries a class, by design",
-              all(conjunction_admits(r) == (deferral_class(r) is None) for r in _a3_rows)
-              and conjunction_admits(_a3_by["clean"])
-              and conjunction_admits(_a3_by["s08"])
-              and sum(1 for r in _a3_rows if conjunction_admits(r)) == 2)
+              all(ready.conjunction_admits(r) == (ready.deferral_class(r) is None) for r in _a3_rows)
+              and ready.conjunction_admits(_a3_by["clean"])
+              and ready.conjunction_admits(_a3_by["s08"])
+              and sum(1 for r in _a3_rows if ready.conjunction_admits(r)) == 2)
         # ══ WHAT THIS BLOCK LOST, AND WHY IT IS SURFACED RATHER THAN REPAIRED ═════════════════
         #
         # Six rows stood between arm 2N and here and are DELETED: arm 1C (every class the map
@@ -9758,7 +9789,7 @@ def _selftest_checks(args, failures, names):
         def _a3l_run(**kw):
             _d = dict(agent="leader", package=str(_a3l), dry_run=True)
             _d.update(kw)
-            return refuse(cmd_launch, **_d)
+            return refuse(launch.cmd_launch, **_d)
 
         # ---- the FILTER, the NAMING, the EMPTY-SET refusal, the PARITY ------------------------
         _a3_mixed, _a3_mixed_code = _a3l_run(only="okseat,done1,blk1")
@@ -9825,7 +9856,7 @@ def _selftest_checks(args, failures, names):
         # row, green) and `--force`, which is asserted here so the admission PRINT stays under
         # test on the fixture that produced the ruling. The rows below assert BOTH directions:
         # deleting them for the refusal's sake would lose clause J's surviving coverage entirely.
-        _a3_unj = [w["agent"] for w in discover_workers(_a3l / "seats")]
+        _a3_unj = [w["agent"] for w in launch.discover_workers(_a3l / "seats")]
         (_a3l / "seats" / "unjoined").mkdir(exist_ok=True)
         (_a3l / "seats" / "unjoined" / "seat.md").write_text(
             "---\nagent: unjoined\nmodel: opus\n---\nbrief\n", encoding="utf-8")
@@ -9872,7 +9903,7 @@ def _selftest_checks(args, failures, names):
         import inspect as _a3_inspect
         import ast as _a3_ast
         import textwrap as _a3_tw
-        _a3_src = _a3_inspect.getsource(cmd_launch)
+        _a3_src = _a3_inspect.getsource(launch.cmd_launch)
         _a3_block = _a3_src[_a3_src.index("_adm_rows = {"):
                             _a3_src.index("# PROP-8 (tv-ux-review)")]
         # 7.280 (O3) — ROW O RE-AUTHORED AS AN AST WALK, and the replacement is STRICTLY STRONGER
@@ -9917,7 +9948,7 @@ def _selftest_checks(args, failures, names):
         _o3_pred_ifs = [_n for _n in _a3_ast.walk(_o3_blk_ast)
                         if isinstance(_n, _a3_ast.If)
                         and "conjunction_admits" in _a3_ast.dump(_n.test)]
-        _o3_home_ast = _a3_ast.parse(_a3_tw.dedent(_a3_inspect.getsource(ready_seat_rows)))
+        _o3_home_ast = _a3_ast.parse(_a3_tw.dedent(_a3_inspect.getsource(ready.ready_seat_rows)))
         _o3_home_prints = _o3_print_descendants(_o3_home_ast)
         _o3_home_decisive = [_n for _n in _o3_verdict_reads(_o3_home_ast)
                              if id(_n) not in _o3_home_prints]
@@ -9934,8 +9965,8 @@ def _selftest_checks(args, failures, names):
               _o3_decisive == []
               and len(_o3_pred_ifs) == 1
               and _o3_verdict_reads(_o3_pred_ifs[0].test) == []
-              and '["verdict"]' not in _a3_inspect.getsource(conjunction_admits)
-              and "'verdict'" not in _a3_inspect.getsource(conjunction_admits)
+              and '["verdict"]' not in _a3_inspect.getsource(ready.conjunction_admits)
+              and "'verdict'" not in _a3_inspect.getsource(ready.conjunction_admits)
               and len(_o3_blk_verdicts) >= 2
               and len(_o3_home_decisive) >= 1)
         check("7.274 row Q (parity BY CONSTRUCTION, asserted at the source): the admission block "
@@ -9948,7 +9979,7 @@ def _selftest_checks(args, failures, names):
               "SATISFIED, because such a predecessor gets no output row of its own",
               '["after"]' not in _a3_block
               and "conjunction_admits(" in _a3_block
-              and "unmet-after" in _a3_inspect.getsource(conjunction_admits))
+              and "unmet-after" in _a3_inspect.getsource(ready.conjunction_admits))
         check("7.274 criterion (2): EXACTLY ONE call into `ready_seat_rows` appears in "
               "`cmd_launch` — the one readiness home, called once and joined O(1), never per-seat "
               "and never re-implemented",
@@ -10044,11 +10075,11 @@ def _selftest_checks(args, failures, names):
             # environment (NEITHER variable set) and asserts the refusal, so the helper must hand it
             # the empty environment it popped rather than quietly re-supply the input under test.
             if no_target:
-                return refuse(cmd_launch, **_d)
+                return refuse(launch.cmd_launch, **_d)
             _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
             os.environ["COORD_LAUNCH_TARGET"] = "%0"
             try:
-                return refuse(cmd_launch, **_d)
+                return refuse(launch.cmd_launch, **_d)
             finally:
                 if _c3_prior_target is None:
                     os.environ.pop("COORD_LAUNCH_TARGET", None)
@@ -10108,7 +10139,7 @@ def _selftest_checks(args, failures, names):
               "would read EVERY launch candidate as not-counted and the cap could never bind — "
               "the class making the answer YES by construction. The positive control is that the "
               "fixture's snapshot carries NO seat rows at all, and the cap still bound above",
-              {_w["agent"]: _w["agent_type"] for _w in discover_workers(_c3l / "seats")}
+              {_w["agent"]: _w["agent_type"] for _w in launch.discover_workers(_c3l / "seats")}
               == {"cap1": "worker", "cap2": "worker", "cap3": "worker",
                   "capm": "master", "capu": ""}
               and json.loads((_c3l / "state.json").read_text())["seats"] == [])
@@ -10421,7 +10452,7 @@ def _selftest_checks(args, failures, names):
         def _c4_run(**kw):
             _d = dict(agent="leader", package=str(_c4l), dry_run=True)
             _d.update(kw)
-            return refuse(cmd_launch, **_d)
+            return refuse(launch.cmd_launch, **_d)
 
         # ---- FIXTURE (a) VIRGIN: real budget.json, NO state.json, NO coordination artifacts,
         #      NO sessions.csv — the state `_rs_make` leaves every package in until something
@@ -10556,8 +10587,8 @@ def _selftest_checks(args, failures, names):
               and _f18_mid == _f18_splits)
 
         # ---- THE STATIC ROWS: the block's own shape, asserted at the SOURCE ---------------------
-        _c3_src = _a3_inspect.getsource(cmd_launch)
-        _c3_block = _c3_src[_c3_src.index("_cap_pkg = package_dir("):
+        _c3_src = _a3_inspect.getsource(launch.cmd_launch)
+        _c3_block = _c3_src[_c3_src.index("_cap_pkg = coord.package_dir("):
                             _c3_src.index('target = os.environ.get("COORD_LAUNCH_TARGET")')]
         _c3_five = ['["verdict"]', '["stale"]', '["complete"]', '["unclassified"]',
                     '["cross_goal"]']
@@ -10617,8 +10648,8 @@ def _selftest_checks(args, failures, names):
               "budget_mod.census(" in _c3_code
               and "counts_toward_cap" in _c3_code
               and _c3_code.count("refuse(") == 0
-              and "cap.agent_panes" in CAPACITY_DEFER_LINE
-              and "cap.agent_panes" in CAPACITY_NOTE_BREACH)
+              and "cap.agent_panes" in launch.CAPACITY_DEFER_LINE
+              and "cap.agent_panes" in launch.CAPACITY_NOTE_BREACH)
         _c3_cap_fn = [_n for _n in _a3_ast.walk(_a3_ast.parse(_a3_tw.dedent(_c3_src)))
                       if isinstance(_n, _a3_ast.FunctionDef) and _n.name == "cmd_launch"][0]
         _c3_direct = [_n for _n in _c3_cap_fn.body
@@ -10634,7 +10665,7 @@ def _selftest_checks(args, failures, names):
               "EARLIER one sits above this block, so anchoring on the text would have compared "
               "the block against the wrong branch and reported RED on correct placement",
               len(_c3_direct) == 1 and _c3_direct[0].col_offset == 4
-              and _c3_src.index("_adm_fold = (") < _c3_src.index("_cap_pkg = package_dir(")
+              and _c3_src.index("_adm_fold = (") < _c3_src.index("_cap_pkg = coord.package_dir(")
               < _c3_src.index("[dry-run] would refresh the worker mirror"))
         check("7.278 THE MEMORY GATE IS NEITHER MOVED NOR RE-SIZED (criterion 7, at the source): "
               "`launch_gates` is still called ONCE, still sized by `len(workers) or 1` — the "
@@ -10651,7 +10682,7 @@ def _selftest_checks(args, failures, names):
               "change. The memory gate answers to `--force-memory` and the role gate to "
               "`--force`; a capacity WAIT answers to neither, and the deferral text says so",
               "args.force" not in _c3_block and "force_memory" not in _c3_block
-              and "none may be attached to --force or --force-memory" in CAPACITY_EMPTY_LINE)
+              and "none may be attached to --force or --force-memory" in launch.CAPACITY_EMPTY_LINE)
 
         # ---- 7.363's own static row: criterion 7, over the new branch's CODE --------------------
         _f19_branch = _c3_code[_c3_code.index("if _cap_blind:"):_c3_code.index("elif _cap_why:")]
@@ -10666,10 +10697,10 @@ def _selftest_checks(args, failures, names):
               "by a number that merely looks harmless",
               not any(_ch.isdigit() for _ch in _f19_branch)
               and "environ" not in _f19_branch and "getenv" not in _f19_branch
-              and "cap.agent_panes" in CAPACITY_UNENFORCEABLE_LINE
-              and "cap.agent_panes" in CAPACITY_CENSUS_DEFER_LINE
-              and not any(_ch.isdigit() for _ch in CAPACITY_UNENFORCEABLE_LINE)
-              and not any(_ch.isdigit() for _ch in CAPACITY_CENSUS_DEFER_LINE))
+              and "cap.agent_panes" in launch.CAPACITY_UNENFORCEABLE_LINE
+              and "cap.agent_panes" in launch.CAPACITY_CENSUS_DEFER_LINE
+              and not any(_ch.isdigit() for _ch in launch.CAPACITY_UNENFORCEABLE_LINE)
+              and not any(_ch.isdigit() for _ch in launch.CAPACITY_CENSUS_DEFER_LINE))
         _f19_pred = "_cap_blind = _cap_c is None or _cap_stale is True"
         check("7.363 THE PREDICATE IS WRITTEN ON THE TWO READINGS THAT MEAN THE ROOM CANNOT BE "
               "COUNTED — the census absent, or its snapshot STALE — and on nothing else, asserted "
@@ -10836,7 +10867,7 @@ def _selftest_checks(args, failures, names):
         # Reproduces F1's measured fixture: a one-shot seat that DID THE WORK and whose harness
         # exited without checking out — roster still ACTIVE, pane holding no harness, session row
         # open with no `ended`, and NO awaiting-close entry at all. Only the sensor saw it.
-        _ae_real_live, _ae_real_idents = live_panes, pane_harness_idents
+        _ae_real_live, _ae_real_idents = live_panes, process.pane_harness_idents
 
         # ⚠ ONE ENDING PARAMETER, BECAUSE THERE IS ONE ENDING SURFACE [spec-state-store §4.1].
         # This fixture used to take TWO — `dispo` wrote `sessions.csv` and `awaiting_dispo` wrote
@@ -10902,16 +10933,16 @@ def _selftest_checks(args, failures, names):
         def _ae(pkg, **kw):
             """Run the arm with the room stubbed EMPTY — pane %466 is gone, which is F1's own
             shape. Restored immediately so no later block inherits it."""
-            global live_panes, pane_harness_idents
+            global live_panes
             live_panes = lambda: set()
-            pane_harness_idents = lambda pane: []
+            process.pane_harness_idents = lambda pane: []
             try:
                 _d = {"package": str(pkg), "base": None, "workers_dir": None, "as_agent": None,
                       "force": False, "seat": None, "go": False}
                 _d.update(kw)
-                return harness_outcome(cmd_attest_exit, argparse.Namespace(**_d))
+                return harness_outcome(attest.cmd_attest_exit, argparse.Namespace(**_d))
             finally:
-                live_panes, pane_harness_idents = _ae_real_live, _ae_real_idents
+                live_panes, process.pane_harness_idents = _ae_real_live, _ae_real_idents
 
         def _ae_state(pkg):
             """The surfaces a check-out touches, as one comparable dict.
@@ -11005,7 +11036,7 @@ def _selftest_checks(args, failures, names):
             "b/undeclared": _ae_make("13b2", mode=""),
             "d/inflight": _ae_make("13d", inflight={
                 "state": "in-flight", "stamped-at": now(),
-                "executor": {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}}),
+                "executor": {"pid": os.getpid(), "starttime": process.proc_stat(os.getpid())[1]}}),
             # Term (c) is ONE surface now, so its two arms are the two ENDINGS that mean "this
             # seat already checked out" rather than the two files that used to carry one of them.
             "c/done": _ae_make("13c", ending="done"),
@@ -11223,7 +11254,7 @@ def _selftest_checks(args, failures, names):
         # fixture carrying one would exercise the CLOSING path and prove nothing about the guard.
         _dl4 = _dl_make("dl4", rows=[
             {"session-id": "oc2-sid", "seat": "oc2", "started": "2026-07-29 10:00",
-             "pid": str(os.getpid()), "pid-starttime": proc_starttime(os.getpid()) or ""}])
+             "pid": str(os.getpid()), "pid-starttime": process.proc_starttime(os.getpid()) or ""}])
         _dl4_live_out, _, _dl4_live_code = _ae(_dl4, session="oc2-sid", go=True,
                                                as_agent="ignite-daemon")
         _dl4_after_live = _dl_rows(_dl4)[0]
@@ -11246,7 +11277,7 @@ def _selftest_checks(args, failures, names):
         # (5) `--as ignite-daemon` IS THE ENGINE'S CLAIM, and neither identity row refuses it.
         _dl5_ns = ns(as_agent="ignite-daemon", pane=None, package=str(_dl1), base=None,
                      workers_dir=None, force=False)
-        _dl5_claim, _ = asserted_launch_claim(_dl5_ns)
+        _dl5_claim, _ = carrier.asserted_launch_claim(_dl5_ns)
         check("W1/F16+F17: `--as ignite-daemon` RESOLVES, and it neither captures F16's key nor "
               "trips F17's bound. `resolve_agent` returns the claim (no pane, so nothing to "
               "contradict) WITHOUT consulting the daemon-exec lane — that lane is LAST and is "
@@ -11818,8 +11849,8 @@ def _selftest_checks(args, failures, names):
                    "executor": {"pid": 41207, "starttime": "884231"},
                    "caller": {"pid": 41190, "starttime": "884118"},
                    "pane": "%37", "tmux-target": "%37"}
-        _lc_stamped = stamp_lifecycle(_lc_base, "engineer", dict(_lc_rec))
-        _lc_back = load_lifecycle(_lc_base)
+        _lc_stamped = lifecycle_exec.stamp_lifecycle(_lc_base, "engineer", dict(_lc_rec))
+        _lc_back = lifecycle_exec.load_lifecycle(_lc_base)
         _lc_e = _lc_back.get("engineer") or {}
         check("s3-03 (1) ROUND-TRIP: `stamp_lifecycle` returns True and `load_lifecycle` gives "
               "every caller-supplied field back UNCHANGED under the seat's own key, plus the four "
@@ -11829,9 +11860,9 @@ def _selftest_checks(args, failures, names):
               _lc_stamped is True
               and all(_lc_e.get(k) == v for k, v in _lc_rec.items())
               and _lc_e.get("state") == "in-flight" and _lc_e.get("steps-completed") == []
-              and _lc_e.get("failure") == "" and lifecycle_age_min(_lc_e) == 0)
-        stamp_lifecycle(_lc_base, "leader", {"pane": "%9"})
-        _lc_two = load_lifecycle(_lc_base)
+              and _lc_e.get("failure") == "" and lifecycle_exec.lifecycle_age_min(_lc_e) == 0)
+        lifecycle_exec.stamp_lifecycle(_lc_base, "leader", {"pane": "%9"})
+        _lc_two = lifecycle_exec.load_lifecycle(_lc_base)
         check("⚠ s3-03 (1) THE RED ARM: the marker is ONE FILE KEYED BY SEAT. A seat never "
               "stamped is ABSENT, and a second seat's stamp leaves the first untouched. A flat "
               "(non-seat-keyed) file would answer for EVERY seat and overwrite on every write, "
@@ -11844,15 +11875,15 @@ def _selftest_checks(args, failures, names):
         # ---- (2) NEVER FATAL, both directions.
         _lc_garbage = Path(td) / "lc-garbage" / "coordination"
         _lc_garbage.mkdir(parents=True)
-        lifecycle_path(_lc_garbage).write_text("{ this is not json", encoding="utf-8")
+        lifecycle_exec.lifecycle_path(_lc_garbage).write_text("{ this is not json", encoding="utf-8")
         _lc_listy = Path(td) / "lc-listy" / "coordination"
         _lc_listy.mkdir(parents=True)
-        lifecycle_path(_lc_listy).write_text('["a", "b"]', encoding="utf-8")
+        lifecycle_exec.lifecycle_path(_lc_listy).write_text('["a", "b"]', encoding="utf-8")
         _lc_absent = Path(td) / "lc-absent" / "coordination"
         _lc_absent.mkdir(parents=True)
         try:
-            _lc_reads = (load_lifecycle(_lc_garbage), load_lifecycle(_lc_listy),
-                         load_lifecycle(_lc_absent))
+            _lc_reads = (lifecycle_exec.load_lifecycle(_lc_garbage), lifecycle_exec.load_lifecycle(_lc_listy),
+                         lifecycle_exec.load_lifecycle(_lc_absent))
             _lc_read_raised = ""
         except Exception as _lc_rexc:           # noqa: BLE001 — the raise IS this row's verdict
             _lc_reads, _lc_read_raised = None, f"{type(_lc_rexc).__name__}: {_lc_rexc}"
@@ -11873,15 +11904,15 @@ def _selftest_checks(args, failures, names):
 
         atomic_write = _lc_aw_deny
         try:
-            _lc_wf = (stamp_lifecycle(_lc_base, "zeta", {"pane": "%1"}),
-                      append_lifecycle_step(_lc_base, "engineer", "never-happened"),
-                      finish_lifecycle(_lc_base, "engineer", "done"),
-                      clear_lifecycle(_lc_base, "engineer"))
+            _lc_wf = (lifecycle_exec.stamp_lifecycle(_lc_base, "zeta", {"pane": "%1"}),
+                      lifecycle_exec.append_lifecycle_step(_lc_base, "engineer", "never-happened"),
+                      lifecycle_exec.finish_lifecycle(_lc_base, "engineer", "done"),
+                      lifecycle_exec.clear_lifecycle(_lc_base, "engineer"))
             _lc_wraised = ""
         except Exception as _lc_wexc:           # noqa: BLE001 — the raise IS this row's verdict
             _lc_wf, _lc_wraised = None, f"{type(_lc_wexc).__name__}: {_lc_wexc}"
         atomic_write = _lc_aw_real
-        _lc_afterfail = load_lifecycle(_lc_base)
+        _lc_afterfail = lifecycle_exec.load_lifecycle(_lc_base)
         check("s3-03 (2) NEVER FATAL on WRITE: with the marker write failing, all four writers "
               "REPORT False rather than raising, and NO HALF-WRITE lands — `zeta` was never "
               "created, `engineer` is still `in-flight`, carries no step, and was not cleared",
@@ -11892,9 +11923,9 @@ def _selftest_checks(args, failures, names):
 
         # ---- (3) APPEND ORDER, and a step may only FOLLOW a stamp.
         _lc_steps_in = ["caller-exited", "in-place-decided:in-place", "respawned"]
-        _lc_appends = [append_lifecycle_step(_lc_base, "engineer", _s) for _s in _lc_steps_in]
-        _lc_orphan = append_lifecycle_step(_lc_base, "nosuchseat", "a step with no stamp")
-        _lc_a = load_lifecycle(_lc_base)
+        _lc_appends = [lifecycle_exec.append_lifecycle_step(_lc_base, "engineer", _s) for _s in _lc_steps_in]
+        _lc_orphan = lifecycle_exec.append_lifecycle_step(_lc_base, "nosuchseat", "a step with no stamp")
+        _lc_a = lifecycle_exec.load_lifecycle(_lc_base)
         check("s3-03 (3) APPEND ORDER: three appends produce the three steps IN ORDER, and a step "
               "appended to a seat with NO entry returns False rather than creating one. "
               "`steps-completed` asserts that a step VERIFIED, so a list that could begin without "
@@ -11904,10 +11935,10 @@ def _selftest_checks(args, failures, names):
               and (_lc_a.get("engineer") or {}).get("steps-completed") == _lc_steps_in)
 
         # ---- (4) THE STALENESS PREDICATE, each conjunct isolated.
-        _lc_live_id = {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}
+        _lc_live_id = {"pid": os.getpid(), "starttime": process.proc_stat(os.getpid())[1]}
         _lc_dead_id = {"pid": 999999, "starttime": "1"}
         _lc_old = (datetime.now()
-                   - timedelta(minutes=LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
+                   - timedelta(minutes=process.LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
         _lc_young = now()
 
         def _lc_entry(state, stamp, ident):
@@ -11917,31 +11948,31 @@ def _selftest_checks(args, failures, names):
               "process's (pid, starttime) IS live to `ident_is_live_process` and the fabricated "
               "one is NOT. On a fixture where both idents read the same way, every conjunct-3 row "
               "would stay green under any mutation of conjunct 3",
-              ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
-              and ident_is_live_process((_lc_dead_id["pid"], _lc_dead_id["starttime"])) is False)
+              process.ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
+              and process.ident_is_live_process((_lc_dead_id["pid"], _lc_dead_id["starttime"])) is False)
         check("s3-03 (4a) CONJUNCT 1 ISOLATED: `state=done` + old + DEAD executor is NOT stale — "
               "a completed renewal is never a failed one, however long ago it completed",
-              lifecycle_stale(_lc_entry("done", _lc_old, _lc_dead_id)) is False)
+              lifecycle_exec.lifecycle_stale(_lc_entry("done", _lc_old, _lc_dead_id)) is False)
         check("s3-03 (4b) CONJUNCT 2 ISOLATED: `in-flight` + YOUNG + dead executor is NOT stale — "
               "inside LIFECYCLE_STALE_MIN a renewal has not had time to fail, and its executor is "
               "not yet observable to a reader that arrives mid-fork",
-              lifecycle_stale(_lc_entry("in-flight", _lc_young, _lc_dead_id)) is False)
+              lifecycle_exec.lifecycle_stale(_lc_entry("in-flight", _lc_young, _lc_dead_id)) is False)
         check("⚠⚠ s3-03 (4c) CONJUNCT 3 ISOLATED — THE MID-RENEWAL ROW, and the one that "
               "DOUBLE-LAUNCHES A SEAT when it is wrong: `in-flight` + old + a LIVE executor is "
               "NOT stale. Stage 4 reads exactly this complement as MID-RENEWAL and must never "
               "fire on it. However old the stamp, a running executor is a renewal in progress",
-              lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_live_id)) is False)
+              lifecycle_exec.lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_live_id)) is False)
         check("s3-03 (4d) ALL THREE TOGETHER: `in-flight` + old + DEAD executor IS stale — the "
               "failed renewal, and the ONLY combination that is",
-              lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_dead_id)) is True)
+              lifecycle_exec.lifecycle_stale(_lc_entry("in-flight", _lc_old, _lc_dead_id)) is True)
         check("s3-03 (4) THE FAIL-SAFE DIRECTION: an unreadable stamp, a missing executor ident, "
               "and a non-dict entry all answer NOT stale. Firing wrongly revives a seat that is "
               "alive; declining wrongly leaves a stuck seat stuck AND named in every close-run's "
               "output, which is recoverable",
-              lifecycle_stale({"state": "in-flight", "stamped-at": "not a date",
+              lifecycle_exec.lifecycle_stale({"state": "in-flight", "stamped-at": "not a date",
                                "executor": dict(_lc_dead_id)}) is False
-              and lifecycle_stale({"state": "in-flight", "stamped-at": _lc_old}) is False
-              and lifecycle_stale(None) is False)
+              and lifecycle_exec.lifecycle_stale({"state": "in-flight", "stamped-at": _lc_old}) is False
+              and lifecycle_exec.lifecycle_stale(None) is False)
 
         # ---- (5) THE PREDICATE-CHOICE GUARD, and the record shape watch.py reads.
         check("⚠ s3-03 (5) THE PREDICATE-CHOICE GUARD, IN-SUITE: the two predicates DISAGREE on "
@@ -11950,13 +11981,13 @@ def _selftest_checks(args, failures, names):
               "and the lifecycle executor is PYTHON. Swapping conjunct 3 to the harness predicate "
               "would turn row (4c) from MID-RENEWAL into a fired staleness, i.e. a double launch. "
               "This row is what makes (4c) DISCRIMINATING rather than merely green",
-              ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
-              and ident_is_live_harness((_lc_live_id["pid"], _lc_live_id["starttime"])) is False)
+              process.ident_is_live_process((_lc_live_id["pid"], _lc_live_id["starttime"])) is True
+              and process.ident_is_live_harness((_lc_live_id["pid"], _lc_live_id["starttime"])) is False)
         _lc_tup = Path(td) / "lc-tuple" / "coordination"
         _lc_tup.mkdir(parents=True)
-        stamp_lifecycle(_lc_tup, "engineer", {"executor": (4242, "884231"),
+        lifecycle_exec.stamp_lifecycle(_lc_tup, "engineer", {"executor": (4242, "884231"),
                                               "caller": [4240, "884118"]})
-        _lc_tv = load_lifecycle(_lc_tup).get("engineer") or {}
+        _lc_tv = lifecycle_exec.load_lifecycle(_lc_tup).get("engineer") or {}
         check("s3-03 (5) THE SHAPE watch.py READS: `executor`/`caller` normalize to "
               "`{'pid': int, 'starttime': str}` whatever form the caller hands over, and a "
               "half-identity resolves to `{}` rather than a pid-only dict. watch.py's "
@@ -11965,24 +11996,24 @@ def _selftest_checks(args, failures, names):
               "would make every LIVE executor read DEAD and double-launch the seat",
               _lc_tv.get("executor") == {"pid": 4242, "starttime": "884231"}
               and _lc_tv.get("caller") == {"pid": 4240, "starttime": "884118"}
-              and lifecycle_ident("nonsense") == {} and lifecycle_ident((7, "")) == {}
-              and lifecycle_ident({"pid": 7}) == {})
+              and lifecycle_exec.lifecycle_ident("nonsense") == {} and lifecycle_exec.lifecycle_ident((7, "")) == {}
+              and lifecycle_exec.lifecycle_ident({"pid": 7}) == {})
 
         # ---- (6) THE CLOSE-RUN SWEEP.
         _lc_pkg = Path(td) / "lc-goal"
         (_lc_pkg / "coordination").mkdir(parents=True)
         _lc_sb = _lc_pkg / "coordination"
         for _s in ("alpha", "beta"):
-            stamp_lifecycle(_lc_sb, _s, {"disposition": "renew", "pane": "%1"})
-            finish_lifecycle(_lc_sb, _s, "done")
-        stamp_lifecycle(_lc_sb, "gamma", {"disposition": "renew", "pane": "%2"})
-        stamp_lifecycle(_lc_sb, "delta", {"disposition": "renew", "pane": "%3"})
-        finish_lifecycle(_lc_sb, "delta", "FAILED", "the respawned harness never came up")
-        _lc_pre = sorted(load_lifecycle(_lc_sb))
+            lifecycle_exec.stamp_lifecycle(_lc_sb, _s, {"disposition": "renew", "pane": "%1"})
+            lifecycle_exec.finish_lifecycle(_lc_sb, _s, "done")
+        lifecycle_exec.stamp_lifecycle(_lc_sb, "gamma", {"disposition": "renew", "pane": "%2"})
+        lifecycle_exec.stamp_lifecycle(_lc_sb, "delta", {"disposition": "renew", "pane": "%3"})
+        lifecycle_exec.finish_lifecycle(_lc_sb, "delta", "FAILED", "the respawned harness never came up")
+        _lc_pre = sorted(lifecycle_exec.load_lifecycle(_lc_sb))
         # 7.607 E2b: the sweep's caller MOVED from `close-run` (deleted with the run register)
         # to `finish-goal`, the ONE act that now ends the thing the marker was swept at.
         _lc_close_out = run(cmd_finish_goal, package=str(_lc_pkg), as_agent="leader", note="")
-        _lc_post = load_lifecycle(_lc_sb)
+        _lc_post = lifecycle_exec.load_lifecycle(_lc_sb)
         check("s3-03 (6) THE FINISH-EDGE SWEEP: on a marker holding two `done` entries, one "
               "`in-flight` and one `FAILED`, `finish-goal` clears EXACTLY the two done ones, "
               "leaves the other two, and NAMES each survivor with its reason. Without this sweep "
@@ -11999,11 +12030,11 @@ def _selftest_checks(args, failures, names):
               "and `clear_lifecycle` answers False on an absent seat. The sweep keys on those two "
               "strings EXACTLY, so a third value would become an entry nothing ever clears and "
               "nothing ever reads as a failure",
-              finish_lifecycle(_lc_sb, "gamma", "finished") is False
-              and finish_lifecycle(_lc_sb, "nosuchseat", "done") is False
-              and "nosuchseat" not in load_lifecycle(_lc_sb)
-              and clear_lifecycle(_lc_sb, "nosuchseat") is False
-              and (load_lifecycle(_lc_sb).get("gamma") or {}).get("state") == "in-flight")
+              lifecycle_exec.finish_lifecycle(_lc_sb, "gamma", "finished") is False
+              and lifecycle_exec.finish_lifecycle(_lc_sb, "nosuchseat", "done") is False
+              and "nosuchseat" not in lifecycle_exec.load_lifecycle(_lc_sb)
+              and lifecycle_exec.clear_lifecycle(_lc_sb, "nosuchseat") is False
+              and (lifecycle_exec.load_lifecycle(_lc_sb).get("gamma") or {}).get("state") == "in-flight")
 
         # ============ s3-04: the LIFECYCLE LINE — the marker's READ SIDE ========================
         # ⚠ THE FIXTURE IS THE MAIN PACKAGE'S OWN `coordination/`, not a bare temp dir, and that is
@@ -12013,13 +12044,13 @@ def _selftest_checks(args, failures, names):
         # whether or not the line is wired in, which is the whole property row 3 exists to prove.
         # The marker is removed again at the end of this block.
         _s4_base = base_dir(ns())
-        _s4_nofile = lifecycle_line(_s4_base)              # no marker file at all
+        _s4_nofile = lifecycle_exec.lifecycle_line(_s4_base)              # no marker file at all
         _s4_clean_st = run(cmd_status, agent="alpha")
         _s4_clean_wk = run(cmd_workers, full=False, history=False)
-        stamp_lifecycle(_s4_base, "s4-finished", {"disposition": "renew",
+        lifecycle_exec.stamp_lifecycle(_s4_base, "s4-finished", {"disposition": "renew",
                                                   "executor": {"pid": 999996, "starttime": "1"}})
-        finish_lifecycle(_s4_base, "s4-finished", "done")
-        _s4_done = lifecycle_line(_s4_base)                # marker holding ONLY a done entry
+        lifecycle_exec.finish_lifecycle(_s4_base, "s4-finished", "done")
+        _s4_done = lifecycle_exec.lifecycle_line(_s4_base)                # marker holding ONLY a done entry
         _s4_done_st = run(cmd_status, agent="alpha")
         _s4_done_wk = run(cmd_workers, full=False, history=False)
         check("s3-04 (1) SILENT WHEN CLEAN: with NO marker file, and with a marker holding only "
@@ -12036,31 +12067,31 @@ def _selftest_checks(args, failures, names):
         # supplies, so rewriting the loaded dict is the only way a check can hold an old marker
         # without sleeping for LIFECYCLE_STALE_MIN.
         _s4_old = (datetime.now()
-                   - timedelta(minutes=LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
-        stamp_lifecycle(_s4_base, "s4-stuck", {"disposition": "renew", "pane": "%77",
+                   - timedelta(minutes=process.LIFECYCLE_STALE_MIN + 5)).strftime("%Y-%m-%d %H:%M")
+        lifecycle_exec.stamp_lifecycle(_s4_base, "s4-stuck", {"disposition": "renew", "pane": "%77",
                                                "executor": {"pid": 999999, "starttime": "1"}})
-        append_lifecycle_step(_s4_base, "s4-stuck", "caller-exited")
-        append_lifecycle_step(_s4_base, "s4-stuck", "in-place-decided:in-place")
-        stamp_lifecycle(_s4_base, "s4-live", {"disposition": "renew", "pane": "%78",
+        lifecycle_exec.append_lifecycle_step(_s4_base, "s4-stuck", "caller-exited")
+        lifecycle_exec.append_lifecycle_step(_s4_base, "s4-stuck", "in-place-decided:in-place")
+        lifecycle_exec.stamp_lifecycle(_s4_base, "s4-live", {"disposition": "renew", "pane": "%78",
                                               "executor": dict(_lc_live_id)})
-        stamp_lifecycle(_s4_base, "s4-broke", {"disposition": "renew",
+        lifecycle_exec.stamp_lifecycle(_s4_base, "s4-broke", {"disposition": "renew",
                                                "executor": {"pid": 999998, "starttime": "1"}})
-        append_lifecycle_step(_s4_base, "s4-broke", "caller-exited")
-        finish_lifecycle(_s4_base, "s4-broke", "FAILED", "the respawned harness never came up")
+        lifecycle_exec.append_lifecycle_step(_s4_base, "s4-broke", "caller-exited")
+        lifecycle_exec.finish_lifecycle(_s4_base, "s4-broke", "FAILED", "the respawned harness never came up")
         # `s4-nodisp` exists so row (4d) rests on an entry of ITS OWN. It used to read the blank
         # disposition off `s4-hand`, which made the mutation that deletes the hand-edited branch
         # red TWO rows at once — and `--expect-fail` demands exactly one, so neither row's red arm
         # could be isolated. One fixture entry per property is what buys that isolation.
-        stamp_lifecycle(_s4_base, "s4-nodisp", {"pane": "%79",
+        lifecycle_exec.stamp_lifecycle(_s4_base, "s4-nodisp", {"pane": "%79",
                                                 "executor": {"pid": 999995, "starttime": "1"}})
-        _s4_data = load_lifecycle(_s4_base)
+        _s4_data = lifecycle_exec.load_lifecycle(_s4_base)
         for _s4_s in ("s4-stuck", "s4-live", "s4-nodisp"):
             _s4_data[_s4_s]["stamped-at"] = _s4_old
         _s4_data["s4-hand"] = {"state": "paused-by-hand", "stamped-at": _s4_old,
                                "disposition": "", "failure": "", "steps-completed": [],
                                "executor": {"pid": 999997, "starttime": "1"}}
-        _write_lifecycle(_s4_base, _s4_data)
-        _s4_line = lifecycle_line(_s4_base)
+        lifecycle_exec._write_lifecycle(_s4_base, _s4_data)
+        _s4_line = lifecycle_exec.lifecycle_line(_s4_base)
         check("s3-04 (2) LOUD WHEN STALE: an `in-flight` entry stamped past LIFECYCLE_STALE_MIN "
               "with a DEAD executor is named — the seat, its executor pid, its disposition, the "
               "marker's age and the LAST VERIFIED STEP, so a reader can see where it stopped — "
@@ -12074,7 +12105,7 @@ def _selftest_checks(args, failures, names):
               # statement earlier than the render, so a clock crossing a minute boundary between
               # them is a real and legitimate outcome, not a defect to pin the row on.
               and any(f"marker {_a}min old" in _s4_line
-                      for _a in (LIFECYCLE_STALE_MIN + 5, LIFECYCLE_STALE_MIN + 6))
+                      for _a in (process.LIFECYCLE_STALE_MIN + 5, process.LIFECYCLE_STALE_MIN + 6))
               and "NEITHER ALIVE NOR CLOSED" in _s4_line
               and "close-seat <seat> --renew" in _s4_line
               and "s4-finished" not in _s4_line)
@@ -12097,15 +12128,15 @@ def _selftest_checks(args, failures, names):
               "reported the break",
               "s4-broke" in _s4_line
               and "the respawned harness never came up" in _s4_line
-              and lifecycle_stale(_s4_data["s4-broke"]) is False)
+              and lifecycle_exec.lifecycle_stale(_s4_data["s4-broke"]) is False)
         check("⚠⚠ s3-04 (4b) MID-RENEWAL IS NEVER REPORTED — the one row that costs a DOUBLE "
               "LAUNCH when it is wrong. `s4-live` is `in-flight`, stamped just as long ago as "
               "`s4-stuck`, and its executor IS live, so it is a renewal IN PROGRESS. The class is "
               "decided by CALLING `lifecycle_stale`, never by re-spelling it, so this surface and "
               "Stage 4 cannot hold two definitions of stale that drift apart",
               "s4-live" not in _s4_line
-              and lifecycle_stale(_s4_data["s4-live"]) is False
-              and lifecycle_stale(_s4_data["s4-stuck"]) is True)
+              and lifecycle_exec.lifecycle_stale(_s4_data["s4-live"]) is False
+              and lifecycle_exec.lifecycle_stale(_s4_data["s4-stuck"]) is True)
         check("s3-04 (4c) A HAND-EDITED STATE IS NAMED, never silently skipped: the store writes "
               "exactly in-flight|done|FAILED, so a fourth value means somebody edited the file — "
               "and `sweep_lifecycle` will not clear it either, so it survives every close-run. An "
@@ -12124,10 +12155,10 @@ def _selftest_checks(args, failures, names):
               "s4-nodisp" in _s4_line
               and "s4-nodisp — disposition NOT recorded here — read the intent from "
                   "awaiting-close.json" in _s4_line)
-        lifecycle_path(_s4_base).unlink()   # leave the shared fixture as this block found it
+        lifecycle_exec.lifecycle_path(_s4_base).unlink()   # leave the shared fixture as this block found it
         check("s3-04 (1) AND THE FIXTURE IS RESTORED: with the marker removed the line is empty "
               "again, so no row after this block inherits an alarm this block manufactured",
-              lifecycle_line(_s4_base) == "")
+              lifecycle_exec.lifecycle_line(_s4_base) == "")
 
         # ============ s3-05: `lifecycle-exec` — the subcommand and its FIVE ENTRY GUARDS =========
         # ⚠ THE TMUX PRIMITIVES ARE RE-STUBBED FOR THIS BLOCK, and every target-validation row is
@@ -12156,7 +12187,7 @@ def _selftest_checks(args, failures, names):
                  "pane": "%40", "tmux_target": "%40", "caller_pid": 41190,
                  "caller_starttime": "884118", "handoff_written": None}
             d.update(kw)
-            return refuse(cmd_lifecycle_exec, **d)
+            return refuse(lifecycle_exec.cmd_lifecycle_exec, **d)
 
         # ---- (1) THE PARSER BUILDS, AND THE COMMAND IS HIDDEN.
         _s5_parser = build_parser()
@@ -12210,7 +12241,7 @@ def _selftest_checks(args, failures, names):
               "lands its sequence — and the marker assertion reds today",
               _s5_empty_code == 2 and "refused [coord input]" in _s5_empty_out
               and "MOST RECENT session" in _s5_empty_out
-              and _s5_tmux == [] and "s5-empty" not in load_lifecycle(_s5_base))
+              and _s5_tmux == [] and "s5-empty" not in lifecycle_exec.load_lifecycle(_s5_base))
         _s5_tmux.clear()
         _s5_bad_out, _s5_bad_code = _s5_exec(seat="s5-bad", tmux_target="%99")
         check("s3-05 (3b) AN UNRESOLVABLE TARGET REFUSES TOO, and it is judged against the STUB'S "
@@ -12220,28 +12251,28 @@ def _selftest_checks(args, failures, names):
               "— so this row cannot pass on a validator that only ever asks one of them",
               _s5_bad_code == 2 and "refused [coord environment]" in _s5_bad_out
               and _s5_tmux == ["live_panes", ("session_name", "%99")]
-              and "s5-bad" not in load_lifecycle(_s5_base))
+              and "s5-bad" not in lifecycle_exec.load_lifecycle(_s5_base))
 
         # ---- (4) THE ADOPTION CHECK STANDS DOWN.
         # The seat is given a MATCHING awaiting-close record on purpose: with guard 3 deleted the
         # flow then runs all the way to the stamp and OVERWRITES this entry, so the row reds on the
         # record's contents. Without the matching record, guard 4 would refuse for its own reason
         # and the entry would survive untouched — a green row under the very mutation it names.
-        _s5_live_id = {"pid": os.getpid(), "starttime": proc_stat(os.getpid())[1]}
+        _s5_live_id = {"pid": os.getpid(), "starttime": process.proc_stat(os.getpid())[1]}
         check("s3-05 (4) THE FIXTURE'S OWN PREMISE, so the adoption row cannot be vacuous: this "
               "process's (pid, starttime) reads LIVE to `ident_is_live_process`. On a fixture "
               "where it did not, the guard could never fire and the row would be green under any "
               "mutation of it",
-              ident_is_live_process((_s5_live_id["pid"], _s5_live_id["starttime"])) is True)
+              process.ident_is_live_process((_s5_live_id["pid"], _s5_live_id["starttime"])) is True)
         seed_ending(_s5_base, "s5-adopt", "%40", "", False, ending="incomplete")
-        stamp_lifecycle(_s5_base, "s5-adopt", {"disposition": "renew", "pane": "%40",
+        lifecycle_exec.stamp_lifecycle(_s5_base, "s5-adopt", {"disposition": "renew", "pane": "%40",
                                                "tmux-target": "%40",
                                                "executor": dict(_s5_live_id)})
-        append_lifecycle_step(_s5_base, "s5-adopt", "caller-exited")
-        _s5_adopt_before = dict(load_lifecycle(_s5_base).get("s5-adopt") or {})
+        lifecycle_exec.append_lifecycle_step(_s5_base, "s5-adopt", "caller-exited")
+        _s5_adopt_before = dict(lifecycle_exec.load_lifecycle(_s5_base).get("s5-adopt") or {})
         _s5_ad_out, _s5_ad_code = _s5_exec(seat="s5-adopt", disposition="renew",
                                            handoff_written="0")
-        _s5_adopt_after = load_lifecycle(_s5_base).get("s5-adopt") or {}
+        _s5_adopt_after = lifecycle_exec.load_lifecycle(_s5_base).get("s5-adopt") or {}
         check("s3-05 (4) THE ADOPTION CHECK STANDS DOWN: a marker entry that is `in-flight` with a "
               "LIVE executor ident is a renewal IN PROGRESS, so a second executor on that seat "
               "refuses, names the live pid, and performs NO step — the other executor's record is "
@@ -12265,10 +12296,10 @@ def _selftest_checks(args, failures, names):
               _s5_skew_code == 2 and "refused [coord state]" in _s5_skew_out
               and "DISPOSITION SKEW" in _s5_skew_out
               and "'renew'" in _s5_skew_out and "'done'" in _s5_skew_out
-              and "s5-skew" not in load_lifecycle(_s5_base))
+              and "s5-skew" not in lifecycle_exec.load_lifecycle(_s5_base))
         seed_ending(_s5_base, "s5-normal", "%40", "", False, ending="done")
         _s5_norm_out, _s5_norm_code = _s5_exec(seat="s5-normal", disposition="close")
-        _s5_norm_rec = load_lifecycle(_s5_base).get("s5-normal") or {}
+        _s5_norm_rec = lifecycle_exec.load_lifecycle(_s5_base).get("s5-normal") or {}
         check("⚠⚠ s3-05 (6) THE MAPPED NORMAL PATH PROCEEDS — the plain done-checkout, the most "
               "common invocation this executor will ever see: `--disposition close` against a "
               "record saying `done` passes every guard and reaches the DISPOSITION SEQUENCE, "
@@ -12295,7 +12326,7 @@ def _selftest_checks(args, failures, names):
         seed_ending(_s5_base, "s5-seam", "%40", "", False, ending="incomplete")
         _s5_seam_out, _s5_seam_code = _s5_exec(seat="s5-seam", disposition="renew",
                                                handoff_written="0")
-        _s5_seam_rec = load_lifecycle(_s5_base).get("s5-seam") or {}
+        _s5_seam_rec = lifecycle_exec.load_lifecycle(_s5_base).get("s5-seam") or {}
         check("s3-05 (6b) AND A SEQUENCE FAILURE DOES NOT LEAVE A FALSE `in-flight`: the marker is "
               "flipped FAILED with the reason, and the refusal renders the marker's alarm by "
               "CALLING `lifecycle_line` rather than re-spelling STALE/FAILED/UNKNOWN — so this "
@@ -12324,21 +12355,21 @@ def _selftest_checks(args, failures, names):
               "of only the enum leaves guard 4 unable to say what intent the new value maps to, "
               "and a widening of only the mapping leaves the parser refusing it. `dag-08` widens "
               "these a THIRD time and this row is what forces it to widen all three together",
-              _s5_disp_choices == LIFECYCLE_DISPOSITIONS
-              and set(LIFECYCLE_DISPOSITIONS) == set(LIFECYCLE_INTENT_OF)
-              and set(LIFECYCLE_RELAUNCHING) <= set(LIFECYCLE_DISPOSITIONS)
-              and LIFECYCLE_INTENT_OF.get("revive", "unmapped") is LIFECYCLE_INTENT_ABSENT)
+              _s5_disp_choices == lifecycle_exec.LIFECYCLE_DISPOSITIONS
+              and set(lifecycle_exec.LIFECYCLE_DISPOSITIONS) == set(lifecycle_exec.LIFECYCLE_INTENT_OF)
+              and set(lifecycle_exec.LIFECYCLE_RELAUNCHING) <= set(lifecycle_exec.LIFECYCLE_DISPOSITIONS)
+              and lifecycle_exec.LIFECYCLE_INTENT_OF.get("revive", "unmapped") is lifecycle_exec.LIFECYCLE_INTENT_ABSENT)
 
         # ---- (7) THE ENVIRONMENT SCRUB AT ENTRY.
-        for _s5_v in LIFECYCLE_SCRUB_ENV:
+        for _s5_v in lifecycle_exec.LIFECYCLE_SCRUB_ENV:
             os.environ[_s5_v] = f"inherited-{_s5_v}"
         _s5_exec(seat="s5-env", tmux_target="")          # refuses at guard 2, the EARLIEST guard
-        _s5_env_left = [v for v in LIFECYCLE_SCRUB_ENV if v in os.environ]
-        for _s5_v in LIFECYCLE_SCRUB_ENV:
+        _s5_env_left = [v for v in lifecycle_exec.LIFECYCLE_SCRUB_ENV if v in os.environ]
+        for _s5_v in lifecycle_exec.LIFECYCLE_SCRUB_ENV:
             os.environ[_s5_v] = f"inherited-{_s5_v}"
         seed_ending(_s5_base, "s5-env2", "%40", "", False, ending="incomplete")
         _s5_exec(seat="s5-env2", disposition="renew", handoff_written="0")
-        _s5_env_rec = (load_lifecycle(_s5_base).get("s5-env2") or {}).get("scrubbed")
+        _s5_env_rec = (lifecycle_exec.load_lifecycle(_s5_base).get("s5-env2") or {}).get("scrubbed")
         check("s3-05 (7) THE ENVIRONMENT IS SCRUBBED AT ENTRY, not merely in the caller's `env=`: "
               "with all four set in the invoking environment, they are GONE from os.environ even "
               "on an invocation that refuses at the FIRST guard (so the scrub provably precedes "
@@ -12346,7 +12377,7 @@ def _selftest_checks(args, failures, names):
               "the caller leaked into the marker. Doing it twice is the point — an executor that "
               "trusts its caller's scrub inherits whatever a future caller forgets, and "
               "COORD_AGENT alone would make it resolve as the dying seat",
-              _s5_env_left == [] and sorted(_s5_env_rec or []) == sorted(LIFECYCLE_SCRUB_ENV))
+              _s5_env_left == [] and sorted(_s5_env_rec or []) == sorted(lifecycle_exec.LIFECYCLE_SCRUB_ENV))
 
         # ---- (8) GUARD 5: THE LOG PATH IS RECORDED, AND NEVER COMPUTED.
         # fd 1 is redirected AT THE OS LEVEL for the duration of the call, which is what makes this
@@ -12364,7 +12395,7 @@ def _selftest_checks(args, failures, names):
         finally:
             os.dup2(_s5_saved_fd1, 1)
             os.close(_s5_saved_fd1)
-        _s5_log_rec = load_lifecycle(_s5_base).get("s5-log") or {}
+        _s5_log_rec = lifecycle_exec.load_lifecycle(_s5_base).get("s5-log") or {}
         check("s3-05 (8) THE LOG PATH IS RECORDED FROM WHAT WAS INHERITED, never recomputed: the "
               "marker names the exact file the CALLER opened — a name carrying a stamp this "
               "process could not have derived — because it reads /proc/self/fd/1 rather than "
@@ -12380,11 +12411,11 @@ def _selftest_checks(args, failures, names):
         # A pipe and an unopened descriptor are non-files by construction, on every box.
         _s5_pr, _s5_pw = os.pipe()
         try:
-            _s5_pipe_ans = inherited_log_path(_s5_pw)
+            _s5_pipe_ans = lifecycle_exec.inherited_log_path(_s5_pw)
         finally:
             os.close(_s5_pr)
             os.close(_s5_pw)
-        _s5_badfd_ans = inherited_log_path(9999)
+        _s5_badfd_ans = lifecycle_exec.inherited_log_path(9999)
         check("s3-05 (8b) AND A NON-FILE fd IS ADMITTED, never invented: a PIPE and an unopened "
               "descriptor each answer an EMPTY path plus a stated reason, rather than a path that "
               "leads nowhere. The marker's whole purpose here is that a reader can FIND the "
@@ -12397,7 +12428,7 @@ def _selftest_checks(args, failures, names):
         _s5_layers, _s5_opaque = set(), []
         for _s5_node in _s5_ast.walk(_s5_ast.parse(PRODUCT_SOURCE)):
             if not (isinstance(_s5_node, _s5_ast.Call)
-                    and getattr(_s5_node.func, "id", None) == "lifecycle_alarm"
+                    and called_name(_s5_node) == "lifecycle_alarm"
                     and _s5_node.args):
                 continue
             _s5_lits = [x.value for x in _s5_ast.walk(_s5_node.args[0])
@@ -12461,7 +12492,7 @@ def _selftest_checks(args, failures, names):
                  "pane": "%40", "tmux_target": "%40", "caller_pid": 41190,
                  "caller_starttime": "884118", "handoff_written": "0"}
             d.update(kw)
-            return refuse(cmd_lifecycle_exec, **d)
+            return refuse(lifecycle_exec.cmd_lifecycle_exec, **d)
 
         # ---- (0) THE PREMISE.
         _s8_known = known_recipients(_s8_ns, _s8_base)
@@ -12496,13 +12527,13 @@ def _selftest_checks(args, failures, names):
               "refusal LAYER named as coord.py's own gate rather than the harness classifier "
               "(R-8). A reader woken at 04:00 has none of those and must not have to go find them",
               "seat 's8-seat'" in _s8_body and "disposition 'renew'" in _s8_body
-              and f"marker file: {lifecycle_path(_s8_base)}" in _s8_body
+              and f"marker file: {lifecycle_exec.lifecycle_path(_s8_base)}" in _s8_body
               and "executor log: " in _s8_body
               and "refusal layer: state" in _s8_body
               and "NOT the harness permission classifier" in _s8_body)
 
         # ---- (2) `ask` IS REFUSED FROM THIS SENDER — the type is a constraint, not a style.
-        _s8_ask = lifecycle_alarm_namespace(_s8_ns, "leader", "an alarm shaped as a question")
+        _s8_ask = lifecycle_exec.lifecycle_alarm_namespace(_s8_ns, "leader", "an alarm shaped as a question")
         _s8_ask.type = "ask"
         _s8_ask_o, _s8_ask_e, _s8_ask_c = harness_outcome(cmd_send, _s8_ask)
         _, _s8_ask_blocks = load_messages(_s8_base)
@@ -12518,7 +12549,7 @@ def _selftest_checks(args, failures, names):
               and len(_s8_ask_blocks) == len(_s8_blocks))
 
         # ---- (6) NO SEAT IDENTITY, AND NOTHING FROM THE ENVIRONMENT.
-        _s8_probe = lifecycle_alarm_namespace(_s8_ns, "leader", "body")
+        _s8_probe = lifecycle_exec.lifecycle_alarm_namespace(_s8_ns, "leader", "body")
         check("s3-08 (6) NO SEAT IDENTITY, NOTHING FROM THE ENVIRONMENT: the Namespace carries the "
               "explicit machinery token `agent='lifecycle-exec'`, `as_agent` is None, `force` is "
               "False, and it declares NO `pane` — so `sender_origin` verifies nothing and stamps "
@@ -12531,7 +12562,7 @@ def _selftest_checks(args, failures, names):
               and (_s8_note or {}).get("sender") == "lifecycle-exec"
               and (_s8_note or {}).get("origin") is None)
 
-        _s8_noid = lifecycle_alarm_namespace(_s8_ns, "leader", "body")
+        _s8_noid = lifecycle_exec.lifecycle_alarm_namespace(_s8_ns, "leader", "body")
         _s8_noid.agent = None
         _s8_ni_o, _s8_ni_e, _s8_ni_c = harness_outcome(cmd_send, _s8_noid)
         check("s3-08 (6b) AND THE EXPLICIT TOKEN IS LOAD-BEARING, not decoration: drop it and rely "
@@ -12563,7 +12594,7 @@ def _selftest_checks(args, failures, names):
               and "s8-seat" in _s8_bflags[0][1] and _s8_bline != "")
 
         # ---- (5) THE MARKER IS FAILED BEFORE THE SEND, NOT AFTER.
-        _s8_brec = load_lifecycle(_s8_bbase).get("s8-seat") or {}
+        _s8_brec = lifecycle_exec.load_lifecycle(_s8_bbase).get("s8-seat") or {}
         check("s3-08 (5) THE MARKER IS FAILED BEFORE THE SEND, NOT AFTER (R-7 — the durable record "
               "must not depend on the perishable one): with the send REFUSED the marker still "
               "reads FAILED with its failure text, and — ⚠ THE DISCRIMINATING HALF — the DELIVERED "
@@ -12583,7 +12614,7 @@ def _selftest_checks(args, failures, names):
         (_s8_blocked / "undelivered-flags.md").mkdir(parents=True)
         _s8_lr = []
         _s8_lr_o, _s8_lr_e, _s8_lr_c = harness_outcome(
-            lambda _a: _s8_lr.append(lifecycle_record_undelivered(
+            lambda _a: _s8_lr.append(lifecycle_exec.lifecycle_record_undelivered(
                 _s8_blocked, "seat s8-seat: the renew sequence broke at step 2",
                 "coord refused the send (exit 1)")), ns())
         check("s3-08 (4) LAST-RESORT PRINT: when even the undelivered append fails, the failure is "
@@ -12603,7 +12634,7 @@ def _selftest_checks(args, failures, names):
         try:
             globals()["cmd_send"] = lambda _a: _s8_seen.append(
                 os.environ.get("TMUX_PANE", "<POPPED>"))
-            _s8_tp_outcome, _s8_tp_line = lifecycle_raise_alarm(
+            _s8_tp_outcome, _s8_tp_line = lifecycle_exec.lifecycle_raise_alarm(
                 "state", "a probe refusal", _s8_base, _s8_ns)
         finally:
             globals()["cmd_send"] = _s8_real_send
@@ -12660,21 +12691,21 @@ def _selftest_checks(args, failures, names):
         # `caller-exited` at the first look, before any sleep; a live one answers
         # `caller-still-live-after-settle` at a deadline that has already passed). The DURATION
         # itself is `s3-11`(a)'s, against a real process.
-        _s6_real_wname, _s6_real_idents = tmux_pane_window_name, pane_harness_idents
+        _s6_real_wname, _s6_real_idents = tmux_pane_window_name, process.pane_harness_idents
         _s6_real_panes, _s6_real_sess = live_panes, tmux_session_name
         _s6_real_respawn, _s6_real_split = tmux_respawn_pane, tmux_split_pane
-        _s6_real_launch, _s6_real_settle = launch_seat, LIFECYCLE_SETTLE_S
+        _s6_real_launch, _s6_real_settle = launch.launch_seat, process.LIFECYCLE_SETTLE_S
         _s6_prior_pane, calling_pane["v"] = calling_pane["v"], ""
         _s6_prior_wake, wake_ok["v"] = wake_ok["v"], True
         _s6_prior_up, harness_up["v"] = harness_up["v"], [6009]
-        LIFECYCLE_SETTLE_S = 0
+        process.LIFECYCLE_SETTLE_S = 0
 
         _s6_live = {"v": {"%60", "%61"}}      # %61 is the --tmux-target every row passes
         _s6_idents = {}                       # pane -> the harness idents THAT pane holds
         live_panes = lambda: set(_s6_live["v"])
         tmux_session_name = lambda target: "s6sess"
         tmux_pane_window_name = lambda pane: "workers"
-        pane_harness_idents = lambda pane: list(_s6_idents.get(pane, []))
+        process.pane_harness_idents = lambda pane: list(_s6_idents.get(pane, []))
         # ⚠ THE RESPAWN STUB SWAPS THE PANE'S OCCUPANT, and that is what makes step 8 discriminating
         # rather than decorative. `tmux respawn-pane -k` replaces what runs in the cell, so the
         # in-place row's "successor is alive" assertion names a pid that CANNOT have been read
@@ -12714,7 +12745,7 @@ def _selftest_checks(args, failures, names):
             if _s6_launch_fail["v"]:
                 return "", _s6_launch_fail["v"]
             return _s6_real_launch(w, a, target, prompt=prompt, pane=pane, resume=resume)
-        launch_seat = _s6_launch
+        launch.launch_seat = _s6_launch
 
         def _s6_make(name, seats=("renewer",), floors=True, budget_text=None):
             pk = Path(td) / name
@@ -12763,7 +12794,7 @@ def _selftest_checks(args, failures, names):
                  "pane": "%60", "tmux_target": "%61", "caller_pid": 41190,
                  "caller_starttime": "884118", "handoff_written": "0"}
             d.update(kw)
-            return refuse(cmd_lifecycle_exec, **d)
+            return refuse(lifecycle_exec.cmd_lifecycle_exec, **d)
 
         def _s6_order(steps, *fragments):
             """Every fragment appears in `steps`, IN ORDER. Ordered CONTAINMENT, not equality: a
@@ -12778,7 +12809,7 @@ def _selftest_checks(args, failures, names):
             return True
 
         def _s6_steps(base, seat):
-            rec = load_lifecycle(base).get(seat) or {}
+            rec = lifecycle_exec.load_lifecycle(base).get(seat) or {}
             got = rec.get("steps-completed")
             return rec, [str(s) for s in got] if isinstance(got, list) else []
 
@@ -12901,13 +12932,13 @@ def _selftest_checks(args, failures, names):
         _s6_ns3 = ns(package=str(_s6_p3), seat="renewer", disposition="close", pane="%63",
                      tmux_target="%61", caller_pid=41190, caller_starttime="884118",
                      handoff_written=None)
-        stamp_lifecycle(_s6_b3, "renewer", {"disposition": "close", "pane": "%63",
+        lifecycle_exec.stamp_lifecycle(_s6_b3, "renewer", {"disposition": "close", "pane": "%63",
                                             "tmux-target": "%61",
                                             "caller": (41190, "884118")})
         _s6_launch3 = len(_s6_launches)
         _s6_kills3 = len(killed)
         _s6_o3, _s6_e3, _s6_c3 = harness_outcome(
-            lambda _a: run_lifecycle_sequence(_s6_ns3, _s6_b3, "%61"), ns())
+            lambda _a: lifecycle_exec.run_lifecycle_sequence(_s6_ns3, _s6_b3, "%61"), ns())
         _s6_r3, _s6_s3 = _s6_steps(_s6_b3, "renewer")
         check("s3-06 (3) CLOSE PERFORMS NO RELAUNCH: the close sequence records the kill and the "
               "same roster/transcript verifications, settles the debts and ends `done` — and "
@@ -12976,7 +13007,7 @@ def _selftest_checks(args, failures, names):
         _s6_idents["%67"] = [(6071, "stamp-6071")]
         _s6_checkout(_s6_p5b, _s6_b5b, "renewer", "%67", "renew")
         _s6_o5b, _s6_c5b = _s6_exec(_s6_p5b, pane="%67", caller_pid=os.getpid(),
-                                    caller_starttime=proc_stat(os.getpid())[1])
+                                    caller_starttime=process.proc_stat(os.getpid())[1])
         _s6_r5b, _s6_s5b = _s6_steps(_s6_b5b, "renewer")
         check("s3-06 (5b) THE SETTLE WAIT RECORDS WHICH OF THE TWO HAPPENED, AND PROCEEDS EITHER "
               "WAY: with a caller that is provably STILL LIVE (this process's own pid+starttime) "
@@ -12995,12 +13026,12 @@ def _selftest_checks(args, failures, names):
         _s6_idents["%68"] = [(6051, "stamp-6051")]
         _s6_checkout(_s6_nofloor, _s6_nfb, "renewer", "%68", "renew")
         _s6_und_o, _s6_und_c = _s6_exec(_s6_nofloor, pane="%68")
-        _s6_und_r = load_lifecycle(_s6_nfb).get("renewer") or {}
+        _s6_und_r = lifecycle_exec.load_lifecycle(_s6_nfb).get("renewer") or {}
         _s6_bad, _s6_badb = _s6_make("s6-badfloor", budget_text="{not json at all")
         _s6_idents["%69"] = [(6061, "stamp-6061")]
         _s6_checkout(_s6_bad, _s6_badb, "renewer", "%69", "renew")
         _s6_unr_o, _s6_unr_c = _s6_exec(_s6_bad, pane="%69")
-        _s6_unr_r = load_lifecycle(_s6_badb).get("renewer") or {}
+        _s6_unr_r = lifecycle_exec.load_lifecycle(_s6_badb).get("renewer") or {}
         check("s3-06 (6) THE RAM GATE IS SOURCED, NEVER CARRIED (R-10, `r-floor-single-source`): "
               "the floor is READ from the run's own budget.json — `memory_gate(1, floor-1, floor)` "
               "refuses and `memory_gate(1, floor+1, floor)` passes against that read value, with "
@@ -13010,8 +13041,8 @@ def _selftest_checks(args, failures, names):
               "once made a wrong path observationally identical to a package with no floor. "
               "⚠ THE RED ARM IS THE DEFAULTING ONE: give the resolver any fallback number and both "
               "refusals disappear, which is precisely a consumer inventing a floor",
-              memory_gate(1, _s6_floor - 1, _s6_floor) != ""
-              and memory_gate(1, _s6_floor + 1, _s6_floor) == ""
+              process.memory_gate(1, _s6_floor - 1, _s6_floor) != ""
+              and process.memory_gate(1, _s6_floor + 1, _s6_floor) == ""
               and _s6_und_c == 3 and "NO memory floor is DECLARED" in _s6_und_o
               and "no floor is declared" in (_s6_und_r.get("failure") or "")
               and _s6_unr_c == 3 and "IS DECLARED and could NOT be read" in _s6_unr_o
@@ -13107,7 +13138,7 @@ def _selftest_checks(args, failures, names):
               "one pins WHICH THREE. A fourth value smuggled into both constants together keeps "
               "(6c) green and reds this row alone",
               set(_s7_choices) == {"renew", "close", "revive"}
-              and set(LIFECYCLE_DISPOSITIONS) == {"renew", "close", "revive"}
+              and set(lifecycle_exec.LIFECYCLE_DISPOSITIONS) == {"renew", "close", "revive"}
               and all(_s7_parse(v)[1] is None for v in ("renew", "close", "revive"))
               and _s7_harvest_code not in (0, None)
               and "harvest" in _s7_harvest_out
@@ -13149,7 +13180,7 @@ def _selftest_checks(args, failures, names):
               _s7_c3 == 2 and "refused [coord state]" in _s7_o3
               and "NO COMPLETE block" in _s7_o3
               and "no delimiter pair is present" in _s7_o3
-              and "renewer" not in load_lifecycle(_s7_b3)
+              and "renewer" not in lifecycle_exec.load_lifecycle(_s7_b3)
               and "%81" not in killed[_s7_kills3:])
 
         # ---- (4) `revive` RUNS THE RENEW SEQUENCE — the SAME body, not a copy.
@@ -13369,7 +13400,7 @@ def _selftest_checks(args, failures, names):
               _s7_c5a == 2 and "refused [coord state]" in _s7_o5a
               and "Absence is legal for" in _s7_o5a
               and "'renew'" in _s7_o5a
-              and "renewer" not in load_lifecycle(_s7_b5a)
+              and "renewer" not in lifecycle_exec.load_lifecycle(_s7_b5a)
               and "%84" not in killed[_s7_kills5a:])
         _s7_p5b, _s7_b5b = _s6_make("s7-renew-no-record")
         _s7_mem(_s7_p5b)
@@ -13384,7 +13415,7 @@ def _selftest_checks(args, failures, names):
               "happened stays a loud failure everywhere it was supposed to happen",
               _s7_c5b == 2 and "refused [coord state]" in _s7_o5b
               and "requires the checkout that DECLARED it" in _s7_o5b
-              and "renewer" not in load_lifecycle(_s7_b5b)
+              and "renewer" not in lifecycle_exec.load_lifecycle(_s7_b5b)
               and "%85" not in killed[_s7_kills5b:])
 
         # ---- (6) THE PREDECESSOR'S UNREAD HANDOFF BLOCK IS NOT TOUCHED (R-14).
@@ -13449,7 +13480,7 @@ def _selftest_checks(args, failures, names):
         _s6_idents["%88"] = [(7061, "stamp-7061")]
         _s7_o8, _s7_c8 = _s6_exec(_s7_p8, disposition="revive", pane="%88",
                                   caller_pid=os.getpid(),
-                                  caller_starttime=proc_stat(os.getpid())[1])
+                                  caller_starttime=process.proc_stat(os.getpid())[1])
         _s7_r8, _s7_s8 = _s6_steps(_s7_b8, "renewer")
         check("s3-07 (8) A STILL-LIVE CALLER IS RECORDED AND PROCEEDED PAST, never refused — and "
               "on the revival path that is the ONLY shape there is. Stage 4's `check_revival()` "
@@ -13462,10 +13493,10 @@ def _selftest_checks(args, failures, names):
               _s7_c8 == 0 and _s7_r8.get("state") == "done"
               and _s7_s8[:2] == ["revive-no-checkout", "caller-still-live-after-settle"])
 
-        tmux_pane_window_name, pane_harness_idents = _s6_real_wname, _s6_real_idents
+        tmux_pane_window_name, process.pane_harness_idents = _s6_real_wname, _s6_real_idents
         live_panes, tmux_session_name = _s6_real_panes, _s6_real_sess
         tmux_respawn_pane, tmux_split_pane = _s6_real_respawn, _s6_real_split
-        launch_seat, LIFECYCLE_SETTLE_S = _s6_real_launch, _s6_real_settle
+        launch.launch_seat, process.LIFECYCLE_SETTLE_S = _s6_real_launch, _s6_real_settle
         calling_pane["v"], wake_ok["v"] = _s6_prior_pane, _s6_prior_wake
         harness_up["v"] = _s6_prior_up
 
@@ -13489,9 +13520,9 @@ def _selftest_checks(args, failures, names):
         # contradiction can fire off it.
         _f9_real_panes, _f9_real_sess = live_panes, tmux_session_name
         _f9_real_wname, _f9_real_popen = tmux_pane_window_name, subprocess.Popen
-        _f9_real_fork = fork_lifecycle_renewal
+        _f9_real_fork = lifecycle_exec.fork_lifecycle_renewal
         _f9_prior_pane, calling_pane["v"] = calling_pane["v"], ""
-        fork_lifecycle_renewal = _fork_real          # the REAL builder, for this block only
+        lifecycle_exec.fork_lifecycle_renewal = _fork_real          # the REAL builder, for this block only
         _f9_env_prior = {k: os.environ.get(k) for k in
                          ("TMUX", "TMUX_PANE", "COORD_AGENT", "COORD_LAUNCH_TARGET", "TMUX_TMPDIR")}
         os.environ.update({"TMUX": "/tmp/f9/default,1,0", "TMUX_PANE": "%999",
@@ -13549,7 +13580,7 @@ def _selftest_checks(args, failures, names):
             # re-enter here and recurse until the stack ends.
             _f9_pop.append({
                 "argv": list(argv), "kw": dict(kw),
-                "marker": dict(load_lifecycle(_f9_base).get(_f9_who["v"]) or {}),
+                "marker": dict(lifecycle_exec.load_lifecycle(_f9_base).get(_f9_who["v"]) or {}),
                 "ending": read_ending_direct(_f9_base, _f9_who["v"])})
             return _F9Child()
 
@@ -13753,7 +13784,7 @@ def _selftest_checks(args, failures, names):
         _f9_pl_row = current_row(load_workers(_f9_base)[2], "r9pl") or {}
         _f9_msgs_before = len(load_messages(_f9_base)[1])
         _f9_pl_out, _f9_pl_code = _f9_checkout("r9pl")
-        _f9_pl_mark = dict(load_lifecycle(_f9_base).get("r9pl") or {})
+        _f9_pl_mark = dict(lifecycle_exec.load_lifecycle(_f9_base).get("r9pl") or {})
         _f9_pl_flagfile = Path(_f9_base) / "undelivered-flags.md"
         _f9_pl_flags = (_f9_pl_flagfile.read_text(encoding="utf-8")
                         if _f9_pl_flagfile.exists() else "")
@@ -13789,7 +13820,7 @@ def _selftest_checks(args, failures, names):
         # ---- (7b) THE DRY-RUN PROOF: what the paneless lane COMPOSES, without launching. -------
         # `lifecycle_fork_target` is pure w.r.t. the tmux surface it is refused BY, so the composed
         # answer is readable directly. Printed so the seat's evidence is the tool's own words.
-        _f9_pl_tgt, _f9_pl_why = lifecycle_fork_target(
+        _f9_pl_tgt, _f9_pl_why = lifecycle_exec.lifecycle_fork_target(
             {"agent": "r9pl", "dir": _f9_pkg / "workers" / "r9pl"}, _f9_pl_row.get("pane", ""))
         print(f"  paneless dry-run: lifecycle_fork_target -> target={_f9_pl_tgt!r} "
               f"why={_f9_pl_why}")
@@ -13801,11 +13832,11 @@ def _selftest_checks(args, failures, names):
               "which is what stops tmux resolving an empty target to the MOST RECENT session — "
               "measured to be the LIVE room",
               _f9_pl_tgt == "" and "PANELESS token" in _f9_pl_why
-              and lifecycle_fork_target({"agent": "x"}, "")[0] == ""
-              and lifecycle_target_live("")[0] is False)
+              and lifecycle_exec.lifecycle_fork_target({"agent": "x"}, "")[0] == ""
+              and lifecycle_exec.lifecycle_target_live("")[0] is False)
 
         subprocess.Popen = _f9_real_popen
-        fork_lifecycle_renewal = _f9_real_fork
+        lifecycle_exec.fork_lifecycle_renewal = _f9_real_fork
         live_panes, tmux_session_name = _f9_real_panes, _f9_real_sess
         tmux_pane_window_name = _f9_real_wname
         calling_pane["v"] = _f9_prior_pane
@@ -13821,9 +13852,9 @@ def _selftest_checks(args, failures, names):
      tmux_split_strip, restore_overview_strip, tmux_find_window_pane, tmux_send_text,
      tmux_send_enter, tmux_capture_tail, tmux_pane_window, detect_pane, live_panes,
      _acquire_flock, atomic_write, pane_title) = real
-    (pane_harness_pids, pane_harness_idents, wait_harness_up, verify_pids_gone, arm_pid_reaper,
-     tmux_pane_pid, tmux_respawn_pane, available_mb) = proc_real
-    fork_lifecycle_renewal = _fork_real
+    (process.pane_harness_pids, process.pane_harness_idents, process.wait_harness_up, process.verify_pids_gone, process.arm_pid_reaper,
+     tmux_pane_pid, tmux_respawn_pane, process.available_mb) = proc_real
+    lifecycle_exec.fork_lifecycle_renewal = _fork_real
     (NATIVE_ID_WAIT, WAKE_ENTER_VERIFY_DELAY_FIRST,
      WAKE_ENTER_VERIFY_DELAY_RETRY) = waits_real
     if env_agent is not None:
@@ -13848,13 +13879,13 @@ def _selftest_checks(args, failures, names):
         # to boot_prompt and a renewed persistent seat was never told to read its own memory — the
         # artifact the whole close ceremony exists to produce.
         (sdir2 / "memory.md").write_text("# memory\nprior state\n")
-        eps = [w for w in discover_workers(pkg2 / "seats") if w["agent"] == "epsilon"]
+        eps = [w for w in launch.discover_workers(pkg2 / "seats") if w["agent"] == "epsilon"]
         check("G-14: a seat.md briefing resolves its seat FOLDER (it used to key on agent.md "
               "only), so memory.md is reachable",
               len(eps) == 1 and eps[0]["folder"] == sdir2)
         check("G-14: a renewed PERSISTENT seat's boot prompt names its own memory.md — without "
               "the folder it silently booted memoryless",
-              str(sdir2 / "memory.md") in boot_prompt(
+              str(sdir2 / "memory.md") in launch.boot_prompt(
                   eps[0], argparse.Namespace(package=str(pkg2), base=None, workers_dir=None)))
 
         check("seats-mode: workers_dir prefers seats/ when present",
@@ -13907,7 +13938,7 @@ def _selftest_checks(args, failures, names):
 
     _oc_seat = {"agent": "oc", "harness": "opencode", "model": "deepseek/deepseek-v4-pro",
                 "effort": "high"}
-    _oc_cmd, _ = harness_command(_oc_seat, prompt_path=Path("/tmp/p.txt"))
+    _oc_cmd, _ = launch.harness_command(_oc_seat, prompt_path=Path("/tmp/p.txt"))
     _oc_cmd = _oc_cmd or ""
     check("opencode: the spawn command carries --auto AFTER the `run` subcommand — the SUCCESS "
           "shape, not merely the flag's presence (G-78). `opencode --auto run ...` prints the "
@@ -13928,13 +13959,13 @@ def _selftest_checks(args, failures, names):
         pkg3 = Path(td3) / "pkg"
         (pkg3 / "coordination").mkdir(parents=True)
         a3 = argparse.Namespace(package=str(pkg3), base=None, workers_dir=None)
-        pf = prompt_file(a3, "zeta", "multi\nline\nprompt\n")
-        cmd, _ = harness_command(_pf_seat, prompt_path=pf)
+        pf = launch.prompt_file(a3, "zeta", "multi\nline\nprompt\n")
+        cmd, _ = launch.harness_command(_pf_seat, prompt_path=pf)
         check("G-11: the spawn command reads its prompt from a FILE and is itself one line — the "
               "structural fix, since no prompt length can reintroduce the defect",
               "\n" not in cmd and f'"$(cat {pf})"' in cmd
               and pf.read_text(encoding="utf-8") == "multi\nline\nprompt\n")
-        cmd2, _ = harness_command(_pf_seat, prompt_path=pf)
+        cmd2, _ = launch.harness_command(_pf_seat, prompt_path=pf)
         # Owner-session injection incident (2026-08-10): this arm used to fire a REAL
         # `wake("%1", cmd2)` — on any box with a live default tmux server, EVERY selftest run
         # typed the full zeta launch command into whoever owned pane %1 (measured twice, two
@@ -13954,23 +13985,23 @@ def _selftest_checks(args, failures, names):
             (500, 100, "python3 watch.py --loop 10")]
     check("G-11: harness detection walks the pane's whole process subtree — the harness is a child "
           "of the pane's shell, and its own tool calls are children of that",
-          sorted(descendant_pids(snap, 100)) == [100, 200, 300, 500]
-          and harness_pids(snap, 100) == [200])
+          sorted(process.descendant_pids(snap, 100)) == [100, 200, 300, 500]
+          and process.harness_pids(snap, 100) == [200])
     check("G-11: another pane's harness is NEVER counted as this pane's",
-          400 not in descendant_pids(snap, 100))
+          400 not in process.descendant_pids(snap, 100))
     check("G-11: a shell-only subtree yields no harness — the exact state a row claiming ACTIVE "
-          "must not survive", harness_pids([(100, 1, "bash"), (300, 100, "bash -c echo")], 100) == [])
+          "must not survive", process.harness_pids([(100, 1, "bash"), (300, 100, "bash -c echo")], 100) == [])
     check("G-11: argv matching covers a wrapper form (node/bun running a harness path) as well as "
           "a bare basename",
-          is_harness_argv("/usr/bin/node /opt/x/opencode --help")
-          and is_harness_argv("claude --model opus P") and not is_harness_argv("bash -c ls"))
+          process.is_harness_argv("/usr/bin/node /opt/x/opencode --help")
+          and process.is_harness_argv("claude --model opus P") and not process.is_harness_argv("bash -c ls"))
     check("G-11: unverifiable is not absent — no pane, no pid, nothing to refuse on (fail-safe). "
           "7.567: and it is not SUCCESS either — the err names the outcome and says which of the "
           "two causes (no pane pid vs unreadable process table) the box hit",
-          pane_harness_pids("") == ([], False)
-          and wait_harness_up("", timeout=0.1)[0] == []
-          and wait_harness_up("", timeout=0.1)[1].startswith(HARNESS_UP_UNVERIFIABLE)
-          and "no pane was given" in wait_harness_up("", timeout=0.1)[1])
+          process.pane_harness_pids("") == ([], False)
+          and process.wait_harness_up("", timeout=0.1)[0] == []
+          and process.wait_harness_up("", timeout=0.1)[1].startswith(process.HARNESS_UP_UNVERIFIABLE)
+          and "no pane was given" in process.wait_harness_up("", timeout=0.1)[1])
 
     _pane_seat = {"agent": "eta", "harness": "claude", "model": "opus", "effort": "high",
                   "window": False}
@@ -14005,10 +14036,10 @@ def _selftest_checks(args, failures, names):
           and renew_in_place(_pane_seat, "%5", True, None))
 
     check("G-10: verify_pids_gone reports clean for identities already gone, and never blocks on "
-          "an empty set", verify_pids_gone([]) == ([], "")
-          and verify_pids_gone([(2 ** 22 - 1, "999")], timeout=0.1)[0] == [])
+          "an empty set", process.verify_pids_gone([]) == ([], "")
+          and process.verify_pids_gone([(2 ** 22 - 1, "999")], timeout=0.1)[0] == [])
     check("G-10: this very process is seen as alive — the liveness probe is real, not a stub",
-          pids_alive([os.getpid()]) == [os.getpid()])
+          process.pids_alive([os.getpid()]) == [os.getpid()])
 
     # ---- reaper identity (owner directive 2026-07-27 #137; leader #138; daemon precedent #139).
     # A pid is NOT an identity. The first reaper fired on "this pid is A harness", so a relaunch
@@ -14016,16 +14047,16 @@ def _selftest_checks(args, failures, names):
     # either: G-12's in-place respawn puts the replacement under the SAME pane, so an ancestry test
     # would confirm the very process it must protect. Only (pid, starttime) survives both.
     me = os.getpid()
-    my_ident = process_identity(me)
+    my_ident = process.process_identity(me)
     check("reaper: a process identity is (pid, starttime) read from /proc field 22, parsed after "
           "the LAST ')' — a naive whitespace split mis-indexes any comm containing a space",
           my_ident is not None and my_ident[0] == me and my_ident[1].isdigit()
-          and proc_starttime(2 ** 22 - 1) == "")
+          and process.proc_starttime(2 ** 22 - 1) == "")
     check("reaper: the same pid with a DIFFERENT starttime is a DIFFERENT process and is never "
           "signalled — this is the recycled-pid case that killed the watcher's replacement",
-          not ident_is_live_harness((me, "0")) and idents_alive([(me, "0")]) == [])
+          not process.ident_is_live_harness((me, "0")) and process.idents_alive([(me, "0")]) == [])
     check("reaper: this python process is live but is NOT a harness, so it is not a reap target "
-          "either — both halves of the guard must hold", not ident_is_live_harness(my_ident))
+          "either — both halves of the guard must hold", not process.ident_is_live_harness(my_ident))
     # The lifecycle executor and its forking caller are PYTHON, so the harness predicate calls both
     # of them dead while they run. This row is the whole justification for a SECOND predicate: it
     # takes ONE identity — this live selftest process, read from the REAL /proc (proc_stat and
@@ -14037,17 +14068,17 @@ def _selftest_checks(args, failures, names):
     check("lifecycle: ident_is_live_process answers for ANY process — this python selftest reads "
           "LIVE to it and DEAD to ident_is_live_harness (which also demands is_harness_argv) — and "
           "it still refuses the same pid carrying a different starttime",
-          ident_is_live_process(my_ident) is True
-          and ident_is_live_harness(my_ident) is False
-          and ident_is_live_process((me, _wrong_start)) is False)
-    script = reaper_script([(4242, "777")], 3)
+          process.ident_is_live_process(my_ident) is True
+          and process.ident_is_live_harness(my_ident) is False
+          and process.ident_is_live_process((me, _wrong_start)) is False)
+    script = process.reaper_script([(4242, "777")], 3)
     check("reaper: the detached script re-derives starttime at kill time and compares it to the "
           "value captured at ARM time — it never kills a remembered number",
           "4242:777" in script and '[ "$st" = "$want" ]' in script
           and "sed 's/^.*) //'" in script and "kill -9 $p" in script
           and "sleep 3" in script)
     check("reaper: arming with an identity that has no starttime arms NOTHING — an unidentifiable "
-          "process is never a kill target", arm_pid_reaper([(4242, "")]) is None)
+          "process is never a kill target", process.arm_pid_reaper([(4242, "")]) is None)
 
     # ---- 7.37 run index + session trace (R10/R11), and 7.69's per-seat statusline.
     # Built on a fixture in the CANONICAL goal shape — which since 7.607 E2b IS the goal folder
@@ -14541,7 +14572,7 @@ def _selftest_checks(args, failures, names):
         def so5(seat):
             """The verb as a non-Python launcher reaches it: (stdout+stderr, exit code)."""
             out, err, code = harness_outcome(
-                cmd_session_open,
+                launch.cmd_session_open,
                 argparse.Namespace(package=str(pkg5), base=None, workers_dir=None, run=None,
                                    as_agent=None, force=False, seat=seat, pane=None, wait=0.0))
             return out + err, (0 if code is None else code)

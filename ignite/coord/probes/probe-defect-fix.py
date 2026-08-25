@@ -216,7 +216,7 @@ def main():
         # may ask about one. This probe supplies a FIXTURE floor deliberately — S-8(c) is about the
         # refusal's WORDING, and keying it to whatever the live run declares today would make a
         # wording probe fail whenever a policy number moved.
-        refusal = coord.memory_gate(1, 100, 2000)
+        refusal = coord.process.memory_gate(1, 100, 2000)
         check("S-8(c): the memory-gate refusal names `--force-memory`", "--force-memory" in refusal)
         check("S-8(c): ...and no longer tells the operator to override with `--force`",
               "override with --force " not in refusal and "override with --force." not in refusal,

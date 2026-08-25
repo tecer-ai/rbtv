@@ -164,13 +164,13 @@ def main():
                                     as_agent=None, force=True)
             coord.wake = stub_wake
             coord.start_pane_capture = spy_arm
-            real_up, real_rename = coord.wait_harness_up, coord.schedule_session_rename
-            coord.wait_harness_up = lambda p: (None, "")
+            real_up, real_rename = coord.process.wait_harness_up, coord.schedule_session_rename
+            coord.process.wait_harness_up = lambda p: (None, "")
             coord.schedule_session_rename = lambda p, a: None
             try:
-                lpane, lerr = coord.launch_seat(w, la, pane2, pane=pane2)
+                lpane, lerr = coord.launch.launch_seat(w, la, pane2, pane=pane2)
             finally:
-                coord.wake, coord.wait_harness_up = real_wake, real_up
+                coord.wake, coord.process.wait_harness_up = real_wake, real_up
                 coord.schedule_session_rename = real_rename
                 coord.start_pane_capture = real_arm
             check("P5a `launch_seat` returned without error on the stubbed harness", lerr == "",

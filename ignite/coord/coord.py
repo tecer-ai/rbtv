@@ -49,6 +49,25 @@ import ending_store  # noqa: E402 — kit door onto the ONE ending store (spec-s
 import supervisor_door  # noqa: E402 — kit door onto the ONE death stamp (spec-supervisor §3/§4)
 import liveness  # noqa: E402 — the ONE liveness surface: is this sitting alive (spec-supervisor §6)
 
+# ⚠ ONE NAMESPACE, ALWAYS NAMED `coord`. `supervisor/`'s six modules `import coord` and read its
+# names at call time; running this file directly would execute it a SECOND time under the name
+# `coord`, leaving the CLI in `__main__`'s copy and every supervision module bound to the other —
+# two namespaces, and every selftest stub landing in the one nobody reads. So a direct run is a
+# TRAMPOLINE: re-enter through the import machinery and dispatch there. Nothing below this point
+# executes under `__main__`.
+if __name__ == "__main__":
+    # ⚠ RE-ENTERED BY PATH, NEVER BY NAME. `import coord` would resolve through sys.path and could
+    # execute a DIFFERENT coord.py than the one invoked — which is exactly what `save-coord.py`'s
+    # gate runs (`python3 <candidate> --help`): by-name re-entry made every candidate test the
+    # INSTALLED kit and pass, mutant or not. Loading `__file__` under the name `coord` runs THIS
+    # file, once, in the one namespace everything else binds to.
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("coord", __file__)
+    _mod = _ilu.module_from_spec(_spec)
+    sys.modules["coord"] = _mod
+    _spec.loader.exec_module(_mod)
+    sys.exit(_mod.main())
+
 try:  # POSIX advisory locking. Absent (or unusable) -> every lock falls back to lockless.
     import fcntl
 except ImportError:  # pragma: no cover - non-POSIX
@@ -165,49 +184,89 @@ WORKER_ROW = re.compile(
     r"\|\s*(?P<lastread>[^|]*?)\s*\|$"
 )
 
-# ---- split-coord module loading (D23 / T4-R12, move-only split) ----
-# Each file below holds bodies MOVED VERBATIM out of this file. They are loaded INTO this module's
-# namespace instead of being imported as separate modules, because the split is TEXTUAL: a moved
-# body must keep reading and writing exactly the globals it read before the move. The selftest
-# substitutes ~60 of those names at runtime (`global wake, tmux_send_text, atomic_write, RUNS_INDEX,
-# ...` plus 24 `globals()[...] = stub` sites), and a per-module COPY of the namespace leaves every
-# stub unreachable: measured 2026-08-24, the suite fell from 913 ok / 128 fail to ABORTED after 23
-# checks under a copying bind. Every public name still lands on `coord`, so `import coord`,
-# `coordinate`, daemon argv and every probe pinning COORD_PY are unaffected.
-SPLIT_MODULES = ("addressing", "outputs", "tmux", "process", "records", "identity", "carrier",
+# ---- the kit's product files: ten loaded siblings + six imported supervision modules -------
+# The ten below hold bodies MOVED VERBATIM out of this file and are loaded INTO this module's
+# namespace rather than imported, because that split is TEXTUAL: a moved body keeps reading and
+# writing exactly the globals it read before the move. The selftest substitutes ~60 of those names
+# at runtime (`global wake, tmux_send_text, atomic_write, RUNS_INDEX, ...` plus the `globals()[...]`
+# sites), and a per-module COPY of the namespace leaves every stub unreachable: measured
+# 2026-08-24, the suite fell from 913 ok / 128 fail to ABORTED after 23 checks under a copying bind.
+SPLIT_MODULES = ("addressing", "outputs", "tmux", "records", "identity", "closeout", "checkout",
+                 "messages", "coord_selftest", "cli_main")
+# The six modules `spec-component-map` §3 homes in `supervisor/` are REAL MODULES, imported below
+# (owner ruling 2026-08-25, "SPLIT_MODULES / coordinate split"). They were measured before they
+# moved: 1,505 of the 1,506 cross-module references in this kit are read inside a function body,
+# so the module cycle they form with this file resolves at CALL time and plain imports are sound.
+# Every name they take from here is spelled `coord.NAME`, and every name this side takes from them
+# is spelled `<module>.NAME` — which is also what keeps a selftest stub visible across the seam.
+SUPERVISOR_MODULES = ("process", "carrier", "attest", "lifecycle_exec", "launch", "ready")
+# The product's load order, unchanged since the move-only split — PRODUCT_SOURCE stays the same
+# corpus in the same sequence, so every audit that counts over it keeps meaning what it meant.
+PRODUCT_ORDER = ("addressing", "outputs", "tmux", "process", "records", "identity", "carrier",
                  "closeout", "attest", "checkout", "lifecycle_exec", "messages", "launch",
                  "ready", "coord_selftest", "cli_main")
-# The six modules `spec-component-map` §3 homes in `supervisor/` now LIVE there (owner ruling
-# 2026-08-25, "SPLIT_MODULES / coordinate split"). Load ORDER is unchanged — only the directory
-# each file is read from. Everything else still sits beside this file.
-SUPERVISOR_MODULES = ("process", "carrier", "attest", "lifecycle_exec", "launch", "ready")
-_KIT_DIR = Path(__file__).resolve().parent
-_SUPERVISOR_DIR = _KIT_DIR.parent / "supervisor"
+COORD_PY = Path(__file__).resolve()
+KIT_DIR = COORD_PY.parent
+SUPERVISOR_DIR = KIT_DIR.parent / "supervisor"
+# The supervision half is imported by plain module name, so its folder joins this one on the path.
+sys.path.insert(0, str(SUPERVISOR_DIR))
 
 
 def _split_path(name):
-    """Where one split module's file lives. The ONE place the two-directory layout is spelled."""
-    return (_SUPERVISOR_DIR if name in SUPERVISOR_MODULES else _KIT_DIR) / (name + ".py")
+    """Where one product module's file lives. The ONE place the two-folder layout is spelled."""
+    return (SUPERVISOR_DIR if name in SUPERVISOR_MODULES else KIT_DIR) / (name + ".py")
 
 
 # The kit's PRODUCT FILES in load order, this file first. Every scan that asks "what is this
-# module's source" derives its file list from HERE — a scan that walked one directory went
-# silently empty the moment the product spanned two.
-PRODUCT_FILES = (Path(__file__).resolve(),) + tuple(_split_path(n) for n in SPLIT_MODULES)
-_SPLIT_SOURCES = []
+# module's source" derives its file list from HERE — a scan that walked one directory would go
+# silently EMPTY for the supervision half rather than red.
+PRODUCT_FILES = (COORD_PY,) + tuple(_split_path(n) for n in PRODUCT_ORDER)
+
+_SPLIT_SOURCES = {}
 for _split_name in SPLIT_MODULES:
     _split_src = _split_path(_split_name)
     _split_text = _split_src.read_text(encoding="utf-8")
-    _SPLIT_SOURCES.append(_split_text)
+    _SPLIT_SOURCES[_split_name] = _split_text
     exec(compile(_split_text, str(_split_src), "exec"), globals())
 
-# The kit's PRODUCT SOURCE as one text: this shim followed by every file above, in load order.
-# The audits and selftest rows that scan "this module's source" are asking about the product, and
-# the product is now several files — this is the same corpus they read before the split, so their
-# counts and their AST walks keep meaning what they meant. Scan TARGET only; no scan's logic moved.
-# Built from the text the loader has already read, so it costs no second pass over the files.
-PRODUCT_SOURCE = "\n".join([Path(__file__).resolve().read_text(encoding="utf-8")] + _SPLIT_SOURCES)
+# ⚠ IMPORTED AFTER THE LOAD, NEVER BEFORE. Each of the six `import coord` back, and this module is
+# only half-built until the loop above finishes; importing them first would hand them a namespace
+# missing every agent-side name. Nothing reads an attribute at import time, on either side — that
+# is the property that makes the cycle sound, and it was measured before the move.
+import process         # noqa: E402 — process truth (spec-component-map §3)
+import carrier         # noqa: E402 — the asserted-identity launch bound
+import attest          # noqa: E402 — attest-exit and the session closer
+import lifecycle_exec  # noqa: E402 — the daemon's mechanical-remedy executor
+import launch          # noqa: E402 — the lane-aware launch composer
+import ready           # noqa: E402 — the ready-seat arithmetic and the derived `dead` state
 
+# ---- the §3 re-export shim: every supervision public name is still an attribute of `coord` ----
+# `spec-component-map` §3 keeps this file "a thin re-export shim ... so external callers
+# (`coordinate`, daemon argv, probes) keep working", and two of them read the moved names straight
+# off the module object: `planning/materialize-seats.py` imports `validate_seat`, and
+# `goals-tree/tool/goal_cli.py` loads this file by path and reads `parse_after_member` /
+# `after_member_limbs` off it, refusing loudly when either is absent. DERIVED from each module's
+# own namespace, never a hand-written list — a hand-written list is what broke `probe-save-gate`'s
+# kit twice, a release late each time.
+#
+# ⚠ THIS IS FOR CALLERS OUTSIDE THE KIT ONLY. Product code names a supervision symbol through its
+# OWNING module (`process.ps_snapshot`), never through the alias, and the selftest rebinds the
+# owning module's attribute — an alias is a SNAPSHOT taken here at import and a stub would never
+# reach it. Nothing in this kit reads one; keep it that way.
+for _sup_mod in (process, carrier, attest, lifecycle_exec, launch, ready):
+    for _sup_name, _sup_val in vars(_sup_mod).items():
+        if _sup_name.startswith("_") or _sup_name in globals():
+            continue
+        if isinstance(_sup_val, type(sys)):      # a module the supervision half imported
+            continue
+        globals()[_sup_name] = _sup_val
 
-if __name__ == "__main__":
-    main()
+# The kit's PRODUCT SOURCE as one text: this file followed by every product file above, in load
+# order. The audits and selftest rows that scan "this module's source" are asking about the
+# product, and the product is several files — this is the same corpus they read before the split,
+# so their counts and their AST walks keep meaning what they meant. Scan TARGET only; no scan's
+# logic moved.
+PRODUCT_SOURCE = "\n".join(
+    [COORD_PY.read_text(encoding="utf-8")]
+    + [_SPLIT_SOURCES.get(_n) or _split_path(_n).read_text(encoding="utf-8")
+       for _n in PRODUCT_ORDER])

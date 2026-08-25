@@ -533,7 +533,7 @@ def cmd_workers(args):
     # it. Rendered on BOTH surfaces the run actually reads (`workers` here, `status` at the twin
     # site), in the same `C_DEAD` — a new colour would say "a different KIND of alarm", which this
     # is not.
-    _lcl = lifecycle_line(base)
+    _lcl = lifecycle_exec.lifecycle_line(base)
     if _lcl:
         print(c(_lcl, C_DEAD))
     # G-134: the debt is surfaced HERE because a record nobody reads is not a fix, and the roster
@@ -1802,7 +1802,7 @@ def known_recipients(args, base):
     _, _, rows = load_workers(base)
     names = {r["agent"] for r in rows}
     names |= set(briefing_frontmatters(workers_dir(args)))
-    names |= registered_seats(package_dir(args))
+    names |= launch.registered_seats(package_dir(args))
     names |= set(group_map(base))
     for d in inbox_decls(args).values():
         names |= set(d.get("relays") or ())
@@ -1846,7 +1846,7 @@ def cmd_send(args):
     #
     # The table itself is `routed_recipient`, and it is the ONE place it exists in code.
     _routed_to, _routed_why = ((None, None) if args.type not in ROUTED_TYPES
-                               else routed_recipient(args, base, args.type, sender))
+                               else attest.routed_recipient(args, base, args.type, sender))
     if args.to == AUTO_TOKEN:
         if args.type not in ROUTED_TYPES:
             refuse(
@@ -1888,7 +1888,7 @@ def cmd_send(args):
     # W3 (adv, C33) — the recipient set `send` gates on, WRAPPED HERE and never inside
     # `known_recipients`: that function's return set is selftest-keyed and is also what
     # `lifecycle_alarm_recipient` reads to resolve the `leader` chair for executor-failure alarms.
-    known, departed = send_recipients(args, base)
+    known, departed = attest.send_recipients(args, base)
     # ⚠ `--force`-PROOF, and that is a CHANGE (adv, C33, specified rather than assumed). An unknown
     # recipient is not a rule that is wrong in some case: the message lands under a name nobody
     # reads, in an append-only log, and the only signal was one "wake skipped" line. The override
@@ -2790,7 +2790,7 @@ def cmd_status(args):
     # true. `me` is the identity the CLI resolved for THIS caller; there is deliberately no way to
     # ask for another seat's (G-197, and see inbox_bound_line).
     bound_line = inbox_bound_line(me, inbox_decls(args),
-                                  [w["agent"] for w in discover_workers(workers_dir(args))])
+                                  [w["agent"] for w in launch.discover_workers(workers_dir(args))])
     if bound_line:
         print(f"{c('senders:', C_LABEL)} {bound_line}")
     detail = ("  " + ", ".join(f"#{b['num']} from {b['sender']} ({age_of(b['ts'])})"
@@ -2807,7 +2807,7 @@ def cmd_status(args):
     # a stuck lifecycle is the run failing to finish an act it started, and the seat it is ABOUT is
     # often the one that most needs to see it. Until Stage 4's revival arm lands, these two prints
     # are the ONLY readers the marker has.
-    _lcl = lifecycle_line(base)
+    _lcl = lifecycle_exec.lifecycle_line(base)
     if _lcl:
         print(c(_lcl, C_DEAD))
     if waiting:

@@ -9049,8 +9049,10 @@ def run_selftest() -> int:
           assemble_seat.__module__ == "goal_cli"
           and index_units.__module__ == "goal_cli"
           and load_catalogs.__module__ == "goal_cli")
-    check("F6: validate_seat is imported from coord, never re-implemented",
-          _coord_validate_seat().__module__ == "coord")
+    check("F6: validate_seat is imported from the kit, never re-implemented — it is defined in "
+          "`supervisor/launch.py` since the 2026-08-25 split and re-exported by `coord.py`'s §3 "
+          "shim, so the name this file imports is the launch composer's OWN predicate",
+          _coord_validate_seat().__module__ == "launch")
 
     print("SK-9 manifest-reference classifier pass (MC9 / 7.451)")
     import inspect as _mc9_inspect
