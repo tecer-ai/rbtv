@@ -1,0 +1,1 @@
+2026-08-25 · change · the JS side of ignite goes component-first · `git mv` per `spec-component-map` §2, never copy+delete, so `git log --follow` still reaches every · f4b4de44,7e671b15,50da76bf,d8a48796,b83c05d3 · supervisor,state-store,chat,operator,envelope,observation,ignite-cli,planning · ⚠
