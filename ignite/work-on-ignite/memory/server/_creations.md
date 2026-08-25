@@ -11,3 +11,4 @@
 2026-08-24 · change · probe fixtures migrated to the envelope model · fixtureRoot at /var/tmp + a seeded .rbtv/mirror; P9-launch asserts the peer RO bind, not the retired tmpfs · ea10c914,bddb247d,1fa6e8dc,5f3c5871 · bridges,capabilities · ⚠
 2026-08-24 · creation · probe-cage-argv-size · no probe asserted the SIZE of the composed tmux command, so an argv that scaled with the host was invisible until the box got busy → synthetic 1000-store home, 8 KB ceiling + pinned O(1) flag count + real-bwrap contract leg · 02660b1a · — · ⚠
 2026-08-24 · change · jobs_log to history; closer stamps failed:crash · No column was dropped and no read was deleted — the change is that every reader now STATES which · acd780e3 · engine,bridges,cli,gateway,team-kit · ⚠
+2026-08-25 · change · Delete the enqueue-door admission brake [C-4 kill map] · Delete the door and count at the driver instead — `enqueue()` mints no counter at all. · 01196394 · engine,supervisor · ⚠
