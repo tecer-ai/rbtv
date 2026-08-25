@@ -9,6 +9,7 @@ const path = require('node:path');
 
 const HERE = __dirname;
 const ENGINE = path.join(HERE, '..');
+const IGNITE = path.join(HERE, '..', '..');
 const OUT_PATH = path.join(HERE, 'probe-verdict-vocabulary.out');
 const SEEDING = path.join(ENGINE, 'seeding.js');
 
@@ -24,10 +25,14 @@ const seeding = require('../seeding.js');
 check('seeding no longer exports CLASSIFIED_VERDICTS', seeding.CLASSIFIED_VERDICTS === undefined);
 check('seeding no longer exports isWaitableWork', seeding.isWaitableWork === undefined);
 
+// The seven product files the killed enum could hide in. Component-relative since the
+// component-first move: six stayed in `supervisor/` (this probe's own ENGINE root) and
+// `attached-execution.js` left for `operator/`, so the home travels with the name.
 const product = [
-  'seeding.js', 'reconcile.js', 'attached-execution.js', 'execution-record.js', 'lane-watch.js',
+  'seeding.js', 'reconcile.js', 'execution-record.js', 'lane-watch.js',
   'ending-reads.js', 'owed-from-endings.js',
-].map((n) => path.join(ENGINE, n));
+].map((n) => path.join(ENGINE, n))
+  .concat([path.join(IGNITE, 'operator', 'attached-execution.js')]);
 
 const banned = [
   'CLASSIFIED_VERDICTS', 'PROCESS_OUTCOME_OF', 'RECORD_DISPOSITIONS',
@@ -49,13 +54,30 @@ for (const file of product) {
   // product file may BORROW the supervisor's computer, and may never BE one. Every occurrence must
   // therefore sit on the require line that names `supervisor/owed`, or be a call. A definition
   // (`function deriveOwed`), a re-export, or an assignment is the second computer coming back.
+  //
+  // ⚠ THE BORROW IS RESOLVED, NOT SUBSTRING-MATCHED. This row used to accept any line containing
+  // the literal `supervisor/owed`, which held only while every borrower sat OUTSIDE `supervisor/`
+  // and spelled it `require('../supervisor/owed')`. The component-first move made `seeding.js` and
+  // `reconcile.js` siblings of `owed.js`, so the same borrow now reads `require('./owed')` and the
+  // literal stopped matching — the row went red on correct code, and would have gone SILENT the
+  // other way round had a borrower moved instead. Resolving the specifier against the borrowing
+  // file's own directory asks the question the rule actually means, from any depth.
+  const OWED = path.join(ENGINE, 'owed.js');
+  const borrowsOwed = (line, file) => {
+    const m = line.match(/require\(\s*['"]([^'"]+)['"]\s*\)/);
+    if (!m) return false;
+    const spec = m[1];
+    if (!spec.startsWith('.')) return false;
+    const resolved = path.resolve(path.dirname(file), spec);
+    return resolved === OWED || `${resolved}.js` === OWED;
+  };
   const owedLines = code.split('\n')
     .map((l, i) => [l, i + 1])
     .filter(([l]) => l.includes('deriveOwed'));
-  const borrowed = owedLines.every(([l]) => l.includes("supervisor/owed") || /deriveOwed\s*\(/.test(l));
+  const borrowed = owedLines.every(([l]) => borrowsOwed(l, file) || /deriveOwed\s*\(/.test(l));
   check(`${path.basename(file)} does not DEFINE deriveOwed — it may only borrow the supervisor's`,
     borrowed,
-    `${file}: ${owedLines.filter(([l]) => !(l.includes('supervisor/owed') || /deriveOwed\s*\(/.test(l))).map(([l, n]) => `${n}: ${l.trim()}`).join(' | ')}`);
+    `${file}: ${owedLines.filter(([l]) => !(borrowsOwed(l, file) || /deriveOwed\s*\(/.test(l))).map(([l, n]) => `${n}: ${l.trim()}`).join(' | ')}`);
 }
 
 const srcHasIdle = fs.readFileSync(SEEDING, 'utf8').includes("IDLE: 'not-waitable'");

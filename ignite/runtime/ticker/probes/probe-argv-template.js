@@ -46,11 +46,14 @@ const SHIPPED_CONFIG = path.join(__dirname, '..', '..', '..', 'envelope', 'spawn
 const HEART_STORE_SRC = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'heart-store.js');
 // Scratch copies MUST live beside their originals: both resolve siblings (`./errors`,
 // `./argv-template`, `schema.sql`) off their own __dirname. Removed in `finally`.
-const templateScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c5scratch-${process.pid}.js`);
-const storeScratch = path.join(__dirname, '..', '..', 'heart', `heart-store.__c5scratch-${process.pid}.js`);
+// ⚠ 'Beside' is `state-store/heart/` since the component-first move, NOT `runtime/heart/`:
+// the reads above followed heart/ to its new component and these WRITES did not, so every
+// mutation arm was copying into a directory that no longer exists.
+const templateScratch = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', `argv-template.__c5scratch-${process.pid}.js`);
+const storeScratch = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', `heart-store.__c5scratch-${process.pid}.js`);
 // 7.559's own mutant: a SECOND scratch copy, because R1 above already holds the first one and a
 // shared path would have one arm's mutation silently answering the other's question.
-const allowScratch = path.join(__dirname, '..', '..', 'heart', `argv-template.__c7559scratch-${process.pid}.js`);
+const allowScratch = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', `argv-template.__c7559scratch-${process.pid}.js`);
 
 const GOAL = 'test-c5-fixture';
 const WORKFLOW = 'plan-console';
