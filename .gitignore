@@ -66,3 +66,11 @@ ignite/supervisor/attempt-counters.json.tmp
 # clock and suppressing a frozen alarm on a lane that is not backing off at all.
 ignite/supervisor/provider-lanes.json
 ignite/supervisor/provider-lanes.json.tmp
+
+# Probe-run RUNTIME state, matched at ANY depth. A probe that exercises the watchdog or the
+# ending store writes a workspace-shaped `.rbtv/runtime/` beside its own cwd — the worktree root
+# for a suite run, the probes folder for a direct run — carrying `heart.db` and
+# `outage-ledger.jsonl`. That is THIS box's live run state, never product: committing it would
+# hand another box an outage ledger and an ending store it never earned. The repo tracks no
+# `.rbtv/` path at all, so the whole tree is ignored rather than its two current leaves.
+**/.rbtv/
