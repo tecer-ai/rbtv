@@ -15358,7 +15358,9 @@ def _selftest_checks(args, failures, names):
         _w8_srow[SESSIONS_COLS.index("session-id")] = "leader-0814-1000"
         _w8_srow[SESSIONS_COLS.index("seat")] = "leader"
         _w8_srow[SESSIONS_COLS.index("ended")] = "2026-08-14 10:00"
-        _w8_srow[SESSIONS_COLS.index("disposition")] = "exited"
+        # No `disposition` cell: this row exists so the chair has a CLOSED sitting, which is the
+        # trace fact, and that column has no writer since §4.1. It carried `exited` — a word the
+        # ending store refuses [§1.7] — and nothing in this block ever read it.
         write_csv_table(sessions_csv(pkgW8), SESSIONS_COLS, [_w8_srow])
         _w8_open_before = open_escalations(load_messages(baseW8)[1])
         _w8_ans_out, _w8_ans_code = sendW8("owner", "leader", "widen it — the path is fine",
