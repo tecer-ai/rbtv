@@ -56,8 +56,11 @@ number-to-rung answer is never inferred.
 
 ## Messaging a session — `sessions` and `resume`
 
-Discovery is pull-based: nothing is printed at launch, and the launch path records nothing —
-the harnesses' own session stores ARE the registry, keyed by launch folder:
+Discovery is pull-based: `sessions` prints nothing at launch and reads no registry of its own —
+the harnesses' own session stores ARE the registry, keyed by launch folder. `resume` is a launch in
+its own right, though, so it DOES emit a `cast: handle` line and register with `cast monitor`'s
+handle registry, exactly like a bare or `seat` launch — the model/effort a resumed session runs
+with is not cast's to name, so the handle's `model` field reads `resume` instead of a model name:
 
 | Harness | Store read by `cast sessions` | `resume` argv |
 |---|---|---|

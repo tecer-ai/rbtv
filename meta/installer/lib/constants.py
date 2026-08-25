@@ -3,6 +3,7 @@ harness set and the exposure-adapter matrix.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -40,7 +41,11 @@ INDEX_REL = Path(".rbtv") / "config" / "install-index.json"
 
 FENCE_ID = "rbtv2"
 
-PATH_BOOTSTRAP = 'export PATH="$HOME/.rbtv/bin:$PATH"'
+# The one line the shell profile gets: bash/zsh syntax on POSIX,
+# PowerShell $PROFILE syntax on Windows (the fences' `#` comments both).
+PATH_BOOTSTRAP = (r'$env:Path = "$HOME\.rbtv\bin;" + $env:Path'
+                  if os.name == "nt" else
+                  'export PATH="$HOME/.rbtv/bin:$PATH"')
 
 PATH_FENCE_START = f"# {FENCE_ID}:start path"
 

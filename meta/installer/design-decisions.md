@@ -346,6 +346,22 @@ of on argparse's `invalid choice: 'harness'`, which names nothing.
 A `path` part is linked into `~/.rbtv/bin` under its part-id (human PATH);
 that reverse does not write under `{target}`.
 
+## D9b — WINDOWS PATH LINKS ARE `.cmd` SHIMS, NOT SYMLINKS
+
+On Windows a D9 link is a generated `<part-id>.cmd` shim in `~/.rbtv/bin`
+instead of a bare symlink: symlink creation needs a privilege most accounts
+lack (WinError 1314), and a bare name is not executable there anyway —
+Windows has no shebang layer. The shim's first line 
+(`@rem rbtv-shim -> <target>`) is the D12 ownership marker AND the recorded
+target; its second line spawns the interpreter the target's shebang names,
+with the resolutions the cli memory entry
+`20260824-i-rbtv-direct-delegates-unrunnab` settled: `python3` spawns as
+`python`, and `bash` is git's own (`where git` → `../bin/bash.exe`, script
+path forward-slashed), never PATH bash, which is usually WSL's and cannot
+see `C:` paths. POSIX behaviour is byte-identical to before. The
+`--write-path` line is likewise per-platform: PowerShell `$PROFILE` syntax
+on Windows, bash/zsh on POSIX, same `# rbtv2:...` fences.
+
 ## D10 — BAKED PATHS ARE ABSOLUTE
 
 BAKED PATHS ARE ABSOLUTE — a loader points at its entry point by resolved

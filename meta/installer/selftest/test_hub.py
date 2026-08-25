@@ -9,7 +9,7 @@ from discovery import HUB_DIR, Refuse, SKILLS_DIR, SKILL_FILE
 from lib.constants import MANAGED_BANNER, MANAGED_MARK, STATE_REL
 from lib.catalog import is_installable, module_id
 from lib.content import _is_ours
-from lib.pathlinks import bin_dir
+from lib.pathlinks import bin_dir, link_path, link_points_at
 from lib.state import read_state, rec_files
 from lib.selection import _sel, part_key, resolve_selection
 from lib.operations import do_install, do_uninstall
@@ -193,9 +193,9 @@ def hub_units(ctx) -> None:
           and not (hw / "hubbin.py").exists()
           and "hubbin.py" in read_state(hw)["components"]
           ["_hub/path/hubbin.py"]["parts"]
-          and (bin_dir() / "hubbin.py").is_symlink()
-          and (bin_dir() / "hubbin.py").resolve()
-          == Path(catalog["_hub/path/hubbin.py"]["path"]).resolve())
+          and link_points_at(
+              link_path(bin_dir(), "hubbin.py"),
+              Path(catalog["_hub/path/hubbin.py"]["path"]).resolve()))
     check("H-realize-agents.md — fragment rides the guidance report",
           any(p[0] == "hubguide"
               for p in hr["report"].get("agents_parts") or []))

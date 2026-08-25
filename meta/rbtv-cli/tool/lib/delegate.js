@@ -19,10 +19,52 @@
 // process never sees, formats, or forwards its value.
 
 const fs = require('fs');
+const path = require('path');
 const { spawnSync } = require('child_process');
 
 // exec: 'direct' — the target is its own executable (its shebang runs it).
 //       'node'   — the target is a Node script invoked with the running node.
+
+// Windows has no shebang: spawning a 'direct' target raw fails with EFTYPE. Read
+// the interpreter out of the shebang line and spawn THAT with the script as its
+// first argument — the same command the kernel would have built on POSIX.
+function winShebang(target) {
+  if (process.platform !== 'win32') return null;
+  let head;
+  try {
+    const fd = fs.openSync(target, 'r');
+    const buf = Buffer.alloc(256);
+    const n = fs.readSync(fd, buf, 0, 256, 0);
+    fs.closeSync(fd);
+    head = buf.slice(0, n).toString('utf8').split('\n')[0];
+  } catch { return null; }
+  if (!head.startsWith('#!')) return null;
+  // `#!/usr/bin/env python3` → python3; `#!/usr/bin/python3` → python3.
+  const parts = head.slice(2).trim().split(/\s+/);
+  let interp = parts[0].split('/').pop();
+  if (interp === 'env') interp = parts[1];
+  if (!interp) return null;
+  if (interp === 'python3') return 'python';
+  if (interp === 'sh' || interp === 'bash') return winBash();
+  return interp;
+}
+
+// The `bash` on a stock Windows PATH is WSL's, whose filesystem view has no
+// `C:/...` — it answers a Windows script path with exit 127. Git for Windows
+// ships a bash that DOES understand those paths, so resolve it from git's own
+// install (…/cmd/git.exe → …/bin/bash.exe) rather than trusting PATH order.
+function winBash() {
+  const which = spawnSync('where', ['git'], { encoding: 'utf8' });
+  if (which.status === 0) {
+    const gitExe = which.stdout.split(/\r?\n/)[0].trim();
+    if (gitExe) {
+      const bash = path.join(path.dirname(path.dirname(gitExe)), 'bin', 'bash.exe');
+      if (fs.existsSync(bash)) return bash;
+    }
+  }
+  return 'bash';
+}
+
 function delegate(route, args) {
   if (!fs.existsSync(route.target)) {
     return {
@@ -37,9 +79,13 @@ function delegate(route, args) {
     };
   }
 
+  const interp = route.exec === 'node' ? null : winShebang(route.target);
   const [cmd, argv] = route.exec === 'node'
     ? [process.execPath, [route.target, ...args]]
-    : [route.target, args];
+    // A backslash path reaches bash as escape sequences, not a filename (exit 127).
+    : interp
+      ? [interp, [route.target.replace(/\\/g, '/'), ...args]]
+      : [route.target, args];
 
   const res = spawnSync(cmd, argv, { stdio: 'inherit', env: process.env });
 

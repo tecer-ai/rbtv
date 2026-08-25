@@ -1,0 +1,34 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented; `#`-led lines are dropped before the header is read.
+#
+# TWO ROWS, TWO KINDS OF PART, one capability folder.
+#
+#  1. `capture` — the ROUTER capability, `method: skill`. It answers *which extractor, and what a
+#     blocked result means* — the judgment `capture.py -h` cannot carry. Its file carries the
+#     `exposes-cli:` list that binds it to row 2 (W6, `references/exposure.md` §1b): a skill is the
+#     DISCOVERY layer, this manifest stays the DECLARATION layer, and a ref resolving to no
+#     `method=path` row is `skill-cli-dangling` at component-lint and at materialize both.
+#
+#  2. `capture-cli` — the component's one FIRST-PARTY tool. `part-kind: tool` + `method: path` is the
+#     MANDATORY inventory row every component keeps for a CLI it authors and ships (owner-ruled
+#     2026-08-09, core-build `decisions.md#d-tool-inventory-exposure-rows`), and it is also the row a
+#     CAGED seat's `exposes: path: [web/capture/capture-cli]` binds to. `rbtv-cli` and `description`
+#     are empty because the tool self-documents through `-h` — a second inventory here is what drifts.
+#     The part-id differs from the skill's because part-ids are unique per manifest; the skill is the
+#     front door and keeps the plain name.
+#
+# `defuddle`, `trafilatura`, `beautifulsoup4` and `pypdf` are THIRD-PARTY and get NO rows: package.json
+# is their one declaration — `dependencies` for what npm resolves, `rbtv.system` for the Python
+# libraries no npm can express — and their own docs are their reach. That rule
+# is first-party-scoped by the same 2026-08-09 ruling's scope correction. `defuddle` arrived here from
+# `web/browse` on 2026-08-21 by owner ruling — reading a page is this component's job, driving one is
+# that component's — and browse's package.json no longer declares it.
+#
+# NO `write-roots` CELL, deliberately — so every row ends on an empty cell and that trailing comma IS
+# the column, never a typo. capture.py writes only where its CALLER points it (`--out` / `--out-dir`),
+# and a write root is a fixed path a CLI needs for its own state. A caged seat that must capture into
+# the workspace asks for its destination through `rw-paths`, in its own right; it is never inferred
+# from this tool, and a `!`-marked grant here would hand every caller of this skill a write it did not ask for.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+capture,capability,skill,exhibit,capabilities/capture/capture.md,"Read a web page and keep it — fetch a URL, extract it to clean prose through the strongest extractor available (defuddle → trafilatura → BeautifulSoup), tell a real article apart from a bot-wall or an empty JavaScript shell, and save it where you point. Handles PDFs. Also the cheap title-only link preview. Reach for it BEFORE concluding this workspace cannot read a page; driving or measuring a browser is web/browse, not here",
+capture-cli,tool,path,,capabilities/capture/capture.py,,

@@ -1,0 +1,33 @@
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
+# not invented. The seventh is `write-roots`, legal on `method=path` rows ONLY, so every row here
+# ends on an empty cell — that trailing comma IS the column, never a typo.
+#
+# TWO ROWS, TWO KINDS OF PART. `browse` is the router capability. `chrome-devtools` is the Chrome
+# DevTools MCP server registration — a `plugin/MCP` part carried by `method: config`, whose
+# entry-point `mcp.json` is the harness-agnostic `mcpServers` payload that materialization realizes
+# per harness through CMP-12's map (sd `decisions.md#d-exposure-part-kind-plugin-mcp`, owner-ruled
+# 2026-08-15, + `#d-mcp-registration-is-config`, owner-ruled 2026-08-08).
+#
+# The CLIs this skill routes to are THIRD-PARTY tools, declared in package.json (the dependency
+# manifest) and reached through the skill's routing body — documented by their own `-h`, not parts
+# of this component. The mandatory tool-inventory rule (owner-ruled 2026-08-09, core-build
+# `decisions.md#d-tool-inventory-exposure-rows` + its first-party scope correction) covers ONLY
+# FIRST-PARTY tools a module itself ships — this component ships none, so no `path` rows here.
+# Third-party CLIs NEVER get inventory rows: package.json is their declaration.
+#
+# An MCP registration is NOT a third-party CLI, so that rule never reaches it: package.json does not
+# declare the server, no `-h` documents it, and this component neither authors nor ships it. It is a
+# part of its OWN kind, and `config` is the method by which a harness comes to hold it.
+#
+# A method-less row is NOT expressible: `method` is NEVER empty, and takes a value from the closed
+# canonical vocabulary ONLY. That canon has ONE home — `meta/planning/references/exposure.md` §1 —
+# and it is read there, never recopied here, because the copy is what goes stale.
+#
+# Adding another third-party CLI is a row in `browse.md`'s table — not a row here.
+#
+# `defuddle` left this component for `web/capture` on 2026-08-21 by owner ruling — reading a page is
+# that component's job now, driving one is this component's — so the router's table lost two rows and
+# this component's package.json lost its declaration. The row below is otherwise unchanged.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+browse,capability,skill,exhibit,browse.md,"Drive or instrument a browser — routes to the cheapest surface that does the job: agent-browser (interact with a real page), chrome-devtools MCP (instrument one — network/console, performance traces, Lighthouse), playwright (script a repeatable run). Reach for it before concluding this workspace has no browser. READING a page is web/capture, not here",
+chrome-devtools,plugin/MCP,config,,mcp.json,"Chrome DevTools MCP server registration — browser automation, network/console inspection, performance traces, screenshots, Lighthouse",

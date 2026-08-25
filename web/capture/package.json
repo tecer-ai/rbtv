@@ -1,0 +1,28 @@
+{
+  "name": "@rbtv/capture",
+  "private": true,
+  "description": "Dependency manifest for the capture component. ONE package manager (npm), per the one-platform-per-component rule: defuddle-cli is the only element npm resolves. The three Python extractor libraries are HOST SYSTEM elements in rbtv.system — npm cannot express them, and a second manager is not an option. All three are optional: capture degrades to a shorter extractor chain without them and still captures. Declaration only; never published, never installed in place.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "defuddle-cli": ">=0.7"
+  },
+  "rbtv": {
+    "manager": "npm",
+    "check": {
+      "node": "node -v",
+      "defuddle-cli": "command -v defuddle"
+    },
+    "install": {
+      "node": "curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs",
+      "defuddle-cli": "npm install --global --prefix \"${RBTV_BIN_ROOT:-$HOME/.local}\" defuddle-cli"
+    },
+    "system": {
+      "python3": "sudo apt-get install -y python3",
+      "trafilatura": "pip3 install --user --break-system-packages trafilatura",
+      "beautifulsoup4": "pip3 install --user --break-system-packages beautifulsoup4",
+      "pypdf": "pip3 install --user --break-system-packages pypdf"
+    }
+  }
+}

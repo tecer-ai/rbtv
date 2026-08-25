@@ -260,8 +260,24 @@ function runResume(rawArgv) {
     process.exit(0);
   }
   refuseIfDetached(detached);
+  const t0 = Date.now();
+  emitHandle({
+    pid: process.pid,
+    start: procStart(process.pid),
+    harness,
+    model: 'resume',
+    session: id === 'last' ? null : id,
+    folder,
+    // claude mints its session id at launch, so a bare/seat handle's transcript filename is known
+    // up front; a resume reuses an EXISTING session, so the filename is only knowable when the
+    // caller named it explicitly — `last` has no id until the harness resolves it itself, the same
+    // ceiling `cast sessions` already documents for same-minute launches.
+    transcript: harness === 'claude' && id !== 'last'
+      ? path.join(os.homedir(), '.claude', 'projects', claudeSlug(folder), `${id}.jsonl`)
+      : null,
+    t0,
+  });
   if (harness === 'opencode') {
-    const t0 = Date.now();
     return runOpencodeChecked(argv, { cwd: folder, stdinText: promptText, t0,
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) });
   }

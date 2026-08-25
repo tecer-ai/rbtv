@@ -1,0 +1,26 @@
+# Columns are the seven of the exposure-manifest file schema, in its order; `#`-led lines are dropped
+# before the header is read.
+#
+# TWO ROWS — the module's only exposed parts, and they are two genuinely different PARTS pointing at
+# two different entry-point files, not one fact said twice:
+#
+#  1. `innovate` — `method: command`, audience HUMAN, trigger on-demand. The founder types `/innovate`
+#     to start or resume a trail run; the loader points at the trail reference, which carries the
+#     sequence, the state protocol and the resume steps.
+#
+#  2. `innovation-mentor` — `method: skill`, audience AGENT, trigger on-demand. The agent reaches this
+#     on its own when a session turns to a venture, a framework, or a brand. The loader points at the
+#     persona prompt, which routes to whichever framework reference the ask names.
+#
+# Every framework reference under `../conception/`, `../validation/` and `../brand/` gets NO row: an
+# agent should not reach a single framework file on its own, it should reach the persona and be routed.
+# That is the reference kind's default (a routing line in an entry point's body, not a manifest row),
+# and it is a sanctioned state, not a gap to fill.
+#
+# The module ships NO first-party CLI, so it holds no `part-kind: tool` inventory row — it is
+# markdown-only, as the old module was. `rbtv-cli` is empty on both rows (install2 never reads the
+# column). NO write-roots cell on either row — a run writes only where the user points it at run
+# start — so both rows end on an empty seventh cell, and that trailing comma IS the column.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+innovate,reference,command,,references/innovation-trail.md,"Start or resume a business-innovation trail run — take an idea through M1 Conception, M2 Validation and M3 Brand one framework at a time, from raw idea to validated concept to brand book. Keeps a single per-project memo so a later session resumes exactly where this one stopped.",
+innovation-mentor,prompt,skill,,prompts/innovation-mentor.md,"Work a business venture with a blunt, evidence-demanding startup mentor — the whole innovation trail (M1 Conception → M2 Validation → M3 Brand), or any single innovation framework on its own. Intent test: use whenever the subject is the user's own venture, product or brand and they want it structured, validated, sized, de-risked, or named — even when they never say 'innovation'. Also on any framework-specific ask: 'innovation', 'business idea', 'startup idea', 'branding', 'brand book', 'lean canvas', 'jobs to be done', 'working backwards', 'competitive landscape', 'problem-solution fit', 'five whys', 'leap of faith', 'assumption mapping', 'TAM SAM SOM', 'unit economics', 'technology readiness', 'pre-mortem my business', 'brand archetypes', 'brand prism', 'golden circle', 'brand positioning', 'tone of voice', 'messaging architecture', 'benchmark analysis', 'product landscape', 'V1 scope'. NOT for generic idea generation or problem structuring with no venture subject — that is `brainstorm`; NOT for web-research rigor and source scoring — that is `web/research`.",
