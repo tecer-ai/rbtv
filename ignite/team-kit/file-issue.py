@@ -44,15 +44,11 @@ STATUS_TERMINAL = ("duplicate", "invalid", "wont-fix")
 STATUSES = STATUS_LIFECYCLE + STATUS_TERMINAL
 REGISTER_REL = Path(".rbtv") / "goals" / "ignite-engine" / "register"
 
-# The 19 build-memory components: the 15 top-level ignite/ folders (minus
-# node_modules) plus the four meta/ trees. One memory folder per name under
-# ignite/work-on-ignite/memory/. See work-on-ignite.md.
-MEMORY_COMPONENTS = (
-    "bridges", "capabilities", "cli", "config", "deploy", "engine", "gateway",
-    "injection-ladder", "jobs", "launch-profiles", "lib", "server", "skills",
-    "team-kit", "work-on-ignite",
-    "meta-installer", "meta-leader", "meta-master", "meta-planning",
-)
+# Build-memory components are not a fixed list: a name is a known component
+# iff it already has a memory folder under ignite/work-on-ignite/memory/, or
+# it names a real top-level ignite/ folder (meta-<x> names real meta/<x>).
+# This way new top-level folders (e.g. a redesign module) are valid the
+# moment they exist on disk, without editing this file. See work-on-ignite.md.
 MEMORY_ISSUE_HEADINGS = (
     "Observed", "Mechanism", "Attempts", "Fix", "Consequences", "Verification",
     "ATTENTION",
@@ -603,14 +599,28 @@ def one_line(value: str) -> str:
 def unknown_component_refusal(component: str) -> Refuse:
     return Refuse(
         "unknown-component",
-        f"{component!r} is not one of the 19 memory components",
-        extra={"fix": "pick one of: " + ", ".join(MEMORY_COMPONENTS)},
+        f"{component!r} has no memory folder and no matching ignite/ or meta/ folder",
+        extra={"fix": "pass a component with an existing ignite/<name> folder "
+                       "(or meta/<name> for meta-<name>), or one that already "
+                       "has a memory folder"},
     )
 
 
 def memory_root(cwd: Path, override: str | None) -> Path:
     repo = repo_root(cwd, override)
     return repo / "ignite" / "work-on-ignite" / "memory"
+
+
+def component_known(repo: Path, component: str) -> bool:
+    """A component is known iff it already has a memory folder, or it names
+    a real top-level ignite/ folder (meta-<x> maps to meta/<x>)."""
+    if not component or "/" in component or component in (".", ".."):
+        return False
+    if (repo / "ignite" / "work-on-ignite" / "memory" / component).is_dir():
+        return True
+    if component.startswith("meta-"):
+        return (repo / "meta" / component[len("meta-"):]).is_dir()
+    return (repo / "ignite" / component).is_dir()
 
 
 def kebab(text: str, limit: int) -> str:
@@ -822,18 +832,14 @@ def cmd_memory_file(args, cwd: Path) -> int:
         return refuse_payload(Refuse(
             "title-too-long", f"--title is {len(args.title)} chars (cap 60)",
         ), as_json)
-    if args.component not in MEMORY_COMPONENTS:
-        return refuse_payload(unknown_component_refusal(args.component), as_json)
-
     try:
         repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
+    if not component_known(repo, args.component):
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
     mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
-    if not mem_dir.is_dir():
-        return refuse_payload(Refuse(
-            "component-dir-missing", f"{mem_dir} does not exist",
-        ), as_json)
+    mem_dir.mkdir(parents=True, exist_ok=True)
 
     body_path = Path(args.body_file).expanduser()
     try:
@@ -940,12 +946,13 @@ def cmd_memory_show(args, cwd: Path) -> int:
         return refuse_payload(Refuse(
             "missing-field:component", "--component is required",
         ), as_json)
-    if args.component not in MEMORY_COMPONENTS:
-        return refuse_payload(unknown_component_refusal(args.component), as_json)
     try:
-        mem_dir = memory_root(cwd, args.repo) / args.component
+        repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
+    if not component_known(repo, args.component):
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
 
     rows = []
     if args.kind in (None, "issue"):
@@ -976,16 +983,14 @@ def cmd_memory_rotate(args, cwd: Path) -> int:
         return refuse_payload(Refuse(
             "missing-field:component", "--component is required",
         ), as_json)
-    if args.component not in MEMORY_COMPONENTS:
-        return refuse_payload(unknown_component_refusal(args.component), as_json)
     try:
-        mem_dir = memory_root(cwd, args.repo) / args.component
+        repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-    if not mem_dir.is_dir():
-        return refuse_payload(Refuse(
-            "component-dir-missing", f"{mem_dir} does not exist",
-        ), as_json)
+    if not component_known(repo, args.component):
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
+    mem_dir.mkdir(parents=True, exist_ok=True)
 
     keep = args.keep
     threshold = args.threshold
@@ -1038,16 +1043,14 @@ def cmd_memory_check(args, cwd: Path) -> int:
         return refuse_payload(Refuse(
             "missing-field:component", "--component is required",
         ), as_json)
-    if args.component not in MEMORY_COMPONENTS:
-        return refuse_payload(unknown_component_refusal(args.component), as_json)
     try:
-        mem_dir = memory_root(cwd, args.repo) / args.component
+        repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-    if not mem_dir.is_dir():
-        return refuse_payload(Refuse(
-            "component-dir-missing", f"{mem_dir} does not exist",
-        ), as_json)
+    if not component_known(repo, args.component):
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
+    mem_dir.mkdir(parents=True, exist_ok=True)
 
     findings = []
     all_lines = []
@@ -1126,16 +1129,14 @@ def cmd_memory_relint(args, cwd: Path) -> int:
         return refuse_payload(Refuse(
             "missing-field:component", "--component is required",
         ), as_json)
-    if args.component not in MEMORY_COMPONENTS:
-        return refuse_payload(unknown_component_refusal(args.component), as_json)
     try:
-        mem_dir = memory_root(cwd, args.repo) / args.component
+        repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-    if not mem_dir.is_dir():
-        return refuse_payload(Refuse(
-            "component-dir-missing", f"{mem_dir} does not exist",
-        ), as_json)
+    if not component_known(repo, args.component):
+        return refuse_payload(unknown_component_refusal(args.component), as_json)
+    mem_dir = repo / "ignite" / "work-on-ignite" / "memory" / args.component
+    mem_dir.mkdir(parents=True, exist_ok=True)
 
     entries = [relint_entry(p) for p in sorted(mem_dir.glob("*.md"))
                if not p.name.startswith("_")]
@@ -1374,7 +1375,13 @@ def cmd_selftest(_args, _cwd: Path) -> int:
         # ---- memory: fixture tree, never the real memory folder -------------------
         repo_dir = root / "rbtv"
         mem_root = repo_dir / "ignite" / "work-on-ignite" / "memory"
-        for c in MEMORY_COMPONENTS:
+        fixture_components = (
+            "bridges", "capabilities", "cli", "config", "deploy", "engine",
+            "gateway", "injection-ladder", "jobs", "launch-profiles", "lib",
+            "server", "skills", "team-kit", "work-on-ignite",
+            "meta-installer", "meta-leader", "meta-master", "meta-planning",
+        )
+        for c in fixture_components:
             cdir = mem_root / c
             cdir.mkdir(parents=True, exist_ok=True)
             heading = f"# {c} — date · kind · title · symptom→cause · commit · others · ⚠ | newest last\n"
@@ -1827,7 +1834,8 @@ def build_parser() -> argparse.ArgumentParser:
                 "next: file-issue memory show --component <component>"),
         formatter_class=argparse.RawDescriptionHelpFormatter))
     mf.add_argument("--component", metavar="COMPONENT",
-                     help="one of the 19 memory components (see MEMORY_COMPONENTS)")
+                     help="a component with an existing memory folder, or an "
+                          "existing ignite/<name> folder (meta-<name> for meta/<name>)")
     mf.add_argument("--kind", choices=("issue", "creation", "change"), help="entry kind")
     mf.add_argument("--title", help="short title, <=60 chars")
     mf.add_argument("--body-file", dest="body_file", help="path to the body markdown")
