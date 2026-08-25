@@ -36,6 +36,7 @@ is alive (`supervisor/`), what an ending means (`state-store/`), what an alarm s
 | skills | `skills/` | The kit's shipped skill loaders (`team-kit`, `file-system-issue`) |
 | mirror driver | `mirror/` | The scaffolding-repo mirror driver and its tests |
 | starter set | `starter-set/` | The goal-generic files a scaffold byte-copies into a new package |
+| derived-tree refusal | `records.py` | `refuse_if_derived(path)` + `DERIVED.md` — spec-component-map §4. Every kit write door (`atomic_write`, `write_csv_table`) walks its target's parents for a `DERIVED.md` and REFUSES on a hit, naming the marker's `source:`; `planning/` imports the same predicate. A regenerated tree loses hand edits silently (C10 / IE-13) — this is the marker + refusal, never a lock |
 | selftest | `coord_selftest.py` | The kit's own suite — test module, excluded from the product-source budget |
 
 ## Where its parts came from

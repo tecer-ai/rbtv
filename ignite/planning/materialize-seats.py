@@ -157,6 +157,14 @@ from __future__ import annotations
 import os as _os, sys as _sys, pathlib as _pl  # task 7.630: solo-run tmux isolation, FIRST
 _sys.path.insert(0, str(next(p for p in _pl.Path(__file__).resolve().parents if (p / "coord" / "self_isolate.py").is_file()) / "coord"))
 from self_isolate import self_isolate_tmux as _self_isolate_tmux; _self_isolate_tmux()
+# The derived-tree write refusal (spec-component-map §4). Imported from the
+# module that DEFINES it — `coord/records.py`, already on sys.path from the line
+# above — rather than re-implemented here: a second parent-walk is a second place
+# the marker convention can drift. Not routed through `coord.py` because that
+# shim reads its sixteen split files at import; this predicate is stdlib-only.
+from records import (refuse_if_derived as _refuse_if_derived,
+                     DerivedTreeRefusal as _DerivedTreeRefusal,
+                     DERIVED_MARKER as DERIVED_MARKER_NAME)
 
 import argparse
 import collections
@@ -1888,6 +1896,24 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
     (scomp / "prompts").mkdir(parents=True)
     (scomp / "tasks").mkdir(parents=True)
     (scomp / "workflows" / GOAL_LOCAL_WORKFLOW).mkdir(parents=True)
+    # THE DERIVED MARKER, planted by the regenerator (spec-component-map §4).
+    # The lane root is goal-instantiated — it exists only once a materialize has
+    # run — so there is no template to plant it in: the builder that creates the
+    # root is the only thing that can carry it, and it writes it into STAGING so
+    # the marker lands in the same atomic replace as the tree it describes.
+    # `source: ..` is this marker's own parent, `planning/current/`, which is the
+    # ONE home of every byte below.
+    (staging / DERIVED_MARKER_NAME).write_text(
+        "source: ..\n"
+        "regenerator: materialize-seats.py — the goal-local lane builder "
+        f"(`{GOAL_LOCAL_LANE}`, rmtree + restage)\n"
+        "\n"
+        "This whole tree is a DERIVED index of the parent directory "
+        "`planning/current/`, rebuilt from scratch on every materialize "
+        "(including `--dry-run`). It carries no fact of its own. An edit made "
+        "here is silently lost on the next pass — apply it to the source and "
+        "let the pass regenerate this copy.\n",
+        encoding="utf-8")
     # The sibling modules a goal-authored `exposes:` may reach across (see the
     # constant block). `component_root` is the MODULE the component lane is
     # read from (`.rbtv/mirror/meta`), so its PARENT is the tree root above the
@@ -3017,6 +3043,9 @@ def create_run_package(package: Path, creation: list[dict]) -> list[str]:
     written: list[str] = []
     for entry in creation:
         target = Path(entry["path"])
+        # A declared write-root that resolves under a marked DERIVED tree would
+        # put the seat's product in a copy the next regenerate erases (C10).
+        _refuse_derived_target(target, f"the surface plan names {target}")
         if entry.get("dir"):
             target.mkdir(parents=True, exist_ok=True)
             target.chmod(0o755)
@@ -3158,6 +3187,7 @@ def _write_seat_guidance(folder: Path, seat: str, package: Path,
     written: list[str] = []
     for name in ("CLAUDE.md", "AGENTS.md"):
         target = folder / name
+        _refuse_derived_target(target, f"the guidance pair of seat '{seat}'")
         if target.exists():
             current = target.read_text(encoding="utf-8")
             if current == text:
@@ -3346,6 +3376,8 @@ def emit_harness_configs(plan: dict) -> list[str]:
         folder = seat_home(Path(plan["package"]), seat)
         for rel, text in files.items():
             target = folder / rel
+            _refuse_derived_target(
+                target, f"the harness registration files of seat '{seat}'")
             if target.exists() and target.read_text(encoding="utf-8") == text:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -3830,6 +3862,22 @@ def _rbtv_repo_root(comp_dir: Path) -> Path:
     return root
 
 
+def _refuse_derived_target(path, subject: str) -> None:
+    """`refuse_if_derived` spoken in this module's refusal vocabulary.
+
+    The predicate is coord's (`records.refuse_if_derived`) and is never
+    re-implemented here; this only re-raises its typed error as a `Refuse` so a
+    caller reading machine-readable refusal codes sees one, and so the marker's
+    `source:` value survives into the message a seat actually reads."""
+    try:
+        _refuse_if_derived(path)
+    except _DerivedTreeRefusal as exc:
+        raise Refuse(
+            "target-under-derived-tree",
+            f"{subject} — {exc}",
+            str(path)) from exc
+
+
 def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
     """(component dir, part-id) for one reference in the `exposes:` grammar.
 
@@ -3855,7 +3903,9 @@ def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
                 "`rbtv:<path-under-the-repo>/<part>` and needs at least one "
                 "directory segment before the part-id",
             )
-        return _rbtv_repo_root(comp_dir).joinpath(*segs[:-1]), segs[-1]
+        target = _rbtv_repo_root(comp_dir).joinpath(*segs[:-1])
+        _refuse_derived_target(target, subject)
+        return target, segs[-1]
     segs = ref.split("/")
     if not all(s.strip() for s in segs) or len(segs) > 3:
         raise Refuse(
@@ -3892,7 +3942,14 @@ def _ref_target(comp_dir: Path, ref: str, subject: str) -> tuple[Path, str]:
             f"{subject} — no component {cid!r} in scan_all "
             f"(mirror={mirror} · repo={repo})",
         )
-    return Path(rec["path"]), pid
+    # C10 (bind-into-lane): a reference whose target resolves at or under a
+    # marked DERIVED root would bind the seat to a copy the next materialize
+    # rewrites. The lane REGENERATOR is exempt by construction — it writes
+    # `GOAL_LOCAL_LANE` through its own staging path and never through this
+    # grammar — so the refusal reaches only a seat reaching INTO the lane.
+    target = Path(rec["path"])
+    _refuse_derived_target(target, subject)
+    return target, pid
 
 
 def _own_component_id(comp_dir: Path, catalog: dict, mirror: Path,
@@ -4284,6 +4341,8 @@ def emit_seat_exposures(plan: dict) -> list[str]:
         folder = seat_home(Path(plan["package"]), seat)
         for rel, text in files.items():
             target = folder / rel
+            _refuse_derived_target(
+                target, f"the exposure loaders of seat '{seat}'")
             if target.exists() and target.read_text(encoding="utf-8") == text:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -4306,6 +4365,7 @@ def emit_seat_descriptors(plan: dict) -> list[str]:
         text = plan["descriptors"][seat]
         folder = seat_home(Path(plan["package"]), seat)
         target = folder / "seat.md"
+        _refuse_derived_target(target, f"the descriptor of seat '{seat}'")
         if target.exists():
             if not plan["force_partial"]:
                 raise Refuse(  # unreachable past check_collisions; kept loud

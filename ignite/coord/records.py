@@ -14,7 +14,94 @@ try:
 except ImportError:  # pragma: no cover - non-POSIX
     fcntl = None
 
+# ---------- derived-tree write refusal (spec-component-map §4) ---------------
+#
+# A REGENERATED tree carries no fact of its own: every byte is a copy the next
+# rebuild overwrites. A fix applied inside one is therefore silently lost —
+# measured as C10 / IE-13 on `<goal>/planning/current/seat-lane/`, where a seat
+# edited the derived copy and the next materialize erased it with no signal.
+# The convention that closes it: the tree ROOT carries a `DERIVED.md` naming its
+# `source:` and its `regenerator:`, and every write door walks the parents of its
+# target for that marker and REFUSES on a hit — never a warning, because a
+# warning is what a lost edit already looked like.
+#
+# The refusal names the marker's `source:` value: a caller told only "refused"
+# still does not know where to apply the fix.
+
+DERIVED_MARKER = "DERIVED.md"
+
+
+class DerivedTreeRefusal(Exception):
+    """A write aimed under a tree root carrying `DERIVED.md`.
+
+    Typed so a caller with its own refusal vocabulary (materialize's `Refuse`)
+    can re-raise it in that vocabulary without re-parsing a message. Carries the
+    marker's `source:` value on `.source` for exactly that."""
+
+    def __init__(self, path, root, source, regenerator):
+        self.path = Path(path)
+        self.root = Path(root)
+        self.source = source
+        self.regenerator = regenerator
+        detail = f" (regenerator: {regenerator})" if regenerator else ""
+        # The `source:` field is marker-relative by convention, so a bare `..`
+        # is correct and useless on its own — the message resolves it too, or a
+        # refused caller still has to do path arithmetic to find where to edit.
+        here = str((self.root / source).resolve()) if source else ""
+        where = f" = {here}" if here and here != source else ""
+        super().__init__(
+            f"refusing to write {self.path} — it is under the DERIVED tree "
+            f"{self.root}, which is regenerated and loses hand edits. "
+            f"source: {source}{where} — apply the change THERE{detail}. "
+            f"Marker: {self.root / DERIVED_MARKER}")
+
+
+def _derived_marker_fields(marker):
+    """The `source:` and `regenerator:` values of one `DERIVED.md`.
+
+    First occurrence of each key wins; a key the marker omits reads as "". The
+    parse is deliberately line-based rather than a YAML load: the marker is a
+    two-field header followed by free prose, and a prose line that happens to
+    look like YAML must not make a write door raise."""
+    fields = {"source": "", "regenerator": ""}
+    try:
+        text = marker.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return fields
+    for line in text.splitlines():
+        for key in fields:
+            if not fields[key] and line.startswith(key + ":"):
+                fields[key] = line[len(key) + 1:].strip()
+    return fields
+
+
+def refuse_if_derived(path):
+    """Refuse `path` when it lies at or under a tree root carrying `DERIVED.md`.
+
+    Returns None when the path is free; raises `DerivedTreeRefusal` on a hit.
+
+    The path is NOT resolved before the walk, and that is load-bearing: the lane
+    symlinks sibling module dirs in beside its own module, so a write aimed
+    THROUGH the lane at a real repo file (the C10 bind-into-lane) is a path under
+    the marked root even though it resolves outside it. The literal path is the
+    thing being refused."""
+    p = Path(path)
+    if not p.is_absolute():
+        p = Path.cwd() / p
+    for root in (p, *p.parents):
+        marker = root / DERIVED_MARKER
+        try:
+            if not marker.is_file():
+                continue
+        except OSError:
+            continue
+        fields = _derived_marker_fields(marker)
+        raise DerivedTreeRefusal(p, root, fields["source"],
+                                 fields["regenerator"])
+
+
 def atomic_write(path, text):
+    refuse_if_derived(path)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
@@ -518,6 +605,7 @@ def read_csv_table(path, cols):
 def write_csv_table(path, header, rows):
     """Atomic: temp file + os.replace. A reader never sees a half-written trace, and a crash
     mid-write leaves the previous table intact (G-45's discipline applied to state files)."""
+    refuse_if_derived(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", newline="", encoding="utf-8") as fh:
