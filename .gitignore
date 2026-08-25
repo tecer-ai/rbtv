@@ -53,3 +53,9 @@ ignite/team-kit/coord-candidate*.py
 # table as another box's boot state, and boot re-adopt would then classify strangers' pids.
 ignite/supervisor/registry.jsonl
 ignite/supervisor/registry.jsonl.tmp-*
+
+# Attempt-counter ledger — RUNTIME state beside the same module, for the same reason: it records
+# how many times THIS box's drivers retried. Committing it would hand another box a count it never
+# earned, and a counter that arrives already at N disarms a lane nobody ever ran.
+ignite/supervisor/attempt-counters.json
+ignite/supervisor/attempt-counters.json.tmp

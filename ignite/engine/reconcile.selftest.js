@@ -6,12 +6,31 @@ const os = require('node:os');
 const path = require('node:path');
 const { openHeartStore, closeHeartStore } = require('../server/heart/heart-store');
 const {
-  owedFromLedgers, reconcileGoal, STRIKE_LIMIT, summonedSeats,
+  owedFromLedgers, reconcileGoal, summonedSeats,
 } = require('./reconcile');
+// The brake these arms used to measure (`strike`/`stuckStands`, bound by `STRIKE_LIMIT`) is
+// DELETED [spec-recovery §5, C-4 kill map]. What they measure now is the attempt counter: N off a
+// config file, a reason-class key, and a reset that only a named re-arm event can cause.
+const counters = require('../supervisor/attempt-counters');
 const { classifyEnding } = require('./owed-from-endings');
 const { bind } = require('../state-store');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reconcile-selftest-'));
+
+// -- THE COUNTER FIXTURE ------------------------------------------------------------------------
+// A workspace with the packaged recovery config seeded into it, and a counter ledger of its own.
+// N is READ BACK off that file, never typed as a literal in an arm below.
+const { seedRecoveryConfig, loadRecoveryConfig } = require('../supervisor/recovery-config');
+
+function counterFixture(name) {
+  const root = fs.mkdtempSync(path.join(tmpRoot, `${name}-ws-`));
+  seedRecoveryConfig(root);
+  return {
+    workspaceRoot: root,
+    recovery: loadRecoveryConfig({ workspace: root }),
+    countersFile: path.join(root, 'counters.json'),
+  };
+}
 const lines = [];
 function say(s) { lines.push(s); console.log(s); }
 
@@ -482,232 +501,161 @@ say('── class (b) enqueues staff chair ──');
   }
 }
 
-say('── D34: 2 strikes on a REFUSED launch, exactly one stuck ──');
+say('── the attempt counter: N same-reason retries on a REFUSED launch, then the lane disarms ──');
 {
   const store = openStore();
+  const fx = counterFixture('n-refused');
+  const N = fx.recovery.attempt_counter_n;
   try {
     const goalFolder = fixtureUncast();
     stampEndings(store, 'fx-u', [['worker', 'unverified']]);
-    const sent = [];
     const passes = [];
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < N + 2; i += 1) {
       passes.push(reconcileGoal({
         goal: 'fx-u', goalFolder, engine: { heartStore: store },
         say: () => {}, force: true, readyAnswer: readyEmpty,
         live: new Set(),
         promptFn: () => 'fixture prompt',
-        sendFn: (x) => { sent.push(x.body); return { ok: true }; },
         recoverFn: () => ({ ok: true }),
+        ...fx,
       }));
     }
     const refused = passes.map((p) => p.actions.find((a) => a.kind === 'launch-refused'));
     assert.ok(refused[0] && refused[0].error === 'E_UNCAST_SEAT', JSON.stringify(refused[0]));
-    assert.strictEqual(STRIKE_LIMIT, 2, `D34 says 2 mechanical attempts, got ${STRIKE_LIMIT}`);
-    assert.strictEqual(refused[STRIKE_LIMIT - 1].attempts, STRIKE_LIMIT);
-    assert.strictEqual(refused[STRIKE_LIMIT - 1].stuckEmitted, 1);
-    assert.strictEqual(sent.length, 1, `stuck sends=${sent.length}`);
-    // D44 (owner, 2026-08-20) — THIS EXPECTATION MOVED, and it moved because the ruling moved it.
-    // Passes 3-5 used to be three more `launch-refused` rows: the launch was attempted every pass
-    // and only the SEND was suppressed. `stuck` is now a BRAKE, so from pass 3 on nothing is
-    // launched at all and the action is `skip-stuck`. The counter still advances (the row below
-    // still reads 5), which is what keeps the owner-alarm leg unchanged.
-    const braked = passes.slice(STRIKE_LIMIT).map((p) => p.actions.find(
+    // Every pass up to N counts the SAME reason class - the refusal never changed, so neither did
+    // the key. The old arm needed a byte-identical signature for this; the counter does not.
+    for (let i = 0; i < N; i += 1) {
+      assert.strictEqual(refused[i].attempts, i + 1, `pass ${i + 1} of ${N}: ${JSON.stringify(refused[i])}`);
+    }
+    assert.strictEqual(refused[N - 1].exhausted, true, 'the Nth retry exhausts the counter');
+
+    // From N on the mechanical relaunch STOPS. Not because a message was sent - because the lane
+    // is disarmed and waits for a named re-arm event.
+    const after = passes.slice(N).map((p) => p.actions.find(
       (a) => a.seat === 'leader' && a.reason === 'nonterm'));
-    assert.deepStrictEqual(braked.map((a) => a.kind), ['skip-stuck', 'skip-stuck', 'skip-stuck'],
-      `D44: a launch was still attempted after stuck — ${JSON.stringify(braked)}`);
-    assert.strictEqual(braked[2].stuckEmitted, 1);
-    assert.strictEqual(sent.length, 1);
-    const row = store.getReconcileAttempt('fx-u', 'leader', 'nonterm');
-    assert.strictEqual(Number(row.attempts), 5);
-    assert.strictEqual(Number(row.stuck_emitted), 1);
-    say(`ok  one stuck after ${STRIKE_LIMIT} refusals; D44: passes 3-5 issued NO launch (skip-stuck); store attempts=${row.attempts}`);
+    assert.deepStrictEqual(after.map((a) => a.kind), ['skip-disarmed', 'skip-disarmed'],
+      `a launch was still issued after N - ${JSON.stringify(after)}`);
+
+    const row = counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-u', seat: 'leader', reasonClass: 'nonterm',
+    }, { countersFile: fx.countersFile });
+    assert.strictEqual(Number(row.attempts), N, 'a disarmed lane counts nothing further');
+    say(`ok  the lane disarms after N=${N} same-reason retries; passes ${N + 1}-${N + 2} issued NO launch`);
   } finally {
     store.close();
     closeHeartStore();
   }
 }
 
-say('── count durable across store close/reopen ──');
+say('── the count is durable across a store close and reopen ──');
 {
   const dbDir = fs.mkdtempSync(path.join(tmpRoot, 'dur-'));
   const dbPath = path.join(dbDir, 'heart.db');
   const goalFolder = fixtureUncast();
+  const fx = counterFixture('durable');
+  const key = {
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-d', seat: 'leader', reasonClass: 'nonterm',
+  };
   let store = openHeartStore({ dbPath });
+  const pass = () => reconcileGoal({
+    goal: 'fx-d', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'x', recoverFn: () => ({ ok: true }),
+    ...fx,
+  });
   try {
     stampEndings(store, 'fx-d', [['worker', 'unverified']]);
-    for (let i = 0; i < 2; i += 1) {
-      reconcileGoal({
-        goal: 'fx-d', goalFolder, engine: { heartStore: store },
-        say: () => {}, force: true, readyAnswer: readyEmpty,
-        live: new Set(),
-        promptFn: () => 'x',
-        sendFn: () => ({ ok: true }),
-        recoverFn: () => ({ ok: true }),
-      });
-    }
-    const before = store.getReconcileAttempt('fx-d', 'leader', 'nonterm');
+    pass();
+    pass();
+    const before = counters.peekCounter(key, { countersFile: fx.countersFile });
     assert.strictEqual(Number(before.attempts), 2);
     say(`  before close: attempts=${before.attempts}`);
     store.close();
     closeHeartStore();
     store = openHeartStore({ dbPath });
-    reconcileGoal({
-      goal: 'fx-d', goalFolder, engine: { heartStore: store },
-      say: () => {}, force: true, readyAnswer: readyEmpty,
-      live: new Set(),
-      promptFn: () => 'x',
-      sendFn: () => ({ ok: true }),
-      recoverFn: () => ({ ok: true }),
-    });
-    const after = store.getReconcileAttempt('fx-d', 'leader', 'nonterm');
+    pass();
+    const after = counters.peekCounter(key, { countersFile: fx.countersFile });
     assert.strictEqual(Number(after.attempts), 3, `expected 3 got ${after.attempts}`);
     say(`  after reopen+1: attempts=${after.attempts}`);
-    say('ok  count survived close/reopen (2 → 3, not reset to 1)');
+    say('ok  the counter survives a daemon restart - it is on disk, not in the process');
   } finally {
-    try { store.close(); } catch { /* already */ }
+    store.close();
     closeHeartStore();
   }
 }
 
-// ── D34 · the counter measures NO PROGRESS ────────────────────────────────────────────────────
-// This is the defect the redesign was built for: every one of these passes LAUNCHES fine (or is
-// skipped because last pass's launch is still queued), so under the old `clearAttempt` on
-// `launched.ok` the count reset every time, `reconcile_attempts` stayed empty and the loop never
-// ended. `pass()` returns the store row for (leader, nonterm) after each pass.
-function boundPass(store, goalFolder, sent, n) {
+// ── THE COUNTER MEASURES A SAME-REASON RETRY, AND ONLY A NAMED EVENT RESETS IT ────────────────
+// This is the defect the redesign was built for. Every one of these passes LAUNCHES fine, so the
+// old `clearAttempt`-on-`launched.ok` reset the count every time and the loop never ended; then
+// D34's fix made the count survive a launch but still reset when the owed SIGNATURE drifted, and
+// the signature drifted on volatile fields. Both resets are gone [spec-recovery §5].
+function boundPass(store, goalFolder, fx) {
   reconcileGoal({
     goal: 'fx-bound', goalFolder, engine: { heartStore: store },
     say: () => {}, force: true, readyAnswer: readyEmpty,
     live: new Set(), promptFn: () => 'BOOT',
-    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
     recoverFn: () => ({ ok: true }),
+    ...fx,
   });
-  return store.getReconcileAttempt('fx-bound', 'leader', 'nonterm');
+  return counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-bound', seat: 'leader', reasonClass: 'nonterm',
+  }, { countersFile: fx.countersFile });
 }
 
-say('── D34: unchanged owed set across 2 SUCCESSFUL passes → stuck; changed → reset; empty → cleared ──');
+say('── a successful launch does not clear the count, and neither does a CHANGED owed set ──');
 {
   const store = openStore();
+  const fx = counterFixture('same-reason');
   try {
     const goalFolder = fixtureBound();
-    const sent = [];
 
     boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-bound');
-    const p1 = boundPass(store, goalFolder, sent, 1);
+    const p1 = boundPass(store, goalFolder, fx);
     assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
-    assert.strictEqual(Number(p1.stuck_emitted), 0);
-    assert.strictEqual(sent.length, 0, JSON.stringify(sent));
-    say(`  pass 1 (owed a=unverified): attempts=${p1.attempts} stuck_emitted=${p1.stuck_emitted} sig=${p1.signature}`);
+    say(`  pass 1 (owed a=unverified): attempts=${p1.attempts}`);
 
-    const p2 = boundPass(store, goalFolder, sent, 2);
+    const p2 = boundPass(store, goalFolder, fx);
     assert.strictEqual(Number(p2.attempts), 2, JSON.stringify(p2));
-    assert.strictEqual(Number(p2.stuck_emitted), 1, JSON.stringify(p2));
-    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
-    assert.ok(/stuck: nonterm on `leader`/.test(sent[0]), sent[0]);
-    say(`  pass 2 (owed UNCHANGED):   attempts=${p2.attempts} stuck_emitted=${p2.stuck_emitted}`);
-    say(`  stuck body: ${sent[0]}`);
+    say(`  pass 2 (owed UNCHANGED, launch succeeded): attempts=${p2.attempts}`);
 
-    // PROGRESS: the owed CONTENT changed (a second row appeared). Same seat, same reason.
+    // THE INVERTED EXPECTATION, and the inversion IS the ruling. Under the deleted brake a changed
+    // owed set was PROGRESS and reset the count to 1. It is not progress: the leader still owes the
+    // same class of judgment, and the drifting content is exactly what kept the bound from firing.
     boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']], store, 'fx-bound');
-    const p3 = boundPass(store, goalFolder, sent, 3);
-    assert.strictEqual(Number(p3.attempts), 1, JSON.stringify(p3));
-    assert.strictEqual(Number(p3.stuck_emitted), 0, JSON.stringify(p3));
-    assert.strictEqual(sent.length, 1, `a changed owed set re-sent stuck: ${JSON.stringify(sent)}`);
-    assert.notStrictEqual(p3.signature, p2.signature);
-    say(`  pass 3 (owed CHANGED):     attempts=${p3.attempts} stuck_emitted=${p3.stuck_emitted} sig=${p3.signature}`);
+    const p3 = boundPass(store, goalFolder, fx);
+    assert.strictEqual(Number(p3.attempts), 3,
+      `a changed owed set reset the counter - the byte-equality reset is back: ${JSON.stringify(p3)}`);
+    say(`  pass 3 (owed CHANGED, same reason class): attempts=${p3.attempts} - NOT reset`);
 
-    // The leader ruled both rows `done` — the owed set is empty and the row goes.
-    boundRows(goalFolder, [['worker-a', 'done'], ['worker-b', 'done']], store, 'fx-bound');
-    const p4 = boundPass(store, goalFolder, sent, 4);
-    assert.ok(!p4, `owed set empty but the attempt row survived: ${JSON.stringify(p4)}`);
-    say('  pass 4 (owed EMPTY):       attempt row cleared');
-    say('ok  D34: launch success never clears; only a changed or empty owed set does');
+    // The ONLY reset: a named re-arm event.
+    const reset = counters.rearm({
+      event: counters.RE_ARM.OWNER_LEADER_ACT, goal: 'fx-bound', seat: 'leader',
+    }, { countersFile: fx.countersFile });
+    assert.strictEqual(reset.reset.length, 1, JSON.stringify(reset));
+    const p4 = boundPass(store, goalFolder, fx);
+    assert.strictEqual(Number(p4.attempts), 1, `a named re-arm did not re-arm: ${JSON.stringify(p4)}`);
+    say(`  pass 4 (after an owner/leader act): attempts=${p4.attempts} - re-armed`);
+    say('ok  only a named re-arm event clears the count; no launch outcome and no content drift does');
   } finally {
     store.close();
     closeHeartStore();
   }
 }
 
-// ── D44 · `stuck` IS A BRAKE, NOT ONLY A REPORT ───────────────────────────────────────────────
-// The arm that would have caught the 17 live relaunches, and it observes the ACTION rather than
-// the counter: the counter was already correct while the spend continued. `brakePass` returns the
-// (leader, nonterm) ACTION of the pass, so "no launch" is a measurement, not an inference.
-//
-// ⚠ THE KIND IS ASSERTED EXACTLY, never "not enqueue": `skip-live-or-queued` is also not an
-// enqueue, so a pass braked by last pass's queue entry would read as a PASS for this arm while
-// proving nothing about D44. Asserting `skip-stuck` is what discriminates the brake from the
-// queue.
-function brakePass(store, goalFolder, sent) {
-  const res = reconcileGoal({
-    goal: 'fx-brake', goalFolder, engine: { heartStore: store },
-    say: () => {}, force: true, readyAnswer: readyEmpty,
-    live: new Set(), promptFn: () => 'BOOT',
-    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
-    recoverFn: () => ({ ok: true }),
-  });
-  // ⚠ THE QUEUE IS DRAINED BETWEEN PASSES, and without it this arm measures NOTHING: last
-  // pass's enqueue is still pending, so `queuedSeats` short-circuits the next pass to
-  // `skip-live-or-queued` and every pass after pass 2 reads as "no launch" whether the brake
-  // exists or not. Draining models what the daemon actually does — it fires the queued sitting,
-  // the seat runs, gives up again, and the next reconcile pass finds an empty queue.
-  for (const q of store.listQueue()) store.removeQueueRow({ queueId: q.queue_id });
-  return {
-    act: res.actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm'),
-    row: store.getReconcileAttempt('fx-brake', 'leader', 'nonterm'),
-  };
-}
-
-say('── D44: once `stuck` is out, the SAME signature issues NO launch; a CHANGED one re-arms ──');
+say('── RED arm: restore the evidence-driven reset (the deleted byte-equality brake) ──');
 {
-  const store = openStore();
-  try {
-    const goalFolder = fixtureBound();
-    const sent = [];
-
-    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-brake');
-    const p1 = brakePass(store, goalFolder, sent);
-    assert.strictEqual(p1.act.kind, 'enqueue', JSON.stringify(p1.act));
-    assert.strictEqual(Number(p1.row.stuck_emitted), 0);
-    say(`  pass 1: action=${p1.act.kind} attempts=${p1.row.attempts} stuck_emitted=${p1.row.stuck_emitted}`);
-
-    const p2 = brakePass(store, goalFolder, sent);
-    assert.strictEqual(Number(p2.row.attempts), STRIKE_LIMIT);
-    assert.strictEqual(Number(p2.row.stuck_emitted), 1, JSON.stringify(p2));
-    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
-    say(`  pass 2: action=${p2.act.kind} attempts=${p2.row.attempts} stuck_emitted=${p2.row.stuck_emitted} — stuck sent`);
-
-    // THE BRAKE. Same owed set, same signature, stuck already out: nothing may be launched.
-    const p3 = brakePass(store, goalFolder, sent);
-    assert.strictEqual(p3.act.kind, 'skip-stuck', `D44: a launch was issued after stuck — ${JSON.stringify(p3.act)}`);
-    const p4 = brakePass(store, goalFolder, sent);
-    assert.strictEqual(p4.act.kind, 'skip-stuck', JSON.stringify(p4.act));
-    assert.strictEqual(sent.length, 1, `stuck was re-sent: ${JSON.stringify(sent)}`);
-    say(`  pass 3-4 (SAME signature, stuck already out): action=${p3.act.kind}/${p4.act.kind} — NO launch, attempts=${p4.row.attempts}`);
-
-    // D34/D40 INTACT — the owed CONTENT changed, so this is PROGRESS: the counter resets to 1 and
-    // the launch is armed again in the very same pass.
-    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']], store, 'fx-brake');
-    const p5 = brakePass(store, goalFolder, sent);
-    assert.strictEqual(Number(p5.row.attempts), 1, JSON.stringify(p5.row));
-    assert.strictEqual(Number(p5.row.stuck_emitted), 0, JSON.stringify(p5.row));
-    assert.notStrictEqual(p5.row.signature, p2.row.signature);
-    assert.strictEqual(p5.act.kind, 'enqueue', `D34 broken: a changed signature did not re-arm the launch — ${JSON.stringify(p5.act)}`);
-    say(`  pass 5 (CHANGED signature): action=${p5.act.kind} attempts=${p5.row.attempts} stuck_emitted=${p5.row.stuck_emitted} sig=${p5.row.signature}`);
-    say('ok  D44: stuck brakes the relaunch on an unchanged signature, and progress re-arms it (D34 intact)');
-  } finally {
-    store.close();
-    closeHeartStore();
-  }
-}
-
-say('── RED arm: D44 — restore the UNCONDITIONAL launch (the pre-ruling code) ──');
-{
-  // The mutant drops the brake branch from a COPY of the live source. If the arm above does not
-  // discriminate, the mutant passes it too.
+  // The mutant puts an owed-content reset back into a COPY of the live source: the counter is
+  // cleared whenever the pass's owed signature differs from the last one. If the arm above does
+  // not discriminate, the mutant passes it too.
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const BRAKE_ANCHOR = `    } else if (stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {`;
-  assert.ok(src.includes(BRAKE_ANCHOR), 'D44 brake branch not found — the red arm has no anchor');
-  const mutated = src.replace(BRAKE_ANCHOR, `    } else if (false && stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {`);
+  const ANCHOR = `    if (action.kind !== 'skip-disarmed') {`;
+  assert.ok(src.includes(ANCHOR), 'the counting branch anchor is missing - the red arm has no anchor');
+  const mutated = src.replace(ANCHOR, `    if (action.kind !== 'skip-disarmed') {
+      // MUTANT: the deleted signature reset, restored.
+      if (globalThis.__redLastSig !== t.signature) {
+        counters.rearm({ event: 'owner-leader-act', goal, seat: t.seat }, { countersFile });
+        globalThis.__redLastSig = t.signature;
+      }`);
   assert.notStrictEqual(mutated, src);
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
@@ -715,157 +663,128 @@ say('── RED arm: D44 — restore the UNCONDITIONAL launch (the pre-ruling co
   mut.paths = Module._nodeModulePaths(__dirname);
   mut._compile(mutated, mut.filename);
   const store = openStore();
-  let red = null;
+  const fx = counterFixture('red-reset');
+  let seen = null;
   try {
     const goalFolder = fixtureBound();
-    const sent = [];
     const pass = () => mut.exports.reconcileGoal({
-      goal: 'fx-brake-red', goalFolder, engine: { heartStore: store },
+      goal: 'fx-bound', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
-      live: new Set(), promptFn: () => 'BOOT',
-      sendFn: (x) => { sent.push(x.body); return { ok: true }; },
-      recoverFn: () => ({ ok: true }),
-    }).actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm');
-    const drain = () => { for (const q of store.listQueue()) store.removeQueueRow({ queueId: q.queue_id }); };
-    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-brake-red');
-    pass(); drain(); pass(); drain();      // pass 2 emits stuck
-    red = pass();                         // pass 3 — braked in the live code
+      live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+      ...fx,
+    });
+    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-bound');
+    pass();
+    pass();
+    boundRows(goalFolder, [['worker-a', 'unverified'], ['worker-b', 'exited']], store, 'fx-bound');
+    pass();
+    seen = counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-bound', seat: 'leader', reasonClass: 'nonterm',
+    }, { countersFile: fx.countersFile });
+  } finally {
+    delete globalThis.__redLastSig;
+    store.close();
+    closeHeartStore();
+  }
+  assert.strictEqual(Number(seen.attempts), 1,
+    `the mutant did NOT reset on a changed signature, so the arm above proves nothing: ${JSON.stringify(seen)}`);
+  say(`ok  RED: with the evidence-driven reset back, three passes leave attempts=${seen.attempts} - the arm discriminates`);
+}
+
+// ── THE CLASS-A `incomplete` RELAUNCH DRIVER [spec-recovery §5 row 3] ─────────────────────────
+// `ended` advances on every re-checkout. D40 removed it from the owed signature for exactly the
+// reason the whole brake was deleted: a volatile field in the key made an IDENTICAL give-up read
+// as new work. The counter cannot regress that way at all - its key is the reason CLASS, and the
+// key builder REFUSES a class carrying a timestamp, a uuid, a digest or a long id.
+function incPass(store, goalFolder, fx) {
+  reconcileGoal({
+    goal: 'fx-inc', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    recoverFn: () => ({ ok: true }),
+    ...fx,
+  });
+  return counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_CLASS_A, goal: 'fx-inc', seat: 'worker-a', reasonClass: 'incomplete',
+  }, { countersFile: fx.countersFile });
+}
+
+say('── class A: same seat, same word, DIFFERENT `ended` → the count still reaches N and disarms ──');
+{
+  const store = openStore();
+  const fx = counterFixture('class-a');
+  const N = fx.recovery.attempt_counter_n;
+  try {
+    const goalFolder = fixtureBound();
+    const endeds = ['2026-08-19 10:05', '2026-08-19 14:47', '2026-08-19 18:12', '2026-08-19 21:30'];
+    let row = null;
+    for (let i = 0; i < N; i += 1) {
+      // The seat was relaunched, worked, and gave up again: SAME word, a LATER `ended`.
+      boundRows(goalFolder, [['worker-a', 'incomplete', endeds[i % endeds.length]]], store, 'fx-inc');
+      row = incPass(store, goalFolder, fx);
+      assert.strictEqual(Number(row.attempts), i + 1,
+        `a moving \`ended\` reset the class-A counter: ${JSON.stringify(row)}`);
+    }
+    assert.strictEqual(Number(row.attempts), N);
+    assert.strictEqual(row.reason_class, 'incomplete', 'the key is the reason CLASS, not the row content');
+    say(`  the class-A relaunch counted to N=${N} across ${N} different \`ended\` stamps`);
+
+    // The driver is its OWN spec §5 row: a class-A relaunch does not share a counter with the
+    // cadence re-spawn, so exhausting one never disarms the other.
+    assert.strictEqual(counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-inc', seat: 'worker-a', reasonClass: 'incomplete',
+    }, { countersFile: fx.countersFile }), null);
+    say('ok  class A counts per (driver, lane, reason class) and survives a changed `ended`');
   } finally {
     store.close();
     closeHeartStore();
   }
-  assert.strictEqual(red.kind, 'enqueue',
-    `the D44 mutant did NOT relaunch after stuck, so the arm above proves nothing: ${JSON.stringify(red)}`);
-  say(`ok  RED: without the brake the same post-stuck pass issues action=${red.kind} — the arm discriminates`);
 }
 
-say('── RED arm: restore `clearAttempt` on launched.ok (and on skip-live-or-queued) ──');
+say('── RED arm: put the volatile field back INTO the counter key ──');
 {
-  // The pre-fix code, verbatim, compiled from a COPY of the live source. If clause 2's first arm
-  // does not discriminate, this mutant passes it too.
+  // The pre-D40 defect, aimed at the counter instead of the signature: the reason class carries
+  // the row's `ended`. The key builder must REFUSE it - which is what makes the arm above unable
+  // to regress rather than merely un-regressed today.
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const OK_ANCHOR = `      action = launched.ok
-        ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }`;
-  const SKIP_ANCHOR = `      action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };`;
-  assert.ok(src.includes(OK_ANCHOR), 'launched.ok anchor missing');
-  assert.ok(src.includes(SKIP_ANCHOR), 'skip-live-or-queued anchor missing');
-  const mutated = src
-    .replace(OK_ANCHOR, `      if (launched.ok) clearAttempt(heartStore, goal, t.seat, t.reason);
-${OK_ANCHOR}`)
-    .replace(SKIP_ANCHOR, `      clearAttempt(heartStore, goal, t.seat, t.reason);
-${SKIP_ANCHOR}`);
+  const ANCHOR = 'driver, goal, seat, reasonClass: reason, n: config.attempt_counter_n, at,';
+  assert.ok(src.includes(ANCHOR), 'the counter key anchor is missing - the red arm has no anchor');
+  const mutated = src.replace(
+    ANCHOR,
+    'driver, goal, seat, reasonClass: `${reason}:${new Date().toISOString()}`, n: config.attempt_counter_n, at,',
+  );
+  assert.notStrictEqual(mutated, src);
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
   mut.filename = path.join(__dirname, 'reconcile.js');
   mut.paths = Module._nodeModulePaths(__dirname);
   mut._compile(mutated, mut.filename);
   const store = openStore();
+  const fx = counterFixture('red-volatile');
+  let threw = null;
   try {
     const goalFolder = fixtureBound();
-    boundRows(goalFolder, [['worker-a', 'unverified']], store, 'fx-bound');
-    const sent = [];
-    const seen = [];
-    for (let i = 0; i < 4; i += 1) {
-      mut.exports.reconcileGoal({
-        goal: 'fx-bound', goalFolder, engine: { heartStore: store },
-        say: () => {}, force: true, readyAnswer: readyEmpty,
-        live: new Set(), promptFn: () => 'BOOT',
-        sendFn: (x) => { sent.push(x.body); return { ok: true }; },
-        recoverFn: () => ({ ok: true }),
-      });
-      const row = store.getReconcileAttempt('fx-bound', 'leader', 'nonterm');
-      seen.push(row ? Number(row.attempts) : null);
-    }
-    assert.strictEqual(sent.length, 0, `mutant emitted ${sent.length} stuck — the arm does not discriminate`);
-    assert.ok(seen.every((n) => n === null || n === 1), JSON.stringify(seen));
-    say(`ok  red: attempts across 4 passes = ${JSON.stringify(seen)}, stuck sends = 0 (the live defect)`);
-  } finally {
-    store.close();
-    closeHeartStore();
-  }
-}
-
-// ── D40 · the `incomplete` signature does NOT carry the row's end-time ───────────────────
-// `ended` advances on every re-checkout, so with it in the signature an IDENTICAL give-up read as
-// new work: attempts reset to 1 every sitting and D34's "2 tries then stuck" never fired.
-function incPass(store, goalFolder, sent) {
-  reconcileGoal({
-    goal: 'fx-inc', goalFolder, engine: { heartStore: store },
-    say: () => {}, force: true, readyAnswer: readyEmpty,
-    live: new Set(), promptFn: () => 'BOOT',
-    sendFn: (x) => { sent.push(x.body); return { ok: true }; },
-    recoverFn: () => ({ ok: true }),
-  });
-  return store.getReconcileAttempt('fx-inc', 'worker-a', 'incomplete');
-}
-
-say('── D40: same seat, same word, DIFFERENT `ended` → attempts still reach 2 and stuck fires ──');
-{
-  const store = openStore();
-  try {
-    const goalFolder = fixtureBound();
-    const sent = [];
-
     boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 10:05']], store, 'fx-inc');
-    const p1 = incPass(store, goalFolder, sent);
-    assert.strictEqual(Number(p1.attempts), 1, JSON.stringify(p1));
-    assert.strictEqual(Number(p1.stuck_emitted), 0, JSON.stringify(p1));
-    assert.strictEqual(sent.length, 0, JSON.stringify(sent));
-    say(`  pass 1 (ended 10:05): attempts=${p1.attempts} stuck_emitted=${p1.stuck_emitted} sig=${p1.signature}`);
-
-    // The seat was relaunched, worked, and gave up again: SAME word, a LATER `ended`.
-    boundRows(goalFolder, [['worker-a', 'incomplete', '2026-08-19 14:47']], store, 'fx-inc');
-    const p2 = incPass(store, goalFolder, sent);
-    assert.strictEqual(Number(p2.attempts), 2, JSON.stringify(p2));
-    assert.strictEqual(Number(p2.stuck_emitted), 1, JSON.stringify(p2));
-    assert.strictEqual(p2.signature, p1.signature, `signature moved with ended: ${p1.signature} -> ${p2.signature}`);
-    assert.strictEqual(sent.length, 1, JSON.stringify(sent));
-    assert.ok(/stuck: incomplete on `worker-a`/.test(sent[0]), sent[0]);
-    say(`  pass 2 (ended 14:47): attempts=${p2.attempts} stuck_emitted=${p2.stuck_emitted} sig=${p2.signature}`);
-    say(`  stuck body: ${sent[0]}`);
-    say('ok  D40: the attempt count survives a changed `ended`');
-  } finally {
-    store.close();
-    closeHeartStore();
-  }
-}
-
-say('── RED arm: restore `:${item.ended}` in the incomplete signature ──');
-{
-  // The pre-D40 line, verbatim, compiled from a COPY of the live source — the live file is never
-  // touched. If the D40 arm above does not discriminate, this mutant passes it too.
-  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = 'signature: `incomplete:${item.seat}`,';
-  assert.ok(src.includes(ANCHOR), 'D40 signature anchor missing');
-  const Module = require('node:module');
-  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
-  mut.filename = path.join(__dirname, 'reconcile.js');
-  mut.paths = Module._nodeModulePaths(__dirname);
-  mut._compile(src.replace(ANCHOR, 'signature: `incomplete:${item.seat}:${item.ended}`,'), mut.filename);
-  const store = openStore();
-  try {
-    const goalFolder = fixtureBound();
-    const sent = [];
-    const seen = [];
-    for (const ended of ['2026-08-19 10:05', '2026-08-19 14:47', '2026-08-19 18:12']) {
-      boundRows(goalFolder, [['worker-a', 'incomplete', ended]], store, 'fx-inc');
+    // `maybeReconcile` swallows a throw into the pass result; `reconcileGoal` does not, which is
+    // what lets this arm see the refusal itself.
+    try {
       mut.exports.reconcileGoal({
         goal: 'fx-inc', goalFolder, engine: { heartStore: store },
         say: () => {}, force: true, readyAnswer: readyEmpty,
-        live: new Set(), promptFn: () => 'BOOT',
-        sendFn: (x) => { sent.push(x.body); return { ok: true }; },
-        recoverFn: () => ({ ok: true }),
+        live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+        ...fx,
       });
-      const row = store.getReconcileAttempt('fx-inc', 'worker-a', 'incomplete');
-      seen.push(row ? Number(row.attempts) : null);
+    } catch (err) {
+      threw = err;
     }
-    assert.strictEqual(sent.length, 0, `mutant emitted ${sent.length} stuck — the arm does not discriminate`);
-    assert.deepStrictEqual(seen, [1, 1, 1], JSON.stringify(seen));
-    say(`ok  red: attempts across 3 sittings = ${JSON.stringify(seen)}, stuck sends = 0 (the live defect)`);
   } finally {
     store.close();
     closeHeartStore();
   }
+  assert.ok(threw, 'a volatile counter key was ACCEPTED - the tripwire does not fire');
+  assert.strictEqual(threw.code, 'E_ATTEMPT_COUNTER', JSON.stringify(threw.message));
+  assert.match(threw.message, /volatile fingerprint/);
+  say(`ok  RED: a volatile counter key is refused at the choke point - ${threw.message.slice(0, 60)}…`);
 }
 
 // ── D35 · unread mail is what was RECORDED AFTER the chair's last check-in ────────────────────
@@ -1030,36 +949,42 @@ say('── cadence skip ──');
   }
 }
 
-say('── red arm: mutation of the strike guard ──');
+say('── red arm: mutation of the disarm brake ──');
 {
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = 'if (attempts >= STRIKE_LIMIT && !stuckWas)';
-  assert.ok(src.includes(ANCHOR), 'strike guard anchor missing');
+  const ANCHOR = '  const row = counters.peekCounter(';
+  assert.ok(src.includes(ANCHOR), 'the disarm brake anchor is missing');
   const Module = require('node:module');
   const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
   mut.filename = path.join(__dirname, 'reconcile.js');
   mut.paths = Module._nodeModulePaths(__dirname);
-  mut._compile(src.replace(ANCHOR, 'if (false && attempts >= STRIKE_LIMIT && !stuckWas)'), mut.filename);
+  // MUTANT: the brake never reports a disarmed lane, so the mechanical relaunch runs forever -
+  // which is the exact live defect the counter replaced.
+  mut._compile(src.replace(ANCHOR, '  if (config) return false;\n  const row = counters.peekCounter('), mut.filename);
   const store = openStore();
+  const fx = counterFixture('red-brake');
+  const N = fx.recovery.attempt_counter_n;
+  const kinds = [];
   try {
     const goalFolder = fixtureUncast();
     stampEndings(store, 'fx-red', [['worker', 'unverified']]);
-    const sent = [];
-    for (let i = 0; i < 4; i += 1) {
-      mut.exports.reconcileGoal({
+    for (let i = 0; i < N + 2; i += 1) {
+      const r = mut.exports.reconcileGoal({
         goal: 'fx-red', goalFolder, engine: { heartStore: store },
         say: () => {}, force: true, readyAnswer: readyEmpty,
-        live: new Set(), promptFn: () => 'x',
-        sendFn: (x) => { sent.push(x); return { ok: true }; },
-        recoverFn: () => ({ ok: true }),
+        live: new Set(), promptFn: () => 'x', recoverFn: () => ({ ok: true }),
+        ...fx,
       });
+      const act = r.actions.find((a) => a.seat === 'leader' && a.reason === 'nonterm');
+      kinds.push(act && act.kind);
     }
-    assert.strictEqual(sent.length, 0, `mutated guard still emitted ${sent.length} stuck`);
-    say('ok  red: deleting the strike emit guard yields 0 stuck after 4 refusals');
   } finally {
     store.close();
     closeHeartStore();
   }
+  assert.ok(!kinds.includes('skip-disarmed'),
+    `the mutant still braked, so the brake arm proves nothing: ${JSON.stringify(kinds)}`);
+  say(`ok  red: without the brake, ${N + 2} passes never stop relaunching (${JSON.stringify(kinds)})`);
 }
 
 say('── red arm: mutation of the pause gate ──');

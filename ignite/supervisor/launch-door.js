@@ -22,11 +22,12 @@
 // value off the door list. Both callers used to enqueue independently; that is the second launch
 // path the unification removes.
 //
-// ⚠ THE ADMISSION BRAKE IS INSIDE `HeartStore.enqueue()` AND MUST STAY REACHED (D52, memory
-// `20260822-c-admission-brake-door`). It is fail-closed by design and has no opt-out; routing the
-// owed path around it — a direct queue write, a "trusted caller" flag — reopens the 356-sitting
-// burn it exists to bound. This file therefore calls `enqueue()` and reads its verdict; it never
-// replaces it.
+// ⚠ THE ADMISSION BRAKE THAT USED TO LIVE INSIDE `HeartStore.enqueue()` IS DELETED
+// [spec-recovery §5, C-4 kill map]. It gated on a byte comparison of the previous admission's
+// signature, and the volatile fields in that signature reset it before it could ever bound
+// anything. The bound is now the attempt counter at `supervisor/attempt-counters.js`, applied by
+// each DRIVER at the driver — not at this door, which admits or refuses on the checks below and
+// carries no counter of its own.
 
 const REFUSED_DOOR = 'launch-admit';
 
@@ -141,18 +142,6 @@ function launchThroughDoor({
         seat,
         goal,
         evidence: `${enq.because} — queue_id=${enq.queue_id} exec_id=${enq.exec_id} held_status=${enq.held_status}`,
-      }),
-      enq,
-    };
-  }
-  // D52 · the admission brake's own verdict. The typed `stuck` message still comes from the
-  // watcher's `strike()`, never from the door (HeartStore must not import engine).
-  if (enq && enq.braked) {
-    return {
-      ...refusal('braked', {
-        seat,
-        goal,
-        evidence: `${enq.because} — attempts=${enq.attempts} signature=${enq.signature}`,
       }),
       enq,
     };

@@ -159,13 +159,16 @@ seat stays owed and the next cadence asks again:
 | `cage-admit` | a declared output is inadmissible for a caged launch (§ D5) |
 | `lane-reach` | the declared probe lane is not satisfied by the composed cage |
 | `boot-prompt` | coord could not compose the seat's boot prompt |
-| `store-dedup` / `braked` | the store suppressed it, or D52's fail-closed admission brake refused it |
+| `store-dedup` | the store suppressed it (its own dedup) |
 
 `launchThroughDoor` is the ONLY `heartStore.enqueue` on the owed path. It calls
-`enqueue()` and reads its verdict — it never replaces it, because D52's admission
-brake lives inside `enqueue()` and is fail-closed by design. `enqueued_by` is read
-off the door list by the caller and passed through, so it can only ever be a value
-this component knows how to turn back into a door name.
+`enqueue()` and reads its verdict. The admission brake that used to live inside
+`enqueue()` is DELETED [spec-recovery §5, C-4 kill map] — it gated on a byte
+comparison whose volatile fields reset it before it could bound anything, so the
+bound is now the attempt counter, applied by each driver at the driver and never
+at this door. `enqueued_by` is read off the door list by the caller and passed
+through, so it can only ever be a value this component knows how to turn back
+into a door name.
 
 `reconcile.selftest.js` holds the guard: `seeding.js`, `reconcile.js` and `owed.js`
 must carry ZERO `.enqueue(` calls and `launch-door.js` exactly one, with a red arm
@@ -323,3 +326,128 @@ Kit door ops (same `cli.js` surface): `seedRecoveryConfig` · `loadRecoveryConfi
 Selftests: `node progress.selftest.js`, `node kill-clock.selftest.js`,
 `node recovery-config.selftest.js`, `node checkpoint.selftest.js` - each prints
 `ALL PASS` / exits 0.
+
+---
+
+# Recovery - the attempt counter, its exit, and the relaunch budget
+
+Law is `1-projects/build-ignite/redesign/specs/spec-recovery.md` sections 2, 4
+and 5, under [T4-R3], [T1-R6], [T1-R8], [T4-R6], [T4-R10], [C-2], [C-4], [C-5],
+[C-11], [CF-3], [D6], [D-2-ruling].
+
+## What was deleted, and it was two things at once
+
+| Deleted | Where it lived | Why it never worked |
+|---|---|---|
+| `strike()` / `stuckStands()` | `engine/reconcile.js` | counted only while the owed-set SIGNATURE stayed byte-identical; a drifting timestamp or session id read as PROGRESS and reset the count to 1 |
+| `ADMISSION_BRAKE_LIMIT` (+ `BRAKE_REASON_FLOOR`, `hashArgsFloor`) | `server/heart/heart-store.js` `enqueue()` | the same comparison, a SECOND independent lock on the same table, with the same volatility |
+| the end-of-pass counter sweep | `engine/reconcile.js` | cleared the count whenever the owed set changed - evidence-driven reset, which is the defect itself |
+
+Both brakes went TOGETHER, and no byte- or fingerprint-reset path was kept
+beside the replacement. That is the ruling, not a preference [C-4 kill map].
+
+## The counter
+
+`attempt-counters.js`. One counter per `(driver, subject, reason class)`.
+
+- **Increments** on a same-reason retry: the driver's failure/refusal CLASS is
+  unchanged. Never an owed-content fingerprint - the key is refused outright if
+  it carries an ISO timestamp, a uuid, a hex digest or a long id.
+- **Resets** on the closed list and nothing else: `code-deploy`,
+  `config-change` (including a recognition-list edit), `owner-leader-act`,
+  `resume`. A deploy or a config change clears every counter; an owner/leader
+  act and a `resume` clear that lane's. Alarms never re-arm [T4-R10].
+- **N** is `attempt_counter_n` from the recovery config file, passed in by the
+  caller. There is no default in this module - a missing `n` is refused.
+
+| driver | the loop it bounds |
+|---|---|
+| `ticker-deferred` | `ticker.js`'s DEFERRED re-fire: unknown tool, unknown workflow, an argv template that always refuses |
+| `reconcile-respawn` | the `CADENCE_MS` wake / sitting re-spawn (leader wake, unread wake, room rebuild) |
+| `reconcile-class-a-relaunch` | `deriveOwed` class A `incomplete` - the relaunch of a named seat |
+| `alarm-refire` | any other unbounded alarm re-fire; the api impl-alarms counts through |
+
+EXCLUDED, and mechanically so: `FROZEN_HOURLY_REPEAT` is a named driver this
+module REFUSES [C-5]. The designed hourly frozen repeat is not an unbounded
+retry, and counting it would stamp the alarm's own subject `incomplete:` after N
+hours and cancel the alarm [T1-R15].
+
+Storage is `attempt-counters.json` beside this file (override `countersFile`),
+rewritten tmp-then-rename. Not a table in the ending store - spec-state-store
+pins three record kinds there and a counter is not one of them.
+
+## The exit at N
+
+`exhaustion.js`. Two acts, and only two:
+
+1. The lane is stamped `incomplete:` + `disarmed` through the ending api
+   (`stampSystem`, diagnostic `attempt-counter exhaustion` - the store's own
+   listed row, which supplies `armed: 0` and `named_event`). The words are the
+   store's; this file invents none. The refusal TEXT rides on the ask record the
+   `evidence_pointer` names, because the listed diagnostic is matched byte for
+   byte and may not be decorated.
+2. ONE signature-grouped ask RECORD per failure signature - `(driver, reason
+   class)` - never one per lane [T1-R8, D-2-ruling]. Ten lanes failing the same
+   way land as ten entries on ONE record. Options are the ladder's:
+   `retry-with-change` / `drop-lane` / `pause-goal`.
+
+The record is `{workspace}/.rbtv/runtime/ignite/asks/<ask-id>.json` plus one
+`open_asks` row with `posted = 0`. **Zero Slack, zero outbox, not one byte** -
+impl-slack reads the record and posts it.
+
+`consumeDisarmed` is the other half of spec-recovery section 4 row 1: the
+mechanical `resume {goal}` on a disarmed-counter lane re-arms the ending and
+resets THAT counter. It spends no relaunch budget and rewrites no brief - there
+is no budget call in it at all, and that absence IS the [C-11] guarantee.
+
+## The relaunch budget and the leader handoff
+
+`relaunch-budget.js`. The budget counts RECOVERY relaunches only - `kill`,
+`crash`, `armed-incomplete` - off the ending row's own store-visible counters,
+so it can never disagree with the row the scheduler reads.
+
+| cap | key | trips on |
+|---|---|---|
+| failures | `relaunch_budget_failures` | `failure_strike_count` (the ending store advances it when a `failed` is stamped) |
+| total | `relaunch_budget_total` | `recovery_relaunch_count` (advanced by `spendRecoveryRelaunch`) |
+
+Each `failed` counts against BOTH. An ask-resume counts against NEITHER
+[C-11] - `spendRecoveryRelaunch` refuses the cause `ask-resume` by name so it
+cannot be routed through by accident. Budget and attempt-counter are
+INDEPENDENT: whichever trips first takes its exit, and the other does not also
+fire in the same act.
+
+Exhaustion stops the lane and hands off to the leader ONCE [D6, T1-R8].
+`leaderHandoff` assembles the payload and sets `leader_attempt_used` in the same
+act, so a second handoff cannot be assembled at all. Every field is required and
+a missing one is refused [T4-R6]: the seat's brief, BOTH sittings' progress
+notes (read through the checkpoint contract), the kill reasons, the transcript
+pointers.
+
+Leader decides, daemon executes [CF-3, T2-R5, D7]. `executeLeaderInstruction`
+performs one of exactly four, and refuses an instruction carrying the seat's own
+work:
+
+| instruction | the daemon act |
+|---|---|
+| `rewrite-brief` | write the new brief at its path, stamp the lane armed `incomplete` |
+| `reassign` | stamp the judgment against the lane naming the seat design it goes to |
+| `blocked-pending-plan-gap` | record the D13 scoped re-plan request, stamp the lane disarmed (`materialize-failed`, the store's listed plan-side row) |
+| `escalate` | record a formed decision-ask - same grouped record, same no-post rule |
+
+## Counter / budget APIs
+
+Counter: `countAttempt` · `peekCounter` · `rearm` · `keyOf` · `DRIVERS` ·
+`DRIVER_LIST` · `RE_ARM` · `RE_ARM_EVENTS` · `FROZEN_HOURLY_REPEAT` ·
+`AttemptCounterError` (`code: E_ATTEMPT_COUNTER`)
+
+Exit: `exhaust` · `recordGroupedAsk` · `consumeDisarmed` · `signatureOf` ·
+`askIdFor` · `askRecordPath` · `readAskRecord` · `ASK_OPTIONS` ·
+`EXHAUSTION_DIAGNOSTIC`
+
+Budget: `budgetState` · `spendRecoveryRelaunch` · `assembleHandoff` ·
+`leaderHandoff` · `executeLeaderInstruction` · `RECOVERY_CAUSES` ·
+`INSTRUCTIONS` · `RelaunchBudgetError` (`code: E_RELAUNCH_BUDGET`)
+
+Selftests: `node --test attempt-counters.selftest.js` and
+`node --test relaunch-budget.selftest.js` - exit 0.

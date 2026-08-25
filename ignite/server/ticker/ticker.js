@@ -26,6 +26,13 @@ const { expandArgv, checkFireToolWorkdir } = require('../heart/argv-template');
 const { resolveSeatHome, parseSeatPath } = require('../seat-identity/seat-folder');
 const { resolveWorkspaceRoot } = require('../spawn/config');
 const { probeSitting } = require('../../supervisor/probe');
+// ── THE DEFERRED RE-FIRE CARRIES AN ATTEMPT COUNTER [spec-recovery §5, T4-R3] ─────────────────
+// A periodic row that can never compose - an unknown tool, an unknown workflow, an argv template
+// that always refuses - re-fires every cadence forever. Spec-recovery §5's first driver row is
+// exactly that loop, and this is the counter it must carry. N comes from the recovery config file
+// through the supervisor's read api; nothing here is a literal.
+const tickerCounters = require('../../supervisor/attempt-counters');
+const { loadRecoveryConfig } = require('../../supervisor/recovery-config');
 // `bindingOf` — the resume-ref foreign-harness gate below (D28) needs "which harness will this
 // spec run?". It is answered by the SAME reader `profiles.js#validateSpecKey` trusts to keep a
 // spec's key honest (basename of exec.argv[0]) — NOT `injection-ladder#harnessOf`, which matches
@@ -1094,12 +1101,66 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     });
   }
 
+  // ── THE DEFERRED RE-FIRE COUNTER ─────────────────────────────────────────────────────────────
+  //
+  // Keyed on the JOB and the REFUSAL CLASS, never on the composed bytes: the whole defect the
+  // counter replaces was a key that moved. `unknown-tool`, `unknown-workflow` and
+  // `argv-template-refused` are classes, and a row that keeps hitting the same class is the same
+  // retry however its arguments render this cadence.
+  //
+  // A pass that cannot read the recovery config applies NO counter and says so - it never falls
+  // back to a number in code [spec-recovery §2.1].
+  function deferredRetry(queueRow, reasonClass) {
+    let config = null;
+    try {
+      config = loadRecoveryConfig({ workspace: resolveWorkspaceRoot(heartStore.config) });
+    } catch {
+      return { counted: false, why: 'recovery-config-error' };
+    }
+    const jobId = (queueRow && queueRow.job_id) || '(row-less)';
+    return {
+      counted: true,
+      ...tickerCounters.countAttempt({
+        driver: tickerCounters.DRIVERS.TICKER_DEFERRED,
+        subject: `job:${jobId}`,
+        reasonClass,
+        n: config.attempt_counter_n,
+      }),
+    };
+  }
+
+  // The brake: a job whose counter already reached N stops re-firing and waits for a named re-arm
+  // event (a deploy, a config change, an owner/leader act). Read-only - it counts nothing.
+  function deferredDisarmed(queueRow, reasonClass) {
+    let config = null;
+    try {
+      config = loadRecoveryConfig({ workspace: resolveWorkspaceRoot(heartStore.config) });
+    } catch {
+      return false;
+    }
+    const jobId = (queueRow && queueRow.job_id) || '(row-less)';
+    const row = tickerCounters.peekCounter({
+      driver: tickerCounters.DRIVERS.TICKER_DEFERRED,
+      subject: `job:${jobId}`,
+      reasonClass,
+    });
+    return Boolean(row && Number(row.attempts) >= config.attempt_counter_n);
+  }
+
   async function launchFireTool(queueRow, actions, tick, now) {
     const args = safeJsonParse(queueRow.args, {});
     const toolName = args.tool;
     const tool = Object.hasOwn(heartStore.config.tools || {}, toolName) ? heartStore.config.tools[toolName] : undefined;
     if (!tool) {
-      actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-tool' });
+      if (deferredDisarmed(queueRow, 'unknown-tool')) {
+        actions.push({ phase: 'dispatch', action: 'defer-disarmed', queueId: queueRow.queue_id, reason: 'unknown-tool' });
+        return;
+      }
+      const retry = deferredRetry(queueRow, 'unknown-tool');
+      actions.push({
+        phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-tool',
+        attempts: retry.attempts, exhausted: Boolean(retry.exhausted),
+      });
       return;
     }
 
@@ -1173,8 +1234,13 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
       // the tick; and a DEFERRED row that can never compose re-fires every cadence forever.
       const composed = expandArgv(argv, args, allow);
       if (composed.refused) {
+        const retry = deferredRetry(queueRow, 'argv-template-refused');
         endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `argv template refused (fire-tool): ${composed.refused}` });
-        actions.push({ phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id, error: `argv-template: ${composed.refused}` });
+        actions.push({
+          phase: 'dispatch', action: 'fire-tool-failed', execId: exec.exec_id,
+          error: `argv-template: ${composed.refused}`,
+          attempts: retry.attempts, exhausted: Boolean(retry.exhausted),
+        });
         return;
       }
       await runToolLikeExec(exec, composed.argv, workdir, actions, 'fire-tool');
@@ -1348,7 +1414,15 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     const workflowName = args.workflow;
     const workflow = Object.hasOwn(heartStore.config.workflows || {}, workflowName) ? heartStore.config.workflows[workflowName] : undefined;
     if (!workflow) {
-      actions.push({ phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-workflow' });
+      if (deferredDisarmed(queueRow, 'unknown-workflow')) {
+        actions.push({ phase: 'dispatch', action: 'defer-disarmed', queueId: queueRow.queue_id, reason: 'unknown-workflow' });
+        return;
+      }
+      const retry = deferredRetry(queueRow, 'unknown-workflow');
+      actions.push({
+        phase: 'dispatch', action: 'defer', queueId: queueRow.queue_id, reason: 'unknown-workflow',
+        attempts: retry.attempts, exhausted: Boolean(retry.exhausted),
+      });
       return;
     }
 
@@ -1386,8 +1460,13 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     // `catch`), and deferring leaves a row that can never compose re-firing every cadence forever.
     const composed = expandArgv(argv, args);
     if (composed.refused) {
+      const retry = deferredRetry(queueRow, 'argv-template-refused');
       endTurnAndSession(exec.exec_id, { status: 'failed', endedAt: new Date(), reason: `argv template refused (start-workflow): ${composed.refused}` });
-      actions.push({ phase: 'dispatch', action: 'start-workflow-failed', execId: exec.exec_id, error: `argv-template: ${composed.refused}` });
+      actions.push({
+        phase: 'dispatch', action: 'start-workflow-failed', execId: exec.exec_id,
+        error: `argv-template: ${composed.refused}`,
+        attempts: retry.attempts, exhausted: Boolean(retry.exhausted),
+      });
       return;
     }
 

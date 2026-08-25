@@ -21,12 +21,20 @@ const recoveryConfig = require('./recovery-config');
 const progress = require('./progress');
 const killClock = require('./kill-clock');
 const checkpoint = require('./checkpoint');
+const attemptCounters = require('./attempt-counters');
+const exhaustion = require('./exhaustion');
+const relaunchBudget = require('./relaunch-budget');
 
 // The recovery half of the same component: `recovery-config.js` is the ONE read api for the eight
 // tweakable numbers (sibling seats consume it read-only and none of them opens the file itself),
 // `progress.js` the only writer of `last_progress_at`, `kill-clock.js` the no-progress decision
 // plus the closed list of three pause conditions, and `checkpoint.js` the operational checkpoint
-// contract (progress note, side-effect journal, relaunch prompt).
+// contract (progress note, side-effect journal, relaunch prompt). `attempt-counters.js` is the
+// counter that replaced both byte-equality brakes (and the api impl-alarms counts an unbounded
+// alarm re-fire through), `exhaustion.js` the exit it takes at N - a disarmed `incomplete:` lane
+// plus ONE signature-grouped ask RECORD, never a post - and `relaunch-budget.js` the recovery
+// relaunch caps, the one bounded D6 leader handoff, and the daemon act that executes the leader's
+// instruction.
 
 module.exports = {
   ...registry,
@@ -40,4 +48,7 @@ module.exports = {
   ...progress,
   ...killClock,
   ...checkpoint,
+  ...attemptCounters,
+  ...exhaustion,
+  ...relaunchBudget,
 };

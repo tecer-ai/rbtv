@@ -38,19 +38,22 @@ const {
 const { deriveOwed } = require('../supervisor/owed');
 const { launchThroughDoor } = require('../supervisor/launch-door');
 const { DOORS } = require('../supervisor/doors');
-// D52/D66 (2026-08-22) — ONE shared bound, owned by the door (heart-store.js), imported here
-// rather than kept as a second literal. This is a VALUE import only (a number) — HeartStore
-// still must not import engine code, and this direction (engine → server) is the existing one
-// (`reconcile.js` already receives `heartStore` via `engine.heartStore`).
-const { ADMISSION_BRAKE_LIMIT } = require('../server/heart/heart-store');
+// ── THE ATTEMPT COUNTER REPLACES THE BYTE-EQUALITY BRAKE [spec-recovery §5, T4-R3, C-2] ───────
+// `strike`/`stuckStands` and their shared bound (`heart-store.js`'s `ADMISSION_BRAKE_LIMIT`) are
+// DELETED. Both compared an owed-content signature byte for byte, and both reset on a volatile
+// field, so neither bound ever fired. What counts a retry now is the driver-agnostic counter at
+// the supervisor home; what N is comes from the recovery config file, never from a literal here.
+const counters = require('../supervisor/attempt-counters');
+const { exhaust } = require('../supervisor/exhaustion');
+const { loadRecoveryConfig } = require('../supervisor/recovery-config');
 
 const COORD_PY = path.join(__dirname, '..', 'team-kit', 'coord.py');
 const RECOVER_ROOM = path.join(__dirname, '..', 'jobs', 'recover-room.py');
 
 const CADENCE_MS = 5 * 60 * 1000;
-const STRIKE_LIMIT = ADMISSION_BRAKE_LIMIT; // D34 (was 3), and counted on NO PROGRESS — see `strike` below.
 // D70 (2026-08-22) — the ONE system sender that ever writes to a goal's messages.md
-// (`sendStuck` below, `engine/seeding.js` surface-refusal). System-written mail must never count
+// (`engine/seeding.js`'s surface-refusal; the watcher's own `sendStuck` is deleted with the brake
+// it escalated for). System-written mail must never count
 // as progress for the mail-cursor signal (class B) — see `deriveOwed`'s classB loop.
 const SYSTEM_MAIL_SENDER = 'ignite-daemon';
 
@@ -259,25 +262,6 @@ function owedFromLedgers(goalFolder, opts = {}) {
   });
 }
 
-function getAttempt(store, goal, seat, reason) {
-  if (store && typeof store.getReconcileAttempt === 'function') {
-    return store.getReconcileAttempt(goal, seat, reason);
-  }
-  return null;
-}
-
-function putAttempt(store, rec) {
-  if (store && typeof store.upsertReconcileAttempt === 'function') {
-    store.upsertReconcileAttempt(rec);
-  }
-}
-
-function clearAttempt(store, goal, seat, reason) {
-  if (store && typeof store.clearReconcileAttempt === 'function') {
-    store.clearReconcileAttempt(goal, seat, reason);
-  }
-}
-
 function lastPassAt(store, goal) {
   if (store && typeof store.getReconcilePass === 'function') {
     const row = store.getReconcilePass(goal);
@@ -290,15 +274,6 @@ function setPassAt(store, goal, at) {
   if (store && typeof store.setReconcilePass === 'function') {
     store.setReconcilePass(goal, at);
   }
-}
-
-function sendStuck({ goalFolder, body, sendFn }) {
-  if (typeof sendFn === 'function') return sendFn({ goalFolder, body });
-  const out = execFileSync(requirePythonCmd(), [
-    COORD_PY, '--package', goalFolder, '--as', 'ignite-daemon',
-    'send', 'auto', body, '--type', 'stuck', '--inline',
-  ], { encoding: 'utf8', timeout: 60000, stdio: ['ignore', 'pipe', 'pipe'] });
-  return { ok: true, out };
 }
 
 function recoverRoom({ goal, goalFolder, seat, recoverFn }) {
@@ -409,80 +384,138 @@ function launchSitting({
   });
   const enq = launched.enq;
   if (launched.refused) {
-    // The door's own two refusals, surfaced exactly as they were when this function read the
-    // enqueue result itself: the store's dedup, and D52's fail-closed admission brake. The typed
-    // `stuck` message still comes from the watcher's OWN `strike()` below — HeartStore must not
-    // import engine, so the door reports and the watcher escalates.
+    // The door's refusal, surfaced exactly as it was when this function read the enqueue result
+    // itself. The admission brake that used to add a second refusal here is deleted
+    // [spec-recovery §5] — the bound is the attempt counter below, applied by this driver.
     if (say) {
-      say('warn', launched.kind === 'braked'
-        ? 'reconcile: enqueue returned braked — the door refused this admission'
-        : 'reconcile: enqueue returned deduped — sitting was NOT queued', {
+      say('warn', 'reconcile: enqueue returned deduped — sitting was NOT queued', {
         goal, seat, evidence: launched.evidence,
       });
     }
-    return { ok: false, error: launched.kind === 'braked' ? 'braked' : 'deduped', enq, seat };
+    return { ok: false, error: launched.kind || 'deduped', enq, seat };
   }
   return { ok: true, enq, seat, jobId };
 }
 
-// D44 (owner ruling, 2026-08-20) — `stuck` IS A BRAKE, NOT ONLY A REPORT.
+// ── THE ATTEMPT COUNTER, AT THE WATCHER [spec-recovery §5, T4-R3, C-2, D-2-ruling] ────────────
 //
-// ⚠ THIS CHANGES A SPEC BY OWNER RULING, and that is recorded here rather than glossed: the
-// report-only behaviour was BUILT AS SPECIFIED — `seats/resolve-watcher/seat.md:39` says in so
-// many words "A successful launch records the attempt; it does not clear it", and `strike` below
-// was written to record and escalate, never to gate. D44 supersedes that line. The gap it closes
-// is between D34/D40's prose ("bounded", "then typed `stuck` to the leader") and a low-level spec
-// that never gated the launch on `attempts`: measured on the live goal, `audio-component-smith`
-// was launched 17 times in 2h12m, one full `claude-opus-5` boot per ~5 min, on a row whose only
-// blocker was an unanswered owner escalation. Once `stuck` has been emitted the row is the
-// LEADER's, and the leader can relaunch it.
+// WHAT WAS HERE. `strike()` counted a retry only while the owed-set SIGNATURE stayed byte-
+// identical, and `stuckStands()` braked only a stuck-and-unchanged row. The signature carried
+// volatile content, so a drifting field read as PROGRESS, reset the count to 1, and the bound
+// D34/D44 promised never fired — the relaunch loop had no exit an owner could see. Both are
+// deleted [C-4 kill map], together with the second lock the same bytes drove at the enqueue door.
 //
-// KEYED ON THE SIGNATURE, which is what keeps D34/D40 intact: a CHANGED owed-set signature is
-// PROGRESS, so this predicate goes false, `strike` resets the counter to 1, and launching
-// re-arms in the same pass. Only a stuck-and-unchanged row is braked.
-function stuckStands(store, goal, seat, reason, signature) {
-  const prev = getAttempt(store, goal, seat, reason);
-  return !!(prev && prev.signature === signature && Number(prev.stuck_emitted));
+// WHAT COUNTS NOW. The retry's REASON CLASS — `incomplete`, `nonterm`, `unread`, `room` — and
+// nothing else. Same class on the next pass is the same retry, whatever moved in the ledgers. The
+// counter is reset by exactly four named events (`supervisor/attempt-counters.js#RE_ARM_EVENTS`)
+// and by no evidence at all, which is the whole correction.
+//
+// ⚠ THE COUNTER INTERNALS ARE SELF-CONTAINED IN THESE THREE FUNCTIONS. The provider-classification
+// hookup lands elsewhere in this file on purpose: a classification edit must never have to reach
+// inside the counting.
+
+// Class A `incomplete` is its own spec-§5 driver row (the recovery relaunch of a named seat); the
+// leader wake, the unread wake and the room rebuild are the cadence wake / sitting re-spawn row.
+function driverFor(reason) {
+  return reason === 'incomplete'
+    ? counters.DRIVERS.RECONCILE_CLASS_A
+    : counters.DRIVERS.RECONCILE_RESPAWN;
 }
 
-function strike({
-  store, goal, seat, reason, signature, goalFolder, say, sendFn,
-}) {
-  const prev = getAttempt(store, goal, seat, reason) || {
-    attempts: 0, stuck_emitted: 0, signature: '',
-  };
-  const same = prev.signature === signature;
-  const attempts = (same ? Number(prev.attempts) || 0 : 0) + 1;
-  const stuckWas = same && Number(prev.stuck_emitted) ? 1 : 0;
-  let stuckEmitted = stuckWas;
-  let sent = null;
-  if (attempts >= STRIKE_LIMIT && !stuckWas) {
-    const body = `stuck: ${reason} on \`${seat}\` after ${attempts} mechanical attempts. signature=${signature}`;
-    try {
-      sent = sendStuck({ goalFolder, body, sendFn });
-      stuckEmitted = 1;
-      if (say) say('warn', 'reconcile: emitted stuck to the leader', { goal, seat, reason, attempts });
-    } catch (err) {
-      if (say) say('warn', 'reconcile: stuck send failed', { goal, seat, error: err && err.message });
+// N is the config file's, resolved once per pass. A pass that cannot read the file APPLIES NO
+// RECOVERY CLOCK and says so [spec-recovery §2.1] — it does not fall back to a number in code,
+// because a silent fallback is an instance running on knobs nobody can see or tweak.
+function recoveryNumbers({ recovery, workspaceRoot, say, goal }) {
+  if (recovery) return recovery;
+  try {
+    return loadRecoveryConfig({ workspace: workspaceRoot });
+  } catch (err) {
+    if (say) {
+      say('warn', 'reconcile: recovery config unreadable — attempt counters are NOT applied this pass', {
+        goal, error: err && err.message,
+      });
     }
+    return null;
   }
-  putAttempt(store, {
-    goal, seat, reason, attempts, stuckEmitted, signature, updatedAt: isoNow(),
+}
+
+// One same-reason retry, and the exhaustion exit when it reaches N. Returns what the pass records:
+// `attempts`, whether this retry EXHAUSTED the counter, and whether the driver must not fire at
+// all because a previous pass already exhausted it (`disarmed`).
+function countRetry({
+  store, workspaceRoot, goal, seat, reason, refusalText, config, say, at, countersFile,
+}) {
+  if (!config) return { counted: false, why: 'recovery-config-error' };
+  const driver = driverFor(reason);
+  const counted = counters.countAttempt({
+    driver, goal, seat, reasonClass: reason, n: config.attempt_counter_n, at,
+  }, { countersFile });
+  if (!counted.exhausted) return { counted: true, driver, attempts: counted.attempts };
+  // THE EXIT. One stamp, one signature-grouped ask RECORD, and not one byte to Slack — the record
+  // is impl-slack's to post. A store that cannot stamp (a probe's fake, a dry pass) leaves the
+  // count standing and the caller reports it, rather than the pass throwing.
+  if (!store || typeof store.stampSystem !== 'function') {
+    return {
+      counted: true, driver, attempts: counted.attempts, exhausted: true, exit: 'no-ending-store',
+    };
+  }
+  const out = exhaust({
+    store,
+    workspaceRoot,
+    goal,
+    seat,
+    driver,
+    reasonClass: reason,
+    refusalText: refusalText || `${reason} retried ${counted.attempts} times with the same refusal class`,
+    attempts: counted.attempts,
+    at,
   });
-  return { attempts, stuckEmitted, sent, signature };
+  if (say) {
+    say('warn', 'reconcile: attempt counter exhausted — lane stamped disarmed incomplete, ask recorded', {
+      goal, seat, reason, attempts: counted.attempts, ask: out.ask.ask_id, grouped: out.ask.grouped,
+    });
+  }
+  return {
+    counted: true, driver, attempts: counted.attempts, exhausted: true, ask: out.ask.ask_id,
+  };
+}
+
+// THE BRAKE, and it is the counter's own state rather than a byte comparison: a lane whose counter
+// already reached N is DISARMED and the mechanical relaunch stops. It re-arms on a named event —
+// `resume {goal}`, a deploy, a config change, an owner/leader act — and on nothing else.
+function counterDisarmed({
+  goal, seat, reason, config, countersFile,
+}) {
+  if (!config) return false;
+  const row = counters.peekCounter(
+    { driver: driverFor(reason), goal, seat, reasonClass: reason }, { countersFile },
+  );
+  return Boolean(row && Number(row.attempts) >= config.attempt_counter_n);
 }
 
 function reconcileGoal({
   goal, goalFolder, engine, say = () => {}, pickup = null,
   now = Date.now(), force = false, dryRun = false,
   cadenceMs = CADENCE_MS,
+  // The recovery knobs, and the workspace they are read from. Injected by a probe or a selftest;
+  // resolved off the store's own workspace root in the daemon [spec-recovery §2.1].
+  workspaceRoot: workspaceRootArg = undefined,
+  recovery = undefined,
+  // The counter ledger's file. Overridden by a probe or a selftest exactly as `registryFile` is,
+  // so a fixture pass never writes into the daemon's own counters.
+  countersFile = undefined,
   readyAnswer: readyInjected = undefined,
   promptFn = undefined,
-  sendFn = undefined,
   recoverFn = undefined,
   live = undefined,
 }) {
   const heartStore = engine && engine.heartStore;
+  const workspaceRoot = workspaceRootArg
+    || (heartStore && heartStore.config && heartStore.config.workspaceRoot) || null;
+  // The ending store is the ONE store the exhaustion exit stamps through [spec-state-store §1.1].
+  // `engine.endingStore` when the daemon holds one; absent in a dry pass, and the counter reports
+  // that rather than inventing a second writer.
+  const endingStore = (engine && engine.endingStore) || null;
   const at = typeof now === 'number' ? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z') : isoNow();
   if (!force && heartStore) {
     const prev = lastPassAt(heartStore, goal);
@@ -580,13 +613,17 @@ function reconcileGoal({
     });
   }
 
+  // Resolved ONCE per pass: every counter in this pass reads the same N.
+  const recoveryConfig = recoveryNumbers({
+    recovery, workspaceRoot, say, goal,
+  });
+  if (!recoveryConfig) {
+    actions.push({ kind: 'detect', why: 'recovery-config-error', detail: 'attempt counters not applied' });
+  }
+
   const liveSet = new Set(derived.live);
   const seenTarget = new Set();
-  // Every (seat, reason) this pass still owes. Anything absent from it is progress, and the
-  // end-of-pass sweep clears it (D34).
-  const owedKeys = new Set();
   for (const t of launchTargets) {
-    owedKeys.add(`${t.seat}\u0000${t.reason}`);
     let action;
     if (seenTarget.has(t.seat)) {
       // One launch per seat per pass; the OTHER reason still counts its own attempt.
@@ -594,12 +631,14 @@ function reconcileGoal({
     } else if (liveSet.has(t.seat) || queued.has(t.seat)) {
       seenTarget.add(t.seat);
       action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };
-    } else if (stuckStands(heartStore, goal, t.seat, t.reason, t.signature)) {
-      // D44 · the BRAKE. `stuck` already went to the leader for this exact (seat, reason,
-      // signature) — the mechanical relaunch stops here and the row is the leader's. `strike`
-      // still runs below, so the counter keeps advancing; what stops is the SPEND.
+    } else if (counterDisarmed({
+      goal, seat: t.seat, reason: t.reason, config: recoveryConfig, countersFile,
+    })) {
+      // THE BRAKE — the attempt counter's own state, not a byte comparison. This lane already
+      // reached N for this reason class, so it is stamped `disarmed` and waits for a named re-arm
+      // event. The counter does NOT advance further: there is nothing left to count.
       seenTarget.add(t.seat);
-      action = { kind: 'skip-stuck', seat: t.seat, reason: t.reason };
+      action = { kind: 'skip-disarmed', seat: t.seat, reason: t.reason };
     } else {
       seenTarget.add(t.seat);
       const launched = launchSitting({
@@ -610,16 +649,26 @@ function reconcileGoal({
         ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }
         : { kind: 'launch-refused', seat: t.seat, reason: t.reason, error: launched.error };
     }
-    // D34 · THE ATTEMPT IS THE PASS, NOT THE LAUNCH. `clearAttempt` used to fire right here on
-    // `launched.ok`, so a wake that enqueued cleanly reset the counter every pass and the loop
-    // was unbounded (`reconcile_attempts` empty after hundreds of passes on both live goals).
-    // `strike` resets to 1 by itself when the signature differs — that IS the progress test.
-    const struck = strike({
-      store: heartStore, goal, seat: t.seat, reason: t.reason,
-      signature: t.signature, goalFolder, say, sendFn,
-    });
-    action.attempts = struck.attempts;
-    action.stuckEmitted = struck.stuckEmitted;
+    // THE ATTEMPT IS THE PASS, NOT THE LAUNCH — that part of D34 survives intact. What changed is
+    // the RESET: no launch outcome and no signature drift clears this count, only a named re-arm
+    // event does [spec-recovery §5].
+    if (action.kind !== 'skip-disarmed') {
+      const retry = countRetry({
+        store: endingStore,
+        workspaceRoot,
+        goal,
+        seat: t.seat,
+        reason: t.reason,
+        refusalText: action.error ? `${t.reason}: ${action.error}` : null,
+        config: recoveryConfig,
+        countersFile,
+        say,
+      });
+      action.attempts = retry.attempts;
+      if (retry.exhausted) action.exhausted = true;
+      if (retry.ask) action.ask = retry.ask;
+      if (!retry.counted) action.counterSkipped = retry.why;
+    }
     actions.push(action);
   }
 
@@ -631,31 +680,29 @@ function reconcileGoal({
       if (rec.ok) {
         actions.push({ kind: 'room-rebuilt', seat: recSeat });
       } else {
-        owedKeys.add(`${recSeat}\u0000room`);
-        const struck = strike({
-          store: heartStore, goal, seat: recSeat, reason: 'room',
-          signature: `room:${room.exists ? 'empty' : 'dead'}`,
-          goalFolder, say, sendFn,
+        const retry = countRetry({
+          store: endingStore,
+          workspaceRoot,
+          goal,
+          seat: recSeat,
+          reason: 'room',
+          refusalText: `room: ${rec.out || rec.status}`,
+          config: recoveryConfig,
+          countersFile,
+          say,
         });
         actions.push({
           kind: 'room-refused', error: rec.out || rec.status,
-          attempts: struck.attempts, stuckEmitted: struck.stuckEmitted,
+          attempts: retry.attempts, exhausted: Boolean(retry.exhausted), ask: retry.ask,
         });
       }
     }
   }
 
-  // D34 · the counter clears when the owed set changes or empties, and nowhere else. Sweeping
-  // by (every seat this goal has ever seated) × (this module's four reasons) needs no new store
-  // method and no new column; a DELETE of an absent row costs nothing. When nothing is owed
-  // there are no keys, so every row goes — which is the old `!derived.owed` block, generalised.
-  const sweepSeats = new Set([...derived.seats, ...STAFF_CHAIRS, leader]);
-  for (const seat of sweepSeats) {
-    for (const reason of ['incomplete', 'nonterm', 'unread', 'room']) {
-      if (owedKeys.has(`${seat}\u0000${reason}`)) continue;
-      clearAttempt(heartStore, goal, seat, reason);
-    }
-  }
+  // THE END-OF-PASS SWEEP IS DELETED. It cleared a counter whenever the owed set changed — which
+  // is exactly the evidence-driven reset spec-recovery §5 forbids, and the reason a drifting
+  // ledger kept the old bound from ever firing. A counter now clears ONLY on a named re-arm event,
+  // through `supervisor/attempt-counters.js#rearm`, and nowhere in this pass.
 
   return { goal, derived, actions, leader };
 }
@@ -675,7 +722,6 @@ function maybeReconcile(args) {
 
 module.exports = {
   CADENCE_MS,
-  STRIKE_LIMIT,
   STAFF_CHAIRS,
   owedFromLedgers,
   summonedSeats,
