@@ -231,7 +231,7 @@ function verbHelpPages() {
       '  none of the interview flags, --caps or --catalog.',
       '',
       'THE CATALOG',
-      '  Routing axes live in a CSV beside the tool: models.csv (mode, harness, model, efforts,',
+      '  Routing axes live in the shared table ignite/supervisor/models.csv (mode, harness, model, efforts,',
       '  image, web, level, reasoning, coding, cost, use, quality-override, price-override).',
       '  Launch mechanics stay in catalog.js and the',
       '  two are joined on harness+model — a CSV row with no catalog twin is excluded with a',

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "class": "configuration",
+  "spec": "spec-recovery §3 CONFIGURATION [T1-R13, T1-R17, C-10]",
+  "behaviour": "ordinary `failed` + strike through the attempt counter; NEVER a silent no-strike dead end (ST-19 class)",
+  "match": "case-insensitive substring against the provider/cast error text; this list wins a tie with TRANSIENT (fail closed), and an UNRECOGNISED shape is classified here",
+  "edit_is": "a config-change re-arm [spec-recovery §5]",
+  "class_tokens": [
+    "model-not-found",
+    "bad slug",
+    "auth-rejected"
+  ],
+  "common_strings": [
+    "404 model",
+    "unknown model",
+    "invalid_api_key",
+    "unauthorized"
+  ]
+}

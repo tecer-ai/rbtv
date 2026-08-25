@@ -485,9 +485,16 @@ function seatCast(goalFolder, seat) {
   };
 }
 
-// The seats that declare no cast. NON-EMPTY IS A REFUSAL at every door: there is nothing left for
-// such a seat to run as, so seeding it would queue a row whose only possible outcome is
+// The seats that declare no cast. EACH NAMED SEAT IS A REFUSAL at every door: there is nothing
+// left for such a seat to run as, so seeding it would queue a row whose only possible outcome is
 // `E_UNCAST_SEAT` at spawn, hours later, against a wasted execution row.
+//
+// ⚠ IT REFUSES THE SEATS IT NAMES, NEVER THE GOAL THEY SIT ON [C-9, D16]. This is a COMPUTER, and
+// it always was; what changed 2026-08-25 is its readers. `lane-watch.js` used to `continue` the
+// whole goal on a non-empty list, so ONE uncast seat froze every healthy sibling (the shape of
+// inventory ST-19 / ST-20 / ST-10). It now turns the list into a per-lane skip set. `reconcile.js`
+// already read it per-seat (`launchSitting` refuses `E_UNCAST_SEAT` for the named seat only) —
+// that reader was right all along and is untouched.
 //
 // Throws `readTaskforce`'s refusal when the goal is not materialized: "which seats need a
 // fallback" has no answer before the seats exist, and inventing one either way is a guess. Each
@@ -675,6 +682,13 @@ function launchOwed(heartStore, rows, {
   goalFolder, logger, isHeld = null, goal = null, view = null,
   ready = null, readyRows = [], heldByStore = null,
   suppressedEnqueues = null,
+  // ── THE PER-LANE SKIP [D16, C-9, spec-recovery §3] ──────────────────────────────────────────
+  // A map of `seat -> reason`. Every seat named here is skipped BY ITSELF and its siblings seed
+  // normally. It replaces the WHOLE-GOAL `continue` `lane-watch.js` used to take on the same
+  // facts: one unbuilt or uncast seat froze every other lane on the goal (inventory ST-19 /
+  // ST-20 / ST-10 are that shape). Absent = nothing is skipped, which is the ordinary pass.
+  laneSkips = null,
+  laneSkipped = null,
 }) {
   const byJob = executionsByJob(heartStore, goal);
   const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
@@ -739,6 +753,23 @@ function launchOwed(heartStore, rows, {
   const enqueued = [];
   for (const item of classR) {
     const seat = item.seat;
+    // THE SKIP IS PER LANE, NEVER PER GOAL. The reason travels with the seat so the pass's own
+    // return says which lanes were left alone and why — the whole-goal `continue` this replaces
+    // said only "this goal was not seeded", which is what made a one-seat defect look like a
+    // dead goal.
+    const skipReason = laneSkips && (laneSkips instanceof Map ? laneSkips.get(seat) : laneSkips[seat]);
+    if (skipReason) {
+      if (laneSkipped) laneSkipped[seat] = skipReason;
+      if (logger) {
+        logger({
+          level: 'warn',
+          message: 'seat SKIPPED for this cadence — its siblings on this goal are unaffected [C-9]',
+          seat,
+          because: skipReason,
+        });
+      }
+      continue;
+    }
     const admit = admitLaunch({
       seat,
       goal,
@@ -806,9 +837,11 @@ function launchOwed(heartStore, rows, {
         const enq = launched.enq || {};
         logger({
           level: 'warn',
-          message: launched.kind === 'braked'
-            ? 'the admission brake REFUSED this launch — the seat was not queued'
-            : 'store SUPPRESSED the enqueue — the seat was not queued',
+          // ⚠ THE `braked` ARM IS GONE, not forgotten: the admission brake
+          // (`heart-store.js#ADMISSION_BRAKE_LIMIT`) was DELETED with the other byte-equality
+          // brake [spec-recovery §5, C-4 kill map], so `kind` can never carry that word again and
+          // a ternary on it was a branch no input could reach.
+          message: 'store SUPPRESSED the enqueue — the seat was not queued',
           seat,
           because: enq.because,
           queue_id: enq.queue_id,
@@ -845,7 +878,12 @@ function launchOwed(heartStore, rows, {
 // unreachable from a flag — and answering it by, say, seeding every goal folder the daemon can see
 // would be a policy this build was not asked to invent. `engine.seedGoal()` is the seam; the caller
 // that fires it is named in the contract as the follow-on.
-function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, readLease = deriveLease }) {
+function seedGoal({
+  heartStore, goalFolder, goal, logger = null, isHeld = null, readLease = deriveLease,
+  // Threaded straight through to `launchOwed` — see its own note. `lane-watch.js` is the caller
+  // that fills it, off the unbuilt and uncast lists it used to skip the whole goal on [C-9].
+  laneSkips = null,
+}) {
   if (!goal) {
     throw new Error(
       'seedGoal requires the goal NAME: it namespaces the job ids so two goals with a seat of the ' +
@@ -897,7 +935,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
         goalFolder, goal, seats: readTaskforce(goalFolder).map((r) => r.seat), enqueued: [], seeds: {},
         skippedAsFinished: [], heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {},
         readinessRefused: null, goalNotLive: notLive, skewed: [], frozen: null,
-        suppressedEnqueues: {}, enqueueUnfired: [],
+        suppressedEnqueues: {}, enqueueUnfired: [], laneSkipped: {},
       };
     }
   }
@@ -922,6 +960,7 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     return {
       goalFolder, goal, seats, enqueued: [], seeds: {}, skippedAsFinished: [],
       heldByOtherLane: {}, blockedOnOwner: {}, heldByStore: {}, states: {}, readinessRefused: reason,
+      laneSkipped: {},
       // A refusal computed no rows, so it names no skewed seat. The owner alarm reads
       // `readinessRefused` for this arm — see the `skewed` note on the success return below.
       skewed: [], frozen: null, suppressedEnqueues: {}, enqueueUnfired: [],
@@ -931,7 +970,11 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
   const heldByStore = {};
   const suppressedEnqueues = {};
-  const enqueued = launchOwed(heartStore, rows, { goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues });
+  const laneSkipped = {};
+  const enqueued = launchOwed(heartStore, rows, {
+    goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues,
+    laneSkips, laneSkipped,
+  });
   const unfiredCutoff = new Date(Date.now() - ENQUEUE_UNFIRED_GRACE_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const enqueueUnfired = heartStore.listEnqueueUnfired(goal, unfiredCutoff).map((r) => ({
     seat: r.seat, because: r.because, at: r.at,
@@ -1027,6 +1070,11 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     heldByStore,
     suppressedEnqueues,
     enqueueUnfired,
+    // THE FIFTH HELD-FOR-A-REASON SET, and the one C-9 mints: the lanes this pass skipped BY
+    // NAME — unbuilt, or uncast — while every sibling seeded. It is reported rather than
+    // swallowed for the reason `heldByStore` is: the state an operator cannot see anywhere else
+    // is the state that costs a live investigation.
+    laneSkipped,
     enqueued,
     // LE-13, computed above: the empty-frontier freeze, shaped for the owner alarm
     // (read first by the deleted `goal-stall-alarm.js#conditionOf`; its successor is

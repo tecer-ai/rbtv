@@ -279,7 +279,7 @@ key — which is the honest answer, not a bug.
 
 ### The catalog: two files, joined
 
-Routing axes live in **`tool/models.csv`** — data the owner edits without touching code. Launch
+Routing axes live in the shared table **`ignite/supervisor/models.csv`** — data the owner edits without touching code. It sits under `ignite/` rather than beside this tool because the ignite daemon's provider-lane reroute reads the same rows when a transient provider fault takes a model out [spec-recovery §3]. Launch
 mechanics (harness-native id, effort ladder, auth) stay in **`tool/catalog.js`**. Route joins them
 on `harness`+`model`, and a CSV row with no `catalog.js` twin is excluded with a loud stderr
 warning: route must never name something cast cannot launch.
@@ -382,7 +382,7 @@ every stdout surface is byte-identical across the split (163-invocation corpus, 
 |---|---|
 | `tool/cast.js` | the CLI front door — argv dispatch and the bare launch path, nothing else |
 | `tool/catalog.js` | LAUNCH mechanics only — harness-native id, effort ladder, auth (see Spec source) |
-| `tool/models.csv` | the ROUTING axes — level, scores, cost, web, image. Owner-editable; overridable per vault |
+| `ignite/supervisor/models.csv` | the SHARED ROUTING TABLE — level, scores, cost, web, image. Owner-editable; overridable per vault. Moved out of `tool/` 2026-08-25 [spec-recovery §3]: the ignite daemon's provider-lane reroute reads the same rows |
 | `tool/lib/core.js` | shared primitives: argv parsing, model/effort/folder resolution, the model table, `doctor`, `list` |
 | `tool/lib/handles.js` | the launch-handle registry — the one observable a watcher uses to find a run again |
 | `tool/lib/launch.js` | spawn, `cast seat`, `cast resume` |

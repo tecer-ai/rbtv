@@ -334,17 +334,17 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     //
     // ⚠ ORDER IS LOAD-BEARING — THIS RUNS **BEFORE** THE UNCAST CHECK BELOW, AND MUST. A row with
     // no folder has no `seat.md`, so it has no declared harness/model, so `uncastSeats` reports it
-    // UNCAST — and the uncast branch then skips the whole goal, at `debug` after the first
-    // cadence. The genuine state ("registered, never built") would be permanently reported as a
-    // DIFFERENT state ("somebody forgot to cast it") whose fix (`rbtv-bindings set`) does not
+    // UNCAST — and the genuine state ("registered, never built") would be permanently reported as
+    // a DIFFERENT state ("somebody forgot to cast it") whose fix (`rbtv-bindings set`) does not
     // repair it. Placed here, an unbuilt seat is BUILT and the uncast check below then rules on a
-    // complete tree; placed after, it is swallowed forever.
+    // complete tree; placed after, it is swallowed forever. The ORDER survives the C-9 inversion
+    // below — what changed is the BLAST RADIUS of the answer, never which answer is given.
     //
-    // It runs after `taskforce.csv` exists (a goal with no registry has no rows to be unbuilt) and
-    // it seeds NOTHING this cadence: the folders it writes are read by the very next pass, 10 s
-    // later, through the ordinary path. Lazy-required for the reason `seeding.js` lazy-requires
-    // the spawn reader — a module-level import here is a dependency every probe of this file
-    // inherits.
+    // It runs after `taskforce.csv` exists (a goal with no registry has no rows to be unbuilt).
+    // The folders it writes are read by the very next pass, 10 s later, through the ordinary
+    // path — so the seats it just built are skipped THIS cadence and only this cadence. Lazy-
+    // required for the reason `seeding.js` lazy-requires the spawn reader — a module-level import
+    // here is a dependency every probe of this file inherits.
     let unbuiltRows;
     try {
       unbuiltRows = require('./seeding').readTaskforce(goalFolder);
@@ -354,6 +354,20 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
         'lane watch: could not read this goal\'s taskforce — not seeded', { goal, error: err.message });
       continue;
     }
+    // ── THE PER-LANE SKIP SET [D16, C-9] ────────────────────────────────────────────────────
+    //
+    // THE DEFECT THIS INVERTS, and it is the shape of inventory ST-19 / ST-20 / ST-10: BOTH
+    // checks below used to `continue` the WHOLE GOAL. One registered-but-unbuilt row, or one
+    // seat somebody forgot to cast, and every healthy sibling on that goal stopped being
+    // launchable — for as long as the one bad row stood. A one-seat defect presented as a dead
+    // goal, and the remedy an operator reached for (`rbtv-bindings set` on the named seat) did
+    // not visibly change anything until the LAST such row was fixed.
+    //
+    // WHAT REPLACES IT: a `seat -> reason` map threaded into `seedGoal`, which skips exactly
+    // those lanes and seeds the rest. The refusals are UNCHANGED — an unbuilt seat is still not
+    // launched, an uncast seat is still not launched, and both are still NAMED at the same log
+    // level. Only the blast radius changed.
+    const laneSkips = new Map();
     const unbuilt = unbuiltRows
       .map((r) => (r.seat || '').trim())
       .filter((s) => s && !fs.existsSync(path.join(goalFolder, 'seats', s)));
@@ -366,11 +380,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
         unbuilt,
         say: (level, message, extra = {}) => say(level, message, { goal, ...extra }),
       });
-      skipped.push({ goal, reason: 'unbuilt-seats', built: outcome.built, failed: outcome.failed });
-      // Not seeded THIS cadence either way: a build that succeeded changed the tree the checks
-      // below read, and a build that refused leaves the goal in exactly the state that made the
-      // uncast branch lie about it. The next cadence rules on the tree as it now is.
-      continue;
+      skipped.push({ goal, reason: 'unbuilt-seats', seats: unbuilt, built: outcome.built, failed: outcome.failed });
+      // THOSE LANES are not seeded this cadence — the goal is. A build that succeeded changed the
+      // tree the checks below read, and a build that refused leaves the row in exactly the state
+      // that made the uncast branch lie about it; either way the answer for THAT SEAT is "not
+      // this pass" and the next cadence rules on the tree as it now is.
+      for (const seat of unbuilt) laneSkips.set(seat, 'unbuilt-seat');
     }
 
     // ── EVERY SEAT MUST BE CAST (`#d-abolish-profile-names` sub-ruling 3) ────────────────────
@@ -385,6 +400,10 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     // what this pass seeds and what those doors accept can never disagree. Nothing here is fatal,
     // exactly as nothing else in this loop is: an unreadable taskforce leaves the goal for the next
     // cadence rather than taking the tick down.
+    //
+    // ⚠ THE LIST IS A PER-LANE SKIP, NOT A GOAL VERDICT [C-9]. `uncastSeats` is a whole-goal
+    // COMPUTER and stays one — every caller still asks it the same question. What it no longer
+    // does is decide the fate of the seats it did NOT name.
     let uncast;
     try {
       uncast = uncastSeats(goalFolder);
@@ -394,17 +413,21 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
         'lane watch: could not read this goal\'s casts — not seeded', { goal, error: err.message });
       continue;
     }
-    if (uncast.length) {
-      skipped.push({ goal, reason: 'uncast-seats', seats: uncast });
+    // An unbuilt row has no `seat.md`, so it is ALSO uncast — reported under the reason that
+    // names the real state and carries the fix that repairs it (the load-bearing order above).
+    const uncastOnly = uncast.filter((s) => !laneSkips.has(s));
+    if (uncastOnly.length) {
+      skipped.push({ goal, reason: 'uncast-seats', seats: uncastOnly });
       say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
-        'lane watch: goal is assigned to the daemon but carries seat(s) with NO cast — NOT seeded, and '
-        + 'NOTHING was registered. Bindings are the one source of truth for what a seat runs '
-        + '(`#d-abolish-profile-names`); there is no fallback to launch these on.', {
+        'lane watch: this goal carries seat(s) with NO cast — THOSE SEATS are not seeded and nothing '
+        + 'was registered for them. Their siblings on this goal seed normally [C-9]. Bindings are the '
+        + 'one source of truth for what a seat runs (`#d-abolish-profile-names`); there is no fallback '
+        + 'to launch these on.', {
           goal,
-          seats: uncast,
+          seats: uncastOnly,
           fix: `rbtv-bindings set <workflow.csv> <seat> <harness> <model> [effort], then rbtv goal materialize ${goal}`,
         });
-      continue;
+      for (const seat of uncastOnly) laneSkips.set(seat, 'uncast-seat');
     }
 
     if (consoleRunIsLive(goalFolder)) {
@@ -415,7 +438,11 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
 
     let pickup;
     try {
-      pickup = engine.seedGoal({ goalFolder, goal, ...(readLease ? { readLease } : {}) });
+      pickup = engine.seedGoal({
+        goalFolder, goal, ...(readLease ? { readLease } : {}),
+        // C-9: the skipped lanes travel WITH the seed call instead of cancelling it.
+        ...(laneSkips.size ? { laneSkips } : {}),
+      });
     } catch (err) {
       skipped.push({ goal, reason: 'seed-failed', error: err.message });
       say(shouldShout(goalFolder, raw) ? 'error' : 'debug',

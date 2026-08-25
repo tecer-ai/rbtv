@@ -29,6 +29,9 @@ function counterFixture(name) {
     workspaceRoot: root,
     recovery: loadRecoveryConfig({ workspace: root }),
     countersFile: path.join(root, 'counters.json'),
+    // The provider-lane ledger, for the same reason `countersFile` is here: an un-injected pass
+    // writes to the module default, which is inside the repo [spec-recovery §3 hookup].
+    lanesFile: path.join(root, 'provider-lanes.json'),
   };
 }
 const lines = [];
@@ -648,9 +651,12 @@ say('── RED arm: restore the evidence-driven reset (the deleted byte-equalit
   // cleared whenever the pass's owed signature differs from the last one. If the arm above does
   // not discriminate, the mutant passes it too.
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
-  const ANCHOR = `    if (action.kind !== 'skip-disarmed') {`;
+  // The anchor is the FIRST line of the counting branch's condition. It grew two more lines
+  // 2026-08-25 (the provider split's `skip-provider-backoff` and `noStrike` arms, spec-recovery
+  // §3) — the mutation still lands inside the branch body, which is all this arm needs.
+  const ANCHOR = `    if (action.kind !== 'skip-disarmed'\n      && action.kind !== 'skip-provider-backoff'\n      && !action.noStrike) {`;
   assert.ok(src.includes(ANCHOR), 'the counting branch anchor is missing - the red arm has no anchor');
-  const mutated = src.replace(ANCHOR, `    if (action.kind !== 'skip-disarmed') {
+  const mutated = src.replace(ANCHOR, `${ANCHOR}
       // MUTANT: the deleted signature reset, restored.
       if (globalThis.__redLastSig !== t.signature) {
         counters.rearm({ event: 'owner-leader-act', goal, seat: t.seat }, { countersFile });

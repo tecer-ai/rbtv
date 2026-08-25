@@ -24,6 +24,9 @@ const checkpoint = require('./checkpoint');
 const attemptCounters = require('./attempt-counters');
 const exhaustion = require('./exhaustion');
 const relaunchBudget = require('./relaunch-budget');
+const providerClassify = require('./provider-classify');
+const providerLanes = require('./provider-lanes');
+const routingTable = require('./routing-table');
 
 // The recovery half of the same component: `recovery-config.js` is the ONE read api for the eight
 // tweakable numbers (sibling seats consume it read-only and none of them opens the file itself),
@@ -34,7 +37,11 @@ const relaunchBudget = require('./relaunch-budget');
 // alarm re-fire through), `exhaustion.js` the exit it takes at N - a disarmed `incomplete:` lane
 // plus ONE signature-grouped ask RECORD, never a post - and `relaunch-budget.js` the recovery
 // relaunch caps, the one bounded D6 leader handoff, and the daemon act that executes the leader's
-// instruction.
+// instruction. `provider-classify.js` is the ONE reader of the two owner-editable recognition
+// lists (transient vs configuration), `provider-lanes.js` what each class does to a lane - the
+// one-pass reroute, the backoff ladder, the override ruling and the readable
+// `provider_backoff_until` / `reroute_pending` facts impl-alarms consumes [C-5] - and
+// `routing-table.js` the daemon's read of the SHARED routing table `cast route` also reads.
 
 module.exports = {
   ...registry,
@@ -51,4 +58,7 @@ module.exports = {
   ...attemptCounters,
   ...exhaustion,
   ...relaunchBudget,
+  ...providerClassify,
+  ...providerLanes,
+  ...routingTable,
 };

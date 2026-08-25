@@ -32,7 +32,18 @@ const ROUTE_FORMS = ['cast route --caps image          # short-circuit, no other
   'cast route --catalog [--json]    # the roster, asks nothing'];
 
 const CSV_NAME = 'models.csv';
-const CSV_LOCAL = path.join(__dirname, '..', CSV_NAME);
+// -- THE SHARED ROUTING TABLE, AND WHY IT IS NOT BESIDE THIS FILE ANYMORE [spec-recovery §3] ----
+//
+// It moved to `ignite/supervisor/` 2026-08-25. It is no longer cast's private roster: the daemon's
+// provider-lane reroute reads the SAME rows to answer "which alternates may this lane try" when a
+// transient provider fault (quota, rate-limit, provider-down) takes a model out. Two copies of
+// that answer is a daemon rerouting onto a model `cast` cannot launch — the exact drift the
+// catalog join already exists to prevent, one level up.
+//
+// ⚠ THE OTHER READER IS `ignite/supervisor/routing-table.js`. It asks a different question of the
+// same file (eligible alternates, not a class-ranked verdict) and parses it separately; the FILE
+// is the shared thing, not the parse. Move this path and that constant in the SAME edit.
+const CSV_LOCAL = path.join(__dirname, '..', '..', '..', '..', 'ignite', 'supervisor', CSV_NAME);
 // Per-vault override, WHOLE-FILE replace: present -> it IS the catalog, the shipped CSV is ignored.
 // The path follows the live `{module}/{component}` convention of `.rbtv/config/modules/` — module
 // `core`, component `sub-agents` (spec §6). Changing it means changing the -h text in the same edit:

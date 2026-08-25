@@ -59,3 +59,10 @@ ignite/supervisor/registry.jsonl.tmp-*
 # earned, and a counter that arrives already at N disarms a lane nobody ever ran.
 ignite/supervisor/attempt-counters.json
 ignite/supervisor/attempt-counters.json.tmp
+
+# Provider-lane ledger — RUNTIME state beside the same module, for the same reason as the two
+# above: it records THIS box's live provider backoff windows and the reroutes THIS box made.
+# Committing it would hand another box a `provider_backoff_until` it never earned, pausing a kill
+# clock and suppressing a frozen alarm on a lane that is not backing off at all.
+ignite/supervisor/provider-lanes.json
+ignite/supervisor/provider-lanes.json.tmp

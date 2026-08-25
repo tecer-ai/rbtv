@@ -28,7 +28,7 @@ const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { requirePythonCmd } = require('../lib/python-cmd');
 const {
-  readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce,
+  readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce, seatCast,
 } = require('./seeding');
 // ── THE ONE OWED-WORK COMPUTER AND THE ONE ENQUEUE [spec-supervisor §5, T4-R7, C-15] ──────────
 // `deriveOwed` is the SURVIVOR of the two owed-work computers. It lives at the supervisor home
@@ -38,6 +38,12 @@ const {
 const { deriveOwed } = require('../supervisor/owed');
 const { launchThroughDoor } = require('../supervisor/launch-door');
 const { DOORS } = require('../supervisor/doors');
+// ── THE PROVIDER-CLASSIFICATION HOOKUP [spec-recovery §3, T1-R13, C-10] ───────────────────────
+// The ONLY thing this file knows about provider faults is which api to ask. What an error text
+// MEANS is `supervisor/provider-classify.js` (two owner-editable lists), and what each meaning
+// DOES to the lane is `supervisor/provider-lanes.js`. Deliberately kept out of the counter
+// internals above: a recognition-list edit must never have to reach inside the counting.
+const providerLanes = require('../supervisor/provider-lanes');
 // ── THE ATTEMPT COUNTER REPLACES THE BYTE-EQUALITY BRAKE [spec-recovery §5, T4-R3, C-2] ───────
 // `strike`/`stuckStands` and their shared bound (`heart-store.js`'s `ADMISSION_BRAKE_LIMIT`) are
 // DELETED. Both compared an owed-content signature byte for byte, and both reset on a volatile
@@ -493,6 +499,72 @@ function counterDisarmed({
   return Boolean(row && Number(row.attempts) >= config.attempt_counter_n);
 }
 
+// ── THE HOOKUP ITSELF, and it is deliberately THIN ────────────────────────────────────────────
+//
+// Everything it decides is decided elsewhere. It reads the two facts this file already has a
+// reader for — what the seat's DESCRIPTOR declares (`seatCast`, the surface the launch actually
+// obeys) and what its BINDING says (`readTaskforce`, the surface `rbtv-bindings set` writes) —
+// hands them to the ruling's own predicate, and passes the answer on.
+//
+// ⚠ NOTHING COUNTER-INTERNAL IS TOUCHED HERE. The counter's three functions above are
+// self-contained; this returns a decision and the caller spends (or does not spend) the strike.
+function classifyRefusal({
+  goal, goalFolder, seat, errorText, config, lanesFile, tableFile, at, say,
+}) {
+  let declaredModel = '';
+  let declaredHarness = '';
+  let boundModel = '';
+  try {
+    const cast = seatCast(goalFolder, seat);
+    declaredModel = cast.model || '';
+    declaredHarness = cast.harness || '';
+  } catch { /* an unreadable descriptor is "no pin expressed", never a pin */ }
+  try {
+    const row = readTaskforce(goalFolder).find((r) => r.seat === seat);
+    boundModel = (row && row.model) || '';
+  } catch { /* an unreadable taskforce is the same */ }
+
+  const override = providerLanes.seatModelOverride({ declaredModel, boundModel });
+  try {
+    const decision = providerLanes.onLaunchFailure({
+      goal,
+      seat,
+      errorText,
+      harness: declaredHarness || null,
+      model: declaredModel || null,
+      override,
+      config,
+      at,
+      lanesFile,
+      tableFile,
+    });
+    if (say) {
+      say(decision.strike ? 'warn' : 'info',
+        decision.strike
+          ? 'reconcile: CONFIGURATION provider fault — ordinary failed + strike, no reroute [spec-recovery §3]'
+          : 'reconcile: TRANSIENT provider fault — no strike [spec-recovery §3]', {
+          goal,
+          seat,
+          provider_class: decision.classification,
+          matched: decision.evidence && decision.evidence.matched,
+          override,
+          reroute: decision.reroute ? decision.reroute.to : null,
+          provider_backoff_until: decision.backoff_until,
+        });
+    }
+    return decision;
+  } catch (err) {
+    // A missing recognition list or an unreadable routing table is a CONFIGURATION-ERROR, and the
+    // safe direction is the ordinary strike path — never a silent no-strike dead end.
+    if (say) {
+      say('warn', 'reconcile: provider classification UNAVAILABLE — the ordinary strike path stands', {
+        goal, seat, error: err && err.message,
+      });
+    }
+    return null;
+  }
+}
+
 function reconcileGoal({
   goal, goalFolder, engine, say = () => {}, pickup = null,
   now = Date.now(), force = false, dryRun = false,
@@ -504,6 +576,11 @@ function reconcileGoal({
   // The counter ledger's file. Overridden by a probe or a selftest exactly as `registryFile` is,
   // so a fixture pass never writes into the daemon's own counters.
   countersFile = undefined,
+  // The provider-lane ledger and the shared routing table. Overridden by a probe or a selftest
+  // exactly as `countersFile` is, so a fixture pass never writes into the daemon's own lanes nor
+  // reroutes off the owner's real table.
+  lanesFile = undefined,
+  tableFile = undefined,
   readyAnswer: readyInjected = undefined,
   promptFn = undefined,
   recoverFn = undefined,
@@ -631,6 +708,20 @@ function reconcileGoal({
     } else if (liveSet.has(t.seat) || queued.has(t.seat)) {
       seenTarget.add(t.seat);
       action = { kind: 'skip-live-or-queued', seat: t.seat, reason: t.reason };
+    } else if (providerLanes.laneFacts(
+      { goal, seat: t.seat }, { lanesFile, now: new Date(now) },
+    ).provider_backoff_waiting) {
+      // ── THE PROVIDER BACKOFF, AS A PER-LANE BRAKE [spec-recovery §3, C-5, C-9] ─────────────
+      // THIS LANE is waiting out a provider window; its siblings on the same goal are untouched,
+      // which is the whole C-9 correction. No counter advances: a transient provider outage is
+      // not something the seat did, so nothing it did may be counted against it.
+      seenTarget.add(t.seat);
+      action = {
+        kind: 'skip-provider-backoff',
+        seat: t.seat,
+        reason: t.reason,
+        until: providerLanes.laneFacts({ goal, seat: t.seat }, { lanesFile }).provider_backoff_until,
+      };
     } else if (counterDisarmed({
       goal, seat: t.seat, reason: t.reason, config: recoveryConfig, countersFile,
     })) {
@@ -645,14 +736,41 @@ function reconcileGoal({
         heartStore, goal, goalFolder, seat: t.seat, promptFn: t.promptFn || promptFn, say,
         reason: t.reason, signature: t.signature,
       });
-      action = launched.ok
-        ? { kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId }
-        : { kind: 'launch-refused', seat: t.seat, reason: t.reason, error: launched.error };
+      if (launched.ok) {
+        // The attempt is over: the pass through the alternates and the backoff ladder both clear.
+        // The seat's recorded reroutes are NOT cleared — they are what it actually ran.
+        providerLanes.onLaunchSucceeded({ goal, seat: t.seat }, { lanesFile });
+        action = {
+          kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId,
+        };
+      } else {
+        action = {
+          kind: 'launch-refused', seat: t.seat, reason: t.reason, error: launched.error,
+        };
+        // ── THE SPLIT [spec-recovery §3] ──────────────────────────────────────────────────────
+        // Before this existed, EVERY refusal fed the counter identically: a transient quota
+        // outage struck the seat toward a dead end for something no seat did (ST-10), and a
+        // plan-declared bad slug got the same treatment with no reroute and no surfacing
+        // (ST-19). The two now take opposite paths, and the caller of this file learns which.
+        const decision = classifyRefusal({
+          goal, goalFolder, seat: t.seat, errorText: launched.error,
+          config: recoveryConfig, lanesFile, tableFile, at: new Date(now), say,
+        });
+        if (decision) {
+          action.provider_class = decision.classification;
+          if (decision.reroute) action.reroute = decision.reroute;
+          if (decision.backoff_until) action.provider_backoff_until = decision.backoff_until;
+          // TRANSIENT NEVER STRIKES. The flag is read by the counting block below.
+          action.noStrike = decision.strike === false;
+        }
+      }
     }
     // THE ATTEMPT IS THE PASS, NOT THE LAUNCH — that part of D34 survives intact. What changed is
     // the RESET: no launch outcome and no signature drift clears this count, only a named re-arm
     // event does [spec-recovery §5].
-    if (action.kind !== 'skip-disarmed') {
+    if (action.kind !== 'skip-disarmed'
+      && action.kind !== 'skip-provider-backoff'
+      && !action.noStrike) {
       const retry = countRetry({
         store: endingStore,
         workspaceRoot,

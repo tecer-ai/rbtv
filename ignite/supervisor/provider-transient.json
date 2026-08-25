@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "class": "transient",
+  "spec": "spec-recovery §3 TRANSIENT [T1-R13, T1-R17, C-10]",
+  "behaviour": "no strike; ONE pass through eligible alternates per launch attempt; every reroute recorded on the seat; all alternates transient-fail -> provider backoff (knobs from recovery.json), kill clock paused, frozen suppressed [C-5]",
+  "match": "case-insensitive substring against the provider/cast error text; CONFIGURATION wins a tie (fail closed)",
+  "edit_is": "a config-change re-arm [spec-recovery §5]",
+  "class_tokens": [
+    "quota",
+    "rate-limit",
+    "provider-down"
+  ],
+  "common_strings": [
+    "429",
+    "rate_limit",
+    "overloaded",
+    "capacity",
+    "temporarily unavailable"
+  ]
+}

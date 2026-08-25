@@ -451,3 +451,121 @@ Budget: `budgetState` · `spendRecoveryRelaunch` · `assembleHandoff` ·
 
 Selftests: `node --test attempt-counters.selftest.js` and
 `node --test relaunch-budget.selftest.js` - exit 0.
+
+---
+
+# Recovery - the provider split, the reroute and the per-lane skip
+
+[spec-recovery §3, T1-R13, T1-R17, T4-R4, CF-8, C-9, C-10]
+
+## What was broken, and it was three things wearing one coat
+
+Provider errors were not classified at all, so one error text drove opposite
+wrong behaviours: a transient quota outage STRUCK the seat's counter and burned
+it toward a dead end for something no seat did (inventory ST-10), and a
+plan-declared bad slug got a silent no-strike dead end with the pin never
+surfaced (ST-19). And underneath both, one bad lane froze the whole goal:
+`lane-watch.js` `continue`d the entire goal when `uncastSeats` was non-empty, and
+again for a registered-but-unbuilt row (ST-20).
+
+## The per-lane skip [D16, C-9]
+
+`uncastSeats` is a whole-goal COMPUTER and stays one - every door still asks it
+the same question. What changed is its READERS. `lane-watch.js` now turns both
+lists into a `seat -> reason` map and threads it into `seedGoal({ laneSkips })`;
+`launchOwed` skips exactly those lanes, names each one at `warn`, and seeds every
+sibling. The refusals are UNCHANGED - an uncast seat is still not launched, an
+unbuilt row is still built and still not seeded that cadence. Only the blast
+radius moved. The pass reports what it skipped as `laneSkipped` (the fifth
+held-for-a-reason set), because a state an operator cannot see is a state that
+costs a live investigation.
+
+`reconcile.js#launchSitting` already read the list per-seat and is untouched.
+
+## The two recognition lists - data, not code
+
+| file | class | seeds |
+|---|---|---|
+| `provider-transient.json` | transient | tokens `quota`, `rate-limit`, `provider-down`; strings `429`, `rate_limit`, `overloaded`, `capacity`, `temporarily unavailable` |
+| `provider-configuration.json` | configuration | tokens `model-not-found`, `bad slug`, `auth-rejected`; strings `404 model`, `unknown model`, `invalid_api_key`, `unauthorized` |
+
+Match is case-insensitive SUBSTRING against the provider/cast error text. First
+list that hits wins; both hit -> CONFIGURATION; UNRECOGNISED -> CONFIGURATION.
+Fail closed, both times: a strike an owner can see beats a silent reroute that
+hides a pin. Editing either file is a `config-change` named re-arm
+[spec-recovery §5] - `listsFingerprint()` is the content-derived value the
+config-change path compares across passes.
+
+## What each class does
+
+| | TRANSIENT | CONFIGURATION |
+|---|---|---|
+| strike | never | yes - the ordinary `failed` + strike through the attempt counter |
+| reroute | ONE pass through the eligible alternates, per launch attempt | never |
+| record | every reroute recorded on the seat | - |
+| all alternates fail | provider backoff; kill clock paused; frozen suppressed [C-5] | - |
+
+The one pass is mechanical, not a promise: `tried` accumulates inside the attempt
+and only a backoff or a successful launch clears it, so a second pass cannot
+happen inside one attempt.
+
+## The shared routing table
+
+`ignite/supervisor/models.csv` - moved out of `core/sub-agents/tool/` so it is
+ONE file with two readers: `cast route` (`lib/route.js#CSV_LOCAL`) asks which
+model runs a job of a given class, `routing-table.js#eligibleAlternates` asks
+which models this lane may try instead. Two copies would be a daemon rerouting
+onto a model `cast` cannot launch. Eligible = `mode=cli` and `use=route`, minus
+the lane's own pin and anything already tried this attempt; table order is the
+owner's ranking and nothing here re-ranks it.
+
+## The override ruling [C-10, CP1 - RULED, final]
+
+A per-seat model override SUPPRESSES reroute. First configuration fault on an
+override is `failed` + strike, full stop. A transient fault on an override still
+does not strike and still does not reroute - it goes straight to backoff, because
+a pinned lane has no alternates by definition.
+
+The pin is MEASURED off surfaces that already exist, not off a new declaration:
+`seatModelOverride` compares the seat DESCRIPTOR's model (`seat.md`, what
+`spawn.js#launchSpecForSeat` obeys) against its BINDING (`taskforce.csv`, what
+`rbtv-bindings set` writes). Different -> somebody pinned that seat by hand, and
+that pin is what the ruling protects. Absent on either side is not an override.
+
+## The backoff ladder, and the numbers are the config file's
+
+Initial `provider_backoff_initial_min`, times `provider_backoff_multiplier` per
+consecutive all-alternates-failed pass, capped at `provider_backoff_cap_h`
+[spec-recovery §2.1]. Never literals: `backoffMinutes` refuses a config missing
+any of the three rather than picking 15.
+
+## The readable facts [C-5] - expose only, never emit
+
+Nothing here emits an alarm or posts anything. Two names are load-bearing and are
+spelled to match their one consumer each:
+
+| fact | read by |
+|---|---|
+| `provider_backoff_until` (ISO-8601) | `kill-clock.js#pauseState` - the no-progress clock's provider-backoff pause |
+| `provider_backoff_waiting` | `observation/frozen.js#predicate` - the frozen exclusion |
+| `reroute_pending` | `observation/frozen.js#predicate` - the same exclusion, mid-pass |
+
+`laneFacts({goal, seat})` returns those plus `reroutes` (what this lane actually
+ran), `backoff_streak` and `tried`. The monitor must not report healthy through a
+provider outage [T1-R13], which is why these are readable rather than internal.
+
+## Provider APIs
+
+Classify: `classifyProviderError` · `readList` · `listsFingerprint` ·
+`TRANSIENT` · `CONFIGURATION` · `CLASSES` · `TRANSIENT_LIST` ·
+`CONFIGURATION_LIST` · `ProviderListError` (`code: E_PROVIDER_LIST`)
+
+Lanes: `onLaunchFailure` · `onLaunchSucceeded` · `laneFacts` ·
+`seatModelOverride` · `backoffMinutes` · `lanesPath` · `keyOf`
+
+Table: `eligibleAlternates` · `readTable` · `tablePath` · `RoutingTableError`
+(`code: E_ROUTING_TABLE`)
+
+Selftests: `node --test provider-classify.selftest.js`,
+`node --test provider-lanes.selftest.js` and (the per-lane skip, in the engine)
+`node --test ../engine/lane-skip.selftest.js` - exit 0.

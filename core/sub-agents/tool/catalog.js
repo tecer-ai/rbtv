@@ -4,8 +4,9 @@
 // run, carrying the harness-native model id, the effort ladder and the credential it needs.
 //
 // The ROUTING half moved OUT 2026-08-20 (route redesign §6): levels, scores, cost, web/image
-// capability now live in `models.csv` beside this file, which the owner edits without touching
-// code. `cast route` JOINS the two on harness+model — a CSV row with no row here is excluded
+// capability now live in `models.csv`, which the owner edits without touching code. That file
+// moved again 2026-08-25 to `ignite/supervisor/models.csv` [spec-recovery §3] — the daemon's
+// provider-lane reroute reads the same rows to pick a transient fault's alternates. `cast route` JOINS the two on harness+model — a CSV row with no row here is excluded
 // (route must never pick what cast cannot launch), and a row here with no CSV twin is simply
 // unroutable while staying launchable by hand.
 //

@@ -543,7 +543,9 @@ const FIXER_SEAT = { name: 'fixer', access: 'bounded', type: 'code', class: 'mec
     { encoding: 'utf8', env: ENV, cwd: __dirname });
   assert.strictEqual(shipped.status, 0, shipped.stderr);
   const { source, rows } = JSON.parse(shipped.stdout);
-  assert.ok(source.endsWith(path.join('tool', 'models.csv')), `expected the shipped table, got ${source}`);
+  // The shipped table lives in `ignite/supervisor/` since 2026-08-25 [spec-recovery §3]: the
+  // daemon's provider-lane reroute reads the same rows, so it is no longer cast's private file.
+  assert.ok(source.endsWith(path.join('ignite', 'supervisor', 'models.csv')), `expected the shipped table, got ${source}`);
   assert.ok(rows.length > 3, `the shipped table is suspiciously short: ${rows.length} rows`);
 
   const LEVELS = ['SOTA', 'L1', 'L2', 'L3', 'L4'];

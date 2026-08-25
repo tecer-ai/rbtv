@@ -41,10 +41,11 @@ the tombstone row. It holds no seats and no workflow — a capability-only compo
 - `cast` — **RELOCATED 2026-08-20 to `core/sub-agents/`** (owner instruction, route-redesign
   spec §8), now a component of its own — its exposure row lives in `core/sub-agents/exposure.csv`.
   There: `component.md` (the manual) +
-  `tool/cast.js`, `tool/catalog.js`, `tool/models.csv`, `tool/test_cast.js`, `tool/test_route.js`,
+  `tool/cast.js`, `tool/catalog.js`, `ignite/supervisor/models.csv` (shared with the ignite
+  daemon's provider-lane reroute), `tool/test_cast.js`, `tool/test_route.js`,
   and the API runner at `tool/api/run.py` + `tool/api/clients/` + `tool/api/tests/`. On PATH as
   `cast`. The catalog is now SPLIT by concern: `tool/catalog.js` holds LAUNCH mechanics (harness-
-  native id, effort ladder, auth) for every `mode: cli|api` row, `tool/models.csv` holds the
+  native id, effort ladder, auth) for every `mode: cli|api` row, `ignite/supervisor/models.csv` holds the
   ROUTING axes (level, reasoning, coding, cost, web, image), and `cast route` joins the two on
   harness+model. A per-vault whole-file override of the CSV lives at
   `{vault}/.rbtv/config/modules/core/sub-agents/models.csv`. The `api` verb (`cast api <model> …`)
