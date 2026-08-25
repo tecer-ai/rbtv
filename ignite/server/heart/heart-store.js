@@ -2325,8 +2325,8 @@ module.exports = {
   // The reserved args key the seat shard is stamped under, exported for the same reason: a probe or
   // a reader that needs to see a row's shard reads THE name, never a second spelling of it.
   SEAT_SHARD_ARG,
-  // LE-13 Change 2 — the ONE tunable both escalation consumers (`engine/lane-watch.js`'s
-  // `alarmOnStall`, `server/ticker/warnings-check.js`'s unhomed fallback) read rather than each
-  // carrying its own guess.
+  // LE-13 Change 2 — the ONE tunable the escalation consumer
+  // (`server/ticker/warnings-check.js`'s unhomed fallback) reads rather than carrying its own
+  // guess. Its former co-reader, `engine/lane-watch.js`'s `alarmOnStall`, is deleted [T4-R10].
   PERIODIC_FAILURE_STREAK_K,
 };

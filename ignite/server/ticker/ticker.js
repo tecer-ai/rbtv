@@ -1216,8 +1216,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // gets the same records back and can log them. It is returned for exactly that reason.
   //
   // ⚠ IT ALSO PERFORMS A DECISION IT DID NOT MAKE, and that is the whole of what the owner alarm
-  // (Q3a, 2026-08-18) added here. `server/ticker/goal-stall-alarm.js` composes a
-  // `goal-channel-cli.js post <goal> <text>` argv for a FROZEN goal; the credential-carrying half —
+  // (Q3a, 2026-08-18) added here. The since-deleted `goal-stall-alarm.js` composed a
+  // `goal-channel-cli.js post <goal> <text>` argv for a FROZEN goal (its replacement is
+  // `observation/`'s emitter, which posts through the outbox and never composes an argv here);
+  // the credential-carrying half —
   // the env file, the systemd-only carrier, the log/exit files, the containment — is this
   // function's and must stay singular, so a caller with a decision in hand passes it as
   // `{ decision }` instead of a subject and falls into the identical body below. A second

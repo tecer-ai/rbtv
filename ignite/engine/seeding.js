@@ -390,9 +390,11 @@ function checkAcyclicViaCli(tfPath) {
 // re-print the trap-1/trap-2 notices, and a CHANGED file always revalidates and is loud again.
 //
 // ponytail: process-lifetime Maps, one small entry per goal, cleared by nothing and re-armed only
-// by a daemon restart — the same conservative direction `goal-stall-alarm.js`'s own dedup Map
-// discloses (a duplicate notice after a restart beats a freeze the memo silently remembers past
-// the life of the process that decided it).
+// by a daemon restart — the same conservative direction the deleted `goal-stall-alarm.js`'s own
+// dedup Map disclosed (a duplicate notice after a restart beats a freeze the memo silently
+// remembers past the life of the process that decided it). ⚠ That Map is exactly what
+// `observation/emitter.js` replaced with a PERSISTED signature registry — do not read this note
+// as a precedent for a new in-memory alarm memo.
 const taskforceValidationMemo = new Map();  // tfPath -> { key, error: string|null }
 const graphCheckNoticed = new Map();        // tfPath -> key already reported (trap 1 / trap 2)
 
@@ -1027,12 +1029,13 @@ function seedGoal({ heartStore, goalFolder, goal, logger = null, isHeld = null, 
     enqueueUnfired,
     enqueued,
     // LE-13, computed above: the empty-frontier freeze, shaped for the owner alarm
-    // (`goal-stall-alarm.js#conditionOf` reads it first). `null` is the ordinary case.
+    // (read first by the deleted `goal-stall-alarm.js#conditionOf`; its successor is
+    // `observation/`'s emitter, an ordinary caller). `null` is the ordinary case.
     frozen: pendingUnseeded.length ? {
       kind: 'seeding-empty',
       seats: pendingUnseeded,
       // D22: THE EXCLUDED-DEAD COUNT IS PART OF THE ALARM, not a debug line — this string is what
-      // reaches the owner over Slack (`server/ticker/goal-stall-alarm.js`), and a reader who
+      // reaches the owner over Slack (now via `observation/emitter.js`), and a reader who
       // cannot see how many rows were discounted cannot audit the alarm that discounted them.
       detail: 'no launchable seat (of ' + readyRows.length + ' row(s) answered, '
         + deadSeats.size + ' of them DEAD by design and excluded) while these taskforce seats are pending',
