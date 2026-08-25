@@ -202,7 +202,8 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_ALARM_SHIM` | the sibling `tool/watchdog-alarm.js` — the route to the ONE alarm emitter |
 | `RBTV_WATCHDOG_NODE` | `node` — the interpreter that runs the shim |
 | `RBTV_SYSTEM_CHANNEL_ID` | unset. The system channel daemon-level events post to [T5-R1]. Read by the shim; absent = the alarm is refused there and the refusal is ledgered, never swallowed |
-| `SLACK_BOT_TOKEN`, `IGNITE_CHAT_BRIDGE_CONFIG` | the notify credential, and the bridge's own config — read ONLY to resolve WHO the owner is (explicit `bus_ferry_dm_user`, else the first allowlist entry), so the two components can never disagree about it |
+| `SLACK_BOT_TOKEN`, `IGNITE_CHAT_BRIDGE_CONFIG` | the notify credential, and the bridge's own config — read ONLY to resolve WHO the owner is (explicit `bus_ferry_dm_user`, else the first allowlist entry), so the two components can never disagree about it. `SLACK_BOT_TOKEN` is ALSO what arms the alarm shim's transport (below); absent, the alarm is minted `pending-delivery` and says so |
+| `SLACK_API_BASE` | `https://slack.com/api` — the shim's Slack base, so a probe can point it at a mock. Never a default that reaches a real workspace from a test |
 
 **The notify client is the watchdog's own two Slack calls** (`conversations.open`, then
 `chat.postMessage`), not the bridge's. It has to be: this must reach the owner when the
@@ -264,6 +265,22 @@ end. Signature class `watchdog-daemon-unhealthy`; `immediate: true`, because spe
 §9.2 makes system-health alarms digest-exempt for their first post [CF-9, T5-R11]. The post
 goes through the durable outbox, so an unreachable Slack leaves a queryable
 `pending-delivery` record rather than a lost alarm [C-17].
+
+**The shim's transport is WIRED** (integration pass, 2026-08-25). `resolveSend()` builds the
+chat bridge's OWN sender (`bridges/chat/slack-socket-mode.js#sendToOwner`, one outbound
+`chat.postMessage` on `SLACK_BOT_TOKEN`) rather than composing a second `chat.postMessage`
+here; `createSlackSocketMode` opens nothing until `start()`, which this process never calls,
+so no Socket-Mode session is held. Two walls stand in front of it, in this order:
+
+1. `RBTV_WATCHDOG_NOTIFY_FILE` — the "send nothing" sink — is checked BEFORE the token, for
+   `deadman_ping()`'s reason: a probe or a rehearsal that reached real Slack because the shell
+   happened to carry a bot token would post into the owner's workspace from a test.
+2. No `SLACK_BOT_TOKEN` is a refusal, not a drop: the record is minted `pending-delivery` with
+   the reason on the row, which is the behaviour every prior pass had.
+
+Proof: `probes/probe-watchdog-alarm-transport.js` (mock Slack on an ephemeral loopback port —
+delivered-with-ts, pending-delivery-without-token, the dry wall beating a present token, and
+both pre-existing refusals unchanged).
 
 ONE emission per episode, re-armed on recovery: §9.2 gives one alarm per condition-signature
 and hands re-surfacing to the 2-hourly system digest, so a second emission would be volume,
@@ -342,6 +359,17 @@ the durable outbox all now carry the condition. It also proves the withheld-rest
 the recorded outage duration against the incident's real 11 115 seconds, and that the
 dead-man's configured URL — a closed local port — is never reached in dry mode. No real
 unit, gateway, endpoint or `.rbtv/runtime/` is touched.
+
+`probes/probe-watchdog-alarm-transport.js` proves the shim's SEND — the seam that stood open
+while `resolveSend()` was a stub. Mock Slack on an ephemeral loopback port (`SLACK_API_BASE`),
+a scratch workspace per leg, and a clean environment per run so an ambient `SLACK_*` in the
+operator's shell cannot decide what it measures: with a token the alarm reaches
+`chat.postMessage` in the system channel and the outbox flips to `delivered` carrying Slack's
+own ts; without one it is `pending-delivery` with the reason on the row; with
+`RBTV_WATCHDOG_NOTIFY_FILE` set NOTHING is sent even though a token is present; and both
+pre-existing refusals (no `RBTV_SYSTEM_CHANNEL_ID`, a half-composed alarm) still exit 1 having
+posted and minted nothing. Red-first control: against the pre-wiring `resolveSend` stub the
+delivery arms go red. No real unit, endpoint or live outbox is touched.
 
 ## Retirement
 
