@@ -15,3 +15,4 @@ glance-wiring,library,path,,glance.js,"Wires the system digest and the status li
 bus-answer,library,path,,bus-answer.js,"The bus-answer leg: records an owner answer arriving over the bus against the open ask it closes (moved from engine/ by spec-component-map §2)",
 chat-session-settings,reference,path,,chat-session-settings.json,"The chat bridge harness session settings (moved from config/)",
 chat-senders-example,reference,path,,senders.example.yaml,"The seed the owner-executed install step copies to create the gateway sender allowlist (moved from config/)",
+goal-channel-cli,tool,path,,goal-channel-cli.js,,

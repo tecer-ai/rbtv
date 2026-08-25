@@ -24,10 +24,16 @@ process itself is `runtime/`, the out-of-process watchdog is `observation/`.
 
 ## Exposure
 
-The first-party CLIs here (`link-tools.py`, `probe-suite.js`, `probe-suite-scheduled.py`)
-have no `method=path` rows yet — `spec-component-map` §7.3 assigns those to
-**impl-cli-skills**, together with the installer PATH links. `exposure.csv` beside this
-file carries the header and waits for them.
+The first-party CLIs here each carry a `method=path` row on `exposure.csv` beside this
+file — `link-tools`, `probe-suite`, `probe-suite-scheduled`, landed per
+`spec-component-map` §7.3 (`d-exposure-method-path`). The installer PATH-links those
+rows into the shared bin dir; nothing here is a second copy of a binary. `rbtv-cli` and
+`description` are empty on each, because a `method=path` row leaves the tool to
+self-document via `-h`.
+
+Audience (§7.1, transcribed in `ignite/ignite-cli/cli-audience-map.md`): `link-tools`
+and `probe-suite` are owner-console; `probe-suite-scheduled` is internal-daemon — it is
+fired by the timer and is never a router-skill target.
 
 ## Deploy model — last commit, never the live tree (owner-ruled D6, 2026-08-19)
 

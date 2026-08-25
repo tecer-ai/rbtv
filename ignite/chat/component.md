@@ -197,3 +197,14 @@ Still open, and deliberately not invented here: the §6 triggers are not FIRED y
 `glance.onTrigger(...)` call at its own moment), and `readBlockedCount` stays at its
 default `0` because no read door for blocked-on-human lanes or paused goals exists
 from this process. Probe: `probes/probe-chat-glance-wiring.js`.
+
+## goal-channel-cli
+
+`goal-channel-cli.js` — the Slack goal-channel `ensure` / `list` / `post` / `retire`
+verbs. **dual** audience (§7.1, transcribed in `ignite/ignite-cli/cli-audience-map.md`):
+the ticker calls `ensure` as the daemon, and a console calls `post` / `retire` by hand.
+
+It carries a `method=path` row on `exposure.csv` (`d-exposure-method-path`,
+`spec-component-map` §7.3 — the census found it reachable by full path only, discoverable
+through nothing). `rbtv-cli` and `description` stay empty on that row: the tool
+self-documents via `-h`.

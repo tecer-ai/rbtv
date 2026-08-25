@@ -21,3 +21,5 @@ statusline-usage,tool,path,,statusline-usage.py,,
 file-issue,tool,path,,file-issue.py,,!ws:.rbtv/goals/ignite-engine/register;!ws:3-resources/tools/rbtv/ignite/work-on-ignite/memory
 file-system-issue,capability,skill,,skills/file-system-issue/SKILL.md,"File a system issue (defect, gap, change notice) under ignite/ or meta/ into the engine goal's register — file, don't fix",
 team-kit,capability,skill,exhibit,skills/team-kit/SKILL.md,"Set up, run, or join a coordinated parallel multi-agent team in tmux: one pane per seat, typed append-only message log, roster with verified identities, staged launches, watcher/closer seats",
+mirror-driver,tool,path,,mirror/driver/cli.py,,
+nudge,tool,path,,nudge.py,,

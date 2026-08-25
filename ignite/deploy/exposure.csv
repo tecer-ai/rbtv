@@ -1,10 +1,18 @@
 # deploy's exposure manifest. A depth-2 `exposure.csv` IS the component marker
-# (`concepts/component-anatomy.md` §1), so this file exists even while its rows do not.
-# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order.
+# (`concepts/component-anatomy.md` §1). Columns are the seven of
+# `concepts/exposure-manifest.md` § file schema, in its order.
 #
-# NO ROWS YET, DELIBERATELY. `link-tools.py`, `probe-suite.js` and
-# `probe-suite-scheduled.py` are the named "missing exposure rows" of
-# `spec-component-map` §7.3, which assigns them — and the installer PATH links that
-# realize them — to impl-cli-skills. The systemd units are not parts: they are what
-# installs the module, not something a seat is exposed to.
+# The three rows below are the deploy half of `spec-component-map` §7.3's "missing
+# exposure rows" — every first-party CLI a component ships carries a `method=path`
+# row (`d-exposure-method-path`), and the installer PATH-links it from here.
+# `rbtv-cli` and `description` stay empty on a `method=path` row: the tool
+# self-documents via `-h`. Audiences are pinned in
+# `ignite/ignite-cli/cli-audience-map.md` — link-tools and probe-suite owner-console,
+# probe-suite-scheduled internal-daemon (systemd timer, not a router-skill target).
+#
+# The systemd units are not parts: they are what installs the module, not something
+# a seat is exposed to.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
+link-tools,tool,path,,link-tools.py,,
+probe-suite,tool,path,,probe-suite.js,,
+probe-suite-scheduled,tool,path,,probe-suite-scheduled.py,,
