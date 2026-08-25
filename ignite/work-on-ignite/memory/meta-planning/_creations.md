@@ -2,3 +2,4 @@
 2026-08-24 · creation · D13 replan mini-pipeline · Three seats reusing the pipeline's understander/drafter/verifier prompts byte-unchanged, paired with two new tasks — gap-understand (verdict + what execution produced, ending in one contained|cross-milestone call) and patch-draft, walled to one milestone and an unwidened envelope. · 32ad68a8 · — · ⚠
 2026-08-24 · change · retire the 17 rolling-planning seat definitions · Pure deletion, matching the shape used when the `consultant` seat class was retired at the catalog · 6318207d · — · ⚠
 2026-08-24 · change · rename the planning workflow to plan-console · The WORKFLOW alone is renamed to `plan-console`. The component keeps its name, because the component · 86c9667c,a2607f9b · engine,capabilities,config,team-kit,server · ⚠
+2026-08-25 · change · D13 verify becomes notify-only · A new task `verify-patch`, paired with the same `verifier` prompt. Two checks, no third: (a) the · 37f2e9a9,b0fc52ee · planning,coord · ⚠
