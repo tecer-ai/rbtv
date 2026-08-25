@@ -41,7 +41,7 @@ is alive (`supervisor/`), what an ending means (`state-store/`), what an alarm s
 
 ## Where its parts came from
 
-The former `ignite/team-kit/` whole, plus `ignite/injection-ladder/` and `ignite/skills/` — moved
+The former `ignite/coord/` whole, plus `ignite/coord/injection-ladder/` and `ignite/coord/skills/` — moved
 with history per `spec-component-map` §2. Two files left the kit in the same move:
 `cagespec.py` to `envelope/` and the intact `materialize-seats.py` to `planning/`.
 
@@ -52,3 +52,12 @@ probes derive their file list the same flat way, so moving those six would requi
 redesigning the loader rather than re-pointing a caller. That is a spec-vs-disk conflict
 recorded for a ruling, not a silent decision — see the seat report for
 `impl-structure-moves-py`.
+
+## Ledger custody (D3, 2026-08-19)
+
+Seats write their own coordination ledgers directly through `coordinate checkout`. The kit
+originates `exited` for silent deaths and nothing else. There is no proxy writer.
+
+`ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be
+satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read
+time from `coordination/guard-values.csv`; never stored.

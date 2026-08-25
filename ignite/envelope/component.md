@@ -44,7 +44,7 @@ Refuse is a **value**: `kind: conflict` carries the pair; `kind: unresolved` car
 
 `require('./wall-report')`: `writeWallReport` writes `{path, family-match, seat, goal}`. `family-match` is `cache` / `config` / `temp` / `none`. No Slack post.
 
-Conflict and unresolved predicates live in `server/spawn/seat-grants.js` (`conflictBind`, `unresolvedBind`) so admission and spawn cannot drift.
+Conflict and unresolved predicates live in `supervisor/spawn/seat-grants.js` (`conflictBind`, `unresolvedBind`) so admission and spawn cannot drift.
 
 ## Tests
 
@@ -62,3 +62,40 @@ Conflict and unresolved predicates live in `server/spawn/seat-grants.js` (`confl
   probes (`probes/probe-cage-workspace-grammar.js`, `probes/probe-outputs-resolver.js`)
 - from `config/`: `spawn-profiles.yaml`, the boot-read launch configuration
   `RBTV_IGNITE_CONFIG_PATH` points at. There is no top-level `ignite/config/` any more.
+
+## The fence — what a seated process can touch (D3, 2026-08-19)
+
+The sandbox is a **fence**, not a cage. Threat model: agents writing in **repos that are not the
+goals tree**. Rogue writes on another seat's folder or on the wrong file inside the goal folder are
+not a concern for now. **Record forgery is a NON-goal.**
+
+Allow-list (bwrap, fail-closed if `bwrap` is missing — D59):
+
+1. the goal's **worktree branches** — read/write
+2. the **goal folder** — read; **goal-folder artifacts — write/edit** (one `bind:{goalDir}` covers
+   ledgers, planning, coordination, `sessions.csv`)
+3. the seat's **own seat folder** — read/write, **except `seat.md`**
+4. **the rbtv repo and the workspace `.rbtv/mirror/`** — read
+5. **coordination ledgers — WRITABLE** (no file-level ro-bind of records, no proxy writers)
+6. **env/secret files — simply not present** (hardcoded denies + pattern floor; do not pierce)
+
+A wall-control surface stays file-level RO: `seat.md`. That is the fence holding its own posts, not
+forgery-prevention. Its former sibling `coordination/permission-edits.csv` (the leader's audited
+cage-widen store) is GONE [T2-R12, T1-R9]: owner auth is an answer to a live ask, not a standing
+grant a cage reads back.
+
+**PID namespace is gone — and so is the cgroup namespace (F-6, owner-ruled 2026-08-21).** The fence
+unshares user/ipc/uts only. The cgroup unshare was inherited from decomposing `--unshare-all` (never
+a chosen protection — no cgroupfs is mounted in the cage) and it blinded the kit's
+`carrier_self_session()`, the D43 identity corroborator, structurally shutting the crashed-row door
+for every caged chair; a seat now reads its own `rbtv-worker-<session-id>` unit from
+`/proc/self/cgroup`, which is the point. In-cage `/proc` shows **host pids**, so the kit's liveness
+read (`ident_is_live_process`) is true. **Accepted consequence:** a seat can see and signal host
+processes. The threat model is filesystem writes outside the goals tree, not process isolation. Do
+not build a mitigation.
+
+**Secrets (D13).** The agent cannot read the key; the tool can. Env files are never bound into a
+fence. The launcher/daemon reads the env file and starts the **TOOL process** with
+`EnvironmentFile=` (`supervisor/spawn/carrier.js#buildSystemdRunArgs`). `--setenv` is the
+never-secret channel (PATH / `IGNITE_GATEWAY_ADDR` only). Agents never read envs. No broker, no
+gate, no capability-request dance.

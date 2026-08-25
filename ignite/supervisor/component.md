@@ -98,12 +98,12 @@ through the supervisor or is MARKED `unsupervised`; there is no silent arm.
 
 | Door | Chokepoint | Disposition |
 |---|---|---|
-| seeding | `engine/seeding.js` `seedGoal` / `launchOwed` | wrapped |
-| reconcile | `engine/reconcile.js` `deriveOwed` / `launchSitting` | wrapped |
+| seeding | `supervisor/seeding.js` `seedGoal` / `launchOwed` | wrapped |
+| reconcile | `supervisor/reconcile.js` `deriveOwed` / `launchSitting` | wrapped |
 | `--rerun` | `coord/launch.py` `cmd_launch --rerun` / `--declare-only` | wrapped |
 | attest-exit | `spawn.js` `closeSeatSessionRow` -> `attest-exit --force-dead` | wrapped (it BECAME the death stamp) |
 | console-uncaged | bare console / uncaged `claude` (IE-3) | marked-unsupervised until check-in |
-| `E_GOAL_NOT_LIVE` | `engine/seeding.js` `readLease` / `goalNotLive` (IE-1) | wrapped as a REFUSAL |
+| `E_GOAL_NOT_LIVE` | `supervisor/seeding.js` `readLease` / `goalNotLive` (IE-1) | wrapped as a REFUSAL |
 
 The door NAME is derived from the identity a launch already carries - seeding's
 and reconcile's `enqueued_by` on the queue row, `--rerun`'s own `leader-<door>-…`
@@ -122,8 +122,8 @@ called `heartStore.enqueue`:
 
 | Was | Cadence | Half it computed | Fate |
 |---|---|---|---|
-| `engine/seeding.js` `enqueueEligible` | ~10 s | whose `after` is satisfied and who has never fired | **retired as a computer** |
-| `engine/reconcile.js` ledger classifier | ~300 s | class A (non-terminal ending), class B (unread mail) | **survivor**, relocated here |
+| `supervisor/seeding.js` `enqueueEligible` | ~10 s | whose `after` is satisfied and who has never fired | **retired as a computer** |
+| `supervisor/reconcile.js` ledger classifier | ~300 s | class A (non-terminal ending), class B (unread mail) | **survivor**, relocated here |
 
 They could disagree, and nothing could say which was right when they did: a seat
 "not owed" by one and "owed" by the other simply behaved differently depending on
@@ -188,7 +188,7 @@ three-valued and that is load-bearing:
 Collapsing `null` into `true` re-invents the pane; collapsing it into `false`
 re-opens the mass-restamp hole. The seven legacy consumers - `coord.py`-lineage
 `tmux.py`, `messages.py`, `cli_main.py`, `launch.py`, `carrier.py`, `checkout.py`
-and `server/ticker/ticker.js` - all ask here now. The python side is
+and `runtime/ticker/ticker.js` - all ask here now. The python side is
 `coord/liveness.py`, one `node supervisor/probe.js` call per render.
 
 ## APIs
@@ -339,9 +339,9 @@ and 5, under [T4-R3], [T1-R6], [T1-R8], [T4-R6], [T4-R10], [C-2], [C-4], [C-5],
 
 | Deleted | Where it lived | Why it never worked |
 |---|---|---|
-| `strike()` / `stuckStands()` | `engine/reconcile.js` | counted only while the owed-set SIGNATURE stayed byte-identical; a drifting timestamp or session id read as PROGRESS and reset the count to 1 |
-| `ADMISSION_BRAKE_LIMIT` (+ `BRAKE_REASON_FLOOR`, `hashArgsFloor`) | `server/heart/heart-store.js` `enqueue()` | the same comparison, a SECOND independent lock on the same table, with the same volatility |
-| the end-of-pass counter sweep | `engine/reconcile.js` | cleared the count whenever the owed set changed - evidence-driven reset, which is the defect itself |
+| `strike()` / `stuckStands()` | `supervisor/reconcile.js` | counted only while the owed-set SIGNATURE stayed byte-identical; a drifting timestamp or session id read as PROGRESS and reset the count to 1 |
+| `ADMISSION_BRAKE_LIMIT` (+ `BRAKE_REASON_FLOOR`, `hashArgsFloor`) | `state-store/heart/heart-store.js` `enqueue()` | the same comparison, a SECOND independent lock on the same table, with the same volatility |
+| the end-of-pass counter sweep | `supervisor/reconcile.js` | cleared the count whenever the owed set changed - evidence-driven reset, which is the defect itself |
 
 Both brakes went TOGETHER, and no byte- or fingerprint-reset path was kept
 beside the replacement. That is the ruling, not a preference [C-4 kill map].
@@ -577,7 +577,26 @@ Selftests: `node --test provider-classify.selftest.js`,
 
 - from `engine/`: `reconcile.js`, `lane-watch.js`, `seeding.js`, `execution-record.js`,
   and the two ending-store readers they consume (`ending-reads.js`, `owed-from-endings.js`)
-- from `server/spawn/`: the whole spawn/fire path, now `spawn/`
+- from `supervisor/spawn/`: the whole spawn/fire path, now `spawn/`
 - from `launch-profiles/`: the shared launch-spec resolver, now `launch-profiles/`
 - from `config/`: `worker-session-settings.json`
 - the probes that travel with those product files, now `probes/`
+
+## The goal watcher is `reconcile.js`, not a job (D1/D15, 2026-08-20)
+
+Goal-level health — non-terminal seat rows, unread staff mail, a dead or empty tmux room — is owned
+by ONE per-goal reconciliation pass (`reconcile.js`, called from `lane-watch.js`, cadence 300 s, 3
+mechanical attempts then a typed `stuck` to the leader). It is armed structurally: every goal the
+watch pass sees is reconciled, with no per-goal job to register.
+
+What that retired: the `selfheal-room*` jobs and their launch-spec entries, their job scripts and
+both auto-arm call sites, plus every `goal-watcher*` catalogue row. `runtime/jobs/recover-room.py`
+STAYS — reconcile shells it directly (`RECOVER_ROOM` in `reconcile.js`). `goal-watcher-job.py` was
+left on disk dark and unreachable, and was DELETED on 2026-08-21 (owner ruling: *"if the program is
+dead, delete it — there must be no dead code"*), together with its 12 dedicated probes.
+
+⚠ The ticker's per-execution silence ladder (`stall_warn_ticks` / `stall_halt_ticks` /
+`stall_kill_ticks`, and the hung-kill rung that read a process's log bytes/CPU time off it) is
+DELETED [T4-R1, del-observers]: "is it alive" is answered by the supervisor registry, and
+no-progress is measured off work-product (`last_progress_at`), never off ticks of silence.
+Reconcile asks only the GOAL's ledgers.

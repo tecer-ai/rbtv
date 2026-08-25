@@ -37,8 +37,12 @@ rbtv ignite                  this module's components, rules, and action verbs
 rbtv ignite <component>      that component's entry point body + its invocable entry points
 ```
 
-The daemon's conventions, install model, and state layout live in `ignite/CLAUDE.md`; the
-coordination kit's protocol in `ignite/coord/protocol.md`. Neither is restated here (`PRIN-11`).
+Two entry-point docs route the rest, and neither is restated here (`PRIN-11`):
+[`working-on-ignite.md`](working-on-ignite.md) for editing this module's source, and
+[`working-in-a-goal.md`](working-in-a-goal.md) for a seat working inside a goal. The deploy and
+install models live in [`deploy/component.md`](deploy/component.md), the state layout and this
+module's vocabulary in [`state-store/component.md`](state-store/component.md), the coordination
+kit's protocol in [`coord/protocol.md`](coord/protocol.md).
 
 ## Components
 
@@ -53,4 +57,7 @@ coordination kit's protocol in `ignite/coord/protocol.md`. Neither is restated h
 | `ignite-cli/` | The `rbtv ignite` front door — verb dispatch and the gateway client seam, no daemon behavior of its own |
 | `coord/` | The coordination kit: the `coordinate` CLI and its split modules, addressing, declared outputs, tmux viewports, messages, the checkout write API, the injection ladder and the kit's shipped skills |
 | `teambuild/` | The staffing-discovery browse (`rbtv teambuild`) over the component databases — binds nothing |
+| `supervisor/` | The one liveness surface: the persisted sitting registry, spawn, boot re-adopt, the owed-work computer and the shared launch-spec resolver |
+| `state-store/` | The one ending store: seat endings, goal words, open asks and the derived wait / launchability predicates |
 | `deploy/` | The systemd units, the probe-suite runner and its scheduled twin, and the PATH-link tool |
+| `work-on-ignite/` | The build memory: per-component logs of fixed issues and landed creations, read before an edit and filed to after one |
