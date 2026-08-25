@@ -147,13 +147,29 @@ def undelivered_line(base):
 
 
 def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evidence=""):
-    """Seat-declare / system rewrite for one checkout (spec §4.1 cell map)."""
+    """Seat-declare / system rewrite for one checkout (spec §4.1 cell map).
+
+    ⚠ THE DECLARED OUTPUTS ARE RESOLVED THROUGH `output_candidates`, THE PRESENCE CHECK'S OWN
+    RULE. The store re-runs a mechanical output check against the paths it is handed (§1.3), so a
+    pointer resolved by any other rule makes it grade a different file from the one the kit just
+    graded — which is what `{package}/workers/{seat}` did to every `seats/`-layout package. The
+    candidate that EXISTS is stamped where there is one, and the check's own first candidate
+    otherwise, so a genuinely missing output still names the path the author meant."""
     pkg = package_dir(args, register=False)
-    root = pkg / "workers" / seat
+    _w = next((x for x in discover_workers(workers_dir(args)) if x["agent"] == seat), None)
     abs_decl = []
     for p in declared or []:
         pp = Path(p)
-        abs_decl.append(str(pp if pp.is_absolute() else (root / pp).resolve()))
+        if pp.is_absolute():
+            abs_decl.append(str(pp))
+            continue
+        if _w is None:                       # no descriptor to resolve against — say so plainly
+            abs_decl.append(str((pkg / p).resolve()))
+            continue
+        _cands = output_candidates(_w, p, str(Path(_w["cwd"]) / p))
+        _hit = next((c for c in _cands
+                     if c.is_dir() or (c.is_file() and c.stat().st_size > 0)), _cands[0])
+        abs_decl.append(str(_hit))
     ev = evidence or (abs_decl[0] if abs_decl else f"checkout:{seat}")
     if kind == "done":
         return ending_store.stamp_seat_declare(
@@ -1125,6 +1141,36 @@ def resolved_outputs(w):
     return [(d, str(Path(d) if os.path.isabs(d) else Path(w["cwd"]) / d)) for d in w["outputs"]]
 
 
+def _goal_root_dotslash(d):
+    """`./<name>.<ext>` with NO further `/` — D90's narrow goal-root spelling. Split out of the
+    presence check so the STAMP can ask the same question; see `output_candidates`."""
+    if not str(d).startswith("./"):
+        return False
+    rest = str(d)[2:]
+    return bool(rest) and "/" not in rest
+
+
+def output_candidates(w, declared, resolved):
+    """The bases a declared output may live at, IN THE ORDER THE PRESENCE CHECK TRIES THEM.
+
+    ⚠⚠ ONE DEFINITION, TWO CALLERS, AND THE SECOND CALLER IS WHY THIS EXISTS. The presence check
+    in `declared_outputs` reads these candidates; `stamp_checkout_ending` must stamp the SAME path
+    the check graded, because the ending store re-runs its own mechanical check (§1.3) against
+    whatever pointer it is handed. Until this was factored out, that stamp re-derived a base of its
+    own — `{package}/workers/{seat}` — and every seat in a `seats/`-layout package had its VERIFIED
+    `done` overturned into `failed: outputs-missing`, naming a path that was never the seat's. The
+    kit said present, the store said missing, and they were looking at different files.
+
+    Two graders of one fact is the defect class §4.1 exists to remove; this keeps the two READS in
+    one place so they cannot disagree again."""
+    cands = [Path(resolved)]
+    goal = _declared_output_goal_dir(w)
+    if goal is not None and not os.path.isabs(declared) and (
+            not str(declared).startswith(("./", "../")) or _goal_root_dotslash(declared)):
+        cands.insert(0, Path(goal) / declared)   # the DECLARED meaning, checked first
+    return cands
+
+
 def declared_outputs(args, seat):
     """(declared, missing, has_block, chat) — the seat's OWN declared outputs (io-spec
     `## Outputs` tokens), which of them are not on disk, whether an `## Outputs` section exists
@@ -1196,14 +1242,6 @@ def declared_outputs(args, seat):
         # same as the bare-token widening above: a `./name.md` seat-private file that only exists
         # at cwd still passes (the cwd candidate is still tried), and a `./name.md` that only
         # exists at the goal root now ALSO passes — never a token that used to resolve now failing.
-        def _goal_root_dotslash(d):
-            if not d.startswith("./"):
-                return False
-            rest = d[2:]
-            return bool(rest) and "/" not in rest
-
-        _goal = _declared_output_goal_dir(w)
-
         def _present(p):
             try:
                 return p.is_dir() or (p.is_file() and p.stat().st_size > 0)
@@ -1212,10 +1250,7 @@ def declared_outputs(args, seat):
 
         missing = []
         for _d, _resolved in resolved_outputs(w):
-            _cands = [Path(_resolved)]
-            if _goal is not None and not os.path.isabs(_d) and (
-                    not _d.startswith(("./", "../")) or _goal_root_dotslash(_d)):
-                _cands.insert(0, Path(_goal) / _d)   # the DECLARED meaning, checked first
+            _cands = output_candidates(w, _d, _resolved)
             if not any(_present(p) for p in _cands):
                 missing.append(str(_cands[0]))
         return w["outputs"], missing, w["outputs_declared"], w["outputs_chat"]

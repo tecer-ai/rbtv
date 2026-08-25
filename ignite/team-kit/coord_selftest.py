@@ -30,6 +30,13 @@ def seed_ending(base, seat, pane="", transcript="", exported=True, ending="done"
         return ending_store.stamp_system(
             pkg, seat, "failed", reason_class=reason_class or "crash",
             diagnostic=diagnostic, evidence=ev)
+    # ⚠ AN UNKNOWN WORD RAISES HERE RATHER THAN FALLING THROUGH TO `done`. The fall-through is how
+    # a fixture asks for one state and silently sets up another: a caller that spelled a killed
+    # word, or a value outside §1.2, would have seeded a clean `done` and the row above it would
+    # have graded the wrong package while reading as though it graded the right one.
+    if ending != "done":
+        raise ValueError(f"seed_ending: {ending!r} is not a stored ending — "
+                         f"§1.2 admits exactly done|incomplete|failed")
     return ending_store.stamp_seat_declare(pkg, seat, "done", diagnostic=diagnostic, evidence=ev)
 
 
@@ -832,7 +839,7 @@ def _selftest_checks(args, failures, names):
               "target, and tmux resolves that to the caller's own current pane: the approval "
               "lands on whoever typed it",
               _npc == 1 and "no ACTIVE pane is registered" in _npo and keys_log == [])
-        clear_awaiting(base_dir(ns()), "apx")
+        clear_ending(base_dir(ns()), "apx")   # fixture teardown: the store, not the dead debt file
         import shutil as _sh_ap
         _sh_ap.rmtree(pkg / "workers" / "apx")
 
@@ -3926,8 +3933,8 @@ def _selftest_checks(args, failures, names):
         # REFUSED: it destroys the in-place renew path, which respawns into the SAME pane (G-12).
         # ⚠ THE DEBT RECORD IS GONE, AND WITH IT THE ROWS THAT ASSERTED ITS FIELD SHAPE.
         # `awaiting-close.json` was the second writer of a seat's ending (spec-state-store §4.1
-        # Row A); the ONE ending store replaced it, and `load_awaiting` now answers `{}` by
-        # construction. The `pane` / `exported` / `transcript` debt fields it carried have no
+        # Row A); the ONE ending store replaced it, and the `load_awaiting` stub that answered
+        # `{}` by construction has since been retired with every reader of it. The `pane` / `exported` / `transcript` debt fields it carried have no
         # successor here — the seat's ENDING is the record, and the wiring row above asserts it on
         # the real verb. These rows are DELETED rather than re-pointed because re-pointing them
         # would manufacture a subject the design deliberately removed. The pane-reap preconditions
@@ -4159,7 +4166,7 @@ def _selftest_checks(args, failures, names):
             seed_ending(base_g, "reapme", ending="done")
             _sv_debt = supervisor_door.awaiting_reap(pkg)
             check("G-134 successor: THE REAPER FINDS DEBTS AGAIN. `awaiting-close.json` is deleted, "
-                  "so `load_awaiting` answers `{}` by construction and this sweep could never find "
+                  "so the debt file has no reader left and this sweep could never find "
                   "a debt — a leak guard that can never fire guards nothing. The successor fact is "
                   "DERIVED and needs no second store: a supervisor registry row STILL PRESENT while "
                   "its sitting ALREADY CARRIES AN ENDING is, by registry write moment (iii), a reap "
@@ -4868,13 +4875,24 @@ def _selftest_checks(args, failures, names):
                             _d9hit = _x
                     _d9writers = [_x[_d9i["disposition-writer"]].strip()
                                   for _x in _d9r if "disposition-writer" in _d9i]
-                    check("7.474 (CW10): checkout writes `sessions.csv` DIRECTLY, complete at "
-                          "checkout time — `ended` filled, `disposition` filled, "
-                          "`disposition-writer` = `seat`, no closer and no `kit-for-seat`",
+                    _d9_end_cw10 = ending_store.get_current_ending(pkg, _seat) or {}
+                    check("7.474 (CW10): CHECKOUT CLOSES ITS OWN ROW AND STAMPS ITS OWN ENDING, "
+                          "both at checkout time, with no closer and no proxy in between. What "
+                          "MOVED is which surface carries which fact: `sessions.csv` gets `ended` "
+                          "— the session TRACE, still this file's — and the ONE ending store gets "
+                          "`done` in the SEAT's own voice [§4.1 Row A]. ⚠ AND THE `disposition` / "
+                          "`disposition-writer` CELLS ARE ASSERTED EMPTY, which is this row's "
+                          "original claim rather than a relaxation of it: CW10 exists to say the "
+                          "seat writes its ending ITSELF, with no `kit-for-seat` proxy standing "
+                          "in, and the way that is now true is that those cells have no writer at "
+                          "all. A filled cell here would be the dual writer returning under the "
+                          "name of the row that was written to forbid a proxy",
                           _d9hit is not None
-                          and _d9hit[_d9i["disposition"]].strip() == "done"
-                          and _d9hit[_d9i["disposition-writer"]].strip() == DISPOSITION_WRITER_SEAT
-                          and "kit-for-seat" not in _d9writers)
+                          and _d9hit[_d9i["disposition"]].strip() == ""
+                          and _d9hit[_d9i["disposition-writer"]].strip() == ""
+                          and "kit-for-seat" not in _d9writers
+                          and (_d9_end_cw10.get("ending"), _d9_end_cw10.get("who_stamped"))
+                          == ("done", ENDING_VOICE_SEAT))
                 run(cmd_checkin, agent=_seat, summary=f"session-trace probe: {_verb} again",
                     pane=_pane)
                 session_open(ns(), _srec, since=time.time(), wait=0.0)
@@ -4900,7 +4918,7 @@ def _selftest_checks(args, failures, names):
                           _bcode == 0 and "sessions.csv row NOT completed" in _bout
                           and "The close itself stands" in _bout
                           and current_row(_rows_b, _seat)["active"] == "no")
-                clear_awaiting(base_g, _seat)
+                clear_ending(base_g, _seat)   # fixture teardown: a probe seat leaves no ending
                 _sh_sc.rmtree(pkg / "workers" / _seat)
         finally:
             # Restored under `finally` because a leak here does not fail loudly at the leak: the
@@ -5892,28 +5910,38 @@ def _selftest_checks(args, failures, names):
             "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
             "tf-d42,gamma,,opencode,zai-coding-plan/glm-5.2,high,,m0\n", encoding="utf-8")
         session_open(ns(), _u46_g, since=time.time(), wait=0.0)
-        session_close(ns(), "gamma", disposition="exited", writer=DISPOSITION_WRITER_KIT)
+        session_close(ns(), "gamma")
+        # THE ADMITTED FROM-STATE: a supervisor-stamped `failed` with a CRASH-shaped reason class
+        # — the successor of `exited`+`kit` [§4.1 Row A, spec-supervisor §4].
+        seed_ending(base_g, "gamma", ending="failed", reason_class="crash")
         _d42_bytes_before = sessions_csv(pkg).read_bytes()
 
         # ---- CONTROL: the plain launch of the SAME target STILL defers, with the class word.
+        # ⚠ THE CLASS WORD IS `terminal-unenumerated`, NOT `exit-unruled`, AND THAT IS A DEFECT
+        # THIS ROW NOW PINS RATHER THAN A RENAME. `ready.py`'s `_DEFERRAL_BY_DISPOSITION` is still
+        # keyed on the deleted six-value enum and has NO ENTRY for `failed`, so the most
+        # established ending in the system classes as "a value nobody established". The row's own
+        # claim — the general gate is NOT weakened by the door — is unaffected and is what the
+        # exit code and the absent pane carry; the class word is pinned so this goes RED the day
+        # `ready.py` is migrated. Full argument at the 7.274 block's surfacing note.
         _d42_plain, _d42_plain_code = refuse(cmd_launch, agent="leader", only="gamma",
                                              dry_run=True)
-        check("D42 R-CONTROL: with the instrument LANDED, the PLAIN relaunch of a kit-written "
-              "`exited` row STILL DEFERS with class `exit-unruled` and opens nothing. The general "
+        check("D42 R-CONTROL: with the instrument LANDED, the PLAIN relaunch of a supervisor-"
+              "stamped `failed` row STILL DEFERS and opens nothing. The general "
               "gate is not weakened by the door, and the door is reachable only by asking for it — "
               "without this row an instrument that quietly admitted everything would pass every "
               "other check here",
               _d42_plain_code == 1
-              and "NOT LAUNCHED — exit-unruled" in _d42_plain
+              and "NOT LAUNCHED — terminal-unenumerated" in _d42_plain
               and "[dry-run] gamma" not in _d42_plain)
         _d42_f, _d42_f_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
                                      force=True, force_memory=True)
         check("D42 R-BARRED: and NO OVERRIDE CARRIES IT — `--force` AND `--force-memory` together "
-              "still leave the `exited` row deferred as `exit-unruled`. The barred list is "
+              "still leave the `failed` row deferred. The barred list is "
               "UNCHANGED by this addition (D12): `--rerun` is a FOURTH independent parameter and "
               "confers nothing on either flag, nor they on it",
               _d42_f_code == 1
-              and "NOT LAUNCHED — exit-unruled" in _d42_f
+              and "NOT LAUNCHED — terminal-unenumerated" in _d42_f
               and "[dry-run] gamma" not in _d42_f)
 
         # ---- the two cardinality refusals and the empty-anchor refusal ----
@@ -5944,14 +5972,15 @@ def _selftest_checks(args, failures, names):
               and "ORDINARY WORKING SESSION" in _d42_ok
               and "is NOT rewritten, cleared or relabelled" in _d42_ok)
         check("D42 R-1 (THE ROW IS UNTOUCHED): `sessions.csv` is BYTE-IDENTICAL across the admit. "
-              "The `exited` word is the run's ONLY record of how that session ended; an act that "
-              "cleared it to make room for the re-run would destroy the evidence the leader's "
-              "investigation was about. It is superseded later, by the new session's own ended row",
+              "The `failed`/`crash` ending is the run's ONLY record of how that session ended; an "
+              "act that cleared it to make room for the re-run would destroy the evidence the "
+              "leader's investigation was about. It is superseded later, when the new sitting "
+              "declares its own ending — which REPLACES the row rather than editing it (§1.1)",
               sessions_csv(pkg).read_bytes() == _d42_bytes_before)
 
         # ==== E22 (owner ruling, 2026-08-23): THE LANE-AWARE COMPOSER — G-leader-0822-2056/2058 ==
-        # gamma's last ENDED row is `exited`/kit and the registry is written (above), so `--rerun`
-        # ADMITS here on both lanes; the ONE thing each row below moves is the package's
+        # gamma's current ending is `failed`/`crash` and the registry is written (above), so
+        # `--rerun` ADMITS here on both lanes; the ONE thing each row below moves is the package's
         # `execution-lane` marker, read through the goals-tree speller (`goal_execution_lane`).
         # ⚠ NO EXPECTED VALUE BELOW IS READ FROM THE CODE UNDER TEST: every substring is a
         # spelled-out literal. Each arm was proved RED by a mutation on a scratch copy (the
@@ -6163,7 +6192,8 @@ def _selftest_checks(args, failures, names):
               and "ADMITTED by --declare-only" not in _d42_ok)
 
         # ---- R-P4: a LIVE pane under the same name refuses, exactly as `--declare-only`'s does.
-        session_close(ns(), "gamma", disposition="exited", writer=DISPOSITION_WRITER_KIT)
+        session_close(ns(), "gamma")
+        seed_ending(base_g, "gamma", ending="failed", reason_class="crash")
         run(cmd_checkin, agent="gamma", summary="the crashed seat's zombie pane", pane="%94")
         live_tmux_panes["v"] = {"%94"}
         _d42_p4, _d42_p4_code = refuse(cmd_launch, agent="leader", only="gamma", dry_run=True,
@@ -6195,7 +6225,10 @@ def _selftest_checks(args, failures, names):
               "after this block meets the state it was written against rather than inheriting "
               "this block's props",
               "gamma" not in undeclared_endings(pkg)
-              and sessions_last_ended(pkg)["gamma"][1] == "done"
+              # the ENDING is the surface that carries `done` now; the session row carries only
+              # that a sitting closed [§4.1 Row A]
+              and (ending_store.get_current_ending(pkg, "gamma") or {}).get("ending") == "done"
+              and sessions_last_ended(pkg)["gamma"][1] == ""
               and (current_row(_d42_rest, "gamma") or {}).get("active") != "yes"
               and live_panes() == set()
               and not (pkg / "taskforce.csv").exists())
@@ -6225,12 +6258,15 @@ def _selftest_checks(args, failures, names):
         (_d54 / "budget.json").write_text(
             json.dumps({"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000}}))
 
-        def _d54_seed_row(seat, disposition, writer, reopen_reason=""):
+        # ⚠ TWO SURFACES, TWO SUBJECTS, ONE HELPER — and neither carries the other's fact. The
+        # session ROW is the trace (`ended`, and D72's `reopen-reason`, which is still this file's
+        # column and is what the walk-forward rows below read back); the ENDING is the store's.
+        # `ending=None` seeds an ENDED row with NO ending, which is the UNDECLARED class (§1.1).
+        def _d54_seed_row(seat, ending, reason_class=None, reopen_reason=""):
             row = dict.fromkeys(SESSIONS_COLS, "")
-            row.update({"session-id": f"{seat}-{disposition or 'none'}-1", "seat": seat,
+            row.update({"session-id": f"{seat}-{ending or 'none'}-1", "seat": seat,
                         "harness": "claude", "started": "2026-08-22 09:00",
-                        "ended": "2026-08-22 09:30" if disposition or writer else "",
-                        "disposition": disposition, "disposition-writer": writer,
+                        "ended": "2026-08-22 09:30",
                         REOPEN_REASON_COL: reopen_reason})
             existing = []
             if sessions_csv(_d54).exists():
@@ -6238,11 +6274,15 @@ def _selftest_checks(args, failures, names):
                 existing = [pad_row(r, _h) for r in existing]
             existing.append([row.get(_c, "") for _c in SESSIONS_COLS])
             write_csv_table(sessions_csv(_d54), SESSIONS_COLS, existing)
+            if ending:
+                seed_ending(_d54, seat, ending=ending, reason_class=reason_class)
+            else:
+                clear_ending(_d54, seat)
 
         # `origin` is the seat about to be reopened: ONE finished (`done`) row.
-        _d54_seed_row("origin", "done", DISPOSITION_WRITER_SEAT)
+        _d54_seed_row("origin", "done")
         # `ran1` already ran depending on `origin` — the walk-forward must name it.
-        _d54_seed_row("ran1", "done", DISPOSITION_WRITER_SEAT)
+        _d54_seed_row("ran1", "done")
         # `succ` and `neverran` also depend on `origin` but have NEVER run — the walk-forward
         # must NOT name them (D72: only seats that already ran on the retracted `done`).
         # `unrelated` shares nothing with `origin` at all.
@@ -6270,14 +6310,17 @@ def _selftest_checks(args, failures, names):
               _d54_er_code == 2 and "citing nothing" in _d54_er)
 
         # ---- R-STATE: every non-`done` state is refused BY STATE, one arm each --------------
-        for _d54_disp, _d54_writer in (("exited", DISPOSITION_WRITER_KIT),
-                                       ("incomplete", DISPOSITION_WRITER_SEAT),
-                                       ("unverified", DISPOSITION_WRITER_SEAT),
-                                       ("", "")):
-            _d54_seed_row("probe", _d54_disp, _d54_writer)
+        # The from-states are the settled vocabulary: the two non-`done` endings the store can
+        # hold, plus ABSENCE — which is the UNDECLARED class and is not a stored word (§1.1).
+        for _d54_end, _d54_rc in (("failed", "crash"),
+                                  ("failed", "outputs-missing"),
+                                  ("incomplete", None),
+                                  (None, None)):
+            _d54_seed_row("probe", _d54_end, _d54_rc)
             _d54_st, _d54_st_code = _d54_run(only="probe", reopen="late finding")
-            check(f"D54 R-STATE ({_d54_disp or '(undeclared)'}): --reopen REFUSES a `probe` row "
-                  f"whose last ending is `{_d54_disp or '(empty)'}`, not `done` — the SAME "
+            check(f"D54 R-STATE ({(_d54_end + '/' + _d54_rc) if _d54_rc else (_d54_end or '(no ending)')}): "
+                  f"--reopen REFUSES a `probe` row "
+                  f"whose last ending is not `done` — the SAME "
                   f"BY-STATE refusal shape `--rerun` uses, naming the right door for the class "
                   f"it found",
                   _d54_st_code == 1
@@ -6293,7 +6336,7 @@ def _selftest_checks(args, failures, names):
 
         # ---- R-1: THE ADMISSION (dry-run), the walk-forward it computes, and the OLD row ------
         _d54_bytes_before = sessions_csv(_d54).read_bytes()
-        _d54_origin_row_before = _d54_cell("origin", "disposition", sid="origin-done-1")
+        _d54_origin_row_before = _d54_cell("origin", "ended", sid="origin-done-1")
         _d54_ok, _d54_ok_code = _d54_run(only="origin", reopen="late-finding-2")
         check("D54 R-1: `--reopen <reason>` ADMITS the finished target and the launch proceeds, "
               "naming D54 and printing the reason it will record",
@@ -6309,24 +6352,25 @@ def _selftest_checks(args, failures, names):
         check("D54 R-1 (THE OLD ROW IS UNTOUCHED, dry-run): a dry-run admission writes NOTHING — "
               "`sessions.csv` is BYTE-IDENTICAL and `origin`'s `done` row is unchanged",
               sessions_csv(_d54).read_bytes() == _d54_bytes_before
-              and _d54_cell("origin", "disposition", sid="origin-done-1") == "done")
+              # the ROW is unchanged — and what it carries is the trace, not the ending, so
+              # "unchanged" is asserted on the whole file's bytes above and on this row's
+              # `reopen-reason` cell here (D72's own column, still this file's)
+              and _d54_cell("origin", REOPEN_REASON_COL, sid="origin-done-1") == ""
+              and (ending_store.get_current_ending(_d54, "origin") or {}).get("ending") == "done")
         check("D54 (compute-only): `reopen_downstream_seats` in isolation names EXACTLY {ran1} — "
               "the direct assertion behind R-1's printed banner",
               reopen_downstream_seats(_d54, "origin") == ["ran1"])
 
         # ---- R-BUDGET: the (goal, seat, reason) brake, coord.py-LOCAL (D66) -------------------
-        _d54_seed_row("origin", "incomplete", DISPOSITION_WRITER_SEAT,
-                      reopen_reason="budget-reason")
-        _d54_seed_row("origin", "incomplete", DISPOSITION_WRITER_SEAT,
-                      reopen_reason="budget-reason")
+        _d54_seed_row("origin", "incomplete", reopen_reason="budget-reason")
+        _d54_seed_row("origin", "incomplete", reopen_reason="budget-reason")
         check("D54 R-BUDGET (counter): TWO prior reopens citing the SAME reason are already on "
               "the ledger — `reopen_attempt_count` reads them back directly, the same function "
               "the door's own admission calls",
               reopen_attempt_count(_d54, "origin", "budget-reason") == 2)
         # `origin`'s LAST row is now `incomplete` (not `done`) from the seeding above — restore
         # a `done` ending so the STATE gate admits and only the BUDGET gate can refuse this arm.
-        _d54_seed_row("origin", "done", DISPOSITION_WRITER_LEADER,
-                      reopen_reason="")
+        _d54_seed_row("origin", "done", reopen_reason="")
         _d54_bud, _d54_bud_code = _d54_run(only="origin", reopen="budget-reason")
         check("D54 R-BUDGET (refusal): the THIRD reopen citing the SAME reason is REFUSED — the "
               "(goal, seat, reason) brake (D52/D66) admits at most 2 — and nothing was written "
@@ -6386,13 +6430,16 @@ def _selftest_checks(args, failures, names):
                   .startswith("late-finding-2")
               and "messages.md #" in (_d54_cell("origin", REOPEN_REASON_COL, sid=_d54_new_sid)
                                       or ""))
-        check("D54 R-REAL (THE OLD `done` ROW IS UNTOUCHED): re-extracted by its OWN session-id "
-              "after the real launch, `origin-done-1`'s disposition cell still reads `done` — "
-              "byte-identical to what it was captured as before the whole block ran. METHOD: "
-              "captured the ORIGINAL cell value before any `--reopen` call in this block; "
-              "re-extracted the SAME session-id's SAME column after; compared",
-              _d54_cell("origin", "disposition", sid="origin-done-1") == _d54_origin_row_before
-              == "done")
+        check("D54 R-REAL (THE OLD ROW IS UNTOUCHED): re-extracted by its OWN session-id after "
+              "the real launch, `origin-done-1` is byte-for-byte what it was captured as before "
+              "the whole block ran — the reopen APPENDS a new row and rewrites no history. "
+              "METHOD: captured the ORIGINAL row before any `--reopen` call in this block; "
+              "re-extracted the SAME session-id after; compared. ⚠ THE CELL COMPARED IS NO LONGER "
+              "`disposition`: that column has no writer [§4.1], so comparing it would compare two "
+              "empty strings and pass for any implementation at all — including one that rewrote "
+              "the row wholesale. The `ended` stamp is what this row can still be wrong about",
+              _d54_cell("origin", "ended", sid="origin-done-1") == _d54_origin_row_before
+              and _d54_origin_row_before == "2026-08-22 09:30")
         _d54_msgs = load_messages(base_dir(argparse.Namespace(
             package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False)))[1]
         # A block's BODY is `"lines"[1:]` (line 0 is the header the parser matched); there is no
@@ -6417,13 +6464,16 @@ def _selftest_checks(args, failures, names):
         _d54_rows_before = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
             package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
         check("D54 UN-ADVANCE (before): with the new sitting still OPEN, `succ` STILL reads "
-              "READY — `sessions_last_ended_rows` selects the LAST ENDED row, and the freshly "
-              "opened row has no `ended` stamp yet, so `origin`'s durable disposition is still "
-              "the OLD `done` one",
+              "READY — the reopened sitting has declared no ending of its own yet, so the "
+              "CURRENT `seat_endings` row for `origin` is still the `done` its earlier sitting "
+              "stamped. ⚠ THE MECHANISM MOVED AND THE PROPERTY DID NOT: it used to be that "
+              "`sessions_last_ended_rows` selects the LAST ENDED row and a freshly opened row has "
+              "no `ended` stamp; it is now that a new declaration REPLACES the current ending "
+              "(§1.1) and a sitting that has not declared has replaced nothing",
               _d54_rows_before["succ"]["verdict"] == "READY")
         session_close(argparse.Namespace(package=str(_d54), base=None, workers_dir=None,
-                                         as_agent=None, force=False),
-                     "origin", disposition="incomplete", writer=DISPOSITION_WRITER_SEAT)
+                                         as_agent=None, force=False), "origin")
+        seed_ending(_d54, "origin", ending="incomplete")
         _d54_rows_after = {r["seat"]: r for r in ready_seat_rows(argparse.Namespace(
             package=str(_d54), base=None, workers_dir=None, as_agent=None, force=False))}
         check("D54 UN-ADVANCE (after): once the REOPENED sitting itself ends NON-`done` "
@@ -6684,9 +6734,13 @@ def _selftest_checks(args, failures, names):
               "export file appears for the seat. The export is the DONE path's last durable "
               "artifact; a session that is about to write a handoff has not finished yet",
               "transcript:" not in _r1_out and _r1_tx_after == _r1_tx_before)
-        check("s12-05 S5-b: call 1 records NO awaiting-close debt — awaiting-close.json is "
-              "byte-for-byte the same map after the call. The G-134 debt belongs to the DONE path, "
-              "and the renew disposition is s12-07's to write at call 2",
+        check("s12-05 S5-b: call 1 STAMPS NO ENDING — the seat's current `seat_endings` row is "
+              "byte-for-byte what it was before the call. Call 1 is the TEACHING step and it "
+              "declares nothing; the ending is call 2's to write, and a call-1 that stamped one "
+              "would have the seat ending a sitting it is still in. ⚠ THE SURFACE MOVED FROM "
+              "`awaiting-close.json` TO THE ONE ENDING STORE [§4.1] and the claim is strictly "
+              "stronger for it: the old file was a SECOND record, so leaving it untouched proved "
+              "nothing about what the durable one said",
               _r1_aw_after == _r1_aw_before)
         check("s12-05 S2-f: the whole call-1 flow leaves the seat's READ CURSOR untouched (D3) — "
               "the successor inherits this cursor, so a renewal that advanced it would cut the "
@@ -6992,9 +7046,10 @@ def _selftest_checks(args, failures, names):
         _eph_all2 = _eph_o2 + _eph_e2
         check("r-checkout-selfclose C2: an `ephemeral: yes` seat's DONE checkout SELF-CLOSES — the "
               "output kills the seat's own pane instead of teaching 'leader frees the pane', the "
-              "kill targets exactly the seat's roster pane, and the awaiting-close debt is CLEARED "
-              "by the same act (the G-134 discipline cmd_depart states: a departure settles what "
-              "it made moot). gamma's done checkout above (S2-d/S6-i) keeps the leader path — the "
+              "kill targets exactly the seat's roster pane, and its own `done` ending STANDS "
+              "through the self-close (the G-134 discipline cmd_depart states: a departure settles "
+              "what it made moot, and what it must not do is edit the word the seat just wrote). "
+              "gamma's done checkout above (S2-d/S6-i) keeps the leader path — the "
               "branch is the DESCRIPTOR's, never the verb's",
               _eph_code2 is None
               and "killing own pane %79" in _eph_all2
@@ -7449,14 +7504,26 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, ns(agent="d9renew", renew=True, handoff="carry this forward",
                              no_export=True))
         _d9_renew_row, _d9_header = _d9_row("d9renew")
-        check("dag-09 LG-7: A DONE-CHECKOUT WRITES `disposition=done` ON THE SESSION ROW AND A "
-              "RENEW-CHECKOUT WRITES `renew` — both arms, both driven through the real "
-              "`cmd_checkout`, both read back HEADER-KEYED off disk. One arm alone could not "
-              "distinguish a column that carries the disposition from a column hard-wired to the "
-              "commoner value, and `done` is the only value that advances a DAG edge",
+        _d9_done_end = ending_store.get_current_ending(pkg, "d9done") or {}
+        _d9_renew_end = ending_store.get_current_ending(pkg, "d9renew") or {}
+        check("dag-09 LG-7: A DONE-CHECKOUT STAMPS `done` AND A RENEW-CHECKOUT STAMPS "
+              "`incomplete`+`armed=1` — both arms, both driven through the real `cmd_checkout`, "
+              "both read back off the ONE ending store. One arm alone could not distinguish a "
+              "writer that carries the seat's declaration from one hard-wired to the commoner "
+              "value, and `done` is the only ending that advances a DAG edge [§1.3]. ⚠ AND THE "
+              "SESSION ROW IS ASSERTED EMPTY OF WORK STATE, which is this row INVERTED from what "
+              "it used to claim: dag-09 minted the `disposition` column precisely BECAUSE "
+              "`awaiting-close.json` was cleared on success and a durable copy was needed. §4.1 "
+              "removed the erasing writer instead, so the copy is not needed and must not exist — "
+              "a cell filled here would be the second ending record coming back. The `ended` stamp "
+              "stays: closing the session TRACE is what this file still owns",
               _d9_rc is None
-              and _d9_done_row.get("disposition") == "done"
-              and _d9_renew_row.get("disposition") == "renew"
+              and (_d9_done_end.get("ending"), _d9_done_end.get("who_stamped"))
+              == ("done", ENDING_VOICE_SEAT)
+              and (_d9_renew_end.get("ending"), _d9_renew_end.get("armed"),
+                   _d9_renew_end.get("diagnostic")) == ("incomplete", 1, "context full")
+              and _d9_done_row.get("disposition") == ""
+              and _d9_renew_row.get("disposition") == ""
               and _d9_done_row.get("ended") and _d9_renew_row.get("ended"))
 
         # ---- LG-8: an empty cell is UNKNOWN, never `done` ----
@@ -7492,26 +7559,18 @@ def _selftest_checks(args, failures, names):
         check("7.481: `sessions.csv` is the SOLE source — an ended `renew` row still reads "
               "`renew` even with a leftover record saying `done`",
               session_disposition(pkg, "d9first") == "renew")
-        _frr_pkg = Path(td) / "frr-pkg"
-        _frr_base = _frr_pkg / "coordination"
-        _frr_base.mkdir(parents=True)
-        _frr_p = sessions_csv(_frr_pkg)
-        _frr_h, _ = read_csv_table(_frr_p, SESSIONS_COLS)
-        _frr_h, _frr_w = widen_header(_frr_h, SESSIONS_COLS)
-        _frr_i = {c: n for n, c in enumerate(_frr_h)}
-        _frr_row = ["" for _ in _frr_h]
-        _frr_row[_frr_i["session-id"]] = "98b6bcf1"
-        _frr_row[_frr_i["seat"]] = "leader"
-        _frr_row[_frr_i["started"]] = "2026-08-17 21:40"
-        _frr_row[_frr_i["ended"]] = "2026-08-17 23:05"
-        _frr_row[_frr_i["disposition"]] = "exited"
-        write_csv_table(_frr_p, _frr_h, [_frr_row])
-        seed_ending(_frr_base, "leader", "", "", False, ending="done")
-        _frr_term = terminal_disposition(_frr_pkg, _frr_base, "leader")
-        check("7.481: LIVE-vs-DURABLE SKEW still fires when awaiting-close.json and "
-              "sessions.csv disagree — awaiting-close stays as the live-debt surface",
-              _frr_term[2] == ("done", "exited")
-              and session_disposition(_frr_pkg, "leader") == "exited")
+        # ---- 7.481's LIVE-vs-DURABLE SKEW ROW IS DELETED: SKEW HAS NO SECOND RECORD LEFT ----
+        # It seeded `awaiting-close.json` and `sessions.csv` with DIFFERENT endings for one seat
+        # and asserted `terminal_disposition` reported the disagreement rather than picking a side.
+        # That was the right behaviour for two writers, and §4.1 removed the second one. There is
+        # ONE ending record now and a new declaration REPLACES it in the same transaction (§1.1),
+        # so the state this row constructed cannot be reached by any writer — a fixture that hand-
+        # built it would be grading a disagreement the design makes unrepresentable.
+        #
+        # ⚠ `terminal_disposition` STILL RETURNS A THREE-TUPLE whose third element is the skew, and
+        # it is now always `None`. That shape is deliberate (its docstring carries the argument):
+        # every caller unpacks three, and the branch being UNREACHABLE is the property, not a
+        # residue. The skew branch in `attest_exit_blockers`' term (c) is unreachable with it.
 
         # ---- LG-9: the two surfaces are written from ONE value ----
         # STRUCTURAL, off the module's own AST, and that is deliberate: the BEHAVIOURAL twin is
@@ -7522,25 +7581,40 @@ def _selftest_checks(args, failures, names):
         _d9_ckt = next((n for n in _d8_ast.walk(
                             _d8_ast.parse(PRODUCT_SOURCE))
                         if isinstance(n, _d8_ast.FunctionDef) and n.name == "cmd_checkout"), None)
-        _d9_args = {}
-        for _d9_n in _d8_ast.walk(_d9_ckt) if _d9_ckt else []:
-            if not isinstance(_d9_n, _d8_ast.Call):
-                continue
-            _d9_fn = getattr(_d9_n.func, "id", "")
-            if _d9_fn in ("set_awaiting", "session_close"):
-                for _d9_k in _d9_n.keywords:
-                    if _d9_k.arg == "disposition":
-                        _d9_args[_d9_fn] = getattr(_d9_k.value, "id", "<not-a-plain-name>")
-        _d9_assigns = [n for n in _d8_ast.walk(_d9_ckt) if isinstance(n, _d8_ast.Assign)
-                       and any(getattr(t, "id", "") == "checkout_disposition" for t in n.targets)]
-        check("dag-09 LG-9: THE TWO SURFACES ARE WRITTEN FROM ONE VALUE — `awaiting-close.json` "
-              "and the durable session row both receive the SAME bare name, and that name is "
-              "computed EXACTLY ONCE in `cmd_checkout`. A second expression, however identical "
-              "today, is a skew waiting for the day one of them is edited; the ready arithmetic "
-              "would then report SKEW on a disagreement this file manufactured itself",
-              len(_d9_args) == 2
-              and set(_d9_args.values()) == {"checkout_disposition"}
-              and len(_d9_assigns) == 1)
+        _d9_stamps = [n for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
+                      if isinstance(n, _d8_ast.Call)
+                      and getattr(n.func, "id", "") == "stamp_checkout_ending"]
+        _d9_kind = [getattr(k.value, "id", "<not-a-plain-name>")
+                    for n in _d9_stamps for k in n.keywords if k.arg is None] or [
+                        getattr(a, "id", "<not-a-plain-name>")
+                        for n in _d9_stamps for a in n.args[2:3]]
+        _d9_assigns = [n for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
+                       if isinstance(n, _d8_ast.Assign)
+                       and any(getattr(t, "id", "") == "checkout_kind" for t in n.targets)]
+        _d9_ledger = [n for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
+                      if isinstance(n, _d8_ast.Call)
+                      and getattr(n.func, "id", "") == "session_close"
+                      and any(k.arg == "disposition" for k in n.keywords)]
+        check("dag-09 LG-9: THE ENDING IS WRITTEN ONCE, FROM ONE VALUE, THROUGH ONE CALL — "
+              "`cmd_checkout` reaches `stamp_checkout_ending` EXACTLY ONCE, passes it a bare name, "
+              "and no other surface is handed a disposition at all. ⚠ THIS IS THE SAME CLAIM THIS "
+              "ROW ALWAYS MADE, WITH ONE FEWER SURFACE: it used to assert that TWO writes "
+              "(`set_awaiting` and `session_close`) received the SAME name, because a second "
+              "expression is a skew waiting for the day one of them is edited. §4.1 removed the "
+              "second write instead of policing it, which is the stronger form of the same fix — "
+              "so the row now asserts that no second write exists. `session_close` is checked "
+              "NEGATIVELY for that reason: its `disposition` parameter survives as an ignored "
+              "argument, and a call site that started passing it again would be reinstating the "
+              "dual writer without changing a signature",
+              len(_d9_stamps) == 1
+              and _d9_kind and set(_d9_kind) == {"checkout_kind"}
+              and len(_d9_assigns) >= 1
+              and _d9_ledger == []
+              # …and the counter-control: the AST walk really can see calls in this function, so
+              # the empty list above is a measurement and not a walk that found nothing at all.
+              and any(getattr(n.func, "id", "") == "session_close"
+                      for n in (_d8_ast.walk(_d9_ckt) if _d9_ckt else [])
+                      if isinstance(n, _d8_ast.Call)))
 
         # ---- LG-13: no positional reader breaks, and the question was a real one ----
         _d9_hdr, _d9_rows = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
@@ -7564,20 +7638,22 @@ def _selftest_checks(args, failures, names):
               "stamp, design-lock item 5) reddened it again, `755b197e`'s `checkin` reddened it "
               "a third time, D19's `model` (the seat's launched cast) a fourth, D42's "
               "`hold-anchor` (the leader's HOLD on a non-terminal row) a FIFTH, and D54/D72's "
-              "`reopen-reason` (the `--reopen` door's recorded reason) a SIXTH — which is "
-              "exactly why the tail is "
+              "`reopen-reason` (the `--reopen` door's recorded reason) a SIXTH — and "
+              "spec-state-store §1.7 a SEVENTH, in the other direction: `hold-anchor` was REMOVED "
+              "with the leader HOLD it recorded [T1-R9, T2-R12], so the tail is six columns and "
+              "not seven. ⚠ A REMOVAL FIRING THIS ROW IS THE POINT, and it is why the tail is "
               "asserted by NAME and by INDEX rather than as 'the last one'. A claim that moves "
               "with the file grades nothing, and each firing is a schema change being SEEN",
               _d9_hdr[:len(_d9_cols_before_dag09)] == _d9_cols_before_dag09
-              and _d9_hdr[-7:] == ["disposition", "disposition-writer", "execution", "checkin",
-                                   "model", "hold-anchor", "reopen-reason"]
+              and _d9_hdr[-6:] == ["disposition", "disposition-writer", "execution", "checkin",
+                                   "model", "reopen-reason"]
+              and "hold-anchor" not in _d9_hdr
               and _d9_idx["tty"] == 10
-              and _d9_idx["disposition"] == len(_d9_hdr) - 7
-              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 6
-              and _d9_idx["execution"] == len(_d9_hdr) - 5
-              and _d9_idx["checkin"] == len(_d9_hdr) - 4
-              and _d9_idx["model"] == len(_d9_hdr) - 3
-              and _d9_idx["hold-anchor"] == len(_d9_hdr) - 2
+              and _d9_idx["disposition"] == len(_d9_hdr) - 6
+              and _d9_idx["disposition-writer"] == len(_d9_hdr) - 5
+              and _d9_idx["execution"] == len(_d9_hdr) - 4
+              and _d9_idx["checkin"] == len(_d9_hdr) - 3
+              and _d9_idx["model"] == len(_d9_hdr) - 2
               and _d9_idx["reopen-reason"] == len(_d9_hdr) - 1
               and len(_d9_fields) == len(_d9_hdr)
               and "disposition" not in _d9_positional
@@ -7585,7 +7661,6 @@ def _selftest_checks(args, failures, names):
               and "execution" not in _d9_positional
               and "checkin" not in _d9_positional
               and "model" not in _d9_positional
-              and "hold-anchor" not in _d9_positional
               and "reopen-reason" not in _d9_positional
               and len(_d9_positional) == len(_d9_cols_before_dag09))
 
@@ -7602,7 +7677,7 @@ def _selftest_checks(args, failures, names):
         # Every fixture below is a WHOLE run package of its own — a taskforce DAG, descriptors, a
         # roster, and BOTH disposition surfaces — because the predicate has four terms and a row
         # that shares a package with its neighbours cannot isolate which term it moved.
-        def _rs_make(name, tf, built=None, active=(), awaiting=(), sessions=(),
+        def _rs_make(name, tf, built=None, active=(), sessions=(),
                      store=None, store_ids=None, guards=None, outputs=None, fallbacks=None,
                      at=None, lifecycle=None):
             """A self-contained run package. `tf` is [(seat, after-cell)]; `awaiting` and
@@ -7682,30 +7757,33 @@ def _selftest_checks(args, failures, names):
                     row_text({"agent": s, "active": "yes", "pane": "%1", "summary": "working",
                               "checkin": "2026-07-29 14:57", "checkout": "", "lastread": "0"})
                     for s in active), encoding="utf-8")
-            if awaiting:
-                (p / "coordination" / "awaiting-close.json").write_text(
-                    json.dumps({s: {"since": "2026-07-29 15:02", "pane": "", "transcript": "",
-                                    "exported": False, "pids": [], "disposition": d,
-                                    "handoff_stamp": ""} for s, d in awaiting},
-                               indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            # ⚠ THE `awaiting=` PARAMETER IS GONE WITH `awaiting-close.json` [§4.1 Row A]. It
+            # existed so a fixture could make the LIVE and DURABLE ending records DISAGREE, which
+            # is the only reason two writers were ever worth simulating. One record cannot
+            # disagree with itself; the rows that drove it are deleted with it, not re-pointed.
             if sessions:
                 write_csv_table(p / "sessions.csv", SESSIONS_COLS,
                                 [[{"session-id": f"{s}-sid", "seat": s,
                                    "started": "2026-07-29 14:00", "ended": "2026-07-29 15:02",
                                    "disposition": d}.get(_c2, "") for _c2 in SESSIONS_COLS]
                                  for s, d in sessions])
-                # ⚠ THE DURABLE SURFACE MOVED, AND THE FIXTURE HAD NOT. `sessions.csv` is still
+                # ⚠ THE DURABLE SURFACE MOVED, AND SO DID THE VOCABULARY. `sessions.csv` is still
                 # written above — several rows read it directly, and the CSV is still the run's
-                # own record — but `ready.py#terminal_disposition` no longer reads it: it asks
-                # `ending_store.get_current_ending`, the ONE ending store. A fixture that wrote
-                # only the CSV therefore handed every readiness row a package with NO ending at
-                # all, which is why they read absence rather than the disposition they set up.
-                # `seed_ending` is the ONE mapping from a legacy disposition word to a stored
-                # ending, and it is called here rather than re-spelled: a second mapping is
-                # exactly the two-computers shape this suite exists to catch.
-                for _seat_e, _disp_e in sessions:
-                    if _disp_e:
-                        seed_ending(p, _seat_e, disposition=_disp_e)
+                # own session TRACE — but `ready.py#terminal_disposition` no longer reads it: it
+                # asks `ending_store.get_current_ending`, the ONE ending store. A fixture that
+                # wrote only the CSV handed every readiness row a package with NO ending at all.
+                #
+                # ⚠ AND THE SECOND ELEMENT IS AN ENDING, NOT A DISPOSITION. It is spelled
+                # `done` / `incomplete` / `failed:<reason-class>` — the settled vocabulary [§1.2,
+                # §1.4]. An INTERMEDIATE version of this fixture accepted the old words and
+                # translated them here; that quietly kept `renew` and `exited` alive in the one
+                # file the rest of the suite copies its spellings from, which is how a killed
+                # vocabulary survives a migration. Callers say what the store stores.
+                for _seat_e, _end_e in sessions:
+                    if _end_e:
+                        _e_word, _, _e_class = str(_end_e).partition(":")
+                        seed_ending(p, _seat_e, ending=_e_word,
+                                    reason_class=_e_class or None)
             if lifecycle is not None:
                 (p / "coordination" / "lifecycle-inflight.json").write_text(
                     json.dumps(lifecycle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -7732,22 +7810,26 @@ def _selftest_checks(args, failures, names):
 
         # ---- RS-1: the disposition decides, not the mere existence of a record ----
         _rs1_done = _rs_make("1done", [("a", ""), ("b", "a")], sessions=[("a", "done")])
-        _rs1_renew = _rs_make("1renew", [("a", ""), ("b", "a")], sessions=[("a", "renew")])
+        _rs1_renew = _rs_make("1renew", [("a", ""), ("b", "a")], sessions=[("a", "incomplete")])
         _rs1_dv, _ = _rs_v(_rs1_done)
         _rs1_rv, _ = _rs_v(_rs1_renew)
-        check("dag-10 RS-1: A SEAT WHOSE SINGLE PREDECESSOR HAS A `done` CHECK-OUT IS READY, AND "
-              "THE SAME SEAT IS BLOCKED WHEN THAT PREDECESSOR'S DISPOSITION IS `renew`. The two "
-              "fixtures differ in ONE CELL, which is the point: without the second arm this row "
-              "could not tell an implementation that READS THE DISPOSITION from one that merely "
+        check("dag-10 RS-1: A SEAT WHOSE SINGLE PREDECESSOR ENDED `done` IS READY, AND THE SAME "
+              "SEAT IS BLOCKED WHEN THAT PREDECESSOR ENDED `incomplete`. The two "
+              "fixtures differ in ONE ENDING, which is the point: without the second arm this row "
+              "could not tell an implementation that READS THE ENDING from one that merely "
               "notices A ROW EXISTS — and the second is the whole class of defect that lets a "
-              "context refresh advance a workflow",
+              "context refresh advance a workflow. `done` is the single ending that advances an "
+              "edge [§1.3], and `incomplete` is what the killed word `renew` became [§4.1 Row A]. "
+              "⚠ THE PREDECESSOR'S OWN VERDICT READS `DONE` ON BOTH ARMS, AND THAT IS PINNED AS A "
+              "DEFECT RATHER THAN AS CORRECT: `ready.py`'s verdict ladder answers `DONE` for ANY "
+              "non-null ending — the word means `this sitting ENDED, so it is not a launch "
+              "candidate`, never `the work is finished` — so an `incomplete` seat is reported to "
+              "a human with the one word that reads as finished. It is pinned so the row goes RED "
+              "the day `ready.py` is migrated and whoever migrates it updates this claim; the "
+              "conjunct that carries the ARITHMETIC is the second one, and it is unmoved: `b` is "
+              "BLOCKED, so an `incomplete` predecessor advances NO edge",
               _rs1_dv == {"a": "DONE", "b": "READY"}
-              # THE RENEW GATE moved `a`'s own verdict from `DONE` to `RENEW-BLOCKED` — this
-              # fixture writes NO lifecycle marker, so nothing records a successor and the row is
-              # a HALT said out loud instead of a word `exited` also carries. What this arm has
-              # always been about is UNMOVED and is the second conjunct: `b` is still BLOCKED, so
-              # a `renew` predecessor still advances NO edge.
-              and _rs1_rv == {"a": "RENEW-BLOCKED", "b": "BLOCKED"})
+              and _rs1_rv == {"a": "DONE", "b": "BLOCKED"})
 
         # ---- D24: a minted goal-master is NOT READY (summoned, not seeded) ----
         check("D24: STAFF_SEATS is not widened — goal-master is summoned, not a staff chair",
@@ -7784,7 +7866,7 @@ def _selftest_checks(args, failures, names):
         # package, which is the verb's whole contract: a thin transport, zero logic of its own —
         # a divergence here means a second classifier grew where the one-reader doctrine
         # (`renewal_state` above — no JS reader may re-derive its answer) forbids one.
-        _le10 = _rs_make("le10", [("a", ""), ("b", "a")], sessions=[("a", "renew")],
+        _le10 = _rs_make("le10", [("a", ""), ("b", "a")], sessions=[("a", "incomplete")],
                          lifecycle={"a": {"disposition": "renew", "state": "in-flight",
                                           "stamped-at": now(), "steps-completed": [],
                                           "caller": {"pid": 1, "starttime": "0"}}})
@@ -7873,34 +7955,21 @@ def _selftest_checks(args, failures, names):
         # one disputed seat froze 65 healthy siblings for 4.5 hours on 2026-08-18. Without this
         # member the fixture cannot tell per-seat containment from a whole-goal fail-close — every
         # other seat in it is downstream of `a`, so both behaviours look identical.
-        _rs5 = _rs_make("5", [("a", ""), ("b", "a"), ("c", "")],
-                        awaiting=[("a", "renew")], sessions=[("a", "done")])
-        _rs5_v, _rs5_code = _rs_v(_rs5)
-        _rs5_out, _rs5_err, _ = _rs(_rs5)
-        # The OPT-IN back to the old whole-goal fail-close, on the SAME package: the rows are
-        # identical and only the exit status moves, which is the whole of what the flag promises.
-        _rs5_fv, _rs5_fcode = _rs_v(_rs5, fail_on_skew=True)
-        _rs5_match = _rs_make("5m", [("a", ""), ("b", "a")],
-                              awaiting=[("a", "done")], sessions=[("a", "done")])
-        _rs5_mv, _rs5_mcode = _rs_v(_rs5_match)
-        check("dag-10 RS-5: DISPOSITION SKEW IS REPORTED, NOT RESOLVED — AND IT BLOCKS THE DISPUTED "
-              "SEAT, NOT THE GOAL. When the live surface says `renew` and the durable one says "
-              "`done` for the same seat, the verdict is SKEW — never `done`, never `not-done` — "
-              "BOTH values are printed WITH THEIR SOURCES and the successor does not advance. "
-              "Picking a winner would be this tool ruling on which of two contradictory records of "
-              "a seat's own ending is true, which is a human's call. ⚠ AN UNRELATED THIRD SEAT IN "
-              "THE SAME PACKAGE STILL READS READY AND THE EXIT STATUS IS 0 (Q2a): the containment "
-              "lives on the rows, and a goal-wide exit status computed off one row is what froze 65 "
-              "healthy seats for 4.5 hours on 2026-08-18. `--fail-on-skew` returns 1 on the SAME "
-              "rows for a caller that wants the old fail-close. Control: the same package with the "
-              "two values AGREEING gives a clean verdict and exit 0",
-              _rs5_v.get("a") == "SKEW" and _rs5_code == 0
-              and "awaiting-close.json=renew" in _rs5_out
-              and "sessions.csv=done" in _rs5_out
-              and _rs5_v.get("b") == "BLOCKED"
-              and _rs5_v.get("c") == "READY"
-              and _rs5_fv == _rs5_v and _rs5_fcode == 1
-              and _rs5_mv == {"a": "DONE", "b": "READY"} and _rs5_mcode == 0)
+        # ---- RS-5 IS DELETED: DISPOSITION SKEW HAS NO SECOND RECORD TO DISAGREE WITH ----
+        # It made `awaiting-close.json` say `renew` while `sessions.csv` said `done` for one seat
+        # and asserted the verdict was `SKEW` — both values printed with their sources, the
+        # successor held, and no winner picked, because ruling on which of two contradictory
+        # records of a seat's own ending is true is a human's call. §4.1 Row A removed the second
+        # record instead: `terminal_disposition` reads ONE row, a new declaration REPLACES it in
+        # the same transaction (§1.1), and the `SKEW` verdict is unreachable from any package.
+        #
+        # ⚠⚠ ONE CLAIM IN THIS ROW WAS NOT ABOUT SKEW AND IS RECORDED AS A LOSS. Q2a (owner-ruled
+        # 2026-08-18) is that a DISPUTED SEAT MUST NOT FREEZE ITS SIBLINGS — seat `c`, depending on
+        # nothing, still read READY and the command still exited 0, because a goal-wide exit status
+        # computed off one bad row froze 65 healthy seats for 4.5 hours. Skew was the only input
+        # this suite had that produced a per-seat fault, so deleting it leaves that containment
+        # UNTESTED rather than untrue. `--fail-on-skew` and the `SKEW` branch in `ready.py`'s
+        # verdict ladder are dead with it and are surfaced alongside the renew gate.
 
         # ---- RS-6: the command writes NOTHING ----
         def _rs_hash(p):
@@ -7980,7 +8049,6 @@ def _selftest_checks(args, failures, names):
                               ("rdy1", "done1"), ("blk1", "run1")],
                         built=["done1", "run1", "skew1", "rdy1", "blk1"],
                         active=["run1"],
-                        awaiting=[("skew1", "renew")],
                         sessions=[("done1", "done"), ("skew1", "done")])
         _rs8_out, _, _ = _rs(_rs8)
         _rs8_bare = [_l for _l in _rs8_out.splitlines()
@@ -7991,10 +8059,13 @@ def _selftest_checks(args, failures, names):
               "seat name. A bare verdict re-installs agent judgment at the read: the caller would "
               "have to reconstruct WHY from the same three files this command just read, and "
               "reconstruction is precisely the act the chief-of-staff's engine bounds forbid it. The "
-              "fixture carries all six verdicts at once so every branch's reason is "
+              "fixture carries every REACHABLE branch at once so each one's reason is "
               "scanned — but WHICH verdicts appear is deliberately NOT asserted: that is "
-              "RS-3's, RS-4's and RS-5's subject, and pinning it here red all three of "
-              "their red arms along with this row",
+              "RS-3's and RS-4's subject, and pinning it here red both of "
+              "their red arms along with this row. ⚠ SIX LINES, FIVE DISTINCT VERDICTS: the seat "
+              "named `skew1` keeps its name and no longer produces `SKEW`, which is unreachable "
+              "with one ending record [§4.1] — it reads `DONE` beside `done1`. The COUNT is what "
+              "this row asserts and it is one line per seat, so it is unmoved by that",
               len(_rs8_verdict_lines) == 6 and _rs8_bare == [])
 
         # ============ THE RENEW GATE — ROWS DELETED, THE GATE ITSELF SURFACED =====================
@@ -8030,21 +8101,23 @@ def _selftest_checks(args, failures, names):
         # never switches scheduling [C-1, D-1-ruling]. Whoever holds `ready.py` deletes the gate
         # and writes the rows for THAT, on a subject that exists.
 
-        # ---- RS-12: `exited` never advances the DAG ----
-        _rs12 = _rs_make("12", [("a", ""), ("b", "a")], sessions=[("a", "exited")])
+        # ---- RS-12: a FAILED ending never advances the DAG ----
+        _rs12 = _rs_make("12", [("a", ""), ("b", "a")], sessions=[("a", "failed:crash")])
         _rs12_v, _ = _rs_v(_rs12)
         _rs12_out, _, _ = _rs(_rs12)
         _rs12_flip = _rs_make("12flip", [("a", ""), ("b", "a")], sessions=[("a", "done")])
         _rs12_fv, _ = _rs_v(_rs12_flip)
-        check("dag-10 RS-12 (and dag-08 EX-5): `exited` NEVER ADVANCES THE DAG. A predecessor at "
-              "`exited` leaves its dependents BLOCKED, and the reason names the value AND the "
-              "routing — the harness terminated, whether the work is done is NOT established, the "
-              "leader investigates and either relaunches or flips the row to `done`. ⚠ THE "
-              "CONTROL IS THE WHOLE ROW: flipping that ONE cell to `done` makes the dependent "
-              "READY, so an implementation that mapped `exited` to `done` `because the work is "
-              "probably fine` would pass the first arm and fail this one",
+        check("dag-10 RS-12 (and dag-08 EX-5): A `failed` ENDING NEVER ADVANCES THE DAG. A "
+              "predecessor stamped `failed`/`crash` leaves its dependents BLOCKED, and the reason "
+              "names the ending AND the routing — the harness terminated, whether the work is done "
+              "is NOT established, the leader investigates and the daemon relaunches. ⚠ THE "
+              "CONTROL IS THE WHOLE ROW: seeding that ONE seat `done` instead makes the dependent "
+              "READY, so an implementation that read a terminal ending as `done` `because the work "
+              "is probably fine` would pass the first arm and fail this one. This is the "
+              "successor of `exited`: the SAME fact, now carrying a mandatory reason class so the "
+              "recovery ladder has something to classify [T1-R18, §1.4]",
               _rs12_v == {"a": "DONE", "b": "BLOCKED"}
-              and "a=exited" in _rs12_out
+              and "a=failed" in _rs12_out
               and "leader" in _rs12_out and "relaunch" in _rs12_out
               and _rs12_fv == {"a": "DONE", "b": "READY"})
 
@@ -8223,7 +8296,7 @@ def _selftest_checks(args, failures, names):
         #           values into one token: the field carries the PAIR, so no reader has to take
         #           `SKEW(a|b)` apart to recover what disagreed.
         _rs20 = _rs_make("20", [("a", ""), ("b", ""), ("f", ""), ("c", "a,b,f"), ("d", "a")],
-                         sessions=[("a", "done"), ("b", "renew")])
+                         sessions=[("a", "done"), ("b", "incomplete")])
         _rs20_out, _, _ = _rs(_rs20, json=True)
         _rs20_rows = {r["seat"]: r for r in json.loads(_rs20_out)}
         # arm 2, computed off the row rather than restated: the prose the BLOCKED branch prints is
@@ -8237,11 +8310,11 @@ def _selftest_checks(args, failures, names):
         _rs20_prose = [m.split("=", 1)[0] for m in
                        re.split(r" (?=[^ =]+=)",
                                 _rs20_rows["c"]["reason"].split("after: ", 1)[1])]
-        # arm 3: a seat whose two records of its own ending DISAGREE, seen from its successor.
-        _rs20_skew = _rs_make("20s", [("s", ""), ("t", "s")],
-                              awaiting=[("s", "done")], sessions=[("s", "renew")])
-        _rs20_sout, _, _ = _rs(_rs20_skew, json=True)
-        _rs20_srows = {r["seat"]: r for r in json.loads(_rs20_sout)}
+        # ⚠ ARM 3 IS DELETED WITH SKEW. It built a seat whose TWO records of its own ending
+        # disagreed and asserted the `unmet-after` field carried BOTH values rather than the
+        # single `SKEW(a|b)` token the prose renders — losslessness at the one branch where the
+        # prose is lossy. §4.1 leaves one record, so the branch has no input; arms 1 and 2 below
+        # carry the field's presence-on-every-row and prose-agreement claims unchanged.
         check("dag-10 RS-20 (7.273): THE UNMET-PREDECESSOR SET IS EMITTED AS A STRUCTURED "
               "`unmet-after` FIELD ON EVERY ROW — `[]` on the rows with nothing unmet and on the "
               "rows that never reach the BLOCKED branch at all, never a key that appears only "
@@ -8251,9 +8324,7 @@ def _selftest_checks(args, failures, names):
               "correct on. ⚠ AND IT AGREES WITH THE PROSE IT REPLACES, member for member and in "
               "the same order, asserted against the `reason` string SPLIT AT RUNTIME rather than "
               "against a hand-typed list — a hand-typed expectation would pass for a field that "
-              "carries plausible members in the wrong order. ⚠ AND IT IS LOSSLESS ON SKEW, the "
-              "one branch where the prose renders TWO values into a single `SKEW(a|b)` token: "
-              "the field carries the pair, so nothing downstream has to take that token apart",
+              "carries plausible members in the wrong order",
               # arm 1: present on all five rows, and `[]` — not absent — on the four that are not
               # blocked, two of which (`a`, `b`) take the DONE branch and never saw the builder.
               all("unmet-after" in r for r in _rs20_rows.values())
@@ -8263,14 +8334,9 @@ def _selftest_checks(args, failures, names):
               # arm 2: exactly the two unmet members, in the prose's own order, with the
               # disposition value verbatim as one state and the no-check-out class as the other —
               # the met predecessor `a` is absent from both renderings.
-              and _rs20_rows["c"]["unmet-after"] == [{"seat": "b", "state": "renew"},
+              and _rs20_rows["c"]["unmet-after"] == [{"seat": "b", "state": "incomplete"},
                                                      {"seat": "f", "state": "no-check-out"}]
-              and [m["seat"] for m in _rs20_rows["c"]["unmet-after"]] == _rs20_prose
-              # arm 3: the skew pair survives, both members, live surface first.
-              and "unmet-after" in _rs20_srows["t"]
-              and _rs20_srows["t"]["unmet-after"] == [
-                  {"seat": "s", "state": "skew", "skew": ["done", "renew"]}]
-              and "s=SKEW(done|renew)" in _rs20_srows["t"]["reason"])
+              and [m["seat"] for m in _rs20_rows["c"]["unmet-after"]] == _rs20_prose)
 
         # ---- --explain: the predicate, term by term ----
         # ON RS-2'S FIXTURE, NOT RS-12'S: sharing RS-12's meant this row asserted the printed
@@ -8310,7 +8376,7 @@ def _selftest_checks(args, failures, names):
                              guards=[("a", "safe", "no"), ("a", "safe", "yes")])
         # The predecessor-not-done arm: the guard MATCHES and the edge is STILL blocked, on the
         # dependency half. Two terms, both required — this is the arm that proves it.
-        _rs21_pend = _rs_make("21p", _rs21_tf, sessions=[("a", "renew")],
+        _rs21_pend = _rs_make("21p", _rs21_tf, sessions=[("a", "incomplete")],
                               guards=[("a", "safe", "yes")])
         _rs21_uv, _ = _rs_v(_rs21_unruled)
         _rs21_mv, _ = _rs_v(_rs21_mis)
@@ -8364,12 +8430,13 @@ def _selftest_checks(args, failures, names):
               "the record of what was ruled first survives the ruling that replaced it — a "
               "first-row-wins implementation would freeze every guard at its first, possibly "
               "wrong, value and could only be corrected by editing history",
-              # `a` reads `RENEW-BLOCKED` rather than `DONE` for THE RENEW GATE's reason (see
-              # RS-1) — this fixture writes no lifecycle marker either. The guard arithmetic this
-              # row is about is untouched: both dependents stay BLOCKED.
-              _rs21_pv == {"a": "RENEW-BLOCKED", "g": "BLOCKED", "bare": "BLOCKED"}
+              # `a` reads `DONE` for the reason RS-1 pins as a defect — the verdict ladder
+              # answers `DONE` for any non-null ending, `incomplete` included. The guard
+              # arithmetic this row is about is untouched: both dependents stay BLOCKED, because
+              # the `after` term reads the ENDING and `incomplete` is not `done`.
+              _rs21_pv == {"a": "DONE", "g": "BLOCKED", "bare": "BLOCKED"}
               and _rs21_sv == {"a": "DONE", "g": "READY", "bare": "READY"}
-              and "a[safe=yes]=renew" in {r["seat"]: r for r in json.loads(
+              and "a[safe=yes]=incomplete" in {r["seat"]: r for r in json.loads(
                   _rs(_rs21_pend, json=True)[0])}["g"]["reason"])
         # ---- the OR-alternate (D6): ANY ONE member satisfies it, and NOTHING less does ----
         # FIVE PACKAGES, ONE SHAPE, VARYING ONLY WHICH LIMB HOLDS. That is what separates "any one
@@ -8691,7 +8758,7 @@ def _selftest_checks(args, failures, names):
         # The SAME ruling with the predecessor NOT done: nothing is dead — there is no ruling for a
         # finished seat to judge against, and this is the arm the `plan-4` lane of
         # `meet-transcript-summarizer` is in live (both variants pending, neither dead).
-        _rs30_pend = _rs_make("30p", _rs30_tf, sessions=[("struct", "renew")],
+        _rs30_pend = _rs_make("30p", _rs30_tf, sessions=[("struct", "incomplete")],
                               guards=[("struct", "mode", "collapsed")])
         _rs30_R = {r["seat"]: r for r in json.loads(_rs(_rs30_ruled, json=True)[0])}
         _rs30_U = {r["seat"]: r for r in json.loads(_rs(_rs30_unruled, json=True)[0])}
@@ -9469,80 +9536,48 @@ def _selftest_checks(args, failures, names):
         # ---- the row-P fixture: every REACHABLE limb pair, plus one row per class -------------
         # `disp` picks WHICH disposition class a disposition-tripping row lands in, so the eight
         # sub-classes of that one limb are each exercised by a row that names them.
+        # ⚠⚠ THE `skew` LIMB AND FIVE DISPOSITION SUB-CLASSES ARE GONE FROM THIS FIXTURE, AND
+        # THEY ARE GONE BECAUSE NOTHING CAN PRODUCE THEM — see the surfacing note after arm 4.
+        # What remains is every pair and every class this home can still emit.
         _a3_spec = [
-            # (seat, limbs, disposition-value) — 19 REACHABLE pairs
-            ("p01", ("skew", "active"), ""), ("p02", ("skew", "built"), ""),
-            ("p03", ("skew", "stop"), ""), ("p04", ("skew", "unmet"), ""),
+            # (seat, limbs, ending) — the REACHABLE pairs
             ("p05", ("disposition", "active"), "done"),
-            ("p06", ("disposition", "built"), "renew"),
-            ("p07", ("disposition", "undeclared"), "revive"),
-            ("p08", ("disposition", "stop"), "exited"),
-            ("p09", ("disposition", "unmet"), "not-a-declared-value"),
+            ("p06", ("disposition", "built"), "incomplete"),
+            ("p08", ("disposition", "stop"), "failed:crash"),
+            ("p09", ("disposition", "unmet"), "done"),
             ("p10", ("active", "built"), ""), ("p11", ("active", "undeclared"), ""),
             ("p12", ("active", "stop"), ""), ("p13", ("active", "unmet"), ""),
             ("p14", ("built", "undeclared"), ""), ("p15", ("built", "stop"), ""),
             ("p16", ("built", "unmet"), ""),
             ("p17", ("undeclared", "stop"), ""), ("p18", ("undeclared", "unmet"), ""),
             ("p19", ("stop", "unmet"), ""),
-            # one SINGLE-LIMB row per class (C-3's superset), so class coverage never rests on
-            # which limb happened to win a pair row
-            ("s01", ("skew",), ""), ("s02", ("disposition",), "done"),
-            ("s03", ("disposition",), "renew"), ("s04", ("disposition",), "revive"),
-            ("s05", ("disposition",), "exited"), ("s06", ("disposition",), "unenumerated-value"),
-            # 7.676: the fifth disposition sub-class. Row S below asserts every value the WRITE
-            # boundary admits has a class here, and arm 1C asserts every class is EXERCISED by a
-            # row — so a disposition minted without this fixture row reds 1C rather than shipping
-            # a class nothing ever produced.
+            # one SINGLE-LIMB row per REACHABLE class, so class coverage never rests on which limb
+            # happened to win a pair row
+            ("s02", ("disposition",), "done"),
             ("s12", ("disposition",), "incomplete"),
-            # D32: the SIXTH disposition sub-class, added by the same rule the line above states —
-            # row S asserts every WRITE-boundary value has a class, arm 1C asserts every class is
-            # EXERCISED, so `claimed-unverified` cannot ship as a class nothing ever produces.
-            ("s14", ("disposition",), "unverified"),
-            # THE RENEW GATE's second sub-class. `s03` above is a `renew` with NO marker and
-            # classes `renew-blocked`; THIS row carries a pending successor and classes
-            # `renewing`. Both are needed: with only one of them arm 1C reds, which is exactly
-            # how a class that nothing ever produces is caught.
-            ("s13", ("disposition",), "renew"),
+            # …and the third settled ending. It is here deliberately even though it classes
+            # `terminal-unenumerated` rather than a class of its own — see the surfacing note.
+            ("s15", ("disposition",), "failed:crash"),
             ("s07", ("active",), ""), ("s08", ("built",), ""), ("s09", ("undeclared",), ""),
             ("s10", ("stop",), ""), ("s11", ("unmet",), ""),
             # the CLEAN row — READY, class None, admitted by the conjunction
             ("clean", (), ""),
         ]
-        _a3_tf, _a3_built, _a3_active, _a3_awaiting, _a3_sessions, _a3_ids = [], [], [], [], [], {}
-        for _s, _limbs, _disp in _a3_spec:
+        _a3_tf, _a3_built, _a3_active, _a3_sessions, _a3_ids = [], [], [], [], {}
+        for _s, _limbs, _end in _a3_spec:
             _a3_tf.append((_s, "danglingpred" if "unmet" in _limbs else ""))
             if "built" not in _limbs:              # tripping `built` == having NO descriptor
                 _a3_built.append(_s)
             if "active" in _limbs:
                 _a3_active.append(_s)
             _a3_ids[_s] = "tasks.md#R1" if "stop" in _limbs else ""
-            if "skew" in _limbs:
-                # BOTH surfaces carry a disposition and they DISAGREE — the one state that yields
-                # a skew tuple, and it forces `disposition` to None, which is why (skew,
-                # disposition) is UNREACHABLE rather than merely unobserved.
-                _a3_awaiting.append((_s, "renew"))
-                _a3_sessions.append((_s, "done"))
-            elif "disposition" in _limbs and "undeclared" in _limbs:
-                # the live surface carries the value while the DURABLE cell is empty — the only
-                # shape in which both limbs trip at once.
-                _a3_awaiting.append((_s, _disp))
-                _a3_sessions.append((_s, ""))
-            elif "disposition" in _limbs:
-                _a3_sessions.append((_s, _disp))
+            if "disposition" in _limbs:
+                _a3_sessions.append((_s, _end))
             elif "undeclared" in _limbs:
                 _a3_sessions.append((_s, ""))
         _a3_pkg = _rs_make("a3-classmap", _a3_tf, built=_a3_built, active=_a3_active,
-                           awaiting=_a3_awaiting, sessions=_a3_sessions,
-                           store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids,
-                           # `s13` alone gets a marker — stamped NOW, so `lifecycle_stale`'s age
-                           # conjunct cannot hold and the row is a live pending renewal without
-                           # this suite needing a live process to point at.
-                           # `state: done` — the successor was PLACED. That arm rather than the
-                           # `in-flight` one deliberately: RG-1 below owns `in-flight`, so a
-                           # mutation of either arm reds exactly one check instead of two.
-                           lifecycle={"s13": {"state": "done", "disposition": "renew",
-                                              "stamped-at": now(), "failure": "",
-                                              "steps-completed": []}})
+                           sessions=_a3_sessions,
+                           store=[("R1", "#row-outcome/held-by-ruling")], store_ids=_a3_ids)
         _a3_rows = ready_seat_rows(argparse.Namespace(
             package=str(_a3_pkg), base=None, workers_dir=None, as_agent=None, force=False))
         _a3_by = {r["seat"]: r for r in _a3_rows}
@@ -9557,60 +9592,11 @@ def _selftest_checks(args, failures, names):
               and all((cls is None and v == "READY") or
                       (cls is not None and CLASS_TO_VERDICT[cls] == v)
                       for _s, cls, v in _a3_arm1))
-        # ---- arm 1C: C-3's SUPERSET — every class the map defines is EXERCISED ----
-        check("7.274 row P arm 1C: every REACHABLE class is exercised by some fixture "
-              "row — set equality, not a count. Seven limbs produce fourteen classes (the "
-              "`disposition` limb alone produces eight since THE RENEW GATE split `renewing` "
-              "from `renew-blocked` and D32 added `claimed-unverified`); `unbuilt` is no longer "
-              "reachable for a taskforce row "
-              "(existence is the CSV registers, and every such row is registered)",
-              {deferral_class(r) for r in _a3_rows} - {None}
-              == set(CLASS_TO_VERDICT) - {"unbuilt"}
-              and len(CLASS_TO_VERDICT) == 14)
-        # ---- arm 1M: THE META-CHECK, over TWO DIFFERENT SETS ----
-        _a3_cov = covered_limb_pairs(_a3_rows)
-        check("7.274 row P arm 1M (coverage): the fixture covers EVERY REACHABLE limb pair — "
-              "13 of the 21, the exclusions being the two structurally impossible skew pairs "
-              "plus every pair that includes `built` (a taskforce row is always registered). "
-              "Precedence is only observable where two limbs COMPETE on one row",
-              _a3_cov == REACHABLE_PAIRS and len(REACHABLE_PAIRS) == 13)
-        _a3_undetected = [(x, y) for x, y in sorted(DETECTABLE_PAIRS)
-                          if not arm1_fails_under_transposition(_a3_rows, x, y)]
-        check("7.274 row P arm 1M (detection): TRANSPOSING ANY TWO LIMBS OF THE PRECEDENCE MAKES "
-              "ARM 1 GO RED — all 20 detectable pairs, each re-ordered and re-run. This is the "
-              "row that proves arm 1 is load-bearing rather than coincidentally true of today's "
-              "fixture: without it, a map that mirrored nothing would still pass arm 1",
-              _a3_undetected == [] and len(DETECTABLE_PAIRS) == 14)
-        _a3_built_pairs = {("skew", "built"), ("disposition", "built"), ("active", "built"),
-                           ("built", "undeclared"), ("built", "stop"), ("built", "unmet")}
-        check("7.274 row P arm 1M (the two sets are NOT the same set): coverage is bounded by what "
-              "the home can PRODUCE, detection by what a re-ordering can be SEEN BY. "
-              "`(skew,disposition)` and `(skew,undeclared)` cannot occur on any row this home "
-              "emits; `(skew,undeclared)` is DETECTABLE anyway. Pairs that include `built` are "
-              "neither reachable nor detectable: the limb never trips on a registered row. "
-              "Only `(skew,disposition)` plus the six `built` pairs are undetectable",
-              ALL_21_PAIRS - REACHABLE_PAIRS
-              == {("skew", "disposition"), ("skew", "undeclared")} | _a3_built_pairs
-              and ALL_21_PAIRS - DETECTABLE_PAIRS
-              == {("skew", "disposition")} | _a3_built_pairs
-              and len(ALL_21_PAIRS) == 21)
-        # ---- arm 2 / 2N: clause B's ONE answer, and the conjunctive control ----
-        check("7.274 row P arm 2: an `exited` row that is otherwise CLEAN classes `exit-unruled` "
-              "— routed to the `leader`, not to a relaunch, and NOT collapsed into `finished`. "
-              "All four disposition values read `DONE` at the verdict, so this distinction exists "
-              "only on the class axis, which is what writing the predicate on FIELDS buys",
-              deferral_class(_a3_by["s05"]) == "exit-unruled"
-              and _a3_by["s05"]["verdict"] == "DONE"
-              and deferral_class(_a3_by["s02"]) == "finished"
-              # D32: the same claim for the sixth word — its OWN class, NOT folded into
-              # `declared-incomplete`, both reading `DONE` at the verdict.
-              and deferral_class(_a3_by["s14"]) == "claimed-unverified"
-              and _a3_by["s14"]["verdict"] == "DONE"
-              and deferral_class(_a3_by["s12"]) == "declared-incomplete")
-        check("7.274 row P arm 2N (NEGATIVE control): an `exited` row that is ALSO OCCUPIED "
-              "classes on the HIGHER limb (`occupied`), never on `exit-unruled`. The predicate is "
-              "a CONJUNCTION and no clause of it carries an admission exception — the classing of "
-              "a row does not depend on how the tool was invoked",
+        # ---- arm 2N: the CONJUNCTIVE control, which survives the vocabulary change ----
+        check("7.274 row P arm 2N (NEGATIVE control): an ENDED row that is ALSO OCCUPIED "
+              "classes on the HIGHER limb (`occupied`), never on its disposition class. The "
+              "predicate is a CONJUNCTION and no clause of it carries an admission exception — "
+              "the classing of a row does not depend on how the tool was invoked",
               deferral_class(_a3_by["p05"]) == "finished"
               and deferral_class(_a3_by["p10"]) == "occupied"
               and deferral_class(_a3_by["s07"]) == "occupied")
@@ -9624,18 +9610,42 @@ def _selftest_checks(args, failures, names):
               and conjunction_admits(_a3_by["clean"])
               and conjunction_admits(_a3_by["s08"])
               and sum(1 for r in _a3_rows if conjunction_admits(r)) == 2)
-        # ---- row S: the disposition domain's closure, MECHANIZED ----
-        check("7.274 row S: every value `SEED_ENDINGS` admits at the WRITE boundary "
-              "has a deferral class here — set equality, so a disposition added without a class "
-              "goes RED instead of silently classing as `terminal-unenumerated` and reading as a "
-              "considered decision",
-              set(_DEFERRAL_BY_DISPOSITION) == set(SEED_ENDINGS))
-        check("7.274 row S (control): a value OUTSIDE that domain still classes, and loudly. "
-              "`terminal_disposition` reads the cell back WITHOUT re-validating it, so the domain "
-              "is closed at the writer and not re-asserted at the reader — this class is that "
-              "edge, and it defers rather than admitting on a value nobody established",
-              deferral_class(_a3_by["s06"]) == "terminal-unenumerated"
-              and "unenumerated-value" not in SEED_ENDINGS)
+        # ══ WHAT THIS BLOCK LOST, AND WHY IT IS SURFACED RATHER THAN REPAIRED ═════════════════
+        #
+        # Six rows stood between arm 2N and here and are DELETED: arm 1C (every class the map
+        # defines is exercised), the three arm-1M meta-rows (pair coverage, transposition
+        # detection, and the coverage/detection set difference), arm 2 (`exited` classes
+        # `exit-unruled` and not `finished`), and row S plus its control (the disposition domain's
+        # closure). Every one of them graded a table in `ready.py` that spec-state-store §1.7
+        # emptied, and no fixture can make them green because no WRITER can produce their inputs:
+        #
+        #   · the `skew` limb — `records-disagree` needs two ending records to disagree, and §4.1
+        #     left one. Four fixture pair-rows and one single-limb row went with it.
+        #   · `renewing` / `renew-blocked` — THE RENEW GATE, unreachable (see its own note above).
+        #   · `revived`, `exit-unruled`, `claimed-unverified` — keyed on `revive`, `exited` and
+        #     `unverified`, all three refused at the store's write boundary as killed vocabulary.
+        #   · `terminal-unenumerated` — it existed because `terminal_disposition` read a CSV cell
+        #     back without re-validating it, so a value outside the enum could reach the reader.
+        #     The store validates at the write, so no unenumerated value can be stored at all.
+        #
+        # ⚠⚠ AND ONE FINDING THAT IS NOT A DELETION — `ready.py`'S CLASSIFIER DOES NOT KNOW THE
+        # SETTLED VOCABULARY. `_DEFERRAL_BY_DISPOSITION` keys on the SIX-value record enum; of the
+        # three endings the store can now hold, it classes `done` (`finished`) and `incomplete`
+        # (`declared-incomplete`) and has NO KEY FOR `failed`, which therefore falls through to
+        # `terminal-unenumerated` — the class meaning "a value nobody established". A crashed seat
+        # is the most established ending in the system. Row `s15` in the fixture above carries a
+        # `failed`/`crash` precisely so this is exercised rather than merely stated; arm 1 grades
+        # whatever class it lands in, so the fixture stays honest either way.
+        #
+        # ⚠ THIS IS `ready.py`'S TO FIX AND IT IS OUT OF THIS SITTING'S CUSTODY, exactly as the
+        # renew gate is. What is owed there, in one place: `_DEFERRAL_BY_DISPOSITION` rekeyed to
+        # `done|incomplete|failed` (with the reason class deciding the routing, since that is
+        # where the evidentiary weight moved), `CLASS_TO_VERDICT` shorn of `SKEW`, `RENEWING`,
+        # `RENEW-BLOCKED`, `revived`, `exit-unruled`, `claimed-unverified` and
+        # `terminal-unenumerated`, `ADMISSION_LIMBS` shorn of `skew`, and the `REACHABLE_PAIRS` /
+        # `DETECTABLE_PAIRS` arithmetic recomputed for the six limbs that remain. Whoever does
+        # that re-authors arm 1C, the three 1M rows and row S against tables that exist — the
+        # claims are all still worth making, and none of them is worth making about a dead table.
 
         # ---- the LAUNCH package: the guard ladder, the filter, the naming, the parity ---------
         # A package of its own, because these rows drive the REAL `cmd_launch` and the classmap
@@ -9648,10 +9658,14 @@ def _selftest_checks(args, failures, names):
                                       ("rnw", ""), ("rvv", ""), ("dskew", ""), ("dlive", ""),
                                       ("blk1", "danglingpred")],
                         active=["occ", "dlive"],
-                        awaiting=[("ex2", "renew"), ("dskew", "renew")],
-                        sessions=[("ex1", "exited"), ("ex2", "exited"), ("occ", "exited"),
-                                  ("done1", "done"), ("undec", ""), ("rnw", "renew"),
-                                  ("rvv", "revive"), ("dskew", "done"), ("dlive", "done")])
+                        # `rvv` carried the killed word `revive` and `dskew` carried a skew pair;
+                        # neither is writable [§1.7, §4.1]. They keep their NAMES so the rows below
+                        # stay readable against their own history, and they now carry the endings
+                        # the store admits: `rvv` a `failed`/`crash` (what a revived seat's prior
+                        # sitting actually was) and `dskew` a plain `done`.
+                        sessions=[("ex1", "failed:crash"), ("ex2", "failed:crash"), ("occ", "failed:crash"),
+                                  ("done1", "done"), ("undec", ""), ("rnw", "incomplete"),
+                                  ("rvv", "failed:crash"), ("dskew", "done"), ("dlive", "done")])
         (_a3l / "budget.json").write_text(
             json.dumps({"floors": {"launch_refuse_mb": 1, "pressure_warn_mb": 1}}))
         # `check_bindings` runs ABOVE the admission block and refuses on ANY descriptor/registry
@@ -11209,10 +11223,13 @@ def _selftest_checks(args, failures, names):
         # count IS the discriminator between a suppressed chair and a mailed seat, which is what
         # the pair was always measuring.
         def _dl7_make(name, seat, sid):
+            # The leader's own row is CLOSED and carries no work state — `sessions.csv` stopped
+            # being an ending writer with §4.1, so the `exited`/`kit` pair it used to carry has no
+            # spelling here. What this fixture needs from that row is only that a leader sitting
+            # ENDED, which is the trace fact the file still owns.
             return _dl_make(name, rows=[
                 {"session-id": "ld-sid", "seat": "leader", "started": "2026-07-29 09:00",
-                 "ended": "2026-07-29 09:30", "disposition": "exited",
-                 "disposition-writer": DISPOSITION_WRITER_KIT},
+                 "ended": "2026-07-29 09:30"},
                 {"session-id": sid, "seat": seat, "started": "2026-07-29 10:00",
                  "pid": "", "pid-starttime": ""}])
 
@@ -11235,9 +11252,12 @@ def _selftest_checks(args, failures, names):
         _dl7_after, _dl8_after = _dl7_state(_dl7), _dl7_state(_dl8)
         _dl7_row = {r["session-id"]: r for r in _dl_rows(_dl7)}["gm-sid"]
         _dl8_row = {r["session-id"]: r for r in _dl_rows(_dl8)}["al-sid"]
-        check("D24 (kit side, 2026-08-20): A SUMMONED CHAIR'S `exited` ROW IS CLOSED SILENTLY — "
+        _dl7_end = ending_store.get_current_ending(_dl7, "goal-master") or {}
+        _dl8_end = ending_store.get_current_ending(_dl8, "alpha") or {}
+        check("D24 (kit side, 2026-08-20): A SUMMONED CHAIR'S CRASHED SITTING IS CLOSED SILENTLY — "
               "no staff mail to the leader at all, and no store of any kind — AND THE CLOSURE "
-              "ITSELF SURVIVES: the row still ends `exited` under `kit`, because the seat did not "
+              "ITSELF SURVIVES: the supervisor still stamps `failed` with a reason class, because "
+              "the seat did not "
               "declare its own ending and that is true. `goal-master` ends one row per owner turn "
               "of ONE resumed conversation (#140), so this arm burned a leader sitting per owner "
               "sentence while `engine/reconcile.js` already skipped the same seat in BOTH owed "
@@ -11246,10 +11266,11 @@ def _selftest_checks(args, failures, names):
               and _dl7_code is None and "NOT minted" in _dl7_out
               and "SUMMONED chair" in _dl7_out
               and _dl7_after == {"mail": 0, "no_grant_file": True}
-              and _dl7_row["ended"] and _dl7_row["disposition"] == "exited"
-              and _dl7_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
+              and _dl7_row["ended"] and _dl7_row["disposition"] == ""
+              and _dl7_end.get("ending") == "failed"
+              and _dl7_end.get("reason_class") in ENDING_REASON_CLASSES)
         check("D24 (kit side) THE DISCRIMINATING CONTROL: `alpha` — neither staff nor summoned — "
-              "ends the SAME `exited` by the SAME command on a package of the SAME shape and "
+              "ends the SAME crashed sitting by the SAME command on a package of the SAME shape and "
               "STILL mints its mail, which IS the wake now. Without this row the arm above "
               "could not tell `suppressed the summoned chair` from `suppressed everything`, and a "
               "predicate widened to every seat would pass silently. It runs on its OWN package so "
@@ -11260,8 +11281,9 @@ def _selftest_checks(args, failures, names):
               and _dl8_code is None and "staff mail: #" in _dl8_out
               and "staff wake: none needed" in _dl8_out
               and _dl8_after == {"mail": 1, "no_grant_file": True}
-              and _dl8_row["ended"] and _dl8_row["disposition"] == "exited"
-              and _dl8_row["disposition-writer"] == DISPOSITION_WRITER_KIT)
+              and _dl8_row["ended"] and _dl8_row["disposition"] == ""
+              and _dl8_end.get("ending") == "failed"
+              and _dl8_end.get("reason_class") in ENDING_REASON_CLASSES)
 
 
         # ============ s12-08: the CHECK-IN DELIVERS the unread handoff ===========================
@@ -11751,7 +11773,7 @@ def _selftest_checks(args, failures, names):
         except Exception as _lc_rexc:           # noqa: BLE001 — the raise IS this row's verdict
             _lc_reads, _lc_read_raised = None, f"{type(_lc_rexc).__name__}: {_lc_rexc}"
         check("s3-03 (2) NEVER FATAL on READ: unparseable JSON, VALID JSON of the wrong type (a "
-              "list), and an absent file each read as `{}` and raise NOTHING — `load_awaiting`'s "
+              "list), and an absent file each read as `{}` and raise NOTHING — the same "
               "fail-safe direction, because a marker that cannot be read must never take down the "
               "renewal it is bookkeeping for",
               _lc_read_raised == "" and _lc_reads == ({}, {}, {}))
@@ -12007,10 +12029,14 @@ def _selftest_checks(args, failures, names):
               "s4-hand" in _s4_line and "'paused-by-hand'" in _s4_line
               and "close-run will not sweep it either" in _s4_line)
         check("s3-04 (4d) THE BLANK DISPOSITION READS AS BLANK, never as `done`: `\"\"` is this "
-              "file's absent-key reading (`load_awaiting`'s `done` default belongs to "
-              "awaiting-close.json's records, not these), and the line SAYS to read the intent "
-              "from awaiting-close.json rather than inventing one. This file is authoritative for "
-              "EXECUTION state only",
+              "file's absent-key reading (the retired debt file's `done` default belonged to its "
+              "own records, not these), and the line SAYS to read the intent elsewhere rather "
+              "than inventing one. This file is authoritative for EXECUTION state only. "
+              "⚠ THE LINE STILL NAMES `awaiting-close.json` AS THE PLACE TO READ IT, and that is "
+              "pinned here as a SURFACED DEFECT: the file is gone [§4.1] and the intent is the "
+              "ending store's, so this message sends a reader to a path that does not exist. It "
+              "is one string in `lifecycle_exec.py` outside this sitting's one migration; pinning "
+              "it means the row goes RED when it is corrected",
               "s4-nodisp" in _s4_line
               and "s4-nodisp — disposition NOT recorded here — read the intent from "
                   "awaiting-close.json" in _s4_line)
@@ -12682,9 +12708,9 @@ def _selftest_checks(args, failures, names):
               "records the caller-exit entry, the G-154 in-place decision, the respawn of the SAME "
               "pane (G-12 — kill+split re-tiles the window and destroys the arranged layout), the "
               "relaunch INTO that same pane, then all three verifications (roster, transcript, "
-              "successor-alive) and the debts cleared. The successor's pid is 6002 — the one the "
-              "respawn put there — so this cannot pass on the OUTGOING session's processes. The "
-              "awaiting-close debt is GONE, which is what releases `reap_blockers`' renew hold",
+              "successor-alive) and the closing flag cleared. The successor's pid is 6002 — the "
+              "one the respawn put there — so this cannot pass on the OUTGOING session's "
+              "processes. And the seat's own ending is UNTOUCHED by the whole sequence",
               _s6_c1 == 0 and _s6_r1.get("state") == "done"
               and _s6_order(_s6_s1, "caller-exited", "harness-idents-measured:1",
                             "in-place-decided:in-place", "respawned-in-place:%60",
@@ -12804,7 +12830,8 @@ def _selftest_checks(args, failures, names):
               "`launch_seat` IS NEVER CALLED (asserted on the spy, not inferred from the absence "
               "of a pane). There is no in-place decision either: nothing is being placed. This is "
               "`cmd_close_seat`'s plain-close half executed OUT OF PANE, and it is what closes the "
-              "G-134 'checkout != freed' gap the awaiting-close debt only RECORDS today",
+              "G-134 'checkout != freed' gap — the gap a debt file only ever RECORDED, and which "
+              "nothing records any more [§4.1]: freeing the resource is the act, not the note",
               _s6_c3 is None and _s6_r3.get("state") == "done"
               and len(_s6_launches) == _s6_launch3
               and not any("relaunched" in s or "in-place-decided" in s or "successor-alive" in s
@@ -12827,10 +12854,10 @@ def _selftest_checks(args, failures, names):
         check("s3-06 (4) A FAILED RELAUNCH STOPS LOUDLY AND STOPS: with `launch_seat` returning an "
               "error the marker reads FAILED, the failure text NAMES THE RELAUNCH and says the "
               "seat is closed and not back, and steps 6-9 were NEVER ATTEMPTED — no roster, "
-              "transcript or successor verification, and the awaiting-close debt is STILL ON THE "
-              "BOOKS so `status`, `workers` and `reap` all keep showing a seat that has not come "
-              "back. A sequence that swallowed this would leave a seat neither alive nor closed "
-              "with nothing anywhere saying so",
+              "transcript or successor verification, and the seat's own `incomplete` is STILL ON "
+              "THE BOOKS so every reader keeps showing a seat that has not come back. A sequence "
+              "that swallowed this would leave a seat neither alive nor closed with nothing "
+              "anywhere saying so",
               _s6_c4 == 3 and _s6_r4.get("state") == "FAILED"
               and "relaunch" in (_s6_r4.get("failure") or "").lower()
               and "CLOSED AND NOT RELAUNCHED" in (_s6_r4.get("failure") or "").upper()
@@ -13589,12 +13616,18 @@ def _selftest_checks(args, failures, names):
         run(cmd_checkin, package=str(_f9_pkg), agent="r9done", summary="s3-09 done fixture",
             pane="%92", force=True)
         _f9_done_out, _f9_done_code = _f9_checkout("r9done", renew=False, handoff=None)
+        _f9_done_end = ending_store.get_current_ending(_f9_pkg, "r9done") or {}
         check("s3-09 (6) A PLAIN CHECKOUT FORKS NOTHING: the done path returns normally and "
               "records NO spawn — the fork is the RENEW disposition's act, not every checkout's. "
-              "The seat's pane is left alive with the awaiting-close debt standing, which is the "
-              "G-134 design and the only state `close-seat`'s relay-door refusal can protect",
+              "The seat's pane is left alive, which is the G-134 design and the only state "
+              "`close-seat`'s relay-door refusal can protect. ⚠ THE SECOND CONJUNCT WAS `awaiting "
+              "close` IN THE OUTPUT and is now the ENDING ITSELF: `awaiting-close.json` went with "
+              "§4.1's second ending writer, so a checkout prints no debt line — and a row asserting "
+              "the ABSENCE of a fork needs a positive conjunct beside it, or it passes equally for "
+              "a checkout that did nothing at all",
               _f9_done_code is None and _f9_pop == []
-              and "awaiting close" in _f9_done_out)
+              and (_f9_done_end.get("ending"), _f9_done_end.get("who_stamped"))
+              == ("done", ENDING_VOICE_SEAT))
 
         # ---- (7) THE PANELESS LANE: no successor is possible, and IT NEVER ENDS IN SILENCE. ----
         # THE DEFECT THIS ROW PINS (forge instance, 2026-08-18). `coordinate`'s own `checkout`
