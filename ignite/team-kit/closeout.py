@@ -187,24 +187,16 @@ def cmd_close_seat(args):
     # W1/F3 — THE `incomplete` ENTRY SURVIVES A PLAIN CLOSE, and it is the only value that does.
     #
     # WHAT THE WIPE COST. `incomplete` is the seat's own statement that its work is unfinished.
-    # Clearing the live entry here used to erase it while the durable row was still empty; the
-    # ledger is now written at checkout, but the live entry still carries route/handoff/debt
-    # `close-seat` reads, so an `incomplete` is kept until relaunch.
+    # ⚠ THE KEEP-OR-WIPE DECISION IS GONE, AND SO IS THE HAZARD THAT NEEDED IT. This weighed a
+    # seat's `incomplete` in `awaiting-close.json` against the durable `sessions.csv` row and kept
+    # the live entry so the two could not disagree — DISPOSITION SKEW, which parked every reader
+    # until a human adjudicated. §4.1 deleted the second writer: there is ONE ending record now, a
+    # new declaration REPLACES it in the same transaction (§1.1), and this close writes no work
+    # state at all. Two records of one ending cannot disagree when there is one record.
     #
-    # ⚠ THE RENEW ARM STILL WIPES, AND THE EXCEPTION IS LOAD-BEARING (adv, C5, G-134's own reason).
-    # A renew brings the seat straight BACK: the successor is live, checked in and working, and a
-    # stale `incomplete` sitting in the live surface beside its fresh session row is DISPOSITION
-    # SKEW — two records of one seat's ending that disagree — which parks every reader until a
-    # human adjudicates. A renewed seat's ending is the successor's to declare.
-    _aw_entry = load_awaiting(base).get(args.target)
-    _aw_disp = (_aw_entry.get("disposition", "done") or "").strip() if isinstance(_aw_entry, dict) else ""
-    if _aw_disp == "incomplete" and not args.renew:
-        print(f"awaiting close: '{args.target}' entry KEPT — it carries the seat's own "
-              f"`incomplete`, the honest ending this close does not get to erase. It clears when "
-              f"the seat is relaunched (the relaunch admission clears it) or when a leader rules "
-              f"the row.")
-    elif clear_awaiting(base, args.target):
-        print(f"awaiting close: '{args.target}' debt settled")
+    # ⚠ AND THE CLOSE MUST NOT TOUCH THE ENDING. What stood here erased a seat's own word on the
+    # renew arm; the successor sitting overwrites it by declaring, which is the seat speaking for
+    # itself rather than the closer speaking for it.
     old_window = ""
     if old_pane:
         old_window = tmux_pane_window(old_pane)
@@ -854,10 +846,11 @@ def cmd_depart(args):
     # G-21: a seat that departs under its own steam mid-close (or one whose close-seat never ran)
     # must not leave its closing flag behind for a future occupant of the name.
     clear_closing(base, me)
-    # G-134: a departure frees its OWN resources — it kills its pane below and arms a reaper for
-    # any ghost — so it owes nothing and must not leave a debt behind. This also covers the
-    # checkout-then-depart order: the entry checkout wrote is settled by the act that made it moot.
-    clear_awaiting(base, me)
+    # G-134's debt entry has no successor to clear: `awaiting-close.json` went with §4.1's second
+    # ending writer, and the reap debt it stood for is DERIVED now — a supervisor registry row
+    # still present while its sitting already carries an ending (`awaiting_debts`). A departure
+    # settles that by the same act it always did, killing its pane and reaping its ghost below;
+    # nothing has to be erased for it to be settled.
     pane = (row or {}).get("pane") or detect_pane(None)
     if pane:
         # G-10: kill-pane SIGHUPs the process group; a harness blocked elsewhere survives as a

@@ -419,8 +419,14 @@ def seat_store_outcomes(pkg):
     return out
 
 
-def terminal_disposition(pkg, base, seat, awaiting=None):
-    """(ending, source, skew) from the ending store. Absence is not a stored word."""
+def terminal_disposition(pkg, base, seat):
+    """(ending, source, skew) from the ending store. Absence is not a stored word.
+
+    ⚠ `skew` IS ALWAYS `None` AND THE SHAPE IS KEPT ON PURPOSE — it is the third element every
+    caller still unpacks. Disposition SKEW was two ending records disagreeing (`awaiting-close.json`
+    vs `sessions.csv`); §4.1 deleted the second writer, so there is nothing left for one record to
+    disagree with. The tuple keeps its arity so no caller has to learn a new one; what changed is
+    that the skew branch is now unreachable, which is the point of removing a second writer."""
     try:
         row = ending_store.get_current_ending(pkg, seat)
     except ending_store.EndingStoreError:
@@ -787,8 +793,11 @@ def ready_seat_rows(args):
     # edge. `built` is derived from it and is the identical set it always was.
     seat_desc = {w["agent"]: w for w in discover_workers(wdir)}
     built = registered_seats(pkg)
-    awaiting = load_awaiting(base)
-    # 7.237: hoisted ONCE, for the same reason `awaiting` above is — N seats must cost one read of
+    # ⚠ THE `awaiting-close.json` HOIST IS GONE WITH ITS FILE [spec-state-store §4.1 Row A]. It
+    # read a debt map and threaded it into `terminal_disposition`, which has answered off the ONE
+    # ending store since that migration and ignored the argument. A hoist of a stub that answers
+    # `{}` is not a cheap read, it is a read of nothing.
+    # 7.237: hoisted ONCE — N seats must cost one read of
     # `sessions.csv`, not N. The map feeds `undeclared_endings` directly so the undeclared term and
     # `session_disposition` are answering about THE SAME selected row rather than two reads that
     # could straddle a concurrent append.
@@ -888,7 +897,7 @@ def ready_seat_rows(args):
     guards = load_guard_values(base)
     term = {}
     for seat in after:
-        term[seat] = terminal_disposition(pkg, base, seat, awaiting=awaiting)
+        term[seat] = terminal_disposition(pkg, base, seat)
     # A predecessor named in an `after` set but carrying no row of its own is still a real term of
     # the predicate — resolved here so a dangling edge reads as "no check-out" rather than raising.
     # 7.383: resolved on the CLEAN name. An OR-alternate resolves NO name — it has more than one,
@@ -904,7 +913,7 @@ def ready_seat_rows(args):
         for _limb in _limbs:
             _name = after_member_parts(_limb)[0]
             if _name and _name not in term:
-                term[_name] = terminal_disposition(pkg, base, _name, awaiting=awaiting)
+                term[_name] = terminal_disposition(pkg, base, _name)
 
     out = []
     for seat, preds in after.items():

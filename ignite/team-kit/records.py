@@ -1593,10 +1593,41 @@ def undeclared_endings(pkg, last_ended=None):
     writing an empty cell instead of a convenient one).
 
     `last_ended` is injectable so a caller that already read the file passes its own map instead
-    of paying for a second read — `ready_seat_rows` hoists exactly one."""
+    of paying for a second read — `ready_seat_rows` hoists exactly one. It still selects WHICH
+    SESSION this is about; what it can no longer answer is whether that session declared an
+    ending, for the reason immediately below.
+
+    ⚠⚠ THE DECLARATION IS READ OFF THE ENDING STORE, NOT OFF THE `disposition` CELL
+    [spec-state-store §4.1 Row A, §5]. This is a REPAIR. `sessions.csv`'s `disposition` column has
+    had NO WRITER since §4.1 deleted the dual-writer model — `session_close`'s `disposition`
+    argument is accepted and ignored, `close_session_row_by_id` passes `""`, and `cmd_checkout`
+    stamps the store instead. So the predicate `if not disp` was true of EVERY ended row, and this
+    function reported the whole run as undeclared. Its one consumer refuses launches by name, so
+    `launch --only <seat>` refused every seat that had ever checked out — including a seat that
+    declared a clean `done` one function away. That is the same shape as the `load_awaiting` false
+    alarm in `lifecycle_exec`: a gate reading a surface nothing writes, and therefore firing always.
+
+    ⚠ THIS MIGRATION IS DELIBERATELY BEHAVIOUR-PRESERVING AND IS NOT THE RULING THE SPEC INVITES.
+    §1.1 says the ABSENCE of a current row means "no declared ending" and is not a stored word, and
+    §2.6 goes further: absence is LAUNCHABLE (`isLaunchable` with `ending=null`). Read literally,
+    that retires this gate and `--declare-only` with it. Whether the UNDECLARED class survives as a
+    launch refusal is a design ruling for whoever owns `cmd_launch`, and it is NOT taken here —
+    this change moves the READ onto the surviving surface and moves nothing else, so the gate
+    refuses exactly the seats it always meant to and no longer refuses the ones it never did.
+
+    An unreadable store yields NO undeclared seats, matching this function's own pre-existing
+    can-not-answer direction (`{}` for an absent `sessions.csv`): "cannot establish" must not
+    become "established missing" on a path whose consumer refuses work."""
     le = sessions_last_ended(pkg) if last_ended is None else last_ended
-    return {seat: (sid or "(session-id unrecorded)")
-            for seat, (sid, disp) in le.items() if not disp}
+    out = {}
+    for seat, (sid, _disp) in le.items():
+        try:
+            if ending_store.get_current_ending(pkg, seat):
+                continue
+        except ending_store.EndingStoreError:
+            continue
+        out[seat] = sid or "(session-id unrecorded)"
+    return out
 
 
 def session_disposition(pkg, seat):

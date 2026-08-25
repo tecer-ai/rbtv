@@ -50,6 +50,37 @@
 # straight through would make every LIVE executor read as dead — turning MID-RENEWAL into CRASHED
 # and double-launching the seat, which is the one outcome stages 3 and 4 both exist to prevent.
 
+# HOW FAR A HONEST TRANSCRIPT MAY PRE-DATE THE ENDING ROW THAT POINTS AT IT (step 7).
+#
+# It is not a fudge factor: `cmd_checkout` EXPORTS the transcript and only afterwards stamps the
+# ending whose `evidence_pointer` names it, so a correct transcript is ALWAYS older than its own
+# record — by the length of the check-out's remaining bookkeeping (the roster flip, a call-2
+# handoff write, the ledger close). Below this bound is that ordering; above it is an export from
+# an EARLIER session of the same seat, which is what step 7 exists to catch.
+#
+# ⚠ IT IS 60s BECAUSE THAT IS WHAT THE PREDECESSOR ALREADY FORGAVE, not because a minute was
+# measured. The old check compared minute-truncated local strings, so it tolerated anything up to
+# a whole minute; naming the same bound keeps this a clock repair and not a silent loosening.
+TRANSCRIPT_PRECEDES_STAMP_SLACK_S = 60
+
+
+def ending_transcript(row):
+    """The transcript path an ending row points at, or '' when no export landed.
+
+    spec-state-store §1.2 makes `evidence_pointer` REQUIRED and non-empty, so a checkout whose
+    transcript export never landed (`--no-export`, or a pane that died before the capture) still
+    points AT something — `cmd_checkout` falls back to a `checkout:<seat>` token. So "was a
+    transcript exported" is answerable from the pointer alone, and the discriminator is that a
+    transcript pointer is an ABSOLUTE PATH: `export_transcript` returns one, under the package's
+    own transcripts folder, while every `<kind>:<seat>` fallback the kit stamps is not.
+
+    ⚠ TESTED AS A PATH, NEVER STRING-MATCHED AGAINST THE FALLBACK'S SPELLING. This reader is one
+    file away from that writer; matching its literal would make a fallback nobody thought to grep
+    for read as a live transcript path, which is the failure this whole step guards against."""
+    ev = str((row or {}).get("evidence_pointer") or "")
+    return ev if ev and Path(ev).is_absolute() else ""
+
+
 def lifecycle_path(base):
     return Path(base) / "lifecycle-inflight.json"
 
@@ -1810,9 +1841,24 @@ def run_lifecycle_sequence(args, base, target):
         if row_active else "no active row — the successor writes its own at checkin"))
 
     # ---- STEP 7: THE TRANSCRIPT THE CHECKOUT EXPORTED. ------------------------------------------
-    # `exported` is STORED by `set_awaiting`, never inferred, precisely so a later actor can tell
-    # "safe" from "not yet safe" — and the FILE is checked, not only the flag, for `reap_blockers`'
-    # stated reason: a recorded path whose file has since gone is not a transcript.
+    # ⚠⚠ THIS STEP READS THE ONE ENDING STORE [spec-state-store §1.2, §4.1 Row A], and that read is
+    # a REPAIR, not a refactor. It used to ask `load_awaiting(base)` — and `awaiting-close.json`
+    # went away with §4.1's second ending writer, so that call has answered a permanent `{}` since.
+    # Every field below was therefore absent BY CONSTRUCTION on every checked-out act: `exported`
+    # False, `path` empty, `since` unparseable. The first alarm is unconditional and
+    # `lifecycle_alarm` exits, so EVERY `checkout --renew` reached this line and died here with
+    # `NO EXPORTED TRANSCRIPT` — a renewal that had just exported a perfectly good transcript,
+    # refused by the step written to protect it. A guaranteed-false alarm is worse than no alarm:
+    # it is the one every reader learns to skip past, including on the run where it is true.
+    #
+    # THE SUCCESSOR FACT NEEDS NO SECOND FILE. `cmd_checkout` stamps the exported path AS the
+    # ending row's `evidence_pointer` and falls back to a non-path token when no export landed, so
+    # `ending_transcript` (top of this file) answers "the transcript, or nothing" from the pointer
+    # alone. The separate `exported` flag has no successor because it never carried anything the
+    # pointer does not — that pair WAS the dual record §4.1 deleted.
+    #
+    # The FILE is still checked and not only the pointer, for `reap_blockers`' stated reason: a
+    # recorded path whose file has since gone is not a transcript.
     #
     # ⚠ SKIPPED WHOLE ON A NO-CHECKOUT ACT (`s3-07`), and an ENTRY IS STILL RECORDED. There is no
     # awaiting-close record to read — guard 4 REFUSED if one existed — so every branch below would
@@ -1824,14 +1870,29 @@ def run_lifecycle_sequence(args, base, target):
     if not checked_out:
         lifecycle_record_step(base, seat_name, "no-checkout-no-transcript-to-verify")
     else:
-        record = load_awaiting(base).get(seat_name)
-        record = record if isinstance(record, dict) else {}
-        tpath = str(record.get("transcript") or "")
-        if not record.get("exported") or not tpath:
+        try:
+            record = ending_store.get_current_ending(
+                package_dir(args, register=False), seat_name) or {}
+        except ending_store.EndingStoreError as _ev_exc:
+            # UNREADABLE IS NOT ABSENT. The store being unreachable says nothing about whether a
+            # transcript was exported, and alarming `NO EXPORTED TRANSCRIPT` on it would report the
+            # wrong break — the same conflation of "cannot establish" with "established false" that
+            # `attest_exit_blockers` refuses on its own snapshot read.
+            lifecycle_alarm(
+                "state",
+                f"the ending store could not be read for '{seat_name}', so this act cannot "
+                f"establish whether its checkout exported a transcript — {_ev_exc}. Refusing "
+                f"rather than assuming: an unreadable store is evidence in neither direction.",
+                3, base, args=args,
+                failure=(f"the ending store was unreadable at the transcript verification step — "
+                         f"{_ev_exc}"))
+        tpath = ending_transcript(record)
+        if not tpath:
             lifecycle_alarm(
                 "state",
                 f"'{seat_name}' has NO EXPORTED TRANSCRIPT recorded for this checkout "
-                f"(exported={bool(record.get('exported'))!r}, path={tpath or '(none)'}), so the "
+                f"(the ending row's evidence pointer is "
+                f"{record.get('evidence_pointer') or '(none)'!r}, which names no file), so the "
                 f"session that just ended left no readable account of itself. The pane is already "
                 f"down and the scrollback went with it, which is why this is reported rather than "
                 f"repaired: nothing can re-export a pane that no longer exists.",
@@ -1846,25 +1907,40 @@ def run_lifecycle_sequence(args, base, target):
                 f"down.",
                 3, base, args=args,
                 failure=f"the recorded transcript {tpath} is not on disk")
-        # ⚠ THE STALENESS TEST IS MINUTE-GRAINED, AND THAT BOUND IS STATED RATHER THAN HIDDEN.
-        # `set_awaiting` stamps `since` through `now()` ("%Y-%m-%d %H:%M"), so a transcript written
-        # in the SAME MINUTE as the checkout cannot be told from one written just before it. What
-        # this DOES catch is the case that matters: a file left over from an EARLIER session of the
-        # same seat, which is a stale export wearing a fresh record's name.
+        # ⚠ THE STALENESS TEST'S CLOCK IS NOW UNAMBIGUOUS, AND ITS SLACK IS NOW DECLARED. It used
+        # to parse `awaiting-close.json`'s `since`, stamped through `now()` ("%Y-%m-%d %H:%M") in
+        # LOCAL time. Two things were wrong with that and only one of them was the file: the
+        # comparison was timezone-naive, and its tolerance was an ACCIDENT OF STRING GRANULARITY —
+        # truncating to the minute happened to forgive a transcript written just before its own
+        # record, which is EVERY transcript, because `export_transcript` runs before the stamp
+        # that points at it. The ending row's `stamped_at` is ISO-8601 UTC to the millisecond, so
+        # comparing it raw would have made this alarm fire on every honest checkout — the same
+        # always-true shape this step was just repaired from, reintroduced by a precision upgrade.
+        #
+        # So the tolerance is a NAMED CONSTANT instead of a rounding artifact. It is set at the
+        # bound the old truncation could reach, so nothing this used to forgive is newly refused.
+        # What it catches is unchanged and is the case that matters: a file left over from an
+        # EARLIER session of the same seat, which is a stale export wearing a fresh record's name,
+        # and which pre-dates its record by a whole session rather than by the length of one
+        # check-out's own bookkeeping.
         stale_note = ""
+        _stamped_at = str(record.get("stamped_at") or "").strip()
         try:
-            checkout_at = datetime.strptime(str(record.get("since") or "").strip(),
-                                            "%Y-%m-%d %H:%M")
+            checkout_at = datetime.fromisoformat(
+                _stamped_at[:-1] + "+00:00" if _stamped_at.endswith("Z") else _stamped_at)
+            if checkout_at.tzinfo is None:
+                checkout_at = checkout_at.astimezone()
         except (ValueError, TypeError):
             checkout_at = None
-            stale_note = " (checkout stamp unreadable — freshness not established)"
+            stale_note = " (ending stamp unreadable — freshness not established)"
         if (checkout_at is not None
-                and datetime.fromtimestamp(Path(tpath).stat().st_mtime) < checkout_at):
+                and Path(tpath).stat().st_mtime
+                < checkout_at.timestamp() - TRANSCRIPT_PRECEDES_STAMP_SLACK_S):
             lifecycle_alarm(
                 "state",
                 f"the transcript recorded for '{seat_name}' PRE-DATES its own checkout: {tpath} "
-                f"was last written before {record.get('since')}. That is an earlier session's "
-                f"export carried on this checkout's record, so the session that just ended is "
+                f"was last written before {_stamped_at}. That is an earlier session's "
+                f"export carried on this checkout's ending row, so the session that just ended is "
                 f"unaccounted for.",
                 3, base, args=args,
                 failure=f"the recorded transcript {tpath} pre-dates the checkout it is filed under")
@@ -1908,8 +1984,6 @@ def run_lifecycle_sequence(args, base, target):
     # successor would inherit. Gating this step off would have re-opened G-21 on the one path where
     # nothing else clears the flag. Both calls are already absence-safe, so the correct widening
     # here was to widen NOTHING.
-    if clear_awaiting(base, seat_name):
-        print(f"awaiting close: '{seat_name}' debt settled")
     if clear_closing(base, seat_name):
         print(f"inbox: '{seat_name}' closing state cleared")
     lifecycle_record_step(base, seat_name, "awaiting-and-closing-cleared")

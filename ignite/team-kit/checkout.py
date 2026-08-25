@@ -146,11 +146,6 @@ def undelivered_line(base):
             f"  Read them all: {base / 'undelivered-flags.md'}")
 
 
-def load_awaiting(base):
-    """Debt file is gone. Current ending is the ending store row (or its absence)."""
-    return {}
-
-
 def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evidence=""):
     """Seat-declare / system rewrite for one checkout (spec §4.1 cell map)."""
     pkg = package_dir(args, register=False)
@@ -171,10 +166,6 @@ def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evi
             pkg, seat, "failed", reason_class="outputs-missing",
             diagnostic="outputs-missing", evidence=ev)
     raise ValueError(f"unknown checkout stamp {kind!r}")
-
-
-def clear_awaiting(base, seat):
-    return False
 
 
 def awaiting_debts(base, live=None):
@@ -212,123 +203,38 @@ def awaiting_debts(base, live=None):
     return sorted(out, key=lambda r: (-1 if r[2] is None else r[2]), reverse=True)
 
 
-def reap_blockers(entry, age, panes, decls=None, seat=None, pkg=None):
-    """Every reason `entry` must NOT be reaped, as a list. EMPTY means every precondition holds.
-
-    A LIST, not a bool, and that is the design: `reap` kills panes, so a caller — and the leader
-    reading a dry pass — must see WHICH condition held it, never just that something did. A gate
-    that answers only yes/no teaches nobody why the run is leaking.
-
-    The two hard preconditions (leader #312, non-negotiable) are the last two rows:
-
-      TRANSCRIPT EXISTS — #259's ratified mapping gates the kill on it, and the marker records
-      whether the export actually landed rather than leaving this to be re-derived. Checked against
-      the FILE, not only the flag: a recorded path whose file has since gone is not a transcript.
-      TWO records can satisfy it, in order: the harness-native export FIRST, and — only when that
-      export is missing or empty — the seat's pipe-pane `recorded` log (`pkg`, the goal folder, is
-      what makes that second read possible; without it the gate reads the export alone and holds).
-
-      NO HUMAN ON THE PANE — the reason this is not a nicety: a checked-out seat's pane can be
-      picked up by a live owner conversation, and a mechanical reap there terminates the
-      conversation rather than freeing memory. Proven by requiring the pane to still hold EXACTLY
-      the harness processes recorded at checkout (pid+starttime, so PID reuse cannot forge it). A
-      pane whose processes changed has been repurposed; a pane with no recorded identity was never
-      provably seat-only. Both refuse. FAIL-CLOSED: anything unprovable holds the reap."""
-    out = []
-    # A PANE WHOSE PURPOSE IS HUMAN CONTACT IS NEVER REAPABLE (owner-ruled, via leader #341:
-    # `r-owner-afk-liaison-parked`). A seat can close while its pane deliberately SURVIVES as the
-    # owner's door — the owner is away and watches that spot. Such a pane matches every debt
-    # condition exactly, so this machinery reports it as a leak: a FALSE POSITIVE BY DESIGN, and
-    # the most expensive kind, because acting on it closes the door the run is reachable through.
-    #
-    # Derived from the seat's own descriptor, never a kit-side name list, for the reason
-    # `inbox_decls` states at length — a name list freezes one campaign's roles into a shared tool
-    # and the NEXT such seat is forgotten identically. `relays:` already means exactly the needed
-    # thing: this seat carries the relay path to a HUMAN role. Carrying that path is what makes the
-    # pane a door rather than a leak, so the exemption falls out of the declaration instead of
-    # needing new vocabulary.
-    #
-    # ⚠ THE EXEMPTION IS ONLY AS LIVE AS THE DECLARATION. Until a parked seat's descriptor declares
-    # `relays:`, nothing here protects it. When this landed, the live owner door was protected ONLY
-    # by accident — its debt record predated the `pids` field, so it failed closed on "no identity
-    # recorded". That is luck, not design, and luck about ordering is not compliance.
-    if seat and ((decls or {}).get(seat) or {}).get("relays"):
-        out.append("it carries a relay path to a human role — its pane is a DOOR, not a leak, and "
-                   "is never reaped (r-owner-afk-liaison-parked)")
-    pane = (entry or {}).get("pane") or ""
-    if not pane:
-        out.append("no pane recorded")
-    elif pane not in panes:
-        out.append("its pane is already gone — nothing to free (the close is still owed)")
-    if age is None:
-        out.append("its checkout stamp is unreadable, so age cannot be established")
-    elif age < REAP_MIN_AGE_MIN:
-        out.append(f"only {age}min old (needs {REAP_MIN_AGE_MIN}min — a renewal decision may be "
-                   f"in flight, and in-place renew needs this pane alive)")
-    # s12-07. The age blocker above is a HEURISTIC about a renewal that MIGHT be in flight; this is
-    # the ASSERTION that one IS — recorded by the checkout itself, at the one moment it was known.
-    # It outlives the age window on purpose: `awaiting-close.json` deliberately does not expire, and
-    # a renewal that has not been acted on in 15 minutes is more dangerous to reap, not less.
-    # Reaping here kills the pane the renewal respawns INTO (G-12 renews in place), so the two
-    # legitimately coexist and this one is the durable half.
-    #
-    # ⚠ WHO RELEASES THIS BLOCK — SETTLED BY `s3-06`, WHICH DISCHARGED THIS SEAM. s12-07 left the
-    # question open ("Stage 3 releases it by CLEARING THE ENTRY or FLIPPING THE DISPOSITION; which
-    # is Stage 3's ruling to make"). The answer is CLEARING THE ENTRY, and the clearing act is step
-    # 9 of `run_lifecycle_sequence` — the executor calls the SAME `clear_awaiting` `close-seat`
-    # calls, at the end of a renewal that actually completed. So this blocker holds for exactly as
-    # long as the renewal is unfinished, which is what it was always claiming to mean. Nothing here
-    # invented a clearing mechanism, and nothing here needs to change: a FAILED renewal leaves the
-    # entry standing on purpose, so the pane stays un-reapable while the marker is in alarm.
-    #
-    # ⚠ `.get("disposition", "done")`, NEVER `entry["disposition"]`. Records written before this
-    # field existed sit in live run packages right now, and a KeyError here would take down the
-    # whole sweep that reads them rather than skipping the one entry.
-    if (entry or {}).get("disposition", "done") == "renew":
-        out.append("its checkout recorded disposition=renew and the renewal executor has not "
-                   "acted yet — reaping now would kill the pane the renewal needs")
-    recorded = [(int(p), str(s)) for p, s in (entry or {}).get("pids") or []]
-    # THE HARNESS-NATIVE EXPORT IS READ FIRST AND THE PIPE-PANE `recorded` LOG IS THE FALLBACK,
-    # REACHED ONLY WHEN THAT EXPORT IS MISSING OR EMPTY — `decisions.md#d-transcript-consumers-split`
-    # (owner, 2026-08-10). A RECORDED EXCEPTION to 7.31's precedence, earned by this gate's own
-    # target failure case: the kill exists for a dead tmux server or a dead harness, which is
-    # precisely when the export can be absent — and the pipe-pane log, written from pane BIRTH, is
-    # the only one of the two records that survives that death. A gate reading only the record that
-    # empties in its own target case gates nothing. The same ruling leaves `checkout` verification
-    # on the harness-native field ALONE, deliberately: its scenario is an orderly close where the
-    # export exists and is the richer record, so the two consumers are split rather than unified.
-    # ⚠ EMPTY COUNTS AS MISSING, and that is not a widening for its own sake: the pre-7.692 gate
-    # tested `exists()` only, so a zero-byte export — what a killed harness leaves — passed it
-    # outright. That hole is what the ARM (b) selftest row reddens.
-    tpath = (entry or {}).get("transcript") or ""
-    exported = bool(entry.get("exported")) and bool(tpath)
-    if not (exported and nonempty_file(tpath)):
-        if not nonempty_file(seat_recorded_log(pkg, seat) if pkg and seat else ""):
-            if not exported:
-                out.append("no transcript was exported — #259 gates the kill on it existing, and "
-                           "no pipe-pane log stands in for it")
-            elif not Path(tpath).exists():
-                out.append(f"its recorded transcript {tpath} is no longer on disk, and no "
-                           f"pipe-pane log stands in for it")
-            else:
-                out.append(f"its recorded transcript {tpath} is EMPTY, and no pipe-pane log "
-                           f"stands in for it")
-    if not recorded:
-        out.append("no harness identity was recorded, so the pane was never provably seat-only")
-    elif pane and pane in panes:
-        live_now = [(int(p), str(s)) for p, s in pane_harness_idents(pane)]
-        if sorted(live_now) != sorted(recorded):
-            out.append("the pane no longer holds the processes it checked out with — it has been "
-                       "repurposed, and a human may be on it")
-    return out
-
-
-# `confirm_reap` — the two-pass reap ledger — is DELETED here, not disabled. It had no caller left
-# and it could not have run if it had one: its last act wrote `awaiting_path(base)`, a function that
-# went away with the debt file itself, so any call would have raised NameError inside a lock. The
-# reap it guarded is now `supervisor.confirmAndReap`, which CONFIRMS by probing the registry and
-# waiting for the process to actually go, rather than by counting two sightings an hour apart
-# [spec-supervisor §4].
+# ── `reap_blockers` AND `confirm_reap` ARE BOTH DELETED HERE, NOT DISABLED ────────────────────
+#
+# `confirm_reap` — the two-pass reap ledger — went first: it had no caller left and could not have
+# run if it had one, because its last act wrote `awaiting_path(base)`, a function that went away
+# with the debt file itself, so any call would have raised NameError inside a lock.
+#
+# `reap_blockers` — the pane-reap precondition list — follows it, and for a stronger reason than
+# "no caller". Its whole SUBJECT is gone. It answered "may this PANE be killed to free memory",
+# and [T4-R8] deletes the pane as a liveness surface: a pane is a viewport, not a heartbeat. The
+# reap that survives is `supervisor.confirmAndReap`, which is keyed on a `(goal, seat)` REGISTRY
+# ROW and a `kill(pid,0)` + `/proc` start-time probe, signals the PROCESS, and waits for it to
+# actually go [spec-supervisor §4]. `cmd_reap` has routed through it since the debt file died;
+# nothing has called this function in between, so it has been dead code with a live-looking
+# selftest block in front of it — the shape that makes a suite report coverage it does not have.
+#
+# ⚠⚠ TWO THINGS THIS FUNCTION CARRIED HAVE NO SUCCESSOR ON THE NEW PATH, and they are recorded
+# here rather than lost quietly, because both were owner-level rulings and neither is re-derivable
+# from the code that replaces this:
+#
+#   1. THE HUMAN-DOOR EXEMPTION (`r-owner-afk-liaison-parked`, owner-ruled via leader #341). A seat
+#      whose descriptor declares `relays:` carries the path to a human role, so its pane is a DOOR
+#      and was never reapable. `supervisor/death-stamp.js#confirmAndReap` has no counterpart — its
+#      own build memory says so (`20260824-c-supervisor-death-stamp`, ATTENTION 4): a `done`
+#      checkout now reaps EVERY seat. A parked owner door that ends its sitting will be terminated.
+#   2. #259's TRANSCRIPT PRECONDITION and its `d-transcript-consumers-split` precedence
+#      (harness-native export FIRST, pipe-pane `recorded` log as the fallback, empty counting as
+#      missing). The reap no longer gates on a transcript existing at all; what the store requires
+#      instead is an `evidence_pointer` on the ending itself [§1.2], which is a different and
+#      weaker guarantee — it names evidence, it does not verify the file is on disk and non-empty.
+#
+# Both belong to the supervisor seat, not to this file, and are filed as owed work rather than
+# reconstructed here on the retired surface.
 
 
 def set_closing(base, seat, closer):
@@ -1921,7 +1827,6 @@ def cmd_checkout(args):
         _seat_e = next((w for w in discover_workers(workers_dir(args)) if w["agent"] == me), None)
         if _seat_e is not None and _seat_e.get("ephemeral"):
             clear_closing(base, me)
-            clear_awaiting(base, me)
             _pane_e = (row or {}).get("pane") or detect_pane(None)
             if _pane_e:
                 _idents_e = pane_harness_idents(_pane_e)
