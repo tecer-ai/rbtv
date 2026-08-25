@@ -1,0 +1,72 @@
+# rbtv-watchdog.service — machine-agnostic systemd USER unit template (CMP-28).
+#
+# What the timer runs. rbtv-watchdog.timer is what actually schedules it.
+#
+# ⚠⚠ NOT PART OF THE DAEMON, AND THAT IS THE WHOLE COMPONENT. Any in-daemon health loop
+# (today: the per-goal reconcile pass in engine/reconcile.js) can watch everything EXCEPT
+# ignite being down, because ignite is what runs it. Until this unit existed, "the whole system is dead" was discoverable only by the
+# owner noticing silence. A watchdog inside the process tree it watches shares its failure
+# mode — same argument as rbtv-probe-suite.service, one layer down (liveness, not
+# correctness).
+#
+# Install-time substitution points (replace each @@NAME@@ with the instance value):
+#   @@IGNITE_SRC@@       - absolute path to the ignite module source root
+#   @@WORKSPACE_ROOT@@   - workspace root: the folder that roots .rbtv/
+#   @@ENV_FILE@@         - the machine's gitignored env surface, carrying
+#                          IGNITE_WATCHDOG_TOKEN (or IGNITE_SENDER_TOKEN),
+#                          SLACK_BOT_TOKEN and IGNITE_CHAT_BRIDGE_CONFIG.
+#                          Secrets NEVER travel in git (D27).
+#
+# Install location for the user manager:
+#   ~/.config/systemd/user/rbtv-watchdog.service
+#
+# BEFORE ENABLING, mint the watchdog's own gateway sender — see
+# capabilities/daemon-watchdog/daemon-watchdog.md § Enabling this thing. The daemon reads
+# its sender registry ONCE at startup, so the mint needs a daemon restart to take effect,
+# and a watchdog whose token is not yet loaded reports AUTH_REFUSED on every pass.
+#
+# After installing and substituting BOTH units:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now rbtv-watchdog.timer
+#
+# ⚠ ENABLE THE **TIMER**, NOT THE SERVICE. Enabling the service runs one pass at boot and
+# never again — a watchdog that fires once is not a watchdog.
+#
+# Do NOT commit a substituted version of this file.
+
+[Unit]
+Description=RBTV ignite daemon watchdog (CMP-28)
+# No After=/Wants= on rbtv-ignite.service, deliberately — same reasoning as
+# rbtv-probe-suite.service: this must run, and ACT, precisely when the daemon is NOT
+# running. Ordering it after the daemon would make it unavailable in the one case it
+# exists to catch.
+
+[Service]
+Type=oneshot
+WorkingDirectory=@@WORKSPACE_ROOT@@
+# The pass shells out to systemctl and journalctl and reads the workspace .rbtv/ tree;
+# keep the same user-local bin dirs the other rbtv units carry (a minimal user-manager
+# PATH breaks the spawns).
+Environment="PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="RBTV_WATCHDOG_WORKSPACE=@@WORKSPACE_ROOT@@"
+# The three rows this tool has. The former fourth, `goal-watcher`, was scoped off here on
+# 2026-08-17 when its queue row was dequeued, and the whole arm was REMOVED on 2026-08-21
+# with the program it watched (`jobs/goal-watcher-job.py`, owner ruling "if the program is
+# dead, delete it"). This line is now redundant with the tool's own default and is kept
+# only as the recorded-disarm surface for whatever row is disarmed next.
+Environment="RBTV_WATCHDOG_TARGETS=daemon,bridge,probe-suite"
+EnvironmentFile=@@ENV_FILE@@
+ExecStart=/usr/bin/python3 @@IGNITE_SRC@@/observation/daemon-watchdog/tool/rbtv-ignite-watchdog
+# NOTHING is whitelisted here, and since owner ruling R1 (2026-08-15) nothing needs to be:
+# the tool exits 0 on every pass it COMPLETES — all green, acted, a subject still down, or
+# an alarm standing — and carries those verdicts in the owner DM and its state file. A
+# nonzero exit therefore means THE WATCHDOG ITSELF BROKE, and this unit showing FAILED is a
+# signal worth reading. A SuccessExitStatus whitelist was rejected for exactly that reason:
+# it would have masked the watchdog's own death along with the alarm. (Before R1 an alarm
+# exited 1, and since the timer re-fires every ~60s, systemd logged `Failed with result
+# exit-code` once a minute for the whole window something was wrong.)
+# Bounded well under the timer's re-fire interval: a pass that cannot finish is a pass that
+# would otherwise pile up behind the next one.
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal

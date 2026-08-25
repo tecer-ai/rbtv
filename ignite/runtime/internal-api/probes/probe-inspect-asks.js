@@ -1,0 +1,208 @@
+'use strict';
+
+// probe-inspect-asks — THE READ HALF OF THE OWNER-ASK RECORD: `inspect asks`.
+//
+// WHAT THIS PROBE IS FOR. `spec-owner-io` §5's system digest is SYSTEM-WIDE, and the process that
+// renders it — the chat bridge — is walled off from `heart.db` (`probe-chat-boundary.js`). Before
+// this target the bridge had a WRITE path to the ask record (the thirteenth intent) and no read
+// path at all, so the digest's `readOpenAsks` port had nothing legal to wire to and rendered an
+// empty set forever. This probe measures the daemon half of that wiring.
+//
+// The load-bearing legs:
+//   · the listing crosses GOALS (a per-goal answer cannot serve a system-wide digest);
+//   · a NEVER-POSTED ask is absent (§2.1: an ask the owner was never told about is not a wait);
+//   · a REAPED ask is absent (the digest must stop carrying an answered question);
+//   · the row shape is the digest's own documented port, key by key;
+//   · the three copies of the target set (gateway, core, CLI) still agree — the drift
+//     `probe-inspect-executions` guards, re-asserted here because this change adds a member.
+//
+// In-process parse + dispatch over a real (scratch) store. No daemon, no gateway socket, no Slack.
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const start = Date.now();
+const outPath = path.join(__dirname, 'probe-inspect-asks.out');
+fs.writeFileSync(outPath, '');
+
+const { createInternalApi, ENVELOPE_VERSION, INSPECT_TARGETS: CORE_TARGETS } = require('../dispatch');
+const { parseRequest, INSPECT_TARGETS: GW_TARGETS } = require('../../gateway/parse');
+const { TARGETS: CLI_TARGETS, HELP: CLI_HELP } = require('../../../ignite-cli/commands/inspect');
+const { openEndingStore, bind } = require('../../../state-store');
+const askRecord = require('../../../state-store/heart/ask-record');
+
+function out(...lines) {
+  fs.appendFileSync(outPath, lines.join('\n') + '\n');
+}
+
+const checks = [];
+function check(name, pass, detail) {
+  checks.push({ name, pass });
+  out(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
+}
+
+const GOAL_A = 'meet-transcript-summarizer';
+const GOAL_B = 'audio-component';
+
+function seedGoal(root, goal) {
+  const dir = path.join(root, '.rbtv', 'goals', goal);
+  fs.mkdirSync(path.join(dir, 'coordination', 'asks'), { recursive: true });
+  return dir;
+}
+
+async function main() {
+  out('COMMAND: node ' + path.relative(process.cwd(), __filename));
+  out('evidence-class: FIXTURE in-process parse+dispatch over a scratch ending store; no gateway socket, no Slack, no daemon');
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-asks-probe-'));
+  seedGoal(root, GOAL_A);
+  seedGoal(root, GOAL_B);
+
+  const db = openEndingStore(path.join(root, '.rbtv', 'runtime', 'ignite', 'heart.db'));
+  const heartStore = { db };
+  const store = bind(db);
+
+  // Two goals, three asks, written through the DAEMON'S OWN writer so the rows and their on-disk
+  // copies are exactly what the thirteenth intent produces.
+  const openA = askRecord.openAsk(heartStore, {
+    workspaceRoot: root, goal: GOAL_A, seat: 'goal-master', thread: '1724500001.000100',
+    corpus: 'Should the summarizer keep the 90-minute cap?\n\n(second line, deliberately not the one-liner)',
+  });
+  const openB = askRecord.openAsk(heartStore, {
+    workspaceRoot: root, goal: GOAL_B, seat: 'audio-smith', thread: '1724500002.000200',
+    corpus: 'Which mic profile is the reference?',
+  });
+  const reaped = askRecord.openAsk(heartStore, {
+    workspaceRoot: root, goal: GOAL_A, seat: 'verify-seat', thread: '1724500003.000300',
+    corpus: 'Is this verdict good enough to close?',
+  });
+  check('SETUP: three asks were recorded through the daemon writer',
+    openA.recorded && openB.recorded && reaped.recorded,
+    `A=${openA.recorded} B=${openB.recorded} reaped=${reaped.recorded}`);
+
+  const secret = crypto.randomBytes(32).toString('hex');
+  const api = createInternalApi({ heartStore, spawnManager: {}, secret, workspaceRoot: root });
+  const BRIDGE = { id: 'probe-bridge', kind: 'bridge' };
+
+  async function inspect(payload, sender = BRIDGE) {
+    let parsed;
+    try {
+      parsed = parseRequest({ intent: 'inspect', payload });
+    } catch (err) {
+      return { gatewayRefused: true, body: { ok: false, error: { code: err.code, message: err.message } } };
+    }
+    const res = await api.dispatch({
+      v: ENVELOPE_VERSION,
+      id: crypto.randomUUID(),
+      ts: new Date().toISOString(),
+      auth: secret,
+      sender,
+      intent: 'inspect',
+      payload: parsed,
+    });
+    return { gatewayRefused: false, body: res };
+  }
+
+  // ── A. THE TARGET EXISTS AT ALL THREE DOORS ─────────────────────────────────────────────────
+  check('A1: the gateway allowlist admits `asks`', GW_TARGETS.has('asks'));
+  check('A2: the server core admits `asks`', CORE_TARGETS.has('asks'));
+  check('A3: the CLI surface admits `asks`', CLI_TARGETS.has('asks'));
+  // The FOURTH copy: the usage lines an operator reads. A target in every Set and absent from the
+  // help is a surface nobody can discover — `probe-inspect-executions.js` guards the same four,
+  // and it is re-asserted here because this change adds a member to all of them.
+  const helpTargets = new Set();
+  for (const line of CLI_HELP.split('\n')) {
+    const m = /^ignite inspect ([a-z][a-z0-9-]*)/.exec(line);
+    if (m) helpTargets.add(m[1]);
+  }
+  check('A3b: the CLI HELP names `asks` as a usage line — a target nobody can discover is not shipped',
+    helpTargets.has('asks'), `help=${[...helpTargets].sort().join(',')}`);
+
+  const gw = [...GW_TARGETS].sort().join(',');
+  const core = [...CORE_TARGETS].sort().join(',');
+  const cli = [...CLI_TARGETS].sort().join(',');
+  check('A4: the three copies of the target set are IDENTICAL — a member added to one and not the others is the drift this set has three homes for',
+    gw === core && core === cli, `gw=${gw} core=${core} cli=${cli}`);
+
+  // ── B. THE LISTING CROSSES GOALS ────────────────────────────────────────────────────────────
+  let r = await inspect({ target: 'asks' });
+  const rows = (r.body.result && r.body.result.rows) || [];
+  check('B1: `inspect asks` answers ok', r.body.ok === true, JSON.stringify(r.body.error || {}));
+  const goals = [...new Set(rows.map((x) => x.goal))].sort();
+  check('B2: the listing spans EVERY goal — a per-goal answer cannot serve a SYSTEM-wide digest [§5]',
+    goals.length === 2 && goals[0] === GOAL_B && goals[1] === GOAL_A,
+    `goals=${goals.join('|')} rows=${rows.length}`);
+
+  // ── C. THE ROW SHAPE IS THE DIGEST'S DOCUMENTED PORT ────────────────────────────────────────
+  const rowA = rows.find((x) => x.id === '1724500001.000100');
+  check('C1: the ask id is the SLACK THREAD [T5-R7]', Boolean(rowA), `ids=${rows.map((x) => x.id).join(',')}`);
+  check('C2: every key the digest renders is present — id, seat, one_liner, opened_at, evidence_pointer',
+    Boolean(rowA) && ['id', 'seat', 'one_liner', 'opened_at', 'evidence_pointer'].every((k) => rowA[k] !== undefined),
+    JSON.stringify(rowA || {}));
+  check('C3: the one-liner is the FIRST line of the ask copy, never the whole body — the digest is a phone glance',
+    Boolean(rowA) && rowA.one_liner === 'Should the summarizer keep the 90-minute cap?',
+    rowA && JSON.stringify(rowA.one_liner));
+  check('C4: `opened_at` is when the ask reached the OWNER (`posted_at`), which is what §5 renders an age from',
+    Boolean(rowA) && typeof rowA.opened_at === 'string' && rowA.opened_at.length > 0,
+    rowA && rowA.opened_at);
+  check('C5: `evidence_pointer` names a file that EXISTS — the Links section must open something',
+    Boolean(rowA) && fs.existsSync(rowA.evidence_pointer), rowA && rowA.evidence_pointer);
+
+  // ── D. WHAT MUST NOT BE IN IT ───────────────────────────────────────────────────────────────
+  //
+  // A reaped ask, and an ask that was never posted. Both are rows in the table; neither is a wait.
+  store.reapAndRelaunch({ ask_id: '1724500003.000300', authorized_reply_at: '2026-08-25 09:30' });
+  store.insertAsk({
+    ask_id: '1724500004.000400', goal: GOAL_B, seat: 'audio-smith', label: 'work-content',
+    evidence_pointer: path.join(root, 'never-posted.txt'),
+  });
+  r = await inspect({ target: 'asks' });
+  const after = (r.body.result && r.body.result.rows) || [];
+  const ids = after.map((x) => x.id);
+  check('D1: a REAPED ask is gone from the listing — the digest must stop carrying a question the owner answered',
+    !ids.includes('1724500003.000300'), `ids=${ids.join(',')}`);
+  check('D2: an ask that was never POSTED is absent [§2.1] — an ask the owner was never told about is a wait nobody can end',
+    !ids.includes('1724500004.000400'), `ids=${ids.join(',')}`);
+  check('D3: the two live asks remain', ids.includes('1724500001.000100') && ids.includes('1724500002.000200'), `ids=${ids.join(',')}`);
+
+  // ── E. IT IS A FIXED VIEW, AND THE SHAPE IS REFUSED AT THE DOOR ─────────────────────────────
+  r = await inspect({ target: 'asks', id: 12 });
+  check('E1: `inspect asks` takes no id — refused at the GATEWAY, never silently ignored',
+    r.gatewayRefused === true && /id/.test(r.body.error.message), r.body.error && r.body.error.message);
+  r = await inspect({ target: 'asks', status: 'failed' });
+  check('E2: `inspect asks` takes no status — refused at the gateway',
+    r.gatewayRefused === true, r.body.error && r.body.error.message);
+  r = await inspect({ target: 'asks', goal: GOAL_A });
+  check('E3: an unknown payload key is refused — the digest asks for the WHOLE waiting set or it is not that digest',
+    r.gatewayRefused === true && /goal/.test(r.body.error.message), r.body.error && r.body.error.message);
+
+  // ── F. AN UNREADABLE ASK COPY DOES NOT LOSE THE ROW ─────────────────────────────────────────
+  //
+  // The words live on disk and the STATE lives in the store, so a deleted copy costs the sentence,
+  // never the fact that somebody is waiting.
+  fs.rmSync(rowA.evidence_pointer, { force: true });
+  r = await inspect({ target: 'asks' });
+  const rowAgain = ((r.body.result && r.body.result.rows) || []).find((x) => x.id === '1724500001.000100');
+  check('F1: the row survives a deleted ask copy, with no words rather than invented ones',
+    Boolean(rowAgain) && rowAgain.one_liner === null, JSON.stringify(rowAgain || {}));
+
+  try { db.close(); } catch { /* the probe is done with it */ }
+  try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* tmp */ }
+
+  const failed = checks.filter((c) => !c.pass);
+  out('');
+  out(`RESULT: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length - failed.length}/${checks.length} checks`);
+  out(`WALL_MS ${Date.now() - start}`);
+  out(`EXIT ${failed.length ? 1 : 0}`);
+  console.log(fs.readFileSync(outPath, 'utf8'));
+  process.exit(failed.length ? 1 : 0);
+}
+
+main().catch((err) => {
+  out(`PROBE FAULT: ${err && err.stack ? err.stack : err}`);
+  out('EXIT 1');
+  console.log(fs.readFileSync(outPath, 'utf8'));
+  process.exit(1);
+});

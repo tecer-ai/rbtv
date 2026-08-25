@@ -1,0 +1,1230 @@
+bind:
+  host: 127.0.0.1        # the UNCONDITIONAL loopback listener (p5-2, network-posture-spec Design 1). MUST stay a
+                         # loopback address — the daemon ALSO binds this node's tailnet address automatically
+                         # (resolved at runtime from tailscaled). A non-loopback/non-tailnet host is refused at
+                         # startup by the fail-closed bind guard (E_BIND_FORBIDDEN); there is NO override.
+  port: 7431             # build-time default; changing it is a config edit + restart
+
+# Daemon-only namespace (stripped before spawn/config.js sees it, like ticker/tools/workflows).
+# The tailnet-bind readiness retry budget (network-posture-spec Design 2, rule 2). The daemon binds
+# loopback first, then attempts this node's tailnet address with this bounded retry; on exhaustion it
+# runs loopback-only with a standing warning (surfaced by `ignite status`) and NEVER widens to 0.0.0.0.
+network:
+  tailnet_bind_retries: 3       # attempts to resolve+bind the tailnet address before degrading to loopback-only
+  tailnet_bind_retry_ms: 1000   # delay between attempts (ms). Env: RBTV_IGNITE_TAILNET_RETRIES / _RETRY_MS (probes)
+
+auth:
+  senders_file: /etc/rbtv-ignite/senders.yaml   # named-sender registry (D15 shape: sender-id, kind, token-hash, enabled); 0600, outside the repo
+  # ⚑ STARTUP GATE (p4-1, spawn-profiles-spec.md Design 4): the daemon REFUSES TO START when this
+  # file is missing, empty, group/world-readable, malformed, or declares no senders. Deploying it is
+  # an OWNER-EXECUTED install step — see config/senders.example.yaml for the seed + the procedure.
+  # Override the path (e.g. for probes) with RBTV_IGNITE_SENDERS_FILE via the unit's EnvironmentFile;
+  # never by writing an instance path here (D26(3)).
+  # Internal gateway<->server-core auth is the internal-api contract (p1-3) — NOT configured here:
+  # it is a per-boot secret minted by the composition root, never a configured value.
+
+spawn:
+  data_root: /var/lib/rbtv-ignite   # the PER-MACHINE state root (batch-08 item 10 boundary — ignite/CLAUDE.md
+                                    # § State layout): heart.db, logs/, prompts/, exits/, ticker.log,
+                                    # feed.jsonl live under here. Live deploys override via RBTV_IGNITE_DATA_ROOT
+                                    # (the user unit's StateDirectory= path); this seed is the system-service shape.
+  carrier: systemd                  # required (D48): containment is non-negotiable. A worker runs under
+                                    # systemd-run --user with its profile caps/sandbox, or it refuses to start.
+  kill_grace_seconds: 10            # SIGTERM -> grace -> SIGKILL
+
+default_workdir_root: /path/set-at-setup   # REQUIRED (D22): the workdir every spawn falls back to when the
+                                           # caller supplies none. Owner-fixed at setup (e.g. the owner's
+                                           # workspace root); the seed ships this PLACEHOLDER only -- never
+                                           # a hardcoded instance path (D9 relocatability).
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+# r-seats-only-architecture (owner, 2026-08-06) — THE SEAT CAGE IS THE ONE SANDBOX SHAPE.
+# The flat worker cage (scratch-dir RW, nothing mounted) is RETIRED, and with it the flat
+# `.rbtv/sessions/` launch path and the conductor-lane `cli-*` profile family (the daemon's
+# sub-agent lane retires; delegation is seat-side). Every daemon spawn is a SEAT, homed under
+# `.rbtv/goals`, launched inside the parameterized seat cage below.
+#
+# The config contract the resolver reads is exactly four surfaces (r-seats-only-architecture):
+#   cage:      ONE shared cage template — the 7.11 seat cage, now every profile's sandbox
+#   caps:      ONE shared resource-caps default block — per-profile overrides only by ruling
+#   toolsets:  the CLOSED tool-rights enum — a dispatch narrows, never widens
+#   launch-specs: ONE spec per harness+model; each carries ONLY exec / headed (where the
+#              harness has a TUI) / effort / session_ref / toolset_ceiling / workdir_root.
+#              Effort, launch home and tool rights are PER-DISPATCH parameters, never identity.
+#
+# ⚑ EFFORT IS A NUMERIC RUNG, 1..N, AND EVERY PROFILE DECLARES ITS OWN LADDER (owner ruling
+# `d-0811lp-effort-numeric-per-profile`, 2026-08-11). `effort.rungs` is an ORDERED list of the
+# strings THIS harness accepts — rung 1 lowest reasoning, rung N highest — and `effort.argv` is the
+# fragment that carries the chosen one ({effort}). A rung outside 1..N is refused NAMING the range.
+# A harness with no dial declares `effort: { inert: true }`: it ACCEPTS any rung and reports
+# `effortInert` (G-270), so an absent dial is stated rather than silently dropped. Absent effort is
+# the harness default.
+#   ⚠ This REPLACED the four-level abstract vocabulary (low|medium|high|max + a `values:` map) that
+#   7.42 shipped. That scheme could only be as wide as its narrowest member: claude's fifth rung
+#   `xhigh` was unspellable and codex's `max` was silently collapsed onto `high`. The ladders below
+#   are each harness's OWN, measured — never a translation of a shared one.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+# ── THE SHARED SEAT CAGE (r-seats-only-architecture (1)) ───────────────────────────────────────
+# Absorbed from the retired 7.11 `claude-seat` profile: the SeatBinds template below is that
+# profile's VERBATIM, plus the one new line class part (5) of the ruling adds (harnessCreds).
+# Per-dispatch parameters supply the paths ({goalDir}/{seatDir}) and the grants — `{runDir}` is
+# RETIRED (7.607 E2b, design-lock item 8: the package IS the goal folder).
+#
+# GRANT CLASSES (owner ruling "1a", 2026-08-06 — the instrument set a service seat is promised).
+# Every one is declared in the seat's OWN `seat.md` frontmatter, which the cage ro-binds, so an
+# occupant can never widen its own walls; an absent key composes the line to NOTHING.
+#   read-root: true    ro-bind the workspace root (the master role's read-everything mandate)
+#   bus-write: true    RW the coordination dir of EVERY goal's OPEN run (the coordination CLI)
+#   goals-write: true  RW the RUN FOLDER of every goal's OPEN run, EXCEPT the seat's own run,
+#                      with each granted run's sessions.csv carved back read-only (the seat
+#                      materializer: seats/<seat>/seat.md + the taskforce.csv append). Creates
+#                      nothing: a run folder that is not there is not opened, so materializing a
+#                      NEW run package stays outside this grant.
+#   local-bin: true    ro-bind the invoking user's ~/.local/bin (the user-local CLIs)
+#   tmux-socket: true  ro-bind tmux's socket dir ($TMUX_TMPDIR|/tmp)/tmux-<uid>, punched back
+#                      through bwrap's `--tmpfs /tmp` (owner-directed 2026-08-07). Without it
+#                      the coordination CLI can LOG a message but its WAKE leg cannot reach any
+#                      pane — the recipient is never nudged. READ-ONLY is sufficient AND is the
+#                      bound: connect(2) on a unix socket is not refused by a read-only mount,
+#                      so the seat drives the rooms that exist and can mint or destroy none.
+#   keep-instruction-files: true
+#                      NOT a mount either — it RELAXES the ancestor mask
+#                      (r-seat-context-cut-at-launch-folder). Every seat spawn masks the harness
+#                      artifacts on the path BETWEEN the workspace root and the launch folder
+#                      (CLAUDE.md/AGENTS.md over /dev/null, .claude/.codex/.opencode/.agents/
+#                      .kimi under a tmpfs) plus the auto-memory dir; this key keeps the path-up
+#                      INSTRUCTION FILES while the config dirs and auto-memory stay masked — the
+#                      CHANNEL seat's posture, ruled as a policy so a second seat needing it
+#                      declares it rather than being special-cased by path. The set and the walk
+#                      live in ONE place: `server/spawn/cage.js` composeAncestorMasks.
+#                      ⚠ CLAUDE.md/AGENTS.md INSIDE `.rbtv/goals/` are NEVER masked for any seat
+#                      (the goal + run folders must keep injecting), and the LAUNCH FOLDER'S OWN
+#                      artifacts are never masked — a seat may carry its own `.claude/`.
+#   gateway-env: true  NOT a mount — passes IGNITE_GATEWAY_ADDR into the session's environment
+#                      (a `--setenv`, composed beside these binds; no token, ever — the sender
+#                      token reaches a CLI from the workspace's gitignored
+#                      `.rbtv/config/sender-token.env` — its OWN file since 7.566, because the
+#                      `.env` beside it holds third-party secrets and is MASKED in every seat
+#                      cage — read there by `cli/lib/config.js` resolveToken)
+#   rw-paths:          a BLOCK LIST of workspace-relative paths bound READ-WRITE (owner ruling
+#                      "a", 2026-08-06). The generic answer to an in-workspace CLI that must
+#                      rewrite its own state under the `read-root` floor — the motivating case
+#                      is gtools refreshing an OAuth token into its credentials dir.
+#                        rw-paths:
+#                          - 3-resources/tools/google/credentials
+#                      VALIDATED PER ENTRY, refuse-loudly: a bad entry is SKIPPED and LOGGED,
+#                      never guessed at and never fatal to the spawn. An entry is refused when
+#                      it is empty or ABSOLUTE (the vocabulary is workspace-relative only), when
+#                      it ESCAPES the workspace root after `..` normalization, or when it
+#                      OVERLAPS `<ws>/.rbtv/goals` in either direction — every sessions.csv and
+#                      every seat.md lives under that subtree, so the identity/ground-truth
+#                      surfaces stay unwritable and the seat.md ro-carve keeps winning. A
+#                      nonexistent path is skipped; nothing is ever created.
+cage:
+  NoNewPrivileges: true
+  # Retained as the declarative source of the harness-local advisory write-restraint config
+  # (the second belt). The KERNEL set is SeatBinds below — it REPLACES the flat workdir opening
+  # in bwrap, it does not add to it.
+  ReadWritePaths: ["{workdir}"]
+  # ── THE FENCE (D3, 2026-08-19). ORDER IS LOAD-BEARING — each line deliberately shadows the
+  # one above it, and cage.js emits them in exactly this sequence. Later wins.
+  #
+  # Allow-list: (1) the goal's worktree branches, RW; (2) the goal folder, read, and goal-folder
+  # artifacts, write; (3) the seat's own folder, RW, except seat.md; (4) rbtv/ and
+  # <ws>/.rbtv/mirror, read; (5) coordination ledgers, WRITABLE; (6) env/secret files, simply
+  # not present (private-scope.js — do not pierce).
+  #
+  # A file-level ro-bind of a RECORD is gone: records are what seats must write, and denying
+  # them is the EROFS class. A file-level ro-bind of a WALL-CONTROL SURFACE stays: `seat.md`
+  # (it is the permission record the NEXT session's cage is derived from) — not forgery
+  # prevention; it is the fence holding its own posts. D3 item 3 names it explicitly. Record
+  # forgery is a NON-goal (D3). Its former sibling, `coordination/permission-edits.csv` (the
+  # audit of cage widenings and the mechanism that applied them), is GONE ([T2-R12, T1-R9],
+  # 2026-08-24): the grant store is deleted, owner auth is an answer to a live ask.
+  #
+  # ⚠ W5 (owner ruling D-1, 2026-08-13) EXTENDS THAT ORDER WITH TWO TIERS BELOW THIS LIST, and
+  # both are load-bearing in the same way. After every line here, spawn.js appends
+  # `cage.js#composeAncestorMasks`, which emits: (1) the ancestor/auto-memory/PRIVATE-SCOPE MASKS,
+  # then (2) the PIERCE re-binds — the openings above that name a private entry, re-emitted so
+  # they survive their own mask. GRANTS → MASKS → PIERCES. A pierce written up here instead would
+  # simply be re-covered by its mask; a mask written above a grant would be shadowed by it.
+  # ⚠ AND THE `ro-bind:{grant:readRoot}` LINE MUST STAY FIRST for a second, now UNIVERSAL reason
+  # (adv C56): the `ro-mask:{goalDir}/seats` line below is what makes PEER SEAT FOLDERS ABSENT, and
+  # it only shadows the read-everything floor because that floor is emitted before it. Move the
+  # read-root line down and every read-root seat reads every other seat's folder.
+  # `probe-private-scope.js` legs 1-7 and 9 are the arms that hold this paragraph.
+  SeatBinds:
+    # READ-EVERYTHING grant (r-seats-only-architecture; the master role's read-everything
+    # mandate): the whole workspace READ-ONLY, GRANT-GATED — produced only for a seat whose
+    # seat.md declares `read-root: true` (ro-bound below; its writers are the materializer
+    # and the master, never the occupant). No grant -> line skipped -> the vault stays
+    # ABSENT for ordinary seats, exactly as the pre-registered probes assert.
+    # FIRST deliberately: every later line layers its narrower opening over this ro floor.
+    - "ro-bind:{grant:readRoot}"
+    # D3 items 2+5 in ONE line — the goal folder RW. Replaces the five ledger bind-try lines,
+    # planning/, settings-requests/, coordination/, {grant:goalWrite}, and the
+    # sessions.csv / state.csv ro carves. (D3: record forgery is a non-goal; ledgers are
+    # writable. Fewer knobs is the point — each deleted line was an EROFS repair.)
+    - "bind:{goalDir}"
+    # ⚑ PEER SEAT FOLDERS: ABSENT, writes REFUSE (D48). Was `--tmpfs` (writable, evaporates —
+    # fake-success). `ro-mask` ro-binds an empty source so mkdir/write fail EROFS.
+    - "ro-mask:{goalDir}/seats"
+    # W1 — the seat's own folder, READ-WRITE (D3 item 3).
+    - "bind:{seatDir}"
+    # RO carve-IN inside W1. seat.md is the permission record the NEXT session's cage is
+    # derived from — a wall-control surface, not a record. D3 item 3 names this exception.
+    # Order is the mechanism: AFTER the {seatDir} bind, last-bind-wins.
+    - "ro-bind:{seatDir}/seat.md"
+    # D3 item 4 — rbtv repo root and <ws>/.rbtv/mirror, READ. Grant-resolved from spawn.js
+    # (this module's location / the seat's workspaceRoot), never a hardcoded install path
+    # (#d-no-hardcoded-paths). ro-bind-try: a missing mirror must cost the mirror, never spawn.
+    - "ro-bind-try:{grant:rbtvRoot}"
+    - "ro-bind-try:{grant:rbtvMirror}"
+    # BUS-WRITE grant (owner ruling "1a"): the coordination dir of every EXECUTING goal,
+    # READ-WRITE, one opening per grant. Must come AFTER the read-root ro floor.
+    - "bind:{grant:busWrite}"
+    # W3 (adv, C34) — the WALL-CONTROL SURFACE carve over `permission-edits.csv` (the leader's
+    # audited widenings AND the mechanism that applied them) is DELETED here ([T2-R12, T1-R9],
+    # 2026-08-24): the grant store is gone, owner auth is an answer to a live ask, and the file
+    # is no longer a runtime surface — no bind line, RO or RW, names it any more.
+    # GOALS-WRITE grant: the GOAL FOLDER of every EXECUTING goal other than this seat's own.
+    # The own goal is already RW via bind:{goalDir} above. The goalsWriteGroundTruth carve
+    # is DELETED (D3: record forgery is a non-goal).
+    - "bind:{grant:goalsWrite}"
+    # W2 — the seat's own worktree(s), one opening per grant (task 7.38). No grants -> no
+    # openings; another seat's worktree is never a grant of this seat.
+    - "bind:{grant:worktree}"
+    # W3 — that repo's git plumbing, so a worktree COMMIT succeeds. The `.git` ROOT stays
+    # read-only, which is not incidental: it kernel-blocks fetch/push/gc from inside the cage,
+    # making 7.38's "no per-seat remote pushes" true below the review layer. Accepted cost:
+    # `git gc`/`pack-refs` fail in-cage — seats commit, they do not maintain.
+    - "ro-bind:{grant:repoGit}"
+    - "bind:{grant:repoGit}/objects"
+    - "bind:{grant:repoGit}/refs"
+    - "bind:{grant:repoGit}/logs"
+    - "bind:{grant:worktreeGitDir}"
+    # NEW LINE CLASS (r-seats-only-architecture (5)): read-only mounts for the harness
+    # credential/config paths a seat is entitled to dispatch with. Grant-gated exactly like
+    # worktrees — no grants -> no openings; a seat never sees credentials it was not granted.
+    - "ro-bind:{grant:harnessCreds}"
+    # LOCAL-BIN grant (owner ruling "1a"): the invoking user's ~/.local/bin, READ-ONLY. Beside
+    # harnessCreds because it is the same kind of opening — a path under the HOME tmpfs bwrap
+    # lays down before this stack, punched back through it. Nothing later covers it.
+    - "ro-bind:{grant:localBin}"
+    # TMUX-SOCKET grant (owner-directed 2026-08-07): tmux's socket DIRECTORY, READ-ONLY — the
+    # same kind of opening again, this time punched back through bwrap's `--tmpfs /tmp`, which
+    # is what hid the socket from every caged seat alike and killed the coordination CLI's wake
+    # leg. READ-ONLY is the whole grant and it is sufficient: `connect(2)` on a unix socket is
+    # not refused by a read-only mount, so send-keys/capture-pane/display-message work while
+    # creating or deleting a socket does not. Placement is free — the path is outside the
+    # workspace root, so no line in this stack covers it.
+    - "ro-bind:{grant:tmuxSocketDir}"
+    # RW-PATHS grant (owner ruling "a"): the seat's declared in-workspace read-write paths,
+    # one opening per entry. LAST deliberately, and the placement is the mechanism: every
+    # entry lies inside the workspace root, which `ro-bind:{grant:readRoot}` covers read-only
+    # at the top of this stack — so an opening placed anywhere above that floor would be
+    # re-covered by it and compose to nothing observable. Nothing below it needs to shadow it
+    # back: the two lines that could (the seat.md ro-carve and the run-folder tmpfs erasures)
+    # both live under `.rbtv/goals`, and the resolver REFUSES any entry overlapping that
+    # subtree — so the carves win by never meeting an rw-paths entry, not by ordering.
+    - "bind:{grant:rwPath}"
+    # W6 · CLI-WRITE-ROOTS grant: the write roots declared by the CLIs this seat's exposed SKILLS
+    # route to (`write-roots` in exposure.csv, resolved seat -> skill -> CLI -> root by
+    # `team-kit/materialize-seats.py` and baked into seat.md as `cli-write-roots:`). Beside its
+    # `rwPath` sibling and for the identical reason: every entry lies inside the workspace root,
+    # which `ro-bind:{grant:readRoot}` covers read-only at the top of this stack, so an opening
+    # placed above that floor composes to nothing. It carries its own grant key rather than reusing
+    # `rwPath` so the cage spec and the spawn log keep the provenance visible.
+    # ⚠ The private-scope masks are appended AFTER this whole stack, so a deny always wins over one
+    # of these grants — a CLI-derived root is never a pierce.
+    - "bind:{grant:cliWriteRoot}"
+  # ⚑ ABSENT / UNWRITABLE BY CONSTRUCTION (D3, WORKER cages): peer seat folders even for READ
+  # (ro-mask, writes refuse — D48), other seats' worktrees, main repo WORKING trees outside
+  # the seat's own worktree, vault 2-areas/ and other repos that are not goals/, .rbtv/heart/,
+  # env/secret files (private-scope.js). seat.md stays RO (a wall-control surface).
+  # MasterBinds below is the D49 exception for `*-master` roles.
+  #
+  # D49 — TRULY-EVERYTHING cage for ALL caged master roles (`goal-master`, `channel-master`;
+  # `console-master` is unsandboxed and never reaches this stack). Whole workspace RW. No
+  # peer-seats mask, no seat.md carve, rbtv repo RW. Private-scope
+  # masks still append last — secrets stay read-denied (mask wins over this stack).
+  MasterBinds:
+    - "bind:{grant:readRoot}"
+    - "bind:{goalDir}"
+    - "bind:{seatDir}"
+    - "bind-try:{grant:rbtvRoot}"
+    - "bind-try:{grant:rbtvMirror}"
+    - "bind:{grant:busWrite}"
+    - "bind:{grant:goalsWrite}"
+    - "bind:{grant:worktree}"
+    - "ro-bind:{grant:repoGit}"
+    - "bind:{grant:repoGit}/objects"
+    - "bind:{grant:repoGit}/refs"
+    - "bind:{grant:repoGit}/logs"
+    - "bind:{grant:worktreeGitDir}"
+    - "ro-bind:{grant:harnessCreds}"
+    - "ro-bind:{grant:localBin}"
+    - "ro-bind:{grant:tmuxSocketDir}"
+    - "bind:{grant:rwPath}"
+    - "bind:{grant:cliWriteRoot}"
+
+# ── THE GLOBAL CAPS DEFAULT (r-seats-only-architecture (2)) ────────────────────────────────────
+# One default block; a profile-level `caps:` carries ONLY the keys it overrides, and only by
+# ruling. Values carried unchanged from the uniform pre-doctrine per-profile blocks.
+caps:
+  memory_max: "2G"
+  cpu_quota: "150%"
+  runtime_max: "6h"
+  tasks_max: 512
+
+# ── TOOLSETS — the CLOSED tool-rights enum (r-seats-only-architecture (2)) ─────────────────────
+# Tool rights are a per-dispatch parameter: a dispatch selects a tier AT OR BELOW its profile's
+# `toolset_ceiling`, and a dispatch (or a child — part (5): the enum bounds what a seat may pass
+# its children) may only ever NARROW, never widen. Where a harness has a real allowlist
+# mechanism it is carried into the tier; where none exists the tier is DECLARATIVE — the
+# resolver enforces what it can, and nothing is invented that the harness cannot honor.
+toolsets:
+  read-only:
+    # No write tools. No harness in the retired profile set exposed a verified read-only
+    # allowlist flag, so this tier is declarative on every harness.
+    {}
+  git-write:
+    # The retired claude-sonnet-tools allowlist shape, carried verbatim for the one harness
+    # with a real per-tool allowlist mechanism.
+    claude:
+      argv: ["--allowedTools", "Bash(git *),Write"]   # comma-joined ONE arg (POC)
+  full:
+    # Unrestricted within the cage — the cage, not the harness, is the wall.
+    {}
+
+launch-specs:
+  # ═════════════════════════════════════════════════════════════════════════════════════════════
+  # KEYED BY (HARNESS, MODEL) — THERE IS NO NAME LAYER (owner ruling `#d-abolish-profile-names`,
+  # 2026-08-12). This block used to be `profiles:`, a flat map keyed by an arbitrary NAME, and that
+  # name was the only unit a caller could select. Both are abolished: a seat's CAST — the
+  # (harness, model, effort) written into its bindings sheet
+  # (`.rbtv/config/modules/{module}/{component}/bindings/{code}.json`) — is the absolute source of
+  # truth for what it runs, and the daemon looks the mechanics up BY THAT PAIR at spawn time. No
+  # caller anywhere in ignite may select a launch spec; an uncast seat is a NAMED REFUSAL.
+  #
+  # ⚠ THE KEY IS THE AUTHORITY AND `exec.argv` MUST AGREE WITH IT. `launch-profiles/profiles.js#
+  # validateSpecKey` refuses at config LOAD when a spec filed under `claude/claude-opus-5` runs
+  # `--model claude-haiku-4-5` — the key decides what a cast resolves to, so a disagreement is a
+  # launch running a model nobody asked for while every record says otherwise.
+  #
+  # ONE SPEC PER HARNESS+MODEL (r-seats-only-architecture (2)) — nothing else is identity.
+  # The set is the owner-ruled roster (2026-08-06, live at console): claude fable/opus/sonnet/
+  # haiku, codex gpt-5.5 + gpt-5.6 family, opencode glm/deepseek/fugu/gemini/grok plus
+  # opencode-hosted kimi-for-coding models (k2.7/k3). The kimi harness is retired.
+  # profiles' MEASURED values, carried unchanged.
+  #
+  # exec argvs carry the caged posture (claude bypassPermissions, codex danger-full-access,
+  # opencode run --auto): under r-seats-only-architecture the bwrap seat cage is ALWAYS the
+  # boundary — the portable/caged halves retire with the flat lane, and a host with no cage
+  # refuses to spawn rather than running wall-less (the E_NO_PORTABLE_HALF direction, kept).
+  #
+  # ⚠ EFFORT IS TRANSLATED, NEVER BAKED, AND NEVER SILENTLY DROPPED (G-270): every spec
+  # carries a translation table or an explicit `inert: true`. A harness whose dial does not
+  # exist says so.
+  # ═════════════════════════════════════════════════════════════════════════════════════════════
+
+  claude:
+    # ── claude (4 models) ────────────────────────────────────────────────────────────────────────
+    # `stream-json` + `--verbose` is the shape 18 real jobs ran on. Headed: seats are headed by
+    # construction where the owner joins; no prompt carriage — a seat is driven by its DESCRIPTOR
+    # and by the room, never by argv text (R7, D86).
+    #
+    # ⚑ `headed.tui` PINS THE PROFILE'S MODEL (owner ruling core-build decisions.md#d-s21-headed-tui-pins-model,
+    # 2026-08-10): a profile named `claude-opus` that runs the harness default in one lane and opus in
+    # the other is a profile whose name means two things. The pin is `--model`, the same flag and the
+    # same value the `exec`/`resume` templates carry. Blast radius INCLUDES the daemon-headed lane
+    # (tmux-pane seats), ruled knowingly.
+    #
+    # ⚑ exec/resume ARE A PAIR (r-chat-chain-resumes-session, owner 2026-08-07). The exec ASSIGNS
+    # the harness session id (`--session-id {session_ref}`, so the rbtv session id and the harness
+    # session id are ONE value and `session_ref: { source: assigned }` needs to read nothing back);
+    # a chained turn then launches the resume argv with the PREDECESSOR's ref and a prompt carrying
+    # only the owner's new message(s). Measured on claude 2.1.224: `-p --resume <id>` keeps the same
+    # session id and its context (cache_creation 8843 -> 92 tokens on the second turn).
+    # ponytail: the two argvs are spelled out in full and must be kept in step by hand — a
+    # `--settings` change applied to one only would run two different postures on one profile. A
+    # shared-core/two-templates config shape is the upgrade path if that ever bites.
+
+    claude-fable-5:
+      exec:
+        argv: ["claude", "-p", "--model", "claude-fable-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-fable-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-fable-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+        headed: true
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    claude-opus-5:
+      # The FULL model id is pinned, never the `opus` alias (owner ruling 2026-08-10, "full model
+      # ids everywhere"): `claude --help` accepts either, but an alias records a mapping true on one
+      # machine at one moment, and a config where one profile spells a full id and its sibling an
+      # alias hands the bindings catalog two vocabularies for one fact.
+      exec:
+        argv: ["claude", "-p", "--model", "claude-opus-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-opus-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-opus-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+        headed: true
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    claude-sonnet-5:
+      exec:
+        argv: ["claude", "-p", "--model", "claude-sonnet-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-sonnet-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/chat-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-sonnet-5"] }
+      effort:
+        dialect: effort
+        rungs: [low, medium, high, xhigh, max]     # 1..5, lowest → highest reasoning
+        argv: ["--effort", "{effort}"]
+        headed: true
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    claude-haiku-4-5:
+      # ⚑ `effort: { inert: true }` IS A MEASUREMENT, NOT A SHORTCUT. The claude-code-cli manifest
+      # gives haiku `reasoning_modes.depths: []` / `invocation: none` — Haiku is single-mode and
+      # has no effort dial. An inert table makes the resolver ACCEPT any rung and report it back as
+      # `effortInert: true`; omitting the block would refuse the pair (G-270). ⚠ SO A MASTER RUNNING
+      # ON HAIKU CARRIES AN EFFORT THAT VISIBLY DOES NOTHING — accepted, reported inert, no argv.
+      # That is the honest report, not a defect; switch to a dialed profile to move the dial.
+      exec:
+        argv: ["claude", "-p", "--model", "claude-haiku-4-5",
+               "--session-id", "{session_ref}",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      resume:
+        argv: ["claude", "-p", "--resume", "{session_ref}",
+               "--model", "claude-haiku-4-5",
+               "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions",
+               "--settings", "/home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/config/worker-session-settings.json"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["claude", "--model", "claude-haiku-4-5"] }
+      effort: { inert: true }
+      session_ref: { source: assigned }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+
+  codex:
+    # ── codex (4 models) ─────────────────────────────────────────────────────────────────────────
+    # codex POLICY-blocks .git writes under workspace-write regardless of config, so the exec runs
+    # `--sandbox danger-full-access` — codex's own sandbox is OFF and containment is the seat cage
+    # (the D61 lineage). Model PINNED (`-m`): an unpinned profile records a mapping true on
+    # one machine at one moment. Effort: codex spells the dial `thinking`. gpt-5.5's live ladder
+    # is [low, medium, high, xhigh] (cast list 2026-08-18); the gpt-5.6 family adds `max`.
+    # Asking past a model's own top is a refusal naming 1..N, never a silent downgrade.
+    # The dial rides a `-c` config override (`codex exec --help`: "-c, --config
+    # <key=value>"), which is why the fragment is two tokens and not a flag. The same `-c`
+    # fragment is legal on the TUI (`codex --help` exposes `-c` as a root option); `headed.tui`
+    # pins the model (B1i) and does NOT carry `--dangerously-bypass-hook-trust`.
+    # `--dangerously-bypass-hook-trust` (owner-ruled, core-build d-codex-hook-trust-bypass,
+    # 2026-08-09): codex trust-gates hooks BY HASH, and seat-folder hooks.json files are derived
+    # and regenerated freely, so persisted trust re-breaks on every re-materialize; daemon-fired
+    # seat folders are machine-generated from owner-authored exposure manifests — codex's own
+    # documented case ("automation that already vets hook sources"). Daemon spawn profiles ONLY;
+    # never add this to an interactive/human codex invocation (humans keep the /hooks review).
+
+    gpt-5.5:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.5",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.5"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh]          # 1..4 — cast list 2026-08-18 (xhigh is live)
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    gpt-5.6-sol:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-sol",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-sol"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    gpt-5.6-terra:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-terra",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-terra"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+    gpt-5.6-luna:
+      exec:
+        argv: ["codex", "exec", "--cd", "{workdir}", "-m", "gpt-5.6-luna",
+               "--sandbox", "danger-full-access", "-c", "approval_policy=never",
+               "--dangerously-bypass-hook-trust", "--json"]
+        prompt: stdin        # codex hangs without stdin EOF from a non-TTY; the server closes stdin after writing
+      headed:
+        tui: { argv: ["codex", "-m", "gpt-5.6-luna"] }
+      effort:
+        dialect: thinking
+        rungs: [low, medium, high, xhigh, max]     # 1..5 — cast list 2026-08-18
+        argv: ["-c", "model_reasoning_effort={effort}"]
+        headed: true
+      session_ref: { source: stdout-json-event, event: thread.started, field: thread_id }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+
+  opencode:
+    # ── opencode (16 models; kimi-for-coding rides this harness, 2026-08-18) ─────────────────────
+    # DEC-2 / POC Finding 3: opencode has NO sandbox of its own (it touched the live vault
+    # unprompted) — containment is entirely the seat cage's. Headless exec is
+    # `opencode run --auto -m <model>` (G-49 / r-seats-launch-auto-mode): without `--auto`
+    # after `run`, headless mode auto-rejects its internal external_directory permission
+    # asks; the bwrap cage is the real confinement (`opencode --auto run` silently no-ops).
+    # session_ref cwd-implicit:
+    # opencode resumes per-cwd; the seat folder IS the ref. Headed: TUI argv pinning the profile's
+    # model with `-m` (d-s21-headed-tui-pins-model — same flag and value as `exec`, verified against
+    # `opencode --help` on this box: `-m, --model  model to use in the format of provider/model`, a
+    # ROOT option, so it applies to the default `opencode [project]` TUI command and not only to
+    # `run`), and no prompt carriage (D86 — carriage declaration awaits the real-terminal `--prompt`
+    # verification; a `{prompt}` slot would make the prompt mandatory and break the bare
+    # owner-driven entry path).
+    # 8h caps overrides: carried from the pre-doctrine per-profile blocks, pending ruling.
+    # Roster owner-ruled 2026-08-06; model IDs verified live on this box via `opencode models`
+    # (Google, DeepSeek, Sakana AI, Z.AI all authenticated per `opencode auth list`).
+    #
+    # ⚠ EFFORT WAS `inert: true` ON ALL SEVEN UNTIL 2026-08-11, AND THAT WAS A STALE INFERENCE, not
+    # the measurement it read as. The 2026-07-09 note it rested on — "opencode forwards `--variant`
+    # to the provider without validating it, so there is no honored ladder" — generalized ONE
+    # model's behaviour to all seven. `opencode run --help` (1.17.18) declares `--variant   model
+    # variant (provider-specific reasoning effort)`, and PROVIDER-SPECIFIC IS PER MODEL by
+    # definition — which is why every ladder below is enumerated from that model's own `variants`
+    # object and none is copied from its neighbour. Two of them prove the point: glm-5.2 carries no
+    # low/medium at all, gemini-flash no medium.
+    # ⚠⚠ AN INVALID `--variant` IS SILENTLY ACCEPTED — exit 0, no warning, no error (measured live,
+    # 2026-08-11). So nothing invalid may ever reach the binary, and the guards are both UPSTREAM of
+    # it, reading these same ladders: `bindings.py#set_seat` range-checks the number at authoring
+    # time, `catalog.js#effortRungFor` refuses an unknown word at launch. This file is the one copy.
+    # RUNG ORDER IS AUTHORED JUDGEMENT, NOT MEASUREMENT: models.dev publishes variant NAMES, not a
+    # reasoning ranking. Ascending-reasoning is the contract (rung 1 = lowest) and these follow the
+    # plain reading of the words. A model whose `variants` is `{}` KEEPS `inert: true` — that one
+    # is a measurement, with a command behind it.
+
+    zai-coding-plan/glm-5.2:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-5.2"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2"] }
+      effort:
+        dialect: variant
+        rungs: [high, max]   # `opencode models zai-coding-plan --verbose` .variants, 2026-08-11 — NO low/medium
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    deepseek/deepseek-v4-flash:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "deepseek/deepseek-v4-flash"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-flash"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    deepseek/deepseek-v4-pro:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "deepseek/deepseek-v4-pro"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "deepseek/deepseek-v4-pro"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high, max]   # `opencode models deepseek --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    xai/grok-4.6:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.6"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "xai/grok-4.6"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models xai --verbose` .variants, 2026-08-14 — NO xhigh
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    sakana/fugu:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "sakana/fugu"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "sakana/fugu"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    sakana/fugu-ultra:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "sakana/fugu-ultra"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "sakana/fugu-ultra"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models sakana --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-flash-latest:
+      # `gemini-flash-latest` is a FLOATING alias — the model identity floats with Google's latest; owner chose it knowingly.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-flash-latest"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-flash-latest"] }
+      effort:
+        dialect: variant
+        rungs: [low, high]   # `opencode models google --verbose` .variants, 2026-08-11 — NO medium
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-3.1-pro-preview:
+      # PREVIEW model ID — Google may retire `gemini-3.1-pro-preview`; expect a re-pin when it graduates or disappears.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-3.1-pro-preview"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-3.1-pro-preview"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # `opencode models google --verbose` .variants, 2026-08-11
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    zai-coding-plan/glm-5.2-highspeed:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-5.2-highspeed"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-5.2-highspeed"] }
+      effort:
+        dialect: variant
+        rungs: [high, max]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    zai-coding-plan/glm-4.7:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "zai-coding-plan/glm-4.7"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "zai-coding-plan/glm-4.7"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    google/gemini-3.6-flash:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "google/gemini-3.6-flash"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "google/gemini-3.6-flash"] }
+      effort:
+        dialect: variant
+        rungs: [minimal, low, medium, high]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    xai/grok-4.6-fast:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "xai/grok-4.6-fast"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "xai/grok-4.6-fast"] }
+      effort:
+        dialect: variant
+        rungs: [low, medium, high]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/kimi-for-coding:
+      # k2.7 — opencode-hosted; the kimi harness is retired. Pin is the catalog id.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/kimi-for-coding"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/kimi-for-coding"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/kimi-for-coding-highspeed:
+      # k2.7-highspeed — opencode-hosted; the kimi harness is retired.
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/kimi-for-coding-highspeed"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/kimi-for-coding-highspeed"] }
+      effort: { inert: true }   # cast list 2026-08-18 — no variants
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/k3:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/k3"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/k3"] }
+      effort:
+        dialect: variant
+        rungs: [low, high, max]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+    kimi-for-coding/k3-256k:
+      exec:
+        argv: ["opencode", "run", "--auto", "-m", "kimi-for-coding/k3-256k"]
+        prompt: stdin
+      headed:
+        tui: { argv: ["opencode", "-m", "kimi-for-coding/k3-256k"] }
+      effort:
+        dialect: variant
+        rungs: [low, high, max]   # cast list 2026-08-18
+        argv: ["--variant", "{effort}"]
+        headed: false
+      session_ref: { source: cwd-implicit }
+      toolset_ceiling: full
+      workdir_root: .rbtv/goals
+      caps: { runtime_max: "8h" }   # override pending ruling — was per-profile before r-seats-only-architecture
+
+# ── jobs: — MECHANICS THAT PIN NO MODEL, KEYED BY NAME ─────────────────────────────────────────
+# `#d-abolish-profile-names` sub-ruling 1: a deterministic launch with no (harness, model) pair has
+# nothing to key by, and "a job's name IS its identity". So these keep their names, in their own
+# block, which also removes the is-this-a-cast-or-a-job ambiguity the old flat `profiles:` map had
+# to paper over at launch time. ⚠ A SEAT CAN NEVER CAST TO ONE — `specForSeatCast` only ever reads
+# `launch-specs:`, so nothing here is reachable from an agent launch.
+jobs:
+
+  test-sleep:
+    # INERT TEST PROFILE (D52) -- the ONLY non-production profile here. It exists so the
+    # spawn/ticker path can be exercised end-to-end WITHOUT a paid, side-effecting LLM
+    # worker on the box that holds the vault. NO LLM. NO network. No side effects outside
+    # its own workdir. Named for the in-process probe fixture it mirrors
+    # (server/ticker/probes/lib.js) so probe/live parity is obvious -- D23: reuse the term,
+    # never mint an alias. Repointed to the seat shape by r-seats-only-architecture: it homes
+    # under .rbtv/goals and runs in the shared seat cage like every other profile.
+    #
+    # DURATION (60s) is load-bearing, not arbitrary. A `sleep` writes no stdout and reports
+    # no completion, so the ticker's Enforce phase is the ONLY thing that records its exit:
+    # the crash sweep sees the unit go inactive and writes a synthetic `completion`
+    # (status: failed, exit=0 -- D23's "crash-swept agent", D18(4) uniform exit path) plus
+    # jobs_log.status=failed. But the crash sweep only scans running/launching rows, and
+    # silence drives the stall ladder: warn at 12 ticks, halt at 24 (10s cadence). A row
+    # marked `stalled` LEAVES the swept set, so its exit would never be recorded at all.
+    # 60s exits at ~tick 7 -- swept well inside the 12-tick warn rung, while still leaving
+    # a comfortable window to observe the worker alive across a terminal close (CON-1).
+    exec:
+      argv: ["sleep", "60"]
+      prompt: stdin        # sleep ignores stdin; the server still writes the prompt and closes it (EOF guard)
+    effort: { inert: true }   # sleep has no dial; stated so a resolver-backed dispatch is not refused (G-270)
+    session_ref: { source: cwd-implicit }   # sleep has no session concept; the workdir IS the ref
+    toolset_ceiling: read-only   # a sleep needs no tools; the narrowest tier is the honest ceiling
+    workdir_root: .rbtv/goals
+    # override pending ruling — was per-profile before r-seats-only-architecture (a test profile
+    # at the 2G/6h default would let a stuck fixture hold seat-scale resources).
+    caps: { memory_max: "64M", cpu_quota: "10%", runtime_max: "5m", tasks_max: 16 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# tools:  — task 7.70. DAEMON-ONLY root key (server/index.js:40 DAEMON_ONLY_ROOT_KEYS);
+# the daemon strips it into {dataRoot}/.runtime-config/ itself, so it belongs in this
+# committed file. Read at boot only (loadMergedConfig, no fs.watch) — reaches the daemon
+# through the integrator's restart.
+#
+# `fire-tool` resolves argv from config.tools[<args.tool>] and runs it VERBATIM
+# (ticker.js runToolLikeExec, caps:{} sandbox:{}).
+#
+# WHAT IS PER-RUN, EXACTLY — TWO THINGS SINCE TASK 7.559, and the difference between them
+# is the difference between an ungoverned value and a governed one:
+#   · `args.workdir` — the cwd. Per-run and UNVALIDATED on this path, deliberately (a
+#     fire-tool row's workdir is legitimately a repo or a state root, so the `.rbtv/goals/`
+#     containment applied to start-workflow would refuse the live self-heal rows —
+#     `heart-store.js` records why). This predates 7.559 and is untouched by it; it
+#     is filed as its own row (7.562). ⚠ It is a real residual exposure, not a design.
+#   · an `args_allowlist` KEY — an argv operand, admitted by IDENTITY against a list this
+#     file declares. Only entries that declare one have any per-run operand at all.
+#
+# ⚠ AN ENTRY THAT DECLARES NO `args_allowlist` IS STILL FULLY FROZEN. Its argv is passed to
+# exec byte-identical, on the same code path as before 7.559. Frozen is the DEFAULT and it
+# is carried by the shape, not by a promise: the templating branch is unreachable without a
+# declared list, and an entry that templates a value WITHOUT declaring one is refused (fail
+# closed) rather than exec'ing the literal token `{{goal}}`.
+#
+# DESIGN CALL — ONE ENTRY PER TARGET, and the twin entries are NOT redundant.
+# The integrator correctly noted that `workdir` is per-run, so one entry could in
+# principle serve two targets. It cannot serve THESE two: each detector's target lives in
+# its ARGV (--session for the room, --package for the heartbeat), not in its cwd. Making
+# the target implicit in workdir would mean the target of a recovery job could be changed
+# by whoever enqueues it. With one entry per target, re-pointing a job at the LIVE room or
+# the LIVE heartbeat requires editing this file and an integrator-owned daemon restart —
+# announced, auditable, and impossible to do by accident from an enqueue.
+#
+# ⚠ WHAT 7.559 PRESERVES AND WHAT IT RELAXES — stated plainly, because a reader who gets
+# this wrong builds the next entry wrong. PRESERVED, exactly: WHICH targets are reachable
+# is still fixed at config-write time, and still costs a reviewed diff plus an
+# integrator-owned restart — because extending an allowlist IS that same config edit, in
+# this same file. RELAXED, narrowly: an enqueuer who could previously influence only the
+# working directory can now also SELECT which of N pre-approved targets a job acts on,
+# where N is a number a human wrote in a reviewed diff. ⚠ NO ENTRY DECLARES A LIST TODAY —
+# `edge-runner`, the only one that ever did, was deleted with the Python edge-runner
+# (`build/one-readiness-predicate.md` § Deletions). The mechanism stays; it has no user.
+# The one-entry-per-target rule above is therefore RELIEVED ONLY where a list exists: an
+# allowlisted key replaces "one static entry per target" with "one entry, one reviewed list"
+# — it never lets an enqueue name a target nobody approved.
+#
+# ═════════════════════════════════════════════════════════════════════════════
+# ⚠  READ BEFORE ADDING AN ENTRY BELOW — THE DAEMON DOES NOT CONTAIN THESE.
+#
+# A `fire-tool` exec runs with NO bubblewrap namespace and NO cgroup caps. This is not
+# a gap in the config, it is what the code does: `runToolLikeExec` (server/ticker/
+# ticker.js) passes literal `caps: {}` and `sandbox: {}`, and ticker.js never calls
+# `buildBwrapArgv` at all. Verified in the daemon's own journal — the `systemd-run` line
+# for a fired tool carries no MemoryMax, no TasksMax, no bwrap.
+#
+# So, unlike every SEAT (whose containment task 7.30 proves at the kernel), a tool here
+# can read and write anywhere this daemon's user can — the vault, the credential surface
+# at .rbtv/config/.env, the heart store, ~/.ssh — for as long and as large as it likes.
+#
+# EVERY ENTRY MUST THEREFORE CONTAIN ITSELF. The script you point `argv` at must:
+#   1. cap its own address space (RLIMIT_AS) and its own wall clock;
+#   2. hold a single-instance lock, so a slow run cannot be started twice;
+#   3. write only under paths it derives itself;
+#   4. ⚑ RESTORE THE ORIGINAL LIMITS IN ANY CHILD IT EXECS. RLIMIT_AS is INHERITED: a
+#      detector that caps itself at 256 MB and then launches a sensor or a recovery agent
+#      hands that 256 MB to the process it is resurrecting. This is the clause a later
+#      author drops silently, and the failure it causes appears in the recovered process,
+#      not in the detector — hours away from the change that caused it.
+#
+# ── AND IF THE ENTRY DECLARES AN `args_allowlist` (task 7.559), FIVE MORE RULES ──────────
+#   5. THE LIST LIVES HERE AND NOWHERE ELSE. Never in a job registration's `args_schema`,
+#      never in a runtime settings file, never in an env var. `register-job` is reachable by
+#      any enrolled AGENT token, so a list living there is extensible by the agents it
+#      bounds — no restart, no reviewed diff, boundary moved. This is the entire security
+#      condition of the ruling that permits per-run arguments at all.
+#   6. LIST LITERAL VALUES, NEVER PATTERNS. There is no regex, prefix or glob support and
+#      none is wanted: the admissible set must be enumerable and must have been written by a
+#      human. If you find yourself wanting a pattern, you want a value you have not approved.
+#   7. THE OPERAND IS STILL AN OPERAND, NEVER THE PROGRAM. `argv[0]` may not be a
+#      placeholder (refused in `heart/argv-template.js`), and a placeholder must be a WHOLE
+#      token — `--goal={{goal}}` is refused, so a value can never be welded onto a flag.
+#   8. EVERY MEMBER IS A LIFETIME COMMITMENT, exactly like an argv path: the boot check walks
+#      allowlist values too, so a member naming a folder that is gone logs one error per boot
+#      forever (naming BOTH the stale path and the `key` that declared it). Retiring the target
+#      means deleting the line — same act, same restart.
+#   9. THE SHAPE IS A MAPPING OF KEY → LIST, and nothing else:
+#
+#          args_allowlist:
+#            <key>:
+#              - <permitted literal value>
+#
+#      NOT a scalar (`args_allowlist: goal`) and NOT a bare list (`args_allowlist: [ … ]`). YAML
+#      accepts both of those happily, so the daemon refuses them at FIRE as a shape error and
+#      records the execution `failed` — the entry then fires NEVER, on every cadence, until the
+#      shape is fixed. ⚠ IT USED TO BE MUCH WORSE: a scalar raised a TypeError out of the expander,
+#      and `tick()` has a `finally` with no `catch`, so ONE typo on this line abandoned enforce,
+#      broadcast and the whole tick record EVERY TICK until a human noticed (task 7.577; the
+#      §2 review of 7.559 measured it). It is guarded now, and the guard is a REFUSAL rather than a
+#      rescue — so get the shape right rather than trusting the refusal to be loud enough.
+#
+# A COMMENT IS NOT A WALL. It is here because the wall is missing and the absence needs to
+# be visible at the moment someone adds an entry. The daemon-side fix — enforcing caps on
+# the fire-tool path — is filed as issues.md G-30 for m2 (a containment-semantics change,
+# deliberately not made overnight without a shadow window).
+# ⚠ THE ALLOWLIST DOES NOT NARROW THAT GAP ONE BYTE. It bounds WHO CAN STEER a fired tool;
+# it does nothing about WHAT A FIRED TOOL CAN DO. Rules 1-4 above bind every entry equally,
+# allowlisted or not.
+# ═════════════════════════════════════════════════════════════════════════════
+tools:
+
+  # ── r-restart-daemon-job (owner, 2026-08-04) — the leader-triggerable restart ──
+  # The daemon restart stops requiring an owner's hand. NO THROWAWAY TWIN, and the absence
+  # is reasoned rather than forgotten (elicitation-brief O-3): there is no throwaway daemon
+  # to restart, so a twin would either restart the LIVE daemon — a second live firing, not a
+  # twin — or target a unit that does not exist, which probes nothing.
+  #
+  # ⚠ argv[0] is the ABSOLUTE interpreter + absolute script, never a bare command: a
+  # tool-like exec inherits the systemd --user manager's PATH (runToolLikeExec passes
+  # `envFile: null`), and that PATH does not contain ~/.local/bin.
+  #
+  # ✔ SINCE F1 (`d-owner-f1-carrier-env-0808`) THE CARRIER GUARANTEES THAT CLASS: every fire-tool
+  # exec is now composed with `--setenv PATH=<~/.local/bin>:…` (`carrier.js toolExecEnv`), so a bare
+  # name WOULD resolve here. The absolute form above is KEPT anyway — it is this entry's actual argv
+  # and documents what really execs; the carrier fix removes the need for the next entry to
+  # rediscover the lesson, it does not make an already-explicit path wrong.
+  #
+  # ⚠ LANDED IS NOT LIVE. This file is boot-read, so this entry reaches the daemon only
+  # through a restart — today the owner's one arming restart, thereafter this job itself.
+  # ── memory-commit (owner ruling 2026-08-23, goal-memory-management decisions.md, option a) ──
+  # The deterministic, OUT-OF-CAGE step after the daily `distill-ignite-memory` pass: commits
+  # ONLY `ignite/work-on-ignite/memory` in the rbtv repo by pathspec (`file-issue memory commit`),
+  # exit 0 when clean. A caged seat cannot see the repo root, so it writes and this job commits.
+  # Scheduled by a periodic queue row 30 min after the distill fire (see that goal's decisions.md).
+  memory-commit:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/file-issue.py
+      - memory
+      - commit
+      - --json
+
+  restart-daemon:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/runtime/jobs/restart-daemon.py
+      - --unit
+      - rbtv-ignite
+      # The script INVENTS no default for this — it is required there, supplied here.
+      - --budget-s
+      - "120"
+
+  # ── G-221 (A) — the IN-DAEMON arm of the verification trigger ──────────────
+  # Leader ruling #1373/#1400: A+B. B is the systemd timer (deploy/rbtv-probe-suite.timer).
+  #
+  # ⚠⚠ A IS DOGFOODING, NOT COVERAGE, and the distinction is the leader's bound, not a nicety:
+  # this entry is the run adopting the feature it builds (conduct.md §1). It is NOT redundancy
+  # for B, and B IS NEVER WEAKENED BECAUSE THIS EXISTS. A checker that lives inside the system
+  # it checks SHARES ITS FAILURE MODE — if the daemon stops, this stops, and its silence looks
+  # exactly like health. That is the whole ruling, and it was measured the same day: the two
+  # selfheal jobs (since retired) were dead for 23 hours and nothing reported it (G-254).
+  #
+  # Same runner as B, deliberately — ONE implementation of "run the suite and say so on every
+  # fire". The runner writes <workspace>/.rbtv/runtime/probe-suite/latest.json, so whichever arm
+  # fired last is visible in one place with its own instant and staleness budget.
+  #
+  # ⚠ NO --watch-arg-style passthrough here and none is wanted: the runner takes no arguments,
+  # so there is nothing for a twin to fail to mirror (G-243, where a throwaway twin carried a
+  # flag the live entry did not and thereby proved an argv production never runs).
+  probe-suite:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/deploy/probe-suite-scheduled.py
+
+  # ── goal-creation-request (task C2) — the DAEMON-EXECUTED half of a caged requester's ask ──────
+  #
+  # WHY THIS ENTRY EXISTS AT ALL, in one sentence: a Slack-caged channel master cannot create a
+  # goal directory, and the daemon can. Both halves were MEASURED before this entry was written
+  # (evidence/c2/probe-c2.js, 2026-08-08) rather than assumed:
+  #   · under the SHIPPED cage above, a channel-master-shaped service seat writing into the goals
+  #     root gets `mkdir: Read-only file system` and the target's bytes never reach disk — proven
+  #     from OUTSIDE the cage, which is the only reading that counts;
+  #   · the same seat CAN write inside its own seat folder, which is what makes a staged inbox the
+  #     payload transport. `fire-tool` argv is static (only `workdir` crosses from a queue row), so
+  #     there is no gateway verb that could carry a request BODY to a fired tool;
+  #   · at the gateway, `register-job` is REFUSED to a `bridge` token (`authz.canRegisterJob`) and
+  #     `enqueue-job` is allowed to ALL THREE sender kinds — it carries no authz gate. So the
+  #     TRIGGER goes through `enqueue-job` and the wire holds whichever kind the master presents.
+  #
+  # ⚠ THE INBOX IS A DIRECTORY, NOT A REQUEST FILE, and that follows from the static argv: one
+  # fixed argument must serve every request the master ever makes, and a drained directory is the
+  # only shape that does. The tool moves each request into `done/` or `refused/` as it goes, so a
+  # re-fire never re-processes what it already handled.
+  #
+  # ⚠ IT SCAFFOLDS — IT QUEUES NOTHING, ARMS NOTHING AND LAUNCHES NOTHING (7.778). `launch()` is
+  # the entry's other act and this path never reaches it. A goal born here is born INTO A LANE
+  # (`<goal>/execution-lane`, task 7.777, a REQUIRED field of every staged request), and the
+  # daemon's watch pass is what picks a `daemon` goal up; a `console` goal waits for `rbtv run`.
+  #
+  # ⚠ --ignite-bin IS NOT OPTIONAL, and the reason is the absolute-interpreter one `restart-daemon`
+  # above carries: a fire-tool exec inherits the systemd --user MANAGER's PATH, which does not carry
+  # `~/.local/bin`, so the bare name resolves for every interactive caller and for nobody under the
+  # daemon. It names the REPO file, never the symlink — the symlink's lifetime is shorter than this
+  # config's, which is what `server/heart/catalogue-paths.js`'s boot check exists to catch.
+  #
+  # ⚠ LANDING THIS ENTRY DOES NOT ARM IT — two gated acts stand between here and a fire, and the
+  # ORDER matters: (1) create the inbox dir `<.rbtv/goals/_channel-master/requests>`, (2) restart
+  # the daemon (this file is boot-read). Done out of order, step 2 logs one `catalogue-paths` error
+  # per boot for a `--inbox` that does not exist yet (the check logs, it never refuses the boot).
+  #
+  # ⚠ `--workflow` NAMES WHAT EVERY MASTER-CREATED GOAL IS MATERIALIZED WITH — RULED, task C5.
+  # Owner ruling `d-owner-q10-launcher-0808` (1), 2026-08-08: a master-created goal that does not
+  # route to a pre-existing workflow starts in the PLANNING workflow.
+  # ⚠ REPOINTED 2026-08-10 (issue C-2). The component this ruling was landed against —
+  # `3-resources/tools/rbtv/meta/planning-deprecated/` (itself RENAMED from `planner-workflow/` by the
+  # planning-v4 stage-B rename, vault commit `01f60de16`; task 7.598), entry seat `elicitator` —
+  # was DELETED, and every daemon-fired creation refused `workflow-unknown` at `create-package`
+  # until this edit. The live component is `3-resources/tools/rbtv/meta/planning/`, the planning REWRITE:
+  # 16 manifest seats in `workflows/plan-console/plan-console.csv`. The ruling is unchanged — a
+  # master-created goal still starts in planning; only the component it names moved.
+  #
+  # ⚠ `--entry-seat` AND `--delay-seconds` ARE GONE (7.778, owner-ruled). They fed the
+  # `register-job` + `add-job` pair that planted a `<goal>-workflow-start` row at goal birth, and
+  # both that pair and the `workflows: planning:` launcher it fired are DELETED. The entry seat is
+  # no longer named here because nothing here opens it: seeding does, from the lane marker. What
+  # `enqueue-job` refuses and what `argv-template.js` expands are unchanged mechanisms — they
+  # simply have no registrant from this door any more.
+  #
+  # ⚠ A FAILED SCAFFOLD LEAVES THE PARTIAL GOAL STANDING — ruled, no unwind
+  # (`d-owner-q10-launcher-0808` clause 3). The daemon cannot prove it alone created that
+  # directory, so the partial state is DISCLOSED in the request's refusal record (`goal-dir`,
+  # `goal-exists`, `scaffolded`) instead of deleted. Expect orphan goal directories after a failed
+  # fire; that is the ruled behaviour.
+  #
+  # ⚠ LANDED IS NOT LIVE, AND THE GAP IS THIS FILE'S OWN. It is BOOT-READ, so the entry below
+  # activates at the NEXT daemon restart and not before.
+  #
+  # ⚠ THE FIVE NEW FLAGS BELOW ARE WHAT MAKES THE GOAL BORN READY TO EXECUTE. `scaffold-and-queue`
+  # completes the goal folder's WORKING SURFACES through the ruled name `scaffold-seats` instead of
+  # leaving a bare scaffold. ⚠ 7.607 E2b: it no longer mints a `runs/run-1/` compartment and no
+  # longer appends a `state=open` register row — the run register is EXTINGUISHED (design-lock
+  # item 8), liveness is the DERIVED LEASE (item 1), and the deadlock that register caused (7.608)
+  # dies with it. `--claude-md`/`--budget-json` name the OWNER-APPROVED
+  # goal-generic starter set (`d-owner-starter-set-approved-0808`): that command refuses
+  # `create-inputs-missing` without them because it "never invents run conventions and never defaults
+  # a floor", and the run's constitution is the owner's to author, never this config's.
+  goal-creation-request:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/operator/goal-creation-request/tool/goal_creation_request.py
+      - scaffold-and-queue
+      - --inbox
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/requests
+      - --goals-root
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals
+      - --workflow
+      - plan-console
+      # ⚠ THE CATALOG ROOT IS THE SHARED PARENT, NOT THE planning COMPONENT FOLDER. The workflow is
+      # resolved as `<catalog-root>/<component>/workflows/plan-console/plan-console.csv`, so the root must
+      # be the MODULE folder that CONTAINS the component. (Under the retired planning-deprecated
+      # component this was additionally load-bearing because `ledger-groomer` was cataloged in a
+      # sibling component — measured in `evidence/c5e/c5e-01-premise-probes.txt` P1. All 16 seats
+      # of the rewrite catalog inside `planning/` itself, but the resolution shape is unchanged.)
+      - --catalog-root
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/meta/
+      - --bindings
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/planning/bindings/plan.json
+      # The OWNER-APPROVED starter set (CLAUDE.md + budget.json). F7 abolished conduct.md.
+      - --claude-md
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/CLAUDE.md
+      - --budget-json
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/team-kit/starter-set/budget.json
+      - --ignite-bin
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/ignite-cli/ignite.js
+
+  # ── master-profile (issue C-1) — the channel master choosing ITS OWN harness and model ────────
+  #
+  # ⚠ RETARGETED 2026-08-12. The knob WAS `master_profile` in `.rbtv/config/chat-bridge-config.json`,
+  # boot-read by the chat bridge and selected per surface by `forward-path.js#profileFor`. The
+  # launch-cast unification (owner ruling D2, 2026-08-11) deleted that key's readers — the transport
+  # stopped naming execution — so the fire below now edits the master's own CASTING SHEET, the same
+  # kind of file `rbtv-bindings` writes for every workflow seat, and re-renders its `seat.md` from it.
+  #
+  # ⚠ THE REQUESTED NAME IS VALIDATED AGAINST THE LIVE `launch-specs:` SET OF THIS FILE, at both halves —
+  # and against `coord.py#validate_seat` on top of it, because the sheet must hold a pair that the
+  # F6 gate of `materialize-seats.py` accepts. An unknown or uncastable name does NOT fail when the
+  # sheet is written — it fails at the SPAWN, one owner message later, with the sitting already
+  # accounted for. The tool reads the roster rather than carrying a copy, so adding a profile above
+  # needs no edit here.
+  #
+  # ⚠ NOTHING IS RESTARTED, AND THE OWNER'S CHAT SESSION SURVIVES. A casting sheet is not boot-read:
+  # `spawn.js` reads `seat.md` per launch and `live-sessions.js` reaps a warm session whose
+  # conversation now names a different profile, so the switch lands on the owner's next message.
+  # The `--repass` re-render is the whole reason this is a DAEMON fire at all — `seat.md` sits under
+  # `.rbtv/goals/`, which every seat cage refuses to grant writably, so the seat can author the cast
+  # and only this side can make it take.
+  #
+  # ⚠ `--package` IS ABSENT ON PURPOSE. It is derived from `--inbox` (the inbox is
+  # `<goal>/settings-requests/<capability>`, so its grandparent IS the goal folder), which keeps one
+  # goal name out of this argv instead of two that could drift apart.
+  master-profile:
+    argv:
+      - /usr/bin/python3
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/operator/master-profile/tool/master_profile.py
+      - apply
+      - --inbox
+      - /home/henri/ht-wkdir/second-brain/.rbtv/goals/_channel-master/settings-requests/master-profile
+      # The sheet this fire rewrites and the seat of it that is the master — named explicitly rather
+      # than left to the tool's own defaults, so a reader of this entry can see WHICH cast a fire
+      # changes without opening the script.
+      - --bindings
+      - /home/henri/ht-wkdir/second-brain/.rbtv/config/modules/meta/master/bindings/channel-master.json
+      - --seat
+      - channel-master
+      # Where the re-render reads the seat DEFINITION from (the component mirror), as distinct from
+      # the sheet above, which carries only what this deployment decided to spend on running it.
+      - --catalog-root
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/meta
+      - --profiles
+      - /home/henri/ht-wkdir/second-brain/3-resources/tools/rbtv/ignite/envelope/spawn-profiles.yaml
+
+# ═════════════════════════════════════════════════════════════════════════════
+# workflows: — the launcher a `start-workflow` queue row fires (task C5E)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# A DAEMON-ONLY SECTION, like `tools:` and `ticker:` above: `server/index.js` strips it before
+# `spawn/config.js` sees it (DAEMON_ONLY_ROOT_KEYS), and the heart store holds it as the catalogue
+# `enqueue-job` validates a `start-workflow` row against — a row naming a workflow absent from here
+# is REFUSED at the door, and re-checked at fire.
+#
+# ⚠ EVERY ENTRY HERE IS A TEMPLATE, AND THE ROW FILLS ITS OPERANDS. `{{workflow}}`, `{{entry-seat}}`,
+# `{{goal}}` and `{{workdir}}` are expanded from the firing row's own args by
+# `server/heart/argv-template.js`, which is what lets ONE generic launcher serve every workflow
+# instead of one static entry per workflow. That module's header carries the whole injection
+# argument — array in / array out, whole-token only, one pass, closed key set — and it is NOT
+# restated here. Two consequences bind an author of this section:
+#   · argv[0] MAY NEVER BE A PLACEHOLDER. A row may fill an operand, never CHOOSE THE PROGRAM;
+#     the expander refuses it in one place rather than trusting every config author.
+#   · A TOKEN IS A PLACEHOLDER OR A LITERAL, NEVER A MIX. `--flag={{workdir}}` is refused as
+#     malformed, so a value can never be concatenated onto a flag it did not arrive with.
+#
+# ⚠ NAME THE INTERPRETER AND NAME THE REPO FILE — never a bare command, never a symlink. A
+# start-workflow exec inherits the systemd --user manager's PATH, which does not carry
+# `~/.local/bin`, so `coordinate` as a bare name resolves interactively and NOT here. Same rule and
+# same reason as `--ignite-bin` on the tools above.
+# ⚠ 7.778 — THE SECTION IS EMPTY, AND THAT IS THE CURRENT END STATE, NOT AN OVERSIGHT.
+# The one entry that lived here (`planning:`, firing
+# `capabilities/goal-creation-request/tool/workflow_launcher.py`) is DELETED with the door that
+# armed it: goal creation no longer plants a `<goal>-workflow-start` row at birth. A created goal
+# declares its LANE instead (`<goal>/execution-lane`, task 7.777), and the daemon's watch pass
+# seeds it from that marker every cadence.
+#
+# ⚠ THE `start-workflow` ACTION TYPE IS **NOT** DELETED. It is a generic dispatch category with
+# live consumers (`server/ticker/one-live-run.js`, `server/ticker/goal-channel-start.js`), and an
+# empty map here simply means every `start-workflow` row is refused at the enqueue door until
+# somebody registers a workflow — which is the correct posture, not a regression.
+workflows: {}
