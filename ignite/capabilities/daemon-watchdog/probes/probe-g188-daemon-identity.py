@@ -498,9 +498,13 @@ def main():
                       len(SEEN_ARGV) == 1,
                       f"{len(SEEN_ARGV)} — two calls per pass can straddle a restart and disagree")
                 check("the first pass ever announces nothing", not notes, repr(notes)[:60])
-                check("the row set carries the verdict row and the identity row",
-                      len(rows) == 2 and "daemon-id" in rows[0] and "ident" in rows[1],
-                      " || ".join(r.strip() for r in rows)[:110])
+                # THREE rows since 2026-08-25 (T4-R9): the health-streak row joined the pair.
+                # It is asserted here by name rather than by a loosened count — a count that only
+                # says "at least two" would stop noticing a row that disappeared.
+                check("the row set carries the verdict row, the identity row and the health row",
+                      len(rows) == 3 and "daemon-id" in rows[0] and "ident" in rows[1]
+                      and "health" in rows[2],
+                      " || ".join(r.strip() for r in rows)[:160])
                 check("the identity row says there is no comparison yet, not that it matched",
                       "no comparison" in rows[1], rows[1].strip())
                 on_disk = json.loads(statef.read_text())

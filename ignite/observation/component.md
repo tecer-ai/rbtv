@@ -109,6 +109,26 @@ repeat is NOT a knob — [T1-R15] rules it, and it is absent from that file on p
 Be an ordinary caller of `emit`. Choose a stable `signature_class`, say what `immediate` is,
 and hand in the four fields. There is no registration step and no second emitter.
 
+## Registered caller: the daemon watchdog [T4-R9]
+
+Appended by `impl-alarms-watchdog`. `capabilities/daemon-watchdog` is an ordinary caller of
+`emit`, and the first one from outside this process: it is Python, so it reaches the emitter
+through its own sibling shim (`capabilities/daemon-watchdog/tool/watchdog-alarm.js`) rather
+than through a second emitter. Nothing in this component changed to admit it.
+
+| | |
+|---|---|
+| `signature_class` | `watchdog-daemon-unhealthy` |
+| `subject` | `{ type: "daemon", id: <the systemd unit name> }` |
+| `immediate` | `true` — system-health, digest-exempt for the first post [CF-9, T5-R11] |
+| Condition | N consecutive watchdog passes on which the daemon unit did not read determinately healthy, N = the watchdog's existing strike threshold (spec-owner-io §8) |
+| `evidence_pointer` | the watchdog's append-only outage ledger, `.rbtv/runtime/watchdog/outage-ledger.jsonl` — every restart decision and every WITHHELD restart with its reason |
+| Emission | ONE per episode, re-armed when the unit reads determinately running again. The 2-hourly system digest re-surfaces the open condition; the watchdog never re-emits it |
+
+The watchdog also carries the non-Slack dead-man (spec-owner-io §8) — a healthchecks-style
+ping whose ABSENCE is the alert. That is deliberately NOT an alarm and never reaches this
+emitter: it is the channel that has to work when this whole path, Slack included, does not.
+
 ## Not this component
 
 Liveness itself (`supervisor/`). The watchdog, the outage ledger and the non-Slack dead-man

@@ -197,6 +197,11 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_REALERT_SECONDS` | `21600` (6h) — how long an UNCHANGED alert stays suppressed before it is re-sent. `0` re-notifies every pass |
 | `RBTV_WATCHDOG_NOTIFY_FILE` | unset. **Test double** — when set, notifications are appended there as JSON lines and Slack is never called |
 | `RBTV_WATCHDOG_NOTIFY_PREFIX` | empty — prepended to every message; how a TEST DM is marked as one |
+| `RBTV_WATCHDOG_LEDGER` | `<workspace>/.rbtv/runtime/watchdog/outage-ledger.jsonl` — the append-only outage ledger below |
+| `RBTV_WATCHDOG_DEADMAN_URL` | unset. The healthchecks-style check URL the dead-man pings. **No default and no hardcoded endpoint**: unset means the out-of-band channel is NOT armed, and the pass says so on its own row rather than skipping silently |
+| `RBTV_WATCHDOG_ALARM_SHIM` | the sibling `tool/watchdog-alarm.js` — the route to the ONE alarm emitter |
+| `RBTV_WATCHDOG_NODE` | `node` — the interpreter that runs the shim |
+| `RBTV_SYSTEM_CHANNEL_ID` | unset. The system channel daemon-level events post to [T5-R1]. Read by the shim; absent = the alarm is refused there and the refusal is ledgered, never swallowed |
 | `SLACK_BOT_TOKEN`, `IGNITE_CHAT_BRIDGE_CONFIG` | the notify credential, and the bridge's own config — read ONLY to resolve WHO the owner is (explicit `bus_ferry_dm_user`, else the first allowlist entry), so the two components can never disagree about it |
 
 **The notify client is the watchdog's own two Slack calls** (`conversations.open`, then
@@ -205,6 +210,78 @@ chat bridge is the thing that is down, so it can depend on neither the bridge pr
 its bus-poll loop. The accepted consequence is stated plainly — if the bridge is down at
 the instant of the alert, Slack itself may be unreachable and that pass's DM fails; the
 NEXT pass 60s later re-attempts, so the message is delayed by one cadence, never lost.
+
+## The three BIT-7 duties: ledger · N-fail alarm · dead-man [T4-R9, C-17]
+
+Added 2026-08-25. The incident: on 2026-08-19 the ignite daemon was down
+18:18:44Z→21:24:59Z (3h05m) and BOTH halves of this component were silent — no ledger row
+and no owner alarm. The diagnosed mechanism is recorded at the top of
+`tool/rbtv-ignite-watchdog` beside the code that fixes it, in one sentence here:
+**the four identity verdicts fire only on a DETERMINATE `stopped`, and `_daemon_change()`
+refuses to claim a change when either side is `unknown` — so an outage whose identity read
+could not be resolved determinately produced no note and no change record at all.**
+`unknown` was a silent state. The proof is the artifact the incident left behind: at 21:30,
+six passes after the daemon returned at 21:23:39 on a fresh invocation id, `daemon.json`
+still carried no `notified_daemon_invocation` key, which is reachable only when
+`_daemon_change()` returned `None`, which requires the previously persisted reading to have
+been non-determinate.
+
+**What is KEPT.** `unknown` still never claims a DOWN. The calibration in
+`check_daemon()` is deliberate and unchanged: a measurement that failed must never be
+dressed up as an outage observed. What changed is that it is now reported AT ALL, in its own
+words, on its own row.
+
+### 1. The persistent outage ledger — `ledger()`
+
+`.rbtv/runtime/watchdog/outage-ledger.jsonl`, append-only, one JSON object per line, never
+rewritten. `daemon.json` is a SNAPSHOT — it can only say what is true this pass — so it can
+never answer "what happened between 18:18 and 21:24". This file can, and it survives both
+watchdog and daemon restarts. Decisions written:
+
+| `decision` | Written when |
+|---|---|
+| `restart-withheld` | EVERY withheld restart, with the arm (`unit-alive` · `backoff` · `strikes`) and the reason in plain words. **This is the row whose absence made the 3h05m invisible** — a ledger that recorded only actions is silent in exactly the case it exists for |
+| `restart-allowed` | The strikes are spent and the gate permits the restart |
+| `restart-taken` | The restart ran, with its `rc` and the REPROBE verdict — every row, not only `daemon` |
+| `observed-not-healthy` | Every pass the daemon unit did not read determinately running, with the consecutive count and the threshold |
+| `alarmed` / `alarm-emit-failed` | The N-fail alarm reached the emitter, or did not — a failed emission is a fact, and NOT stamping the episode is what makes the next pass retry |
+| `recovered` | The unit reads determinately running again, carrying `outage_seconds` — the duration task #113 asked for, recorded as a first-class field instead of left derivable by hand from two `since` stamps |
+
+`ledger()` NEVER raises. Record-keeping that can abort the pass would be a new way for this
+component to go blind.
+
+### 2. The N-consecutive-fail alarm — `daemon_health_streak()`
+
+N = `RBTV_WATCHDOG_STRIKES` (3), the threshold this component already had; spec-owner-io §8
+keeps it. N consecutive non-determinately-healthy daemon readings raise ONE alarm **even
+when the restart is withheld** — which is the whole point, since the withheld arms are the
+ones that never acted and therefore never announced.
+
+It is routed through the ONE alarm emitter (`ignite/observation/emitter.js`) as an ordinary
+caller, via the sibling `tool/watchdog-alarm.js` shim — this tool is Python and the emitter
+is JavaScript, and a second alarm path in Python is exactly the defect the emitter exists to
+end. Signature class `watchdog-daemon-unhealthy`; `immediate: true`, because spec-owner-io
+§9.2 makes system-health alarms digest-exempt for their first post [CF-9, T5-R11]. The post
+goes through the durable outbox, so an unreachable Slack leaves a queryable
+`pending-delivery` record rather than a lost alarm [C-17].
+
+ONE emission per episode, re-armed on recovery: §9.2 gives one alarm per condition-signature
+and hands re-surfacing to the 2-hourly system digest, so a second emission would be volume,
+not coverage.
+
+### 3. The non-Slack dead-man — `deadman_ping()`
+
+The CP1-ruled channel (spec-owner-io §8): a healthchecks-style HTTPS ping to
+`RBTV_WATCHDOG_DEADMAN_URL`, fired on every pass that reads the daemon determinately
+healthy. **The signal is the ABSENCE of a ping** — the check service alerts out-of-band
+(email/SMS, configured on that check) when one is missed. It is the only alert still
+standing when Slack is unreachable, when the outbox cannot deliver, and when this watchdog
+is itself dead — the branch no in-band alarm can cover.
+
+**Dry mode is a hard wall, checked before the URL.** `RBTV_WATCHDOG_NOTIFY_FILE` set → no
+request is ever made and a `{"deadman": "would-have-pinged", "url": …}` record is appended to
+that file instead. `--dry-run` likewise pings nothing. A real check pinged by a test is a
+dead-man that can never fire.
 
 ## Enabling this thing — the gate, in order
 
@@ -255,6 +332,16 @@ fresh `fired_at`, asserting alarm/alarm/alarm/up/up and that each alarm message 
 verdict without an unresolved placeholder (the broken verdicts carry no `failed` count, so
 the RED wording cannot be reused for them). Same red-first control: against a pre-widening
 copy via `RBTV_WATCHDOG_TOOL_PATH` the two runner-grade rows go red.
+
+`probes/probe-watchdog-bit7-silence.py` is the BIT-7 regression — 20 checks pinning the
+2026-08-19 silence itself. It substitutes a non-determinate identity reading carrying NO
+restart count (the incident's own shape, and why `restarts: 0` stayed clean), drives the
+pass directly, and asserts the RED and GREEN halves in one run: the pre-fix path
+(`check_daemon`) is still SILENT on that reading, while the ledger, the emitter registry and
+the durable outbox all now carry the condition. It also proves the withheld-restart rows,
+the recorded outage duration against the incident's real 11 115 seconds, and that the
+dead-man's configured URL — a closed local port — is never reached in dry mode. No real
+unit, gateway, endpoint or `.rbtv/runtime/` is touched.
 
 ## Retirement
 

@@ -13,6 +13,22 @@ Silence means healthy: the owner DM fires ONLY when this pass ACTED or when a
 restart did NOT restore the subject (CMP-28 invariant 3). A chatty watchdog trains
 its reader to ignore it.
 
+⚠ AMENDED 2026-08-25 (T4-R9, C-17 — the BIT-7 cure). Silence-means-healthy held everywhere
+EXCEPT the one case that matters: an outage the identity read could not resolve determinately
+produced no note and no record at all, and the 2026-08-19 18:18:44→21:24:59 daemon-down
+(3h05m) passed with `restarts: 0` and no owner alarm. Three duties now close that:
+  · OUTAGE LEDGER (`ledger()`, RBTV_WATCHDOG_LEDGER) — append-only, one line per decision:
+    every restart TAKEN and every restart WITHHELD with its reason, plus every non-healthy
+    daemon reading and the recovered outage duration. Survives watchdog and daemon restarts.
+  · N-CONSECUTIVE-FAIL ALARM (`daemon_health_streak`) — N = STRIKES non-determinately-healthy
+    passes raises ONE alarm even when the restart is withheld, routed through the ONE alarm
+    emitter (`ignite/observation/emitter.js` via the sibling `watchdog-alarm.js` shim) into the
+    durable outbox. This tool composes no alarm text of its own and posts to no Slack of its own.
+  · NON-SLACK DEAD-MAN (`deadman_ping`, RBTV_WATCHDOG_DEADMAN_URL) — a healthchecks-style HTTPS
+    ping on every determinately-healthy pass. A MISSED ping is the out-of-band alert, and it is
+    the only one that still fires when Slack is unreachable or when this watchdog is itself dead.
+    RBTV_WATCHDOG_NOTIFY_FILE (or --dry-run) makes it structurally incapable of pinging.
+
 Exit codes — ⚠ AMENDED 2026-08-15 (owner ruling R1): AN ALARM IS NOT A SYSTEMD FAILURE.
   0  the pass RAN. All green, it acted, a subject is still down, an alarm stands — every
      one of those is a completed pass, and the VERDICT is carried by the owner DM and by
@@ -277,6 +293,233 @@ def save_daemon_state(st):
     prior-pass identity in it would erase the identity exactly when the system is healthy —
     which is every pass a restart has to be detected ACROSS."""
     write_json_atomic(daemon_state_path(), st)
+
+
+# ── the persistent outage ledger [T4-R9, C-17] ──────────────────────────────
+# ⚠ THE BIT-7 SURFACE. On 2026-08-19 the daemon was down 18:18:44→21:24:59 (3h05m) and the only
+# record of it was `.rbtv/runtime/watchdog/daemon.json` reading `restarts: 0` — a field that counts
+# systemd's OWN restart events (NRestarts) and therefore reads CLEAN through a straight outage
+# nobody tried to restart. daemon.json is a SNAPSHOT: it is rewritten every pass, so it can only
+# ever say what is true now, never what happened. This file is the other half — append-only, one
+# JSON object per line, never rewritten, so a decision taken at 18:19 is still readable at 21:30
+# and across any number of watchdog and daemon restarts.
+# EVERY decision is written, not only the acted ones: a WITHHELD restart is the decision that made
+# the 3h05m invisible, and a ledger that records only actions is silent in exactly the case it
+# exists for.
+
+def ledger_path():
+    return env("RBTV_WATCHDOG_LEDGER",
+               os.path.join(WORKSPACE, ".rbtv", "runtime", "watchdog", "outage-ledger.jsonl"))
+
+
+def ledger(decision, reason, **fields):
+    """Append one decision row. Returns the row (so a caller can print or test it).
+
+    Append-mode + one line per record, deliberately: the snapshot files go through
+    write_json_atomic because a torn REWRITE reads back as "no prior pass", but a ledger is only
+    ever extended, and O_APPEND on one short line is the cheapest durable write there is. A
+    watchdog killed mid-write loses at most the row it was writing, never the history.
+
+    ⚠ NEVER RAISES. A ledger that can abort the pass would turn the record-keeping into a new way
+    for the watchdog to go blind — the exact failure class this component exists to remove. A
+    write that fails is reported on the row's own return and nowhere else."""
+    row = dict(fields)
+    row["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    row["decision"] = decision
+    row["reason"] = reason
+    try:
+        p = os.path.abspath(ledger_path())
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "a") as f:
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    except OSError as exc:
+        row["ledger_write_error"] = "%s: %s" % (type(exc).__name__, exc)
+    return row
+
+
+# ── the non-Slack dead-man [T4-R9, C-17, spec-owner-io §8] ──────────────────
+# The CP1-ruled channel: a healthchecks-style HTTPS ping fired from THIS timer on every pass that
+# reads the daemon determinately healthy. The signal is the ABSENCE of the ping — the check service
+# alerts out-of-band (email/SMS) when one is missed. That is the only alert left standing when
+# Slack is unreachable, when the outbox cannot deliver, AND when this watchdog itself is dead —
+# which is the branch no in-band alarm can ever cover.
+# ⚠ NO CHECK URL IS HARDCODED (repo law: per-instance inputs resolve at runtime). No URL configured
+# means no dead-man, said out loud on the row, never a silent no-op.
+
+def deadman_url():
+    return env("RBTV_WATCHDOG_DEADMAN_URL")
+
+
+def deadman_ping():
+    """Returns (state, detail). state: 'pinged' | 'dry' | 'off' | 'failed'.
+
+    ⚠ DRY MODE IS A HARD WALL, AND IT IS CHECKED BEFORE THE URL. RBTV_WATCHDOG_NOTIFY_FILE is
+    already this tool's "send nothing, write what you would have sent" sink for the owner DM; a
+    dead-man that ignored it would have every test and every rehearsal pinging a real check, and a
+    real check that is pinged by a test is a dead-man that can never fire."""
+    sink = env("RBTV_WATCHDOG_NOTIFY_FILE")
+    url = deadman_url()
+    if sink:
+        record = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "deadman": "would-have-pinged", "url": url or None}
+        os.makedirs(os.path.dirname(os.path.abspath(sink)), exist_ok=True)
+        with open(sink, "a") as f:
+            f.write(json.dumps(record, sort_keys=True) + "\n")
+        return "dry", "RBTV_WATCHDOG_NOTIFY_FILE set — NOT pinged; would-have-pinged written to %s" % sink
+    if not url:
+        return "off", ("no RBTV_WATCHDOG_DEADMAN_URL — the out-of-band channel is NOT armed, so a "
+                       "watchdog that dies with the daemon reaches nobody")
+    try:
+        req = urllib.request.Request(url, headers={"user-agent": "rbtv-ignite-watchdog"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return "pinged", "HTTP %s" % r.status
+    except Exception as exc:
+        return "failed", "%s: %s" % (type(exc).__name__, exc)
+
+
+# ── the route to the ONE alarm emitter [T4-R10, spec-owner-io §9] ───────────
+# CALLER-ONLY. This watchdog composes no alarm text of its own and posts to no Slack of its own:
+# it hands a finished observation to `ignite/observation/emitter.js` through the sibling
+# `watchdog-alarm.js` shim, and the emitter owns the schema, the persisted signature registry and
+# the dedupe. The shim exists because this tool is Python and the emitter is JavaScript; see its
+# own header for why a second Python emitter was refused.
+
+def alarm_shim_path():
+    return env("RBTV_WATCHDOG_ALARM_SHIM",
+               os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchdog-alarm.js"))
+
+
+def emit_alarm(condition, subject_id, evidence, clears_when, signature_class):
+    """Emit ONE system-health alarm through the emitter. Returns (ok, detail).
+
+    `immediate` is True and not a judgement call: spec §9.2 makes system-health alarms
+    digest-exempt for their first post [CF-9, T5-R11], and a watchdog N-fail is named there as one.
+
+    ⚠ NEVER RAISES, for the same reason `ledger` does not: the alarm path failing must not be able
+    to kill the pass that was trying to raise it."""
+    payload = {"condition": condition,
+               "subject": {"type": "daemon", "id": subject_id},
+               "evidence_pointer": evidence,
+               "what_would_clear_it": clears_when,
+               "signature_class": signature_class,
+               "immediate": True,
+               "workspace_root": WORKSPACE}
+    shim = alarm_shim_path()
+    if not os.path.exists(shim):
+        return False, "alarm shim not found at %s" % shim
+    try:
+        p = subprocess.run([env("RBTV_WATCHDOG_NODE", "node"), shim],
+                           input=json.dumps(payload), capture_output=True, text=True, timeout=60)
+    except Exception as exc:
+        return False, "%s: %s" % (type(exc).__name__, exc)
+    out = (p.stdout or "").strip()
+    try:
+        answer = json.loads(out.splitlines()[-1]) if out else {}
+    except (ValueError, IndexError):
+        answer = {}
+    if p.returncode != 0 or not answer.get("ok"):
+        return False, answer.get("error") or (p.stderr or out or "exit %s" % p.returncode).strip()[:300]
+    return True, "posted=%s reason=%s signature=%s outbox_id=%s delivered=%s" % (
+        answer.get("posted"), answer.get("reason"), answer.get("signature"),
+        answer.get("outbox_id"), answer.get("delivered"))
+
+
+# ── N consecutive non-healthy passes → ONE alarm + a ledger row [T4-R9] ─────
+# ⚠⚠ THIS IS THE BIT-7 ROOT-CAUSE FIX, and it is a deliberate amendment of the "UNKNOWN NEVER
+# pushes" calibration in check_daemon above. THE DIAGNOSED MECHANISM: check_daemon fires its DOWN
+# note only on a DETERMINATE `stopped`, and `_daemon_change` refuses to claim a change when either
+# side is `unknown` — so an outage the identity read could not resolve determinately produced NO
+# note (no alert, no DM) and NO change record (no ledger, `restarts` frozen at 0). The proof is in
+# the artifact the incident left: `.rbtv/runtime/watchdog/daemon.json`, read at 21:30 on
+# 2026-08-19 — six passes after the daemon came back at 21:23:39 on a FRESH invocation id — still
+# carried NO `notified_daemon_invocation` key, which is only reachable when `_daemon_change`
+# returned None, which requires the previously persisted reading to have been non-determinate.
+# `unknown` was a silent state, and silence is what a liveness component may never produce.
+#
+# WHAT IS KEPT FROM THE OLD CALIBRATION: `unknown` still never claims a DOWN. The alarm below says
+# what was actually observed — "not determinately healthy for N consecutive passes, last reading
+# <state>: <why>" — so a measurement that failed is still reported as a measurement that failed,
+# never dressed up as an outage. What changes is that it is reported AT ALL.
+#
+# N is `STRIKES`, the watchdog's existing consecutive-fail threshold (spec-owner-io §8: N stays the
+# existing threshold). The alarm fires ONCE PER EPISODE and re-arms on recovery: §9.2 gives one
+# alarm per condition-signature and hands re-surfacing to the 2-hourly system digest, so a second
+# emission would be the volume violation, not the coverage the episode needs.
+
+def daemon_health_streak(st, ident, dry=False):
+    """Count CONSECUTIVE non-determinately-healthy daemon readings, ledger every one, alarm at N,
+    and ping the dead-man on health. Mutates `st` (the persisted daemon-state record). Returns the
+    report row."""
+    state = (ident or {}).get("state")
+    why = (ident or {}).get("why") or ""
+    streak = int(st.get("unhealthy_streak") or 0)
+
+    if state == "running":
+        note = "healthy"
+        if streak:
+            started = float(st.get("unhealthy_since") or time.time())
+            seconds = int(time.time() - started)
+            # THE FIELD TASK #113 ASKED FOR: the outage DURATION, recorded as a first-class value
+            # rather than left derivable by hand from two `since` stamps a reader must think to
+            # diff. `restarts` stays what it is — systemd's own event counter — because the fix for
+            # "that counter cannot see a straight outage" is another field, never a redefined one.
+            st["last_outage_seconds"] = seconds
+            st["last_outage_ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            st["last_outage_passes"] = streak
+            if not dry:
+                ledger("recovered", "the daemon unit reads determinately running again",
+                       unit=DAEMON_UNIT, unhealthy_passes=streak, outage_seconds=seconds,
+                       invocation=(ident or {}).get("invocation"))
+            note = "recovered after %d non-healthy pass(es) — outage %ds, recorded" % (streak, seconds)
+        st["unhealthy_streak"] = 0
+        st.pop("unhealthy_since", None)
+        # Re-arm: a SECOND episode must alarm. Only a determinate `running` clears it, exactly as
+        # the down-flag next door — an `unknown` pass clears nothing.
+        st.pop("alarmed_unhealthy_at", None)
+        # ⚠ A --dry-run PINGS NOTHING. The dead-man's whole value is that a MISSED ping is the
+        # alert, so a diagnostic verb that pings would silence a real out-of-band alarm for the
+        # length of its own period — the same reason a dry run must not DM.
+        if dry:
+            return "%-13s %-6s %s | dead-man: --dry-run, NOT pinged" % ("  ->", "health", note)
+        dm_state, dm_detail = deadman_ping()
+        return "%-13s %-6s %s | dead-man %s: %s" % ("  ->", "health", note, dm_state, dm_detail)
+
+    streak += 1
+    st["unhealthy_streak"] = streak
+    if not st.get("unhealthy_since"):
+        st["unhealthy_since"] = time.time()
+    detail = why or "state=%s" % (state or "?")
+    if not dry:
+        ledger("observed-not-healthy",
+               "the daemon unit did not read determinately running: %s" % detail,
+               unit=DAEMON_UNIT, identity_state=state, consecutive_passes=streak, threshold=STRIKES)
+    if streak < STRIKES or dry:
+        return "%-13s %-6s NOT healthy — %s (consecutive pass %d of %d before alarm)" % (
+            "  ->", "health", detail, streak, STRIKES)
+    if st.get("alarmed_unhealthy_at"):
+        return "%-13s %-6s NOT healthy — %s (consecutive pass %d; already alarmed at %s)" % (
+            "  ->", "health", detail, streak, st["alarmed_unhealthy_at"])
+    held = int(time.time() - float(st.get("unhealthy_since") or time.time()))
+    ok, note = emit_alarm(
+        condition=("The ignite daemon has not read determinately healthy for %d consecutive "
+                   "watchdog passes (about %d minutes). The last reading of unit %s was `%s`: %s. "
+                   "Nothing is running jobs, ticks or spawns while this holds, and a restart may "
+                   "have been withheld — the outage ledger says which."
+                   % (streak, held // 60, DAEMON_UNIT, state or "unreadable", detail)),
+        subject_id=DAEMON_UNIT,
+        evidence=ledger_path(),
+        clears_when="the watchdog reads the unit determinately running again on any pass",
+        signature_class="watchdog-daemon-unhealthy")
+    if ok:
+        st["alarmed_unhealthy_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        ledger("alarmed", "N consecutive non-healthy passes reached the threshold",
+               unit=DAEMON_UNIT, consecutive_passes=streak, threshold=STRIKES, emitter=note)
+    else:
+        # An alarm that could not be emitted is itself a fact worth keeping, and NOT stamping
+        # `alarmed_unhealthy_at` is what makes the next pass try again.
+        ledger("alarm-emit-failed", note, unit=DAEMON_UNIT, consecutive_passes=streak)
+    return "%-13s %-6s NOT healthy — %s (consecutive pass %d of %d) | alarm ok=%s %s" % (
+        "  ->", "health", detail, streak, STRIKES, ok, note)
 
 
 def _int_or_none(kv, key):
@@ -594,7 +837,8 @@ def daemon_verdicts(persist=True):
     code = daemon_code_state(WORKSPACE, now)
     notes = []
     rows = [check_daemon(st, now, change, notes, code),
-            "%-13s %-6s %s" % ("  ->", "ident", identity_verdict(prev, now))]
+            "%-13s %-6s %s" % ("  ->", "ident", identity_verdict(prev, now)),
+            daemon_health_streak(st, now, dry=not persist)]
     st["daemon"] = now
     if persist:
         save_daemon_state(st)
@@ -660,7 +904,11 @@ def daemon_restart_gate(detail):
     """May the daemon row restart on THIS pass's `down` verdict? Returns (allow, note).
 
     Persists the strike count, so it counts PASSES (60s apart) and not this process's
-    lifetime — a per-invocation tool has no memory of its own."""
+    lifetime — a per-invocation tool has no memory of its own.
+
+    ⚠ EVERY ARM WRITES A LEDGER ROW [T4-R9]. The three withheld arms are the ones that matter:
+    a restart NOT taken is a decision, it is the decision that made the 2026-08-19 3h05m outage
+    invisible, and `failcount.json` is a snapshot that only ever says what is true this pass."""
     fc = load_failcount()
     strikes = int(fc.get("strikes") or 0) + 1
     fc["strikes"] = strikes
@@ -669,6 +917,9 @@ def daemon_restart_gate(detail):
     if ident.get("state") == "running":
         # NOT a strike toward anything: systemd says the process is there. Alarm, never act.
         write_json_atomic(failcount_path(), fc)
+        ledger("restart-withheld", "systemd reports the unit active, so this is a busy or wedged "
+               "daemon and not a dead one", unit=DAEMON_UNIT, arm="unit-alive",
+               pid=ident.get("pid"), strikes=strikes, gateway=detail)
         return False, ("daemon: THE GATEWAY IS UNANSWERABLE BUT THE DAEMON IS ALIVE — systemd "
                        "reports pid %s active since %s, so this is a busy or wedged daemon, not "
                        "a dead one, and a restart would reap every tmux pane on the box for "
@@ -678,6 +929,11 @@ def daemon_restart_gate(detail):
     since_restart = time.time() - last
     if last and since_restart < RESTART_BACKOFF:
         write_json_atomic(failcount_path(), fc)
+        ledger("restart-withheld", "the last restart was %dm ago and the verdict is still down, so "
+               "re-applying the same remedy every pass is not a remedy" % (since_restart / 60),
+               unit=DAEMON_UNIT, arm="backoff", backoff_seconds=RESTART_BACKOFF,
+               since_last_restart_seconds=int(since_restart), strikes=strikes,
+               identity_state=ident.get("state"), gateway=detail)
         return False, ("daemon: RESTART DID NOT RESTORE THE GATEWAY — backing off. The last "
                        "restart was %dm ago and the verdict is still down, so re-applying the "
                        "same remedy every pass is not a remedy. Holding for another %dm "
@@ -686,6 +942,10 @@ def daemon_restart_gate(detail):
                           ident.get("state"), detail))
     if strikes < STRIKES:
         write_json_atomic(failcount_path(), fc)
+        ledger("restart-withheld", "strike %d of %d consecutive failed passes — one missed 10s "
+               "call is not an outage" % (strikes, STRIKES), unit=DAEMON_UNIT, arm="strikes",
+               strikes=strikes, threshold=STRIKES, identity_state=ident.get("state"),
+               gateway=detail)
         return False, ("daemon: GATEWAY DOWN, RESTART WITHHELD — strike %d of %d consecutive "
                        "failed passes (systemd says %s: %s). One missed 10s call is not an "
                        "outage. Gateway said: %s"
@@ -694,6 +954,9 @@ def daemon_restart_gate(detail):
     fc["strikes"] = 0
     fc["last_restart_at"] = time.time()
     write_json_atomic(failcount_path(), fc)
+    ledger("restart-allowed", "%d consecutive failed passes spent the strikes and systemd does not "
+           "report the unit active" % STRIKES, unit=DAEMON_UNIT, arm="strikes-spent",
+           threshold=STRIKES, identity_state=ident.get("state"), gateway=detail)
     return True, None
 
 
@@ -845,6 +1108,11 @@ def main(argv):
                 continue
         rc, out = restart()
         after, after_detail = probe()
+        # The other half of the T4-R9 duty: a restart TAKEN is a decision too, and its reprobe
+        # verdict is what tells a later reader whether the remedy worked. Every row, not only the
+        # daemon: `bridge` and `probe-suite` restart through the same lever.
+        ledger("restart-taken", describe(), row=name, rc=rc, before=detail,
+               reprobe=after, reprobe_detail=after_detail)
         lines.append("%-13s %-6s restart rc=%s | reprobe=%s %s"
                      % ("  ->", "acted", rc, after, after_detail))
         if after in ("up", "skip"):
