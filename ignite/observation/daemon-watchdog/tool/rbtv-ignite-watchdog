@@ -253,7 +253,7 @@ def probe_probe_suite():
 
 
 # ── daemon identity · restart · crash-loop · stale code ─────────────────────
-# Ported from `ignite/team-kit/watch.py` (`daemon_identity`, `_daemon_change`,
+# Ported from `ignite/coord/watch.py` (`daemon_identity`, `_daemon_change`,
 # `daemon_code_state`, `check_daemon`) when that file was deleted — task 7.35, run
 # decision D8. WHY THEY COULD NOT JUST RIDE THE `daemon` ROW ABOVE: that row asks the
 # GATEWAY, and the gateway's answer carries pid/uptime/last_tick and NO identity that can

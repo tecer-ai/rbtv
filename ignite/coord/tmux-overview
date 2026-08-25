@@ -13,7 +13,7 @@
 #
 # Full mode shows, per window, its name, pane count, and each pane's id, title, and running
 # command; the active window/pane are marked with *, plus the Claude plan-usage line
-# maintained by team-kit/statusline-usage.py.
+# maintained by coord/statusline-usage.py.
 set -uo pipefail
 
 session="${1:?usage: tmux-overview <session> [interval-seconds] [--once] [--compact] [--package <dir>]}"
