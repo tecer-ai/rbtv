@@ -1,2 +1,3 @@
 # capabilities — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
 2026-08-22 · issue · seeded · exposure-manifest-resolver-fix · resolve_workflow refused repo-tree workflow CSVs after the meta move — it required a literal "mirror" path segment → derive module/component from shape; admit .rbtv/mirror and rbtv.json rbtv_path · 933b4ddf · — · ⚠
+2026-08-25 · issue · BIT-7: unknown was a silent state · `capabilities/daemon-watchdog` observed a 3h05m ignite-daemon outage and produced NOTHING — → `unknown` was a SILENT state, on both surfaces at once. · 0cbbb555 · observation · ⚠
