@@ -22,3 +22,4 @@
 2026-08-24 · change · delete widen-cage verb · Owner ruling [T2-R6, C-6] (redesign-plan, 2026-08-24): runtime auto-widen is dead — a seat's cage envelope is fixed at plan time · 35bdffd4 · engine,server,meta-leader · ⚠
 2026-08-24 · change · delete the oldest-open escalation release door [D-4-ruling] · The arm is deleted rather than repaired, because the fact it was reconstructing now lives · 7672db10 · bridges · ⚠
 2026-08-25 · change · the selftest speaks the ending store · Rows were RETARGETED where the claim survived the vocabulary change, and DELETED where the claim's · 489fa4ec,df716f29,c41ab9c0 · — · ⚠
+2026-08-25 · change · the Python kit goes component-first, both ways · `git mv` per §2, never copy+delete, so `git log --follow` still reaches every file's · 0e662f82,73f3a980,95c0d0bc,d5d4b4c9,ff6917e3 · coord,planning,envelope,skills,injection-ladder,capabilities,server,engine,jobs,cli,config,deploy,meta-planning · ⚠
