@@ -89,6 +89,20 @@ neither moves nor re-skills them.
 | `audio` | `core/communication/capabilities/audio/audio.py` | agent-facing |
 | `capture-cli` | `web/capture/capabilities/capture/capture.py` — the `web/` module is not on this branch | agent-facing |
 
+## Reachability — why five of these were declared but unreachable
+
+The census found `rbtv-bindings`, `rbtv-master-profile`, `rbtv-goal-request`,
+`rbtv-seat-identity` and `rbtv-ignite-watchdog` declared `method=path` yet absent from
+the shared bin dir, while the coordination kit's names were present. The cause was the
+MANIFEST HOME, never the row: those five were declared on the module-root
+`ignite/exposure.csv`, and installer discovery treats a directory at depth 2 holding an
+`exposure.csv` as the component — so it never saw them. `coord/` and `work-on-ignite/`
+already had their own depth-2 manifests, which is exactly why their names were linked.
+
+The component-first move gave each of the five a depth-2 component home, so the
+declaration is now what the installer walks and links. The fix is that link — never a
+second copy of a binary anywhere on PATH, and never a hand-made symlink.
+
 ## What this table is not
 
 Not a grant. A label says who a tool is FOR; what a seat may actually run is its
