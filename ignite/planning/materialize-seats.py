@@ -2009,7 +2009,9 @@ def _coord_validate_seat():
     ever changes, THIS IMPORT FAILING LOUDLY is the correct outcome. NEVER
     re-implement the predicate here — a second copy is the drift the rule
     exists to prevent."""
-    kit_dir = Path(__file__).resolve().parent
+    # The kit is `ignite/coord/` since the component-first move — a SIBLING component
+    # of this one, no longer this file's own directory.
+    kit_dir = Path(__file__).resolve().parent.parent / "coord"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -2028,7 +2030,9 @@ def _coord_iospec_outputs():
     reason: the io-spec `## Outputs` block is graded at check-out by `iospec_outputs`, and a
     materialize-time reading made by a SECOND parser is how a seat materializes clean and then
     refuses at its own ending. NEVER re-implement the grammar here."""
-    kit_dir = Path(__file__).resolve().parent
+    # The kit is `ignite/coord/` since the component-first move — a SIBLING component
+    # of this one, no longer this file's own directory.
+    kit_dir = Path(__file__).resolve().parent.parent / "coord"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -2049,7 +2053,9 @@ def _coord_iospec_grammar():
     token in a `<scope>` `Write:` bullet is a token the GATE will resolve. A second copy of
     either grammar here is a descriptor that projects what the check-out cannot read.
     NEVER re-implement them."""
-    kit_dir = Path(__file__).resolve().parent
+    # The kit is `ignite/coord/` since the component-first move — a SIBLING component
+    # of this one, no longer this file's own directory.
+    kit_dir = Path(__file__).resolve().parent.parent / "coord"
     if str(kit_dir) not in sys.path:
         sys.path.insert(0, str(kit_dir))
     try:
@@ -6571,7 +6577,9 @@ def run_dag04_acceptance(check, env: dict) -> None:
         afm = yaml.safe_load(_FM_RE.match(atext).group(1))
         bfm = yaml.safe_load(_FM_RE.match(btext).group(1))
 
-        kit_dir = Path(__file__).resolve().parent
+        # The kit is `ignite/coord/` since the component-first move — a SIBLING
+        # component of this one, no longer this file's own directory.
+        kit_dir = Path(__file__).resolve().parent.parent / "coord"
         if str(kit_dir) not in sys.path:
             sys.path.insert(0, str(kit_dir))
         # Selftest-only import: SC-2's stated control IS discover_workers;
@@ -7161,7 +7169,9 @@ def run_dag05_acceptance(check, env: dict) -> None:
         except ValueError:
             return {}
 
-    coord_py = Path(__file__).resolve().parent / "coord.py"
+    # coord.py is `ignite/coord/`'s since the component-first move — a SIBLING
+    # component of this one, no longer this file's own directory.
+    coord_py = Path(__file__).resolve().parent.parent / "coord" / "coord.py"
     coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
     print(f"  info SC-1: coord.py under test — md5 {coord_md5}")
 
@@ -7609,7 +7619,9 @@ def run_dag06_acceptance(check, env: dict) -> None:
         except ValueError:
             return {}
 
-    coord_py = Path(__file__).resolve().parent / "coord.py"
+    # coord.py is `ignite/coord/`'s since the component-first move — a SIBLING
+    # component of this one, no longer this file's own directory.
+    coord_py = Path(__file__).resolve().parent.parent / "coord" / "coord.py"
     coord_md5 = hashlib.md5(coord_py.read_bytes()).hexdigest()
     print(f"  info CP-6: coord.py under test — md5 {coord_md5}")
 
