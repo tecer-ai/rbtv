@@ -26,6 +26,7 @@ function bind(db) {
     getAsk: (askId) => writers.getAsk(db, askId),
     seatWaitingOnOwner: (fields) => predicates.seatWaitingOnOwner(db, fields),
     listOpenAsks: (fields) => predicates.listOpenAsks(db, fields),
+    listAllOpenAsks: (fields) => predicates.listAllOpenAsks(db, fields || {}),
     goalWaitingOnOwner: (fields) => predicates.goalWaitingOnOwner(db, fields),
     countOpenAsks: (goal) => predicates.countOpenAsks(db, goal),
     isGoalPaused: (goal) => predicates.isGoalPaused(db, goal),

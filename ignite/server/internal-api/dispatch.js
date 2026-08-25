@@ -36,7 +36,7 @@ const { appendKillRecord } = require('./keys-audit');
 const { recordBusAnswer } = require('../../engine/bus-answer');
 // The `record-owner-ask` act (owner ruling 2026-08-24, option (a)). Required for the same reason
 // as `recordBusAnswer` above: a stateless call, not a manager holding processes.
-const { recordOwnerAsk } = require('../heart/ask-record');
+const { recordOwnerAsk, listOpenAsks } = require('../heart/ask-record');
 // The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
 // its two siblings above: a stateless call, not a manager holding processes.
 const { startExecution } = require('../heart/start-execution');
@@ -166,7 +166,11 @@ const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 // and not a ninth intent (same ce-5/D75 reason as `messages`), and again NO STORE CHANGE — it
 // reads the shipped `listExecutionsByStatus()` (heart-store.js:849, fourteen live callers).
 // Unlike every other target it is neither fixed nor id-scoped: it takes `status` and pages.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
+// ⚑ `asks` ADDED by the glance wiring — the fleet listing of OPEN owner asks (`spec-owner-io` §5).
+// A TARGET, not a fifteenth intent, for the ce-5/D75 reason stated twice above; and NO STORE
+// CHANGE beyond the fleet-wide sibling of §2.1's own WHERE clause (`state-store/predicates.js`
+// `listAllOpenAsks`). The write half of this record is the thirteenth intent; this is its read.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks']);
 // The closed jobs_log.status enum (schema.sql:65-66), re-validated at the core independently of
 // gateway origin — the defense-in-depth posture probe-snooze already proves for `minutes`. Task
 // 7.46 SPLITS this enum into session-level and turn-level states; probe-inspect-executions.js
@@ -912,6 +916,10 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       };
     }
     if (target === 'queue') return { target, rows: heartStore.listQueue() };
+    // asks: every OPEN, POSTED owner ask across EVERY goal, oldest first — the digest's own port
+    // shape (`bridges/chat/system-digest.js` § readOpenAsks). Fixed view: it takes no id, no
+    // status and no page, because §5 renders the whole waiting set or it is not that digest.
+    if (target === 'asks') return { target, rows: listOpenAsks(heartStore) };
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
 

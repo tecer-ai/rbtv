@@ -32,6 +32,27 @@ function listOpenAsks(db, { goal, seat = null, posted = 1 }) {
   ).all(...params);
 }
 
+// EVERY open ask, ALL GOALS — the FLEET read the 2-hourly system digest renders (`spec-owner-io`
+// §5: the ONE digest is SYSTEM-WIDE, so a per-goal question cannot answer it). The WHERE clause is
+// `listOpenAsks`'s with the goal clause dropped and NOTHING else changed, which is the point: the
+// digest and the per-goal wait predicate must never disagree about what an open ask is.
+//
+// ⚠ A SEPARATE FUNCTION, NOT `listOpenAsks({goal: null})`. §2.1's predicate is per-goal and its
+// caller must NAME the goal it is asking about; making the goal optional there would turn a
+// forgotten argument into a silent fleet-wide read. A different question gets a different name.
+//
+// ⚠ `posted` DEFAULTS TO 1 for `listOpenAsks`'s reason and it is the same default: an ask the
+// owner was never told about is not one the digest may report as waiting on them.
+function listAllOpenAsks(db, { posted = 1 } = {}) {
+  const where = ["state = 'open'"];
+  const params = [];
+  if (posted !== null) { where.push('posted = ?'); params.push(Number(posted)); }
+  return db.prepare(
+    `SELECT ask_id, goal, seat, label, posted, posted_at, evidence_pointer FROM open_asks
+     WHERE ${where.join(' AND ')} ORDER BY posted_at, ask_id`,
+  ).all(...params);
+}
+
 function countOpenAsks(db, goal) {
   const row = db.prepare(
     `SELECT count(*) AS n FROM open_asks
@@ -80,6 +101,7 @@ function killClockPauses(db, { goal, seat, providerBackoff }) {
 module.exports = {
   seatWaitingOnOwner,
   listOpenAsks,
+  listAllOpenAsks,
   goalWaitingOnOwner,
   countOpenAsks,
   isGoalPaused,

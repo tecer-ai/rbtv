@@ -151,8 +151,55 @@ function reapAsk(heartStore, { workspaceRoot, goal, seat, thread }) {
   }
 }
 
+// ── THE FLEET READ THE 2-HOURLY DIGEST RENDERS (`spec-owner-io` §5) ───────────────────────────
+//
+// `inspect asks` — a READ-ONLY TARGET of the existing intent, never a fifteenth one (the ce-5/D3
+// rule this daemon states twice: read-only store queries are what `inspect` is for). The chat
+// bridge is walled off from `heart.db` exactly as it is on the write side, so the digest's
+// `readOpenAsks` port is one ordinary gateway call and the read stays in the process that owns the
+// file — the same division the thirteenth intent's write half already carries.
+//
+// ⚠ THE ONE-LINER COMES FROM THE ASK COPY, NOT FROM A NEW COLUMN. §3 keeps the ask BODY out of the
+// store and names `evidence_pointer` as the on-disk copy; `openAsk` above writes it. Reading the
+// first line back here is what lets the digest render words without the store growing the column
+// the spec deliberately does not have.
+//
+// ⚠ THE ROW SHAPE IS THE DIGEST'S DOCUMENTED PORT — `{ id, seat, one_liner, opened_at, … }`
+// (`bridges/chat/system-digest.js` § readOpenAsks). `id` is the ask id (the Slack thread [T5-R7])
+// and `opened_at` is `posted_at`, because §5 measures how long the OWNER has been waiting, which
+// starts when the ask reached them.
+const ONE_LINER_MAX = 120;
+
+function oneLinerOf(evidencePointer) {
+  if (!evidencePointer) return null;
+  let text;
+  try {
+    text = fs.readFileSync(String(evidencePointer), 'utf8');
+  } catch {
+    // The row stands without words rather than with invented ones: the digest renders id + seat and
+    // the Links section still names the path a human can open.
+    return null;
+  }
+  const first = text.split('\n').map((l) => l.trim()).find((l) => l !== '');
+  if (!first) return null;
+  return first.length > ONE_LINER_MAX ? `${first.slice(0, ONE_LINER_MAX - 1)}…` : first;
+}
+
+function listOpenAsks(heartStore) {
+  const api = bind(heartStore.db);
+  return api.listAllOpenAsks({}).map((row) => ({
+    id: row.ask_id,
+    goal: row.goal,
+    seat: row.seat,
+    label: row.label,
+    one_liner: oneLinerOf(row.evidence_pointer),
+    opened_at: row.posted_at,
+    evidence_pointer: row.evidence_pointer,
+  }));
+}
+
 function recordOwnerAsk(heartStore, payload) {
   return payload.act === 'reap' ? reapAsk(heartStore, payload) : openAsk(heartStore, payload);
 }
 
-module.exports = { recordOwnerAsk, openAsk, reapAsk, askCopyPath, coordTimestamp, ASK_LABELS };
+module.exports = { recordOwnerAsk, openAsk, reapAsk, listOpenAsks, askCopyPath, coordTimestamp, ASK_LABELS };

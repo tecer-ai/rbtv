@@ -20,6 +20,7 @@ const OPS = new Set([
   'getAsk',
   'seatWaitingOnOwner',
   'listOpenAsks',
+  'listAllOpenAsks',
   'goalWaitingOnOwner',
   'countOpenAsks',
   'isGoalPaused',

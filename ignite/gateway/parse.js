@@ -135,7 +135,13 @@ const MESSAGE_TYPES = new Set(['completion', 'ask', 'answer', 'verdict', 'note',
 // of `inspect`, never a ninth intent, for the same ce-5/D75 reason. It is neither fixed-view nor
 // execution-SCOPED: it takes no `id` and instead filters the whole jobs_log by `status`, which
 // is why `status` joins the allowed payload keys below.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions']);
+// ⚑ `asks` ADDED by the glance wiring: the FLEET listing of open owner asks, and again a TARGET
+// rather than a fifteenth intent — the same ce-5/D3 rule `messages` and `executions` above cite.
+// It is the READ half of the thirteenth intent's write: `spec-owner-io` §5's system digest is
+// SYSTEM-WIDE, the chat bridge that renders it is walled off from `heart.db`
+// (`bridges/chat/probes/probe-chat-boundary.js`), and a read-only store query from a walled
+// caller is exactly what this intent exists for. Fixed-view like `jobs`/`queue`: no id, no page.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks']);
 
 // A deliberate SECOND copy of the schema's closed jobs_log.status enum (schema.sql:65-66),
 // exactly like SESSION_MODES / TRIGGER_KINDS / ACTION_TYPES above: the gateway holds no store or
