@@ -1,0 +1,1 @@
+2026-08-25 · issue · 8 stale --settings paths killed every launch silently · cutover merge deleted ignite/config/ but 8 argv rows still pointed there → every child died post-materialize with zero error; config is BOOT-CACHED so the fix needs a restart · 973624ce · chat,supervisor,runtime · ⚠
