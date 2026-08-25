@@ -18,6 +18,7 @@ Audience: **dual** - an owner console and an agent both invoke it (§7.1).
 | entry | `ignite.js` | Argument parsing and verb dispatch |
 | verbs | `commands/` | `inspect`, `status`, `kill`, `snooze`, and the job register/deregister/add/remove pair set |
 | client seam | `lib/` | Gateway client, config and token resolution, output rendering, typed usage errors |
+| audience map | `cli-audience-map.md` | The §7.1 transcription: every shell-invocable rbtv entry point, its owning component and its pinned audience |
 
 It owns the FUNCTION-bundle router skills of §7 (`daemon-ops`, `goal-ops`,
 `observe`, `staffing`, `coord-ops`) - those land with impl-cli-skills, not here.
