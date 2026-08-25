@@ -1,0 +1,1 @@
+2026-08-25 · issue · Chair gate left half-migrated off awaiting-close · `materialize-seats.py` aborted with `NameError: name 'debts' is not defined` at → ONE gate existed as TWO copies, and only one was migrated. · e8f4a487 · coord,state-store · ⚠
