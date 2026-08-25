@@ -31,9 +31,9 @@ Seats write their own coordination ledgers directly through `coordinate checkout
 
 `ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read time from `coordination/guard-values.csv`; never stored.
 
-## team-kit/ — the module's second component
+## coord/ — the coordination kit
 
-`ignite/team-kit/` holds the **team-kit**: reusable mechanics for coordinated parallel multi-agent team runs in tmux (`coord.py` coordination CLI, `protocol.md`, watcher/closer seats, briefing templates). Unlike the daemon it IS an installable component — the `rbtv-team-kit` skill (manifest module `ignite`) is a thin loader into it; the kit's scripts and docs are read/run in place from the repo, never copied into `.claude/`. Its rules live in `ignite/team-kit/CLAUDE.md` (including the owner-gated instance-coupling list to generalize before master). Promoted 2026-07-26 from the second-brain campaign workspace after three proving runs; docs: `modules/ignite.md`.
+`ignite/coord/` holds the **team-kit**: reusable mechanics for coordinated parallel multi-agent team runs in tmux (`coord.py` coordination CLI, `protocol.md`, watcher/closer seats, briefing templates). Unlike the daemon it IS an installable component — the `rbtv-team-kit` skill (manifest module `ignite`) is a thin loader into it; the kit's scripts and docs are read/run in place from the repo, never copied into `.claude/`. Its rules live in `ignite/coord/CLAUDE.md` (including the owner-gated instance-coupling list to generalize before master). Promoted 2026-07-26 from the second-brain campaign workspace after three proving runs; docs: `modules/ignite.md`.
 
 ## capabilities/ — standalone operator surfaces the `rbtv` CLI delegates to
 
@@ -67,7 +67,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
   so loudly. `--set daemon` REFUSES a goal with any uncast seat, naming them. The last four grow a LIVE goal's seat roster (issue `S-33`): `pause`
   stashes the lane assignment behind a `paused ` prefix BOTH lane readers already resolve to
   `console` (so no reader changed) and `resume` returns it byte-for-byte; `dag` is the read-only
-  one-shot graph view; `add-seat` gates, mints through `team-kit/materialize-seats.py`, then
+  one-shot graph view; `add-seat` gates, mints through `planning/materialize-seats.py`, then
   splices the seat into the after-graph in ONE atomic registry write. ⚠ **Pausing bounds STARTING,
   not execution** — it stops the daemon starting anything new for the goal (the watch pass will not
   seed it AND the ticker's dispatch pause gate defers every due queue row bound to it, goal-scoped
@@ -110,7 +110,7 @@ operator surface with its own contract doc, reached from the `rbtv` CLI by deleg
 - **`bindings/`** — the CASTING SHEET surface (owner-ruled 2026-08-10): which harness, model and
   effort each seat of a workflow runs on. A workflow is the program, a taskforce is its running
   instance, and the bindings file is what casts one into the other —
-  `team-kit/materialize-seats.py --bindings` is its ONE consumer. Five verbs: `catalog` (every
+  `planning/materialize-seats.py --bindings` is its ONE consumer. Five verbs: `catalog` (every
   spawnable harness+model with each effort dial NUMBERED), `inspect`, `scaffold` (create-only),
   `set` (one seat) and `set-many` (N seats of one workflow from a JSON file, ALL-OR-NOTHING —
   every seat validated through `set`'s own path before the file is opened, so a batch with one bad
@@ -244,7 +244,7 @@ the live repo — it is the per-invocation tree (team-kit, `coord.py`), not the 
 | Daemon JS require-closure (`server/`, `engine/`, `launch-profiles/`, everything `server/index.js` requires) | **PINNED** — what `ExecStart` resolves |
 | `ignite/config/spawn-profiles.yaml` (boot-read by the daemon) | **PINNED** via `RBTV_IGNITE_CONFIG_PATH` |
 | `bridges/chat/` (the chat-bridge unit) | **PINNED** — same worktree, same commit |
-| `team-kit/coord.py` + team-kit scripts | **LIVE TREE** — re-read on every invocation; path composed from `RBTV_IGNITE_SRC` |
+| `coord/coord.py` + team-kit scripts | **LIVE TREE** — re-read on every invocation; path composed from `RBTV_IGNITE_SRC` |
 | `ignite/jobs/*.py` (spawned per firing) | **LIVE TREE** — argv in `config/spawn-profiles.yaml` still name the live repo |
 | attached execution (`rbtv run`) | **LIVE TREE by design** — it runs what the console holds |
 | probes, `deploy/probe-suite.js`, hand-run scripts | **LIVE TREE** — per-invocation, from the repo |

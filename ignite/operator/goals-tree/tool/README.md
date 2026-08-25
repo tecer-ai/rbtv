@@ -365,7 +365,7 @@ OWNS that tooling, with this goal's own `issues.md` as the fallback when that le
 It is materialized rather than remembered, and it reaches every seat under the goal because
 `server/spawn/cage.js` masks path-up instruction files EXCEPT inside `.rbtv/goals`. The same text —
 from the ONE `TOOLING_FINDING_BLOCK` constant here — is rendered into each seat's own `AGENTS.md` by
-`team-kit/materialize-seats.py`, which imports it rather than restating it (the carriage a
+`planning/materialize-seats.py`, which imports it rather than restating it (the carriage a
 hand-authored goal `CLAUDE.md`, e.g. a standing seat's, does not get from this template).
 
 `write_standard_artifacts` is **skip-if-exists per file**. `scaffold` refuses an existing goal

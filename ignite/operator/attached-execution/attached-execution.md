@@ -611,7 +611,7 @@ ELIGIBILITY, the ticker decides DISPATCH.
 
 **The `after` cell's grammar, and the subset the engine evaluates.** The cell is
 **comma-separated** and every member is a term: a seat is released only when **all** of them are
-done. `taskforce.csv` is written by `team-kit/materialize-seats.py` through `csv.writer`, so a
+done. `taskforce.csv` is written by `planning/materialize-seats.py` through `csv.writer`, so a
 multi-predecessor cell arrives **quoted** — it is read with the quote-aware splitter, never a bare
 `split(',')`, or every column to its right shifts. That quote-aware read is still seeding's; the
 GRAMMAR is not.

@@ -193,7 +193,7 @@ So the ordering is **write (atomic `os.replace` via `bindings._write`) → outco
 re-render last**, the switch takes effect on the owner's next word, and the thread that requested it
 is still there to read the report.
 
-The re-render is delegated to `team-kit/materialize-seats.py`, the ONE renderer of a `seat.md`
+The re-render is delegated to `planning/materialize-seats.py`, the ONE renderer of a `seat.md`
 (`PRIN-11`) — the same one goal creation runs. `--package` is DERIVED from `--inbox` (the inbox is
 `<goal>/settings-requests/<capability>`, so its grandparent IS the goal folder), which keeps one
 goal name out of the fired argv instead of two that could drift apart.

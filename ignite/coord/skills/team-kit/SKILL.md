@@ -12,6 +12,6 @@ exposes-cli:
 
 **CRITICAL — Execute these steps in order.**
 
-1. Read `{rbtv_path}/ignite/team-kit/CLAUDE.md` (the kit's hard rules).
-2. To START a new run or build a run package: read and follow `{rbtv_path}/ignite/team-kit/team-kit.md` § Starting a new run.
-3. Every executing agent in a run follows `{rbtv_path}/ignite/team-kit/protocol.md`; the run package's own `CLAUDE.md` wins on conflict.
+1. Read `{rbtv_path}/ignite/coord/CLAUDE.md` (the kit's hard rules).
+2. To START a new run or build a run package: read and follow `{rbtv_path}/ignite/coord/team-kit.md` § Starting a new run.
+3. Every executing agent in a run follows `{rbtv_path}/ignite/coord/protocol.md`; the run package's own `CLAUDE.md` wins on conflict.

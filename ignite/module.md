@@ -38,7 +38,7 @@ rbtv ignite <component>      that component's entry point body + its invocable e
 ```
 
 The daemon's conventions, install model, and state layout live in `ignite/CLAUDE.md`; the
-team-kit's protocol in `ignite/team-kit/protocol.md`. Neither is restated here (`PRIN-11`).
+coordination kit's protocol in `ignite/coord/protocol.md`. Neither is restated here (`PRIN-11`).
 
 ## Components
 
@@ -51,3 +51,6 @@ team-kit's protocol in `ignite/team-kit/protocol.md`. Neither is restated here (
 | `chat/` | The Slack bridge: reply leg, ask and approval threads, durable outbox, bus ferry, system digest and the chat session config |
 | `operator/` | The operator surfaces the CLI delegates to: goals tree, bindings, daemon and ticker verbs, master profile, goal-creation request, attached `rbtv run` |
 | `ignite-cli/` | The `rbtv ignite` front door — verb dispatch and the gateway client seam, no daemon behavior of its own |
+| `coord/` | The coordination kit: the `coordinate` CLI and its split modules, addressing, declared outputs, tmux viewports, messages, the checkout write API, the injection ladder and the kit's shipped skills |
+| `teambuild/` | The staffing-discovery browse (`rbtv teambuild`) over the component databases — binds nothing |
+| `deploy/` | The systemd units, the probe-suite runner and its scheduled twin, and the PATH-link tool |

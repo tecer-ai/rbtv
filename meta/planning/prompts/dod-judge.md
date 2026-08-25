@@ -5,7 +5,7 @@ staffing-recommendations: "mid/high-tier model — judgment lives in the evidenc
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  path: [rbtv:ignite/team-kit/coordinate, component-lint]
+  path: [rbtv:ignite/coord/coordinate, component-lint]
 ---
 
 <role>

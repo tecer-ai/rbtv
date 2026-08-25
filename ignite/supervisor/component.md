@@ -100,7 +100,7 @@ through the supervisor or is MARKED `unsupervised`; there is no silent arm.
 |---|---|---|
 | seeding | `engine/seeding.js` `seedGoal` / `launchOwed` | wrapped |
 | reconcile | `engine/reconcile.js` `deriveOwed` / `launchSitting` | wrapped |
-| `--rerun` | `team-kit/launch.py` `cmd_launch --rerun` / `--declare-only` | wrapped |
+| `--rerun` | `coord/launch.py` `cmd_launch --rerun` / `--declare-only` | wrapped |
 | attest-exit | `spawn.js` `closeSeatSessionRow` -> `attest-exit --force-dead` | wrapped (it BECAME the death stamp) |
 | console-uncaged | bare console / uncaged `claude` (IE-3) | marked-unsupervised until check-in |
 | `E_GOAL_NOT_LIVE` | `engine/seeding.js` `readLease` / `goalNotLive` (IE-1) | wrapped as a REFUSAL |
@@ -189,7 +189,7 @@ Collapsing `null` into `true` re-invents the pane; collapsing it into `false`
 re-opens the mass-restamp hole. The seven legacy consumers - `coord.py`-lineage
 `tmux.py`, `messages.py`, `cli_main.py`, `launch.py`, `carrier.py`, `checkout.py`
 and `server/ticker/ticker.js` - all ask here now. The python side is
-`team-kit/liveness.py`, one `node supervisor/probe.js` call per render.
+`coord/liveness.py`, one `node supervisor/probe.js` call per render.
 
 ## APIs
 
@@ -215,7 +215,7 @@ Probe: `probeSitting` · `probeGoal` (and `node probe.js --goal G [--seat S]`)
 Kit door (for team-kit's python): `cli.js --op NAME [--registry PATH] [--db PATH]
 [--payload JSON|PATH|-]`, one JSON document on stdout. `--db` is required by the ops
 that need an ENDING - `stampDeath` and `awaitingReap` - and by no other. The python
-side of that door is `team-kit/supervisor_door.py`; `SUPERVISOR_REGISTRY` overrides the
+side of that door is `coord/supervisor_door.py`; `SUPERVISOR_REGISTRY` overrides the
 registry file for a probe, a selftest or a second instance.
 
 Selftests: `node registry.selftest.js`, `node death-stamp.selftest.js` and

@@ -3,7 +3,7 @@ id: unblock-checker
 description: "On every trial verdict, act as the run's pass-opener: acceptance queues passes for exactly the newly unblocked milestones; a FAIL below the goal's retry threshold queues one gap-filling pass; a FAIL at the threshold queues nothing — the halt"
 staffing-recommendations: "cheap tier for the interim agent occupant — the job is deterministic; a hint for the staffer, never a binding"
 exposes:
-  path: [rbtv:ignite/team-kit/coordinate]
+  path: [rbtv:ignite/coord/coordinate]
 ---
 
 <role>

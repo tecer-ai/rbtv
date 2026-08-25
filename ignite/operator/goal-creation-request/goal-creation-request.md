@@ -187,7 +187,7 @@ LANE declared. Nothing rides a queued row: there is no queued row.
 `--catalog-root`, `--bindings`, and `--claude-md`/`--budget-json`. `scaffold-seats`
 refuses `create-inputs-missing` without the base texts, saying why — it "never invents run
 conventions and never defaults a floor". They name the OWNER-AUTHORED, OWNER-APPROVED goal-generic
-starter set at `team-kit/starter-set/` (`d-owner-starter-set-approved-0808`). F7 abolished
+starter set at `coord/starter-set/` (`d-owner-starter-set-approved-0808`). F7 abolished
 `conduct.md`; the four procedures live in `coord.py` `boot_prompt`.
 
 ⚠ **The per-row argv TEMPLATING mechanism is unchanged and still live** — `{{workflow}}` /

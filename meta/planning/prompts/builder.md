@@ -4,7 +4,7 @@ description: "Build every piece the forge spec enumerates, land each at its decl
 staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus max / Codex top reasoning) — a hint for the staffer, never a binding"
 exposes:
   skill: [create-cli, core/coding/coding]
-  path: [rbtv:ignite/team-kit/coordinate, component-lint]
+  path: [rbtv:ignite/coord/coordinate, component-lint]
   sub-agent: [writer]
 ---
 

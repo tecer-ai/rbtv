@@ -174,7 +174,7 @@ than at goal creation, where nobody is watching. The effort operand is a NUMBER 
 ### 2d. Materialize the workflow into the goal folder
 
 ```
-python3 <rbtv-repo>/ignite/team-kit/materialize-seats.py \
+python3 <rbtv-repo>/ignite/planning/materialize-seats.py \
   --package <workspace>/.rbtv/goals/<goal> \
   --workflow plan-console \
   --catalog-root <workspace>/3-resources/tools/rbtv/meta \

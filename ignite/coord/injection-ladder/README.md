@@ -178,7 +178,7 @@ are not re-derived — see the file itself, which is the source of truth for whe
 2. **The repo still holds more than one per-harness method table, BY DESIGN at this task.**
     `orchestration/`'s cards remain and CALL `cast`. Model manifests/deltas retired with the models
     tree (2026-08-18). Historical: those files lived under `orchestration/models/`. Live roster is
-    the cast catalog. `ignite/team-kit/coord.py`'s `harness_command()` is
+    the cast catalog. `ignite/coord/coord.py`'s `harness_command()` is
     **`G-146`**, explicitly carved out of 7.45's scope. Neither was retired here — a grep made clean
     by deleting another task's work is a falsified criterion, not a met one. See § One copy below.
 3. ~~**`kimi` is in the orchestration model catalog but NOT in this table.**~~ **CLOSED 2026-08-07**
@@ -202,4 +202,4 @@ work.** The carve-outs, each named with why:
 |------|---------------|
 | `ignite/coord/injection-ladder/` | this module — the one home |
 | `orchestration/skills/orchestrating/cards/` (call `cast`) | Cards remain and CALL `cast` / `cast route`. Historical: `orchestration/models/*/{manifest.yaml,delta.md}` retired with the tree 2026-08-18. |
-| `ignite/team-kit/coord.py` `harness_command()` | **`G-146`**, explicitly out of 7.45's scope by the run leader's directive. Custody of that file is held elsewhere; it was neither read into this module nor edited. |
+| `ignite/coord/coord.py` `harness_command()` | **`G-146`**, explicitly out of 7.45's scope by the run leader's directive. Custody of that file is held elsewhere; it was neither read into this module nor edited. |

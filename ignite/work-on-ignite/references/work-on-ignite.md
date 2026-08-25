@@ -2,7 +2,7 @@
 description: "Use BEFORE editing anything under rbtv ignite/ or meta/ and AGAIN at the close of that edit"
 tags: [ignite, memory]
 exposes-cli:
-  - team-kit/file-issue
+  - coord/file-issue
   - rbtv:core/rbtv-embed-search
 ---
 

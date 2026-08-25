@@ -5,7 +5,7 @@ staffing-recommendations: "frontier model at high effort (e.g. Fable high / Opus
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  path: [rbtv:ignite/team-kit/coordinate]
+  path: [rbtv:ignite/coord/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
 

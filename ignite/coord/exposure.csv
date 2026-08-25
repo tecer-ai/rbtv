@@ -3,12 +3,14 @@
 # component). Moved out of the module-root ignite/exposure.csv on 2026-08-22, exactly as that
 # file's own note anticipated — the `team-kit/` prefixes dropped with the move and nothing
 # else changed. Columns are the seven of concepts/exposure-manifest.md, in its order.
+#
+# The folder became `ignite/coord/` with the component-first move (spec-component-map §2).
+# The `materialize-seats` / `scaffold-seats` rows LEFT for `planning/exposure.csv` with the
+# file itself; the `team-kit` skill row ARRIVED from the retired module-root manifest.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 coordinate,tool,path,,coord.py,,
 owed-answers,tool,path,,owed-answers.py,"List the owner asks and escalations that are still unanswered, across every goal. The channel master's standing prompt names this command as the ONLY way it derives that debt",
 floor-lint,tool,path,,floor-lint.py,,
-materialize-seats,tool,path,,materialize-seats.py,,
-scaffold-seats,tool,path,,materialize-seats.py,"ALIAS of materialize-seats, kept because 24 files and a probe hardcode this name (owner ruling 2026-08-22). Retire it with the rename filed in redesign-plan/loose-ends.md",
 worktree-flow,tool,path,,worktree-flow.py,,
 save-coord,tool,path,,save-coord.py,,
 budget,tool,path,,budget.py,,
@@ -18,3 +20,4 @@ provider-usage,tool,path,,provider-usage.py,,
 statusline-usage,tool,path,,statusline-usage.py,,
 file-issue,tool,path,,file-issue.py,,!ws:.rbtv/goals/ignite-engine/register;!ws:3-resources/tools/rbtv/ignite/work-on-ignite/memory
 file-system-issue,capability,skill,,skills/file-system-issue/SKILL.md,"File a system issue (defect, gap, change notice) under ignite/ or meta/ into the engine goal's register — file, don't fix",
+team-kit,capability,skill,exhibit,skills/team-kit/SKILL.md,"Set up, run, or join a coordinated parallel multi-agent team in tmux: one pane per seat, typed append-only message log, roster with verified identities, staged launches, watcher/closer seats",

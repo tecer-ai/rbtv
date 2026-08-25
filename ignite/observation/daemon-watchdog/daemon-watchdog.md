@@ -63,7 +63,7 @@ A `--dry-run` restarts nothing and so never reaches the gate: the counter is not
 ## The fourth row: daemon IDENTITY — RESTARTED · CRASH-LOOP · IDENTITY · STALE CODE
 
 The three rows above answer *is it up*. This one answers *is it the SAME one, and is it running
-the code on disk* — the questions `ignite/team-kit/watch.py` used to answer before it was deleted
+the code on disk* — the questions `ignite/coord/watch.py` used to answer before it was deleted
 (task 7.35, run decision D8), and which nothing else in the repo asks.
 
 **Why it could not just ride the `daemon` row.** That row asks the GATEWAY, and the gateway's

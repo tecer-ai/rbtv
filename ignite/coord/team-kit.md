@@ -4,7 +4,7 @@ tags:
   - rbtv-sb-merge-refactor
 ---
 
-# team-kit/ — reusable multi-agent team mechanics
+# coord/ — reusable multi-agent team mechanics (the team-kit)
 
 The shared toolkit for running parallel multi-agent teams in tmux, extracted from the
 2026-07-24 `kg-edges-visualization-improvements` run (owner-directed, 2026-07-24) and upgraded

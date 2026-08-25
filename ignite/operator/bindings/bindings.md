@@ -6,7 +6,7 @@
 A **workflow** is the program — an ordered set of **seats** in
 `<component>/workflows/<w>/<w>.csv`. A **taskforce** is its running instance. The **bindings** file
 is what casts one into the other, and it is read by exactly one consumer:
-`ignite/team-kit/materialize-seats.py --bindings`, once, when a goal's seats are materialized.
+`ignite/planning/materialize-seats.py --bindings`, once, when a goal's seats are materialized.
 
 ```
 workflow (the program)  +  bindings (the casting)  ──materialize-seats──▶  taskforce (the run)
@@ -24,7 +24,7 @@ is what **this deployment decided to spend** on running it — a different kind 
 different lifetime — so it lives under `.rbtv/config/` beside the other deployment knobs.
 
 This path is ONE INSTANCE of the general configuration convention — owner-specific values live at
-`.rbtv/config/modules/<module>/<component>/…` (`ignite/team-kit/starter-set/conduct.md`, which
+`.rbtv/config/modules/<module>/<component>/…` (`ignite/coord/starter-set/conduct.md`, which
 once stated this, was abolished by owner ruling F7, 2026-08-17; `capabilities/bindings/tool/bindings.py`
 now carries the canonical path).
 

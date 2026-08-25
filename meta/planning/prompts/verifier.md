@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate]
+  path: [rbtv:ignite/coord/coordinate]
 ---
 
 <role>
@@ -40,7 +40,7 @@ exposes:
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it; do not post.
-- `rbtv:ignite/team-kit/coordinate` — check out. Owner asks are not this seat's product; do not open an approval thread.
+- `rbtv:ignite/coord/coordinate` — check out. Owner asks are not this seat's product; do not open an approval thread.
 </resources>
 
 <io-spec>

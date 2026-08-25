@@ -1,4 +1,4 @@
-# team-kit/ — rules for agents in this folder
+# coord/ — rules for agents in this folder
 
 Shared, run-agnostic multi-agent team mechanics (index: `team-kit.md`). Component of the **ignite**
 module — the kit's tmux seats are the interactive twin of the daemon's session substrate. Entry

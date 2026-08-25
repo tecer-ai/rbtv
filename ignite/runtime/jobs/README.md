@@ -53,14 +53,14 @@ Deleted with it: `probes/probe-goal-watcher-{census-inrun,delivery-retry,door-ex
 ghostrow-debounce,homings,revival,selftest,worktree-watch-start}.py`,
 `probes/probe-dead-room-sensor-session.py`, `probes/probe-headless-retention-unknown.py`,
 `../capabilities/daemon-watchdog/probes/probe-watchdog-goal-watcher-arm.py` and
-`../team-kit/probes/probe-lifecycle-exec.py` — every one of them drives the deleted program as its
+`../coord/probes/probe-lifecycle-exec.py` — every one of them drives the deleted program as its
 subject. (`probe-headless-retention-unknown` also touched `team_monitor.headless()`'s retention
 closure, which keeps its own coverage inside `team_monitor.py`'s selftest.)
 
 **Nothing else lost a caller, and that was CHECKED, not assumed.** `coord.py`'s hidden
 `lifecycle-exec` command is still forked live by the RENEW checkout path (`coord.py` s3-09 builds
 `["setsid", sys.executable, coord.py, "lifecycle-exec", ...]`) and keeps its coverage in
-`../team-kit/probes/probe-lifecycle-idents.py`, which drives `cmd_lifecycle_exec` directly.
+`../coord/probes/probe-lifecycle-idents.py`, which drives `cmd_lifecycle_exec` directly.
 `jobcontain.detach_argv` is still called by `restart-daemon.py` and covered by
 `probes/probe-detach-env.py`. What went dark is only the deleted program's own `run_revival`
 actuator, which fired `lifecycle-exec` through a second `systemd-run` hop.
@@ -96,7 +96,7 @@ its queue rows and run this by hand:
 
 ```bash
 # room dead — relaunch it through the kit path that created it
-python3 <rbtv>/ignite/team-kit/coord.py --package <PKG> launch --only <SEAT> --force
+python3 <rbtv>/ignite/coord/coord.py --package <PKG> launch --only <SEAT> --force
 
 ```
 

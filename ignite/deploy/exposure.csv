@@ -1,0 +1,10 @@
+# deploy's exposure manifest. A depth-2 `exposure.csv` IS the component marker
+# (`concepts/component-anatomy.md` §1), so this file exists even while its rows do not.
+# Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order.
+#
+# NO ROWS YET, DELIBERATELY. `link-tools.py`, `probe-suite.js` and
+# `probe-suite-scheduled.py` are the named "missing exposure rows" of
+# `spec-component-map` §7.3, which assigns them — and the installer PATH links that
+# realize them — to impl-cli-skills. The systemd units are not parts: they are what
+# installs the module, not something a seat is exposed to.
+part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots

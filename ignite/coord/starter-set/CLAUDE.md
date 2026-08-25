@@ -11,7 +11,7 @@ only some need — the predecessor router that did reached 338,676 characters, 3
 it was split.
 
 **Read the protocol next, from SOURCE:**
-`3-resources/tools/rbtv/ignite/team-kit/protocol.md` (workspace-root-relative). Terminology is king (PRIN-10):
+`3-resources/tools/rbtv/ignite/coord/protocol.md` (workspace-root-relative). Terminology is king (PRIN-10):
 `sd-graph show <term>` before using ANY system term.
 
 ## Where things are
@@ -26,8 +26,8 @@ are its siblings.
 | `./goal.md` | the goal's contract and its done radius |
 | `./decisions.md` | the goal's rulings — owner rulings, contract amendments, plan rationale, and PROVISIONAL `p-*` anchors (which are DURABLE and pruned by hand, design-lock item 6) |
 | `./doubts.md` · `./issues.md` · `./gotchas.md` · `./ideas.md` | owner-decision queue · open questions · validated patterns and traps worth carrying forward · framed-but-unruled |
-| `3-resources/tools/rbtv/ignite/team-kit/protocol.md` | the coordination protocol — messaging, identity, lifecycle mechanics (workspace-root-relative) |
-| `3-resources/tools/rbtv/ignite/team-kit/communication.md` | how this run talks |
+| `3-resources/tools/rbtv/ignite/coord/protocol.md` | the coordination protocol — messaging, identity, lifecycle mechanics (workspace-root-relative) |
+| `3-resources/tools/rbtv/ignite/coord/communication.md` | how this run talks |
 
 **Resolve a cited anchor; never scan a ledger.** Every anchor — `r-*`, `d-*`, `p-*` — resolves in
 this folder's `decisions.md`. No seat has a whole-file read duty on it.

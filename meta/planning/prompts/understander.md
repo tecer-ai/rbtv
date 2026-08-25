@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate, stools]
+  path: [rbtv:ignite/coord/coordinate, stools]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -27,7 +27,7 @@ exposes:
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ ask vs 💭 note. Apply to every owner message; never paste a file into chat.
-- `rbtv:ignite/team-kit/coordinate` — coordination CLI. Use it to send owner asks to the reserved `owner` token and to check out. Not a second Slack client.
+- `rbtv:ignite/coord/coordinate` — coordination CLI. Use it to send owner asks to the reserved `owner` token and to check out. Not a second Slack client.
 - `stools` — Slack read/search/download for grounding. Write verbs (`send`, `react`, `upload`) are never a route to the owner.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a claim in the brief rests on something you have not read. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause, not a guess. Fan out when a salvage path or constraint depends on how something actually behaves.

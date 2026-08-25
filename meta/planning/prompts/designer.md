@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format]
-  path: [rbtv:ignite/team-kit/coordinate]
+  path: [rbtv:ignite/coord/coordinate]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -28,7 +28,7 @@ exposes:
 
 <resources>
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Apply to every owner message; never paste a file into chat.
-- `rbtv:ignite/team-kit/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
+- `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when an approach claim rests on unread material. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a milestone's done-criterion depends on how something actually behaves.
 </resources>

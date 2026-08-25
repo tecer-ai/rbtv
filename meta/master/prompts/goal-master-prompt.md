@@ -14,8 +14,8 @@ staffing-recommendations: "ONE long-lived session per run, renewed IN PLACE (a f
 human-interactive: yes
 fallback: block-and-queue
 exposes:
-  skill: [meta/master/master-scaffold-flow, meta/master/master-bootstrap, ignite/team-kit/file-system-issue, ignite/work-on-ignite/work-on-ignite]
-  path: [meta/planning/stools, ignite/team-kit/file-issue]
+  skill: [meta/master/master-scaffold-flow, meta/master/master-bootstrap, ignite/coord/file-system-issue, ignite/work-on-ignite/work-on-ignite]
+  path: [meta/planning/stools, ignite/coord/file-issue]
 ---
 
 <role>

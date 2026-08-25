@@ -3,3 +3,4 @@
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 envelope-cage-admission,library,path,,cage-admission.js,"The pre-enqueue cage admission test: declared outputs and lane reach judged against the seat own cage template before anything is enqueued (moved from engine/ by spec-component-map §2)",
 envelope-spawn-profiles,reference,path,,spawn-profiles.yaml,"The boot-read launch configuration: launch-specs keyed by (harness, model), the cage defaults, the tools and ticker daemon-only sections (moved from config/; RBTV_IGNITE_CONFIG_PATH points here)",
+envelope-cagespec,library,path,,cagespec.py,"The ONE Python reading of `cage.SeatBinds`, goal-relative: the generation-time preflight materialize-seats.py refuses an undeliverable write-root with, held against the JS composer by probes/probe-cagespec-mirror.py (moved from team-kit/ by spec-component-map §2)",

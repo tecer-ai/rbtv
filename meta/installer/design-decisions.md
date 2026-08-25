@@ -31,7 +31,7 @@ The layout:
 - `selftest/` — the runnable check, one module per subject, driven by
   `selftest/runner.py`. Reached only by `rbtv install selftest`.
 - `discovery.py` — deliberately NOT inside `lib/`. It is imported by name from
-  this directory by `ignite/team-kit/materialize-seats.py`
+  this directory by `ignite/planning/materialize-seats.py`
   (`_live_import(<repo>/meta/installer, "discovery")`), so its path is a
   contract with another tool, not an internal detail.
 - `design-decisions.md` — this file.
