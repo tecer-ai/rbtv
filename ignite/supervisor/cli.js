@@ -20,6 +20,8 @@ const fs = require('node:fs');
 const registry = require('./registry');
 const { readopt } = require('./readopt');
 const { stampDeath, confirmAndReap } = require('./death-stamp');
+const { seedRecoveryConfig, loadRecoveryConfig } = require('./recovery-config');
+const { recordSignal } = require('./progress');
 
 const OPS = new Set([
   'loadRegistry',
@@ -31,6 +33,13 @@ const OPS = new Set([
   'stampDeath',
   'confirmAndReap',
   'awaitingReap',
+  // The recovery half, for the python callers that are not node: the installer / first-bootstrap
+  // seeding step, the read api sibling recovery work consumes, and the progress collector a
+  // team-kit writer fires. Same door, same spelling, for the same reason as the rows above.
+  'seedRecoveryConfig',
+  'loadRecoveryConfig',
+  'recordSignal',
+  'lastProgressAt',
 ]);
 
 // The ops that cannot answer without the ending store.
@@ -85,6 +94,10 @@ function runOp(op, payload, registryFile, store) {
       registryFile,
     );
   }
+  if (op === 'seedRecoveryConfig') return seedRecoveryConfig(payload.workspace);
+  if (op === 'loadRecoveryConfig') return loadRecoveryConfig(payload);
+  if (op === 'recordSignal') return recordSignal(payload, { registryFile });
+  if (op === 'lastProgressAt') return registry.lastProgressAt(payload, registryFile);
   throw new Error(`unknown op: ${op}`);
 }
 

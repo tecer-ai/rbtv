@@ -1,0 +1,10 @@
+{
+  "no_progress_kill_min": 30,
+  "attempt_counter_n": 3,
+  "relaunch_budget_failures": 2,
+  "relaunch_budget_total": 5,
+  "frozen_window_min": 15,
+  "provider_backoff_initial_min": 15,
+  "provider_backoff_multiplier": 2,
+  "provider_backoff_cap_h": 4
+}

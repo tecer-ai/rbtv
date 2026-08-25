@@ -25,18 +25,23 @@ answer to this question. The registry is.
 | `start_time` | `/proc/<pid>/stat` field 22, clock ticks since boot - what makes the pid survive recycling |
 | `launch_token` | Daemon-minted identity at launch. Pane ancestry is not identity [T2-R8] |
 | `supervision` | `supervised` or `unsupervised` - a seat born outside the daemon flips on check-in |
+| `last_progress_at` | The ONE work-product progress fact [T4-R1]. Stamped at spawn, advanced only by the collectors in `progress.js`; the no-progress kill and the frozen alarm read this and nothing else |
 
 The file is runtime state, not source: it is gitignored, and its path is a
 default a caller may override (probes, selftests and a second instance each
 need their own).
 
-## The four write moments, and there are no others
+## The write moments, and there are no others
 
 1. Immediately after spawn returns a pid - `recordSpawn`.
 2. Check-in of an outside-daemon seat - `recordCheckIn` (insert, or flip
    `unsupervised` to `supervised`).
 3. After an ending is stamped AND confirm-and-reap succeeds - `dropRow`.
 4. Boot re-adopt - which writes nothing at all.
+5. A work-product progress signal fired - `recordProgress`, which advances
+   `last_progress_at` on an existing row and touches nothing else. It never
+   inserts a row: a signal for an unsupervised sitting answers `null`. Which
+   signals may fire it is `progress.js`'s table, below.
 
 ## Boot re-adopt, before any stamp
 
@@ -212,4 +217,109 @@ registry file for a probe, a selftest or a second instance.
 
 Selftests: `node registry.selftest.js`, `node death-stamp.selftest.js` and
 `node doors.selftest.js` - each prints
+`ALL PASS` / exits 0.
+
+---
+
+# Recovery - progress, the kill clock, the config file, the checkpoint
+
+Law is `1-projects/build-ignite/redesign/specs/spec-recovery.md` sections 1, 2.1
+and 6, under [T4-R1], [T1-R19], [CF-1], [CF-2], [D4], [D15], [D-1-ruling],
+[T1-R2], [T1-R11], [T4-R2], [F-simplicity-4]. Recovery policy lives in this
+component, not a second folder (`spec-component-map` section 1).
+
+## One progress fact, and a closed list of what advances it
+
+`progress.js` is the only writer of `last_progress_at`. A signal is
+`{goal, seat, kind, signal}`; `recordSignal` advances the fact iff the kind's
+"advances" column carries that signal, and writes NOTHING otherwise.
+
+| kind | advances | does not |
+|---|---|---|
+| `file-writing` (the default) | `file-write` · `progress-note` · `journal-append` · `tool-call-product` | `token-growth` · `transcript-growth` |
+| `chat-only` | `message-sent` | `draft-unsent` · `mail-inbound` |
+| `planning` (alias `orchestrator`) | `stage-artifact` · `progress-note` · `subagent-product-file` | `subagent-transcript` |
+| `judge` | `verdict-write` · `progress-note` | `input-reread` |
+
+A kind a plan does not name, or names in a word this build does not know,
+resolves to `file-writing`. An unknown signal never advances anything.
+
+ACCEPTED RISK, ruled [CF-1, T4 Reversals, T3-R13]: a seat that keeps emitting
+listed signals is unkillable by the 30-minute clock, and planning waves that
+emit product files stay "busy" indefinitely.
+
+## The kill clock and its three pauses
+
+`kill-clock.js`. The clock reads `last_progress_at` and nothing else - not
+transcript growth, not the ledger fingerprint, not a pane. It pauses on exactly
+three lane facts [T1-R19, D-1-ruling], and there is no fourth:
+
+| lane fact | pause reason |
+|---|---|
+| `verified_open_ask` | `verified-open-ask` |
+| `provider_backoff_until` (ISO-8601, still in the future) | `provider-backoff` |
+| `disarmed` (until its `awaiting_event`) | `disarmed-incomplete` |
+
+`provider_backoff_until` is produced by the provider-lanes work; until it is
+written, that pause simply never fires. `disarmed` is spec-state-store's flag -
+read here, never written here. A missing or unreadable progress fact never
+kills: ignorance is not idleness.
+
+## The recovery config file - the ONLY source of the numbers
+
+`recovery-config.js` reads `{workspace}/.rbtv/config/ignite/recovery.json`
+(spec-recovery 2.1). Eight keys, every one required, extra keys refused,
+integers only, `0` or negative is a configuration-error. Missing, unreadable or
+invalid means configuration-error and NO recovery clock is armed - there is no
+in-code fallback, silent or otherwise. Boot and the config-change re-arm are the
+same call (`armRecoveryClocks` is `loadRecoveryConfig`); nothing is cached.
+
+The packaged seed is `recovery.defaults.json` beside this file. Seeding is
+copy-if-absent: `seedRecoveryConfig(workspace)` writes the instance file only
+when it does not exist, and an upgrade never overwrites owner tweaks. It is
+deliberately NOT called by the loader - a loader that seeds on a miss can never
+report a missing file.
+
+This module is the ONE read api for the eight numbers. The counters/budget work
+reads `attempt_counter_n` + both `relaunch_budget_*` keys, the provider-lanes
+work reads the three `provider_backoff_*` keys, and the alarms work reads
+`frozen_window_min` - all through `loadRecoveryConfig`, none by opening the file.
+Seats never read it: `.rbtv/config/` is daemon admin.
+
+## The checkpoint contract, operational
+
+`checkpoint.js`. No checkpoint API, no transcript replay, no harness resume -
+disk is the checkpoint [D4, T1-R2].
+
+- **Progress note** `progress-note.md` in the seat folder: `done-so-far` /
+  `next-step` / `open-questions`, all three on every write or the write is
+  refused. A write advances the fact for the kinds that list `progress-note`.
+- **Side-effect journal** `side-effect-journal.tsv`: one line
+  `ISO-8601<TAB>kind<TAB>target<TAB>idempotency-key`, appended BEFORE the
+  external act. A relaunch skips any act whose key is already journalled. An
+  append advances the fact for file-writing seats.
+- **Relaunch prompt** `relaunchPrompt({brief, seatDir})` = the original brief +
+  the current note + the spec's verbatim continue-instruction.
+
+## Recovery APIs
+
+Config: `loadRecoveryConfig` · `armRecoveryClocks` · `seedRecoveryConfig` ·
+`recoveryConfigPath` · `validateRecoveryConfig` · `RECOVERY_KEYS` ·
+`RecoveryConfigError` (`code: E_RECOVERY_CONFIG`)
+
+Progress: `recordSignal` · `progressOf` · `advances` · `isRefused` ·
+`signalsFor` · `resolveKind` · `SIGNAL_TABLE` (registry side: `recordProgress` ·
+`lastProgressAt`)
+
+Kill clock: `killDecision` · `killDecisionFor` · `pauseState` · `PAUSE_REASONS`
+
+Checkpoint: `writeProgressNote` · `readProgressNote` · `appendJournal` ·
+`journalEntries` · `isJournaled` · `journalLine` · `relaunchPrompt` ·
+`CONTINUE_INSTRUCTION`
+
+Kit door ops (same `cli.js` surface): `seedRecoveryConfig` · `loadRecoveryConfig`
+· `recordSignal` · `lastProgressAt`.
+
+Selftests: `node progress.selftest.js`, `node kill-clock.selftest.js`,
+`node recovery-config.selftest.js`, `node checkpoint.selftest.js` - each prints
 `ALL PASS` / exits 0.

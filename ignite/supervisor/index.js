@@ -17,5 +17,27 @@ const doors = require('./doors');
 const probe = require('./probe');
 const owed = require('./owed');
 const launchDoor = require('./launch-door');
+const recoveryConfig = require('./recovery-config');
+const progress = require('./progress');
+const killClock = require('./kill-clock');
+const checkpoint = require('./checkpoint');
 
-module.exports = { ...registry, ...readopt, ...deathStamp, ...doors, ...probe, ...owed, ...launchDoor };
+// The recovery half of the same component: `recovery-config.js` is the ONE read api for the eight
+// tweakable numbers (sibling seats consume it read-only and none of them opens the file itself),
+// `progress.js` the only writer of `last_progress_at`, `kill-clock.js` the no-progress decision
+// plus the closed list of three pause conditions, and `checkpoint.js` the operational checkpoint
+// contract (progress note, side-effect journal, relaunch prompt).
+
+module.exports = {
+  ...registry,
+  ...readopt,
+  ...deathStamp,
+  ...doors,
+  ...probe,
+  ...owed,
+  ...launchDoor,
+  ...recoveryConfig,
+  ...progress,
+  ...killClock,
+  ...checkpoint,
+};

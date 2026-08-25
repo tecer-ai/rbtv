@@ -8,8 +8,9 @@
 // as death: every live seat was eligible to be stamped `failed` at once (C-15 / F-adversarial-7).
 //
 // THE CURE, and it is two halves that only work together. (1) The set of supervised sittings is
-// PERSISTED - a durable JSONL file, one live row per sitting, written at the four moments below and
-// at no other. (2) On boot, `readopt.js` matches every persisted row against the live process table
+// PERSISTED - a durable JSONL file, one live row per sitting, written at the spawn/reap moments below
+// (plus the progress stamp `progress.js` advances) and at no other. (2) On boot, `readopt.js`
+// matches every persisted row against the live process table
 // BEFORE any outcome stamp runs. A row that still matches is re-adopted, not stamped; a row that
 // does not is classified dead and handed to the death-stamp path; and - the hole this whole module
 // exists to close - a live OS process with NO row is NOT dead, and an empty file is a legal fresh
@@ -101,7 +102,10 @@ function isRowAlive(row) {
 // PAIR (goal, seat) - every ending-store API is keyed that way, so a row that carried only `seat`
 // could not name the sitting it supervises to the store that stamps its ending, and two goals
 // running a same-named seat would collide into one row.
-function makeRecord({ goal, seat, pid, start_time: startTime, launch_token: launchToken, supervision }) {
+function makeRecord({
+  goal, seat, pid, start_time: startTime, launch_token: launchToken, supervision,
+  last_progress_at: lastProgressAt,
+}) {
   if (!seat) throw new Error('registry record requires seat');
   const n = Number(pid);
   if (!Number.isInteger(n) || n <= 0) throw new Error(`registry record requires a positive pid, got ${pid}`);
@@ -118,6 +122,12 @@ function makeRecord({ goal, seat, pid, start_time: startTime, launch_token: laun
     start_time: startTime === undefined || startTime === null ? processStartTime(n) : String(startTime),
     launch_token: launchToken || '',
     supervision: flag,
+    // The ONE work-product progress fact per seat [T4-R1, CF-2, F-simplicity-4]. It is STAMPED AT
+    // SPAWN rather than left empty so the no-progress clock has an origin from the first second of
+    // the sitting: an unset field would make "never progressed" indistinguishable from "just
+    // started", and the only safe reading of that ambiguity is one that never kills anything.
+    // `progress.js` owns which signals may advance it; NOTHING else writes it.
+    last_progress_at: lastProgressAt || new Date().toISOString(),
   };
 }
 
@@ -165,7 +175,7 @@ function saveRegistry(rows, pathOverride) {
   return file;
 }
 
-// -- THE FOUR WRITE MOMENTS (spec 1) - and there are no others ----------------------------------
+// -- THE WRITE MOMENTS (spec 1) - the four spawn/reap ones, plus progress (v) -------------------
 
 // (i) Immediately after spawn returns a pid: persist pid + start-time + the minted launch token.
 function recordSpawn(fields, pathOverride) {
@@ -190,7 +200,15 @@ function recordCheckIn(fields, pathOverride) {
   }
   // The check-in's own identity pair wins where it carries one, and the flag always ends
   // `supervised`: that flip IS the write moment.
-  const merged = { ...rows[idx], ...incoming, supervision: SUPERVISED };
+  // The EXISTING progress stamp survives the merge: check-in is not one of the signals
+  // spec-recovery section 1 lists, so it must not silently reset the no-progress clock of a
+  // sitting that has been working since before it checked in.
+  const merged = {
+    ...rows[idx],
+    ...incoming,
+    supervision: SUPERVISED,
+    last_progress_at: rows[idx].last_progress_at || incoming.last_progress_at,
+  };
   rows[idx] = merged;
   saveRegistry(rows, pathOverride);
   return merged;
@@ -205,6 +223,33 @@ function dropRow({ goal, seat }, pathOverride) {
   if (kept.length === rows.length) return false;
   saveRegistry(kept, pathOverride);
   return true;
+}
+
+// (v) A work-product progress signal fired: advance `last_progress_at` on the row, and touch
+// NOTHING else. This is the only writer of that field and it is deliberately dumb - it does not
+// decide whether a signal counts (that is `progress.js`, spec-recovery section 1's table), and it
+// never inserts a row. A signal for a sitting with no registry row answers `null`: an unsupervised
+// sitting has no supervisor-owned fact to advance, and minting a row here would hand the registry
+// a liveness claim it never observed a spawn for - the exact fabrication write moment (i) exists
+// to prevent. `at` is injectable so a test does not have to sleep to prove an advance.
+function recordProgress({ goal, seat }, at, pathOverride) {
+  if (!seat) throw new Error('recordProgress requires seat');
+  const rows = loadRegistry(pathOverride);
+  const key = keyOf({ goal: goal || '', seat });
+  const idx = rows.findIndex((r) => keyOf(r) === key);
+  if (idx < 0) return null;
+  const stamp = at ? new Date(at).toISOString() : new Date().toISOString();
+  rows[idx] = { ...rows[idx], last_progress_at: stamp };
+  saveRegistry(rows, pathOverride);
+  return rows[idx];
+}
+
+// Read side of the same fact, for the no-progress clock and the frozen alarm - the ONLY two
+// readers spec-recovery section 1 names, and both read THIS and nothing else.
+function lastProgressAt({ goal, seat }, pathOverride) {
+  const key = keyOf({ goal: goal || '', seat });
+  const row = loadRegistry(pathOverride).find((r) => keyOf(r) === key);
+  return (row && row.last_progress_at) || null;
 }
 
 // (iv) Boot re-adopt is the fourth moment and it WRITES NOTHING - see `readopt.js`. It is listed
@@ -241,6 +286,8 @@ module.exports = {
   saveRegistry,
   recordSpawn,
   recordCheckIn,
+  recordProgress,
+  lastProgressAt,
   dropRow,
   awaitingReap,
 };
