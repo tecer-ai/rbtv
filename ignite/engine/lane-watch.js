@@ -234,6 +234,74 @@ function consoleRunIsLive(goalFolder) {
   return runnerAlive(Number(pidRaw), startRaw);
 }
 
+// ── THE FROZEN INVARIANT'S FACTS, COLLECTED WHERE THEY ARE ALREADY KNOWN [T1-R15, C-5] ────────
+//
+// `observation/frozen.js` is a READER of scheduler facts and refuses to derive any of them itself —
+// every one is HANDED IN by the caller that already computes it. This pass IS that caller: it runs
+// once a cadence over exactly the goals the daemon drives, and by the time a goal is seeded it
+// already knows the goal-state row, the pause, what was enqueued and what the provider lanes say.
+// Collecting the facts here costs one store read per goal; collecting them anywhere else would mean
+// deriving them a second time, which is how two surfaces come to disagree about one goal.
+//
+// ⚠ ONLY GOALS THIS PASS ACTUALLY SEEDED ARE OBSERVED. A goal it stepped over — console lane, no
+// taskforce, unreadable casts, a live console run — is NOT reported as un-frozen and NOT reported
+// as frozen: it is not observed at all. Frozen counts nothing in by exception, so an unobserved
+// goal can only make the invariant quieter, and the pass already says out loud why it skipped.
+//
+// ⚠ `eligible_launch` IS THIS PASS'S OWN ANSWER. `pickup.enqueued` is what the seed just queued;
+// a goal that queued work is a goal the scheduler has something to do for, which is the exact arm
+// [T1-R15] names. Nothing here re-asks `deriveOwed` — the seed already did.
+//
+// ⚠ NOTHING IN HERE THROWS. A fact read that fails yields NO observation for that goal rather than
+// a half-composed one: `frozen.js` refuses an observation missing a field (the observing code is
+// the bug), and a pass that could die collecting evidence would take the daemon's goal pickup with
+// it.
+function frozenFactsFor({ goal, goalFolder, engine, pickup, seats = [], lanesFile = undefined, now = undefined }) {
+  const heartStore = engine && engine.heartStore;
+  let goalState = null;
+  let openAsk = false;
+  try {
+    const { bindEnding } = require('./ending-reads');
+    const api = bindEnding(heartStore, goalFolder);
+    if (!api || typeof api.getGoalState !== 'function') return null;
+    const row = api.getGoalState(goal);
+    // NO ROW IS NOT `running`. A goal the store has never recorded is one nothing can claim to know
+    // is stuck; it is reported as its own word so the predicate's first arm answers it honestly.
+    goalState = (row && row.stored) || 'unrecorded';
+    openAsk = typeof api.countOpenAsks === 'function' ? api.countOpenAsks(goal) > 0 : false;
+  } catch {
+    return null;
+  }
+
+  // The two [C-5] exclusions, asked of every seat on the goal: ONE lane waiting out a provider
+  // backoff (or skipped pending a reroute) is enough to make this goal's quiet deliberate.
+  let backoffWaiting = false;
+  let reroutePending = false;
+  try {
+    const providerLanes = require('../supervisor/provider-lanes');
+    for (const seat of seats) {
+      if (!seat) continue;
+      const lane = providerLanes.laneFacts({ goal, seat }, { lanesFile, now });
+      if (lane.provider_backoff_waiting) backoffWaiting = true;
+      if (lane.reroute_pending) reroutePending = true;
+      if (backoffWaiting && reroutePending) break;
+    }
+  } catch { /* no lane history is "no exclusion", never a death */ }
+
+  return {
+    goal_id: goal,
+    goal_state: goalState,
+    paused: laneIsPaused(goalFolder, heartStore),
+    eligible_launch: (pickup && Array.isArray(pickup.enqueued) ? pickup.enqueued.length : 0) > 0,
+    open_ask: openAsk,
+    provider_backoff_waiting: backoffWaiting,
+    reroute_pending: reroutePending,
+    // A path a human can open: the goal folder carries the taskforce, the seats and the
+    // coordination bus that answer "what was this goal doing when it stopped".
+    evidence_pointer: goalFolder,
+  };
+}
+
 // ONE PASS over the goals tree. Called from the daemon's loop, immediately before each tick, so a
 // seat seeded by this pass is dispatched by the tick that follows it rather than a cadence later.
 //
@@ -253,10 +321,13 @@ function consoleRunIsLive(goalFolder) {
 // if the tree ever reaches thousands, watch mtimes instead of re-reading every pass.
 // `readLease` is the D9 goal-live check's injection point, forwarded verbatim to
 // `engine.seedGoal` — production passes nothing and seeding reads the real lease.
-function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined }) {
+function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined, lanesFile = undefined }) {
   const say = (level, message, extra = {}) => { if (logger) logger({ level, message, ...extra }); };
   const adopted = [];
   const skipped = [];
+  // One observation per goal this pass seeded, for `engine/frozen-pass.js`. Collected, never acted
+  // on here: this pass seeds goals, and an alarm is somebody else's act.
+  const frozenFacts = [];
 
   let entries;
   try {
@@ -479,6 +550,17 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
 
     failedOn.delete(goalFolder);
     adopted.push(pickup);
+    {
+      const facts = frozenFactsFor({
+        goal,
+        goalFolder,
+        engine,
+        pickup,
+        seats: unbuiltRows.map((r) => (r.seat || '').trim()).filter(Boolean),
+        lanesFile,
+      });
+      if (facts) frozenFacts.push(facts);
+    }
     // The goal is ADOPTED — this is its daemon-lane run start, and the one moment its channel has
     // to exist before its seats' first to-owner message. After the seed, not before: a goal whose
     // seeding refused above gets no channel, exactly as the queue lane ensures nothing for a row
@@ -541,11 +623,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined 
     });
   }
 
-  return { adopted, skipped };
+  return { adopted, skipped, frozenFacts };
 }
 
 module.exports = {
   LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
+  frozenFactsFor,
   ensureGoalChannelOnce, channelEnsured,
   maybeReconcile,
 };

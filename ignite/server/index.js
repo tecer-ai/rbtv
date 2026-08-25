@@ -17,6 +17,9 @@ const { WARNING_KINDS } = require('./heart/warnings');
 // tmux seat path (task 7.29 retired the server-owned pty the hook used to fork to).
 const { createEngine } = require('../engine');
 const { runLaneWatch } = require('../engine/lane-watch');
+// The frozen invariant's tick driver [T1-R15]. The DECISION is `observation/frozen.js`'s and the
+// FACTS are the lane watch's; this module is the composition, and the loop below only calls it.
+const { runFrozenPass } = require('../engine/frozen-pass');
 const { runQueueRequestPass } = require('../engine/queue-request');
 const { selectCarrier } = require('./spawn/carrier');
 const { createLiveSessions } = require('./spawn/live-sessions');
@@ -953,14 +956,57 @@ async function main() {
   // exactly the state the ruling closed. BEFORE the tick, not after: a seat seeded by the pass is
   // then dispatched by the tick that follows it rather than a cadence later.
   const goalsRoot = path.join(workspaceRoot, '.rbtv', 'goals');
+
+  // ── THE OWNER-FACING ALARM KNOBS, RESOLVED AT RUNTIME (never baked in) ───────────────────────
+  //
+  // `RBTV_SYSTEM_CHANNEL_ID` — the ONE system channel [T5-R1], the same env name the chat bridge
+  //   and `capabilities/daemon-watchdog/tool/watchdog-alarm.js` read: one channel, three processes.
+  //   Unset ⇒ the frozen invariant is NOT armed and says so, rather than observing a frozen goal
+  //   with nowhere to report it.
+  // `RBTV_RESTART_ALARM_SUPPRESS_MIN` — task #113 criterion 2: how long after a WATCHDOG-DETECTED
+  //   daemon restart a stall/latency alarm is held. It is deliberately NOT a ninth key in
+  //   `recovery.json`: spec-recovery §2.1 closes that schema at eight and its loader REFUSES
+  //   extras, so a number that is not one of the five ruled recovery knobs must live outside it.
+  //   Unset ⇒ no suppression at all, which is exactly today's behaviour — a suppression window
+  //   nobody configured must never silence a real page.
+  const systemChannelId = process.env.RBTV_SYSTEM_CHANNEL_ID || null;
+  const restartSuppressMin = process.env.RBTV_RESTART_ALARM_SUPPRESS_MIN
+    ? Number(process.env.RBTV_RESTART_ALARM_SUPPRESS_MIN)
+    : null;
+
+  // ⚠ THE PASS'S RESULT IS PARKED IN A VARIABLE, NOT RETURNED INTO THE CALL SITE, and that shape is
+  // load-bearing. `engine/probes/probe-daemon-lane-watch.js` proves the daemon still CALLS this
+  // pass by mutating the loop's source text — it drops every line matching `^\s*laneWatchPass\(\);`
+  // and requires the call-site arm to go red. A call wrapped in an assignment or an argument
+  // survives that mutation, so the arm would pass against a daemon that had stopped adopting goals
+  // by itself, which is exactly the state that build closed. The statement stays bare.
+  let lastWatch = null;
   const laneWatchPass = () => {
     // Never fatal: one bad goal folder must not take the loop down. `runLaneWatch` already guards
     // per goal; this is the outer belt for anything it did not anticipate.
     try {
-      runLaneWatch({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
+      lastWatch = runLaneWatch({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
     } catch (err) {
       log('error', 'lane watch pass failed', { error: err.message });
+      lastWatch = null;
     }
+  };
+
+  // ⚠ THE FROZEN PASS RUNS ON THE LANE WATCH'S OWN FACTS, IMMEDIATELY AFTER IT. Not a second sweep
+  // of the goals tree: the pass that just seeded every daemon-assigned goal is the one that knows
+  // what it enqueued, and "no eligible launch" is a statement about THAT seed, one cadence old at
+  // most. Never fatal, for the lane watch's reason — and never awaited into the tick's own latency:
+  // an alarm is not more urgent than the work it is about.
+  const frozenPass = () => {
+    const facts = (lastWatch && lastWatch.frozenFacts) || [];
+    if (!facts.length) return;
+    runFrozenPass({
+      facts,
+      workspaceRoot,
+      systemChannelId,
+      suppressWindowMin: restartSuppressMin,
+      logger: (m) => log(m.level || 'info', m.message, m),
+    }).catch((err) => log('error', 'frozen invariant pass failed', { error: err.message }));
   };
 
   // ⚠ THE PLANNING-MINT PASS RUNS **BEFORE** THE LANE WATCH, NOT AFTER. Path A
@@ -977,6 +1023,7 @@ async function main() {
 
   queueRequestPass();
   laneWatchPass();
+  frozenPass();
   const tickResult = await engine.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
@@ -984,6 +1031,7 @@ async function main() {
   const timer = setInterval(() => {
     queueRequestPass();
     laneWatchPass();
+    frozenPass();
     engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
   }, intervalMs);
 
