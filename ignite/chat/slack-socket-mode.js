@@ -40,6 +40,13 @@ function createSlackSocketMode({
   let ws = null;
   let closedByUs = false;
 
+  // WHO THIS BRIDGE IS — resolved at RUNTIME by `authTest()` below (Slack's `auth.test`
+  // on our own bot token) and never configured, never hardcoded: an instance id baked
+  // into this file would be wrong on every other install. The echo guard in
+  // `toChatMessage` is the only reader.
+  let selfBotId = null;
+  let selfUserId = null;
+
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
   }
@@ -98,6 +105,29 @@ function createSlackSocketMode({
     return resp.url;
   }
 
+  // AN ECHO IS THIS BRIDGE'S OWN POST — never "some app posted it" (owner ruling
+  // 2026-08-26). Slack stamps `bot_id`/`app_id`/`bot_profile` on EVERY message that
+  // travels through an app, INCLUDING one posted with the OWNER'S OWN user token by a
+  // third-party app (verified against raw `conversations.history`: a human `user`,
+  // `is_bot:false`, and a `bot_id` all on the same event). So the mere PRESENCE of
+  // `bot_id` proves nothing, and the guard that read it as proof silently discarded
+  // every app-posted owner message. Only a match against OUR OWN identity is an echo.
+  //
+  // `auth.test` returns `bot_id` and `user_id` and does NOT return `app_id`, so `app_id`
+  // is not part of the comparison — there is nothing truthful to compare it against.
+  //
+  // ⚑ FAIL-CLOSED WHILE OUR IDENTITY IS UNKNOWN. `authTest()` runs just after the socket
+  // is attached (chat-bridge.js#start), so a `bot_id` event arriving in that window
+  // cannot be attributed. It is dropped — exactly the pre-ruling behaviour — because the
+  // cost of guessing wrong is the bridge answering itself in a loop.
+  function isSelfEcho(event) {
+    if (!event.bot_id) return false;
+    if (!selfBotId && !selfUserId) return true;
+    if (selfBotId && event.bot_id === selfBotId) return true;
+    if (selfUserId && event.user === selfUserId) return true;
+    return false;
+  }
+
   // A user message event → the transport-neutral shape the bridge consumes.
   //
   // The conversation id depends on WHICH SURFACE the message arrived on, and the
@@ -112,13 +142,25 @@ function createSlackSocketMode({
   // traffic. `_channelType` carries Slack's own surface discriminator.
   function toChatMessage(event) {
     if (!event || event.type !== 'message') return null;
-    // Ignore bot echoes, edits/deletes, and joins — only genuine user text drives work.
+    // Ignore our own echoes, edits/deletes, and joins — only genuine user text drives work.
     // Exception: `file_share` (a user message carrying an attachment) passes through —
     // the bridge does NOT ferry the bytes; it appends a pointer line per file so the
     // agent can pull it itself (stools download takes exactly channel + message ts).
     const files = Array.isArray(event.files) ? event.files : [];
     const isFileShare = event.subtype === 'file_share' && files.length > 0;
-    if (event.bot_id || (event.subtype && !isFileShare) || typeof event.user !== 'string' || typeof event.text !== 'string') return null;
+    // ⚑ THE DROP IS NOT SILENT. A message vanishing with zero trace was half the filed
+    // defect: the owner saw nothing sent, and the journal held nothing at all.
+    if (isSelfEcho(event)) {
+      log('debug', 'slack event dropped — echo guard (this bridge\'s own post)', {
+        channel: event.channel,
+        ts: event.ts,
+        bot_id: event.bot_id,
+        user: event.user,
+        selfIdentityResolved: Boolean(selfBotId || selfUserId),
+      });
+      return null;
+    }
+    if ((event.subtype && !isFileShare) || typeof event.user !== 'string' || typeof event.text !== 'string') return null;
     let text = event.text;
     if (files.length > 0) {
       const fileLines = files.map((f) =>
@@ -341,7 +383,12 @@ function createSlackSocketMode({
     if (!resp || !resp.ok || !resp.user_id) {
       return { ok: false, error: (resp && resp.error) || 'auth-test-failed' };
     }
-    return { ok: true, userId: resp.user_id };
+    // Same call, second consumer: this is where the echo guard learns who we are. Cached
+    // here rather than fetched separately because `auth.test` already carries both ids and
+    // the bridge already makes this call once at start.
+    selfUserId = resp.user_id;
+    selfBotId = resp.bot_id || null;
+    return { ok: true, userId: resp.user_id, botId: selfBotId };
   }
 
   // Open (or fetch) the 1:1 DM channel with a user — `conversations.open` is
