@@ -2564,6 +2564,30 @@ def _selftest_checks(args, failures, names):
               all("TARGET seat" in per_cmd[n]
                   for n in ("close-seat", "approve", "export-transcript")))
 
+        # ---- B9: `instruct`'s help names the SAME four kinds the daemon can execute ----
+        # The runtime validator READS the list off `supervisor/relaunch-budget.js` and never
+        # re-spells it, so the only place a second copy survives is the -h PROSE — which argparse
+        # cannot check and a reader takes as the contract. A drift here tells the leader `yes` for
+        # a kind `executeLeaderInstruction` throws on, and the judgment lands in `refused/` where
+        # nobody re-reads it. Asserted against the JS list itself, not against a literal here:
+        # a fifth kind added on both sides passes, a fifth added on one side reds.
+        _b9_kinds = instruction_kinds()
+        check("B9: `supervise instruct -h` names EXACTLY the closed instruction list "
+              "`relaunch-budget.js#INSTRUCTION_LIST` carries (%s) — the help is the only surviving "
+              "second copy of it, and a kind the daemon cannot execute is a judgment filed under "
+              "`refused/`" % (", ".join(_b9_kinds) or "UNREADABLE — is node on PATH?"),
+              bool(_b9_kinds)
+              and all(f"`{k}`" in per_cmd["instruct"] for k in _b9_kinds)
+              and all(k in per_cmd["instruct"].split("A fifth")[0] for k in _b9_kinds))
+        check("B9/B10: both ruling verbs sit on the SUPERVISION door and on no other — that "
+              "membership IS the audience bound, because this kit deleted every per-verb role "
+              "predicate [T2-R10, D24, F-simplicity-7] and enforces exactly two refusal points "
+              "(the cage envelope, and the send-time owner-ask refusal). A ruling verb reachable "
+              "from `coordinate` would be one any seat could type",
+              door_of("accept") == SUPERVISION_DOOR and door_of("instruct") == SUPERVISION_DOOR
+              and "accept" in _door_cmds(sup_parser) and "instruct" in _door_cmds(sup_parser)
+              and "accept" not in _door_cmds(parser) and "instruct" not in _door_cmds(parser))
+
         # ---- G-181: the advice surface must not coach a command the tool refuses ----
         # Three advice populations (runtime `next:` hints, per-command -h epilogs, refusal texts)
         # all coach `send`, and all three drifted the moment the positional-body guard went

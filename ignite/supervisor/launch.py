@@ -1986,12 +1986,14 @@ def cmd_launch(args):
                                "relaunches that class BY NAME on its own cadence (D33(a)) — this "
                                "door is not it"),
                 "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
-                               "That is a ruling, not a re-run — `rule-disposition` was deleted "
-                               "[T2-R12, T1-R9]; no replacement ruling instrument is wired here yet"),
+                               "That is a ruling, not a re-run. The ruling doors are "
+                               "`supervise accept <seat> --anchor <ref>` (the work in fact "
+                               "concluded) and `supervise instruct <seat> <kind>` (it did not) — "
+                               "NOT the deleted `rule-disposition` [T2-R12, T1-R9]"),
                 "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
-                     "door's own instrument for it is `--declare-only <leader-anchor>`; the "
-                     "ruling verb `rule-disposition` was deleted [T2-R12, T1-R9] — no replacement "
-                     "ruling instrument is wired here yet"),
+                     "door's own instrument for it is `--declare-only <leader-anchor>`; a "
+                     "RULING on it is `supervise accept` or `supervise instruct`, not the "
+                     "deleted `rule-disposition` [T2-R12, T1-R9]"),
                 "done": ("its own writer's word stands and its edge has already ADVANCED. There "
                          "is nothing to re-run and no ruling grants a power to rewrite it"),
                 "failed": (f"the ending IS `failed`, but its reason class is "
@@ -2144,9 +2146,9 @@ def cmd_launch(args):
                                "relaunches that class BY NAME on its own cadence (D33(a)) — this "
                                "door is not it"),
                 "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
-                               "That is a ruling, not a reopen — `rule-disposition` was deleted "
-                               "[T2-R12, T1-R9]; no replacement ruling instrument is wired here "
-                               "yet"),
+                               "That is a ruling, not a reopen — rule it with `supervise accept "
+                               "<seat> --anchor <ref>` or `supervise instruct <seat> <kind>`, "
+                               "never the deleted `rule-disposition` [T2-R12, T1-R9]"),
                 "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
                      f"door's own instrument for it is `--declare-only <leader-anchor>`"),
             }.get(_ro_disp, f"`{_ro_disp}` is not a finished ending and this door does not "
@@ -2407,9 +2409,11 @@ def cmd_launch(args):
             f"gate, and neither reaches here. A seat that must simply RUN AGAIN is the goal "
             f"watcher's business, not this door's: it relaunches a seat-written "
             f"`declared-incomplete` row BY NAME (D33(a)), and the LEADER resolves the rest of "
-            f"`exited`, `unverified`, `incomplete` or no-disposition rows with a ruling — D33(b); "
-            f"`rule-disposition` (the verb that recorded it) was deleted [T2-R12, T1-R9] and no "
-            f"replacement ruling instrument is wired here yet. ⚠ `exit-unruled` HAS ITS OWN DOOR "
+            f"`exited`, `unverified`, `incomplete` or no-ending rows with a ruling — D33(b), recorded "
+            f"with `supervise accept <seat> --anchor <ref>` where the work in fact concluded and "
+            f"`supervise instruct <seat> <kind>` where it did not. (`rule-disposition`, the verb "
+            f"that used to record one, was deleted [T2-R12, T1-R9]; neither of these is its "
+            f"return — they write the ENDING, never a sessions.csv cell.) ⚠ `exit-unruled` HAS ITS OWN DOOR "
             f"SINCE D42: a seat whose harness DIED mid-task is re-run here, in ONE act, with "
             f"`--rerun <leader-anchor>` — an ordinary working session, no CLEAR first, and the "
             f"`exited` row left standing. `--declare-only <leader-anchor>` remains this door's "

@@ -43,6 +43,7 @@ spelled, and everything not in it is a `coordinate` command by default.
 | the launch composer | `launch.py` | Seat discovery, descriptor validation, the boot prompt, harness command resolution, `session-open` |
 | the death stamp | `attest.py` | The attest-exit arm and the session closer |
 | the carrier bound | `carrier.py` | The asserted-identity launch bound — the paneless cgroup predicate that corroborates a `--as` claim |
+| the door's written reference | `skills/supervise-a-seat/SKILL.md` | The leader-facing skill over this door — when to `accept`, when to `instruct`, and the close/relaunch/route acts. A `method=skill` `exposure.csv` row; the verb bodies for `accept`/`instruct` live in `coord/ruling.py`, which is where every `supervise` verb's body lives |
 
 ### How the seam works, and why it is shaped this way
 

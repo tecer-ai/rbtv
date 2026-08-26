@@ -345,8 +345,13 @@ DISPOSITION_WRITER_LEADER = "leader"
 #           the same argument 7.676 makes two paragraphs down — an ending nobody can express is
 #           an ending nobody records, and an ending recorded in ANOTHER ending's word is worse,
 #           because it reads as recorded.
-#           ⚠ IT IS THE SEAT'S ALONE, like `incomplete`: the leader's instrument on such a row is
-#           `rule-disposition` (D33(b)), which now admits it as a from-state.
+#           ⚠ IT IS THE SEAT'S ALONE, like `incomplete`. The leader's instruments on such a row
+#           are `supervise accept` (the A-10 close below, when the work in fact concluded) and
+#           `supervise instruct` (one of the four leader instructions the daemon drains). The
+#           `rule-disposition` this line used to name is DELETED [T2-R12, T1-R9] and neither verb
+#           is its return: the word `disposition` is refused at the ending store's own door
+#           (`state-store/vocabulary.js#KILLED_WORDS`) and the ending, not a sessions.csv cell, is
+#           what they write.
 #
 # ⚠⚠ WHY A FIFTH VALUE EXISTS AT ALL, MEASURED: until 7.676 THIS ENUM HAD NO HONEST ENDING. A seat
 # whose work was unfinished had exactly two words available — `done` (a lie that ADVANCES THE DAG)

@@ -401,14 +401,24 @@ def workers_dir(args, register=True):
     return pkg / "workers"
 
 
-def coord_invocation(args):
+def coord_invocation(args, door="coordinate"):
     """The exact command string agents use — embedded in wakes and launch prompts. Prefers
     the per-machine `coordinate` PATH symlink (it IS a CLI — seats should not carry the
     script's full path) and the short `--run <tag>` form (auto-registered); falls back to
-    the full forms where symlink/registry are absent."""
+    the full forms where symlink/registry are absent.
+
+    ⚠ `door` NAMES WHICH FRONT DOOR THE ADVICE IS FOR, and it defaults to the seat surface so
+    every existing caller is byte-identical. Since the entry point split by audience (owner
+    ruling 2026-08-25) a verb sits on exactly ONE door, and a refusal that advised the other one
+    would hand the reader a command the parser refuses by name. A supervision verb passes
+    `SUPERVISION_DOOR`."""
     import shutil
     script = Path(__file__).resolve()
-    cli = "coordinate" if shutil.which("coordinate") else f"python3 {script}"
+    if door == "supervise":
+        target = Path(__file__).resolve().parent.parent / "supervisor" / "supervise.py"
+        cli = "supervise" if shutil.which("supervise") else f"python3 {target}"
+    else:
+        cli = "coordinate" if shutil.which("coordinate") else f"python3 {script}"
     if getattr(args, "base", None):
         return f"{cli} --base {Path(args.base).resolve()}"
     # ⚠ `register=False` (F17): this function BUILDS A STRING. Resolving the package normally

@@ -63,6 +63,9 @@ remedy — when something is broken
   close-seat / reap / kill-pane / relaunch-pane / terminate-pid  close a seat (--renew) · free panes (--go) · reap one pane by id · respawn a seat INTO its own pane (CoS too) · terminate ONE named NON-SEAT pid, authorization recorded
   approve     answer a seat's permission prompt by sending keys to its pane
   attest-exit / route-fail  record that a one-shot harness terminated (--go; reports bare) · route a FAIL back to the receiver your seat.md declares, or to the `leader` when it declares none (--go; reports bare)
+
+the leader's rulings — on a row it did not sit in
+  accept / instruct  ACCEPT a seat's finished work: its ending becomes `done`, outputs re-checked, --anchor recorded (--go; reports bare) · RULE on a seat's ended session — one of the four leader instructions the daemon drains and applies (--go; reports bare)
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: supervise <command> -h · --force overrides a refusal, where one exists"""
 
@@ -87,6 +90,7 @@ SUPERVISION_COMMANDS = (
     "ready-seats", "renewal-state", "surface-refusal", "lifecycle-exec",
     "close-seat", "reap", "kill-pane", "relaunch-pane", "terminate-pid", "approve",
     "attest-exit", "route-fail",
+    "instruct", "accept",
 )
 COORDINATION_DOOR = "coordinate"
 SUPERVISION_DOOR = "supervise"
@@ -672,6 +676,11 @@ def build_parser(door=COORDINATION_DOOR):
     s.add_argument("--why", choices=sorted(BROADCAST_CLAUSES), metavar="CLAUSE",
                    help="REQUIRED on `send all`: which broadcast clause justifies it — "
                         + " | ".join(f"{k} ({v})" for k, v in sorted(BROADCAST_CLAUSES.items())))
+    # B14 · ONE ACT — "a ruling recorded only in a message is not recorded". The append lands in
+    # the goal's `decision-log` (`<goal>/decisions.md`) in this same invocation, AFTER the message
+    # so the entry can cite its number; a failed append is LOUD and non-zero, never a silent skip.
+    s.add_argument("--record", default="", metavar="TITLE",
+                   help="record this message in the goal's decision-log (`<goal>/decisions.md`) in the SAME act: TITLE heads the appended entry, the body is this message, and the entry cites the message number it went out as")
     add_identity_flags(s)
     s.set_defaults(func=cmd_send)
 
@@ -984,10 +993,10 @@ def build_parser(door=COORDINATION_DOOR):
                         "rewritten, cleared or relabelled — it stays on the record and is "
                         "superseded when the new session writes its own ended row. NOT an "
                         "override: any other from-state is still refused (that is `--rerun`'s "
-                        "door for a `failed`/`crash` ending; `rule-disposition`, the leader's "
-                        "ruling instrument "
-                        "for the rest, was deleted [T2-R12, T1-R9] and has no replacement wired "
-                        "here yet), and --force/--force-memory are "
+                        "door for a `failed`/`crash` ending; `supervise instruct <seat> <kind>` "
+                        "is the leader's ruling instrument for the rest — the deleted "
+                        "`rule-disposition` [T2-R12, T1-R9] is NOT what replaced it), and "
+                        "--force/--force-memory are "
                         "untouched and carry no part of this")
     add_identity_flags(s)
     s.set_defaults(func=launch.cmd_launch)
@@ -1053,6 +1062,78 @@ def build_parser(door=COORDINATION_DOOR):
     s.add_argument("--go", action="store_true", help="act (bare = report, write nothing)")
     add_identity_flags(s)
     s.set_defaults(func=attest.cmd_route_fail)
+
+    # ── B9/B10 · THE LEADER'S RULING ACTS ──────────────────────────────────────────────────────
+    # `rule-disposition` (the deleted verb these replace) is NOT resurrected and neither is its
+    # word: `disposition` is a KILLED WORD at the ending store's own door
+    # (`state-store/vocabulary.js`). The bodies are `ruling.py`'s; see its header for why there is
+    # no per-verb role gate (there is none anywhere in this kit [T2-R10, D24, F-simplicity-7]) and
+    # why the audience bound is THIS TUPLE — both verbs sit on `supervise` only, so `coordinate
+    # accept` is refused by name at the parser.
+    s = command(
+        "accept",
+        "ACCEPT a seat's finished work — its current ending becomes `done` in ONE act, and every\n"
+        "`after` edge waiting on that seat advances.\n"
+        "\n"
+        "THE OUTPUTS ARE RE-CHECKED, NOT TAKEN ON YOUR WORD: the seat's declared `## Outputs` are\n"
+        "graded by the same mechanical check the store runs, and an acceptance of work whose\n"
+        "outputs are not on disk is REFUSED here by name rather than silently downgraded.\n"
+        "\n"
+        "`--anchor` is mandatory and is RECORDED, NEVER VERIFIED — no tool can check that an anchor\n"
+        "names a real investigation, and a `done` citing nothing is a `done` nobody can audit.",
+        "example:\n"
+        "  supervise accept builder --anchor 'messages.md #142 — outputs md5-checked' --go\n"
+        "next: supervise ready-seats — the successors this acceptance just unblocked")
+    s.add_argument("seat", help="the TARGET seat whose finished work you are accepting (never your own name)")
+    s.add_argument("--anchor", default="", metavar="REF",
+                   help="WHY it is accepted — the message ref, decision anchor or evidence you read (recorded, never verified)")
+    s.add_argument("--go", action="store_true", help="act (bare = report what would change, write nothing)")
+    # No `--force`: neither refusal this verb raises HAS an override. A missing `--anchor`, a
+    # seat this goal does not staff, an instruction kind the daemon cannot execute and a declared
+    # output that is not on disk are all facts, not policies — offering a flag whose own help says
+    # it "overrides this command's refusal" would promise a door that is not there.
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_accept)
+
+    s = command(
+        "instruct",
+        "RULE on a seat's ended session, so it stops re-waking the chair. The judgment is recorded\n"
+        "where the daemon ALREADY drains it — `.rbtv/runtime/ignite/leader-instructions/` — and is\n"
+        "applied once, at the top of the next reconcile pass, then filed under `done/`.\n"
+        "\n"
+        "The kind is one of a CLOSED list of four, read off `supervisor/relaunch-budget.js` rather\n"
+        "than spelled here: `rewrite-brief` (--brief-file + --brief-path: new words, lane re-armed\n"
+        "for one authorized relaunch) · `reassign` (--to-seat: another seat design takes the work)\n"
+        "· `blocked-pending-plan-gap` (--gap [--milestone]: the gap is in the PLAN, and a scoped\n"
+        "re-plan request is recorded) · `escalate` (--report-file: a formed decision-ask to the\n"
+        "owner). A fifth would be a remedy verb nobody ruled [D6, T4-R6].\n"
+        "\n"
+        "THE WALL [CF-3, T2-R5]: an instruction may carry a JUDGMENT, never the seat's work. Text\n"
+        "rides a FILE and never argv — a shell eats backticks and $(...) before this command sees\n"
+        "them.\n"
+        "\n"
+        "This is NOT the deleted `rule-disposition` and it does not write that verb's surface: the\n"
+        "grant-store authority model went with it [T2-R12, T1-R9] and `disposition` is a killed\n"
+        "word at the ending store's door. What is recorded here is a leader INSTRUCTION, and the\n"
+        "daemon is what stamps the resulting ending.",
+        "example:\n"
+        "  supervise instruct builder reassign --to-seat builder-b --go\n"
+        "next: supervise ready-seats — the lane the daemon re-armed on your instruction")
+    s.add_argument("seat", help="the TARGET seat whose ended session you are ruling on")
+    s.add_argument("kind", help="the instruction: rewrite-brief | reassign | blocked-pending-plan-gap | escalate")
+    s.add_argument("--brief-file", metavar="PATH", help="rewrite-brief: the file holding the new brief text")
+    s.add_argument("--brief-path", metavar="PATH", help="rewrite-brief: where that brief lands on disk")
+    s.add_argument("--to-seat", metavar="NAME", help="reassign: the seat design that takes the work")
+    s.add_argument("--gap", default="", metavar="TEXT", help="blocked-pending-plan-gap: what the plan does not say")
+    s.add_argument("--milestone", default="", metavar="ID", help="blocked-pending-plan-gap: the milestone the gap sits under")
+    s.add_argument("--report-file", metavar="PATH", help="escalate: the file holding the decision-ask the owner reads")
+    s.add_argument("--go", action="store_true", help="act (bare = report the payload, write nothing)")
+    # No `--force`: neither refusal this verb raises HAS an override. A missing `--anchor`, a
+    # seat this goal does not staff, an instruction kind the daemon cannot execute and a declared
+    # output that is not on disk are all facts, not policies — offering a flag whose own help says
+    # it "overrides this command's refusal" would promise a door that is not there.
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_instruct)
 
     s = command(
         "export-transcript",

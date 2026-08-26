@@ -203,7 +203,7 @@ WORKER_ROW = re.compile(
 # sites), and a per-module COPY of the namespace leaves every stub unreachable: measured
 # 2026-08-24, the suite fell from 913 ok / 128 fail to ABORTED after 23 checks under a copying bind.
 SPLIT_MODULES = ("addressing", "outputs", "tmux", "records", "identity", "closeout", "checkout",
-                 "messages", "coord_selftest", "cli_main")
+                 "messages", "ruling", "coord_selftest", "cli_main")
 # The six modules `spec-component-map` §3 homes in `supervisor/` are REAL MODULES, imported below
 # (owner ruling 2026-08-25, "SPLIT_MODULES / coordinate split"). They were measured before they
 # moved: 1,505 of the 1,506 cross-module references in this kit are read inside a function body,
@@ -214,8 +214,8 @@ SUPERVISOR_MODULES = ("process", "carrier", "attest", "lifecycle_exec", "launch"
 # The product's load order, unchanged since the move-only split — PRODUCT_SOURCE stays the same
 # corpus in the same sequence, so every audit that counts over it keeps meaning what it meant.
 PRODUCT_ORDER = ("addressing", "outputs", "tmux", "process", "records", "identity", "carrier",
-                 "closeout", "attest", "checkout", "lifecycle_exec", "messages", "launch",
-                 "ready", "coord_selftest", "cli_main")
+                 "closeout", "attest", "checkout", "lifecycle_exec", "messages", "ruling",
+                 "launch", "ready", "coord_selftest", "cli_main")
 COORD_PY = Path(__file__).resolve()
 KIT_DIR = COORD_PY.parent
 SUPERVISOR_DIR = KIT_DIR.parent / "supervisor"

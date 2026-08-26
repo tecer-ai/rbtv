@@ -2340,6 +2340,26 @@ def cmd_send(args):
     resolved = sorted(relay_seats(args.to, decls))
     rel_note = f" [{args.to} -> {', '.join(resolved)}]" if resolved else ""
     print(f"sent message #{n} ({sender} -> {args.to}, type: {args.type}{marks}){org_note}{rel_note}")
+    # B14 · THE LEDGER HALF OF THE SAME ACT. `--record` makes "recorded in the goal's decision
+    # ledger" and "sent on the bus" ONE command, because a leader that has to remember two things
+    # records one of them — the defect M15 names in its own words: *"a ruling recorded only in a
+    # message is not recorded"*. It runs HERE, after the append, so the entry can CITE #N (the
+    # ledger's consumption is anchor-resolution) and so the write with real failure modes goes
+    # first. A failed ledger write is LOUD and exits non-zero with the exact text to add by hand —
+    # the same discipline `session_close`'s refusal states: no swallow.
+    _record_title = (getattr(args, "record", "") or "").strip()
+    if _record_title:
+        try:
+            _led = record_decision(args, _record_title, body, caller=sender,
+                                   to=args.to, mtype=args.type, num=n)
+            print(f"recorded in the decision-log: {_led} (## {now()} — {_record_title})")
+        except Exception as _led_err:                       # noqa: BLE001 — reported, never swallowed
+            print(c(f"MESSAGE #{n} WAS SENT. THE LEDGER ENTRY WAS NOT WRITTEN: {_led_err}\n"
+                    f"  The ruling is now recorded ONLY in a message, which is the exact state "
+                    f"--record exists to prevent. Append this to the goal's decisions.md by hand:\n"
+                    f"{decision_entry(_record_title, body, caller=sender, to=args.to, mtype=args.type, num=n)}",
+                    C_DEAD), file=sys.stderr)
+            sys.exit(1)
     # ⚠ SAID AT THE MOMENT IT MATTERS, to the person who most needs it: the sender who has just
     # addressed a non-member and would otherwise wait for a reply that no wake will ever prompt.
     # The ruling is explicit that leaving this implicit is the defect — silence would be read as

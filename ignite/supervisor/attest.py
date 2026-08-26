@@ -510,9 +510,11 @@ def staff_mail_body(args, seat, value, entry, sid):
         "This is the failure path. Triage it on evidence YOU observe — an unclean exit says how a "
         "SESSION ended and nothing about whether the WORK finished — then take exactly one "
         "disposition: FIX AND RELAUNCH, ROUTE to the seat that authored the instruction, ANSWER, "
-        "or ESCALATE. Never relabel this row by hand or without an investigation. `rule-disposition` "
-        "— the verb that recorded a leader's ruling on this row — was deleted [T2-R12, T1-R9]; no "
-        "replacement ruling instrument is wired here yet. Where the harness simply DIED and the "
+        "or ESCALATE. Never relabel this row by hand or without an investigation. Record the ruling "
+        "with `supervise instruct " + seat + " <rewrite-brief|reassign|blocked-pending-plan-gap|"
+        "escalate> --go`, or `supervise accept " + seat + " --anchor <ref> --go` where the work "
+        "in fact concluded. (`rule-disposition`, the verb that used to record one, was deleted "
+        "[T2-R12, T1-R9]; neither of these is its return.) Where the harness simply DIED and the "
         "work must RUN AGAIN: "
         "`launch --only " + seat + " --rerun <anchor>` — ONE act, an ordinary working session, "
         "and the `failed` row stays on the record (D42).",
@@ -770,8 +772,9 @@ def cmd_attest_exit(args):
                 f"MAKES IS THAT THE HARNESS TERMINATED; the ending is stamped from evidence. "
                 f"Whether the work is done is NOT established here — each row routes "
                 f"to the LEADER, which investigates and either relaunches the seat or, where the "
-                f"work had in fact concluded, records that ruling — `rule-disposition` was deleted "
-                f"[T2-R12, T1-R9]; no replacement ruling instrument is wired here yet. Until then "
+                f"work had in fact concluded, records that ruling (`supervise instruct <seat> <kind>`, or "
+                f"`supervise accept <seat> --anchor <ref>` for the concluded case — the deleted "
+                f"`rule-disposition` [T2-R12, T1-R9] is not what replaced them). Until then "
                 f"it advances NO edge ({coord.coord_invocation(args)} ready-seats).", coord.C_HINT))
 
 

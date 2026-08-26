@@ -29,7 +29,7 @@ is alive (`supervisor/`), what an ending means (`state-store/`), what an alarm s
 | Part | File | What it is |
 |---|---|---|
 | the CLI entry | `coord.py` | The `coordinate` front door — the AGENT half of the entry point (owner ruling 2026-08-25): check in, check out, message, read, the goal's record, groups, identity. Also the kit's one namespace: constants, the `SPLIT_MODULES` load, the six imported `supervisor/` modules, and the §3 re-export shim external callers read moved names off. The daemon's and a leader's remedial surface is the OTHER door, `supervisor/supervise.py` |
-| split modules | `addressing.py`, `outputs.py`, `tmux.py`, `records.py`, `identity.py`, `checkout.py`, `messages.py`, `closeout.py`, `cli_main.py` | Bodies moved verbatim out of `coord.py` by the move-only split [D23, T4-R12]; one shared runtime namespace, never separate imports. ⚠ A NEW FILE HERE MUST BE ADDED TO `SPLIT_MODULES` and to `PRODUCT_ORDER`, nothing else. A supervision name they read is spelled `<module>.NAME` — never through `coord.py`'s re-export alias, which is a snapshot a selftest stub can never reach |
+| split modules | `addressing.py`, `outputs.py`, `tmux.py`, `records.py`, `identity.py`, `checkout.py`, `messages.py`, `closeout.py`, `ruling.py`, `cli_main.py` | Bodies moved verbatim out of `coord.py` by the move-only split [D23, T4-R12]; one shared runtime namespace, never separate imports. ⚠ A NEW FILE HERE MUST BE ADDED TO `SPLIT_MODULES` and to `PRODUCT_ORDER`, nothing else. A supervision name they read is spelled `<module>.NAME` — never through `coord.py`'s re-export alias, which is a snapshot a selftest stub can never reach |
 | kit doors onto other components | `ending_store.py`, `supervisor_door.py`, `liveness.py`, `gateway_client.py` | Thin Python doors onto `state-store/`, `supervisor/` and the gateway — no second implementation of either |
 | shipped tools | `file-issue.py`, `floor-lint.py`, `owed-answers.py`, `worktree-flow.py`, `save-coord.py`, `budget.py`, `overview-compact.py`, `provider-usage.py`, `statusline-usage.py`, `tmux-overview` | The kit's first-party CLIs; each is an `exposure.csv` `method=path` row |
 | injection ladder | `injection-ladder/` | The ONE per-harness injection ladder (CMP-9) the spawn path resolves a rung through |
@@ -51,6 +51,23 @@ The six §3 modules whose named landing is `supervisor/` (`process`, `lifecycle_
 owner ruled the loader be redesigned to permit it. They are real modules there now,
 imported rather than `exec`d; the recorded spec-vs-disk conflict is closed. What crosses
 the seam and how is `supervisor/component.md`'s subject.
+
+## The leader's ruling acts (`ruling.py`, 2026-08-26)
+
+`accept` and `instruct` are `supervise`-door verbs whose bodies live here. `accept` stamps a
+seat's ending `done` after re-checking its declared outputs; `instruct` records one of the four
+CLOSED leader instructions into the daemon's own inbox
+(`.rbtv/runtime/ignite/leader-instructions/`), which `supervisor/relaunch-budget.js`'s
+`drainLeaderInstructions` already applies at the top of every reconcile pass — this kit writes
+that inbox, it does not add a second channel beside it. `send --record "<title>"` is the ledger
+half: it appends the ruling to the goal's `decision-log` (`<goal>/decisions.md`) in the SAME
+invocation as the message, because a ruling recorded only in a message is not recorded.
+
+⚠ NEITHER IS `rule-disposition` RETURNING. That verb and its authority model were deleted
+[T2-R12, T1-R9] and `disposition` is refused at the ending store's door
+(`state-store/vocabulary.js#KILLED_WORDS`). These verbs write the ENDING, never a `sessions.csv`
+cell, and there is no per-verb role gate on either — the audience bound is the DOOR
+[T2-R10, D24, F-simplicity-7].
 
 ## Ledger custody (D3, 2026-08-19)
 

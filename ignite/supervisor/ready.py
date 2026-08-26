@@ -1162,9 +1162,10 @@ def ready_seat_rows(args):
                     f"HALTED — nothing will run under this seat's name on its own, so a reader "
                     f"who waits waits forever. NOT a clean check-out and NOT a harness death: it "
                     f"is a renewal that could not be placed, and it needs a human. A leader ruling "
-                    f"that the work in fact concluded records that finding (`rule-disposition` "
-                    f"was deleted [T2-R12, T1-R9]; no replacement ruling instrument is wired here "
-                    f"yet); otherwise the goal watcher relaunches this seat on its next pass, "
+                    f"that the work in fact concluded records that finding with `supervise "
+                    f"accept <seat> --anchor <ref>` (the deleted `rule-disposition` "
+                    f"[T2-R12, T1-R9] is not what replaced it); otherwise the goal watcher "
+                    f"relaunches this seat on its next pass, "
                     f"because a non-terminal ending with no later sitting IS owed work. It "
                     f"advances NO edge meanwhile")
             elif value != "done":
@@ -1331,8 +1332,9 @@ CLASS_TO_VERDICT = {"records-disagree": "SKEW", "finished": "DONE",
                     # D32: `DONE` for the SAME reason `declared-incomplete` and `exit-unruled`
                     # read it — the ADMISSION verdict, "this row's session ENDED, so it is not a
                     # launch candidate". It says NOTHING about the work; the CLASS is what routes,
-                    # and this class routes to the leader for a ruling (D33(b); `rule-disposition`,
-                    # the verb that recorded one, was deleted [T2-R12, T1-R9]).
+                    # and this class routes to the leader for a ruling (D33(b)) — `supervise
+                    # accept` or `supervise instruct`; the `rule-disposition` that used to
+                    # record one was deleted [T2-R12, T1-R9] and did not come back.
                     "claimed-unverified": "DONE",
                     "occupied": "RUNNING", "unbuilt": "UNBUILT", "undeclared-ending": "UNDECLARED",
                     "row-stopped": "STOPPED", "unmet-predecessor": "BLOCKED"}
