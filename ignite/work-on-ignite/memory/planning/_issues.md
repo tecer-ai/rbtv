@@ -1,1 +1,2 @@
 2026-08-25 · issue · Chair gate left half-migrated off awaiting-close · `materialize-seats.py` aborted with `NameError: name 'debts' is not defined` at → ONE gate existed as TWO copies, and only one was migrated. · e8f4a487 · coord,state-store · ⚠
+2026-08-26 · issue · Uncaged staff seats got the worker cage's write surface · Every uncaged staff seat's assembled `seat.md` ended with a derived section that told it the → `render_descriptors` in `ignite/planning/materialize-seats.py` appended `_WRITE_SURFACE_BLOCK` to · 179310e8 · supervisor,meta-master · ⚠
