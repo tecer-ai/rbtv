@@ -118,6 +118,7 @@ function composeSeatSpawn({
   seatBinds = null,
   userManager = true,
   uncaged = false,
+  env = null,
 }) {
   assertTmuxName('tmux session', room);
   assertTmuxName('tmux window', windowName);
@@ -144,12 +145,23 @@ function composeSeatSpawn({
   // 3. The pane. `--` then the vector: tmux execs it, no shell parses it (see the header rule).
   //    `-d` so the spawn does not steal the attached client's focus; `-P -F` so the caller gets
   //    the pane id back and can identify THIS pane later without matching on a name.
+  //    `-e NAME=VALUE` is the ENVIRONMENT this door applies (B1): an uncaged staff pane takes no
+  //    bwrap wrap, so it has no `--setenv` to ride and tmux's own per-window environment is the
+  //    only channel that reaches the process. Composed by `spawn.js#composeCageFor`, never here —
+  //    this module composes tmux, it does not get a vote on the environment any more than it gets
+  //    one on the walls. A caged pane passes nothing and its argv is byte-unchanged.
+  const envArgs = [];
+  for (const [name, value] of Object.entries(env || {})) {
+    if (value === undefined || value === null) continue;
+    envArgs.push('-e', `${name}=${value}`);
+  }
   const tmuxArgv = [
     'tmux', 'new-window',
     '-d',
     '-t', `${room}:`,
     '-n', windowName,
     '-c', workdir,
+    ...envArgs,
     '-P', '-F', '#{pane_id} #{pane_pid}',
     '--',
     ...scopeArgv,

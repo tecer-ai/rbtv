@@ -253,6 +253,10 @@ function createLiveSessions({
       caps: profile.caps,
       sandbox: resolvedSandbox,
       envFile: profile.env?.file,
+      // The uncaged staff branch's composed environment (B1) — the warm-session door composes
+      // through the same `composeCageFor` as the dispatch door, so it applies the same PATH. A
+      // caged seat carries its PATH inside `wrappedArgv`'s bwrap flags and passes null here.
+      setenv: (seatCage && seatCage.env) || null,
       userManager,
       live: true,
     });

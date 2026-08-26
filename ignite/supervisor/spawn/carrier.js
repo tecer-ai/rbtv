@@ -264,7 +264,14 @@ function spawnSystemd({ sessionId, argv, workdir, logPath, stdinFile = null, exi
   });
 }
 
-function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null }, logger = null) {
+// `setenv` is honoured here for the same reason `spawnSystemd` honours it: it is the caller's
+// composed environment, not this carrier's opinion. Without it the uncaged-staff PATH (B1,
+// `spawn.js#composeCageFor`) would apply under the systemd carrier and silently not under this
+// one — a fix that holds on the production carrier and rots on the fallback is the harder defect
+// to find, not the smaller one. Merged OVER the daemon's own environment (never replacing it):
+// this child is not sandboxed, so wholesale replacement would strip HOME, USER and the harness
+// credentials the session needs. A caller that passes nothing gets the inherited env unchanged.
+function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exitFile = null, setenv = null }, logger = null) {
   ensureDir(path.dirname(logPath));
 
   const out = fs.openSync(logPath, 'a', 0o600);
@@ -279,6 +286,7 @@ function spawnSetsid({ sessionId, argv, workdir, logPath, stdinFile = null, exit
     cwd: workdir,
     detached: true,
     stdio: [stdinFd === null ? 'ignore' : stdinFd, out, err],
+    ...(setenv && Object.keys(setenv).length > 0 ? { env: { ...process.env, ...setenv } } : {}),
   });
 
   proc.unref();

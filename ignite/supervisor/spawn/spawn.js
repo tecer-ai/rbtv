@@ -910,6 +910,17 @@ function resolveLocalBinGrant(seatPath) {
   return fs.existsSync(localBin) ? [{ localBin }] : [];
 }
 
+// The ONE PATH policy for a spawned seat, caged or uncaged. Prepend the granted dirs, then DEDUPE
+// preserving first-seen order: the daemon's own PATH may already carry ~/.local/bin (or repeat
+// entries from a shell that sourced a profile twice), and a session should not inherit that noise
+// in a variable this module is the author of. Both branches of `composeCageFor` call it — the
+// caged one turns the result into a bwrap `--setenv`, the uncaged one hands it to the door as
+// `env` — so a change to the policy cannot reach one branch and miss the other.
+function composeSeatPath(pathDirs) {
+  const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
+  return [...new Set([...pathDirs, ...base.split(':').filter(Boolean)])].join(':');
+}
+
 // `tmux-socket: true` — the tmux server's socket DIRECTORY, READ-ONLY (owner-directed 2026-08-07).
 //
 // bwrap lays a `--tmpfs /tmp` on EVERY spawn, which masks that directory. So a caged seat holding
@@ -1210,7 +1221,35 @@ function resolveSeatGrants(seatPath) {
 // per spawn, and a refusal nobody can hear is a silent narrowing of a seat's declared walls. It
 // defaults to a no-op so a caller with no logger still composes.
 function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr = null, log = () => {}, stamp = null) {
-  if (isStaffUncaged(seatPath)) return { uncaged: true };
+  // ── B1 / OQ-21(b+) — THE UNCAGED STAFF BRANCH EMITS THE ENVIRONMENT TOO ───────────────────
+  //
+  // A staff seat (leader / goal-master / channel-master) takes no bwrap wrap, and until this
+  // return also carried an `env` it took no PATH either: `resolveLocalBinGrant` and the
+  // `--setenv PATH` composition below both sit AFTER this line, so a staff seat declaring
+  // `local-bin: true` had NO consumer for that declaration on any door. Measured in a live
+  // channel-master sitting 2026-08-26 — `which owed-answers` → `command not found`, and the
+  // spawn argv carried no `--setenv` at all. Every named instrument the three roles are
+  // PROMISED BY NAME (`coordinate`, `supervise`, `scaffold-seats`, `sb-task`, `stools`, `rbtv`,
+  // `sd-graph`, …) lives in `~/.local/bin` and resolved for nobody under the daemon.
+  //
+  // THE DECLARATION IS HONOURED, NEVER ASSUMED (owner ruling OQ-21 shape (b+), 2026-08-26): a
+  // seat without `local-bin: true` gets no PATH change, exactly as a caged seat without the
+  // grant gets none. The uncaged branch is not a wider grant than the caged one, it is the same
+  // grant reaching the same declaration through the same reader — `resolveLocalBinGrant` — and
+  // the same composer, `composeSeatPath`. `meta/leader/seats.csv` gained the declaration in the
+  // same change (both masters already carried it).
+  //
+  // `env` rather than flags because an uncaged seat HAS no flag list: the three doors apply it
+  // as `systemd-run --setenv` (the headless carrier and the live-session carrier) and as
+  // `tmux new-window -e` (the headed pane). Composition stays HERE, at the one branch point, so
+  // there is exactly one PATH policy for a seat and no door gets a vote on it.
+  if (isStaffUncaged(seatPath)) {
+    const staffLocalBin = resolveLocalBinGrant(seatPath);
+    if (staffLocalBin.length === 0) return { uncaged: true, env: {} };
+    const staffPath = composeSeatPath([staffLocalBin[0].localBin]);
+    log('info', 'uncaged staff seat: ~/.local/bin on PATH (local-bin: true)', { seat: seatPath.seat });
+    return { uncaged: true, env: { PATH: staffPath } };
+  }
 
   // ⚠ 7.607 E2b — THE E2a `runs` MOUNTPOINT mkdir IS DELETED, on the condition E2a itself stated.
   // E2a had to `mkdirSync(<goalDir>/runs)` for every caged seat because the shipped SeatBinds
@@ -1354,14 +1393,7 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   }
   if (rbtvBinUsed) pathDirs.push(rbtvBin);
   if (localBin.length > 0) pathDirs.push(localBin[0].localBin);
-  if (pathDirs.length > 0) {
-    const base = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
-    // Prepend, then DEDUPE preserving first-seen order: the daemon's own PATH may already carry
-    // ~/.local/bin (or repeat entries from a shell that sourced a profile twice), and a caged
-    // session should not inherit that noise in a variable this module is now the author of.
-    const dirs = [...new Set([...pathDirs, ...base.split(':').filter(Boolean)])];
-    flags.push('--setenv', 'PATH', dirs.join(':'));
-  }
+  if (pathDirs.length > 0) flags.push('--setenv', 'PATH', composeSeatPath(pathDirs));
   return flags;
 }
 
@@ -1651,7 +1683,10 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       logPath,
     });
 
-    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, stdinFile, exitFile: ensureExitFile(dataRoot, sessionId), caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, userManager };
+    // `setenv` — the uncaged staff branch's composed environment (B1). A caged spawn carries its
+    // PATH as a bwrap `--setenv` inside `wrappedArgv` and passes nothing here, so this is null for
+    // every worker: `seatCage` is the flag array and has no `env`.
+    const common = { sessionId, argv: wrappedArgv, workdir: resolvedWorkdir, logPath, stdinFile, exitFile: ensureExitFile(dataRoot, sessionId), caps: profile.caps, sandbox: resolvedSandbox, envFile: profile.env?.file, setenv: (seatCage && seatCage.env) || null, userManager };
     let launchResult;
     try {
       if (carrier === 'systemd') {
@@ -2003,6 +2038,9 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
       maskPaths,
       seatBinds: (seatCage && seatCage.uncaged) ? null : seatCage,
       uncaged: Boolean(seatCage && seatCage.uncaged),
+      // The uncaged staff branch's composed environment (B1) — carried into the pane as
+      // `tmux new-window -e`, the only env channel a pane with no bwrap wrap has.
+      env: (seatCage && seatCage.env) || null,
       userManager,
     });
 
