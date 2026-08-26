@@ -476,6 +476,56 @@ def _seat_binds() -> list:
             .get("cage") or {}).get("SeatBinds") or []
 
 
+# The uncaged-staff roster's ONE home is `envelope/launch.js` — the `STAFF` set
+# `isStaffUncaged` answers from, which spawn.js consults BEFORE it composes any cage at
+# all. Read here rather than restated, for the same reason `_seat_binds` reads the live
+# template instead of copying it: a second copy of the roster lets a role join or leave
+# the uncaged set in JS while this file keeps describing a sandbox that role no longer
+# has, with nothing anywhere comparing the two — the exact drift shape D13 exists to end.
+# ⚠ NOT `coord.STAFF_SEATS`. That tuple is deliberately `("leader",)` (D24, asserted by
+# coord_selftest) and answers a different question: which chair joins the first
+# taskforce. Conflating the two puts `goal-master` on the wrong side of both.
+_LAUNCH_JS = Path(__file__).resolve().parent.parent / "envelope" / "launch.js"
+_STAFF_SET_RE = re.compile(r"const\s+STAFF\s*=\s*new\s+Set\(\s*\[([^\]]*)\]")
+
+
+def _staff_uncaged_seats(src=None) -> frozenset:
+    """The seat ids `envelope/launch.js#isStaffUncaged` answers True for, read fresh
+    out of that file.
+
+    REFUSES rather than defaults. The tempting fallback on an unreadable or reshaped
+    roster — "assume caged" — is precisely the defect this reader exists to end: it
+    would quietly hand a staff seat the worker template's enumeration again, and that
+    section outranks the prose above it, so the wrong half would win in silence.
+
+    `src` exists ONLY so the selftest can hand this a reshaped source and prove the
+    refusal fires — the same knob, for the same reason, as `_cage_write_surface`'s
+    `binds`. Every real caller reads the live file."""
+    if src is None:
+        try:
+            src = _LAUNCH_JS.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise Refuse(
+                "uncaged-roster-unreadable",
+                f"cannot read the uncaged-staff roster at {_LAUNCH_JS} ({exc}) — "
+                "every descriptor's write-surface section is chosen by it, and "
+                "guessing produces a seat that is told about a cage it does not have",
+                str(_LAUNCH_JS),
+            )
+    match = _STAFF_SET_RE.search(src)
+    names = re.findall(r"['\"]([^'\"]+)['\"]", match.group(1)) if match else []
+    if not names:
+        raise Refuse(
+            "uncaged-roster-unparseable",
+            f"the uncaged-staff roster in {_LAUNCH_JS} is not the expected "
+            "`const STAFF = new Set([...])` form, or is empty — this file reads it to "
+            "decide which write-surface section a descriptor carries; a reshaped "
+            "roster is a refusal here, never a silent fall back to the caged text",
+            str(_LAUNCH_JS),
+        )
+    return frozenset(names)
+
+
 def _cage_write_surface(seat: str, goal_writes: list, binds=None) -> list:
     """The goal-relative paths this seat's cage actually opens READ-WRITE, in
     template order — DERIVED, never restated.
@@ -549,6 +599,66 @@ at DISPATCH, so the materializer cannot know it: the per-spawn `private-scope PI
 `pierce REFUSED` lines in the daemon log are the only complete account of what your cage
 actually opened. A merely broader grant does not pierce; the entry stays masked.
 """
+
+
+# The same section for a seat the sandbox is never composed for. NOT a variant of the
+# block above with different rows: an uncaged seat has NO bind list, so an enumeration
+# is the wrong SHAPE of answer, and enumerating one from the worker template is exactly
+# how the three staff roles came to be told they may not write surfaces they own —
+# under a header that outranks the (correct) prose above it. The header keeps its
+# priority claim, because it is still the measured half; what changed is that what it
+# measures is `launch.js`'s roster rather than a bind list that does not exist.
+_UNCAGED_WRITE_SURFACE_BLOCK = """\
+
+<!-- DERIVED at materialize from envelope/launch.js's `STAFF` set — the roster
+     `isStaffUncaged` answers from, which spawn.js consults BEFORE it composes any
+     sandbox. This seat is ON it, so no cage is built for this sitting and there is no
+     `cage.SeatBinds` list to enumerate. WHERE ANY PROSE ABOVE DISAGREES WITH THIS
+     SECTION, THIS SECTION IS RIGHT: the prose is authored, this is measured. -->
+
+## Your write surface — what the kernel will actually answer
+
+**This seat runs UNCAGED.** `spawn.js` returns at `isStaffUncaged` before a single bind
+is composed, so no path is fenced off from you by a sandbox: you may write anywhere your
+user account can write — this goal folder in full, any other goal's folder, the rbtv
+repo, and paths outside the workspace entirely. There is no list here because there is
+no cage to enumerate, and an empty list would read as a denial.
+
+Two things still hold, and neither of them is a wall:
+
+- Staying out of a peer seat's folder is a working NORM you keep, not a wall that keeps
+  you. The same goes for another goal's coordination dir. Nothing will stop you.
+- A refusal you actually hit is a real error — a missing file, a read-only mount, a
+  permission bit, a file another process holds. Read it as one and fix it. Never
+  conclude from it that you lack a grant, and never abandon a fix on that basis.
+
+## Your read surface — the whole workspace
+
+You read the WHOLE workspace (owner ruling D-1) — no declaration, no per-CLI carve-out.
+An uncaged sitting composes no `private scope` mask either, so paths
+`.rbtv/config/private.json` hides from a caged seat are readable from here. That is a
+property of running without a sandbox, not a licence to put a secret into a message, a
+command argument, or a file.
+"""
+
+
+def _write_surface_section(seat: str, goal_writes: list) -> str:
+    """The derived write-surface section for ONE seat: the caged enumeration or the
+    uncaged statement, chosen by the SAME roster spawn.js chooses by.
+
+    The section itself is unconditional — every descriptor carries a measured statement
+    of what the kernel will answer, and that is what earns it priority over the prose
+    above. Its CONTENT is not: composing the caged enumeration for a seat that gets no
+    cage told `goal-master`, `channel-master` and `leader` that `seat.md` was read-only
+    and that their write surface was two paths, which is false in every direction, and
+    the priority sentence made the false half win."""
+    if seat in _staff_uncaged_seats():
+        return _UNCAGED_WRITE_SURFACE_BLOCK
+    surface = _cage_write_surface(seat, goal_writes)
+    return _WRITE_SURFACE_BLOCK.format(
+        rows="\n".join(f"- `{p}`" for p in surface) if surface else
+        "- (nothing — this seat's cage opens no read-write path inside its "
+        "goal folder)")
 
 
 def open_binding(seat: str, b: dict, package: Path) -> bool:
@@ -2682,13 +2792,11 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         # The DERIVED write surface, on EVERY descriptor. Unconditional on
         # purpose: the trap is a property of the cage template, not of any one
         # seat's declaration, so a seat with no `goal-writes` still meets it on
-        # the five ledgers the router sends every seat to.
-        surface = _cage_write_surface(
+        # the five ledgers the router sends every seat to. WHICH of the two
+        # sections it carries is NOT unconditional — an uncaged staff seat has
+        # no cage to enumerate; `_write_surface_section` owns that choice.
+        tail += _write_surface_section(
             seat, fm.get(CAGE_GOAL_WRITES_COLUMN) or [])
-        tail += _WRITE_SURFACE_BLOCK.format(
-            rows="\n".join(f"- `{p}`" for p in surface) if surface else
-            "- (nothing — this seat's cage opens no read-write path inside its "
-            "goal folder)")
 
         # Same yaml.safe_dump call goal_cli uses at cmd_materialize — an
         # unparseable descriptor is unproducible by construction (G-256).
@@ -8258,6 +8366,9 @@ ROW_ARMS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "CG-1": (("CG-1 green",), ("CG-1 red",)),
     # The derived write surface (D3: goal folder RW).
     "CG-2": (("CG-2 green",), ("CG-2 red",)),
+    # The UNCAGED branch of that section (B15; OQ-1a/OQ-2a/F-129 — all three
+    # staff roles ratified uncaged).
+    "CG-3": (("CG-3 green",), ("CG-3 red",)),
     # The pass-folder substitution rows (B4, B5, G-planner-0804-1502).
     "PF-1": (("PF-1 green",), ("PF-1 red",)),
     "PF-2": (("PF-2 green",), ("PF-2 red",)),
@@ -10626,6 +10737,56 @@ def run_selftest() -> int:
               _cage_write_surface("exp-seat", [], binds=[]) == []
               and _cage_write_surface("exp-seat", [],
                                       binds=["bind:{grant:unknownThing}"]) == [])
+
+        # ── CG-3: the UNCAGED branch of that same section ───────────────────
+        # B15. The block above is composed from the WORKER template, and it was
+        # emitted for EVERY seat — including the three the sandbox is never
+        # built for. A `goal-master` read that its write surface was `.` plus
+        # its own folder and that `seat.md` was read-only, under a header
+        # saying the section outranks any prose that disagrees; the prose that
+        # disagreed (D49: "you may read and write anywhere in the workspace")
+        # was the true half. These arms assert the two branches exist, that the
+        # chooser DISCRIMINATES, and that the roster is read and not restated.
+        roster = _staff_uncaged_seats()
+        uncaged = {s_: _write_surface_section(s_, []) for s_ in sorted(roster)}
+        caged = _write_surface_section("exp-seat", [])
+        check("CG-3 green: the uncaged roster is READ from envelope/launch.js "
+              "and carries all three staff roles — not restated here, and not "
+              "coord.STAFF_SEATS (which is ('leader',) by D24)",
+              roster >= {"leader", "goal-master", "channel-master"},
+              str(sorted(roster)))
+        check("CG-3 green: every uncaged staff seat's section says UNCAGED and "
+              "forbids NOTHING — no bind enumeration, no read-only seat.md, no "
+              "absent peer folders",
+              all("runs UNCAGED" in t
+                  and "- `.`" not in t
+                  and "stays read-only" not in t
+                  and "Peer seat folders are absent" not in t
+                  for t in uncaged.values()),
+              str([s_ for s_, t in uncaged.items()
+                   if "runs UNCAGED" not in t]))
+        check("CG-3 green: it still carries the priority sentence, because it "
+              "is still the measured half — and now the prose it outranks "
+              "AGREES with it",
+              all("THIS SECTION IS RIGHT" in t for t in uncaged.values()))
+        check("CG-3 red: a CAGED seat still gets the enumerated block — the "
+              "chooser discriminates, so the uncaged text is not simply always "
+              "emitted",
+              "runs UNCAGED" not in caged
+              and "- `.`" in caged and "stays read-only" in caged,
+              caged[:120])
+        refusals = []
+        for bad in ("const STAFF = 1;", "const STAFF = new Set([]);"):
+            try:
+                _staff_uncaged_seats(src=bad)
+                refusals.append("NO REFUSAL")
+            except Refuse as exc:
+                refusals.append(exc.code)
+        check("CG-3 red: a reshaped or empty roster REFUSES rather than "
+              "falling back to the caged text — the silent fallback IS the "
+              "defect, so it must not be reachable",
+              refusals == ["uncaged-roster-unparseable"] * 2,
+              str(refusals))
 
     print("dag-04 acceptance pass (SC rows, each with its failing control)")
     run_dag04_acceptance(check, clean_env)
