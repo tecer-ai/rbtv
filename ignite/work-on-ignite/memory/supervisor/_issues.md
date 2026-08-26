@@ -1,0 +1,1 @@
+2026-08-26 · issue · Uncaged staff seats never got their declared PATH · every instrument promised by name resolved command-not-found in live leader/goal-master/channel-master sittings → composeCageFor's uncaged early return precedes resolveLocalBinGrant and the PATH composition, so local-bin: true had no consumer on any door · af326d61 · meta-leader · ⚠
