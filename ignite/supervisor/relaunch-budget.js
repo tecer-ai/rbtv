@@ -30,6 +30,26 @@
 // `executeLeaderInstruction` is the daemon act that applies it. The leader never executes the
 // seat's work, and this file enforces that literally: an instruction carrying seat work is
 // refused, because the only thing a leader may hand back is a judgment.
+//
+// -- HOW THE ASK GOES OUT AND HOW THE ANSWER COMES BACK [B11] -----------------------------------
+//
+// UNTIL 2026-08-26 NEITHER HALF EXISTED. `leaderHandoff` and `executeLeaderInstruction` were
+// exported and had NO production caller anywhere in the repo - a grep returned the definitions,
+// the export block and the selftest, and nothing else. So the exit described above was never
+// taken: no handoff was ever assembled, the leader was never asked, and the four instructions
+// were a closed list nobody could report from.
+//
+// THE ASK rides the door the daemon ALREADY uses to put a question in front of the leader: the
+// watcher's leader wake (`reconcile.js`, D33(a)), which appends a block to the leader's own boot
+// prompt. `handoffPayloadText` below is that block. Nothing new transports it.
+//
+// THE ANSWER is a JSON file the leader writes and this module drains - `leader-instructions/
+// <goal>--<seat>.json`, beside the ask records, in the same shape and for the same reason
+// `blocked-pending-plan-gap` already writes `replan-requests/`. It is a FILE and not a CLI verb
+// because there is no ruling instrument left to carry it: `rule-disposition` was deleted [T2-R12,
+// T1-R9] and nothing replaced it. `drainLeaderInstructions` reads each pending file, applies it
+// through `executeLeaderInstruction` - the ONE place an instruction is ever performed - and moves
+// the file out of the pending directory so a repeating pass cannot apply the same judgment twice.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -273,6 +293,163 @@ function executeLeaderInstruction({
   return { kind, executed: true, ask };
 }
 
+// -- THE ASK: THE BLOCK THE LEADER READS [B11] --------------------------------------------------
+//
+// Every field of the payload, in prose, plus the ONE thing the payload cannot carry - where to
+// write the answer and in what shape. Kept here beside `executeLeaderInstruction` so the wording
+// of the ask and the closed list it is answered from can never drift apart: both read
+// `INSTRUCTION_LIST`.
+function handoffPayloadText(payload, answerPath) {
+  const notes = (payload.progress_notes || []).map((n, i) => {
+    const where = n.sitting ? `sitting \`${n.sitting}\`` : `sitting ${i + 1}`;
+    return n.note
+      ? `- ${where} — progress note:\n\n\`\`\`\n${String(n.note).trim()}\n\`\`\``
+      : `- ${where} — NO progress note on disk${n.why ? ` (${n.why})` : ''}`;
+  });
+  return [
+    '',
+    '',
+    '---',
+    '',
+    `## The relaunch budget for \`${payload.seat}\` is EXHAUSTED — one bounded decision is yours`,
+    '',
+    `The recovery relaunch budget on \`${payload.goal}/${payload.seat}\` has run out `
+      + `(${payload.budget.failures}/${payload.budget.capFailures} failures, `
+      + `${payload.budget.total}/${payload.budget.capTotal} relaunches; the \`${payload.budget.tripped}\` `
+      + 'cap tripped first). The lane has STOPPED. The daemon will not relaunch that seat again on '
+      + 'its own, and this ask is not repeated: you get ONE attempt, it is already marked used, and '
+      + 'the next rung after it is an ask to the owner.',
+    '',
+    'YOU REPORT A JUDGMENT; THE DAEMON EXECUTES IT. Do not do the seat\'s work, do not write its '
+    + 'outputs, do not patch anything on its behalf — an instruction carrying work product is '
+    + 'REFUSED by the daemon rather than laundered into an act.',
+    '',
+    '### The seat\'s brief',
+    '',
+    '```',
+    String(payload.seat_brief).trim(),
+    '```',
+    '',
+    '### What the sittings left behind',
+    '',
+    ...notes,
+    '',
+    `Kill reasons: ${payload.kill_reasons.join(' · ')}`,
+    `Transcripts: ${payload.transcript_pointers.join(' · ')}`,
+    '',
+    '### Report ONE of these four, and nothing else',
+    '',
+    `    ${INSTRUCTIONS.REWRITE_BRIEF}            the brief was wrong — you supply the new one, the daemon writes it and re-arms the lane ONCE`,
+    `    ${INSTRUCTIONS.REASSIGN}                 a different seat design takes the work`,
+    `    ${INSTRUCTIONS.BLOCKED_PENDING_PLAN_GAP} the gap is in the PLAN, not the seat — the daemon records a scoped re-plan request`,
+    `    ${INSTRUCTIONS.ESCALATE}                 nobody here can decide this — the daemon records a decision-ask for the owner`,
+    '',
+    '### How to report it',
+    '',
+    'Write this file (create the directory if it is absent). The daemon drains it on its next',
+    'reconcile pass over this goal, applies it, and moves the file aside:',
+    '',
+    `    ${answerPath}`,
+    '',
+    '```json',
+    JSON.stringify({
+      kind: INSTRUCTIONS.REWRITE_BRIEF,
+      brief: '<the new brief text — rewrite-brief only>',
+      brief_path: '<absolute path the brief lands at — rewrite-brief only>',
+      to_seat: '<the seat design that takes over — reassign only>',
+      milestone: '<milestone id — blocked-pending-plan-gap only>',
+      gap: '<what the plan is missing — blocked-pending-plan-gap only>',
+      report: '<the decision-ask text — escalate only>',
+    }, null, 2),
+    '```',
+    '',
+    'Keep only the keys your chosen `kind` uses. A key carrying the seat\'s WORK',
+    '(`work_product`, `patch`, `outputs`) is refused.',
+    '',
+  ].join('\n');
+}
+
+// -- THE ANSWER: WHERE THE LEADER WRITES IT, AND THE DRAIN THAT APPLIES IT [B11] ----------------
+//
+// Beside the ask records [spec-state-store 1.1], workspace-relative and GENERAL - no instance path
+// is spelled anywhere in this repo.
+const LEADER_INSTRUCTIONS_REL = path.join('.rbtv', 'runtime', 'ignite', 'leader-instructions');
+
+function leaderInstructionsDir(workspaceRoot) {
+  if (!workspaceRoot) throw new RelaunchBudgetError('leaderInstructionsDir requires workspaceRoot');
+  return path.resolve(workspaceRoot, LEADER_INSTRUCTIONS_REL);
+}
+
+// One file per (goal, seat): the ask is bounded to one attempt per lane, so a second pending file
+// for the same lane cannot be a second judgment - it is the same one, rewritten.
+function leaderInstructionPath(workspaceRoot, goal, seat) {
+  return path.join(leaderInstructionsDir(workspaceRoot), `${goal}--${seat}.json`);
+}
+
+// THE DRAIN. Applies every pending instruction for ONE goal and gets the file OUT of the pending
+// directory in the same act - `done/` on success, `refused/` with the refusal text beside it
+// otherwise. A file that stayed would be re-applied on every cadence, which for `rewrite-brief` is
+// a lane re-armed forever and for `escalate` is an ask re-opened forever.
+function drainLeaderInstructions({
+  store, workspaceRoot, goal, at, seats = null,
+}) {
+  const dir = leaderInstructionsDir(workspaceRoot);
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];              // no directory is the ordinary state: no leader has answered anything
+  }
+  const out = [];
+  const prefix = `${goal}--`;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    if (!entry.name.startsWith(prefix)) continue;
+    const seat = entry.name.slice(prefix.length, -'.json'.length);
+    if (seats && !seats.includes(seat)) continue;
+    const src = path.join(dir, entry.name);
+    let instruction;
+    try {
+      instruction = JSON.parse(fs.readFileSync(src, 'utf8'));
+    } catch (err) {
+      out.push(settleInstruction(dir, src, 'refused', {
+        goal, seat, applied: false, error: `unreadable JSON: ${err.message}`,
+      }));
+      continue;
+    }
+    try {
+      const result = executeLeaderInstruction({
+        store, workspaceRoot, goal, seat, instruction, at,
+      });
+      out.push(settleInstruction(dir, src, 'done', {
+        goal, seat, applied: true, kind: result.kind, result,
+      }));
+    } catch (err) {
+      out.push(settleInstruction(dir, src, 'refused', {
+        goal, seat, applied: false, error: err.message,
+      }));
+    }
+  }
+  return out;
+}
+
+// The file leaves the pending directory whichever way it went, and the outcome is written beside
+// it - a refused instruction the leader can never see is a judgment silently dropped.
+function settleInstruction(dir, src, outcome, record) {
+  const target = path.join(dir, outcome);
+  fs.mkdirSync(target, { recursive: true });
+  const base = path.basename(src, '.json');
+  const moved = path.join(target, `${base}.json`);
+  try {
+    fs.renameSync(src, moved);
+    fs.writeFileSync(path.join(target, `${base}.outcome.json`),
+      `${JSON.stringify({ ...record, outcome }, null, 2)}\n`, 'utf8');
+  } catch (err) {
+    return { ...record, outcome, settle_error: err.message };
+  }
+  return { ...record, outcome, file: moved };
+}
+
 module.exports = {
   RECOVERY_CAUSES,
   FREE_CAUSES,
@@ -284,4 +461,9 @@ module.exports = {
   assembleHandoff,
   leaderHandoff,
   executeLeaderInstruction,
+  handoffPayloadText,
+  LEADER_INSTRUCTIONS_REL,
+  leaderInstructionsDir,
+  leaderInstructionPath,
+  drainLeaderInstructions,
 };

@@ -631,6 +631,44 @@ def cmd_scaffold(args) -> int:
             "lane is declared at birth precisely so a goal is never silently one of them."
             + (f" (got {lane!r})" if lane else ""),
             "lane-absent")
+
+    # ── B12(i) · A DAEMON-LANE GOAL IS NEVER LEFT WITHOUT A TASKFORCE ────────────────────────
+    #
+    # THE DEAD END THIS CLOSES, measured on `cli-tools-reachability-report` (2026-08-26): a master
+    # ran exactly this verb with `--lane daemon`, the command printed `scaffolded …` and stopped,
+    # and the goal was never seen by the daemon again. `supervisor/lane-watch.js#runLaneWatch`
+    # adopts a daemon-lane goal only when `taskforce.csv` exists — and THIS VERB WRITES NO
+    # TASKFORCE (see `created_names` below; the file has exactly one writer in the system,
+    # `scaffold-seats` / `planning/materialize-seats.py`). Nothing the daemon runs materializes a
+    # goal, so the state does not clear itself: the goal is skipped on every cadence, forever.
+    #
+    # WHY A REFUSAL AND NOT A WRITE. There is nothing here to derive a taskforce FROM. Seats come
+    # from a WORKFLOW plus an insertion point (`scaffold-seats` requires `--seat|--workflow` AND
+    # `--after|--root`), and a goal scaffolded by hand names no workflow. A header-only
+    # `taskforce.csv` would be worse than none: the goal would be ADOPTED with zero seats and look
+    # healthy while doing nothing.
+    #
+    # WHY THE CONSOLE LANE IS UNTOUCHED. A console goal is opened by a human typing `rbtv run`,
+    # who is present to notice that it has no seats yet; `plan-console`'s own entry procedure
+    # scaffolds exactly this way and then plans into the folder. The daemon lane is the one with
+    # nobody watching, and it is the only one gated here.
+    #
+    # `materialize_follows` is the creation ROUTE's declaration that it invokes `scaffold-seats`
+    # on this goal in the same act — `goal_creation_request.py#create` passes it and then does
+    # exactly that. It is not a bypass for a caller who does not: passing it without running the
+    # second act re-creates this dead end under a flag that says otherwise.
+    if lane == "daemon" and not getattr(args, "materialize_follows", False):
+        raise Refusal(
+            "a DAEMON-lane goal cannot be created by this verb alone. `scaffold` writes the goal "
+            "folder and its contract; it does NOT write `taskforce.csv`, and the daemon only picks "
+            "up a daemon-lane goal that HAS one — so this would create a goal the daemon skips on "
+            "every cadence, forever, and nothing it runs would ever repair that. Nothing was "
+            "created. Create it through the goal-creation request route, which scaffolds AND "
+            "materializes in one act (stage the request, then `rbtv-goal-request scaffold-and-queue "
+            "--workflow <workflow> …`); or scaffold it on the console lane (`--lane console`), "
+            "materialize it with `scaffold-seats --package <goal-dir> --workflow <workflow> "
+            "--root …`, and only then hand it over with `rbtv goal lane <goal> --set daemon`.",
+            "daemon-lane-unmaterialized")
     # NAME-only. Whether any seat still NEEDS this fallback is unanswerable here: no seat exists
     # yet (`materialize-seats` runs later, as its own act), so `uncastSeats` on a fresh goal can
     # only say "unknown". Cast coverage keeps its one home — `lane-watch.js` skips an uncast goal
@@ -3982,6 +4020,45 @@ def cmd_selftest(args) -> int:
             except Refusal:
                 check(label, True)
 
+        # ── B12(i) · THE DAEMON-LANE DEAD END ────────────────────────────────────────────────
+        #
+        # A `--lane daemon` goal born here has no `taskforce.csv` and nothing the daemon runs
+        # writes one, so `lane-watch.js` skips it on every cadence forever (measured on
+        # `cli-tools-reachability-report`, 2026-08-26). The verb refuses instead — and the
+        # refusal is BEFORE the first write, so the operator can re-run the right command against
+        # the same name.
+        print("scaffold — the daemon lane (B12)")
+        # Its OWN goals root: the arms below create two control goals, and the census arms
+        # further down count what lives in `root`.
+        b12root = tmp / "b12-goals"
+        b12root.mkdir()
+        b12ns = {**vars(ns), "root": str(b12root)}
+        b12 = dict(type="one-shot", due=None, contract=str(contract))
+        try:
+            cmd_scaffold(argparse.Namespace(
+                goal_name="b12-daemon-goal", lane="daemon", **b12, **b12ns))
+            check("a --lane daemon scaffold with no materialize following REFUSES", False, "did not refuse")
+        except Refusal as exc:
+            check("a --lane daemon scaffold with no materialize following REFUSES",
+                  getattr(exc, "code", None) == "daemon-lane-unmaterialized", str(exc)[:120])
+            check("…and NOTHING was created — the gate is ahead of the first write",
+                  not (b12root / "b12-daemon-goal").exists())
+            check("…and the refusal NAMES both routes that do produce a taskforce",
+                  "scaffold-and-queue" in str(exc) and "scaffold-seats" in str(exc))
+        # CONTROL 1 — the console lane is untouched: a human types `rbtv run`, and
+        # `plan-console`'s own entry procedure scaffolds exactly this way before planning.
+        cmd_scaffold(argparse.Namespace(
+            goal_name="b12-console-goal", lane="console", **b12, **b12ns))
+        check("CONTROL: the CONSOLE lane still scaffolds, taskforce or not",
+              (b12root / "b12-console-goal" / "goal.md").exists()
+              and not (b12root / "b12-console-goal" / "taskforce.csv").exists())
+        # CONTROL 2 — the creation ROUTE's declaration. `goal_creation_request.py#create` passes
+        # this and then invokes `scaffold-seats` unconditionally; nothing else may.
+        cmd_scaffold(argparse.Namespace(
+            goal_name="b12-route-goal", lane="daemon", materialize_follows=True, **b12, **b12ns))
+        check("CONTROL: --materialize-follows lets the creation route through",
+              (b12root / "b12-route-goal" / "execution-lane").read_text().strip() == "daemon")
+
         # G-118 regression. An unreadable `--contract` takes the Refusal path, never a crash.
         # `main()` catches `Refusal` ONLY, so a raw OSError from this read reached the operator
         # as a traceback and broke the never-a-crash contract of the README's exit-code table.
@@ -5287,6 +5364,14 @@ def build_parser() -> argparse.ArgumentParser:
                         "`console` (you run it when you type `rbtv run`). REQUIRED: a goal born "
                         "without a lane is silently a console goal")
     p.add_argument("--due", default=None)
+    # B12(i). NOT an override of the daemon-lane gate above — it is the creation ROUTE declaring
+    # that it invokes `scaffold-seats` on this goal in the same act, which is the only reason a
+    # daemon-lane goal may leave this verb without a taskforce.
+    p.add_argument("--materialize-follows", action="store_true",
+                   help="ONLY for the creation route: this caller invokes `scaffold-seats` on the "
+                        "goal in the SAME act, so a `--lane daemon` goal is not left without a "
+                        "`taskforce.csv`. A caller that passes this and does NOT materialize "
+                        "creates a goal the daemon skips forever")
     p.add_argument("--contract", required=True,
                    help="FILE, or - for stdin: the goal-radius contract prose")
     p.add_argument("--dry-run", action="store_true")

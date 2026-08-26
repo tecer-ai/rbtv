@@ -810,6 +810,74 @@ async function main() {
       pass2.adopted.map((a) => a.goal).join(', ') || 'none');
   }
 
+  // ── L5-B12 · B12(ii) · THE MISSING TASKFORCE IS SAID OUT LOUD, NEVER SKIPPED IN SILENCE ────────
+  //
+  // THE DEFECT, reproduced on disk 2026-08-26: `cli-tools-reachability-report` was created with
+  // `rbtv goal scaffold ... --lane daemon` and never materialized. It has no `taskforce.csv`, so
+  // this pass `continue`d past it with a comment reading "Quiet" — 0 daemon journal mentions over
+  // the goal's entire life. The skip stays (there is nothing to seed); what changes is that the
+  // pass now NAMES the goal and the missing file.
+  //
+  // Driven on its own goals root with a stub engine: the taskforce check `continue`s before any
+  // engine call, so this arm measures the branch and nothing else.
+  say('');
+  say('L5-B12 — B12(ii): a daemon-lane goal with no taskforce.csv');
+  {
+    const l5bRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-b12-'));
+    const stuck = path.join(l5bRoot, 'no-taskforce-goal');
+    fs.mkdirSync(stuck, { recursive: true });
+    fs.writeFileSync(path.join(stuck, 'execution-lane'), 'daemon\n');
+    const log = [];
+    const pass = laneWatch.runLaneWatch({
+      goalsRoot: l5bRoot, engine: {}, logger: collectingLogger(log),
+    });
+    const skip = pass.skipped.find((x) => x.goal === 'no-taskforce-goal');
+    check('L5-B12 the goal is still SKIPPED — there are no seats to seed, and inventing some is not this pass\'s job',
+      Boolean(skip) && skip.reason === 'no-taskforce-yet' && pass.adopted.length === 0,
+      JSON.stringify(pass.skipped));
+    const loud = log.filter((m) => m.level === 'warn' && /NO .taskforce\.csv./.test(m.message));
+    check('L5-B12 …and it is LOUD: one `warn` naming the goal and the missing file — the "Quiet" comment is gone',
+      loud.length === 1 && loud[0].goal === 'no-taskforce-goal'
+        && String(loud[0].missing).endsWith(path.join('no-taskforce-goal', 'taskforce.csv')),
+      loud.length ? `${loud[0].level}: ${String(loud[0].message).slice(0, 90)}… missing=${loud[0].missing}` : 'no warn line');
+    check('L5-B12 the line carries a FIX that actually writes a taskforce — `scaffold-seats`, never '
+      + '`rbtv goal materialize` (which REFUSES in exactly this state)',
+      loud.length === 1 && /scaffold-seats/.test(loud[0].fix) && !/goal materialize/.test(loud[0].fix),
+      loud.length ? String(loud[0].fix).slice(0, 120) : 'n-a');
+    // THE MEMO BOUND: the identical state on the next cadence drops to `debug`, so a stuck goal is
+    // named once per marker rather than ~8,600 times a day.
+    const log2 = [];
+    laneWatch.runLaneWatch({ goalsRoot: l5bRoot, engine: {}, logger: collectingLogger(log2) });
+    check('L5-B12 the SECOND pass on the same marker drops to `debug` — loud once, never a firehose',
+      log2.filter((m) => m.level === 'warn' && /taskforce/.test(m.message)).length === 0
+        && log2.filter((m) => m.level === 'debug' && /taskforce/.test(m.message)).length === 1,
+      JSON.stringify(log2.map((m) => m.level)));
+    // RED ARM: the pre-fix line, verbatim — the skip with no `say` at all.
+    {
+      const src = fs.readFileSync(path.join(__dirname, '..', 'lane-watch.js'), 'utf8');
+      const A = "      skipped.push({ goal, reason: 'no-taskforce-yet' });\n      say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',";
+      if (check('L5-B12 RED anchor present in lane-watch.js — the red arm measures the real call site',
+        src.includes(A))) {
+        const Module = require('node:module');
+        const target = path.join(__dirname, '..', 'lane-watch.js');
+        const mut = new Module(target, null);
+        mut.filename = target;
+        mut.paths = Module._nodeModulePaths(path.dirname(target));
+        mut._compile(src.replace(A, "      skipped.push({ goal, reason: 'no-taskforce-yet' });\n      if (false) say('debug',"), target);
+        const mroot = fs.mkdtempSync(path.join(os.tmpdir(), 'lw-b12r-'));
+        const mstuck = path.join(mroot, 'no-taskforce-goal');
+        fs.mkdirSync(mstuck, { recursive: true });
+        fs.writeFileSync(path.join(mstuck, 'execution-lane'), 'daemon\n');
+        const mlog = [];
+        const mpass = mut.exports.runLaneWatch({ goalsRoot: mroot, engine: {}, logger: collectingLogger(mlog) });
+        check('L5-B12 RED — without the say, the goal is skipped in TOTAL SILENCE: the measured defect',
+          mpass.skipped.some((x) => x.reason === 'no-taskforce-yet')
+            && mlog.filter((m) => /taskforce/.test(m.message || '')).length === 0,
+          `lines about the taskforce: ${mlog.filter((m) => /taskforce/.test(m.message || '')).length}`);
+      }
+    }
+  }
+
   // ── L6 · THE SWITCH, END TO END: start in the daemon, finish in the console ─────────────────
   say('');
   say('L6 — the owner\'s own story: a goal STARTS in the daemon lane and FINISHES in the console one');

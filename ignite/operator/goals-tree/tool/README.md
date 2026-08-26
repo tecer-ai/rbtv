@@ -7,7 +7,8 @@ defaults) and is **implemented here, not re-derived**.
 ```
 rbtv-goal scaffold <goal-name> --contract FILE|-  --lane daemon|console
                                                   [--type T] [--kind K] [--due DATE]
-                                                  [--execution-mode interactive|autonomous] [--dry-run]
+                                                  [--execution-mode interactive|autonomous]
+                                                  [--materialize-follows] [--dry-run]
 rbtv-goal reindex
 rbtv-goal lint <goal-name>
 rbtv-goal materialize <goal-name> --catalog-root DIR [--force] [--dry-run]
@@ -86,7 +87,7 @@ verbatim, no contract change.
 
 | Verb | Does | Never |
 |---|---|---|
-| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), `execution-lane` (one word — WHICH LANE runs it, from the REQUIRED `--lane`; task 7.777 — ONE WORD, no second token since `#d-abolish-profile-names`), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. | Writes seat folders — seat birth is `materialize`'s step |
+| `scaffold` | Creates the goal root — `goal.md` (identity frontmatter + the contract body), `threads.sql` (empty schema), `execution-mode` (one word — the owner-contact policy, `--execution-mode`), `execution-lane` (one word — WHICH LANE runs it, from the REQUIRED `--lane`; task 7.777 — ONE WORD, no second token since `#d-abolish-profile-names`), plus the standard goal-folder artifacts of § below — then reindexes. **No `runs.csv`:** the run register was extinguished in 7.607 (design-lock item 1) and liveness is DERIVED from the goal's tmux room, never stored. Create-only: refuses an existing goal, never overwrites. `--contract` is REQUIRED, so a goal is born lint-green rather than sitting red until a second manual step. **`--lane daemon` is REFUSED unless the creation route declares `--materialize-follows`** — see § The daemon lane below. | Writes seat folders — seat birth is `materialize`'s step |
 | `reindex` | Rebuilds `goals.csv` whole from every `goal.md` frontmatter. Always the full projection; a partial one would leave silent staleness. Fails loud on an unparseable descriptor, naming the file, and leaves `goals.csv` **untouched** — a projection that silently drops a goal is corruption. | Touches any goal folder |
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
@@ -333,6 +334,40 @@ frontmatter cognitive-unit reference has its assembled block in the body · perm
 · dry-run dispatch emulation (would this seat launch under its resolved harness+model+effort — no
 launch, no LLM call).
 
+### The daemon lane: `scaffold` refuses to mint a goal nothing will ever run (B12, 2026-08-26)
+
+`scaffold` writes the goal folder and its contract. It does **not** write `taskforce.csv` — that
+file has exactly one writer in the whole system, `scaffold-seats` (`planning/materialize-seats.py`),
+invoked by the goal-creation route. And `supervisor/lane-watch.js` only adopts a goal on the daemon
+lane **that has one**.
+
+So `rbtv goal scaffold <name> --lane daemon` used to produce a dead end: the command printed
+`scaffolded …`, the goal was assigned to a lane, and the daemon skipped it on every cadence,
+forever, with nothing it runs able to repair the state. Measured on
+`cli-tools-reachability-report` (created this way 2026-08-26 — zero daemon journal mentions, ever).
+
+The verb now **refuses** that combination, before the first write, with code
+`daemon-lane-unmaterialized`, and the refusal names the two routes that do produce a taskforce:
+
+- the **goal-creation request route**, which scaffolds *and* materializes in one act; or
+- **`--lane console`**, then `scaffold-seats --package <goal-dir> --workflow <workflow> --root …`,
+  then `rbtv goal lane <goal> --set daemon` to hand it over.
+
+`--materialize-follows` is **not an override**. It is the creation route's declaration that it
+invokes `scaffold-seats` on this goal in the same act — `goal_creation_request.py#create` passes it
+and then does exactly that (both of that function's refusals were moved *ahead* of the scaffold in
+the same change, so the second invocation is unconditional once the scaffold has happened). A
+caller that passes it and does not materialize re-creates the dead end under a flag that says
+otherwise.
+
+The console lane is deliberately untouched: a console goal is opened by a human typing `rbtv run`,
+who is present to see it has no seats yet, and `plan-console`'s own entry procedure scaffolds
+exactly this way before planning into the folder. The daemon lane is the one with nobody watching.
+
+The second half of the fix lives in `supervisor/lane-watch.js`: a daemon-lane goal that reaches
+that state anyway is now named in a `warn` line (once per goal per lane-marker text) instead of
+skipped in silence.
+
 ### The standard goal-folder artifacts `scaffold` writes (7.582 / owner ruling R21; set extended by 7.595 / Q16)
 
 Seven of the ten files are written from **deterministic templates in `goal_cli.py`** — module-level
@@ -471,7 +506,7 @@ empirically: a path+size+mtime fingerprint of a live goal folder is identical be
 rbtv-goal selftest        # end-to-end on a throwaway tree; exit 0 / 1
 ```
 
-`selftest` exercises scaffold (+ its four refusals), `goal-kind` (the default stamped when
+`selftest` exercises scaffold (+ its four refusals, plus the daemon-lane gate above with its two controls), `goal-kind` (the default stamped when
 `--kind` is omitted, an explicit `--kind` round-tripping to frontmatter, the projected column, and
 the lint PAIR — a key-less descriptor raising no finding *beside* an out-of-enum value raising
 one, because the clean arm alone would also pass if the check never fired), the read-only property

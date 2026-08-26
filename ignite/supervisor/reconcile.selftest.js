@@ -653,8 +653,17 @@ say('── RED arm: restore the evidence-driven reset (the deleted byte-equalit
   const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
   // The anchor is the FIRST line of the counting branch's condition. It grew two more lines
   // 2026-08-25 (the provider split's `skip-provider-backoff` and `noStrike` arms, spec-recovery
-  // §3) — the mutation still lands inside the branch body, which is all this arm needs.
-  const ANCHOR = `    if (action.kind !== 'skip-disarmed'\n      && action.kind !== 'skip-provider-backoff'\n      && !action.noStrike) {`;
+  // §3) and three more 2026-08-26 (B11's budget exit, spec-recovery §2's independent-bounds rule)
+  // — the mutation still lands inside the branch body, which is all this arm needs. Anchored on
+  // the FIRST and LAST lines rather than the whole condition, so the next arm added to it does
+  // not silently un-anchor this red.
+  const ANCHOR_HEAD = "    if (action.kind !== 'skip-disarmed'";
+  const ANCHOR_TAIL = '      && !action.noStrike) {';
+  const headAt = src.indexOf(ANCHOR_HEAD);
+  const tailAt = headAt >= 0 ? src.indexOf(ANCHOR_TAIL, headAt) : -1;
+  const ANCHOR = headAt >= 0 && tailAt >= 0
+    ? src.slice(headAt, tailAt + ANCHOR_TAIL.length)
+    : '\u0000no-anchor';
   assert.ok(src.includes(ANCHOR), 'the counting branch anchor is missing - the red arm has no anchor');
   const mutated = src.replace(ANCHOR, `${ANCHOR}
       // MUTANT: the deleted signature reset, restored.
@@ -1212,6 +1221,213 @@ say('── deriveOwed answers both halves of the owed set from one call ──'
   assert.deepStrictEqual(neither.classR, []);
   assert.strictEqual(neither.owed, false);
   say('ok  one call, both halves; class R is the graph-derived launchability [T1-R3]');
+}
+
+
+// ── B16 · THE LEADER CHAIR FAILS CLOSED ────────────────────────────────────────────────────────
+//
+// The defect: `leaderSeat()` returned `seats[0]` when the taskforce had no `leader` row, so an
+// ordinary worker was printed, woken and rebuilt-under as the chair. Measured on
+// `goal-memory-management`, whose one row is the worker `distill-ignite-memory`.
+//
+// The live shape, exactly: one worker row, no leader row, its last ending non-terminal in a class
+// only the leader may close (`exited` — the harness died).
+function fixtureNoLeader() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'noleader-'));
+  writeSeat(goalFolder, 'distill-ignite-memory', true);
+  writeTaskforce(goalFolder, ['distill-ignite-memory']);
+  writeSessions(goalFolder, [
+    { 'session-id': 'd1', seat: 'distill-ignite-memory', started: '2026-08-19 10:00',
+      ended: '2026-08-19 10:07', disposition: 'exited', 'disposition-writer': 'kit',
+      checkin: '2026-08-19 10:06' },
+  ]);
+  writeMessages(goalFolder, []);
+  return goalFolder;
+}
+
+say('── B16: a goal with NO `leader` row gets NO substitute leader ──');
+{
+  const store = openStore();
+  try {
+    const goalFolder = fixtureNoLeader();
+    stampEndings(store, 'fx-b16', [['distill-ignite-memory', 'exited']]);
+    const warns = [];
+    const r = reconcileGoal({
+      goal: 'fx-b16', goalFolder, engine: { heartStore: store },
+      say: (level, message, extra) => warns.push({ level, message, extra }),
+      force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+
+    // 1 · no substitute is named ANYWHERE in the answer.
+    assert.strictEqual(r.leader, null, `a substitute leader was returned: ${JSON.stringify(r.leader)}`);
+
+    // 2 · the worker is not enqueued as the leader for the nonterm judgment. (`exited` is a
+    //     nonterm row: it is the leader's to close, and there is no leader.)
+    const enq = r.actions.filter((a) => a.kind === 'enqueue').map((a) => a.seat);
+    assert.ok(!enq.includes('distill-ignite-memory'),
+      `the worker was woken as the leader: ${JSON.stringify(r.actions)}`);
+
+    // 3 · it is LOUD and NAMED — a warn carrying the reason, not a silent skip.
+    const loud = warns.filter((w) => w.level === 'warn' && /NO LEADER CHAIR/.test(w.message));
+    assert.ok(loud.length >= 1, `no loud line: ${JSON.stringify(warns.map((w) => `${w.level}:${w.message}`))}`);
+    assert.strictEqual(loud[0].extra.why, 'no-leader-row', JSON.stringify(loud[0].extra));
+
+    // 4 · the pass RECORDS it, so a reader of the actions sees the state too.
+    assert.ok(r.actions.some((a) => a.why === 'no-leader-row'), JSON.stringify(r.actions));
+    assert.ok(r.actions.some((a) => a.kind === 'no-leader-chair'), JSON.stringify(r.actions));
+    say(`ok  leader=${JSON.stringify(r.leader)}; nothing enqueued as leader; ${loud.length} loud warn(s)`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── B16 red arm: with the old fallback restored, the WORKER is promoted to the chair ──');
+{
+  const src = fs.readFileSync(path.join(__dirname, 'reconcile.js'), 'utf8');
+  const ANCHOR = '    if (seats.includes(LEADER_CHAIR)) return { seat: LEADER_CHAIR };';
+  assert.ok(src.includes(ANCHOR), 'B16 mutation anchor missing from reconcile.js');
+  const Module = require('node:module');
+  const mut = new Module(path.join(__dirname, 'reconcile.js'), null);
+  mut.filename = path.join(__dirname, 'reconcile.js');
+  mut.paths = Module._nodeModulePaths(__dirname);
+  mut._compile(src.replace(ANCHOR, `${ANCHOR}\n    if (seats[0]) return { seat: seats[0] };`), mut.filename);
+  const store = openStore();
+  try {
+    const goalFolder = fixtureNoLeader();
+    stampEndings(store, 'fx-b16r', [['distill-ignite-memory', 'exited']]);
+    const rr = mut.exports.reconcileGoal({
+      goal: 'fx-b16r', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.strictEqual(rr.leader, 'distill-ignite-memory',
+      `red arm did not reproduce the fallback: ${JSON.stringify(rr.leader)}`);
+    say(`ok  red: with the fallback restored the WORKER is the chair (leader=${rr.leader})`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+
+// ── B11 · THE RETRY-BUDGET HANDOFF IS WIRED, END TO END ────────────────────────────────────────
+//
+// The defect: `leaderHandoff` / `executeLeaderInstruction` had NO production caller, so the
+// budget's own stated exit ("the lane stops, the leader gets exactly one attempt") was never
+// taken. These arms drive the real pass through it: the budget trips, the LEADER is woken with the
+// ask appended to its boot prompt, the exhausted seat is NOT relaunched, the attempt counter does
+// NOT also fire, and the leader's written answer is applied on the next pass.
+say('── B11: an exhausted relaunch budget stops the lane and asks the leader ──');
+{
+  function fixtureBudget() {
+    const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'b11-'));
+    writeSeat(goalFolder, 'leader', true);
+    writeSeat(goalFolder, 'worker', true);
+    writeTaskforce(goalFolder, ['leader', 'worker']);
+    writeSessions(goalFolder, [
+      { 'session-id': 'w1', seat: 'worker', harness: 'bash', 'native-session-id': 'nsid-1',
+        workdir: path.join(goalFolder, 'seats', 'worker'), started: '2026-08-19 10:00',
+        ended: '2026-08-19 10:05', disposition: 'incomplete', 'disposition-writer': 'seat' },
+      { 'session-id': 'w2', seat: 'worker', harness: 'bash', 'native-session-id': 'nsid-2',
+        workdir: path.join(goalFolder, 'seats', 'worker'), started: '2026-08-19 11:00',
+        ended: '2026-08-19 11:05', disposition: 'incomplete', 'disposition-writer': 'seat' },
+      { 'session-id': 'ld1', seat: 'leader', started: '2026-08-19 09:00',
+        ended: '2026-08-19 09:30', disposition: 'done', 'disposition-writer': 'seat',
+        checkin: '2026-08-19 09:30' },
+    ]);
+    writeMessages(goalFolder, []);
+    return goalFolder;
+  }
+
+  const relaunchBudget = require('./relaunch-budget');
+  const store = openStore();
+  const fx = counterFixture('b11');
+  const ending = bind(store.db);
+  try {
+    const goalFolder = fixtureBudget();
+    stampEndings(store, 'fx-b11', [['worker', 'incomplete'], ['leader', 'done']]);
+    ending.stampSystem({
+      goal: 'fx-b11', seat: 'worker', ending: 'incomplete', armed: 1,
+      diagnostic: 'context full', evidence_pointer: 'selftest:b11', replace: true,
+    });
+    // Spend the TOTAL cap, one recovery relaunch at a time — the same door the pass itself spends
+    // through, so the state under test is one the running system can actually reach.
+    for (let i = 0; i < fx.recovery.relaunch_budget_total; i += 1) {
+      relaunchBudget.spendRecoveryRelaunch({
+        store: ending, goal: 'fx-b11', seat: 'worker', cause: 'armed-incomplete',
+      });
+    }
+    const state = relaunchBudget.budgetState({ store: ending, goal: 'fx-b11', seat: 'worker' }, fx.recovery);
+    assert.strictEqual(state.exhausted, true, `the fixture did not exhaust the budget: ${JSON.stringify(state)}`);
+
+    const prompts = [];
+    const warns = [];
+    const r = reconcileGoal({
+      goal: 'fx-b11', goalFolder, engine: { heartStore: store, endingStore: ending },
+      say: (level, message, extra) => warns.push({ level, message, extra }),
+      force: true, readyAnswer: readyEmpty, live: new Set(),
+      promptFn: (gf, seat) => { prompts.push(seat); return `boot prompt for ${seat}`; },
+      recoverFn: () => ({ ok: true }),
+      ...fx,
+    });
+
+    // 1 · the exhausted seat is NOT relaunched.
+    const enq = r.actions.filter((a) => a.kind === 'enqueue').map((a) => a.seat);
+    assert.ok(!enq.includes('worker'), `the exhausted lane was relaunched anyway: ${JSON.stringify(r.actions)}`);
+
+    // 2 · the LEADER is the one woken, and the ask is recorded as its own kind of act.
+    const handoff = r.actions.find((a) => a.kind === 'leader-handoff');
+    assert.ok(handoff, `no leader handoff: ${JSON.stringify(r.actions)}`);
+    assert.strictEqual(handoff.seat, 'worker');
+    assert.strictEqual(handoff.leader, 'leader');
+    const q = store.listQueue().map((x) => x.job_id);
+    assert.ok(q.includes('seat-fx-b11-leader'), `the leader was not queued: ${JSON.stringify(q)}`);
+
+    // 3 · the ask itself rides the leader's prompt: boot prompt FIRST, block appended.
+    const row = store.listQueue().find((x) => x.job_id === 'seat-fx-b11-leader');
+    const prompt = JSON.parse(row.args).prompt;
+    assert.ok(prompt.startsWith('boot prompt for leader'), 'the boot prompt is not first');
+    for (const kind of relaunchBudget.INSTRUCTION_LIST) {
+      assert.ok(prompt.includes(kind), `the ask does not name \`${kind}\``);
+    }
+    assert.ok(prompt.includes(handoff.answerPath), 'the ask does not say where to answer');
+
+    // 4 · the ONE bounded attempt is marked used, so a second pass cannot ask again.
+    assert.strictEqual(Number(ending.getCurrentEnding({ goal: 'fx-b11', seat: 'worker' }).leader_attempt_used), 1);
+
+    // 5 · the attempt counter did NOT also fire — [spec-recovery §2] the two bounds are
+    //     independent and whichever trips first takes its exit alone.
+    assert.strictEqual(handoff.attempts, undefined, `the counter also struck: ${JSON.stringify(handoff)}`);
+    assert.strictEqual(counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_CLASS_A, goal: 'fx-b11', seat: 'worker', reasonClass: 'incomplete',
+    }, { countersFile: fx.countersFile }), null, 'the attempt counter fired on the budget exit');
+    say(`ok  budget exhausted (${state.tripped}) → leader woken with the ask, worker NOT relaunched, counter untouched`);
+
+    // 6 · THE ANSWER COMES BACK. The leader writes its judgment; the next pass applies it through
+    //     `executeLeaderInstruction` and the file leaves the inbox.
+    fs.mkdirSync(path.dirname(handoff.answerPath), { recursive: true });
+    fs.writeFileSync(handoff.answerPath,
+      JSON.stringify({ kind: 'reassign', to_seat: 'a-narrower-seat' }), 'utf8');
+    const r2 = reconcileGoal({
+      goal: 'fx-b11', goalFolder, engine: { heartStore: store, endingStore: ending },
+      say: () => {}, force: true, readyAnswer: readyEmpty, live: new Set(),
+      promptFn: () => 'fixture prompt', recoverFn: () => ({ ok: true }),
+      ...fx,
+    });
+    const applied = r2.actions.find((a) => a.kind === 'leader-instruction-applied');
+    assert.ok(applied, `the leader's answer was not applied: ${JSON.stringify(r2.actions)}`);
+    assert.strictEqual(applied.instruction, 'reassign');
+    assert.match(ending.getCurrentEnding({ goal: 'fx-b11', seat: 'worker' }).diagnostic, /a-narrower-seat/);
+    assert.ok(!fs.existsSync(handoff.answerPath), 'the applied answer is still pending');
+    say(`ok  the leader answered \`${applied.instruction}\` and the daemon executed it — leader decides, daemon executes [CF-3, D6]`);
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
 }
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });

@@ -486,6 +486,41 @@ work:
 | `blocked-pending-plan-gap` | record the D13 scoped re-plan request, stamp the lane disarmed (`materialize-failed`, the store's listed plan-side row) |
 | `escalate` | record a formed decision-ask - same grouped record, same no-post rule |
 
+### How the ask goes out and how the answer comes back [B11, 2026-08-26]
+
+Until 2026-08-26 neither half existed: `leaderHandoff` and
+`executeLeaderInstruction` were exported and had NO production caller anywhere in
+the repo, so this exit was never taken and the leader was never asked.
+
+**The ask** is asked by `reconcile.js`. In the launch loop, a class-A
+`incomplete` target (the recovery cause `armed-incomplete`) has its budget asked
+FIRST - before the attempt counter, and that branch returns, which is what keeps
+the two bounds independent. On exhaustion the pass assembles the handoff from
+what it already reads (the seat's `seat.md` as the brief, its last two ended
+session rows for the kill reasons and transcript pointers, `progress-note.md`
+through the checkpoint contract) and wakes the LEADER through the door that
+already puts a question in front of it - the D33(a) leader wake, boot prompt
+first and `handoffPayloadText` appended after it. The exhausted seat is not
+relaunched and its counter is not struck.
+
+⚠ THE PROGRESS NOTE IS ONE FILE PER SEAT, not one per sitting. Only the latest
+sitting's note can be on disk; the earlier one is reported absent WITH THAT
+REASON rather than as a seat that wrote nothing.
+
+**The answer** is a JSON file the leader writes and `drainLeaderInstructions`
+applies - `.rbtv/runtime/ignite/leader-instructions/<goal>--<seat>.json`, beside
+the ask records, the same shape `blocked-pending-plan-gap` already writes
+`replan-requests/` in. A file and not a CLI verb because there is no ruling
+instrument left to carry it: `rule-disposition` was deleted [T2-R12, T1-R9] and
+nothing replaced it. The drain runs at the TOP of each reconcile pass (never on a
+dry pass), applies each pending file through `executeLeaderInstruction` - the one
+place an instruction is ever performed - and moves the file to `done/` or to
+`refused/` with an `.outcome.json` beside it. A file that stayed would re-apply
+the same judgment on every cadence.
+
+**The spend** is `spendRecoveryRelaunch({cause: 'armed-incomplete'})`, called at
+the moment a class-A relaunch actually reached the queue - never on intent.
+
 ## Counter / budget APIs
 
 Counter: `countAttempt` · `peekCounter` · `rearm` · `keyOf` · `DRIVERS` ·
@@ -497,8 +532,10 @@ Exit: `exhaust` · `recordGroupedAsk` · `consumeDisarmed` · `signatureOf` ·
 `EXHAUSTION_DIAGNOSTIC`
 
 Budget: `budgetState` · `spendRecoveryRelaunch` · `assembleHandoff` ·
-`leaderHandoff` · `executeLeaderInstruction` · `RECOVERY_CAUSES` ·
-`INSTRUCTIONS` · `RelaunchBudgetError` (`code: E_RELAUNCH_BUDGET`)
+`leaderHandoff` · `executeLeaderInstruction` · `handoffPayloadText` ·
+`drainLeaderInstructions` · `leaderInstructionsDir` · `leaderInstructionPath` ·
+`LEADER_INSTRUCTIONS_REL` · `RECOVERY_CAUSES` · `INSTRUCTIONS` ·
+`RelaunchBudgetError` (`code: E_RELAUNCH_BUDGET`)
 
 Selftests: `node --test attempt-counters.selftest.js` and
 `node --test relaunch-budget.selftest.js` - exit 0.
@@ -651,3 +688,48 @@ dead, delete it — there must be no dead code"*), together with its 12 dedicate
 DELETED [T4-R1, del-observers]: "is it alive" is answered by the supervisor registry, and
 no-progress is measured off work-product (`last_progress_at`), never off ticks of silence.
 Reconcile asks only the GOAL's ledgers.
+
+## The leader chair fails CLOSED [B16, 2026-08-26]
+
+`leaderSeat()` answers "which seat is this goal's leader" from `taskforce.csv`, which is the
+register of who holds which chair. It used to return `seats[0]` when there was no `leader` row —
+so an ordinary worker was printed as the chair on every pass, woken for judgment calls that are
+not its to make, and named as the seat the tmux room is rebuilt under. Measured on
+`goal-memory-management`, whose one row is the worker `distill-ignite-memory`. The `catch` arm was
+worse: an UNREADABLE taskforce produced the literal name `leader`, a chair asserted from a file
+nobody could read.
+
+It now returns `{ seat: 'leader' }` or `{ seat: null, why, detail }` — never a substitute — with
+`why` one of `no-leader-row` / `taskforce-unreadable`. Every consumer refuses rather than
+substituting, and each refusal is a `warn` naming the goal and the reason:
+
+| consumer | with no chair |
+|---|---|
+| the pass's `leader` field + `reconcile: pass` line | `null`, plus one `warn` per pass naming the reason |
+| the class-A `nonterm` wake (rows only the leader may close) | nothing is woken; action `no-leader-chair`, the rows stand |
+| the room rebuild (`recover-room.py --seat`) | the room is NOT rebuilt; action `room-refused`, error `no-leader-chair` |
+| the B11 budget handoff | the payload is not handed anywhere; action `budget-exhausted-no-handoff` |
+
+The warn fires on EVERY pass, deliberately: this is a staffing state only a `materialize` clears,
+and the alternative was promoting a worker into the chair in silence. The BACKFILL that repairs it
+already exists and is not this component's — `planning/materialize-seats.py` mints the missing
+chairs on the next materialize that touches the goal.
+
+## A daemon goal with no taskforce is named, never skipped in silence [B12, 2026-08-26]
+
+`lane-watch.js` adopts a daemon-lane goal only when `taskforce.csv` exists. That skip used to
+`continue` under a comment reading *"a normal state between `rbtv-goal scaffold` and `rbtv-goal
+materialize`, not a fault. Quiet."* — wrong on both halves. It is not a transient: `taskforce.csv`
+has exactly one writer in the system (`scaffold-seats`, reached only by the creation route), and
+nothing the daemon runs is it, so the goal stands there forever. Measured on
+`cli-tools-reachability-report` — zero daemon journal mentions over its whole life.
+
+The pass now names the goal, the missing file, and the command that writes one (`scaffold-seats`,
+NOT `rbtv goal materialize`, which refuses in exactly this state). It rides `shouldShout`, so it is
+loud once per (goal, lane-marker text) and `debug` after — the same bound every other loud line in
+that file has, and it re-arms the moment the marker changes or the goal seeds.
+
+The CAUSE is fixed at the creation verb: `rbtv goal scaffold --lane daemon` now refuses unless the
+creation route declares `--materialize-follows` (`operator/goals-tree/tool/README.md` § The daemon
+lane). This line is the second half — the goals that reached this state before that gate existed
+are named instead of vanishing.

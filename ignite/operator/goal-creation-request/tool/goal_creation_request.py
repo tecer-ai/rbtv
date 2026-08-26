@@ -549,7 +549,8 @@ def resolve_execution_lane(request):
 
 # --------------------------------------------------------------- 2 · CREATE
 
-def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflow=None):
+def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflow=None,
+                  materialize_follows=False):
     """SCAFFOLD — the goal folder and its contract, and NOTHING else.
 
     The first half of `create()` below, extracted (task C2) because the daemon-executed path needs
@@ -557,6 +558,13 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
     and would launch seats, which a scheduled workflow start is what queues instead. Extracted
     rather than copied — a second spelling of the `--kind` forwarding is exactly the drop
     `d-owner-batch1` (2) ruled a carrier for, and two spellings are two chances to drop it.
+
+    `materialize_follows` is passed straight through to `rbtv-goal scaffold --materialize-follows`
+    and is the CALLER'S DECLARATION that it invokes `scaffold-seats` on this goal in the same act
+    (B12). Without it the creation verb REFUSES a `--lane daemon` goal, because such a goal has no
+    `taskforce.csv` and the daemon skips a taskforce-less goal on every cadence forever. `create()`
+    below passes it and then performs exactly that second invocation; a caller that scaffolds and
+    stops must NOT pass it — the refusal it gets instead is the point.
 
     Returns ONE step dict, or the skip record when the goal already resolves.
     """
@@ -609,6 +617,10 @@ def scaffold_goal(request, goals_root, dry_run=False, catalog_root=None, workflo
                # access to the goal folder at all.
                "--lane", lane,
                "--contract", str(contract_file), "--json"]
+        # B12(i): the second act of the creation route follows in `create()` below, so the goal
+        # this scaffolds is never one the daemon will skip forever.
+        if materialize_follows:
+            cmd.append("--materialize-follows")
         if request.get("due-date"):
             cmd += ["--due", request["due-date"]]
         step = _run(cmd, "create-goal", dry_run)
@@ -639,26 +651,39 @@ def create(request, goals_root, package, catalog_root, bindings, claude_md, budg
     7.607 E2a: `package` IS THE GOAL DIRECTORY. The run package it used to name is extinguished
     (`decisions.md#d-runs-extinguished`); the goal folder is the package (design-lock item 8).
     """
-    # `catalog_root` and `workflow` cross into the scaffold act SOLELY to resolve the execution
-    # mode's workflow-level default (owner ruling 2026-08-10). A `--seat` creation names no
-    # workflow, so `workflow` is None there and the resolution falls back with its reason named.
-    steps = [scaffold_goal(request, goals_root, dry_run,
-                           catalog_root=catalog_root, workflow=workflow)]
-
-
+    # ⚠ BOTH REFUSALS BELOW MOVED **ABOVE** THE SCAFFOLD (B12), and the placement is the whole
+    # point — the same argument the scaffold verb's own lane gate makes. They are pure input
+    # checks (a name on PATH, two flags present); nothing about them needs the goal to exist. Run
+    # AFTER the scaffold, as they were, they left a created goal standing with no taskforce and no
+    # second act coming — on the daemon lane that is the dead end this row closes, minted by the
+    # very handler that declares it materializes. Run here, a refusal creates nothing.
+    #
     # THE RULED NAME. Resolved on PATH as the name — never the script path behind it.
     ruled = shutil.which(RULED_LAUNCH_NAME)
     if not ruled:
         raise Refusal(
             f"the ruled name '{RULED_LAUNCH_NAME}' does not resolve on PATH. This handler does NOT "
             "fall back to the script path behind it and does NOT rename anything: an absent ruled "
-            "name is a sequencing fault to route, not a text alignment to perform."
+            "name is a sequencing fault to route, not a text alignment to perform. Nothing was "
+            "created: this is refused before the scaffold act."
         )
     if not (seat or workflow) or not (after or root):
         raise Refusal(
             "the creation path requires --seat or --workflow AND an explicit --after or --root. "
-            "An omitted insertion point can NEVER default to root."
+            "An omitted insertion point can NEVER default to root. Nothing was created: this is "
+            "refused before the scaffold act."
         )
+
+    # `catalog_root` and `workflow` cross into the scaffold act SOLELY to resolve the execution
+    # mode's workflow-level default (owner ruling 2026-08-10). A `--seat` creation names no
+    # workflow, so `workflow` is None there and the resolution falls back with its reason named.
+    # `materialize_follows=True` because THIS function is the second invocation: with both
+    # refusals above already past, the `scaffold-seats` call below is unconditional — which is
+    # what makes the declaration TRUE rather than a flag that merely asserts it (B12).
+    steps = [scaffold_goal(request, goals_root, dry_run,
+                           catalog_root=catalog_root, workflow=workflow,
+                           materialize_follows=True)]
+
     cmd = [RULED_LAUNCH_NAME, "--package", str(package), "--catalog-root", str(catalog_root),
            "--bindings", str(bindings), "--claude-md", str(claude_md),
            # ⚠ 7.607 E2b: `--run-type` is GONE with the run register (design-lock item 8). It

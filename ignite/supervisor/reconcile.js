@@ -51,6 +51,8 @@ const providerLanes = require('./provider-lanes');
 // the supervisor home; what N is comes from the recovery config file, never from a literal here.
 const counters = require('./attempt-counters');
 const { exhaust } = require('./exhaustion');
+const relaunchBudget = require('./relaunch-budget');
+const checkpoint = require('./checkpoint');
 const { loadRecoveryConfig } = require('./recovery-config');
 
 const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
@@ -216,14 +218,45 @@ function checkinOf(lastRow) {
   return ci || String(lastRow.started || '').trim();
 }
 
+// ── THE LEADER CHAIR IS A TASKFORCE ROW, OR THERE IS NO LEADER [B16] ──────────────────────────
+//
+// WHAT WAS HERE, and it is the defect: `if (seats.includes('leader')) return 'leader'; return
+// seats[0] || 'leader';`. A goal whose taskforce carries no `leader` row got its FIRST row back
+// instead, and every consumer in this file then treated an ordinary worker as the chair — the
+// watcher printed `"leader":"distill-ignite-memory"` on `goal-memory-management` on every pass
+// (the worker itself), woke it for judgment calls that are not its to make, and named it as the
+// seat the room is rebuilt under. The `catch` arm was worse: an UNREADABLE taskforce produced the
+// literal name `leader`, i.e. a chair asserted from a file nobody could read.
+//
+// THE CONTRACT the fallback broke: `taskforce.csv` IS the register of who holds which chair
+// (`seeding.js#readTaskforce` validates it at load, and `materialize-seats.py`'s staffing pass is
+// the only writer of a `leader` row). A goal with no such row has no leader — that is a STAFFING
+// state, and substituting a seat for it is the daemon inventing an answer the register does not
+// hold. So this fails CLOSED: no row, no leader, and the reason travels with the answer so the
+// caller can name it in the journal instead of silently promoting somebody.
+//
+// The BACKFILL that repairs it already exists and is not this file's — `materialize-seats.py`
+// mints the missing chairs on the next materialize that touches the goal.
+const LEADER_CHAIR = 'leader';
+
+// { seat: 'leader' } when the chair is genuinely staffed; { seat: null, why, detail } otherwise.
+// Never a substitute.
 function leaderSeat(goalFolder) {
   try {
     const rows = readTaskforce(goalFolder);
     const seats = rows.map((r) => (r.seat || '').trim()).filter(Boolean);
-    if (seats.includes('leader')) return 'leader';
-    return seats[0] || 'leader';
-  } catch {
-    return 'leader';
+    if (seats.includes(LEADER_CHAIR)) return { seat: LEADER_CHAIR };
+    return {
+      seat: null,
+      why: 'no-leader-row',
+      detail: `this goal's taskforce.csv carries no \`${LEADER_CHAIR}\` row (rows: ${seats.join(', ') || 'none'})`,
+    };
+  } catch (err) {
+    return {
+      seat: null,
+      why: 'taskforce-unreadable',
+      detail: (err && err.message) || String(err),
+    };
   }
 }
 
@@ -565,6 +598,103 @@ function classifyRefusal({
   }
 }
 
+// ── B11 · THE RETRY-BUDGET HANDOFF, ASSEMBLED FROM WHAT THIS PASS ALREADY READS ───────────────
+//
+// `relaunch-budget.js#assembleHandoff` REFUSES a payload with a hole [T4-R6] — the leader spends
+// its one bounded attempt on whatever it is handed, and that attempt does not come back. So every
+// field is read from a real source here, and a field that cannot be read is a REFUSAL to hand off,
+// never a blank.
+//
+// ⚠ THE PROGRESS NOTE IS ONE FILE PER SEAT, not one per sitting: `checkpoint.js` writes
+// `progress-note.md` into the seat folder and the next sitting overwrites it. So only the LATEST
+// sitting's note can exist on disk, and the earlier one is reported as absent WITH THAT REASON
+// rather than as a seat that wrote nothing — the two are different facts and the leader is
+// judging on them.
+function handoffFieldsFor({ goalFolder, goal, seat }) {
+  const seatDir = path.join(goalFolder, 'seats', seat);
+  let brief;
+  try {
+    brief = fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8');
+  } catch (err) {
+    return { ok: false, why: 'no-seat-brief', detail: err.message };
+  }
+
+  // The seat's last two ENDED rows, newest first — the two sittings the budget was spent on.
+  const rows = loadSessions(goalFolder)
+    .filter((r) => (r.seat || '').trim() === seat && (r.ended || '').trim())
+    .sort((a, b) => (tsAfter(a.ended, b.ended) ? -1 : 1))
+    .slice(0, 2);
+
+  let latestNote = null;
+  try { latestNote = checkpoint.readProgressNote(seatDir); } catch { latestNote = null; }
+
+  const progressNotes = rows.map((r, i) => (i === 0
+    ? {
+      sitting: r['session-id'] || r.started || 'latest',
+      seat_dir: seatDir,
+      note: latestNote,
+      ...(latestNote ? {} : { missing: true, why: 'this sitting wrote no progress note' }),
+    }
+    : {
+      sitting: r['session-id'] || r.started || `sitting-${i + 1}`,
+      note: null,
+      missing: true,
+      why: 'the progress note is ONE file per seat and the later sitting overwrote it',
+    }));
+  // BOTH notes are required. Fewer than two ended rows means the budget cannot have been spent on
+  // two sittings, so the caller has a state this handoff was not designed for — say so.
+  if (progressNotes.length < 2) {
+    return { ok: false, why: 'fewer-than-two-sittings', detail: `${progressNotes.length} ended row(s)` };
+  }
+
+  const killReasons = rows.map((r) => {
+    const disp = (r.disposition || '').trim() || '(none)';
+    const writer = (r['disposition-writer'] || '').trim() || 'unknown';
+    return `${r['session-id'] || r.started}: ${disp} (written by ${writer})`;
+  });
+  const transcriptPointers = rows.map((r) => {
+    const native = (r['native-session-id'] || '').trim();
+    return `${r.harness || 'harness?'}:${native || '(no native session id)'} @ ${r.workdir || seatDir}`;
+  });
+  return {
+    ok: true, brief, progressNotes, killReasons, transcriptPointers,
+  };
+}
+
+// The whole B11 exit, in one place: the budget is exhausted, so the lane STOPS and the leader is
+// asked. Returns the action the pass records — it launches nothing itself, because the wake rides
+// the leader launch target the caller assembles from `handoff.payloadText`.
+function leaderHandoffFor({
+  store, workspaceRoot, goalFolder, goal, seat, config, at,
+}) {
+  const fields = handoffFieldsFor({ goalFolder, goal, seat });
+  if (!fields.ok) return { ok: false, why: fields.why, detail: fields.detail };
+  let handoff;
+  try {
+    handoff = relaunchBudget.leaderHandoff({
+      store,
+      goal,
+      seat,
+      brief: fields.brief,
+      progressNotes: fields.progressNotes,
+      killReasons: fields.killReasons,
+      transcriptPointers: fields.transcriptPointers,
+    }, config);
+  } catch (err) {
+    // The commonest arm by far: the one bounded attempt is ALREADY spent, which is exactly what
+    // `leader_attempt_used` is for. Not an error — the next rung is the owner ask.
+    return { ok: false, why: 'handoff-refused', detail: err.message };
+  }
+  const answerPath = relaunchBudget.leaderInstructionPath(workspaceRoot, goal, seat);
+  return {
+    ok: true,
+    payload: handoff.payload,
+    ending: handoff.ending,
+    answerPath,
+    payloadText: relaunchBudget.handoffPayloadText(handoff.payload, answerPath),
+  };
+}
+
 function reconcileGoal({
   goal, goalFolder, engine, say = () => {}, pickup = null,
   now = Date.now(), force = false, dryRun = false,
@@ -614,6 +744,51 @@ function reconcileGoal({
     return { skipped: 'paused', goal };
   }
 
+  const actions = [];
+
+  // Resolved ONCE per pass: every counter AND the relaunch budget in this pass read the same
+  // numbers. Hoisted above the launch targets because the B11 drain below runs before them.
+  const recoveryConfig = recoveryNumbers({
+    recovery, workspaceRoot, say, goal,
+  });
+  if (!recoveryConfig) {
+    actions.push({ kind: 'detect', why: 'recovery-config-error', detail: 'attempt counters not applied' });
+  }
+
+  // ── B11 · THE LEADER'S ANSWER, DRAINED BEFORE ANYTHING IS DECIDED ────────────────────────────
+  //
+  // A leader that was asked for one of the four instructions writes its judgment as a file; this
+  // is the ONE place it is applied, and it runs FIRST so a `rewrite-brief` re-arm is visible to
+  // this same pass's launch decisions rather than a cadence later. `executeLeaderInstruction` does
+  // the applying — nothing here re-decides anything the leader decided.
+  if (!dryRun && endingStore && workspaceRoot) {
+    let applied = [];
+    try {
+      applied = relaunchBudget.drainLeaderInstructions({
+        store: endingStore, workspaceRoot, goal, at,
+      });
+    } catch (err) {
+      say('warn', 'reconcile: draining the leader instruction inbox threw — the pass continues', {
+        goal, error: err && err.message,
+      });
+    }
+    for (const r of applied) {
+      say(r.applied ? 'info' : 'warn',
+        r.applied
+          ? 'reconcile: a LEADER INSTRUCTION was applied — the leader decided, the daemon executed [D6, CF-3]'
+          : 'reconcile: a leader instruction was REFUSED — the file is moved aside with its reason beside it',
+        {
+          goal, seat: r.seat, instruction: r.kind || null, error: r.error || null, file: r.file || null,
+        });
+      actions.push({
+        kind: r.applied ? 'leader-instruction-applied' : 'leader-instruction-refused',
+        seat: r.seat,
+        instruction: r.kind || null,
+        error: r.error || null,
+      });
+    }
+  }
+
   let readyAnswer = readyInjected;
   if (readyAnswer === undefined) {
     readyAnswer = readySeats(goalFolder, { heartStore, goal });
@@ -624,9 +799,11 @@ function reconcileGoal({
     readyAnswer, live, queued, summoned: summonedSeats(say),
     heartStore, goal,
   });
-  const leader = leaderSeat(goalFolder);
+  // B16 — the chair, or NOTHING. `leader` is `null` on a goal with no staffed leader row, and
+  // every consumer below refuses rather than substituting.
+  const leaderChair = leaderSeat(goalFolder);
+  const leader = leaderChair.seat;
 
-  const actions = [];
   if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
 
   if (say) {
@@ -641,6 +818,20 @@ function reconcileGoal({
       leader,
       dryRun: Boolean(dryRun),
     });
+  }
+
+  // ── THE LOUD, NAMED REFUSAL [B16] ────────────────────────────────────────────────────────────
+  // Fired on EVERY pass, deliberately: this is a staffing state that only a `materialize` can
+  // clear, and the alternative the daemon used to take was to promote a worker into the chair in
+  // silence. A pass that says nothing here is the defect, not the noise.
+  if (!leader) {
+    say('warn', 'reconcile: this goal has NO LEADER CHAIR — no seat is treated as leader on this '
+      + 'pass. Rows needing the leader\'s judgment are NOT handed to a substitute, and the room is '
+      + 'NOT rebuilt under one. The `leader` chair is minted by the staffing backfill: re-run '
+      + '`rbtv goal materialize <goal>` on this goal.', {
+      goal, why: leaderChair.why, detail: leaderChair.detail,
+    });
+    actions.push({ kind: 'detect', why: leaderChair.why, detail: leaderChair.detail });
   }
 
   if (dryRun) {
@@ -669,7 +860,22 @@ function reconcileGoal({
   // The rest is the leader's judgment, in ONE wake that NAMES the rows. The signature is the
   // owed CONTENT, so a ruling that removes or changes a row IS progress (D34).
   const nonterm = derived.classA.filter((x) => x.reason !== 'incomplete');
-  if (nonterm.length) {
+  if (nonterm.length && !leader) {
+    // B16 — these rows need a JUDGMENT, and judgment is the leader chair's. With no chair there is
+    // nobody to wake: the rows stand and are named, which is what the silent `seats[0]` promotion
+    // used to hide behind an ordinary-looking wake of the wrong seat.
+    say('warn', 'reconcile: owed row(s) need the leader\'s judgment and this goal has NO LEADER '
+      + 'CHAIR — nothing is woken for them, and NO substitute seat is used. They stand until the '
+      + '`leader` row is staffed.', {
+      goal, why: leaderChair.why, seats: nonterm.map((x) => x.seat),
+    });
+    actions.push({
+      kind: 'no-leader-chair',
+      reason: 'nonterm',
+      why: leaderChair.why,
+      seats: nonterm.map((x) => x.seat),
+    });
+  } else if (nonterm.length) {
     launchTargets.push({
       seat: leader,
       reason: 'nonterm',
@@ -688,14 +894,6 @@ function reconcileGoal({
       signature: `unread:${item.seat}:${item.lastNum}`,
       source: 'b',
     });
-  }
-
-  // Resolved ONCE per pass: every counter in this pass reads the same N.
-  const recoveryConfig = recoveryNumbers({
-    recovery, workspaceRoot, say, goal,
-  });
-  if (!recoveryConfig) {
-    actions.push({ kind: 'detect', why: 'recovery-config-error', detail: 'attempt counters not applied' });
   }
 
   const liveSet = new Set(derived.live);
@@ -722,6 +920,79 @@ function reconcileGoal({
         reason: t.reason,
         until: providerLanes.laneFacts({ goal, seat: t.seat }, { lanesFile }).provider_backoff_until,
       };
+    } else if (t.reason === 'incomplete'
+      && recoveryConfig && endingStore && workspaceRoot
+      && relaunchBudget.budgetState(
+        { store: endingStore, goal, seat: t.seat }, recoveryConfig,
+      ).exhausted) {
+      // ── B11 · THE RECOVERY RELAUNCH BUDGET IS EXHAUSTED — THE LEADER IS ASKED ──────────────
+      //
+      // ⚠ THE BUDGET IS ASKED **BEFORE** THE ATTEMPT COUNTER AND THIS BRANCH RETURNS, which is
+      // `relaunch-budget.js`'s own stated contract: the two bounds are INDEPENDENT, whichever
+      // trips first takes its exit, and the other must not also fire in the same act. So no
+      // `countRetry` runs on this seat this pass (the `kind` below is excluded from the counting
+      // block, exactly as the disarm and backoff skips are).
+      //
+      // Class A `incomplete` is the recovery cause `armed-incomplete` [T1-R6] — the relaunch of a
+      // lane the seat itself declared unfinished. `nonterm` and `unread` are not recovery
+      // relaunches and never reach here.
+      seenTarget.add(t.seat);
+      const handoff = leaderHandoffFor({
+        store: endingStore, workspaceRoot, goalFolder, goal, seat: t.seat,
+        config: recoveryConfig, at,
+      });
+      if (!handoff.ok) {
+        say('warn', 'reconcile: the relaunch budget is EXHAUSTED and the leader could NOT be asked '
+          + '— the lane stays stopped and the next rung is the owner ask', {
+          goal, seat: t.seat, why: handoff.why, detail: handoff.detail,
+        });
+        action = {
+          kind: 'budget-exhausted-no-handoff', seat: t.seat, reason: t.reason, why: handoff.why,
+        };
+      } else if (!leader) {
+        // B16 composes with B11: there is a judgment to hand over and no chair to hand it to.
+        say('warn', 'reconcile: the relaunch budget is EXHAUSTED and this goal has NO LEADER CHAIR '
+          + '— the handoff payload is written but nobody is woken for it', {
+          goal, seat: t.seat, answer_path: handoff.answerPath,
+        });
+        action = {
+          kind: 'budget-exhausted-no-handoff', seat: t.seat, reason: t.reason, why: 'no-leader-chair',
+        };
+      } else {
+        say('warn', 'reconcile: the recovery relaunch budget is EXHAUSTED — the lane STOPS and the '
+          + 'leader gets its ONE bounded attempt [D6, T1-R8]', {
+          goal,
+          seat: t.seat,
+          tripped: handoff.payload.budget.tripped,
+          failures: `${handoff.payload.budget.failures}/${handoff.payload.budget.capFailures}`,
+          total: `${handoff.payload.budget.total}/${handoff.payload.budget.capTotal}`,
+          instructions: handoff.payload.instruction_kinds,
+          answer_path: handoff.answerPath,
+        });
+        // The ask rides the door that already puts a question in front of the leader: the D33(a)
+        // leader wake, boot prompt first and the block appended after it.
+        const woken = launchSitting({
+          heartStore,
+          goal,
+          goalFolder,
+          seat: leader,
+          promptFn: (gf, sname) => {
+            const head = promptFn ? promptFn(gf, sname) : seatBootPrompt(gf, sname).prompt;
+            return (head === null || head === undefined) ? null : head + handoff.payloadText;
+          },
+          say,
+          reason: 'leader-handoff',
+          signature: `leader-handoff:${t.seat}`,
+        });
+        action = {
+          kind: woken.ok ? 'leader-handoff' : 'leader-handoff-not-woken',
+          seat: t.seat,
+          reason: t.reason,
+          leader,
+          answerPath: handoff.answerPath,
+          ...(woken.ok ? { enq: woken.enq, jobId: woken.jobId } : { error: woken.error }),
+        };
+      }
     } else if (counterDisarmed({
       goal, seat: t.seat, reason: t.reason, config: recoveryConfig, countersFile,
     })) {
@@ -743,6 +1014,24 @@ function reconcileGoal({
         action = {
           kind: 'enqueue', seat: t.seat, reason: t.reason, enq: launched.enq, jobId: launched.jobId,
         };
+        // ── B11 · THE SPEND, AT THE MOMENT THE RELAUNCH ACTUALLY HAPPENED ───────────────────
+        // Never on intent: `relaunch-budget.js` says a budget that decrements on consideration
+        // stops lanes that were never relaunched. Class A `incomplete` only — an `unread` wake or
+        // a leader wake is not a recovery relaunch and the module REFUSES a non-recovery cause by
+        // name, so a future caller cannot route one through this door by accident [C-11].
+        if (t.reason === 'incomplete' && endingStore) {
+          try {
+            relaunchBudget.spendRecoveryRelaunch({
+              store: endingStore, goal, seat: t.seat, cause: 'armed-incomplete',
+            });
+          } catch (err) {
+            say('warn', 'reconcile: the recovery relaunch was made but the budget could not be '
+              + 'spent — the bound is weaker than it reads until this is fixed', {
+              goal, seat: t.seat, error: err && err.message,
+            });
+            action.budgetSpendFailed = err && err.message;
+          }
+        }
       } else {
         action = {
           kind: 'launch-refused', seat: t.seat, reason: t.reason, error: launched.error,
@@ -768,8 +1057,15 @@ function reconcileGoal({
     // THE ATTEMPT IS THE PASS, NOT THE LAUNCH — that part of D34 survives intact. What changed is
     // the RESET: no launch outcome and no signature drift clears this count, only a named re-arm
     // event does [spec-recovery §5].
+    // ⚠ THE BUDGET EXIT IS EXCLUDED HERE, and that exclusion is the [spec-recovery 2] rule that
+    // the two bounds are independent: whichever trips first takes its exit and the other does not
+    // also fire in the same act. A `leader-handoff` pass that ALSO struck the counter would spend
+    // both bounds on one event and land the owner ask one pass early.
     if (action.kind !== 'skip-disarmed'
       && action.kind !== 'skip-provider-backoff'
+      && action.kind !== 'leader-handoff'
+      && action.kind !== 'leader-handoff-not-woken'
+      && action.kind !== 'budget-exhausted-no-handoff'
       && !action.noStrike) {
       const retry = countRetry({
         store: endingStore,
@@ -790,7 +1086,18 @@ function reconcileGoal({
     actions.push(action);
   }
 
-  if (derived.owed) {
+  if (derived.owed && !leader) {
+    // B16 — the room is rebuilt UNDER A SEAT (`recover-room.py --seat`), and the seat it used was
+    // the leader. With no chair there is no seat to rebuild under, and picking one is the
+    // substitution this fix removes.
+    const room = roomState(goal);
+    if (!room.exists || room.empty) {
+      say('warn', 'reconcile: this goal\'s room is dead or empty and there is NO LEADER CHAIR to '
+        + 'rebuild it under — the room is NOT rebuilt. Staff the `leader` row and the next pass '
+        + 'rebuilds it.', { goal, why: leaderChair.why });
+      actions.push({ kind: 'room-refused', error: 'no-leader-chair', why: leaderChair.why });
+    }
+  } else if (derived.owed) {
     const room = roomState(goal);
     if (!room.exists || room.empty) {
       const recSeat = leader;

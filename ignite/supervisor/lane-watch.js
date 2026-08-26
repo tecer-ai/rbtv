@@ -380,9 +380,43 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined,
     }
 
     if (!fs.existsSync(path.join(goalFolder, 'taskforce.csv'))) {
-      // Assigned but not yet materialized — a normal state between `rbtv-goal scaffold` and
-      // `rbtv-goal materialize`, not a fault. Quiet.
+      // ── B12(ii) · A DAEMON GOAL WITH NO TASKFORCE IS STUCK, AND IT IS SAID OUT LOUD ─────────
+      //
+      // WHAT WAS HERE: `// Assigned but not yet materialized — a normal state between
+      // `rbtv-goal scaffold` and `rbtv-goal materialize`, not a fault. Quiet.` and a bare
+      // `continue`. It was wrong on both halves.
+      //
+      // NOT A TRANSIENT. Nothing in this pass, and nothing the daemon runs, ever materializes a
+      // goal — `taskforce.csv` has exactly one writer, `scaffold-seats`
+      // (`planning/materialize-seats.py`), which is invoked by the CREATION route and by nobody
+      // else. So this is not a state the goal moves out of on its own: once here, it is here
+      // until a human or a master runs that second act. Measured on
+      // `cli-tools-reachability-report`, created straight off `rbtv goal scaffold --lane daemon`
+      // on 2026-08-26 — 0 daemon journal mentions, ever, because of this `continue`.
+      //
+      // NOT QUIET. The memo above says it in this file's own words: "'quiet' must never mean
+      // 'forgotten'". `shouldShout` is keyed on the lane marker text, so this shouts ONCE per
+      // (goal, marker) and drops to `debug` after — the same bound every other loud line here
+      // has, and it re-arms the moment the marker changes or the goal seeds successfully.
+      //
+      // THE CAUSE IS FIXED AT THE CREATION VERB, not here [B12(i)]: `rbtv goal scaffold` now
+      // refuses to mint a daemon-lane goal it is not going to materialize. This line is the
+      // second half — the goals that reached this state before that gate existed are named
+      // instead of vanishing.
       skipped.push({ goal, reason: 'no-taskforce-yet' });
+      say(shouldShout(goalFolder, raw) ? 'warn' : 'debug',
+        'lane watch: this goal is assigned to the DAEMON but has NO `taskforce.csv` — it has no '
+        + 'seats, so nothing is seeded and the goal is skipped on EVERY cadence. This does not '
+        + 'clear itself: the taskforce has one writer (`scaffold-seats`), reached only by the '
+        + 'creation route, so the goal stands here until that act is run against it.', {
+          goal,
+          missing: path.join(goalFolder, 'taskforce.csv'),
+          // NOT `rbtv goal materialize` — that verb REFUSES when `taskforce.csv` is absent or
+          // empty, which is precisely this state. The writer is `scaffold-seats`.
+          fix: `scaffold-seats --package ${goalFolder} --workflow <workflow> --root `
+            + '(plus --catalog-root/--bindings/--claude-md/--budget-json), or re-create the goal '
+            + 'through the goal-creation request route, which scaffolds AND materializes in one act',
+        });
       continue;
     }
 

@@ -232,3 +232,111 @@ test('the daemon executes each of the four leader instructions, and refuses the 
     store: f.store, workspaceRoot: f.root, goal: 'g', seat: 'one', instruction: { kind: 'relaunch-it-again' },
   }), /unknown leader instruction/);
 });
+
+// ── B11 · THE ASK GOES OUT AND THE ANSWER COMES BACK ──────────────────────────────────────────
+//
+// Before 2026-08-26 neither half existed: `leaderHandoff` and `executeLeaderInstruction` had no
+// production caller anywhere in the repo, so the leader was never asked for the four instructions
+// and had no path to report one. These arms measure the two halves the wiring added.
+
+test('B11 · the ask names the four instructions, the budget it tripped, and where to answer', () => {
+  const f = fixture('ask-text');
+  armedLane(f.store, 'g', 's');
+  for (let i = 0; i < f.config.relaunch_budget_failures; i += 1) {
+    f.store.stampSystem({
+      goal: 'g', seat: 's', ending: 'failed', reason_class: 'crash', evidence_pointer: `t-${i}`, replace: true,
+    });
+    budget.spendRecoveryRelaunch({
+      store: f.store, goal: 'g', seat: 's', cause: 'crash',
+    });
+  }
+  const { payload } = budget.leaderHandoff({
+    store: f.store,
+    goal: 'g',
+    seat: 's',
+    brief: 'the seat brief, verbatim',
+    sittingDirs: twoSittings(f.root, 's'),
+    killReasons: ['no-progress kill at 30 min', 'crash with no checkout'],
+    transcriptPointers: ['/tmp/transcript-1.jsonl'],
+  }, f.config);
+
+  const answerPath = budget.leaderInstructionPath(f.root, 'g', 's');
+  const text = budget.handoffPayloadText(payload, answerPath);
+
+  // Every one of the four, spelled — the leader must not have to remember a closed list [T2-R5].
+  for (const kind of budget.INSTRUCTION_LIST) {
+    assert.ok(text.includes(kind), `the ask does not name \`${kind}\``);
+  }
+  // The measured facts, not adjectives: which cap tripped and at what counts.
+  assert.match(text, /EXHAUSTED/);
+  assert.ok(text.includes(`${payload.budget.failures}/${payload.budget.capFailures} failures`), text.slice(0, 400));
+  assert.ok(text.includes(payload.budget.tripped), 'the tripped cap is not named');
+  // The brief and BOTH sittings' notes ride the ask, so the one bounded attempt is not spent
+  // guessing [T4-R6].
+  assert.ok(text.includes('the seat brief, verbatim'));
+  assert.strictEqual((text.match(/sitting `?sitting/g) || []).length + (text.match(/progress note:/g) || []).length, 2,
+    'both sittings must appear in the ask');
+  assert.ok(text.includes('no-progress kill at 30 min') && text.includes('/tmp/transcript-1.jsonl'));
+  // The half the payload itself cannot carry: WHERE to write the answer.
+  assert.ok(text.includes(answerPath), 'the ask does not say where to answer');
+  assert.ok(/one bounded|ONE attempt/i.test(text), 'the ask does not say the attempt is bounded');
+  // The wall, stated to the leader and not only enforced behind its back [CF-3].
+  assert.match(text, /Do not do the seat's work/);
+});
+
+test('B11 · the drain applies the leader\'s answer ONCE and gets the file out of the inbox', () => {
+  const f = fixture('drain');
+  armedLane(f.store, 'g', 'one');
+  const dir = budget.leaderInstructionsDir(f.root);
+  fs.mkdirSync(dir, { recursive: true });
+
+  // The leader answers `reassign` — a judgment, no work product.
+  const answer = budget.leaderInstructionPath(f.root, 'g', 'one');
+  fs.writeFileSync(answer, JSON.stringify({ kind: 'reassign', to_seat: 'a-narrower-seat' }), 'utf8');
+
+  // A SECOND goal's answer sits in the same inbox and must NOT be touched by this goal's drain.
+  fs.writeFileSync(budget.leaderInstructionPath(f.root, 'other-goal', 'x'),
+    JSON.stringify({ kind: 'escalate', report: 'not this goal' }), 'utf8');
+
+  const applied = budget.drainLeaderInstructions({ store: f.store, workspaceRoot: f.root, goal: 'g' });
+  assert.strictEqual(applied.length, 1, JSON.stringify(applied));
+  assert.strictEqual(applied[0].applied, true, JSON.stringify(applied[0]));
+  assert.strictEqual(applied[0].kind, 'reassign');
+  assert.match(applied[0].result.ending.diagnostic, /a-narrower-seat/);
+
+  // OUT of the pending directory, in the same act. A file that stayed would re-apply the same
+  // judgment on every cadence.
+  assert.ok(!fs.existsSync(answer), 'the applied instruction is still pending');
+  assert.ok(fs.existsSync(applied[0].file), 'the applied instruction was not filed under done/');
+  assert.ok(fs.existsSync(budget.leaderInstructionPath(f.root, 'other-goal', 'x')),
+    'another goal\'s pending answer was drained by this goal\'s pass');
+
+  // A SECOND drain finds nothing — the judgment is applied once.
+  assert.deepStrictEqual(
+    budget.drainLeaderInstructions({ store: f.store, workspaceRoot: f.root, goal: 'g' }), [],
+  );
+
+  // A REFUSED answer also leaves the inbox, with its reason beside it — a judgment the leader can
+  // never see refused is a judgment silently dropped.
+  fs.writeFileSync(budget.leaderInstructionPath(f.root, 'g', 'two'),
+    JSON.stringify({ kind: 'rewrite-brief', brief: 'x', brief_path: path.join(f.root, 'b.md'), patch: 'the work' }),
+    'utf8');
+  const refused = budget.drainLeaderInstructions({ store: f.store, workspaceRoot: f.root, goal: 'g' });
+  assert.strictEqual(refused[0].applied, false);
+  assert.match(refused[0].error, /never the seat's work/);
+  assert.ok(!fs.existsSync(budget.leaderInstructionPath(f.root, 'g', 'two')));
+  assert.ok(fs.existsSync(path.join(dir, 'refused', 'g--two.outcome.json')));
+
+  // Unreadable JSON is the same shape of answer: refused, moved, reason recorded — never a throw
+  // that takes the pass down.
+  fs.writeFileSync(budget.leaderInstructionPath(f.root, 'g', 'three'), '{not json', 'utf8');
+  const broken = budget.drainLeaderInstructions({ store: f.store, workspaceRoot: f.root, goal: 'g' });
+  assert.strictEqual(broken[0].applied, false);
+  assert.match(broken[0].error, /unreadable JSON/);
+
+  // NO inbox at all is the ordinary state — no leader has answered anything — and answers [].
+  const g = fixture('drain-empty');
+  assert.deepStrictEqual(
+    budget.drainLeaderInstructions({ store: g.store, workspaceRoot: g.root, goal: 'g' }), [],
+  );
+});

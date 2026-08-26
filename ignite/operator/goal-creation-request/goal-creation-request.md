@@ -386,6 +386,17 @@ are deleted — see below.)
 1. **There is no create-only mode.** `scaffold-seats` requires `--seat` or `--workflow` plus an
    explicit `--after|--root`, so the CREATE act **necessarily materializes at least one seat**.
    That is a property of the only creation path in the system, not a choice.
+   ⚠ **And that is now DECLARED to the creation verb** (B12, 2026-08-26). `rbtv-goal scaffold`
+   refuses `--lane daemon` unless the caller passes `--materialize-follows`, because a daemon-lane
+   goal with no `taskforce.csv` is one the daemon skips on every cadence forever. `create()` passes
+   it — and in the same change **both of its refusals** (the ruled name absent from PATH; a missing
+   `--seat|--workflow` or `--after|--root`) **moved AHEAD of the scaffold act**, where they always
+   belonged. They are pure input checks and needed no goal to exist; run after the scaffold, they
+   left a created daemon-lane goal standing with no taskforce and no second act coming — the exact
+   dead end, minted by the handler that declares it materializes. A refusal now creates nothing.
+   A `scaffold-seats` invocation that fails at RUNTIME still leaves the goal standing (no unwind is
+   built, and none may be added); that goal is now named loudly by `supervisor/lane-watch.js`
+   rather than skipped in silence.
 2. **`sessions.csv` is born at LAUNCH, not at create.** The creation path omits it deliberately;
    the file appears only when a seat actually boots. Its absence *before* the launch act is
    expected; its absence *after* one is a defect. (The ordering argument this line once carried
