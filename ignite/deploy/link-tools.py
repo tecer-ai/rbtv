@@ -37,6 +37,7 @@ TOOLS = {
     "scaffold-seats": "planning/materialize-seats.py",
     "owed-answers": "coord/owed-answers.py",
     "tmux-overview": "coord/tmux-overview",
+    "file-issue": "coord/file-issue.py",
 }
 
 

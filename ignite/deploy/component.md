@@ -19,7 +19,7 @@ process itself is `runtime/`, the out-of-process watchdog is `observation/`.
 | systemd units | `rbtv-ignite.service`, `rbtv-chat-bridge.service`, `rbtv-probe-suite.service`, `rbtv-probe-suite.timer` | The unit files the cutover installs; `ExecStart` names `runtime/index.js` and `chat/index.js` since the component-first move |
 | probe-suite runner | `probe-suite.js` | Runs every component's probes and reports the tree's verdict |
 | scheduled probe suite | `probe-suite-scheduled.py` | The timer-fired payload around the runner — internal-daemon, never an agent's command |
-| PATH links | `link-tools.py` | Puts the kit's bare-name commands (`coordinate`, `scaffold-seats`, `owed-answers`, `tmux-overview`) on PATH, idempotently, from their component homes |
+| PATH links | `link-tools.py` | Puts the kit's bare-name commands (`coordinate`, `scaffold-seats`, `owed-answers`, `tmux-overview`, `file-issue`) on PATH, idempotently, from their component homes |
 | network + probe records | `network/`, `p3-*.js`, `*.out`, `*.log` | The containment probes and their recorded outputs |
 
 ## Exposure

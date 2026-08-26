@@ -61,8 +61,19 @@ if __name__ == "__main__":
     # gate runs (`python3 <candidate> --help`): by-name re-entry made every candidate test the
     # INSTALLED kit and pass, mutant or not. Loading `__file__` under the name `coord` runs THIS
     # file, once, in the one namespace everything else binds to.
+    #
+    # ⚠ THE LOADER MUST BE NAMED EXPLICITLY. `spec_from_file_location` with no `loader=` guesses
+    # one from `__file__`'s extension — and `__file__` is whatever name invoked this script, which
+    # under an extension-less `~/.local/bin/coordinate` symlink has no `.py` suffix. No suffix
+    # matches no loader, `spec_from_file_location` returns `None`, and `module_from_spec(None)`
+    # dies with `AttributeError: 'NoneType' object has no attribute 'loader'`. Passing a
+    # `SourceFileLoader` directly reads and compiles `__file__` as source regardless of the name it
+    # was invoked under, while still re-entering BY PATH — the by-name hazard above is unchanged.
     import importlib.util as _ilu
-    _spec = _ilu.spec_from_file_location("coord", __file__)
+    from importlib.machinery import SourceFileLoader as _SourceFileLoader
+    _spec = _ilu.spec_from_file_location(
+        "coord", __file__, loader=_SourceFileLoader("coord", __file__)
+    )
     _mod = _ilu.module_from_spec(_spec)
     sys.modules["coord"] = _mod
     _spec.loader.exec_module(_mod)
