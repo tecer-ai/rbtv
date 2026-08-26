@@ -1,6 +1,6 @@
 ---
 id: master-bootstrap
-description: "Read at the moment a master has established that the goal in front of it is BOOTSTRAPPED — opened from ground, materialized into being by no seat and no workflow — and is about to act on it: opening milestone 0, picking the planning mode, running the materialize command, verifying at the product, and stopping at REGISTERED."
+description: "Read at the moment a master has established that the goal in front of it is BOOTSTRAPPED — opened from ground, materialized into being by no seat and no workflow — and is about to act on it: opening milestone 0, picking the planning mode, giving the goal its taskforce with `scaffold-seats --workflow`, verifying at the product, and stopping at REGISTERED."
 ---
 
 <reference>
@@ -48,34 +48,47 @@ master's again — from then on it belongs to the `leader`.
 
 State which mode was picked in what you report at step 5.
 
-## 3 — RUN THE MATERIALIZE COMMAND
+## 3 — GIVE THE GOAL ITS TASKFORCE
 
-`rbtv goal materialize <goal-name>` runs over the plan workflow that is ALREADY PRESENT in the
-goal folder — pre-placed, neither authored by the master nor fetched by the master.
+A bootstrapped goal has no `taskforce.csv`, and the ONE command that writes one is
+`scaffold-seats`, over the plan workflow ALREADY PRESENT for this goal — pre-placed, neither
+authored by the master nor fetched by the master:
 
-**The COMMAND writes the seat folders and their contents into the GOAL FOLDER.** No agent
-hand-writes one, and the master's duty here is ONE COMMAND INVOCATION and no carpentry: NEVER
-build anything for the command first, and NEVER treat a folder's absence as a blocker. Creating
-what is missing under the goal folder IS materialization, done by the command itself.
+```
+scaffold-seats --package <ABSOLUTE goal folder> --workflow <plan workflow> --catalog-root <component catalog root>
+```
+
+It materializes the WHOLE workflow into the goal: each seat's descriptor first, then that seat's
+`taskforce.csv` row. `--package` is the GOAL FOLDER itself, absolute, and is NEVER inferred;
+`--catalog-root` is required and never guessed. MUST reach it by its PATH name `scaffold-seats`,
+NEVER by the script path behind it.
+
+**The COMMAND writes the seat folders and their contents.** No agent hand-writes one, and the
+master's duty here is ONE COMMAND INVOCATION and no carpentry: NEVER build anything for the command
+first. Where it REFUSES for an operand it will not guess, read the refusal and supply what it names
+— NEVER invent one to get past a refusal, because it refuses precisely where a guess would silently
+materialize the wrong thing.
 
 The first executor BINDINGS come from the plan workflow definition's OWN staffing hints — the
 `staffing-hints` column of its `seats.csv` and the `staffing-recommendations` of its
 `prompts.csv`. Bind NOTHING by hand; the staffer stage re-binds as usual once it exists.
 
-Where the command REFUSES for an operand it will not guess, read the refusal and supply what it
-names. NEVER invent an operand to get past a refusal: the command refuses precisely where a guess
-would silently materialize the wrong thing.
+**`rbtv goal materialize` is NOT this step, and ordering it here was this section's own defect.**
+That verb is the `goal-materialize` step (`sd-graph show goal-materialize`) — it ASSEMBLES seat
+folders FROM a taskforce that already exists, and with the file absent it REFUSES outright
+(`taskforce.csv: absent — nothing to materialize`,
+`ignite/operator/goals-tree/tool/goal_cli.py:2886`), which is exactly the state that triggers this
+reference. Reach it only where a taskforce is already registered and its seat folders are not yet
+assembled, and NEVER as the act that brings a taskforce into being.
 
-**It runs ONCE PER GOAL.** `materialize` refuses to regenerate an existing `seats/` tree without
-`--force`, and there is no later materialize call for anyone to own. A goal that later needs ONE
-MORE seat gets a `scaffold-seats` call from the seat holding that goal's authority — the
-`leader` — and NEVER a second materialize from this door. A second materialize here is a defect,
-not a courtesy.
-
-That later call is named `scaffold-seats` and is resolved on PATH by that ruled name, NEVER by
-the script path behind it. Its `--package` takes the ABSOLUTE GOAL-FOLDER path, because the
-package IS the goal folder, and it is NEVER inferred. The master runs NONE of it: asked for one
-more seat, the master names whose call it is and NEVER reaches for `materialize` a second time.
+**ONE MORE SEAT, LATER.** A goal that already has a taskforce and needs one more seat gets a
+single-seat `scaffold-seats --seat <seat>` call — never a second `rbtv goal materialize`, which
+refuses to regenerate an existing `seats/` tree without `--force`, and forcing it re-assembles seats
+that may already have run. **THE MASTER RUNS THAT CALL** where this goal's authority is the
+master's (owner ruling 2026-08-26): naming whose call it is and stopping there is NOT the answer.
+Where a `leader` holds the goal's authority, the call is the leader's and never yours to run into
+that goal — the bound is WHOSE AUTHORITY the goal is under, never a rule that this door runs none
+of it.
 
 ## 4 — VERIFY AT THE PRODUCT, NEVER AT THE COMMAND'S OWN SUCCESS LINE
 
@@ -90,6 +103,11 @@ and is not, and no seat downstream can tell the difference until one of them bre
 
 What was materialized is REGISTERED — NOT launched, and NOT planned. Report it in exactly those
 terms; calling it launched or planned tells the owner a taskforce is working when nothing is.
+
+**Nothing is queued and nothing is delayed.** A goal advances on its LANE: the daemon's watch pass
+reads the `execution-lane` marker before every tick and seeds a daemon-lane goal off it, and a
+console-lane goal waits for the owner to type `rbtv run`. There is NO job to enqueue at this door
+and NO scheduled start to time — a hand-queued launch is a row nothing consumes.
 
 The master authors NO milestone plan, NO task DAG, NO seat definition, and NO cognitive unit.
 Running the command is not doing the planning: the seats just registered ARE the ones that plan.

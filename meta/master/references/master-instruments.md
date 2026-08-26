@@ -28,11 +28,12 @@ Reached when: something must be said to a seat, or something a seat said must be
 alive in a goal must be established.
 
 - The FULL feature set is yours — send to any seat, read the WHOLE message log including messages
-  addressed to others, roster, check-in and check-out, and the WAKE that nudges a recipient's pane
-  so a message is picked up now rather than at that seat's next read. NEVER treat any leg of it,
-  the wake included, as another seat's to run.
-- A wake that fails MUST be reported as a failing wake. It is NEVER evidence that this seat lacks
-  the leg.
+  addressed to others, `workers` (the roster: one CURRENT row per agent), check-in and check-out.
+  NEVER treat any leg of it as another seat's to run.
+- There is NO standalone wake and no `wake` verb. `send` wakes the recipients' panes as PART of
+  sending, and that wake is BEST-EFFORT while the log is the truth: a sent message is delivered
+  whether or not a pane stirred. A quiet pane is therefore NEVER a failed send, NEVER a thing to
+  report as a failing wake, and NEVER evidence that this seat lacks a leg.
 - Disturbance is the cost this seat minimises: MUST prefer a READ of the log over an ask, and ONE
   seat over the room.
 - NEVER answer or absorb traffic addressed to a goal's own agent. Reading it is a grant this seat
@@ -49,6 +50,11 @@ alive in a goal must be established.
 
 Reached when: a cold contact opens, before anything else.
 
+The words "owed answers" resolve to NO record of their own — `sd-graph show "owed answers"` returns
+nothing. They are AUTHORED in `sd-graph show master` § owed answers at cold contact, over the join
+`sd-graph show threads-store` defines. Cite those two when explaining the term, and NEVER present
+it as a registry identity.
+
 - MUST run it and trust what it says. It runs the store's own open-ask AND open-escalation
   predicates over every live goal in ~0.15 s and returns the count, then the list capped at 5 —
   unanswered escalations FIRST (each tagged `⛔ RUN HALTED`; an escalation halts its goal), then
@@ -62,19 +68,25 @@ Reached when: a cold contact opens, before anything else.
   UNREADABLE. Only then derive per package with `coordinate --package <goal> --as owner pending`,
   and say on that turn that you did.
 
-## Who is working, and on what quota — `teamview`, `acct`
+## Who is working, and on what quota — `ignite`, `coordinate workers`, `acct`
 
 Reached when: the ask is what is running, who is working, or whether a provider limit is blocking
 work.
 
-- `teamview` RENDERS one room's snapshot and never SENSES it: a separate sensor writes the
-  snapshot, `teamview` reads that and nothing else. It ALWAYS shows the snapshot's age, and a stale
-  snapshot renders as a visible warning. MUST read a quiet or warned screen as a stale or missing
-  snapshot; NEVER as proof that nobody is working.
-- `teamview` NEVER guesses which room it is showing — with no room named and none found it REFUSES
-  and prints the commands that fix it. MUST take that refusal as the instruction it is.
-- Plan limits are NOT in `teamview`. MUST read them through `acct` (`acct usage`, `--posh` for live
-  bars): accounts and their windows are a property of the BOX, and `teamview` renders one room.
+- There is NO dashboard to open. The renderer that used to answer this (`teamview`) and the sensor
+  behind it were DELETED, and nothing replaced them: there is no snapshot to read and no snapshot
+  age to judge. MUST answer from the two LIVE reads below, and NEVER report the absence of a
+  dashboard as an inability to answer.
+- WHAT IS RUNNING, across the whole system, is the DAEMON'S OWN READ — `ignite status` for daemon
+  health, live agent-session count and queue depth, and `ignite inspect …` for a named job,
+  execution or queue row. Both are READ-ONLY. MUST read it there rather than infer it from a quiet
+  room.
+- WHO IS WORKING, inside ONE goal, is `coordinate workers` — the roster: one CURRENT row per agent
+  (alive, `DEAD?`, or checked out), what each is working on, and each one's unread lag. ACTIVE rows
+  are VERIFIED against live tmux panes, so a `DEAD?` row is a pane that is gone rather than a guess.
+- Plan limits are in NEITHER read. MUST take them through `acct` (`acct usage`, `--posh` for live
+  bars): accounts and their windows are a property of the BOX, where the daemon read is per-daemon
+  and the roster read is per-goal.
 - `acct` also SWITCHES a provider between accounts without a re-login, so a burnt weekly window is
   a switch rather than a stop.
 - What a provider can SWITCH and what it can REPORT are different sets, and per-account usage is a
@@ -113,7 +125,7 @@ a goal that already has a taskforce.
 - `rbtv goal scaffold` creates the goal folder and is CREATE-ONLY. D49 opened the goals ROOT to
   every caged master: run it DIRECTLY. The goal-creation request tool remains the fallback if a
   write still returns EROFS (old cage, undeployed daemon) — full path
-  `3-resources/tools/rbtv/ignite/capabilities/goal-creation-request/tool/rbtv-goal-request`. NEVER
+  `3-resources/tools/rbtv/ignite/operator/goal-creation-request/tool/rbtv-goal-request`. NEVER
   hand-queue a daemon job that runs the scaffold command for you.
 - A goal's LANE is what decides whether anything ever runs it, and an ABSENT assignment means
   `console`. NEVER leave the lane to a default.
@@ -168,6 +180,9 @@ became of an execution.
 - NEVER queue a job to launch a goal you created. The queued `<goal>-workflow-start` row and the
   launcher it fired are DELETED; a goal advances from its lane assignment alone, and a hand-queued
   launch is a row nothing consumes.
+- `ignite status` is ALSO the STANDING-WARNING read: its `standing_warnings` field IS the console's
+  agent-facing alarm surface, returned alongside daemon health, and there is no separate warnings
+  verb. An EMPTY list means no condition is standing — never that the surface is missing.
 - NEVER snooze a standing warning on your own initiative. `ignite snooze` SUPPRESSES a warning for a
   stated number of minutes and NEVER clears it — the condition is still there when it returns.
 - NEVER kill a session to tidy the board: `ignite kill` terminates a live seat's whole process tree.
@@ -177,8 +192,8 @@ became of an execution.
 Both are reached BY FULL PATH. NEITHER is installed under a bare name, and typing one bare fails in
 a way that reads like a missing tool:
 
-- `3-resources/tools/rbtv/ignite/capabilities/master-profile/tool/rbtv-master-profile`
-- `3-resources/tools/rbtv/ignite/capabilities/bindings/tool/rbtv-bindings`
+- `3-resources/tools/rbtv/ignite/operator/master-profile/tool/rbtv-master-profile`
+- `3-resources/tools/rbtv/ignite/operator/bindings/tool/rbtv-bindings`
 
 `rbtv-master-profile` — this seat's own harness, model and reasoning rung for its NEXT sitting.
 

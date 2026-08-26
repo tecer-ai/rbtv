@@ -21,6 +21,26 @@ hyphens, and it MUST be unused in the goals root — creation REFUSES a name alr
 
 ## 2. Resolve the execution mode BEFORE you create
 
+### Which workflows EXIST — walk the tree; there is no flat catalog
+
+**The COMPONENT TREE IS THE CATALOG.** No command prints a flat workflow list, and that is
+deliberate: a flat catalog would be a second source for a fact the tree already carries. Walk it
+with the `rbtv` drill, which DELIVERS CONTENT at three levels:
+
+```
+rbtv                        level 0 — the installed modules
+rbtv <module>               level 1 — that module's components, blurb-first
+rbtv <module> <component>   level 2 — that component's entry points, its workflows among them
+```
+
+A component that owns workflows names each one at level 2, with the folder holding it
+(`workflows/<name>/`) and the orientation its own `workflow.md` carries. The planning workflows sit
+under `meta/planning` today — `rbtv meta planning` names `plan-console`, `forge` and `d13-replan` —
+but MUST be discovered by walking, NEVER carried from memory: a workflow added to any component
+appears in the drill and never in a remembered list.
+
+### The mode itself
+
 The execution mode is the per-goal OWNER-CONTACT policy — `interactive | autonomous` — and it is
 gate 2 of every agent-initiated message that reaches the owner. The creation act is what writes it,
 so it MUST be resolved BEFORE that act and NEVER patched in after it.
@@ -143,10 +163,13 @@ scheduled start to time — a delayed-launch step here would be a step with no m
 Your act ENDS at the verified goal. You NEVER nominate yourself into a seat of the goal you just
 created, and no master session is born inside it.
 
-## 6. Goal-master chair — AUTOMATIC at materialize (D79, 2026-08-22)
+## 6. Goal-master chair — AUTOMATIC at `goal-materialize` (D79, 2026-08-22)
+
+The step named here is `goal-materialize` (`sd-graph show goal-materialize`); the bare word
+"materialize" resolves to no record and is never the term to use in front of the owner.
 
 D9 wants a `goal-master` sitting available on the next owner message. The leader chair staffs
-itself on every later materialize once `.rbtv/config/modules/meta/leader/bindings/leader.json`
+itself on every later goal-materialize once `.rbtv/config/modules/meta/leader/bindings/leader.json`
 exists. As of D79 the goal-master is minted automatically by the materialize staff pass
 (`mint_staff_chairs`) on every goal whose catalog carries the seat and whose casting sheet exists —
 at creation for the request path (`scaffold-seats --workflow plan-console`) and at materialize for a
