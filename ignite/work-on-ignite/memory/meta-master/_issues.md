@@ -1,1 +1,2 @@
 # meta-master — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-26 · issue · master material contradicts the code in six places · references/prompts/tasks named a deleted teamview, capabilities/ paths that moved, a wake verb that does not exist, a materialize that refuses without taskforce.csv, and a secrets mask uncaged seats never get → CP-1 rulings applied at the SOURCE files, not the rendered descriptors · 052b0042 · meta-leader · ⚠
