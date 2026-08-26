@@ -371,8 +371,13 @@ daemon performs in the SAME transaction that signals the seat's relaunch (`spec-
 no orphan ask, no twin relaunch). The hold itself is DERIVED and never stored (§2.1: an ask that is
 `posted` and still `open`), so there is no held-flag to clear.
 `rule-disposition`, the leader verb that used to release a
-seat nobody would answer, is itself deleted [T2-R12, T1-R9] — that release path does not currently
-exist; owner authorization is now an answer to a live ask, and that door is not wired here yet.
+seat nobody would answer, is deleted [T2-R12, T1-R9] with NO replacement: the ANSWER above is the
+only release path. This is a standing gap, not a wiring delay — `supervise instruct <seat> <kind>`
+and `supervise accept <seat> --anchor <ref>` (the leader's ruling acts since 2026-08-26) rule an
+ENDED session's row out of a re-waking state; an open ask hold is not an ending, so neither verb
+reaches this case. Where an ask will plainly never be answered, the leader's one sanctioned
+recourse is its own `escalation` to the owner (`meta/leader/prompts/leader.md` §4/§5) — never a
+self-authorized release.
 
 ✅ **THE REVIVAL NO LONGER RACES THE DEPENDENTS (7.626 review F6, CLOSED).** The revival still mints
 a second `executions.csv` row for the seat — and since W2 the two facts come from **different

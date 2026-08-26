@@ -541,8 +541,12 @@ the bus by its one writer (`coord.py send --type answer --re <n>`, driven by
 `HELD`, and coord's `cmd_checkout` — which refuses a `done` while the seat's ask is open — admits
 the check-out that advances the successors' `after` members. When no answer is coming, there is
 currently no escape: D12 deleted `--relaunch`, and `rule-disposition`, the owner-ruling verb that
-used to release such a row, is itself deleted [T2-R12, T1-R9] — owner authorization is now an
-answer to a live ask, and that door is not wired here yet.
+used to release such a row, is deleted [T2-R12, T1-R9] with NO replacement. This is a standing
+gap, not a wiring delay — `supervise instruct <seat> <kind>` and `supervise accept <seat> --anchor
+<ref>` (the leader's ruling acts since 2026-08-26) rule an ENDED session's row out of a re-waking
+state; an open ask hold is not an ending, so neither verb reaches this case. Where an ask will
+plainly never be answered, the leader's one sanctioned recourse is its own `escalation` to the
+owner (`meta/leader/prompts/leader.md` §4/§5) — never a self-authorized release.
 
 ⚠ **ONLY AN `answer` RELEASES.** A `note` in the same direction does not count: the closed CMP-8
 vocabulary has a word for answering and a different word for remarking, and a peer's aside must not

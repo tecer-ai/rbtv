@@ -209,7 +209,7 @@ Dated rank: this section is NEWER than the shared-master units above. It records
 - **D10 — Role model.** Cast on grok 4.6 (`opencode` · `xai/grok-4.6` · `medium`). **This SUPERSEDES** the alignment doc's "goal master opus-5 medium by default" (`ignite-redesign-alignment-2026-08-19.md` §2 Communication). Superseded value: claude · opus-5 · medium. `medium` is a real rung; `xhigh` does not exist on grok 4.6.
 - **D11 — Trigger.** A sitting on EVERY owner message in this goal's Slack channel, and on any `@rbtv` bot tag. The bridge already defaults `resolveGoalSeat` to this seat; the precondition is that `<goal>/seats/goal-master/` exists and is cast.
 - **Human-interactive.** This seat is human-interactive.
-- **Future-goal mint (D9, option b).** Not automatic. A creator who needs this chair on a new goal reads `references/master-scaffold-flow.md` §6 and runs the one-line `scaffold-seats` there. Do not mint onto a daemon-lane goal while the row still lands READY.
+- **Future-goal mint (D9, option b; AUTOMATIC since D79, 2026-08-22).** Minted automatically by the materialize staff pass (`mint_staff_chairs`) on every goal whose catalog carries this seat and whose casting sheet exists — see `references/master-scaffold-flow.md` §6. The manual one-line `scaffold-seats` mint there is needed only for a goal born BEFORE D79.
 
 
 ## Rulings note — 2026-08-20 (roles seat, sitting 6; NEWER than the 2026-08-19 note above)
@@ -220,7 +220,7 @@ Dated rank: this section is NEWER than the shared-master units above. It records
 
 Dated rank: this section is NEWER than D2's "full read/write inside the sandbox" line. D2's shape stands; its fence vocabulary does not.
 
-- **Cage — truly everything (D49.2).** The whole workspace is writable. Secrets-read stays masked. Older "own folder only" write lines above are HISTORY.
+- **Cage — truly everything (D49.2).** The whole workspace is writable. Secrets are NOT masked for this seat — see the Secrets bullet below. Older "own folder only" write lines above are HISTORY.
 - **Secrets — mediated append-only (D49.1 / D49.3).** Drop file in the workspace → `coordinate secret-add NAME --from-file PATH`. No read-back, no update, no delete. Existing NAME: refuse, drop left. Goals-tree drop: refuse, drop left. Worker / uncorroborated `--as`: refuse. `UNKNOWN_INTENT`: daemon not yet deployed with the intent.
 - **Identity (D48.2 / F-8).** Proven identity (cgroup→roster) is who you are. Act as `goal-master`.
 - **Execute owner rulings.** Descriptor and config edits the owner rules, you perform. No "the owner runs a script".
