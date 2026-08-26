@@ -153,7 +153,10 @@ function createSlackSocketMode({
     if (isSelfEcho(event)) {
       log('debug', 'slack event dropped — echo guard (this bridge\'s own post)', {
         channel: event.channel,
-        ts: event.ts,
+        // `event_ts`, NOT `ts` — the logger stamps its own `ts` and a same-named field
+        // here silently overwrites it (`index.js#jsonLog` spreads the entry last). The
+        // redelivery-guard line above already names it this way, for this reason.
+        event_ts: event.ts,
         bot_id: event.bot_id,
         user: event.user,
         selfIdentityResolved: Boolean(selfBotId || selfUserId),
