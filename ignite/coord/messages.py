@@ -735,6 +735,9 @@ def load_messages(base):
                        "milestone": m.group("milestone"),
                        "chat_thread": m.group("chat_thread"),
                        "deliver": m.group("deliver"),
+                       # The approval mark (2026-08-27). None on every ordinary row — only the
+                       # plan-verifier's approval ask carries it, and only the ferry reads it.
+                       "approve_commit": m.group("approve_commit"),
                        "why": (m.group("why") or "").strip() or None,
                        "ts": m.group("ts").strip(),
                        "lines": [line]}
@@ -750,7 +753,7 @@ def next_message_number(blocks):
 
 def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_num=None,
                              why=None, origin=None, milestone=None, chat_thread=None,
-                             deliver=None):
+                             deliver=None, approve_commit=None):
     """The append WITHOUT the lock — for callers already inside a `coord_lock` hold
     (`escalate_if_second_fail` derives + scans + appends under ONE hold; a nested
     `coord_lock` on a second fd of the same .lock file would deadlock under flock).
@@ -814,8 +817,13 @@ def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_
     ms = f" | milestone: {milestone}" if milestone else ""
     ct = f" | chat-thread: {chat_thread}" if chat_thread else ""
     dv = f" | deliver: {deliver}" if deliver else ""
+    # THE APPROVAL MARK, and it is a HEADER KEY for the reason `milestone:` became one (adv, C41):
+    # the ferry has to tell an approval ask from an ordinary owner question BEFORE it posts, and a
+    # sigil pattern-matched out of a free-text digest would be a second authority over an
+    # irreversible door. Its authority is checked once, at `cmd_send` — see the gate there.
+    ac = f" | approve-commit: {approve_commit}" if approve_commit else ""
     block = (f"\n## {n} | from: {sender}{org} | to: {to} | type: {mtype}{sup}{rel}{ex}"
-             f"{ms}{ct}{dv}{wc} | "
+             f"{ms}{ct}{dv}{ac}{wc} | "
              f"{now()}\n"
              f"\n{body}\n")
     with open(path, "a", encoding="utf-8") as f:
@@ -824,7 +832,8 @@ def _append_message_unlocked(base, sender, to, mtype, body, supersedes=None, re_
 
 
 def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, why=None,
-                   origin=None, milestone=None, chat_thread=None, deliver=None):
+                   origin=None, milestone=None, chat_thread=None, deliver=None,
+                   approve_commit=None):
     """Allocate the next message number AND append the block inside one lock hold — two
     concurrent sends used to read the same tail and claim the same ID (run-obs §589).
     Returns the number. Type validation is INHERITED from `_append_message_unlocked`, never
@@ -833,7 +842,7 @@ def append_message(base, sender, to, mtype, body, supersedes=None, re_num=None, 
         return _append_message_unlocked(base, sender, to, mtype, body, supersedes=supersedes,
                                         re_num=re_num, why=why, origin=origin,
                                         milestone=milestone, chat_thread=chat_thread,
-                                        deliver=deliver)
+                                        deliver=deliver, approve_commit=approve_commit)
 
 
 # ---- dod-judge two-strikes derivation (7.581 / Q17) --------------------------------------------
@@ -2321,14 +2330,96 @@ def cmd_send(args):
             f"arm the escalation gate; a second writer of that field is a second authority over "
             f"the halt.",
             1)
+    # ── THE APPROVAL AUTHORITY GATE (`--approve-commit`) ────────────────────────────────────────
+    #
+    # An `approve-commit:` on a `to: owner` row is what makes the bridge open a REAL APPROVAL
+    # THREAD (`bus-ferry.js` -> `chat-bridge.js#postOwnerAsk` with `kind: 'approval'`), and in that
+    # thread a one-word `approve` from the owner STARTS EXECUTION — the fourteenth gateway intent,
+    # `start-execution.js`, materializing the plan the package binds. That door is IRREVERSIBLE and
+    # it is opened by a row an agent writes, so the authority to write one is checked HERE, at
+    # `cmd_send`, for the reason the escalation identity gate above lives here and not at the
+    # writer: `resolve_agent` runs here and `_append_message_unlocked` has no identity. A check
+    # further down would be testing a self-asserted sender against itself.
+    #
+    # THREE CONDITIONS, all mechanical, and no `--force` — an override on this one buys an
+    # execution nobody authorized:
+    #   1. the seat is DESIGNATED to reach the human (`human-interactive:` in its own seat.md) —
+    #      the same descriptor fact the owner-ask gate above and the ferry's ask door both read;
+    #   2. the goal HAS an approve-package — `start-execution.js` reads it and refuses
+    #      `no-approve-package` loudly in the thread, so a row without one asks the owner to
+    #      approve something the daemon will then decline to start;
+    #   3. the commit on the row IS the package's `bound_commit` — an approval binds at a commit
+    #      [T5-R5], and two different shas would mean the owner approved one tree and the daemon
+    #      materialized another.
+    approve_commit = (getattr(args, "approve_commit", None) or "").strip() or None
+    if approve_commit:
+        _pkg_ap = package_dir(args)
+        if args.type != "note" or args.to != OWNER_TOKEN:
+            refuse(
+                "input",
+                f"--approve-commit opens the owner's APPROVAL thread, and that is a `--type note` "
+                f"addressed to `{OWNER_TOKEN}` — you sent a `{args.type}` to `{args.to}`.\n"
+                f"  {coord_invocation(args)} send {OWNER_TOKEN} --file <your digest> --type note "
+                f"--approve-commit <sha>\n"
+                f"Drop the flag to send this row as what it is.",
+                1)
+        if not seat_is_human_interactive(_pkg_ap, sender):
+            refuse(
+                "state",
+                f"'{sender}' may not open an APPROVAL thread. A reply of `approve` in that thread "
+                f"STARTS EXECUTION of the plan — it is the one bus row that reaches through the "
+                f"owner and back into the daemon — so it is written only by a seat DESIGNATED to "
+                f"talk to the human: `human-interactive: yes` in {_pkg_ap}/seats/{sender}/seat.md, "
+                f"set by whoever authored the seat. Yours does not say it.\n"
+                f"Send the digest to `leader` as an --type ask instead; that chair routes what "
+                f"genuinely needs the owner.\n"
+                f"There is no --force for this one: the door it opens is irreversible.",
+                1)
+        _apkg = Path(_pkg_ap) / "planning" / "approve-package.json"
+        try:
+            _apkg_data = json.loads(_apkg.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            refuse(
+                "state",
+                f"there is no approve-package on this goal ({_apkg}), so an `approve` in the "
+                f"thread you are about to open would be answered `no-approve-package` — the owner "
+                f"would have approved a plan the daemon then refuses to start.\n"
+                f"Write it FIRST, through its own writer, and pass the same commit:\n"
+                f"  approve-package --goal-dir {_pkg_ap} --execution-goal <name> "
+                f"--bound-commit <sha> --lane <lane> --plan-artifacts <path>\n"
+                f"There is no --force for this one: the missing file is the answer, not the gate.",
+                1)
+        except (OSError, ValueError) as _apkg_err:
+            refuse(
+                "state",
+                f"the approve-package at {_apkg} could not be read as JSON ({_apkg_err}), so the "
+                f"commit on this row cannot be checked against it and the daemon will refuse the "
+                f"approval anyway. Re-write it through the `approve-package` writer — never by "
+                f"hand.",
+                1)
+        _bound = str((_apkg_data or {}).get("bound_commit") or "")
+        if _bound != approve_commit:
+            refuse(
+                "state",
+                f"--approve-commit {approve_commit} does not match the approve-package's "
+                f"`bound_commit` ({_bound or 'absent'}) at {_apkg}. An approval BINDS AT A COMMIT "
+                f"[T5-R5]: the owner would be reading a digest about one tree while the daemon "
+                f"materializes another.\n"
+                f"Send the package's own commit, or re-write the package for the tree you "
+                f"actually checked.\n"
+                f"There is no --force for this one: the two shas disagreeing IS the defect.",
+                1)
+
     n = append_message(base, sender, args.to, args.type, body,
                        supersedes=args.supersedes, re_num=re_num, why=why, origin=origin,
                        milestone=getattr(args, "milestone", None),
-                       chat_thread=chat_thread, deliver=deliver)
+                       chat_thread=chat_thread, deliver=deliver,
+                       approve_commit=approve_commit)
     marks = ((f", supersedes #{args.supersedes}" if args.supersedes is not None else "")
              + (f", re #{re_num}" if re_num is not None else "")
              + (f", chat-thread: {chat_thread}" if chat_thread else "")
              + (f", deliver: {deliver}" if deliver else "")
+             + (f", approve-commit: {approve_commit}" if approve_commit else "")
              + (f", why: {why}" if why else ""))
     # A cross-package send is called out to the SENDER too: the seat that most needs to know its
     # message landed on a roster that does not describe it is the one that just sent it.

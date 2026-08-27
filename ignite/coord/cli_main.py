@@ -665,6 +665,8 @@ def build_parser(door=COORDINATION_DOOR):
                    help="what the named thread does with the row — post (verbatim, no agent, ~0.3s: a settled FACT) | wake (posted AND a sitting is minted to act on it). Needs --chat-thread; absent = mint a sitting and post nothing")
     s.add_argument("--milestone", metavar="ID",
                    help="`--type queue-request` ONLY: the milestone that became ready, written into the row's own `milestone:` header key. A verdict's milestone is stamped by `coordinate verdict` instead — the one door that can arm the escalation gate")
+    s.add_argument("--approve-commit", dest="approve_commit", metavar="SHA",
+                   help="`--type note` to `owner` ONLY: send this row as the plan's APPROVAL ASK, bound to this commit. It opens a thread in which the owner's `approve` STARTS EXECUTION, so it is refused unless your seat.md says `human-interactive:` AND the goal's `planning/approve-package.json` records this exact `bound_commit`. Without it a `to: owner` row is an ordinary question")
     s.add_argument("--re", dest="re_num", type=int, metavar="N",
                    help="the ask (or escalation) this settles — REQUIRED on --type answer, optional on verdict")
     s.add_argument("--supersedes", type=int, metavar="N",

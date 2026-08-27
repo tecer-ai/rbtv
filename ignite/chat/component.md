@@ -64,6 +64,18 @@ park rungs that used to swallow such a row are deleted (see the README's gate
 section); the ONE outcome that posts nothing is the [T2-R14] refusal, which is
 logged and leaves the row on the bus rather than sweeping it away.
 
+⚑ **A row carrying `approve-commit: <sha>` is posted as an APPROVAL** (2026-08-27).
+The ferry reads the header key, passes `kind: 'approval'` + `commitId` to
+`postOwnerAsk`, and composes the body with `approval-thread.js#composeApprovalBody`
+(the row body is the digest payload) — which is what makes the owner's `approve`
+in that thread start execution instead of being delivered to the seat as a word.
+The AUTHORITY is checked once, at `coord.py cmd_send` (`--approve-commit`: a
+`human-interactive:` seat, an approve-package on the goal, that exact
+`bound_commit`; no `--force`), because that is where identity resolves; the ferry
+only fails CLOSED on a malformed sha, sending the row as an ordinary ask. Header
+key only — no body sigil, so digest text can never open the door. Arm 11 of
+`probes/probe-chat-bus-ferry.js`.
+
 Inbound: `onChatMessage` checks `askThreads` BEFORE every other leg. A message in
 an ask's thread is handled at the release door and does not fall through — a
 fall-through would mint a sitting on an unauthorized remark and answer an

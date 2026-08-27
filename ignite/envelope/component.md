@@ -14,7 +14,7 @@ This folder holds the **compiler**, its three owner-gated config files, the **la
 |---|---|
 | `envelope-template.yaml` | seven T2-R3 families, benign cache/config/temp baked in |
 | `envelope-deny-list.yaml` | starting deny set including the credential store |
-| `daemon-owned-records.yaml` | record files + `coordination/` + `seats/` + proper-subfolder carve |
+| `daemon-owned-records.yaml` | record files + `seats/` + proper-subfolder carve (`coordination/` is NOT here — the bus is the seat protocol’s own write surface, D3) |
 
 ## Compiler API
 

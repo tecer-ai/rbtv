@@ -62,9 +62,13 @@ an ask-cap and none has a wall-clock deadline (a planning seat's only clock is t
    list still unbroken), caps regression fix passes at TWO (`REGRESSION-PASS` lines in its own
    `memory.md`), and composes `planning/approval-digest.md`: milestones, seat count, envelope
    summary, which seats are interactive, credential-resolve result, red flags (including
-   `unresolved regression` if the cap was hit), artifact paths, the recorded git commit, and the
-   four owner outcomes — `approve` / `reject-close` / `reject-pause` / `reject-retry`. It composes;
-   it never posts (a Slack seat posts the digest afterward) and it never parses a reply.
+   `unresolved regression` if the cap was hit), artifact paths and the recorded git commit — then
+   SENDS it to the owner as the APPROVAL ASK: one `coordinate send owner --type note
+   --approve-commit <the bound commit>` row on the goal's own bus, which the chat bridge turns
+   into an approval thread in the goal's Slack channel. It does NOT author the owner's reply
+   tokens (the thread publishes them from the parser's vocabulary) and it never parses a reply —
+   the owner's `approve` in that thread starts execution through the daemon's `start-execution`
+   intent, and this workflow is over.
 
 **The regression loop.** `plan-verifier` is the only seat with an `on-fail-relaunch` entry —
 `plan-reviewer,plan-verifier` — declared on the seat that ISSUES the verdict, per
@@ -73,7 +77,7 @@ never a new findings pass) then the verifier itself (re-run the same two checks,
 most two such fix passes; a third failure ships the digest with the `unresolved regression` red
 flag instead of failing again.
 
-**Reject-retry, after approval.** A `reject-retry` owner reply is NOT this workflow's `after` DAG —
+**Reject-and-retry, after approval.** A `reject-and-retry` owner reply is NOT this workflow's `after` DAG —
 it is a fresh relaunch of `plan-reviewer` + `plan-verifier` only (the owner's comments become the
 closed findings list), fired by whatever consumes the approval-thread reply. An owner-declared
 approach rethink instead reruns the full five-seat pipeline; this workflow's own manifest is

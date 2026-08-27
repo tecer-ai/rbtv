@@ -1,6 +1,9 @@
 'use strict';
 
 const { createOutbox } = require('./outbox');
+// The §3 approval first message is composed by the module that owns the vocabulary the thread
+// parses — never re-spelled here, or the body would publish tokens the parser does not accept.
+const { composeApprovalBody } = require('./approval-thread');
 
 // THE BUS FERRY — coordination bus → the owner (a thread in the goal's channel, else his DM).
 // One way, outbound only.
@@ -91,6 +94,7 @@ function parseHeader(line) {
     id: Number(m[1]), from: f.from, to: f.to, type: f.type, body: [],
     hdrChatThread: f['chat-thread'] || null,
     hdrDeliver: f.deliver || null,
+    hdrApproveCommit: f['approve-commit'] || null,
   };
 }
 
@@ -425,6 +429,30 @@ function rowChatThread(row) {
 // not a second routing surface — the ferry hands it to the bridge with the thread or not at all.
 // An unrecognised word reads as absent, the same way every other cannot-tell in this module does.
 const DELIVER_RE = /\[deliver:\s*(post|wake)\s*\]/;
+
+// ── `approve-commit: <sha>` — THE ROW THAT OPENS AN APPROVAL THREAD ───────────────────────────
+//
+// A `to: owner` row carrying this header key is the plan's APPROVAL ASK: the bridge opens it with
+// `kind: 'approval'` and a one-word `approve` in that thread starts execution [D12]. Its AUTHORITY
+// was already checked at the one door that can check it — `coord.py cmd_send`, where identity is
+// resolved (a `human-interactive:` seat, an approve-package on the goal, and this exact
+// `bound_commit`; no `--force`). Re-asking here would be a second, weaker authority over the same
+// irreversible door.
+//
+// ⚑ HEADER ONLY, and NO body-sigil fallback — deliberately unlike `chat-thread`/`deliver`. Those
+// two had a live body form predating their header key; this one is new, so admitting a body sigil
+// would invent a route in which text an agent typed into a digest opens execution.
+//
+// ⚑ FAILS CLOSED ON A MALFORMED VALUE, and the row still goes out as an ORDINARY ask: the owner
+// gets his question, and the thread simply does not carry the irreversible verb. The alternative —
+// treating an unparseable sha as an approval — would post `Bound commit: <garbage>`.
+const APPROVE_COMMIT_RE = /^[0-9a-f]{7,64}$/;
+
+function rowApproveCommit(row) {
+  const raw = row && row.hdrApproveCommit;
+  if (!raw || !APPROVE_COMMIT_RE.test(String(raw).trim())) return null;
+  return String(raw).trim();
+}
 
 function deliverToken(body) {
   const m = String(body || '').match(DELIVER_RE);
@@ -898,9 +926,19 @@ function createBusFerry({
             // and the record are the BRIDGE's (`ask-thread.js`); an embedder that wires nothing
             // gets the legs below unchanged, so this is additive and never a second ask model.
             if (!chatThread && postAsk) {
+              // AN APPROVAL ROW IS POSTED AS AN APPROVAL, and the §3 body is `approval-thread.js`'s
+              // to compose — the digest the seat wrote is its PAYLOAD, under the GOAL /
+              // IRREVERSIBLE lead lines and above the bound commit and the token line the thread
+              // will actually parse. `formatMessage`'s ferry provenance is deliberately not used
+              // here: this body is a specified shape, not a rendered bus row.
+              const approveCommit = rowApproveCommit(row);
               const asked = await postAsk({
                 goalId, seatName: row.from, label: askLabel,
-                body: formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser }),
+                kind: approveCommit ? 'approval' : 'ordinary',
+                commitId: approveCommit,
+                body: approveCommit
+                  ? composeApprovalBody({ goalName: goalId, digest: row.body, commitId: approveCommit })
+                  : formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser }),
               });
               if (asked && asked.posted) {
                 res = { delivered: true, ts: asked.askId };

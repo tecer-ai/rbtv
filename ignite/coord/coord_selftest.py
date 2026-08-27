@@ -15525,6 +15525,70 @@ def _selftest_checks(args, failures, names):
               and _w8_hi_code is None and _w8_staff_code is None and _w8_nod_code is None
               and len(load_messages(baseW8)[1]) == _w8_n3 + 3)
 
+        # arm 3b — THE APPROVAL AUTHORITY GATE (`--approve-commit`, 2026-08-27). This flag is the
+        # ONE bus row that reaches through the owner and back into the daemon: the ferry posts it
+        # as a `kind: 'approval'` thread and a one-word `approve` there fires `start-execution`.
+        # Its authority therefore sits at this door, where identity resolves, and every arm below
+        # differs from the accepted send in EXACTLY ONE FACT.
+        # RED mutation: delete any one of the three conditions — its own conjunct goes false while
+        # the accepted send stays green, so a gate cannot be dropped and read as "still passing".
+        _w8_sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+        _w8_n3b = len(load_messages(baseW8)[1])
+        # (i) no package on the goal yet
+        _ap_nopkg_out, _ap_nopkg_code = sendW8("beta", OWNER_TOKEN, "APPROVAL-DIGEST\nm1 · m2",
+                                               "--type", "note", "--approve-commit", _w8_sha)
+        (pkgW8 / "planning").mkdir(parents=True, exist_ok=True)
+        (pkgW8 / "planning" / "approve-package.json").write_text(
+            json.dumps({"bound_commit": _w8_sha, "execution_goal": "e", "lane": "daemon",
+                        "plan_artifacts": str(pkgW8 / "planning")}) + "\n", encoding="utf-8")
+        # (ii) the package is there but the seat is not designated to reach the human
+        _ap_seat_out, _ap_seat_code = sendW8("alpha", OWNER_TOKEN, "APPROVAL-DIGEST\nm1 · m2",
+                                             "--type", "note", "--approve-commit", _w8_sha)
+        # (iii) designated seat, package present, WRONG commit
+        _ap_sha_out, _ap_sha_code = sendW8("beta", OWNER_TOKEN, "APPROVAL-DIGEST\nm1 · m2",
+                                           "--type", "note", "--approve-commit", "f" * 40)
+        # (iv) the flag on a row that is not a `note` to the owner
+        _ap_to_out, _ap_to_code = sendW8("beta", "leader", "APPROVAL-DIGEST\nm1 · m2",
+                                         "--type", "note", "--approve-commit", _w8_sha)
+        # (v) FORCE-PROOF — the door it opens is irreversible, so an override buys an execution
+        # nobody authorized.
+        _ap_frc_out, _ap_frc_code = sendW8("alpha", OWNER_TOKEN, "APPROVAL-DIGEST\nm1 · m2",
+                                           "--type", "note", "--approve-commit", _w8_sha, "--force")
+        # ACCEPTED: designated seat, package present, matching commit — and the key lands on the
+        # header, which is the only thing the ferry reads.
+        _ap_ok_out, _ap_ok_code = sendW8("beta", OWNER_TOKEN, "APPROVAL-DIGEST\nm1 · m2",
+                                         "--type", "note", "--approve-commit", _w8_sha)
+        _ap_rows = load_messages(baseW8)[1]
+        _ap_hdr = _ap_rows[-1]["lines"][0] if _ap_rows else ""
+        _ap_ts = _ap_rows[-1]["ts"] if _ap_rows else ""
+        # CONTROL: an ordinary `to: owner` note from the SAME seat still goes and carries NO key —
+        # so the flag is what marks an approval, not the address and not the sender.
+        _ap_plain_out, _ap_plain_code = sendW8("beta", OWNER_TOKEN, "just a question",
+                                               "--type", "note")
+        _ap_plain_row = load_messages(baseW8)[1][-1]
+        check("W8 arm 3b (2026-08-27): `--approve-commit` — the flag that turns a `to: owner` row "
+              "into the owner\'s APPROVAL THREAD, where one word starts execution — is refused at "
+              "SEND on each of its three conditions independently: no `planning/approve-package.json` "
+              "on the goal (the daemon would answer `no-approve-package` after the owner had already "
+              "approved), a sender whose seat.md is not `human-interactive:`, and a sha that is not "
+              "the package\'s `bound_commit` (an approval binds at a commit [T5-R5]). The flag is "
+              "also refused on any row that is not a `note` to `owner`, and it is FORCE-PROOF. The "
+              "one send meeting all three lands, its `approve-commit:` key is ON THE HEADER — the "
+              "only place the ferry reads it — and the row STILL PARSES (an unknown header key is "
+              "not refused, it is swallowed by the trailing `ts` group, which is how one new "
+              "writer would quietly corrupt every reader). CONTROL: the same seat\'s ordinary "
+              "owner note still goes and carries no key",
+              _ap_nopkg_code == 1 and "approve-package" in _ap_nopkg_out
+              and _ap_seat_code == 1 and "human-interactive" in _ap_seat_out
+              and _ap_sha_code == 1 and "bound_commit" in _ap_sha_out
+              and _ap_to_code == 1 and "--type note" in _ap_to_out
+              and _ap_frc_code == 1
+              and _ap_ok_code is None and f"approve-commit: {_w8_sha}" in _ap_hdr
+              and _ap_rows[-1]["approve_commit"] == _w8_sha
+              and "approve-commit" not in _ap_ts and _ap_ts.startswith("20")
+              and _ap_plain_code is None and _ap_plain_row["approve_commit"] is None
+              and len(load_messages(baseW8)[1]) == _w8_n3b + 2)
+
         # arm 4 — THE OLDEST-OPEN RELEASE DOOR IS DELETED [D-4-ruling, C-3, T1-R12, C8]. This arm
         # used to prove the C78 return leg: an unnumbered `type: answer` from `owner`, addressed to
         # the chair, retired that chair's OLDEST still-open escalation. That is the guess the

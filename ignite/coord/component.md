@@ -77,3 +77,21 @@ originates `exited` for silent deaths and nothing else. There is no proxy writer
 `ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be
 satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read
 time from `coordination/guard-values.csv`; never stored.
+
+## The approval ask (`send --approve-commit`, 2026-08-27)
+
+`coordinate send owner --type note --approve-commit <sha>` writes an `approve-commit:` key onto
+the row header. The chat bridge's bus ferry reads it and posts the row as a real APPROVAL THREAD
+(`chat/bus-ferry.js` → `chat-bridge.js#postOwnerAsk` with `kind: 'approval'`), where a one-word
+`approve` from the owner starts execution through the daemon's `start-execution` intent. Without
+the flag a `to: owner` row is an ordinary question and `approve` in its thread starts nothing.
+
+⚠ THE AUTHORITY IS CHECKED HERE, AT `cmd_send`, not at the writer and not at the ferry — the same
+exception the escalation identity gate takes, and for the same reason: `resolve_agent` runs at this
+door and `_append_message_unlocked` has no identity. Three mechanical conditions, no `--force`:
+the sender's own `seat.md` says `human-interactive:`; `<goal>/planning/approve-package.json`
+exists (`start-execution.js` reads it, and refuses `no-approve-package` loudly in the thread
+without it); and the sha on the row IS that package's `bound_commit` (an approval binds at a
+commit [T5-R5] — two shas disagreeing means the owner reads about one tree and the daemon builds
+another). The plan-console workflow's `plan-verifier` is the seat that sends it
+(`meta/planning/tasks/verify-plan.md`, Send clause).

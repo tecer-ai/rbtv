@@ -160,6 +160,12 @@ MSG_HEADER = re.compile(
     r"(?: \| milestone: (?P<milestone>\S+))?"
     r"(?: \| chat-thread: (?P<chat_thread>\S+))?"
     r"(?: \| deliver: (?P<deliver>post|wake))?"
+    # THE APPROVAL MARK. In grammar order — after `deliver`, BEFORE `why` — for the reason W4's
+    # three are: `why`'s `[^|]*?` eats everything after it, so a key placed past it is unreadable.
+    # ⚠ AN UNKNOWN KEY DOES NOT REFUSE THIS ROW, IT CORRUPTS IT: with no group of its own the
+    # trailing `ts` (`.+`) swallows `| approve-commit: <sha> | <timestamp>` whole and every reader
+    # gets a timestamp that is not one. That is why a new writer and this regex land together.
+    r"(?: \| approve-commit: (?P<approve_commit>\S+))?"
     r"(?: \| why: (?P<why>[^|]*?))? \| (?P<ts>.+)$"
 )
 FM_KEY = {

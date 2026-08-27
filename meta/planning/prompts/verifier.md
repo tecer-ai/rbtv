@@ -37,13 +37,14 @@ exposes:
    - red flags (include `unresolved regression` when step 3 shipped it)
    - paths to the on-disk artifacts (facts brief, design, draft, review package, this digest)
    - recorded git commit
-   - the four owner outcomes, named verbatim: `approve` (execution starts; irreversible; name the execution-goal name the plan declared) / `reject-close` / `reject-pause` / `reject-retry` (relaunch draft + verify only; owner comments become the closed findings list; approach rethink is a full pipeline and only if the owner says so)
+   - the execution-goal name the plan declared, beside the note that `approve` is irreversible and starts execution
+   - and NOT the owner's reply tokens. You do not author them: the approval thread publishes the vocabulary its own parser accepts, under your digest. A list written here is a second source for those words, and it drifted once already — three tokens this prompt named verbatim were never accepted, so every rejection the owner typed came back a NACK.
 6. Where the paired task's done contract calls for the approve-package, write it with `rbtv:ignite/planning/approve-package` — one run, after the checks, never by hand. The package is what the daemon reads on `approve` to learn WHAT to build, so it is written from the plan you just checked and from the commit you recorded in step 4, and from nothing else. Pass NO planning-goal and NO goals-root: the daemon derives both and refuses a package that disagrees, which is how a package copied from another goal is caught. A refusal from the writer is a red flag on the digest, never a hand-written file.
-7. Autonomous arm — when nobody can answer: there is nothing to ask for this seat's product. Write the digest from the checks. Default: `credential-resolve` is `not-checked-here` unless a name's presence in the configured store is already observable without opening a secret value. Never post.
+7. Autonomous arm — when nobody can answer: there is nothing to ask for this seat's product. Write the digest from the checks. Default: `credential-resolve` is `not-checked-here` unless a name's presence in the configured store is already observable without opening a secret value. The Send clause, where the paired task carries one, still runs — it is a one-way report, not a question you are waiting on.
 </procedure>
 
 <resources>
-- `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it; do not post.
+- `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it. You never call Slack: the ONE send the paired task names goes on the goal's own bus and the bridge does the posting.
 - `rbtv:ignite/coord/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
 - `rbtv:ignite/planning/approve-package` — write the approve-package the `start-execution` intent reads on `approve`. Validates the execution-goal name and the bound commit, writes atomically, and refuses the daemon-stamped keys.
 </resources>
@@ -53,10 +54,10 @@ exposes:
 - Schema: a review package whose first line is `REVIEW-PACKAGE` (tagged findings, revised plan, approval package) plus a design whose first line is `DESIGN`; this seat's `memory.md` regression-pass lines. Description: the revised plan and the frozen milestone contract; markerless files are non-reports you repair forward.
 
 ## Outcome
-The two checks were run; no new finding was added; at most two fix-pass FAILs were issued; a digest file exists with the required fields and the four owner outcomes. A posted message, a third FAIL, or a new finding is this seat's failure.
+The two checks were run; no new finding was added; at most two fix-pass FAILs were issued; a report file exists with the fields the paired task names; and where that task carries a Send clause, its ONE message went out on the goal's ordinary owner-contact path and the command exited 0. A second message, a message on any other transport, a third FAIL, or a new finding is this seat's failure.
 
 ## Outputs
-- Schema (where the paired task names the digest): a markdown approval digest whose first line is `APPROVAL-DIGEST` and whose body carries milestones, seat count, envelope summary, interactive seats, credential-resolve result, red flags, artifact paths, recorded commit, and the four owner outcomes. Description: the verify-stage artifact a later Slack seat posts; composing is the product, posting is not.
+- Schema (where the paired task names the digest): a markdown approval digest whose first line is `APPROVAL-DIGEST` and whose body carries milestones, seat count, envelope summary, interactive seats, credential-resolve result, red flags, artifact paths and the recorded commit. Description: the verify-stage product — composed on disk AND sent to the owner by this seat, exactly as the paired task's Send clause spells it. The reply tokens the owner may type are NOT yours to author: the approval thread publishes them from the parser's own vocabulary.
 </io-spec>
 
 <permissions>

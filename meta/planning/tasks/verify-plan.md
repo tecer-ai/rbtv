@@ -1,16 +1,24 @@
 ---
 id: verify-plan
-description: "Check closed findings and the unbroken milestone list, cap regression fix passes at two, write the approve-package the daemon reads on approve, and compose the approval digest — do not post"
+description: "Check closed findings and the unbroken milestone list, cap regression fix passes at two, write the approve-package the daemon reads on approve, and send the approval digest to the owner as the approval ask"
 ---
 
 <task-goal>
-Run exactly two contract checks against the seeded review package and the design's frozen milestone list, cap regression fix passes at two, and compose the phone-sized approval digest naming the four owner outcomes.
+Run exactly two contract checks against the seeded review package and the design's frozen milestone list, cap regression fix passes at two, compose the phone-sized approval digest, and SEND it to the owner as the approval ask — the one message that lets him start execution with a single word.
 </task-goal>
 
 <scope>
 - **Read:** the review package; the design; the draft plan, if the package points at it; this seat's own `memory.md` regression-pass lines.
 - **Write:** `planning/approval-digest.md`; `planning/approve-package.json`, through the
   `approve-package` writer only.
+- **Send:** the digest to the owner, ONCE, as the APPROVAL ASK — one `note` addressed to `owner`
+  on the coordination bus carrying the bound commit, which the bus ferry turns into the owner's
+  approval thread:
+  `coordinate send owner --file planning/approval-digest.md --type note --approve-commit <the bound commit>`
+  Never a Slack call, never an outbox record, never a second transport. The `--approve-commit`
+  flag is what makes this an APPROVAL rather than an ordinary question, and `coordinate` refuses
+  it unless this seat is `human-interactive:` and `planning/approve-package.json` records that
+  exact `bound_commit` — so the package is written BEFORE the send, always.
 </scope>
 
 <done-contract>
@@ -21,7 +29,13 @@ Done criteria — all must hold:
 - Where either check failed and this seat's `memory.md` carries fewer than two `REGRESSION-PASS` lines: a `REGRESSION-PASS <n>` line was appended, a FAIL was recorded naming only the failed check's items (the closed findings list for the revision seat), and no digest was composed this pass.
 - Where either check failed and two `REGRESSION-PASS` lines already exist: no third FAIL was issued; the digest was composed carrying the red flag `unresolved regression`.
 - Where both checks passed: the digest was composed carrying no `unresolved regression` flag.
-- The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), the recorded git commit the plan artifacts bind to, and the four owner outcomes verbatim — `approve` / `reject-close` / `reject-pause` / `reject-retry`.
+- The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), and the recorded git commit the plan artifacts bind to.
+- The digest does NOT list the owner's reply tokens. The approval thread publishes them itself,
+  from the parser's own vocabulary (`ignite/chat/approval-thread.js` composes the posted message:
+  the goal name, the irreversible warning, this digest, the bound commit, then the token line).
+  A digest that names its own token list is a SECOND source for the words the parser accepts, and
+  it drifted: this file asked for `reject-close` / `reject-pause` / `reject-retry`, none of which
+  the parser accepts — a NACK for every rejection the owner tried to type.
 - `planning/approve-package.json` exists and was written by the `approve-package` writer — never
   by hand and never by a second writer. It is what the daemon reads when the owner types `approve`,
   and until this task writes one every approval refuses `no-approve-package`, loudly, in the thread.
@@ -31,16 +45,21 @@ Done criteria — all must hold:
 - Where the writer refuses (a name that is not a bare safe name, a bound commit that is a ref name
   rather than a hex sha), the refusal is carried as a red flag on the digest and the package is
   NOT hand-written. A hand-written package is the one way this file can claim a plan nobody checked.
-- The digest was composed only — never sent; no Slack post, no owner-channel message from this task.
+- The digest was SENT, exactly once, by the Send clause's command, and the command exited 0. A
+  refusal from that command is a red flag on the digest and a FAIL of this task — never a hand-
+  written Slack post and never a second attempt through another transport.
 - An `input-gaps` list is present (may be empty).
 
 Outcome map:
 
-- **Both checks pass** → the approve-package is written and the digest ships for a later Slack seat
-  to post.
-- **The approve-package writer refuses** → the digest still ships, carrying the refusal as a red
-  flag. Nothing is hand-written, and the approval will refuse `no-approve-package` until a later
-  pass fixes the input the writer named.
+- **Both checks pass** → the approve-package is written, then the digest is sent to the owner as
+  the approval ask. The owner's `approve` in that thread starts execution; nothing else in this
+  workflow runs after it.
+- **The approve-package writer refuses** → the digest is written to disk carrying the refusal as a
+  red flag, and it is NOT sent: with no package the send is refused at `coordinate` anyway, and an
+  approval the daemon would answer `no-approve-package` is worse than no ask. Nothing is
+  hand-written. Report the refusal as this task's outcome so a later pass can fix the input the
+  writer named.
 - **A check fails, cap not reached** → FAIL recorded; the revision seat then this task re-fire. Feedback schema: the failed check's items only, as the closed findings list.
 - **A check fails, cap already reached** (two prior `REGRESSION-PASS` lines) → no further FAIL; the digest ships with the `unresolved regression` red flag instead.
 - **Markerless review package** → repair enough to run the two checks from what is on disk, log the gap among the digest's red flags, complete. Never reject. Never re-enter an earlier stage.

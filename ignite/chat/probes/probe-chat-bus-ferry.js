@@ -25,6 +25,7 @@ const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { resolveConfig } = require('../config');
 const { DEFAULT_MAX_BODY_CHARS } = require('../bus-ferry');
+const { IRREVERSIBLE_PHRASE, APPROVAL_TOKEN_LINE } = require('../approval-thread');
 
 const OUT = path.join(__dirname, 'probe-chat-bus-ferry.out');
 
@@ -789,6 +790,61 @@ async function main() {
       ? `live route readiness (NOT asserted — F-115 mints pending): goals declaring execution-mode:interactive = ${interactiveGoals.length}${interactiveGoals.length ? ' (' + interactiveGoals.join(', ') + ')' : ''}. Until a goal is flipped interactive AND its seats declare human-interactive, every agent-initiated to:owner row on this workspace PARKS by ratified default — which is correct, not a defect.`
       : `live route readiness: no readable goals tree at ${goalsDir} — this checkout has no workspace around it.`);
     cap.log({ skip: skipped[skipped.length - 1], goalsDir, interactiveGoals });
+  }
+
+  // 11 — THE APPROVAL ROW: `approve-commit:` ON THE HEADER OPENS AN APPROVAL THREAD.
+  //
+  //     The plan-verifier composes the digest and sends it with `coordinate send owner --type note
+  //     --approve-commit <sha>` (authority checked there: a `human-interactive:` seat, an
+  //     approve-package on the goal, that exact `bound_commit`). This arm is the ferry's half —
+  //     what it hands `postOwnerAsk`, which is the ONLY thing that decides whether the owner's
+  //     `approve` in that thread starts execution (`chat-bridge.js` `kind` fork) or is delivered
+  //     to the seat as an ordinary outcome word.
+  //
+  //     ⚑ THE CONTROL ROW IS THE POINT. Without it, "kind is approval" would also read green if
+  //     the ferry marked EVERY owner row an approval — which is the failure that matters, because
+  //     it would put an irreversible verb in every question the owner is asked.
+  {
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-approve', '2026-08-27a');
+    const COMMIT = '348ebf7e1111111111111111111111111111abcd';
+    const calls = [];
+    const b = makeBridge({
+      workspaceRoot: root,
+      busFerryOptions: {
+        postAsk: async (args) => { calls.push(args); return { posted: true, askId: '9.9', text: args.body }; },
+      },
+    });
+    await b.bridge.start();
+    await b.bridge.busFerry.tick();                       // first sight: cursor to the tail
+
+    append(file, `## 1 | from: plan-verifier | to: owner | type: note | approve-commit: ${COMMIT} | 2026-08-27 18:37\n\nAPPROVAL-DIGEST\nm1 scaffold · m2 wire · 4 seats\n\n`);
+    append(file, msgRow(2, 'plan-verifier', 'owner', 'note', 'which binder should the vault path use?'));
+    append(file, `## 3 | from: plan-verifier | to: owner | type: note | approve-commit: not-a-sha | 2026-08-27 18:39\n\nAPPROVAL-DIGEST\nmalformed\n\n`);
+    await b.bridge.busFerry.tick();
+
+    const approval = calls[0] || {};
+    const ordinary = calls[1] || {};
+    const malformed = calls[2] || {};
+    check('an `approve-commit:` row reaches postOwnerAsk as kind=approval carrying the bound commit',
+      approval.kind === 'approval' && approval.commitId === COMMIT && approval.seatName === 'plan-verifier',
+      { kind: approval.kind, commitId: approval.commitId, seatName: approval.seatName });
+    check('its body is `approval-thread.js#composeApprovalBody` — the §3 lead lines, the digest as payload, the bound commit, and the token line the thread actually parses',
+      typeof approval.body === 'string'
+      && approval.body.includes('*GOAL: goal-approve*')
+      && approval.body.includes(IRREVERSIBLE_PHRASE)
+      && approval.body.includes('APPROVAL-DIGEST')
+      && approval.body.includes(`Bound commit: \`${COMMIT}\``)
+      && approval.body.includes(APPROVAL_TOKEN_LINE),
+      { body: approval.body });
+    check('CONTROL: an owner row with NO approve-commit stays kind=ordinary with no commit — the irreversible verb is not in every question',
+      ordinary.kind === 'ordinary' && ordinary.commitId === null && !/Bound commit/.test(String(ordinary.body)),
+      { kind: ordinary.kind, commitId: ordinary.commitId });
+    check('FAIL CLOSED: a malformed approve-commit is NOT an approval — the row still goes out as an ordinary ask rather than posting a garbage binding',
+      malformed.kind === 'ordinary' && malformed.commitId === null,
+      { kind: malformed.kind, commitId: malformed.commitId });
+
+    b.bridge.stop();
   }
 
   for (const r of roots) { try { fs.rmSync(r, { recursive: true, force: true }); } catch {} }

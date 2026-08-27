@@ -62,6 +62,17 @@ function hasBind(result, abs, access) {
   return result.binds.some((b) => b.path === real && b.access === access);
 }
 
+// The bind the cage actually applies to a path: input order is output order and the LAST entry
+// covering a path decides what that path IS (`cage.js`'s reading, and bwrap's own).
+function innermostAccess(result, abs) {
+  const real = fs.realpathSync(abs);
+  let access = null;
+  for (const b of result.binds) {
+    if (real === b.path || real.startsWith(`${b.path}${path.sep}`)) access = b.access;
+  }
+  return access;
+}
+
 function run() {
   const plan = compile({
     ...base,
@@ -85,7 +96,13 @@ function run() {
   assert.ok(!hasBind(plan, path.join(home, '.config', 'opencode'), 'rw'), 'opencode not an extra rw opening');
   assert.ok(hasBind(plan, path.join(goalDir, 'sessions.csv'), 'ro'), 'daemon-owned file ro');
   assert.ok(hasBind(plan, path.join(goalDir, 'seats'), 'ro'), 'seats dir ro');
-  assert.ok(hasBind(plan, path.join(goalDir, 'coordination'), 'ro'), 'coordination dir ro');
+  // ⚠ THE BUS IS WRITABLE, and this row is the assertion that keeps it so. `coordination` was in
+  // `daemon-owned-records.yaml#directories` and its ro bind made `coordinate checkin` / `send` die
+  // EROFS for every caged seat (2026-08-27) — the protocol's own acts, forbidden by the cage.
+  assert.ok(!hasBind(plan, path.join(goalDir, 'coordination'), 'ro'), 'coordination dir NOT ro — the bus is the protocol\'s own surface (D3)');
+  // …and POSITIVELY: the innermost bind covering it is the rw goal-folder one. Absence of an ro row
+  // alone would also read green if the path stopped being bound at all, which is the same EROFS.
+  assert.equal(innermostAccess(plan, path.join(goalDir, 'coordination')), 'rw', 'coordination dir is WRITABLE');
   assert.ok(!plan.binds.some((b) => b.path === fs.realpathSync(path.join(workspace, '.rbtv', 'config', '.env'))));
   const fam = familiesOf(plan);
   assert.ok(fam.has('goal-folder') && fam.has('named-repos') && fam.has('project-folder'));

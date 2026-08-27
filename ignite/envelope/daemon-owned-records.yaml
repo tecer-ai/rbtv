@@ -6,8 +6,24 @@ files:
   - seat.md
   - goal.md
   - milestones.csv
+# ⚠ `coordination` IS DELIBERATELY ABSENT (2026-08-27). It was listed here from this file's first
+# commit (570131d9) and made `<goal>/coordination` a read-only bind for EVERY caged seat — which
+# is not a stricter reading of D3, it CONTRADICTS D3: "coordination ledgers including sessions.csv
+# are WRITABLE" (`supervisor/spawn/cage.js` header; `supervisor/spawn/spawn.js:1245`), and
+# `spawn-profiles.yaml` states the same in its own list of the six openings. Record forgery on the
+# bus is a NON-GOAL (D3), so nothing here was defending anything.
+#
+# What the ro bind actually cost, measured on `scratch-tool-reach-note` (its `issues.md`,
+# `#G-plan-understander-0827-1630` + the 16:43 correction): `coordinate checkin` died with
+# `OSError [Errno 30] Read-only file system: .../coordination/workers.md.tmp`, `coordinate send`
+# died on `coordination/messages.md`, and the seat could therefore neither check in, nor declare
+# its own ending, nor answer the leader — for EVERY caged seat on the daemon lane, unconditionally.
+# Check-in, check-out and a `note` are the coordination protocol's OWN acts; a cage that forbids
+# them forbids the seat from being a member of the run.
+#
+# `seats` STAYS: peer seat folders are masked absent (D48), which is a real wall between seats and
+# is enforced separately by `cage.js`'s `ro-mask` besides this list.
 directories:
-  - coordination
   - seats
 own-seat-folder-rw: true
 proper-subfolders-rw: true
