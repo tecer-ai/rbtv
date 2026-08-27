@@ -115,9 +115,18 @@ change. `pause` flips `running` → `paused` and nothing else. `resume` applies
 every matching row: goal `paused` → `running`; counter-exhausted lane re-armed
 via the `named-external-input` named event without spending the relaunch budget;
 blocked-on-human and gate-cap lanes refused and pointed at their asks. Neither
-verb flips an ask off `open`. The ending-store API and the lane enumerator are
-injected — no store handle lives here. Probe:
-`probes/probe-chat-pause-resume.js`.
+verb flips an ask off `open`. The ending-store API, the lane enumerator and the
+counter re-arm are injected — no store handle and no sibling require lives here.
+Probe: `probes/probe-chat-pause-resume.js`.
+
+⚠ ROW 1 IS TWO ACTS. `fireNamedEvent` re-arms the ENDING row; the table's "resets
+that counter" is the DRIVER's attempt counter (`spec-recovery` §5), which lives in
+`supervisor/attempt-counters.json` and which `reconcile.js#counterDisarmed` reads
+on every pass. A resume firing only the first act answers `disarmed→armed` and
+leaves the lane skipped forever — the state seven live lanes were in on
+2026-08-27. The second act arrives through the `rearmCounters` port, whose
+daemon-side implementation is `supervisor/exhaustion.js#rearmScope`. It runs even
+with no store, because it is the half the reconcile loop reads.
 
 ⚠ The approval door's D12 effect IS reachable in production: the owner minted the
 fourteenth intent `start-execution` on 2026-08-24 (option (b)) and `chat-bridge.js`

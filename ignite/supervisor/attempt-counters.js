@@ -253,6 +253,34 @@ function markDisarmAnnounced({
   return rows[key];
 }
 
+// -- THE SCOPE READER - the rows a re-arm is ABOUT TO clear ------------------------------------
+//
+// READ-ONLY, and it exists because `rearm` deletes. A caller that must REPORT what it re-armed -
+// the boot code-deploy pass journals one line per cleared row, the mechanical `resume` puts each
+// cleared row in the answer it posts - needs the rows BEFORE they are gone, and the attempts they
+// carried. Reading them here rather than at the caller keeps ONE parser of this ledger: a second
+// reader elsewhere is how the file's shape and its readers drift apart.
+//
+// The `goal` filter is the lane scope spelled as a subject test, not a new key: a subject is
+// `<goal>/<seat>` for the two reconcile drivers and a bare identity for the others, so a goal owns
+// the row whose `goal` field is it, whose subject IS it, or whose subject is prefixed by it.
+// Nothing here decides whether a row is disarmed - that is `attempts >= attempt_counter_n`, and
+// `recovery-config.js` is the only place the N lives.
+function listCounters({ goal = null } = {}, { countersFile } = {}) {
+  const rows = readAll(countersFile);
+  const out = [];
+  for (const key of Object.keys(rows)) {
+    const row = rows[key];
+    if (goal) {
+      const subject = String(row.subject || '');
+      const owned = row.goal === goal || subject === goal || subject.startsWith(`${goal}/`);
+      if (!owned) continue;
+    }
+    out.push({ key, ...row });
+  }
+  return out;
+}
+
 // The read side, for a driver deciding whether to fire at all before it spends a launch.
 function peekCounter({
   driver, goal, seat, subject, reasonClass,
@@ -303,6 +331,7 @@ module.exports = {
   keyOf,
   countAttempt,
   markDisarmAnnounced,
+  listCounters,
   peekCounter,
   rearm,
 };

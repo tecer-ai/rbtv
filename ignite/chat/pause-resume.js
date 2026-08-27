@@ -16,6 +16,13 @@
 //   `state-store/index.js#bind(db)` returns — so the reader is the one the redesign already owns
 //   and the recovery semantics are CALLED, never re-implemented here.
 //
+// ⚑ ROW 1 OF THE RESUME TABLE IS TWO ACTS, NOT ONE. `fireNamedEvent` re-arms the ENDING row; the
+//   table's "resets that counter" is the DRIVER's attempt counter (spec-recovery §5), which lives
+//   in the supervisor's ledger and which `reconcile.js#counterDisarmed` reads on every pass. A
+//   resume that fires only the first act reports `disarmed→armed` and leaves the lane skipped
+//   forever. The second act arrives through the `rearmCounters` port below for the same
+//   process-boundary reason the store does.
+//
 // ⚑ THERE IS NO THIRD PAUSE GRAMMAR. The owner-reply `pause` token is parsed by
 //   `reply-grammar.js` (§4) and applied to the ending store's goal word (`goal_states.stored`,
 //   spec-state-store §3). It is NOT `lane-watch.laneIsPaused` — that reads the legacy
@@ -55,6 +62,22 @@ function createPauseResume({
   // today, and inventing one here would be a second source of that fact — so the enumerator is
   // the embedder's, and a missing one means resume applies the GOAL row only.
   listSeats = null,
+  // `rearmCounters(goal) -> [{subject, seat, driver, reason_class, attempts}]` — the OTHER half of
+  // resume-semantics row 1. The table says resume "re-arms that driver; resets that counter", and
+  // the counter is NOT the ending row: it is the supervisor's attempt-counter ledger, which
+  // `reconcile.js#counterDisarmed` reads on every pass and which `fireNamedEvent` does not touch.
+  // A lane re-armed on the ending row alone is still skipped by the reconcile loop — that gap is
+  // why seven lanes on this instance were permanently disarmed (2026-08-27).
+  //
+  // ⚑ INJECTED FOR THE SAME REASON `store` IS, and this is a WALL, not a preference. The ledger is
+  //   DAEMON state and this is a separate process: `probes/probe-chat-boundary.js` forbids this
+  //   subtree a store handle, a child process and a sibling require, and the build memory records
+  //   what happens to a migration that reaches through it anyway (entry
+  //   `20260824-i-open-asks-has-no-boundary-lega`, reverted whole). The daemon-side implementation
+  //   is `supervisor/exhaustion.js#rearmScope`; wiring it into THIS process needs a gateway intent,
+  //   which is an owner-ruled act. With no port the counter half simply does not happen and the
+  //   door says so, exactly as it already does for the unwired store.
+  rearmCounters = null,
   // Posts a line back where the verb arrived: in-thread when it came in a thread, otherwise as a
   // reply to the command message. Required — a mechanical verb that answers nothing is the
   // silence [F-owner-ux-2] forbids.
@@ -71,6 +94,19 @@ function createPauseResume({
     try { return (listSeats(goal) || []).map(String); } catch (err) {
       log('warn', 'could not enumerate the goal\'s lanes — resume applies the goal row only', { goal, error: err.message });
       return [];
+    }
+  }
+
+  // The counter half's one call site. A port that throws must not cost the owner the rest of the
+  // table — the failure becomes a refusal the door posts, never an exception that eats the verb.
+  function rearmCounterRows(goal) {
+    if (typeof rearmCounters !== 'function') return { cleared: [], error: null };
+    try {
+      const out = rearmCounters(goal);
+      return { cleared: Array.isArray(out) ? out : [], error: null };
+    } catch (err) {
+      log('warn', 'the attempt-counter re-arm port refused — resume\'s counter half did not happen', { goal, error: err.message });
+      return { cleared: [], error: err.message };
     }
   }
 
@@ -94,9 +130,36 @@ function createPauseResume({
   // `running` does not re-arm a counter-exhausted lane, and a lane refusing to be lifted does not
   // stop the goal word from flipping.
   function applyResume(goal) {
-    if (!store) return { applied: false, reason: 'no-store', actions: [], refusals: [] };
     const actions = [];
     const refusals = [];
+
+    // ROW 1, THE COUNTER HALF. It runs FIRST and it runs whether or not a store is wired, because
+    // it is the half the reconcile loop reads: a lane whose counter still stands at N is skipped
+    // on every pass no matter what the ending row says.
+    const counter = rearmCounterRows(goal);
+    for (const row of counter.cleared) {
+      actions.push({
+        row: 'counter',
+        seat: row.seat || row.subject,
+        driver: row.driver,
+        reason_class: row.reason_class,
+        attempts: row.attempts,
+        change: 'counter reset',
+      });
+    }
+    if (counter.error) refusals.push({ row: 'counter', text: `${goal}: the attempt counters were NOT re-armed — ${counter.error}` });
+
+    if (!store) {
+      // The goal word and every lane ending need the store this process does not hold. Say which
+      // half happened rather than answering as if the whole row did.
+      refusals.push({ row: 'no-store', text: `${goal}: no ending-store port is wired in this process — the goal word and the lane endings were not touched.` });
+      return {
+        applied: counter.cleared.length > 0,
+        ...(counter.cleared.length ? {} : { reason: 'no-store' }),
+        actions,
+        refusals,
+      };
+    }
 
     // ROW 4 — paused goal: flip `paused` → `running`. Armed eligible lanes may then launch; a
     // disarmed one stays disarmed until its own row (or another named re-arm) consumes the flag.
@@ -159,6 +222,7 @@ function createPauseResume({
     for (const a of out.actions) {
       if (a.row === 'goal' && a.change === 'already-paused') lines.push(`${goal} was already paused.`);
       else if (a.row === 'goal') lines.push(`${goal}: ${a.change}.`);
+      else if (a.row === 'counter') lines.push(`${a.seat}: attempt counter re-armed (${a.reason_class}, was ${a.attempts}).`);
       else lines.push(`${a.seat}: re-armed (${a.change}).`);
     }
     for (const r of out.refusals) lines.push(r.text);
@@ -189,10 +253,14 @@ function createPauseResume({
 
     const goal = parsed.goal;
     const verb = parsed.outcome;
-    if (!store) {
+    // `pause` writes the goal word and nothing else, so with no store it has no applier at all.
+    // `resume` has TWO appliers — the ending store and the counter ledger — and either one wired
+    // is a verb worth running: the counter half is the half the reconcile loop reads.
+    const hasApplier = store || (verb === 'resume' && typeof rearmCounters === 'function');
+    if (!hasApplier) {
       // No applier is wired in this process yet. Say so rather than answer as if it worked — a
       // silent success is how an owner learns to trust a door that does nothing.
-      log('warn', 'mechanical verb parsed and targeted, but NO ending-store port is wired in this process — nothing applied', { verb, goal });
+      log('warn', 'mechanical verb parsed and targeted, but NO applier port is wired in this process — nothing applied', { verb, goal });
       return { mechanical: true, ok: false, applied: false, reason: 'no-store', verb, goal, comments: parsed.comments };
     }
 

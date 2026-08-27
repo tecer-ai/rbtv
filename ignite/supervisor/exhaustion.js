@@ -161,19 +161,69 @@ function exhaust({
 // re-arm the ending, reset THAT counter. It spends no relaunch budget and rewrites no brief -
 // there is deliberately no budget call in this function, and that absence is the [C-11] guarantee
 // that an ask-resume is free.
+// THE STORE IS OPTIONAL, and that is not laxity - it is the deployed truth. Nothing sets
+// `engine.endingStore` and `chat/index.js#main()` wires no port, so on this instance a disarmed
+// lane exists ONLY as a counter row and the ending half has no writer to reach. A `store` that
+// must be present would make the counter half - the half `reconcile.js#counterDisarmed` actually
+// reads - unreachable for exactly as long as the ending store stays unwired. With no store the
+// ending half is simply not performed, and `consumed` says so.
+//
+// `subject` rides through for the drivers whose subject is not a `(goal, seat)` lane (a job, an
+// alarm identity). `counters.rearm` prefers it over goal+seat, which is what makes a scope sweep
+// able to re-arm a row it did not have to name.
 function consumeDisarmed({
-  store, goal, seat, driver, event = counters.RE_ARM.RESUME,
+  store = null, goal, seat, subject, driver, event = counters.RE_ARM.RESUME,
 }, { countersFile } = {}) {
-  const current = store.getCurrentEnding({ goal, seat });
+  const current = (store && seat) ? store.getCurrentEnding({ goal, seat }) : null;
   const disarmed = Boolean(current && current.ending === 'incomplete' && Number(current.armed) === 0);
   const armedRow = disarmed
     ? store.fireNamedEvent({ goal, seat, named_event: current.named_event })
     : current;
   const reset = counters.rearm({
-    event, goal, seat, driver,
+    event, goal, seat, subject, driver,
   }, { countersFile });
   return {
     consumed: disarmed, ending: armedRow, reset, event,
+  };
+}
+
+// -- THE SCOPE SWEEP - a named re-arm event over every row it owns ------------------------------
+//
+// WHAT WAS BROKEN. `consumeDisarmed` above is the mechanical half of spec-recovery section 4 row 1
+// and it had ZERO callers; no boot or deploy path fired `code-deploy` either. So the closed re-arm
+// list had no PRODUCER at all: a counter that reached N stayed at N forever and its lane was
+// skipped on every pass, permanently (seven lanes on this instance, 2026-08-27). The counter
+// module was never the gap - the two acts that were supposed to call it were.
+//
+// WHAT THIS IS. One entry point for "this named event happened, re-arm what it owns", returning
+// the rows it cleared so the caller can SAY what it did. The scope is the event's own, exactly as
+// `counters.rearm` defines it: `code-deploy` / `config-change` change the world for every driver
+// and clear everything; `resume` / `owner-leader-act` are about a lane and clear that lane. Pass
+// `goal` for the lane-scoped events; leave it null for the wide ones.
+//
+// IT DOES NOT DECIDE WHETHER A ROW WAS DISARMED. A wide event clears every row by design (the
+// module's own scope rule), and a lane-scoped one clears the lane the owner just named. Filtering
+// to `attempts >= N` here would need a second copy of the N and would leave a row at N-1 counting
+// through a deploy that changed the very code it was counting refusals from.
+function rearmScope({ store = null, goal = null, event }, { countersFile } = {}) {
+  const before = counters.listCounters({ goal }, { countersFile });
+  if (!before.length) return { event, goal, cleared: [], consumed: [] };
+  const consumed = [];
+  const seen = new Set();
+  for (const row of before) {
+    if (seen.has(row.subject)) continue;   // one re-arm per subject; a subject's rows go together
+    seen.add(row.subject);
+    const out = consumeDisarmed({
+      store, goal: row.goal, seat: row.seat, subject: row.subject, event,
+    }, { countersFile });
+    if (out.consumed) consumed.push({ goal: row.goal, seat: row.seat, subject: row.subject });
+  }
+  // Reported from what is ACTUALLY gone, never from what was asked for: a wide event clears rows
+  // this sweep never named, and a caller journalling its own intent instead of the outcome is how
+  // a log grows to disagree with the ledger it describes.
+  const after = new Set(counters.listCounters({ goal }, { countersFile }).map((r) => r.key));
+  return {
+    event, goal, cleared: before.filter((r) => !after.has(r.key)), consumed,
   };
 }
 
@@ -189,4 +239,5 @@ module.exports = {
   recordGroupedAsk,
   exhaust,
   consumeDisarmed,
+  rearmScope,
 };

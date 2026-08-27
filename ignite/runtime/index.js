@@ -26,6 +26,7 @@ const { createLiveSessions } = require('../supervisor/spawn/live-sessions');
 const { SpawnError, E_HEADED_NOT_CAPABLE } = require('../supervisor/spawn/errors');
 const { createInternalApi } = require('./internal-api/dispatch');
 const { captureLoadedCode, writeCodeMarker } = require('./code-fingerprint');
+const { rearmOnCodeDeploy } = require('./code-deploy-rearm');
 const { parseRetentionDays, sweepRetention } = require('./retention');
 const settings = require('./settings');
 const { createGateway } = require('./gateway/gateway');
@@ -724,13 +725,25 @@ async function main() {
   // failure, because this runs at boot and a boot throw reaches the hard exit below — the daemon
   // must never refuse to start because of the machinery watching whether it started.
   const daemonLoadedCode = captureLoadedCode(__dirname);
+  // spec-recovery §5's `code-deploy` re-arm, and it MUST run BEFORE the marker is rewritten — the
+  // marker still holds the LAST boot's digest, which is the only thing this boot can compare
+  // against. A deploy changes the world under every attempt counter, so every counter is cleared
+  // and each cleared row is journalled; an ordinary restart hashes the same bytes, compares equal
+  // and re-arms nothing. Without this, a counter that reached N was disarmed permanently: nothing
+  // in the tree ever produced ANY of the four named re-arm events (seven lanes on this instance,
+  // 2026-08-27). Fail-soft by contract — it never throws.
+  // The WIDE capture — the whole `ignite/` closure, not just this component's slice. It answers a
+  // different question from the marker's published one (see `writeCodeMarker`): "was any of this
+  // daemon's code deployed since the last boot". Same fail-soft contract, same capture function.
+  const deployedCode = captureLoadedCode(path.join(__dirname, '..'));
+  rearmOnCodeDeploy({ workspaceRoot, fingerprint: deployedCode, log });
   // G-188 stage 3: publish it where a CREDENTIAL-FREE reader can find it. `inspect daemon` needs
   // auth, so a continuously-watching loop would have to hold the owner's token for its whole life
   // (standing bar 11: read at call time, never held) — refused on principle by leader #840. The
   // marker is gitignored and stamps this boot's pid + INVOCATION_ID, because A MARKER OUTLIVES THE
   // PROCESS THAT WROTE IT and a reader must correlate it against the live unit before trusting it.
   // Fail-soft: returns false, never throws — see the boot bar in code-fingerprint.js.
-  writeCodeMarker(workspaceRoot, daemonLoadedCode);
+  writeCodeMarker(workspaceRoot, daemonLoadedCode, deployedCode);
 
   // ── The composition root (internal-api-contract-spec.md § 4) ────────────────
   //

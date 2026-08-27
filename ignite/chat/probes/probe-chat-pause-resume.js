@@ -17,6 +17,8 @@ const { createPauseResume } = require('../pause-resume');
 const { NACK_MECHANICAL } = require('../reply-grammar');
 const { openEndingStoreFor, closeEndingStores } = require('../../state-store/open');
 const store = require('../../state-store');
+const counters = require('../../supervisor/attempt-counters');
+const exhaustion = require('../../supervisor/exhaustion');
 
 const OUT = path.join(__dirname, 'probe-chat-pause-resume.out');
 const t0 = Date.now();
@@ -29,19 +31,43 @@ const GOAL = 'demo-goal';
 const OTHER = 'other-goal';
 const EV = 'probe://pause-resume';
 
-function fresh() {
+function fresh({ withCounterPort = true, withStore = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pause-resume-'));
   const db = openEndingStoreFor(root);
   const api = store.bind(db);
   const listSeats = (goal) => db.prepare('SELECT seat FROM seat_endings WHERE goal = ? ORDER BY seat').all(goal).map((r) => r.seat);
   const posts = [];
+  // The counter ledger lives in the throwaway workspace, NEVER at the module default — the default
+  // is the daemon's own live ledger and a probe that wrote it would re-arm the real instance.
+  const countersFile = path.join(root, 'attempt-counters.json');
+  // `store` is deliberately NOT handed to the port: the ending half of row 1 belongs to
+  // `applyResume`'s own seat loop, and a port that fired it too would make the two halves race to
+  // report the same act.
+  const rearmCounters = withCounterPort
+    ? (goal) => exhaustion.rearmScope({ goal, event: counters.RE_ARM.RESUME }, { countersFile }).cleared
+    : null;
   const door = createPauseResume({
-    store: api,
+    store: withStore ? api : null,
     listSeats,
+    rearmCounters,
     post: async (p) => { posts.push(p); return { delivered: true }; },
     logger: null,
   });
-  return { root, db, api, door, posts, listSeats };
+  return { root, db, api, door, posts, listSeats, countersFile };
+}
+
+// A driver that has already reached N on this lane — the state `reconcile.js#counterDisarmed`
+// reads to take `skip-disarmed`. Written through `countAttempt` (never a hand-built JSON row) so
+// the fixture is the shape the real driver leaves.
+function exhaustCounter(countersFile, seat, reasonClass, n = 3) {
+  for (let i = 0; i < n; i += 1) {
+    counters.countAttempt({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass, n,
+    }, { countersFile });
+  }
+  return counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass,
+  }, { countersFile });
 }
 
 // A lane halted the way the spec's row describes it. `stampSystem` is the ONLY writer that can
@@ -194,6 +220,86 @@ function halt(api, seat, diagnostic) {
     check('C2: neither verb flips an ask off `open` [§4.2] — pause/resume is not an answer and never releases one',
       out2.ok === true && ask2.state === 'open' && ask2.authorized_reply_at == null,
       { ask: ask2.state, repliedAt: ask2.authorized_reply_at });
+  }
+
+  // ── D. ROW 1'S OTHER HALF: THE ATTEMPT COUNTER ──────────────────────────────────────────────
+  //
+  // The failure being replaced is a resume that reports `disarmed→armed` and leaves the lane
+  // SKIPPED: `fireNamedEvent` re-arms the ending row, but `reconcile.js#counterDisarmed` reads the
+  // counter ledger, and nothing was clearing it. Seven lanes on the live instance were in that
+  // state (2026-08-27) with no way out of it.
+  {
+    const { door, api, posts, countersFile } = fresh();
+    const before = exhaustCounter(countersFile, 'leader', 'nonterm');
+    exhaustCounter(countersFile, 'leader', 'unread');
+    exhaustCounter(countersFile, 'plan-drafter', 'nonterm');
+    // A different goal's row, to prove the resume is LANE-SCOPED and not a wide clear.
+    counters.countAttempt({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: OTHER, seat: 'leader', reasonClass: 'nonterm', n: 3,
+    }, { countersFile });
+    halt(api, 'leader', 'attempt-counter exhaustion');
+    halt(api, 'plan-drafter', 'attempt-counter exhaustion');
+
+    check('D1: the fixture is a real disarmed counter — three same-reason passes reached N=3',
+      before && before.attempts === 3, { attempts: before && before.attempts });
+
+    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL, OTHER] });
+    const gone = (seat, cls) => counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass: cls,
+    }, { countersFile }) === null;
+
+    check('D2: resume CONSUMES the disarmed counter — every row of every lane of that goal is cleared',
+      gone('leader', 'nonterm') && gone('leader', 'unread') && gone('plan-drafter', 'nonterm'),
+      { leaderNonterm: gone('leader', 'nonterm'), leaderUnread: gone('leader', 'unread'), drafter: gone('plan-drafter', 'nonterm') });
+
+    const other = counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: OTHER, seat: 'leader', reasonClass: 'nonterm',
+    }, { countersFile });
+    check('D3: and it is LANE-SCOPED — another goal\'s counter is untouched (only code-deploy/config-change are wide)',
+      other !== null && other.attempts === 1, { other: other && other.attempts });
+
+    const lane = api.getCurrentEnding({ goal: GOAL, seat: 'leader' });
+    check('D4: the ENDING half still fires — both acts of row 1 happen, not one instead of the other',
+      Number(lane.armed) === 1 && out.actions.some((a) => a.row === 'counter-exhaustion'),
+      { armed: lane.armed, rows: out.actions.map((a) => a.row) });
+
+    const counterActions = out.actions.filter((a) => a.row === 'counter');
+    check('D5: each cleared row is REPORTED with the count it was cleared from — a silent undo of a silent disarm is no better',
+      counterActions.length === 3 && counterActions.every((a) => a.attempts >= 1 && a.reason_class)
+        && /attempt counter re-armed \(nonterm, was 3\)/.test(posts[posts.length - 1].text),
+      { actions: counterActions.map((a) => `${a.seat}/${a.reason_class}=${a.attempts}`), text: posts[posts.length - 1].text });
+  }
+
+  // ── D-RED. THE MUTATION: the door as it stood before this wiring ────────────────────────────
+  //
+  // No port = the pre-fix shape. The ending row flips and the counter STANDS AT N, which is the
+  // exact state the live instance was in: `resume` answers `disarmed→armed` and the reconcile loop
+  // skips the lane forever. If this arm ever goes green, the fix has been undone.
+  {
+    const { door, api, countersFile } = fresh({ withCounterPort: false });
+    exhaustCounter(countersFile, 'leader', 'nonterm');
+    halt(api, 'leader', 'attempt-counter exhaustion');
+    await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
+    const row = counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat: 'leader', reasonClass: 'nonterm',
+    }, { countersFile });
+    const lane = api.getCurrentEnding({ goal: GOAL, seat: 'leader' });
+    check('D6 [RED-MUTATION]: with no counter port the lane is armed on paper and still disarmed to the reconcile loop',
+      row !== null && row.attempts === 3 && Number(lane.armed) === 1,
+      { attempts: row && row.attempts, armed: lane.armed });
+  }
+
+  // ── D-NO-STORE. The deployed shape: no ending-store port is wired in this process ────────────
+  {
+    const { door, posts, countersFile } = fresh({ withStore: false });
+    exhaustCounter(countersFile, 'leader', 'nonterm');
+    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
+    const row = counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat: 'leader', reasonClass: 'nonterm',
+    }, { countersFile });
+    check('D7: with no store the counter half STILL runs — it is the half the reconcile loop reads — and the missing half is said out loud',
+      out.applied === true && row === null && /no ending-store port is wired/.test(posts[posts.length - 1].text),
+      { applied: out.applied, row, text: posts[posts.length - 1].text });
   }
 
   closeEndingStores();

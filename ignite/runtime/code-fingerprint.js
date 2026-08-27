@@ -46,6 +46,11 @@
 const crypto = require('crypto');
 const path = require('path');
 
+// The marker's home, spelled ONCE. The writer below and the reader beside it must never be able to
+// disagree about where the file is - a reader looking in the wrong place reports "no previous
+// boot" forever, which is the empty-but-present lie in a second costume.
+const MARKER_REL = path.join('.rbtv', 'runtime', 'daemon-code.json');
+
 /**
  * Fingerprint the loaded closure, or return null. NEVER throws — see the fail-soft bar above.
  *
@@ -116,13 +121,23 @@ function captureLoadedCode(rootDir) {
  * throwing. A marker that cannot be written leaves the reader saying UNKNOWN, out loud, which is
  * strictly better than a daemon that will not start.
  *
+ * `deployFingerprint` is a SECOND capture over a WIDER root (the whole `ignite/` closure), stored
+ * as a SUMMARY — digest and count, no per-file map. It answers a different question from the one
+ * above: `code` is "which bytes is this daemon RUNNING", scoped to the process's own component and
+ * re-hashed file-by-file by the watchdog; `deploy` is "was anything in this daemon's code
+ * DEPLOYED since the last boot", which is spec-recovery §5's `code-deploy` re-arm trigger
+ * (`code-deploy-rearm.js`). The narrow digest cannot answer it: a deploy touching only
+ * `supervisor/` leaves it byte-identical, and the re-arm would never fire for the commits most
+ * likely to need it. Its entries are deliberately NOT stored — the map would be ten times the
+ * marker's size for a question only its digest answers.
+ *
  * @returns {boolean} whether the marker was written (never throws)
  */
-function writeCodeMarker(workspaceRoot, fingerprint) {
+function writeCodeMarker(workspaceRoot, fingerprint, deployFingerprint = null) {
   try {
     if (!fingerprint) return false;   // absent stays ABSENT: never publish an empty marker
     const fs = require('fs');
-    const dir = path.join(path.resolve(workspaceRoot), '.rbtv', 'runtime');
+    const dir = path.dirname(path.join(path.resolve(workspaceRoot), MARKER_REL));
     fs.mkdirSync(dir, { recursive: true });
     const body = JSON.stringify({
       pid: process.pid,
@@ -138,17 +153,54 @@ function writeCodeMarker(workspaceRoot, fingerprint) {
       invocation: process.env.INVOCATION_ID || null,
       written_at: new Date().toISOString(),
       code: fingerprint,
+      // The wide summary. `null` when the capture failed, which reads as UNKNOWN at the re-arm
+      // (never as "unchanged") — see the trichotomy at the top of this file.
+      deploy: deployFingerprint ? {
+        digest: deployFingerprint.digest,
+        files: deployFingerprint.files,
+        captured_at: deployFingerprint.captured_at,
+      } : null,
     }, null, 1);
     // Same-directory temp + rename: a reader must never observe a half-written marker, and a
     // truncated JSON would read as a CORRUPT marker — which the reader must treat as UNKNOWN, but
     // it is cheaper not to create the case at all.
     const tmp = path.join(dir, `.daemon-code.json.${process.pid}.tmp`);
     fs.writeFileSync(tmp, body);
-    fs.renameSync(tmp, path.join(dir, 'daemon-code.json'));
+    fs.renameSync(tmp, path.join(path.resolve(workspaceRoot), MARKER_REL));
     return true;
   } catch {
     return false;
   }
 }
 
-module.exports = { captureLoadedCode, writeCodeMarker };
+/**
+ * Read the marker the PREVIOUS boot left, or null - the other side of `writeCodeMarker`.
+ *
+ * WHY IT EXISTS. `code-deploy` is one of spec-recovery section 5's four named re-arm events and it
+ * had no producer: nothing in the tree ever compared this boot's code to the last one's, so every
+ * attempt counter that reached N stayed there through every deploy and restart. The comparison
+ * needs the previous digest, and the previous digest is already on disk in this marker - written
+ * at every boot since G-188 stage 3. NO SECOND LEDGER IS ADDED for it.
+ *
+ * ⚠ THE MARKER IS THE LAST BOOT'S, NOT THE LAST DEPLOY'S, and the difference is the whole point:
+ * a plain restart re-reads the same bytes and yields the same digest, so it is NOT a deploy and
+ * must re-arm nothing. That is what makes this comparison a deploy detector rather than a restart
+ * detector.
+ *
+ * Fail-soft on the same terms as everything else in this file - it is read at boot.
+ *
+ * @returns {{pid:number, root:string, invocation:string|null, written_at:string, code:object}|null}
+ */
+function readCodeMarker(workspaceRoot) {
+  try {
+    const fs = require('fs');
+    const parsed = JSON.parse(fs.readFileSync(path.join(path.resolve(workspaceRoot), MARKER_REL), 'utf8'));
+    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = {
+  MARKER_REL, captureLoadedCode, writeCodeMarker, readCodeMarker,
+};

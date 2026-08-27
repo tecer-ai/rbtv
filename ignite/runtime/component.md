@@ -26,6 +26,7 @@ says (`observation/`), or what a cage admits (`envelope/`).
 | lease | `lease/` | The one-live-run lease the daemon derives and consumers read |
 | seat identity | `seat-identity/` | `rbtv-seat-identity` and the peer/seat-folder resolution behind it |
 | cockpit / retention / settings / fingerprint | `cockpit.js`, `retention.js`, `settings.js`, `code-fingerprint.js` | Host-level boot and housekeeping passes |
+| code-deploy re-arm | `code-deploy-rearm.js` | spec-recovery §5's `code-deploy` event, at boot: if this boot's WIDE `ignite/` code digest differs from the one the last boot recorded on `.rbtv/runtime/daemon-code.json`, every attempt counter is re-armed and each cleared row is journalled. A restart hashes the same bytes and re-arms nothing; an UNKNOWN digest re-arms nothing. Runs BEFORE `writeCodeMarker`, which is what records the new digest - there is no second ledger. Probe: `probes/probe-code-deploy-rearm.js` |
 | job scripts | `jobs/` | The `fire-tool` payloads the queue invokes (`jobcontain.py`, `restart-daemon.py`, `recover-room.py`, `agent-tmp-clean.py`) |
 | run board / substrate / python-cmd | `run-board.js`, `substrate.js`, `python-cmd.js` | The attached-run board, the platform substrate reads, and the one python interpreter resolver |
 

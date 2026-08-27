@@ -438,6 +438,31 @@ hours and cancel the alarm [T1-R15].
 Storage is `attempt-counters.json` beside this file (override `countersFile`),
 rewritten tmp-then-rename. Not a table in the ending store - spec-state-store
 pins three record kinds there and a counter is not one of them.
+`listCounters({goal})` is the read-only scope reader: the rows a re-arm is about
+to delete, so the caller can report what it cleared and from what count.
+
+## The re-arm, and who produces the four events
+
+`exhaustion.js#rearmScope({store, goal, event})` - "this named event happened,
+re-arm what it owns", returning the rows it cleared. Scope is the EVENT's, never
+the caller's preference: `code-deploy` / `config-change` clear everything;
+`resume` / `owner-leader-act` clear the named lane. It calls `consumeDisarmed`
+per subject, so the ending half (`fireNamedEvent`) and the counter half
+(`counters.rearm`) stay one act; `store` is OPTIONAL because nothing in the
+deployed tree sets `engine.endingStore`, and a disarmed lane there exists ONLY
+as a counter row.
+
+Until 2026-08-27 the closed re-arm list had NO PRODUCER at all: `rearm` had one
+caller (`consumeDisarmed`) and that caller had none, so a driver that reached N
+was disarmed permanently - through every restart and every deploy (seven live
+lanes). The producers now wired:
+
+| event | producer | fires when |
+|---|---|---|
+| `code-deploy` | `runtime/code-deploy-rearm.js`, at boot | this boot's `ignite/` code digest differs from the one the last boot recorded on the marker (first boot with no record fires too) |
+| `resume` | `chat/pause-resume.js#applyResume`, through its injected `rearmCounters` port | the owner types `resume {goal}` - the port is UNWIRED in production for the process-boundary reason the store is |
+| `config-change` | none | there is no config-reload path to hook: `loadRecoveryConfig` is re-read at each use, with no watcher, no SIGHUP and no cache to invalidate, so there is no moment that IS the change |
+| `owner-leader-act` | none | out of this seat's scope |
 
 ## The exit at N
 
