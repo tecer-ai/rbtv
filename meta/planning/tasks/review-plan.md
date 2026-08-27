@@ -19,7 +19,9 @@ Done criteria — all must hold:
 - The body carries a findings list, each entry tagged `blocking` or `non-blocking`, emitted exactly once — a second findings pass on the same run is a fail.
 - Only findings tagged `blocking` were revised; every `non-blocking` finding remains, untouched, as accepted residue.
 - The revised plan still carries every milestone id the design froze, unbroken.
-- The approval package section names what the owner is being asked to bind: the plan artifacts, and that approval binds at a recorded git commit — never at a canvas.
+- The approval package section names what the owner is being asked to bind: the plan artifacts, and that approval binds at a recorded git commit — never at a canvas. It names WHO records it and WHERE the verify stage reads it: the goal's `leader` commits `planning/` to the vault when it accepts this seat's row and writes the hash to `planning/bound-commit`. No planning seat records it: they run caged with `.git` masked.
+- The draft's EXECUTION DECLARATION was trialed and is present and valid, or the finding is `blocking`. Valid means: an `execution-goal` matching `^[A-Za-z0-9][A-Za-z0-9._-]*$` and not `owner`; a `lane`; a `roster` of the plan's own seat ids with no duplicate; `workflow`+`sheet` present or explicitly declared one-off; `contract-file` where the plan names one. An absent declaration, a name that is a path or a title, a roster naming a seat the plan does not detail, or a plan that says it "executes in place" are each `blocking` — approval BIRTHS a new goal and mints its roster, so a plan with no truthful declaration cannot be approved at all.
+- No milestone mechanism assigns the casting, materializing or launching of an execution seat to any seat — this goal's `leader` included. That act is the daemon's at birth. A mechanism that names a performer for it is `blocking`, and it is fixed by naming the roster seat rather than by naming a different performer.
 - An `input-gaps` list is present (may be empty).
 - Completeness: every one of the six workflow-authoring-checklist declarations was trialed against every produced execution seat in the draft; a failed declaration is `blocking`; two findings naming the same defect are collapsed to one; a finding with no plan location is not a finding.
 
@@ -29,4 +31,3 @@ Outcome map:
 - **Markerless or thin draft** → repair forward, log the gap, complete. Never reject. Never re-enter draft or design.
 - **Verify FAIL relaunch** (this task's seat is on verify's `on-fail-relaunch`) → treat the FAIL body as the closed findings list; do not emit a new findings list; apply a targeted fix for those items only; rewrite the review package (same first-line marker); complete. Feedback schema: each closed finding paired with the fix applied.
 </done-contract>
-</output>

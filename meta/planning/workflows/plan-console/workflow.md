@@ -31,6 +31,17 @@ reusable) or a one-off taskforce (in the goal's own folder) is the owner's decla
 creation, honoured by the draft stage — no agent mints durable scaffolding on its own, and no seat
 in this DAG branches on it.
 
+**Approval is a BIRTH, and the plan must say what is born.** The owner's `approve` runs a Path-B
+birth: it scaffolds a NEW goal folder under `.rbtv/goals/` and MINTS its roster. There is no
+"execute in place" inside the planning goal, and no seat — here or in the born goal — ever casts an
+execution seat by hand. So the draft carries an EXECUTION DECLARATION naming what the birth needs
+and nothing more: the `execution-goal` name (a bare safe name, `^[A-Za-z0-9][A-Za-z0-9._-]*$`, never
+`owner`), the `lane`, the `roster` of seat ids, and `workflow` + `sheet` where the plan lands as a
+durable workflow (omitted, explicitly, for a one-off taskforce), plus `contract-file` where the plan
+names one. Those are exactly the fields `ignite/planning/approve_package.py` takes; the review stage
+makes a missing or invalid declaration a `blocking` finding, and the verify stage passes them
+through to the writer rather than authoring any of them.
+
 **Scope.** Four lean stages, one seat each, plus a fifth verification seat — five seats, one linear
 pass, no per-milestone teams and no goal-level/per-milestone split. Every stage seat is an
 orchestrator of sub-agents (`plan-researcher` / `plan-diagnoser`, fanned out with no manifest row —
@@ -48,21 +59,34 @@ an ask-cap and none has a wall-clock deadline (a planning seat's only clock is t
    why that approach, and the FULL milestone list (not a first slice) with per-milestone
    done-criteria — each an observable, a probe, and a threshold.
 3. `plan-drafter` — reads the design and the facts brief, and writes `planning/draft-plan.md`:
-   every milestone from the design detailed, the execution seats/workflow, a permission-envelope
-   section and a credential-name section (sections, never compiled — planning seats themselves run
-   under the shipped standard planning envelope), per-seat interact flags, declared outputs, and a
-   relaunch budget. Every produced execution seat carries the six
-   `workflow-authoring-checklist` declarations.
-4. `plan-reviewer` — trials the draft ONCE against the frozen milestone list and the six
-   declarations, emits a findings list tagged `blocking` / `non-blocking`, revises ONLY the
-   blocking findings (non-blocking ships as accepted residue), and writes
-   `planning/review-package.md`: the tagged findings, the revised plan, and the approval package
-   (what the owner is being asked to bind, and that approval binds at a git commit).
+   every milestone from the design detailed, the EXECUTION DECLARATION (above), the execution
+   seats/workflow, a permission-envelope section and a credential-name section (sections, never
+   compiled — planning seats themselves run under the shipped standard planning envelope), per-seat
+   interact flags, declared outputs, and a relaunch budget. Every produced execution seat carries
+   the six `workflow-authoring-checklist` declarations.
+4. `plan-reviewer` — trials the draft ONCE against the frozen milestone list, the six
+   declarations and the execution declaration, emits a findings list tagged `blocking` /
+   `non-blocking`, revises ONLY the blocking findings (non-blocking ships as accepted residue), and
+   writes `planning/review-package.md`: the tagged findings, the revised plan, and the approval
+   package (what the owner is being asked to bind, and that approval binds at a git commit).
+
+   **The 4→5 edge is where the plan is BOUND.** No seat in this DAG can record the binding: every
+   one runs caged and `.git` is a default mask (`ignite/supervisor/spawn/private-scope.js`), so
+   `git rev-parse HEAD` inside one answers "not a repository". The goal's `leader` performs it — it
+   is uncaged and holds git. When it ACCEPTS `plan-reviewer`'s row it commits the goal's `planning/`
+   folder to the vault BY PATHSPEC (`git -C <vault root> add .rbtv/goals/<goal>/planning` then
+   `git -C <vault root> commit -m "<goal>: plan artifacts for approval" -- .rbtv/goals/<goal>/planning`,
+   never `add -A`, never `--amend`) and writes the hash `git rev-parse HEAD` prints, alone on one
+   line, to `planning/bound-commit`. That file is the ONE source `plan-verifier` reads the binding
+   from, and the verifier REFUSES to compose the ask without it — a refusal that wakes the `leader`
+   to bind and relaunch it. The act and its exact commands live in `meta/leader/prompts/leader.md`
+   §4, as a generic rule over ANY accepted seat whose `goal-writes` lands under `planning/`.
 5. `plan-verifier` — runs exactly two checks (closed findings addressed; the design's milestone
    list still unbroken), caps regression fix passes at TWO (`REGRESSION-PASS` lines in its own
    `memory.md`), and composes `planning/approval-digest.md`: milestones, seat count, envelope
    summary, which seats are interactive, credential-resolve result, red flags (including
-   `unresolved regression` if the cap was hit), artifact paths and the recorded git commit — then
+   `unresolved regression` if the cap was hit), artifact paths, the plan's execution declaration
+   and the bound commit read from `planning/bound-commit` — then
    SENDS it to the owner as the APPROVAL ASK: one `coordinate send owner --type note
    --approve-commit <the bound commit>` row on the goal's own bus, which the chat bridge turns
    into an approval thread in the goal's Slack channel. It does NOT author the owner's reply

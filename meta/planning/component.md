@@ -11,6 +11,14 @@ goal-level/per-milestone split, no per-use-case fork. Whether the plan lands as 
 (ad-hoc) or a durable workflow (optimize/port/scaffold) is the owner's declaration at goal creation,
 honoured by the draft stage alone; no seat branches on it.
 
+Approval is a BIRTH: the owner's `approve` scaffolds a NEW goal folder and the daemon mints its
+roster, so the draft carries an EXECUTION DECLARATION (execution-goal name, lane, roster,
+workflow/sheet, contract-file) — exactly the fields `ignite/planning/approve_package.py` takes.
+No plan executes in place, and no seat casts an execution seat. The binding those artifacts are
+approved AT is recorded by the goal's `leader`, not by any seat in this workflow: every planning
+seat runs caged with `.git` masked, so the uncaged chair commits `planning/` to the vault at its
+acceptance and writes the hash to `planning/bound-commit`, which the verify seat reads.
+
 The `d13-replan` workflow is the gate-failure lane: when a milestone's closing judge returns FAIL, three seats — understand → draft → verify — patch that ONE milestone inside its unwidened permission envelope, checked against its unchanged done contract, without stopping the goal. It reuses the `understander` / `drafter` / `verifier` prompts; all three of its tasks are D13-specific. Its verify seat is NOTIFY-ONLY (owner ruling 2026-08-25): `verify-patch` reports what it finds to the owner and the replan finishes either way — no verdict, no `on-fail-relaunch` route, no approval outcome, nothing withheld.
 
 The `forge` workflow is the small-request lane beside it: one create, edit, or parse request for a PART of a component that already exists — a reference, prompt, task, seat, capability, exposure entry, or sub-agent definition — scoped, built, registered, and judged in one serial three-seat run.

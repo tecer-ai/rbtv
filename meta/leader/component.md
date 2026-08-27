@@ -34,6 +34,10 @@ A goal's taskforce never talks to the owner; owner contact routes through the `m
 
 The seat is not flagged `human-interactive`, deliberately: that flag gates contact on the goal running in interactive mode, and escalation exists precisely for the autonomous goals nobody is watching.
 
+## The binding act — why an uncaged chair holds it
+
+An approval binds at a git commit and never at a canvas [T5-R5], and the seats that WRITE a plan cannot make one: they run caged, and `.git` is a default mask (`ignite/supervisor/spawn/private-scope.js`). `leader` is uncaged and holds git, so when it ACCEPTS a seat whose declared `goal-writes` lands under `planning/`, it commits those artifacts to the vault by pathspec and writes the hash to `<goal>/planning/bound-commit` — the one source a caged verify seat can read the binding from. The commands and the discipline are in `prompts/leader.md` §4. This is the only write this component makes outside the coordination log, the five ledgers and its own seat folder.
+
 ## Authoring provenance
 
 Re-authored on the current component anatomy (whole-file prompts and tasks, kind-named XML sections, `seats.csv`) from the ruled design in `hand-notes/fixes/rulings-state.md` § 3. The 2026-08-10 `meta/leader-agent/` files (deleted in vault commit `d2268e6f8`) were PROSE INPUT ONLY — they use the retired split-cognitive-unit anatomy, are structured around the retired `chief-of-staff` role, and teach the `exited`→`done` flip this design BANS. None of that is carried here, and no decision anchor from them is cited: every anchor those files named is absent from the KG.

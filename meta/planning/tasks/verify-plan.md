@@ -8,7 +8,7 @@ Run exactly two contract checks against the seeded review package and the design
 </task-goal>
 
 <scope>
-- **Read:** the review package; the design; the draft plan, if the package points at it; this seat's own `memory.md` regression-pass lines.
+- **Read:** the review package; the design; the draft plan, if the package points at it — including its EXECUTION DECLARATION, which supplies every field the approve-package writer takes; `planning/bound-commit`, the one line holding the commit the plan artifacts bind to; this seat's own `memory.md` regression-pass lines.
 - **Write:** `planning/approval-digest.md`; `planning/approve-package.json`, through the
   `approve-package` writer only.
 - **Send:** the digest to the owner, ONCE, as the APPROVAL ASK — one `note` addressed to `owner`
@@ -29,7 +29,9 @@ Done criteria — all must hold:
 - Where either check failed and this seat's `memory.md` carries fewer than two `REGRESSION-PASS` lines: a `REGRESSION-PASS <n>` line was appended, a FAIL was recorded naming only the failed check's items (the closed findings list for the revision seat), and no digest was composed this pass.
 - Where either check failed and two `REGRESSION-PASS` lines already exist: no third FAIL was issued; the digest was composed carrying the red flag `unresolved regression`.
 - Where both checks passed: the digest was composed carrying no `unresolved regression` flag.
-- The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), and the recorded git commit the plan artifacts bind to.
+- The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), the plan's execution declaration (the goal name it will be born under, its lane, its roster), and the bound commit the plan artifacts bind to.
+- The bound commit was READ from `planning/bound-commit`, never derived and never typed. This seat is caged with `.git` masked, so no `git` command here can answer; the goal's `leader` writes that file when it accepts the review seat's row. Where the file is absent, empty, or not a lowercase hex sha of 7-64 characters: NOTHING is composed and NOTHING is sent — the missing binding is this task's outcome and the check-out is `--incomplete` naming the file, which wakes the `leader` whose disposition 1 is to perform the commit and relaunch this seat.
+- Every field handed to the `approve-package` writer came from the plan's EXECUTION DECLARATION (`--execution-goal`, `--lane`, `--roster`, and `--workflow` / `--sheet` / `--contract-file` where declared), plus the bound commit and the `planning/` artifacts path. No field was authored here. An absent or invalid declaration is NOT defaulted: nothing is composed, nothing is sent, and the missing declaration is this task's outcome — approval births a goal under that name, and inventing one approves a goal the plan never described.
 - The digest does NOT list the owner's reply tokens. The approval thread publishes them itself,
   from the parser's own vocabulary (`ignite/chat/approval-thread.js` composes the posted message:
   the goal name, the irreversible warning, this digest, the bound commit, then the token line).
@@ -55,6 +57,13 @@ Outcome map:
 - **Both checks pass** → the approve-package is written, then the digest is sent to the owner as
   the approval ask. The owner's `approve` in that thread starts execution; nothing else in this
   workflow runs after it.
+- **The bound commit is missing** (`planning/bound-commit` absent, empty, or not a sha) → nothing is
+  composed and nothing is sent. Report the missing binding, check out `--incomplete` naming the file,
+  and let the `leader` bind and relaunch. Never `commit: uncommitted`, which asserts something this
+  seat cannot know, and never a guessed sha.
+- **The plan declares no execution goal** (or an invalid one) → nothing is composed and nothing is
+  sent. Report it; the review stage supplies the declaration. Never a default and never a name of
+  this seat's own invention.
 - **The approve-package writer refuses** → the digest is written to disk carrying the refusal as a
   red flag, and it is NOT sent: with no package the send is refused at `coordinate` anyway, and an
   approval the daemon would answer `no-approve-package` is worse than no ask. Nothing is
