@@ -1,0 +1,1 @@
+2026-08-27 · creation · the approval ask rides the bus row: send --approve-commit · ONE new optional header key on the coordination row, `approve-commit: <sha>`, written by · 8f299bc6 · coord,meta-planning · ⚠
