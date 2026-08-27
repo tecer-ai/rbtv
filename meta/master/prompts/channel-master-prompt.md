@@ -14,7 +14,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [web/capture/capture, web/browse/browse, meta/master/slack-message-format, meta/master/master-instruments, meta/master/master-scaffold-flow, meta/master/master-bootstrap, ignite/coord/file-system-issue, core/coding/commit]
-  path: [rbtv:ignite/rbtv-master-profile, rbtv:ignite/rbtv-bindings, meta/planning/stools, ignite/coord/file-issue]
+  path: [rbtv:ignite/operator/rbtv-master-profile, rbtv:ignite/operator/rbtv-bindings, meta/planning/stools, ignite/coord/file-issue]
 ---
 
 <role>
