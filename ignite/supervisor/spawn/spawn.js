@@ -921,6 +921,40 @@ function composeSeatPath(pathDirs) {
   return [...new Set([...pathDirs, ...base.split(':').filter(Boolean)])].join(':');
 }
 
+// The ONE IDENTITY POLICY for a spawned seat, caged or uncaged (M7). Same shape and same reason as
+// `composeSeatPath` above: both branches of `composeCageFor` call it, so a change cannot reach one
+// branch and miss the other.
+//
+// THE DEFECT. `coord`'s identity ladder is `--as NAME` > `$COORD_AGENT` > the calling pane's roster
+// row > the daemon-exec lane (`coord/identity.py#resolve_agent`). A daemon-spawned seat has no
+// pane, and nothing on this path ever emitted `COORD_AGENT` — so every one of its coordination acts
+// fell through to the lane's constant and was recorded `by ignite-daemon`. Measured 2026-08-27 on a
+// live daemon-spawned leader: `supervise instruct`, `supervise accept` and `coordinate send
+// --record` all filed under the daemon's name, not the seat's. Capability was unaffected; the
+// RECORD was wrong for every daemon-fired sitting.
+//
+// WHY THIS IS A STAMP AND NOT AN ASSERTION — the G-111 family's bound, and it is not stretched
+// here. G-111's reasoning is that an ASSERTED identity must never outrank a VERIFIED one ("identity
+// is resolved, never typed"). This emits `seatPath.seat`, derived by `parseSeatPath` from the
+// resolved workdir that already passed the workdir_root containment gate and the launch-time
+// materialized-seat check — the same derived-and-validated name this module already trusts for the
+// tmux window name and for the whole cage composition. The occupant does not type it; the SPAWNER
+// stamps it, exactly as the tmux launch door has always done (`supervisor/launch.py#identity_prefix`
+// — "it never types its own name, and cannot mistype another seat's"). F17's own key declaration
+// (`supervisor/carrier.py`) classifies the two channels apart for this reason: `--as` YES (a channel
+// an arbitrary process types), `COORD_AGENT` NO ("injected BY this tool into every launched seat's
+// own harness command").
+//
+// AND IT DISPLACES NOTHING VERIFIED. With no pane there is no registered roster row to outrank; the
+// only rung below is the daemon-exec constant, which names the lane and never the actor. Where a
+// pane DOES exist (the headed door), `resolve_agent`'s pane-vs-claim contradiction check still
+// refuses a disagreement — the check that G-111's actual harm required, untouched here. The
+// daemon-side gate `runtime/seat-identity/identity.js#checkIdentity` consults kernel measurables
+// only and still ignores this variable entirely (`probe-seat-identity.js` P7).
+function composeSeatIdentityEnv(seatPath) {
+  return { COORD_AGENT: seatPath.seat };
+}
+
 // `tmux-socket: true` — the tmux server's socket DIRECTORY, READ-ONLY (owner-directed 2026-08-07).
 //
 // bwrap lays a `--tmpfs /tmp` on EVERY spawn, which masks that directory. So a caged seat holding
@@ -1243,12 +1277,17 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   // as `systemd-run --setenv` (the headless carrier and the live-session carrier) and as
   // `tmux new-window -e` (the headed pane). Composition stays HERE, at the one branch point, so
   // there is exactly one PATH policy for a seat and no door gets a vote on it.
+  //
+  // The seat's own NAME rides the same channel (M7, `composeSeatIdentityEnv` above) — and it is
+  // emitted UNCONDITIONALLY, unlike PATH: a seat cannot decline to be itself, and there is no
+  // declaration to honour. So it is composed before the `local-bin` branch, not after it.
   if (isStaffUncaged(seatPath)) {
+    const identity = composeSeatIdentityEnv(seatPath);
     const staffLocalBin = resolveLocalBinGrant(seatPath);
-    if (staffLocalBin.length === 0) return { uncaged: true, env: {} };
+    if (staffLocalBin.length === 0) return { uncaged: true, env: { ...identity } };
     const staffPath = composeSeatPath([staffLocalBin[0].localBin]);
     log('info', 'uncaged staff seat: ~/.local/bin on PATH (local-bin: true)', { seat: seatPath.seat });
-    return { uncaged: true, env: { PATH: staffPath } };
+    return { uncaged: true, env: { ...identity, PATH: staffPath } };
   }
 
   // ⚠ 7.607 E2b — THE E2a `runs` MOUNTPOINT mkdir IS DELETED, on the condition E2a itself stated.
@@ -1338,6 +1377,12 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   }
   const injected = injectDeclaredEnv(admitted.credentialNames, loadCentralStore(seatPath.workspaceRoot));
   for (const name of Object.keys(injected)) flags.push('--setenv', name, injected[name]);
+  // …and the seat's own NAME (M7, `composeSeatIdentityEnv` above) — the caged branch's spelling of
+  // the same one policy the uncaged branch returns as `env`. AFTER `injectDeclaredEnv` on purpose:
+  // bwrap takes the LAST `--setenv` for a name, so a credential that happened to be declared under
+  // this name cannot displace the identity this module authors.
+  const seatIdentity = composeSeatIdentityEnv(seatPath);
+  for (const name of Object.keys(seatIdentity)) flags.push('--setenv', name, seatIdentity[name]);
   // …and PATH, for the same reason the bind exists. A caged session inherits the systemd --user
   // manager's PATH, which does NOT contain ~/.local/bin (the same fact the restart-daemon job
   // notes in spawn-profiles.yaml). So `local-bin: true` mounted the user CLIs at a path nothing
