@@ -13,5 +13,5 @@ landed creations, cited against the deployed tree, read before an edit and filed
 - The memory store — `memory/<component>/` — one folder per component, read directly for its
   `_summary.md`, `_issues.md`, `_creations.md`.
 - Filing command — `file-issue memory …` (team-kit's), the only writer to the memory store.
-- Semantic search — `rbtv embed-search` (core's), for symptom/feature lookups over `memory/`.
+- Semantic search — `rbtv embed-search` (meta's), for symptom/feature lookups over `memory/`.
 - Upkeep goal — `goal-memory-management`, which distills and rotates each component's memory.

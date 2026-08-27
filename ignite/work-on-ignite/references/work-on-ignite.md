@@ -3,7 +3,7 @@ description: "Use BEFORE editing anything under rbtv ignite/ or meta/ and AGAIN 
 tags: [ignite, memory]
 exposes-cli:
   - coord/file-issue
-  - rbtv:core/rbtv-embed-search
+  - rbtv:meta/embed-search/rbtv-embed-search
 ---
 
 # work-on-ignite
