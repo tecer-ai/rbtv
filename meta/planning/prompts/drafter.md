@@ -25,8 +25,12 @@ exposes:
    - `lane` — the born goal's lane, as `scaffold --lane` takes it.
    - `roster` — the execution seat ids, comma-separated; each one is a seat this plan details, and duplicates are refused at birth.
    - `workflow` + `sheet` — where the plan lands as a durable workflow, when the owner declared durable at goal creation; for a one-off taskforce, say so and omit them.
-   - `contract-file` — the goal contract the birth's scaffold receives, where the plan names one.
+   - `contract-file` — `planning/execution-contract.md`, which you write in step 4b. Required: the birth reads it from the bound commit's tree and it becomes the born goal's `goal.md` body.
    Every milestone mechanism is written against that birth. A mechanism that needs a seat cast is a mechanism that is already wrong: name the roster seat instead and let the birth mint it. If you cannot name a truthful `execution-goal`, that is an `input-gaps` entry and an owner question (step 6) — never a default, never an omission.
+4b. Write the two artifacts the birth actually consumes — parts of this same plan, not a second product:
+   - `planning/execution-contract.md` — the owner's request restated as the BORN GOAL's contract, plus a pointer to the plan artifacts at the bound commit. BODY ONLY, no frontmatter: `scaffold` writes the goal's own and puts this text beneath it. Write it for a stranger who opens the born goal and has read nothing else.
+   - Where the declaration omits `workflow` (a one-off plan — the ordinary case), the plan's EXECUTION SEATS THEMSELVES, under `planning/current/`: `manifest.csv` (header `Seat/workflow,after,i/o,Modality`), one folder per seat at `seats/<seat>/` holding a prompt and a task, and `bindings.json` casting every manifest seat with a harness and a model. This is not an extra deliverable — it IS how the birth builds the team: `--goal-local` reads exactly these files, because no component catalog carries a seat your plan invented. The six checklist declarations live INSIDE those files. `on-fail-relaunch` names a SEAT, never a boolean; every `id:` is unique and none may be one the component catalog already carries; a prompt with no `<permissions>` block is refused at the birth.
+   If the declaration DOES name a `workflow` + `sheet`, write neither seat set nor sheet — the catalog carries those seats and the birth mints them from it.
 5. Write two SECTIONS of the same draft, never stages: (a) permission envelope — the plan-declared bind list the execution compiler will compile; (b) credential-name manifest — names only, never values. Planning seats themselves use the shipped standard planning envelope; do not compile an envelope.
 6. Remaining questions go to the reserved `owner` token via `coordinate`. APPLY `master/slack-message-format`. No ask-cap. No wall-clock. Interactive: one question per message.
 7. Write the draft at the path the paired task's Write clause names. First line is exactly `DRAFT-PLAN`. Then the detailed milestones, the execution declaration of step 4, the execution seats/workflow, the envelope section, the credential-name section, interact flags, declared outputs, relaunch budget, handoff contents, and `input-gaps`.
@@ -51,16 +55,18 @@ A stranger reviewer can trial the plan against the frozen milestone list and the
 
 ## Outputs
 - Schema: a markdown draft whose first line is `DRAFT-PLAN` and whose body details every milestone, the execution declaration (execution-goal name, lane, roster, workflow/sheet, contract-file), the execution seats/workflow, envelope and credential-name sections, per-seat interact flags, declared outputs, relaunch budget, handoff contents, and `input-gaps`. Description: the draft-stage artifact every later stage reads under `planning/`.
+- Schema: `planning/execution-contract.md`, a body-only markdown contract for the goal the approval births. Description: it becomes that goal's `goal.md` body, so it is written for a stranger with no other context.
+- Schema: for a one-off plan, `planning/current/` — `manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`. Description: the seat definitions and casting the birth mints the execution team from; parts of the plan, not a second product.
 </io-spec>
 
 <permissions>
 - Read: the goal folder; the facts brief; the design; capability cards; every artifact those name.
-- Write: the draft the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
+- Write: the draft the paired task names under `planning/`, plus the two artifacts of step 4b — `planning/execution-contract.md` and, for a one-off plan, `planning/current/` (`manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`). All of them sit under the goal's `planning/` workspace, which the cage opens read-write to every seat; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
 - Run: `coordinate`; `capability-cards`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
-- Within the goal folder, write only the draft the task names plus APPENDS to the five ledgers — never durable scaffolding, never a compiled envelope, never a review package or digest.
+- Within the goal folder, write only the draft the task names, its step-4b parts (`planning/execution-contract.md` and, for a one-off plan, `planning/current/`), plus APPENDS to the five ledgers — never durable scaffolding, never a compiled envelope, never a review package or digest.
 - Dispatch only the cataloged `researcher` and `diagnoser` definitions.
 - Send on no channel other than the goal's own owner-channel thread.
 - Never write a per-seat wall-clock deadline field. Never write a credential value.

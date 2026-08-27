@@ -37,10 +37,24 @@ birth: it scaffolds a NEW goal folder under `.rbtv/goals/` and MINTS its roster.
 execution seat by hand. So the draft carries an EXECUTION DECLARATION naming what the birth needs
 and nothing more: the `execution-goal` name (a bare safe name, `^[A-Za-z0-9][A-Za-z0-9._-]*$`, never
 `owner`), the `lane`, the `roster` of seat ids, and `workflow` + `sheet` where the plan lands as a
-durable workflow (omitted, explicitly, for a one-off taskforce), plus `contract-file` where the plan
-names one. Those are exactly the fields `ignite/planning/approve_package.py` takes; the review stage
-makes a missing or invalid declaration a `blocking` finding, and the verify stage passes them
-through to the writer rather than authoring any of them.
+durable workflow (omitted, explicitly, for a one-off taskforce), plus `contract-file`. Those are
+exactly the fields `ignite/planning/approve_package.py` takes; the review stage makes a missing or
+invalid declaration a `blocking` finding, and the verify stage passes them through to the writer
+rather than authoring any of them.
+
+**The birth reads two artifacts, and the DRAFTER writes both.** The declaration is a set of values;
+the birth also needs FILES, and it reads them out of the commit the approval binds — so they are
+plan artifacts, authored in the draft stage and bound by the `leader` with the rest of `planning/`.
+(a) `planning/execution-contract.md` becomes the born goal's `goal.md` body — the owner's request
+restated as that goal's contract, plus a pointer to the plan artifacts at the bound commit; body
+only, since `scaffold` writes the goal's own frontmatter above it. (b) For a ONE-OFF plan — a plan
+that declares no `workflow` — the execution seats themselves, under `planning/current/`:
+`manifest.csv`, one `seats/<seat>/` prompt+task pair per row, and `bindings.json`. No component
+catalog carries a seat a plan invented, so the birth mints them with `materialize-seats.py
+--goal-local`, which reads exactly that layout; a plan that declares a `workflow` + `sheet` is
+minted from the catalog instead and writes neither. Nothing downstream of the draft authors either
+file: there is no step after it that could, and a birth that discovers one missing refuses AFTER
+the owner has approved.
 
 **Scope.** Four lean stages, one seat each, plus a fifth verification seat — five seats, one linear
 pass, no per-milestone teams and no goal-level/per-milestone split. Every stage seat is an
@@ -62,8 +76,10 @@ an ask-cap and none has a wall-clock deadline (a planning seat's only clock is t
    every milestone from the design detailed, the EXECUTION DECLARATION (above), the execution
    seats/workflow, a permission-envelope section and a credential-name section (sections, never
    compiled — planning seats themselves run under the shipped standard planning envelope), per-seat
-   interact flags, declared outputs, and a relaunch budget. Every produced execution seat carries
-   the six `workflow-authoring-checklist` declarations.
+   interact flags, declared outputs, and a relaunch budget — and, as parts of the same plan,
+   `planning/execution-contract.md` and (for a one-off plan) the execution seats themselves under
+   `planning/current/`. Every produced execution seat carries the six
+   `workflow-authoring-checklist` declarations, inside those authored files.
 4. `plan-reviewer` — trials the draft ONCE against the frozen milestone list, the six
    declarations and the execution declaration, emits a findings list tagged `blocking` /
    `non-blocking`, revises ONLY the blocking findings (non-blocking ships as accepted residue), and

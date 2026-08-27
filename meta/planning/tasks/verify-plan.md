@@ -19,6 +19,10 @@ Run exactly two contract checks against the seeded review package and the design
   flag is what makes this an APPROVAL rather than an ordinary question, and `coordinate` refuses
   it unless this seat is `human-interactive:` and `planning/approve-package.json` records that
   exact `bound_commit` — so the package is written BEFORE the send, always.
+  This one send carries NO length cap: the required digest fields below do not fit the ordinary
+  2,000-character body cap, and an approval row is exempt from it because the bridge builds the
+  owner's thread out of this body. So never `--force` here, and never drop a required field to fit:
+  `--force` waives every OTHER gate on this path too, and the cap is no longer one of them.
 </scope>
 
 <done-contract>
@@ -31,7 +35,8 @@ Done criteria — all must hold:
 - Where both checks passed: the digest was composed carrying no `unresolved regression` flag.
 - The digest names: milestones (ids + one-line aims), seat count, envelope summary (deltas vs the shipped planning envelope), which seats are interactive, credential-resolve result per declared credential name, red flags, paths to every on-disk artifact (facts brief, design, draft, review package, this digest), the plan's execution declaration (the goal name it will be born under, its lane, its roster), and the bound commit the plan artifacts bind to.
 - The bound commit was READ from `planning/bound-commit`, never derived and never typed. This seat is caged with `.git` masked, so no `git` command here can answer; the goal's `leader` writes that file when it accepts the review seat's row. Where the file is absent, empty, or not a lowercase hex sha of 7-64 characters: NOTHING is composed and NOTHING is sent — the missing binding is this task's outcome and the check-out is `--incomplete` naming the file, which wakes the `leader` whose disposition 1 is to perform the commit and relaunch this seat.
-- Every field handed to the `approve-package` writer came from the plan's EXECUTION DECLARATION (`--execution-goal`, `--lane`, `--roster`, and `--workflow` / `--sheet` / `--contract-file` where declared), plus the bound commit and the `planning/` artifacts path. No field was authored here. An absent or invalid declaration is NOT defaulted: nothing is composed, nothing is sent, and the missing declaration is this task's outcome — approval births a goal under that name, and inventing one approves a goal the plan never described.
+- The binding is FRESH, not merely present. `planning/bound-commit` must be NEWER than `planning/review-package.md` (compare their modification times — `ls -l` or `stat` on the two files, both of which sit in the goal's shared `planning/` workspace this seat can read). A bound-commit OLDER than the review package names a tree that does not contain the review package: the `after` edge spawns this seat the moment the review seat checks out, while the `leader` is only woken by that same check-out and binds a moment later, so an unlucky order hands this seat a binding short by the file the approval is about. Where the binding is STALE: NOTHING is composed and NOTHING is sent. Check out `--incomplete "awaiting re-bind"` naming both files and their times — the `leader`'s disposition 1 is to re-bind and relaunch this seat, and the relaunch reads a fresh file. NEVER compose against a stale binding and NEVER carry the shortfall as a red flag routed at the leader: a digest that describes one tree while `planning/bound-commit` names another is the exact disagreement the owner cannot see from the approval thread, and by the time it is noticed every planning seat has departed.
+- Every field handed to the `approve-package` writer came from the plan's EXECUTION DECLARATION (`--execution-goal`, `--lane`, `--roster`, `--contract-file`, and `--workflow` / `--sheet` where declared), plus the bound commit and the `planning/` artifacts path. No field was authored here. An absent or invalid declaration is NOT defaulted: nothing is composed, nothing is sent, and the missing declaration is this task's outcome — approval births a goal under that name, and inventing one approves a goal the plan never described.
 - The digest does NOT list the owner's reply tokens. The approval thread publishes them itself,
   from the parser's own vocabulary (`ignite/chat/approval-thread.js` composes the posted message:
   the goal name, the irreversible warning, this digest, the bound commit, then the token line).
@@ -61,6 +66,10 @@ Outcome map:
   composed and nothing is sent. Report the missing binding, check out `--incomplete` naming the file,
   and let the `leader` bind and relaunch. Never `commit: uncommitted`, which asserts something this
   seat cannot know, and never a guessed sha.
+- **The bound commit is STALE** (older than `planning/review-package.md`) → the same outcome, for the
+  same reason: nothing composed, nothing sent, check out `--incomplete "awaiting re-bind"` naming both
+  files and their times. The re-bind is the `leader`'s act and the relaunch is how this seat receives
+  it — never a red flag on a digest that ships anyway.
 - **The plan declares no execution goal** (or an invalid one) → nothing is composed and nothing is
   sent. Report it; the review stage supplies the declaration. Never a default and never a name of
   this seat's own invention.
