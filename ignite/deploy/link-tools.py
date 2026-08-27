@@ -17,8 +17,11 @@ Idempotent: a link already pointing at the right target is left untouched and re
 symlink pointing elsewhere is repaired. A REGULAR FILE with one of these names is never clobbered —
 that is somebody else's binary and the step refuses loudly rather than deleting it.
 
-Scope is the ignite coordination kit ONLY. Other repos' PATH names (`rbtv`, `teamview`, `acct`, `sb-task`,
-`sd-graph`) have the same gap and their own owners; each module exposes its own.
+Scope is the ignite module ONLY — every `method=path` tool whose `exposure.csv` row leaves the
+`rbtv-cli` column EMPTY, i.e. whose bare name is its only reach. A path-tool that also carries an
+`rbtv …` front-door verb is reached through `rbtv` and is deliberately not linked here. Other
+repos' PATH names (`teamview`, `acct`, `sb-task`, `sd-graph`) have the same gap and their own
+owners; each module exposes its own.
 """
 import argparse
 import os
@@ -38,6 +41,11 @@ TOOLS = {
     "owed-answers": "coord/owed-answers.py",
     "tmux-overview": "coord/tmux-overview",
     "file-issue": "coord/file-issue.py",
+    # operator/: the three capability doors whose exposure.csv rows carry no `rbtv …` verb, so
+    # the bare name is the ONLY way a seat reaches them (owner-ruled bare-name bar, 2026-08-26).
+    "rbtv-bindings": "operator/bindings/tool/rbtv-bindings",
+    "rbtv-master-profile": "operator/master-profile/tool/rbtv-master-profile",
+    "rbtv-goal-request": "operator/goal-creation-request/tool/rbtv-goal-request",
 }
 
 

@@ -69,7 +69,8 @@ manual derivation it was built to delete.
 **The symlinks are created by a deploy step, never by hand:**
 
 ```
-python3 ignite/deploy/link-tools.py           # create/repair: coordinate · scaffold-seats · owed-answers · tmux-overview · file-issue
+python3 ignite/deploy/link-tools.py           # create/repair: coordinate · supervise · scaffold-seats · owed-answers · tmux-overview · file-issue
+                                             #               rbtv-bindings · rbtv-master-profile · rbtv-goal-request
 python3 ignite/deploy/link-tools.py --check   # report only, writes nothing; exit 1 if any link is stale
 ```
 
