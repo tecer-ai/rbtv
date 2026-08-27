@@ -2236,7 +2236,21 @@ def cmd_send(args):
             f"override (and it will still be filtered at that seat's read, though never "
             f"silently — its footer names it): --force",
             1)
-    if len(body) > MESSAGE_MAX and not force:
+    # ⚠ THE ONE EXEMPTION: AN APPROVAL ROW IS A DOCUMENT BY CONSTRUCTION (G-plan-verifier-0827-2258).
+    # The cap's reason is stated in its own refusal — "a body this long is a document, and every
+    # agent pays for it at every checkpoint" — and an `--approve-commit` row is the one send where
+    # every clause of that reason is false. It is addressed to `owner` and nothing else; no agent
+    # inbox carries it; the bridge does not relay it as a note but opens an APPROVAL THREAD FROM IT
+    # (`bus-ferry.js` → `chat-bridge.js#postOwnerAsk`, `kind: 'approval'`), where a one-word
+    # `approve` starts execution — so the body IS the thing the owner reads before an irreversible
+    # act, and "write it to a file and send the path" would hand the owner a path they cannot open.
+    # Measured 2026-08-27 on `scratch-tool-inventory-8`: the digest fields `verify-plan.md` REQUIRES
+    # measure 2300–2600 chars written tersely, so the contract and the cap could not both be met and
+    # the seat sent with `--force` — an override that also waives every other gate on this path.
+    # EXEMPTED rather than RAISED: a raised cap is a number that must be kept in step with a
+    # required-field list living in another file, and it would lift the cap for every long note as
+    # well. This lifts it for exactly the row whose reason does not apply.
+    if len(body) > MESSAGE_MAX and not force and not (getattr(args, "approve_commit", None) or "").strip():
         # G-280 / task 7.94 criterion 3: this is the SECOND silent-failure path onto the same
         # surface argparse's echo bug hid behind — a seat that corrects its flags still loses a
         # long message here unless the failure is equally explicit. NOT SENT in those words,

@@ -2204,6 +2204,20 @@ def _selftest_checks(args, failures, names):
         out, code = refuse(cmd_send, agent="alpha", to="beta", message=long_body, type="note",
                            supersedes=None, re_num=None, file=None, force=True)
         check("T3 length guard: --force escapes it", code == 0 and "sent message #" in out)
+        # ⚠ THE APPROVAL-ROW EXEMPTION (G-plan-verifier-0827-2258). An `--approve-commit` row is a
+        # composed document by construction — the bridge opens the owner's APPROVAL THREAD from it
+        # — and the verify seat's REQUIRED digest fields measure 2300–2600 chars, so before this
+        # exemption the only way to send one was `--force`, which waives every OTHER gate on the
+        # path too. The proof is that the oversized body no longer reaches the cap: what comes back
+        # is the approval gate's own refusal (this fixture seat is not `human-interactive`), never
+        # "NOT SENT — N chars". The `--force`-free cap above is untouched for every other body.
+        out, code = refuse(cmd_send, agent="alpha", to="owner", message=long_body, type="note",
+                           supersedes=None, re_num=None, file=None, approve_commit="0123abc")
+        check("approval rows are EXEMPT from the body cap: an oversized `--approve-commit` body is "
+              "no longer refused by the cap (the refusal it takes is the approval-authority gate's "
+              "own, on a different fact), while the same body without the flag still is",
+              code == 1 and "NOT SENT" not in out and str(MESSAGE_MAX) not in out
+              and "APPROVAL thread" in out)
 
         # ---- 7.94 / G-280: a failed `coordinate` call must never read as a successful one ----
         # Criterion 3: the oversized-body refusal is covered by the SAME proof as the argparse

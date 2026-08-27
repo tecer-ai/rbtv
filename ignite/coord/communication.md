@@ -14,7 +14,10 @@ failure, or blocker gets said. On any conflict: send the fact, break the rule, n
 one line. A seat that stays quiet to obey this file has broken it.
 
 **1 · Write to 900 characters. [HAND]** The 2,000 cap is a ceiling, not a target. Past ~1,200, stop writing prose and write a file. Length is not
-rigour — the file is.
+rigour — the file is. ONE ROW IS EXEMPT: a `send owner --approve-commit <sha>` — the approval ask —
+carries no cap, because the bridge builds the owner's APPROVAL THREAD out of that body and "write it
+to a file and send the path" hands the owner a path they cannot open. It is still written to this
+rule's shape; it simply may not be truncated to reach it, and `--force` is not how you send one.
 
 **2 · Claims in the message, evidence in a file. [HAND]** Write the file in your seat folder FIRST; the message carries: one-line outcome · absolute path · what the reader must DO (or `NONE`)
 · ≤3 facts to decide whether to open it. Never delete evidence
