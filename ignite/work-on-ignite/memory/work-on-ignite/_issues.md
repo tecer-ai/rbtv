@@ -1,1 +1,2 @@
 # work-on-ignite — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
+2026-08-27 · issue · Dangling embed-search ref blocked every chair mint · leader+goal-master chairs unmintable at all 4 doors, the workflow door skipping them as warnings on exit 0 → d3a4dbf0 moved embed-search to meta/ and deleted core/exposure.csv, leaving work-on-ignite.md:6 exposes-cli dangling · 578547a9 · planning,supervisor · ⚠
