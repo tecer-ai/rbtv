@@ -1,0 +1,1 @@
+2026-08-27 · issue · gateway lookup was cwd-only: no seat could reach the daemon · A daemon-spawned channel master got EXIT=2 "no gateway address configured" from `ignite status` in its own seat folder, the record 3 levels up. → `resolveWorkspaceRoot()` returned the cwd, so D27 "workspace" excluded every nested folder; it now walks up. · 02d989ef · deploy,coord,chat · ⚠
