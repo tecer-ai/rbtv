@@ -86,6 +86,14 @@ Canonical statement of the ignite install model (owner ruling D27, 2026-07-14).
 
   First run creates the folder and its files **idempotently**; the installed test is: a valid
   `server.json` exists.
+- **A client finds that record by WALKING UP from its cwd**, to the nearest ancestor holding
+  `.rbtv/modules/ignite/server.json`. A workspace is the folder that roots `.rbtv/`, so every
+  folder nested inside it is *inside* the workspace: a daemon-spawned seat sitting in its own seat
+  folder (`cwd-mode: seat-folder`) and a console user in any subfolder resolve the same install the
+  workspace root does. **Nearest ancestor wins** — a nested workspace shadows an outer one.
+  `IGNITE_GATEWAY_ADDR` still short-circuits the search entirely when set. Resolving "workspace" as
+  "cwd" instead is what put every seat outside its own workspace and refused its every gateway call
+  (CP-2 rows M39/M40, 2026-08-27).
 - **The travel split is load-bearing.** `.rbtv/modules/ignite/` is **COMMITTED** — the installation
   travels with the repo, so a `git pull` on another machine carries it and that machine's agents
   find and reach the server via `server.json`. Live per-machine runtime state (the ending store,

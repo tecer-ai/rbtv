@@ -7,7 +7,8 @@
 // Resolution order for the gateway address:
 //   1. IGNITE_GATEWAY_ADDR env var — explicit override, always wins when set.
 //   2. The workspace's COMMITTED endpoint record `.rbtv/modules/ignite/server.json`
-//      (D27): tailnet address preferred. The SSH-tunnel fallback is DERIVABLE
+//      (D27), found by WALKING UP from the cwd to the nearest ancestor that holds
+//      it: tailnet address preferred. The SSH-tunnel fallback is DERIVABLE
 //      from that record's ssh_host/ssh_user/ssh_port fields, but this thin CLI
 //      does not establish the tunnel itself (that is an operator action,
 //      out of the gateway-API-wrapping charter this task builds to) — it
@@ -30,8 +31,37 @@ const os = require('node:os');
 const path = require('node:path');
 const { CliUsageError } = require('./errors');
 
+// D27 defines a WORKSPACE as "the folder that roots `.rbtv/`" — not the folder you
+// happen to be standing in. Every caller of this CLI that is not the owner at a
+// terminal in the vault root runs several levels DOWN inside that workspace: a
+// daemon-spawned seat's cwd is its own seat folder (`cwd-mode: seat-folder`), and a
+// console user may be anywhere. Resolving "workspace" as "cwd" put all of them
+// outside their own workspace and refused every call with the usage error below,
+// while the record sat three levels up (measured 2026-08-27, CP-2 rows M39/M40 —
+// the channel master could not run `ignite status` from its own sitting).
+//
+// So: start at the explicit RBTV_IGNITE_WORKSPACE_ROOT override, else the cwd, and
+// walk up to the NEAREST ancestor holding `.rbtv/modules/ignite/server.json`.
+// Nearest wins — a nested workspace shadows an outer one, the same rule git uses
+// for its own root. IGNITE_GATEWAY_ADDR still short-circuits the whole search
+// (resolveGatewayAddr below), so an explicit address is never overridden by a walk.
+//
+// When no ancestor holds a record the start dir is returned unchanged, so the
+// not-installed error paths below keep naming a concrete path.
+//
+// ⚑ This is the SAME walk the token half has always done (readEnvFileToken, bottom
+// of this file), for the same reason and against the same caged case. The address
+// half simply never got it.
+function findInstallRoot(start) {
+  for (let dir = start; ; dir = path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.rbtv', 'modules', 'ignite', 'server.json'))) return dir;
+    if (dir === path.dirname(dir)) return null;
+  }
+}
+
 function resolveWorkspaceRoot() {
-  return path.resolve(process.env.RBTV_IGNITE_WORKSPACE_ROOT || process.cwd());
+  const start = path.resolve(process.env.RBTV_IGNITE_WORKSPACE_ROOT || process.cwd());
+  return findInstallRoot(start) || start;
 }
 
 function serverJsonPath(workspaceRoot) {
@@ -108,6 +138,7 @@ function resolveGatewayAddr() {
   const envAddr = process.env.IGNITE_GATEWAY_ADDR;
   if (envAddr && envAddr.length > 0) return parseAddr(envAddr);
 
+  const startDir = path.resolve(process.env.RBTV_IGNITE_WORKSPACE_ROOT || process.cwd());
   const workspaceRoot = resolveWorkspaceRoot();
   const recordPath = serverJsonPath(workspaceRoot);
   const record = selectMachineEntry(readServerJson(workspaceRoot), recordPath);
@@ -134,8 +165,11 @@ function resolveGatewayAddr() {
   }
 
   throw new CliUsageError(
-    `no gateway address configured. Set IGNITE_GATEWAY_ADDR, or run ignite from a workspace where ` +
-    `${recordPath} names an installed server (D27 install model — ignite/deploy/component.md § Installation model).`
+    `no gateway address configured. Set IGNITE_GATEWAY_ADDR, or run ignite from inside a workspace ` +
+    `where ignite is installed: the resolver walks up from ${startDir} looking for ` +
+    `.rbtv/modules/ignite/server.json, and ` +
+    (record ? `${recordPath} names no installed server` : `no ancestor holds one`) +
+    ` (D27 install model — ignite/deploy/component.md § Installation model).`
   );
 }
 
