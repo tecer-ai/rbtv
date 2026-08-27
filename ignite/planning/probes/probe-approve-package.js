@@ -183,7 +183,9 @@ function main() {
     refF.code === 2 && /roster-not-in-plan/.test(refF.stdout), refF.stdout.trim());
   fs.mkdirSync(path.join(cArtifacts, 'current'), { recursive: true });
   fs.writeFileSync(path.join(cArtifacts, 'current', 'manifest.csv'),
-    'Seat/workflow,after,i/o,Modality\nexec-builder,,"in: the bound plan; out: the thing",agentic\n');
+    'Seat/workflow,after,i/o,Modality\n'
+    + 'exec-builder,,"in: the bound plan; out: the thing",agentic\n'
+    + 'exec-second,exec-builder,"in: the thing; out: a verdict",agentic\n');
   const refG = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
     '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder,ghost-seat',
     '--contract-file', 'planning/execution-contract.md']);
@@ -191,10 +193,18 @@ function main() {
     + ' plan\'s own seats, so that id names a seat nothing builds',
     refG.code === 2 && /roster-not-in-plan/.test(refG.stdout) && /ghost-seat/.test(refG.stdout),
     refG.stdout.trim());
-  check('C5: none of the four refusals left a package behind',
+  const refG2 = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder',
+    '--contract-file', 'planning/execution-contract.md']);
+  check('C4b: and the OTHER direction — a manifest seat the roster omits is refused too, because'
+    + ' `--goal-local --root` mints every manifest row: that seat is born regardless, into a goal'
+    + ' whose declaration never named it, and the uncast check (which reads the roster) never sees it',
+    refG2.code === 2 && /roster-not-in-plan/.test(refG2.stdout) && /exec-second/.test(refG2.stdout),
+    refG2.stdout.trim());
+  check('C5: none of the five refusals left a package behind',
     !fs.existsSync(path.join(cGoal, APPROVE_PACKAGE)));
   const okH = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
-    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder',
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder,exec-second',
     '--contract-file', 'planning/execution-contract.md']);
   const cWritten = fs.existsSync(path.join(cGoal, APPROVE_PACKAGE))
     ? JSON.parse(fs.readFileSync(path.join(cGoal, APPROVE_PACKAGE), 'utf8')) : {};
@@ -202,7 +212,7 @@ function main() {
     + ' under the plan artifacts — is WRITTEN, and carries no `workflow` key at all (that absence'
     + ' is what routes the birth to the plan\'s own seats)',
     okH.code === 0 && cWritten.workflow === undefined
-    && (cWritten.roster || []).join(',') === 'exec-builder'
+    && (cWritten.roster || []).join(',') === 'exec-builder,exec-second'
     && cWritten.contract_file === 'planning/execution-contract.md',
     JSON.stringify(cWritten));
 

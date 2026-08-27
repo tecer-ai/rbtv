@@ -222,6 +222,20 @@ def refuse_roster_not_in_plan(goal_dir, pkg):
             f"{', '.join(sorted(authored)) or 'nothing'}). The birth mints the plan's own seats, "
             "so a roster id the plan never authored names a seat nothing builds",
         )
+    # …and the other direction, because the MANIFEST is what mints. `--goal-local --root` builds
+    # every row of it, not the roster — so a manifest seat the roster omits is born anyway, in a
+    # goal whose declaration never mentioned it, and it is never uncast-checked (that check reads
+    # the roster). `draft-plan.md`'s done contract already calls "a plan seat absent from the
+    # roster" a fail; this is that contract at the door where it can still be enforced.
+    unlisted = sorted(authored - set(roster))
+    if unlisted:
+        raise ApprovePackageRefusal(
+            "roster-not-in-plan",
+            f"{manifest} authors seat(s) {', '.join(unlisted)} that the roster does not name. The "
+            "birth mints every manifest row, so those seats are born regardless — the roster must "
+            "name the plan's whole execution team, or the manifest must not carry a seat the plan "
+            "did not declare",
+        )
 
 
 def write_approve_package(goal_dir, **fields):
