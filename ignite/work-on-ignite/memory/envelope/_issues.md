@@ -1,1 +1,2 @@
 2026-08-25 · issue · 8 stale --settings paths killed every launch silently · cutover merge deleted ignite/config/ but 8 argv rows still pointed there → every child died post-materialize with zero error; config is BOOT-CACHED so the fix needs a restart · 973624ce · chat,supervisor,runtime · ⚠
+2026-08-27 · issue · coordination/ was read-only in every caged seat · Every caged seat on the daemon lane died on its own coordination protocol. On → `ignite/envelope/daemon-owned-records.yaml` listed `coordination` under `directories:`. · 8f299bc6 · supervisor,coord · ⚠
