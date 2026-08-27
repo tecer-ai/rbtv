@@ -10,7 +10,8 @@
 // ⚠ READYNESS IS coord.py's. This module never re-derives DAG math. It calls
 // seeding.readySeats (the one subprocess) and reads the ledgers.
 // ⚠ DEAD SEATS ARE NEVER OWED (D22). ready-seats carries `dead` beside BLOCKED.
-// ⚠ SUMMONED SEATS ARE NEVER OWED (D24). See `summonedSeats` below.
+// ⚠ SUMMONED SEATS ARE NEVER OWED AND ARE NEVER SEEDED (D24). The one reader of coord's list is
+// `seeding.js#summonedSeats`, imported below.
 // ⚠ GRANTS ARE NOT TOUCHED. Launch goes through the supervisor's wrapped spawn door
 //    (`launchThroughDoor`, `onSeatBusy: 'queue'`) — never this file's own enqueue [§5].
 //    delete-grants has nothing to remove here.
@@ -28,7 +29,7 @@ const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 const { requirePythonCmd } = require('../runtime/python-cmd');
 const {
-  readySeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce, seatCast,
+  readySeats, summonedSeats, readCsv, jobIdFor, uncastSeats, seatBootPrompt, readTaskforce, seatCast,
 } = require('./seeding');
 // ── THE ONE OWED-WORK COMPUTER AND THE ONE ENQUEUE [spec-supervisor §5, T4-R7, C-15] ──────────
 // `deriveOwed` is the SURVIVOR of the two owed-work computers. It lives at the supervisor home
@@ -73,45 +74,11 @@ const STAFF_CHAIRS = Object.freeze(['leader', 'goal-master']);
 // `goal-master` on every cadence (jobs_log exec 30020/30026/30036/30042/30049/30056,
 // 2026-08-20), and the phantom sitting then registered as a live holder for the owner's post.
 //
-// ⚠ THE LIST IS COORD'S, READ OFF COORD. Hardcoding `goal-master` here would mint the second
-// list this program exists to remove. `ready-seats --json` cannot answer it: coord's D24
-// `IDLE` branch sits BELOW the disposition branch, so a chair that has checked out reads
-// `verdict: DONE` and carries no summoned term at all (measured on meet, 2026-08-20) — which
-// is precisely the state reconcile mis-derives.
-// ⚠ DEGRADATION IS TOWARD THE OLD BEHAVIOUR, NEVER A SILENT HOLE: an older coord with no such
-// tuple, or a read that fails, yields the EMPTY set — every seat stays owed exactly as before
-// this guard, and the miss is logged. Cached for the process: coord.py cannot change under a
-// running daemon without a deploy, and a deploy restarts it.
-const SUMMONED_PY = [
-  'import importlib.util, json, sys',
-  'spec = importlib.util.spec_from_file_location("coord_summoned", sys.argv[1])',
-  'm = importlib.util.module_from_spec(spec)',
-  'spec.loader.exec_module(m)',
-  'print(json.dumps(list(getattr(m, "SUMMONED_SEATS", []))))',
-].join('\n');
-
-let SUMMONED_CACHE = null;
-
-function summonedSeats(say) {
-  if (SUMMONED_CACHE) return SUMMONED_CACHE;
-  let names = [];
-  try {
-    const r = spawnSync(requirePythonCmd(), ['-c', SUMMONED_PY, COORD_PY], {
-      encoding: 'utf8', timeout: 30000,
-    });
-    if (r.status === 0) {
-      const parsed = JSON.parse(r.stdout);
-      if (Array.isArray(parsed)) names = parsed.map(String).filter(Boolean);
-    }
-  } catch {
-    names = [];
-  }
-  if (!names.length && say) {
-    say('warn', 'reconcile: coord names no SUMMONED_SEATS — the D24 exclusion is OFF', {});
-  }
-  SUMMONED_CACHE = new Set(names);
-  return SUMMONED_CACHE;
-}
+// ⚠ THE READER MOVED TO `seeding.js` (2026-08-27) AND IS IMPORTED, NEVER RE-IMPLEMENTED. The
+// same coord tuple now also excludes a summoned chair from the SEEDING frontier, and two readers
+// of one list is the state D24's own note forbids. Everything the reader guarantees — coord is
+// the source, a failed read degrades to the EMPTY set and logs, cached for the process — is
+// stated at its definition there.
 
 const MSG_HEADER = /^## (?<num>\d+) \| from: (?<sender>\S+)(?: \| from-pkg: (?<from_pkg>\S+))? \| to: (?<to>\S+) \| type: (?<type>\S+)(?: \| supersedes: (?<supersedes>\d+))?(?: \| re: (?<re>\d+))?(?: \| exec: (?<exec_id>\S+))?(?: \| milestone: (?<milestone>\S+))?(?: \| chat-thread: (?<chat_thread>\S+))?(?: \| deliver: (?<deliver>post|wake))?(?: \| why: (?<why>[^|]*?))? \| (?<ts>.+)$/;
 

@@ -806,10 +806,71 @@ def fire_finish_edge(pkg, sender, note=""):
     return True, f"finish event recorded as message #{num}{detail}"
 
 
+# ---------- WHO MAY END A GOAL (wave re-run #5, 2026-08-27) -----------------------------------
+#
+# `taskforce.csv` IS the register of who holds which chair (`materialize-seats.py`'s staffing pass
+# is its only writer), and the chair it names `leader` is the goal's leader. The daemon side
+# already resolves it exactly this way and fails CLOSED — `supervisor/reconcile.js#leaderSeat`,
+# whose own note records what the old `seats[0]` fallback cost. This is the same reading, in the
+# other language, at the one verb that ENDS a goal.
+LEADER_CHAIR = "leader"
+
+
+def taskforce_leader(pkg):
+    """The seat this goal's taskforce names as its leader, or None when it names none.
+
+    None is a STAFFING FACT, never a substitute: a package with no `taskforce.csv` at all (a
+    team-kit run, a console package) names no leader, and a goal whose taskforce carries no
+    `leader` row has not been staffed with one. Neither case invents a chair.
+    """
+    header, rows = read_csv_table(Path(pkg) / "taskforce.csv", [])
+    if not rows or "seat" not in header:
+        return None
+    idx = header.index("seat")
+    for r in rows:
+        pad_row(r, header)
+        if r[idx].strip() == LEADER_CHAIR:
+            return LEADER_CHAIR
+    return None
+
+
 def cmd_finish_goal(args):
-    gate(args, "finish-goal")
+    # ---- THE FINISH EDGE IS THE LEADER'S ACT, AND IT IS ATTRIBUTED TO WHOEVER FIRED IT --------
+    #
+    # MEASURED (2026-08-27, `scratch-cli-reach-report`): the goal's `goal-master` chair — the
+    # conversational seat, not a planning role (OQ-8) — ran `coordinate finish-goal` with
+    # COORD_AGENT=goal-master. Two defects fired at once. The verb admitted ANY resolved identity,
+    # so the room died with two of five planning seats run; and the row was stamped
+    # `from: leader`, because the sender defaulted to the literal string "leader" whenever
+    # `--as` was absent — so the append-only log recorded an act by a seat that did not perform it.
+    #
+    # ⚠ THIS IS A HAND-ROLLED AUTHORITY CHECK, NOT A REVIVAL OF THE DELETED ROLE-GATE LAYER
+    # [T2-R10, D24, F-simplicity-7]. `is_leader` and friends were NAME PREDICATES compiled into
+    # `gate()`; what refuses here is the GOAL'S OWN REGISTER — `taskforce.csv` — read at call
+    # time, in the shape `_secret_add_authority` (D49) already established for a per-verb
+    # authority that never went through `gate()`. Where the register names NO leader it refuses
+    # nobody: there is no chair to gate against, and a goal nobody can end is a worse defect than
+    # the one being fixed.
+    caller = gate(args, "finish-goal")
     pkg = package_dir(args)
-    ok, detail = fire_finish_edge(pkg, args.as_agent or "leader", getattr(args, "note", "") or "")
+    leader = taskforce_leader(pkg)
+    if leader and caller != leader:
+        refuse("role gate",
+               f"`finish-goal` is the goal's LEADER's act and you are "
+               f"{('`' + caller + '`') if caller else 'an unresolved identity'}. "
+               f"This goal's taskforce.csv names `{leader}` as its leader — only that seat may "
+               f"fire the finish edge, because firing it tears the room down and stops every "
+               f"watcher while the rest of the taskforce is still owed its turn.\n"
+               f"If the goal really is over, say so to `{leader}` "
+               f"(`coordinate send {leader} …`) and let it rule.\n"
+               + ROLE_GATE_LAYER_NOTE, 2)
+    if not caller:
+        refuse("identity",
+               "`finish-goal` stamps an append-only row naming who ended the goal, and this "
+               "process resolves to no identity at all (no --as NAME, no COORD_AGENT, no roster "
+               "row, not a daemon-fired exec). Re-run it with `--as <your-seat>`: the finish edge "
+               "is never recorded against a seat that did not fire it.", 2)
+    ok, detail = fire_finish_edge(pkg, caller, getattr(args, "note", "") or "")
     if not ok:
         refuse("state", detail, 1)
     print(detail)

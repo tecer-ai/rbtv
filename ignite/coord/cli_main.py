@@ -1180,7 +1180,10 @@ def build_parser(door=COORDINATION_DOOR):
         "THE FINISH EDGE (7.607 E1) — the ONE thing that finishes a goal and the ONE thing that\n"
         "stops its watchers. Records an append-only finish EVENT in the coordination log, then\n"
         "tears the room down. Until it fires, an absent room is a CRASH and the watcher relaunches\n"
-        "it; nothing else — no closed row, no empty room, no dead seat — finishes a goal.",
+        "it; nothing else — no closed row, no empty room, no dead seat — finishes a goal.\n"
+        "THE LEADER'S ACT: where the goal's taskforce.csv names a `leader` row, only that seat may\n"
+        "fire it — every other identity is refused, naming the leader. The event is attributed to\n"
+        "the RESOLVED caller, so run it as yourself and never on another seat's behalf.",
         "example:\n"
         "  coordinate finish-goal --note 'milestones all accepted'\n"
         "next: nothing. The goal is over; the watchers exit on their next pass")

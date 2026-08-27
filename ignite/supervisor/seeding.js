@@ -46,7 +46,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 // ⚠ `finishedSeats` IS GONE AND IT WAS ALREADY DEAD HERE (W2). It was imported on this line and
 // called from NOWHERE — repointing it would have been a no-op on a live goal, which is why the
 // consumer sweep was ordered by grep rather than by memory. What replaced its QUESTION is
@@ -164,8 +164,74 @@ const COORD_TIMEOUT_MS = 60000;
 // existing STALL_MS 5-minute persistence. Do not add a second timer.
 const ENQUEUE_UNFIRED_GRACE_MS = 60 * 1000;
 
+// ── THE SUMMONED CHAIRS, TRANSPORTED (D24; wave re-run #5, 2026-08-27) ────────────────────────
+//
+// MOVED HERE FROM `reconcile.js`, WHOLE, AND IT IS NOT COPIED. `reconcile.js` now imports this
+// function from this module (the direction that already exists — reconcile requires seeding).
+// A second reader would be a second answer to "which chairs are summoned", which is the ONE
+// thing D24's own note forbids.
+//
+// D24 · A SUMMONED SEAT IS NEVER OWED AND IS NEVER SEEDED. It is spawned ONLY when the owner
+// summons it (a goal-channel message or an `@rbtv` bot tag) — mail is NOT a wake term for it,
+// and neither is a seeding pass. Without the seeding half, `scratch-cli-reach-report`'s
+// `goal-master` was enqueued cold at the first pass (2026-08-27 15:27:01Z), executed the goal's
+// own contract and fired `finish-goal`, killing the room under a planning chain that had run
+// two of its five seats.
+//
+// ⚠ THE LIST IS COORD'S, READ OFF COORD (`coord/identity.py#SUMMONED_SEATS`). Hardcoding
+// `goal-master` here would mint the second list this program exists to remove. And `ready-seats
+// --json` cannot answer it either: coord's D24 `IDLE` branch sits BELOW the disposition branch,
+// so a chair that has checked out reads `verdict: DONE` and carries no summoned term at all
+// (measured on meet, 2026-08-20) — which is precisely the state both callers mis-derive.
+// ⚠ DEGRADATION IS TOWARD THE OLD BEHAVIOUR, NEVER A SILENT HOLE: an older coord with no such
+// tuple, or a read that fails, yields the EMPTY set — every seat seeds exactly as it did before
+// this guard, and the miss is logged. Cached for the process: coord.py cannot change under a
+// running daemon without a deploy, and a deploy restarts it.
+const COORD_PY = path.join(__dirname, '..', 'coord', 'coord.py');
+const SUMMONED_PY = [
+  'import importlib.util, json, sys',
+  'spec = importlib.util.spec_from_file_location("coord_summoned", sys.argv[1])',
+  'm = importlib.util.module_from_spec(spec)',
+  'spec.loader.exec_module(m)',
+  'print(json.dumps(list(getattr(m, "SUMMONED_SEATS", []))))',
+].join('\n');
+
+let SUMMONED_CACHE = null;
+
+// Journal de-duplication for the first-seeding line below. See its own note.
+const SUMMONED_SAID = new Set();
+
+function summonedSeats(say) {
+  if (SUMMONED_CACHE) return SUMMONED_CACHE;
+  let names = null;                       // null = the READ FAILED; [] = coord names none
+  try {
+    const r = spawnSync(requirePythonCmd(), ['-c', SUMMONED_PY, COORD_PY], {
+      encoding: 'utf8', timeout: 30000,
+    });
+    if (r.status === 0) {
+      const parsed = JSON.parse(r.stdout);
+      if (Array.isArray(parsed)) names = parsed.map(String).filter(Boolean);
+    }
+  } catch {
+    names = null;
+  }
+  // ⚠ A FAILED READ IS NOT CACHED, AND AN EMPTY ANSWER IS. The two are different facts and the
+  // old single-branch version conflated them: one transient python hiccup disabled the D24
+  // exclusion for the life of the daemon, silently. A read that ANSWERED (`[]` included) is a
+  // fact that cannot change without a deploy, so it caches; a read that FAILED is retried by the
+  // next caller, and every caller that carries a voice says so. Seeding's ~10 s cadence calls
+  // this with no `say`, so on a box where the read keeps failing the ~300 s watcher pass is what
+  // makes it audible — which is why the warning may NOT be moved behind the cache.
+  if (names === null) {
+    if (say) say('warn', 'coord could not be asked for SUMMONED_SEATS — the D24 exclusion is OFF this pass', {});
+    return new Set();
+  }
+  SUMMONED_CACHE = new Set(names);
+  return SUMMONED_CACHE;
+}
+
 function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows = null } = {}) {
-  const refuse = (reason) => ({ ready: null, rows: [], reason });
+  const refuse = (reason) => ({ ready: null, rows: [], reason, summonedExcluded: [] });
   let rows = taskRows;
   if (!rows) {
     let raw;
@@ -181,7 +247,24 @@ function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows
     if (!Array.isArray(rows)) return refuse('`ready-seats --json` returned no row array');
   }
   const ready = readyFromEndings(heartStore, goalFolder, { rows, goal });
-  return { ready, rows, reason: null };
+  // ── THE SUMMONED EXCLUSION, AT THE ONE PLACE THE LAUNCHABLE SET IS DERIVED ──────────────────
+  //
+  // `readyFromEndings` rebuilds the frontier from the ENDING LEDGER and the `after` column, and
+  // it reads NOTHING off coord's per-row `verdict` — so coord's D24 branch
+  // (`supervisor/ready.py`, "ON-DEMAND summoned seat — NOT OFFERED", verdict `IDLE`) never
+  // reached this pass. That is where the wrong value was born, and this is the seam every
+  // consumer of the frontier passes through: seeding's enqueue pass, the watcher, the attached
+  // lane's status, and the probes. Excluding here rather than at each of them is what keeps the
+  // answer single.
+  //
+  // ⚠ THIS IS A SEEDING EXCLUSION, NOT AN UNREACHABILITY. The summon path does not read this
+  // frontier: an owner message in the goal's channel reaches the chair through the chat bridge
+  // (`chat/forward-path.js`), and an explicit `launch --only goal-master` admits by conjunction.
+  const summonedExcluded = [];
+  for (const seat of summonedSeats(null)) {
+    if (ready.delete(seat)) summonedExcluded.push(seat);
+  }
+  return { ready, rows, reason: null, summonedExcluded };
 }
 
 // ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
@@ -948,7 +1031,7 @@ function seedGoal({
   // goal this pass — not a partial enqueue, and not even the create-only job registration, which
   // would be store rows written off an answer nobody has. The next pass retries; missing any
   // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
-  const { ready, rows: readyRows, reason } = readySeats(goalFolder, { heartStore, goal });
+  const { ready, rows: readyRows, reason, summonedExcluded } = readySeats(goalFolder, { heartStore, goal });
   if (!ready) {
     if (logger) {
       logger({
@@ -968,6 +1051,23 @@ function seedGoal({
       // `readinessRefused` for this arm — see the `skewed` note on the success return below.
       skewed: [], frozen: null, suppressedEnqueues: {}, enqueueUnfired: [],
     };
+  }
+  // ── ONE LINE PER SUMMONED CHAIR, AT ITS FIRST SEEDING ───────────────────────────────────────
+  // A journal line every 10 s per goal is not a signal, it is weather — so this says it ONCE per
+  // (goal, chair) for the life of the process, which is exactly "at first seeding" for a daemon
+  // that must be restarted to change `SUMMONED_SEATS` at all. Nothing reads this Set but this
+  // line; it can only ever suppress a repeat, never change whether a seat seeds.
+  for (const seat of summonedExcluded || []) {
+    const key = `${goal}/${seat}`;
+    if (SUMMONED_SAID.has(key)) continue;
+    SUMMONED_SAID.add(key);
+    if (logger) {
+      logger({
+        level: 'info',
+        message: `chair ${seat} is SUMMONED — not seeded (launched per owner message)`,
+        goal, goalFolder, seat,
+      });
+    }
   }
   const view = recordView(heartStore, goalFolder, { readyRows, goal });
   seedTaskforce(heartStore, goalFolder, { logger, goal, rows });
@@ -1101,6 +1201,7 @@ module.exports = {
   SEAT_STATES,
   readCsv,
   readySeats,
+  summonedSeats,
   renewalState,
   seatBootPrompt,
   successorReads,

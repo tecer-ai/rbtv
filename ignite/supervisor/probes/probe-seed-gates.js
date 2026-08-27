@@ -124,10 +124,10 @@ function laneReachArms(seatBinds, roots) {
   say(`arm 5 bus row (verbatim head): ${bus.split('\n').slice(0, 12).join(' | ').slice(0, 500)}`);
 }
 
-// ── D9 · the goal-live fixture: a real engine over a fixture workspace, an armed grant file ────
-function goalLiveArms() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-live-'));
-  const ws = path.join(tmp, 'ws');
+// The launch-spec fixture both live-engine arms below stand on: a real spawn config with ONE
+// `bash/probe-live` spec, so every seat in these fixtures is cast identically and the only thing
+// that can ever differ between two of them is the seat NAME.
+function liveConfig(tmp) {
   const yaml = require(path.join(IGNITE_SRC, 'node_modules', 'js-yaml'));
   const cfg = yaml.load(fs.readFileSync(path.join(IGNITE_SRC, 'envelope', 'spawn-profiles.yaml'), 'utf8'));
   cfg.spawn = { ...(cfg.spawn || {}), data_root: path.join(tmp, 'data'), carrier: 'setsid' };
@@ -143,6 +143,20 @@ function goalLiveArms() {
   } } };
   const configPath = path.join(tmp, 'spawn-profiles.yaml');
   fs.writeFileSync(configPath, yaml.dump(cfg));
+  return configPath;
+}
+
+function seatDescriptor(goalFolder, seat) {
+  fs.mkdirSync(path.join(goalFolder, 'seats', seat), { recursive: true });
+  fs.writeFileSync(path.join(goalFolder, 'seats', seat, 'seat.md'),
+    `---\nseat: ${seat}\nharness: bash\nmodel: probe-live\n---\n\nbody\n`);
+}
+
+// ── D9 · the goal-live fixture: a real engine over a fixture workspace, an armed grant file ────
+function goalLiveArms() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-live-'));
+  const ws = path.join(tmp, 'ws');
+  const configPath = liveConfig(tmp);
 
   const goal = 'live-goal';
   const goalFolder = path.join(ws, '.rbtv', 'goals', goal);
@@ -193,6 +207,83 @@ function goalLiveArms() {
   }
 }
 
+// ── D24 · THE SUMMONED CHAIR IS NEVER SEEDED (wave re-run #5, 2026-08-27) ─────────────────────
+//
+// THE MEASURED DEFECT. `scratch-cli-reach-report`'s `taskforce.csv` carried a root `goal-master`
+// row beside a root `leader` row and a five-seat planning chain. At the FIRST seeding pass
+// (15:27:01Z) the daemon journalled `enqueued seat … goal-master`; that cold sitting — no owner
+// message anywhere — executed the goal's own contract and fired `coordinate finish-goal`, which
+// killed the room with three of the five planning seats never enqueued.
+//
+// WHY IT FIRED. coord ALREADY refuses the chair: `supervisor/ready.py`'s D24 branch answers
+// `verdict: IDLE`, "ON-DEMAND summoned seat — NOT OFFERED". But `ending-reads.js#readyFromEndings`
+// rebuilds the frontier from the ending ledger and the `after` column and reads NO verdict off
+// coord's rows at all, so that answer never reached the pass. `seeding.js#readySeats` now removes
+// every chair coord's own `SUMMONED_SEATS` names, at the one place the frontier is derived.
+//
+// THE DISCRIMINATING CONTROL IS `leader`. Both rows are ROOTS (no `after`), both are cast by the
+// same one-spec launch config, both have a descriptor written by the same function — the pair
+// differs in exactly ONE fact, the seat name. A guard that suppressed "chairs", or "seats with no
+// ctx-refresh", or simply broke seeding, would take `leader` down with it and redden arm 8b.
+function summonedChairArms() {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-summoned-'));
+  const ws = path.join(tmp, 'ws');
+  const configPath = liveConfig(tmp);
+
+  const goal = 'summoned-goal';
+  const goalFolder = path.join(ws, '.rbtv', 'goals', goal);
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  // The live shape: a planning chain whose head is a root, plus the two root chairs.
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+    'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
+    + 'tf-1,plan-understander,,bash,probe-live,high,35,\n'
+    + 'tf-1,plan-designer,plan-understander,bash,probe-live,high,35,\n'
+    + 'tf-1,leader,,bash,probe-live,medium,35,\n'
+    + 'tf-1,goal-master,,bash,probe-live,medium,,\n');
+  for (const seat of ['plan-understander', 'plan-designer', 'leader', 'goal-master']) {
+    seatDescriptor(goalFolder, seat);
+  }
+  const dbPath = path.join(ws, '.rbtv', 'heart', 'heart.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const liveLease = (a) => deriveLease({ ...a, tmuxProbe: () => ({ sessions: a.goal, panes: '' }) });
+
+  const pass = () => {
+    const logs = [];
+    const engine = createEngine({ dbPath, spawnConfigPath: configPath, userManager: false, logger: (m) => logs.push(m) });
+    try { return { pickup: engine.seedGoal({ goalFolder, goal, readLease: liveLease }), logs }; }
+    finally { engine.close(); }
+  };
+
+  try {
+    const first = pass();
+    const enq = first.pickup.enqueued || [];
+    check('arm 8a: the FIRST seeding pass does NOT enqueue the SUMMONED chair `goal-master`',
+      !enq.includes('goal-master'), `enqueued: ${JSON.stringify(enq)}`);
+    check('arm 8b (the discriminating control): the SAME pass DOES enqueue `leader` and the root '
+      + 'plan seat — only the summoned NAME is excluded',
+      enq.includes('leader') && enq.includes('plan-understander'), `enqueued: ${JSON.stringify(enq)}`);
+    check('arm 8c: the chair is excluded from the FRONTIER, not merely from the queue — it reads '
+      + '`waiting`, never `ready`',
+      JSON.stringify(first.pickup.states && first.pickup.states['goal-master']) === '"waiting"',
+      `states: ${JSON.stringify(first.pickup.states)}`);
+    const said = first.logs.filter((l) => /is SUMMONED — not seeded/.test(l.message || ''));
+    check('arm 8d: the journal names it ONCE at first seeding, with the reason',
+      said.length === 1 && /goal-master/.test(said[0].message)
+      && /launched per owner message/.test(said[0].message),
+      JSON.stringify(said.map((l) => l.message)));
+    say(`arm 8d log line: ${JSON.stringify(said.length ? said[0].message : null)}`);
+
+    // A second pass 10 s later must not repeat the line — a per-pass line is weather, not signal.
+    const second = pass();
+    check('arm 8e: a SECOND pass repeats neither the enqueue nor the journal line',
+      !(second.pickup.enqueued || []).includes('goal-master')
+      && second.logs.filter((l) => /is SUMMONED — not seeded/.test(l.message || '')).length === 0,
+      JSON.stringify({ enqueued: second.pickup.enqueued, lines: second.logs.filter((l) => /SUMMONED/.test(l.message || '')).length }));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 function main() {
   const roots = [];
   try {
@@ -201,6 +292,7 @@ function main() {
     for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
   }
   goalLiveArms();
+  summonedChairArms();
 }
 
 try {
@@ -215,8 +307,10 @@ say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
   : 'RESULT: PASS — the pre-enqueue door refuses a lane whose reach the composed cage cannot '
     + 'satisfy (cli via exposed-clis, path via the `rw-paths` grant lane, fail-closed on '
-    + 'malformed entries, surfaced once on the bus), and seedGoal refuses a not-live goal BEFORE '
-    + 'any relaunch grant is spent while a live one seeds and spends normally.');
+    + 'malformed entries, surfaced once on the bus), seedGoal refuses a not-live goal BEFORE '
+    + 'any relaunch grant is spent while a live one seeds and spends normally, and the first '
+    + 'seeding pass of a live goal enqueues its plan seats and its `leader` while NEVER enqueuing '
+    + 'the SUMMONED `goal-master` chair, saying so once.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
 fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');

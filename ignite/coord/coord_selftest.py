@@ -12094,6 +12094,95 @@ def _selftest_checks(args, failures, names):
               and lifecycle_exec.clear_lifecycle(_lc_sb, "nosuchseat") is False
               and (lifecycle_exec.load_lifecycle(_lc_sb).get("gamma") or {}).get("state") == "in-flight")
 
+        # ---- (7) WHO MAY END A GOAL, AND WHO THE ROW SAYS ENDED IT (wave re-run #5, 2026-08-27).
+        #
+        # THE MEASURED DEFECT. `scratch-cli-reach-report`'s `goal-master` chair — the goal's
+        # CONVERSATIONAL seat, not a planning role (OQ-8, owner, 2026-08-26) — ran `coordinate
+        # finish-goal` with COORD_AGENT=goal-master while three of the goal's five planning seats
+        # had never been enqueued. The verb admitted it (no authority check of any kind), and the
+        # append-only row it stamped read `from: leader`, because the sender defaulted to the
+        # literal string "leader" whenever `--as` was absent. So the log recorded the finish as an
+        # act of a seat that did not perform it, and the room died mid-pipeline.
+        #
+        # THE AUTHORITY IS THE GOAL'S OWN REGISTER, read at call time — `taskforce.csv`'s `leader`
+        # row, exactly as `supervisor/reconcile.js#leaderSeat` reads it on the daemon side. It is
+        # NOT a revival of the deleted per-verb role-gate layer [T2-R10, D24, F-simplicity-7]:
+        # nothing here is a name predicate compiled into `gate()`.
+        _fg_root = Path(td) / "fg-gate"
+        (_fg_root / "coordination").mkdir(parents=True)
+        (_fg_root / "taskforce.csv").write_text(
+            "taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n"
+            "tf-1,plan-verifier,plan-reviewer,claude,claude-opus-5,high,35,\n"
+            "tf-1,leader,,claude,claude-opus-5,medium,35,\n"
+            "tf-1,goal-master,,claude,claude-opus-5,medium,,\n", encoding="utf-8")
+        _fg_gm, _fg_gm_code = refuse(cmd_finish_goal, package=str(_fg_root),
+                                     as_agent="goal-master", note="")
+        check("s3-03 (7a) THE SUMMONED CHAIR IS REFUSED: `finish-goal` as `goal-master` on a goal "
+              "whose taskforce names a `leader` REFUSES, exits non-zero, NAMES who may fire it, "
+              "and WRITES NOTHING — no finish event exists afterwards. This is the exact call "
+              "that killed `scratch-cli-reach-report`'s room on 2026-08-27",
+              _fg_gm_code != 0 and "leader" in _fg_gm and "role gate" in _fg_gm
+              and goal_finished(_fg_root) is None)
+        print(f"      (7a) observed: exit={_fg_gm_code} refusal={_fg_gm.strip()[:300]!r}")
+        _fg_pv, _fg_pv_code = refuse(cmd_finish_goal, package=str(_fg_root),
+                                     as_agent="plan-verifier", note="")
+        check("s3-03 (7b) THE ORDINARY-SEAT CONTROL: an ordinary taskforce member "
+              "(`plan-verifier`) is refused by the SAME gate — so 7a measures 'not the leader', "
+              "never 'chairs are special'. Without this row a guard keyed on the summoned list "
+              "alone would read identical",
+              _fg_pv_code != 0 and "plan-verifier" in _fg_pv
+              and goal_finished(_fg_root) is None)
+        print(f"      (7b) observed: exit={_fg_pv_code} refusal={_fg_pv.strip()[:300]!r}")
+        _fg_ok = run(cmd_finish_goal, package=str(_fg_root), as_agent="leader", note="")
+        _fg_bus = (_fg_root / "coordination" / "messages.md").read_text(encoding="utf-8")
+        check("s3-03 (7c) THE LEADER FIRES, AND THE ROW IS ATTRIBUTED TO THE RESOLVED IDENTITY: "
+              "the same goal, the same command, `leader` — the finish event is recorded and its "
+              "header reads `from: leader`",
+              goal_finished(_fg_root) is not None and "| from: leader |" in _fg_bus)
+        print(f"      (7c) observed row: "
+              f"{[l for l in _fg_bus.splitlines() if l.startswith('## ')][:1]}")
+        # THE DEGRADATION, STATED: on a package the register cannot speak for (no `taskforce.csv`
+        # — a team-kit run, a console package) the gate refuses NOBODY. There is no chair to gate
+        # against, and a goal nobody can end is a worse defect than the one being fixed.
+        _fg_bare = Path(td) / "fg-bare"
+        (_fg_bare / "coordination").mkdir(parents=True)
+        run(cmd_finish_goal, package=str(_fg_bare), as_agent="alpha", note="")
+        _fg_bare_bus = (_fg_bare / "coordination" / "messages.md").read_text(encoding="utf-8")
+        check("s3-03 (7d) THE GATE HAS A SUBJECT OR IT REFUSES NOBODY: on a TASKFORCE-LESS "
+              "package `alpha` still ends the goal (nothing names a leader), and the row reads "
+              "`from: alpha`. This is the boundary of 7a/7b, not a second gate",
+              "| from: alpha |" in _fg_bare_bus and "| from: leader |" not in _fg_bare_bus)
+        print(f"      (7d) observed row: "
+              f"{[l for l in _fg_bare_bus.splitlines() if l.startswith('## ')][:1]}")
+        # ⚠ THE ATTRIBUTION DISCRIMINATOR, AND IT NEEDS AN UNRESOLVABLE CALLER. Every row above
+        # passes `--as`, so `args.as_agent or "leader"` and "the resolved identity" are the SAME
+        # value there — a row that asserts `from: alpha` after passing `as_agent="alpha"` is green
+        # whether the old default stands or not. The literal was only ever reachable when identity
+        # resolved to NOTHING, so that is the state this row builds: no `--as`, no `COORD_AGENT`,
+        # the calling pane empty (the suite's default) and the daemon-exec lane stubbed silent.
+        # The finish edge must REFUSE and write nothing, rather than stamp a seat that did not
+        # fire it. Restoring `or "leader"` turns this row green-by-writing and reddens it here.
+        _fg_noid = Path(td) / "fg-noid"
+        (_fg_noid / "coordination").mkdir(parents=True)
+        _fg_real_daemon = globals()["daemon_exec_identity"]
+        _fg_prior_agent = os.environ.pop("COORD_AGENT", None)
+        globals()["daemon_exec_identity"] = lambda **_kw: ""
+        try:
+            _fg_noid_out, _fg_noid_code = refuse(cmd_finish_goal, package=str(_fg_noid), note="")
+        finally:
+            globals()["daemon_exec_identity"] = _fg_real_daemon
+            if _fg_prior_agent is not None:
+                os.environ["COORD_AGENT"] = _fg_prior_agent
+        check("s3-03 (7e) THE `or \"leader\"` DEFAULT IS GONE: with NO resolvable identity at all "
+              "the finish edge REFUSES on the `identity` layer and writes NOTHING — where the old "
+              "code stamped the literal `leader` and recorded the end of a goal against a seat "
+              "that had not run the command",
+              _fg_noid_code != 0 and "identity" in _fg_noid_out
+              and not (_fg_noid / "coordination" / "messages.md").exists())
+        print(f"      (7e) observed: exit={_fg_noid_code} "
+              f"refusal={_fg_noid_out.strip()[:220]!r} "
+              f"bus_written={(_fg_noid / 'coordination' / 'messages.md').exists()}")
+
         # ============ s3-04: the LIFECYCLE LINE — the marker's READ SIDE ========================
         # ⚠ THE FIXTURE IS THE MAIN PACKAGE'S OWN `coordination/`, not a bare temp dir, and that is
         # not convenience. Rows (3a)/(3b) must render through the REAL commands, and `cmd_workers`

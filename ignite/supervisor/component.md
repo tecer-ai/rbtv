@@ -781,3 +781,34 @@ other act in the pass — a refusing tmux is one `warn` and a goal left for the 
 daemon-lane goal to run `rbtv run`.
 
 Proof: `probes/probe-lane-room-open.js` — six goals on a PRIVATE tmux server, six red mutation arms.
+
+## A SUMMONED chair is never seeded (D24's seeding half, 2026-08-27)
+
+`coord/identity.py#SUMMONED_SEATS` is the ONE list of chairs that exist only when the owner
+summons them — today `("goal-master",)`. Its readiness half has held since D24 (`ready.py` answers
+`verdict: IDLE`, "ON-DEMAND summoned seat — NOT OFFERED") and its owed half since the same ruling
+(`reconcile.js` never derives class B for such a chair). The SEEDING half was missing, and the gap
+cost a goal: on 2026-08-27 `scratch-cli-reach-report`'s `goal-master` row was enqueued at the first
+seeding pass (15:27:01Z) with no owner message anywhere, and that cold sitting executed the goal's
+own contract and fired `coordinate finish-goal`, tearing the room down with three of the five
+planning seats never enqueued.
+
+WHY coord's IDLE verdict never arrived. `ending-reads.js#readyFromEndings` builds the frontier from
+the ENDING LEDGER and the `after` column and reads NO `verdict` field off coord's rows — it takes
+only `seat`, `after` and `seed` from them. So `seedGoal`'s own "`ready` IS COORD'S ANSWER, HANDED
+IN" note was true of the transport and false of the answer.
+
+WHERE IT IS FIXED: `seeding.js#readySeats`, immediately after `readyFromEndings` — the ONE place
+the launchable set is derived and the seam every consumer passes through (seeding's enqueue pass,
+`reconcile.js`, the attached lane's status verb, the probes). The list is READ OFF COORD by the
+`summonedSeats()` transport, which MOVED here from `reconcile.js` and is imported back by it: two
+readers of one list is exactly the second source of truth D24's own note forbids. A failed read
+yields the EMPTY set and logs — degradation is toward the old behaviour, never a silent hole.
+
+This is a SEEDING exclusion, not an unreachability. The summon path does not read this frontier: an
+owner message on the goal's channel reaches the chair through `chat/forward-path.js`, and an
+explicit `launch --only goal-master` still admits by conjunction. One `info` line names it once per
+(goal, chair) per process — `chair <seat> is SUMMONED — not seeded (launched per owner message)`.
+
+Proof: `probes/probe-seed-gates.js` arms 8a–8e, with `leader` as the discriminating control (same
+root row, same cast, same descriptor writer — only the name differs).

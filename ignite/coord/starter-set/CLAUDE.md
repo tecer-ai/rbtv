@@ -120,6 +120,10 @@ The normative home of the `memory.md` / `handoff-log.md` write contract is the t
 
 **A goal is finished by ONE act** — the deterministic FINISH EDGE (`#d-extinguishment-design-lock`
 item 3), fired as `coordinate finish-goal`. There is nothing else to close and no register to stamp.
+**It is the `leader`'s act and coord refuses it from anyone else** where this goal's
+`taskforce.csv` names a `leader` row — the finish edge tears the room down and stops every
+watcher, so a seat that fires it while siblings are still owed their turn ends the goal for
+everyone. If you believe the goal is over and you are not the leader, say so to the leader.
 Firing it is what shuts the watchers off, and nothing else does: an absent room is a
 CRASH the watcher RECOVERS by relaunching, never a finished goal. Do not write a status anywhere to
 mean "over" — a stored status that outlives what it describes is the exact defect the register was
