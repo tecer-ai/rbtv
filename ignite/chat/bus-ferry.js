@@ -716,6 +716,31 @@ function createBusFerry({
     if (watchTimer.unref) watchTimer.unref();
   }
 
+  // ── THE ESCALATION'S OWN OWNER LEG (W8, adv, C76) ───────────────────────────────────────────
+  //
+  // `transport.sendToOwner` DIRECTLY — minting no sitting and seating nobody — but
+  // CONTENT-BEARING, because for the one message type whose whole purpose is to interrupt a human
+  // a warn line in a log nobody reads is the silent stall this module exists to delete.
+  //
+  // TWO callers reach it and they differ ONLY in why the ask thread was not the surface: a
+  // DETERMINISTIC refusal at the ask door (taken on the FIRST pass) and the attempt cap (taken on
+  // the last). One function, because the two used to be one path reached at two very different
+  // times and the words the owner reads must not drift apart.
+  async function deliverEscalationInFull({ goalId, row, why, key }) {
+    try {
+      await postOwner({
+        kind: 'alarm',
+        channel: dmChannel, threadTs: null,
+        text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* ${why}. It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
+        goal_id: goalId,
+      });
+      return true;
+    } catch (err) {
+      log('error', 'bus ferry could not deliver an ESCALATION by ANY path — it is lost to the owner and lives only on the bus', { key, msgId: row.id, from: row.from, error: err.message });
+      return false;
+    }
+  }
+
   async function _runOnce() {
     if (!enabled || ticking) return;
     ticking = true;
@@ -891,7 +916,9 @@ function createBusFerry({
           //
           // ⚑ [T2-R14] STILL BINDS, AT ITS OWN DOOR. A non-designated seat's owner-ask is refused
           // AT SEND — `ask-thread.js#postAsk` refuses it and says so. Refusal is not parking: the
-          // caller learns, and nothing is silently swallowed here.
+          // caller learns, and nothing is silently swallowed here. That refusal is DETERMINISTIC
+          // and is disposed of on the FIRST pass — for an `escalation`, by the content-bearing
+          // owner DM (W8-C). See § the terminal-refusal block below.
           const arm = chatThread || isEscalation ? null : fallbackArm(row.from);
           // Two ask LABELS reach the owner and only two [D-7-ruling]: the leader's traffic and any
           // escalation are `recovery`, everything else — including the deleted consultant's former
@@ -900,6 +927,8 @@ function createBusFerry({
           const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
           let delivered = false;
           let error = null;
+          // A refusal that CANNOT change between passes — see the terminal-refusal block below.
+          let terminalRefusal = false;
           let viaAgentThread = false;
           let viaAskThread = false;
           // The render ACTUALLY posted — the two legs render the same row differently (the
@@ -947,8 +976,16 @@ function createBusFerry({
               } else if (asked && asked.reason === 'seat-not-interact') {
                 // [T2-R14] refused AT SEND, and SAID so — the one outcome that posts nothing and
                 // is still not a park: it is reported, and the row does not sit unread forever.
+                //
+                // ⚑ AND IT IS TERMINAL, NEVER TRANSIENT. The refusal reads the seat's own
+                // descriptor, so nothing about it can differ on a later pass: routing it into the
+                // bounded retry below can only re-fail it identically, `maxAttempts` times, before
+                // reaching the very same disposition. It DID — an escalation from a staff chair
+                // (deliberately not `human-interactive`, `meta/leader/component.md`) reached its
+                // content-bearing DM only at the cap, behind 20 identical refusals in the log.
                 log('warn', 'bus row REFUSED at the ask door — this seat is not designated to reach the owner [T2-R14]', { key, msgId: row.id, from: row.from });
                 res = { delivered: false, reason: 'seat-not-interact' };
+                terminalRefusal = true;
               }
             }
             if (!res && !chatThread && routeToAgentThread) {
@@ -988,6 +1025,32 @@ function createBusFerry({
                 { key, msgId: row.id, from: row.from, chars: postedText.length, arm, ...(chatThread ? { chatThread } : {}) });
             continue;
           }
+          // ⚑ A DETERMINISTIC REFUSAL IS DISPOSED OF ON THE FIRST PASS, NOT AT THE CAP. The retry
+          // ladder below exists for TRANSIENT failures — a rate limit, a channel Slack has not
+          // caught up with — and `seat-not-interact` is neither. For an ESCALATION the content
+          // bearing DM (W8-C) is the DESIGNED delivery for exactly this case; the defect was that
+          // it was reached 20 passes late, after a storm of identical refusals. For any other row
+          // the refusal is already the whole outcome — it is reported and the cursor moves on.
+          //
+          // The ask door is NOT loosened to admit the escalation instead. `postAsk` MINTS AN ASK
+          // RECORD, and a record for a seat that cannot be replied to is an ask that can never be
+          // released: it would suspend the kill clock and read as open forever. [T2-R14] refuses
+          // at that door for that reason, and this leg is what it refuses TOWARD.
+          if (terminalRefusal) {
+            attempts.delete(`${key}#${row.id}`);
+            const reached = isEscalation && await deliverEscalationInFull({
+              goalId, row, key,
+              why: 'cannot be posted as an ask thread — this seat is not designated to reach the owner [T2-R14]',
+            });
+            // ONE outcome per msgId — the delivery line and a `NOT delivered` line must never
+            // both fire for the same row (W8-C).
+            if (reached) log('warn', 'bus ferry could not post an ESCALATION as an ask thread — delivered it to the owner DM in full instead on the FIRST attempt, cursor advanced', { key, msgId: row.id, from: row.from });
+            else log('warn', 'bus row refused at the ask door is NOT retried — the refusal is deterministic, cursor advanced [T2-R14]', { key, msgId: row.id, from: row.from });
+            if (stuckAt === null) cursors.set(key, row.id);
+            else jumped.add(`${key}#${row.id}`);
+            persist();
+            continue;
+          }
           const akey = `${key}#${row.id}`;
           const n = (attempts.get(akey) || 0) + 1;
           attempts.set(akey, n);
@@ -1025,18 +1088,11 @@ function createBusFerry({
             // operator greps, so the honest outcome was the unreadable one.
             let escalationDelivered = false;
             if (isEscalation) {
-              try {
-                await postOwner({
-                  kind: 'alarm',
-                  channel: dmChannel, threadTs: null,
-                  text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* could NOT be posted to its channel after ${n} attempts (${error}). It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
-                  goal_id: goalId,
-                });
-                escalationDelivered = true;
-                log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead, cursor advanced', { key, msgId: row.id, from: row.from, attempts: n, error });
-              } catch (err) {
-                log('error', 'bus ferry could not deliver an ESCALATION by ANY path — it is lost to the owner and lives only on the bus', { key, msgId: row.id, from: row.from, error: err.message });
-              }
+              escalationDelivered = await deliverEscalationInFull({
+                goalId, row, key,
+                why: `could NOT be posted to its channel after ${n} attempts (${error})`,
+              });
+              if (escalationDelivered) log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead, cursor advanced', { key, msgId: row.id, from: row.from, attempts: n, error });
             }
             if (stuckAt === null) cursors.set(key, row.id); // advance — never wedge the ferry on one row
             else jumped.add(akey);
@@ -1120,7 +1176,7 @@ function createBusFerry({
     return cursors.size;
   }
 
-  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, _jumped: jumped, get enabled() { return enabled; }, get dmChannel() { return dmChannel; }, get watching() { return watchers.size; } };
+  return { start, stop, tick: _runOnce, toJSON, load, _cursors: cursors, _jumped: jumped, _attempts: attempts, get enabled() { return enabled; }, get dmChannel() { return dmChannel; }, get watching() { return watchers.size; } };
 }
 
 module.exports = {

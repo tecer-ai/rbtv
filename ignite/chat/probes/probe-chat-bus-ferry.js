@@ -424,6 +424,91 @@ async function main() {
     a.bridge.stop();
   }
 
+  {
+    // W8-D — THE REFUSAL AT THE ASK DOOR IS TERMINAL, AND THE ESCALATION'S DM IS TAKEN ON THE
+    // FIRST PASS. Observed live 2026-08-27 19:36-19:37Z: `leader`'s escalation #12 produced
+    // TWENTY `owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]` lines
+    // and only then the content-bearing DM. Nothing about that refusal can change between passes
+    // — it reads the seat's own descriptor — so every one of the twenty was the same answer.
+    //
+    // The ask door itself is STUBBED here, and deliberately: this arm measures the FERRY's
+    // handling of the refusal, which is where the defect lived. That the real door refuses a
+    // non-`human-interactive` seat with exactly this reason is pinned one probe over
+    // (`probe-chat-ask-release.js:119`), so the stub restates a measured fact rather than
+    // inventing a convenient one.
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8d', '2026-08-14a', { backlogRows: 1 });
+    writeSeatDescriptor(path.join(root, '.rbtv', 'goals', 'goal-w8d'), 'leader', { humanInteractive: false });
+    const slack = makeFakeSlack();
+    const logs = [];
+    const askCalls = [];
+    const a = makeBridge({
+      workspaceRoot: root, slack, logs,
+      busFerryOptions: { postAsk: async (args) => { askCalls.push(args); return { posted: false, reason: 'seat-not-interact' }; } },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'escalation', 'nobody in this run can clear this halt'));
+    await a.bridge.busFerry.tick();
+    check('W8-D: an `escalation` the ask door REFUSES [T2-R14] reaches the owner on the FIRST pass '
+      + '— one ask attempt, one content-bearing DM, no retry storm',
+      askCalls.length === 1 && slack.posted.length === 1
+      && /ESCALATION from \*leader\*/.test(slack.posted[0].text)
+      && /not designated to reach the owner \[T2-R14\]/.test(slack.posted[0].text)
+      && /nobody in this run can clear this halt/.test(slack.posted[0].text),
+      { askCalls: askCalls.length, posted: slack.posted.map((p) => p.text.split('\n')[0]) });
+    check('W8-D: the refusal is TERMINAL — the row leaves no retry attempt behind it and the '
+      + 'cursor advances on that same first pass',
+      a.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a') === 2
+      && a.bridge.busFerry._attempts.size === 0,
+      { cursor: a.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a'), attempts: [...a.bridge.busFerry._attempts.keys()] });
+    check('W8-D: ONE refusal line in the log, not twenty, and no `will retry next pass` for a '
+      + 'refusal that cannot change between passes',
+      logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length === 1
+      && logs.filter((l) => /will retry next pass/.test(l.message)).length === 0
+      && logs.filter((l) => /NOT delivered/.test(l.message)).length === 0,
+      {
+        refusals: logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length,
+        retries: logs.filter((l) => /will retry next pass/.test(l.message)).length,
+      });
+    // A further pass must not re-deliver it: the cursor, not the attempt counter, is what holds.
+    await a.bridge.busFerry.tick();
+    check('W8-D: a later pass does NOT deliver the refused escalation a second time',
+      slack.posted.length === 1, { posted: slack.posted.length });
+    a.bridge.stop();
+  }
+  {
+    // W8-E — THE SAME TERMINAL RULE FOR AN ORDINARY ROW. A `note` from the same non-designated
+    // seat is refused by the same door and is equally unretryable; it must not spend twenty
+    // passes either. It gets NO content-bearing DM — that leg is the escalation's alone (W8-C) —
+    // so the measurable outcome is: nothing posted, one refusal line, cursor advanced.
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8e', '2026-08-14a', { backlogRows: 1 });
+    const slack = makeFakeSlack();
+    const logs = [];
+    const a = makeBridge({
+      workspaceRoot: root, slack, logs,
+      busFerryOptions: { postAsk: async () => ({ posted: false, reason: 'seat-not-interact' }) },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'an ordinary word to the human'));
+    await a.bridge.busFerry.tick();
+    check('W8-E: an ordinary row refused at the ask door posts NOTHING, is reported once, and is '
+      + 'not retried — the cursor advances on the first pass',
+      slack.posted.length === 0
+      && a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a') === 2
+      && a.bridge.busFerry._attempts.size === 0
+      && logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length === 1
+      && logs.filter((l) => /will retry next pass/.test(l.message)).length === 0,
+      {
+        posted: slack.posted.length,
+        cursor: a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a'),
+        attempts: [...a.bridge.busFerry._attempts.keys()],
+      });
+    a.bridge.stop();
+  }
+
   // 7 — THE CURSOR SURVIVES A RESTART. A second bridge on the same state_file must not
   //     re-post what the first already delivered — and must not re-arm first sight.
   {
