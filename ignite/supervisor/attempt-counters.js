@@ -157,12 +157,50 @@ function writeAll(file, rows) {
   fs.renameSync(tmp, target);
 }
 
+// -- THE OWED-ITEM MARKER - what makes a pass a RETRY rather than a first attempt ---------------
+//
+// ⚠ READ THIS BEFORE TOUCHING IT, because it looks like the deleted brake and is its opposite.
+// The deleted `strike()`/`stuckStands()` pair RESET the count whenever the owed signature drifted;
+// that reset is still forbidden and is still nowhere in this file. What this marker does is answer
+// the OTHER half of spec-recovery section 5's sentence - "increments on a SAME-REASON RETRY". A
+// retry is a second attempt at work the counter already counted. A pass whose owed items are all
+// NEW - every item the last advance counted has since been resolved - is a FIRST attempt at
+// different work, and counting it as a retry is how three legitimate per-hop wakes reached N=3 on
+// `scratch-tool-reach-note` (2026-08-27: classA plan-understander -> plan-designer -> plan-drafter,
+// strictly replaced each hop) and disarmed the leader before its fourth, real, unread mail.
+//
+// THE RULE, and it is one line: the pass is a retry when the recorded item set INTERSECTS the
+// current one. Overlap means some work this counter already counted still stands, and the bound
+// must keep closing on it - which is exactly the [C-4] inversion the redesign ruled and
+// `reconcile.selftest.js` asserts (owed set `{a}` then `{a,b}` reaches 3, because `a` never moved).
+// No overlap means nothing it counted is left, so nothing was retried.
+//
+// AND IT NEVER RESETS. A no-overlap pass leaves `attempts` EXACTLY where it was; only
+// `RE_ARM_EVENTS` clears a count. A driver that hands in no items is unchanged - it always counts.
+//
+// The marker lives in the ROW, never in the key: a key is a failure class [spec-recovery 5] and
+// `refuseVolatile` still guards it. Items are allowed to move; that is their whole job.
+function normalizeItems(items) {
+  if (!Array.isArray(items)) return null;
+  const out = [...new Set(items.map((i) => String(i)).filter(Boolean))].sort();
+  return out.length ? out : null;
+}
+
+function isRetryOf(recorded, current) {
+  if (!recorded || !current) return true;   // a driver that names no items always counts
+  return current.some((i) => recorded.includes(i));
+}
+
 // -- THE API ------------------------------------------------------------------------------------
 
 // One same-reason retry. Returns the new count and whether it reached N. `n` is the caller's, read
 // from `recovery-config.js#loadRecoveryConfig().attempt_counter_n` - never defaulted here.
+//
+// `items` is OPTIONAL and is the owed-item marker above: the ids this pass is owed for (seat names,
+// mail numbers - whatever the driver's owed set is made of). Omit it and the behaviour is
+// unchanged. Hand it in and the count advances only when this pass retries work already counted.
 function countAttempt({
-  driver, goal, seat, subject, reasonClass, n, at,
+  driver, goal, seat, subject, reasonClass, n, at, items = null,
 }, { countersFile } = {}) {
   const key = keyOf({
     driver, goal, seat, subject, reasonClass,
@@ -173,7 +211,11 @@ function countAttempt({
   const rows = readAll(countersFile);
   const prev = rows[key] || { attempts: 0 };
   const stamp = at || new Date().toISOString();
-  const attempts = Number(prev.attempts || 0) + 1;
+  const current = normalizeItems(items);
+  const recorded = normalizeItems(prev.owed_items);
+  const advanced = isRetryOf(recorded, current);
+  // NOT ADVANCING IS NOT RESETTING. `prev.attempts` is carried through untouched.
+  const attempts = advanced ? Number(prev.attempts || 0) + 1 : Number(prev.attempts || 0);
   rows[key] = {
     driver,
     subject: subjectOf({ goal, seat, subject }),
@@ -183,11 +225,32 @@ function countAttempt({
     attempts,
     first_at: prev.first_at || stamp,
     last_at: stamp,
+    // The marker follows the CURRENT owed set, so the next pass compares against what this one
+    // actually saw. A driver that names no items leaves whatever was already recorded.
+    ...(current || recorded ? { owed_items: current || recorded } : {}),
+    ...(prev.disarm_announced_at ? { disarm_announced_at: prev.disarm_announced_at } : {}),
   };
   writeAll(countersFile, rows);
   return {
-    key, driver, attempts, n, exhausted: attempts >= n, row: rows[key],
+    key, driver, attempts, n, advanced, exhausted: attempts >= n, row: rows[key],
   };
+}
+
+// The disarm announcement's once-marker. Written on the row rather than kept in the caller, because
+// "once per (subject, disarm)" must survive a daemon restart, and because `rearm` deletes the row -
+// so a re-armed lane that disarms again announces again, with no second thing to clear.
+// It touches `attempts` never; a row that is not there is not created.
+function markDisarmAnnounced({
+  driver, goal, seat, subject, reasonClass, at,
+}, { countersFile } = {}) {
+  const key = keyOf({
+    driver, goal, seat, subject, reasonClass,
+  });
+  const rows = readAll(countersFile);
+  if (!rows[key]) return null;
+  rows[key] = { ...rows[key], disarm_announced_at: at || new Date().toISOString() };
+  writeAll(countersFile, rows);
+  return rows[key];
 }
 
 // The read side, for a driver deciding whether to fire at all before it spends a launch.
@@ -239,6 +302,7 @@ module.exports = {
   countersPath,
   keyOf,
   countAttempt,
+  markDisarmAnnounced,
   peekCounter,
   rearm,
 };

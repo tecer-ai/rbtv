@@ -20,9 +20,13 @@
 //   refusal, D32), `exited` and an empty cell are nobody's to close but the leader's: ONE leader
 //   wake per pass, carrying a payload that NAMES the rows and the act that closes them. The old
 //   class (c) parsed a per-row reason column `sessions.csv` never had, so it never fired — deleted.
-// ⚠ THE STRIKE COUNTER MEASURES NO PROGRESS, NEVER LAUNCH SUCCESS (D34). A pass whose owed
-//   signature is unchanged is one attempt, however well the launch went; the count clears only
-//   when that signature changes or the (seat, reason) drops out of the owed set.
+// ⚠ THE ATTEMPT COUNTER MEASURES A RETRY, NEVER LAUNCH SUCCESS. A pass is one attempt however
+//   well the launch went, and the count CLEARS ONLY ON A NAMED RE-ARM EVENT [spec-recovery §5] -
+//   never on a launch outcome, never on evidence drift. (The line that used to stand here promised
+//   a clear "when the signature changes"; that reset is the deleted brake and is gone.) A pass
+//   whose owed ITEMS are all new does not ADD to the count either - it is a first attempt at
+//   different work - and that is a decline to increment, never a reset. See `announceDisarm` and
+//   the owed-item marker in `attempt-counters.js`.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -51,7 +55,7 @@ const providerLanes = require('./provider-lanes');
 // field, so neither bound ever fired. What counts a retry now is the driver-agnostic counter at
 // the supervisor home; what N is comes from the recovery config file, never from a literal here.
 const counters = require('./attempt-counters');
-const { exhaust } = require('./exhaustion');
+const { exhaust, recordGroupedAsk } = require('./exhaustion');
 const relaunchBudget = require('./relaunch-budget');
 const checkpoint = require('./checkpoint');
 const { loadRecoveryConfig } = require('./recovery-config');
@@ -446,24 +450,106 @@ function recoveryNumbers({ recovery, workspaceRoot, say, goal }) {
   }
 }
 
+// ── A DISARM IS NEVER SILENT ──────────────────────────────────────────────────────────────────
+//
+// WHAT WAS BROKEN. `skip-disarmed` is the strongest thing this pass can do to a lane — it stops
+// every mechanical relaunch until a named external event — and it said NOTHING: no journal line,
+// no ask, no owner surface. On `scratch-tool-reach-note` the leader's `nonterm` lane disarmed at
+// 17:11Z 2026-08-27 and the next four hours of passes printed only `reconcile: pass`, while the
+// plan reviewer's ending mail sat unread. A stop nobody can see is indistinguishable from a system
+// with nothing to do.
+//
+// ONCE PER (SUBJECT, DISARM), and the marker is the counter row's own `disarm_announced_at` — so a
+// 5-minute cadence does not become a 5-minute alarm, a restart does not re-announce, and `rearm`
+// deleting the row is what makes the NEXT disarm audible again. No new channel is invented: the
+// journal `warn` is this file's existing voice and the ask record is `exhaustion.js`'s existing
+// owner surface (`{workspace}/.rbtv/runtime/ignite/asks/<id>.json` + the `open_asks` row), the same
+// one the exhaustion exit writes.
+function announceDisarm({
+  goal, seat, reason, driver, workspaceRoot, store, config, say, at, countersFile,
+  attempts = null, stamped = false,
+}) {
+  const row = counters.peekCounter(
+    { driver, goal, seat, reasonClass: reason }, { countersFile },
+  );
+  if (!row || row.disarm_announced_at) return null;
+  const refusalText = `${reason} reached the attempt bound on this lane; `
+    + `${stamped ? 'the lane is stamped disarmed' : 'the lane could NOT be stamped (no ending store on the pass)'}`;
+  let ask = null;
+  let askError = null;
+  if (workspaceRoot) {
+    try {
+      ask = recordGroupedAsk({
+        store, workspaceRoot, goal, seat, driver, reasonClass: reason, refusalText,
+        attempts: attempts || row.attempts, at,
+      });
+    } catch (err) {
+      askError = (err && err.message) || String(err);
+    }
+  }
+  if (say) {
+    say('warn', 'reconcile: this lane is DISARMED — every mechanical relaunch for this reason '
+      + 'class is STOPPED until a named re-arm event. Nothing re-arms on its own.', {
+      goal,
+      seat,
+      reason,
+      driver,
+      attempts: row.attempts,
+      n: config && config.attempt_counter_n,
+      first_at: row.first_at,
+      last_at: row.last_at,
+      owed_items: row.owed_items || null,
+      stamped_disarmed: stamped,
+      ask: ask ? ask.ask_id : null,
+      ask_record: ask ? ask.file : null,
+      ask_error: askError,
+      re_arm_events: counters.RE_ARM_EVENTS,
+    });
+  }
+  counters.markDisarmAnnounced({
+    driver, goal, seat, reasonClass: reason, at,
+  }, { countersFile });
+  return { announced: true, ask: ask ? ask.ask_id : null, askError };
+}
+
 // One same-reason retry, and the exhaustion exit when it reaches N. Returns what the pass records:
 // `attempts`, whether this retry EXHAUSTED the counter, and whether the driver must not fire at
 // all because a previous pass already exhausted it (`disarmed`).
 function countRetry({
-  store, workspaceRoot, goal, seat, reason, refusalText, config, say, at, countersFile,
+  store, workspaceRoot, goal, seat, reason, refusalText, config, say, at, countersFile, items,
 }) {
   if (!config) return { counted: false, why: 'recovery-config-error' };
   const driver = driverFor(reason);
   const counted = counters.countAttempt({
-    driver, goal, seat, reasonClass: reason, n: config.attempt_counter_n, at,
+    driver, goal, seat, reasonClass: reason, n: config.attempt_counter_n, at, items,
   }, { countersFile });
-  if (!counted.exhausted) return { counted: true, driver, attempts: counted.attempts };
+  if (!counted.exhausted) {
+    return {
+      counted: true, driver, attempts: counted.attempts, advanced: counted.advanced,
+    };
+  }
   // THE EXIT. One stamp, one signature-grouped ask RECORD, and not one byte to Slack — the record
   // is impl-slack's to post. A store that cannot stamp (a probe's fake, a dry pass) leaves the
   // count standing and the caller reports it, rather than the pass throwing.
   if (!store || typeof store.stampSystem !== 'function') {
+    // ⚠ THIS PASS HOLDS NO ENDING STORE, so the owner-visible EXIT cannot be taken: no `disarmed`
+    // stamp. It used to return here in total silence, and that silence is the second half of the
+    // 2026-08-27 stall — five live counter rows at or past N, zero exhaustion lines in the journal,
+    // and no `asks/` directory at all, because nothing in the deployed tree sets `engine.endingStore`
+    // [memory engine/20260825-c-attempt-counter-replaces-both ATTENTION 4]. The lane still stops on
+    // the next pass, so the stop is ANNOUNCED here even though it cannot be stamped.
+    const said = announceDisarm({
+      goal, seat, reason, driver, workspaceRoot, store, config, say, at, countersFile,
+      attempts: counted.attempts, stamped: false,
+    });
     return {
-      counted: true, driver, attempts: counted.attempts, exhausted: true, exit: 'no-ending-store',
+      counted: true,
+      driver,
+      attempts: counted.attempts,
+      advanced: counted.advanced,
+      exhausted: true,
+      exit: 'no-ending-store',
+      ...(said && said.ask ? { ask: said.ask } : {}),
     };
   }
   const out = exhaust({
@@ -478,12 +564,29 @@ function countRetry({
     at,
   });
   if (say) {
-    say('warn', 'reconcile: attempt counter exhausted — lane stamped disarmed incomplete, ask recorded', {
-      goal, seat, reason, attempts: counted.attempts, ask: out.ask.ask_id, grouped: out.ask.grouped,
+    say('warn', 'reconcile: attempt counter exhausted — lane stamped disarmed incomplete, ask '
+      + 'recorded. Nothing re-arms on its own; a named re-arm event is required.', {
+      goal,
+      seat,
+      reason,
+      attempts: counted.attempts,
+      ask: out.ask.ask_id,
+      grouped: out.ask.grouped,
+      re_arm_events: counters.RE_ARM_EVENTS,
     });
   }
+  // This IS the disarm announcement for this (subject, disarm), so the `skip-disarmed` branch on
+  // the following passes stays quiet rather than repeating it every cadence.
+  counters.markDisarmAnnounced({
+    driver, goal, seat, reasonClass: reason, at,
+  }, { countersFile });
   return {
-    counted: true, driver, attempts: counted.attempts, exhausted: true, ask: out.ask.ask_id,
+    counted: true,
+    driver,
+    attempts: counted.attempts,
+    advanced: counted.advanced,
+    exhausted: true,
+    ask: out.ask.ask_id,
   };
 }
 
@@ -822,6 +925,10 @@ function reconcileGoal({
       // D40 · NO `:${item.ended}`. `ended` advances on every re-checkout, so an identical
       // give-up read as new work and the attempt counter reset to 1 — D34's bound never fired.
       signature: `incomplete:${item.seat}`,
+      // The owed item IS this seat, and it is invariant for the life of the lane — so the
+      // owed-item marker can never make this driver skip a count (D40's signature is invariant for
+      // the same reason). A relaunch of the same named seat is a retry by definition.
+      owedItems: [item.seat],
       source: 'a',
     });
   }
@@ -848,6 +955,12 @@ function reconcileGoal({
       seat: leader,
       reason: 'nonterm',
       signature: `nonterm:${nonterm.map((x) => `${x.seat}=${x.ending}`).sort().join(',')}`,
+      // THE OWED ITEMS ARE THE SEATS WHOSE ROWS NEED JUDGMENT. Overlap with what the counter last
+      // counted = the leader still owes judgment on work it was already woken for = a retry, and
+      // the bound keeps closing (owed `{a}` then `{a,b}` still reaches N — the [C-4] inversion).
+      // NO overlap = every row it was woken for was resolved and these are different rows = a
+      // FIRST attempt at new work, which is the 2026-08-27 per-hop planning chain exactly.
+      owedItems: nonterm.map((x) => x.seat),
       source: 'a',
       promptFn: (gf, seat) => {
         const head = promptFn ? promptFn(gf, seat) : seatBootPrompt(gf, seat).prompt;
@@ -860,6 +973,11 @@ function reconcileGoal({
       seat: item.seat,
       reason: 'unread',
       signature: `unread:${item.seat}:${item.lastNum}`,
+      // `lastNum` is the chair's highest pending message number — the `last_unread_max_id` progress
+      // marker. Unchanged = the SAME pending mail woke this chair again = a retry. Moved = mail
+      // that did not exist when the counter last advanced = new work, and a new staff mail is
+      // never a retry.
+      owedItems: [`#${item.lastNum}`],
       source: 'b',
     });
   }
@@ -967,8 +1085,30 @@ function reconcileGoal({
       // THE BRAKE — the attempt counter's own state, not a byte comparison. This lane already
       // reached N for this reason class, so it is stamped `disarmed` and waits for a named re-arm
       // event. The counter does NOT advance further: there is nothing left to count.
+      //
+      // AND IT IS AUDIBLE. `announceDisarm` journals the stop ONCE per (subject, disarm) with the
+      // counter row and the re-arm list, and raises it on the ask surface. This branch used to be
+      // completely silent — see the header on `announceDisarm`.
       seenTarget.add(t.seat);
-      action = { kind: 'skip-disarmed', seat: t.seat, reason: t.reason };
+      const said = announceDisarm({
+        goal,
+        seat: t.seat,
+        reason: t.reason,
+        driver: driverFor(t.reason),
+        workspaceRoot,
+        store: endingStore,
+        config: recoveryConfig,
+        say,
+        at,
+        countersFile,
+        stamped: Boolean(endingStore),
+      });
+      action = {
+        kind: 'skip-disarmed',
+        seat: t.seat,
+        reason: t.reason,
+        ...(said ? { announced: true, ask: said.ask } : {}),
+      };
     } else {
       seenTarget.add(t.seat);
       const launched = launchSitting({
@@ -1044,9 +1184,14 @@ function reconcileGoal({
         refusalText: action.error ? `${t.reason}: ${action.error}` : null,
         config: recoveryConfig,
         countersFile,
+        items: t.owedItems,
+        at,
         say,
       });
       action.attempts = retry.attempts;
+      // FALSE = this pass was NEW WORK, not a retry: the count stands where it was (it is never
+      // reset — only `RE_ARM_EVENTS` does that). Recorded so the pass's own record says which.
+      if (retry.counted) action.attemptAdvanced = Boolean(retry.advanced);
       if (retry.exhausted) action.exhausted = true;
       if (retry.ask) action.ask = retry.ask;
       if (!retry.counted) action.counterSkipped = retry.why;
@@ -1082,6 +1227,9 @@ function reconcileGoal({
           refusalText: `room: ${rec.out || rec.status}`,
           config: recoveryConfig,
           countersFile,
+          // No owed-item marker: the subject IS the room and a failed rebuild retried is a retry
+          // of the same work, every time. The marker would be a constant, so it is not spelled.
+          at,
           say,
         });
         actions.push({

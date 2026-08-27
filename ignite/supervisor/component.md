@@ -402,9 +402,20 @@ beside the replacement. That is the ruling, not a preference [C-4 kill map].
 
 `attempt-counters.js`. One counter per `(driver, subject, reason class)`.
 
-- **Increments** on a same-reason retry: the driver's failure/refusal CLASS is
-  unchanged. Never an owed-content fingerprint - the key is refused outright if
+- **Increments** on a same-reason RETRY: the driver's failure/refusal CLASS is
+  unchanged AND this pass is a second attempt at work the counter already
+  counted. Never an owed-content fingerprint - the key is refused outright if
   it carries an ISO timestamp, a uuid, a hex digest or a long id.
+- **Does not increment** when the driver hands in `items` (the owed-item marker)
+  and NONE of the items recorded at the last advance is still owed. That pass is
+  a FIRST attempt at different work, not a retry. It does NOT reset - the count
+  stands exactly where it was, and only a named re-arm event ever clears it. The
+  marker rides the counter ROW (`owed_items`), never the key. A driver that
+  hands in no items always counts, unchanged.
+  ⚠ THIS IS NOT THE DELETED SWEEP. That one CLEARED the count whenever the owed
+  set changed; this one declines to ADD to it when nothing it counted is left.
+  An owed set that GROWS while its old rows stand still counts - `{a}` then
+  `{a,b}` still reaches N, which is the [C-4] inversion, untouched.
 - **Resets** on the closed list and nothing else: `code-deploy`,
   `config-change` (including a recognition-list edit), `owner-leader-act`,
   `resume`. A deploy or a config change clears every counter; an owner/leader
@@ -446,6 +457,28 @@ pins three record kinds there and a counter is not one of them.
 The record is `{workspace}/.rbtv/runtime/ignite/asks/<ask-id>.json` plus one
 `open_asks` row with `posted = 0`. **Zero Slack, zero outbox, not one byte** -
 impl-slack reads the record and posts it.
+
+## The disarm is audible, ONCE
+
+`reconcile.js#announceDisarm`. A disarmed lane is the strongest thing a pass can
+do - every mechanical relaunch for that reason class stops until a named
+external event - and `skip-disarmed` used to say NOTHING: no journal line, no
+ask, no owner surface. On 2026-08-27 the `scratch-tool-reach-note` leader
+disarmed at 17:11Z and four hours of passes printed only `reconcile: pass`.
+
+The announcement is a journal `warn` carrying the counter row, the owed items
+and the four re-arm events, plus a `recordGroupedAsk` on the SAME owner surface
+the exhaustion exit writes - no new channel. It fires ONCE per (subject,
+disarm); the once-marker is `disarm_announced_at` on the counter row, so a
+restart does not re-announce and `rearm` deleting the row is what makes the next
+disarm audible again. The exhaustion exit sets the marker itself, so the two
+never both speak for one disarm.
+
+⚠ A PASS WITH NO ENDING STORE ALSO ANNOUNCES. `reconcile.js` reads
+`engine.endingStore`, which nothing in the deployed tree sets, so the exit at N
+could neither stamp nor record and returned `exit: 'no-ending-store'` in
+silence - five live counter rows sat at or past N with zero journal lines and no
+`asks/` directory at all. That branch now announces the stop it cannot stamp.
 
 `consumeDisarmed` is the other half of spec-recovery section 4 row 1: the
 mechanical `resume {goal}` on a disarmed-counter lane re-arms the ending and
@@ -537,6 +570,12 @@ Budget: `budgetState` · `spendRecoveryRelaunch` · `assembleHandoff` ·
 `drainLeaderInstructions` · `leaderInstructionsDir` · `leaderInstructionPath` ·
 `LEADER_INSTRUCTIONS_REL` · `RECOVERY_CAUSES` · `INSTRUCTIONS` ·
 `RelaunchBudgetError` (`code: E_RELAUNCH_BUDGET`)
+
+Proof that a new staff mail is not a retry and that a disarm is audible:
+`probes/probe-leader-wake-counter.js` - 26 checks over the real `reconcileGoal`
+on a throwaway workspace, including the live daemon's shape (a counter already
+at N, no ending store) and two red mutation arms (strip the owed-item marker;
+silence the announcement).
 
 Selftests: `node --test attempt-counters.selftest.js` and
 `node --test relaunch-budget.selftest.js` - exit 0.
