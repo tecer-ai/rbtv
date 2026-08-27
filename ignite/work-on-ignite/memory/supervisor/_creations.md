@@ -3,3 +3,4 @@
 2026-08-25 · creation · supervise — the second front door, split by audience · `coordinate` keeps the 25 seat-facing verbs; `supervise` — a new thin door at · 7dd08887,d60c73df · coord,ignite-cli,planning,runtime,deploy,operator · ⚠
 2026-08-26 · creation · The retry-budget handoff to the leader, wired · leaderHandoff/executeLeaderInstruction had NO production caller, so the leader was never asked for its four instructions → reconcile asks the budget first on class-A incomplete, wakes the leader via the D33(a) door, and drains its JSON answer through executeLeaderInstruction · 4ed8acc8 · — · ⚠
 2026-08-27 · creation · composeDetachedSession: one detached-session opener · Placed in `supervisor/spawn/tmux.js` rather than a new module or an export from · 9cdb472e · runtime · ⚠
+2026-08-27 · creation · the four named re-arm events get their first producers · One scope function, two producers. · 5aa80168 · runtime,chat · ⚠
