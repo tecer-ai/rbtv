@@ -324,6 +324,7 @@ def _selftest_checks(args, failures, names):
     global detect_pane, live_panes, _acquire_flock, atomic_write, pane_title
     global flip_handoff_read   # s12-08: rebound to exercise the flip-FAILURE arm
     global session_close       # rebound to exercise the trace-write FAILURE direction
+    global stamp_checkout_ending   # rebound to exercise the ENDING-STORE failure direction
     # s3-06: the two the sequence reaches that nothing above stubs. DECLARED HERE, with every other
     # global, rather than beside their use — a `global` statement after a name is already read in
     # this scope is a SyntaxError that `ast.parse` does not raise and only `compile()` catches.
@@ -4987,9 +4988,10 @@ def _selftest_checks(args, failures, names):
                 _, _, _rows_b = load_workers(base_dir(ns()))
                 if _verb == "checkout":
                     check("7.37/checkout: a failed ledger write REFUSES the checkout — "
-                          "non-zero exit, the OSError named, roster still ACTIVE (nothing "
-                          "else mutated; session_close is the first mutating write of the "
-                          "common body)",
+                          "non-zero exit, the OSError named, roster still ACTIVE. The ending "
+                          "stamp now lands BEFORE this write (see the CW-cage row below), so "
+                          "the ROSTER is what this arm reads: it is the first surface after "
+                          "`session_close` and is still untouched",
                           _bcode != 0 and "sessions.csv is read-only" in _bout
                           and "Checkout REFUSED" in _bout
                           and current_row(_rows_b, _seat)["active"] == "yes")
@@ -5010,6 +5012,56 @@ def _selftest_checks(args, failures, names):
             # 7.37 block calls `session_close` DIRECTLY much later, and a stub still bound there
             # would report as an abort three thousand lines from its cause.
             session_close = _sc_real
+
+        # ---- CW-cage: A REFUSED ENDING STAMP CLOSES NOTHING -------------------------------------
+        # The live defect this row is written from: the ending store is the one surface the seat
+        # cage did not open (`envelope/envelope-template.yaml` family 8, added 2026-08-27), so a
+        # caged seat's own `checkout` refused `attempt to write a readonly database` — and the
+        # stamp used to run AFTER `session_close` and the roster flip, so the refusal left
+        # `sessions.csv` reading `ended`, the roster reading `active=no`, and the ONE store with
+        # no ending at all. A closed row is a row the supervisor no longer walks, so nothing
+        # stamped it afterwards either: no staff mail, no leader wake, no DAG edge. Measured on
+        # `scratch-tool-reach-note`/`plan-verifier`, 2026-08-27 19:32Z.
+        # ⚠ THE CLAIM IS ABOUT ORDER, so every surface is read: exit code, the ABSENCE of the
+        # `checked out` line, the roster row STILL ACTIVE, and the session row STILL OPEN. Asserting
+        # the exit code alone would pass just as green with the old order, which is the bug.
+        def _cw_boom(*_a, **_k):
+            raise ending_store.EndingStoreError("attempt to write a readonly database")
+
+        _cw_seat = "cw-cage"
+        _cw_real = stamp_checkout_ending
+        (pkg / "workers" / _cw_seat).mkdir(exist_ok=True)
+        (pkg / "workers" / _cw_seat / "agent.md").write_text(
+            f"---\nagent: {_cw_seat}\nharness: claude\nmodel: opus\n---\nbrief\n")
+        run(cmd_checkin, agent=_cw_seat, summary="cage probe: ending-store refusal", pane="%64")
+        _cw_sid, _ = session_open(ns(), {"agent": _cw_seat, "harness": "probe", "model": "opus",
+                                         "cwd": str(pkg / "workers" / _cw_seat)},
+                                  since=time.time(), wait=0.0)
+        try:
+            stamp_checkout_ending = _cw_boom
+            _cw_out, _cw_code = refuse(cmd_checkout, agent=_cw_seat, no_export=True)
+        finally:
+            stamp_checkout_ending = _cw_real
+        _, _, _cw_rows = load_workers(base_dir(ns()))
+        _cw_h, _cw_r = read_csv_table(sessions_csv(pkg), SESSIONS_COLS)
+        _cw_i = {c: n for n, c in enumerate(_cw_h)}
+        _cw_open = [x for x in _cw_r
+                    if (pad_row(x, _cw_h) or True)
+                    and x[_cw_i["seat"]].strip() == _cw_seat and not x[_cw_i["ended"]].strip()]
+        check("CW-cage: a REFUSED ending-store write closes NOTHING — exit non-zero, the store "
+              "error named, NO `checked out` line, the roster row still ACTIVE and the session "
+              "row still OPEN, so the seat can simply run the same checkout again and the "
+              "supervisor still sees a live session it will attest if the seat dies instead. "
+              "This is the ORDER assertion: with the stamp below `session_close` and the flip, "
+              "every one of those four reads flips the other way",
+              _cw_code != 0
+              and "ending-store write FAILED" in _cw_out
+              and "Checkout REFUSED" in _cw_out
+              and f"checked out: {_cw_seat}" not in _cw_out
+              and current_row(_cw_rows, _cw_seat)["active"] == "yes"
+              and len(_cw_open) == 1)
+        clear_ending(base_g, _cw_seat)
+        _sh_sc.rmtree(pkg / "workers" / _cw_seat)
 
         # ---- G-22 / #198: the broadcast discipline, enforced instead of remembered ----
         # Measured on the live run that produced the rule: 86 broadcasts, 35 of them `note`, one

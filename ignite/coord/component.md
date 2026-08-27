@@ -74,6 +74,14 @@ cell, and there is no per-verb role gate on either — the audience bound is the
 Seats write their own coordination ledgers directly through `coordinate checkout`. The kit
 originates `exited` for silent deaths and nothing else. There is no proxy writer.
 
+⚠ THE CHECK-OUT WRITE ORDER IS LOAD-BEARING (2026-08-27): transcript export → **ending store** →
+`sessions.csv` → the roster flip → `checked out:`. The ending is stamped FIRST of the closing
+writes so a refused stamp closes NOTHING — the session row stays open, the roster stays active,
+and the seat can simply run the same `checkout` again. With the stamp last (its former place), a
+refusal left a session that read `ended` with no ending anywhere: a closed row is one the
+supervisor no longer walks, so no ending was stamped later, no staff mail was minted, and the DAG
+edge never advanced. Same order `supervisor/attest.py#attest_exit_seat` already ran in.
+
 `ready-seats --json` carries a boolean `dead` per row (D22): true ⇒ the seat's `after` can NEVER be
 satisfied. No consumer may count a dead seat as pending, retry it, or alarm on it. Derived at read
 time from `coordination/guard-values.csv`; never stored.

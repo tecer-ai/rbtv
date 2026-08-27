@@ -13,6 +13,7 @@ const REQUIRED_FAMILY_IDS = [
   'vault-wide-read',
   'rbtv-and-mirror',
   'benign-cache-config-temp',
+  'ending-store',
 ];
 
 function loadYaml(filePath) {
@@ -31,8 +32,8 @@ function requireKeys(doc, keys, filePath) {
 
 function validateTemplate(doc, filePath) {
   requireKeys(doc, ['version', 'families'], filePath);
-  if (!Array.isArray(doc.families) || doc.families.length !== 7) {
-    throw new Error(`${filePath}: families must be a 7-row list`);
+  if (!Array.isArray(doc.families) || doc.families.length !== REQUIRED_FAMILY_IDS.length) {
+    throw new Error(`${filePath}: families must be a ${REQUIRED_FAMILY_IDS.length}-row list`);
   }
   const ids = doc.families.map((f) => f && f.id);
   for (const id of REQUIRED_FAMILY_IDS) {

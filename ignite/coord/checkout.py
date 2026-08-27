@@ -1770,9 +1770,71 @@ def cmd_checkout(args):
                     f"the narrative. Tighten it before your next renewal: state what is IN FLIGHT, "
                     f"what comes NEXT, and what was RULED OUT — not what happened.", C_DEAD),
                   file=sys.stderr)
-    # Durable ledger FIRST (after the verify gate; after the handoff write on call 2, which
-    # has its own must-land-first contract). A failed sessions.csv write REFUSES the checkout
-    # — a failed ledger write is not a done (D5). No swallow, no kit-for-seat proxy.
+    # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
+    # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
+    # It runs FIRST of the three closing acts because it is the only one that is not a CLOSE: it
+    # copies the transcript and the ending stamp below reads its path as evidence.
+    out, err = "", "--no-export"
+    if not getattr(args, "no_export", False):
+        out, err = export_transcript(args, me, "checkout")
+        print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
+    # ── THE ENDING IS STAMPED FIRST, BEFORE ANY SURFACE SAYS THE SESSION IS OVER ───────────────
+    #
+    # This block used to sit BELOW `session_close` and the roster flip, and that order had a hole
+    # with no floor: the ending store is the one surface the cage did not open (family 8, 2026-08-
+    # 27), so `stamp_seat_declare` refused `attempt to write a readonly database` for every caged
+    # seat — AFTER `sessions.csv` already read `ended` and the roster already read `active=no`.
+    # A closed row is a row the supervisor no longer walks (`attest.py#close_session_seat` /
+    # `#attest_exit_seat` take OPEN sessions), so nothing stamped the ending after the refusal,
+    # no staff mail was minted, the leader was never woken, and the DAG edge never advanced. The
+    # seat had no retry either: a second `checkout` refuses "no ACTIVE roster row". Measured on
+    # `scratch-tool-reach-note`/`plan-verifier`, 2026-08-27 19:32Z.
+    #
+    # ORDER IS THE FIX, and it is the ONE ordering under which a refusal costs nothing: with the
+    # ending first, a failed stamp leaves `sessions.csv` OPEN and the roster ACTIVE, so the seat
+    # can simply run `checkout` again and the supervisor still sees a live session it will attest
+    # if the seat dies instead. `session_close` staying first would need the refusal to UNDO two
+    # writes on two files — a compensating rollback that can itself fail, on the exact surface
+    # whose write just failed.
+    #
+    # D5 IS UNCHANGED: a failed durable-ledger write still REFUSES the checkout (below). D5 rules
+    # that a failed ledger write is not a done; it does not rule which refusing write goes first.
+    # And this is now the order `attest.py#attest_exit_seat` already ran in — export, ending
+    # stamp, close the session row — so the supervisor's reconstruction of a finished seat and the
+    # seat's own check-out leave the same surfaces in the same sequence.
+    #
+    # s12-07: WHICH checkout this was, ASSERTED here rather than inferred later. Both paths — done
+    # and renew — fall through to this ONE call site, and `renew` is the branch discriminant, in
+    # scope on this very line. It is passed EXPLICITLY on both arms even though `done` is the
+    # default: at the one place the answer is known, a value a reader must chase to a signature is
+    # not an assertion.
+    #
+    # dag-08: `writer` is declared EXPLICITLY, and this is the seat's OWN path — the occupant is
+    # reporting a fact about itself. Declaring it here is what puts this call under the writer
+    # bound, so `exited` is refused on this path by construction.
+    try:
+        stamped = stamp_checkout_ending(
+            args, me, checkout_kind,
+            declared=_declared_paths + _missing_paths,
+            diagnostic=checkout_diagnostic,
+            evidence=((_missing_paths[0] if _missing_paths else None)
+                      or out or f"checkout:{me}"))
+        print(f"ending store: {me} {stamped.get('ending') if isinstance(stamped, dict) else checkout_kind}"
+              f"{('/' + stamped['reason_class']) if isinstance(stamped, dict) and stamped.get('reason_class') else ''}")
+        _checkout_landed.append(f"ending store: {checkout_kind}")
+    except ending_store.EndingStoreError as exc:
+        _already = "; ".join(_checkout_landed) if _checkout_landed else "none"
+        refuse(
+            "state",
+            f"ending-store write FAILED — {exc}. Checkout REFUSED; NOTHING was closed — "
+            f"`sessions.csv` still holds your OPEN session row and the roster still reads you "
+            f"ACTIVE, so run this same checkout again once the store is reachable. Surfaces "
+            f"already landed: {_already}.",
+            1)
+    # Durable ledger next (after the verify gate; after the handoff write on call 2, which has its
+    # own must-land-first contract; after the ending stamp, per the block above). A failed
+    # sessions.csv write REFUSES the checkout — a failed ledger write is not a done (D5). No
+    # swallow, no kit-for-seat proxy.
     try:
         sid = session_close(args, me)
     except Exception as exc:
@@ -1780,18 +1842,12 @@ def cmd_checkout(args):
         refuse(
             "state",
             f"sessions.csv write FAILED — {type(exc).__name__}: {exc}. Checkout REFUSED; "
-            f"the durable ledger is the first mutating write of this act after the verify "
-            f"gate (and after a call-2 handoff, when one landed). Surfaces already landed: "
+            f"the durable ledger is the first CLOSING write of this act after the ending stamp "
+            f"(and after a call-2 handoff, when one landed). Surfaces already landed: "
             f"{_already}.",
             1)
     if sid:
         print(f"sessions.csv: {sid} ended")
-    # T3: the export is the seat's last durable artifact and was routinely forgotten — mechanize
-    # it instead of teaching it (protocol item 8). --no-export is the escape for a dead pane.
-    out, err = "", "--no-export"
-    if not getattr(args, "no_export", False):
-        out, err = export_transcript(args, me, "checkout")
-        print(f"transcript: {out}" if not err else f"transcript skipped — {err}")
 
     def flip(r):
         r["active"] = "no"
@@ -1803,31 +1859,9 @@ def cmd_checkout(args):
     # `close-seat` kills the pane. Assert that debt here, at the one moment every input is known
     # for certain, instead of leaving a later pass to reconstruct it from roster + tmux + fs.
     #
-    # s12-07: WHICH checkout this was, ASSERTED here rather than inferred later. Both paths — done
-    # and renew — fall through to this ONE call site, and `renew` is the branch discriminant, in
-    # scope on this very line. It is passed EXPLICITLY on both arms even though `done` is the
-    # default: at the one place the answer is known, a value a reader must chase to a signature is
-    # not an assertion. `handoff_stamp` is call 2's stamp, byte-identical to the block's `stamped=`
-    # because both come from one clock reading through one formatter; the done path passes "".
-    #
-    # dag-08: `writer` is declared EXPLICITLY, and this is the seat's OWN path — the occupant is
-    # reporting a fact about itself. Declaring it here is what puts this call under the writer
-    # bound, so `exited` is refused on this path by construction.
-    #
     # dag-09 (LG-9): ONE VARIABLE, READ BY BOTH SURFACES. `awaiting-close.json` is the live
     # declaration and `sessions.csv` is the durable copy the executor's `clear_awaiting` cannot
     # erase. Both take `checkout_disposition`.
-    try:
-        stamped = stamp_checkout_ending(
-            args, me, checkout_kind,
-            declared=_declared_paths + _missing_paths,
-            diagnostic=checkout_diagnostic,
-            evidence=((_missing_paths[0] if _missing_paths else None)
-                      or out or f"checkout:{me}"))
-        print(f"ending store: {me} {stamped.get('ending') if isinstance(stamped, dict) else checkout_kind}"
-              f"{('/' + stamped['reason_class']) if isinstance(stamped, dict) and stamped.get('reason_class') else ''}")
-    except ending_store.EndingStoreError as exc:
-        refuse("state", f"ending-store write FAILED — {exc}. Checkout REFUSED.", 1)
     if renew:
         # ---- STAGE 3 (s3-09): THE FORK. The seam s12-06 left greppable here is DISCHARGED. -----
         # Everything above ran in-pane and is safe in-pane; the renewal is not, so it leaves with a

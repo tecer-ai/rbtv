@@ -12,7 +12,7 @@ This folder holds the **compiler**, its three owner-gated config files, the **la
 
 | File | Spec |
 |---|---|
-| `envelope-template.yaml` | seven T2-R3 families, benign cache/config/temp baked in |
+| `envelope-template.yaml` | the seven T2-R3 families + family 8, the ending store (`.rbtv/runtime/ignite`, rw — the seat stamps its own ending); benign cache/config/temp baked in |
 | `envelope-deny-list.yaml` | starting deny set including the credential store |
 | `daemon-owned-records.yaml` | record files + `seats/` + proper-subfolder carve (`coordination/` is NOT here — the bus is the seat protocol’s own write surface, D3) |
 

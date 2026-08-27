@@ -52,3 +52,24 @@ families:
       - "{home}/.claude.json"
       - "{home}/.codex"
       - "{home}/.config/opencode"
+  # ── THE ENDING STORE (2026-08-27) ────────────────────────────────────────────────────────────
+  # `<workspace>/.rbtv/runtime/ignite/heart.db` is the ONE ending store, and spec-state-store §4.1
+  # Row A makes the SEAT its own ending's author (`who_stamped: seat`). Family 5 binds `{workspace}`
+  # READ-ONLY, so a caged seat's own `coordinate checkout` reached `stamp_seat_declare` and got
+  # `attempt to write a readonly database` — the checkout REFUSED for every caged seat, measured
+  # live on `scratch-tool-reach-note`/`plan-verifier` 2026-08-27 19:32Z. Same class as
+  # `coordination` (8f299bc6): a protocol write surface the fence never opened.
+  # THE DIRECTORY, NOT THE FILE: sqlite in WAL mode creates and unlinks `heart.db-wal` /
+  # `heart.db-shm` beside the db and fsyncs the containing directory, so a file-level opening is
+  # still a read-only database. `heart.db` sits directly in `.rbtv/runtime/ignite/` — there is no
+  # dedicated store subfolder to open instead, so this is the narrowest opening that works.
+  # ⚠ IT IS WIDER THAN THE DB. `asks/`, `leader-instructions/`, `outbox.json` and
+  # `system-digest.json` are the daemon's own artifacts in that same directory and become writable
+  # too. Under D3 that is accepted, not overlooked: record forgery is a stated NON-goal, and a
+  # carve-back list for the four siblings would be a second list to keep in step with a directory
+  # the daemon keeps adding to.
+  - id: ending-store
+    number: 8
+    access: rw
+    plan-fill-in: false
+    path: "{workspace}/.rbtv/runtime/ignite"

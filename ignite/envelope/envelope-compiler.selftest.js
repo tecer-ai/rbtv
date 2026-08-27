@@ -27,6 +27,11 @@ mkdirp(path.join(goalDir, 'seats', 's1'));
 mkdirp(path.join(goalDir, 'planning'));
 mkdirp(path.join(workspace, '.rbtv', 'goals', 'other', 'scratch'));
 mkdirp(path.join(workspace, '.rbtv', 'heart'));
+mkdirp(path.join(workspace, '.rbtv', 'runtime', 'ignite'));
+// The WAL sidecars are part of the fixture on purpose: they are what makes the DIRECTORY, and not
+// `heart.db` alone, the thing the cage has to open.
+touch(path.join(workspace, '.rbtv', 'runtime', 'ignite', 'heart.db'));
+touch(path.join(workspace, '.rbtv', 'runtime', 'ignite', 'heart.db-wal'));
 mkdirp(path.join(workspace, '.rbtv', 'mirror', 'x'));
 mkdirp(path.join(workspace, '.rbtv', 'config'));
 mkdirp(path.join(workspace, '.user', 'config', 'env'));
@@ -38,6 +43,8 @@ mkdirp(path.join(home, '.config', 'tool'));
 mkdirp(path.join(home, '.config', 'opencode'));
 mkdirp(path.join(rbtvRepo, 'ignite', 'envelope'));
 touch(path.join(goalDir, 'sessions.csv'));
+touch(path.join(goalDir, 'state.csv'));
+touch(path.join(goalDir, 'taskforce.csv'));
 touch(path.join(goalDir, 'seats', 's1', 'seat.md'));
 touch(path.join(workspace, '.rbtv', 'config', '.env'), 'FOO=1\n');
 touch(path.join(workspace, '.rbtv', 'config', 'sender-token.env'), 'T=1\n');
@@ -94,7 +101,18 @@ function run() {
   assert.ok(hasBind(plan, path.join(home, '.cache'), 'rw'), 'benign cache rw');
   assert.ok(hasBind(plan, path.join(home, '.config', 'tool'), 'rw'), 'benign config child rw');
   assert.ok(!hasBind(plan, path.join(home, '.config', 'opencode'), 'rw'), 'opencode not an extra rw opening');
-  assert.ok(hasBind(plan, path.join(goalDir, 'sessions.csv'), 'ro'), 'daemon-owned file ro');
+  assert.ok(hasBind(plan, path.join(goalDir, 'taskforce.csv'), 'ro'), 'daemon-owned file ro');
+  // ⚠ AND `sessions.csv` / `state.csv` ARE NOT — inverted 2026-08-27, the `coordination` fix one
+  // file in. They are records the seat's OWN protocol writes (`checkin`, `checkout`,
+  // `advance-state`), and the file-level ro bind made the kit's atomic writer (tmp + `os.replace`)
+  // fail EBUSY: `rename(2)` onto a bind MOUNTPOINT is unconditionally busy. Positively on the
+  // innermost cover, for the reason the `coordination` pair states: an absent ro row also reads
+  // green when the path stopped being bound at all.
+  assert.ok(!hasBind(plan, path.join(goalDir, 'sessions.csv'), 'ro'), 'sessions.csv NOT ro — the seat stamps its own check-in (D3)');
+  assert.equal(innermostAccess(plan, path.join(goalDir, 'sessions.csv')), 'rw', 'sessions.csv is WRITABLE');
+  assert.equal(innermostAccess(plan, path.join(goalDir, 'state.csv')), 'rw', 'state.csv is WRITABLE');
+  // …and `seat.md` STAYS ro: a wall-control surface, not a record (D3 item 3).
+  assert.equal(innermostAccess(plan, path.join(goalDir, 'seats', 's1', 'seat.md')), 'ro', 'seat.md stays READ-ONLY');
   assert.ok(hasBind(plan, path.join(goalDir, 'seats'), 'ro'), 'seats dir ro');
   // ⚠ THE BUS IS WRITABLE, and this row is the assertion that keeps it so. `coordination` was in
   // `daemon-owned-records.yaml#directories` and its ro bind made `coordinate checkin` / `send` die
@@ -103,11 +121,23 @@ function run() {
   // …and POSITIVELY: the innermost bind covering it is the rw goal-folder one. Absence of an ro row
   // alone would also read green if the path stopped being bound at all, which is the same EROFS.
   assert.equal(innermostAccess(plan, path.join(goalDir, 'coordination')), 'rw', 'coordination dir is WRITABLE');
+  // ⚠ THE ENDING STORE IS WRITABLE — the same class one directory out. `heart.db` is the ONE
+  // ending store and the SEAT is its own ending's author (spec-state-store §4.1 Row A), but
+  // family 5 binds `{workspace}` ro, so `coordinate checkout` refused `attempt to write a
+  // readonly database` for every caged seat (measured live 2026-08-27). Asserted POSITIVELY on
+  // the innermost cover, not as the absence of an ro row: absence also reads green when the path
+  // is simply not bound, which is the same unwritable store.
+  // The DIRECTORY, because sqlite WAL writes `heart.db-wal`/`-shm` beside the db.
+  const endingStore = path.join(workspace, '.rbtv', 'runtime', 'ignite');
+  assert.equal(innermostAccess(plan, endingStore), 'rw', 'ending-store dir is WRITABLE');
+  assert.equal(innermostAccess(plan, path.join(endingStore, 'heart.db-wal')), 'rw', 'the WAL sidecar path is inside the rw opening');
+  assert.ok(hasBind(plan, endingStore, 'rw'), 'ending-store dir has its own rw bind (family 8)');
   assert.ok(!plan.binds.some((b) => b.path === fs.realpathSync(path.join(workspace, '.rbtv', 'config', '.env'))));
   const fam = familiesOf(plan);
   assert.ok(fam.has('goal-folder') && fam.has('named-repos') && fam.has('project-folder'));
   assert.ok(fam.has('scratch-temp') && fam.has('vault-wide-read'));
   assert.ok(fam.has('rbtv-and-mirror') && fam.has('benign-cache-config-temp'));
+  assert.ok(fam.has('ending-store'), 'family 8 emitted');
 
   const clash = compile({
     ...base,

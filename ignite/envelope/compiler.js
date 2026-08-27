@@ -224,6 +224,16 @@ function compile(raw) {
   const failBenign = addFamilyPaths(f7, f7.paths, ctx, sources);
   if (failBenign) return failBenign;
 
+  // Family 8 — THE ENDING STORE, rw for every caged seat. The seat is its own ending's author
+  // (spec-state-store §4.1 Row A, `who_stamped: seat`), and family 5 binds `{workspace}` ro, so
+  // without this line `coordinate checkout` refused with `attempt to write a readonly database`
+  // AFTER the session row was already closed. `authorizedCarve` already admits an rw narrow inside
+  // the vault-wide-read ro wide, so no carve rule is added for it. The template's own comment
+  // carries why it is the DIRECTORY and not `heart.db`.
+  const f8 = familyById(config.template, 'ending-store');
+  const failEnding = addFamilyPaths(f8, [f8.path], ctx, sources);
+  if (failEnding) return failEnding;
+
   for (const extra of extraPaths) {
     if (!extra || !extra.path) return unresolved('', 'extra-path', { reason: 'empty extra path' });
     const access = extra.access;

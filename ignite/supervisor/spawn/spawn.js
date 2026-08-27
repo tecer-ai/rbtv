@@ -675,12 +675,17 @@ function refreshSeatDescriptor(seatDir, log) {
 // resolve inside THIS seat's own goal folder, so no entry can name another goal, another seat, or
 // anything outside the tree. The cage template's `bind-try:{grant:goalWrite}` line consumes it.
 //
-// GROUND TRUTH IS NOT DEFENDED BY A LIST HERE, deliberately — it is defended by bind ORDER in
-// `envelope/spawn-profiles.yaml`: the two `ro-bind-try` carves (`sessions.csv`, `state.csv`) sit
-// immediately AFTER this grant's line, peer seat folders are absent under the `seats` tmpfs, and
-// `seat.md` keeps its own read-only carve. A second list here would be a second place the wall is
-// reasoned about. `materialize-seats.py` refuses such a declaration at AUTHORING time as well,
-// where the author is still holding the file.
+// GROUND TRUTH IS NOT DEFENDED BY A LIST HERE, deliberately — and the two `ro-bind-try` carves
+// this paragraph used to name (`sessions.csv`, `state.csv`) ARE GONE FROM BOTH PLACES THAT EVER
+// HELD THEM: out of the `SeatBinds` template with the rest of the ledger carves (D3 — record
+// forgery is a non-goal, ledgers are writable), and out of `envelope/daemon-owned-records.yaml`
+// on 2026-08-27, because the live composer is the ENVELOPE, not this template, and a file-level
+// ro bind there made `coordinate checkin`'s own stamp fail EBUSY (`rename(2)` onto a bind
+// mountpoint) for every caged seat. What still holds the wall: peer seat folders absent under the
+// `seats` ro-mask, and `seat.md`'s own read-only carve — the WALL-CONTROL surface, not a record.
+// A second list here would be a second place the wall is reasoned about.
+// `materialize-seats.py` refuses such a declaration at AUTHORING time as well, where the author
+// is still holding the file.
 //
 // FAIL-CLOSED PER ENTRY, same posture and same reason as `rw-paths`: a bad entry is skipped and
 // LOGGED, never fatal — one typo in a descriptor must not take a seat offline.

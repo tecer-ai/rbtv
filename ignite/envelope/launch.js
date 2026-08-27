@@ -68,6 +68,20 @@ function ensureGoalScratch(goalDir) {
   return dir;
 }
 
+// ⚠ THE ENDING STORE DIRECTORY IS MATERIALIZED HERE TOO, AND FOR THE SAME REASON — the compiler
+// resolves every baked family path or refuses `unresolved`, and family 8 bakes
+// `{workspace}/.rbtv/runtime/ignite`. On a workspace whose daemon has never written an ending
+// (a fresh install, a probe fixture) the folder does not exist yet, and a compile-first order
+// would refuse the launch instead of opening the store. `ending_store.py#ending_store_op` mkdirs
+// the same parent on its own side; this is the launch-side half, so the bind source is there
+// BEFORE bwrap is handed the flag.
+function ensureEndingStore(workspaceRoot) {
+  if (!workspaceRoot) return null;
+  const dir = path.join(workspaceRoot, '.rbtv', 'runtime', 'ignite');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 // ⚠ THE OWN-SEAT RW PUNCH — spec-envelope §5, and the one bind the COMPILER cannot make.
 // `{goal}/seats` is a daemon-owned DIRECTORY: the compiler binds the whole tree `ro` so a worker
 // cannot write a peer's folder. But §5's directory row carries an exception in its own heading —
@@ -115,6 +129,7 @@ function ownSeatPunch(binds, raw) {
 
 function admitLaunch(raw) {
   ensureGoalScratch(raw.goalDir);
+  ensureEndingStore(raw.workspaceRoot);
   const shims = writeConfigShims({
     goalDir: raw.goalDir,
     home: raw.home || os.homedir(),
@@ -156,6 +171,7 @@ module.exports = {
   isStaffUncaged,
   loadFillIns,
   consumeLaunch,
+  ensureEndingStore,
   ownSeatPunch,
   admitLaunch,
   bindsToSpec,

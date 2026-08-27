@@ -1,7 +1,5 @@
 version: 1
 files:
-  - sessions.csv
-  - state.csv
   - taskforce.csv
   - seat.md
   - goal.md
@@ -20,6 +18,28 @@ files:
 # its own ending, nor answer the leader — for EVERY caged seat on the daemon lane, unconditionally.
 # Check-in, check-out and a `note` are the coordination protocol's OWN acts; a cage that forbids
 # them forbids the seat from being a member of the run.
+#
+# ⚠ `sessions.csv` AND `state.csv` ARE DELIBERATELY ABSENT TOO (2026-08-27, same class one file
+# in). `compiler.js` walks this list and ro-binds each name it finds under the goal folder AS A
+# FILE, and both are records the seat's OWN protocol writes: `coordinate checkin` stamps
+# `sessions.csv` (checkin cell + the native session id), `checkout` closes its row, and
+# `coordinate advance-state` appends to `state.csv`. Under the ro bind, measured in a real cage:
+# an append gets EROFS and the kit's atomic writer (`coord/records.py#write_csv_table`, tmp +
+# `os.replace`) gets EBUSY — `rename(2)` onto a bind MOUNTPOINT is unconditionally EBUSY. Live
+# cost on `scratch-tool-reach-note`/`plan-verifier` (its `issues.md`, `#G-plan-verifier-0827-1931`):
+# check-in's session-id backfill and check-in stamp were both lost, and nothing backfills them.
+#
+# ⚠ AND THE CARVE PROTECTED NOTHING WHILE IT DID THAT. Measured: when an UNCAGED writer (the
+# daemon, which rewrites this file constantly) does its own atomic replace, the seat's ro bind is
+# left over a detached inode and the in-namespace path resolves to the new host file with NO mount
+# on it — writable. So the carve dissolves on the daemon's first rewrite. That is why the same
+# seat got EBUSY at 19:25 and wrote successfully at 19:32, and it is why the goal's own
+# `#-1935` correction ("transient contention") named the wrong mechanism: nothing was contending.
+# The carve's only durable effect is breaking check-in.
+#
+# `seat.md` STAYS: it is the WALL-CONTROL SURFACE the next session's cage is derived from (D3
+# item 3), not a record. `goal.md`, `milestones.csv` and `taskforce.csv` stay: no seat protocol
+# verb writes them.
 #
 # `seats` STAYS: peer seat folders are masked absent (D48), which is a real wall between seats and
 # is enforced separately by `cage.js`'s `ro-mask` besides this list.
