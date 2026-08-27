@@ -43,6 +43,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
 const { RUN_LOCK, runnerAlive, heldSeatPredicate } = require('../operator/attached-execution');
 // The seat's declared autonomous arm, read through the chat bridge's OWN reader — the same module
 // `heldSeatPredicate` reads both gates from. A second parser of that frontmatter is a lane that
@@ -52,7 +54,11 @@ const { seatFallback } = require('../chat/bus-ferry');
 // `rbtv-goal lane` ask the same function, so this pass and the CLI that writes the marker can
 // never disagree about which goals may be assigned to the daemon.
 const { uncastSeats } = require('./seeding');
-const { maybeReconcile } = require('./reconcile');
+const { maybeReconcile, loadSessions } = require('./reconcile');
+// THE ROOM: the one detached-session opener (shared with the boot cockpit) and the one room
+// predicate. Neither is re-implemented here — see `openGoalRoom` below.
+const { composeDetachedSession } = require('./spawn/tmux');
+const { deriveLease } = require('../runtime/lease/lease');
 
 const LANE_FILE = 'execution-lane';
 const DAEMON = 'daemon';
@@ -302,6 +308,104 @@ function frozenFactsFor({ goal, goalFolder, engine, pickup, seats = [], lanesFil
   };
 }
 
+// ── THE DAEMON LANE OPENS THE GOAL'S FIRST ROOM ───────────────────────────────────────────────
+//
+// WHAT WAS MISSING, and it is a MISSING HALF rather than a wrong line. `seeding.js#seedGoal`
+// refuses every launch on a goal whose room is down (`deriveLease().live`, the D9 seed gate), and
+// until now NO daemon-side path ever opened a FIRST one: `reconcile.js` REBUILDS a room only when
+// `deriveOwed` says work is owed, which for a goal that never launched a seat is false by
+// construction (its `sessions.csv` does not exist, so the ledger half has no seats and the graph
+// half is not handed in); the boot cockpit opens only `rbtv-cockpit`; and 7.778 deleted
+// `workflow_launcher.py` — the code that opened the room and launched the entry seat — writing
+// "WHAT OPENS THE ENTRY SEAT NOW: the LANE" (`operator/goal-creation-request/tool/
+// goal_creation_request.py`) without giving the lane a room-opener. Measured 2026-08-27 on
+// `scratch-cli-reach-report`: born with a 7-row taskforce and 7 seat folders, then journalled
+// "goal NOT seeded this pass … has NO live room … Start the room (`rbtv run`)" every 10 s,
+// forever. The lane's own contract is the opposite (`meta/master/references/master-scaffold-flow.md`:
+// "the daemon picks the goal up by itself and runs its seats unattended"; owner ruling OQ-22:
+// "No queue — the lane advances the goal"), so the lane owes the room.
+//
+// WHY HERE AND NOT IN `seeding.js`. `seedGoal` is deliberately lane-agnostic — its own header:
+// "It is deliberately a FUNCTION AND NOT A TRIGGER" — and the ATTACHED lane and the probes call
+// it too. A room-opener there would open rooms for lanes that own their own. This pass IS the
+// daemon lane, and by its call site every lane-shaped guard has already been established: the
+// goal is `daemon`-assigned (a paused marker flattens to `console` and never reaches here), it
+// carries a `taskforce.csv`, and no console run is live on it.
+//
+// WHAT THIS FUNCTION STILL OWES, and each guard is a state a room must NOT be opened in:
+//   1. NO LAUNCHABLE ROW — every seat is unbuilt or uncast. A room for a goal that cannot launch
+//      anything is a room nothing will ever use.
+//   2. AN UNREADABLE LEASE — refused on ignorance, exactly as `seedGoal` refuses: "tmux is
+//      unreadable" is not "there is no room".
+//   3. A LIVE ROOM — the idempotence. This never opens a second room; a goal whose room exists is
+//      left exactly as it is, whoever opened it.
+//   4. NOT A FIRST SEEDING — the goal has session rows, so seats HAVE run in a room here and the
+//      room's absence means it was closed after the fact (an owner closing it is the ordinary
+//      case). That is the OWED path's subject: `reconcile.js` rebuilds it under the leader chair
+//      when work is owed, and re-opening it from here would race that path and would re-open a
+//      room the owner deliberately closed. `sessions.csv` is the record `classifyOwed` itself
+//      reads to decide a goal has seats with a history.
+//
+// FAIL-SOFT, like every other act in this pass: a refusing tmux is one `warn` and a goal left for
+// the next cadence, never a dead tick.
+const ROOM_SCOPE_PREFIX = 'rbtv-tmux-room-';
+
+function defaultRunTmux(argv) {
+  return execFileSync(argv[0], argv.slice(1), { encoding: 'utf8', timeout: 15000 }).trim();
+}
+
+function openGoalRoom({
+  goal, goalFolder, workspaceRoot, rows, laneSkips,
+  readLease = deriveLease, runTmux = defaultRunTmux, say = () => {},
+}) {
+  const launchable = (rows || [])
+    .map((r) => (r.seat || '').trim())
+    .filter((seat) => seat && !(laneSkips && laneSkips.has(seat)));
+  if (!launchable.length) return { opened: false, reason: 'no-launchable-row' };
+
+  let lease;
+  try {
+    lease = readLease({ workspaceRoot, goal });
+  } catch (err) {
+    return { opened: false, reason: 'lease-unreadable', error: err.message };
+  }
+  if (!lease || !lease.ok) {
+    return { opened: false, reason: 'lease-unreadable', error: lease && lease.reason };
+  }
+  if (lease.live) return { opened: false, reason: 'room-already-live' };
+
+  if (loadSessions(goalFolder).length) {
+    return { opened: false, reason: 'not-a-first-seeding' };
+  }
+
+  const scopeUnit = `${ROOM_SCOPE_PREFIX}${randomUUID()}`;
+  let argv;
+  try {
+    // NO window name: a room the daemon opened must be indistinguishable from one a human opened
+    // with `tmux new-session -s <goal>`, and the cwd is the goal folder — the package
+    // (`lease.js#packageDirForRoom` is the identity), which is what `recover-room.py` uses too.
+    argv = composeDetachedSession({ sessionName: goal, cwd: goalFolder, scopeUnit });
+  } catch (err) {
+    say('warn', 'lane watch: this daemon-lane goal\'s name cannot be a tmux session name, so no '
+      + 'room can be opened for it and it can never be seeded', { goal, error: err.message });
+    return { opened: false, reason: 'name-refused', error: err.message };
+  }
+
+  let pane;
+  try {
+    pane = runTmux(argv);
+  } catch (err) {
+    say('warn', 'lane watch: FAILED to open this daemon-lane goal\'s room — nothing is seeded this '
+      + 'pass and the next cadence retries', { goal, scopeUnit, error: err.message });
+    return { opened: false, reason: 'open-failed', error: err.message };
+  }
+
+  say('info', 'room opened by the daemon lane (first seeding)', {
+    goal, goalFolder, room: goal, pane, scopeUnit, launchable,
+  });
+  return { opened: true, reason: 'opened', room: goal, pane, scopeUnit };
+}
+
 // ONE PASS over the goals tree. Called from the daemon's loop, immediately before each tick, so a
 // seat seeded by this pass is dispatched by the tick that follows it rather than a cadence later.
 //
@@ -321,10 +425,19 @@ function frozenFactsFor({ goal, goalFolder, engine, pickup, seats = [], lanesFil
 // if the tree ever reaches thousands, watch mtimes instead of re-reading every pass.
 // `readLease` is the D9 goal-live check's injection point, forwarded verbatim to
 // `engine.seedGoal` — production passes nothing and seeding reads the real lease.
-function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined, lanesFile = undefined }) {
+function runLaneWatch({
+  goalsRoot, engine, logger = null, readLease = undefined, lanesFile = undefined,
+  // The room opener's executor seam, `ensureCockpit`'s own pattern. Production passes nothing.
+  runTmux = undefined,
+}) {
   const say = (level, message, extra = {}) => { if (logger) logger({ level, message, ...extra }); };
+  // `<workspace>/.rbtv/goals` — the one resolution the lease needs, computed once per pass.
+  const workspaceRoot = path.resolve(goalsRoot, '..', '..');
   const adopted = [];
   const skipped = [];
+  // The rooms this pass OPENED. A goal here is not skipped — it is a goal whose first room the
+  // lane had to create before it could be seeded at all.
+  const roomsOpened = [];
   // One observation per goal this pass seeded, for `runtime/frozen-pass.js`. Collected, never acted
   // on here: this pass seeds goals, and an alarm is somebody else's act.
   const frozenFacts = [];
@@ -334,7 +447,7 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined,
     entries = fs.readdirSync(goalsRoot, { withFileTypes: true });
   } catch {
     // No goals tree on this workspace. Not an error and not worth a line every cadence.
-    return { adopted, skipped };
+    return { adopted, skipped, roomsOpened };
   }
 
   for (const entry of entries) {
@@ -541,6 +654,19 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined,
       continue;
     }
 
+    // ── THE ROOM, BEFORE THE SEED ────────────────────────────────────────────────────────────
+    // Every lane-shaped guard is established by here (daemon-assigned, not paused, taskforce
+    // present, no console run), so this call decides only the four room-shaped ones and opens the
+    // FIRST room when they all hold — see `openGoalRoom`. `seedGoal` reads the lease itself on
+    // the very next line, so a room opened here is seeded THIS pass, and a refusal falls through
+    // to seeding's own `goalNotLive` branch unchanged.
+    const room = openGoalRoom({
+      goal, goalFolder, workspaceRoot, rows: unbuiltRows, laneSkips,
+      ...(readLease ? { readLease } : {}), ...(runTmux ? { runTmux } : {}),
+      say: (level, message, extra = {}) => say(level, message, extra),
+    });
+    if (room.opened) roomsOpened.push({ goal, room: room.room, pane: room.pane });
+
     let pickup;
     try {
       pickup = engine.seedGoal({
@@ -657,11 +783,12 @@ function runLaneWatch({ goalsRoot, engine, logger = null, readLease = undefined,
     });
   }
 
-  return { adopted, skipped, frozenFacts };
+  return { adopted, skipped, roomsOpened, frozenFacts };
 }
 
 module.exports = {
   LANE_FILE, DAEMON, CONSOLE, readLane, laneIsPaused, consoleRunIsLive, runLaneWatch, failedOn,
+  openGoalRoom,
   frozenFactsFor,
   ensureGoalChannelOnce, channelEnsured,
   maybeReconcile,

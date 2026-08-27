@@ -914,7 +914,7 @@ function seedGoal({
     const lease = readLease({ workspaceRoot: wsRoot, goal });
     const notLive = !lease.ok
       ? `the lease of goal ${goal} is UNREADABLE (${lease.reason}) — refused on ignorance rather than spent on a fact it could not measure`
-      : (lease.live ? null : `goal ${goal} has NO live room (tmux session named \`${goal}\`) — the spawn door would refuse every launch E_GOAL_NOT_LIVE, so nothing is enqueued and no relaunch grant is spent. Start the room (\`rbtv run\`) and the next seed pass proceeds`);
+      : (lease.live ? null : `goal ${goal} has NO live room (tmux session named \`${goal}\`) — the spawn door would refuse every launch E_GOAL_NOT_LIVE, so nothing is enqueued and no relaunch grant is spent. WHO OPENS IT depends on the lane: a DAEMON-lane goal's first room is opened by the lane itself (\`lane-watch.js#openGoalRoom\`) at this same pass, and a later one is rebuilt by the watcher when work is owed (\`reconcile.js\`) — so reaching this line on the daemon lane means one of those refused and named its reason. A CONSOLE-lane goal's room is the terminal a human opens (\`rbtv run\`)`);
     if (notLive) {
       if (logger) {
         logger({

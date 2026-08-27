@@ -734,3 +734,50 @@ The CAUSE is fixed at the creation verb: `rbtv goal scaffold --lane daemon` now 
 creation route declares `--materialize-follows` (`operator/goals-tree/tool/README.md` § The daemon
 lane). This line is the second half — the goals that reached this state before that gate existed
 are named instead of vanishing.
+
+## The daemon lane opens a goal's FIRST room [2026-08-27]
+
+`seeding.js` refuses every launch on a goal whose tmux room is down (`deriveLease().live`, the D9
+seed gate), and until now NO daemon-side path opened a FIRST one. `reconcile.js` REBUILDS a room,
+but only when `deriveOwed` says work is owed — false by construction for a goal that never launched
+a seat, since its `sessions.csv` does not exist. The boot cockpit opens only `rbtv-cockpit`. And
+7.778 deleted `workflow_launcher.py`, the code that opened the room and launched the entry seat,
+recording *"WHAT OPENS THE ENTRY SEAT NOW: the LANE"* without giving the lane an opener. Measured on
+`scratch-cli-reach-report`: born through the creation-request route with a 7-row `taskforce.csv` and
+7 seat folders, then journalled *"goal NOT seeded this pass … has NO live room … Start the room
+(`rbtv run`)"* every 10 s, forever. That contradicts the lane's own contract
+(`meta/master/references/master-scaffold-flow.md`: "the daemon picks the goal up by itself and runs
+its seats unattended"; owner ruling OQ-22: "No queue — the lane advances the goal").
+
+`lane-watch.js#openGoalRoom` closes it: immediately before `engine.seedGoal`, the pass opens the
+room itself and seeds in the SAME cadence. It is placed HERE and not in `seeding.js` because
+`seedGoal` is deliberately lane-agnostic ("a FUNCTION AND NOT A TRIGGER") and the attached lane and
+the probes call it too.
+
+By the call site the lane-shaped guards are already established — daemon-assigned (a `paused`
+marker flattens to `console` and never reaches here), `taskforce.csv` present, no console run live.
+The opener owes four more, and each is a state a room must NOT be opened in:
+
+| guard | why |
+|---|---|
+| no launchable row (every seat unbuilt or uncast) | a room nothing can ever use |
+| the lease is UNREADABLE | refused on ignorance, exactly as `seedGoal` refuses — "tmux is unreadable" is not "there is no room" |
+| the room is LIVE | the idempotence: never a second room, whoever opened the first |
+| the goal has `sessions.csv` rows | seats HAVE run here, so the room was closed after the fact (an owner closing it is the ordinary case). That is the OWED path's subject — `reconcile.js` rebuilds it under the leader chair — and re-opening from here would race it and re-open a room the owner deliberately closed |
+
+The vector is `spawn/tmux.js#composeDetachedSession`, the ONE detached-session opener, shared with
+the boot cockpit: `systemd-run --user --scope --collect --unit=rbtv-tmux-room-<uuid> -- tmux
+new-session -d -s <goal> -c <goal folder> -P -F …`. NO command follows `-c`, so tmux starts the
+default shell and the room's only pane cannot exit on its own; NO `-n`, so a room the daemon opened
+is byte-indistinguishable from one a human opened with `tmux new-session -s <goal>`. The
+`systemd-run --scope` wrapper is load-bearing and not decoration — an unwrapped `new-session` forks
+the tmux SERVER into the daemon's own `KillMode=control-group` cgroup, and the next restart reaps
+every pane on the box.
+
+One `info` line, `room opened by the daemon lane (first seeding)`, fires once per room by
+construction: the next pass sees a live room and returns `room-already-live`. Fail-soft like every
+other act in the pass — a refusing tmux is one `warn` and a goal left for the next cadence.
+`seeding.js`'s not-live refusal text now names WHO opens the room per lane instead of telling a
+daemon-lane goal to run `rbtv run`.
+
+Proof: `probes/probe-lane-room-open.js` — six goals on a PRIVATE tmux server, six red mutation arms.

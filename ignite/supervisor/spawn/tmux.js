@@ -170,8 +170,59 @@ function composeSeatSpawn({
   return { tmuxArgv, scopeArgv, wrappedArgv, unitName };
 }
 
+// ── THE ONE DETACHED-SESSION OPENER ───────────────────────────────────────────────────────────
+//
+// A tmux SESSION (not a window in one) created empty, detached, in its own cgroup scope. Two
+// callers, one composer: the boot cockpit (`runtime/cockpit.js`) and the daemon lane's first-room
+// open (`supervisor/lane-watch.js#openGoalRoom`). It existed inline in cockpit.js first; the lane
+// needed the identical vector, and a second copy of it would drift in the one place drift is
+// fatal (see the scope note below).
+//
+// ⚠ THE `systemd-run --user --scope --collect` WRAPPER IS LOAD-BEARING AND IS NOT DECORATION.
+// When no tmux server is running yet, `new-session` FORKS THE SERVER as a child of the calling
+// process — inside the caller's cgroup. The daemon unit is `KillMode=control-group`, so an
+// unwrapped call from the daemon puts the tmux server in the unit's cgroup and the next
+// stop/restart reaps EVERY pane on the box, including the owner's own sessions (measured
+// 2026-08-14, server pid 241103; see cockpit.js's header). The scope is minted per attempt, never
+// a fixed name, because `--collect` only reaps a scope once its processes are gone.
+//
+// ⚠ NO COMMAND FOLLOWS `-c <cwd>`, AND THE ABSENCE IS THE FEATURE. tmux starts the configured
+// default shell, so the session holds a pane that cannot exit on its own. A session whose only
+// pane runs a command dies when that command does.
+//
+// `windowName` is OPTIONAL and omitted by default. The cockpit names its window (`cockpit`) as
+// half of its distinctness guarantee; a GOAL ROOM must not be named, so that a room the daemon
+// opened is byte-indistinguishable from one a human opened with `tmux new-session -s <goal>`
+// (both carry tmux's own default window name — measured on the live rooms 2026-08-27).
+//
+// PURE, like everything else in this file: it returns the vector, it never runs it.
+function composeDetachedSession({ sessionName, windowName = null, cwd, scopeUnit }) {
+  assertTmuxName('tmux session', sessionName);
+  if (windowName !== null) assertTmuxName('tmux window', windowName);
+  if (!cwd) {
+    throw new SpawnError(E_BAD_REQUEST, 'composeDetachedSession: cwd is required', { sessionName });
+  }
+  if (!scopeUnit) {
+    throw new SpawnError(E_BAD_REQUEST, 'composeDetachedSession: scopeUnit is required — an '
+      + 'unwrapped new-session forks the tmux server into the caller\'s cgroup', { sessionName });
+  }
+  return [
+    'systemd-run', '--user', '--scope', '--collect', `--unit=${scopeUnit}`,
+    '--',
+    'tmux', 'new-session',
+    '-d',
+    '-s', sessionName,
+    ...(windowName === null ? [] : ['-n', windowName]),
+    '-c', cwd,
+    '-P', '-F', '#{pane_id} #{pane_pid}',
+  ];
+}
+
 // `assertTmuxName` is exported so the boot cockpit (server/cockpit.js, task 7.36) validates its
 // session and window names through THIS guard rather than a second copy. Same reasoning as
 // `capToProperty` above: a duplicate would eventually drift, and the drift would be silent in
 // exactly the direction that matters — a name carrying `:` or `.` re-targets another pane.
-module.exports = { composeSeatSpawn, buildScopeArgv, scopeUnitName, assertTmuxName, E_TMUX_NAME_INVALID };
+module.exports = {
+  composeSeatSpawn, composeDetachedSession, buildScopeArgv, scopeUnitName, assertTmuxName,
+  E_TMUX_NAME_INVALID,
+};

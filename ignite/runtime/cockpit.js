@@ -66,8 +66,9 @@
 // The cockpit must be named distinctly from a goal room so neither is mistaken for the other.
 // Three mechanisms, because a convention alone is not a guarantee:
 //   * the name is a fixed constant carrying an `rbtv-` prefix, and it is validated through
-//     spawn/tmux.js's OWN `assertTmuxName` (imported, never re-implemented — a second copy of
-//     that guard would drift, and it would drift silently in the direction that matters);
+//     spawn/tmux.js's OWN `assertTmuxName` (reached through `composeDetachedSession`, never
+//     re-implemented — a second copy of that guard would drift, and it would drift silently in
+//     the direction that matters);
 //   * `ensureCockpit` REFUSES to spawn when the cockpit name collides with the goal room name
 //     (RBTV_IGNITE_TMUX_ROOM) — the collision is caught at boot, not discovered by a human;
 //   * the session carries the tmux user option `@rbtv-cockpit`, so anything needing to know
@@ -83,7 +84,7 @@ const { execFileSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { pythonCmd } = require('./python-cmd');
 
-const { assertTmuxName } = require('../supervisor/spawn/tmux');
+const { composeDetachedSession } = require('../supervisor/spawn/tmux');
 // 7.607 E3: the ONE home of 'is this goal executing' (design-lock item 1). Required here, never
 // re-implemented — a second room predicate is the drift PRIN-11 forbids.
 const { deriveLease } = require('./lease/lease');
@@ -241,8 +242,7 @@ function composeCockpitSpawn({
   teamviewPercent = TEAMVIEW_PANE_PERCENT,
   scopeUnit = mintCockpitScopeUnit(),
 }) {
-  assertTmuxName('tmux session', sessionName);
-  assertTmuxName('tmux window', windowName);
+  // Both names are validated by `composeDetachedSession` below, through this same guard.
   if (!masterDir) {
     throw new CockpitError('E_BAD_REQUEST', 'composeCockpitSpawn: masterDir is required', {});
   }
@@ -251,20 +251,15 @@ function composeCockpitSpawn({
       'composeCockpitSpawn: teamviewArgv is required and must be a non-empty vector', {});
   }
 
-  // Composed inline rather than through spawn/tmux.js's `buildScopeArgv`: that one emits
-  // `--quiet` and no `--collect`, takes seat caps this call has none of, and names its unit
-  // `rbtv-seat-*`. Widening it for one non-seat caller would change every seat's argv; the
-  // divergence here is four literal flags.
-  const newSessionArgv = [
-    'systemd-run', '--user', '--scope', '--collect', `--unit=${scopeUnit}`,
-    '--',
-    'tmux', 'new-session',
-    '-d',
-    '-s', sessionName,
-    '-n', windowName,
-    '-c', masterDir,
-    '-P', '-F', '#{pane_id} #{pane_pid}',
-  ];
+  // NOT `buildScopeArgv`: that one emits `--quiet` and no `--collect`, takes seat caps this call
+  // has none of, and names its unit `rbtv-seat-*`. The vector is composed by tmux.js's
+  // `composeDetachedSession` — the ONE detached-session opener, shared with the daemon lane's
+  // first-room open (`supervisor/lane-watch.js#openGoalRoom`). It used to be inline here; the
+  // second caller made a copy the wrong answer, and the `--scope` wrapper is exactly the detail a
+  // copy would eventually drop.
+  const newSessionArgv = composeDetachedSession({
+    sessionName, windowName, cwd: masterDir, scopeUnit,
+  });
 
   const markArgv = ['tmux', 'set-option', '-t', `${sessionName}:`, COCKPIT_MARKER, '1'];
 
