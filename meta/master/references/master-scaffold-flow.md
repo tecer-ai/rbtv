@@ -71,24 +71,59 @@ work, which stays the launched workflow's seats' to perform.
 **The lane is assigned AT BIRTH.** A goal is NEVER created first and lane-assigned by a second
 call afterwards: the lane rides in the same act that writes `goal.md`.
 
-### Which write route is yours is a FACT YOU READ
+### Which write route is yours FOLLOWS FROM THE LANE — never from what you may write
 
-Two routes exist, and which one your seat takes is stated in your own permissions unit. READ IT —
-NEVER assume it, and NEVER carry an answer over from another sitting.
+Writability decides nothing here. `rbtv goal scaffold` writes the goal folder and its contract and
+does **NOT** write `taskforce.csv` — the file the daemon requires before it will pick a goal up at
+all, and whose only writer in the system is `scaffold-seats`. So the verb REFUSES `--lane daemon`
+outright, before its first write, with code `daemon-lane-unmaterialized`, and names the two routes
+that do produce a taskforce. Which one is yours is decided by the LANE your seat assigns, below.
 
-- **DIRECT — run the creation verb yourself.** This is the master's route (D49): the whole
-  workspace, goals ROOT included, is writable.
-  `rbtv goal scaffold <goal-name> --contract <file> --lane <daemon|console> --execution-mode <word>`
-  — the contract flag takes a FILE, or `-` for stdin, and the lane and the mode ride on that SAME
-  call.
-- **THROUGH THE GOAL-CREATION REQUEST — fallback only.** If a direct write still returns EROFS
-  (old cage, undeployed daemon), do not write under the goals root yourself. The request carries the
-  lane as a REQUIRED field, and the DAEMON writes the marker in the very process that writes
-  `goal.md`. Stage the request payload in your own seat folder and read the entry's refusal record,
-  written beside your staged request, for any field it rejected. The payload's field set is CLOSED
-  and FIVE of its fields are REQUIRED (table: `master-instruments.md` § Goals). Run `rbtv-goal-request
-  validate <file>` on the file BEFORE you stage it — that check needs no goals-root write, and it is
-  the difference between a refusal you fix in one second and one you learn about a watch pass later.
+- **CHANNEL MASTER → the GOAL-CREATION REQUEST, on every goal, always.** You assign the daemon
+  lane (arm below), and a daemon-lane goal cannot be born by the creation verb alone. The request
+  route is the one act that scaffolds AND materializes: you STAGE a validated request, and the
+  DAEMON's drain job runs `rbtv-goal-request scaffold-and-queue --workflow <workflow> …` over your
+  inbox on its own cadence. Staging is your WHOLE act — you never run `scaffold-and-queue`, and you
+  never run `scaffold-seats`.
+  1. **Write the payload.** JSON, one request per file. The field set is CLOSED and FIVE fields are
+     REQUIRED — an unknown name is a refusal, never a passthrough (table: `master-instruments.md`
+     § Goals). `execution-lane` is one of the five and from this door it is always `daemon`.
+  2. **`rbtv-goal-request validate <file>` BEFORE you stage it.** It performs no act, needs no
+     goals-root access, and names every field it checked. Exit 0 means the daemon will accept it;
+     skipping it trades a refusal you fix in one second for one you learn about a drain pass later.
+  3. **Stage the validated file** into your own seat folder's `requests/` inbox. Nothing else.
+  4. **Report what is TRUE, in the owner's words:** the request is staged, and the goal is queued
+     for the daemon's next drain pass, which runs every 300 seconds. What the owner will see next
+     is the goal folder with its taskforce, and — on the goal's first seeding pass — its Slack
+     channel. You CONFIRM at the product afterwards (step 4); you do not claim it now. If the
+     entry rejects a field it writes a refusal record beside your staged request — read it and
+     report the refusal as the refusal it is, naming the field.
+- **CONSOLE MASTER → the creation verb DIRECTLY, for a CONSOLE-lane goal.**
+  `rbtv goal scaffold <goal-name> --contract <file> --lane console --execution-mode <word>` — the
+  contract flag takes a FILE, or `-` for stdin, and the lane and the mode ride on that SAME call.
+  Where the owner answers **daemon** instead, that same call refuses, and the route the refusal
+  names is THREE acts in ONE sitting with the owner present: `--lane console`, then
+  `scaffold-seats --package <ABSOLUTE goal folder> --workflow <workflow> --catalog-root <root>`,
+  then `rbtv goal lane <goal> --set daemon` to hand it over. All three, or the goal is not born.
+
+### `daemon-lane-unmaterialized` — the refusal, and the ONE thing it permits
+
+A refusal creates NOTHING: the goal name is still free and the right command can be run against it.
+From the CHANNEL MASTER'S door there is exactly one answer to it — **stage a goal-creation request**
+— and the following are DEFECTS, each one measured on this seat on 2026-08-27:
+
+- **NEVER re-run it with `--lane console`.** The lane is the assignment this goal is born into, not
+  an obstacle in front of the command. A console-lane goal from this door is a goal nobody runs:
+  no daemon picks it up, and no owner is at a terminal to type `rbtv run`.
+- **NEVER pass `--materialize-follows`.** It is not an override. It is the request route's
+  DECLARATION that it invokes `scaffold-seats` in the same act; a caller that passes it and does not
+  materialize re-creates, under a flag that says otherwise, the exact dead end the refusal prevents.
+- **NEVER run `scaffold-seats` yourself** to repair a goal you just created. That is the console
+  route's second act, and reaching for it here means the first act was already the wrong one.
+- **NEVER perform the goal's own work inside your sitting**, and **NEVER call `finish-goal` on a
+  goal you just created.** A master sitting that does the work and closes the goal reports a
+  finished goal to the owner where nothing was ever staffed, and the work has no seat, no ledger and
+  no record anyone can resume from. Your act ends at the verified goal (§ 5).
 
 ### The lane — CHANNEL MASTER
 
@@ -135,8 +170,9 @@ never runs, in either lane.
 
 ### Through the request, the outcome is ASYNC — and "neither yet" is its OWN branch
 
-The request route settles on the DAEMON's next watch pass; nothing is pushed to you when it does.
-So a read-back has THREE outcomes, not two:
+The request route settles on the DAEMON's next DRAIN pass over your inbox (every 300 s), and the
+goal is seeded on a later watch pass; nothing is pushed to you when either happens. So a read-back
+has THREE outcomes, not two:
 
 - **The goal folder exists** → created. Verify the two markers above and report it.
 - **A refusal record sits beside your staged request** → refused. Report the refusal as the refusal
@@ -144,7 +180,7 @@ So a read-back has THREE outcomes, not two:
 - **NEITHER exists yet** → NOTHING IS KNOWN. The daemon has not reached your request. You MUST NOT
   say `scaffolded`, `created`, `done`, `✅`, or any other success word: on 2026-08-12 this seat sent
   "✅ Goal scaffolded" 23 s after staging, when neither artifact existed — the REFUSAL landed three
-  minutes later. Either re-poll after the daemon's watch-pass interval, or tell the owner exactly
+  minutes later. Either re-poll after the drain interval, or tell the owner exactly
   this: *staged, not yet confirmed — I will confirm once the daemon picks it up.* A RE-STAGE after a
   fix is a NEW request with the same three outcomes: every owner-facing claim is re-verified against
   disk at the moment you make it, and NEVER inherited from the previous attempt.

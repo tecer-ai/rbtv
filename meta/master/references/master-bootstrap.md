@@ -51,17 +51,29 @@ State which mode was picked in what you report at step 5.
 ## 3 — GIVE THE GOAL ITS TASKFORCE
 
 A bootstrapped goal has no `taskforce.csv`, and the ONE command that writes one is
-`scaffold-seats`, over the plan workflow ALREADY PRESENT for this goal — pre-placed, neither
-authored by the master nor fetched by the master:
+`scaffold-seats`, run over a plan workflow you NAME:
 
 ```
 scaffold-seats --package <ABSOLUTE goal folder> --workflow <plan workflow> --catalog-root <component catalog root>
 ```
 
+The workflow is a CATALOG artifact, resolved as `<catalog-root>/<component>/workflows/<name>/` —
+it is never something already sitting inside the goal, and there is nothing "pre-placed" to look
+for there: a bootstrapped goal is DEFINED by having nothing materialized into it. You name an
+EXISTING one, walking the component tree to find it (`rbtv <module> <component>`, per
+`master-scaffold-flow.md` § 2); you never author a workflow and never invent a name.
+
 It materializes the WHOLE workflow into the goal: each seat's descriptor first, then that seat's
 `taskforce.csv` row. `--package` is the GOAL FOLDER itself, absolute, and is NEVER inferred;
 `--catalog-root` is required and never guessed. MUST reach it by its PATH name `scaffold-seats`,
 NEVER by the script path behind it.
+
+**THIS IS NOT THE GOAL-CREATION ROUTE, and it is NEVER the repair for a creation that refused.**
+This act reaches a goal that ALREADY EXISTS and was opened from ground. If you are CREATING a goal
+and `rbtv goal scaffold --lane daemon` refused you `daemon-lane-unmaterialized`, you are in
+`master-scaffold-flow.md` § 3, not here: from the channel master's door the answer is to stage a
+goal-creation request, and re-scaffolding on the console lane so that this reference's command
+becomes available is the defect that produced a goal with no seats on 2026-08-27.
 
 **The COMMAND writes the seat folders and their contents.** No agent hand-writes one, and the
 master's duty here is ONE COMMAND INVOCATION and no carpentry: NEVER build anything for the command
@@ -98,6 +110,11 @@ certifies nothing about the state it claims to have produced.**
 A FAILED run is REPORTED, with what it wrote before it failed. **Completing its work by hand is
 the one recovery NEVER available**: a hand-finished tree looks materialized to every later reader
 and is not, and no seat downstream can tell the difference until one of them breaks on it.
+
+The same bound covers the GOAL'S OWN WORK. You NEVER perform it inside your own sitting to get past
+a command that refused, and you NEVER call `finish-goal` on the goal in front of you: a goal
+reported finished with no taskforce behind it tells the owner a team did work that no seat, ledger
+or record can show.
 
 ## 5 — STOP AT REGISTERED
 
