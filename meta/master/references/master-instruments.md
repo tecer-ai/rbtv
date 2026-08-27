@@ -122,11 +122,25 @@ thread this contact arrived on.
 Reached when: a goal must be created, its lane read or written, or one more seat materialized into
 a goal that already has a taskforce.
 
-- `rbtv goal scaffold` creates the goal folder and is CREATE-ONLY. D49 opened the goals ROOT to
-  every caged master: run it DIRECTLY. The goal-creation request tool remains the fallback if a
-  write still returns EROFS (old cage, undeployed daemon) — full path
-  `3-resources/tools/rbtv/ignite/operator/goal-creation-request/tool/rbtv-goal-request`. NEVER
-  hand-queue a daemon job that runs the scaffold command for you.
+- `rbtv goal scaffold` creates the goal folder and its contract, and is CREATE-ONLY. It does NOT
+  write `taskforce.csv` — the file the daemon requires before it picks a goal up — so it REFUSES
+  `--lane daemon` outright, before its first write, with code `daemon-lane-unmaterialized`. WHICH
+  ROUTE IS YOURS FOLLOWS FROM THE LANE, never from what you may write: writability decides nothing
+  here and there is no EROFS fallback to wait for.
+  - **CHANNEL MASTER** — you assign `daemon` on every goal, so this verb is NEVER your route. Yours
+    is the GOAL-CREATION REQUEST, always: validate it, then STAGE it in your own seat folder's
+    `requests/` inbox and stop there. The DAEMON drains that inbox with `scaffold-and-queue` on its
+    own cadence (every 300 seconds), which scaffolds AND materializes in one act — you NEVER run
+    `scaffold-and-queue` and NEVER run `scaffold-seats` from this door. Tool — full path
+    `3-resources/tools/rbtv/ignite/operator/goal-creation-request/tool/rbtv-goal-request`.
+  - **CONSOLE MASTER** — run the verb DIRECTLY for a CONSOLE-lane goal. Where the owner answers
+    `daemon` it refuses you the same way, and your route is then either the request route above, or
+    the sequence the refusal names as THREE acts in ONE sitting: `--lane console`, then
+    `scaffold-seats --package <ABSOLUTE goal folder> --workflow <workflow> --catalog-root <root>`,
+    then `rbtv goal lane <goal> --set daemon`. All three, or the goal is not born.
+  NEVER hand-queue a daemon job that runs the scaffold command for you, and NEVER pass
+  `--materialize-follows` to get past the refusal — it is the request route's DECLARATION that it
+  materializes in the same act, not an override. Full sequence: `master-scaffold-flow` § 3.
 - A goal's LANE is what decides whether anything ever runs it, and an ABSENT assignment means
   `console`. NEVER leave the lane to a default.
 - `rbtv goal lane <goal>` with NO `--set` READS the marker back. That read is the verification, and
