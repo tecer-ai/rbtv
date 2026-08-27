@@ -5427,6 +5427,28 @@ def mint_staff_chairs(result: dict, package: Path, args,
     leaving the goal materialized anyway."""
     staff = _coord_staff_seats()
     summoned = _coord_summoned_seats()
+    # ⚠ A CHAIR IS A CATALOGED SEAT, SO IT IS READ FROM THE COMPONENT CATALOG — NEVER FROM A
+    # GOAL-LOCAL LANE. `--goal-local` SWAPS the catalog for one synthesized out of the goal's own
+    # planning product, and that lane carries the goal's authored seats and nothing else by
+    # construction. Handed that lane, this pass finds no row for `leader` or `goal-master` and
+    # takes the "foreign or fixture catalog" skip for both — silently, because that skip is the
+    # one of the four that is silent. On a LIVE goal the skip is invisible: the chairs are already
+    # registered, so the loop would have `continue`d on `existing` anyway. On a BIRTH it is fatal,
+    # and it was measured that way on 2026-08-27 — the first daemon-lane birth minted the plan's
+    # two seats and no chairs at all, and reported success. `args.catalog_root` is the COMPONENT
+    # root the caller named; the swap only rebound a local in `run`, never the argument.
+    if getattr(args, "goal_local", False):
+        try:
+            component_seats = load_catalogs(Path(args.catalog_root))[0]
+        except CatalogRefusal as exc:
+            result["warnings"].append(
+                f"staff and summoned chairs NOT minted: the component catalog at "
+                f"{args.catalog_root} did not load ({exc}) — a --goal-local run reads its chairs "
+                f"from there, because the goal-local lane carries only the seats the goal itself "
+                f"authored")
+            return result
+        normalize_seat_rows(component_seats)
+        seats_catalog = component_seats
     # Staff chairs stay on the original early return. Summoned chairs join it
     # so `--seat goal-master` (and a dry-run of that mint) cannot recurse:
     # dry-run writes no row, so `existing` would never skip the chair.
@@ -5463,6 +5485,9 @@ def mint_staff_chairs(result: dict, package: Path, args,
         sub.bindings = str(sheet)
         sub.milestone_id = ""          # a staff chair holds no workflow node
         sub.force_partial = sub.repass = sub.refresh = False
+        # …and it is minted from the COMPONENT catalog, so the sub-run must not rebuild the lane:
+        # `run` would swap the catalog again and refuse to resolve a chair the lane cannot carry.
+        sub.goal_local = False
         try:
             minted.append(run(sub))
         except (Refuse, CatalogRefusal) as exc:
@@ -5502,6 +5527,8 @@ def mint_staff_chairs(result: dict, package: Path, args,
         sub.bindings = str(sheet)
         sub.milestone_id = ""
         sub.force_partial = sub.repass = sub.refresh = False
+        sub.goal_local = False         # same reason as the staff loop above
+
         try:
             summoned_minted.append(run(sub))
         except (Refuse, CatalogRefusal) as exc:
@@ -5804,8 +5831,13 @@ def build_parser() -> argparse.ArgumentParser:
                         "authored — read from planning/current/ (manifest.csv "
                         "plus seats/<seat>/ prompt+task pairs) instead of the "
                         "component catalog, which carries no row for them. "
-                        "This is the lane for a binder-REGISTERED seat whose "
-                        "folder was never built. --catalog-root is still "
+                        "It requires those two surfaces and a --bindings "
+                        "sheet that casts every manifest seat, and NOTHING "
+                        "else: the repair case it was built for is a "
+                        "binder-REGISTERED seat whose folder was never built, "
+                        "but a taskforce row is not a precondition — an "
+                        "execution-goal BIRTH mints a package with no registry "
+                        "at all through this same lane. --catalog-root is still "
                         "required and is still read: it is the set this lane's "
                         "SHADOW check compares against, since a goal-authored "
                         "id may never collide with a cataloged one. Pair with "

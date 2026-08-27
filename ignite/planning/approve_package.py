@@ -28,6 +28,7 @@ some future regenerator must refuse rather than write a file the next materializ
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -56,6 +57,10 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
 # Refused, never written — the daemon stamps these itself (see the header).
 DAEMON_STAMPED = ("planning_goal", "goals_root", "origin_id")
+
+# `materialize-seats.py#MANIFEST_SEAT_COLUMN` — the column a workflow manifest names its seats in,
+# and the one `build_goal_local_lane` reads out of a plan's own `planning/current/manifest.csv`.
+MANIFEST_SEAT_COLUMN = "Seat/workflow"
 
 # Read by `run_path_b`; optional because the birth has its own default for each.
 OPTIONAL_KEYS = (
@@ -126,9 +131,98 @@ def package_path(goal_dir):
     return Path(goal_dir) / APPROVE_PACKAGE
 
 
+def refuse_bad_contract_file(goal_dir, pkg):
+    """The contract file must exist UNDER the plan artifacts. Refused here, never at birth.
+
+    ⚠ WHY THIS REFUSAL IS AT THE WRITER. The contract becomes the born goal's `goal.md` body, and
+    the birth reads it out of the BOUND COMMIT — so a contract that is not among the plan artifacts
+    is not in the tree the owner approved, and the birth can only refuse it after the approval is
+    already spent, in the owner's Slack thread, with nothing left to fix it with. Here, a seat that
+    named the wrong path is still sitting and can write the file.
+
+    The path is relative TO THE PLANNING GOAL — the same resolution `path_b.bound_contract_file`
+    performs — because that is the goal folder the seat writing this package is inside of. This
+    reads the WORKING TREE; the birth re-reads the bound commit, which is the authority. The two
+    disagree only when the artifact was never committed, and that is what `plan_artifacts`'
+    resolvability check at birth already covers.
+    """
+    contract_file = pkg.get("contract_file")
+    if not contract_file:
+        return
+    src = Path(contract_file)
+    if not src.is_absolute():
+        src = Path(goal_dir) / src
+    artifacts = Path(pkg["plan_artifacts"]).resolve()
+    try:
+        src.resolve().relative_to(artifacts)
+    except ValueError:
+        raise ApprovePackageRefusal(
+            "bad-contract-file",
+            f"{contract_file} resolves to {src} — outside the approved plan artifacts "
+            f"({artifacts}). The birth reads the contract from the bound commit's tree, and a "
+            "file the approval does not bind is not there",
+        )
+    if not src.is_file():
+        raise ApprovePackageRefusal(
+            "bad-contract-file",
+            f"{contract_file} does not exist ({src}). It becomes the born goal's goal.md body — "
+            "write it into the plan artifacts and bind it, then re-run this writer",
+        )
+
+
+def refuse_roster_not_in_plan(goal_dir, pkg):
+    """Every roster seat must be one the PLAN authored — when the plan is what mints them.
+
+    ⚠ THE TWO ROUTES. A package that declares a `workflow` names cataloged seats, and the catalog
+    is what says whether they exist; this says nothing about those. A package that declares NO
+    workflow is a one-off plan, and its seats are minted `--goal-local` from
+    `planning/current/manifest.csv` — so a roster id that manifest does not carry names a seat
+    nothing will ever build, and an EMPTY roster with no manifest births a goal with no work in it
+    at all. Both were pass-shaped births before this: the package was written, the owner approved,
+    and what came back was a goal that could not run.
+    """
+    if str(pkg.get("workflow") or "").strip():
+        return
+    roster = list(pkg.get("roster") or [])
+    manifest = Path(pkg["plan_artifacts"]) / "current" / "manifest.csv"
+    if not manifest.is_file():
+        raise ApprovePackageRefusal(
+            "roster-not-in-plan",
+            f"this package declares no --workflow, so the execution seats are the ones THE PLAN "
+            f"authored and the birth mints them from {manifest} — which does not exist. Author "
+            "the plan's seats (manifest.csv plus seats/<seat>/ prompt+task pairs and "
+            "bindings.json) and bind them, or declare the --workflow whose catalog carries them",
+        )
+    with manifest.open(encoding="utf-8", newline="") as fh:
+        authored = {(row.get(MANIFEST_SEAT_COLUMN) or "").strip()
+                    for row in csv.DictReader(fh)}
+    authored.discard("")
+    if not roster:
+        raise ApprovePackageRefusal(
+            "roster-not-in-plan",
+            f"the roster is empty and the plan authored {len(authored)} seat(s) "
+            f"({', '.join(sorted(authored)) or 'none'}). A birth with no roster is a goal with no "
+            "work in it — name the plan's execution seats",
+        )
+    absent = [s for s in roster if s not in authored]
+    if absent:
+        raise ApprovePackageRefusal(
+            "roster-not-in-plan",
+            f"roster seat(s) {', '.join(absent)} are not in {manifest} (it authors "
+            f"{', '.join(sorted(authored)) or 'nothing'}). The birth mints the plan's own seats, "
+            "so a roster id the plan never authored names a seat nothing builds",
+        )
+
+
 def write_approve_package(goal_dir, **fields):
     """Write the package onto the PLANNING goal, atomically. Returns the path written."""
     pkg = build_package(**fields)
+    # Both refusals need the PLANNING GOAL to resolve against, which `build_package` deliberately
+    # does not take (it validates the package against what the reader consumes, and the reader
+    # derives the goal folder itself). They run before any byte lands, which is all the placement
+    # has to guarantee.
+    refuse_bad_contract_file(goal_dir, pkg)
+    refuse_roster_not_in_plan(goal_dir, pkg)
     dest = package_path(goal_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     # tmp+rename plus the derived-tree refusal, in coord's one door. Never `open(dest, "w")`: an
@@ -153,9 +247,16 @@ def main(argv=None):
     ap.add_argument("--plan-artifacts", required=True,
                     help="path to the approved plan's artifacts, resolvable at the bound commit")
     ap.add_argument("--roster", default=None,
-                    help="comma-separated seat ids of the execution roster (duplicates are refused at birth)")
-    ap.add_argument("--contract-file", default=None, help="the goal contract `scaffold --contract` receives")
-    ap.add_argument("--workflow", default=None, help="the workflow the execution seats are minted from")
+                    help="comma-separated seat ids of the execution roster (duplicates are refused "
+                         "at birth). With no --workflow these are the seats THE PLAN authored, and "
+                         "each must appear in <plan-artifacts>/current/manifest.csv")
+    ap.add_argument("--contract-file", default=None,
+                    help="the goal contract `scaffold --contract` receives — it becomes the born "
+                         "goal's goal.md body, and it must exist under --plan-artifacts so the "
+                         "bound commit carries it")
+    ap.add_argument("--workflow", default=None,
+                    help="the workflow the execution seats are minted from; omit it for a one-off "
+                         "plan, whose seats are minted from the plan's own planning/current/")
     ap.add_argument("--sheet", default=None, help="the casting sheet the uncast check reads")
     ap.add_argument("--catalog-root", default=None, help="the catalog root the mint reads")
     ap.add_argument("--git-dir", default=None, help="the repo the bound commit lives in (defaults to --plan-artifacts)")

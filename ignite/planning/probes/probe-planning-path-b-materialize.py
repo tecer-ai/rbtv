@@ -4,7 +4,13 @@
   P1  plan fixture at a recorded commit → execution goal folder created
   P2  planning goal taskforce.csv is byte-identical after
   P3  planning goal planning/current/ is byte-identical after
-  P4  mint argv aims --package at the NEW folder; never --goal-local/--milestone-id/--nested
+  P4  a package that DECLARES a workflow mints from the catalog: argv aims --package at the NEW
+      folder, and carries no --goal-local/--milestone-id/--nested
+  P5  a package that declares NO workflow is a one-off plan: the argv takes the --goal-local lane,
+      the plan's own planning/current/ is copied into the born goal, and the contract the goal is
+      born under is the BOUND COMMIT's, not the working tree's
+  P6  the catalog root defaults to the rbtv `meta` tree through rbtv.json, and refuses when the
+      book that records it is absent
 """
 
 import hashlib
@@ -127,7 +133,7 @@ def main():
             "plan_artifacts": str(artifacts),
             "git_dir": str(artifacts),
             "roster": ["build", "verify"],
-            "workflow": "execute",
+            "workflow": "plan-console",
             "catalog_root": str(tmp / "catalog"),
             "sheet": str(sheet),
             "origin_id": "thread-approve-1",
@@ -161,6 +167,101 @@ def main():
             and "--milestone-id" not in used
             and "--nested" not in used,
             f"aimed={aimed} argv={joined}",
+        )
+
+        # ── P5 · THE ONE-OFF PLAN ────────────────────────────────────────────────────────────
+        # No `workflow` in the package. Before this fix the birth defaulted to a workflow named
+        # `execute` that has never existed in any catalog, so every such approve died at the mint;
+        # and `contract_file` was resolved against the process cwd, so it died at the scaffold
+        # first. Both are measured here on the same act.
+        plan_goal2 = goals / "plan-beta"
+        pcur = plan_goal2 / "planning" / "current" / "seats" / "exec-one"
+        pcur.mkdir(parents=True)
+        (plan_goal2 / "planning" / "current" / "manifest.csv").write_text(
+            "Seat/workflow,after,i/o,Modality\nexec-one,,\"in: the plan; out: the thing\",agentic\n",
+            encoding="utf-8",
+        )
+        (pcur / "prompt.md").write_text(
+            "---\nid: exec-one-role\ndescription: builds the thing\n---\n\n<role>\nAgent type: staff.\n</role>\n",
+            encoding="utf-8")
+        (pcur / "task.md").write_text(
+            "---\nid: build-the-thing\ndescription: build it\n---\n\n<task-goal>\nBuild it.\n</task-goal>\n",
+            encoding="utf-8")
+        (plan_goal2 / "planning" / "current" / "bindings.json").write_text(
+            json.dumps({"seats": {"exec-one": {"harness": "claude", "model": "opus"}}}) + "\n",
+            encoding="utf-8")
+        (plan_goal2 / "planning" / "execution-contract.md").write_text(
+            "# exec-beta\n\nthe contract as the owner approved it\n", encoding="utf-8")
+        git(goals, "init")
+        git(goals, "config", "user.email", "probe@example")
+        git(goals, "config", "user.name", "probe")
+        git(goals, "add", "plan-beta")
+        git(goals, "commit", "-m", "plan artifacts for approval")
+        sha2 = git(goals, "rev-parse", "HEAD").stdout.strip()
+        # …and the working tree moves on AFTER the bind, exactly as a live planning goal does.
+        (plan_goal2 / "planning" / "execution-contract.md").write_text(
+            "# exec-beta\n\nEDITED AFTER THE BIND — must not reach the born goal\n",
+            encoding="utf-8")
+        (plan_goal2 / "planning" / "current" / "manifest.csv").write_text(
+            "Seat/workflow,after,i/o,Modality\nexec-one,,\"EDITED AFTER THE BIND\",agentic\n",
+            encoding="utf-8")
+
+        seen2 = {}
+        pkg2 = {
+            "execution_goal": "exec-beta",
+            "planning_goal": str(plan_goal2),
+            "goals_root": str(goals),
+            "lane": "daemon",
+            "contract_file": "planning/execution-contract.md",
+            "bound_commit": sha2,
+            "plan_artifacts": str(plan_goal2 / "planning"),
+            "git_dir": str(goals),
+            "roster": ["exec-one"],
+            "catalog_root": str(tmp / "catalog"),
+            "origin_id": "thread-approve-2",
+        }
+        out2, argv2 = path_b.run_path_b(pkg=pkg2, mint=lambda a: seen2.setdefault("argv", list(a)))
+        beta = goals / "exec-beta"
+        used2 = seen2.get("argv") or argv2
+        wf2 = used2[used2.index("--workflow") + 1] if "--workflow" in used2 else ""
+        bind2 = used2[used2.index("--bindings") + 1] if "--bindings" in used2 else ""
+        check(
+            "P5a",
+            bool(out2.get("ok")) and "--goal-local" in used2 and wf2 == "goal-local"
+            and bind2 == str(beta / "planning" / "current" / "bindings.json"),
+            f"ok={out2.get('ok')} workflow={wf2!r} bindings={bind2} record={out2.get('record')}",
+        )
+        copied = beta / "planning" / "current"
+        check(
+            "P5b",
+            (copied / "manifest.csv").is_file() and (copied / "seats" / "exec-one" / "prompt.md").is_file()
+            and "EDITED AFTER THE BIND" not in (copied / "manifest.csv").read_text(encoding="utf-8"),
+            f"copied={copied.is_dir()} manifest-from-bound-tree="
+            f"{(copied / 'manifest.csv').is_file() and 'EDITED' not in (copied / 'manifest.csv').read_text(encoding='utf-8')}",
+        )
+        body = (beta / "goal.md").read_text(encoding="utf-8") if (beta / "goal.md").is_file() else ""
+        check(
+            "P5c",
+            "the contract as the owner approved it" in body and "EDITED AFTER THE BIND" not in body,
+            f"goal.md carries the bound contract={('the contract as the owner approved it' in body)}",
+        )
+
+        # ── P6 · THE CATALOG ROOT ────────────────────────────────────────────────────────────
+        ws = tmp / "ws"
+        (ws / ".rbtv" / "goals").mkdir(parents=True)
+        (ws / "rbtv.json").write_text(json.dumps({"rbtv_path": "repo"}) + "\n", encoding="utf-8")
+        resolved = path_b.meta_catalog_root(ws / ".rbtv" / "goals")
+        bare = tmp / "bare" / ".rbtv" / "goals"
+        bare.mkdir(parents=True)
+        try:
+            path_b.meta_catalog_root(bare)
+            code = None
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+        check(
+            "P6",
+            resolved == (ws / "repo" / "meta") and code == "catalog-root-underivable",
+            f"resolved={resolved} refusal={code!r}",
         )
 
 

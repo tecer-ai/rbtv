@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
+for _p in (_HERE, _HERE.parent / "coord"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from argv import planning_mint_argv
 from failure import (
@@ -22,13 +26,38 @@ from failure import (
     CLASS_UNRESOLVABLE_REFERENCE,
     MaterializeFailure,
     ORIGIN_APPROVAL_THREAD,
+    class_for_code,
 )
+from identity import STAFF_SEATS, SUMMONED_SEATS  # noqa: E402  (the room's own vocabulary, F6)
 from wrapper import PATH_B, supervised_materialize, uncast_in_sheet
 
 GOAL_CLI = _HERE.parent / "operator" / "goals-tree" / "tool" / "goal_cli.py"
 MATERIALIZE_PY = _HERE / "materialize-seats.py"
 BOUND_PLAN_NAME = "bound-plan.json"
+TASKFORCE_NAME = "taskforce.csv"
 PASS_ID = "approve-birth"
+
+# `materialize-seats.py#GOAL_LOCAL_SOURCE` — where a goal's OWN planning pass leaves the seats it
+# authored, and therefore where `--goal-local` reads them from. Path B copies this ONE folder out
+# of the planning goal's bound tree and into the goal it births; nothing else of the plan travels.
+PLAN_CURRENT = ("planning", "current")
+
+# The catalog root a birth mints from, as `unbuilt-seats.js#repoRootOf` + `PLANNING_MODULE` resolve
+# it: the rbtv REPO's `meta` tree, addressed through the workspace's own book (`rbtv.json`'s
+# `rbtv_path`), never a hardcoded path and never the goals tree. A catalog root that carries no
+# staff component mints a goal with NO CHAIRS — see `refuse_if_chairless`.
+META_MODULE = "meta"
+
+# ⚠ THE BASE TEXTS A BRAND-NEW GOAL PACKAGE IS COMPLETED WITH, and they are the OWNER'S, not this
+# module's. `plan_package_creation` refuses `create-inputs-missing` on a folder with no
+# `taskforce.csv` unless both are named, because it "never invents run conventions and never
+# defaults a floor" — and a birth is exactly that folder. The creation ROUTE answers the same
+# question with the goal-generic starter set the owner authored and approved for this path
+# (`d-owner-starter-set-approved-0808`), named in `spawn-profiles.yaml`'s `goal-creation-request`
+# argv as `ignite/coord/starter-set/{CLAUDE.md,budget.json}`. A birth has no config surface and no
+# human caller to name them, so it resolves the SAME two files out of the repo it ships in — a
+# repo-relative address, never an instance path, and never invented content.
+STARTER_SET = _HERE.parent / "coord" / "starter-set"
 
 
 def _run(argv, **kwargs):
@@ -98,6 +127,173 @@ def artifacts_resolvable(git_dir, sha, plan_artifacts):
     if prefix in ("", "."):
         return True
     return any(n == prefix or n.startswith(prefix.rstrip("/") + "/") for n in names)
+
+
+def meta_catalog_root(goals_root):
+    """The catalog a birth mints from: the rbtv repo's `meta` tree.
+
+    ⚠ THE DEFECT THIS CLOSES (G-leader-0827-2224, measured on
+    `scratch-tool-inventory-8`). This defaulted to `goals_root` — the GOALS TREE, which carries no
+    component catalog at all, let alone a staff one. `mint_staff_chairs` skips a chair its catalog
+    carries no row for (deliberately: a fixture catalog must render as it always did), so a birth
+    against that default produced a goal with NO `leader` and NO `goal-master` and reported
+    SUCCESS. A chairless goal has no chair for a routed FAIL, a mid-run ask or the session-closer's
+    staff mail, and no seat an owner message in its channel can reach — it exists and can never
+    finish.
+
+    ⚠ RESOLVED THROUGH THE BOOK, NEVER HARDCODED, and this is the one rule this function exists to
+    keep: `meta/` moved out of `.rbtv/mirror/` into the repo on 2026-08-22 and every reader that
+    had composed the mirror path went stale in the same second (919e1595). `unbuilt-seats.js`
+    `repoRootOf`/`buildGoalLocalSeats` — the JS twin of this act, and the reader that already mints
+    goal-local seats into a LIVE goal — reads `rbtv.json`'s `rbtv_path` at the workspace and joins
+    `meta`. This does the same, from the same book, so the two lanes cannot address different
+    catalogs.
+    """
+    workspace = Path(goals_root).resolve().parent.parent
+    book = workspace / "rbtv.json"
+    try:
+        rbtv_path = str((json.loads(book.read_text(encoding="utf-8")) or {}).get("rbtv_path") or "").strip()
+    except (OSError, ValueError) as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "catalog-root-underivable",
+            f"{book} — the book that records `rbtv_path` — is not readable JSON ({exc}); the "
+            "birth has no catalog to mint the goal's seats and chairs from",
+        ) from exc
+    if not rbtv_path:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "catalog-root-underivable",
+            f"{book} carries no `rbtv_path` — the birth has no catalog to mint the goal's seats "
+            "and chairs from",
+        )
+    root = Path(rbtv_path)
+    if not root.is_absolute():
+        root = (workspace / root).resolve()
+    return root / META_MODULE
+
+
+def stage_plan_artifacts(pkg, dest):
+    """Extract the approved plan's artifacts AS THE BOUND COMMIT HOLDS THEM into `dest`.
+
+    ⚠ THE TREE THE OWNER APPROVED IS THE TREE THE BIRTH READS [T5-R5]. `plan_artifacts` names a
+    live folder that keeps changing after the approval is sent — a seat re-runs, a leader re-binds
+    — so every byte this birth carries into the new goal (the contract that becomes its `goal.md`,
+    the `planning/current/` its seats are minted from) is read out of the commit the approval names
+    rather than off disk. `artifacts_resolvable` already proved that path exists at that sha; this
+    is the same discipline one step further, from "resolvable" to "read".
+    """
+    git_dir = pkg.get("git_dir") or pkg["plan_artifacts"]
+    top = _git(git_dir, "rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "plan-artifacts-unstageable",
+            f"{git_dir} is not inside a git repository — the bound tree cannot be read",
+        )
+    repo = Path(top.stdout.strip())
+    sha = pkg["bound_commit"]
+    try:
+        rel = Path(pkg["plan_artifacts"]).resolve().relative_to(repo.resolve())
+    except ValueError as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "plan-artifacts-unstageable",
+            f"{pkg['plan_artifacts']} is not inside {repo} — the bound tree cannot be read",
+        ) from exc
+    tree = sha if str(rel) == "." else f"{sha}:{rel.as_posix()}"
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", tree],
+        check=False, capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "plan-artifacts-unstageable",
+            f"git archive {tree}: {(proc.stderr or b'').decode('utf-8', 'replace').strip()[:300]}",
+        )
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tar:
+        # `data` is the extraction filter that refuses absolute paths, `..` escapes, links out of
+        # the destination and special files — the tree came out of a commit, but a commit is
+        # content a seat authored, and an archive is exactly the shape that turns authored content
+        # into a write outside the destination.
+        tar.extractall(dest, filter="data")
+    return dest
+
+
+def bound_contract_file(pkg, staged, planning_goal):
+    """The contract file, as the bound commit holds it. Refuses rather than defaulting.
+
+    ⚠ THE DEFECT THIS CLOSES. `contract_file` was used BARE — `Path(pkg["contract_file"])`, a
+    relative path resolved against whatever directory the daemon's python happened to be started
+    in, never joined to the planning goal it is relative to. The live approve on
+    `scratch-tool-inventory-8` therefore refused
+    `--contract planning/execution-contract.md: No such file or directory` with the approval
+    already spent. The path is relative TO THE PLANNING GOAL (that is how the seat that wrote the
+    package spelled it), it must live under `plan_artifacts` (a contract outside the plan is not
+    part of what the owner approved), and it is read from the bound tree.
+    """
+    src = Path(pkg["contract_file"])
+    if not src.is_absolute():
+        src = Path(planning_goal) / src
+    artifacts = Path(pkg["plan_artifacts"]).resolve()
+    try:
+        rel = src.resolve().relative_to(artifacts)
+    except ValueError as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "contract-outside-plan-artifacts",
+            f"{src} is not under the approved plan artifacts ({artifacts}) — a contract the "
+            "approval did not bind is not this goal's to be born under",
+        ) from exc
+    landed = Path(staged) / rel
+    if not landed.is_file():
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "contract-not-in-bound-tree",
+            f"the bound commit {pkg['bound_commit']} carries no {rel.as_posix()} under the plan "
+            "artifacts — the contract the goal would be born under is not in the tree the owner "
+            "approved",
+        )
+    return landed
+
+
+def taskforce_seats(goal_folder):
+    """The seat ids a goal's registry carries."""
+    path = Path(goal_folder) / TASKFORCE_NAME
+    if not path.is_file():
+        return set()
+    with path.open(encoding="utf-8", newline="") as fh:
+        return {(row.get("seat") or "").strip() for row in csv.DictReader(fh)}
+
+
+def refuse_if_chairless(goal_folder, name):
+    """A goal born without its chairs is refused, and the birth is reclaimed.
+
+    ⚠ WHY THE REFUSAL IS HERE AND NOT IN THE MINTER. `mint_staff_chairs` SKIPS a chair whose row
+    the catalog does not carry, and that silence is correct where it lives: a materialize against a
+    fixture or foreign catalog must render exactly as it did before. A BIRTH is the one caller for
+    which the skip is fatal — nobody is watching, the goal is the daemon's from this second on, and
+    a goal with no `leader` has no chair for a routed FAIL, a mid-run ask or the session-closer's
+    staff mail to reach, while a goal with no `goal-master` has no seat an owner message in its
+    channel can sit in. So the birth checks its own PRODUCT, which catches every reason a chair
+    can be missing (no catalog row, no casting sheet, a standing ending) rather than only the one
+    that was measured.
+    """
+    seats = taskforce_seats(goal_folder)
+    missing = [c for c in (*STAFF_SEATS, *SUMMONED_SEATS) if c not in seats]
+    if missing:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "birth-chairless",
+            f"the goal was minted without its chair(s): {', '.join(missing)} — a goal with no "
+            f"leader has nothing to route a FAIL, an ask or staff mail to, and a goal with no "
+            f"goal-master has no seat for an owner message in its channel. Check the catalog root "
+            f"carries the staff component and that each chair is cast",
+            name,
+        )
 
 
 def resolve_ref_targets(exposes_refs, catalog_root=None):
@@ -173,16 +369,32 @@ def run_scaffold(pkg, contract_file):
         str(contract_file),
         "--lane",
         str(pkg["lane"]),
+        # ⚠ THE FLAG IS THE DECLARATION THAT THIS ACT MINTS, AND PATH B DOES.
+        # `cmd_scaffold` refuses `daemon-lane-unmaterialized` on a daemon-lane goal without it,
+        # because `scaffold` alone writes no `taskforce.csv` and `lane-watch.js#runLaneWatch`
+        # adopts a daemon-lane goal only when one exists — a goal scaffolded and left is skipped on
+        # every cadence forever. Path B mints in the SAME act (the `mint` step below, under the
+        # goal's own lock), which is exactly what the flag declares. Without it every daemon-lane
+        # birth refused, and the pipeline's only way past that refusal was to declare
+        # `lane: console` — a goal the daemon never picks up at all.
+        "--materialize-follows",
     ]
     proc = _run(argv)
     if proc.returncode != 0:
         dest = Path(pkg["goals_root"]) / name
         if dest.exists():
             reclaim_execution_goal(pkg["goals_root"], name)
+        # The CODE the door refused with, never the call site's guess at a class: `goal_cli.py`
+        # prints `{"ok": false, "refusal": {"code": …}}` on stdout for every coded refusal under
+        # `--json`, which this argv passes. `class_for_code` maps it; an uncoded refusal keeps the
+        # generic code and lands in `atomic-core-refusal`, where a gate refusal belongs.
+        code = "scaffold-refused"
+        try:
+            code = (json.loads(proc.stdout or "").get("refusal") or {}).get("code") or code
+        except (json.JSONDecodeError, AttributeError):
+            pass
         reason = (proc.stderr or proc.stdout or "scaffold-refused").strip()[:600]
-        raise MaterializeFailure(
-            CLASS_ROSTER_NAME_COLLISION, "scaffold-refused", reason, name
-        )
+        raise MaterializeFailure(class_for_code(code), code, reason, name)
     dest = Path(pkg["goals_root"]) / name / "planning" / BOUND_PLAN_NAME
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(
@@ -217,13 +429,36 @@ def reclaim_execution_goal(goals_root, name):
     _run([sys.executable, str(GOAL_CLI), "--root", str(goals_root), "reindex"])
 
 
+# ── THE TWO MINT ROUTES, AND WHICH PACKAGE TAKES WHICH ───────────────────────────────────────
+#
+# A package that DECLARES a `workflow` (and the `sheet` that casts it) is minted from the COMPONENT
+# CATALOG, exactly as before: its execution seats are cataloged definitions someone maintains.
+#
+# A package that declares NO workflow is a ONE-OFF PLAN, and there is no catalog workflow for it —
+# the defaulted `"execute"` this used to fall back on names a workflow that has never existed
+# (`meta/planning/workflows/` carries d13-replan, forge and plan-console), so every such birth
+# refused at the catalog. Its seats are the ones THE PLAN ITSELF AUTHORED, and the materializer
+# already has a lane for exactly that: `--goal-local` reads `planning/current/` (manifest.csv plus
+# `seats/<seat>/` prompt+task pairs) instead of the catalog. So the birth copies that folder out of
+# the planning goal's BOUND TREE into the goal it births, and mints the copy.
+#
+# ⚠ `--goal-local` READS THE PACKAGE'S OWN FOLDER, WHICH IS WHY THE COPY COMES FIRST. The lane is
+# built at `<package>/planning/current/seat-lane/` from `<package>/planning/current/`, so aiming it
+# at a goal that does not hold the plan would either find nothing or, worse, read a foreign goal's
+# pass. `20260824-c-path-b-execution-goal-birth-vi` states it as "Path B must not pass --goal-local
+# … those target the same goal, never a foreign one" — and after the copy the goal it targets IS
+# the born goal, which is the only shape that satisfies that rule.
 def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None):
     name = pkg["execution_goal"]
     new_folder = Path(pkg["goals_root"]) / name
     planning_goal = Path(pkg["planning_goal"])
     roster = list(pkg.get("roster") or [])
-    sheet = pkg.get("sheet")
+    workflow = str(pkg.get("workflow") or "").strip()
+    goal_local = not workflow
     origin_id = pkg.get("origin_id") or "approval-thread"
+    # The plan, staged out of the bound commit, plus what validate derived from it. Filled by
+    # `_validate` and read by `_uncast`, `_scaffold` and `_mint` — one staging, every reader.
+    plan = {}
 
     def _validate():
         if resolve_refs is not None:
@@ -234,9 +469,43 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
                 resolve_refs(local["exposes_refs"])
         else:
             validate_mint_plan(pkg)
+        # Staged only when something is READ out of it — the contract, the plan's own seats, or
+        # both. A package that carries neither (a cataloged workflow with inline contract text)
+        # reaches the same birth it always did, and never pays for a git archive.
+        if pkg.get("contract_file") or goal_local:
+            plan["staged"] = stage_plan_artifacts(pkg, Path(plan["tmp"]) / "plan")
+        if pkg.get("contract_file"):
+            plan["contract"] = bound_contract_file(pkg, plan["staged"], planning_goal)
+        plan["catalog_root"] = (
+            pkg.get("catalog_root") or str(meta_catalog_root(pkg["goals_root"]))
+        )
+        # The goal-local sheet is the plan's own, at the address it lands under IN THE BORN GOAL —
+        # `planning/current/bindings.json`, the spelling `unbuilt-seats.js#GOAL_LOCAL_SHEET` already
+        # uses for a goal's authored seats.
+        default_sheet = (new_folder.joinpath(*PLAN_CURRENT) / "bindings.json" if goal_local
+                         else new_folder / "bindings.json")
+        mint_args = {
+            "goal_folder": str(new_folder),
+            "catalog_root": plan["catalog_root"],
+            "sheet": str(pkg.get("sheet") or default_sheet),
+            "goal_local": goal_local,
+        }
+        if workflow:
+            mint_args["workflow"] = workflow
+        # A birth completes a folder `rbtv-goal scaffold` has just created and that carries no
+        # registry, so the two caller-supplied base texts are required. Path A mints into a goal
+        # that already has one and passes neither.
+        mint_args["creation_inputs"] = (STARTER_SET / "CLAUDE.md", STARTER_SET / "budget.json")
+        plan["argv"] = planning_mint_argv(**mint_args)
 
     def _uncast():
-        if not sheet:
+        # Only a sheet that can be READ at this moment — before the first write. A declared sheet
+        # is one; so is the plan's own, out of the staged bound tree. The born goal's copy is not:
+        # the folder does not exist yet, which is why the defaulted path was never checked here.
+        sheet = pkg.get("sheet")
+        if not sheet and goal_local and plan.get("staged"):
+            sheet = Path(plan["staged"]) / "current" / "bindings.json"
+        if not sheet or not roster:
             return []
         return uncast_in_sheet(sheet, roster)
 
@@ -244,16 +513,14 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
         if scaffold is not None:
             scaffold(pkg)
             return
-        contract_text = pkg.get("contract")
-        contract_file = pkg.get("contract_file")
         tmp = None
-        if contract_file:
-            src = Path(contract_file)
+        if plan.get("contract"):
+            src = plan["contract"]
         else:
             tmp = tempfile.NamedTemporaryFile(
                 "w", suffix=".md", delete=False, encoding="utf-8"
             )
-            tmp.write(contract_text or "execution goal\n")
+            tmp.write(pkg.get("contract") or "execution goal\n")
             tmp.close()
             src = Path(tmp.name)
         try:
@@ -261,15 +528,19 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
         finally:
             if tmp is not None:
                 Path(tmp.name).unlink(missing_ok=True)
-
-    argv = planning_mint_argv(
-        goal_folder=str(new_folder),
-        catalog_root=pkg.get("catalog_root") or str(pkg["goals_root"]),
-        sheet=sheet or str(new_folder / "bindings.json"),
-        workflow=pkg.get("workflow") or "execute",
-    )
+        if goal_local:
+            # The plan's own seats travel into the goal they staff, as the approved commit holds
+            # them. Copied rather than referenced: the lane is rebuilt inside the package on every
+            # invocation, and a born goal that reached back into the planning goal for its seat
+            # definitions would re-read them after the plan moved on.
+            shutil.copytree(
+                Path(plan["staged"]) / "current",
+                new_folder.joinpath(*PLAN_CURRENT),
+                dirs_exist_ok=True,
+            )
 
     def _mint():
+        argv = plan["argv"]
         if mint is not None:
             mint(argv)
             return
@@ -289,8 +560,12 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
                 pass
             reason = ((exc.stdout or "") + (exc.stderr or "")).strip()[:600]
             raise MaterializeFailure(
-                CLASS_ATOMIC_CORE_REFUSAL, code, reason or code, name
+                class_for_code(code), code, reason or code, name
             ) from exc
+        # The mint reports SUCCESS with a chair missing (it degrades a chair refusal to a warning
+        # so a materialized goal is never left half-registered). A birth cannot: the check is on
+        # the product the real minter just wrote, and a chairless goal is reclaimed.
+        refuse_if_chairless(new_folder, name)
 
     def _reclaim():
         if reclaim is not None:
@@ -298,21 +573,26 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
             return
         reclaim_execution_goal(pkg["goals_root"], name)
 
-    return supervised_materialize(
-        path=PATH_B,
-        goal_folder=str(new_folder),
-        record_goal_folder=str(planning_goal),
-        planning_pass_id=pkg.get("planning_pass_id") or PASS_ID,
-        origin=ORIGIN_APPROVAL_THREAD,
-        origin_id=origin_id,
-        subject=name,
-        validate=_validate,
-        uncast=_uncast,
-        scaffold=_scaffold,
-        mint=_mint,
-        reclaim=_reclaim,
-        envelope_stamp=pkg.get("envelope_stamp"),
-    ), argv
+    plan["tmp"] = tempfile.mkdtemp(prefix="path-b-plan-")
+    try:
+        out = supervised_materialize(
+            path=PATH_B,
+            goal_folder=str(new_folder),
+            record_goal_folder=str(planning_goal),
+            planning_pass_id=pkg.get("planning_pass_id") or PASS_ID,
+            origin=ORIGIN_APPROVAL_THREAD,
+            origin_id=origin_id,
+            subject=name,
+            validate=_validate,
+            uncast=_uncast,
+            scaffold=_scaffold,
+            mint=_mint,
+            reclaim=_reclaim,
+            envelope_stamp=pkg.get("envelope_stamp"),
+        )
+    finally:
+        shutil.rmtree(plan["tmp"], ignore_errors=True)
+    return out, plan.get("argv") or []
 
 
 def load_package(path):

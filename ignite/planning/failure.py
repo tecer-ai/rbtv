@@ -33,6 +33,30 @@ CLASSES = (
 
 RECORD_FIELDS = ("origin", "origin-id", "class", "code", "subject", "reason")
 
+# ── THE CLASS IS DERIVED FROM THE CODE, NEVER FROM THE CALL SITE ─────────────
+#
+# THE DEFECT THIS CLOSES (G-leader-0827-2256, measured on
+# `scratch-tool-inventory-8`): the birth's scaffold arm stamped every refusal
+# it caught `roster-name-collision`, because that was the class the ONE failure
+# it was written for carried. A live approve then refused
+# `daemon-lane-unmaterialized` — a gate refusal about a missing flag, nothing to
+# do with a name — and the record on the planning goal read
+# `class: roster-name-collision`. The class is what a reader triages on before
+# it reads the prose, so a class chosen by call site rather than by cause sends
+# every reader of that record to look for a name that was never taken.
+#
+# COLLISION is the narrow set: a refusal whose SUBJECT IS A NAME ALREADY HELD.
+# Everything else a door refuses is `atomic-core-refusal` — the act was rejected
+# at its own gate. A door that grows a new collision code adds it HERE, where
+# both the birth's scaffold arm and its mint arm read it, rather than at one of
+# them.
+COLLISION_CODES = ("name-exists", "roster-clash", "goal-exists")
+
+
+def class_for_code(code, default=CLASS_ATOMIC_CORE_REFUSAL):
+    """The failure class a refusal code belongs to."""
+    return CLASS_ROSTER_NAME_COLLISION if str(code) in COLLISION_CODES else default
+
 ENVELOPE_REFUSED_STAMP = "failed: launch-refused"
 INCOMPLETE_MATERIALIZE_FAILED = "incomplete: materialize-failed"
 NAMED_EVENT = "materialize-resolved"

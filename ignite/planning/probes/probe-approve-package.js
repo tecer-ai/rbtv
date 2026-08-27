@@ -94,7 +94,7 @@ function main() {
   const w = runWriter([
     '--goal-dir', goalDir, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
     '--lane', 'daemon', '--plan-artifacts', root, '--roster', 'exec-builder,exec-judge',
-    '--workflow', 'execute',
+    '--workflow', 'plan-console',
   ]);
   check('W1: the writer exits 0 and reports the path it wrote', w.code === 0 && /approve-package written/.test(w.stdout), w.stdout.trim());
   check('W2: the package exists at the path `start-execution.js` READS (`APPROVE_PACKAGE`), never a'
@@ -126,7 +126,7 @@ function main() {
     JSON.stringify(births[0] || null));
   check('A3: the writer\'s own optional fields reached the birth intact (roster + workflow)',
     births.length === 1 && Array.isArray(births[0].roster)
-    && births[0].roster.join(',') === 'exec-builder,exec-judge' && births[0].workflow === 'execute',
+    && births[0].roster.join(',') === 'exec-builder,exec-judge' && births[0].workflow === 'plan-console',
     JSON.stringify((births[0] || {}).roster));
 
   // ── R. THE WRITER REFUSES WHAT THE READER WOULD REFUSE ──────────────────────────────────────
@@ -144,6 +144,62 @@ function main() {
   check('R3: neither refusal left a package behind — refused before any byte lands',
     !fs.existsSync(path.join(other, APPROVE_PACKAGE)));
 
+  // ── C. THE TWO REFUSALS THAT KEEP A BIRTH-TIME FAILURE OFF A SPENT APPROVAL ─────────────────
+  //
+  // Both were measured on `scratch-tool-inventory-8` (2026-08-27) as failures AT THE BIRTH, i.e.
+  // after the owner had already typed `approve`: a `contract_file` no seat had written, and a
+  // roster the plan never authored. A refusal there is an owner reading a refusal in Slack with
+  // nothing left to fix it with; a refusal HERE is a seat that is still sitting.
+  const cGoal = path.join(root, '.rbtv', 'goals', 'contract-goal');
+  fs.mkdirSync(path.join(cGoal, 'planning'), { recursive: true });
+  const cArtifacts = path.join(cGoal, 'planning');
+  const outside = path.join(root, 'outside-contract.md');
+  fs.writeFileSync(outside, 'a contract the approval does not bind\n');
+  const refD = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--workflow', 'plan-console',
+    '--contract-file', outside]);
+  check('C1: a --contract-file OUTSIDE --plan-artifacts is refused `bad-contract-file` — the birth'
+    + ' reads the contract out of the bound commit\'s tree, and a file the approval does not bind'
+    + ' is not in it', refD.code === 2 && /bad-contract-file/.test(refD.stdout), refD.stdout.trim());
+  const refE = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--workflow', 'plan-console',
+    '--contract-file', 'planning/execution-contract.md']);
+  check('C2: a --contract-file that does not exist is refused at the writer, never discovered at'
+    + ' the birth as `--contract …: No such file or directory` with the approval already spent',
+    refE.code === 2 && /bad-contract-file/.test(refE.stdout), refE.stdout.trim());
+  fs.writeFileSync(path.join(cArtifacts, 'execution-contract.md'), '# the born goal\n\nits contract\n');
+  const refF = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder',
+    '--contract-file', 'planning/execution-contract.md']);
+  check('C3: with NO --workflow the seats are the ones the PLAN authored, so a package written'
+    + ' before the plan has a manifest is refused `roster-not-in-plan` — an empty or invented'
+    + ' roster can no longer produce a pass-shaped birth',
+    refF.code === 2 && /roster-not-in-plan/.test(refF.stdout), refF.stdout.trim());
+  fs.mkdirSync(path.join(cArtifacts, 'current'), { recursive: true });
+  fs.writeFileSync(path.join(cArtifacts, 'current', 'manifest.csv'),
+    'Seat/workflow,after,i/o,Modality\nexec-builder,,"in: the bound plan; out: the thing",agentic\n');
+  const refG = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder,ghost-seat',
+    '--contract-file', 'planning/execution-contract.md']);
+  check('C4: a roster id the manifest does not carry is refused by name — the birth mints the'
+    + ' plan\'s own seats, so that id names a seat nothing builds',
+    refG.code === 2 && /roster-not-in-plan/.test(refG.stdout) && /ghost-seat/.test(refG.stdout),
+    refG.stdout.trim());
+  check('C5: none of the four refusals left a package behind',
+    !fs.existsSync(path.join(cGoal, APPROVE_PACKAGE)));
+  const okH = runWriter(['--goal-dir', cGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', cArtifacts, '--roster', 'exec-builder',
+    '--contract-file', 'planning/execution-contract.md']);
+  const cWritten = fs.existsSync(path.join(cGoal, APPROVE_PACKAGE))
+    ? JSON.parse(fs.readFileSync(path.join(cGoal, APPROVE_PACKAGE), 'utf8')) : {};
+  check('C6: the one-off-plan package — no workflow, a roster the manifest carries, a contract'
+    + ' under the plan artifacts — is WRITTEN, and carries no `workflow` key at all (that absence'
+    + ' is what routes the birth to the plan\'s own seats)',
+    okH.code === 0 && cWritten.workflow === undefined
+    && (cWritten.roster || []).join(',') === 'exec-builder'
+    && cWritten.contract_file === 'planning/execution-contract.md',
+    JSON.stringify(cWritten));
+
   // ── D. THE DERIVED-TREE GUARD IS WALKED, NOT ASSUMED ────────────────────────────────────────
   // approve-package is PLANNING STATE, not a derived lane (the marked tree is
   // `planning/current/seat-lane/`), so this guard is expected to pass in production. It is called
@@ -152,8 +208,10 @@ function main() {
   fs.mkdirSync(path.join(derivedGoal, 'planning'), { recursive: true });
   fs.writeFileSync(path.join(derivedGoal, 'planning', 'DERIVED.md'),
     'source: ..\nregenerator: a probe fixture\n');
+  // `--workflow` so this arm isolates the DERIVED guard: without it the package is a one-off plan
+  // and the roster check refuses first, on a different fact.
   const refC = runWriter(['--goal-dir', derivedGoal, '--execution-goal', EXEC_GOAL, '--bound-commit', COMMIT,
-    '--lane', 'daemon', '--plan-artifacts', root]);
+    '--lane', 'daemon', '--plan-artifacts', root, '--workflow', 'plan-console']);
   check('D1: a planning folder marked DERIVED refuses the write instead of leaving a package the'
     + ' next regenerate deletes (C10)',
     refC.code !== 0 && /DERIVED|derived/i.test(refC.stderr + refC.stdout),
