@@ -19,7 +19,7 @@ Done criteria — all must hold:
 - Every milestone id from `planning/design.md` appears, detailed; no id added or dropped.
 - The body has an execution seats/workflow, a permission-envelope *section*, a credential-name *section* (names only), per-seat interact flags, declared outputs, a relaunch budget, and named handoff contents.
 - An **EXECUTION DECLARATION** section is present and complete. Approval BIRTHS the execution goal: the owner's `approve` runs a Path-B birth that scaffolds a new goal folder and MINTS its roster, so a plan with no declaration has no truthful value for the fields that birth requires, and no plan executes "in place" inside the planning goal. The section carries exactly these fields and no others — they are what the `approve-package` writer takes:
-  - `execution-goal` — the bare safe name the goal will be born under. It becomes a path segment under `.rbtv/goals/`, so it must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` and must not be `owner`. Not a path, not a title, not a sentence.
+  - `execution-goal` — the bare safe name the goal will be born under. It becomes a path segment under `.rbtv/goals/` AND the goal name `rbtv-goal scaffold` takes, so it must be lowercase kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`) and must not be `owner`. Not a path, not a title, not a sentence, and never an underscore, a dot or a capital.
   - `lane` — the born goal's lane, as `scaffold --lane` takes it.
   - `roster` — the execution seat ids, comma-separated. Duplicate ids are refused at birth.
   - `workflow` and `sheet` — where the plan lands as a durable workflow, when the owner declared durable at goal creation. Omitted for a one-off taskforce, and said to be omitted.

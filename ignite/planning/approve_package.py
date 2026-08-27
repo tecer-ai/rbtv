@@ -51,6 +51,14 @@ APPROVE_PACKAGE = Path("planning") / "approve-package.json"
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OWNER_TOKEN = "owner"
 
+# …and `goal_cli.py#GOAL_NAME_RE`, the THIRD reader of this same field. `execution_goal` is handed
+# to `rbtv-goal scaffold`, which refuses anything that is not lowercase kebab-case — a rule STRICTER
+# than the ferry's. `Scratch_Exec` passed this writer and died at the scaffold (measured
+# 2026-08-27), which is a refusal in the owner's Slack thread with the approval already spent. Both
+# readers are re-spoken here because both read this field; the narrower one is not a second opinion,
+# it is the next door.
+GOAL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
 # `start-execution.js`'s `COMMIT_RE`. A ref name is a MOVING binding standing in for the tree the
 # owner actually read [T5-R5].
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
@@ -80,7 +88,7 @@ class ApprovePackageRefusal(Exception):
 
 def is_safe_name(name):
     n = str(name)
-    return bool(SAFE_NAME_RE.match(n)) and n != OWNER_TOKEN
+    return bool(SAFE_NAME_RE.match(n)) and bool(GOAL_NAME_RE.match(n)) and n != OWNER_TOKEN
 
 
 def build_package(*, execution_goal, bound_commit, lane, plan_artifacts, **optional):
@@ -89,8 +97,10 @@ def build_package(*, execution_goal, bound_commit, lane, plan_artifacts, **optio
     if not is_safe_name(execution_goal):
         raise ApprovePackageRefusal(
             "bad-execution-goal",
-            f"{execution_goal!r} is not a bare safe name — it becomes a path segment "
-            "under .rbtv/goals/",
+            f"{execution_goal!r} is not a bare safe name — it becomes a path segment under "
+            ".rbtv/goals/ AND the goal name `rbtv-goal scaffold` takes, which is lowercase "
+            "kebab-case ([a-z0-9] words joined by single hyphens). A name this writer accepts and "
+            "the scaffold refuses is a birth that fails after the owner has already approved",
         )
     if not COMMIT_RE.match(str(bound_commit or "")):
         raise ApprovePackageRefusal(

@@ -141,6 +141,12 @@ function main() {
     '--lane', 'daemon', '--plan-artifacts', root]);
   check('R2: an execution-goal name carrying path separators is refused — it becomes a path segment'
     + ' under .rbtv/goals/', refB.code === 2 && /bad-execution-goal/.test(refB.stdout), refB.stdout.trim());
+  const refB2 = runWriter(['--goal-dir', other, '--execution-goal', 'Born_Exec', '--bound-commit', COMMIT,
+    '--lane', 'daemon', '--plan-artifacts', root, '--workflow', 'plan-console']);
+  check('R2b: a name the FERRY would accept but `rbtv-goal scaffold` would not (uppercase, `_`, `.`)'
+    + ' is refused here too — the scaffold is the third reader of this field, and a name only IT'
+    + ' rejects fails at the birth, in the owner\'s thread, with the approval already spent',
+    refB2.code === 2 && /bad-execution-goal/.test(refB2.stdout), refB2.stdout.trim());
   check('R3: neither refusal left a package behind — refused before any byte lands',
     !fs.existsSync(path.join(other, APPROVE_PACKAGE)));
 
