@@ -6,3 +6,4 @@
 2026-08-24 · change · plan sizing law: measure before authoring · ten impl seats all carried the 40% clause yet ran 2-4x over → sizing now requires a measured estimate, one work stream per seat, once-per-chain suites, custody lines on shared files · b1151618 · ⚠
 2026-08-25 · change · D13 verify becomes notify-only · A new task `verify-patch`, paired with the same `verifier` prompt. Two checks, no third: (a) the · 37f2e9a9,b0fc52ee · planning,coord · ⚠
 2026-08-27 · change · the plan declares its birth; the leader binds it · The BINDING PERFORMER is the `leader`, and it learns the act as a GENERIC rule in its own §4 · ee4a0334 · meta-leader,planning · ⚠
+2026-08-27 · change · The drafter authors the contract and the plan's own seats · THE DRAFTER WRITES BOTH, and it is the drafter because its write surface already is `planning/` — · 35a4e98d · meta-leader,planning,coord · ⚠
