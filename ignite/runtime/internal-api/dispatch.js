@@ -1688,13 +1688,22 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
     }
 
-    const out = pauseResume(heartStore, {
+    const out = pauseResume({
       workspaceRoot,
       verb: payload.verb,
       goal: payload.goal,
       logger: log ? (row) => log(row.level, row.message, row) : null,
     });
     if (!out.found) {
+      // ⚑ A REFUSAL IS JOURNALLED TOO. Only the applied branch below used to write a line, so a
+      // mistyped slug left the daemon side SILENT — the bridge journalled the NACK it rendered and
+      // the daemon journal held nothing at all, which reads on inspection as "the verb never
+      // reached the daemon" and is exactly the wrong conclusion to hand whoever is diagnosing the
+      // door next. The refusal names the verb, the slug and which of the executor's three refusal
+      // reasons fired.
+      log('info', `the owner's mechanical ${payload.verb} was REFUSED — no live goal by that name`, {
+        goal: payload.goal, verb: payload.verb, reason: out.reason, senderId: sender && sender.id,
+      });
       throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
     }
     log('info', `the owner's mechanical ${payload.verb} was applied daemon-side`, {

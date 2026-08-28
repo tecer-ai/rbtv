@@ -35,7 +35,7 @@ bridge that witnesses the owner's words holds neither.
 | Module | Intent | What it does |
 |---|---|---|
 | `heart/start-execution.js` | `start-execution` (14th, owner ruling 2026-08-24) | Proves the approval on the daemon's OWN `open_asks` row, then delegates the Path-B birth to `planning/path_b.py` |
-| `heart/pause-resume.js` | `pause-resume` (15th, owner direction 2026-08-28) | The owner's mechanical `pause {goal}` / `resume {goal}`: the goal word, the resume-semantics table over the goal's lane endings [C-14], and the attempt-counter half via `supervisor/exhaustion.js#rearmScope`. Its live-goal roster (`.rbtv/goals/goals.csv`, folder must exist, `_`-prefixed excluded) is what makes a mistyped slug a `NOT_FOUND` the bridge renders as §4.5's verbatim NACK. Probe: `runtime/internal-api/probes/probe-pause-resume.js` |
+| `heart/pause-resume.js` | `pause-resume` (15th, owner direction 2026-08-28) | The owner's mechanical `pause {goal}` / `resume {goal}`: the goal word, the resume-semantics table over the goal's lane endings [C-14], and the attempt-counter half via `supervisor/exhaustion.js#rearmScope`. Its live-goal roster (`.rbtv/goals/goals.csv`, folder must exist, `_`-prefixed excluded) is what makes a mistyped slug a `NOT_FOUND` the bridge renders as §4.5's verbatim NACK. It binds the ONE ending store at `<workspace>/.rbtv/runtime/ignite/heart.db` via `openEndingStoreFor(workspaceRoot)` and takes NO store handle from its caller — the file the lane gate reads is the only file it may write. Probe: `runtime/internal-api/probes/probe-pause-resume.js` |
 
 ⚠ `pause-resume` writes the goal word; the console's `rbtv goal pause` writes the
 `execution-lane` marker. Both are live writers of one fact — `supervisor/lane-watch.js#laneIsPaused`

@@ -40,7 +40,8 @@
 // precisely how the two pause records below diverged.
 //
 // Every port the bridge could only ever have INJECTED is a real handle here:
-//   · the ending store — `bind(heartStore.db)` (`state-store/index.js:12-38`);
+//   · the ending store — `bind(openEndingStoreFor(workspaceRoot))` (`state-store/open.js:59-61`);
+//     see THE ENDING HOME below for why it is emphatically NOT the caller's `heartStore.db`;
 //   · the goal's lane roster — `supervisor/seeding.js#readTaskforce`, the reader the lane itself
 //     spends (`lane-watch.js:568`). Never a second `taskforce.csv` parser;
 //   · the counter half — `supervisor/exhaustion.js#rearmScope({store, goal, event: 'resume'})`,
@@ -72,10 +73,29 @@
 //   `applied: false`: the acts it really performed are still listed, and the goal is not claimed to
 //   be running when the lane gate will still skip it. Retiring the lane-file writer is OWNER-GATED
 //   and is not done here.
+//
+// ⚑ THE ENDING HOME IS THE FILE THE LANE GATE READS, NEVER THE CALLER'S LANE STORE. This executor
+//   binds `openEndingStoreFor(workspaceRoot)` — spec-state-store §1.1's ONE ending store at
+//   `<workspace>/.rbtv/runtime/ignite/heart.db`, the same resolution the READER performs
+//   (`supervisor/ending-reads.js:41` `bind(openEndingStoreFor(root))`, reached from
+//   `lane-watch.js#laneIsPaused`) and the same file family 8 of the envelope (297765d8) binds rw
+//   into every caged seat. It was `bind(heartStore.db)` and that bound whichever store the CALLER
+//   happened to hold: under the daemon `{data_root}/heart.db` (`StateDirectory=rbtv-ignite`), which
+//   the lane gate never opens. MEASURED 2026-08-28 03:37Z: a Slack `pause channel-master-diag-test`
+//   wrote `paused` into the daemon's private store while the workspace store read `null` before and
+//   after, and five lane cadences journaled zero paused-skips — the owner's pause was INERT.
+//   `bindEnding` is the reader's function and is not reused here for two reasons: it lives in
+//   `supervisor/`, which this component may not require (supervisor requires state-store, not the
+//   reverse), and it FALLS THROUGH to the lane store when the home cannot be opened — the fail-safe
+//   direction for a READER ("nothing declared") and precisely the wrong file for a WRITER. There is
+//   still ONE resolver: `paths.js#endingStorePath`, which both sides reach through.
+//   A HOME THAT CANNOT BE OPENED THEREFORE THROWS, and it throws BEFORE any write: the caller
+//   answers `INTERNAL` and nothing was applied. Writing somewhere else and reporting success is the
+//   one outcome this verb may not produce.
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { bind } = require('..');
+const { bind, openEndingStoreFor } = require('..');
 
 // A THIRD copy of the name shape, checked against the module that owns it — `start-execution.js`'s
 // reason verbatim: these names arrive from an internet-facing component and become PATH SEGMENTS
@@ -211,6 +231,21 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
   const actions = [];
   const refusals = [];
 
+  // THE LANES ARE ENUMERATED BEFORE THE FIRST WRITE, and that ordering is the fix, not a tidy-up.
+  // This was the loop head — `for (const seat of seatsOf(goalDir, (level, message, fields) =>
+  // log(level, message, { seat, ...fields })))` — and the logger closure captured the loop variable
+  // it was declared alongside. On a goal whose `taskforce.csv` cannot be read, `seatsOf` calls that
+  // logger from its own catch, BEFORE `const seat` is initialised: `ReferenceError: Cannot access
+  // 'seat' before initialization`, thrown out of a function whose whole contract is that a
+  // missing taskforce is REPORTED, never thrown. It fired after row 4 below had already flipped the
+  // goal to `running`, so the owner was told the resume was NOT applied while the store said it
+  // was (daemon journal 2026-08-28 03:39:07Z). Any goal with no readable taskforce hit it on every
+  // resume. Enumerating first removes the capture AND puts the only failure the lane roster can
+  // produce ahead of every write, so that failure can no longer half-apply the verb. `log` is
+  // passed plainly: an enumeration that failed has no seat to name, which is exactly what the
+  // closure was pretending otherwise.
+  const seats = seatsOf(goalDir, log);
+
   // ROW 1, THE COUNTER HALF. It runs FIRST because it is the half the reconcile loop reads: a lane
   // whose counter still stands at N is skipped on every pass no matter what the ending row says.
   const counter = rearmCounterRows(store, goal, countersFile, log);
@@ -236,7 +271,7 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
     refusals.push({ row: 'goal', text: `${goal} is finished — resume does not reopen a finished goal.` });
   }
 
-  for (const seat of seatsOf(goalDir, (level, message, fields) => log(level, message, { seat, ...fields }))) {
+  for (const seat of seats) {
     let current = null;
     try { current = store.getCurrentEnding({ goal, seat }); } catch { current = null; }
     if (!current || current.ending !== 'incomplete' || Number(current.armed) !== 0) continue;
@@ -293,7 +328,10 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
 // §4.5 mechanical NACK. `countersFile` is injectable ONLY for the probe, for the reason every
 // injected port in this tree carries — a probe must be able to prove the table without writing the
 // live attempt-counter ledger — never so production can point the ledger somewhere else.
-function pauseResume(heartStore, {
+// The caller hands NO store handle. It used to hand its own `heartStore` and that handle was the
+// defect (see THE ENDING HOME above): the only store this verb may touch is derived from
+// `workspaceRoot`, so there is no parameter through which the wrong one can arrive.
+function pauseResume({
   workspaceRoot, verb, goal, countersFile = undefined, logger = null,
 }) {
   const log = (level, message, fields = {}) => { if (logger) logger({ level, message, verb, goal, ...fields }); };
@@ -303,7 +341,7 @@ function pauseResume(heartStore, {
     return { found: false, reason: 'no-such-goal', detail: `${goal} is not a live goal` };
   }
   const goalDir = goalDirOf(workspaceRoot, goal);
-  const store = bind(heartStore.db);
+  const store = bind(openEndingStoreFor(workspaceRoot));
   const evidencePointer = (v, g) => `owner ${v} in chat · goal ${g}`;
   const out = verb === 'pause'
     ? applyPause(store, goal, evidencePointer)
