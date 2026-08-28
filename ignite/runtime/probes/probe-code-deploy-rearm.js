@@ -67,16 +67,35 @@ function seedCounters(countersFile) {
     seeded.length === 4 && seeded.filter((r) => r.attempts >= 3).length === 3,
     { rows: seeded.map((r) => `${r.subject}/${r.reason_class}=${r.attempts}`) });
 
-  check('A2: a changed digest FIRES `code-deploy` and clears every counter row',
-    out.fired === true && out.why === 'code-changed' && after.length === 0 && out.cleared.length === 4,
-    { fired: out.fired, why: out.why, cleared: out.cleared.length, left: after.length });
+  // ⚠ NOT "every row" ANY MORE, and the exception is the event's own premise. `code-deploy` fires
+  // because the CODE changed, so it clears the counters whose failure the code could have caused.
+  // A `reconcile-respawn` / `nonterm` row counts leader wakes over another seat's `failed` ENDING —
+  // a row new daemon bytes do not touch — and it SURVIVES (owner ruling 2026-08-28, decision 4(c);
+  // `attempt-counters.js#DEPLOY_IMMUNE`). Two of the four seeded rows are that shape.
+  check('A2: a changed digest FIRES `code-deploy` and clears the CODE-CAUSED rows',
+    out.fired === true && out.why === 'code-changed' && out.cleared.length === 2
+      && out.cleared.every((r) => r.reason_class !== 'nonterm'),
+    { fired: out.fired, why: out.why, cleared: out.cleared.map((r) => `${r.subject}/${r.reason_class}`) });
+
+  check('A2b: and the two `reconcile-respawn`/`nonterm` rows survive it WITH their attempts — the '
+    + 'failure they count is a seat\'s ending, which new daemon bytes do not change',
+    after.length === 2 && after.every((r) => r.reason_class === 'nonterm' && Number(r.attempts) === 3)
+      && out.kept.length === 2,
+    { left: after.map((r) => `${r.subject}/${r.reason_class}=${r.attempts}`), kept: out.kept.length });
 
   const per = lines.filter((l) => /^re-armed by code-deploy: /.test(l.message));
   check('A3: ONE `info` per cleared row, carrying subject, class and the count it was cleared from',
-    per.length === 4 && per.every((l) => l.level === 'info')
-      && per.some((l) => l.message === 're-armed by code-deploy: goal-a/leader nonterm (was N=3)')
-      && per.some((l) => l.message === 're-armed by code-deploy: goal-a/leader unread (was N=5)'),
+    per.length === 2 && per.every((l) => l.level === 'info')
+      && per.some((l) => l.message === 're-armed by code-deploy: goal-a/leader unread (was N=5)')
+      && per.some((l) => l.message === 're-armed by code-deploy: goal-b/leader room (was N=1)'),
     { lines: per.map((l) => l.message) });
+
+  // A lane that stays disarmed THROUGH a deploy is a lane whose next wake is not coming. That must
+  // be as audible as a re-arm, or the operator reads the silence as "it was cleared".
+  const notPer = lines.filter((l) => /^NOT re-armed by code-deploy/.test(l.message));
+  check('A3b: and ONE `info` per row the deploy did NOT clear, saying why',
+    notPer.length === 2 && notPer.every((l) => l.level === 'info' && /nonterm \(N=3\)/.test(l.message)),
+    { lines: notPer.map((l) => l.message) });
 
   check('A4: and the previous/new digests are journalled, so the decision is auditable after the fact',
     lines.some((l) => l.message === 'code-deploy re-arm fired' && l.fields.previous_digest === 'OLD-WIDE' && l.fields.digest === 'NEW-WIDE'),
@@ -120,8 +139,11 @@ function seedCounters(countersFile) {
   const out = rearmOnCodeDeploy({ workspaceRoot: root, fingerprint: fp('FIRST'), log }, { countersFile });
   check('C1: no recorded digest FIRES it — a first boot cannot prove the code is unchanged, and something was deployed to get here',
     out.fired === true && out.why === 'first-boot' && out.previous === null
-      && counters.listCounters({}, { countersFile }).length === 0,
-    { fired: out.fired, why: out.why, previous: out.previous });
+      // The cause filter is the event's, not the reason's: a first boot clears the code-caused
+      // rows and keeps the ending-caused ones, exactly as an ordinary deploy does.
+      && counters.listCounters({}, { countersFile }).every((r) => r.reason_class === 'nonterm')
+      && out.cleared.length === 2,
+    { fired: out.fired, why: out.why, previous: out.previous, cleared: out.cleared.length });
   check('C2: and the journal says first_boot, so the wide clear is not read as a mystery',
     lines.some((l) => l.message === 'code-deploy re-arm fired' && l.fields.first_boot === true),
     { fields: (lines.find((l) => l.message === 'code-deploy re-arm fired') || {}).fields });
@@ -167,6 +189,102 @@ function seedCounters(countersFile) {
   const writeAt = src.indexOf('writeCodeMarker(workspaceRoot');
   check('E2: the boot path CALLS it, and calls it BEFORE the marker that holds the previous digest is overwritten',
     callAt > 0 && writeAt > 0 && callAt < writeAt, { callAt, writeAt });
+}
+
+// ── F. THE CAUSE FILTER, STATED AS ITS OWN FACT [owner ruling 2026-08-28, decision 4(c)] ────────
+//
+// WHAT WAS BROKEN. This event cleared EVERY row. `reconcile-respawn`/`nonterm` counts how many
+// times the LEADER was woken to rule another seat's `failed` ENDING — a row in the ending store
+// written before this daemon booted. New daemon bytes do not change it and do not make a fourth
+// wake likelier to succeed than the third, so wiping the count re-bought three paid opus-5 leader
+// sittings on every deploy: nine of them on `goal-memory-management` across three deploys on
+// 2026-08-28, all nine producing the same verdict. Crash- and launch-class rows keep the wide
+// behaviour, because those failures are exactly what a code change can fix.
+{
+  const { root, countersFile, log } = fresh();
+  const seed = [
+    { goal: 'g', seat: 'leader', reasonClass: 'nonterm', times: 2 },
+    { goal: 'g', seat: 'w', reasonClass: 'crash', times: 2 },
+    { goal: 'g', seat: 'w', reasonClass: 'launch-refused', times: 1 },
+    { goal: 'g', seat: 'j', subject: 'job:7', reasonClass: 'unknown-tool', driver: counters.DRIVERS.TICKER_DEFERRED, times: 3 },
+  ];
+  for (const r of seed) {
+    for (let i = 0; i < r.times; i += 1) {
+      counters.countAttempt({
+        driver: r.driver || counters.DRIVERS.RECONCILE_RESPAWN,
+        goal: r.goal, seat: r.subject ? null : r.seat, subject: r.subject, reasonClass: r.reasonClass, n: 3,
+      }, { countersFile });
+    }
+  }
+  writeCodeMarker(root, fp('n1'), fp('W1'));
+  const out = rearmOnCodeDeploy({ workspaceRoot: root, fingerprint: fp('W2'), log }, { countersFile });
+  const left = counters.listCounters({}, { countersFile });
+  const kept = counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'g', seat: 'leader', reasonClass: 'nonterm',
+  }, { countersFile });
+
+  check('F1: after `code-deploy`, the `reconcile-respawn`/`nonterm` row PERSISTS with its attempts intact',
+    kept !== null && Number(kept.attempts) === 2 && kept.driver === 'reconcile-respawn',
+    { row: kept && `${kept.subject}/${kept.reason_class}=${kept.attempts}` });
+
+  check('F2: and the `crash` row is CLEARED — a crash is a code-caused failure and new bytes are a real reason to retry it',
+    counters.peekCounter({
+      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'g', seat: 'w', reasonClass: 'crash',
+    }, { countersFile }) === null,
+    { cleared: out.cleared.map((r) => `${r.subject}/${r.reason_class}`) });
+
+  check('F3: every other class and every other driver keeps the WIDE behaviour — only the one (driver, class) pair is immune',
+    left.length === 1 && left[0].reason_class === 'nonterm' && out.cleared.length === 3,
+    { left: left.map((r) => `${r.driver}:${r.subject}/${r.reason_class}`), cleared: out.cleared.length });
+
+  check('F4: the immune pair is DECLARED, not spelled at the call site — one list, readable by a reviewer',
+    Array.isArray(counters.DEPLOY_IMMUNE) && counters.DEPLOY_IMMUNE.length === 1
+      && counters.deployImmune({ driver: 'reconcile-respawn', reason_class: 'nonterm' }) === true
+      && counters.deployImmune({ driver: 'reconcile-respawn', reason_class: 'crash' }) === false
+      && counters.deployImmune({ driver: 'ticker-deferred', reason_class: 'nonterm' }) === false,
+    { immune: counters.DEPLOY_IMMUNE });
+
+  // A LANE-SCOPED EVENT IS UNCHANGED, and that is the boundary of this ruling: a person asking for
+  // a lane back (`resume`, an owner/leader act) is a fact about the LANE, never about the code.
+  const { countersFile: cf2 } = fresh();
+  counters.countAttempt({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'g', seat: 'leader', reasonClass: 'nonterm', n: 3,
+  }, { countersFile: cf2 });
+  const laneReset = counters.rearm({
+    event: counters.RE_ARM.OWNER_LEADER_ACT, goal: 'g', seat: 'leader',
+  }, { countersFile: cf2 });
+  check('F5: an owner/leader act still clears the SAME row — the narrowing is `code-deploy`\'s alone',
+    laneReset.reset.length === 1 && counters.listCounters({}, { countersFile: cf2 }).length === 0,
+    { reset: laneReset.reset.length });
+
+  // RED. The filter removed from a COPY of the live source: if F1/F3 do not discriminate, the
+  // mutant passes them too.
+  const Module = require('node:module');
+  const cFile = require.resolve('../../supervisor/attempt-counters');
+  const csrc = fs.readFileSync(cFile, 'utf8');
+  const ANCHOR = `    if (event === RE_ARM.CODE_DEPLOY && deployImmune(row)) {
+      kept.push(key);
+      continue;
+    }
+`;
+  const mutSrc = csrc.includes(ANCHOR) ? csrc.replace(ANCHOR, '') : null;
+  let redLeft = null;
+  if (mutSrc) {
+    const mut = new Module(cFile, null);
+    mut.filename = cFile;
+    mut.paths = Module._nodeModulePaths(path.dirname(cFile));
+    mut._compile(mutSrc, cFile);
+    const { countersFile: cf3 } = fresh();
+    for (let i = 0; i < 2; i += 1) {
+      counters.countAttempt({
+        driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'g', seat: 'leader', reasonClass: 'nonterm', n: 3,
+      }, { countersFile: cf3 });
+    }
+    mut.exports.rearm({ event: 'code-deploy' }, { countersFile: cf3 });
+    redLeft = counters.listCounters({}, { countersFile: cf3 }).length;
+  }
+  check('F6: RED — with the filter removed, `code-deploy` wipes the `nonterm` row again, so F1/F3 discriminate',
+    mutSrc !== null && redLeft === 0, { anchorFound: mutSrc !== null, rowsLeft: redLeft });
 }
 
 const pass = checks.every((c) => c.pass);

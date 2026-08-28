@@ -34,12 +34,20 @@
 // ⚠ NO RECORDED DIGEST FIRES IT. A first boot with no marker cannot prove the code is unchanged,
 // and by definition something was deployed to get here, so the event fires and says `first_boot`.
 //
+// ⚠ IT NO LONGER CLEARS EVERYTHING, AND THE EXCEPTION IS THIS FILE'S OWN PREMISE. The event fires
+// because THE CODE CHANGED (⚠ above), so the rows it may clear are the ones whose failure the code
+// could have caused. A `reconcile-respawn` / `nonterm` row counts leader wakes over another seat's
+// `failed` ENDING — a row written before this daemon booted, which new bytes do not touch — so it
+// SURVIVES the deploy with its attempts intact (`attempt-counters.js#DEPLOY_IMMUNE`, owner ruling
+// 2026-08-28 decision 4(c)). Wiping it re-bought three paid leader sittings per deploy for a
+// failure the deploy had not changed. Everything else still goes.
+//
 // ⚠ FAIL-SOFT, LIKE EVERYTHING ELSE ON THE BOOT PATH. It never throws: `index.js` exits hard on an
 // unhandled boot error, and a daemon that refuses to start because a counter file was unreadable
 // is a worse failure than a counter that stays disarmed one more boot.
 
 const { readCodeMarker } = require('./code-fingerprint');
-const { RE_ARM } = require('../supervisor/attempt-counters');
+const { RE_ARM, listCounters } = require('../supervisor/attempt-counters');
 const { rearmScope } = require('../supervisor/exhaustion');
 
 /**
@@ -57,7 +65,8 @@ const { rearmScope } = require('../supervisor/exhaustion');
  * @param {function} [args.log]           `(level, message, fields)` — the daemon's journal
  * @param {object}   [opts]
  * @param {string}   [opts.countersFile]  overridden by a probe, exactly as `reconcile.js` does
- * @returns {{fired: boolean, why: string, previous: string|null, digest: string|null, cleared: Array}}
+ * @returns {{fired: boolean, why: string, previous: string|null, digest: string|null,
+ *            cleared: Array, kept: Array}} `kept` = the rows the cause filter left standing
  */
 function rearmOnCodeDeploy({ workspaceRoot, fingerprint, log = () => {} }, { countersFile } = {}) {
   const digest = (fingerprint && fingerprint.digest) || null;
@@ -66,22 +75,33 @@ function rearmOnCodeDeploy({ workspaceRoot, fingerprint, log = () => {} }, { cou
 
   if (!digest) {
     log('warn', 'code fingerprint UNKNOWN at boot — no code-deploy re-arm decision was made', { previous_digest: previous });
-    return { fired: false, why: 'unknown-fingerprint', previous, digest, cleared: [] };
+    return {
+      fired: false, why: 'unknown-fingerprint', previous, digest, cleared: [], kept: [],
+    };
   }
   if (digest === previous) {
-    return { fired: false, why: 'unchanged', previous, digest, cleared: [] };
+    return {
+      fired: false, why: 'unchanged', previous, digest, cleared: [], kept: [],
+    };
   }
 
   const why = previous ? 'code-changed' : 'first-boot';
   let cleared = [];
+  let kept = [];
   try {
     // No `store`: nothing in the deployed tree sets `engine.endingStore`, so the ending half has no
     // writer to reach and the counter half is the whole of what a re-arm can do here today. When a
     // store does arrive, it is one argument — see `exhaustion.js#rearmScope`.
     ({ cleared } = rearmScope({ event: RE_ARM.CODE_DEPLOY }, { countersFile }));
+    // WHAT SURVIVED. The event's scope is every row, so after a wide sweep whatever is still in
+    // the ledger is a row the cause filter KEPT. Read through `listCounters` — the module's one
+    // parser of that file — rather than re-deriving it here from a second copy of the rule.
+    kept = listCounters({}, { countersFile });
   } catch (err) {
     log('warn', 'code-deploy re-arm failed — the attempt counters stand as they were', { error: err.message, why });
-    return { fired: false, why: 'rearm-failed', previous, digest, cleared: [], error: err.message };
+    return {
+      fired: false, why: 'rearm-failed', previous, digest, cleared: [], kept: [], error: err.message,
+    };
   }
 
   // ONE LINE PER CLEARED ROW, at `info`, carrying the count it was cleared FROM. A disarm that was
@@ -91,10 +111,25 @@ function rearmOnCodeDeploy({ workspaceRoot, fingerprint, log = () => {} }, { cou
       subject: row.subject, reason_class: row.reason_class, driver: row.driver, attempts: row.attempts, goal: row.goal, seat: row.seat,
     });
   }
+  // AND ONE LINE PER ROW THE DEPLOY DID NOT CLEAR, for the same reason: a lane that stays disarmed
+  // through a deploy is a lane whose next wake is NOT coming, and that must be as audible as the
+  // ones that were re-armed.
+  for (const row of kept) {
+    log('info', `NOT re-armed by code-deploy (the failure it counts is a seat's ending, which new code does not change): ${row.subject} ${row.reason_class} (N=${row.attempts})`, {
+      subject: row.subject, reason_class: row.reason_class, driver: row.driver, attempts: row.attempts, goal: row.goal, seat: row.seat,
+    });
+  }
   log('info', 'code-deploy re-arm fired', {
-    why, previous_digest: previous, digest, cleared: cleared.length, first_boot: why === 'first-boot',
+    why,
+    previous_digest: previous,
+    digest,
+    cleared: cleared.length,
+    kept: kept.length,
+    first_boot: why === 'first-boot',
   });
-  return { fired: true, why, previous, digest, cleared };
+  return {
+    fired: true, why, previous, digest, cleared, kept,
+  };
 }
 
 module.exports = { rearmOnCodeDeploy };

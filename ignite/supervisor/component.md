@@ -491,6 +491,21 @@ lanes). The producers now wired:
 | `config-change` | none | there is no config-reload path to hook: `loadRecoveryConfig` is re-read at each use, with no watcher, no SIGHUP and no cache to invalidate, so there is no moment that IS the change |
 | `owner-leader-act` | none | out of this seat's scope |
 
+⚠ `code-deploy` NO LONGER CLEARS EVERY ROW, and the exception is that event's own
+premise. It fires because THE CODE CHANGED, so the rows it may clear are the ones
+whose failure the code could have caused — a crash, a launch refusal, a provider
+error. A `reconcile-respawn` / `nonterm` row counts leader wakes over ANOTHER
+seat's `failed` ENDING: a row written before this daemon booted, which new bytes
+do not change and which a fourth wake is no likelier to resolve than the third.
+That pair is `attempt-counters.js#DEPLOY_IMMUNE` and it SURVIVES a deploy with its
+attempts intact (owner ruling 2026-08-28, decision 4(c); it narrows
+`20260827-c-the-four-named-re-arm-events-g` ATTENTION 5). Every other class, every
+other driver and every other event are unchanged — a lane-scoped `resume` or
+`owner-leader-act` still clears whatever it names, because a person asking for a
+lane back is a fact about the lane, never about the code. The boot pass journals
+one `info` per row it did NOT clear, saying why: a lane that stays disarmed
+through a deploy must be as audible as one that was re-armed.
+
 ## The exit at N
 
 `exhaustion.js`. Two acts, and only two:

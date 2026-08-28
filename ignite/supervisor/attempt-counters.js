@@ -291,6 +291,43 @@ function peekCounter({
   return readAll(countersFile)[key] || null;
 }
 
+// -- WHAT A CODE DEPLOY CANNOT UNDO -------------------------------------------------------------
+//
+// `code-deploy-rearm.js:19-22` states this event's own premise: *"A RESTART IS NOT A DEPLOY. The
+// same bytes hash to the same digest"* - i.e. the event fires because THE CODE CHANGED, and the
+// justification for clearing a counter is that the world the counter was measuring changed with
+// it. That justification holds exactly as far as the failure being counted was CAUSED BY THE CODE:
+// a launch refusal, a crash, a provider error. New daemon bytes are a real reason to try those
+// again.
+//
+// IT DOES NOT HOLD FOR `reconcile-respawn` / `nonterm`. That counter counts how many times the
+// LEADER was woken to rule another seat's `failed` ENDING. The ending is a row in the ending store
+// written before this daemon booted; deploying new daemon bytes does not change it, does not make
+// the leader's judgment more available, and does not make a fourth wake more likely to succeed
+// than the third. Wiping it re-buys three paid leader sittings for a failure the deploy did not
+// touch - nine of them on `goal-memory-management` on 2026-08-28 across three deploys, every one
+// producing the same verdict.
+//
+// SO THE SCOPE IS STILL THE EVENT'S, and only the CAUSE class is narrowed: rows whose failure the
+// new code could plausibly fix are cleared, rows counting a seat's own ending are not. Everything
+// else - `crash`, `launch-refused`, every `ticker-deferred` and `alarm-refire` row, and any other
+// class on the respawn driver - keeps the wide behaviour byte for byte.
+//
+// ⚠ THIS NARROWS `20260827-c-the-four-named-re-arm-events-g` ATTENTION 5 ("`rearm` WITH A WIDE
+// EVENT CLEARS EVERY ROW, disarmed or not - that is the module's own ruled scope"). Owner ruling
+// 2026-08-28, decision 4 option (c). The scope rule is unchanged for every other event; a
+// lane-scoped `resume` / `owner-leader-act` still clears whatever it names, because a person
+// asking for a lane back is a fact about that lane and not about the code.
+const DEPLOY_IMMUNE = Object.freeze([
+  { driver: 'reconcile-respawn', reasonClass: 'nonterm' },
+]);
+
+function deployImmune(row) {
+  return DEPLOY_IMMUNE.some(
+    (rule) => row.driver === rule.driver && String(row.reason_class) === rule.reasonClass,
+  );
+}
+
 // -- RE-ARM - the ONLY reset path ---------------------------------------------------------------
 //
 // SCOPE IS DELIBERATELY BY EVENT, not by caller preference. A code deploy and a config change
@@ -307,15 +344,25 @@ function rearm({
   const wide = event === RE_ARM.CODE_DEPLOY || event === RE_ARM.CONFIG_CHANGE;
   const wantSubject = wide ? null : subjectOf({ goal, seat, subject });
   const reset = [];
+  const kept = [];
   for (const key of Object.keys(rows)) {
     const row = rows[key];
     if (!wide && row.subject !== wantSubject) continue;
     if (!wide && driver && row.driver !== driver) continue;
+    // The cause test above, and ONLY under `code-deploy`. `config-change` is the other wide event
+    // and it is left alone: nothing produces it yet (that entry's own Consequences), and what a
+    // config edit means for an ending-caused counter has not been ruled.
+    if (event === RE_ARM.CODE_DEPLOY && deployImmune(row)) {
+      kept.push(key);
+      continue;
+    }
     reset.push(key);
     delete rows[key];
   }
   if (reset.length) writeAll(countersFile, rows);
-  return { event, scope: wide ? 'all' : wantSubject, reset };
+  return {
+    event, scope: wide ? 'all' : wantSubject, reset, kept,
+  };
 }
 
 module.exports = {
@@ -326,6 +373,8 @@ module.exports = {
   FROZEN_HOURLY_REPEAT,
   RE_ARM,
   RE_ARM_EVENTS,
+  DEPLOY_IMMUNE,
+  deployImmune,
   AttemptCounterError,
   countersPath,
   keyOf,
