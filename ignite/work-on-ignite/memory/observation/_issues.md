@@ -1,0 +1,1 @@
+2026-08-28 · issue · an alarm verdict reached no alarm registry · On 2026-08-26 the channel master, asked over a live owner DM whether anything was standing, → Two independent halves, and the answer was wrong because BOTH held. · a5b57bc0,96e20291 · runtime,meta-master · ⚠
