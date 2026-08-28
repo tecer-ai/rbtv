@@ -118,36 +118,47 @@ owner an execution started when nothing did. Probes:
 
 ## pause-resume
 
-`pause-resume.js` — the mechanical door (`spec-owner-io.md` §4.2/§4.4/§4.5) and
-the resume-semantics table (`spec-recovery.md` §4 [C-14]). A first token of
-`pause`/`resume` is the daemon's and bypasses the goal master [T5-R14]. A bare
-verb in a goal channel targets that goal; elsewhere the slug is required, and
-zero or several matches get the verbatim §4.5 mechanical NACK with no state
-change. `pause` flips `running` → `paused` and nothing else. `resume` applies
-every matching row: goal `paused` → `running`; counter-exhausted lane re-armed
-via the `named-external-input` named event without spending the relaunch budget;
-blocked-on-human and gate-cap lanes refused and pointed at their asks. Neither
-verb flips an ask off `open`. The ending-store API, the lane enumerator and the
-counter re-arm are injected — no store handle and no sibling require lives here.
-Probe: `probes/probe-chat-pause-resume.js`.
+`pause-resume.js` — the mechanical door (`spec-owner-io.md` §4.2/§4.4/§4.5).
+GRAMMAR + SENDER + POSTER, and nothing else. A first token of `pause`/`resume` is
+the daemon's and bypasses the goal master [T5-R14]. A bare verb in a goal channel
+targets that goal; elsewhere the slug is required, and a grammar failure gets the
+verbatim §4.5 mechanical NACK with nothing sent. Otherwise the verb crosses the
+daemon boundary as the gateway intent `pause-resume`, payload
+`{verb: 'pause'|'resume', goal}`, and the daemon's result
+`{verb, goal, applied, actions, refusals}` is rendered back into the channel or
+thread the verb arrived in. Neither verb flips an ask off `open`. No store handle,
+no lane enumerator, no counter port: the resume-semantics table (`spec-recovery.md`
+§4 [C-14]) lives daemon-side behind the intent, and NO SECOND COPY OF IT MAY EXIST
+HERE. Built from the bridge's own forwarder, always — `start-execution.js` is the
+precedent. Probe: `probes/probe-chat-pause-resume.js`.
 
-⚠ ROW 1 IS TWO ACTS. `fireNamedEvent` re-arms the ENDING row; the table's "resets
-that counter" is the DRIVER's attempt counter (`spec-recovery` §5), which lives in
-`supervisor/attempt-counters.json` and which `reconcile.js#counterDisarmed` reads
-on every pass. A resume firing only the first act answers `disarmed→armed` and
-leaves the lane skipped forever — the state seven live lanes were in on
-2026-08-27. The second act arrives through the `rearmCounters` port, whose
-daemon-side implementation is `supervisor/exhaustion.js#rearmScope`. It runs even
-with no store, because it is the half the reconcile loop reads.
+⚠ EVERY OUTCOME ANSWERS; NONE IS SILENT. `NOT_FOUND` (the slug names no live goal)
+is the §4.2 ambiguity and gets the verbatim §4.5 NACK. Every OTHER error —
+`UNKNOWN_INTENT` from a daemon deployed without the executor, an authorization
+refusal, a transport timeout, a throw, a malformed result — gets an honest one-line
+refusal, `pause <goal> was NOT applied — <error>`. The defect this replaces is the
+door returning before any post when it had no applier: the owner typed `pause X` in
+Slack and got nothing back at all.
 
-⚠ The approval door's D12 effect IS reachable in production: the owner minted the
-fourteenth intent `start-execution` on 2026-08-24 (option (b)) and `chat-bridge.js`
-builds that sender itself. The MECHANICAL door is not: `endingStore` is still NOT
-wired by `index.js#main()`, because the same ruling deliberately did NOT mint the
-pause-word intent — pause stays store-side until the execution-lane reconcile gate
-converges onto the goal-state row. Until then it degrades loudly, never silently.
-The approval door's other three ports (`closeGoal`, `pauseGoal`,
-`relaunchDraftVerify`) are likewise still unwired and still report [C-16].
+⚠ THE DOOR ADMITS ONLY AN AUTHORIZED SENDER, AND THAT GATE IS LOAD-BEARING.
+`chat-bridge.js` runs this door BEFORE the forward path's per-principal admission
+gate (`forward-path.js#onChatMessage` → `allowlist.check`), because a mechanical
+verb never forwards. With the intent live, any Slack workspace member who could DM
+the bot would otherwise pause a goal stamped `who_stamped: 'owner'`. The door asks
+the SAME predicate object the ask door authorizes with (`config.allowlist`, via
+`allowlist.isAdmitted`) — never a second list — and an unauthorized sender's
+`pause X` returns `{mechanical: false}`, falls through to the ordinary path and is
+refused at that gate, with no answer from this door.
+
+⚠ THE DAEMON HALF IS A SEPARATE DEPLOY. The bridge is useless for these verbs until
+a daemon carrying the `pause-resume` executor is deployed; before that every verb
+answers `UNKNOWN_INTENT: unknown intent: pause-resume` — honestly, in the channel.
+
+⚠ The approval door's D12 effect is likewise reachable through an intent: the owner
+minted the fourteenth intent `start-execution` on 2026-08-24 (option (b)) and
+`chat-bridge.js` builds that sender itself. The approval door's other three ports
+(`closeGoal`, `pauseGoal`, `relaunchDraftVerify`) are still unwired and still
+report [C-16].
 
 ## system-digest
 

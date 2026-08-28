@@ -41,12 +41,13 @@ function jsonLog(entry) {
 // Socket-Mode transport.
 function buildBridge(config, {
   logger = jsonLog, makeTransport = null, forwarderImpl = null, replyLegOptions = {}, busFerryOptions = {},
-  // The ports the bridge process cannot hold itself — see createChatBridge's header. `materialize`
-  // is NOT among them any more: D12 is the fourteenth gateway intent `start-execution` (owner
-  // ruling 2026-08-24, option (b)) and the bridge builds that sender from its own forwarder,
-  // always. `endingStore` is still unwired here — its goal-word intent was deliberately not minted
-  // — and a stub would read as wired.
-  approvalPorts = {}, endingStore = null, listSeats = null, listLiveGoals = null,
+  // The one port the bridge process cannot hold itself — see createChatBridge's header. Neither
+  // `materialize` nor the mechanical verb's applier is among them: D12 is the fourteenth gateway
+  // intent `start-execution` (owner ruling 2026-08-24, option (b)) and `pause`/`resume` is the
+  // `pause-resume` intent (owner direction 2026-08-28), and the bridge builds BOTH senders from
+  // its own forwarder, always. `endingStore`/`listSeats`/`listLiveGoals` are gone: nothing ever
+  // wired them, and an unwired applier port is a door that answers nothing.
+  approvalPorts = {},
 } = {}) {
   const forwarder = forwarderImpl || createGatewayForwarder({ gatewayAddr: config.gatewayAddr, token: config.bridgeToken });
   const allowlist = createAllowlist({ allowed: config.allowlist, logger });
@@ -76,7 +77,7 @@ function buildBridge(config, {
     : null;
   if (!goalChannels) log_noGoalChannels(logger);
 
-  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions, busFerryOptions, approvalPorts, endingStore, listSeats, listLiveGoals });
+  bridge = createChatBridge({ config, forwarder, transport, allowlist, threadMap, goalChannels, logger, replyLegOptions, busFerryOptions, approvalPorts });
 
   // ── THE OWNER'S GLANCE SURFACES (spec-owner-io §5 + §6) ─────────────────────────────────────
   //

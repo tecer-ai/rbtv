@@ -1,24 +1,31 @@
 'use strict';
 
-// probe-chat-pause-resume — the mechanical door (`spec-owner-io.md` §4.2/§4.4/§4.5) and the
-// resume-semantics table (`spec-recovery.md` §4 [C-14]).
+// probe-chat-pause-resume — the mechanical door (`spec-owner-io.md` §4.2/§4.4/§4.5) as it is NOW:
+// grammar + sender check + `pause-resume` gateway call + the answer it posts.
 //
-// NO SLACK AND NO DAEMON. The Slack post is an injected sink. The ENDING STORE, however, is the
-// REAL one (`state-store/open.js` on a throwaway workspace): every row of the resume-semantics
-// table is asserted against the state the real writers actually leave behind, because the failure
-// this replaces is a resume that CLAIMED to lift a lane and left it disarmed. A probe reaching a
-// sibling tree is the test harness's privilege, never the bridge runtime's — `probe-chat-boundary`
-// is what holds that line.
+// NO SLACK, NO DAEMON, NO STORE. Both edges are fakes and that is the RIGHT harness now: this
+// module no longer applies anything. It sends the `pause-resume` intent and renders what comes
+// back, so what is provable here is exactly (1) which intent and payload cross the boundary,
+// (2) that EVERY outcome — success, NACK, refusal, transport failure — produces an answer where
+// the verb arrived, and (3) that an unauthorized sender gets neither a call nor a post. The
+// resume-semantics table itself is asserted against the REAL ending store on the daemon side,
+// where it now lives; asserting it here against a fake would prove nothing about the live goal.
+//
+// ⚠ THE ARM THIS PROBE EXISTS FOR IS (D). The failure being replaced is SILENCE: the door used to
+// return before any post when it had no applier, so an owner who typed `pause X` in Slack got
+// nothing at all — not an answer, not a refusal. Every failure arm below asserts `posts.length`,
+// never just the returned object.
 
 const path = require('node:path');
 const fs = require('node:fs');
-const os = require('node:os');
-const { createPauseResume } = require('../pause-resume');
+const { createPauseResume, INTENT, refusalLine } = require('../pause-resume');
 const { NACK_MECHANICAL } = require('../reply-grammar');
-const { openEndingStoreFor, closeEndingStores } = require('../../state-store/open');
-const store = require('../../state-store');
-const counters = require('../../supervisor/attempt-counters');
-const exhaustion = require('../../supervisor/exhaustion');
+
+// ⚑ TRANSCRIBED FROM `spec-owner-io.md` §4.5's second verbatim block, BY HAND AND ON PURPOSE.
+// This constant is the probe's independent copy of the spec text; the check below is a BYTE
+// comparison against the constant the code posts. A probe that imported the same constant it is
+// testing would pass on any wording at all, including a typo introduced in the same edit.
+const SPEC_4_5_MECHANICAL_NACK = "couldn't parse pause/resume. Use `pause {goal}` or `resume {goal}` with one live goal slug. In a goal channel, bare pause/resume targets that goal. Reply again.";
 
 const OUT = path.join(__dirname, 'probe-chat-pause-resume.out');
 const t0 = Date.now();
@@ -29,280 +36,233 @@ const CHANNEL = 'C-GOAL-1';
 const SYSTEM = 'C-SYSTEM';
 const GOAL = 'demo-goal';
 const OTHER = 'other-goal';
-const EV = 'probe://pause-resume';
+const OWNER = 'U-OWNER';        // on `config.allowlist`
+const STRANGER = 'U-STRANGER';  // any member of the Slack workspace who can DM the bot
 
-function fresh({ withCounterPort = true, withStore = true } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pause-resume-'));
-  const db = openEndingStoreFor(root);
-  const api = store.bind(db);
-  const listSeats = (goal) => db.prepare('SELECT seat FROM seat_endings WHERE goal = ? ORDER BY seat').all(goal).map((r) => r.seat);
+// The fake forwarder: it RECORDS the crossing and answers a script. `answer` may be a function of
+// the payload, so one door can answer differently per verb.
+function fake({ answer = null, throws = null, admitted = [OWNER] } = {}) {
+  const calls = [];
   const posts = [];
-  // The counter ledger lives in the throwaway workspace, NEVER at the module default — the default
-  // is the daemon's own live ledger and a probe that wrote it would re-arm the real instance.
-  const countersFile = path.join(root, 'attempt-counters.json');
-  // `store` is deliberately NOT handed to the port: the ending half of row 1 belongs to
-  // `applyResume`'s own seat loop, and a port that fired it too would make the two halves race to
-  // report the same act.
-  const rearmCounters = withCounterPort
-    ? (goal) => exhaustion.rearmScope({ goal, event: counters.RE_ARM.RESUME }, { countersFile }).cleared
-    : null;
+  const forwarder = {
+    forward: async (intent, payload, opts) => {
+      calls.push({ intent, payload, opts });
+      if (throws) throw new Error(throws);
+      return typeof answer === 'function' ? answer(payload) : answer;
+    },
+  };
   const door = createPauseResume({
-    store: withStore ? api : null,
-    listSeats,
-    rearmCounters,
+    forwarder,
+    isAuthorizedSender: (id) => admitted.includes(String(id)),
     post: async (p) => { posts.push(p); return { delivered: true }; },
     logger: null,
   });
-  return { root, db, api, door, posts, listSeats, countersFile };
+  return { door, calls, posts };
 }
 
-// A driver that has already reached N on this lane — the state `reconcile.js#counterDisarmed`
-// reads to take `skip-disarmed`. Written through `countAttempt` (never a hand-built JSON row) so
-// the fixture is the shape the real driver leaves.
-function exhaustCounter(countersFile, seat, reasonClass, n = 3) {
-  for (let i = 0; i < n; i += 1) {
-    counters.countAttempt({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass, n,
-    }, { countersFile });
-  }
-  return counters.peekCounter({
-    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass,
-  }, { countersFile });
-}
-
-// A lane halted the way the spec's row describes it. `stampSystem` is the ONLY writer that can
-// leave a disarmed `incomplete:` — using it (rather than a raw INSERT) is what makes the fixture a
-// real halted lane and not a shape that looks like one.
-function halt(api, seat, diagnostic) {
-  return api.stampSystem({
-    goal: GOAL, seat, ending: 'incomplete', armed: 0, diagnostic,
-    evidence_pointer: EV,
-  });
-}
+const ok = (result) => ({ ok: true, result, error: null, status: 200 });
+const err = (code, message) => ({ ok: false, result: null, error: { code, message }, status: 400 });
 
 (async () => {
-  // ── A. TARGET RESOLUTION AND THE VERBATIM §4.5 MECHANICAL NACK ──────────────────────────────
+  // ── CONSTRUCTION: the two seams that must not exist ─────────────────────────────────────────
   {
-    const { door, posts, api } = fresh();
-    api.writeGoalWord({ goal: GOAL, stored: 'running', who_stamped: 'owner', evidence_pointer: EV });
+    let noForwarder = null;
+    try {
+      createPauseResume({ isAuthorizedSender: () => true, post: async () => {} });
+    } catch (e) { noForwarder = e.message; }
+    let noSender = null;
+    try {
+      createPauseResume({ forwarder: { forward: async () => ok({}) }, post: async () => {} });
+    } catch (e) { noSender = e.message; }
+    check('X1: the door REFUSES to exist without the forwarder — an applier that can be stubbed is how a door answers as if it acted (`start-execution.js` precedent)',
+      typeof noForwarder === 'string' && /forwarder/.test(noForwarder), { error: noForwarder });
+    check('X2: and without the sender predicate — this door runs BEFORE the forward path\'s admission gate, so a missing check is an open lever',
+      typeof noSender === 'string' && /isAuthorizedSender/.test(noSender), { error: noSender });
+  }
 
-    // A1. System channel, no slug. There is no channel goal to fall back on, so the verb cannot
-    // be targeted at all.
-    const a1 = await door.handle({ text: 'pause', channelId: SYSTEM, channelGoal: null, liveGoals: [GOAL, OTHER] });
-    check('A1: no slug in the system channel → the VERBATIM §4.5 mechanical NACK, nothing applied',
-      a1.mechanical === true && a1.nacked === true && a1.nack === NACK_MECHANICAL
-      && a1.applied === false && posts.length === 1 && posts[0].text === NACK_MECHANICAL
-      && api.getGoalState(GOAL).stored === 'running',
-      { nack: posts[0] && posts[0].text, goal: api.getGoalState(GOAL).stored });
+  // ── (a) THE HAPPY CROSSING: one intent, one payload, one line ────────────────────────────────
+  {
+    const { door, calls, posts } = fake({
+      answer: (p) => ok({ verb: p.verb, goal: p.goal, applied: true, actions: [{ row: 'goal', change: 'running→paused', goal: p.goal }], refusals: [] }),
+    });
+    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('a1: an authorized `pause {goal}` crosses the daemon boundary EXACTLY ONCE, as intent `pause-resume` with payload {verb,goal} and nothing else',
+      calls.length === 1 && calls[0].intent === INTENT
+      && JSON.stringify(calls[0].payload) === JSON.stringify({ verb: 'pause', goal: GOAL }),
+      { calls: calls.map((c) => ({ intent: c.intent, payload: c.payload })) });
+    check('a2: and the owner gets ONE line back where the verb arrived, rendering the daemon\'s own action',
+      posts.length === 1 && posts[0] && posts[0].text === `${GOAL}: running→paused.`
+      && posts[0].channelId === CHANNEL && posts[0].goalId === GOAL
+      && out.mechanical === true && out.ok === true && out.applied === true,
+      { posts: posts.map((p) => p.text), out: { ok: out.ok, applied: out.applied } });
+  }
 
-    // A2. A slug matching ZERO live goals.
-    const a2 = await door.handle({ text: 'pause no-such-goal', channelId: SYSTEM, channelGoal: null, liveGoals: [GOAL, OTHER] });
-    check('A2: a slug matching ZERO live goals → the verbatim NACK, nothing applied',
-      a2.nacked === true && a2.nack === NACK_MECHANICAL && a2.applied === false
-      && api.getGoalState(GOAL).stored === 'running',
-      { outcome: a2 });
+  // ── (b) A RESUME ANSWER CARRYING BOTH HALVES: every line is posted ───────────────────────────
+  //
+  // The daemon applies EVERY matching row of the resume-semantics table and a goal may carry more
+  // than one halted kind at once. A renderer that drops the refusals reports a resume that lifted
+  // lanes it did not lift — which is the same lie the silence told, told louder.
+  {
+    const result = {
+      verb: 'resume', goal: GOAL, applied: true,
+      actions: [
+        { row: 'goal', change: 'paused→running', goal: GOAL },
+        { row: 'counter', seat: 'leader', reason_class: 'nonterm', attempts: 3, change: 'counter reset' },
+        { row: 'counter-exhaustion', seat: 'leader', change: 'disarmed→armed' },
+      ],
+      refusals: [
+        { row: 'blocked-on-human', seat: 'asker', text: 'resume does not lift asker: it is halted waiting on an open ask, and only an authorized reply in that thread releases it. Answer it in its thread: 1724508123.123456.' },
+        { row: 'gate-cap', seat: 'gate', text: 'resume does not lift gate: it stopped at the re-plan cap. Answer the gate decision-ask — resume does not open a third re-plan.' },
+      ],
+    };
+    const { door, calls, posts } = fake({ answer: ok(result) });
+    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    const said = posts.length === 1 ? posts[0].text.split('\n') : [];
+    check('b1: `resume` crosses with verb=resume and the SAME one-call shape',
+      calls.length === 1 && calls[0].payload.verb === 'resume' && calls[0].payload.goal === GOAL,
+      { payload: calls[0] && calls[0].payload });
+    check('b2: EVERY action and EVERY refusal the daemon returned is a line in the one posted answer — three actions + two refusals = five lines, refusals verbatim',
+      posts.length === 1 && said.length === 5
+      && said[0] === `${GOAL}: paused→running.`
+      && said[1] === 'leader: attempt counter re-armed (nonterm, was 3).'
+      && said[2] === 'leader: re-armed (disarmed→armed).'
+      && said[3] === result.refusals[0].text && said[4] === result.refusals[1].text,
+      { lines: said });
+    check('b3: and the caller gets the daemon\'s result unchanged — `actions`/`refusals` ride out for the approval-thread path',
+      (out.actions || []).length === 3 && (out.refusals || []).length === 2 && out.ok === true,
+      { actions: (out.actions || []).length, refusals: (out.refusals || []).length });
+  }
 
-    // A3. A slug matching SEVERAL live goals (§4.2: zero OR several is the same ambiguity).
-    const a3 = await door.handle({ text: 'resume dup', channelId: SYSTEM, channelGoal: null, liveGoals: ['dup', 'DUP'] });
-    check('A3: a slug matching TWO live goals → the verbatim NACK, nothing applied',
-      a3.nacked === true && a3.nack === NACK_MECHANICAL && a3.applied === false,
-      { outcome: a3 });
+  // ── (c) NOT_FOUND → THE VERBATIM §4.5 MECHANICAL NACK ────────────────────────────────────────
+  {
+    const { door, calls, posts } = fake({ answer: err('NOT_FOUND', 'no live goal named no-such-goal') });
+    const out = await door.handle({ text: 'pause no-such-goal', channelId: SYSTEM, threadTs: null, channelGoal: null, senderId: OWNER });
+    check('c1: the daemon answering NOT_FOUND is the §4.2 ambiguity — the door posts the §4.5 NACK and reports nothing applied',
+      calls.length === 1 && posts.length === 1 && out.nacked === true && out.applied === false,
+      { posts: posts.map((p) => p.text), out });
+    check('c2: and that NACK is BYTE-IDENTICAL to spec-owner-io §4.5\'s second verbatim block, transcribed independently in this probe',
+      posts.length === 1 && posts[0].text === SPEC_4_5_MECHANICAL_NACK && NACK_MECHANICAL === SPEC_4_5_MECHANICAL_NACK
+      && posts[0].text.length === SPEC_4_5_MECHANICAL_NACK.length,
+      { posted: posts[0] && posts[0].text, spec: SPEC_4_5_MECHANICAL_NACK });
+  }
+
+  // ── (d) THE SILENCE ARM: every other failure is ANSWERED, never dropped ──────────────────────
+  //
+  // ⚠ EACH OF THESE ASSERTS `posts.length === 1`. Before this rewrite the door returned
+  // `{reason:'no-store'}` BEFORE any post and the owner got nothing at all. If any arm here ever
+  // reads `posts.length === 0`, the silence is back.
+  {
+    // d1. THE DEPLOY ORDER MADE VISIBLE. A bridge carrying this fix in front of a daemon that has
+    // not been deployed with the executor answers UNKNOWN_INTENT (`gateway/errors.js`,
+    // `gateway/parse.js` — the intent set is closed). The owner must read THAT, not "no such goal".
+    const { door, posts } = fake({ answer: err('UNKNOWN_INTENT', 'unknown intent: pause-resume') });
+    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('d1: a daemon that does not know `pause-resume` yet → ONE honest refusal line naming UNKNOWN_INTENT, never silence and never the §4.5 NACK',
+      posts.length === 1 && posts[0]
+      && posts[0].text === refusalLine('pause', GOAL, 'UNKNOWN_INTENT: unknown intent: pause-resume')
+      && posts[0] && posts[0].text !== NACK_MECHANICAL
+      && out.applied === false && out.ok === false && out.mechanical === true,
+      { posted: posts[0] && posts[0].text, posts: posts.length });
+  }
+  {
+    // d2. The daemon refused the bridge's authority.
+    const { door, posts } = fake({ answer: err('UNAUTHORIZED_SENDER', 'this token may not pause a goal') });
+    await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, threadTs: 'T1', channelGoal: GOAL, senderId: OWNER });
+    check('d2: a daemon-side authorization refusal → ONE honest refusal line carrying the code and the reason',
+      posts.length === 1 && posts[0]
+      && posts[0].text === refusalLine('resume', GOAL, 'UNAUTHORIZED_SENDER: this token may not pause a goal')
+      && posts[0].threadTs === 'T1',
+      { posted: posts[0] && posts[0].text, posts: posts.length });
+  }
+  {
+    // d3. Transport: the forwarder resolves these rather than throwing (gateway-forwarder.js).
+    const { door, posts } = fake({ answer: err('TRANSPORT', 'gateway at 127.0.0.1:8787 did not respond within 10000ms') });
+    await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('d3: the daemon being DOWN → ONE honest refusal line, so a paused-looking goal is never mistaken for a paused goal',
+      posts.length === 1 && posts[0] && /TRANSPORT/.test(posts[0].text) && /was NOT applied/.test(posts[0].text),
+      { posted: posts[0] && posts[0].text, posts: posts.length });
+  }
+  {
+    // d4. A THROW is a wiring fault, and it is still answered.
+    const { door, posts } = fake({ throws: 'socket exploded' });
+    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('d4: the call THROWING is answered too — an exception must not eat the verb',
+      posts.length === 1 && posts[0] && /socket exploded/.test(posts[0].text) && out.applied === false,
+      { posted: posts[0] && posts[0].text, posts: posts.length });
+  }
+  {
+    // d5. `{ok:true}` with no result is the LIE THIS ARM EXISTS TO STOP: `summarize` would read
+    // empty arrays and answer "nothing to change." for a daemon that in fact did nothing at all.
+    const { door, posts } = fake({ answer: ok(null) });
+    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('d5: an `ok` with no actions/refusals result is a REFUSAL, not a rendered "nothing to change."',
+      posts.length === 1 && posts[0] && /was NOT applied/.test(posts[0].text) && !/nothing to change/.test(posts[0].text)
+      && out.applied === false,
+      { posted: posts[0] && posts[0].text });
+  }
+
+  // ── (e) THE ADMISSION GATE: an unauthorized sender gets NO call and NO post ──────────────────
+  //
+  // This door runs BEFORE `forward-path.js#onChatMessage`'s `allowlist.check`, and a mechanical
+  // verb never forwards — so with the intent live this predicate is the only thing between any
+  // Slack workspace member who can DM the bot and a goal paused in the owner's name.
+  {
+    const { door, calls, posts } = fake({ answer: ok({ verb: 'pause', goal: GOAL, applied: true, actions: [], refusals: [] }) });
+    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: STRANGER });
+    check('e1: an UNAUTHORIZED sender\'s `pause {goal}` is NOT this door\'s message — no gateway call, no post, and it falls through to the ordinary admission gate',
+      out.mechanical === false && calls.length === 0 && posts.length === 0,
+      { out, calls: calls.length, posts: posts.length });
+    const out2 = await door.handle({ text: 'pause', channelId: SYSTEM, threadTs: null, channelGoal: null, senderId: STRANGER });
+    check('e2: and an unauthorized MALFORMED verb gets no NACK either — this door must not tell an unadmitted principal that it exists',
+      out2.mechanical === false && posts.length === 0, { out: out2, posts: posts.length });
+    const out3 = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: null });
+    check('e3: a message with NO sender id is unauthorized — absent identity is never admitted',
+      out3.mechanical === false && calls.length === 0 && posts.length === 0, { out: out3 });
+  }
+
+  // ── (f) THE GRAMMAR, A1–A5, KEPT ─────────────────────────────────────────────────────────────
+  {
+    const { door, calls, posts } = fake({
+      answer: (p) => ok({ verb: p.verb, goal: p.goal, applied: true, actions: [{ row: 'goal', change: 'running→paused', goal: p.goal }], refusals: [] }),
+    });
+
+    // A1. System channel, no slug: no channel goal to fall back on, so the verb cannot be targeted.
+    const a1 = await door.handle({ text: 'pause', channelId: SYSTEM, threadTs: null, channelGoal: null, senderId: OWNER });
+    check('A1: no slug in the system channel/DM → the VERBATIM §4.5 mechanical NACK, and NO call crosses the boundary',
+      a1.mechanical === true && a1.nacked === true && a1.nack === NACK_MECHANICAL && a1.applied === false
+      && posts.length === 1 && posts[0] && posts[0].text === SPEC_4_5_MECHANICAL_NACK && calls.length === 0,
+      { nack: posts[0] && posts[0].text, calls: calls.length });
+
+    // A2. A slug matching ZERO of the goals the caller supplied.
+    const a2 = await door.handle({ text: 'pause no-such-goal', channelId: SYSTEM, threadTs: null, channelGoal: null, liveGoals: [GOAL, OTHER], senderId: OWNER });
+    check('A2: with a roster supplied, a slug matching ZERO live goals NACKs at the grammar — still no call',
+      a2.nacked === true && a2.applied === false && calls.length === 0, { out: a2, calls: calls.length });
+
+    // A3. A slug matching SEVERAL (§4.2: zero OR several is the same ambiguity).
+    const a3 = await door.handle({ text: 'resume dup', channelId: SYSTEM, threadTs: null, channelGoal: null, liveGoals: ['dup', 'DUP'], senderId: OWNER });
+    check('A3: a slug matching TWO live goals is the same ambiguity → the verbatim NACK, no call',
+      a3.nacked === true && a3.applied === false && calls.length === 0, { out: a3 });
 
     // A4. The bare verb in a GOAL channel is unambiguous — it targets that channel's goal.
-    const a4 = await door.handle({ text: 'pause', channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL, OTHER] });
-    check('A4: a BARE verb in a goal channel targets THAT goal — no slug needed [§4.2]',
+    const a4 = await door.handle({ text: 'pause', channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
+    check('A4: a BARE verb in a goal channel targets THAT goal — no slug needed [§4.2] — and that goal is what crosses',
       a4.mechanical === true && a4.ok === true && a4.goal === GOAL
-      && api.getGoalState(GOAL).stored === 'paused' && api.getGoalState(OTHER) == null,
-      { goal: a4.goal, state: api.getGoalState(GOAL).stored, sibling: api.getGoalState(OTHER) });
+      && calls.length === 1 && calls[0].payload.goal === GOAL,
+      { goal: a4.goal, payload: calls[0] && calls[0].payload });
 
-    // A5. A first token that is not pause/resume is NOT this door's message — it must fall
-    // through to the master doors [T5-R14], not collect a mechanical NACK.
-    const before = posts.length;
-    const a5 = await door.handle({ text: 'what is the status?', channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
+    // A5. A non-mechanical first token falls through to the master doors [T5-R14].
+    const beforePosts = posts.length;
+    const a5 = await door.handle({ text: 'what is the status?', channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
     check('A5: a non-mechanical first token is NOT handled here and gets NO NACK — it falls through to the master door [T5-R14]',
-      a5.mechanical === false && posts.length === before, { result: a5 });
+      a5.mechanical === false && posts.length === beforePosts && calls.length === 1, { result: a5 });
+
+    // [C-14] resume-with-instructions: the comments ride out to the caller, uninterpreted.
+    const a6 = await door.handle({ text: `resume ${GOAL} but skip the audio step`, channelId: CHANNEL, threadTs: 'T2', channelGoal: GOAL, senderId: OWNER });
+    check('A6: [C-14] an approval-thread `resume {goal}` WITH comments carries them out as instructions, uninterpreted here',
+      a6.instructions === 'but skip the audio step' && a6.comments === 'but skip the audio step',
+      { instructions: a6.instructions });
   }
 
-  // ── B. THE RESUME-SEMANTICS TABLE, ONE FIXTURE PER ROW [C-14] ────────────────────────────────
-
-  // ROW 4 — paused goal.
-  {
-    const { door, api } = fresh();
-    api.writeGoalWord({ goal: GOAL, stored: 'paused', who_stamped: 'owner', evidence_pointer: EV });
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    check('B-row4: a PAUSED GOAL flips paused→running so armed eligible lanes may launch',
-      out.ok === true && api.getGoalState(GOAL).stored === 'running'
-      && out.actions.some((a) => a.row === 'goal' && a.change === 'paused→running'),
-      { state: api.getGoalState(GOAL).stored, actions: out.actions });
-  }
-
-  // ROW 1 — disarmed `incomplete:` from attempt-counter exhaustion.
-  {
-    const { door, api } = fresh();
-    halt(api, 'worker', 'attempt-counter exhaustion');
-    api.incrementRecoveryRelaunch({ goal: GOAL, seat: 'worker' });
-    const before = api.getCurrentEnding({ goal: GOAL, seat: 'worker' });
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const after = api.getCurrentEnding({ goal: GOAL, seat: 'worker' });
-    check('B-row1: a COUNTER-EXHAUSTED lane is RE-ARMED (armed 0→1, named_event consumed) and the relaunch BUDGET is NOT spent',
-      out.ok === true && Number(before.armed) === 0 && Number(after.armed) === 1 && after.named_event == null
-      && after.recovery_relaunch_count === before.recovery_relaunch_count
-      && out.actions.some((a) => a.row === 'counter-exhaustion' && a.seat === 'worker'),
-      { before: { armed: before.armed, ev: before.named_event, budget: before.recovery_relaunch_count },
-        after: { armed: after.armed, ev: after.named_event, budget: after.recovery_relaunch_count } });
-  }
-
-  // ROW 2 — `incomplete: blocked-on-human`.
-  {
-    const { door, api, posts } = fresh();
-    halt(api, 'asker', 'blocked-on-human');
-    // `insertAsk` always lands `posted = 0`; `postAsk` is what marks it told-to-the-owner, and
-    // §2.1's wait predicate reads that flag — an unposted ask holds nothing.
-    api.insertAsk({ ask_id: '1724508123.123456', goal: GOAL, seat: 'asker', label: 'work-content', evidence_pointer: EV });
-    api.postAsk({ ask_id: '1724508123.123456', posted_at: '2026-08-24T10:00:00Z' });
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const after = api.getCurrentEnding({ goal: GOAL, seat: 'asker' });
-    const ask = api.getAsk('1724508123.123456');
-    const said = posts.map((p) => p.text).join('\n');
-    check('B-row2: a BLOCKED-ON-HUMAN lane is REFUSED and pointed at its open ask thread — still disarmed, ask still OPEN, never reaped',
-      Number(after.armed) === 0 && ask.state === 'open'
-      && out.refusals.some((r) => r.row === 'blocked-on-human' && r.asks.includes('1724508123.123456'))
-      && said.includes('1724508123.123456'),
-      { armed: after.armed, ask: ask.state, refusals: out.refusals, said });
-  }
-
-  // ROW 3 — gate-cap stop (two failed D13s).
-  {
-    const { door, api, posts } = fresh();
-    halt(api, 'gate', 'gate-re-plan cap');
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const after = api.getCurrentEnding({ goal: GOAL, seat: 'gate' });
-    check('B-row3: a GATE-CAP lane is REFUSED and pointed at the gate decision-ask — no third re-plan, cap not flipped, still disarmed',
-      Number(after.armed) === 0 && after.named_event === 'ask-answered'
-      && out.refusals.some((r) => r.row === 'gate-cap' && r.seat === 'gate')
-      && posts.some((p) => /re-plan cap/.test(p.text)),
-      { armed: after.armed, named_event: after.named_event, refusals: out.refusals });
-  }
-
-  // "A goal may carry more than one kind at once. Apply every matching row." (spec-recovery §4)
-  {
-    const { door, api } = fresh();
-    api.writeGoalWord({ goal: GOAL, stored: 'paused', who_stamped: 'owner', evidence_pointer: EV });
-    halt(api, 'counter', 'attempt-counter exhaustion');
-    halt(api, 'human', 'blocked-on-human');
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const counter = api.getCurrentEnding({ goal: GOAL, seat: 'counter' });
-    const human = api.getCurrentEnding({ goal: GOAL, seat: 'human' });
-    check('B-multi: a goal carrying THREE halted kinds applies EVERY matching row independently — goal running, counter lane re-armed, blocked-on-human lane still disarmed',
-      api.getGoalState(GOAL).stored === 'running' && Number(counter.armed) === 1 && Number(human.armed) === 0
-      && out.actions.length === 2 && out.refusals.length === 1,
-      { goal: api.getGoalState(GOAL).stored, counter: counter.armed, human: human.armed, actions: out.actions, refusals: out.refusals });
-  }
-
-  // ── C. PAUSE IS THE INVERSE OF THE PAUSED-GOAL ROW **ONLY** ─────────────────────────────────
-  {
-    const { door, api } = fresh();
-    api.writeGoalWord({ goal: GOAL, stored: 'running', who_stamped: 'owner', evidence_pointer: EV });
-    api.stampSystem({ goal: GOAL, seat: 'live', ending: 'incomplete', armed: 1, diagnostic: 'context full', evidence_pointer: EV });
-    api.insertAsk({ ask_id: '999.111', goal: GOAL, seat: 'live', label: 'work-content', evidence_pointer: EV });
-    api.postAsk({ ask_id: '999.111', posted_at: '2026-08-24T11:00:00Z' });
-    const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const lane = api.getCurrentEnding({ goal: GOAL, seat: 'live' });
-    const ask = api.getAsk('999.111');
-    check('C1: `pause {goal}` flips running→paused and NOTHING else — it does not disarm a lane and does not open an ask',
-      out.ok === true && api.getGoalState(GOAL).stored === 'paused'
-      && Number(lane.armed) === 1 && ask.state === 'open',
-      { state: api.getGoalState(GOAL).stored, laneArmed: lane.armed, ask: ask.state });
-
-    // §4.2: neither verb releases an ask. Resume must leave it exactly as pause did.
-    const out2 = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const ask2 = api.getAsk('999.111');
-    check('C2: neither verb flips an ask off `open` [§4.2] — pause/resume is not an answer and never releases one',
-      out2.ok === true && ask2.state === 'open' && ask2.authorized_reply_at == null,
-      { ask: ask2.state, repliedAt: ask2.authorized_reply_at });
-  }
-
-  // ── D. ROW 1'S OTHER HALF: THE ATTEMPT COUNTER ──────────────────────────────────────────────
-  //
-  // The failure being replaced is a resume that reports `disarmed→armed` and leaves the lane
-  // SKIPPED: `fireNamedEvent` re-arms the ending row, but `reconcile.js#counterDisarmed` reads the
-  // counter ledger, and nothing was clearing it. Seven lanes on the live instance were in that
-  // state (2026-08-27) with no way out of it.
-  {
-    const { door, api, posts, countersFile } = fresh();
-    const before = exhaustCounter(countersFile, 'leader', 'nonterm');
-    exhaustCounter(countersFile, 'leader', 'unread');
-    exhaustCounter(countersFile, 'plan-drafter', 'nonterm');
-    // A different goal's row, to prove the resume is LANE-SCOPED and not a wide clear.
-    counters.countAttempt({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: OTHER, seat: 'leader', reasonClass: 'nonterm', n: 3,
-    }, { countersFile });
-    halt(api, 'leader', 'attempt-counter exhaustion');
-    halt(api, 'plan-drafter', 'attempt-counter exhaustion');
-
-    check('D1: the fixture is a real disarmed counter — three same-reason passes reached N=3',
-      before && before.attempts === 3, { attempts: before && before.attempts });
-
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL, OTHER] });
-    const gone = (seat, cls) => counters.peekCounter({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat, reasonClass: cls,
-    }, { countersFile }) === null;
-
-    check('D2: resume CONSUMES the disarmed counter — every row of every lane of that goal is cleared',
-      gone('leader', 'nonterm') && gone('leader', 'unread') && gone('plan-drafter', 'nonterm'),
-      { leaderNonterm: gone('leader', 'nonterm'), leaderUnread: gone('leader', 'unread'), drafter: gone('plan-drafter', 'nonterm') });
-
-    const other = counters.peekCounter({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: OTHER, seat: 'leader', reasonClass: 'nonterm',
-    }, { countersFile });
-    check('D3: and it is LANE-SCOPED — another goal\'s counter is untouched (only code-deploy/config-change are wide)',
-      other !== null && other.attempts === 1, { other: other && other.attempts });
-
-    const lane = api.getCurrentEnding({ goal: GOAL, seat: 'leader' });
-    check('D4: the ENDING half still fires — both acts of row 1 happen, not one instead of the other',
-      Number(lane.armed) === 1 && out.actions.some((a) => a.row === 'counter-exhaustion'),
-      { armed: lane.armed, rows: out.actions.map((a) => a.row) });
-
-    const counterActions = out.actions.filter((a) => a.row === 'counter');
-    check('D5: each cleared row is REPORTED with the count it was cleared from — a silent undo of a silent disarm is no better',
-      counterActions.length === 3 && counterActions.every((a) => a.attempts >= 1 && a.reason_class)
-        && /attempt counter re-armed \(nonterm, was 3\)/.test(posts[posts.length - 1].text),
-      { actions: counterActions.map((a) => `${a.seat}/${a.reason_class}=${a.attempts}`), text: posts[posts.length - 1].text });
-  }
-
-  // ── D-RED. THE MUTATION: the door as it stood before this wiring ────────────────────────────
-  //
-  // No port = the pre-fix shape. The ending row flips and the counter STANDS AT N, which is the
-  // exact state the live instance was in: `resume` answers `disarmed→armed` and the reconcile loop
-  // skips the lane forever. If this arm ever goes green, the fix has been undone.
-  {
-    const { door, api, countersFile } = fresh({ withCounterPort: false });
-    exhaustCounter(countersFile, 'leader', 'nonterm');
-    halt(api, 'leader', 'attempt-counter exhaustion');
-    await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const row = counters.peekCounter({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat: 'leader', reasonClass: 'nonterm',
-    }, { countersFile });
-    const lane = api.getCurrentEnding({ goal: GOAL, seat: 'leader' });
-    check('D6 [RED-MUTATION]: with no counter port the lane is armed on paper and still disarmed to the reconcile loop',
-      row !== null && row.attempts === 3 && Number(lane.armed) === 1,
-      { attempts: row && row.attempts, armed: lane.armed });
-  }
-
-  // ── D-NO-STORE. The deployed shape: no ending-store port is wired in this process ────────────
-  {
-    const { door, posts, countersFile } = fresh({ withStore: false });
-    exhaustCounter(countersFile, 'leader', 'nonterm');
-    const out = await door.handle({ text: `resume ${GOAL}`, channelId: CHANNEL, channelGoal: GOAL, liveGoals: [GOAL] });
-    const row = counters.peekCounter({
-      driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: GOAL, seat: 'leader', reasonClass: 'nonterm',
-    }, { countersFile });
-    check('D7: with no store the counter half STILL runs — it is the half the reconcile loop reads — and the missing half is said out loud',
-      out.applied === true && row === null && /no ending-store port is wired/.test(posts[posts.length - 1].text),
-      { applied: out.applied, row, text: posts[posts.length - 1].text });
-  }
-
-  closeEndingStores();
   const pass = checks.every((c) => c.pass);
   const wallMs = Date.now() - t0;
   const exit = pass ? 0 : 1;
@@ -313,7 +273,7 @@ function halt(api, seat, diagnostic) {
   process.stdout.write(`PROBE probe-chat-pause-resume EXIT=${exit} WALL_MS=${wallMs} PASS=${pass} CHECKS=${checks.length}\n`);
   if (!pass) process.stdout.write(`FAILED: ${checks.filter((c) => !c.pass).map((c) => c.name).join(' | ')}\n`);
   process.exit(exit);
-})().catch((err) => {
-  process.stdout.write(`PROBE probe-chat-pause-resume EXIT=1 THREW ${err.stack}\n`);
+})().catch((err2) => {
+  process.stdout.write(`PROBE probe-chat-pause-resume EXIT=1 THREW ${err2.stack}\n`);
   process.exit(1);
 });

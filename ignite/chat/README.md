@@ -1156,38 +1156,76 @@ tell the owner an execution started when nothing did. Probe:
 
 ## The mechanical door — `pause-resume.js`
 
-`pause {goal}` / `resume {goal}` (`spec-owner-io` §4.2/§4.4/§4.5) plus the
-resume-semantics table (`spec-recovery` §4 [C-14]). A first token of `pause` or
-`resume` is handled by the daemon/bot and BYPASSES the goal master; every other
-owner-initiated message still goes to the master doors [T5-R14]. In a goal
-channel a bare verb targets that channel's goal; in the system channel or a DM
-the slug is required, and a slug matching zero or several live goals gets the
-verbatim §4.5 mechanical NACK with nothing changed.
+`pause {goal}` / `resume {goal}` (`spec-owner-io` §4.2/§4.4/§4.5). A first token of
+`pause` or `resume` is handled by the daemon/bot and BYPASSES the goal master;
+every other owner-initiated message still goes to the master doors [T5-R14]. In a
+goal channel a bare verb targets that channel's goal; in the system channel or a
+DM the slug is required, and a grammar failure gets the verbatim §4.5 mechanical
+NACK with nothing sent.
 
-`pause` is the inverse of the paused-goal row only: `running` → `paused`. It does
-not disarm a lane and does not open an ask. `resume` applies EVERY matching row:
-the goal flips `paused` → `running`; a counter-exhausted lane is re-armed through
-the `named-external-input` named event (the relaunch budget is not spent); a
-`blocked-on-human` lane and a gate-cap lane are REFUSED and pointed at their asks.
-Neither verb ever flips an ask off `open`.
+This module is GRAMMAR + SENDER + POSTER. It applies nothing itself: the verb
+crosses the daemon boundary as the gateway intent `pause-resume`, payload
+`{verb: 'pause'|'resume', goal}`, and the daemon answers
+`{verb, goal, applied, actions, refusals}`, which the door renders back into the
+channel or thread the verb arrived in. The resume-semantics table (`spec-recovery`
+§4 [C-14]) — the goal word flip, the counter-exhaustion re-arm, the
+`blocked-on-human` and gate-cap refusals — lives DAEMON-SIDE behind that intent,
+and no second copy of it may exist in `chat/`. Neither verb ever flips an ask off
+`open`. Probe: `probes/probe-chat-pause-resume.js`.
 
-The ending-store API arrives INJECTED (`state-store/index.js#bind(db)` plus a
-`listSeats(goal)` enumerator) — this module holds no store handle and opens no
-database. Probe: `probes/probe-chat-pause-resume.js`.
+### Why a sender and not an injected applier
 
-### ⚠ The mechanical door is BUILT AND PROVEN, NOT REACHABLE IN PRODUCTION YET
+The owner reversed the 2026-08-24 deferral on 2026-08-28 (~02:00Z) and directed
+the pause/resume intent to be minted, because the door as built could not work.
+The bridge is a separate process holding no store handle
+(`probes/probe-chat-boundary.js`), so `endingStore`, `listSeats`, `listLiveGoals`
+and `rearmCounters` were injectable ports that `index.js#main()` never wired: the
+door parsed and targeted correctly, applied NOTHING, and — the actual defect —
+returned BEFORE posting anything, so an owner who typed `pause X` in Slack got
+silence. The sender is now built from the forwarder the bridge already holds,
+ALWAYS, which is `start-execution.js`'s precedent exactly: an injectable applier is
+the seam where a stub `{applied:true}` gets written to make a test pass, and the
+door then tells the owner a goal is paused while it runs.
 
-The approval door's D12 effect IS reachable now: the fourteenth intent
-`start-execution` was minted on 2026-08-24 (option (b)) and `chat-bridge.js`
-builds its sender from the forwarder it already holds.
+### Every outcome answers; none is silent
 
-The mechanical door is not. `index.js#main()` still wires no `endingStore`,
-because the SAME ruling deliberately did not mint the pause-word intent — pause
-stays store-side until the execution-lane reconcile gate converges onto the
-goal-state row. The approval door's other three ports (`closeGoal`, `pauseGoal`,
-`relaunchDraftVerify`) are also still unwired. All of them degrade LOUDLY — an
-unwired approval port posts the [C-16] failure into the approval thread, a missing
-ending store logs a warn and applies nothing — never silently.
+`NOT_FOUND` — the slug names no live goal — is the §4.2 ambiguity and gets the
+verbatim §4.5 NACK. Every OTHER failure gets an honest one-line refusal,
+`pause <goal> was NOT applied — <error>`: an `UNKNOWN_INTENT` from a daemon
+deployed without the executor, a daemon-side authorization refusal, a transport
+timeout, a throw, or an `ok` carrying no `actions`/`refusals` result. The last one
+matters as much as the rest — rendering an empty result would answer "nothing to
+change." for a daemon that did nothing at all.
+
+### ⚠ The door admits only an authorized sender
+
+`chat-bridge.js` runs this door BEFORE the forward path's per-principal admission
+gate (`forward-path.js#onChatMessage` → `allowlist.check`), because a mechanical
+verb never forwards. That ordering was inert while the door applied nothing; with
+the intent live it would let any member of the Slack workspace who can DM the bot
+pause a goal, stamped `who_stamped: 'owner'`. So the door asks the SAME predicate
+object the ask door authorizes with — `allowlist.isAdmitted`, built from
+`config.allowlist`, the same instance config `askDoor`'s `authorizedSenders`
+reads — never a second list. An unauthorized sender's `pause X` returns
+`{mechanical: false}`, falls through to the ordinary path and is refused at that
+gate; this door answers it nothing, so an unadmitted principal cannot learn from a
+NACK which goals exist. `isAdmitted` and not `check`, because `check` mints a
+pending-pairing record and the fall-through path is what should record it, once.
+
+### ⚠ Two deploys, and this is the first
+
+The bridge is useless for these verbs until a daemon carrying the `pause-resume`
+executor is also deployed. Until then the gateway's closed intent set answers
+`UNKNOWN_INTENT`, and the door posts
+`pause <goal> was NOT applied — UNKNOWN_INTENT: unknown intent: pause-resume` —
+honestly, in the channel, never silence.
+
+The approval door's D12 effect is reachable through the same shape: the fourteenth
+intent `start-execution` was minted on 2026-08-24 (option (b)) and `chat-bridge.js`
+builds its sender from the forwarder it already holds. The approval door's other
+three ports (`closeGoal`, `pauseGoal`, `relaunchDraftVerify`) are still unwired and
+still degrade LOUDLY — an unwired approval port posts the [C-16] failure into the
+approval thread.
 
 ## The glance surfaces — `system-digest.js` and `status-line.js`
 

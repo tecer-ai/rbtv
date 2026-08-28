@@ -11,23 +11,46 @@
 // BYPASSES the goal master; every other owner-initiated message still goes to the master doors
 // [T5-R14]. That is the entire reason this module exists.
 //
-// ⚑ THIS MODULE HOLDS NO STORE HANDLE AND OPENS NO DATABASE. The bridge is a separate process
-//   (`probes/probe-chat-boundary.js`). The ending-store API arrives INJECTED — the object
-//   `state-store/index.js#bind(db)` returns — so the reader is the one the redesign already owns
-//   and the recovery semantics are CALLED, never re-implemented here.
+// ── THE CONTRACT THIS MODULE IS BUILT TO (owner direction 2026-08-28 ~02:00Z, restated VERBATIM
+//    from the `fix-pause-bridge` seat; the daemon half is built against the same words) ─────────
 //
-// ⚑ ROW 1 OF THE RESUME TABLE IS TWO ACTS, NOT ONE. `fireNamedEvent` re-arms the ENDING row; the
-//   table's "resets that counter" is the DRIVER's attempt counter (spec-recovery §5), which lives
-//   in the supervisor's ledger and which `reconcile.js#counterDisarmed` reads on every pass. A
-//   resume that fires only the first act reports `disarmed→armed` and leaves the lane skipped
-//   forever. The second act arrives through the `rearmCounters` port below for the same
-//   process-boundary reason the store does.
+//   Intent `pause-resume`, payload `{ verb: 'pause'|'resume', goal }`, sent by the bridge token
+//   through the forwarder you already hold (`chat/gateway-forwarder.js:50 call(intent, payload,
+//   opts)` / `forward`). Result `{ verb, goal, applied, actions, refusals:[{row,text,seat?}] }` —
+//   today's `applyPause`/`applyResume` return shape (`chat/pause-resume.js:113-206`), so
+//   `summarize()` (`:208-222`) renders it unchanged. Errors: `NOT_FOUND` = the slug names no live
+//   goal → post the verbatim §4.5 mechanical NACK (`reply-grammar.js:5 NACK_MECHANICAL`,
+//   byte-identical to spec-owner-io §4.5, diff-verified by the wave); any other refusal or
+//   transport failure → post an honest one-line refusal naming the reason (`pause <goal> was NOT
+//   applied — <error>`), never silence.
+//
+// ⚑ THIS MODULE IS GRAMMAR + SENDER + POSTER, AND NOTHING ELSE. It holds no store handle, opens
+//   no database, and applies nothing itself: `applyPause`/`applyResume` and the resume-semantics
+//   table LIVE IN THE DAEMON now, behind the `pause-resume` intent. That is not a refactor — it is
+//   the only shape that works. The bridge is a separate process (`probes/probe-chat-boundary.js`
+//   forbids this subtree a store handle, a child process and a sibling require), so the door that
+//   used to take an INJECTED store applied nothing in production and said nothing about it. The
+//   fix is the `start-execution` precedent exactly (`chat/start-execution.js:41-46`): the sender is
+//   built from the forwarder the bridge already holds, ALWAYS, and the capability stays daemon-
+//   side. An injectable applier port is the wrong seam — it is where a stub `{applied:true}` gets
+//   written to make a test pass, and the door then tells the owner a goal is paused when it runs.
+//
+// ⚑ NO SECOND COPY OF THE RESUME-SEMANTICS TABLE MAY EXIST IN `chat/`. If a lane's refusal prose
+//   or a diagnostic name reappears here, two processes are deciding one fact and they will drift.
 //
 // ⚑ THERE IS NO THIRD PAUSE GRAMMAR. The owner-reply `pause` token is parsed by
-//   `reply-grammar.js` (§4) and applied to the ending store's goal word (`goal_states.stored`,
-//   spec-state-store §3). It is NOT `lane-watch.laneIsPaused` — that reads the legacy
-//   `execution-lane` file's first token. Two readers exist during the migration; a third would be
-//   one more place for the two to disagree.
+//   `reply-grammar.js` (§4). The verb's EFFECT is the daemon's; this file only names it.
+//
+// ⚑ THE DOOR ADMITS ONLY AN AUTHORIZED SENDER, AND THAT IS LOAD-BEARING NOW. `chat-bridge.js`
+//   runs this door BEFORE the forward path's per-principal admission gate
+//   (`forward-path.js#onChatMessage` → `allowlist.check`), because a mechanical verb never
+//   forwards. That was inert while the door applied nothing; with the intent LIVE it would let any
+//   member of the Slack workspace who can DM the bot pause a goal, stamped `who_stamped: 'owner'`.
+//   So the door asks the SAME predicate object the ask door authorizes with (`config.allowlist`,
+//   `chat-bridge.js` → `ask-thread.js#authorizedSenders`) — never a second list — and an
+//   unauthorized sender's `pause X` returns `{mechanical: false}`, falls through to the ordinary
+//   path, and is refused at the existing gate. It gets NO answer from this door on purpose: this
+//   door must not tell an unadmitted principal which goals exist.
 //
 // ⚑ PAUSE/RESUME NEVER RELEASES AN ASK [§4.2]. Neither verb writes `open_asks`. An owner who
 //   pauses a goal that is waiting on a question is still owed that question's answer, and the ask
@@ -35,185 +58,45 @@
 
 const { parseReply, NACK_MECHANICAL } = require('./reply-grammar');
 
-// The diagnostics the resume-semantics table has a row for (spec-state-store's
-// `LISTED_INCOMPLETE` keys — quoted, not imported: this module may not reach a sibling tree).
-const D_BLOCKED_ON_HUMAN = 'blocked-on-human';
-const D_GATE_CAP = 'gate-re-plan cap';
-const D_COUNTER_EXHAUSTION = 'attempt-counter exhaustion';
-const NAMED_EXTERNAL_INPUT = 'named-external-input';
+const INTENT = 'pause-resume';
 
-// Authored refusal prose (NOT spec-verbatim — §4.5's two NACKs answer an UNPARSED verb; these two
-// answer a verb that parsed and named a live goal whose halt `resume` deliberately does not lift).
-function blockedOnHumanRefusal(seat, askIds) {
-  const where = askIds.length ? ` Answer it in its thread: ${askIds.join(', ')}.` : '';
-  return `resume does not lift ${seat}: it is halted waiting on an open ask, and only an authorized reply in that thread releases it.${where}`;
-}
+// The one error code with a SPECIFIED answer: the slug named no live goal, which is the §4.2
+// ambiguity §4.5 answers with its verbatim NACK. Every other code is rendered honestly instead.
+const NOT_FOUND = 'NOT_FOUND';
 
-function gateCapRefusal(seat) {
-  return `resume does not lift ${seat}: it stopped at the re-plan cap. Answer the gate decision-ask — resume does not open a third re-plan.`;
+// The honest one-line refusal. It names the verb, the goal and the REASON, because the failure
+// this replaces is silence — an owner who typed `pause` and got nothing back cannot tell a paused
+// goal from a broken bridge.
+function refusalLine(verb, goal, reason) {
+  return `${verb} ${goal} was NOT applied — ${reason}`;
 }
 
 function createPauseResume({
-  // The bound ending-store API (`state-store/index.js#bind(db)`). Duck-typed on purpose: this
-  // module names the four calls it makes and nothing else, so it can be driven by the real store
-  // or by whatever process ends up holding the handle.
-  store = null,
-  // `listSeats(goal) -> [seatName]`. The ending store has no "every lane of this goal" reader
-  // today, and inventing one here would be a second source of that fact — so the enumerator is
-  // the embedder's, and a missing one means resume applies the GOAL row only.
-  listSeats = null,
-  // `rearmCounters(goal) -> [{subject, seat, driver, reason_class, attempts}]` — the OTHER half of
-  // resume-semantics row 1. The table says resume "re-arms that driver; resets that counter", and
-  // the counter is NOT the ending row: it is the supervisor's attempt-counter ledger, which
-  // `reconcile.js#counterDisarmed` reads on every pass and which `fireNamedEvent` does not touch.
-  // A lane re-armed on the ending row alone is still skipped by the reconcile loop — that gap is
-  // why seven lanes on this instance were permanently disarmed (2026-08-27).
-  //
-  // ⚑ INJECTED FOR THE SAME REASON `store` IS, and this is a WALL, not a preference. The ledger is
-  //   DAEMON state and this is a separate process: `probes/probe-chat-boundary.js` forbids this
-  //   subtree a store handle, a child process and a sibling require, and the build memory records
-  //   what happens to a migration that reaches through it anyway (entry
-  //   `20260824-i-open-asks-has-no-boundary-lega`, reverted whole). The daemon-side implementation
-  //   is `supervisor/exhaustion.js#rearmScope`; wiring it into THIS process needs a gateway intent,
-  //   which is an owner-ruled act. With no port the counter half simply does not happen and the
-  //   door says so, exactly as it already does for the unwired store.
-  rearmCounters = null,
+  // The bridge's ONE outbound path to the daemon (`gateway-forwarder.js`). REQUIRED, and refused
+  // at construction: a door built without it could only ever answer as if it had acted, and this
+  // module exists because that is precisely what it used to do.
+  forwarder,
+  // `isAuthorizedSender(chatUserId) -> boolean`. REQUIRED. See the admission note above: the
+  // bridge passes the predicate of the list it already holds, never a copy of the list.
+  isAuthorizedSender,
   // Posts a line back where the verb arrived: in-thread when it came in a thread, otherwise as a
   // reply to the command message. Required — a mechanical verb that answers nothing is the
   // silence [F-owner-ux-2] forbids.
   post,
-  // Every ending-store write carries one (`evidence_pointer` is NOT NULL and non-empty).
-  evidencePointer = (verb, goal) => `owner ${verb} in chat · goal ${goal}`,
   logger = null,
 } = {}) {
+  if (!forwarder || typeof forwarder.forward !== 'function') {
+    throw new Error('createPauseResume requires the gateway forwarder — the verb crosses the daemon boundary as the `pause-resume` intent');
+  }
+  if (typeof isAuthorizedSender !== 'function') {
+    throw new Error('createPauseResume requires isAuthorizedSender — this door runs BEFORE the forward path\'s admission gate');
+  }
   if (typeof post !== 'function') throw new Error('createPauseResume requires post — a mechanical verb must answer where it arrived');
   const log = (level, message, fields = {}) => { if (logger) logger({ level, message, ...fields }); };
 
-  function seatsOf(goal) {
-    if (typeof listSeats !== 'function') return [];
-    try { return (listSeats(goal) || []).map(String); } catch (err) {
-      log('warn', 'could not enumerate the goal\'s lanes — resume applies the goal row only', { goal, error: err.message });
-      return [];
-    }
-  }
-
-  // The counter half's one call site. A port that throws must not cost the owner the rest of the
-  // table — the failure becomes a refusal the door posts, never an exception that eats the verb.
-  function rearmCounterRows(goal) {
-    if (typeof rearmCounters !== 'function') return { cleared: [], error: null };
-    try {
-      const out = rearmCounters(goal);
-      return { cleared: Array.isArray(out) ? out : [], error: null };
-    } catch (err) {
-      log('warn', 'the attempt-counter re-arm port refused — resume\'s counter half did not happen', { goal, error: err.message });
-      return { cleared: [], error: err.message };
-    }
-  }
-
-  // `pause {goal}` is the inverse of the paused-goal row ONLY (spec-recovery §4): flip
-  // `running` → `paused`. It does not disarm a lane and it does not open an ask.
-  function applyPause(goal) {
-    if (!store) return { applied: false, reason: 'no-store', actions: [], refusals: [] };
-    const before = store.getGoalState(goal);
-    if (before && before.stored === 'paused') {
-      return { applied: true, actions: [{ row: 'goal', change: 'already-paused', goal }], refusals: [] };
-    }
-    if (before && before.stored === 'finished') {
-      return { applied: false, reason: 'finished', actions: [], refusals: [{ row: 'goal', text: `${goal} is finished — there is nothing to pause.` }] };
-    }
-    store.writeGoalWord({ goal, stored: 'paused', who_stamped: 'owner', evidence_pointer: evidencePointer('pause', goal) });
-    return { applied: true, actions: [{ row: 'goal', change: 'running→paused', goal }], refusals: [] };
-  }
-
-  // `resume {goal}` — the resume-semantics table [C-14], EVERY MATCHING ROW. A goal may carry
-  // more than one halted kind at once, and each row is independent: the goal flipping to
-  // `running` does not re-arm a counter-exhausted lane, and a lane refusing to be lifted does not
-  // stop the goal word from flipping.
-  function applyResume(goal) {
-    const actions = [];
-    const refusals = [];
-
-    // ROW 1, THE COUNTER HALF. It runs FIRST and it runs whether or not a store is wired, because
-    // it is the half the reconcile loop reads: a lane whose counter still stands at N is skipped
-    // on every pass no matter what the ending row says.
-    const counter = rearmCounterRows(goal);
-    for (const row of counter.cleared) {
-      actions.push({
-        row: 'counter',
-        seat: row.seat || row.subject,
-        driver: row.driver,
-        reason_class: row.reason_class,
-        attempts: row.attempts,
-        change: 'counter reset',
-      });
-    }
-    if (counter.error) refusals.push({ row: 'counter', text: `${goal}: the attempt counters were NOT re-armed — ${counter.error}` });
-
-    if (!store) {
-      // The goal word and every lane ending need the store this process does not hold. Say which
-      // half happened rather than answering as if the whole row did.
-      refusals.push({ row: 'no-store', text: `${goal}: no ending-store port is wired in this process — the goal word and the lane endings were not touched.` });
-      return {
-        applied: counter.cleared.length > 0,
-        ...(counter.cleared.length ? {} : { reason: 'no-store' }),
-        actions,
-        refusals,
-      };
-    }
-
-    // ROW 4 — paused goal: flip `paused` → `running`. Armed eligible lanes may then launch; a
-    // disarmed one stays disarmed until its own row (or another named re-arm) consumes the flag.
-    const goalState = store.getGoalState(goal);
-    if (goalState && goalState.stored === 'paused') {
-      store.writeGoalWord({ goal, stored: 'running', who_stamped: 'owner', evidence_pointer: evidencePointer('resume', goal) });
-      actions.push({ row: 'goal', change: 'paused→running', goal });
-    } else if (goalState && goalState.stored === 'finished') {
-      refusals.push({ row: 'goal', text: `${goal} is finished — resume does not reopen a finished goal.` });
-    }
-
-    for (const seat of seatsOf(goal)) {
-      let current = null;
-      try { current = store.getCurrentEnding({ goal, seat }); } catch { current = null; }
-      if (!current || current.ending !== 'incomplete' || Number(current.armed) !== 0) continue;
-      const diagnostic = String(current.diagnostic || '');
-
-      // ROW 2 — `incomplete: blocked-on-human`: NACK pointing at the open ask thread. Resume is
-      // NOT a substitute for an authorized reply and does not reap the ask.
-      if (diagnostic === D_BLOCKED_ON_HUMAN) {
-        let askIds = [];
-        try { askIds = (store.listOpenAsks({ goal, seat }) || []).map((a) => String(a.ask_id)); } catch { askIds = []; }
-        refusals.push({ row: 'blocked-on-human', seat, text: blockedOnHumanRefusal(seat, askIds), asks: askIds });
-        continue;
-      }
-
-      // ROW 3 — gate-cap stop (two failed D13s): NACK pointing at the gate decision-ask. Resume
-      // does not open a third re-plan and does not flip the cap.
-      if (diagnostic === D_GATE_CAP) {
-        refusals.push({ row: 'gate-cap', seat, text: gateCapRefusal(seat) });
-        continue;
-      }
-
-      // ROW 1 — disarmed `incomplete:` from attempt-counter exhaustion: re-arm that driver via the
-      // NAMED RE-ARM EVENT the store already models (spec-recovery §5's closed list names
-      // "mechanical `resume {goal}` on a disarmed-counter lane"). `fireNamedEvent` is the one
-      // writer of that flag — the counter is CONSUMED here, and the relaunch budget
-      // (`recovery_relaunch_count`) is deliberately left where it stands.
-      if (diagnostic === D_COUNTER_EXHAUSTION || current.named_event === NAMED_EXTERNAL_INPUT) {
-        try {
-          store.fireNamedEvent({ goal, seat, named_event: NAMED_EXTERNAL_INPUT });
-          actions.push({ row: 'counter-exhaustion', seat, change: 'disarmed→armed', named_event: NAMED_EXTERNAL_INPUT });
-        } catch (err) {
-          refusals.push({ row: 'counter-exhaustion', seat, text: `could not re-arm ${seat}: ${err.message}` });
-        }
-        continue;
-      }
-      // Any other disarmed diagnostic has NO row in the table — it is left exactly as it is, and
-      // said so, rather than lifted by a rule nobody wrote.
-      refusals.push({ row: 'no-row', seat, text: `resume has no rule for ${seat} (${diagnostic || 'disarmed'}) — left untouched.` });
-    }
-    return { applied: true, actions, refusals };
-  }
-
+  // The daemon's answer, rendered. UNCHANGED from the shape `applyPause`/`applyResume` returned
+  // when they lived here — that is why the contract fixes the result shape rather than inventing
+  // a wire format: the renderer is the part the owner reads and it was already right.
   function summarize(verb, goal, out) {
     const lines = [];
     if (out.actions.length === 0 && out.refusals.length === 0) {
@@ -231,40 +114,83 @@ function createPauseResume({
 
   // ── THE DOOR ────────────────────────────────────────────────────────────────────────────────
   //
-  // `text` is the owner's raw message. `channelGoal` is the goal this channel belongs to (null in
-  // the system channel and in a DM, which is exactly why the slug is required there). `liveGoals`
-  // is the live-goal name list the slug must resolve against — a slug that matches ZERO or SEVERAL
-  // is the ambiguity §4.5 answers with its verbatim mechanical NACK.
+  // `text` is the owner's raw message. `senderId` is the chat principal who typed it. `channelGoal`
+  // is the goal this channel belongs to (null in the system channel and in a DM, which is exactly
+  // why the slug is required there). `liveGoals` is an OPTIONAL roster for the grammar — null in
+  // production now, because the live-goal roster is the daemon's fact and the daemon is the one
+  // resolving the slug; the approval-thread release path still passes what it has.
   //
-  // Returns `{mechanical:false}` when the first token is not `pause`/`resume` — the caller then
-  // continues to whatever door it would otherwise have used, unchanged [T5-R14].
-  async function handle({ text, channelId, threadTs = null, channelGoal = null, liveGoals = null }) {
+  // Returns `{mechanical:false}` when the first token is not `pause`/`resume`, AND when the sender
+  // is not authorized — the caller then continues to whatever door it would otherwise have used,
+  // unchanged [T5-R14].
+  async function handle({ text, channelId, threadTs = null, channelGoal = null, liveGoals = null, senderId = null }) {
     const parsed = parseReply(text, { channelGoal, liveGoals });
 
-    // A parse failure is only OURS when the first token really was `pause`/`resume`; anything else
-    // is not this door's message and must not be answered with this door's NACK.
+    // Is this message ours at all? A parse failure is only OURS when the first token really was
+    // `pause`/`resume`; anything else is not this door's message and must not be answered with
+    // this door's NACK.
+    const ours = parsed.ok ? parsed.family === 'mechanical' : parsed.nackKind === 'mechanical';
+    if (!ours) return { mechanical: false };
+
+    // ADMISSION, BEFORE ANY POST AND BEFORE ANY CALL. Checked here rather than at the parse arms
+    // below so that an unauthorized principal cannot even learn from the NACK that this door
+    // exists — and so that the fall-through carries the message to the one gate that owns the
+    // refusal (`forward-path.js#onChatMessage`), which also records the pairing request.
+    if (!isAuthorizedSender(senderId)) {
+      log('warn', 'mechanical verb from an UNAUTHORIZED sender — not handled here; falls through to the ordinary admission gate', { senderId, channelGoal });
+      return { mechanical: false, refused: 'unauthorized-sender' };
+    }
+
     if (!parsed.ok) {
-      if (parsed.nackKind !== 'mechanical') return { mechanical: false };
       await post({ channelId, threadTs, goalId: channelGoal, text: NACK_MECHANICAL });
       log('info', 'mechanical verb could not be targeted — verbatim §4.5 NACK posted, NOTHING changed', { channelGoal });
       return { mechanical: true, ok: false, nacked: true, nack: NACK_MECHANICAL, applied: false };
     }
-    if (parsed.family !== 'mechanical') return { mechanical: false };
 
     const goal = parsed.goal;
     const verb = parsed.outcome;
-    // `pause` writes the goal word and nothing else, so with no store it has no applier at all.
-    // `resume` has TWO appliers — the ending store and the counter ledger — and either one wired
-    // is a verb worth running: the counter half is the half the reconcile loop reads.
-    const hasApplier = store || (verb === 'resume' && typeof rearmCounters === 'function');
-    if (!hasApplier) {
-      // No applier is wired in this process yet. Say so rather than answer as if it worked — a
-      // silent success is how an owner learns to trust a door that does nothing.
-      log('warn', 'mechanical verb parsed and targeted, but NO applier port is wired in this process — nothing applied', { verb, goal });
-      return { mechanical: true, ok: false, applied: false, reason: 'no-store', verb, goal, comments: parsed.comments };
+
+    // Every exit below this line POSTS. There is no arm that returns in silence — that branch is
+    // the defect this module was rewritten to delete.
+    const nacked = async () => {
+      await post({ channelId, threadTs, goalId: channelGoal, text: NACK_MECHANICAL });
+      log('info', 'the daemon knows no such live goal — verbatim §4.5 NACK posted, NOTHING changed', { verb, goal });
+      return { mechanical: true, ok: false, nacked: true, nack: NACK_MECHANICAL, applied: false, verb, goal };
+    };
+    const refused = async (reason) => {
+      await post({ channelId, threadTs, goalId: goal, text: refusalLine(verb, goal, reason) });
+      log('warn', `mechanical ${verb} was NOT applied`, { verb, goal, reason });
+      return { mechanical: true, ok: false, applied: false, verb, goal, error: reason, actions: [], refusals: [] };
+    };
+
+    let res;
+    try {
+      res = await forwarder.forward(INTENT, { verb, goal });
+    } catch (err) {
+      // The forwarder resolves transport failures rather than throwing, so a throw here is a
+      // programming or wiring fault — still answered, never swallowed.
+      return refused(`the ${INTENT} call threw: ${err.message}`);
     }
 
-    const out = verb === 'pause' ? applyPause(goal) : applyResume(goal);
+    if (!res.ok) {
+      const code = (res.error && res.error.code) || 'unknown';
+      // NOT_FOUND is the §4.2 ambiguity, and §4.5 fixes its wording. Every OTHER code — an
+      // UNKNOWN_INTENT from a daemon that has not been deployed with the executor yet, an
+      // authorization refusal, a transport timeout — is rendered as itself. Collapsing them into
+      // the NACK would tell the owner their goal does not exist when the daemon is simply old.
+      if (code === NOT_FOUND) return nacked();
+      const message = (res.error && res.error.message) || code;
+      return refused(`${code}: ${message}`);
+    }
+
+    const out = res.result;
+    // A malformed result is a refusal, not a rendered "nothing to change." — `summarize` reads
+    // `actions`/`refusals` and would answer an EMPTY success for a daemon that returned nothing,
+    // which is the same lie in a new place.
+    if (!out || !Array.isArray(out.actions) || !Array.isArray(out.refusals)) {
+      return refused(`the daemon answered ${INTENT} with no actions/refusals result`);
+    }
+
     await post({ channelId, threadTs, goalId: goal, text: summarize(verb, goal, out) });
     log('info', `mechanical ${verb} applied`, {
       goal, actions: out.actions.map((a) => a.row), refusals: out.refusals.map((r) => r.row),
@@ -284,16 +210,12 @@ function createPauseResume({
     };
   }
 
-  return { handle, applyPause, applyResume };
+  return { handle };
 }
 
 module.exports = {
   createPauseResume,
   NACK_MECHANICAL,
-  D_BLOCKED_ON_HUMAN,
-  D_GATE_CAP,
-  D_COUNTER_EXHAUSTION,
-  NAMED_EXTERNAL_INPUT,
-  blockedOnHumanRefusal,
-  gateCapRefusal,
+  INTENT,
+  refusalLine,
 };

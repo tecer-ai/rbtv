@@ -31,17 +31,14 @@ const STATE_VERSION = 1;
 function createChatBridge({
   config, forwarder, transport, allowlist, threadMap, goalChannels = null, logger = null,
   replyLegOptions = {}, busFerryOptions = {},
-  // ── THE TWO PORTS THIS PROCESS CANNOT HOLD ITSELF ─────────────────────────────────────────
+  // ── THE ONE PORT THIS PROCESS CANNOT HOLD ITSELF ──────────────────────────────────────────
   // The bridge runs SEPARATE from the daemon and holds no store handle and no spawn path
-  // (`probes/probe-chat-boundary.js`), so the two acts an approval outcome and a mechanical verb
-  // ultimately perform live behind injected ports:
+  // (`probes/probe-chat-boundary.js`), so an approval outcome's three acts live behind an
+  // injected port:
   //
   //   approvalPorts — `{closeGoal, pauseGoal, relaunchDraftVerify}` (approval-thread.js).
-  //   endingStore   — the bound ending-store API (`state-store/index.js#bind(db)`) the
-  //                   pause/resume door applies the resume-semantics table through, plus
-  //                   `listSeats(goal)` to enumerate the goal's lanes.
   //
-  // ⚑ `materialize` IS NO LONGER ONE OF THEM, AND IT IS NOT INJECTABLE HERE. D12 is the
+  // ⚑ `materialize` IS NOT ONE OF THEM, AND IT IS NOT INJECTABLE HERE. D12 is the
   // FOURTEENTH gateway intent `start-execution` (owner ruling 2026-08-24, option (b),
   // `redesign-implementation/decisions.md`): the bridge sends the approved goal's start through
   // the gateway and a daemon-side executor runs the supervised Path-B birth. It is built below
@@ -50,14 +47,14 @@ function createChatBridge({
   // `materialize` is exactly the seam where a stub `{ok:true}` would do that. An embedder that
   // passes one is REFUSED at construction, not quietly ignored.
   //
-  // ⚠ `endingStore` IS STILL NOT WIRED IN PRODUCTION, and it degrades LOUDLY, never silently: a
-  // missing ending store logs a warn and applies nothing. Its production wiring waits on a
-  // goal-word intent the 2026-08-24 ruling deliberately did NOT mint — pause stays store-side
-  // until the execution-lane reconcile gate converges onto the goal-state row.
+  // ⚑ NEITHER IS THE MECHANICAL VERB'S APPLIER, AND FOR THE SAME REASON. `endingStore`,
+  // `listSeats`, `listLiveGoals` and `rearmCounters` are GONE (owner direction 2026-08-28
+  // ~02:00Z, reversing the 2026-08-24 deferral): `pause`/`resume` is the gateway intent
+  // `pause-resume`, the resume-semantics table lives daemon-side, and the door below is built
+  // from this bridge's own forwarder — always, exactly like `start-execution`. Nothing wired
+  // those four ports in production, so the door parsed correctly and applied NOTHING while
+  // answering the owner with silence; an injectable applier is the seam that made that possible.
   approvalPorts = {},
-  endingStore = null,
-  listSeats = null,
-  listLiveGoals = null,
 }) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -172,23 +169,22 @@ function createChatBridge({
 
   // ── THE MECHANICAL DOOR (`pause-resume.js`, spec-owner-io §4.4) ─────────────────────────────
   // A first token of `pause`/`resume` is the daemon's, and it BYPASSES the goal master [T5-R14].
+  // Built from the forwarder this bridge already holds, ALWAYS — the `start-execution` line above
+  // is the precedent and the reason (pause-resume.js's header carries the whole argument).
+  //
+  // ⚑ THE SENDER PREDICATE IS THE ASK DOOR'S OWN LIST, NOT A SECOND ONE. This door runs BEFORE
+  //   the forward path's per-principal admission gate, because a mechanical verb never forwards —
+  //   so with the intent live it is the ONLY gate between a Slack workspace member and a paused
+  //   goal. `allowlist` is the object built from `config.allowlist`, the same instance config
+  //   `askDoor`'s `authorizedSenders` reads. `isAdmitted` and not `check`, because `check` mints
+  //   a pending-pairing record: the fall-through path below is what should record it, once.
   const mechanicalDoor = createPauseResume({
-    store: endingStore,
-    listSeats,
+    forwarder,
+    isAuthorizedSender: (chatUserId) => allowlist.isAdmitted(chatUserId),
     post: ({ channelId, threadTs, goalId, text }) =>
       postSlack({ kind: 'nack', channel: channelId, threadTs, text, goal_id: goalId }),
     logger,
   });
-
-  // The live-goal roster a `pause {slug}` / `resume {slug}` resolves against (§4.2): a slug that
-  // matches ZERO or SEVERAL live goals is the ambiguity §4.5 answers with its verbatim NACK.
-  // INJECTED, because the roster is the daemon's fact and this process holds no store — with no
-  // port wired, `liveGoals` is null and the grammar accepts a well-formed slug as typed, which is
-  // the honest degradation (the applier is the one that will find no such goal).
-  function liveGoalNames() {
-    if (typeof listLiveGoals !== 'function') return null;
-    try { const n = listLiveGoals(); return Array.isArray(n) && n.length ? n.map(String) : null; } catch { return null; }
-  }
 
   // THE RELEASE, called from the inbound path below and nowhere else.
   async function releaseAskFor(entry, chatMsg) {
@@ -203,7 +199,10 @@ function createChatBridge({
       senderId: chatMsg.chatUserId,
       text: chatMsg.text,
       channelGoal,
-      liveGoals: liveGoalNames(),
+      // The live-goal roster the grammar resolves a slug against (§4.2). This process holds no
+      // store and no port ever supplied one, so it has always been null here — the roster is the
+      // daemon's fact and the `pause-resume` executor is what resolves the slug now.
+      liveGoals: null,
       // [T3-R22] a `reject-and-pause`d approval thread was already released once. Later messages
       // in it are authorized and parsed by the same door but must NOT reap a second time.
       reap: !(isApproval && entry.paused === true),
@@ -218,7 +217,10 @@ function createChatBridge({
         channelId: chatMsg._channel,
         threadTs: entry.askId,
         channelGoal: channelGoal || entry.goalId,
-        liveGoals: liveGoalNames(),
+        liveGoals: null,
+        // The ask door authorized this sender already; the mechanical door re-asks the same
+        // predicate rather than trusting the caller — one gate, asked at every entrance to it.
+        senderId: chatMsg.chatUserId,
       });
       return {
         ...out,
@@ -748,6 +750,13 @@ function createChatBridge({
     //
     // ⚑ IT NEVER RELEASES AN ASK. The ask-thread door above already ran, so a message that is an
     //   ANSWER never reaches here; and the door itself writes no `open_asks` row.
+    //
+    // ⚠ THIS RUNS BEFORE THE FORWARD PATH'S ADMISSION GATE, so the SENDER travels with the verb.
+    //   `allowlist.check` is downstream of here (`forward-path.js#onChatMessage`) and a mechanical
+    //   verb never forwards, so nothing downstream would ever see this message: an unauthorized
+    //   `pause X` is returned `{mechanical:false}` by the door and falls into the ordinary path
+    //   below, which refuses it at that gate. Dropping `senderId` here re-opens goal pausing to
+    //   any member of the Slack workspace who can DM the bot.
     if (rawMsg && rawMsg._channel && !rawMsg._inThread && rawMsg.text) {
       const channelGoal = goalChannels ? goalChannels.goalForChannel(rawMsg._channel) : null;
       const mech = await mechanicalDoor.handle({
@@ -755,7 +764,8 @@ function createChatBridge({
         channelId: rawMsg._channel,
         threadTs: rawMsg._msgTs || null,
         channelGoal,
-        liveGoals: liveGoalNames(),
+        liveGoals: null,
+        senderId: rawMsg.chatUserId,
       });
       if (mech.mechanical === true) {
         return { forwarded: false, leg: 'mechanical', route: 'mechanical', ...mech };
