@@ -1315,6 +1315,36 @@ CAPACITY_UNENFORCEABLE_LINE = (
 CAPACITY_CENSUS_DEFER_LINE = (
     "  {agent}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN for this act: the census "
     "could not be read, and this act will not admit a counted seat blind. Pickup lane above.")
+# ---------- 7.363 SCOPED TO THE LANE IT MEASURES — G-leader-0828-0524 --------------------------
+#
+# 7.363 defers every counted seat where the census is ABSENT, and 7.406 admits the one room no
+# sensor has ever touched. Neither asks WHICH LANE the goal runs on, and `state.json` is the TMUX
+# ROOM's census: on a goal whose `execution-lane` reads `daemon` there is no room, no pane, and no
+# writer that could ever produce one (the sensor is deleted — see 7.406's own warning below). A
+# daemon-lane goal that has ALREADY run seats is therefore neither countable nor virgin, so it
+# took the deferral branch permanently: measured 2026-08-28 on `scratch-death-recovery-1-exec`,
+# where a leader's ruled `--rerun` of a crashed seat was ADMITTED and then deferred forever, with
+# the deferral's own text barring every override flag. The cap is not weakened here and no flag is
+# added: the term is scoped to the lane whose seats are panes. On the tmux lane every reading,
+# branch and string below is untouched.
+#
+# ⚠ THE STRING DELIBERATELY CARRIES NEITHER WIRE MARKER (`CAP UNENFORCEABLE`, `CAP NOT
+# CONSULTED`): rows assert the ABSENCE of both to prove which branch an act took, and a line that
+# narrates the pane census using their words would make those rows read this commentary. Same
+# discipline as every line above it — no policy number, the cap named by FIELD, `{pkg}` the
+# caller's own package path.
+CAPACITY_LANE_INAPPLICABLE_LINE = (
+    "  capacity: cap.agent_panes is INAPPLICABLE to this act — {pkg}'s `execution-lane` reads "
+    "`daemon` and this lane opens NO tmux pane: every admitted seat is handed to the daemon's own "
+    "spawn door as an `enqueue-job` (`launch_daemon_lane` below), so the pane census has no panes "
+    "to count here and its absence is not a missing reading. The pane cap is SKIPPED, never "
+    "unknown and never deferred. THE GATES THAT DO BIND THIS LANE, unchanged by this skip: the "
+    "memory floor read live at the launch gate from this package's own budget.json "
+    "(floors.launch_refuse_mb, `coord.launch_gates`, both lanes), and the daemon door's own "
+    "IDEMPOTENT DEDUP, which refuses a second sitting under one seat and is reported here as NOT "
+    "ENQUEUED (deduped). \u26a0 The dedup is named and the door's ADMISSION BRAKE is not: that "
+    "brake was deleted whole [C-4 kill map, 01196394] and `enqueue()` can no longer answer "
+    "`braked`, so a line resting on it would name a refusal that can no longer occur.")
 # §4.5 — readings worth SAYING that are not worth DEGRADING on. They print on the full-capacity
 # branch only: each one describes how the cap reading was USED, and on the degrade branch it was
 # not used at all, so printing them there would describe a consultation that did not happen.
@@ -2624,7 +2654,19 @@ def cmd_launch(args):
     # `cap.agent_panes` is a `budget.json` configuration gap, not a census failure, so it degrades
     # too. Reading `_cap_stale` rather than re-deriving it keeps the ruled read order intact.
     _cap_blind = _cap_c is None or _cap_stale is True
-    if _cap_blind:
+    # G-leader-0828-0524: IS THE CAP'S OWN SUBJECT PRESENT ON THIS LANE AT ALL? Read from `_lane`,
+    # resolved once at the top of this command through the goals-tree's own speller
+    # (`goal_execution_lane`) — never re-derived here, which is the same bound §W1 puts on every
+    # other lane read in this file. It is the FIRST arm of the chain because it is a question about
+    # the TERM's applicability, not about the quality of a reading: `_cap_blind`, `_cap_coldstart`
+    # and the degrade reasons all answer "how good is the census", and none of them is meaningful
+    # for a room that does not exist. The reading taken above is left UNCONSULTED rather than
+    # skipped at the read: the read is one home and this decision is one home, and nothing the
+    # census produced reaches an admission on this arm — a stale or a fresh `state.json` sitting in
+    # a daemon-lane goal folder changes nothing here, which is what a selftest control asserts.
+    if _lane == "daemon":
+        print(coord.c(CAPACITY_LANE_INAPPLICABLE_LINE.format(pkg=str(_cap_pkg)), coord.C_HINT))
+    elif _cap_blind:
         if _cap_coldstart:
             # ---- THE COLD-START BRANCH — ADMITS ON THE EMPTY-ROOM BOUND, NEVER MORE -----------
             #

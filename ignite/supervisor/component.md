@@ -878,6 +878,17 @@ daemon-lane goal to run `rbtv run`.
 
 Proof: `probes/probe-lane-room-open.js` — six goals on a PRIVATE tmux server, six red mutation arms.
 
+## The pane cap does not measure the daemon lane [G-leader-0828-0524, 2026-08-28]
+
+`launch.py`'s capacity term SKIPS the `cap.agent_panes` pane census (`<goal>/state.json`, whose
+writer died with the team-monitor sensor) on a goal whose `execution-lane` reads `daemon` — naming
+in one line why (this lane opens no pane) and which gates still bind it (the memory floor at
+`coord.launch_gates`, both lanes; the daemon door's per-seat admission) — because a roomless goal
+that has already run seats is neither countable nor cold-start and so deferred every counted seat
+forever, stranding a leader's ruled `--rerun` of a crashed seat on `scratch-death-recovery-1-exec`;
+the tmux lane is untouched (an absent census there still defers, in the same words), proof
+`coord/coord_selftest.py` rows `E22-CAP-1/2/3`.
+
 ## A SUMMONED chair is never seeded (D24's seeding half, 2026-08-27)
 
 `coord/identity.py#SUMMONED_SEATS` is the ONE list of chairs that exist only when the owner

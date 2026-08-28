@@ -6291,6 +6291,126 @@ def _selftest_checks(args, failures, names):
                   and gateway_client.resolve_token(env={}, start="/nonexistent-e22-zz",
                                                    workspace_root=_e22_ws) == "file-token-42"
                   and gateway_client.resolve_token(env={}, start="/", workspace_root="/") is None)
+        # ==== E22-CAP (G-leader-0828-0524): THE PANE CENSUS IS SCOPED TO THE LANE THAT HAS PANES ==
+        # Measured 2026-08-28 on the daemon-lane goal `scratch-death-recovery-1-exec`: a leader's
+        # ruled `--rerun` of a `kill -9`ed seat printed `ADMITTED by --rerun` and was then DEFERRED
+        # forever, because `<goal>/state.json` — the TMUX ROOM's census — is absent on a goal that
+        # has no room, has no writer that could produce one, and is not VIRGIN either (its seats
+        # have run, so `sessions.csv` exists and 7.406's cold-start bound cannot fire). The rows
+        # below reproduce that state exactly and assert the lane scope that fixes it.
+        #
+        # ⚠ WHY THIS FIXTURE AND NOT `_c3l`: the capacity block's own package carries no crashed
+        # ending and no registry, so `--rerun` cannot be admitted there at all; `pkg` carries
+        # gamma's supervisor-stamped `failed`/`crash` ending, the taskforce row and the lane marker
+        # D42/E22 already built. THE TWO THINGS THIS BLOCK ADDS TO IT ARE RESTORED AFTERWARDS, so
+        # every row after it reads the fixture D42 and E22 left behind.
+        #
+        # ⚠ AND `pkg`'s BUDGET IS WHAT MAKES THE ROWS NON-VACUOUS. Until now it declared FLOORS
+        # ONLY — no `counting.counts_toward_cap` and no `cap.agent_panes` — so every seat in it was
+        # UNCOUNTED and the capacity term could not defer anybody here whatever the census said:
+        # E22-1 above passes with the term present or absent. The counting block and the counted
+        # `agent_type` below are what put gamma UNDER the cap, and the console control proves it.
+        _ecap_budget_before = (pkg / "budget.json").read_bytes()
+        _ecap_desc = gdir / "agent.md"
+        _ecap_desc_before = _ecap_desc.read_bytes()
+        (pkg / "budget.json").write_text(json.dumps(
+            {"floors": {"launch_refuse_mb": 2000, "pressure_warn_mb": 2000},
+             "counting": {"counts_toward_cap": ["staff", "worker", "verifier"],
+                          "never_counts": {"master": "the owner door"}},
+             "cap": {"agent_panes": 2}}), encoding="utf-8")
+        # `staff` is the type the crashed live seat declares; the point is only that it is a member
+        # of this fixture's own `counts_toward_cap`, which is where the predicate is read from.
+        _ecap_desc.write_text(_ecap_desc_before.decode("utf-8").replace(
+            "\nwindow: yes\n", "\nwindow: yes\nagent_type: staff\n"), encoding="utf-8")
+        _ecap_state = pkg / "state.json"
+        _ecap_bytes_before = sessions_csv(pkg).read_bytes()
+        check("E22-CAP (precondition): the fixture now reproduces the live goal's state — gamma "
+              "DECLARES a type this package's own `counting.counts_toward_cap` contains, the "
+              "package declares `cap.agent_panes`, there is NO `state.json`, and `sessions.csv` "
+              "exists (so the room is not virgin and 7.406's cold-start bound cannot fire). "
+              "Without all four the rows below would pass with the mechanism absent",
+              not _ecap_state.exists()
+              and sessions_csv(pkg).exists()
+              and {_w["agent"]: _w["agent_type"]
+                   for _w in launch.discover_workers(pkg / "workers")}["gamma"] == "staff")
+        # ---- ARM 1: THE DAEMON LANE — the census is INAPPLICABLE, and the seat reaches the door --
+        _e22_marker.write_text("daemon\n", encoding="utf-8")
+        _ecap_d, _ecap_d_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
+                                       dry_run=True, rerun=_d42_a)
+        check("E22-CAP-1 (G-leader-0828-0524, THE FIX): on a goal whose `execution-lane` reads "
+              "`daemon` and which has NO `state.json`, `--rerun` is ADMITTED *and the seat is "
+              "COMPOSED FOR THE DAEMON'S DOOR* — the pane census is SKIPPED with one line naming "
+              "why (this lane opens no pane) and naming the gates that do bind it, never reported "
+              "as an unknown headroom and never deferred. Before this the identical invocation "
+              "printed ADMITTED and then deferred gamma permanently, on a file whose only writer "
+              "is deleted",
+              _ecap_d_code == 0
+              and "ADMITTED by --rerun" in _ecap_d
+              and "cap.agent_panes is INAPPLICABLE to this act" in _ecap_d
+              and "this lane opens NO tmux pane" in _ecap_d
+              and "floors.launch_refuse_mb" in _ecap_d
+              and "IDEMPOTENT DEDUP" in _ecap_d
+              and "DEFERRED (capacity)" not in _ecap_d
+              and "CAP UNENFORCEABLE" not in _ecap_d
+              and "CAP NOT CONSULTED" not in _ecap_d
+              and "capacity: COLD-START" not in _ecap_d
+              and "[dry-run] gamma (" in _ecap_d
+              and "enqueue-job job_id=seat-pkg-gamma" in _ecap_d
+              and "session_mode=headless" in _ecap_d)
+        # ---- ARM 2: THE TMUX LANE IS UNTOUCHED — the RED control for ARM 1, one marker apart ----
+        _e22_marker.write_text("console\n", encoding="utf-8")
+        _ecap_c, _ecap_c_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
+                                       dry_run=True, rerun=_d42_a)
+        check("E22-CAP-2 CONSOLE-LANE CONTROL (the RED control for ARM 1 — only the lane marker "
+              "moved): with `execution-lane` reading `console` the SAME invocation on the SAME "
+              "absent census still DEFERS gamma, in the SAME words as before this change, and "
+              "opens nothing. The gate is not weakened, it is scoped: a room that HAS panes and "
+              "cannot count them still admits nobody blind. This row is also what proves ARM 1 is "
+              "not vacuous — gamma is genuinely under the cap here",
+              _ecap_c_code == 0
+              and "ADMITTED by --rerun" in _ecap_c
+              and "capacity: CAP UNENFORCEABLE" in _ecap_c
+              and "gamma: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN for this act"
+                  in _ecap_c
+              and "cap.agent_panes is INAPPLICABLE" not in _ecap_c
+              and "[dry-run] gamma" not in _ecap_c)
+        # ---- ARM 3: THE DAEMON LANE IGNORES A PRESENT CENSUS TOO -------------------------------
+        # The skip is decided by the LANE, never by the reading: a `state.json` that happens to sit
+        # in a daemon-lane goal folder (copied in, left by a lane change, written by hand) is not a
+        # licence to count panes that do not exist. Written STALE on purpose — the one reading that
+        # would otherwise take the same deferral branch ARM 2 asserts.
+        _e22_marker.write_text("daemon\n", encoding="utf-8")
+        _ecap_state.write_text(json.dumps({"captured_at": time.time() - 86400,
+                                           "box": {"available_mb": 999999},
+                                           "seats": [{"seat": "ghost", "agent_type": "staff",
+                                                      "agent_type_source": "seat",
+                                                      "harness": "claude", "live": True,
+                                                      "class": "agent"}]}), encoding="utf-8")
+        _ecap_s, _ecap_s_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
+                                       dry_run=True, rerun=_d42_a)
+        _ecap_state.unlink()
+        check("E22-CAP-3 A PRESENT (AND STALE) `state.json` CHANGES NOTHING ON THE DAEMON LANE: "
+              "the same skip line, the same enqueue, no deferral and no stale-census branch. The "
+              "term is scoped by the LANE, not by the quality of a reading — a snapshot sitting in "
+              "a roomless goal's folder is not a licence to count panes that do not exist",
+              _ecap_s_code == 0
+              and "cap.agent_panes is INAPPLICABLE to this act" in _ecap_s
+              and "DEFERRED (capacity)" not in _ecap_s
+              and "CAP UNENFORCEABLE" not in _ecap_s
+              and "enqueue-job job_id=seat-pkg-gamma" in _ecap_s)
+        check("E22-CAP (THE ROW IS UNTOUCHED): all three arms are dry runs — `sessions.csv` is "
+              "byte-identical across them; on the daemon lane the row is the daemon's, opened at "
+              "dispatch, and this act never writes one",
+              sessions_csv(pkg).read_bytes() == _ecap_bytes_before)
+        _e22_marker.unlink()
+        (pkg / "budget.json").write_bytes(_ecap_budget_before)
+        _ecap_desc.write_bytes(_ecap_desc_before)
+        check("E22-CAP (fixture postcondition): the counting block, the counted `agent_type` and "
+              "the lane marker are all gone again, so every row after this block reads the "
+              "floors-only budget and the untyped gamma D42 built",
+              (pkg / "budget.json").read_bytes() == _ecap_budget_before
+              and _ecap_desc.read_bytes() == _ecap_desc_before
+              and not _ecap_state.exists())
         check("E22 (fixture postcondition): the lane marker is gone again, so every row after "
               "this block composes for the console lane it was written against",
               not _e22_marker.exists())
