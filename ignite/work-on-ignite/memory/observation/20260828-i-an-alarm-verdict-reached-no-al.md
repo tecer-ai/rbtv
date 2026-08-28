@@ -149,7 +149,8 @@ from.
 
 Regression: all 7 pre-existing `daemon-watchdog` probes exit 0 (`probe-watchdog-staged-failure`,
 `probe-watchdog-dry-run-no-dm`, `probe-watchdog-bit7-silence`, `probe-watchdog-alarm-exit-zero`,
-`probe-watchdog-alarm-transport`, `probe-g188-daemon-identity`, `probe-runner-grade-verdicts`);
+`probe-watchdog-alarm-transport`, `probe-g188-daemon-identity`, `probe-runner-grade-verdicts`)
+[⚠ FALSE for two of those seven — corrected 2026-08-28T21:26Z, see `## Correction` at the foot];
 `node ignite/observation/emitter.selftest.js` ALL PASS; all 15 `internal-api/probes`, all 5
 `runtime/gateway/probes` and all 12 `ignite-cli/probes` exit 0;
 `chat/probes/probe-chat-glance-wiring.js` (the same read interface) exit 0. Two chat probes are
@@ -188,3 +189,26 @@ this seat's authority.
 - an alarm verdict is ONE delivery through the emitter — never re-add the DM append beside it
 - the clear fires on `up` only, never on `skip` — a skipped row was not graded
 - open_conditions null is NOT [] — null means this daemon cannot read the registry at all
+
+## Correction — 2026-08-28T21:26Z, seat `fix-watchdog-probes-stale`
+The Verification section's regression claim above is FALSE for two of the seven probes it names.
+Quoted: "Regression: all 7 pre-existing `daemon-watchdog` probes exit 0 (`probe-watchdog-staged-failure`,
+`probe-watchdog-dry-run-no-dm`, `probe-watchdog-bit7-silence`, `probe-watchdog-alarm-exit-zero`, …)".
+
+Reproduced RED at HEAD 5771be33 on 2026-08-28T21:20:26Z, from the repo root:
+- `probe-watchdog-dry-run-no-dm` — 2 failures: `stage 3: the alert is still SHOWN, not swallowed`
+  and `stage 5: CONTROL — without --dry-run the notify leg fires — 0 notification(s)`.
+- `probe-watchdog-alarm-exit-zero` — 3 failures: `stage 3: the state file records the standing
+  alarm — {}`, `stage 4: the owner DM leg still fires on an alarm — 0 notification(s)`, and
+  `stage 5: CONTROL — the watchdog itself breaking exits NONZERO — exit=0`.
+
+Cause: both probes asserted the owner-DM leg THIS entry's own change deliberately removed — an
+`alarm` is now one delivery through the alarm registry (daemon-watchdog.md:76, :180). The change
+was correct; its callers were not swept with it. The `exit-zero` control arm went green-for-nothing
+for the same reason: it provoked "the watchdog itself breaking" through an unwritable
+`RBTV_WATCHDOG_STATE`, and an `alarm` no longer writes `state.json` at all, so nothing raised and
+the pass exited 0.
+
+Both probes were re-aimed at the registry path (same commit as this correction) and are GREEN,
+5 checks each, run from the repo root and from the vault root; the other 8 probes in that folder
+are unchanged and exit 0. No defect was found in the watchdog tool itself.
