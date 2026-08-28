@@ -40,6 +40,12 @@ step: `tables.sql` is `CREATE TABLE IF NOT EXISTS` throughout and `open.js` runs
 Kit/engine door: `cli.js` (`--db` `--op` `--payload`). One-shot cutover copy:
 `copy-home.js` (do not run against a live daemon).
 
+⚠ `cli.js` has a SECOND op family that takes NO `--db`: the ROOTED ops (`pauseResume`), which
+resolve their own store from `workspaceRoot`. Every other op is a method on a bound store, so the
+caller names the file; a rooted op must never be handed one, because a caller-supplied handle is
+exactly the defect 919be192 closed (the executor wrote the daemon's private lane store while the
+lane gate read the workspace home).
+
 ### Daemon-side acts — the executors the gateway's owner-facing intents call
 
 Two modules under `heart/` are not store API but ACTS: a gateway intent's handler
@@ -50,12 +56,14 @@ bridge that witnesses the owner's words holds neither.
 | Module | Intent | What it does |
 |---|---|---|
 | `heart/start-execution.js` | `start-execution` (14th, owner ruling 2026-08-24) | Proves the approval on the daemon's OWN `open_asks` row, then delegates the Path-B birth to `planning/path_b.py` |
-| `heart/pause-resume.js` | `pause-resume` (15th, owner direction 2026-08-28) | The owner's mechanical `pause {goal}` / `resume {goal}`: the goal word, the resume-semantics table over the goal's lane endings [C-14], and the attempt-counter half via `supervisor/exhaustion.js#rearmScope`. Its live-goal roster (`.rbtv/goals/goals.csv`, folder must exist, `_`-prefixed excluded) is what makes a mistyped slug a `NOT_FOUND` the bridge renders as §4.5's verbatim NACK. It binds the ONE ending store at `<workspace>/.rbtv/runtime/ignite/heart.db` via `openEndingStoreFor(workspaceRoot)` and takes NO store handle from its caller — the file the lane gate reads is the only file it may write. Probe: `runtime/internal-api/probes/probe-pause-resume.js` |
+| `heart/pause-resume.js` | `pause-resume` (15th, owner direction 2026-08-28) | The owner's mechanical `pause {goal}` / `resume {goal}`: the goal word, the resume-semantics table over the goal's lane endings [C-14], and the attempt-counter half via `supervisor/exhaustion.js#rearmScope`. Its live-goal roster (`.rbtv/goals/goals.csv`, folder must exist, `_`-prefixed excluded) is what makes a mistyped slug a `NOT_FOUND` the bridge renders as §4.5's verbatim NACK. It binds the ONE ending store at `<workspace>/.rbtv/runtime/ignite/heart.db` via `openEndingStoreFor(workspaceRoot)` and takes NO store handle from its caller — the file the lane gate reads is the only file it may write. TWO doors reach it: the intent, and the console's `rbtv goal resume` via `cli.js --op pauseResume` — the console does NOT route through the gateway, because `runtime/internal-api/authz.js#canPauseResume` admits `sender.kind === 'bridge'` only and refuses an owner token by name. ⚠ Its `evidence_pointer` says `in chat` whichever door was used: widening the signature to carry the door would kill `probe-pause-resume`'s R0d/R4 anchor, which pins the parameter list as 919be192's red-proof. Probes: `runtime/internal-api/probes/probe-pause-resume.js`, `operator/goals-tree/probes/probe-console-resume-rearm.py` |
 
 ⚠ `pause-resume` writes the goal word; the console's `rbtv goal pause` writes the
 `execution-lane` marker. Both are live writers of one fact — `supervisor/lane-watch.js#laneIsPaused`
 is PAUSED IF EITHER SAYS SO, and a resume meeting a live console marker is refused loudly rather
-than silently overridden. Retiring the second writer is OWNER-GATED.
+than silently overridden. Retiring the second writer is OWNER-GATED. The way BACK is already one
+door: `rbtv goal resume` unstashes its marker and then calls this executor, so both surfaces clear
+together no matter which one the owner typed the pause at.
 
 ## What moved in with the component-first migration
 

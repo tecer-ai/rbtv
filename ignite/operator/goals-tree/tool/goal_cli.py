@@ -918,6 +918,126 @@ def cmd_pause(args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- the resume EVENT
+#
+# `resume {goal}` IS A NAMED RE-ARM EVENT, AND THIS DOOR HAD NEVER FIRED IT.
+#
+# `spec-recovery` §4 row 1: a disarmed `incomplete:` from attempt-counter exhaustion — "re-arms
+# that driver; resets that counter; named re-arm event"; §5's closed list of named re-arm events
+# names "mechanical `resume {goal}` on a disarmed-counter lane". There are TWO doors onto that one
+# verb — Slack (the gateway's `pause-resume` intent) and this console verb — and until now only
+# Slack implemented the contract: `cmd_resume` restored the lane file, appended a ruling, and left
+# every disarmed counter row exactly where it stood. MEASURED 2026-08-28 17:35Z on
+# `goal-memory-management`: the console printed RESUMED while `reconcile-respawn/nonterm` stayed at
+# N=3 DISARMED, so the next failed seat on that goal would have stalled with no leader wake; the
+# Slack `resume` at 17:39Z cleared it. Since `fix-leader-hold` (a7603764) stopped a code deploy
+# from wiping counters it did not cause, this verb is the only console-reachable way back.
+#
+# ⚠ THE CONSOLE DOES NOT ROUTE THROUGH THE GATEWAY INTENT, and that is ruled, not an omission.
+#   `runtime/internal-api/authz.js:531 canPauseResume` is `sender.kind === 'bridge'` and nothing
+#   else; its own comment refuses the owner CONCRETELY — "the owner's own console route is
+#   `rbtv goal pause` … admitting an owner token here would put a SECOND owner-facing writer of one
+#   fact on the authorization surface". So this door calls the EXECUTOR directly, through the state
+#   store's CLI, and the executor is the same module the intent dispatches to. One implementation
+#   of the resume-semantics table, reached by two doors — never a second copy in Python.
+#
+# ⚠ THE LANE FILE IS RESTORED FIRST AND THE ORDER IS LOAD-BEARING. `applyResume` refuses with
+#   `lane-file-paused` while the console marker still reads `paused ` (that refusal is what stops a
+#   Slack resume silently un-parking an operator's park). Firing the event before the unstash would
+#   therefore make this door refuse itself.
+
+
+def _daemon_counters_file() -> Path:
+    """The attempt-counter ledger the DAEMON reads — resolved the way the daemon operator does.
+
+    ⚠ THE LEDGER LIVES BESIDE THE CODE, NOT IN THE WORKSPACE. `supervisor/attempt-counters.js`
+    resolves it as `__dirname/attempt-counters.json`, so the file that matters is the one under the
+    tree the DAEMON booted (`$XDG_STATE_HOME/rbtv-deploy`, D6 deploy model) — while this CLI runs
+    from the live source tree, which carries no such file at all (it is gitignored and never
+    created there). Letting the executor default the path would therefore re-arm nothing, print
+    "nothing to re-arm", and leave the daemon's row at N: the same writer/reader file split
+    919be192 fixed on the ending store, arriving through a different door. `RBTV_IGNITE_DEPLOY` is
+    the same override `operator/daemon-operator/tool/rbtv-ignite-daemon:266` reads, so there is one
+    convention for "the tree the daemon runs", not a second one invented here.
+    """
+    deploy = os.environ.get("RBTV_IGNITE_DEPLOY")
+    if not deploy:
+        state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+        deploy = str(Path(state) / "rbtv-deploy")
+    return Path(deploy) / "ignite" / "supervisor" / "attempt-counters.json"
+
+
+def _fire_resume_event(root: Path, name: str) -> dict:
+    """Fire the ONE resume executor on this goal. Returns its result, or a reported failure.
+
+    NEVER RAISES. The lane-file unstash has already landed by the time this runs and must not be
+    undone by a store that will not open — so a failure here is a LOUD line the operator reads,
+    with the counter rows named as UNCHANGED, and the verb still exits 0 on the write that did
+    happen. The inverse (aborting) would leave the goal's marker restored and the caller told the
+    whole resume failed.
+    """
+    import subprocess
+
+    cli = Path(__file__).resolve().parents[3] / "state-store" / "cli.js"
+    payload = {
+        "workspaceRoot": str(root.parent.parent),
+        "verb": "resume",
+        "goal": name,
+        "countersFile": str(_daemon_counters_file()),
+    }
+    try:
+        proc = subprocess.run(
+            ["node", str(cli), "--op", "pauseResume", "--payload", json.dumps(payload)],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "error": f"the resume executor could not be run: {exc}"}
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "no output").strip().splitlines()
+        return {"ok": False, "error": (err[-1] if err else "no output")[:400]}
+    try:
+        return {"ok": True, "result": json.loads(proc.stdout or "{}")}
+    except ValueError:
+        return {"ok": False, "error": f"unreadable answer: {proc.stdout[:200]!r}"}
+
+
+# The two `actions` rows §4's counter half produces: the ledger reset (`rearmScope`) and the ending
+# row's `disarmed→armed`. Named here so the console reports the RE-ARM specifically — the goal-word
+# flip is a different row of the same table and is reported on its own line.
+_REARM_ACTION_ROWS = ("counter", "counter-exhaustion")
+
+
+def _rearm_lines(fired: dict, name: str) -> list[str]:
+    """What the console SAYS about the re-arm — rows and counts, or why there were none."""
+    if not fired.get("ok"):
+        return [f"⚠ the resume event did NOT fire — {fired['error']}. "
+                f"The lane assignment above IS restored (that write already landed), but any "
+                f"DISARMED attempt-counter rows for {name} are UNCHANGED: the daemon will keep "
+                f"skipping those lanes. Re-run `rbtv goal resume {name}` once the store answers."]
+    result = fired["result"]
+    if not result.get("found"):
+        return [f"⚠ re-arm SKIPPED — {result.get('detail') or result.get('reason')}. "
+                f"The mechanical resume door only acts on goals in the live register "
+                f"(`.rbtv/goals/goals.csv`); disarmed counter rows for {name} are UNCHANGED."]
+    lines = []
+    for act in result.get("actions") or []:
+        if act.get("row") == "counter":
+            lines.append(f"re-armed counter: {act.get('driver')}/{act.get('reason_class')} "
+                         f"on {act.get('seat')} (was N={act.get('attempts')})")
+        elif act.get("row") == "counter-exhaustion":
+            lines.append(f"re-armed lane: {act.get('seat')} disarmed→armed "
+                         f"({act.get('named_event')})")
+        elif act.get("row") == "goal":
+            lines.append(f"goal state: {act.get('change')}")
+    if not any(a.get("row") in _REARM_ACTION_ROWS for a in (result.get("actions") or [])):
+        lines.append("nothing to re-arm — no disarmed counter rows for this goal")
+    for ref in result.get("refusals") or []:
+        lines.append(f"⚠ not lifted [{ref.get('row')}]: {ref.get('text')}")
+    for entry in result.get("logs") or []:
+        if entry.get("level") in ("warn", "error"):
+            lines.append(f"⚠ {entry.get('message')}: {entry.get('error') or ''}".rstrip(": "))
+    return lines
+
+
 def cmd_resume(args) -> int:
     """Unstash: strip the `paused ` prefix. Owner-only; appends the lift ruling."""
     _root, goal_dir, name = _lane_goal_dir(args)
@@ -943,15 +1063,22 @@ def cmd_resume(args) -> int:
         scope=f"this goal (`{name}`).",
     )
     lane, legacy = read_lane(goal_dir)
+    # AFTER the unstash (see the order note above): the executor refuses while the marker still
+    # parks the goal, so this is the first moment the resume event can legally fire.
+    fired = _fire_resume_event(_root, name)
+    lines = _rearm_lines(fired, name)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "goal": name, "paused": False,
                           "lane": lane, "legacy_marker": legacy,
-                          "file": str(goal_dir / LANE_FILE)}, indent=2))
+                          "file": str(goal_dir / LANE_FILE),
+                          "rearm": fired}, indent=2))
     else:
         print(f"{name}: RESUMED — lane assignment restored to {lane.upper()}"
               + (" ⚠ (the restored marker uses the RETIRED two-token grammar and therefore reads "
                  "CONSOLE — re-run `lane --set daemon` to repair it)" if legacy else "")
               + f" ({goal_dir / LANE_FILE})")
+        for line in lines:
+            print(f"  {line}")
     return 0
 
 

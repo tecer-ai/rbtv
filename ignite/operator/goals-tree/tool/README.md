@@ -175,6 +175,24 @@ goal** and every deploy ran with it free to spawn straight through.
   already holds.
 - **`resume` refuses `not-paused`** rather than stripping a prefix that is not there: doing so
   would rewrite an assignment nobody paused.
+- **`resume` FIRES THE NAMED RE-ARM EVENT, because it IS one.** `spec-recovery` §4 row 1 and §5's
+  closed list make "mechanical `resume {goal}` on a disarmed-counter lane" a re-arm event: it
+  re-arms that driver and resets that counter. There are two doors onto that one verb — Slack's
+  `pause-resume` gateway intent and this console verb — and this one used to fire nothing, so a
+  goal whose `reconcile-respawn` counter had reached N stayed skipped on every daemon pass after a
+  console resume (measured 2026-08-28 17:35Z on `goal-memory-management`). It now calls the SAME
+  executor the intent calls — `state-store/heart/pause-resume.js`, through `state-store/cli.js
+  --op pauseResume` — after the unstash (the executor refuses while the console marker still
+  parks the goal), and prints the rows it re-armed, or `nothing to re-arm`. It does not route
+  through the gateway: `runtime/internal-api/authz.js#canPauseResume` is `sender.kind === 'bridge'`
+  and refuses an owner token by name, because the console is the other writer of this fact.
+  A store or ledger that will not answer is a loud line naming the counters as UNCHANGED — the
+  lane restore has already landed and is never undone by it.
+  ⚠ The attempt-counter ledger is `__dirname`-relative (`supervisor/attempt-counters.js`), so it
+  lives beside the CODE: the console names the ledger under the tree the DAEMON booted
+  (`$XDG_STATE_HOME/rbtv-deploy`, override `RBTV_IGNITE_DEPLOY` — the same resolution
+  `rbtv-ignite-daemon` uses), never the source tree it is itself running from, which carries no
+  ledger at all. Probe: `probes/probe-console-resume-rearm.py`.
 - **`lane --set` refuses `lane-paused` while the stash is held.** `--set` writes the marker WHOLE,
   so setting a lane during a pause would discard the stashed assignment silently — and leave the
   operator believing the goal is paused while the daemon reads it as assigned.
