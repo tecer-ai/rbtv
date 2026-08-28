@@ -29,6 +29,7 @@
 
 const path = require('node:path');
 const { openHeartStore } = require('../state-store/heart/heart-store');
+const { bind, openEndingStoreFor } = require('../state-store');
 const { createSpawnManager } = require('../supervisor/spawn/spawn');
 const { createTicker } = require('./ticker/ticker');
 const { setResolvedGoalsRoot } = require('../state-store/heart/argv-template');
@@ -104,6 +105,50 @@ function createEngine({
   // resolves rw grants against — threaded, never re-derived inside the engine.
   heartStore.config.workspaceRoot = spawnManager.workspaceRoot || null;
 
+  // ── THE ENDING STORE, HELD BY THE ENGINE [spec-state-store §1.1] ────────────────────────────
+  //
+  // WHAT WAS BROKEN. `supervisor/reconcile.js:796` reads `engine.endingStore` and NOTHING set it,
+  // so every production pass ran with `null` and each of its seven gated branches took the absent
+  // arm: the leader's answers were never drained (`:835` — four `leader-instructions/*.json` files
+  // pending across four goals on 2026-08-28, zero `LEADER INSTRUCTION was applied` lines ever),
+  // the exhaustion exit could not stamp (`countRetry`'s `exit: 'no-ending-store'`, and every
+  // disarm record on disk carries `the lane could NOT be stamped (no ending store on the pass)`),
+  // and `spendRecoveryRelaunch` was unreachable, so `recovery_relaunch_count` stayed 0 on every
+  // row and the `relaunch_budget_*` caps in `recovery.json` counted nothing.
+  //
+  // WHICH FILE, AND WHY NOT `bindEnding`. The ONE ending store is
+  // `<workspace>/.rbtv/runtime/ignite/heart.db`, and `openEndingStoreFor` is the resolver both
+  // sides of every ending question already spend. `supervisor/ending-reads.js#bindEnding` is the
+  // READER's resolver and FALLS THROUGH to the caller's lane store when the home cannot be opened
+  // — the fail-safe direction for "nothing declared", and the wrong file for the WRITER this
+  // handle is (`stampSystem`, `insertAsk`, `incrementRecoveryRelaunch`). A writer bound to the
+  // lane store reports applied and changes a file no reader reads
+  // [memory state-store/20260828-i-pause-wrote-a-store-the-lane-g ATTENTION 2].
+  //
+  // AN UNOPENABLE HOME IS `null` AND ONE ERROR LINE, NEVER A THROW. Every consumer is already
+  // written for absence — `reconcile.js` gates each branch on the store and the counter reports
+  // `no-ending-store` rather than inventing a second writer — so the daemon boots and the lanes
+  // keep running with the recovery half degraded, which is today's behaviour exactly. A boot that
+  // died here would trade a degraded recovery path for no daemon at all.
+  //
+  // ⚠ IT IS NOT CLOSED BY `close()` BELOW. `state-store/open.js` caches ONE handle per file per
+  // PROCESS and `bindEnding` hands out that same handle on every lane pass; closing it from here
+  // would take the store out from under every other reader in the daemon.
+  let endingStore = null;
+  try {
+    endingStore = bind(openEndingStoreFor(heartStore.config.workspaceRoot));
+  } catch (err) {
+    if (logger) {
+      logger({
+        level: 'error',
+        message: 'the engine holds NO ending store — the leader-instruction drain, the disarmed '
+          + 'stamp and the recovery relaunch budget are all INERT this boot [spec-state-store 1.1]',
+        workspace_root: heartStore.config.workspaceRoot,
+        error: err && err.message,
+      });
+    }
+  }
+
   // Ruling `d-0811-workdir-symlink-boot-resolve` — resolve the goals root ONCE, HERE, from the same
   // boot-read trusted value the line above threads. This is the seam because it is the one place
   // that already holds `default_workdir_root` after the config load and before the first tick can
@@ -126,6 +171,9 @@ function createEngine({
     heartStore,
     spawnManager,
     ticker,
+    // The ONE ending store [spec-state-store 1.1], or `null` when its home could not be
+    // opened. `supervisor/reconcile.js` is its reader and gates every branch on it.
+    endingStore,
     dbPath: path.resolve(dbPath),
 
     // The shared algorithm. Both lanes call THIS; neither reimplements it.
