@@ -128,6 +128,61 @@ throwaway timer the same day: wrapper exit `0`, unit active after. **The bypass 
 not kept** — every row now goes through the operator, and there is exactly one
 restart-and-verify implementation (`PRIN-11`).
 
+## Where an `alarm` verdict goes — the ONE alarm registry, not the DM
+
+⚠ **AMENDED 2026-08-28 (wave test 2).** An `alarm` verdict means "the subject is up, a human is
+needed, and no restart can help" — the `probe-suite` RED, the daemon's `401 AUTH_REFUSED`, the
+bridge's stuck reconnect loop. Until this change it reached exactly ONE surface: the owner-DM leg
+below. It never reached the ONE alarm emitter, so
+`<workspace>/.rbtv/runtime/ignite/alarm-registry.json` **did not exist** on a box that had been
+carrying a standing `probe-suite` RED for hours — and every reader of the standing-condition
+surface was structurally blind to it: the §5 system digest's "Open conditions"
+(`chat/glance.js`, which reads `emitter.readOpenConditions()`) and `ignite status`'s
+`open_conditions`. On 2026-08-26 a master seat, asked in a live owner DM whether anything was
+standing, answered "No standing warnings" while this tool printed `probe-suite alarm …` every 60
+seconds. The DM was never the alarm surface; it was the only one that had been wired.
+
+**ONE delivery, not two.** An `alarm` row now goes through `emit_alarm()` and is **NOT** appended
+to the DM `alerts` list — exactly how `daemon_health_streak()` (the emitter's other caller in this
+tool) already behaves. Two deliveries of one condition is the volume violation spec-owner-io §9.2
+forbids, and the emitter's persisted open-row signature is a durable dedupe where `state.json`'s
+fingerprint is a 6h re-alert timer.
+
+| Field | Value |
+|---|---|
+| signature class | `watchdog-<row>-alarm` — one class per ROW, never per observed text, so a `probe-suite` going from `RED` to a runner-grade-broken verdict re-posts on the SAME row rather than minting a second (`row_signature_class()`) |
+| subject | `{type: <row>, id: <unit>}` (`ROW_UNITS`) — so the `daemon` row's alarm and `watchdog-daemon-unhealthy` share a subject and differ only in class, which is what the signature is for |
+| evidence | `row_evidence()` — `latest.json` for `probe-suite`, the gateway + journal for `daemon`, the unit journal otherwise |
+| clears when | the watchdog reads that row `up` again on any pass |
+| `immediate` | `true` — system health is digest-exempt for its first post [CF-9] |
+
+**The clear is the other half.** A registry row stays OPEN until somebody closes it, and an open
+row nobody closes turns the standing-condition surface into a list of everything that has ever
+been wrong — which reads exactly like a system that is still wrong. When a row reads `up` again,
+`clear_row_alarm()` closes its signature through the shim's `act: "clear"` (added to the SAME shim
+rather than a second one: two copies of the registry path is how a caller comes to clear a row in
+a registry the emitter never wrote). Clearing is **silent** by the emitter's own rule — nothing is
+posted, the row simply stops appearing. `up` **only, never `skip`**: a skipped row was not graded,
+and closing a condition because nobody looked is the absence-reads-as-health shape this component
+exists to remove.
+
+`<workspace>/.rbtv/runtime/watchdog/row-alarms.json` (`RBTV_WATCHDOG_ROW_ALARMS`) records which
+rows currently hold an open registry row. Its own file for the same reason `daemon.json` and
+`failcount.json` are: `state.json` is cleared on every all-green pass, which is exactly the pass
+that has to CLEAR a standing alarm. It is what makes the emitter reachable once per EPISODE rather
+than once per 60s pass — this tool is pure Python stdlib precisely so it still runs when
+everything else is down, and spawning `node` every minute for an answer already known is a
+dependency the healthy path should not carry.
+
+`--dry-run` raises nothing and clears nothing. A pass whose only finding is a standing alarm no
+longer prints "all green" — it names the standing rows and where to read them.
+
+Proof: `probes/probe-watchdog-alarm-registry.py`, 31 checks — the dry wall, one open row with its
+class/subject/evidence/clears-when, the durable outbox record, no DM and no `state.json`
+fingerprint, dedupe on a second pass, the clear on recovery, a green pass with nothing open
+costing no shim call, and a RED CONTROL that loads a mutated copy of the tool with the pre-fix
+`alerts.append(...)` restored and asserts no registry row is ever written.
+
 ## Silence, and how it survives a subject that cannot be restored
 
 Invariant 3 says notify on action or failure-to-restore, never on a green pass. At a 60s
@@ -155,7 +210,9 @@ verdict**: it prints the message it would have sent and returns not-sent, so the
 state is never consumed either. The guard sits on `notify()` itself rather than on the
 `--dry-run` branch in `main()`, because an `alarm` row reaches the notify block without
 passing that branch — which is how a `--dry-run` DM'd a real person until 2026-08-14.
-Guarded by `probes/probe-watchdog-dry-run-no-dm.py`.
+Guarded by `probes/probe-watchdog-dry-run-no-dm.py`. Since 2026-08-28 a `--dry-run` also raises
+and clears NOTHING in the alarm registry, for the same reason (`probe-watchdog-alarm-registry.py`
+arm A).
 
 ⚠ **AMENDED 2026-08-15, owner ruling R1: an alarm is NOT a systemd failure.**
 
@@ -193,6 +250,7 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_TARGETS` | all three rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it. Refuses an unknown name with exit `2` — never a silent no-op |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling component `operator/daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
+| `RBTV_WATCHDOG_ROW_ALARMS` | `<workspace>/.rbtv/runtime/watchdog/row-alarms.json` — which rows hold an OPEN row in the alarm registry, so the emitter is reached once per episode rather than once per pass |
 | `RBTV_WATCHDOG_DAEMON_STATE` | `<workspace>/.rbtv/runtime/watchdog/daemon.json` — the prior-pass daemon identity the RESTARTED / CRASH-LOOP / IDENTITY verdicts compare against. Its OWN file: `RBTV_WATCHDOG_STATE` above is cleared to `null` on every all-green pass, which is exactly the pass a restart has to be detected ACROSS |
 | `RBTV_WATCHDOG_REALERT_SECONDS` | `21600` (6h) — how long an UNCHANGED alert stays suppressed before it is re-sent. `0` re-notifies every pass |
 | `RBTV_WATCHDOG_NOTIFY_FILE` | unset. **Test double** — when set, notifications are appended there as JSON lines and Slack is never called |
@@ -245,7 +303,8 @@ watchdog and daemon restarts. Decisions written:
 | `restart-allowed` | The strikes are spent and the gate permits the restart |
 | `restart-taken` | The restart ran, with its `rc` and the REPROBE verdict — every row, not only `daemon` |
 | `observed-not-healthy` | Every pass the daemon unit did not read determinately running, with the consecutive count and the threshold |
-| `alarmed` / `alarm-emit-failed` | The N-fail alarm reached the emitter, or did not — a failed emission is a fact, and NOT stamping the episode is what makes the next pass retry |
+| `alarmed` / `alarm-emit-failed` | An alarm reached the emitter, or did not — the N-fail alarm and an `alarm` ROW verdict both write these. A failed emission is a fact, and NOT stamping the episode is what makes the next pass retry |
+| `alarm-cleared` / `alarm-clear-failed` | A row that read `up` again closed (or failed to close) its standing registry row |
 | `recovered` | The unit reads determinately running again, carrying `outage_seconds` — the duration task #113 asked for, recorded as a first-class field instead of left derivable by hand from two `since` stamps |
 
 `ledger()` NEVER raises. Record-keeping that can abort the pass would be a new way for this

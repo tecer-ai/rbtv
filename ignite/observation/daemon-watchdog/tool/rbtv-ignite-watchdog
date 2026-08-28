@@ -29,6 +29,14 @@ produced no note and no record at all, and the 2026-08-19 18:18:44→21:24:59 da
     the only one that still fires when Slack is unreachable or when this watchdog is itself dead.
     RBTV_WATCHDOG_NOTIFY_FILE (or --dry-run) makes it structurally incapable of pinging.
 
+⚠ AMENDED 2026-08-28 (wave test 2). An `alarm` verdict now goes to the ONE alarm registry
+through `emit_alarm`, and NOT to the owner-DM leg — one delivery, not two (`raise_row_alarm` /
+`clear_row_alarm`, and the block above ROW_UNITS for why). Before this, a standing `alarm` reached
+only a DM: the registry file did not exist, so the system digest's "Open conditions" and
+`ignite status`'s `open_conditions` were both structurally blind to it, and a master seat asked
+about standing conditions answered "none" while this tool printed `alarm` every 60 seconds. A row
+that reads `up` again CLEARS its own registry row; `--dry-run` raises and clears nothing.
+
 Exit codes — ⚠ AMENDED 2026-08-15 (owner ruling R1): AN ALARM IS NOT A SYSTEMD FAILURE.
   0  the pass RAN. All green, it acted, a subject is still down, an alarm stands — every
      one of those is a completed pass, and the VERDICT is carried by the owner DM and by
@@ -71,6 +79,11 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
                               <workspace>/.rbtv/runtime/watchdog/failcount.json). Its own
                               file for the same reason daemon.json is: the alert-dedupe
                               state is cleared on every green pass.
+  RBTV_WATCHDOG_ROW_ALARMS    which rows currently hold an OPEN row in the alarm registry
+                              (default <workspace>/.rbtv/runtime/watchdog/row-alarms.json).
+                              Its own file for the same reason as the two above, and it is
+                              what makes the emitter call once per EPISODE rather than once
+                              per 60s pass.
   RBTV_WATCHDOG_STRIKES       consecutive failed daemon passes required before a restart
                               is allowed at all (default 3)
   RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS  after a daemon restart, how long a still-down
@@ -393,39 +406,75 @@ def alarm_shim_path():
                os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchdog-alarm.js"))
 
 
-def emit_alarm(condition, subject_id, evidence, clears_when, signature_class):
-    """Emit ONE system-health alarm through the emitter. Returns (ok, detail).
-
-    `immediate` is True and not a judgement call: spec §9.2 makes system-health alarms
-    digest-exempt for their first post [CF-9, T5-R11], and a watchdog N-fail is named there as one.
+def _run_alarm_shim(payload):
+    """Drive the shim once and return (ok, answer). ONE body for both acts: the shim path, the
+    node resolution, the JSON round-trip and the never-raises contract are the same for an emit
+    and for a clear, and two copies of them is how the two acts come to disagree about which
+    registry they are talking to.
 
     ⚠ NEVER RAISES, for the same reason `ledger` does not: the alarm path failing must not be able
     to kill the pass that was trying to raise it."""
-    payload = {"condition": condition,
-               "subject": {"type": "daemon", "id": subject_id},
-               "evidence_pointer": evidence,
-               "what_would_clear_it": clears_when,
-               "signature_class": signature_class,
-               "immediate": True,
-               "workspace_root": WORKSPACE}
     shim = alarm_shim_path()
     if not os.path.exists(shim):
-        return False, "alarm shim not found at %s" % shim
+        return False, {"error": "alarm shim not found at %s" % shim}
     try:
         p = subprocess.run([env("RBTV_WATCHDOG_NODE", "node"), shim],
                            input=json.dumps(payload), capture_output=True, text=True, timeout=60)
     except Exception as exc:
-        return False, "%s: %s" % (type(exc).__name__, exc)
+        return False, {"error": "%s: %s" % (type(exc).__name__, exc)}
     out = (p.stdout or "").strip()
     try:
         answer = json.loads(out.splitlines()[-1]) if out else {}
     except (ValueError, IndexError):
         answer = {}
     if p.returncode != 0 or not answer.get("ok"):
-        return False, answer.get("error") or (p.stderr or out or "exit %s" % p.returncode).strip()[:300]
+        return False, {"error": answer.get("error")
+                       or (p.stderr or out or "exit %s" % p.returncode).strip()[:300]}
+    return True, answer
+
+
+def emit_alarm(condition, subject_id, evidence, clears_when, signature_class, subject_type="daemon"):
+    """Emit ONE system-health alarm through the emitter. Returns (ok, detail).
+
+    `immediate` is True and not a judgement call: spec §9.2 makes system-health alarms
+    digest-exempt for their first post [CF-9, T5-R11], and a watchdog N-fail is named there as one.
+
+    `subject_type` defaults to `daemon` so the N-fail caller reads exactly as it always did; the
+    row alarms below name the row they observed instead.
+
+    ⚠ NEVER RAISES — see `_run_alarm_shim`."""
+    ok, answer = _run_alarm_shim({"condition": condition,
+                                  "subject": {"type": subject_type, "id": subject_id},
+                                  "evidence_pointer": evidence,
+                                  "what_would_clear_it": clears_when,
+                                  "signature_class": signature_class,
+                                  "immediate": True,
+                                  "workspace_root": WORKSPACE})
+    if not ok:
+        return False, answer.get("error") or "alarm shim refused with no reason"
     return True, "posted=%s reason=%s signature=%s outbox_id=%s delivered=%s" % (
         answer.get("posted"), answer.get("reason"), answer.get("signature"),
         answer.get("outbox_id"), answer.get("delivered"))
+
+
+def clear_alarm(subject_type, subject_id, signature_class):
+    """Close an OPEN registry row whose condition this pass observed to be over. Returns
+    (ok, cleared, detail).
+
+    THE OTHER HALF OF THE ALARM. An emitter row stays OPEN until somebody says it is not, and an
+    open row nobody closes turns the standing-condition surface into a list of everything that has
+    ever been wrong — which reads exactly like a system that is still wrong. Clearing is SILENT by
+    the emitter's own rule: nothing is posted, the row simply stops appearing.
+
+    ⚠ NEVER RAISES — see `_run_alarm_shim`."""
+    ok, answer = _run_alarm_shim({"act": "clear",
+                                  "subject": {"type": subject_type, "id": subject_id},
+                                  "signature_class": signature_class,
+                                  "workspace_root": WORKSPACE})
+    if not ok:
+        return False, False, answer.get("error") or "alarm shim refused with no reason"
+    return True, bool(answer.get("cleared")), "cleared=%s signature=%s" % (
+        answer.get("cleared"), answer.get("signature"))
 
 
 # ── N consecutive non-healthy passes → ONE alarm + a ledger row [T4-R9] ─────
@@ -978,6 +1027,125 @@ ROWS = {
                     lambda: "restarted %s" % PROBE_TIMER),
 }
 
+# ── an `alarm` row goes to the ONE alarm registry [T4-R10, spec-owner-io §9] ─
+# ⚠⚠ THE WAVE-TEST-2 ROOT-CAUSE FIX. An `alarm` verdict — "up, but a human is needed and no restart
+# can help" — used to reach exactly ONE surface: the owner-DM leg below, deduped in `state.json`.
+# It never reached the emitter, so `<workspace>/.rbtv/runtime/ignite/alarm-registry.json` did not
+# exist on a box that had been carrying a standing probe-suite RED for hours, and EVERY reader of
+# the one standing-condition surface — the §5 system digest's "Open conditions" and the daemon's
+# own `inspect daemon` — was structurally blind to it. On 2026-08-26 the channel master answered a
+# live owner question with "No standing warnings" while this row read `alarm` every 60 seconds.
+# The DM was never the alarm surface; it was the only one that had been wired.
+#
+# ONE DELIVERY, NOT TWO. The row is routed through `emit_alarm` and is NOT appended to `alerts` —
+# exactly how `daemon_health_streak` (the emitter's other caller here) already behaves: it returns
+# a REPORT LINE and raises its alarm through the emitter, and nothing it observes enters the DM
+# leg. Two deliveries of one condition is the volume violation spec §9.2 forbids, and the emitter's
+# open-row signature is a durable dedupe where `state.json`'s fingerprint is a 6h re-alert timer.
+#
+# THE SUBJECT is the row's own subject (`{type: <row>, id: <unit>}`), so the daemon row's alarm and
+# `watchdog-daemon-unhealthy` share a subject and differ only in condition class — which is what
+# the emitter's signature is for. ROW_UNITS is a SEPARATE table from ROWS on purpose: ROWS is the
+# probe/restart/describe triple that `main()` and the probes unpack positionally, and widening it
+# to carry a fourth member would break every one of them for a fact none of them reads.
+
+ROW_UNITS = {"daemon": DAEMON_UNIT, "bridge": BRIDGE_UNIT, "probe-suite": PROBE_TIMER}
+
+
+def row_signature_class(name):
+    """One condition class per row. NOT per observed text: `probe-suite` going from RED to a
+    runner-grade-broken verdict is the SAME standing condition reworded, and the emitter re-posts a
+    changed text on the existing row rather than minting a second one."""
+    return "watchdog-%s-alarm" % name
+
+
+def row_evidence(name):
+    """WHERE a human opens the observation this row alarmed on — a concrete path or a journal
+    query the owner can paste, never a restatement of the condition itself."""
+    if name == "probe-suite":
+        return os.path.join(WORKSPACE, ".rbtv", "runtime", "probe-suite", "latest.json")
+    if name == "daemon":
+        return "%s (gateway) · journalctl --user -u %s" % (GATEWAY, DAEMON_UNIT)
+    return "journalctl --user -u %s" % ROW_UNITS.get(name, name)
+
+
+def row_alarms_path():
+    return env("RBTV_WATCHDOG_ROW_ALARMS",
+               os.path.join(WORKSPACE, ".rbtv", "runtime", "watchdog", "row-alarms.json"))
+
+
+def load_row_alarms():
+    try:
+        with open(row_alarms_path()) as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_row_alarms(d):
+    """Its OWN file, for the same reason `daemon.json` and `failcount.json` are: `state.json` is
+    the DM-dedupe record and is cleared to null on every all-green pass, which is exactly the pass
+    that has to CLEAR a standing alarm — a record parked there would erase itself first."""
+    write_json_atomic(row_alarms_path(), d)
+
+
+def raise_row_alarm(name, detail, dry):
+    """Route an `alarm` verdict into the registry. Returns the report line.
+
+    The open-row bookkeeping mirrors `alarmed_unhealthy_at` on the N-fail path: ONE shim call per
+    episode, not one per 60s pass. The emitter would dedupe a repeat anyway, but this tool is pure
+    Python stdlib precisely so it still runs when everything else is down, and spawning `node`
+    every minute for an answer already known is a dependency the healthy path should not carry."""
+    if dry:
+        return "%-13s %-6s would raise %s in the alarm registry, but --dry-run" % (
+            "  ->", "alarm", row_signature_class(name))
+    open_rows = load_row_alarms()
+    if name in open_rows:
+        return "%-13s %-6s already open in the alarm registry since %s (%s)" % (
+            "  ->", "alarm", open_rows[name].get("at"), row_signature_class(name))
+    ok, note = emit_alarm(
+        condition=("%s: %s. No restart can fix this — a human is needed." % (name, detail)),
+        subject_id=ROW_UNITS.get(name, name),
+        evidence=row_evidence(name),
+        clears_when="the watchdog reads the %s row `up` again on any pass" % name,
+        signature_class=row_signature_class(name),
+        subject_type=name)
+    if ok:
+        open_rows[name] = {"signature_class": row_signature_class(name),
+                           "subject": ROW_UNITS.get(name, name),
+                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        save_row_alarms(open_rows)
+        ledger("alarmed", "an `alarm` verdict was raised in the one alarm registry",
+               row=name, detail=detail, signature_class=row_signature_class(name), emitter=note)
+    else:
+        # NOT recording the row is what makes the next pass retry — the same reason
+        # `alarmed_unhealthy_at` is left unstamped on a failed emission.
+        ledger("alarm-emit-failed", note, row=name, detail=detail)
+    return "%-13s %-6s registry emit ok=%s %s" % ("  ->", "alarm", ok, note)
+
+
+def clear_row_alarm(name, dry):
+    """Close this row's registry row now that it reads `up` again. Returns the report line, or
+    None when there was nothing to close — a row that never alarmed costs no shim call at all."""
+    open_rows = load_row_alarms()
+    if name not in open_rows:
+        return None
+    if dry:
+        return "%-13s %-6s would clear %s from the alarm registry, but --dry-run" % (
+            "  ->", "clear", row_signature_class(name))
+    row = open_rows[name]
+    ok, cleared, note = clear_alarm(name, row.get("subject") or ROW_UNITS.get(name, name),
+                                    row.get("signature_class") or row_signature_class(name))
+    if ok:
+        open_rows.pop(name, None)
+        save_row_alarms(open_rows)
+        ledger("alarm-cleared", "the row reads `up` again, so its standing condition is over",
+               row=name, cleared=cleared, emitter=note)
+    else:
+        ledger("alarm-clear-failed", note, row=name)
+    return "%-13s %-6s registry clear ok=%s %s" % ("  ->", "clear", ok, note)
+
 
 # ── notify ──────────────────────────────────────────────────────────────────
 
@@ -1087,7 +1255,7 @@ def main(argv):
               file=sys.stderr)
         return 2
 
-    lines, alerts, dry_down = [], [], []
+    lines, alerts, dry_down, alarming = [], [], [], []
     for name in targets:
         probe, restart, describe = ROWS[name]
         state, detail = probe()
@@ -1095,9 +1263,20 @@ def main(argv):
         if state in ("up", "skip"):
             if name == "daemon" and state == "up" and not dry:
                 clear_failcount()
+            # `up` ONLY, never `skip`: a skipped row was not GRADED, and closing a standing
+            # condition because nobody looked is the absence-reads-as-health shape this whole
+            # component exists to remove.
+            if state == "up":
+                cleared = clear_row_alarm(name, dry)
+                if cleared:
+                    lines.append(cleared)
             continue
         if state == "alarm":
-            alerts.append("%s: %s (no restart can fix this — human needed)" % (name, detail))
+            # ⚠ NO `alerts.append` HERE — see the ROW_UNITS block above. This is ONE delivery,
+            # through the emitter, and the standing condition then lives in the alarm registry
+            # that `ignite status` and the system digest both read.
+            alarming.append(name)
+            lines.append(raise_row_alarm(name, detail, dry))
             continue
         if dry:
             # A dry run INSPECTS. It restarts nothing and it must also not DM: a
@@ -1184,6 +1363,15 @@ def main(argv):
         # "already told the owner about this" record.
         print("\n--dry-run: %d subject(s) down (%s) — nothing restarted, no DM sent"
               % (len(dry_down), ", ".join(dry_down)))
+    elif alarming:
+        # NOT "all green", and NOT a DM. The condition stands, it is carried by the alarm registry
+        # (which the system digest and `ignite status` read), and saying "all green" on this pass
+        # is the exact sentence that made the wave-test-2 answer wrong.
+        if load_state().get("alert") is not None:
+            save_state(None)
+        print("\n%d standing alarm(s) — %s — carried by the alarm registry, not by a DM: "
+              "read them with `ignite status` (open_conditions) or the 2-hourly system digest"
+              % (len(alarming), ", ".join(alarming)))
     else:
         if load_state().get("alert") is not None:
             save_state(None)

@@ -22,10 +22,20 @@
 // Slack's own ack, so an absent token leaves a queryable `pending-delivery` row — precisely the
 // C-17 durability the outbox exists for.
 //
+// TWO ACTS, ONE SHIM. `act: "emit"` (the default) raises a condition; `act: "clear"` closes one the
+// caller has since observed to be over. A SECOND shim for the clear was refused for the same reason
+// a second emitter was: the transport wiring, the workspace resolution and the registry path would
+// have had to be written twice, and two copies of a path is how a caller comes to clear a row in a
+// registry the emitter never wrote. A clear POSTS NOTHING — the emitter's own rule is that clearing
+// is silent (the owner is told a condition EXISTS, never that one went away), so this file hands the
+// clear branch a `post` that THROWS rather than a Slack transport it must be trusted not to use.
+//
 // stdin: one JSON object — the emitter's own input shape (condition, subject, evidence_pointer,
-//        what_would_clear_it, signature_class, immediate, …) plus an optional `workspace_root`.
-// stdout: one JSON object — { ok, posted, reason, signature, outbox_id, delivered } or { ok:false,
-//        error }. Exit 0 when the emitter accepted the observation, 1 when it refused it.
+//        what_would_clear_it, signature_class, immediate, …) plus an optional `workspace_root`, or
+//        for a clear: { act: "clear", signature_class, subject: {type,id}, workspace_root? }.
+// stdout: one JSON object — { ok, posted, reason, signature, outbox_id, delivered } for an emit,
+//        { ok, act: "clear", cleared, signature } for a clear, or { ok:false, error }. Exit 0 when
+//        the emitter accepted the act, 1 when it refused it.
 
 const path = require('node:path');
 
@@ -91,6 +101,15 @@ function resolveSend() {
   return (args) => slack.sendToOwner(args);
 }
 
+// A clear must be structurally incapable of posting. Same device as `chat/glance.js`'s reader: the
+// instance is handed a `post` that throws, so a future line that tries to emit through the clear
+// branch dies at the call site naming the rule instead of quietly minting an owner alarm here.
+function refusingPost() {
+  return async () => {
+    throw new Error('a clear POSTS NOTHING — clearing is silent by the emitter\'s own rule [T4-R10]');
+  };
+}
+
 async function main() {
   const raw = await readStdin();
   let input;
@@ -101,6 +120,34 @@ async function main() {
     return 1;
   }
   const workspaceRoot = resolveWorkspaceRoot(input);
+  const act = input.act || 'emit';
+  if (act !== 'emit' && act !== 'clear') {
+    process.stdout.write(`${JSON.stringify({ ok: false, error: `unknown act: ${act} (known: emit, clear)` })}\n`);
+    return 1;
+  }
+
+  // THE CLEAR BRANCH. It computes the signature with the emitter's OWN `signatureOf` rather than
+  // accepting one off the wire: a caller that could hand in a literal signature could clear a row
+  // it never opened, and the key's shape would then have two authors.
+  if (act === 'clear') {
+    const subject = input.subject;
+    if (!input.signature_class || !subject || typeof subject !== 'object' || !subject.type || !subject.id) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'clear requires signature_class and a concrete subject { type, id } — the same pair the emit used' })}\n`);
+      return 1;
+    }
+    const alarmsRo = emitter.createAlarmEmitter({
+      storePath: emitter.alarmRegistryPath(workspaceRoot),
+      post: refusingPost(),
+    });
+    const signature = emitter.signatureOf(input);
+    const cleared = alarmsRo.clear(signature);
+    // `cleared: false` is a LEGITIMATE answer, not a failure: a subject that never alarmed has no
+    // open row, and a caller that clears on every green pass must be able to tell that from a
+    // refusal. Exit 0 either way.
+    process.stdout.write(`${JSON.stringify({ ok: true, act: 'clear', cleared: cleared.cleared, signature })}\n`);
+    return 0;
+  }
+
   const systemChannelId = input.channel_id || process.env.RBTV_SYSTEM_CHANNEL_ID || null;
   if (!systemChannelId) {
     process.stdout.write(`${JSON.stringify({ ok: false, error: 'no system channel: set RBTV_SYSTEM_CHANNEL_ID or pass channel_id' })}\n`);
@@ -118,6 +165,7 @@ async function main() {
   });
 
   delete input.workspace_root;
+  delete input.act;
   let result;
   try {
     result = await alarms.emit(input);
