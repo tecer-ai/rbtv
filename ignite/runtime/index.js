@@ -20,7 +20,6 @@ const { runLaneWatch } = require('../supervisor/lane-watch');
 // The frozen invariant's tick driver [T1-R15]. The DECISION is `observation/frozen.js`'s and the
 // FACTS are the lane watch's; this module is the composition, and the loop below only calls it.
 const { runFrozenPass } = require('./frozen-pass');
-const { runQueueRequestPass } = require('../planning/queue-request');
 const { selectCarrier } = require('../supervisor/spawn/carrier');
 const { createLiveSessions } = require('../supervisor/spawn/live-sessions');
 const { SpawnError, E_HEADED_NOT_CAPABLE } = require('../supervisor/spawn/errors');
@@ -1022,19 +1021,15 @@ async function main() {
     }).catch((err) => log('error', 'frozen invariant pass failed', { error: err.message }));
   };
 
-  // ⚠ THE PLANNING-MINT PASS RUNS **BEFORE** THE LANE WATCH, NOT AFTER. Path A
-  // (spec-planning-door §1) mints the five pipeline seats onto an unminted planning
-  // goal; the lane watch then seeds that same registry in the same cadence. Same
-  // outer belt as the lane watch: one bad goal folder must never take the loop down.
-  const queueRequestPass = () => {
-    try {
-      runQueueRequestPass({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
-    } catch (err) {
-      log('error', 'planning-mint pass failed', { error: err.message });
-    }
-  };
-
-  queueRequestPass();
+  // ⚠ THE PLANNING-MINT PASS THAT RAN HERE, BEFORE THE LANE WATCH, IS GONE (2026-08-28).
+  // It minted the five `plan-console` pipeline seats onto a goal whose `goal.md`
+  // frontmatter carried `role: planning` — a key NO creation route has ever written, so
+  // it admitted nothing and fired 0 times in 592,458 journal lines. The five seats are
+  // minted AT BIRTH by the creation route instead (`goal_creation_request.py#create` runs
+  // `scaffold-seats --workflow plan-console` in the same act), and `rbtv goal scaffold
+  // --lane daemon` refuses `daemon-lane-unmaterialized` rather than producing an unminted
+  // daemon goal. A daemon goal that still arrives with no `taskforce.csv` is named out
+  // loud by the lane watch (`no-taskforce-yet`), which is the whole remaining answer.
   laneWatchPass();
   frozenPass();
   const tickResult = await engine.tick();
@@ -1042,7 +1037,6 @@ async function main() {
 
   const intervalMs = Number(tickerConfig.tick_interval_ms) || 10000; // ticker.js DEFAULT_CONFIG default
   const timer = setInterval(() => {
-    queueRequestPass();
     laneWatchPass();
     frozenPass();
     engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));

@@ -2,155 +2,44 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { requirePythonCmd } = require('../runtime/python-cmd');
-const { readLane, laneIsPaused, consoleRunIsLive, DAEMON } = require('../supervisor/lane-watch');
 
 const PLANNING_DIR = __dirname;
-const ARGV_PY = path.join(PLANNING_DIR, 'argv.py');
-const PATH_A_PY = path.join(PLANNING_DIR, 'path_a.py');
-// `pipeline-seats.json` is NOT the source of truth for these names — it is a cached
-// mirror of the workflow manifest `meta/planning/workflows/plan-console/plan-console.csv`
-// (`Seat/workflow` column), which is what `materialize-seats.py --workflow plan-console`
-// actually writes onto `taskforce.csv`. The two vocabularies MUST be one string set: this
-// file compares the json against that column, so any divergence makes `pipelineMinted()`
-// permanently false and the door re-mints every cadence, forever. The json is a bare array
-// and carries no comment field; `planning/queue-request.js` `planningManifestSeats()` reads
-// the manifest, and `planning/probes/probe-queue-request-pass.js` leg M fails on divergence.
+// ── WHAT THIS FILE IS NOW ────────────────────────────────────────────────────────────────
+// It was the per-tick planning-mint pass (spec-planning-door §1 Path A): a goal carrying
+// `role: planning` in its `goal.md` frontmatter, with the five pipeline seats absent from
+// its `taskforce.csv`, was minted once per cadence. THE PASS IS DELETED (2026-08-28), and
+// the deletion is a deviation from that spec's MECHANISM, not from its trigger.
+//
+// WHY. `role: planning` had NO PRODUCER. `goals-tree/tool/goal_cli.py#cmd_scaffold` writes
+// exactly six frontmatter keys (name, creation-date, due-date, type, goal-kind, status) and
+// no other route writes a `role:` key at all, so the admission test could never be true —
+// measured as `planning-mint` appearing 0 times in 592,458 daemon journal lines. The spec's
+// trigger ("a planning goal exists AND its five pipeline seats are not yet minted") is
+// satisfied AT BIRTH instead: the ruled creation route
+// (`goal-creation-request/tool/goal_creation_request.py#create`) runs `scaffold-seats
+// --workflow plan-console` unconditionally in the same act, and `rbtv goal scaffold --lane
+// daemon` REFUSES `daemon-lane-unmaterialized` rather than producing an unminted daemon
+// goal. A daemon-lane goal that still reaches the watcher with no `taskforce.csv` is named
+// out loud there (`supervisor/lane-watch.js`, reason `no-taskforce-yet`), not minted here.
+//
+// WHAT SURVIVES, and why it is not the door. `pipeline-seats.json` is still read by
+// `argv.py` (`PLANNING_SEATS`, its `--seats-json` flag, and `path_a.py`'s uncast set), and
+// it is NOT the source of truth for those names — it is a cached mirror of the workflow
+// manifest `meta/planning/workflows/plan-console/plan-console.csv` (`Seat/workflow`
+// column), which is what `materialize-seats.py --workflow plan-console` actually writes
+// onto `taskforce.csv`. The two vocabularies MUST be one string set. The json is a bare
+// array and carries no comment field, so the divergence alarm lives in code:
+// `planning/queue-request.js` `planningManifestSeats()` reads the manifest, its module
+// selftest deep-equals the two, and `planning/probes/probe-queue-request-pass.js` leg M
+// fails on divergence.
 const SEATS_FILE = path.join(PLANNING_DIR, 'pipeline-seats.json');
 const PLANNING_SEATS = Object.freeze(JSON.parse(fs.readFileSync(SEATS_FILE, 'utf8')));
-const ROLE_RE = /^role:[ \t]*planning(?:[ \t].*)?$/m;
 
-function isPlanningGoal(goalFolder) {
-  const file = path.join(goalFolder, 'goal.md');
-  let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return false; }
-  const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!fm) return false;
-  return ROLE_RE.test(fm[1]);
-}
-
+// MINTED, stated once and executably: every name in the mirror is a `seat` row on the goal's
+// taskforce. `path_a.py` mints exactly this set, so a taskforce it wrote must read true here.
 function pipelineMinted(rows) {
   const seats = new Set((rows || []).map((r) => String((r && r.seat) || '').trim()));
   return PLANNING_SEATS.every((s) => seats.has(s));
 }
 
-function taskforceRows(goalFolder) {
-  const file = path.join(goalFolder, 'taskforce.csv');
-  if (!fs.existsSync(file)) return [];
-  let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (!lines.length) return [];
-  const header = lines[0].split(',');
-  const si = header.indexOf('seat');
-  if (si < 0) return null;
-  return lines.slice(1).map((line) => {
-    const cells = line.split(',');
-    return { seat: (cells[si] || '').trim() };
-  });
-}
-
-function planningMintArgv({ goalFolder, catalogRoot, sheet }) {
-  const raw = execFileSync(requirePythonCmd(),
-    [ARGV_PY, '--package', goalFolder, '--catalog-root', catalogRoot, '--sheet', sheet],
-    { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
-  return JSON.parse(raw);
-}
-
-function runPathA({ goalFolder, catalogRoot, sheet, subject }) {
-  const raw = execFileSync(requirePythonCmd(),
-    [PATH_A_PY, '--package', goalFolder, '--catalog-root', catalogRoot, '--sheet', sheet,
-      '--subject', subject],
-    { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
-  return JSON.parse(raw);
-}
-
-function runPlanningMintPass({ goalsRoot, resolveCatalog, logger = null, mint = null }) {
-  const say = (level, message, extra = {}) => { if (logger) logger({ level, message, ...extra }); };
-  const seeded = [];
-  const skipped = [];
-
-  let entries;
-  try {
-    entries = fs.readdirSync(goalsRoot, { withFileTypes: true });
-  } catch {
-    return { seeded, skipped };
-  }
-
-  let catalog;
-  try {
-    catalog = resolveCatalog(goalsRoot);
-  } catch (err) {
-    skipped.push({ reason: err.code || 'catalog-unresolvable', error: err.message });
-    say('debug', 'planning-mint pass: no component catalog on this workspace — nothing minted',
-      { code: err.code, error: err.message });
-    return { seeded, skipped };
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const goal = entry.name;
-    const goalFolder = path.join(goalsRoot, goal);
-
-    if (laneIsPaused(goalFolder)) { skipped.push({ goal, reason: 'goal-paused' }); continue; }
-    if (readLane(goalFolder).lane !== DAEMON) {
-      skipped.push({ goal, reason: 'not-assigned-to-the-daemon' });
-      continue;
-    }
-    if (consoleRunIsLive(goalFolder)) {
-      skipped.push({ goal, reason: 'console-run-live' });
-      say('info', 'planning-mint pass: a console run is LIVE on this goal — not minting', { goal });
-      continue;
-    }
-    if (!isPlanningGoal(goalFolder)) {
-      skipped.push({ goal, reason: 'not-planning-goal' });
-      continue;
-    }
-
-    const rows = taskforceRows(goalFolder);
-    if (rows === null) {
-      skipped.push({ goal, reason: 'taskforce-unreadable' });
-      say('warn', 'planning-mint pass: taskforce.csv is unreadable — nothing minted', { goal });
-      continue;
-    }
-    if (pipelineMinted(rows)) {
-      skipped.push({ goal, reason: 'already-minted' });
-      say('debug', 'planning-mint pass: pipeline seats already minted — quiet no-op', { goal });
-      continue;
-    }
-
-    try {
-      if (mint) {
-        mint({ goalFolder, catalogRoot: catalog.catalogRoot, sheet: catalog.sheet, seats: PLANNING_SEATS });
-      } else {
-        const out = runPathA({
-          goalFolder, catalogRoot: catalog.catalogRoot, sheet: catalog.sheet, subject: goal,
-        });
-        if (!out.ok) {
-          skipped.push({ goal, reason: 'materialize-refused', record: out.record });
-          say('warn', 'planning-mint pass: supervised mint refused — nothing written', {
-            goal, record: out.record,
-          });
-          continue;
-        }
-      }
-    } catch (err) {
-      skipped.push({ goal, reason: 'materialize-refused', error: err.message });
-      say('warn', 'planning-mint pass: supervised mint refused — nothing written', {
-        goal, error: err.message,
-      });
-      continue;
-    }
-
-    seeded.push({ goal, seats: PLANNING_SEATS.slice() });
-    say('info', 'planning-mint pass: minted the planning-seat chain on this goal', { goal });
-  }
-
-  return { seeded, skipped };
-}
-
-module.exports = {
-  PLANNING_SEATS, ARGV_PY, PATH_A_PY,
-  isPlanningGoal, pipelineMinted, planningMintArgv, runPlanningMintPass,
-};
+module.exports = { PLANNING_SEATS, SEATS_FILE, pipelineMinted };

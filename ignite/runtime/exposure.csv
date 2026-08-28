@@ -1,5 +1,5 @@
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
-ignite-daemon,service,path,,index.js,"The daemon process: boots the engine, gateway, internal API and cockpit, runs the cadence loop (lane watch, frozen pass, queue-request pass, retention) and owns no recovery, store or alarm policy of its own",
+ignite-daemon,service,path,,index.js,"The daemon process: boots the engine, gateway, internal API and cockpit, runs the cadence loop (lane watch, frozen pass, retention) and owns no recovery, store or alarm policy of its own",
 ignite-engine,library,path,,engine.js,"createEngine - the ONE workflow-advancement composition (store + spawn manager + ticker) both attachments boot: this daemon and the attached rbtv run verb",
 ignite-ticker,library,path,,ticker/ticker.js,"The tick algorithm and its per-cadence passes (advance, enforce, warnings, one-live-run, goal-channel start, queued-start notify)",
 ignite-frozen-pass,library,path,,frozen-pass.js,"The frozen invariant's tick DRIVER [T1-R15]: hands observation/frozen.js the lane-watch facts once a cadence and decides nothing about what frozen means",

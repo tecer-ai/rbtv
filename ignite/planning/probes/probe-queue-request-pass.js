@@ -1,28 +1,38 @@
 #!/usr/bin/env node
 'use strict';
 
-// probe-queue-request-pass — Path A planning-seat mint door (spec-planning-door §1).
+// probe-queue-request-pass — the pipeline-seat DIVERGENCE ALARM (leg M).
 //
-// THE QUESTION: a planning goal exists and its five pipeline seats are not on
-// taskforce.csv. Does the door fire once? Is an already-minted goal a quiet
-// no-op? Does a second cadence mint nothing? The door is not a queue-request
-// row and is not keyed by milestone-id.
+// WHAT THIS PROBE USED TO ASK, and no longer does: the Path A planning-mint door
+// (spec-planning-door §1) fired once on an unminted `role: planning` goal, was a quiet
+// no-op when minted, and minted nothing on a second cadence. That door and its per-tick
+// pass were DELETED on 2026-08-28 — `role: planning` had no producer in any creation
+// route, so the door admitted nothing and logged nothing in 592,458 journal lines, while
+// the five seats it existed to mint are written AT BIRTH by the creation route. Its legs
+// went with it; only their names are recorded here, so a reader of the .out file learns
+// the coverage was removed deliberately and not lost: `S1 the daemon requires/CALLS the
+// pass`, `S1 it runs BEFORE the lane watch`, the four `argv …` legs, `unminted planning
+// goal: trigger fires once`, `unminted fire wrote the five pipeline seats`, the three
+// `already-minted: …` legs, `second cadence mints nothing`, `second cadence is
+// already-minted`, and `non-planning goal does not fire`.
 //
-// AND (leg M): are the names the door compares the names the mint actually
-// writes? Leg M derives its expectation from the REAL manifest on disk —
-// meta/planning/workflows/plan-console/plan-console.csv — not from a fixture,
-// so it goes RED the moment pipeline-seats.json and that manifest diverge.
-// Every other leg's seat names are derived from PLANNING_SEATS for the same
-// reason: a hand-typed fixture can agree with a wrong json forever.
+// THE QUESTION THAT REMAINS: are the seat ids `pipeline-seats.json` carries the ids the
+// mint actually writes? That json is read by `argv.py` (`PLANNING_SEATS`, `--seats-json`,
+// and `path_a.py`'s uncast set) and mirrors ONE authority — the workflow manifest on disk,
+// meta/planning/workflows/plan-console/plan-console.csv. Leg M derives its whole
+// expectation from that checked-in manifest, never from a fixture, so it goes RED the
+// moment the two diverge. Its last check greps this file's own source and fails if any leg
+// hand-types a seat id at all: a hand-typed fixture can agree with a wrong json forever,
+// which is exactly how the divergence at `8713ca14` stayed green across nineteen legs.
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
-const ENGINE_SRC = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(ENGINE_SRC, '..', '..');
-const QR_PATH = path.join(ENGINE_SRC, 'queue-request.js');
-const SERVER_INDEX = path.resolve(ENGINE_SRC, '..', 'runtime', 'index.js');
+const PLANNING_SRC = path.resolve(__dirname, '..');
+const REPO_ROOT = path.resolve(PLANNING_SRC, '..', '..');
+const QR_PATH = path.join(PLANNING_SRC, 'queue-request.js');
+const DOOR_PATH = path.join(PLANNING_SRC, 'door.js');
+const SERVER_INDEX = path.resolve(PLANNING_SRC, '..', 'runtime', 'index.js');
 const OUT_PATH = path.join(__dirname, 'probe-queue-request-pass.out');
 
 const qr = require('../queue-request');
@@ -38,51 +48,12 @@ function check(name, ok, detail = '') {
   return ok;
 }
 
-function makeWorkspace(root, { taskforce, role = 'planning', lane = 'daemon' }) {
-  const ws = path.join(root, 'ws');
-  const goal = path.join(ws, '.rbtv', 'goals', 'g1');
-  fs.mkdirSync(path.join(goal, 'coordination'), { recursive: true });
-  const sheetDir = path.join(ws, '.rbtv', 'config', 'modules', 'meta', 'planning', 'bindings');
-  fs.mkdirSync(sheetDir, { recursive: true });
-  fs.writeFileSync(path.join(ws, 'rbtv.json'), JSON.stringify({ rbtv_path: path.resolve(ENGINE_SRC, '..', '..') }));
-  const seats = {};
-  for (const name of PLANNING_SEATS) {
-    seats[name] = { harness: 'claude', model: 'claude-fable-5', effort: 'high' };
-  }
-  fs.writeFileSync(path.join(sheetDir, 'plan.json'),
-    JSON.stringify({ defaults: { 'cwd-mode': 'seat-folder' }, seats }, null, 1));
-  fs.writeFileSync(path.join(goal, 'execution-lane'), `${lane}\n`);
-  const fm = role
-    ? `---\nname: g1\ntype: one-shot\nrole: ${role}\n---\n`
-    : '---\nname: g1\ntype: one-shot\n---\n';
-  fs.writeFileSync(path.join(goal, 'goal.md'), fm);
-  fs.writeFileSync(path.join(goal, 'taskforce.csv'), taskforce);
-  return { ws, goal, goalsRoot: path.join(ws, '.rbtv', 'goals'), sheet: path.join(sheetDir, 'plan.json') };
-}
-
-const TF_HEADER = 'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n';
-const TF_EMPTY = `${TF_HEADER}`;
-const TF_MINTED = TF_HEADER + PLANNING_SEATS
-  .map((seat, i) => `tf-1,${seat},${i ? PLANNING_SEATS[i - 1] : ''},claude,claude-fable-5,high,35,\n`)
-  .join('');
-
-function logger(sink) { return (m) => sink.push(m); }
-
-function stubMint({ goalFolder, seats }) {
-  const tf = path.join(goalFolder, 'taskforce.csv');
-  const rows = seats.map((seat) => `tf-1,${seat},,claude,claude-fable-5,high,35,`);
-  fs.writeFileSync(tf, TF_HEADER + `${rows.join('\n')}\n`);
-}
-
 function main() {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-qr-'));
-  const { runQueueRequestPass, planningMintArgv, pipelineMinted } = qr;
-
   {
-    // Leg M — the two vocabularies the door compares must be ONE. `pipeline-seats.json`
-    // (what pipelineMinted() looks for) against the real workflow manifest's
-    // `Seat/workflow` column (what the mint actually writes onto taskforce.csv).
-    // Read from the checked-in file, never a fixture: this is the divergence alarm.
+    // Leg M — the two vocabularies must be ONE. `pipeline-seats.json` (what `argv.py`
+    // uncasts and mints from, and what `pipelineMinted()` looks for) against the real
+    // workflow manifest's `Seat/workflow` column (what the mint actually writes onto
+    // taskforce.csv). Read from the checked-in file, never a fixture.
     const manifest = path.join(REPO_ROOT, PLANNING_MODULE, PLANNING_MANIFEST_REL);
     check('M the real plan-console manifest is on disk', fs.existsSync(manifest), manifest);
     let manifestSeats = [];
@@ -95,8 +66,8 @@ function main() {
       JSON.stringify(manifestSeats) === JSON.stringify(PLANNING_SEATS.slice()),
       `manifest [${manifestSeats.join(' ')}] vs json [${PLANNING_SEATS.join(' ')}]`);
     check('M a manifest-seated taskforce reads MINTED',
-      pipelineMinted(manifestSeats.map((seat) => ({ seat }))),
-      'a goal minted from the real manifest must not re-mint every cadence');
+      qr.pipelineMinted(manifestSeats.map((seat) => ({ seat }))),
+      'a goal seated from the real manifest must answer minted');
     const self = fs.readFileSync(__filename, 'utf8');
     const typed = manifestSeats.filter((seat) => self.includes(`'${seat}'`) || self.includes(`,${seat},`));
     check('M no leg hand-types a seat id (they all derive from PLANNING_SEATS)',
@@ -104,94 +75,31 @@ function main() {
   }
 
   {
-    const src = fs.readFileSync(SERVER_INDEX, 'utf8');
-    check('S1 the daemon requires the pass', src.includes("require('../planning/queue-request')"));
-    const boot = src.indexOf('queueRequestPass();');
-    const bootLane = src.indexOf('laneWatchPass();');
-    check('S1 the daemon CALLS the pass at boot and inside the interval',
-      (src.match(/queueRequestPass\(\);/g) || []).length >= 2,
-      `${(src.match(/queueRequestPass\(\);/g) || []).length} call site(s)`);
-    check('S1 it runs BEFORE the lane watch', boot > 0 && bootLane > boot);
-  }
-
-  {
-    const argv = planningMintArgv({ goalFolder: '/g', catalogRoot: '/c', sheet: '/s.json' });
-    check('argv aims --package at the existing goal', argv.includes('--package') && argv.includes('/g'));
-    check('argv is one --workflow, never --nested', argv.includes('--workflow') && !argv.includes('--nested'));
-    check('argv never passes --milestone-id', !argv.includes('--milestone-id'));
-    check('argv never branches full/collapsed', !argv.includes('full') && !argv.includes('collapsed'));
-  }
-
-  {
-    const fx = makeWorkspace(path.join(tmp, 'fire'), { taskforce: TF_EMPTY });
-    const log = [];
-    let mintCalls = 0;
-    const mint = (args) => { mintCalls += 1; stubMint(args); };
-    const r1 = runQueueRequestPass({ goalsRoot: fx.goalsRoot, logger: logger(log), mint });
-    check('unminted planning goal: trigger fires once',
-      r1.seeded.length === 1 && mintCalls === 1 && r1.seeded[0].goal === 'g1',
-      `seeded ${r1.seeded.length} mintCalls ${mintCalls}`);
-    const wrote = fs.readFileSync(path.join(fx.goal, 'taskforce.csv'), 'utf8');
-    check('unminted fire wrote the five pipeline seats',
-      pipelineMinted(PLANNING_SEATS.map((seat) => ({ seat })))
-      && PLANNING_SEATS.every((seat) => wrote.includes(`,${seat},`)),
-      `wrote [${PLANNING_SEATS.join(' ')}]`);
-  }
-
-  {
-    const fx = makeWorkspace(path.join(tmp, 'minted'), { taskforce: TF_MINTED });
-    const log = [];
-    let mintCalls = 0;
-    const r1 = runQueueRequestPass({
-      goalsRoot: fx.goalsRoot, logger: logger(log), mint: () => { mintCalls += 1; },
-    });
-    check('already-minted: quiet no-op (nothing minted)',
-      r1.seeded.length === 0 && mintCalls === 0,
-      `seeded ${r1.seeded.length} mintCalls ${mintCalls}`);
-    check('already-minted: skipped as already-minted',
-      r1.skipped.some((s) => s.reason === 'already-minted'),
-      r1.skipped.map((s) => s.reason).join(', '));
-    const mintedLogs = log.filter((m) => /already minted/.test(m.message || ''));
-    check('already-minted: the skip is DEBUG, not a warning',
-      mintedLogs.length > 0 && mintedLogs.every((m) => m.level === 'debug'),
-      mintedLogs.map((m) => m.level).join(',') || 'no log');
-  }
-
-  {
-    const fx = makeWorkspace(path.join(tmp, 'second'), { taskforce: TF_EMPTY });
-    let mintCalls = 0;
-    const mint = (args) => { mintCalls += 1; stubMint(args); };
-    const r1 = runQueueRequestPass({ goalsRoot: fx.goalsRoot, logger: logger([]), mint });
-    const r2 = runQueueRequestPass({ goalsRoot: fx.goalsRoot, logger: logger([]), mint });
-    check('second cadence mints nothing',
-      r1.seeded.length === 1 && r2.seeded.length === 0 && mintCalls === 1,
-      `pass1 ${r1.seeded.length} pass2 ${r2.seeded.length} mintCalls ${mintCalls}`);
-    check('second cadence is already-minted',
-      r2.skipped.some((s) => s.reason === 'already-minted'));
-  }
-
-  {
-    const fx = makeWorkspace(path.join(tmp, 'exec'), { taskforce: TF_EMPTY, role: '' });
-    let mintCalls = 0;
-    const r1 = runQueueRequestPass({
-      goalsRoot: fx.goalsRoot, logger: logger([]), mint: () => { mintCalls += 1; },
-    });
-    check('non-planning goal does not fire',
-      r1.seeded.length === 0 && mintCalls === 0
-      && r1.skipped.some((s) => s.reason === 'not-planning-goal'),
-      r1.skipped.map((s) => s.reason).join(', '));
-  }
-
-  {
-    const src = fs.readFileSync(QR_PATH, 'utf8');
-    const dead = ['planningMode', 'passesMinted', 'materializeArgv'];
-    for (const name of dead) {
-      check(`${name} is gone`,
-        !src.includes(`function ${name}`) && !src.includes(`${name}(`));
+    // Leg D — the deleted mechanism is deleted, in all three files that carried it. The
+    // door's admission key is the one that matters: `role: planning` is a contract term
+    // with no producer, so any reader of it is a mechanism that cannot fire.
+    const doorSrc = fs.readFileSync(DOOR_PATH, 'utf8');
+    const qrSrc = fs.readFileSync(QR_PATH, 'utf8');
+    const serverSrc = fs.readFileSync(SERVER_INDEX, 'utf8');
+    const gone = ['planningMode', 'passesMinted', 'materializeArgv',
+      'runPlanningMintPass', 'isPlanningGoal', 'planningMintArgv', 'runPathA',
+      'taskforceRows', 'runQueueRequestPass', 'resolveCatalogRoot'];
+    for (const name of gone) {
+      check(`D ${name} is gone from door.js and queue-request.js`,
+        !doorSrc.includes(`function ${name}`) && !doorSrc.includes(`${name}(`)
+        && !qrSrc.includes(`function ${name}`) && !qrSrc.includes(`${name}(`));
     }
+    check('D door.js reads no `role:` frontmatter key — the admission term had no producer',
+      !/role:/.test(doorSrc.replace(/^\s*\/\/.*$/gm, '')),
+      'the regex that admitted the pass is deleted, not merely unreferenced');
+    check('D the daemon neither requires nor calls the pass',
+      !serverSrc.includes("require('../planning/queue-request')")
+      && !/queueRequestPass\(\);/.test(serverSrc),
+      'no require of the module and no `queueRequestPass()` call site survive in the loop');
+    check('D the lane watch still requires the unbuilt-seat repair from this module',
+      typeof qr.buildUnbuiltSeats === 'function',
+      'deleting the pass must not take `buildUnbuiltSeats` with it');
   }
-
-  fs.rmSync(tmp, { recursive: true, force: true });
 }
 
 try {
@@ -205,9 +113,9 @@ const exitCode = failures.length ? 1 : 0;
 say('');
 say(exitCode
   ? `RESULT: FAIL — ${failures.length} failing check(s): ${failures.join(' · ')}`
-  : 'RESULT: PASS — Path A door is goal-wide: fires once on an unminted planning goal, '
-    + 'quiet no-op when minted, second cadence mints nothing; and the seat vocabulary it '
-    + 'compares is the real plan-console manifest column.');
+  : 'RESULT: PASS — the seat vocabulary pipeline-seats.json carries IS the real plan-console '
+    + 'manifest column, and the per-tick planning-mint door that once read `role: planning` is '
+    + 'gone from door.js, queue-request.js and the daemon loop.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
 fs.writeFileSync(OUT_PATH, `${lines.join('\n')}\n`);
