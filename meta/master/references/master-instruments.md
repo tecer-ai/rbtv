@@ -194,9 +194,17 @@ became of an execution.
 - NEVER queue a job to launch a goal you created. The queued `<goal>-workflow-start` row and the
   launcher it fired are DELETED; a goal advances from its lane assignment alone, and a hand-queued
   launch is a row nothing consumes.
-- `ignite status` is ALSO the STANDING-WARNING read: its `standing_warnings` field IS the console's
-  agent-facing alarm surface, returned alongside daemon health, and there is no separate warnings
-  verb. An EMPTY list means no condition is standing — never that the surface is missing.
+- `ignite status` is ALSO the STANDING-CONDITION read, and it answers from TWO fields, not one.
+  There is no separate warnings verb. A status answer states BOTH:
+  - `standing_warnings` — the daemon's OWN warning rows (what `ignite snooze` acts on).
+  - `open_conditions` — every alarm any component raised through the one alarm emitter: the
+    out-of-process watchdog's row alarms (a probe suite that is live but RED, a bridge that cannot
+    reconnect, a gateway refusing the watchdog's token) and the frozen-goal invariant.
+  An EMPTY list on either means no condition is standing on that side — never that the surface is
+  missing. ⚠ A `null` on `open_conditions` is DIFFERENT from an empty list: it means this daemon
+  cannot read the alarm registry at all, so report it as UNKNOWN, never as "nothing is standing".
+  ⚠ Answering from `standing_warnings` alone is how a live owner question was answered "no standing
+  warnings" on 2026-08-26 while the watchdog had held an alarm for hours.
 - NEVER snooze a standing warning on your own initiative. `ignite snooze` SUPPRESSES a warning for a
   stated number of minutes and NEVER clears it — the condition is still there when it returns.
 - NEVER kill a session to tidy the board: `ignite kill` terminates a live seat's whole process tree.

@@ -44,6 +44,10 @@ const { startExecution } = require('../../state-store/heart/start-execution');
 // siblings above: a stateless call, not a manager holding processes.
 const { pauseResume } = require('../../state-store/heart/pause-resume');
 const { applySecretAdd } = require('./secret-add');
+// The ONE alarm emitter's own reader [T4-R10]. Required here for `readOpenConditions` and for
+// NOTHING else: the daemon's status read never composes an alarm, and the instance built below is
+// handed a `post` that throws so that stays true by construction.
+const { createAlarmEmitter, alarmRegistryPath } = require('../../observation/emitter');
 const path = require('path');
 
 const ENVELOPE_VERSION = 1;
@@ -760,6 +764,36 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     return { offset: rawOffset, limit: Math.min(rawLimit, MAX_PAGE) };
   }
 
+  // -- THE SECOND STANDING-CONDITION SOURCE [T4-R10, spec-owner-io §5 / §9] ---------------------
+  //
+  // WHAT WAS BROKEN. `standing_warnings` below is the daemon's OWN warning table and nothing else,
+  // and `inspect daemon` published it as though it were the whole standing-condition picture. It is
+  // not: spec §5 puts open conditions in the alarm-signature REGISTRY, which the watchdog and the
+  // frozen invariant write from outside this process. On 2026-08-26 a master seat asked "is anything
+  // standing", read this answer, and told the owner "No standing warnings" while the watchdog had
+  // been holding an hours-old probe-suite alarm — a true reading of one source presented as the
+  // answer from both.
+  //
+  // A READER, NEVER AN EMITTER. Same device as `chat/glance.js`: the emitter instance is handed a
+  // `post` that THROWS, so a future line that tries to raise an alarm from the status path dies at
+  // the call site naming the rule instead of quietly minting a second composer of owner alarms.
+  //
+  // ⚠ `reload()` BEFORE EVERY READ. `createAlarmEmitter` loads its rows ONCE at construction and the
+  // WRITERS are other processes (the watchdog's 60s pass, the frozen invariant), so a daemon that
+  // served its constructor-time snapshot would report the alarm set as it stood at boot —
+  // indistinguishable from "nothing is wrong" for the whole life of the process.
+  const readOpenConditions = workspaceRoot
+    ? (() => {
+      const reader = createAlarmEmitter({
+        storePath: alarmRegistryPath(workspaceRoot),
+        post: async () => {
+          throw new Error('the daemon status read never EMITS alarms — it reads open conditions [T4-R10]; alarms are composed only in observation/emitter.js');
+        },
+      });
+      return () => { reader.reload(); return reader.readOpenConditions(); };
+    })()
+    : null;
+
   async function handleInspectDaemon() {
     const lastTick = heartStore.getLastTick();
     // HISTORY, REPORTED AS SUCH [T4-R8]: `jobs_log.status` is the turn-audit column, so this is
@@ -807,6 +841,15 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         raised_at_tick: w.raised_at_tick,
         snoozed_until_tick: w.snoozed_until_tick,
       })),
+      // The OTHER half of "what is standing", alongside `standing_warnings` and never instead of
+      // it: the two answer different questions (the daemon's own warning rows vs every alarm any
+      // component raised through the one emitter) and a reader must state both.
+      //
+      // `[]` means NOTHING IS OPEN. `null` means THIS DAEMON CANNOT READ THE REGISTRY AT ALL (it
+      // holds no workspace root), which is a reportable state and not the same fact — collapsing
+      // it to `[]` would publish "no alarm is standing" on exactly the configuration that cannot
+      // know, which is the absence-reads-as-health shape this whole surface exists to remove.
+      open_conditions: readOpenConditions ? readOpenConditions() : null,
       config: {
         tick_interval_ms: configKnobs.tick_interval_ms ?? 10000,
         // Task 7.66, design § 2.1: the RUNNING cadence above and the CONFIGURED cadence here, as
