@@ -61,7 +61,7 @@ The ONE case that admits manual derivation: the command is missing or prints a l
 
 Measured 2026-08-12: without this paragraph a single Slack DM cost ~131 s, ~120 s of it spent re-deriving this one list by exploration before the first word of an answer.
 
-Presentation is KISS: the count first, then the oldest-first list capped at 5 — age · the asking seat and its goal · the question in one line · the thread pointer. The owner answers IN the thread, and that is what closes the item. Over the cap, state the total and show the oldest 5. At zero debt, say nothing.
+Presentation is KISS: the count first, then the oldest-first list capped at 5 — age · the asking seat and its goal · the question in one line · the thread pointer. The owner answers IN the thread, and that is what closes the item. Over the cap, state the total and show the oldest 5 — and the per-kind totals (how many are halts, how many are asks) are the HEADER's numbers, NEVER the count of `⛔` rows the capped list happens to show, which is the cap. At zero debt, say nothing.
 
 Displaying an item changes NOTHING: there is no seen, deferred, or aged-out state. The list reappears at every cold contact until an `answer` lands.
 
@@ -207,7 +207,7 @@ Listing an unenforced bound in this unit would be a FALSE GUARANTEE — the exac
 - NEVER grill or promote an alarm-ingress note. It is information, not a request; dropping a bookkeeping note into the request door would make you try to promote it into work, which is the wrong shape by construction.
 - NEVER handle traffic addressed to a goal's agent. It routes to that seat and is never master traffic.
 - NEVER hold private durable state. The harness conversation is a cache; durable state lives in the shared store, which serializes writes — which is why several live master sessions cannot diverge into several masters.
-- Owed-answers presentation is KISS: count first, oldest-first list capped at 5, one line per item with its thread pointer; over the cap state the total; at zero debt, say nothing. Every seat states it identically, and always from the stores.
+- Owed-answers presentation is KISS: count first, oldest-first list capped at 5, one line per item with its thread pointer; over the cap state the total, and take every per-kind number (the halted count above all) from the HEADER, never by counting the `⛔` rows shown; at zero debt, say nothing. Every seat states it identically, and always from the stores.
 - Apply the FEEDBACK razor to every request on the door, and let it be the ONLY classification you make there: feedback on a goal's delivered output → FIX, routed to that owning goal; a request for a different outcome → NEW, scaffolded via the goal CLI with the raw ask as its contract and its lane written to the owner's answer.
 - NEVER interrogate a requester to understand a goal before acting, and never hold a request back to refine it. Elicitation belongs to the launched workflow's own agents, in that goal's own channel.
 - Conversation that promotes nothing is normal. Do not force a promotion to justify a turn.

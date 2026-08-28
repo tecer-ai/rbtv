@@ -26,7 +26,15 @@ Presentation follows `seat.md` § 1 exactly: the count first, then the oldest-fi
 one line per item with its thread pointer. The empty state is EXPLICIT (`no owed answers`) so a
 reader can tell "nothing is owed" from "this did not run".
 
+⚑ WHEN THE CAP TRUNCATES, THE HEADER STATES A NUMBER FOR EVERY COUNT THE VISIBLE LIST COULD BE
+SUMMED INTO — one per kind, plus the goals the halts span. Measured 2026-08-26 (acceptance wave
+test 2): the header carried only the OWED total, so the halted count existed NOWHERE but the
+truncated list, and the channel master relayed the CAP as the halted count — "5 ⛔ RUN HALTED"
+against ten real halts across three goals. A cap indistinguishable from a count is a wrong number,
+not a short list. `--all` drops the cap entirely.
+
     owed-answers                      # every live package under the workspace
+    owed-answers --all                # every row, never the cap
     owed-answers --package NAME|DIR   # ONE goal package (a run-scoped seat asks only about its own)
     owed-answers --workspace DIR      # another workspace
     owed-answers --selfcheck          # the runnable check (asserts sane output, and that it is fast)
@@ -39,6 +47,10 @@ import sys
 import time
 
 CAP = 5  # seat.md § 1: oldest-first, capped at 5
+# One label per VISIBLE tag in the list below, in sort order. A reader can sum the shown rows of
+# each of these, so the capped header must carry all three as numbers — see `render`. `{s}` is
+# where the plural goes; a label that reads the same at any count simply has none.
+KIND_LABELS = (("halt", "⛔ run-halted"), ("waiting", "⏳ awaiting a reply"), ("ask", "open ask{s}"))
 OWNER = "owner"  # the reserved address every seat asks the human at (`d-agents-address-owner-not-master`)
 
 
@@ -193,16 +205,33 @@ def collect(coord, workspace, only=None):
     return rows, unreadable
 
 
-def render(rows, unreadable):
+def render(rows, unreadable, cap=CAP):
+    """The digest. `cap=None` shows every row (`--all`).
+
+    ⚠ A TRUNCATED LIST MAY NEVER BE THE ONLY PLACE A COUNT LIVES. When the cap bites, the header
+    states the total for EVERY kind in `KIND_LABELS` that is present, plus the goals the halts span
+    — so a reader summing the visible `⛔ RUN HALTED` rows and a reader reading the header get the
+    same number, and the cap can never masquerade as the halted count (acceptance wave test 2,
+    2026-08-26: "5 ⛔ RUN HALTED" reported against ten halts across three goals). Below the cap
+    nothing is hidden, so the header stays the bare count, and the empty state stays byte-identical.
+    """
     lines = []
     if not rows:
         lines.append("no owed answers")
     else:
         head = f"{len(rows)} owed answer{'' if len(rows) == 1 else 's'}"
-        if len(rows) > CAP:
-            head += f" — oldest {CAP} shown"
+        if cap is not None and len(rows) > cap:
+            for kind, label in KIND_LABELS:
+                of_kind = [r for r in rows if r["kind"] == kind]
+                if not of_kind:
+                    continue
+                head += f" · {len(of_kind)} {label.format(s='' if len(of_kind) == 1 else 's')}"
+                if kind == "halt":
+                    goals = len({r["label"] for r in of_kind})
+                    head += f" across {goals} goal{'' if goals == 1 else 's'}"
+            head += f" — oldest {cap} shown (--all lists every row)"
         lines.append(head)
-        for r in rows[:CAP]:
+        for r in (rows if cap is None else rows[:cap]):
             tag = ("⛔ RUN HALTED · " if r["kind"] == "halt"
                    else "⏳ AWAITING A REPLY FROM · " if r["kind"] == "waiting" else "")
             lines.append(f"- {tag}{r['age']} old · {r['sender']} ({r['label']}) · {r['body']} "
@@ -212,7 +241,7 @@ def render(rows, unreadable):
     return "\n".join(lines)
 
 
-def selfcheck(coord, workspace, text, elapsed_ms, only=None):
+def selfcheck(coord, workspace, text, elapsed_ms, only=None, cap=CAP):
     """THE runnable check. Runs against the REAL goals tree, because the failure this must catch is
     a digest that reports "no owed answers" for a MECHANICAL reason — a bad enumeration, a parse
     matching nothing, an import that resolved the wrong `coord`."""
@@ -230,7 +259,8 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
         # A counted digest must actually carry its items, each with a thread pointer.
         items = [ln for ln in text.splitlines() if ln.startswith("- ") and "answer in thread:" in ln]
         assert items, f"counted digest carries no well-formed item line:\n{text}"
-        assert len(items) <= CAP, f"cap of {CAP} not applied: {len(items)} items"
+        if cap is not None:
+            assert len(items) <= cap, f"cap of {cap} not applied: {len(items)} items"
     assert elapsed_ms < 3000, f"took {elapsed_ms} ms — too slow to sit at the head of a chat turn"
 
     # The `--package` filter, checked against the ONE package every workspace has. A filter that
@@ -317,6 +347,38 @@ def selfcheck(coord, workspace, text, elapsed_ms, only=None):
     assert [r["body"] for r in rows2] == ["or wait for review?"], \
         f"answering ONE thread did not leave exactly the other open: {rows2}"
 
+    # THE CAP-IS-NOT-A-COUNT ARM (acceptance wave test 2, 2026-08-26). Over the cap the list is
+    # SHORT, so the only trustworthy halted count is the header's. Driven on the throwaway
+    # workspace, over the cap and with more halts than the cap shows, so it discriminates whatever
+    # the live tree happens to hold. `t-3` is still open here, so all three kinds are present.
+    over_cap = "\n".join(
+        f"## {110 + i} | from: leader | to: owner | type: escalation | exec: e | "
+        f"2026-08-20 03:{10 + i:02d}\n\nescalation {i}: the run is halted\n" for i in range(7))
+    over_cap += ("\n## 200 | from: leader | to: owner | type: ask | exec: e | 2026-08-20 03:05\n"
+                 "\nan ordinary ask alongside the halts\n")
+    (pkg / "messages.md").write_text(over_cap, encoding="utf-8")
+    big = collect(coord, str(tmp), "fixture")[0]
+    halts = [r for r in big if r["kind"] == "halt"]
+    assert len(big) > CAP and len(halts) >= 2, \
+        f"the over-cap fixture is not over the cap: {len(big)} rows, {len(halts)} halts"
+    capped = render(big, []).splitlines()
+    shown_halts = [ln for ln in capped[1:] if "⛔ RUN HALTED" in ln]
+    assert 0 < len(shown_halts) < len(halts), \
+        f"the fixture truncates no halt — the arm cannot discriminate: {len(shown_halts)} shown"
+    assert len(capped) - 1 == CAP, f"the capped list is not {CAP} rows:\n{capped}"
+    assert f"{len(halts)} ⛔ run-halted" in capped[0], \
+        (f"the capped header does not state the halted TOTAL, so a reader sums the "
+         f"{len(shown_halts)} visible ⛔ rows and reports the CAP as the halted count: {capped[0]!r}")
+    for kind, label in KIND_LABELS:
+        n = sum(1 for r in big if r["kind"] == kind)
+        stated = f"{n} {label.format(s='' if n == 1 else 's')}"
+        assert not n or stated in capped[0], \
+            f"the capped header states no total for {n} {label!r} row(s): {capped[0]!r}"
+    every = render(big, [], cap=None).splitlines()
+    assert len(every) - 1 == len(big), \
+        f"--all rendered {len(every) - 1} of {len(big)} rows"
+    assert "oldest" not in every[0], f"--all still claims a cap: {every[0]!r}"
+
     shutil.rmtree(tmp, ignore_errors=True)
     return f"OK — {len(pkgs)} package(s), {elapsed_ms} ms"
 
@@ -329,6 +391,9 @@ def main():
     ap.add_argument("--package", help="restrict the digest to ONE goal package: its label "
                                       "(`my-goal`, `my-goal/run-2`) or its folder path. A goal "
                                       "carries its own open runs.")
+    ap.add_argument("--all", action="store_true",
+                    help="print EVERY row, not just the oldest 5 (the default stays capped: the "
+                         "masters' cold-contact statement is the capped one)")
     ap.add_argument("--selfcheck", action="store_true", help="assert the digest is sane and fast")
     args = ap.parse_args()
 
@@ -340,14 +405,15 @@ def main():
         return 2
 
     started = time.time()
+    cap = None if args.all else CAP
     rows, unreadable = collect(coord, args.workspace, args.package)
-    text = render(rows, unreadable)
+    text = render(rows, unreadable, cap)
     elapsed_ms = int((time.time() - started) * 1000)
 
     print(text)
     if args.selfcheck:
         print()
-        print(selfcheck(coord, args.workspace, text, elapsed_ms, args.package))
+        print(selfcheck(coord, args.workspace, text, elapsed_ms, args.package, cap))
     return 0
 
 

@@ -64,7 +64,7 @@ At the FIRST turn of a cold contact, before anything else, STATE the owner's owe
 
 The ONE case that admits manual derivation: the command is missing, or it prints a line saying a package was UNREADABLE. ONLY then derive by hand — `coordinate --package <goal> --as owner pending`, once per goal — and say on that turn that you did.
 
-Presentation is KISS: the count first, then the oldest-first list capped at 5 — age · the asking seat and its goal · the question in one line · the thread pointer. Over the cap, state the total and show the oldest 5. At zero debt, say nothing. The owner answers IN the thread, and that is what closes the item.
+Presentation is KISS: the count first, then the oldest-first list capped at 5 — age · the asking seat and its goal · the question in one line · the thread pointer. Over the cap, state the total and show the oldest 5 — and the per-kind totals (how many are halts, how many are asks) are the HEADER's numbers, NEVER the count of `⛔` rows the capped list happens to show, which is the cap. At zero debt, say nothing. The owner answers IN the thread, and that is what closes the item.
 
 Displaying an item changes NOTHING: there is no seen, deferred, or aged-out state, and the list reappears at every cold contact until an `answer` lands.
 
