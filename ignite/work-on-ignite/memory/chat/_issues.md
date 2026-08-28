@@ -1,1 +1,2 @@
 2026-08-27 · issue · a refused escalation retried 20x before reaching the owner · `leader`'s escalation #12 on the paused goal `scratch-tool-reach-note`, live on the deploy → `bus-ferry.js` states at its ladder header that an `escalation` PASSES EVERY GATE, and it does — · 84238318 · meta-leader · ⚠
+2026-08-28 · issue · the mechanical pause/resume verb answered nothing at all · An owner typing `pause {goal}` or `resume {goal}` into Slack got NOTHING back — not an → Two causes stacked, and the second is the one the owner met. · 8b44d806 · bridges,gateway · ⚠
