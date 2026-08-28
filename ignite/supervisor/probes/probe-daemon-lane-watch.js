@@ -105,7 +105,7 @@ function mutantWatch(from, to) {
 const SEEDING_PATH = require.resolve('../seeding');
 const ENGINE_INDEX_PATH = require.resolve('../index');
 const SEEDING_SRC = fs.readFileSync(SEEDING_PATH, 'utf8');
-function withMutantSeeding(from, to, fn) {
+async function withMutantSeeding(from, to, fn) {
   if (!SEEDING_SRC.includes(from)) {
     throw new Error(`mutation anchor ABSENT in seeding.js — the arm would measure nothing: ${from}`);
   }
@@ -119,7 +119,7 @@ function withMutantSeeding(from, to, fn) {
   require.cache[SEEDING_PATH] = m;
   delete require.cache[ENGINE_INDEX_PATH];
   try {
-    return fn(require('../../runtime/engine').createEngine);
+    return await fn(require('../../runtime/engine').createEngine);
   } finally {
     require.cache[SEEDING_PATH] = savedSeeding;
     require.cache[ENGINE_INDEX_PATH] = savedIndex;
@@ -160,7 +160,7 @@ function copyGoals(dest, names) {
 // and boot-prompt bytes are path-keyed) without paying `readySeats`/`seatBootPrompt`/`maybeReconcile`
 // against the rest of the fixture tree. Copying to a new root breaks L5c's memo and L9's
 // byte-identity check.
-function withOnlyGoals(root, names, fn) {
+async function withOnlyGoals(root, names, fn) {
   const hidden = fs.mkdtempSync(path.join(path.dirname(root), 'hidden-'));
   const parked = [];
   for (const ent of fs.readdirSync(root)) {
@@ -169,7 +169,7 @@ function withOnlyGoals(root, names, fn) {
       parked.push(ent);
     }
   }
-  try { return fn(); } finally {
+  try { return await fn(); } finally {
     for (const ent of parked) fs.renameSync(path.join(hidden, ent), path.join(root, ent));
     fs.rmSync(hidden, { recursive: true, force: true });
   }
@@ -631,7 +631,7 @@ async function main() {
       tickerConfig: { max_live_agent_sessions: 16 },
     });
     try {
-      pass1 = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log1) });
+      pass1 = await laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log1) });
       await engine.tick();          // …and the daemon's own tick DISPATCHES what the pass enqueued
     } finally { engine.close(); }
   }
@@ -731,8 +731,8 @@ async function main() {
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try {
-      withOnlyGoals(goalsRoot, ['legacy-marker-goal'], () => {
-        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log2) });
+      await withOnlyGoals(goalsRoot, ['legacy-marker-goal'], async () => {
+        await laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine, logger: collectingLogger(log2) });
       });
     } finally { engine.close(); }
     const lvls = log2.filter((m) => m.goal === 'legacy-marker-goal').map((m) => m.level);
@@ -746,8 +746,8 @@ async function main() {
       dbPath: daemonStorePath, spawnConfigPath: configPath, userManager: false,
     });
     try {
-      withOnlyGoals(goalsRoot, ['legacy-marker-goal'], () => {
-        laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine: engine3, logger: collectingLogger(log3) });
+      await withOnlyGoals(goalsRoot, ['legacy-marker-goal'], async () => {
+        await laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine: engine3, logger: collectingLogger(log3) });
       });
     } finally { engine3.close(); }
     check('L5c …and it is LOUD again the moment the marker text changes — quiet must never mean '
@@ -801,7 +801,7 @@ async function main() {
     });
     let pass2;
     try {
-      pass2 = withOnlyGoals(goalsRoot, ['locked-goal'], () =>
+      pass2 = await withOnlyGoals(goalsRoot, ['locked-goal'], () =>
         laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }));
     } finally { engine.close(); }
     check('L5 PAIR: with the console runner gone, the SAME goal is adopted on the next pass — so '
@@ -828,7 +828,7 @@ async function main() {
     fs.mkdirSync(stuck, { recursive: true });
     fs.writeFileSync(path.join(stuck, 'execution-lane'), 'daemon\n');
     const log = [];
-    const pass = laneWatch.runLaneWatch({
+    const pass = await laneWatch.runLaneWatch({
       goalsRoot: l5bRoot, engine: {}, logger: collectingLogger(log),
     });
     const skip = pass.skipped.find((x) => x.goal === 'no-taskforce-goal');
@@ -847,7 +847,7 @@ async function main() {
     // THE MEMO BOUND: the identical state on the next cadence drops to `debug`, so a stuck goal is
     // named once per marker rather than ~8,600 times a day.
     const log2 = [];
-    laneWatch.runLaneWatch({ goalsRoot: l5bRoot, engine: {}, logger: collectingLogger(log2) });
+    await laneWatch.runLaneWatch({ goalsRoot: l5bRoot, engine: {}, logger: collectingLogger(log2) });
     check('L5-B12 the SECOND pass on the same marker drops to `debug` — loud once, never a firehose',
       log2.filter((m) => m.level === 'warn' && /taskforce/.test(m.message)).length === 0
         && log2.filter((m) => m.level === 'debug' && /taskforce/.test(m.message)).length === 1,
@@ -869,7 +869,7 @@ async function main() {
         fs.mkdirSync(mstuck, { recursive: true });
         fs.writeFileSync(path.join(mstuck, 'execution-lane'), 'daemon\n');
         const mlog = [];
-        const mpass = mut.exports.runLaneWatch({ goalsRoot: mroot, engine: {}, logger: collectingLogger(mlog) });
+        const mpass = await mut.exports.runLaneWatch({ goalsRoot: mroot, engine: {}, logger: collectingLogger(mlog) });
         check('L5-B12 RED — without the say, the goal is skipped in TOTAL SILENCE: the measured defect',
           mpass.skipped.some((x) => x.reason === 'no-taskforce-yet')
             && mlog.filter((m) => /taskforce/.test(m.message || '')).length === 0,
@@ -936,7 +936,7 @@ async function main() {
     });
     let pass3;
     try {
-      pass3 = withOnlyGoals(goalsRoot, ['switch-goal'], () =>
+      pass3 = await withOnlyGoals(goalsRoot, ['switch-goal'], () =>
         laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot, engine }));
     } finally { engine.close(); }
     check('L6 …and the daemon LETS GO of it on the very next pass — flipped, therefore skipped',
@@ -1008,7 +1008,7 @@ async function main() {
       dbPath: path.join(tmp, 'm1.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
+    try { pass = await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
     check('L8 M1 assignment IGNORED -> the daemon seeds a CONSOLE goal (the L5 control goes RED)',
       pass.adopted.map((a) => a.goal).includes('console-goal'),
       `mutant adopted: ${pass.adopted.map((a) => a.goal).join(', ') || 'none'}`);
@@ -1029,7 +1029,7 @@ async function main() {
       dbPath: path.join(tmp, 'm2.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
+    try { pass = await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
     check('L8 M2 run lock IGNORED -> the daemon seeds a goal a LIVE console runner is attached to (L5 RED)',
       pass.adopted.map((a) => a.goal).includes('locked-goal'),
       `mutant adopted: ${pass.adopted.map((a) => a.goal).join(', ') || 'none'}`);
@@ -1051,7 +1051,7 @@ async function main() {
     const engine = createEngine({
       dbPath, spawnConfigPath: configPath, userManager: false,
     });
-    try { mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
+    try { await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine }); } finally { engine.close(); }
     const s = openHeartStore({ dbPath });
     const d = s.dump(); s.close();
     check('L8 M4 the uncast guard REMOVED -> the unlaunchable goal leaves orphan job rows in the '
@@ -1072,7 +1072,7 @@ async function main() {
     const engine = createEngine({
       dbPath: path.join(tmp, 'm5.db'), spawnConfigPath: configPath, userManager: false,
     });
-    try { mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    try { await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     check('L8 M5 the uncast branch skips SILENTLY -> the operator loses the only line that says '
       + 'why the goal never starts (L5b RED)',
       !log.some((m) => m.goal === 'uncast-goal' && /NO cast/.test(m.message || '')),
@@ -1094,7 +1094,7 @@ async function main() {
       dbPath: path.join(tmp, 'm6.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    try { pass = await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     const hi = pass.adopted.find((a) => a.goal === 'human-interactive-goal');
     check('L8 M6 the human-interactive report REMOVED -> the daemon dispatches the seat with nothing '
       + 'said (L5d RED) — the silence, reproduced',
@@ -1127,7 +1127,7 @@ async function main() {
     let pass;
     const mutRoot = path.join(tmp, 'm7-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['m7-arm-goal']);
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    try { pass = await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     const hi = pass.adopted.find((a) => a.goal === 'm7-arm-goal');
     check('L8 M7 the ARM is never read -> a `block-and-queue` seat reports NO arm and is warned about '
       + 'as if it declared none (L5d RED) — the report degrades to the pre-7.626 one',
@@ -1142,7 +1142,7 @@ async function main() {
       dbPath: path.join(tmp, 'm7-control.db'), spawnConfigPath: configPath, userManager: false,
     });
     let cpass;
-    try { cpass = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
+    try { cpass = await laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine: cengine, logger: collectingLogger(clog) }); } finally { cengine.close(); }
     const chi = cpass.adopted.find((a) => a.goal === 'm7-arm-goal');
     check('L8 M7 CONTROL: the UNMUTATED pass over that same untouched goal reports `block-and-queue` '
       + 'and warns about nothing',
@@ -1169,7 +1169,7 @@ async function main() {
       dbPath: path.join(tmp, 'm8.db'), spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
+    try { pass = await mutant({ readLease: fixtureLiveLease, goalsRoot: mutRoot, engine, logger: collectingLogger(log) }); } finally { engine.close(); }
     check('L8 M8 the legacy-marker REPORT removed -> a goal written under the retired grammar is '
       + 'indistinguishable from one deliberately assigned to the console (L5b RED): same skip '
       + 'reason, and nothing on the line says a human has to rewrite the marker',
@@ -1181,7 +1181,7 @@ async function main() {
   // arm under test is L7's, so the mutation is applied to the daemon's SOURCE TEXT and L7's own
   // predicate is re-run against it.
   {
-    const disabled = stripComments(daemonCodeRaw.split('\n').filter((l) => !/^\s*laneWatchPass\(\);/.test(l)).join('\n'));
+    const disabled = stripComments(daemonCodeRaw.split('\n').filter((l) => !/^\s*(await )?laneWatchPass\(\);/.test(l)).join('\n'));
     check('L8 M3 the watch call REMOVED from the daemon loop -> the call-site arm goes RED (the '
       + '"daemon adopts nothing by itself" state this build closed)',
       !callsWatch(disabled) || (disabled.match(/laneWatchPass\(\);/g) || []).length < 2,
@@ -1257,12 +1257,12 @@ async function main() {
       && /checkout --incomplete/.test(expectedPrompt),
     `daemon: ${expectedPrompt.length} bytes · checkin-order=${/check in as/.test(expectedPrompt)}`);
 
-  function l9Pass(createEngineFn, dbPath, root) {
+  async function l9Pass(createEngineFn, dbPath, root) {
     const engine = createEngineFn({
       dbPath, spawnConfigPath: configPath, userManager: false,
     });
     let pass;
-    try { pass = laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot: root, engine }); } finally { engine.close(); }
+    try { pass = await laneWatch.runLaneWatch({ readLease: fixtureLiveLease, goalsRoot: root, engine }); } finally { engine.close(); }
     const s = openHeartStore({ dbPath });
     const row = s.dump().queue.find((r) => r.job_id === L9_JOB);
     s.close();
@@ -1275,7 +1275,7 @@ async function main() {
   // Park siblings in place so the package path (and therefore the boot-prompt bytes) stay
   // identical to `expectedPrompt`.
   const l9t0 = Date.now();
-  const l9 = withOnlyGoals(goalsRoot, ['prompt-goal'], () =>
+  const l9 = await withOnlyGoals(goalsRoot, ['prompt-goal'], () =>
     l9Pass(createEngine, path.join(tmp, 'l9.db'), goalsRoot));
   say(`L9 watch pass over prompt-goal only  — wall_ms=${Date.now() - l9t0}`);
   // NON-VACUITY, BOTH HALVES, BEFORE `args` IS EVER READ. Without these, "the goal was never
@@ -1311,7 +1311,7 @@ async function main() {
   {
     const mutRoot = path.join(tmp, 'm9-ws', '.rbtv', 'goals');
     copyGoals(mutRoot, ['prompt-goal']);
-    const m9 = withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ workdir: seatDir }),',
+    const m9 = await withMutantSeeding(L9_ANCHOR, 'args: JSON.stringify({ workdir: seatDir }),',
       (mutantCreateEngine) => l9Pass(mutantCreateEngine, path.join(tmp, 'm9.db'), mutRoot));
     const m9args = m9.row ? JSON.parse(m9.row.args) : {};
     // THE MUTANT'S OWN NON-VACUITY: it must still adopt and still enqueue, or the arm below would

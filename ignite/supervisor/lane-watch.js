@@ -442,7 +442,7 @@ function openGoalRoom({
 // if the tree ever reaches thousands, watch mtimes instead of re-reading every pass.
 // `readLease` is the D9 goal-live check's injection point, forwarded verbatim to
 // `engine.seedGoal` — production passes nothing and seeding reads the real lease.
-function runLaneWatch({
+async function runLaneWatch({
   goalsRoot, engine, logger = null, readLease = undefined, lanesFile = undefined,
   // The room opener's executor seam, `ensureCockpit`'s own pattern. Production passes nothing.
   runTmux = undefined,
@@ -468,6 +468,26 @@ function runLaneWatch({
   }
 
   for (const entry of entries) {
+    // ⚠ ONE EVENT-LOOP TURN, AT THE HEAD OF EVERY GOAL, AND IT IS THE WHOLE REASON THIS FUNCTION IS
+    // `async`. Everything this loop then does is BLOCKING — `maybeReconcile` and `engine.seedGoal`
+    // spend `execFileSync(python …)` at a measured ~2.4 s per seeded goal (diag 2026-08-28, §2.3) —
+    // and the gateway's HTTP listener (`runtime/gateway/gateway.js`) lives on this same single
+    // loop. Without this yield the pass held the loop for a median 7.9 s and up to 12.6 s of every
+    // 10 s cadence with three seeded goals, so `inspect daemon` could not be answered at all and
+    // the watchdog's 10 s cutoff landed inside that spread: 30 timeouts, 29 owner DMs, never a
+    // dead daemon (diag §1.1, §1.5, §2.2). A log line does NOT yield — that is why the journal
+    // looked alive throughout.
+    //
+    // `setImmediate` and not `setTimeout(0)`: it resolves in the check phase, i.e. AFTER the poll
+    // phase has drained pending socket reads, which is exactly the work a waiting gateway request
+    // is sitting in. The worst contiguous block therefore drops from the whole sweep to ONE goal.
+    //
+    // ⚠ THE PRICE, ACCEPTED: a gateway request can now land between two goals, on a half-done
+    // pass. The daemon's cadence carries a pass-already-running guard (`runtime/index.js`) so a
+    // pass never overlaps a pass; nothing serialises a pass against a REQUEST, and no lock is
+    // wanted here — every write this loop makes is per-goal and idempotent on the next cadence.
+    // Proof: `probes/probe-lane-watch-yield.js`.
+    await new Promise(setImmediate);
     if (!entry.isDirectory()) continue;
     const goal = entry.name;
     const goalFolder = path.join(goalsRoot, goal);

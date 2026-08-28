@@ -974,3 +974,43 @@ explicit `launch --only goal-master` still admits by conjunction. One `info` lin
 
 Proof: `probes/probe-seed-gates.js` arms 8a–8e, with `leader` as the discriminating control (same
 root row, same cast, same descriptor writer — only the name differs).
+
+## The pass YIELDS between goals, and a pass never stacks [A-1 option (a), owner ruling 2026-08-28]
+
+`runLaneWatch` is `async` and `await`s one `setImmediate` turn at the head of the per-goal loop.
+Everything the loop then does per goal is blocking — `maybeReconcile` and `engine.seedGoal` spend
+`execFileSync(python …)`, measured at ~2.4 s per seeded goal — and the daemon's gateway listener
+(`runtime/gateway/gateway.js`) lives on that same single event loop. Before the yield the pass held
+the loop for the whole sweep: with three seeded goals, a median 7.9 s and up to 12.6 s of every 10 s
+cadence, so `inspect daemon` could not be answered at all and the watchdog's 10 s cutoff landed
+inside that spread — 30 timeouts, 29 owner DMs, and never a dead daemon. A log line does not yield,
+which is why the journal looked alive throughout.
+
+**What the yield buys is availability, not speed.** The sweep costs exactly what it cost. What
+changes is the WAIT a client on that loop pays: it was the whole sweep, and therefore grew with
+every goal added to the tree; it is now a small fixed number of loop turns — measured at two to
+three goal-blocks — no matter how many goals there are. That bound, not the ratio, is the point.
+
+**One pass at a time.** The cadence callback (`runtime/index.js`) holds a `passInFlight` flag: a
+tick that arrives while a pass is still running is DROPPED, never queued behind it, and named once
+at `debug`. Without it an overrunning pass would be joined by the next one — two sweeps over one
+tree, both seeding, both enqueueing. The order inside the cadence is unchanged and is load-bearing:
+watch, then frozen, then tick — `frozenPass` reads the facts the pass just collected and the tick
+dispatches what that same pass just enqueued, so both must observe a FINISHED pass. Before the pass
+yielded that came free from statement order; now it is the `await`.
+
+**The accepted cost, stated.** A gateway request can now land BETWEEN two goals, on a half-done
+pass. The guard covers pass-vs-pass only; nothing serialises a pass against a request, and no lock
+is added. Every write the loop makes is per-goal and idempotent on the next cadence, so a request
+that observes a half-done pass sees a tree in which some goals have been seeded this cadence and
+the rest have not — the same state it would have seen one cadence earlier for those goals.
+
+**NOT covered:** `reconcile.js#recoverRoom` still holds the loop for a single `spawnSync` with a
+120 000 ms timeout (observed at 66.6 s on 2026-08-27). That is one goal's single call, inside one
+goal-block, and the yield does not shorten it.
+
+Proof: `probes/probe-lane-watch-yield.js` — a 4-goal and an 8-goal synthetic sweep whose per-goal
+work is a 300 ms synchronous block (no subprocess of any kind), a real HTTP client and server on the
+same event loop, and the daemon's own cadence callback compiled verbatim from `runtime/index.js`.
+Red arms: the `await` deleted (the client waits the whole sweep and is answered nothing inside it)
+and the guard block deleted (two overlapping ticks start two passes).

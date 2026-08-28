@@ -988,16 +988,25 @@ async function main() {
 
   // ⚠ THE PASS'S RESULT IS PARKED IN A VARIABLE, NOT RETURNED INTO THE CALL SITE, and that shape is
   // load-bearing. `supervisor/probes/probe-daemon-lane-watch.js` proves the daemon still CALLS this
-  // pass by mutating the loop's source text — it drops every line matching `^\s*laneWatchPass\(\);`
-  // and requires the call-site arm to go red. A call wrapped in an assignment or an argument
-  // survives that mutation, so the arm would pass against a daemon that had stopped adopting goals
-  // by itself, which is exactly the state that build closed. The statement stays bare.
+  // pass by mutating the loop's source text — it drops every line matching
+  // `^\s*(await )?laneWatchPass\(\);` and requires the call-site arm to go red. A call wrapped in an
+  // assignment or an argument survives that mutation, so the arm would pass against a daemon that
+  // had stopped adopting goals by itself, which is exactly the state that build closed. The
+  // statement stays a bare `await laneWatchPass();` — its own line, nothing around it. (`await` is
+  // in the anchor because the pass became async on 2026-08-28 so it could yield to the gateway
+  // between goals; if this line ever gains a wrapper again, that probe anchor goes with it.)
   let lastWatch = null;
-  const laneWatchPass = () => {
+  const laneWatchPass = async () => {
     // Never fatal: one bad goal folder must not take the loop down. `runLaneWatch` already guards
     // per goal; this is the outer belt for anything it did not anticipate.
+    //
+    // ⚠ AWAITED, BECAUSE THE PASS NOW YIELDS. `runLaneWatch` is `async` and gives the event loop one
+    // turn per goal so the gateway can answer DURING a sweep (`supervisor/lane-watch.js`, the yield
+    // at the head of the per-goal loop). Calling it without `await` would resolve `lastWatch` to a
+    // Promise, and `frozenPass()` would then run on `undefined` facts every cadence — silently, the
+    // frozen driver simply never firing again.
     try {
-      lastWatch = runLaneWatch({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
+      lastWatch = await runLaneWatch({ goalsRoot, engine, logger: (m) => log(m.level || 'info', m.message, m) });
     } catch (err) {
       log('error', 'lane watch pass failed', { error: err.message });
       lastWatch = null;
@@ -1030,16 +1039,40 @@ async function main() {
   // --lane daemon` refuses `daemon-lane-unmaterialized` rather than producing an unminted
   // daemon goal. A daemon goal that still arrives with no `taskforce.csv` is named out
   // loud by the lane watch (`no-taskforce-yet`), which is the whole remaining answer.
-  laneWatchPass();
+  await laneWatchPass();
   frozenPass();
   const tickResult = await engine.tick();
   log('info', 'initial tick complete', { tick: tickResult.tick, actionCount: tickResult.actions.length });
 
   const intervalMs = Number(tickerConfig.tick_interval_ms) || 10000; // ticker.js DEFAULT_CONFIG default
-  const timer = setInterval(() => {
-    laneWatchPass();
-    frozenPass();
-    engine.tick().catch((err) => log('error', 'tick failed', { error: err.message }));
+  // ⚠ THE THREE STATEMENTS ARE AWAITED NOW, AND THE ORDER IS THE ONE THEY ALWAYS HAD:
+  // watch, then frozen, then tick. `frozenPass()` reads `lastWatch.frozenFacts` — the facts the
+  // pass that just ran collected — and the tick DISPATCHES what that same pass enqueued, so both
+  // must observe a FINISHED pass. Before the pass yielded, running them on the next statement was
+  // enough; now only `await` gives that.
+  //
+  // ⚠ AND ONE PASS AT A TIME. The pass takes ~2.4 s per seeded goal, so at enough goals it outruns
+  // the 10 s interval. `setInterval` does not wait, so an overrunning pass used to be joined by the
+  // next one — two sweeps over the same tree, both seeding, both enqueueing. `passInFlight` is the
+  // whole guard: a tick that arrives while a pass is running is DROPPED, never queued behind it, so
+  // overrun can never stack. The skip is one `debug` line per dropped tick (the next cadence is
+  // 10 s away and does the same work — an operator needs to see the overrun, not be paged for it).
+  let passInFlight = false;
+  const timer = setInterval(async () => {
+    if (passInFlight) {
+      log('debug', 'cadence skipped — the previous lane watch pass is still running', { intervalMs });
+      return;
+    }
+    passInFlight = true;
+    try {
+      await laneWatchPass();
+      frozenPass();
+      await engine.tick();
+    } catch (err) {
+      log('error', 'tick failed', { error: err.message });
+    } finally {
+      passInFlight = false;
+    }
   }, intervalMs);
 
   function shutdown(signal) {

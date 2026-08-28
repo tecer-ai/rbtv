@@ -190,10 +190,10 @@ function sessionNames() {
 }
 
 // One pass. `runTmux` is left at its default (the real executor) unless a recorder is handed in.
-function pass(runLaneWatch, { runTmux } = {}) {
+async function pass(runLaneWatch, { runTmux } = {}) {
   const journal = [];
   const seedCalls = [];
-  const res = runLaneWatch({
+  const res = await runLaneWatch({
     goalsRoot,
     engine: stubEngine(seedCalls),
     logger: (m) => journal.push(m),
@@ -205,7 +205,7 @@ const openedLines = (journal) =>
   journal.filter((m) => m.message === 'room opened by the daemon lane (first seeding)');
 
 // ── the arms ──────────────────────────────────────────────────────────────────────────────────
-function main() {
+async function main() {
   say('# fixture');
   say(`goals root: ${goalsRoot}`);
   say(`tmux server: private (TMUX_TMPDIR=${tmuxScratch})`);
@@ -217,7 +217,7 @@ function main() {
     JSON.stringify(before));
 
   // ARM 1 — the never-live daemon-lane goal.
-  const p1 = pass(laneWatch.runLaneWatch);
+  const p1 = await pass(laneWatch.runLaneWatch);
   const rooms = sessionNames();
   check('1 · a REAL tmux room named after the daemon-lane goal now exists',
     rooms.includes(G_DAEMON), JSON.stringify(rooms));
@@ -249,7 +249,7 @@ function main() {
 
   // ARM 5 — idempotence. A recorder proves no tmux command is composed at all this time.
   const calls = [];
-  const p2 = pass(laneWatch.runLaneWatch, { runTmux: (argv) => { calls.push(argv); return 'recorded'; } });
+  const p2 = await pass(laneWatch.runLaneWatch, { runTmux: (argv) => { calls.push(argv); return 'recorded'; } });
   check('5 · a SECOND pass runs NO tmux command (the live room is left exactly as it is)',
     calls.length === 0, JSON.stringify(calls));
   check('5 · and says nothing a second time', openedLines(p2.journal).length === 0);
@@ -260,7 +260,7 @@ function main() {
   say('# the refusals compose NO tmux argv (recorder over a room-less tree)');
   tmux(['kill-session', '-t', `=${G_DAEMON}`]);
   const calls3 = [];
-  const p3 = pass(laneWatch.runLaneWatch, { runTmux: (argv) => { calls3.push(argv); return '%0 1'; } });
+  const p3 = await pass(laneWatch.runLaneWatch, { runTmux: (argv) => { calls3.push(argv); return '%0 1'; } });
   const opened3 = calls3.map((a) => a[a.indexOf('-s') + 1]);
   check('only the daemon-lane never-live goal reaches tmux at all',
     calls3.length === 1 && opened3[0] === G_DAEMON, JSON.stringify(opened3));
@@ -285,12 +285,12 @@ function main() {
   say('');
   say('# mutation arms — each must go RED');
 
-  function runMutant(edits) {
+  async function runMutant(edits) {
     const calls = [];
     const journal = [];
     const seedCalls = [];
     try {
-      mutantWatch(edits)({
+      await mutantWatch(edits)({
         goalsRoot,
         engine: stubEngine(seedCalls),
         logger: (m) => journal.push(m),
@@ -305,14 +305,14 @@ function main() {
       openedLines: openedLines(journal).length,
     };
   }
-  function mutantArm(name, edits, red) {
-    const outcome = runMutant(edits);
+  async function mutantArm(name, edits, red) {
+    const outcome = await runMutant(edits);
     check(`mutant · ${name} → RED`, red(outcome),
       JSON.stringify({ opened: outcome.opened, lines: outcome.openedLines, threw: outcome.threw }));
   }
 
   // With the room LIVE: dropping the live-room guard composes a SECOND new-session for it.
-  mutantArm('the live-room guard is dropped (a second room for a goal that has one)',
+  await mutantArm('the live-room guard is dropped (a second room for a goal that has one)',
     [["if (lease.live) return { opened: false, reason: 'room-already-live' };", '']],
     (r) => r.opened.includes(G_DAEMON));
   // The control for that arm: unmutated, the same live state composes nothing (arm 5 above).
@@ -320,23 +320,23 @@ function main() {
   tmux(['kill-session', '-t', `=${G_DAEMON}`]);
   say(`room killed; sessions now ${JSON.stringify(sessionNames())}`);
 
-  mutantArm('the daemon-lane guard is dropped (console and paused goals get rooms)',
+  await mutantArm('the daemon-lane guard is dropped (console and paused goals get rooms)',
     [['if (lane !== DAEMON) {', 'if (false) {']],
     (r) => r.opened.includes(G_CONSOLE) && r.opened.includes(G_PAUSED));
 
-  mutantArm('the launchable-row guard is dropped (a room for a goal whose only seat is uncast)',
+  await mutantArm('the launchable-row guard is dropped (a room for a goal whose only seat is uncast)',
     [["if (!launchable.length) return { opened: false, reason: 'no-launchable-row' };", '']],
     (r) => r.opened.includes(G_UNCAST));
 
-  mutantArm('the first-seeding guard is dropped (a room the owner closed is re-opened)',
+  await mutantArm('the first-seeding guard is dropped (a room the owner closed is re-opened)',
     [['if (loadSessions(goalFolder).length) {', 'if (false) {']],
     (r) => r.opened.includes(G_RAN));
 
-  mutantArm('the opener is never called (the state this fix closed)',
+  await mutantArm('the opener is never called (the state this fix closed)',
     [['const room = openGoalRoom({', 'const room = ((x) => ({ opened: false }))({']],
     (r) => r.calls.length === 0);
 
-  mutantArm('the journal line is silenced (an operator cannot tell who opened the room)',
+  await mutantArm('the journal line is silenced (an operator cannot tell who opened the room)',
     [["'room opened by the daemon lane (first seeding)'", "'quietly opened'"]],
     (r) => r.openedLines === 0 && r.opened.includes(G_DAEMON));
 
@@ -347,19 +347,20 @@ function main() {
   // (caught as `taskforce-unreadable`), and `uncastSeats`' (caught as `cast-unreadable`). Removing
   // only the first therefore changes NOTHING — which is the honest measurement, and stating it as
   // a red arm would be a lie about what the mutation proves.
-  const depth = runMutant([['if (!fs.existsSync(path.join(goalFolder, \'taskforce.csv\'))) {', 'if (false) {']]);
+  const depth = await runMutant([['if (!fs.existsSync(path.join(goalFolder, \'taskforce.csv\'))) {', 'if (false) {']]);
   check('3b · with the taskforce EXISTENCE guard removed the goal is STILL untouched — two '
     + 'further guards refuse before the opener (defence in depth, not a red arm)',
     !depth.opened.includes(G_NOTF), JSON.stringify(depth.opened));
 }
 
 let exitCode = 0;
-try {
-  main();
-} catch (err) {
+// `main` is async because `runLaneWatch` is (it yields the event loop between goals), so the
+// teardown below has to be chained off the promise — a plain `finally` block would kill the tmux
+// server while the pass was still walking the tree.
+main().catch((err) => {
   say(`FAIL  probe threw: ${err.stack || err.message}`);
   failures.push('probe threw');
-} finally {
+}).finally(() => {
   // EVERY session this probe created dies with its own server. The box's real sessions were never
   // reachable from here — a different socket entirely.
   const left = sessionNames();
@@ -381,5 +382,5 @@ try {
   say(`EXIT ${exitCode}`);
   fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');
   console.log(lines.join('\n'));
-}
-process.exit(exitCode);
+  process.exit(exitCode);
+});
