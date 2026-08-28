@@ -1,0 +1,1 @@
+2026-08-28 · issue · the console resume never fired the re-arm event · `rbtv goal resume goal-memory-management` printed `RESUMED — lane assignment restored to DAEMON` → `operator/goals-tree/tool/goal_cli.py#cmd_resume` performed exactly two acts: `write_lane_raw` with · 8c226055 · state-store,supervisor · ⚠
