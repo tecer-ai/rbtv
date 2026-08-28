@@ -219,6 +219,27 @@ Still open, and deliberately not invented here: the §6 triggers are not FIRED y
 default `0` because no read door for blocked-on-human lanes or paused goals exists
 from this process. Probe: `probes/probe-chat-glance-wiring.js`.
 
+## bus-ferry-completion
+
+`bus-ferry.js` + `chat-bridge.js` — the finish edge's completion notice
+(`spec-owner-io.md` §1 [T5-R16]). A `type: completion` bus row whose body OPENS
+with `records.py`'s `FINISH_MARKER` and whose `from:` is the `leader` chair is the
+ONE row this ferry carries that is not addressed to the owner: it is posted as
+ONE 3-line message, TOP-LEVEL in the goal's own channel [T5-R11], through the
+bridge's `postGoalChannel` and the outbox as `kind: completion` — the kind
+`outbox.js` had declared since [C-17] and nothing had ever produced.
+
+Never the ❓ ask door (a completion is a notification [T2-R16]; `postAsk` would
+mint a record nobody can answer and hold the kill clock open), never the owner DM
+(the escalation/alarm surface — the missing-channel notice is suppressed for this
+row too), never `#system-channel`. Line 1 is the outcome and comes from the row;
+line 2 is counted off the goal's `executions.csv`; line 3 names every
+`goal-writes:` output that is on disk AND non-empty — D21 creates them empty at
+spawn, so existence is not delivery. Idempotence is the ordinary cursor. The
+marker is duplicated across Python and JS with no shared constant, and W9 PIN in
+`probes/probe-chat-bus-ferry.js` reads `records.py` to keep the two from drifting.
+Arm W9 of `probes/probe-chat-bus-ferry.js`.
+
 ## goal-channel-cli
 
 `goal-channel-cli.js` — the Slack goal-channel `ensure` / `list` / `post` / `retire`

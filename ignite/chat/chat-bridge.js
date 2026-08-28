@@ -563,6 +563,22 @@ function createChatBridge({
     return posted;
   }
 
+  // WHERE THE FINISH EDGE'S COMPLETION NOTICE GOES (the ferry's `postGoalChannel`, [T5-R16]) —
+  // TOP-LEVEL in the goal's own channel, never in a thread and never in the DM. It is the same
+  // `goalChannelFor` every other outbound leg uses, and `kind: 'completion'` is the outbox kind
+  // `outbox.js` has declared since the durable outbox landed and nothing had ever produced.
+  //
+  // ⚑ NO THREAD IS RECORDED for it, deliberately — unlike `routeToAgentThread`. A completion is a
+  // notification, not a conversation [T2-R16]: an owner reply under it must take the ordinary
+  // goal-channel route (the goal thread is the channel), not mint a sitting at whatever seat
+  // happened to fire the finish edge.
+  async function postGoalChannel({ goalId, text }) {
+    const resolved = await goalChannelFor(goalId);
+    const channel = resolved.channelId;
+    if (!channel) return { delivered: false, reason: resolved.reason };
+    return postSlack({ kind: 'completion', channel, threadTs: null, text, goal_id: goalId });
+  }
+
     const busFerry = createBusFerry({
     workspaceRoot: (config && config.workspaceRoot) || null,
     transport,
@@ -577,6 +593,9 @@ function createChatBridge({
     // park that used to swallow it is gone (bus-ferry.js). Injected, so `busFerryOptions` can
     // still unwire it in a probe measuring the legs beneath.
     postAsk: (args) => postOwnerAsk(args),
+    // The finish edge's 3-line channel notice [T5-R16]. Injected for `postAsk`'s reason: the
+    // goal↔channel resolution is the bridge's, and `busFerryOptions` can still unwire it.
+    postGoalChannel: (args) => postGoalChannel(args),
     ownerUser: (config && config.ownerUser) || null,
     ...busFerryOptions,
   });

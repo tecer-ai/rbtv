@@ -834,10 +834,58 @@ to the bus; it reads workspace files and posts outbound through the transport.
 
 | The row | Where it goes |
 |---|---|
+| `type: completion` from `leader`, body opening `goal-finished: the finish edge fired` | **one 3-line message, TOP-LEVEL in the goal's own channel**, outbox `kind: completion` (§ *The finish edge's completion notice*). This is the ONE row the ferry carries that is not addressed to the owner. |
 | `to:` does **not** contain `owner`, and it names no chat thread | **nowhere** — not this ferry's business. The cursor advances because the ferry never had a claim on it; the bus delivers it to seats. |
 | `to: owner`, **gates shut** | **PARKS on the bus.** Nothing posted anywhere — not the goal channel, not the owner's DM — and nothing minted. Logged naming the gate (§ *The two gates on agent-initiated contact*). |
 | `to: owner`, gates open, sender declares **`fallback: park`** | **PARKS on the bus**, exactly as a gated row does and logged `gate: fallback-park` — the seat declared that its questions wait there (§ *The seat's fallback arm*). |
 | `to: owner`, **gates open** | **the sending agent's own thread in the goal channel**, its header marked with the sender's fallback arm when it declared one (§ *The seat's fallback arm*). (§ *Thread per agent*). A goal with **no channel** no longer falls back anywhere: a map miss re-asks Slack, and if the channel genuinely does not exist the row is **held and retried**, with one content-free notice to the owner naming the goal and the seat at the third failed pass (owner ruling 2026-08-12). |
+
+### The finish edge's completion notice [T5-R16, spec-owner-io §1]
+
+A goal that finished told **nobody**. The finish edge fires (`coord/records.py#cmd_finish_goal`),
+the room is torn down, the goal's `CLAUDE.md` gets its FINISHED banner — and nothing reached
+Slack, because the row the edge appends is `to: all` and this ferry carried exactly one address.
+Measured on `seat-cage-tool-inventory`, finished 2026-08-28 01:31Z: the row is on the bus, the
+outbox holds no `completion`, and neither the goal channel nor the owner DM ever saw a word. The
+gap was even named in `bus-ferry.js` (issue `i-no-completion-nudge`) as something nobody had built.
+
+**What is recognised.** A `type: completion` row whose body **opens** with
+`goal-finished: the finish edge fired` — `records.py`'s own closed convention, the same first-line
+test `goal_finished()` uses — **and** whose `from:` is the `leader` chair. Neither half alone:
+every seat sends `--type completion` at check-out, so the type is not the event; and nothing at
+`coord.py cmd_send` guards the marker, so any seat can type that string into a completion body.
+
+**Where it goes.** One **top-level** post in the goal's channel through the bridge's
+`postGoalChannel` (`goalChannelFor` → the outbox, `kind: 'completion'`). Not a thread — a goal
+ending is the room's news, not one seat's message [T5-R11]. Not the ❓ ask door — a completion is
+a notification [T2-R16], and `postAsk` would mint an ask record nobody can answer, holding the
+kill clock open forever. **Never the owner DM**, which is the escalation/alarm surface: the
+missing-channel notice is deliberately not fired for this row either. No `#system-channel` post.
+
+**The three lines**, in order, every number counted off the goal's own records and nothing invented:
+
+| Line | What it carries | Read from |
+|---|---|---|
+| 1 · outcome | the goal, that it FINISHED, who fired the edge, and when | the bus row itself (`from:` and the header's trailing stamp) |
+| 2 · headline numbers | seats that RAN · sittings · the window between the first start and the last end | `<goal>/executions.csv`, by header name, skipping any row whose field count disagrees with the header |
+| 3 · deliverables | the goal-relative path of every `goal-writes:` output that is on disk **and non-empty** | each seat's `seat.md` frontmatter, resolved against the goal dir |
+
+⚠ **Existence is not delivery.** D21 creates every declared `goal-writes` output EMPTY at spawn so
+the cage bind has a source, so a zero-byte path proves a seat launched, not that it delivered. Line
+3 names only files with bytes in them; a goal with none says so in as many words.
+
+⚠ **ONE MESSAGE PER FINISH.** The guard is the ordinary cursor and nothing else: the row is behind
+it after the pass that posted it, and `_runOnce` re-reads the whole `messages.md` on every size
+change. A failed post takes the same bounded retry every other row takes.
+
+⚠ **THE MARKER IS A STRING IN TWO LANGUAGES.** `records.py` writes it, `bus-ferry.js` reads it, and
+nothing imports it across them. `probe-chat-bus-ferry.js` (W9 PIN) reads `records.py` and compares —
+if that check reddens, the marker moved and the ferry has gone blind, not the other way round.
+
+⚠ **THE COST OF THE SENDER TEST, NAMED.** A goal whose taskforce names **no** leader (a team-kit
+run, a console package) may legitimately be finished by another chair, and its notice is **not**
+posted — one warn line, cursor advanced. Fail-closed is the right direction while the send door
+checks nothing: the alternative is any seat announcing to the owner's channel that his goal is over.
 
 A row carrying a `[chat-thread:]` token **the bridge knows** is none of the three: it is an ANSWER
 into a thread the owner wrote in, so it is read **before** the gates and travels with both of them

@@ -76,13 +76,20 @@ const HEADER_ID_RE = /^## (\d+) \| (.+)$/;
 // The header, or null if the line is not one. Only `from` / `to` / `type` are required;
 // every other field (`from-pkg`, `re`, `why`, `supersedes`, the trailing timestamp) is
 // carried by the grammar and ignored here.
+// The ONE unkeyed part the header grammar carries: the trailing wall-clock stamp
+// (`coord.py append_message` writes it last). Read BY SHAPE, never by position — this module's
+// own additive-grammar rule — because a keyed field may be inserted anywhere before it.
+const ROW_STAMP_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
 function parseHeader(line) {
   const m = line.match(HEADER_ID_RE);
   if (!m) return null;
   const f = {};
+  let at = null;
   for (const part of m[2].split(' | ')) {
     const i = part.indexOf(': ');
-    if (i > 0) f[part.slice(0, i)] = part.slice(i + 2).trim();
+    if (i > 0) { f[part.slice(0, i)] = part.slice(i + 2).trim(); continue; }
+    if (ROW_STAMP_RE.test(part.trim())) at = part.trim();
   }
   if (!f.from || !f.to || !f.type) return null;
   // W4 (adv, C42): `chat-thread` and `deliver` are HEADER MECHANICS now — coord.py's
@@ -95,6 +102,7 @@ function parseHeader(line) {
     hdrChatThread: f['chat-thread'] || null,
     hdrDeliver: f.deliver || null,
     hdrApproveCommit: f['approve-commit'] || null,
+    at,
   };
 }
 
@@ -511,6 +519,183 @@ function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX
   return ping + (body ? `${header}\n${body}` : header);
 }
 
+// ── THE FINISH EDGE'S ONE CHANNEL POST [T5-R16, spec-owner-io §1] ────────────────────────────
+//
+// A goal that finished told NOBODY. The finish edge fires (`coord.py records.py#cmd_finish_goal`),
+// the room is torn down, the banner is stamped — and the owner learned it from nothing, because
+// the row the edge appends is `to: all` and this ferry carried exactly one address. Measured on
+// `seat-cage-tool-inventory`, finished 2026-08-28 01:31Z: the row is on the bus, `outbox.json`
+// holds no `completion`, and neither the goal channel nor the DM ever saw a word. The gap was
+// even NAMED in this file — `issue i-no-completion-nudge` at § `[deliver:]` — as a thing nobody
+// had built.
+//
+// ⚑ IT IS A NOTIFICATION, NEVER AN ASK [T2-R16]. It does not go through `postAsk`: that door
+// MINTS AN ASK RECORD, which suspends the kill clock and reads as open forever in the digest and
+// the status count — a completion nobody can answer would sit there as an unanswered question.
+// It is a TOP-LEVEL post in the goal's own channel [T5-R11], not a reply in any agent's thread:
+// the goal ending is the room's news, not one seat's message.
+//
+// ⚑ AND NEVER A DM. The owner's DM is the escalation/alarm surface; a goal finishing is neither.
+// No channel → the row is held and retried by the ordinary ladder, and the missing-channel DM
+// notice is deliberately NOT fired for it (see its call site).
+//
+// ⚑ WHAT MAKES A `completion` ROW THE FINISH EVENT IS THE MARKER, NOT THE TYPE. Every seat sends
+// `--type completion` when its briefing is done — those are the bus's ordinary traffic and must
+// post nothing. The finish EVENT is a `completion` whose body OPENS with `FINISH_MARKER`, which
+// is `records.py`'s own closed convention (`goal_finished()` reads the log exactly this way).
+// ⚠ THE STRING IS DUPLICATED ACROSS TWO LANGUAGES and there is no shared constant to import.
+// `probe-chat-bus-ferry.js` PINS the two against each other by reading `records.py` — if that
+// check ever reddens, the marker moved and this reader went blind, not the other way round.
+const FINISH_MARKER = 'goal-finished: the finish edge fired';
+
+// ⚑ AND THE SENDER MUST BE THE LEADER'S CHAIR. `records.py#LEADER_CHAIR` is a closed constant —
+// the chair a taskforce names its leader is always literally `leader` — and `cmd_finish_goal`
+// refuses every other seat where the taskforce names one. This reader re-asks the question
+// because the SEND door does not: nothing in `coord.py cmd_send` guards the marker, so any seat
+// can put that string in a `--type completion` body. Re-checking an authority already checked is
+// normally a second, weaker door (see § `approve-commit`); here it is the ONLY door, because the
+// row is text a seat typed rather than an act a verb performed.
+// ⚠ THE COST, NAMED: a goal whose taskforce names NO leader (a team-kit run, a console package)
+// may be finished by another chair, and its notice is NOT posted — one log line, cursor advanced.
+// Fail-closed is the right direction here: the alternative is any seat announcing to the owner's
+// channel that his goal is over.
+const LEADER_CHAIR = 'leader';
+
+function isFinishRow(row) {
+  return Boolean(row) && row.type === 'completion' && String(row.body || '').startsWith(FINISH_MARKER);
+}
+
+// A goal's own CSV register, read by HEADER NAME. A row whose field count does not match the
+// header is SKIPPED, never read by index: a quoted field carrying a comma would be attributed to
+// the wrong column, and a headline number the owner reads must not be a misparse. Returns [] for
+// an absent file, an empty one, or one missing any column asked for — "no numbers" is a truthful
+// answer and a guessed one is not.
+function readCsvRows(file, needed) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return []; }
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',');
+  const idx = {};
+  for (const k of needed) {
+    const i = header.indexOf(k);
+    if (i < 0) return [];
+    idx[k] = i;
+  }
+  const out = [];
+  for (const line of lines.slice(1)) {
+    const f = line.split(',');
+    if (f.length !== header.length) continue;
+    const r = {};
+    for (const k of needed) r[k] = f[idx[k]].trim();
+    out.push(r);
+  }
+  return out;
+}
+
+// `Xh Ym` / `Xm`, or null when the two stamps do not make a forward span. NULL IS A REAL ANSWER:
+// `executions.csv` carries rows whose `ended` precedes their `started` (a crash-swept row), and a
+// negative duration printed at the owner is worse than no duration at all.
+function humanSpan(fromIso, toIso) {
+  const a = Date.parse(fromIso);
+  const b = Date.parse(toIso);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return null;
+  const mins = Math.round((b - a) / 60000);
+  return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+}
+
+// LINE 2 — the headline numbers, and every one of them is COUNTED off the goal's own
+// `executions.csv` (the completion authority both the daemon and the operator read). Seats that
+// RAN, not seats that were staffed: `taskforce.csv` answers a different question and a goal whose
+// seats never launched must not be reported as having run them.
+function executionHeadline(goalDir) {
+  const rows = readCsvRows(path.join(goalDir, 'executions.csv'), ['seat', 'started', 'ended']);
+  if (!rows.length) return 'No sitting numbers — this goal\'s `executions.csv` is absent, empty or unreadable.';
+  const seats = new Set(rows.map((r) => r.seat).filter(Boolean));
+  let first = null;
+  let last = null;
+  for (const r of rows) {
+    if (r.started && (first === null || Date.parse(r.started) < Date.parse(first))) first = r.started;
+    if (r.ended && (last === null || Date.parse(r.ended) > Date.parse(last))) last = r.ended;
+  }
+  const span = first && last ? humanSpan(first, last) : null;
+  const window = first && last
+    ? ` · ${span ? `${span} ` : ''}(${first} → ${last})`
+    : first ? ` · started ${first}, no sitting has ended` : '';
+  return `*${seats.size}* seat${seats.size === 1 ? '' : 's'} run · *${rows.length}* sitting${rows.length === 1 ? '' : 's'}${window}`;
+}
+
+// The seat's `goal-writes:` list, from FRONTMATTER only — `seatDirIsHumanInteractive`'s reason
+// verbatim: a briefing line in the descriptor BODY that quotes the key must not be able to put a
+// path in front of the owner. This mirrors `supervisor/spawn/seat-grants.js#seatDeclaresList`
+// rather than importing it: `chat/` is a relocatable subtree that reaches into no sibling module
+// (probe-chat-boundary), and the three frontmatter readers above are local for that same reason.
+function seatDirGoalWrites(seatDir) {
+  let fm;
+  try { fm = frontmatterOf(fs.readFileSync(path.join(seatDir, 'seat.md'), 'utf8')); } catch { return []; }
+  const lines = fm.split('\n');
+  const items = [];
+  let inBlock = false;
+  for (const line of lines) {
+    if (!inBlock) {
+      if (/^goal-writes:[ \t]*$/.test(line)) inBlock = true;
+      continue;
+    }
+    const m = line.match(/^[ \t]*-[ \t]*(.*)$/);
+    if (!m) break;
+    const v = m[1].trim().replace(/^["']|["']$/g, '');
+    if (v) items.push(v);
+  }
+  return items;
+}
+
+// LINE 3 — the deliverables, GOAL-RELATIVE and ON DISK.
+//
+// ⚑ RESOLVED AGAINST THE GOAL DIR, one candidate, because that is the only base a `goal-writes`
+// entry ever has: `spawn/seat-grants.js#resolveGoalWriteGrants` does `path.resolve(goalDir, entry)`
+// and refuses anything absolute or escaping. A second candidate here would invent a grammar.
+//
+// ⚑ AND ONLY A NON-EMPTY FILE IS NAMED. D21 CREATES every declared output EMPTY at spawn so the
+// cage bind has a source, so mere existence proves a seat was launched, not that it delivered.
+// A zero-byte path listed as a deliverable is exactly the invented number this line must not
+// carry; a seat that wrote nothing simply contributes nothing to the line.
+function declaredOutputs(goalDir) {
+  let seats;
+  try { seats = fs.readdirSync(path.join(goalDir, 'seats'), { withFileTypes: true }); } catch { return []; }
+  const root = path.resolve(goalDir);
+  const out = [];
+  for (const s of seats.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    if (!s.isDirectory() || !isSafeName(s.name)) continue;
+    for (const token of seatDirGoalWrites(path.join(goalDir, 'seats', s.name))) {
+      if (path.isAbsolute(token)) continue;
+      const abs = path.resolve(root, token);
+      if (abs === root || !abs.startsWith(root + path.sep)) continue;
+      let st;
+      try { st = fs.statSync(abs); } catch { continue; }
+      if (!st.isFile() || st.size === 0) continue;
+      const rel = path.relative(root, abs);
+      if (!out.includes(rel)) out.push(rel);
+    }
+  }
+  return out;
+}
+
+// THE THREE LINES, and exactly three (spec-owner-io §1 [T5-R16]): outcome, headline numbers,
+// deliverable links. Nothing here reads a status field or asks whether the goal SUCCEEDED — the
+// finish edge is the only outcome the system records, and inventing a verdict beside it would be
+// a second, disagreeing answer to a question `executions.csv` already owns.
+function composeCompletionNotice({ goalDir, goalId, row }) {
+  const when = row.at ? ` at ${row.at}` : '';
+  const outputs = declaredOutputs(goalDir);
+  return [
+    `:checkered_flag: *${goalId}* — FINISHED. The finish edge was fired by *${row.from}*${when}.`,
+    executionHeadline(goalDir),
+    outputs.length
+      ? `Deliverables: ${outputs.map((o) => `\`${o}\``).join(' · ')}`
+      : 'Deliverables: none on disk — no seat of this goal declares a `goal-writes:` output that was written.',
+  ].join('\n');
+}
+
 // THIS GOAL'S CURRENT EXECUTION STAMP (7.607 design-lock item 5), read from the marker
 // `coordination/execution` that `coord.py mint_execution` writes at BOOT and nowhere else.
 //
@@ -595,6 +780,15 @@ function createBusFerry({
   // deliberately does not hold. Unwired (probes, any embedder that wires nothing) the row takes
   // the agent-thread / DM legs it always took. What is GONE either way is the park.
   postAsk = null,
+  // WHERE THE FINISH EDGE'S NOTICE GOES — a TOP-LEVEL post in the goal's own channel, injected by
+  // the bridge, which owns the goal↔channel resolution this module deliberately does not hold. It
+  // is NOT `routeToAgentThread`: that leg anchors and then REPLIES INSIDE one agent's thread, and
+  // a goal ending is the room's news rather than a seat's message [T5-R11].
+  //
+  // ⚑ UNWIRED, THE NOTICE IS NOT POSTED — it does NOT fall back to the owner DM the way an
+  // unwired `routeToAgentThread` does. The DM is the escalation/alarm surface and a completion is
+  // neither, so an embedder that wires no channel leg gets a logged skip, never a wrong surface.
+  postGoalChannel = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -877,7 +1071,20 @@ function createBusFerry({
           // owner still lands here. Advancing the cursor to ITS id would step over the undelivered
           // row behind it — losing a row for good, in the one branch that looked harmless because
           // it posts nothing.
-          if (!chatThread && !addressesOwner(row.to)) {
+          // THE FINISH EDGE'S NOTICE [T5-R16] — the ONE row this ferry carries that is not
+          // addressed to the owner. `fire_finish_edge` writes it `to: all`, so it would be
+          // disposed of by the address test immediately below; it is recognised HERE, before
+          // that test, by the marker its body opens with and by its sender's chair.
+          const isFinish = !chatThread && isFinishRow(row) && row.from === LEADER_CHAIR;
+          if (!chatThread && !isFinish && !addressesOwner(row.to)) {
+            // A marker-carrying row from a seat that is NOT the leader's chair lands HERE, and it
+            // is the one disposition on this branch worth a line: the row claims a goal ended and
+            // nothing at the SEND door checks that claim, so the notice is withheld and said so
+            // rather than advanced past in the silence every other `to: <seat>` row deserves.
+            if (isFinishRow(row)) {
+              log('warn', 'a goal-finished row was NOT posted as a completion notice — its sender is not this goal\'s `leader` chair and `coord.py cmd_send` does not guard the marker; cursor advanced [T5-R16]',
+                { key, msgId: row.id, from: row.from, expected: LEADER_CHAIR });
+            }
             if (stuckAt === null) { cursors.set(key, row.id); persist(); }
             continue;
           }
@@ -919,24 +1126,36 @@ function createBusFerry({
           // caller learns, and nothing is silently swallowed here. That refusal is DETERMINISTIC
           // and is disposed of on the FIRST pass — for an `escalation`, by the content-bearing
           // owner DM (W8-C). See § the terminal-refusal block below.
-          const arm = chatThread || isEscalation ? null : fallbackArm(row.from);
+          const arm = chatThread || isEscalation || isFinish ? null : fallbackArm(row.from);
           // Two ask LABELS reach the owner and only two [D-7-ruling]: the leader's traffic and any
           // escalation are `recovery`, everything else — including the deleted consultant's former
           // work-content traffic — is `work-content`.
           const askLabel = isEscalation || row.from === 'leader' ? 'recovery' : 'work-content';
-          const text = formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
+          const text = isFinish
+            ? composeCompletionNotice({ goalDir, goalId, row })
+            : formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
           let delivered = false;
           let error = null;
           // A refusal that CANNOT change between passes — see the terminal-refusal block below.
           let terminalRefusal = false;
           let viaAgentThread = false;
           let viaAskThread = false;
+          let viaCompletion = false;
           // The render ACTUALLY posted — the two legs render the same row differently (the
           // agent-thread header leads with the agent name), so a log that always reported the DM
           // render's length would misreport the agent leg's every time.
           let postedText = text;
           try {
             let res = null;
+            // THE FINISH NOTICE'S OWN LEG, AND IT IS TAKEN FIRST. Setting `res` here is what keeps
+            // the T2-R14 ask door out of this row's path entirely — a completion is a
+            // notification, not a conversation [T2-R16] — and, past it, the DM leg too.
+            if (isFinish) {
+              viaCompletion = true;
+              res = postGoalChannel
+                ? await postGoalChannel({ goalId, text })
+                : { delivered: false, reason: 'no-goal-channel-leg-wired' };
+            }
             // THE AGENT'S OWN THREAD FIRST (ratified 2026-08-09). A row that PASSED both gates
             // belongs in the goal channel, in the thread that is this agent's conversation with
             // the owner — not in the owner's undifferentiated DM queue.
@@ -954,7 +1173,11 @@ function createBusFerry({
             // status count and the kill-clock suspension all read. Injected, because the thread
             // and the record are the BRIDGE's (`ask-thread.js`); an embedder that wires nothing
             // gets the legs below unchanged, so this is additive and never a second ask model.
-            if (!chatThread && postAsk) {
+            // ⚑ `!res` JOINS THE TEST (T5-R16). Every leg below already reads it and this one did
+            // not, because until the finish notice above nothing could set `res` before here.
+            // Without it the finish row is posted TWICE — once as its channel notice and once as
+            // an ❓ ask thread — which is the ask door a completion must never reach [T2-R16].
+            if (!res && !chatThread && postAsk) {
               // AN APPROVAL ROW IS POSTED AS AN APPROVAL, and the §3 body is `approval-thread.js`'s
               // to compose — the digest the seat wrote is its PAYLOAD, under the GOAL /
               // IRREVERSIBLE lead lines and above the bound commit and the token line the thread
@@ -1019,6 +1242,7 @@ function createBusFerry({
             else jumped.add(`${key}#${row.id}`);
             persist();
             log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
+              : viaCompletion ? 'bus ferry posted the FINISH EDGE\'s completion notice to the goal channel [T5-R16]'
               : viaAskThread ? 'bus ferry posted a bus row as a NEW ❓ ask thread in the goal channel'
               : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
               : 'bus ferry delivered a bus row to the owner DM',
@@ -1060,7 +1284,7 @@ function createBusFerry({
           // row — `n ===`, never `>=` — he gets a line naming the goal and the seat and NOTHING
           // ELSE: no body, no header render, and posted through the transport directly, so no
           // sitting can be minted from it and no agent ever reads the row.
-          if (n === NOTICE_AT_ATTEMPT && error === 'no-channel') {
+          if (n === NOTICE_AT_ATTEMPT && error === 'no-channel' && !isFinish) {
             try {
               await postOwner({
                 kind: 'notification',
@@ -1185,4 +1409,5 @@ module.exports = {
   OWNER_TOKEN, DEFAULT_MAX_BODY_CHARS, DEFAULT_WATCH_DEBOUNCE_MS,
   goalExecutionMode, seatIsHumanInteractive, seatDirIsHumanInteractive, isSafeName, INTERACTIVE_MODE, AUTONOMOUS_MODE,
   seatFallback, seatDirFallback, FALLBACK_ARMS, FALLBACK_PARK, FALLBACK_MARK,
+  FINISH_MARKER, LEADER_CHAIR, isFinishRow, composeCompletionNotice,
 };

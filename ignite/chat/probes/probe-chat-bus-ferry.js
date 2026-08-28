@@ -24,7 +24,7 @@ const os = require('node:os');
 const { makeCapture, nowMs } = require('./lib');
 const { buildBridge } = require('../index');
 const { resolveConfig } = require('../config');
-const { DEFAULT_MAX_BODY_CHARS } = require('../bus-ferry');
+const { DEFAULT_MAX_BODY_CHARS, FINISH_MARKER: busFerryFinishMarker } = require('../bus-ferry');
 const { IRREVERSIBLE_PHRASE, APPROVAL_TOKEN_LINE } = require('../approval-thread');
 
 const OUT = path.join(__dirname, 'probe-chat-bus-ferry.out');
@@ -60,6 +60,27 @@ function makeFakeSlack() {
   };
 }
 
+// The narrow channel-admin surface `index.js` gates `goalChannels` on (`typeof
+// transport.createChannel === 'function'`), bolted onto the DM fake above. SEPARATE, never a
+// widening of `makeFakeSlack`: the 54 checks above measure the ferry's DM leg and are wired
+// against a bridge with NO goal-channel map — giving the shared fake this surface would switch
+// that map on underneath every one of them.
+function makeChannelSlack() {
+  const base = makeFakeSlack();
+  const channels = [];
+  let nextId = 1;
+  return Object.assign(base, {
+    channels,
+    async createChannel({ name }) {
+      const ch = { id: `C${String(nextId++).padStart(4, '0')}`, name };
+      channels.push(ch);
+      return { ok: true, channel: { id: ch.id, name: ch.name } };
+    },
+    async listChannels() { return { ok: true, channels: channels.map((c) => ({ id: c.id, name: c.name })), nextCursor: null }; },
+    async archiveChannel() { return { ok: true }; },
+  });
+}
+
 function makeFakeForwarder() {
   return {
     async forward() { return { ok: true, result: { jobId: 1 } }; },
@@ -82,11 +103,13 @@ function msgRow(id, from, to, type, body) {
 // flag values, and the park).
 const SENDERS = ['leader', 'master', 'chief-of-staff', 'planning-strategist', 'fixture-seat-a', 'x', 'some-worker'];
 
-function writeSeatDescriptor(runDir, seat, { humanInteractive = true } = {}) {
+function writeSeatDescriptor(runDir, seat, { humanInteractive = true, goalWrites = [] } = {}) {
   const dir = path.join(runDir, 'seats', seat);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'seat.md'),
-    `---\nseat: ${seat}\n${humanInteractive ? 'human-interactive: yes\n' : ''}---\nbody\n`);
+    `---\nseat: ${seat}\n${humanInteractive ? 'human-interactive: yes\n' : ''}`
+    + `${goalWrites.length ? `goal-writes:\n${goalWrites.map((w) => `- ${w}\n`).join('')}` : ''}`
+    + `---\nbody\n`);
 }
 
 // 7.607 E3: GOAL-DIRECT. No `runs.csv`, no run folder — the bus is `<goal>/coordination/` and the
@@ -506,6 +529,136 @@ async function main() {
         cursor: a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a'),
         attempts: [...a.bridge.busFerry._attempts.keys()],
       });
+    a.bridge.stop();
+  }
+
+  // W9 — THE FINISH EDGE'S COMPLETION NOTICE [T5-R16, spec-owner-io §1]. Test 7 of the acceptance
+  //      wave failed here for real: `seat-cage-tool-inventory` finished 2026-08-28 01:31Z, the
+  //      finish edge fired, and NOTHING reached Slack — the row is `to: all` and this ferry
+  //      carried exactly one address. The claims, in the order they can fail:
+  //        · a `type: completion` row whose body OPENS with the finish marker, from the `leader`
+  //          chair, posts ONE top-level message in the GOAL'S OWN CHANNEL (not a thread, not the
+  //          DM) as outbox kind `completion`;
+  //        · that message is exactly THREE lines — outcome, headline numbers, deliverables — and
+  //          every number in line 2 is counted off the goal's own `executions.csv`;
+  //        · a declared output that was never written (D21 creates them EMPTY at spawn) is NOT
+  //          named a deliverable;
+  //        · a SECOND pass posts nothing more;
+  //        · the same marker from a NON-leader seat posts nothing and says why;
+  //        · an ORDINARY `completion` — what every seat sends at check-out — posts nothing;
+  //        · no ASK record is minted anywhere: a completion is a notification [T2-R16], and the
+  //          ask door would suspend the kill clock on a question nobody can answer.
+  {
+    const root = mkroot();
+    const GOAL = 'goal-fin';
+    const KEY = `${GOAL}/2026-08-20a`;
+    const { file } = seedGoal(root, GOAL, '2026-08-20a', { backlogRows: 1 });
+    const goalDir = path.join(root, '.rbtv', 'goals', GOAL);
+    // The leader declares TWO outputs; only one of them was ever written.
+    writeSeatDescriptor(goalDir, 'leader', { goalWrites: ['report.md', 'never-written.md'] });
+    fs.writeFileSync(path.join(goalDir, 'report.md'), 'the deliverable\n');
+    fs.writeFileSync(path.join(goalDir, 'never-written.md'), '');
+    // The completion authority both the daemon and the operator read — three sittings, two seats.
+    fs.writeFileSync(path.join(goalDir, 'executions.csv'),
+      'seat,session-id,lane,started,ended,outcome\n'
+      + 'worker,s1,daemon,2026-08-20T10:00:00Z,2026-08-20T10:20:00Z,\n'
+      + 'leader,s2,daemon,2026-08-20T10:05:00Z,2026-08-20T10:41:00Z,\n'
+      + 'leader,s3,daemon,2026-08-20T10:50:00Z,,\n');
+
+    const slack = makeChannelSlack();
+    const logs = [];
+    const a = makeBridge({ workspaceRoot: root, slack, logs });
+    // The goal's channel. `goal-channel-cli.js` is a throwaway subprocess the bridge never
+    // observes, so creating it straight on the fake IS that subprocess.
+    await slack.createChannel({ name: `test-${GOAL}` });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();          // first sight — cursor at the tail
+    const beforePosts = slack.posted.length;
+
+    const FINISH_BODY = `${busFerryFinishMarker}\n\nthe room is torn down`;
+    append(file, msgRow(2, 'leader', 'all', 'completion', FINISH_BODY));
+    await a.bridge.busFerry.tick();
+
+    const channelId = a.bridge.goalChannels.channelForGoal(GOAL);
+    const notices = slack.posted.filter((x) => x.channel === channelId);
+    const notice = notices[0];
+    const lines = notice ? notice.text.split('\n') : [];
+    const rowsOut = a.bridge.outbox.query({ kind: 'completion' });
+
+    check('W9: the finish edge posts EXACTLY ONE message, top-level in the GOAL CHANNEL — never a '
+      + 'thread, never the owner DM',
+      beforePosts === 0 && notices.length === 1 && notice.threadTs === null
+      && slack.posted.filter((x) => x.channel === DM).length === 0,
+      { posts: slack.posted.length, channel: notice && notice.channel, dmPosts: slack.posted.filter((x) => x.channel === DM).length });
+
+    check('W9: it is ONE outbox row of kind `completion`, carrying the goal, and DELIVERED [C-17]',
+      rowsOut.length === 1 && rowsOut[0].goal_id === GOAL && rowsOut[0].state === 'delivered'
+      && rowsOut[0].channel_id === channelId && rowsOut[0].thread_ts === null,
+      { rows: rowsOut.length, state: rowsOut[0] && rowsOut[0].state, goal: rowsOut[0] && rowsOut[0].goal_id });
+
+    check('W9: THREE lines — line 1 names the goal, WHO fired the edge and WHEN',
+      lines.length === 3 && lines[0].includes(`*${GOAL}*`) && lines[0].includes('*leader*')
+      && lines[0].includes('2026-08-06 14:23') && /FINISHED/.test(lines[0]),
+      { lines: lines.length, line1: lines[0] });
+
+    check('W9: line 2 is COUNTED off the goal\'s own executions.csv — 2 seats, 3 sittings, and the '
+      + 'window between the first start and the last end (41m)',
+      lines[1] === '*2* seats run · *3* sittings · 41m (2026-08-20T10:00:00Z → 2026-08-20T10:41:00Z)',
+      { line2: lines[1] });
+
+    check('W9: line 3 names the deliverable that was WRITTEN and NOT the declared output that '
+      + 'stayed empty — D21 creates every goal-write empty at spawn, so existence is not delivery',
+      lines[2] === 'Deliverables: `report.md`', { line3: lines[2] });
+
+    check('W9: NO ask record is minted for it — a completion is a notification, never a question '
+      + 'the kill clock waits on [T2-R16]',
+      a.bridge.outbox.query({ kind: 'ask' }).length === 0,
+      { asks: a.bridge.outbox.query({ kind: 'ask' }).length });
+
+    // IDEMPOTENCE — ONE MESSAGE PER FINISH. The cursor is the guard, so the claim is measured
+    // both ways: an idle pass (the file unchanged, nothing re-read) and a pass that RE-READS the
+    // whole file because a later row appended. The second is the one that matters — `_runOnce`
+    // walks every row of `messages.md` on every size change, so a finish row that were not behind
+    // the cursor would announce the same goal finished on every later append for the goal's life.
+    await a.bridge.busFerry.tick();
+    check('W9: an idle second pass posts nothing more, and the cursor sits ON the finish row',
+      slack.posted.filter((x) => x.channel === channelId).length === 1
+      && a.bridge.outbox.query({ kind: 'completion' }).length === 1
+      && a.bridge.busFerry._cursors.get(KEY) === 2,
+      { posts: slack.posted.filter((x) => x.channel === channelId).length, cursor: a.bridge.busFerry._cursors.get(KEY) });
+
+    // THE NON-LEADER ARM. Nothing at `coord.py cmd_send` guards the marker, so any seat can put
+    // that string in a `--type completion` body. It is WITHHELD, and the withholding is said.
+    append(file, msgRow(3, 'some-worker', 'all', 'completion', FINISH_BODY));
+    await a.bridge.busFerry.tick();
+    check('W9: the SAME marker from a seat that is not the `leader` chair posts NOTHING, advances '
+      + 'the cursor, and logs why it was withheld — and the RE-READ of the whole file this append '
+      + 'forces does not re-announce the finish row behind the cursor',
+      slack.posted.filter((x) => x.channel === channelId).length === 1
+      && a.bridge.outbox.query({ kind: 'completion' }).length === 1
+      && a.bridge.busFerry._cursors.get(KEY) === 3
+      && logs.filter((l) => /NOT posted as a completion notice/.test(l.message)).length === 1,
+      { posts: slack.posted.filter((x) => x.channel === channelId).length, cursor: a.bridge.busFerry._cursors.get(KEY) });
+
+    // THE CONTROL. Every seat sends `--type completion` at check-out; the TYPE is not the event.
+    append(file, msgRow(4, 'leader', 'all', 'completion', 'my briefing is complete — 12/12 pages render'));
+    await a.bridge.busFerry.tick();
+    check('W9 CONTROL: an ORDINARY `completion` from the leader — no marker — posts nothing; the '
+      + 'finish EVENT is the marker, not the type',
+      slack.posted.filter((x) => x.channel === channelId).length === 1
+      && a.bridge.busFerry._cursors.get(KEY) === 4,
+      { posts: slack.posted.filter((x) => x.channel === channelId).length, cursor: a.bridge.busFerry._cursors.get(KEY) });
+
+    // THE CROSS-LANGUAGE PIN. The marker is a string in TWO languages with no shared constant:
+    // `records.py` writes it, `bus-ferry.js` reads it. If they ever drift, the ferry goes blind
+    // and every later goal finishes in silence again — exactly the defect this arm exists for.
+    // This check is what makes that drift LOUD instead of invisible.
+    const recordsPy = fs.readFileSync(path.join(__dirname, '..', '..', 'coord', 'records.py'), 'utf8');
+    check('W9 PIN: the ferry\'s FINISH_MARKER is byte-identical to `records.py`\'s — the two '
+      + 'languages hold one convention and nothing imports it across them',
+      new RegExp(`^FINISH_MARKER = "${busFerryFinishMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"$`, 'm').test(recordsPy),
+      { marker: busFerryFinishMarker });
+
     a.bridge.stop();
   }
 
