@@ -131,6 +131,73 @@ function recordGroupedAsk({
   };
 }
 
+// -- THE READ SIDE OF THOSE RECORDS, FOR THE OWNER SURFACE THAT RENDERS THEM -------------------
+//
+// WHAT WAS BROKEN. This module's whole point is that the exit at N is OWNER-VISIBLE — spec-recovery
+// section 5 deleted the byte-equality brake because "it had no owner-visible exit" and replaced it
+// with "open ONE signature-grouped ask". The ask was opened, as a file, and NOTHING carried it to
+// the owner: `runtime/internal-api/dispatch.js`'s `inspect asks` — the port spec-owner-io section 5's
+// 2-hourly system digest reads — answered from the `open_asks` TABLE alone, and this record lives
+// on disk. Two lanes disarmed on 2026-08-28 (`goal-memory-management` 04:09Z,
+// `scratch-death-recovery-1-exec` 05:27Z) and the owner was told nothing on either.
+//
+// READ-ONLY, BY CONSTRUCTION. It lists a directory and parses what is there. It opens no store,
+// writes no file and mints no record — the ask surface stays this module's write side alone.
+//
+// OPEN MEANS THE RECORD IS STILL IN `asks/`. There is no reaper for these files today (the
+// `open_asks` row has one; the record does not), so a listed ask stays listed until an owner act
+// removes it. That is stated rather than papered over: the digest posts on CHANGE, so a standing
+// record is rendered once and then rides the baseline.
+//
+// THE ONE-LINER IS THE RECORD'S OWN WORDS. The first lane's `refusal_text`, first line, truncated —
+// never a sentence assembled here from the goal and seat names, which would put words on the
+// owner's phone that nobody wrote [memory gateway/20260825-c-inspect-asks-the-read-half-of
+// ATTENTION 3]. The extra-lane count is appended because it is a FACT OF THE RECORD, and hiding it
+// would render a ten-lane ask as one lane's problem — the grouping this file exists for.
+function oneLinerOfRecord(record) {
+  const lanes = Array.isArray(record.lanes) ? record.lanes : [];
+  const text = String((lanes[0] && lanes[0].refusal_text) || '').split(/\r?\n/).find((l) => l.trim());
+  if (!text) return null;
+  const head = text.trim().slice(0, 120);
+  return lanes.length > 1 ? `${head} (+${lanes.length - 1} more lane${lanes.length > 2 ? 's' : ''})` : head;
+}
+
+// The row shape is `state-store/heart/ask-record.js#listOpenAsks`'s, key for key, so the digest and
+// the CLI render one waiting set and neither needs to know which record a row came out of.
+// `goal`/`seat` are the FIRST lane's — the same lane `recordGroupedAsk` binds the store row to.
+function listOpenGroupedAsks(workspaceRoot) {
+  if (!workspaceRoot) return [];
+  let entries;
+  try {
+    entries = fs.readdirSync(asksDir(workspaceRoot), { withFileTypes: true });
+  } catch {
+    return [];              // no directory is the ordinary state: no lane has ever reached N
+  }
+  const rows = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const file = path.join(asksDir(workspaceRoot), entry.name);
+    let record;
+    try {
+      record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      continue;             // an unreadable record costs its row, never the listing
+    }
+    if (!record || !record.ask_id) continue;
+    const first = (Array.isArray(record.lanes) && record.lanes[0]) || {};
+    rows.push({
+      id: record.ask_id,
+      goal: first.goal || null,
+      seat: first.seat || null,
+      label: record.label || 'recovery',
+      one_liner: oneLinerOfRecord(record),
+      opened_at: record.opened_at || null,
+      evidence_pointer: file,
+    });
+  }
+  return rows;
+}
+
 // -- THE EXIT ITSELF ----------------------------------------------------------------------------
 //
 // Called by a driver whose `countAttempt` came back `exhausted`. Stamps, records, and returns both
@@ -236,6 +303,7 @@ module.exports = {
   askIdFor,
   askRecordPath,
   readAskRecord,
+  listOpenGroupedAsks,
   recordGroupedAsk,
   exhaust,
   consumeDisarmed,

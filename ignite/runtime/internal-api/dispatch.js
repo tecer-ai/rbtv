@@ -37,6 +37,7 @@ const { recordBusAnswer } = require('../../chat/bus-answer');
 // The `record-owner-ask` act (owner ruling 2026-08-24, option (a)). Required for the same reason
 // as `recordBusAnswer` above: a stateless call, not a manager holding processes.
 const { recordOwnerAsk, listOpenAsks } = require('../../state-store/heart/ask-record');
+const { listOpenGroupedAsks } = require('../../supervisor/exhaustion');
 // The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
 // its two siblings above: a stateless call, not a manager holding processes.
 const { startExecution } = require('../../state-store/heart/start-execution');
@@ -977,7 +978,19 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // asks: every OPEN, POSTED owner ask across EVERY goal, oldest first — the digest's own port
     // shape (`chat/system-digest.js` § readOpenAsks). Fixed view: it takes no id, no
     // status and no page, because §5 renders the whole waiting set or it is not that digest.
-    if (target === 'asks') return { target, rows: listOpenAsks(heartStore) };
+    // TWO RECORDS, ONE WAITING SET. `listOpenAsks` is the thread-recorded owner ask (`open_asks`,
+    // opened by the thirteenth intent). `listOpenGroupedAsks` is the recovery exit's
+    // signature-grouped ask, which spec-recovery §5 requires to be the owner-VISIBLE end of an
+    // exhausted lane ("it had no owner-visible exit" is why the brake it replaced was deleted) and
+    // which lives as a FILE under `<workspace>/.rbtv/runtime/ignite/asks/`. Until this line it
+    // reached no owner surface at all: two lanes disarmed on 2026-08-28 and the digest rendered
+    // neither. Same row shape from both, merged oldest-first, so the digest's renderer and
+    // `ignite status` still read ONE list and no second port is built.
+    if (target === 'asks') {
+      const rows = [...listOpenAsks(heartStore), ...listOpenGroupedAsks(workspaceRoot)];
+      rows.sort((a, b) => String(a.opened_at || '').localeCompare(String(b.opened_at || '')));
+      return { target, rows };
+    }
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
 

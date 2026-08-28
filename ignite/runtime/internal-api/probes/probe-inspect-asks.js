@@ -16,6 +16,12 @@
 //   · the three copies of the target set (gateway, core, CLI) still agree — the drift
 //     `probe-inspect-executions` guards, re-asserted here because this change adds a member.
 //
+// ⚑ SECTION G — THE SECOND RECORD. `spec-recovery` §5's exit at N opens ONE signature-grouped ask
+// per failure signature, and that ask is a FILE under `<workspace>/.rbtv/runtime/ignite/asks/`,
+// written by `supervisor/exhaustion.js#recordGroupedAsk` — a different record from the `open_asks`
+// table sections A-F measure. Nothing carried it to the owner: two lanes disarmed on 2026-08-28
+// and the digest, whose only port is this target, rendered neither. G measures the merge.
+//
 // In-process parse + dispatch over a real (scratch) store. No daemon, no gateway socket, no Slack.
 
 const fs = require('node:fs');
@@ -187,6 +193,61 @@ async function main() {
   const rowAgain = ((r.body.result && r.body.result.rows) || []).find((x) => x.id === '1724500001.000100');
   check('F1: the row survives a deleted ask copy, with no words rather than invented ones',
     Boolean(rowAgain) && rowAgain.one_liner === null, JSON.stringify(rowAgain || {}));
+
+  // ── G. THE RECOVERY EXIT'S SIGNATURE-GROUPED ASK IS IN THE SAME LISTING ─────────────────────
+  //
+  // Written through `exhaustion.js`'s OWN writer, never hand-rolled JSON: a fixture that invents
+  // the record shape proves the reader agrees with the fixture, not with the producer.
+  const exhaustion = require('../../../supervisor/exhaustion');
+  const grouped = exhaustion.recordGroupedAsk({
+    store, workspaceRoot: root, goal: GOAL_B, seat: 'audio-smith',
+    driver: 'reconcile-respawn', reasonClass: 'nonterm',
+    refusalText: 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed\nsecond line, deliberately not the one-liner',
+    attempts: 3, at: '2026-08-20T04:00:00Z',
+  });
+  // A SECOND lane on the SAME signature — one ask, two lanes. The listing must still be ONE row,
+  // because rendering a grouped ask once per lane is the per-lane ask the grouping rule forbids.
+  exhaustion.recordGroupedAsk({
+    store, workspaceRoot: root, goal: GOAL_A, seat: 'goal-master',
+    driver: 'reconcile-respawn', reasonClass: 'nonterm',
+    refusalText: 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed',
+    attempts: 3, at: '2026-08-20T05:00:00Z',
+  });
+  r = await inspect({ target: 'asks' });
+  const merged = (r.body.result && r.body.result.rows) || [];
+  const gRow = merged.find((x) => x.id === grouped.ask_id);
+  check('G1: the signature-grouped ask record is IN the listing — spec-recovery §5\'s exit at N is owner-VISIBLE or it is not that exit',
+    Boolean(gRow), `ids=${merged.map((x) => x.id).join(',')}`);
+  check('G2: exactly ONE row for a TWO-lane ask — the grouping rule is "one ask per signature, never per lane"',
+    merged.filter((x) => x.id === grouped.ask_id).length === 1, `rows=${merged.length}`);
+  check('G3: the row shape is the heart-store row\'s, key for key — the digest reads ONE list and cannot tell which record a row came from',
+    Boolean(gRow) && ['id', 'goal', 'seat', 'label', 'one_liner', 'opened_at', 'evidence_pointer'].every((k) => gRow[k] !== undefined),
+    JSON.stringify(gRow || {}));
+  check('G4: the one-liner is the record\'s OWN first line plus the lane count — never a sentence assembled from the goal and seat names',
+    Boolean(gRow) && gRow.one_liner === 'nonterm reached the attempt bound on this lane; the lane is stamped disarmed (+1 more lane)',
+    gRow && JSON.stringify(gRow.one_liner));
+  check('G5: `evidence_pointer` is the record file, and it EXISTS',
+    Boolean(gRow) && gRow.evidence_pointer === grouped.file && fs.existsSync(gRow.evidence_pointer),
+    gRow && gRow.evidence_pointer);
+  check('G6: the thread-recorded owner asks are STILL there beside it — this is a merge, not a replacement',
+    merged.some((x) => x.id === '1724500001.000100') && merged.some((x) => x.id === '1724500002.000200'),
+    `ids=${merged.map((x) => x.id).join(',')}`);
+  check('G7: OLDEST FIRST across BOTH records — §5 renders an age, and a listing sorted per-record would interleave two clocks',
+    merged.map((x) => String(x.opened_at || '')).every((v, i, a) => i === 0 || a[i - 1] <= v),
+    merged.map((x) => `${x.id}@${x.opened_at}`).join(' | '));
+
+  // G-RED: the same listing with the directory read gone. Kept in-probe rather than as an external
+  // mutation because the green above is indistinguishable from "there happened to be no file".
+  const asksHome = exhaustion.asksDir(root);
+  const parked = `${asksHome}-parked`;
+  fs.renameSync(asksHome, parked);
+  r = await inspect({ target: 'asks' });
+  const withoutDir = (r.body.result && r.body.result.rows) || [];
+  check('G8 RED CONTROL: with the asks directory gone the grouped row DISAPPEARS and the owner asks remain — the arm above discriminates',
+    !withoutDir.some((x) => x.id === grouped.ask_id)
+      && withoutDir.some((x) => x.id === '1724500001.000100'),
+    `ids=${withoutDir.map((x) => x.id).join(',')}`);
+  fs.renameSync(parked, asksHome);
 
   try { db.close(); } catch { /* the probe is done with it */ }
   try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* tmp */ }

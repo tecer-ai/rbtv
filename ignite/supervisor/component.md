@@ -510,6 +510,11 @@ The record is `{workspace}/.rbtv/runtime/ignite/asks/<ask-id>.json` plus one
 `open_asks` row with `posted = 0`. **Zero Slack, zero outbox, not one byte** -
 impl-slack reads the record and posts it.
 
+`listOpenGroupedAsks(workspaceRoot)` is the read-only half of that record - one
+row per file in the digest's own shape - and `runtime/internal-api/dispatch.js`'s
+`inspect asks` merges it with the `open_asks` listing, which is what finally makes
+this exit owner-VISIBLE [spec-recovery 5] instead of a file nothing rendered.
+
 ## The disarm is audible, ONCE
 
 `reconcile.js#announceDisarm`. A disarmed lane is the strongest thing a pass can
