@@ -50,6 +50,41 @@ Three gates, in order, before any `restart_via_operator(DAEMON_UNIT)` on a `down
 | **3 strikes** | a restart needs `RBTV_WATCHDOG_STRIKES` (default 3) **consecutive** failed passes, counted in `.rbtv/runtime/watchdog/failcount.json` — its own file, written through the tool's one atomic state-file path, because the alert-dedupe `state.json` is cleared on every green pass. One `up` verdict resets the streak |
 | **Backoff** | within `RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS` (default 600) of a restart, a still-`down` verdict is REPORTED, not re-restarted. The journal showed `reprobe=down` immediately after each of the 57: the remedy was visibly not working and was re-applied anyway |
 
+### The liveness gate's own gate: N consecutive TIMEOUTS before the owner hears anything
+
+Owner ruling 2026-08-28 (acceptance test 15, finding A-1, option c). The **Liveness** row above
+withholds the restart and reports "a human is needed" instead. Between 2026-08-27 15:40Z and
+2026-08-28 05:25Z it sent that message **29 times, and all 29 were false** — systemd reported the
+daemon active on every one, no restart was ever taken, and nothing about the system was actionable.
+
+**Why one sample was never enough.** `seats/diag-gateway-stall/report.md` §1.1 measured all 892
+passes of that window. `inspect daemon` latency is ONE continuous heavy-tailed distribution —
+**112 of the 862 SUCCESSFUL passes took over 5 s and the slowest success took 10.21 s**, against a
+10 s socket timeout. There is no "answering" state and no "wedged" state to tell apart: the 30
+failures are the 3.4 % of samples that landed on the far side of the cutoff while the daemon's
+lane-watch pass held its only thread. A single sample from that distribution says nothing about
+whether the next one will answer, so "busy or wedged, a human is needed" was a conclusion the
+evidence could not support.
+
+| | Rule |
+|---|---|
+| **Which failures are strikes** | ONLY a gateway TIMEOUT, and only while systemd reports the unit ALIVE. `is_gateway_timeout()` reads the text `gateway_call()` produced: `TimeoutError:` / `timeout:` at the head, or `timed out` anywhere (urllib wraps a connect-phase timeout as `URLError: <urlopen error timed out>`) |
+| **Which are NOT** | connection refused, `gateway HTTP 5xx`, a malformed body, `AUTH_REFUSED`, an unreadable unit. Every one keeps its single-sample behaviour and reaches the owner on the FIRST pass. Those are determinate readings of a subject that is not answering AT ALL, where a timeout is a determinate reading of a subject that answered too slowly ONCE — **a dead daemon is still reported the first time it is seen** |
+| **The threshold** | `RBTV_WATCHDOG_TIMEOUT_STRIKES` (default **3**), counted as `timeout_strikes` in the same `.rbtv/runtime/watchdog/failcount.json` that holds the restart strikes — the same file, the same shape, the same atomic write, and no new store |
+| **The reset** | any pass whose daemon row does NOT time out sets it to 0 — an `up` verdict (through `clear_failcount()`, which now zeroes both counters) and equally a failure of some other kind, because the rule is *consecutive* timing-out passes |
+| **Below the threshold** | the pass prints one row — `daemon: gateway timeout — strike k/3, no page` — writes a `page-withheld` ledger row naming the arm, the count and the threshold, and **posts nothing**. The pass summary says `nothing delivered on this pass`; it never says "all green" |
+| **At the threshold** | the condition goes through `raise_row_alarm("daemon", …)` — **one** emitter delivery plus **one** row in the alarm registry, and NOT the owner-DM leg beside it (§9.2: one delivery, never two). Per the registry's own open-row dedupe it is not sent again until cleared, and the existing `up` branch clears it unchanged |
+
+**What the owner now sees.** A 12-second blip: nothing at all — one journal line reading
+`strike 1/3, no page`. A daemon actually stalled for 3+ minutes: the same message as before,
+arriving at the third consecutive timing-out pass, so at most ~3.5 minutes later than it used to
+(three ~70 s timer cadences, each spending its full 10 s timeout). Against the recorded window a
+3-consecutive rule suppresses 25 of the 29 false pages and a 2-consecutive rule 20 of them.
+
+⚠ **This gate is inside the unit-alive arm ONLY.** A timeout with systemd reporting the unit NOT
+active still falls through to the 3-strikes arm and still restarts once `RBTV_WATCHDOG_STRIKES` are
+spent. Nothing here touches the restart lever.
+
 **The restart lever stays** — a unit systemd reports `stopped`, with the strikes spent and no
 recent restart, is still restarted. It is not behind a flag. A gate that swallowed that case
 would leave the box unmonitored in exactly the case monitoring exists for.
@@ -250,6 +285,10 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 | `RBTV_WATCHDOG_TARGETS` | all three rows. **The test-override hook** — mirrors `RBTV_IGNITE_UNIT`: a probe scopes the pass to one row and points that row's unit variable at a throwaway unit, instead of editing the real probe table. **Also the recorded-disarm surface**: set persistently in `units/rbtv-watchdog.service` to omit a row that is disarmed ON PURPOSE, with the reason commented above it. Refuses an unknown name with exit `2` — never a silent no-op |
 | `RBTV_WATCHDOG_OPERATOR` | the sibling component `operator/daemon-operator/tool/rbtv-ignite-daemon`, else `rbtv-ignite-daemon` on PATH |
 | `RBTV_WATCHDOG_STATE` | `<workspace>/.rbtv/runtime/watchdog/state.json` |
+| `RBTV_WATCHDOG_FAILCOUNT` | `<workspace>/.rbtv/runtime/watchdog/failcount.json` — the daemon row's two consecutive-failure counters (`strikes`, `timeout_strikes`). Its own file for the same reason `daemon.json` is: `RBTV_WATCHDOG_STATE` is cleared on every green pass |
+| `RBTV_WATCHDOG_STRIKES` | `3` — consecutive failed daemon passes before a restart is allowed at all. Counted as `strikes` in `<workspace>/.rbtv/runtime/watchdog/failcount.json` |
+| `RBTV_WATCHDOG_TIMEOUT_STRIKES` | `3` — consecutive passes on which the gateway TIMED OUT **while systemd reports the unit alive**, before that condition reaches the owner at all. Counted as `timeout_strikes` in the SAME `failcount.json`, reset by any pass that does not time out. Below it the pass prints `gateway timeout — strike k/N, no page` and posts nothing. Non-timeout failures are not strikes and still report on the first pass — see § The liveness gate's own gate |
+| `RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS` | `600` — after a restart, how long a still-`down` verdict is reported rather than re-restarted |
 | `RBTV_WATCHDOG_ROW_ALARMS` | `<workspace>/.rbtv/runtime/watchdog/row-alarms.json` — which rows hold an OPEN row in the alarm registry, so the emitter is reached once per episode rather than once per pass |
 | `RBTV_WATCHDOG_DAEMON_STATE` | `<workspace>/.rbtv/runtime/watchdog/daemon.json` — the prior-pass daemon identity the RESTARTED / CRASH-LOOP / IDENTITY verdicts compare against. Its OWN file: `RBTV_WATCHDOG_STATE` above is cleared to `null` on every all-green pass, which is exactly the pass a restart has to be detected ACROSS |
 | `RBTV_WATCHDOG_REALERT_SECONDS` | `21600` (6h) — how long an UNCHANGED alert stays suppressed before it is re-sent. `0` re-notifies every pass |
@@ -396,6 +435,21 @@ capability family. A real-DM confirmation is a one-time manual step
 (`RBTV_WATCHDOG_NOTIFY_PREFIX` marks it), never part of the repeatable check.
 
 `probes/probe-watchdog-workspace-refusal.py` proves the workspace gate — 8 checks: a CWD that roots no install exits `2` with one refusal line and writes NOTHING; a CWD holding a bare `.rbtv/` (the stray-folder shape) still exits `2`; a CWD that DOES root an install is accepted and written into, so the gate is not a blanket refusal. RED CONTROL in the same run: a copy of the tool with the pre-fix `os.getcwd()` default does not refuse and PLANTS `<cwd>/.rbtv/runtime/watchdog/`, reproducing the 2026-08-28T03:02:15Z event. Only the `probe-suite` row runs and its restart lever is pointed at `/bin/true`, so no live unit is ever named to systemd.
+
+`probes/probe-watchdog-timeout-strikes.py` proves the consecutive-timeout rule — 49 checks over
+the real `main()` in-process, one scratch workspace per arm, `daemon_identity` stubbed to a unit
+systemd reports RUNNING (the condition of all 29 false pages) and any restart attempt raising. It
+asserts: two timing-out passes then a success deliver nothing and leave the counter at 0; three
+timing-out passes deliver EXACTLY ONE emitter message and EXACTLY ONE open registry row carrying
+the consecutive count and the live pid, with the owner-DM leg unused and a fourth pass minting
+neither; three timeouts, a success and another timeout deliver nothing, because the success really
+reset the counter and cleared the row; a connection refused pages on the FIRST pass with the
+unchanged unit-alive text, counts no strike, and breaks a standing timeout run; and
+`RBTV_WATCHDOG_TIMEOUT_STRIKES=2` really moves the threshold. RED CONTROL in the same run: a copy
+of the tool with both strike branches disabled — the pre-fix arm exactly — pages the owner on one
+timeout and writes no registry row. The two delivery surfaces are counted separately (the DM sink
+file vs `alarm` records in the outbox), so "one message reached the owner" is never asserted as
+the absence of both.
 
 `probes/probe-g188-daemon-identity.py` proves the fourth row — 96 checks over the four
 verdicts, every systemd answer substituted and every file in a temp dir, so it runs on any

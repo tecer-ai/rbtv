@@ -37,6 +37,18 @@ only a DM: the registry file did not exist, so the system digest's "Open conditi
 about standing conditions answered "none" while this tool printed `alarm` every 60 seconds. A row
 that reads `up` again CLEARS its own registry row; `--dry-run` raises and clears nothing.
 
+⚠ AMENDED 2026-08-28 (acceptance test 15, finding A-1, owner ruling — option c). A GATEWAY
+TIMEOUT WHILE THE UNIT IS ALIVE IS A SAMPLE, NOT A VERDICT. That one arm of `daemon_restart_gate`
+paged the owner 29 times in 14 hours for a daemon that was never dead: `inspect daemon` latency is
+one heavy-tailed distribution straddling the 10 s cutoff, so a single timeout carries no
+information. The condition now needs RBTV_WATCHDOG_TIMEOUT_STRIKES consecutive timing-out passes
+(default 3, counted in failcount.json, reset by any pass that does not time out) before it reaches
+the owner at all; below that the pass prints `gateway timeout — strike k/N, no page` and posts
+nothing. At the threshold it goes through `raise_row_alarm` — one emitter delivery plus the ONE
+registry row, cleared by the next `up` pass. Every NON-timeout failure is unchanged and still
+reports on the first pass. The restart lever is untouched: this gate is inside the unit-alive arm
+only, and a timeout with the unit NOT active still restarts once RBTV_WATCHDOG_STRIKES are spent.
+
 Exit codes — ⚠ AMENDED 2026-08-15 (owner ruling R1): AN ALARM IS NOT A SYSTEMD FAILURE.
   0  the pass RAN. All green, it acted, a subject is still down, an alarm stands — every
      one of those is a completed pass, and the VERDICT is carried by the owner DM and by
@@ -90,6 +102,13 @@ Environment (every per-instance value is resolved at runtime; nothing is baked i
                               per 60s pass.
   RBTV_WATCHDOG_STRIKES       consecutive failed daemon passes required before a restart
                               is allowed at all (default 3)
+  RBTV_WATCHDOG_TIMEOUT_STRIKES  consecutive passes on which the gateway TIMED OUT while
+                              systemd reports the daemon unit alive, required before that
+                              condition reaches the owner at all (default 3). Counted in
+                              failcount.json beside RBTV_WATCHDOG_STRIKES, reset by any
+                              pass that does not time out. Below the threshold the pass
+                              prints one line and posts nothing. See the block above
+                              `is_gateway_timeout` for the 29 false pages that bought it.
   RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS  after a daemon restart, how long a still-down
                               verdict is reported rather than re-restarted (default 600)
   RBTV_WATCHDOG_REALERT_SECONDS  how long an UNCHANGED alert stays suppressed
@@ -981,6 +1000,44 @@ def restart_via_operator(unit):
 STRIKES = int(env("RBTV_WATCHDOG_STRIKES", "3"))
 RESTART_BACKOFF = float(env("RBTV_WATCHDOG_RESTART_BACKOFF_SECONDS", "600"))
 
+# ── one timeout is a SAMPLE, not a verdict [A-1, owner ruling 2026-08-28] ───
+# ⚠⚠ WHY THE UNIT-ALIVE ARM BELOW MAY NOT CONCLUDE FROM ONE SAMPLE. Between 2026-08-27 15:40Z and
+# 2026-08-28 05:25Z that arm paged the owner 29 times with "THE GATEWAY IS UNANSWERABLE ... a human
+# is needed" for a daemon that was never once dead. `build/role-action-program/seats/
+# diag-gateway-stall/report.md` §1.1 measured all 892 passes in the window: `inspect daemon`
+# latency is ONE continuous heavy-tailed distribution — 112 of the 862 SUCCESSFUL passes took over
+# 5 s and the slowest success took 10.21 s against a 10 s cutoff. There is no "answering" state and
+# no "wedged" state to tell apart; the 30 failures are simply the 3.4 % of samples that landed on
+# the far side of TIMEOUT while the daemon's lane-watch pass held its only thread. A single sample
+# from that distribution carries no information about whether the next one will answer, so the
+# arm's own diagnosis text — "busy or wedged" — is a conclusion its evidence cannot support, and
+# the DM it sends is unactionable by construction.
+#
+# WHAT IS COUNTED, AND WHAT DELIBERATELY IS NOT. Only a TIMEOUT is a strike. A connection refused,
+# an HTTP error, a malformed body, an unreadable unit — every non-timeout failure keeps today's
+# single-sample behaviour and reports on the FIRST pass, because those are determinate readings of
+# a subject that is not answering at all, where a timeout is a determinate reading of a subject
+# that is answering too slowly ONCE. A dead daemon must still be reported the first time it is seen.
+#
+# THE RESTART LEVER IS NOT TOUCHED. This gate lives inside the unit-alive arm only. A timeout with
+# systemd reporting the unit NOT active still falls through to the strikes arm and still restarts
+# once RBTV_WATCHDOG_STRIKES are spent — the one case the whole component exists for.
+TIMEOUT_STRIKES = int(env("RBTV_WATCHDOG_TIMEOUT_STRIKES", "3"))
+
+
+def is_gateway_timeout(detail):
+    """Is this `down` detail the socket timeout, or a different failure?
+
+    Read off the text `gateway_call` produces, because that is all the gate is handed: every
+    exception arm stamps `type(ex).__name__ + ": " + str(ex)`. A socket timeout is `TimeoutError`
+    on 3.10+ and the older alias `timeout` before it, and urllib wraps one as
+    `URLError: <urlopen error timed out>` when the connect rather than the read expires — so the
+    exception name alone is not enough and the message is matched too. Connection refused
+    (`[Errno 111] Connection refused`), `gateway HTTP 5xx` and a `JSONDecodeError` all miss both
+    tests, which is exactly the sorting this returns."""
+    d = str(detail or "")
+    return d.startswith(("TimeoutError:", "timeout:")) or "timed out" in d
+
 
 def failcount_path():
     return env("RBTV_WATCHDOG_FAILCOUNT",
@@ -998,16 +1055,27 @@ def load_failcount():
 
 def clear_failcount():
     """Called on the daemon row's `up` verdict — the strikes are CONSECUTIVE, so one good
-    pass ends the streak. Leaves `last_restart_at` alone: the backoff is about how recently
-    the remedy was applied, and one healthy pass does not un-apply it."""
+    pass ends the streak. BOTH counters, for the same reason: an answered `inspect daemon` is
+    the direct disproof of the timeout streak as much as of the restart streak. Leaves
+    `last_restart_at` alone: the backoff is about how recently the remedy was applied, and one
+    healthy pass does not un-apply it."""
     fc = load_failcount()
-    if fc.get("strikes"):
+    if fc.get("strikes") or fc.get("timeout_strikes"):
         fc["strikes"] = 0
+        fc["timeout_strikes"] = 0
         write_json_atomic(failcount_path(), fc)
 
 
 def daemon_restart_gate(detail):
-    """May the daemon row restart on THIS pass's `down` verdict? Returns (allow, note).
+    """May the daemon row restart on THIS pass's `down` verdict? Returns (allow, line, route).
+
+    `line` is what the pass PRINTS. `route` is WHERE the held condition goes, and it is the
+    gate's decision because only the gate knows which arm it took: `dm` (the owner-DM leg, every
+    arm's behaviour before 2026-08-28 and unchanged), `alarm` (already delivered here through the
+    emitter, so the caller must not deliver it again), or `silent` (a gateway timeout below the
+    strike threshold — recorded, printed, delivered nowhere). `route` is None only when `allow`
+    is True. Until 2026-08-28 a held arm always printed and always paged, and there was no way to
+    say "record this pass, tell nobody yet".
 
     Persists the strike count, so it counts PASSES (60s apart) and not this process's
     lifetime — a per-invocation tool has no memory of its own.
@@ -1019,18 +1087,64 @@ def daemon_restart_gate(detail):
     strikes = int(fc.get("strikes") or 0) + 1
     fc["strikes"] = strikes
     fc["at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # Bumped or zeroed HERE, once, so every arm's existing write persists it and no arm can
+    # forget: "consecutive timeout passes" means any pass that failed some other way ends the
+    # run just as an answered pass does.
+    timed_out = is_gateway_timeout(detail)
+    timeout_strikes = (int(fc.get("timeout_strikes") or 0) + 1) if timed_out else 0
+    fc["timeout_strikes"] = timeout_strikes
     ident = daemon_identity()
     if ident.get("state") == "running":
         # NOT a strike toward anything: systemd says the process is there. Alarm, never act.
         write_json_atomic(failcount_path(), fc)
+        if timed_out and timeout_strikes < TIMEOUT_STRIKES:
+            # THE 29 FALSE PAGES, closed. The pass is recorded in full — the printed row, the
+            # failcount and a ledger row — and nothing is delivered. See the block above
+            # `is_gateway_timeout` for why one sample cannot support the verdict below.
+            ledger("page-withheld", "the gateway timed out on %d consecutive pass(es) of the %d "
+                   "required, and systemd reports the unit active" % (timeout_strikes, TIMEOUT_STRIKES),
+                   unit=DAEMON_UNIT, arm="timeout-strikes", pid=ident.get("pid"),
+                   timeout_strikes=timeout_strikes, threshold=TIMEOUT_STRIKES, gateway=detail)
+            return False, ("daemon: gateway timeout — strike %d/%d, no page (systemd reports pid %s "
+                           "active). Gateway said: %s"
+                           % (timeout_strikes, TIMEOUT_STRIKES, ident.get("pid"), detail)), "silent"
         ledger("restart-withheld", "systemd reports the unit active, so this is a busy or wedged "
                "daemon and not a dead one", unit=DAEMON_UNIT, arm="unit-alive",
-               pid=ident.get("pid"), strikes=strikes, gateway=detail)
+               pid=ident.get("pid"), strikes=strikes,
+               timeout_strikes=timeout_strikes, gateway=detail)
+        if timed_out:
+            # THRESHOLD REACHED. ONE delivery, through the emitter — the registry row `ignite
+            # status` and the 2-hourly digest read, plus its single post — and NOT the DM leg
+            # beside it, exactly as the `alarm` verdict behaves since a5b57bc0. Two deliveries of
+            # one condition is the volume violation spec-owner-io §9.2 forbids, and the registry's
+            # own open-row dedupe is what holds it to once per episode where `state.json`'s
+            # fingerprint is a 6h timer. The row is CLEARED by the existing `up` branch in
+            # `main()`, unchanged. `dry` is False and not a parameter: `main()` returns on
+            # `--dry-run` before this gate is ever reached.
+            # `raise_row_alarm` prefixes the row name and appends "No restart can fix this — a
+            # human is needed", so what it is handed is the middle of that sentence and not the
+            # DM text above, which already carries both halves itself.
+            return False, "%s\n%s" % (
+                ("daemon: gateway timeout — strike %d/%d, PAGING"
+                 % (timeout_strikes, TIMEOUT_STRIKES)),
+                raise_row_alarm("daemon",
+                                ("the gateway did not answer `inspect daemon` within %.0fs on %d "
+                                 "consecutive passes, while systemd reported pid %s active since "
+                                 "%s — a busy or wedged daemon, not a dead one, so the restart is "
+                                 "withheld (it would reap every tmux pane on the box). Gateway "
+                                 "said: %s"
+                                 % (TIMEOUT, timeout_strikes, ident.get("pid"),
+                                    ident.get("since") or "?", detail)),
+                                False)), "alarm"
+        # The NON-timeout unit-alive failure — connection refused with the unit still up, a 5xx,
+        # a malformed body. Byte-identical to the pre-2026-08-28 text and route: it is a
+        # determinate reading of a subject that is not answering at all, one sample is enough,
+        # and the owner hears about it on the FIRST pass.
         return False, ("daemon: THE GATEWAY IS UNANSWERABLE BUT THE DAEMON IS ALIVE — systemd "
                        "reports pid %s active since %s, so this is a busy or wedged daemon, not "
                        "a dead one, and a restart would reap every tmux pane on the box for "
                        "nothing. NOT restarting; a human is needed. Gateway said: %s"
-                       % (ident.get("pid"), ident.get("since") or "?", detail))
+                       % (ident.get("pid"), ident.get("since") or "?", detail)), "dm"
     last = float(fc.get("last_restart_at") or 0)
     since_restart = time.time() - last
     if last and since_restart < RESTART_BACKOFF:
@@ -1040,30 +1154,32 @@ def daemon_restart_gate(detail):
                unit=DAEMON_UNIT, arm="backoff", backoff_seconds=RESTART_BACKOFF,
                since_last_restart_seconds=int(since_restart), strikes=strikes,
                identity_state=ident.get("state"), gateway=detail)
-        return False, ("daemon: RESTART DID NOT RESTORE THE GATEWAY — backing off. The last "
-                       "restart was %dm ago and the verdict is still down, so re-applying the "
-                       "same remedy every pass is not a remedy. Holding for another %dm "
-                       "(systemd says %s). Gateway said: %s"
-                       % (since_restart / 60, (RESTART_BACKOFF - since_restart) / 60,
-                          ident.get("state"), detail))
+        note = ("daemon: RESTART DID NOT RESTORE THE GATEWAY — backing off. The last "
+                "restart was %dm ago and the verdict is still down, so re-applying the "
+                "same remedy every pass is not a remedy. Holding for another %dm "
+                "(systemd says %s). Gateway said: %s"
+                % (since_restart / 60, (RESTART_BACKOFF - since_restart) / 60,
+                   ident.get("state"), detail))
+        return False, note, "dm"
     if strikes < STRIKES:
         write_json_atomic(failcount_path(), fc)
         ledger("restart-withheld", "strike %d of %d consecutive failed passes — one missed 10s "
                "call is not an outage" % (strikes, STRIKES), unit=DAEMON_UNIT, arm="strikes",
                strikes=strikes, threshold=STRIKES, identity_state=ident.get("state"),
                gateway=detail)
-        return False, ("daemon: GATEWAY DOWN, RESTART WITHHELD — strike %d of %d consecutive "
-                       "failed passes (systemd says %s: %s). One missed 10s call is not an "
-                       "outage. Gateway said: %s"
-                       % (strikes, STRIKES, ident.get("state"),
-                          ident.get("why") or ident.get("pid") or "?", detail))
+        note = ("daemon: GATEWAY DOWN, RESTART WITHHELD — strike %d of %d consecutive "
+                "failed passes (systemd says %s: %s). One missed 10s call is not an "
+                "outage. Gateway said: %s"
+                % (strikes, STRIKES, ident.get("state"),
+                   ident.get("why") or ident.get("pid") or "?", detail))
+        return False, note, "dm"
     fc["strikes"] = 0
     fc["last_restart_at"] = time.time()
     write_json_atomic(failcount_path(), fc)
     ledger("restart-allowed", "%d consecutive failed passes spent the strikes and systemd does not "
            "report the unit active" % STRIKES, unit=DAEMON_UNIT, arm="strikes-spent",
            threshold=STRIKES, identity_state=ident.get("state"), gateway=detail)
-    return True, None
+    return True, None, None
 
 
 ROWS = {
@@ -1311,7 +1427,7 @@ def main(argv):
               file=sys.stderr)
         return 2
 
-    lines, alerts, dry_down, alarming = [], [], [], []
+    lines, alerts, dry_down, alarming, withheld = [], [], [], [], []
     for name in targets:
         probe, restart, describe = ROWS[name]
         state, detail = probe()
@@ -1345,10 +1461,23 @@ def main(argv):
             # The ACTION path is the only place this can sit: the 6h repeat-suppression below
             # gates the DM leg, which is structurally downstream of the restart and can
             # therefore never throttle an act.
-            allow, note = daemon_restart_gate(detail)
+            allow, held_line, route = daemon_restart_gate(detail)
             if not allow:
-                lines.append("%-13s %-6s %s" % ("  ->", "held", note))
-                alerts.append(note)
+                lines.append("%-13s %-6s %s" % ("  ->", "held", held_line))
+                # WHERE THE HELD CONDITION GOES, decided by the gate and not re-derived here.
+                # `dm` is every arm's behaviour before 2026-08-28 and is unchanged. `alarm` means
+                # the gate already delivered it through the emitter — one delivery, never two
+                # (§9.2), so this row joins `alarming` and NOT `alerts`. `silent` means a gateway
+                # timeout below the strike threshold: recorded, printed, delivered nowhere. It
+                # still has to reach the summary below, because a pass that read this row `down`
+                # and then printed "all green" is the absence-reads-as-health sentence this
+                # component exists to remove.
+                if route == "dm":
+                    alerts.append(held_line)
+                elif route == "alarm":
+                    alarming.append(name)
+                else:
+                    withheld.append(held_line)
                 continue
         rc, out = restart()
         after, after_detail = probe()
@@ -1419,15 +1548,21 @@ def main(argv):
         # "already told the owner about this" record.
         print("\n--dry-run: %d subject(s) down (%s) — nothing restarted, no DM sent"
               % (len(dry_down), ", ".join(dry_down)))
-    elif alarming:
-        # NOT "all green", and NOT a DM. The condition stands, it is carried by the alarm registry
+    elif alarming or withheld:
+        # NOT "all green", and NOT a DM. A standing condition is carried by the alarm registry
         # (which the system digest and `ignite status` read), and saying "all green" on this pass
-        # is the exact sentence that made the wave-test-2 answer wrong.
+        # is the exact sentence that made the wave-test-2 answer wrong. A WITHHELD condition is
+        # carried by nothing at all yet — it is one strike toward a threshold — so this line is
+        # the only place a reader of a single pass can see it was observed.
         if load_state().get("alert") is not None:
             save_state(None)
-        print("\n%d standing alarm(s) — %s — carried by the alarm registry, not by a DM: "
-              "read them with `ignite status` (open_conditions) or the 2-hourly system digest"
-              % (len(alarming), ", ".join(alarming)))
+        notes = []
+        if alarming:
+            notes.append("%d standing alarm(s) — %s — carried by the alarm registry, not by a DM: "
+                         "read them with `ignite status` (open_conditions) or the 2-hourly system "
+                         "digest" % (len(alarming), ", ".join(alarming)))
+        notes.extend("%s — nothing delivered on this pass" % w.splitlines()[0] for w in withheld)
+        print("\n" + "\n".join(notes))
     else:
         if load_state().get("alert") is not None:
             save_state(None)

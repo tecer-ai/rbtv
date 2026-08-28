@@ -215,9 +215,13 @@ def main():
         # --- 9. the restart GATE ledgers every withheld arm, with its reason ----------------
         os.remove(ledger_file)
         wd.daemon_identity = lambda: outage
-        allow1, note1 = wd.daemon_restart_gate("simulated: gateway timed out")
-        allow2, _ = wd.daemon_restart_gate("simulated: gateway timed out")
-        allow3, _ = wd.daemon_restart_gate("simulated: gateway timed out")
+        # Three-valued since 2026-08-28 (A-1): the third member is the ROUTE the held condition
+        # takes — `dm`, `alarm` (already delivered through the emitter) or `silent` (a gateway
+        # timeout below RBTV_WATCHDOG_TIMEOUT_STRIKES). None of the arms below is a timeout
+        # against a LIVE unit, so every one of them still routes `dm`, exactly as before.
+        allow1, note1, route1 = wd.daemon_restart_gate("simulated: gateway timed out")
+        allow2, _, _ = wd.daemon_restart_gate("simulated: gateway timed out")
+        allow3, _, _ = wd.daemon_restart_gate("simulated: gateway timed out")
         led = read_jsonl(ledger_file)
         withheld = [r for r in led if r["decision"] == "restart-withheld"]
         allowed = [r for r in led if r["decision"] == "restart-allowed"]
@@ -235,12 +239,16 @@ def main():
         os.remove(ledger_file)
         wd.daemon_identity = lambda: {"state": "running", "unit": UNIT, "pid": 4242,
                                       "restarts": 0, "since": "probe", "invocation": "probe-inv"}
-        allow4, _ = wd.daemon_restart_gate("simulated: gateway unanswerable")
+        allow4, _, route4 = wd.daemon_restart_gate("simulated: gateway unanswerable")
         alive = [r for r in read_jsonl(ledger_file) if r.get("arm") == "unit-alive"]
         check("the unit-alive arm withholds and ledgers its reason",
               allow4 is False and len(alive) == 1 and alive[0]["decision"] == "restart-withheld"
               and alive[0].get("reason"),
               json.dumps(alive))
+        check("neither arm above is a timeout against a LIVE unit, so both still route to the "
+              "owner-DM leg on pass 1 (route1: timeout, unit NOT alive; route4: unit alive, not a "
+              "timeout)",
+              route1 == "dm" and route4 == "dm", "route1=%s route4=%s" % (route1, route4))
 
         # --- 10. no second alarm path survives in this component ---------------------------
         # ⚠ The tokens are ASSEMBLED, never written literally, and this file is skipped: a
