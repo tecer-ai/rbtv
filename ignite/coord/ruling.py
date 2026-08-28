@@ -48,17 +48,14 @@ LEADER_INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instruc
 WORK_PRODUCT_KEYS = ("work_product", "patch", "outputs")
 
 
-def workspace_root(pkg):
-    """The workspace the goal folder belongs to — the root holding `.rbtv/`.
-
-    ⚠ RESOLVED THE WAY `ending_store.ending_store_db` RESOLVES IT, walking up for `.rbtv`, so the
-    kit and the engine land on the same directory by construction rather than by configuration.
-    The daemon reaches the same root off `heartStore.config.workspaceRoot`."""
-    here = Path(pkg).resolve()
-    for p in (here, *here.parents):
-        if (p / ".rbtv").is_dir():
-            return p
-    return None
+# THE WORKSPACE WALK IS `ending_store.workspace_root` AND THERE IS NO SECOND COPY HERE. This file
+# used to carry its own, whose docstring said it resolved "the way `ending_store.ending_store_db`
+# resolves it" — a promise held by a comment, which is how the two drift. Both walked up for a bare
+# `.rbtv/` DIRECTORY, which is not what a workspace is (D27: the ancestor holding the install
+# record `.rbtv/modules/ignite/server.json`), and that wrong rule cost the 2026-08-28 outage —
+# 5815fbaa, memory `observation/20260828-i-a-rbtv-that-does-not-root-the`. `ending_store` is bound
+# in this namespace by `coord.py:48`; the walk, its stderr line for a bare `.rbtv/` walked past,
+# and its citation of `config.js#findInstallRoot` all live there, once.
 
 
 def instruction_kinds():
@@ -116,12 +113,15 @@ def cmd_instruct(args):
     caller = gate(args, "instruct")
     pkg = package_dir(args, register=bool(args.go))
     goal = pkg.name
-    root = workspace_root(pkg)
+    root = ending_store.workspace_root(pkg)
     if root is None:
         refuse("state",
-               f"no `.rbtv/` workspace above `{pkg}` — the daemon drains this goal's instructions "
-               f"from `<workspace>/{LEADER_INSTRUCTIONS_REL}/`, and without a workspace root "
-               f"there is no inbox to write. NOTHING WAS WRITTEN.", 1)
+               f"no workspace above `{pkg}` — nothing up to the filesystem root holds the install "
+               f"record `{ending_store.INSTALL_RECORD_REL}` (D27's definition of a workspace, "
+               f"`ignite/ignite-cli/lib/config.js#findInstallRoot`; a folder merely holding a "
+               f"`.rbtv/` is NOT one). The daemon drains this goal's instructions from "
+               f"`<workspace>/{LEADER_INSTRUCTIONS_REL}/`, and without a workspace root there is "
+               f"no inbox to write. NOTHING WAS WRITTEN.", 1)
     require_seat(args, args.seat)
     kinds = instruction_kinds()
     if not kinds:

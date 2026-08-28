@@ -426,6 +426,16 @@ def advice_refused_sends(path=None):
     offenders = []
     try:
         with tempfile.TemporaryDirectory() as td:
+            # THE FIXTURE ROOT IS A WORKSPACE, and it says so with the INSTALL RECORD — D27's
+            # definition (`ignite-cli/lib/config.js#findInstallRoot`), not a bare `.rbtv/`.
+            # `checkin` below reaches the ending store through `awaiting_debts`, and
+            # `ending_store.ending_store_db` REFUSES above a folder that roots no install rather
+            # than minting a `.rbtv/` at the cwd — the fallback that planted the stray
+            # `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa]. The record's PATH is
+            # read off the resolver so the fixture cannot drift from the rule it satisfies.
+            _adv_rec = Path(td) / ending_store.INSTALL_RECORD_REL
+            _adv_rec.parent.mkdir(parents=True)
+            _adv_rec.write_text("{}", encoding="utf-8")
             RUNS_INDEX = Path(td) / "runs.json"
             pkg = Path(td) / "pkg"
             (pkg / "coordination").mkdir(parents=True)

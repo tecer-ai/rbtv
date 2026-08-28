@@ -63,6 +63,21 @@ def is_plain_ref(node):
                 and node.value.id in _PRODUCT_MODULES))
 
 
+def seed_workspace(root):
+    """Make `root` a WORKSPACE by writing the install record, and return it.
+
+    D27's definition and the only one `ending_store.workspace_root` accepts: the workspace is the
+    ancestor holding `.rbtv/modules/ignite/server.json`, NOT any folder holding a `.rbtv/`. A
+    fixture that only builds `<ws>/.rbtv/goals/<goal>` roots no workspace, and the store resolver
+    now refuses rather than inventing one at the cwd — the fallback that planted the stray
+    `<repo>/.rbtv/runtime/ignite/heart.db` of 2026-08-28 [5815fbaa]. The record content is not read
+    by the walk (only its existence is), so an empty object is the whole fixture."""
+    rec = Path(root) / ending_store.INSTALL_RECORD_REL
+    rec.parent.mkdir(parents=True, exist_ok=True)
+    rec.write_text("{}", encoding="utf-8")
+    return Path(root)
+
+
 def seed_ending(base, seat, pane="", transcript="", exported=True, ending="done",
                 armed=None, reason_class=None, diagnostic="", **_k):
     pkg = base.parent if getattr(base, "name", "") == "coordination" else base
@@ -676,6 +691,16 @@ def _selftest_checks(args, failures, names):
     pane_title = lambda pane: pane_titles.get(pane, "")
 
     with tempfile.TemporaryDirectory() as td:
+        # ⚠ THE FIXTURE ROOT IS A WORKSPACE, AND IT SAYS SO WITH THE INSTALL RECORD. `ending_store`
+        # resolves the store by D27's rule — the nearest ancestor holding
+        # `.rbtv/modules/ignite/server.json` (`ignite-cli/lib/config.js#findInstallRoot`) — and
+        # REFUSES where nothing does, instead of the create-at-cwd fallback it used to have. Before
+        # this line the 73 scratch packages below rooted no workspace, so that fallback walked past
+        # them to the first bare `.rbtv/` above: on this box `/tmp/.rbtv/` (itself planted by an
+        # earlier run of exactly that fallback, 2026-08-28 07:33), which made every fixture in every
+        # run share ONE store that outlived the tempdir — the cross-run leakage `s3-07 (2)` reds on.
+        # One record here gives each run its own store inside its own tempdir. [5815fbaa]
+        seed_workspace(td)
         RUNS_INDEX = Path(td) / "coordinate-runs.json"  # never touch the real registry
         pkg = Path(td) / "pkg"
         (pkg / "coordination").mkdir(parents=True)
@@ -9512,7 +9537,7 @@ def _selftest_checks(args, failures, names):
         # PARKED and nothing below could hold. A fixture that cannot be held cannot fail.
         _d8h_pkg = _rs_make("d8h", [("bq", ""), ("bqa", ""), ("bqn", ""), ("dd", ""), ("bqp", ""),
                                     ("succ", "bq")],
-                            at=Path(td) / "d8h-ws" / ".rbtv" / "goals" / "d8h",
+                            at=seed_workspace(Path(td) / "d8h-ws") / ".rbtv" / "goals" / "d8h",
                             fallbacks={"bq": "block-and-queue  # ratified 2026-08-09",
                                        "bqa": "'block-and-queue'", "bqn": "block-and-queue",
                                        "bqp": "block-and-queue", "dd": "default-and-disclose"})
@@ -15414,6 +15439,8 @@ def _selftest_checks(args, failures, names):
     # writer, the halt was a `verdict`, and `chat-thread`/`deliver` were body text. The fixture is
     # built explicitly here; nothing can pass by inheriting another block's state.
     with tempfile.TemporaryDirectory() as tdW4:
+        # the fixture root is a WORKSPACE — D27's install record, not a bare `.rbtv/` [5815fbaa]
+        seed_workspace(tdW4)
         pkgW4 = Path(tdW4) / "goal" / "runs" / "run-1"
         baseW4 = pkgW4 / "coordination"
         baseW4.mkdir(parents=True)
@@ -15624,6 +15651,8 @@ def _selftest_checks(args, failures, names):
     # no flag), `beta` (the same, flagged `human-interactive: yes`), plus `gamma`, which has a
     # roster row and NO seat.md at all — the membership control.
     with tempfile.TemporaryDirectory() as tdW8:
+        # the fixture root is a WORKSPACE — D27's install record, not a bare `.rbtv/` [5815fbaa]
+        seed_workspace(tdW8)
         pkgW8 = Path(tdW8) / ".rbtv" / "goals" / "gW8"
         baseW8 = pkgW8 / "coordination"
         baseW8.mkdir(parents=True)
@@ -15955,6 +15984,9 @@ def _selftest_checks(args, failures, names):
     # cast a second fixture package for is DELETED [T2-R17, D-7-ruling]; `ask` now resolves to
     # `leader` unconditionally, so one package covers every arm.
     with tempfile.TemporaryDirectory() as tdD2:
+        # the fixture root is a WORKSPACE — D27's install record, not a bare `.rbtv/` [5815fbaa]
+        seed_workspace(tdD2)
+
         def _mk_d2_pkg(root):
             pkg = Path(root)
             (pkg / "coordination").mkdir(parents=True)
