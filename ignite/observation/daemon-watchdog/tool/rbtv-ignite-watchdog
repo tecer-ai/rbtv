@@ -50,7 +50,11 @@ Exit codes — ⚠ AMENDED 2026-08-15 (owner ruling R1): AN ALARM IS NOT A SYSTE
      thing that paints this unit FAILED, which is what makes a failed unit worth reading.
 
 Environment (every per-instance value is resolved at runtime; nothing is baked in):
-  RBTV_WATCHDOG_WORKSPACE     workspace root that carries .rbtv/  (default: CWD)
+  RBTV_WATCHDOG_WORKSPACE     the workspace root — the folder holding the install record
+                              .rbtv/modules/ignite/server.json (D27). Default: the CWD, and
+                              ONLY when the CWD itself roots that record; otherwise the pass
+                              REFUSES with exit 2 rather than invent a workspace. See the
+                              block above resolve_workspace() for the outage that cost.
   RBTV_WATCHDOG_GATEWAY       gateway URL          (default http://127.0.0.1:7431/)
   IGNITE_WATCHDOG_TOKEN       the watchdog's OWN minted gateway sender token. No
                               fallback to another sender's token, deliberately:
@@ -121,7 +125,51 @@ def env(name, default=None):
     return v if v not in (None, "") else default
 
 
-WORKSPACE = env("RBTV_WATCHDOG_WORKSPACE", os.getcwd())
+# ⚠⚠ A `.rbtv/` THAT DOES NOT ROOT THE INSTALL IS NOT A WORKSPACE, AND A WATCHDOG WITH NO
+# WORKSPACE MUST NOT INVENT ONE. D27's definition — implemented canonically by
+# `ignite/ignite-cli/lib/config.js#findInstallRoot` ("walk up to the NEAREST ancestor holding
+# `.rbtv/modules/ignite/server.json`") — is the folder that roots the INSTALL RECORD, never any
+# folder that happens to contain a `.rbtv/` directory. The rule is MIRRORED here in five lines
+# rather than imported: this tool is pure stdlib on purpose (it must still run when everything
+# else is down), and the only Python port of config.js — `ignite/coord/gateway_client.py` — takes
+# the workspace root as an ARGUMENT and owns no walker to reuse.
+#
+# ⚠ WHY THE OLD `os.getcwd()` DEFAULT WAS A DEFECT AND NOT A CONVENIENCE (wave test 15,
+# 2026-08-28). Every path this tool writes is `<WORKSPACE>/.rbtv/runtime/…`, so a pass with no env
+# and a cwd that is not a workspace CREATES `<cwd>/.rbtv/` on its first write. At
+# 2026-08-28T03:02:15Z `probes/probe-watchdog-staged-failure` spawned this tool from the rbtv REPO
+# root with no `RBTV_WATCHDOG_WORKSPACE`, and planted `<repo>/.rbtv/runtime/watchdog/`. That folder
+# then OUT-VOTED the real install for the other walker on this box —
+# `ignite/deploy/probe-suite-scheduled.py#find_workspace_root`, which stopped at the first ancestor
+# holding a bare `.rbtv/` — so from the 04:00Z fire the probe suite wrote its `latest.json` into
+# the repo while THIS tool (unit env pointing at the vault) kept reading the vault copy, frozen at
+# 03:20:11Z. Result: 195 consecutive passes reporting `probe-suite down — last fired 9026s ago`,
+# a `rbtv-probe-suite.timer` restart every minute and an owner DM — all false, for a suite that
+# fired at 04:00, 05:00, 06:00 and 07:00. A stray `.rbtv/` is gitignored (`**/.rbtv/`), so nothing
+# in `git status` ever showed it.
+#
+# ⇒ So: the env override wins outright and is NOT second-guessed (the unit sets it, and every probe
+# points it at a scratch workspace that deliberately carries no install record). The cwd is
+# accepted ONLY when it roots the install. Otherwise `WORKSPACE` is None and `main()` REFUSES with
+# exit 2 — never a guess, because a watchdog aimed at a directory nothing writes to reports a
+# healthy system as dead and a dead one as healthy with equal confidence, which is exactly the
+# absence-reads-as-health failure this component exists to remove.
+INSTALL_RECORD_REL = os.path.join(".rbtv", "modules", "ignite", "server.json")
+
+
+def roots_install(d):
+    return os.path.isfile(os.path.join(d, INSTALL_RECORD_REL))
+
+
+def resolve_workspace():
+    explicit = env("RBTV_WATCHDOG_WORKSPACE")
+    if explicit:
+        return explicit
+    cwd = os.getcwd()
+    return cwd if roots_install(cwd) else None
+
+
+WORKSPACE = resolve_workspace()
 GATEWAY = env("RBTV_WATCHDOG_GATEWAY", "http://127.0.0.1:7431/")
 DAEMON_UNIT = env("RBTV_WATCHDOG_DAEMON_UNIT", "rbtv-ignite.service")
 BRIDGE_UNIT = env("RBTV_WATCHDOG_BRIDGE_UNIT", "rbtv-chat-bridge.service")
@@ -1249,6 +1297,14 @@ def main(argv):
         else:
             print("usage: rbtv-ignite-watchdog [--dry-run]", file=sys.stderr)
             return 2
+    if WORKSPACE is None:
+        # THE REFUSAL, at the run boundary and not at import: the probes that import this file as a
+        # module set `W.WORKSPACE` themselves, and a module-level exit would kill them on import.
+        print("refusing: no RBTV_WATCHDOG_WORKSPACE and the cwd %s does not root an ignite install "
+              "(no %s) — a watchdog that invents a workspace watches a directory nothing writes to"
+              % (os.getcwd(), INSTALL_RECORD_REL), file=sys.stderr)
+        return 2
+
     unknown = [t for t in targets if t not in ROWS]
     if unknown:
         print("unknown target(s): %s (known: %s)" % (", ".join(unknown), ", ".join(ROWS)),

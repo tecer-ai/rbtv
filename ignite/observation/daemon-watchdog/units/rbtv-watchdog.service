@@ -11,7 +11,12 @@
 #
 # Install-time substitution points (replace each @@NAME@@ with the instance value):
 #   @@IGNITE_SRC@@       - absolute path to the ignite module source root
-#   @@WORKSPACE_ROOT@@   - workspace root: the folder that roots .rbtv/
+#   @@WORKSPACE_ROOT@@   - workspace root: the folder that ROOTS THE INSTALL, i.e. holds
+#                          .rbtv/modules/ignite/server.json (D27). NOT merely a folder that
+#                          contains a .rbtv/ directory — see the block above
+#                          resolve_workspace() in tool/rbtv-ignite-watchdog for what that
+#                          distinction cost on 2026-08-28. Substituting it wrong, or leaving
+#                          it unset, now REFUSES the pass instead of inventing a workspace.
 #   @@ENV_FILE@@         - the machine's gitignored env surface, carrying
 #                          IGNITE_WATCHDOG_TOKEN (or IGNITE_SENDER_TOKEN),
 #                          SLACK_BOT_TOKEN and IGNITE_CHAT_BRIDGE_CONFIG.

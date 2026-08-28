@@ -19,6 +19,7 @@ process itself is `runtime/`, the out-of-process watchdog is `observation/`.
 | systemd units | `rbtv-ignite.service`, `rbtv-chat-bridge.service`, `rbtv-probe-suite.service`, `rbtv-probe-suite.timer` | The unit files the cutover installs; `ExecStart` names `runtime/index.js` and `chat/index.js` since the component-first move |
 | probe-suite runner | `probe-suite.js` | Runs every component's probes and reports the tree's verdict |
 | scheduled probe suite | `probe-suite-scheduled.py` | The timer-fired payload around the runner — internal-daemon, never an agent's command |
+| this component's own probes | `probes/` | `probe-workspace-root-record.py` — the scheduler resolves its workspace by the INSTALL RECORD, and a bare `.rbtv/` never wins (§ Installation model) |
 | PATH links | `link-tools.py` | Puts ignite's bare-name commands — every `method=path` tool whose `exposure.csv` row names no `rbtv …` verb (`coordinate`, `supervise`, `scaffold-seats`, `owed-answers`, `tmux-overview`, `file-issue`, `rbtv-bindings`, `rbtv-master-profile`, `rbtv-goal-request`) — on PATH, idempotently, from their component homes |
 | network + probe records | `network/`, `p3-*.js`, `*.out`, `*.log` | The containment probes and their recorded outputs |
 
@@ -71,8 +72,10 @@ restarted", not "somebody saved a file".
 
 Canonical statement of the ignite install model (owner ruling D27, 2026-07-14).
 
-- **Workspace-scoped, not machine-scoped.** A **workspace** is the folder that roots `.rbtv/` (a
-  root dir is usually a git repo, or a branch of one). **"Installed" = this workspace has ONE
+- **Workspace-scoped, not machine-scoped.** A **workspace** is the folder that roots the INSTALL —
+  the one holding `.rbtv/modules/ignite/server.json`, never merely a folder containing a `.rbtv/`
+  directory (see the walk below for what that distinction cost) — and a root dir is usually a git
+  repo, or a branch of one. **"Installed" = this workspace has ONE
   server configured to run ignite for it** — installing on a host is installing in the workspace
   it serves, never "installed on one machine".
 - **Install state lives at `.rbtv/modules/ignite/`** — one folder per module, holding:
@@ -87,10 +90,21 @@ Canonical statement of the ignite install model (owner ruling D27, 2026-07-14).
   First run creates the folder and its files **idempotently**; the installed test is: a valid
   `server.json` exists.
 - **A client finds that record by WALKING UP from its cwd**, to the nearest ancestor holding
-  `.rbtv/modules/ignite/server.json`. A workspace is the folder that roots `.rbtv/`, so every
-  folder nested inside it is *inside* the workspace: a daemon-spawned seat sitting in its own seat
-  folder (`cwd-mode: seat-folder`) and a console user in any subfolder resolve the same install the
-  workspace root does. **Nearest ancestor wins** — a nested workspace shadows an outer one.
+  `.rbtv/modules/ignite/server.json` (`ignite-cli/lib/config.js#findInstallRoot`). ⚠⚠ **A workspace
+  is the folder that ROOTS THE INSTALL — the one holding that record — and NOT any folder that
+  happens to contain a `.rbtv/` directory.** Every folder nested inside it is *inside* the
+  workspace: a daemon-spawned seat sitting in its own seat folder (`cwd-mode: seat-folder`) and a
+  console user in any subfolder resolve the same install the workspace root does. **Nearest ancestor
+  wins** — a nested workspace shadows an outer one.
+  ⚠ The `.rbtv/` half of that sentence used to be the whole of it, and the difference is not
+  pedantry: any tool that resolves a workspace from its cwd creates `<cwd>/.rbtv/runtime/…` on its
+  first write, and a walker testing for a bare `.rbtv/` then stops at that scratch folder instead
+  of the install. On 2026-08-28 a watchdog probe run from the rbtv repo root planted
+  `<repo>/.rbtv/`; `probe-suite-scheduled.py` wrote four hourly `latest.json` files into it while
+  the watchdog read the vault copy, reported the live suite DOWN for 195 consecutive passes,
+  restarted `rbtv-probe-suite.timer` once a minute and DM'd the owner (wave test 15). A stray
+  `.rbtv/` is gitignored, so `git status` never shows one. `probes/probe-workspace-root-record.py`
+  is the guard.
   `IGNITE_GATEWAY_ADDR` still short-circuits the search entirely when set. Resolving "workspace" as
   "cwd" instead is what put every seat outside its own workspace and refused its every gateway call
   (CP-2 rows M39/M40, 2026-08-27).

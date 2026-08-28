@@ -243,7 +243,7 @@ Every per-instance value is resolved at runtime; nothing is baked into the code.
 
 | Variable | Default |
 |----------|---------|
-| `RBTV_WATCHDOG_WORKSPACE` | CWD — the workspace root that carries `.rbtv/` |
+| `RBTV_WATCHDOG_WORKSPACE` | the CWD — **and only when the CWD itself ROOTS THE INSTALL**, i.e. holds `.rbtv/modules/ignite/server.json` (D27's definition of a workspace, implemented canonically by `ignite/ignite-cli/lib/config.js#findInstallRoot`). Otherwise the pass REFUSES with exit `2` and one line. **A `.rbtv/` directory alone is NOT a workspace**: every path this tool writes is `<workspace>/.rbtv/runtime/…`, so the old bare-CWD default CREATED one wherever it was launched — on 2026-08-28 a probe run from the rbtv repo root planted `<repo>/.rbtv/`, which then captured `deploy/probe-suite-scheduled.py`'s workspace walk and produced 195 false `probe-suite down` passes over a suite that was firing hourly (wave test 15). A watchdog with no workspace must not invent one |
 | `RBTV_WATCHDOG_GATEWAY` | `http://127.0.0.1:7431/` |
 | `IGNITE_WATCHDOG_TOKEN` | unset. **No fallback to another sender's token, deliberately** — borrowing one would file every probe under the wrong sender id in the gateway's audit columns AND would silently satisfy the mint that § Enabling this thing exists to force. Absent = `alarm`, re-alerted on the ceiling below until someone mints it |
 | `RBTV_WATCHDOG_DAEMON_UNIT` · `_BRIDGE_UNIT` · `_PROBE_TIMER` | `rbtv-ignite.service` · `rbtv-chat-bridge.service` · `rbtv-probe-suite.timer` |
@@ -394,6 +394,8 @@ unit and routes notify to a test double;
 the same non-interference guarantee `rbtv-ignite-daemon selftest` established for this
 capability family. A real-DM confirmation is a one-time manual step
 (`RBTV_WATCHDOG_NOTIFY_PREFIX` marks it), never part of the repeatable check.
+
+`probes/probe-watchdog-workspace-refusal.py` proves the workspace gate — 8 checks: a CWD that roots no install exits `2` with one refusal line and writes NOTHING; a CWD holding a bare `.rbtv/` (the stray-folder shape) still exits `2`; a CWD that DOES root an install is accepted and written into, so the gate is not a blanket refusal. RED CONTROL in the same run: a copy of the tool with the pre-fix `os.getcwd()` default does not refuse and PLANTS `<cwd>/.rbtv/runtime/watchdog/`, reproducing the 2026-08-28T03:02:15Z event. Only the `probe-suite` row runs and its restart lever is pointed at `/bin/true`, so no live unit is ever named to systemd.
 
 `probes/probe-g188-daemon-identity.py` proves the fourth row — 96 checks over the four
 verdicts, every systemd answer substituted and every file in a temp dir, so it runs on any

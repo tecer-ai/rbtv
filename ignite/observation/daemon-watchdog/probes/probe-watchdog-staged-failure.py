@@ -60,8 +60,20 @@ def main():
     scratch = tempfile.mkdtemp(prefix="rbtv-watchdog-probe-")
     notify_file = os.path.join(scratch, "notify.jsonl")
     state_file = os.path.join(scratch, "state.json")
+    workspace = os.path.join(scratch, "ws")
+    os.makedirs(workspace, exist_ok=True)
     env = dict(os.environ)
     env.update({
+        # ⚠ THE SCRATCH WORKSPACE IS PART OF THE CONFINEMENT, not housekeeping. Without it this
+        # probe inherits the caller's cwd, and every `<WORKSPACE>/.rbtv/runtime/…` path the tool
+        # writes lands there: run from the rbtv repo root on 2026-08-28T03:02:15Z, it created
+        # `<repo>/.rbtv/runtime/watchdog/outage-ledger.jsonl`, and that stray `.rbtv/` then
+        # hijacked `ignite/deploy/probe-suite-scheduled.py`'s workspace walk for four hours
+        # (wave test 15 — the watchdog reported a live probe suite DOWN and restarted its timer
+        # once a minute). The tool now REFUSES a cwd that does not root an install, so an
+        # unset value here is a red probe rather than a silent planting; setting it explicitly
+        # is what keeps the probe testing the watchdog instead of testing the refusal.
+        "RBTV_WATCHDOG_WORKSPACE": workspace,
         # The whole confinement of this probe is these two lines: ONE row, pointed at
         # the throwaway unit. Nothing else in the probe table is even evaluated.
         "RBTV_WATCHDOG_TARGETS": "bridge",

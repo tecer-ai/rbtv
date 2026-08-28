@@ -63,9 +63,19 @@ DEPLOY_DIR = os.path.dirname(os.path.abspath(__file__))
 IGNITE_ROOT = os.path.dirname(DEPLOY_DIR)
 SUITE = os.path.join(DEPLOY_DIR, 'probe-suite.js')
 
+# D27's definition of a WORKSPACE, stated where this file needs it: the folder that ROOTS THE
+# INSTALL — the ancestor holding the committed endpoint record `.rbtv/modules/ignite/server.json`
+# — NOT any folder that happens to contain a `.rbtv/` directory. Canonical implementation:
+# `ignite/ignite-cli/lib/config.js#findInstallRoot` ("walk up to the NEAREST ancestor holding
+# `.rbtv/modules/ignite/server.json`. Nearest wins"). The rule is MIRRORED here in six lines
+# rather than imported: this script is stdlib-only and resolves everything from `__file__`
+# (header), and the only Python port of config.js — `ignite/coord/gateway_client.py` — takes the
+# workspace root as an ARGUMENT and owns no walker to reuse.
+INSTALL_RECORD_REL = os.path.join('.rbtv', 'modules', 'ignite', 'server.json')
+
 
 def find_workspace_root(start):
-    """Walk up to the directory that ROOTS `.rbtv/`. That is the definition of the workspace root.
+    """Walk up to the nearest ancestor that ROOTS THE INSTALL. That is the workspace root.
 
     ⚠⚠ THE FIRST VERSION OF THIS COUNTED HOPS — `os.path.join(IGNITE_ROOT, '..', '..', '..')` —
     COPIED FROM `probe-suite.js`, WHICH COUNTS FROM THE *REPO* ROOT WHILE THIS FILE SITS ONE LEVEL
@@ -77,20 +87,41 @@ def find_workspace_root(start):
 
     ⇒ THE REPAIR IS NOT "ADD ONE MORE `..`" — that is the same fragile counting, correct until the
     module moves. Deriving the root by its DEFINING PROPERTY survives any move of this file.
+
+    ⚠⚠ AMENDED 2026-08-28 (wave test 15), AND IT IS THE SAME BUG A SECOND TIME. The DEFINING
+    PROPERTY was written as "holds a `.rbtv/` directory", which is not what a workspace is: any
+    process running with its cwd inside this repo and no explicit workspace env plants
+    `<cwd>/.rbtv/runtime/…` on its first write, and that folder then OUT-VOTES the real install for
+    every walk that starts below it. Measured: at 03:02:15Z `daemon-watchdog`'s
+    `probe-watchdog-staged-failure` probe ran from the rbtv repo root with no
+    `RBTV_WATCHDOG_WORKSPACE` and created `<repo>/.rbtv/runtime/watchdog/`; from the 04:00Z fire on,
+    THIS walk stopped there instead of at the vault, so `latest.json` was written into the repo
+    while the watchdog (unit env `RBTV_WATCHDOG_WORKSPACE=<vault>`) kept reading the vault copy,
+    frozen at 03:20:11Z. The watchdog reported `probe-suite down — last fired 9026s ago` and
+    restarted the timer once a minute for ~2h while the suite was firing hourly and green-of-record.
+    A stray `.rbtv/` is gitignored (`.gitignore:76 **/.rbtv/`), so `git status` never shows it.
+
+    ⇒ So the test is the INSTALL RECORD, never the directory. A bare `.rbtv/` is named on stderr
+    and walked past: it is a runtime scratch folder, not a workspace, and saying so where the
+    reader already looks is what turns the next planting into one journal line instead of two
+    components silently disagreeing about which file is `latest.json`.
     """
     d = os.path.abspath(start)
     while True:
-        if os.path.isdir(os.path.join(d, '.rbtv')):
+        if os.path.isfile(os.path.join(d, INSTALL_RECORD_REL)):
             return d
+        if os.path.isdir(os.path.join(d, '.rbtv')):
+            print('probe-suite-scheduled: %s holds a .rbtv/ but no %s — a .rbtv/ that does not '
+                  'root the install is NOT a workspace; walked past it'
+                  % (d, INSTALL_RECORD_REL), file=sys.stderr)
         parent = os.path.dirname(d)
         if parent == d:
             raise RuntimeError(
                 f'no workspace root above {start}: walked to the filesystem root without finding a '
-                'directory containing .rbtv/'
+                f'directory holding {INSTALL_RECORD_REL} (the install record that D27 and '
+                'ignite/ignite-cli/lib/config.js#findInstallRoot define a workspace by)'
             )
         d = parent
-
-
 WORKSPACE_ROOT = find_workspace_root(DEPLOY_DIR)
 RUNTIME_DIR = os.path.join(WORKSPACE_ROOT, '.rbtv', 'runtime', 'probe-suite')
 LATEST = os.path.join(RUNTIME_DIR, 'latest.json')
