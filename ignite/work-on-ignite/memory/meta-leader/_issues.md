@@ -1,2 +1,3 @@
 # meta-leader — date · kind · title · symptom→cause · commit · others · ⚠ | newest last
 2026-08-22 · issue · seeded · retarget-catalog-root · catalog-root readers still hardcoded .rbtv/mirror/meta 16s after catalogs moved into the repo → resolve planning catalog from rbtv.json rbtv_path; leave other mirror modules · 919e1595 · capabilities,engine,config · ⚠
+2026-08-28 · issue · no leader register for an ordering in a row's verdict · The pass relaunched `plan-verifier` 2 min into the prerequisite run its own verdict had named → An armed `incomplete` is a class-A relaunch of that seat (`reconcile.js:930`) and the pass reads · 7652dc10 · supervisor,state-store,coord · ⚠
