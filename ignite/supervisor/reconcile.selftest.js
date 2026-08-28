@@ -891,13 +891,18 @@ say('── paused goal is not reconciled ──');
     assert.ok(enq.enq && !enq.enq.deduped, JSON.stringify(enq.enq));
     say(`ok  control: same folder unpaused enqueued ${enq.jobId || enq.seat}`);
 
-    // ── ONE PAUSE RECORD: THE STORE ROW WINS OVER THE `execution-lane` MARKER ──────────────────
+    // ── TWO PAUSE WRITERS: EITHER SURFACE HOLDS THE PASS ──────────────────────────────────────
     //
-    // Two records of "is this goal paused" used to exist and the FILE could win: the store answer
-    // was consulted only for a TRUE, so a goal-state row reading `running` fell through to a stale
-    // `paused` marker on disk and the goal stayed frozen against the record that had been updated.
-    // Both halves are asserted, because a gate that only ever answers one way cannot be told from
-    // a gate that reads nothing.
+    // a0d7e42c made the goal-state ROW decide on its existence, demoting the `execution-lane`
+    // marker to a shim. The fifteenth intent (`pause-resume`, owner direction 2026-08-28) made
+    // that reachable and wrong: no goal on the instance carried a row, so the FIRST Slack verb
+    // would mint one that then overrode the console's `rbtv goal pause` marker for good. The gate
+    // is now an OR — paused if EITHER surface says so — and a resume that meets a live marker is
+    // REFUSED loudly by `state-store/heart/pause-resume.js` rather than silently ignored, which is
+    // what keeps a0d7e42c's own defect (a goal frozen against a record nobody could see) closed.
+    // Both halves are still asserted, because a gate that only ever answers one way cannot be told
+    // from a gate that reads nothing. The full four-combination arm lives in `lane-skip.selftest.js`
+    // alongside `laneIsPaused` itself; what this row measures is the PASS honouring it.
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
     // ⚠ THE ROW IS WRITTEN THROUGH THE GATE'S OWN RESOLUTION, never through `store.db` directly:
     // `bindEnding` walks for a workspace root first and only falls back to the lane store, so a
@@ -912,14 +917,14 @@ say('── paused goal is not reconciled ──');
     const pauseGoalId = goalNameOf(goalFolder);
     api.writeGoalWord({ goal: pauseGoalId, stored: 'running', who_stamped: 'system',
       evidence_pointer: 'selftest:one-pause-record' });
-    const rowWins = reconcileGoal({
+    const markerHolds = reconcileGoal({
       goal: 'fx-pause', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
       live: new Set(), promptFn: () => 'fixture prompt',
       sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
     });
-    assert.notStrictEqual(rowWins.skipped, 'paused',
-      `a stale \`paused\` marker beat the goal-state row: ${JSON.stringify(rowWins)}`);
+    assert.strictEqual(markerHolds.skipped, 'paused',
+      `a \`running\` row beat the console lane marker — a Slack resume just un-parked an operator-parked goal: ${JSON.stringify(markerHolds)}`);
     api.writeGoalWord({ goal: pauseGoalId, stored: 'paused', who_stamped: 'owner',
       evidence_pointer: 'selftest:one-pause-record' });
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
@@ -931,7 +936,19 @@ say('── paused goal is not reconciled ──');
     });
     assert.strictEqual(rowPauses.skipped, 'paused',
       `the goal-state row said paused and the pass ran anyway: ${JSON.stringify(rowPauses)}`);
-    say('ok  one pause record: row `running` beats a stale `paused` marker, row `paused` stops the pass');
+    // THE DISCRIMINATING LEG: with BOTH surfaces reading running the pass must NOT skip. Without
+    // it the two assertions above are satisfied by a gate that returns `true` unconditionally.
+    api.writeGoalWord({ goal: pauseGoalId, stored: 'running', who_stamped: 'owner',
+      evidence_pointer: 'selftest:one-pause-record' });
+    const neitherPauses = reconcileGoal({
+      goal: 'fx-pause', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'fixture prompt',
+      sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
+    });
+    assert.notStrictEqual(neitherPauses.skipped, 'paused',
+      `both surfaces said running and the pass skipped anyway: ${JSON.stringify(neitherPauses)}`);
+    say('ok  two pause writers: the console marker holds the pass, the store row holds the pass, and neither reading paused runs it');
   } finally {
     store.close();
     closeHeartStore();

@@ -98,30 +98,47 @@ function readLane(goalFolder) {
 // (`read_lane_raw` supplies `console\n`), so every goal is pausable and an unpaused goal keeps
 // its exact current behaviour.
 //
-// ── ONE PAUSE RECORD, AND THE STORE ROW IS IT ─────────────────────────────────────────────────
+// ── TWO PAUSE WRITERS, AND EITHER ONE HOLDS ───────────────────────────────────────────────────
 //
-// There were TWO records of "is this goal paused": the goal-state row in the ending store, and
-// the first word of the `execution-lane` file. This function read both and the FILE could win —
-// the store answer was consulted only for a TRUE, so a store row reading `running` fell through
-// to a stale `paused` marker on disk and the goal stayed frozen against the record that had
-// actually been updated. That is the two-records shape, one function down from the two owed-work
-// computers, and it converges the same way: THE ROW IS THE RECORD.
+// There are TWO records of "is this goal paused": the goal-state row in the ending store
+// (`writeGoalWord`, what the mechanical Slack verb writes) and the first word of the
+// `execution-lane` file (what the console's `rbtv goal pause` writes,
+// `operator/goals-tree/tool/goal_cli.py:883-947`). a0d7e42c converged them onto the ROW — the row's
+// EXISTENCE decided and the file became a shim reached only by a goal the store had never
+// recorded. That convergence was correct for the defect it fixed (a stale `paused` marker beating a
+// row that had actually been updated) and WRONG for the one it created, which the fifteenth
+// intent's landing made reachable for the first time:
 //
-// ⚠ AND `isGoalPaused` CANNOT CARRY THE CONVERGENCE BY ITSELF, because it flattens two different
-// answers into `false`: "the row says running" and "there is no row at all". Only the first is an
-// answer. So the row is read directly and its EXISTENCE is the test — a goal the store knows about
-// is answered by the store, full stop, and the file shim is reached only by a goal the store has
-// never recorded (every goal predating the goal-state table, and every fixture that pauses by
-// writing the marker). ABSENT OR UNREADABLE IS STILL NOT PAUSED, on both surfaces.
+//   ⚠ NO GOAL ON THIS INSTANCE HAS A `goal_states` ROW (0 rows, read 2026-08-28 02:19Z). The lane
+//     marker is therefore the ONLY effective pause today. With the row deciding on its existence,
+//     the FIRST Slack `pause` or `resume` on a goal MINTS a row — and that row then overrides the
+//     console marker for good: a Slack `resume` would silently un-park every orchestrator-parked
+//     test goal (each leader waking is a real, paid sitting), and a later `rbtv goal pause` would
+//     be ignored while the row read `running`.
+//
+// So the gate is an OR: PAUSED IF EITHER SURFACE SAYS SO. A `running` row falls THROUGH to the file
+// instead of returning, and only a goal both surfaces call unpaused runs. This restores the
+// possibility a0d7e42c closed — a stale marker outliving a row — and that possibility is answered
+// where it is now VISIBLE rather than by making the gate guess: `state-store/heart/pause-resume.js`
+// refuses a resume that meets a live console marker, names the marker, and tells the owner the one
+// command that lifts it. A frozen goal nobody is told about was the a0d7e42c defect; a frozen goal
+// the owner is told about, in the same message, is a second writer honestly reported.
+//
+// Retiring the lane-file writer collapses this back to one record and is OWNER-GATED.
+//
+// ⚠ `isGoalPaused` STILL CANNOT CARRY THE STORE LEG, because it flattens two different answers into
+// `false`: "the row says running" and "there is no row at all". Only the first is an answer, and
+// the OR needs to tell them apart to know whether the row is even in the conversation. So the row
+// is read directly. ABSENT OR UNREADABLE IS STILL NOT PAUSED, on both surfaces.
 function laneIsPaused(goalFolder, heartStore) {
   try {
     const { bindEnding, goalNameOf } = require('./ending-reads');
     const api = bindEnding(heartStore, goalFolder);
     if (api && typeof api.getGoalState === 'function') {
       const row = api.getGoalState(goalNameOf(goalFolder));
-      if (row && row.stored) return row.stored === 'paused';
+      if (row && row.stored === 'paused') return true;
     }
-  } catch { /* the store could not be asked at all — fall through to the file shim */ }
+  } catch { /* the store could not be asked at all — the file leg still answers */ }
   let raw;
   try {
     raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');

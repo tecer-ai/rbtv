@@ -1,0 +1,328 @@
+'use strict';
+
+// ── THE MECHANICAL `pause {goal}` / `resume {goal}`, RUN DAEMON-SIDE (owner direction 2026-08-28,
+// ~02:00Z + 02:12Z item (2), recorded in `role-action-program/decisions.md`) ─────────────────────
+//
+// THE GAP THIS CLOSES. `chat/index.js#main()` builds the bridge with NO ports —
+// `buildBridge(config)` passes no `endingStore`, no `listSeats`, no `rearmCounters` — so the
+// mechanical door parsed the verb, resolved the target, and then applied NOTHING and answered
+// nothing (wave tests 8/9/10). The capability was real on both sides and unreachable in the
+// middle: the bridge is a SEPARATE PROCESS walled off from `heart.db`, the attempt-counter ledger
+// and every sibling require (`chat/probes/probe-chat-boundary.js`), and the build memory records a
+// migration that reached through that wall being reverted whole
+// (`20260824-i-open-asks-has-no-boundary-lega`). The 2026-08-24 ruling that minted the fourteenth
+// intent (`start-execution`) deliberately declined the pause word — "pause stays store-side until
+// the execution-lane reconcile gate converges onto the goal-state row". The owner reversed that
+// deferral on 2026-08-28: mint the intent so the bridge's mechanical verbs act through the daemon.
+//
+// ── THE CONTRACT, VERBATIM (both seats of the fix implement it; it was fixed, not negotiated) ───
+//
+//   Intent name `pause-resume`. Payload, closed: `{ verb: 'pause' | 'resume', goal: <bare name,
+//   BUS_NAME_RE at parse.js:109> }`; any other key → `VALIDATION_FAILED` (`rejectUnknownKeys`,
+//   parse.js:171). Sender: `kind: 'bridge'` only (authz.js — mirror `:482-507` `start-execution`'s
+//   predicate; the daemon's own status/CLI callers are NOT admitted: the console has
+//   `rbtv goal pause`).
+//   Result (`ok:true`): `{ verb, goal, applied: boolean, actions: [...], refusals: [{row, text,
+//   seat?}] }` — EXACTLY the return shape of today's `chat/pause-resume.js#applyPause` (`:113-124`)
+//   / `#applyResume` (`:130-206`), so the bridge's `summarize()` renders it unchanged.
+//   Errors: slug not in the live-goal roster → `NOT_FOUND` (message names the slug; the bridge
+//   turns it into the verbatim §4.5 NACK); unauthorized → `UNAUTHORIZED_SENDER`; shape →
+//   `VALIDATION_FAILED`. Default timeout (store + ledger writes; no override).
+//
+// ── WHAT MOVED, AND WHY IT MOVED RATHER THAN BEING RE-IMPLEMENTED ───────────────────────────────
+//
+// The resume-semantics table [C-14, `spec-recovery` §4] and its refusal prose MOVED here from
+// `chat/pause-resume.js:44-206` and are now the daemon's. The bridge half of this fix (8b44d806)
+// deleted its copy in the same landing and the door there is a SENDER: `forwarder.forward(
+// 'pause-resume', {verb, goal})` plus `summarize()`, which reads `actions`/`refusals` and nothing
+// else. THERE IS EXACTLY ONE COPY OF THIS TABLE and it is this one — a diagnostic name or a lane
+// refusal string re-appearing in `chat/` would put two processes in charge of one fact, which is
+// precisely how the two pause records below diverged.
+//
+// Every port the bridge could only ever have INJECTED is a real handle here:
+//   · the ending store — `bind(heartStore.db)` (`state-store/index.js:12-38`);
+//   · the goal's lane roster — `supervisor/seeding.js#readTaskforce`, the reader the lane itself
+//     spends (`lane-watch.js:568`). Never a second `taskforce.csv` parser;
+//   · the counter half — `supervisor/exhaustion.js#rearmScope({store, goal, event: 'resume'})`,
+//     built by `fix-rearm-wiring` (5aa80168) and UNWIRED in production for exactly want of this
+//     intent (that entry's ATTENTION-4: "THE RESUME HALF IS BUILT AND UNREACHABLE").
+// Both supervisor modules are LAZY-required for `lane-watch.js`'s own stated reason: a module-level
+// import here is a dependency every probe and every importer of the state store inherits, and
+// `supervisor/lane-watch.js` <-> `supervisor/reconcile.js` is a require cycle at load time.
+//
+// ⚑ THE ROSTER IS `goals.csv`, NOT A GLOB OF THE GOALS TREE. `<workspaceRoot>/.rbtv/goals/goals.csv`
+//   is the register every creation route writes; `coord/owed-answers.py:55-70 packages()` is the
+//   precedent. A directory listing would admit `_archive`, a half-deleted folder and any scratch
+//   directory somebody left behind — and the answer this list produces is a REFUSAL the owner
+//   reads, so a roster that is merely plausible is worse than none. A row whose folder is gone is
+//   dropped (the register outlives a deletion), and a `_`-prefixed name is excluded exactly as
+//   `lane-watch.js:464` excludes it from the lane pass: those are system packages, not goals the
+//   owner pauses.
+//
+// ⚑ PAUSE/RESUME NEVER RELEASES AN ASK [§4.2]. Neither verb writes `open_asks`. An owner who pauses
+//   a goal that is waiting on a question is still owed that question's answer, and the ask must
+//   still read `open` to every digest, status line and kill clock afterwards.
+//
+// ⚑ THE SECOND PAUSE WRITER IS STILL THERE, AND THE RESUME SAYS SO. This executor pauses
+//   STORE-side; the console's `rbtv goal pause` writes the legacy `execution-lane` marker
+//   (`operator/goals-tree/tool/goal_cli.py:883-947`). `supervisor/lane-watch.js#laneIsPaused` now
+//   answers PAUSED IF EITHER SURFACE SAYS SO, so a Slack `resume` cannot silently un-park a goal an
+//   operator parked at the console — and because it cannot, saying "resumed" would be a lie. A
+//   resume that meets a live console marker therefore names the marker in a refusal and reports
+//   `applied: false`: the acts it really performed are still listed, and the goal is not claimed to
+//   be running when the lane gate will still skip it. Retiring the lane-file writer is OWNER-GATED
+//   and is not done here.
+
+const fs = require('node:fs');
+const path = require('node:path');
+const { bind } = require('..');
+
+// A THIRD copy of the name shape, checked against the module that owns it — `start-execution.js`'s
+// reason verbatim: these names arrive from an internet-facing component and become PATH SEGMENTS
+// under `.rbtv/goals/`.
+const { isSafeName } = require('../../chat/bus-ferry');
+
+const VERBS = new Set(['pause', 'resume']);
+
+// The diagnostics the resume-semantics table has a row for (spec-state-store's
+// `LISTED_INCOMPLETE` keys — quoted, not imported, exactly as `chat/pause-resume.js:40-43` quotes
+// them: a closed vocabulary read from the spec, not a handle into another tree).
+const D_BLOCKED_ON_HUMAN = 'blocked-on-human';
+const D_GATE_CAP = 'gate-re-plan cap';
+const D_COUNTER_EXHAUSTION = 'attempt-counter exhaustion';
+const NAMED_EXTERNAL_INPUT = 'named-external-input';
+
+// The named re-arm event this verb IS (`spec-recovery` §5's closed list names "mechanical
+// `resume {goal}` on a disarmed-counter lane"). Lane-scoped, so `rearmScope` is handed the goal.
+const REARM_EVENT = 'resume';
+
+// Authored refusal prose, carried over from `chat/pause-resume.js:47-54` unchanged (NOT
+// spec-verbatim — §4.5's two NACKs answer an UNPARSED verb; these answer a verb that parsed and
+// named a live goal whose halt `resume` deliberately does not lift).
+function blockedOnHumanRefusal(seat, askIds) {
+  const where = askIds.length ? ` Answer it in its thread: ${askIds.join(', ')}.` : '';
+  return `resume does not lift ${seat}: it is halted waiting on an open ask, and only an authorized reply in that thread releases it.${where}`;
+}
+
+function gateCapRefusal(seat) {
+  return `resume does not lift ${seat}: it stopped at the re-plan cap. Answer the gate decision-ask — resume does not open a third re-plan.`;
+}
+
+function laneMarkerRefusal(goal) {
+  return `${goal} is still parked by the console lane marker — lift it with rbtv goal resume ${goal}`;
+}
+
+function goalsRootOf(workspaceRoot) {
+  return path.join(workspaceRoot, '.rbtv', 'goals');
+}
+
+function goalDirOf(workspaceRoot, goal) {
+  return path.join(goalsRootOf(workspaceRoot), String(goal));
+}
+
+// ── THE LIVE-GOAL ROSTER ────────────────────────────────────────────────────────────────────────
+//
+// The names the mechanical verb may target. A slug outside this list is the `NOT_FOUND` the bridge
+// renders as the verbatim §4.5 NACK, so this function decides what an owner is told does not exist.
+//
+// The first field of a `goals.csv` row is the name and a name cannot contain a comma
+// (`BUS_NAME_RE`), so splitting at the first comma is exact rather than a naive CSV read — and the
+// result is validated against the name shape rather than trusted, because a malformed register
+// must not put an arbitrary string into a path.
+function liveGoals(workspaceRoot) {
+  const goalsRoot = goalsRootOf(workspaceRoot);
+  let text;
+  try {
+    text = fs.readFileSync(path.join(goalsRoot, 'goals.csv'), 'utf8');
+  } catch {
+    return [];
+  }
+  const names = [];
+  for (const line of text.split(/\r?\n/).slice(1)) {
+    const name = line.split(',')[0].trim();
+    if (!name || name.startsWith('_')) continue;
+    if (!isSafeName(name)) continue;
+    if (names.includes(name)) continue;
+    let stat;
+    try { stat = fs.statSync(path.join(goalsRoot, name)); } catch { continue; }
+    if (!stat.isDirectory()) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+// Does the LEGACY console marker still park this goal? `readLane` flattens a paused marker into
+// `console` for seeding, so the raw first token is the only reading that answers this question —
+// the same read `lane-watch.js#laneIsPaused` performs on its file leg. ABSENT OR UNREADABLE IS NOT
+// PARKED, the fail-safe direction both surfaces already carry.
+function laneFileParks(goalDir) {
+  const { LANE_FILE } = require('../../supervisor/lane-watch');
+  let raw;
+  try { raw = fs.readFileSync(path.join(goalDir, LANE_FILE), 'utf8'); } catch { return false; }
+  return raw.trim().split(/\s+/)[0] === 'paused';
+}
+
+// The goal's lanes, from the reader the lane pass itself spends. A goal with no taskforce (a
+// half-born or console-lane goal) has no lanes to lift and resume applies the GOAL row only — the
+// failure is reported, never thrown, exactly as the bridge's `seatsOf` reported it.
+function seatsOf(goalDir, log) {
+  try {
+    const { readTaskforce } = require('../../supervisor/seeding');
+    return (readTaskforce(goalDir) || []).map((r) => String(r.seat)).filter(Boolean);
+  } catch (err) {
+    log('warn', 'could not enumerate the goal\'s lanes — resume applies the goal row only', { error: err.message });
+    return [];
+  }
+}
+
+// The counter half's one call site (`supervisor/exhaustion.js#rearmScope`). A ledger that refuses
+// must not cost the owner the rest of the table — the failure becomes a refusal the door posts,
+// never an exception that eats the verb.
+function rearmCounterRows(store, goal, countersFile, log) {
+  try {
+    const { rearmScope } = require('../../supervisor/exhaustion');
+    const out = rearmScope({ store, goal, event: REARM_EVENT }, { countersFile });
+    return { cleared: (out && Array.isArray(out.cleared)) ? out.cleared : [], error: null };
+  } catch (err) {
+    log('warn', 'the attempt-counter re-arm refused — resume\'s counter half did not happen', { error: err.message });
+    return { cleared: [], error: err.message };
+  }
+}
+
+// `pause {goal}` is the inverse of the paused-goal row ONLY (spec-recovery §4): flip
+// `running` → `paused`. It does not disarm a lane and it does not open an ask.
+function applyPause(store, goal, evidencePointer) {
+  const before = store.getGoalState(goal);
+  if (before && before.stored === 'paused') {
+    return { applied: true, actions: [{ row: 'goal', change: 'already-paused', goal }], refusals: [] };
+  }
+  if (before && before.stored === 'finished') {
+    return { applied: false, reason: 'finished', actions: [], refusals: [{ row: 'goal', text: `${goal} is finished — there is nothing to pause.` }] };
+  }
+  store.writeGoalWord({ goal, stored: 'paused', who_stamped: 'owner', evidence_pointer: evidencePointer('pause', goal) });
+  return { applied: true, actions: [{ row: 'goal', change: 'running→paused', goal }], refusals: [] };
+}
+
+// `resume {goal}` — the resume-semantics table [C-14], EVERY MATCHING ROW. A goal may carry more
+// than one halted kind at once, and each row is independent: the goal flipping to `running` does
+// not re-arm a counter-exhausted lane, and a lane refusing to be lifted does not stop the goal word
+// from flipping.
+function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log }) {
+  const actions = [];
+  const refusals = [];
+
+  // ROW 1, THE COUNTER HALF. It runs FIRST because it is the half the reconcile loop reads: a lane
+  // whose counter still stands at N is skipped on every pass no matter what the ending row says.
+  const counter = rearmCounterRows(store, goal, countersFile, log);
+  for (const row of counter.cleared) {
+    actions.push({
+      row: 'counter',
+      seat: row.seat || row.subject,
+      driver: row.driver,
+      reason_class: row.reason_class,
+      attempts: row.attempts,
+      change: 'counter reset',
+    });
+  }
+  if (counter.error) refusals.push({ row: 'counter', text: `${goal}: the attempt counters were NOT re-armed — ${counter.error}` });
+
+  // ROW 4 — paused goal: flip `paused` → `running`. Armed eligible lanes may then launch; a
+  // disarmed one stays disarmed until its own row (or another named re-arm) consumes the flag.
+  const goalState = store.getGoalState(goal);
+  if (goalState && goalState.stored === 'paused') {
+    store.writeGoalWord({ goal, stored: 'running', who_stamped: 'owner', evidence_pointer: evidencePointer('resume', goal) });
+    actions.push({ row: 'goal', change: 'paused→running', goal });
+  } else if (goalState && goalState.stored === 'finished') {
+    refusals.push({ row: 'goal', text: `${goal} is finished — resume does not reopen a finished goal.` });
+  }
+
+  for (const seat of seatsOf(goalDir, (level, message, fields) => log(level, message, { seat, ...fields }))) {
+    let current = null;
+    try { current = store.getCurrentEnding({ goal, seat }); } catch { current = null; }
+    if (!current || current.ending !== 'incomplete' || Number(current.armed) !== 0) continue;
+    const diagnostic = String(current.diagnostic || '');
+
+    // ROW 2 — `incomplete: blocked-on-human`: NACK pointing at the open ask thread. Resume is NOT
+    // a substitute for an authorized reply and does not reap the ask.
+    if (diagnostic === D_BLOCKED_ON_HUMAN) {
+      let askIds = [];
+      try { askIds = (store.listOpenAsks({ goal, seat }) || []).map((a) => String(a.ask_id)); } catch { askIds = []; }
+      refusals.push({ row: 'blocked-on-human', seat, text: blockedOnHumanRefusal(seat, askIds), asks: askIds });
+      continue;
+    }
+
+    // ROW 3 — gate-cap stop (two failed D13s): NACK pointing at the gate decision-ask. Resume does
+    // not open a third re-plan and does not flip the cap.
+    if (diagnostic === D_GATE_CAP) {
+      refusals.push({ row: 'gate-cap', seat, text: gateCapRefusal(seat) });
+      continue;
+    }
+
+    // ROW 1 — disarmed `incomplete:` from attempt-counter exhaustion: re-arm that driver via the
+    // NAMED RE-ARM EVENT the store already models. `fireNamedEvent` is the one writer of that flag
+    // — the counter is CONSUMED here, and the relaunch budget (`recovery_relaunch_count`) is
+    // deliberately left where it stands.
+    if (diagnostic === D_COUNTER_EXHAUSTION || current.named_event === NAMED_EXTERNAL_INPUT) {
+      try {
+        store.fireNamedEvent({ goal, seat, named_event: NAMED_EXTERNAL_INPUT });
+        actions.push({ row: 'counter-exhaustion', seat, change: 'disarmed→armed', named_event: NAMED_EXTERNAL_INPUT });
+      } catch (err) {
+        refusals.push({ row: 'counter-exhaustion', seat, text: `could not re-arm ${seat}: ${err.message}` });
+      }
+      continue;
+    }
+    // Any other disarmed diagnostic has NO row in the table — it is left exactly as it is, and said
+    // so, rather than lifted by a rule nobody wrote.
+    refusals.push({ row: 'no-row', seat, text: `resume has no rule for ${seat} (${diagnostic || 'disarmed'}) — left untouched.` });
+  }
+
+  // THE SECOND PAUSE WRITER. `laneIsPaused` is now an OR over both surfaces, so a live console
+  // marker means the lane gate will keep skipping this goal whatever the row says. The acts above
+  // really happened and stay listed; `applied` is false because the goal is NOT running.
+  if (laneFileParks(goalDir)) {
+    refusals.push({ row: 'lane-file', text: laneMarkerRefusal(goal) });
+    return { applied: false, reason: 'lane-file-paused', actions, refusals };
+  }
+  return { applied: true, actions, refusals };
+}
+
+// ── THE ACT ─────────────────────────────────────────────────────────────────────────────────────
+//
+// `found:false` is the ONLY non-shape refusal and it is deliberately the roster's, not the
+// filesystem's: the handler turns it into `NOT_FOUND` and the bridge turns THAT into the verbatim
+// §4.5 mechanical NACK. `countersFile` is injectable ONLY for the probe, for the reason every
+// injected port in this tree carries — a probe must be able to prove the table without writing the
+// live attempt-counter ledger — never so production can point the ledger somewhere else.
+function pauseResume(heartStore, {
+  workspaceRoot, verb, goal, countersFile = undefined, logger = null,
+}) {
+  const log = (level, message, fields = {}) => { if (logger) logger({ level, message, verb, goal, ...fields }); };
+  if (!VERBS.has(String(verb))) return { found: false, reason: 'bad-verb', detail: `unknown mechanical verb ${verb}` };
+  if (!isSafeName(goal)) return { found: false, reason: 'bad-name', detail: 'goal is not a bare safe name' };
+  if (!liveGoals(workspaceRoot).includes(String(goal))) {
+    return { found: false, reason: 'no-such-goal', detail: `${goal} is not a live goal` };
+  }
+  const goalDir = goalDirOf(workspaceRoot, goal);
+  const store = bind(heartStore.db);
+  const evidencePointer = (v, g) => `owner ${v} in chat · goal ${g}`;
+  const out = verb === 'pause'
+    ? applyPause(store, goal, evidencePointer)
+    : applyResume(store, {
+      goal, goalDir, evidencePointer, countersFile, log,
+    });
+  return { found: true, verb, goal, ...out };
+}
+
+module.exports = {
+  pauseResume,
+  liveGoals,
+  VERBS,
+  REARM_EVENT,
+  D_BLOCKED_ON_HUMAN,
+  D_GATE_CAP,
+  D_COUNTER_EXHAUSTION,
+  NAMED_EXTERNAL_INPUT,
+  blockedOnHumanRefusal,
+  gateCapRefusal,
+  laneMarkerRefusal,
+};

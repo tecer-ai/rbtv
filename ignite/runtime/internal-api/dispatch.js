@@ -40,6 +40,9 @@ const { recordOwnerAsk, listOpenAsks } = require('../../state-store/heart/ask-re
 // The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
 // its two siblings above: a stateless call, not a manager holding processes.
 const { startExecution } = require('../../state-store/heart/start-execution');
+// The `pause-resume` act (owner direction 2026-08-28). Required for the same reason as its three
+// siblings above: a stateless call, not a manager holding processes.
+const { pauseResume } = require('../../state-store/heart/pause-resume');
 const { applySecretAdd } = require('./secret-add');
 const path = require('path');
 
@@ -120,13 +123,25 @@ const ENVELOPE_VERSION = 1;
 // and degraded loudly into the thread [C-16]. Same division as the twelfth and thirteenth: the
 // bridge validates nothing it cannot see, this handler validates and authorizes, and
 // `state-store/heart/start-execution.js` performs the act. The ENVELOPE VERSION IS UNCHANGED and no
-// existing intent's payload semantics move. The ruling minted this verb ONLY — the pause-word
-// intent is NOT here, because pause stays store-side until the execution-lane reconcile gate
-// converges onto the goal-state row.
+// existing intent's payload semantics move. That ruling minted that verb ONLY — the pause-word
+// intent was NOT here, because pause was to stay store-side until the execution-lane reconcile gate
+// converged onto the goal-state row.
+//
+// `pause-resume` is the FIFTEENTH intent, added ADDITIVELY by the owner's 2026-08-28 direction
+// (`role-action-program/decisions.md`, ~02:00Z and item (2) at 02:12Z), which REVERSES that
+// deferral. It exists because the owner's mechanical `pause {goal}` / `resume {goal}` door lives in
+// the BRIDGE (`chat/pause-resume.js`) and every applier it needs — the ending store, the goal's
+// lane roster, the attempt-counter ledger — is daemon state the bridge may not hold
+// (`chat/probes/probe-chat-boundary.js`), so `chat/index.js:119` built it with no ports and the
+// verb applied nothing and answered nothing (wave tests 8/9/10). Same division as the twelfth,
+// thirteenth and fourteenth: the bridge validates nothing it cannot see, this handler validates and
+// authorizes, and `state-store/heart/pause-resume.js` performs the act. The ENVELOPE VERSION IS
+// UNCHANGED and no existing intent's payload semantics move.
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
+  'pause-resume',
 ]);
 
 // The goal/seat name shape, re-checked at the core independently of the gateway's copy
@@ -1590,6 +1605,67 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     };
   }
 
+  // ── THE FIFTEENTH INTENT (owner direction 2026-08-28) ────────────────────────────────────────
+  //
+  // The daemon half of the owner's mechanical `pause {goal}` / `resume {goal}`. Same ladder every
+  // sibling handler uses: strict schema, then shape, then authorization, then the act.
+  //
+  // ⚑ THE VERB AND THE GOAL ARE RE-CHECKED HERE. They arrived from an internet-facing component and
+  // the goal becomes a PATH SEGMENT under `.rbtv/goals/`, so the front door's copy is not the only
+  // thing between a traversal and a directory read. `state-store/heart/pause-resume.js` checks the
+  // name a THIRD time against the module that owns the constant (`bus-ferry#isSafeName`), and then
+  // asks the REGISTER and the STORE the question the gateway holds no handle for: is this a live
+  // goal at all.
+  // ⚑ AUTHORIZATION IS BRIDGE-ONLY and is asked in the ONE policy module, never as an `if` here.
+  // ⚑ A SLUG OUTSIDE THE LIVE-GOAL ROSTER IS `NOT_FOUND`, NOT AN EMPTY SUCCESS. The bridge turns
+  //   that typed error into §4.5's verbatim mechanical NACK, which is the whole answer the owner
+  //   gets for a mistyped slug — an `ok:true` carrying no actions would read to the owner as "your
+  //   goal was paused" and is the one lie this surface cannot tell.
+  // ⚑ AN APPLIED-BUT-REFUSED RESUME IS `ok:true` WITH `applied:false`, never an error: the acts in
+  //   `actions` really happened (a counter was reset, an ending re-armed) and the caller must post
+  //   them alongside the refusal. A typed error would lose the record of writes already made.
+  function handlePauseResume(payload, sender) {
+    for (const key of Object.keys(payload)) {
+      if (!['verb', 'goal'].includes(key)) {
+        throw new InternalApiError(VALIDATION_FAILED, `unknown payload field for pause-resume: ${key}`, { check: 'strict-schema', field: key });
+      }
+    }
+    if (payload.verb !== 'pause' && payload.verb !== 'resume') {
+      throw new InternalApiError(VALIDATION_FAILED, 'pause-resume verb must be one of: pause, resume', { check: 'verb-shape', field: 'verb' });
+    }
+    if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
+      throw new InternalApiError(VALIDATION_FAILED, 'pause-resume goal must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'goal' });
+    }
+
+    const decision = authz.canPauseResume({ sender });
+    if (!decision.allowed) {
+      throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
+    }
+    if (!workspaceRoot) {
+      throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
+    }
+
+    const out = pauseResume(heartStore, {
+      workspaceRoot,
+      verb: payload.verb,
+      goal: payload.goal,
+      logger: log ? (row) => log(row.level, row.message, row) : null,
+    });
+    if (!out.found) {
+      throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
+    }
+    log('info', `the owner's mechanical ${payload.verb} was applied daemon-side`, {
+      goal: payload.goal, verb: payload.verb, applied: out.applied,
+      actions: out.actions.map((a) => a.row), refusals: out.refusals.map((r) => r.row),
+      senderId: sender && sender.id,
+    });
+    return {
+      verb: out.verb, goal: out.goal, applied: out.applied === true,
+      ...(out.reason ? { reason: out.reason } : {}),
+      actions: out.actions, refusals: out.refusals,
+    };
+  }
+
   function handleSecretAdd(payload, sender) {
     for (const key of Object.keys(payload)) {
       if (!['name', 'from_file'].includes(key)) {
@@ -1782,6 +1858,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
         case 'record-bus-answer': result = await handleRecordBusAnswer(env.payload, env.sender); break;
         case 'record-owner-ask': result = handleRecordOwnerAsk(env.payload, env.sender); break;
         case 'start-execution': result = handleStartExecution(env.payload, env.sender); break;
+        case 'pause-resume': result = handlePauseResume(env.payload, env.sender); break;
         case 'secret-add': result = handleSecretAdd(env.payload, env.sender); break;
       }
 

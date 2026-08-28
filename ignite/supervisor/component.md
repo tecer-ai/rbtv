@@ -303,6 +303,33 @@ ACCEPTED RISK, ruled [CF-1, T4 Reversals, T3-R13]: a seat that keeps emitting
 listed signals is unkillable by the 30-minute clock, and planning waves that
 emit product files stay "busy" indefinitely.
 
+## Is this goal paused - two writers, and EITHER one holds
+
+`lane-watch.js#laneIsPaused(goalFolder, heartStore)` is the ONE reader both pause
+gates spend (`reconcile.js`'s gate and the lane pass itself); `goal_cli.py#lane_is_paused`
+is its DEC-1 Python twin and the two change together. There are two WRITERS of
+"this goal is paused" and they are different surfaces:
+
+| writer | surface | who reaches it |
+|---|---|---|
+| `state-store#writeGoalWord` | the `goal_states` row | the owner's Slack `pause {goal}`, through the fifteenth gateway intent |
+| `rbtv goal pause` (`operator/goals-tree/tool/goal_cli.py`) | the first token of `execution-lane` | the owner or an operator at the console |
+
+**The gate is an OR: paused if EITHER says so.** a0d7e42c had converged it onto the
+ROW (the row's existence decided, the marker a shim), which was right for its own
+defect - a stale marker beating a row that had actually been updated - and wrong the
+moment the Slack verb became reachable: NO goal on the instance carried a row, so the
+first Slack verb would mint one that then overrode the console marker for good, and a
+Slack `resume` would silently un-park every operator-parked goal (each leader waking
+is a real, paid sitting). The frozen-goal case a0d7e42c was closing is answered where
+it is now VISIBLE instead: `state-store/heart/pause-resume.js` REFUSES a resume that
+meets a live console marker, names the marker, names `rbtv goal resume` as the lift,
+and reports `applied: false`. Absent or unreadable is NOT paused, on both surfaces.
+
+Retiring the lane-file writer collapses this back to one record and is OWNER-GATED.
+Arm: `lane-skip.selftest.js` (all four combinations) and `reconcile.selftest.js`
+(the PASS honouring it).
+
 ## The kill clock and its three pauses
 
 `kill-clock.js`. The clock reads `last_progress_at` and nothing else - not
@@ -460,7 +487,7 @@ lanes). The producers now wired:
 | event | producer | fires when |
 |---|---|---|
 | `code-deploy` | `runtime/code-deploy-rearm.js`, at boot | this boot's `ignite/` code digest differs from the one the last boot recorded on the marker (first boot with no record fires too) |
-| `resume` | `chat/pause-resume.js#applyResume`, through its injected `rearmCounters` port | the owner types `resume {goal}` - the port is UNWIRED in production for the process-boundary reason the store is |
+| `resume` | `state-store/heart/pause-resume.js`, the fifteenth gateway intent's executor | the owner types `resume {goal}` in Slack. WIRED in production since the owner direction of 2026-08-28: the bridge's door now SENDS the `pause-resume` intent and the daemon holds the ledger, so the port that was unwired for the process-boundary reason is gone rather than injected |
 | `config-change` | none | there is no config-reload path to hook: `loadRecoveryConfig` is re-read at each use, with no watcher, no SIGHUP and no cache to invalidate, so there is no moment that IS the change |
 | `owner-leader-act` | none | out of this seat's scope |
 

@@ -88,13 +88,22 @@ const { GatewayError, SHAPE_INVALID, UNKNOWN_INTENT } = require('./errors');
 // approval thread's `approve` reaching the Path-B execution-goal birth. It cites its ruling the
 // way the thirteenth (`record-owner-ask`) and the twelfth (`record-bus-answer`) cite theirs,
 // because a new intent widens the daemon's authenticated surface and is therefore an owner act.
-// The ruling minted THIS VERB AND NO OTHER: the pause-word intent it would have paired with is
-// deliberately NOT minted — pause stays store-side until the execution-lane reconcile gate
-// converges onto the goal-state row — so nothing here has a second act to fork on.
+// That ruling minted THAT VERB AND NO OTHER: the pause-word intent it would have paired with was
+// deliberately NOT minted — pause was to stay store-side until the execution-lane reconcile gate
+// converged onto the goal-state row.
+// ⚑ `pause-resume` ADDED by owner direction 2026-08-28 (~02:00Z, item (2) at 02:12Z,
+// `role-action-program/decisions.md`), which REVERSES that deferral: the FIFTEENTH intent — the
+// owner's mechanical `pause {goal}` / `resume {goal}` reaching the ending store, the goal's lane
+// endings and the attempt-counter ledger. It cites its direction the way the fourteenth cites its
+// ruling, for the same reason: a new intent widens the daemon's authenticated surface and is
+// therefore an owner act. The convergence the 2026-08-24 deferral was waiting for did NOT arrive —
+// what arrived was the evidence that waiting cost the owner the verb entirely (`chat/index.js:119`
+// builds the bridge with no ports at all, so the door applied nothing and answered nothing).
 const INTENTS = new Set([
   'enqueue-job', 'remove-job', 'inspect', 'spawn-via-named-profile', 'snooze',
   'kill-session', 'register-job', 'deregister-job', 'live-feed', 'send-message',
   'record-bus-answer', 'secret-add', 'record-owner-ask', 'start-execution',
+  'pause-resume',
 ]);
 
 // A goal id and a seat name, SHAPE ONLY. A deliberate SECOND copy of `bus-ferry.js#SAFE_NAME_RE`,
@@ -802,6 +811,48 @@ function parseStartExecution(payload) {
   return { goal: payload.goal, thread: payload.thread, commit: payload.commit };
 }
 
+// `pause-resume` (owner direction 2026-08-28, `role-action-program/decisions.md`) — SHAPE ONLY,
+// like every parse here.
+//
+// ⚑ WHY A FIFTEENTH INTENT AND NOT A PORT. The mechanical door is `chat/pause-resume.js` and it
+// runs in the BRIDGE process, which `chat/probes/probe-chat-boundary.js` walls off from a store
+// handle, a child process and a sibling require. Its three appliers — the ending store, the goal's
+// lane roster, the attempt-counter ledger — are all daemon state, so every one of them could only
+// ever arrive as an injected port, and `chat/index.js#main()` injects none: the owner's `pause`
+// parsed, targeted, and changed nothing. That is the same wall the twelfth, thirteenth and
+// fourteenth intents were each minted to cross.
+//
+// ⚑ ONE INTENT WITH A VERB FIELD, NOT TWO INTENTS. `pause` and `resume` are ONE door in the spec
+// (`spec-owner-io` §4.2/§4.4/§4.5 — one grammar, one target resolution, one NACK), one authorization
+// question and one result shape; splitting them here would put a fork at the door that exists
+// nowhere else and would have to be kept in lockstep across all three copies of the intent set
+// twice over. The verb is a CLOSED two-member enum and therefore SHAPE, refused at this door the
+// way `SESSION_MODES` and `TRIGGER_KINDS` are.
+//
+// ⚑ WHAT THE GATEWAY CANNOT CHECK AND MUST NOT GROW A HANDLE TO TRY: whether the slug names a LIVE
+// goal. That is the `goals.csv` register plus a folder test — a disk question, and therefore the
+// CORE's (DEC-3/DEC-4). It comes back as `NOT_FOUND` naming the slug, which the bridge renders as
+// §4.5's verbatim mechanical NACK. See `state-store/heart/pause-resume.js`.
+//
+// ⚑ THERE IS NO `comments` FIELD, deliberately, and this one is not the fourteenth's reason. [C-14]
+// makes an approval-thread `resume {goal}` WITH comments "resume-with-instructions", and those
+// instructions are the BRIDGE's to carry to the goal's master — the daemon's mechanical act is
+// fully determined by the verb and the goal. An unknown key is a REFUSAL rather than a silently
+// ignored one, per the thirteenth's per-act rule applied to this intent's single act.
+const MECHANICAL_VERBS = new Set(['pause', 'resume']);
+
+function parsePauseResume(payload) {
+  requireObject(payload);
+  rejectUnknownKeys(payload, new Set(['verb', 'goal']), 'pause-resume');
+  if (typeof payload.verb !== 'string' || !MECHANICAL_VERBS.has(payload.verb)) {
+    bad(`pause-resume verb must be one of: ${[...MECHANICAL_VERBS].join(', ')}`, 'verb');
+  }
+  if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
+    bad('pause-resume goal must be a bare name — letters, digits, \'.\', \'_\' or \'-\', starting alphanumeric (no path separators, no "..", no control characters)', 'goal');
+  }
+  return { verb: payload.verb, goal: payload.goal };
+}
+
 const SECRET_ADD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function parseSecretAdd(payload) {
@@ -837,6 +888,7 @@ function parseRequest({ intent, payload }) {
     case 'record-owner-ask': return parseRecordOwnerAsk(payload);
     case 'secret-add': return parseSecretAdd(payload);
     case 'start-execution': return parseStartExecution(payload);
+    case 'pause-resume': return parsePauseResume(payload);
   }
 }
 

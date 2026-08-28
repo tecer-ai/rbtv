@@ -22,7 +22,7 @@ says (`observation/`), or what a cage admits (`envelope/`).
 | tick driver | `ticker/` | The tick algorithm and its per-cadence passes |
 | frozen pass driver | `frozen-pass.js` | Calls `observation/frozen.js` once a cadence with the facts `supervisor/lane-watch.js` already computed. Driver only - the frozen DECISION is observation's |
 | gateway | `gateway/` | The typed-message seam: sender auth, parse, dispatch boundary. Reaches nothing in the core by construction (`gateway/probes/probe-gateway-boundary.js`) |
-| internal API | `internal-api/` | The daemon-local dispatch surface the CLI and bridges talk to |
+| internal API | `internal-api/` | The daemon-local dispatch surface the CLI and bridges talk to. FIFTEEN intents as of the owner direction of 2026-08-28 (`pause-resume`, the mechanical `pause {goal}` / `resume {goal}`, bridge-only like the twelfth/thirteenth/fourteenth). The closed set exists in THREE copies by design (DEC-4: no gateway↔core import) — `gateway/parse.js` INTENTS, `internal-api/dispatch.js` INTENTS, and the `switch` cases — and every new intent extends all three together; `internal-api/probes/probe-intent-drift.js` is the lockstep guard |
 | lease | `lease/` | The one-live-run lease the daemon derives and consumers read |
 | seat identity | `seat-identity/` | `rbtv-seat-identity` and the peer/seat-folder resolution behind it |
 | cockpit / retention / settings / fingerprint | `cockpit.js`, `retention.js`, `settings.js`, `code-fingerprint.js` | Host-level boot and housekeeping passes |

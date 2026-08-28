@@ -25,6 +25,23 @@ Read: `getCurrentEnding` · `getGoalState` · `getAsk` · `seatWaitingOnOwner` �
 Kit/engine door: `cli.js` (`--db` `--op` `--payload`). One-shot cutover copy:
 `copy-home.js` (do not run against a live daemon).
 
+### Daemon-side acts — the executors the gateway's owner-facing intents call
+
+Two modules under `heart/` are not store API but ACTS: a gateway intent's handler
+validates and authorizes, then calls one of these to perform the thing. They live here
+because the act is a store write plus the disk reads only the daemon can make, and the
+bridge that witnesses the owner's words holds neither.
+
+| Module | Intent | What it does |
+|---|---|---|
+| `heart/start-execution.js` | `start-execution` (14th, owner ruling 2026-08-24) | Proves the approval on the daemon's OWN `open_asks` row, then delegates the Path-B birth to `planning/path_b.py` |
+| `heart/pause-resume.js` | `pause-resume` (15th, owner direction 2026-08-28) | The owner's mechanical `pause {goal}` / `resume {goal}`: the goal word, the resume-semantics table over the goal's lane endings [C-14], and the attempt-counter half via `supervisor/exhaustion.js#rearmScope`. Its live-goal roster (`.rbtv/goals/goals.csv`, folder must exist, `_`-prefixed excluded) is what makes a mistyped slug a `NOT_FOUND` the bridge renders as §4.5's verbatim NACK. Probe: `runtime/internal-api/probes/probe-pause-resume.js` |
+
+⚠ `pause-resume` writes the goal word; the console's `rbtv goal pause` writes the
+`execution-lane` marker. Both are live writers of one fact — `supervisor/lane-watch.js#laneIsPaused`
+is PAUSED IF EITHER SAYS SO, and a resume meeting a live console marker is refused loudly rather
+than silently overridden. Retiring the second writer is OWNER-GATED.
+
 ## What moved in with the component-first migration
 
 `spec-component-map` §2 landed `state-store/heart/` here, with history, as `heart/` -

@@ -12,8 +12,10 @@
 //
 // The owner ruled option (b) on 2026-08-24: mint ONLY `start-execution`, whose daemon-side executor
 // calls the Path-B birth, same pattern as the thirteenth (`record-owner-ask`). This module is that
-// executor. The pause-word intent was deliberately NOT minted — pause stays store-side until the
-// execution-lane reconcile gate converges onto the goal-state row — so nothing here touches a lane.
+// executor. The pause-word intent was deliberately NOT minted THEN — pause was to stay store-side
+// until the execution-lane reconcile gate converged onto the goal-state row — and the owner
+// REVERSED that deferral on 2026-08-28: it is now the FIFTEENTH intent, `pause-resume`, whose
+// executor is `pause-resume.js` beside this file. Nothing here touches a lane either way.
 //
 // ⚑ THE BRIDGE PROVES NOTHING AND IS TRUSTED FOR NOTHING. A `kind=approval` thread is a fact of
 // the BRIDGE's `askThreads` map, which lives in the calling process and is therefore not evidence.

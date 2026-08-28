@@ -163,3 +163,55 @@ test('RED: the engine facade FORWARDS laneSkips — a destructuring facade drops
   assert.match(facade, /laneSkips = null,/, 'the facade must NAME laneSkips in its destructuring');
   assert.match(facade, /laneSkips,/, 'and pass it on to seedGoal');
 });
+
+// ── TWO PAUSE WRITERS, AND EITHER ONE HOLDS (owner direction 2026-08-28) ────────────────────────
+//
+// `laneIsPaused` is the ONE reader both pause gates spend — `reconcile.js:812` and the lane pass at
+// `lane-watch.js:464`. a0d7e42c had made the goal-state ROW decide on its existence, with the
+// `execution-lane` marker a shim for goals the store had never recorded. The fifteenth intent
+// (`pause-resume`) made that reachable and wrong: no goal on the instance had a row, so the FIRST
+// Slack verb would mint one that then overrode the console's `rbtv goal pause` marker for good — a
+// Slack `resume` silently un-parking every operator-parked goal.
+//
+// The gate is now an OR. All FOUR combinations are asserted, because a gate that answers `true`
+// whatever it reads satisfies the two paused legs on its own and cannot be told from a working one.
+test('laneIsPaused: paused if EITHER the store row OR the console lane marker says so', () => {
+  const { laneIsPaused } = require('./lane-watch');
+  const { bindEnding, goalNameOf } = require('./ending-reads');
+
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'pause-or-'));
+  const store = openHeartStore({ dbPath: path.join(fs.mkdtempSync(path.join(tmpRoot, 'db-')), 'heart.db') });
+  try {
+    // ⚠ THE GATE KEYS THE ROW ON THE FOLDER BASENAME, not on any goal argument, and it binds
+    // through `bindEnding` — so the row is written the way the gate will actually look it up. A
+    // hand-picked handle can be a DIFFERENT database and the arm would measure a store nobody reads.
+    const api = bindEnding(store, goalFolder);
+    const goal = goalNameOf(goalFolder);
+    const setLane = (text) => fs.writeFileSync(path.join(goalFolder, 'execution-lane'), text);
+    const setRow = (stored) => api.writeGoalWord({
+      goal, stored, who_stamped: 'owner', evidence_pointer: 'selftest:pause-or',
+    });
+
+    setLane('daemon\n');
+    assert.strictEqual(laneIsPaused(goalFolder, store), false,
+      'no row at all and an unpaused marker must read NOT paused — the fail-safe direction on both surfaces');
+
+    setRow('running');
+    assert.strictEqual(laneIsPaused(goalFolder, store), false,
+      'both surfaces say running and the gate paused anyway — it is not reading, it is answering');
+
+    // THE LEG THIS CHANGE EXISTS FOR: the console parked the goal, a Slack `resume` wrote the row.
+    // Before the OR, the row returned first and the operator's park evaporated.
+    setLane('paused daemon\n');
+    assert.strictEqual(laneIsPaused(goalFolder, store), true,
+      'a `running` store row beat the console lane marker — a Slack resume just un-parked an operator-parked goal');
+
+    setLane('daemon\n');
+    setRow('paused');
+    assert.strictEqual(laneIsPaused(goalFolder, store), true,
+      'the store row said paused and the gate ran anyway — the mechanical Slack pause applies nothing');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+});

@@ -507,6 +507,43 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
+  // BRIDGE ONLY — the fourth member of the joint-narrowest group, with `canRecordBusAnswer`,
+  // `canRecordOwnerAsk` and `canStartExecution`.
+  //
+  // The act is the owner's mechanical `pause {goal}` / `resume {goal}` [spec-owner-io §4.2, C-14]:
+  // it flips the goal word, re-arms disarmed lanes and clears attempt counters. A forged `resume`
+  // un-parks a goal an operator deliberately parked and wakes its leaders — real, paid sittings
+  // against a tree nobody re-read. So the token that can ask for it is the Slack bridge and nothing
+  // else: the only component that can witness the owner typing the verb.
+  //
+  // ⚑ `kind: agent` IS REFUSED: a seat that could resume its own goal would lift the very halt the
+  // supervisor placed on it — the attempt counter, the gate cap and the operator's park are all
+  // holds ON agents, and a hold an agent can release is not a hold.
+  // ⚑ `kind: owner` IS REFUSED TOO, and here the reason is CONCRETE rather than "no caller today":
+  // the owner's own console route is `rbtv goal pause`, which writes the legacy `execution-lane`
+  // marker. Admitting an owner token here would put a SECOND owner-facing writer of one fact on the
+  // authorization surface, and the two writers already disagree enough that `laneIsPaused` has to
+  // read both. Widen it the day the lane-file writer is retired.
+  // ⚑ NOT ASKED THROUGH `principalsOf`, verbatim as its three siblings: the resolver chain feeds
+  // canRemoveQueueRow / canKillSession too, so teaching it a bridge principal would silently widen
+  // decisions this direction never touched. This function tests `sender.kind` directly and mints no
+  // PRINCIPALS entry, so nothing else can ever inherit the grant.
+  function canPauseResume({ sender }) {
+    const allowed = !!sender && sender.kind === 'bridge';
+    const seenAs = !sender ? 'no attested sender at all'
+      : (typeof sender.kind === 'string' && sender.kind
+        ? `a ${sender.kind} token`
+        : 'a sender carrying no attested kind');
+    return {
+      allowed,
+      principals: allowed ? ['bridge'] : [],
+      // S-3's rule, applied: state the predicate ACTUALLY ENFORCED and the kind SEEN.
+      reason: allowed
+        ? 'authorized as: the chat bridge'
+        : `pause-resume requires the chat BRIDGE token; you are ${seenAs}`,
+    };
+  }
+
   function canSecretAdd({ sender }) {
     const SECRET_ADD_MASTERS = ['goal-master', 'channel-master', 'console-master'];
     const bareSeat = (sender && typeof sender.seat === 'string' && sender.seat.length > 0)
@@ -531,7 +568,7 @@ function createAuthzPolicy({ resolvers = [tokenKindResolver, seatPrincipalResolv
     };
   }
 
-  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canStartExecution, canSecretAdd, principalsOf, PRINCIPALS };
+  return { canRemoveQueueRow, canSnoozeWarning, canKillSession, canRegisterJob, canDeregisterJob, canRecordBusAnswer, canRecordOwnerAsk, canStartExecution, canPauseResume, canSecretAdd, principalsOf, PRINCIPALS };
 }
 
 module.exports = { createAuthzPolicy, tokenKindResolver, PRINCIPALS };
