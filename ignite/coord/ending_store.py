@@ -116,3 +116,35 @@ def stamp_system(pkg, seat, ending, *, reason_class=None, diagnostic="",
         payload["armed"] = armed
     return ending_store_op("stampSystem", payload, start=pkg)
 
+
+
+# ---- the leader's HOLD (spec-recovery: a ruling ON a row, not a counter) ----
+#
+# The same door as everything above: the ops live in `state-store`, and this side spells no SQL and
+# opens no database. A second Python writer of `heart.db` would be the dual-writer split
+# `ending_store_db`'s walk-up exists to prevent.
+def hold_seat(pkg, seat, until, *, anchor, held_by, ask_id=None):
+    payload = {
+        "goal": goal_id_of(pkg),
+        "seat": seat,
+        "until": until,
+        "anchor": str(anchor),
+        "held_by": str(held_by),
+    }
+    if ask_id:
+        payload["ask_id"] = str(ask_id)
+    return ending_store_op("holdSeat", payload, start=pkg)
+
+
+def release_seat(pkg, seat):
+    return ending_store_op("releaseSeat", {"goal": goal_id_of(pkg), "seat": seat}, start=pkg)
+
+
+def get_seat_hold(pkg, seat):
+    """The RAW row, live or spent — what `release` is releasing."""
+    return ending_store_op("getSeatHold", {"goal": goal_id_of(pkg), "seat": seat}, start=pkg)
+
+
+def seat_held(pkg, seat):
+    """The row if the hold is still LIVE, else None — the one predicate the reconcile pass reads."""
+    return ending_store_op("seatHeld", {"goal": goal_id_of(pkg), "seat": seat}, start=pkg)

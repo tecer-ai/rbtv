@@ -74,3 +74,49 @@ CREATE TABLE IF NOT EXISTS open_asks (
 );
 CREATE INDEX IF NOT EXISTS idx_open_asks_goal_state ON open_asks(goal, state);
 CREATE INDEX IF NOT EXISTS idx_open_asks_seat ON open_asks(goal, seat);
+
+-- ── THE LEADER'S HOLD — a ruling ON a row, and deliberately NOT a column on it ─────────────────
+--
+-- WHAT IT IS. `supervise hold <seat> --until <change> --anchor <ref>` records that the leader has
+-- RULED on a non-terminal row and that the row must not re-drive the lane until a NAMED change
+-- happens. Before it, the leader's only two acts were `accept` and `instruct`; a deliberate
+-- "hold, this is waiting on the owner" verdict existed only as a message, invisible to
+-- `supervisor/owed-from-endings.js`, and so was indistinguishable from a sitting that did nothing
+-- (nine identical HOLD verdicts on `goal-memory-management`, 2026-08-28, each one a paid sitting).
+--
+-- WHY A SIBLING TABLE AND NOT A COLUMN ON `seat_endings`. Three reasons, each fatal on its own.
+-- (1) A `failed` row's CHECK clauses above pin it to `who_stamped = 'system'`, a `reason_class`
+-- from the closed seven and `armed IS NULL` — a leader's ruling fits none of those slots.
+-- (2) Every re-stamp of an ending ARCHIVES the current row into `seat_endings_log`, so a hold
+-- carried on the ending would be superseded away by the very re-stamp it is waiting for.
+-- (3) The hold's own lifetime is not the ending's: it survives a code-deploy re-arm (a hold is a
+-- ruling, not a counter) and is released by a change the ending row cannot express.
+-- It IS in this file, and therefore in the ONE workspace-scoped ending store
+-- (`<workspace>/.rbtv/runtime/ignite/heart.db`, `state-store/open.js`), because the reader that
+-- must honour it is the reconcile pass's ending read and a second store is the defect
+-- `ending-reads.js`'s header exists to end.
+--
+-- ⚠ THIS IS NOT THE DELETED `hold-anchor`. That was a thirteenth COLUMN ON `sessions.csv`, part of
+-- the grant-store authority model deleted whole [T2-R12, T1-R9]; `HELD` and `hold-anchor` are
+-- refused words at this store's own door and neither is written here. The word that was killed was
+-- a SECOND work-state writer beside the ending store. This is a row IN the ending store.
+--
+-- `until` is a CLOSED vocabulary (`vocabulary.js#HOLD_UNTIL`): `new-ending` (the held row is
+-- re-stamped after the hold — witnessed by `ending_stamped_at` below), `ask-answered` (the named
+-- `open_asks` row leaves `open`, the same mechanism §2.1 already watches), `release` (an explicit
+-- `supervise release`). A fourth would be a release condition nobody ruled.
+CREATE TABLE IF NOT EXISTS seat_holds (
+  goal TEXT NOT NULL,
+  seat TEXT NOT NULL,
+  until TEXT NOT NULL CHECK (until IN ('new-ending','ask-answered','release')),
+  ask_id TEXT,
+  anchor TEXT NOT NULL CHECK (anchor != ''),
+  held_by TEXT NOT NULL CHECK (held_by != ''),
+  held_at TEXT NOT NULL,
+  -- The `new-ending` witness: the `stamped_at` of the ending row this hold was placed over, or ''
+  -- when there was none. The hold is live while the current ending still carries that same stamp.
+  ending_stamped_at TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (goal, seat),
+  CHECK (until != 'ask-answered' OR (ask_id IS NOT NULL AND ask_id != ''))
+);
+CREATE INDEX IF NOT EXISTS idx_seat_holds_goal ON seat_holds(goal);

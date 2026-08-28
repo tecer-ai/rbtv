@@ -14,11 +14,13 @@
 // (`E_SECOND_WRITER`, one handle per process), so a lane that already opened its own store cannot
 // open the ending home through it at all. This module opens the home directly instead: the same
 // `node:sqlite` handle, the same pragma order heart-store uses (busy_timeout FIRST, then WAL), and
-// `tables.sql` — which is `CREATE TABLE IF NOT EXISTS` throughout, so it creates the three tables
-// on a fresh home and is a no-op on the shared host.
+// `tables.sql` — which is `CREATE TABLE IF NOT EXISTS` throughout, so it creates the tables on a
+// fresh home, ADDS a newly-declared one to a home that predates it, and is a no-op on the shared
+// host. That is the whole migration path a new table gets here: declare it in `tables.sql`.
 //
-// ⚠ IT OPENS NO `jobs_log` AND OWNS NO HISTORY. This handle is for `seat_endings`, `goal_states`
-// and `open_asks` only. History stays where §5 leaves it: the lane's own store.
+// ⚠ IT OPENS NO `jobs_log` AND OWNS NO HISTORY. This handle is for `seat_endings`, `goal_states`,
+// `open_asks` and the leader's `seat_holds` only. History stays where §5 leaves it: the lane's own
+// store.
 
 const fs = require('node:fs');
 const path = require('node:path');

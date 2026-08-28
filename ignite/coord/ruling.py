@@ -1,8 +1,10 @@
-"""The leader's RULING acts — the three things a leader does to a row it did not sit in.
+"""The leader's RULING acts — the things a leader does to a row it did not sit in.
 
 `accept`   a finished seat's work: the current ending becomes `done`, outputs re-checked.
 `instruct` a seat's ended session out of the state that keeps re-waking the chair: the leader's
            judgment is recorded where the daemon already drains it.
+`hold`     a row the leader has ruled it CANNOT rule yet: the wake and the attempt counter stop
+           until a NAMED change happens. `release` ends a hold early.
 `record_decision`  the ledger half of a ruling — appended to the goal's `decision-log`
            (`<goal>/decisions.md`) in the SAME act as the send that carries it (`send --record`).
 
@@ -35,6 +37,9 @@ from pathlib import Path
 # ruling instrument is ever built (matrix B9), this inbox is the thing it should write, not a
 # second channel beside it."*
 RELAUNCH_BUDGET_JS = Path(__file__).resolve().parent.parent / "supervisor" / "relaunch-budget.js"
+# The hold's release vocabulary is the ENDING STORE's, read off it for `instruction_kinds`' reason:
+# a second copy in Python is how a door accepts a word the store refuses.
+VOCABULARY_JS = Path(__file__).resolve().parent.parent / "state-store" / "vocabulary.js"
 LEADER_INSTRUCTIONS_REL = Path(".rbtv") / "runtime" / "ignite" / "leader-instructions"
 
 # The keys `executeLeaderInstruction` refuses as WORK PRODUCT [CF-3, T2-R5] — a leader reports, it
@@ -294,3 +299,149 @@ def record_decision(args, title, body, *, caller, to, mtype, num):
         atomic_write(path, prior.rstrip("\n") + "\n" + decision_entry(
             title, body, caller=caller, to=to, mtype=mtype, num=num))
     return path
+
+
+# ---- the THIRD ruling act: HOLD, and its release ----------------------------------------------
+#
+# ⚠ WHY A HOLD IS STATE AND NOT A MESSAGE. `owed-from-endings.js` turns a `failed` ending into a
+# `nonterm` owed row and `reconcile.js` answers that row by launching the LEADER, every ~5-min
+# pass. `accept` and `instruct` stop it because both END the row. A leader's third legitimate
+# verdict — "I have read this and it cannot be ruled until X happens" — used to be a message and
+# nothing else, so the pass could not tell it from a sitting that did nothing: it counted each one
+# as a burned attempt, disarmed the lane at N=3, and the next code deploy re-armed the counter and
+# bought three more. Nine identical HOLD verdicts, nine paid sittings, on `goal-memory-management`,
+# 2026-08-28. This verb makes the verdict a row the pass reads.
+#
+# ⚠ THIS IS NOT THE DELETED `rule-disposition`, AND `hold-anchor` IS NOT COMING BACK. That was a
+# column on `sessions.csv` under the grant-store authority model, deleted whole [T2-R12, T1-R9],
+# and both words are refused at the ending store's own door. What is written here is a row IN the
+# ending store — the ONE work-state surface — and it changes no ending.
+
+
+def hold_until_words():
+    """The CLOSED release vocabulary, READ OFF `state-store/vocabulary.js` rather than re-spelled.
+
+    Fail-CLOSED for `instruction_kinds`' reason: a list that cannot be read is an empty list and
+    the command refuses, because a `--until` word this door accepted and the store rejects is a
+    ruling the leader believes it recorded and did not."""
+    try:
+        proc = subprocess.run(
+            ["node", "-e",
+             "process.stdout.write(JSON.stringify(require(process.argv[1]).HOLD_UNTIL))",
+             str(VOCABULARY_JS)],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    try:
+        words = json.loads(proc.stdout or "[]")
+    except ValueError:
+        return []
+    return [str(w) for w in words] if isinstance(words, list) else []
+
+
+def parse_until(spec, words):
+    """`<word>` or `ask-answered:<ask-id>` -> (word, ask_id). Returns (None, None) on a bad word."""
+    raw = str(spec or "").strip()
+    word, _, arg = raw.partition(":")
+    word = word.strip()
+    if word not in words:
+        return None, None
+    return word, (arg.strip() or None)
+
+
+def cmd_hold(args):
+    caller = gate(args, "hold")
+    pkg = package_dir(args, register=bool(args.go))
+    anchor = (args.anchor or "").strip()
+    if not anchor:
+        refuse("input",
+               "--anchor carries WHAT you read to reach this hold — the message ref, decision "
+               "anchor or evidence. It is recorded, never verified, and a hold citing nothing is a "
+               "stopped lane nobody can audit.\n"
+               f"Name it: {coord_invocation(args, "supervise")} hold {args.seat} --until <change> "
+               "--anchor <ref> --go\n"
+               "NOTHING WAS WRITTEN.", 2)
+    words = hold_until_words()
+    if not words:
+        refuse("state",
+               f"could not read the closed release vocabulary off `{VOCABULARY_JS}` (needs `node`). "
+               f"This verb NEVER guesses it: a `--until` word the store refuses is a hold you would "
+               f"believe you recorded and did not. NOTHING WAS WRITTEN.", 1)
+    until, ask_id = parse_until(args.until, words)
+    if not until:
+        refuse("input",
+               f"`{args.until}` is not a hold release condition. The list is CLOSED — a hold with "
+               f"no named release is a stall, not a ruling: {', '.join(words)}.\n"
+               "  new-ending            — released when THIS seat's ending is re-stamped\n"
+               "  ask-answered:<ask-id> — released when that open ask leaves `open`\n"
+               "  release               — released only by `supervise release <seat> --go`\n"
+               "NOTHING WAS WRITTEN.", 2)
+    if until == "ask-answered" and not ask_id:
+        refuse("input",
+               "`--until ask-answered` must NAME the ask that releases it: "
+               "`--until ask-answered:<ask-id>`. The ask ids open on this goal are listed by "
+               f"{coord_invocation(args, "supervise")} ready-seats.\n"
+               "NOTHING WAS WRITTEN.", 2)
+    require_seat(args, args.seat)
+    if until == "ask-answered":
+        # A well-formed ask id that names no open ask releases INSTANTLY (the predicate fails open
+        # by design), so the hold would be a no-op the leader never learns about. Caught here.
+        open_ids = [a.get("ask_id") for a in ending_store.list_open_asks(pkg, posted=None)]
+        if ask_id not in open_ids:
+            refuse("state",
+                   f"`{ask_id}` is not an OPEN ask on this goal, so a hold waiting on it would "
+                   f"release on the very next pass and hold nothing.\n"
+                   f"  open here: {', '.join(i for i in open_ids if i) or '(none)'}\n"
+                   "NOTHING WAS WRITTEN.", 1)
+    prior = ending_store.get_current_ending(pkg, args.seat)
+    prior_word = (prior or {}).get("ending") or "(none)"
+    if not args.go:
+        print(f"WOULD HOLD {pkg.name}/{args.seat}: ending `{prior_word}` stands, and this pass "
+              f"stops driving it")
+        print(f"  until: {until}" + (f":{ask_id}" if ask_id else ""))
+        print(f"  anchor (recorded, not verified): {anchor}")
+        print(c("next: add --go to record it. While the hold is live the daemon launches no leader "
+                "for this row and advances NO attempt counter; a code-deploy re-arm does not clear "
+                "it, because a hold is a ruling and not a counter.", C_HINT))
+        return
+    out = ending_store.hold_seat(pkg, args.seat, until, anchor=anchor,
+                                 held_by=caller or "(unresolved)", ask_id=ask_id)
+    row = (out or {}).get("hold") or {}
+    same = bool((out or {}).get("idempotent"))
+    print(f"held: {pkg.name}/{args.seat} — ending `{prior_word}` stands, until "
+          f"`{until}{':' + ask_id if ask_id else ''}` (by {caller or '(unresolved)'})"
+          + (" — ALREADY HELD on the same terms, nothing changed" if same else ""))
+    print(f"  held at {row.get('held_at', '(unstamped)')}")
+    print(f"  anchor (recorded, not verified): {anchor}")
+    print(c(f"next: nothing on your side. The reconcile pass excludes this row every pass and says "
+            f"so (`heldExcluded`). It comes back on its own when the change you named happens; to "
+            f"end it early: {coord_invocation(args, "supervise")} release {args.seat} --go.", C_HINT))
+
+
+def cmd_release(args):
+    """END a hold early. Releasing a seat that is not held is NOT an error — the hold may have been
+    released by its own named change one pass ago, and the leader asked for the state it has."""
+    caller = gate(args, "release")
+    pkg = package_dir(args, register=bool(args.go))
+    require_seat(args, args.seat)
+    prior = ending_store.get_seat_hold(pkg, args.seat)
+    if not prior:
+        print(f"not held: {pkg.name}/{args.seat} carries no hold — nothing to release.")
+        print(c("next: the row is already whatever its ending says it is; "
+                f"{coord_invocation(args, "supervise")} ready-seats.", C_HINT))
+        return
+    until = prior.get("until")
+    if not args.go:
+        print(f"WOULD RELEASE {pkg.name}/{args.seat}: hold until `{until}` placed "
+              f"{prior.get('held_at')} by {prior.get('held_by')}")
+        print(f"  anchor it was held on: {prior.get('anchor')}")
+        print(c("next: add --go to record it. The row becomes owed again on the next pass and the "
+                "leader gets ONE sitting to rule it.", C_HINT))
+        return
+    ending_store.release_seat(pkg, args.seat)
+    print(f"released: {pkg.name}/{args.seat} — the hold until `{until}` is gone "
+          f"(by {caller or '(unresolved)'})")
+    print(c("next: the next reconcile pass owes this row again and wakes the leader ONCE for it. "
+            "Rule it with `accept` or `instruct`, or hold it again on new terms.", C_HINT))

@@ -15,12 +15,27 @@ Runtime file (workspace-relative, GENERAL): `.rbtv/runtime/ignite/heart.db`.
 
 Write: `stampSeatDeclare` · `stampSystem` · `replaceSeatEnding` · `writeGoalWord` ·
 `insertAsk` · `postAsk` · `reapAndRelaunch` · `incrementRecoveryRelaunch` ·
-`setLeaderAttemptUsed` · `fireNamedEvent`
+`setLeaderAttemptUsed` · `fireNamedEvent` · `holdSeat` · `releaseSeat`
 
 Read: `getCurrentEnding` · `getGoalState` · `getAsk` · `seatWaitingOnOwner` ·
 `goalWaitingOnOwner` · `countOpenAsks` · `isGoalPaused` · `isGoalRunning` ·
 `isGoalFinished` · `isLaunchable` · `checkDoneOutputs` · `killClockPauses` ·
-`endingStorePath`
+`getSeatHold` · `seatHeld` · `listSeatHolds` · `endingStorePath`
+
+### `seat_holds` — the leader's HOLD (2026-08-28, owner ruling decision 4(c))
+
+A FOURTH table beside `seat_endings`, `goal_states` and `open_asks`, and a sibling rather than a
+column because a `failed` row's CHECK clauses cannot carry a leader's ruling, because every
+re-stamp archives the current ending into `seat_endings_log` (which would take the hold with it),
+and because a hold's lifetime is its own — it survives a code-deploy re-arm, since a hold is a
+ruling and a re-arm clears counters. `holdSeat` is idempotent on identical terms (the same hold
+twice does not restart `held_at`) and replaces on different ones; one hold per (goal, seat).
+`seatHeld` is the ONE liveness predicate — `release` lives until deleted, `new-ending` until the
+ending's `stamped_at` moves, `ask-answered` until the named `open_asks` row leaves `open` — and
+every unknown answers NOT HELD, so a broken hold can only restore the pre-hold behaviour.
+Its consumer is `supervisor/owed-from-endings.js`, which drops a held seat out of class A; its
+door is `supervise hold` / `supervise release`. It arrives on the live store with no migration
+step: `tables.sql` is `CREATE TABLE IF NOT EXISTS` throughout and `open.js` runs it on every open.
 
 Kit/engine door: `cli.js` (`--db` `--op` `--payload`). One-shot cutover copy:
 `copy-home.js` (do not run against a live daemon).

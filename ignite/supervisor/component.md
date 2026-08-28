@@ -468,6 +468,46 @@ pins three record kinds there and a counter is not one of them.
 `listCounters({goal})` is the read-only scope reader: the rows a re-arm is about
 to delete, so the caller can report what it cleared and from what count.
 
+## A leader HOLD is a row this pass honours [owner ruling 2026-08-28, decision 4(c)]
+
+A `failed` ending becomes a `nonterm` owed row (`owed-from-endings.js`
+`classifyEnding`) and this pass answers it by launching the LEADER, every cadence,
+until the row is ruled. `supervise accept` and `supervise instruct` stop that
+because both END the row. The leader's THIRD legitimate verdict — "I have read
+this and it cannot be ruled until X happens" — used to be a message and nothing
+else, and this pass reads rows, never mail: it counted each HOLD sitting as a
+burned attempt, disarmed the lane at N=3, and the next code deploy re-armed the
+counter and bought three more. Nine identical HOLD verdicts on
+`goal-memory-management`, 2026-08-28, nine paid opus-5 sittings.
+
+`supervise hold <seat> --until <change> --anchor "<evidence>" --go` writes a
+`seat_holds` row into the ONE workspace ending store (`state-store/tables.sql`;
+NOT a column on `seat_endings` — a `failed` row's CHECKs cannot carry it and a
+re-stamp would archive it away with the ending it rules on). A seat under a LIVE
+hold is excluded from class A entirely, the same shape `dead` and `summoned`
+already have — so there is no launch target, and therefore no launch AND no
+attempt counted, from ONE exclusion rather than two agreeing rules. The pass
+NAMES what it excluded, on its own `reconcile: pass` line, as `heldExcluded`.
+
+| `--until` | live while | released by |
+|---|---|---|
+| `new-ending` | the seat's ending still carries the `stamped_at` it had when the leader ruled | any re-stamp of that ending |
+| `ask-answered:<ask-id>` | that `open_asks` row is still `open` | the answer, through `reapAndRelaunch` — §2.1's own mechanism, no second watcher |
+| `release` | the row exists | `supervise release <seat> --go`, which deletes it |
+
+Liveness is `state-store/predicates.js#seatHeld` and is evaluated on every pass,
+so the hold clears ITSELF the moment the named change is observed — no sweep, no
+writer, and the released row is worth exactly ONE leader sitting, not a fresh N.
+Every unknown (an ask id that names no row, a word this build does not know)
+answers NOT HELD: a broken hold can only let the daemon do what it did before
+holds existed, where the opposite default is a lane stopped forever by a typo.
+
+⚠ NEITHER IS `hold-anchor` RETURNING. That was a thirteenth column on
+`sessions.csv` under the deleted grant-store authority model [T2-R12, T1-R9], and
+both `HELD` and `hold-anchor` are refused at the ending store's own door. What
+was killed was a SECOND work-state writer beside the ending store; this is a row
+IN it, and it changes no ending.
+
 ## The re-arm, and who produces the four events
 
 `exhaustion.js#rearmScope({store, goal, event})` - "this named event happened,

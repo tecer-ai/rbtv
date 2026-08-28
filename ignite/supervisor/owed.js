@@ -34,6 +34,7 @@ const EMPTY_LEDGER = Object.freeze({
   live: [],
   deadSeats: [],
   summonedSeats: [],
+  heldSeats: [],
   classA: [],
   classB: [],
   classE: null,

@@ -16,6 +16,7 @@ const {
   REASON_CLASSES,
   NAMED_EVENTS,
   ASK_LABELS,
+  HOLD_UNTIL,
   LISTED_INCOMPLETE,
   isKilledWord,
 } = require('./vocabulary');
@@ -418,6 +419,76 @@ function fireNamedEvent(db, { goal, seat, named_event }) {
   return getCurrentEnding(db, { goal, seat });
 }
 
+// ── THE LEADER'S HOLD — the write half ─────────────────────────────────────────────────────────
+//
+// `getSeatHold` is the RAW row; whether that row still HOLDS anything is `predicates.js#seatHeld`,
+// which is the one predicate every reader asks. Two functions and not one because a release
+// condition is evaluated against OTHER rows (the ending's `stamped_at`, the ask's `state`), and a
+// getter that silently applied it would leave `supervise release` unable to see what it is
+// releasing.
+function getSeatHold(db, { goal, seat }) {
+  return db.prepare(
+    'SELECT * FROM seat_holds WHERE goal = ? AND seat = ?',
+  ).get(goal, seat) || null;
+}
+
+// One hold per (goal, seat) — the PRIMARY KEY says so, and that is the idempotence: a leader that
+// posts the SAME hold twice (two sittings that read the same mail and reach the same verdict) gets
+// its first row back untouched, `held_at` included, rather than a hold whose clock silently
+// restarted. A hold that differs in any recorded field is a NEW ruling and replaces the old one.
+//
+// ⚠ `--anchor` IS RECORDED, NEVER VERIFIED — the same discipline `accept` carries: no tool can
+// check that an anchor names a real investigation, and a hold citing nothing is a stall nobody can
+// audit. ⚠ THE `new-ending` WITNESS IS CAPTURED HERE, not at read time: the hold is live while the
+// ending still carries the stamp it carried when the leader ruled on it.
+function holdSeat(db, {
+  goal, seat, until, ask_id = null, anchor, held_by, held_at,
+}) {
+  refuseKilled({
+    goal, seat, until, ask_id, anchor, held_by,
+  });
+  if (!goal || !seat) throw new EndingStoreError(E_WRITER_REFUSED, 'a hold needs a goal and a seat');
+  if (!HOLD_UNTIL.includes(until)) {
+    throw new EndingStoreError(E_BAD_ENDING, `unknown hold release condition: ${until} (closed list: ${HOLD_UNTIL.join(', ')})`);
+  }
+  if (until === 'ask-answered' && !ask_id) {
+    throw new EndingStoreError(E_WRITER_REFUSED, '`--until ask-answered` names the ask that releases it: ask-answered:<ask-id>');
+  }
+  requireEvidence(anchor);
+  if (!held_by) throw new EndingStoreError(E_WRITER_REFUSED, 'a hold records WHO ruled it');
+  return tx(db, () => {
+    const prior = getSeatHold(db, { goal, seat });
+    const askId = until === 'ask-answered' ? String(ask_id) : null;
+    if (prior && prior.until === until && (prior.ask_id || null) === askId
+        && prior.anchor === String(anchor) && prior.held_by === String(held_by)) {
+      return { hold: prior, idempotent: true };
+    }
+    const current = getCurrentEnding(db, { goal, seat });
+    db.prepare(
+      `INSERT INTO seat_holds (goal, seat, until, ask_id, anchor, held_by, held_at, ending_stamped_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(goal, seat) DO UPDATE SET
+         until = excluded.until, ask_id = excluded.ask_id, anchor = excluded.anchor,
+         held_by = excluded.held_by, held_at = excluded.held_at,
+         ending_stamped_at = excluded.ending_stamped_at`,
+    ).run(goal, seat, until, askId, String(anchor), String(held_by),
+      held_at || nowIso(), current ? String(current.stamped_at) : '');
+    return { hold: getSeatHold(db, { goal, seat }), idempotent: false };
+  });
+}
+
+// The explicit release. Releasing a seat that is not held is NOT an error: the hold may have been
+// released by its own named change one pass earlier, and a leader that then types `release` has
+// asked for exactly the state it already has.
+function releaseSeat(db, { goal, seat }) {
+  return tx(db, () => {
+    const prior = getSeatHold(db, { goal, seat });
+    if (!prior) return { released: null, idempotent: true };
+    db.prepare('DELETE FROM seat_holds WHERE goal = ? AND seat = ?').run(goal, seat);
+    return { released: prior, idempotent: false };
+  });
+}
+
 module.exports = {
   getCurrentEnding,
   getGoalState,
@@ -432,4 +503,7 @@ module.exports = {
   incrementRecoveryRelaunch,
   setLeaderAttemptUsed,
   fireNamedEvent,
+  getSeatHold,
+  holdSeat,
+  releaseSeat,
 };

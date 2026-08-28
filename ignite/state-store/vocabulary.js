@@ -16,6 +16,12 @@ const NAMED_EVENTS = Object.freeze([
   'materialize-resolved',
   'named-external-input',
 ]);
+// The leader HOLD's release conditions — a CLOSED list, `tables.sql`'s `seat_holds.until` CHECK
+// spelled once in JS so the Python door can read it rather than re-spell it (`coord/ruling.py`
+// reads it exactly as it reads the instruction list off `relaunch-budget.js`). A fourth word would
+// be a release condition nobody ruled, and a hold that never releases is the stall it exists to
+// prevent, not a stronger hold.
+const HOLD_UNTIL = Object.freeze(['new-ending', 'ask-answered', 'release']);
 const ASK_LABELS = Object.freeze(['work-content', 'recovery']);
 const ASK_STATES = Object.freeze(['open', 'answered', 'closed']);
 const WHO_ENDING = Object.freeze(['seat', 'system']);
@@ -69,6 +75,7 @@ module.exports = {
   NAMED_EVENTS,
   ASK_LABELS,
   ASK_STATES,
+  HOLD_UNTIL,
   WHO_ENDING,
   WHO_GOAL,
   LISTED_INCOMPLETE,

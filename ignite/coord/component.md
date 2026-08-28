@@ -52,22 +52,33 @@ owner ruled the loader be redesigned to permit it. They are real modules there n
 imported rather than `exec`d; the recorded spec-vs-disk conflict is closed. What crosses
 the seam and how is `supervisor/component.md`'s subject.
 
-## The leader's ruling acts (`ruling.py`, 2026-08-26)
+## The leader's ruling acts (`ruling.py`, 2026-08-26; `hold` 2026-08-28)
 
-`accept` and `instruct` are `supervise`-door verbs whose bodies live here. `accept` stamps a
+`accept`, `instruct`, `hold` and `release` are `supervise`-door verbs whose bodies live here. `accept` stamps a
 seat's ending `done` after re-checking its declared outputs; `instruct` records one of the four
 CLOSED leader instructions into the daemon's own inbox
 (`.rbtv/runtime/ignite/leader-instructions/`), which `supervisor/relaunch-budget.js`'s
 `drainLeaderInstructions` already applies at the top of every reconcile pass — this kit writes
-that inbox, it does not add a second channel beside it. `send --record "<title>"` is the ledger
+that inbox, it does not add a second channel beside it. `hold` records a leader verdict the DAEMON honours — `supervise hold <seat>
+--until <new-ending|ask-answered:<ask-id>|release> --anchor "<evidence>" --go` writes a
+`seat_holds` row into the ONE ending store, and `supervisor/owed-from-endings.js` then leaves that
+seat out of the owed set entirely: no leader wake for it and no attempt counted, until the named
+change happens. `release` ends a hold early. Before them a leader's "this cannot be ruled yet"
+verdict was a message, and the reconcile pass reads rows and never mail, so it was counted as a
+burned recovery attempt — nine such sittings on one goal on 2026-08-28. The release vocabulary is
+READ OFF `state-store/vocabulary.js#HOLD_UNTIL` rather than re-spelled here, for the reason
+`instruction_kinds` reads its list off `relaunch-budget.js`: a word this door accepted and the
+store refuses is a ruling the leader believes it recorded and did not.
+`send --record "<title>"` is the ledger
 half: it appends the ruling to the goal's `decision-log` (`<goal>/decisions.md`) in the SAME
 invocation as the message, because a ruling recorded only in a message is not recorded.
 
 ⚠ NEITHER IS `rule-disposition` RETURNING. That verb and its authority model were deleted
 [T2-R12, T1-R9] and `disposition` is refused at the ending store's door
-(`state-store/vocabulary.js#KILLED_WORDS`). These verbs write the ENDING, never a `sessions.csv`
-cell, and there is no per-verb role gate on either — the audience bound is the DOOR
-[T2-R10, D24, F-simplicity-7].
+(`state-store/vocabulary.js#KILLED_WORDS`). These verbs write the ENDING STORE, never a `sessions.csv`
+cell, and there is no per-verb role gate on any of them — the audience bound is the DOOR
+[T2-R10, D24, F-simplicity-7]. `hold` is not the deleted `hold-anchor` column either, for the same
+reason: that was a `sessions.csv` cell, this is a row in the store.
 
 ## Ledger custody (D3, 2026-08-19)
 

@@ -315,10 +315,15 @@ function nontermPayload(rows) {
     '',
     'Each of those rows ended with an ending nothing can advance on, and no seat can close',
     'its own. Rule it: `supervise accept <seat> --anchor <ref> --go` where the work in fact',
-    'concluded, `supervise instruct <seat> <kind> --go` where it did not (`rule-disposition`,',
-    'the verb that used to record a ruling or a HOLD on a row, was deleted [T2-R12, T1-R9];',
-    'neither of these is its return). This wake will keep repeating on these rows until one is',
-    'ruled.',
+    'concluded, `supervise instruct <seat> <kind> --go` where it did not, or',
+    '`supervise hold <seat> --until <new-ending|ask-answered:<ask-id>|release> --anchor <ref> --go`',
+    'where the row genuinely cannot be ruled yet and you are waiting on a NAMED change. All three',
+    'are honoured by this pass; a HOLD stops the wake and stops the attempt counter until the',
+    'change you named happens, and `supervise release <seat> --go` ends it early. (`rule-disposition`,',
+    'the verb that used to record a ruling or a HOLD on a `sessions.csv` cell, was deleted',
+    '[T2-R12, T1-R9]; none of these is its return — they write the ENDING STORE.) This wake will',
+    'keep repeating on these rows until one of the three is used. A verdict posted only as a',
+    'message is NOT one of them: this pass reads rows, never mail.',
     '',
     'A CRASHED SEAT IS RE-RUN IN ONE ACT (D42). A `failed` ending with reason_class crash is the',
     'system saying the harness TERMINATED and the work is UNKNOWN — never that it finished.',
@@ -886,6 +891,10 @@ function reconcileGoal({
       readyRefused: derived.readyRefused,
       deadExcluded: derived.deadSeats.length,
       summonedExcluded: derived.summonedSeats,
+      // THE HELD ROWS ARE NAMED, NOT COUNTED. A hold is a leader RULING and the pass that honours
+      // it must say whose ruling and what releases it — a silent exclusion is how nine paid
+      // sittings looked identical to nine no-ops in the journal.
+      heldExcluded: (derived.heldSeats || []).map((h) => `${h.seat}:until ${h.until}${h.ask_id ? `:${h.ask_id}` : ''}`),
       leader,
       dryRun: Boolean(dryRun),
     });

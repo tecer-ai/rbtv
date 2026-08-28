@@ -66,6 +66,7 @@ remedy — when something is broken
 
 the leader's rulings — on a row it did not sit in
   accept / instruct  ACCEPT a seat's finished work: its ending becomes `done`, outputs re-checked, --anchor recorded (--go; reports bare) · RULE on a seat's ended session — one of the four leader instructions the daemon drains and applies (--go; reports bare)
+  hold / release  HOLD a row you cannot rule yet: the daemon stops waking you for it and stops counting attempts, until the change you NAME (--until new-ending | ask-answered:<ask-id> | release) happens (--go) · end a hold early (--go)
 global: --run TAG | --package DIR (which run) · --as NAME (act as) · --pretty (colour)
 details + examples: supervise <command> -h · --force overrides a refusal, where one exists"""
 
@@ -90,7 +91,7 @@ SUPERVISION_COMMANDS = (
     "ready-seats", "renewal-state", "surface-refusal", "lifecycle-exec",
     "close-seat", "reap", "kill-pane", "relaunch-pane", "terminate-pid", "approve",
     "attest-exit", "route-fail",
-    "instruct", "accept",
+    "instruct", "accept", "hold", "release",
 )
 COORDINATION_DOOR = "coordinate"
 SUPERVISION_DOOR = "supervise"
@@ -1096,6 +1097,54 @@ def build_parser(door=COORDINATION_DOOR):
     # it "overrides this command's refusal" would promise a door that is not there.
     add_identity_flags(s, force=False)
     s.set_defaults(func=cmd_accept)
+
+    # ── THE THIRD RULING ACT · HOLD ────────────────────────────────────────────────────────────
+    # A verdict the daemon HONOURS. Before it, a leader that read a row and concluded "this cannot
+    # be ruled until the owner answers" could only say so in a message — and `reconcile.js` reads
+    # rows, never mail, so every such sitting looked exactly like a sitting that did nothing and
+    # was counted as a burned attempt. Same audience bound as its two siblings: this tuple.
+    s = command(
+        "hold",
+        "HOLD a row you have ruled you CANNOT rule yet. The reconcile pass stops treating it as\n"
+        "owed: no leader wake for it, and NO attempt counted against the lane, until the change\n"
+        "you NAME happens.\n"
+        "\n"
+        "`--until` is a CLOSED list, read off the ending store's own vocabulary:\n"
+        "  new-ending             this seat's ending is re-stamped (it ran again, or was ruled)\n"
+        "  ask-answered:<ask-id>  that OPEN owner ask leaves `open` — the same mechanism the pass\n"
+        "                         already watches; the id must name an ask open on this goal\n"
+        "  release                nothing but `supervise release <seat> --go` ends it\n"
+        "\n"
+        "`--anchor` is mandatory and is RECORDED, NEVER VERIFIED — a stopped lane citing nothing is\n"
+        "a stall nobody can audit.\n"
+        "\n"
+        "A HOLD IS A RULING, NOT A COUNTER: a code-deploy re-arm does not clear it, and it changes\n"
+        "no ending — the row keeps the word it had. This is NOT the deleted `hold-anchor`, which\n"
+        "was a `sessions.csv` cell [T2-R12, T1-R9]; what is written is a row in the ending store.",
+        "example:\n"
+        "  supervise hold distill-memory --until ask-answered:recovery-e0db9 --anchor 'messages.md #18 — escalation unanswered' --go\n"
+        "next: nothing — the row returns on its own when the named change lands")
+    s.add_argument("seat", help="the TARGET seat whose row you are holding (never your own name)")
+    s.add_argument("--until", default="", metavar="CHANGE",
+                   help="what RELEASES it: new-ending | ask-answered:<ask-id> | release")
+    s.add_argument("--anchor", default="", metavar="REF",
+                   help="WHAT you read to reach this hold (recorded, never verified)")
+    s.add_argument("--go", action="store_true", help="act (bare = report what would change, write nothing)")
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_hold)
+
+    s = command(
+        "release",
+        "END a hold early — the row is owed again on the next pass and the leader is woken ONCE to\n"
+        "rule it. Releasing a seat that carries no hold is not an error: the hold may already have\n"
+        "been released by the change it named.",
+        "example:\n"
+        "  supervise release distill-memory --go\n"
+        "next: supervise accept <seat> --anchor <ref> --go, or instruct — the row is yours to rule")
+    s.add_argument("seat", help="the TARGET seat whose hold you are ending")
+    s.add_argument("--go", action="store_true", help="act (bare = report the hold, write nothing)")
+    add_identity_flags(s, force=False)
+    s.set_defaults(func=cmd_release)
 
     s = command(
         "instruct",

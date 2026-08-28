@@ -1447,5 +1447,226 @@ say('── B11: an exhausted relaunch budget stops the lane and asks the leader
   }
 }
 
+// ══ THE LEADER'S HOLD — a verdict the pass HONOURS [owner ruling 2026-08-28, decision 4(c)] ════
+//
+// WHAT THESE MEASURE. `owed-from-endings.js` used to turn any `failed` ending into a `nonterm` owed
+// row unconditionally, and `reconcile.js` answers such a row by launching the LEADER and counting
+// the pass as a burned attempt. A leader that read the row and ruled "this cannot be ruled until
+// the owner answers" could only say so in a message — which this pass never reads — so nine such
+// sittings on `goal-memory-management` (2026-08-28) were counted as nine failed recovery attempts,
+// disarmed the lane at N=3, and were re-bought three at a time by every code-deploy re-arm.
+//
+// The four facts below are the whole contract: a held row produces NO launch and NO count, for as
+// many passes as the hold is live; the change the hold NAMED releases it, and the release is worth
+// exactly ONE sitting, not a fresh N; an explicit `release` does the same; and a code deploy does
+// not clear a hold, because a hold is a ruling and a re-arm clears counters.
+function holdPass(store, goalFolder, fx) {
+  const out = reconcileGoal({
+    goal: 'fx-hold', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    recoverFn: () => ({ ok: true }),
+    ...fx,
+  });
+  const counted = counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-hold', seat: 'leader', reasonClass: 'nonterm',
+  }, { countersFile: fx.countersFile });
+  return {
+    // The leader wake for a `nonterm` row IS the enqueue; a pass that never built the target
+    // produces no action for it at all, which is the difference this arm has to see.
+    launches: out.actions.filter((a) => a.kind === 'enqueue' && a.reason === 'nonterm').length,
+    classA: out.derived.classA.map((x) => x.seat),
+    held: (out.derived.heldSeats || []).map((h) => `${h.seat}:${h.until}`),
+    attempts: counted ? Number(counted.attempts) : 0,
+  };
+}
+
+function holdFixture(name) {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, `${name}-`));
+  for (const seat of ['leader', 'worker-a']) writeSeat(goalFolder, seat, true);
+  writeTaskforce(goalFolder, ['leader', 'worker-a']);
+  writeMessages(goalFolder, []);
+  writeSessions(goalFolder, [
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-28 09:00', ended: '2026-08-28 09:30',
+      disposition: 'done', 'disposition-writer': 'seat', checkin: '2026-08-28 09:30' },
+    { 'session-id': 'wa1', seat: 'worker-a', started: '2026-08-28 10:00', ended: '2026-08-28 10:05',
+      disposition: 'unverified', 'disposition-writer': 'seat' },
+  ]);
+  return goalFolder;
+}
+
+say('── a `failed` row under a LIVE hold: no leader launch, no attempt counted ──');
+{
+  const store = openStore();
+  const fx = counterFixture('hold-live');
+  try {
+    const goalFolder = holdFixture('hold');
+    stampEndings(store, 'fx-hold', [['leader', 'done'], ['worker-a', 'unverified']]);
+    const api = bind(store.db);
+
+    // The CONTROL first, because a suppression arm over a fixture that never fired proves nothing.
+    const control = holdPass(store, goalFolder, fx);
+    assert.strictEqual(control.launches, 1, `the unheld fixture did not wake the leader: ${JSON.stringify(control)}`);
+    assert.strictEqual(control.attempts, 1, JSON.stringify(control));
+    say(`  control (no hold): classA=[${control.classA}] launches=${control.launches} attempts=${control.attempts}`);
+
+    const held = api.holdSeat({
+      goal: 'fx-hold', seat: 'worker-a', until: 'release',
+      anchor: 'selftest: owner escalation unanswered', held_by: 'leader',
+    });
+    assert.strictEqual(held.idempotent, false);
+    // IDEMPOTENCE, at the store door: the same hold twice is the same row, `held_at` included.
+    const again = api.holdSeat({
+      goal: 'fx-hold', seat: 'worker-a', until: 'release',
+      anchor: 'selftest: owner escalation unanswered', held_by: 'leader',
+    });
+    assert.strictEqual(again.idempotent, true, JSON.stringify(again));
+    assert.strictEqual(again.hold.held_at, held.hold.held_at, 'a second identical hold restarted the clock');
+
+    for (const pass of [1, 2]) {
+      const r = holdPass(store, goalFolder, fx);
+      assert.deepStrictEqual(r.classA, [], `a held row is still class A on pass ${pass}: ${JSON.stringify(r)}`);
+      assert.strictEqual(r.launches, 0, `the leader was launched for a HELD row on pass ${pass}: ${JSON.stringify(r)}`);
+      assert.strictEqual(r.attempts, 1, `the counter advanced on a held pass ${pass}: ${JSON.stringify(r)}`);
+      assert.deepStrictEqual(r.held, ['worker-a:release'], `the pass did not NAME the hold: ${JSON.stringify(r)}`);
+      say(`  pass ${pass} (held): launches=${r.launches} attempts=${r.attempts} heldExcluded=[${r.held}]`);
+    }
+
+    // A CODE DEPLOY DOES NOT CLEAR A HOLD. It clears counters; a hold is a ruling.
+    counters.rearm({ event: counters.RE_ARM.CODE_DEPLOY }, { countersFile: fx.countersFile });
+    assert.ok(api.seatHeld({ goal: 'fx-hold', seat: 'worker-a' }), 'a code-deploy re-arm cleared the hold');
+    const afterDeploy = holdPass(store, goalFolder, fx);
+    assert.strictEqual(afterDeploy.launches, 0, `the deploy re-bought a leader sitting on a HELD row: ${JSON.stringify(afterDeploy)}`);
+    say(`  after rearm(code-deploy): the hold STANDS, launches=${afterDeploy.launches}`);
+
+    say('ok  a live hold suppresses the leader wake AND the attempt, and a code deploy does not lift it');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── `supervise release` gives the row back, and it is worth exactly ONE sitting ──');
+{
+  // ⚠ ITS OWN STORE, and that is not tidiness. The block above ENQUEUED the leader on its control
+  // pass and that job is still in the lane store's queue, so a later pass on the same store takes
+  // `skip-live-or-queued` — one launch per seat is the queue's rule, not the hold's, and an arm
+  // that measured the release through it would be measuring the wrong brake.
+  const store = openStore();
+  const fx = counterFixture('hold-release');
+  try {
+    const goalFolder = holdFixture('hold-rel');
+    stampEndings(store, 'fx-hold', [['leader', 'done'], ['worker-a', 'unverified']]);
+    const api = bind(store.db);
+    api.holdSeat({
+      goal: 'fx-hold', seat: 'worker-a', until: 'release',
+      anchor: 'selftest: held pending an explicit release', held_by: 'leader',
+    });
+    const heldPass = holdPass(store, goalFolder, fx);
+    assert.strictEqual(heldPass.launches, 0, JSON.stringify(heldPass));
+    assert.strictEqual(heldPass.attempts, 0, JSON.stringify(heldPass));
+
+    api.releaseSeat({ goal: 'fx-hold', seat: 'worker-a' });
+    assert.strictEqual(api.seatHeld({ goal: 'fx-hold', seat: 'worker-a' }), null, 'the release left the hold live');
+    const released = holdPass(store, goalFolder, fx);
+    assert.deepStrictEqual(released.classA, ['worker-a'], JSON.stringify(released));
+    assert.strictEqual(released.launches, 1, `\`release\` did not give the row back: ${JSON.stringify(released)}`);
+    assert.strictEqual(released.attempts, 1, JSON.stringify(released));
+    say(`  held: launches=${heldPass.launches} → released: classA=[${released.classA}] launches=${released.launches} attempts=${released.attempts}`);
+    say('ok  `supervise release` returns the row to class A and buys ONE leader sitting, not a fresh N');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── `--until new-ending`: the named change releases it, and it is worth ONE sitting ──');
+{
+  const store = openStore();
+  const fx = counterFixture('hold-new-ending');
+  try {
+    const goalFolder = holdFixture('hold-ne');
+    stampEndings(store, 'fx-hold', [['leader', 'done'], ['worker-a', 'unverified']]);
+    const api = bind(store.db);
+    api.holdSeat({
+      goal: 'fx-hold', seat: 'worker-a', until: 'new-ending',
+      anchor: 'selftest: re-run ordered, waiting for its ending', held_by: 'leader',
+    });
+
+    const heldPass = holdPass(store, goalFolder, fx);
+    assert.strictEqual(heldPass.launches, 0, JSON.stringify(heldPass));
+    assert.strictEqual(heldPass.attempts, 0, JSON.stringify(heldPass));
+    say(`  while the ending is unchanged: launches=${heldPass.launches} attempts=${heldPass.attempts}`);
+
+    // THE NAMED CHANGE. The seat ran again and failed again — a NEW ending on the same row.
+    stampEndings(store, 'fx-hold', [['worker-a', 'crash']]);
+    assert.strictEqual(api.seatHeld({ goal: 'fx-hold', seat: 'worker-a' }), null,
+      'the re-stamped ending did not release the hold');
+    const one = holdPass(store, goalFolder, fx);
+    assert.strictEqual(one.launches, 1, `the released row did not wake the leader: ${JSON.stringify(one)}`);
+    assert.strictEqual(one.attempts, 1, JSON.stringify(one));
+    say(`  after the ending is re-stamped: launches=${one.launches} attempts=${one.attempts} — ONE sitting`);
+    say('ok  the change the hold NAMED clears it on that pass, with no sweep and no second watcher');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
+say('── RED arm: stop honouring the hold (the pre-2026-08-28 classifier) ──');
+{
+  // The mutant deletes the ONE line that keeps a held seat out of class A, in a COPY of the live
+  // source injected into the require cache so the real `reconcile.js` computes owed rows with it.
+  // If the two arms above do not discriminate, the mutant passes them too.
+  const Module = require('node:module');
+  const owedFile = require.resolve('./owed-from-endings');
+  const src = fs.readFileSync(owedFile, 'utf8');
+  // The class-A loop's exclusion, anchored with the two lines that follow it so the identical line
+  // in the class-E loop above cannot be the one that gets mutated.
+  const ANCHOR = "    if (holdMap.has(seat)) continue;\n    const ended = (sessionRow.ended || '').trim();";
+  assert.ok(src.includes(ANCHOR), 'the hold exclusion is missing - the red arm has no anchor');
+  const mutated = src.replace(ANCHOR, "    const ended = (sessionRow.ended || '').trim();");
+  assert.notStrictEqual(mutated, src);
+
+  const owedSaved = require.cache[owedFile];
+  const chainSaved = ['./owed', './reconcile'].map((m) => [require.resolve(m), require.cache[require.resolve(m)]]);
+  let seen = null;
+  const store = openStore();
+  const fx = counterFixture('red-hold');
+  try {
+    const mut = new Module(owedFile, null);
+    mut.filename = owedFile;
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(mutated, owedFile);
+    require.cache[owedFile] = mut;
+    for (const [file] of chainSaved) delete require.cache[file];
+    const mutReconcile = require('./reconcile');
+
+    const goalFolder = holdFixture('red-hold');
+    stampEndings(store, 'fx-hold', [['leader', 'done'], ['worker-a', 'unverified']]);
+    bind(store.db).holdSeat({
+      goal: 'fx-hold', seat: 'worker-a', until: 'release',
+      anchor: 'selftest red', held_by: 'leader',
+    });
+    const out = mutReconcile.reconcileGoal({
+      goal: 'fx-hold', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+      ...fx,
+    });
+    seen = out.actions.filter((a) => a.kind === 'enqueue' && a.reason === 'nonterm').length;
+  } finally {
+    require.cache[owedFile] = owedSaved;
+    for (const [file, mod] of chainSaved) {
+      if (mod) require.cache[file] = mod; else delete require.cache[file];
+    }
+    store.close();
+    closeHeartStore();
+  }
+  assert.strictEqual(seen, 1,
+    `the mutant did NOT launch the leader for a held row, so the arms above prove nothing (launches=${seen})`);
+  say(`ok  RED: with the exclusion removed a HELD row wakes the leader (${seen}) - the arms discriminate`);
+}
+
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 say('reconcile.selftest OK');
