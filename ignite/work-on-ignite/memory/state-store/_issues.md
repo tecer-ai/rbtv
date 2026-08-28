@@ -1,0 +1,1 @@
+2026-08-28 · issue · pause wrote a store the lane gate never reads · The owner's Slack `pause {goal}` was INERT and `resume {goal}` lied. Measured 2026-08-28 → Two of the three are one line each in `ignite/state-store/heart/pause-resume.js`, minted five · 919be192 · runtime,supervisor,gateway · ⚠
