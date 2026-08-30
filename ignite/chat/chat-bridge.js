@@ -89,14 +89,54 @@ function createChatBridge({
   // ONE map and one module. `askThreads` is the bridge's answer to the only question the release
   // rule asks that Slack cannot: is THIS thread an ask's thread, and whose? The id IS the Slack
   // `thread_ts` [D-8], so the key is the ordinary conversation address `<channel>:<ts>` and the
-  // value is the ask's owner — nothing about the ask's STATE lives here. State is `open_asks`,
-  // daemon-side, and a second copy of it in this process would be a second source of one fact.
+  // value is the ask's owner. The ask's STATE is `open_asks`, daemon-side, and a second copy of it
+  // here would be a second source of one fact — what this map carries instead are the bridge's OWN
+  // facts about the THREAD: `kind` (which dispatch a parsed token takes), `paused` (a
+  // reject-and-paused approval), and `released` (this bridge already released this thread's ask).
+  //
+  // ⚑ A RELEASED THREAD STAYS IN THE MAP (G-second-brain-43-0828-2119). It used to be DELETED on
+  // release, and the owner's very next message in it — usually a re-send, because the release
+  // showed no ack — fell through to the goal-channel forward path and bought a goal-master
+  // sitting that read `a` as a check-in. Three times on 2026-08-28. A thread this bridge answered
+  // must stay RECOGNIZED so a later reply is refused IN it, never forwarded out of it.
   //
   // ⚑ PERSISTED ADDITIVELY, `STATE_VERSION` unchanged — the ferry cursors' and the agent threads'
   // discipline exactly. Losing it would leave every open ask thread unattributed: the owner's
   // answer would be handled as ordinary goal traffic and the ask would never be released, which
-  // is the pre-redesign silence rebuilt by accident.
-  const askThreads = new Map(); // `<channel>:<threadTs>` -> { goalId, seat, askId, label }
+  // is the pre-redesign silence rebuilt by accident. An entry written by the pre-`released` bridge
+  // carries no `released` key, loads as `released: false`, and behaves exactly as it always did.
+  const askThreads = new Map(); // `<channel>:<threadTs>` -> { goalId, seat, askId, label, kind, paused, released }
+
+  // THE BOUND ON THE MAP'S GROWTH. A live entry is retired by its own release; a RELEASED entry has
+  // nothing left to retire it, so without a bound the map would grow by one row per answered ask
+  // for the life of the deployment and carry every one of them through the state file. The bound is
+  // a count, not a timer: no reaper, no clock to be wrong about, and eviction happens on the only
+  // event that can grow the set. 200 released threads is weeks of owner traffic on this instance
+  // (the bridge journal shows single-digit asks a day), and the ONLY cost of evicting the oldest is
+  // that a reply to a months-old answered thread falls through as it did before this fix.
+  const RELEASED_KEEP = 200;
+  function markReleased(key, entry, outcome) {
+    askThreads.set(key, {
+      ...entry,
+      released: true,
+      releasedAt: Date.now(),
+      // What the later in-thread refusal quotes back: the outcome this bridge actually recorded.
+      outcome: outcome == null ? (entry.outcome == null ? null : String(entry.outcome)) : String(outcome),
+    });
+    const released = [];
+    for (const [k, v] of askThreads) if (v && v.released === true) released.push([k, v.releasedAt || 0]);
+    if (released.length <= RELEASED_KEEP) return;
+    released.sort((a, b) => a[1] - b[1]);
+    for (const [k] of released.slice(0, released.length - RELEASED_KEEP)) askThreads.delete(k);
+  }
+
+  // The in-thread refusal a later reply gets. It names the outcome ALREADY RECORDED, because
+  // "already answered" alone leaves the owner unable to tell whether the answer that landed was
+  // theirs — which is the same doubt that made them re-send in the first place.
+  function alreadyAnsweredNack(entry) {
+    const recorded = entry && entry.outcome ? `\`${entry.outcome}\`` : 'your earlier reply';
+    return `already answered — this ask was released by ${recorded} in this thread. Nothing was sent on. If you need to change it, ask the seat in its own channel.`;
+  }
 
   const askDoor = createAskThreads({
     outbox,
@@ -205,8 +245,29 @@ function createChatBridge({
       liveGoals: null,
       // [T3-R22] a `reject-and-pause`d approval thread was already released once. Later messages
       // in it are authorized and parsed by the same door but must NOT reap a second time.
-      reap: !(isApproval && entry.paused === true),
+      // ⚑ AND THE SAME NOW HOLDS FOR EVERY RELEASED THREAD (G-second-brain-43-0828-2119): the map
+      // keeps them, so this door sees their later replies, and a second reap here would be a
+      // second relaunch signal on a seat nobody re-asked — [T3-R22]'s failure, on every ask.
+      reap: entry.released !== true && !(isApproval && entry.paused === true),
     });
+
+    // ✅ THE LANDED-ANSWER ACK (G-second-brain-43-0828-2119, owner-ordered 2026-08-30).
+    //
+    // Stamped on the OWNER'S OWN message the moment their reply actually releases the ask —
+    // `released === true` is the exact condition the journal's `authorized reply RELEASED the ask`
+    // reports, so the marker and the log line can never disagree. Every §2.4 refusal returns
+    // `released: false` and therefore gets NOTHING: wrong thread and unauthorized are silent by
+    // ruling [§2.4.1/§2.4.2], unparsed already posted its own NACK, and a mechanical verb has the
+    // pause/resume door's own answer.
+    //
+    // ⚑ A DIFFERENT MARKER FROM ⏳, DELIBERATELY. ⏳ means "accepted, an agent will answer you"
+    // and is REMOVED when that answer lands; ✅ means "your answer landed" and is never removed.
+    // Reusing ⏳ here would tell the owner to keep waiting for a reply that is never coming, and
+    // would collide with the hourglass bookkeeping on the same conversation.
+    //
+    // Best-effort and fail-open like every other reaction on this bridge: it rides `queueReaction`,
+    // nothing awaits it, and a missing `reactions:write` scope costs one info line per run.
+    if (out && out.released === true) ackReleased(chatMsg._channel, chatMsg._msgTs);
 
     // A mechanical verb inside an ask thread is NOT an ask outcome (§4.2) — it goes to the
     // pause/resume door and the ask stays `open`. [C-14] an approval-thread `resume {goal}`
@@ -230,6 +291,29 @@ function createChatBridge({
       };
     }
 
+    // ── THE ALREADY-ANSWERED REFUSAL, BEFORE EVERY DISPATCH (G-second-brain-43-0828-2119) ──────
+    //
+    // The thread is still in the map ONLY so this line can run. The reply parsed and the sender is
+    // authorized — it is a real answer — but this ask was released already, so it is answered HERE
+    // and goes nowhere: no reap (the `reap: false` above saw to that), no approval dispatch, and
+    // above all no fall-through to the goal-channel forward path, which is what was buying a
+    // goal-master sitting on every re-send. One NACK per message, in the ask's own thread.
+    //
+    // ⚑ IT SITS BEFORE THE `kind` FORK ON PURPOSE. A second `approve` in a done approval thread
+    // would otherwise re-dispatch D12 — an execution started twice on one approval — which the
+    // old `delete` prevented only by making the thread unrecognizable.
+    if (entry.released === true && out && out.parsedOnly === true) {
+      const posted = await postSlack({
+        kind: 'nack', channel: chatMsg._channel, threadTs: entry.askId,
+        text: alreadyAnsweredNack(entry), goal_id: entry.goalId, ask_id: entry.askId,
+      });
+      log('info', 'reply in an ALREADY-RELEASED ask thread — refused in-thread, nothing reaped and nothing forwarded [G-second-brain-43-0828-2119]', {
+        goalId: entry.goalId, askId: entry.askId, recorded: entry.outcome || null,
+        outcome: out.outcome, delivered: posted && posted.delivered === true,
+      });
+      return { ...out, alreadyAnswered: true, nacked: true };
+    }
+
     // THE `kind` FORK [D-5-ruling, CF-7]. Only a genuine approval thread dispatches approval
     // outcomes; in every other thread the SAME token is an outcome delivered to the seat, and the
     // release above already did that.
@@ -240,16 +324,24 @@ function createChatBridge({
         parsed: { outcome: out.outcome, comments: out.comments, findings: out.findings },
       });
       const key = `${chatMsg._channel}:${chatMsg._threadTs}`;
-      if (dispatched.done === true) askThreads.delete(key);
+      // A DONE approval thread is MARKED released, not deleted — same reason as the ordinary leg
+      // below, and the refusal above is what its later replies now meet.
+      if (dispatched.done === true) markReleased(key, entry, out.outcome);
       else askThreads.set(key, { ...entry, paused: dispatched.paused === true });
       saveState();
       return { ...out, dispatched, approval: true };
     }
 
-    // The map entry is dropped only on an ACTUAL release. Every other outcome — wrong thread,
-    // unauthorized, unparsed, a mechanical verb — leaves the ask `open`, and an ask still open
-    // whose thread the bridge has forgotten is an ask that can never be answered.
-    if (out && out.released === true) { askThreads.delete(`${chatMsg._channel}:${chatMsg._threadTs}`); saveState(); }
+    // The entry is MARKED released on an ACTUAL release, never dropped. Every other outcome —
+    // wrong thread, unauthorized, unparsed, a mechanical verb — leaves the ask `open` and the
+    // entry untouched, because an ask still open whose thread the bridge has forgotten is an ask
+    // that can never be answered. And a released ask whose thread the bridge has forgotten is the
+    // owner's next message summoning a goal master (G-second-brain-43-0828-2119) — so neither
+    // state loses its thread now.
+    if (out && out.released === true) {
+      markReleased(`${chatMsg._channel}:${chatMsg._threadTs}`, entry, out.outcome);
+      saveState();
+    }
     return out;
   }
 
@@ -996,6 +1088,17 @@ function createChatBridge({
     queueReaction(() => transport.react({ channel, ts, name: HOURGLASS }));
   }
 
+  // ✅ THE LANDED-ANSWER ACK, the ask door's own marker (G-second-brain-43-0828-2119).
+  //
+  // Rides the SAME serialized chain as ⏳ — two reaction calls on one message must not race — but
+  // holds no state, because it has no removal: an ask released stays released. That is also why it
+  // needs no conversation key and no expiry, and why nothing about it goes in the state file.
+  const ASK_ACK = 'white_check_mark';
+  function ackReleased(channel, ts) {
+    if (!channel || !ts || typeof transport.react !== 'function') return;
+    queueReaction(() => transport.react({ channel, ts, name: ASK_ACK }));
+  }
+
   function clearPending(chatThreadId) {
     const at = hourglassAt.get(chatThreadId);
     if (!at) return;
@@ -1204,10 +1307,17 @@ function createChatBridge({
       if (v && typeof v === 'object' && v.askId && v.goalId && v.seat) {
         askThreads.set(String(k), {
           goalId: String(v.goalId), seat: String(v.seat), askId: String(v.askId), label: v.label || 'work-content',
-          // Additive, and both matter across a restart: without `kind` a restarted bridge would
-          // treat an approval thread as ordinary and a bare `approve` would never fire D12;
-          // without `paused` a [T3-R22] pause would silently reopen to every token.
+          // Additive, and all of them matter across a restart: without `kind` a restarted bridge
+          // would treat an approval thread as ordinary and a bare `approve` would never fire D12;
+          // without `paused` a [T3-R22] pause would silently reopen to every token; without
+          // `released` a restart would re-open every answered thread to the fall-through that
+          // summons a goal master (G-second-brain-43-0828-2119). A file written before `released`
+          // existed simply has none of the three last keys and restores to the old behaviour —
+          // `released: false` — so no migration is needed and none is performed.
           kind: v.kind || 'ordinary', commitId: v.commitId == null ? null : String(v.commitId), paused: v.paused === true,
+          released: v.released === true,
+          releasedAt: typeof v.releasedAt === 'number' ? v.releasedAt : null,
+          outcome: v.outcome == null ? null : String(v.outcome),
         });
       }
     }

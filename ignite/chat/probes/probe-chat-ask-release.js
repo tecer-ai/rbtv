@@ -253,6 +253,13 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
 
     const posted = [];
     const updated = [];
+    const reactions = [];
+    const unreactions = [];
+    // The reaction chain is a promise chain nothing on the handling path awaits (fail-open, by
+    // construction), so an assertion made in the same tick would read an empty array and pass for
+    // the wrong reason. Every reaction claim below is made AFTER this flush.
+    const settleReactions = () => new Promise((r) => setTimeout(r, 5));
+    const acksOn = (ts) => reactions.filter((r) => r.ts === ts && r.name === 'white_check_mark');
     let nextTs = 100;
     let nextChan = 1;
     const chans = [];
@@ -279,6 +286,11 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       // The one transport call the ask door REQUIRES — the §3 lead line is stamped by rewriting
       // the message Slack just minted an id for.
       async updateMessage(u) { updated.push(u); const t = posted.find((q) => q.ts === u.ts); if (t) t.text = u.text; return { updated: true }; },
+      // The reaction transport (G-second-brain-43-0828-2119). Every call is RECORDED WITH ITS
+      // NAME, never counted: ⏳ and ✅ ride the same chain, so a probe that only counted calls
+      // could not tell the landed-answer ack apart from the pending marker a fall-through stamps.
+      async react({ channel, ts, name }) { reactions.push({ channel, ts, name }); return { reacted: true }; },
+      async unreact({ channel, ts, name }) { unreactions.push({ channel, ts, name }); return { reacted: true }; },
       async start() { return { connected: true }; },
       stop() {},
     };
@@ -351,11 +363,13 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       chatUserId: STRANGER, chatThreadId: `${reg.channelId}:${askId}`, text: 'a) yes',
       _channel: reg.channelId, _threadTs: askId, _msgTs: '101.1', _inThread: true, _channelType: 'channel',
     });
-    check('E3 §2.4.2: the RIGHT thread with an UNAUTHORIZED sender is handled AT the ask door and released NOTHING — no reap, no NACK posted, and it never fell through to a session-create',
+    await settleReactions();
+    check('E3 §2.4.2: the RIGHT thread with an UNAUTHORIZED sender is handled AT the ask door and released NOTHING — no reap, no NACK posted, NO ✅ ack, and it never fell through to a session-create',
       stranger.leg === 'ask-release' && stranger.released === false && stranger.reason === 'unauthorized'
       && posted.length === postsBeforeStranger && forwarder.askOps().join(',') === 'open'
+      && acksOn('101.1').length === 0
       && forwarded.every((f) => f.intent === 'record-owner-ask'),
-      { reason: stranger.reason, posts: posted.length - postsBeforeStranger, intents: forwarded.map((f) => f.intent) });
+      { reason: stranger.reason, posts: posted.length - postsBeforeStranger, acks: acksOn('101.1').length, intents: forwarded.map((f) => f.intent) });
 
     // E4 — an UNPARSED first token: the verbatim §4.5 NACK, in the SAME thread, ask still open.
     const nackBefore = posted.length;
@@ -364,11 +378,13 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       _channel: reg.channelId, _threadTs: askId, _msgTs: '102.1', _inThread: true, _channelType: 'channel',
     });
     const nackPost = posted[nackBefore];
-    check('E4 §2.4.3: an UNRECOGNIZED first token posts the verbatim NACK IN THE ASK THREAD through the outbox and the ask stays OPEN',
+    await settleReactions();
+    check('E4 §2.4.3: an UNRECOGNIZED first token posts the verbatim NACK IN THE ASK THREAD through the outbox, the ask stays OPEN, and NO ✅ ack is stamped — a refusal is not a landed answer',
       garbled.released === false && garbled.reason === 'unparsed' && posted.length === nackBefore + 1
       && nackPost.channel === reg.channelId && nackPost.threadTs === askId && nackPost.text === NACK_ASK
-      && forwarder.askOps().join(',') === 'open',
-      { threadTs: nackPost && nackPost.threadTs, ops: forwarder.askOps() });
+      && forwarder.askOps().join(',') === 'open'
+      && acksOn('102.1').length === 0,
+      { threadTs: nackPost && nackPost.threadTs, ops: forwarder.askOps(), acks: acksOn('102.1').length });
 
     // E5 — the release itself, through the bridge: reap exactly once, reply on disk.
     const released = await bridge.onChatMessage({
@@ -376,27 +392,65 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       _channel: reg.channelId, _threadTs: askId, _msgTs: '103.1', _inThread: true, _channelType: 'channel',
     });
     const dest = replyCopyPath(eRoot, E_GOAL, askId);
+    await settleReactions();
     check('E5 §2.4.4/§2.4.5 END TO END: the authorized reply in the exact thread RELEASES through the bridge — reap fires EXACTLY once and the reply is on disk for the relaunched seat',
       released.leg === 'ask-release' && released.released === true && released.outcome === 'b'
       && forwarder.askOps().join(',') === 'open,reap'
       && fs.existsSync(dest) && fs.readFileSync(dest, 'utf8').includes('the project folder'),
       { ops: forwarder.askOps(), outcome: released.outcome, dest });
 
-    // E6 — RE-ASK IS FREE [§2.4.5, C-11] and lands in a FRESH thread, and the released thread is
-    // no longer an ask door: a second answer in it releases nothing twice.
+    // E5a — THE LANDED-ANSWER ACK [G-second-brain-43-0828-2119]. The owner's own message carries
+    // exactly one ✅, and it is NOT the ⏳ pending marker: the release leg forwards nothing, so a
+    // ⏳ on it would promise an answer that is never coming.
+    check('E5a [G-second-brain-43-0828-2119]: the released reply gets EXACTLY ONE ✅ reaction, on the OWNER\'S OWN message ts, in the ask\'s channel — and no ⏳ anywhere on the ask-release leg',
+      acksOn('103.1').length === 1
+      && acksOn('103.1')[0].channel === reg.channelId
+      && reactions.filter((r) => r.name === 'hourglass_flowing_sand' && r.ts === '103.1').length === 0,
+      { acks: acksOn('103.1'), allReactions: reactions.map((r) => `${r.name}@${r.ts}`) });
+
+    // E6 — RE-ASK IS FREE [§2.4.5, C-11] and lands in a FRESH thread; and the RELEASED thread stays
+    // an ask door that now REFUSES [G-second-brain-43-0828-2119].
+    //
+    // ⚑ THIS ARM'S SECOND HALF WAS INVERTED ON 2026-08-30, and the inversion is the fix. It used
+    // to assert `again.leg !== 'ask-release'` — the released thread was DELETED from the map, so
+    // the owner's next message in it was not recognized as an ask reply at all. That is precisely
+    // the defect: with no ✅ on the release the owner re-sends, the re-send misses this door, falls
+    // through to the goal-channel forward path, and buys a goal-master sitting that reads a bare
+    // `a` as a check-in (3× on 2026-08-28, one of them joining a planning roster as a paneless
+    // owner door). "Reaps nothing" was true then and is still asserted; what changed is WHERE the
+    // message is answered — in its own thread, by this door, instead of out in the channel.
     fs.appendFileSync(busFile, row(3, E_SEAT, 'owner', 'ask', 'and the filename?'));
     await bridge.busFerry.tick();
     const second = posted[posted.length - 1];
+    const beforeAgain = posted.length;
+    const forwardedBeforeAgain = forwarded.length;
     const again = await bridge.onChatMessage({
       chatUserId: OWNER, chatThreadId: `${reg.channelId}:${askId}`, text: 'a) yes',
       _channel: reg.channelId, _threadTs: askId, _msgTs: '104.1', _inThread: true, _channelType: 'channel',
     });
-    check('E6 [C-11]: the re-ask opens a FRESH thread with its own id and its own record, and the RELEASED thread has stopped being an ask door — a second answer in it reaps nothing',
+    const againNack = posted[beforeAgain];
+    await settleReactions();
+    check('E6 [C-11]: the re-ask opens a FRESH thread with its own id and its own record',
       second.threadTs === null && second.ts !== askId
-      && second.text.startsWith(`${MARKER_ASK} ${displaySuffix(second.ts)} · ${E_SEAT} · work-content`)
-      && forwarder.askOps().join(',') === 'open,reap,open'
-      && again.leg !== 'ask-release',
-      { ops: forwarder.askOps(), secondHead: second.text.split('\n')[0], againLeg: again.leg });
+      && second.text.startsWith(`${MARKER_ASK} ${displaySuffix(second.ts)} · ${E_SEAT} · work-content`),
+      { secondHead: second.text.split('\n')[0] });
+    check('E6a [G-second-brain-43-0828-2119]: a SECOND authorized reply in the RELEASED thread is still handled at the ask door — `leg: ask-release`, refused as already-answered, and NOTHING was reaped a second time',
+      again.leg === 'ask-release' && again.alreadyAnswered === true && again.released === false
+      && again.reason === 'no-reap'
+      && forwarder.askOps().join(',') === 'open,reap,open',
+      { leg: again.leg, reason: again.reason, alreadyAnswered: again.alreadyAnswered, ops: forwarder.askOps() });
+    check('E6b [G-second-brain-43-0828-2119]: it is answered by EXACTLY ONE in-thread NACK naming the outcome already recorded — and nothing was forwarded, enqueued or session-created for it',
+      posted.length === beforeAgain + 1
+      && againNack.channel === reg.channelId && againNack.threadTs === askId
+      && /already answered/.test(againNack.text) && againNack.text.includes('`b`')
+      && again.forwarded === false
+      && forwarded.length === forwardedBeforeAgain
+      && forwarded.every((f) => f.intent === 'record-owner-ask'),
+      { posts: posted.length - beforeAgain, nack: againNack && againNack.text, newIntents: forwarded.length - forwardedBeforeAgain });
+    check('E6c: the second reply gets NO second ✅ and no ⏳ — the ack belongs to the reply that actually released, and nothing is pending for a message that goes nowhere',
+      acksOn('104.1').length === 0
+      && reactions.filter((r) => r.ts === '104.1').length === 0,
+      { reactionsOn104: reactions.filter((r) => r.ts === '104.1') });
 
     // E7 — [T2-R14] AT THE WIRED DOOR. A seat that declares nothing is REFUSED at send: no ❓
     // thread, no record, and — the ruling's point — the row does NOT reach the owner by some
@@ -437,10 +491,29 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       _channel: reg.channelId, _threadTs: openThreadTs, _msgTs: '105.1', _inThread: true, _channelType: 'channel',
     });
     check('E8: the ask-thread map is PERSISTED (version 1, additive) and restored — the owner\'s answer AFTER A RESTART still releases the ask it belongs to',
-      doc.version === 1 && doc.askThreads && Object.keys(doc.askThreads).length === 1
+      doc.version === 1 && doc.askThreads && Object.keys(doc.askThreads).length === 2
       && afterRestart.leg === 'ask-release' && afterRestart.released === true
       && forwarder.askOps().join(',') === 'open,reap,open,reap',
       { version: doc.version, persisted: doc.askThreads && Object.keys(doc.askThreads), ops: forwarder.askOps() });
+
+    // E8a — THE RELEASED MARKER MAKES THE ROUND TRIP [G-second-brain-43-0828-2119]. The state
+    // loader whitelists the fields it restores, so a marker written but not read would be lost at
+    // the exact moment it matters most: the bridge is a systemd unit with Restart=on-failure, and
+    // a restart between the owner's answer and their re-send is the ordinary case, not the exotic
+    // one. Asserted on disk AND through the restored bridge's behaviour.
+    const releasedKey = `${reg.channelId}:${askId}`;
+    const onDisk = doc.askThreads[releasedKey];
+    const afterRestartAgain = await rebuilt.bridge.onChatMessage({
+      chatUserId: OWNER, chatThreadId: releasedKey, text: 'a) yes again',
+      _channel: reg.channelId, _threadTs: askId, _msgTs: '106.1', _inThread: true, _channelType: 'channel',
+    });
+    check('E8a [G-second-brain-43-0828-2119]: the RELEASED entry survives the state round trip carrying its marker and its recorded outcome, and the restarted bridge still refuses a reply in that thread in-thread — never forwarding it',
+      Boolean(onDisk) && onDisk.released === true && onDisk.outcome === 'b'
+      && typeof onDisk.releasedAt === 'number'
+      && afterRestartAgain.leg === 'ask-release' && afterRestartAgain.alreadyAnswered === true
+      && afterRestartAgain.forwarded === false
+      && forwarder.askOps().join(',') === 'open,reap,open,reap',
+      { onDisk, leg: afterRestartAgain.leg, ops: forwarder.askOps() });
     rebuilt.bridge.stop();
   }
 

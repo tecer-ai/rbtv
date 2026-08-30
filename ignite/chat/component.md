@@ -56,7 +56,32 @@ Probe: `probes/probe-chat-ask-release.js`.
 **How it is reached in production.** `chat-bridge.js` constructs the module and
 holds the one map it needs: `askThreads`, `<channel>:<threadTs>` → the ask's goal,
 seat and id, persisted additively in the bridge state file (`STATE_VERSION`
-unchanged). No ask STATE lives there — state is `open_asks`, daemon-side.
+unchanged). The ask's own STATE lives in `open_asks`, daemon-side; what the map
+carries are the bridge's facts about the THREAD — `kind` (which dispatch a parsed
+token takes), `paused` (a reject-and-paused approval) and `released` (this bridge
+already released this thread's ask).
+
+**A released thread is MARKED, never deleted** [G-second-brain-43-0828-2119,
+owner-ordered 2026-08-30]. Deleting it made the owner's next message in that thread
+unrecognizable, so it fell through to the goal-channel forward path and summoned a
+goal-master sitting that read a bare `a` as a check-in (3× on 2026-08-28). A later
+authorized, parsed reply in a released thread is refused IN the thread — `already
+answered`, naming the outcome recorded — with no reap, no approval dispatch and no
+forward. Bound on the map's growth: a count, not a timer. At most `RELEASED_KEEP`
+(200) released entries are kept and the oldest by `releasedAt` are evicted when a
+new one is marked; evicting one only restores the pre-fix fall-through for a reply
+to a months-old answered thread. An entry written before `released` existed has none
+of these keys, loads as `released: false`, and behaves exactly as it did — the state
+file needs no migration.
+
+**The ✅ landed-answer ack.** When a reply actually releases an ask
+(`released === true`, the same condition the journal's `authorized reply RELEASED
+the ask` line reports), the bridge stamps `white_check_mark` on the owner's own
+message through `transport.react`. It is deliberately NOT the ⏳ pending marker: ⏳
+means "accepted, an agent will answer you" and is removed when that answer lands,
+while ✅ means "your answer landed" and is never removed. Every §2.4 refusal gets no
+ack — each already has its own visible outcome or is silent by ruling. Best-effort
+on the shared reaction chain, like every other reaction here.
 
 Outbound: the bus ferry posts every `to: owner` row through the bridge's
 `postOwnerAsk`, which resolves the goal's channel and calls `postAsk`. The three
@@ -78,8 +103,9 @@ key only — no body sigil, so digest text can never open the door. Arm 11 of
 
 Inbound: `onChatMessage` checks `askThreads` BEFORE every other leg. A message in
 an ask's thread is handled at the release door and does not fall through — a
-fall-through would mint a sitting on an unauthorized remark and answer an
-authorized one twice.
+fall-through would mint a sitting on an unauthorized remark, answer an authorized
+one twice, and (on a thread already released) buy a goal-master sitting for a
+re-send.
 
 ## approval-thread
 

@@ -176,11 +176,20 @@ const harnessWith = (ports) => harness(ports);
       && Number(sent.opts && sent.opts.timeoutMs) > 10000,
       { payload: sent.payload, opts: sent.opts });
 
-    // B3. The thread is finished, so the bridge forgets it — a second `approve` cannot re-fire.
+    // B3. The thread is finished, so a second `approve` cannot re-fire D12.
+    //
+    // ⚑ HOW that is achieved changed on 2026-08-30 [G-second-brain-43-0828-2119], and the claim
+    // this arm exists for did not. It used to be achieved by FORGETTING the thread: the entry was
+    // deleted, so the second `approve` was not recognized as an ask reply at all — and therefore
+    // fell through to the goal-channel forward path, which is what was buying an unasked-for
+    // goal-master sitting on every owner re-send. It is now achieved by REMEMBERING the thread and
+    // refusing in it. `materialize.length === 1` is the safety property and is unchanged; what is
+    // asserted additionally is that the refusal happens AT the ask door and stays in the thread.
     const b3 = await h.reply(reg.channelId, approval.askId, 'approve');
-    check('B3: the approval thread is CLOSED after materialize — a repeated `approve` in it cannot fire D12 a second time',
-      h.calls.materialize.length === 1 && b3.leg !== 'ask-release',
-      { materializeCalls: h.calls.materialize.length, leg: b3.leg });
+    check('B3: the approval thread is CLOSED after materialize — a repeated `approve` in it cannot fire D12 a second time, and it is refused IN THE THREAD rather than falling through to the goal channel',
+      h.calls.materialize.length === 1
+      && b3.leg === 'ask-release' && b3.alreadyAnswered === true && b3.forwarded === false,
+      { materializeCalls: h.calls.materialize.length, leg: b3.leg, alreadyAnswered: b3.alreadyAnswered });
     h.bridge.stop();
   }
 
@@ -259,9 +268,15 @@ const harnessWith = (ports) => harness(ports);
     const b = await h.bridge.postOwnerAsk({ goalId: GOAL, seatName: SEAT, kind: 'approval', commitId: COMMIT, body: composeApprovalBody({ goalName: GOAL, digest: 'd', commitId: COMMIT }) });
     await h.reply(reg.channelId, b.askId, 'reject-and-pause');
     const k3 = await h.reply(reg.channelId, b.askId, 'close');
-    check('D4: KEY `close` exits the pause and ends the thread',
+    // ⚑ "ENDS THE THREAD" IS NOW A MARK, NOT A DELETION [G-second-brain-43-0828-2119]. The entry
+    // stays in the map carrying `released: true` — it is what makes a later reply in this dead
+    // thread answerable in-thread instead of falling through to the goal channel. The claim is
+    // still that the thread is over and no longer paused, and both halves are asserted.
+    const d4entry = h.bridge._askThreads.get(`${reg.channelId}:${b.askId}`);
+    check('D4: KEY `close` exits the pause and ends the thread — the entry is MARKED released (not forgotten), so a later reply in it can still be refused in-thread',
       k3.dispatched.action === 'close' && k3.dispatched.done === true
-      && !h.bridge._askThreads.has(`${reg.channelId}:${b.askId}`), { d: k3.dispatched });
+      && Boolean(d4entry) && d4entry.released === true && d4entry.outcome === 'close',
+      { d: k3.dispatched, entry: d4entry });
 
     // KEY 2 — `approve`, on a paused thread, still fires D12.
     const c = await h.bridge.postOwnerAsk({ goalId: GOAL, seatName: SEAT, kind: 'approval', commitId: COMMIT, body: composeApprovalBody({ goalName: GOAL, digest: 'd', commitId: COMMIT }) });

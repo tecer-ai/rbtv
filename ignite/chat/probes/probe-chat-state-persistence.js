@@ -196,6 +196,59 @@ async function main() {
 
   // 2 — THE CONTROL. The SAME restart with NO state file refuses the same reply. Without
   //     this, check 1 could pass for a reason that has nothing to do with the file.
+
+  // 1b — THE ASK-THREAD MAP ACROSS A RESTART, BOTH SHAPES AT ONCE
+  //      [G-second-brain-43-0828-2119].
+  //
+  //      The loader whitelists the fields it restores, so a key the writer emits and the reader
+  //      drops is lost silently and only at a restart. Two entries are seeded on purpose:
+  //
+  //        • an OLD-SHAPE entry, exactly as a pre-`released` bridge wrote it — no `released`, no
+  //          `releasedAt`, no `outcome`. THIS IS THE MIGRATION QUESTION, asked as a check: the
+  //          deployed bridge's live state file on this box holds entries of this shape, and they
+  //          must load unchanged and stay answerable. Nothing migrates them and nothing may.
+  //        • a RELEASED entry, which must come back marked, or a restart silently re-opens every
+  //          answered thread to the goal-channel fall-through that summons a goal master.
+  {
+    const stateFile = path.join(stateDir, 'run1b', 'chat-state.json');
+    const daemon = makeFakeForwarder();
+    const a = makeBridge({ stateFile, forwarder: daemon });
+    await a.bridge.start();
+    a.bridge._askThreads.set('C_GOAL:10.1', {
+      goalId: 'g1', seat: 'writer', askId: '10.1', label: 'work-content', kind: 'ordinary', commitId: null, paused: false,
+    });
+    a.bridge._askThreads.set('C_GOAL:11.1', {
+      goalId: 'g1', seat: 'writer', askId: '11.1', label: 'work-content', kind: 'ordinary', commitId: null, paused: false,
+      released: true, releasedAt: 1756500000000, outcome: 'b',
+    });
+    // Any mutation persists the whole document — a mention is the cheapest one this fixture has.
+    await a.bridge.onChatMessage(msg({ channel: 'C_RANDOM', ts: '9.1', channelType: 'channel', text: `<@${BOT}> start` }));
+    a.bridge.stop();
+
+    const doc = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    check('the ask-thread map rides the state file with its released marker and recorded outcome',
+      doc.version === 1
+      && doc.askThreads['C_GOAL:11.1'].released === true
+      && doc.askThreads['C_GOAL:11.1'].outcome === 'b'
+      && doc.askThreads['C_GOAL:11.1'].releasedAt === 1756500000000
+      && doc.askThreads['C_GOAL:10.1'].released === undefined,
+      { askThreads: doc.askThreads });
+
+    const b = makeBridge({ stateFile, forwarder: daemon });
+    await b.bridge.start();
+    const oldShape = b.bridge._askThreads.get('C_GOAL:10.1');
+    const marked = b.bridge._askThreads.get('C_GOAL:11.1');
+    check('an entry written by the PRE-`released` bridge loads UNCHANGED and unreleased — no migration, no state file rewrite needed for the deploy',
+      Boolean(oldShape) && oldShape.goalId === 'g1' && oldShape.seat === 'writer' && oldShape.askId === '10.1'
+      && oldShape.kind === 'ordinary' && oldShape.paused === false
+      && oldShape.released === false && oldShape.outcome === null && oldShape.releasedAt === null,
+      { oldShape });
+    check('a RELEASED entry survives the round trip with its marker, its stamp and its outcome — a restart does not re-open an answered thread',
+      Boolean(marked) && marked.released === true && marked.outcome === 'b' && marked.releasedAt === 1756500000000,
+      { marked });
+    b.bridge.stop();
+  }
+
   {
     const daemon = makeFakeForwarder(); // identical to case 1 in every way EXCEPT the state file
     const a = makeBridge({ stateFile: null, forwarder: daemon });
