@@ -1,6 +1,45 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { bindEnding, endingOf, goalNameOf } = require('./ending-reads');
+
+// -- THE CHAIR'S READ CURSOR - workers.md's `lastread` column ------------------------------------
+//
+// WHAT WAS BROKEN. `checkinOf` marked WHEN THE CHAIR ARRIVED, not what it read, at MINUTE
+// granularity (`sessions.csv`'s `checkin` column). Check-in and `coordinate read` land in the same
+// daemon-lane sitting, seconds apart - so a message stamped in that same minute read as "after
+// check-in" and was filed READ FOREVER, even when the sitting died before ever calling `read`.
+// Merely checking in discharged the wake; nothing verified the mail was shown, let alone acted on.
+//
+// THE CURSOR IS THE ONE FACT THAT SAYS SO. `coordinate read` (coord/records.py `cmd_read` +
+// `persist_cursor`) advances the chair's OWN roster row - `workers.md`'s `lastread` cell - past the
+// LAST MESSAGE IT WAS ACTUALLY SHOWN, and by nothing else: `coordinate checkin` never touches it.
+// Comparing a message's own number against that cursor is exact (an integer either is or is not
+// past another integer) where a minute-stamp comparison could only ever be approximate - and it is
+// resolution the checkin timestamp cannot manufacture, because checking in and reading are two
+// different acts the old comparison conflated into one.
+//
+// A chair with no roster row, an unreadable file, or a blank/non-numeric cursor is owed ALL its
+// mail - the same "no evidence of a read yet" default `checkinOf` used for a chair with no session.
+const WORKER_ROW = /^\|\s*([^|]+?)\s*\|\s*(?:yes|no)\s*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|\s*([^|]*?)\s*\|$/;
+
+function workersPath(goalFolder) {
+  const coord = path.join(goalFolder, 'coordination', 'workers.md');
+  if (fs.existsSync(coord)) return coord;
+  return path.join(goalFolder, 'workers.md');
+}
+
+function readCursor(goalFolder, chair) {
+  let text;
+  try { text = fs.readFileSync(workersPath(goalFolder), 'utf8'); } catch { return null; }
+  for (const line of text.split('\n')) {
+    const m = line.match(WORKER_ROW);
+    if (!m || m[1] !== chair) continue;
+    return /^\d+$/.test(m[2]) ? Number(m[2]) : null;
+  }
+  return null;
+}
 
 function classifyEnding(row) {
   if (!row || !row.ending) return null;
@@ -71,6 +110,11 @@ function classifyOwed(goalFolder, {
   loadMessages,
   lastBySeat,
   liveSeatsFromLedgers,
+  // ⚠ `checkinOf`/`tsAfter` are UNUSED by this function's own body now (class B reads the chair's
+  // read cursor below, never the checkin timestamp) but MUST STAY IN THE DESTRUCTURE: reconcile
+  // .selftest.js's F-1 red-mutation splices a line calling `tsAfter(...)` verbatim into this
+  // function's own source and re-compiles it, relying on `tsAfter` resolving through THIS closure.
+  // Dropping either name here is invisible to every other test and breaks only that mutant.
   checkinOf,
   tsAfter,
   STAFF_CHAIRS,
@@ -137,10 +181,10 @@ function classifyOwed(goalFolder, {
     if (dead.has(chair)) continue;
     if (summonedSet.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
-    const since = checkinOf(last.get(chair));
+    const cursor = readCursor(goalFolder, chair);
     const unread = messages.filter((m) => m.to === chair && m.sender !== chair
       && m.sender !== SYSTEM_MAIL_SENDER
-      && (!since || tsAfter(m.ts, since)));
+      && (cursor === null || m.num > cursor));
     if (!unread.length) continue;
     classB.push({
       seat: chair,
@@ -173,5 +217,5 @@ function classifyOwed(goalFolder, {
 }
 
 module.exports = {
-  classifyEnding, classifyOwed, endingsForSeats, heldSeats,
+  classifyEnding, classifyOwed, endingsForSeats, heldSeats, readCursor, workersPath,
 };

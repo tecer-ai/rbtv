@@ -38,7 +38,9 @@
 // here decides that a seat has stalled and should die (spec-recovery owns that). The only process
 // this file may signal is one whose sitting has ALREADY declared its ending.
 
+const path = require('node:path');
 const { isAliveProcess, loadRegistry, dropRow, keyOf } = require('./registry');
+const { readCsv } = require('../runtime/seat-identity/csv');
 
 // -- PROVIDER-SHAPED EVIDENCE -------------------------------------------------------------------
 //
@@ -67,6 +69,63 @@ function providerShaped(text) {
   if (!text) return false;
   const hay = String(text).toLowerCase();
   return PROVIDER_MARKERS.some((m) => hay.includes(m));
+}
+
+// -- WHICH SITTING A DECLARED ENDING BELONGS TO -------------------------------------------------
+//
+// `seat_endings` is keyed `(goal, seat)` [spec-state-store schema: goal, seat, ending, armed,
+// reason_class, who_stamped, evidence_pointer, diagnostic, named_event, stamped_at, ...] - NO
+// session column, ever, for a `done`/`incomplete` row: `stamp_seat_declare` (coord/checkout.py)
+// writes an `evidence_pointer` that is a declared-output PATH or the literal `checkout:<seat>`,
+// never a session id. So "does this declared ending belong to the sitting dying RIGHT NOW" cannot
+// be read off the row directly - there is nothing on it to compare a session against.
+//
+// `sessions.csv` is the FALLBACK SOURCE of the dying sitting's own identity: `evidence.session` is
+// the id the closer wrote at spawn (`spawn.js`'s at-dispatch record, `coord/records.py`
+// SESSIONS_COLS), and that row's `started` column is the one fact this file can trust as "when
+// THIS sitting began" - it is written once, by the sitting's own spawn, under a name coord's
+// checkout path never touches. A declared ending STAMPED BEFORE that sitting started cannot be
+// its own declaration: it is a stale row an EARLIER sitting of the same seat left behind, and the
+// stamp table's first two rows (§ above) were never meant to cover that case.
+//
+// Both facts are OPTIONAL. No `evidence.session` (the tmux-lane closer does not pass one today),
+// no `RBTV_IGNITE_WORKSPACE_ROOT` (set on the daemon's own unit, inherited by every closer it
+// spawns - `runtime/index.js` reads the same variable), no readable `sessions.csv`, or no row for
+// that session: any of these leaves this function unable to prove staleness, and the guard falls
+// back to today's behaviour (the declaration stands) rather than inventing one from partial data.
+function goalFolderOf(goal) {
+  const root = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  if (!root || !goal) return null;
+  return path.join(root, '.rbtv', 'goals', String(goal));
+}
+
+function sittingStartedAt(evidence) {
+  const session = evidence && evidence.session;
+  const goalFolder = goalFolderOf(evidence && evidence.goal);
+  if (!session || !goalFolder) return null;
+  const candidates = [
+    path.join(goalFolder, 'coordination', 'sessions.csv'),
+    path.join(goalFolder, 'sessions.csv'),
+  ];
+  for (const file of candidates) {
+    const { exists, rows } = readCsv(file);
+    if (!exists) continue;
+    const row = rows.find((r) => (r['session-id'] || '').trim() === String(session));
+    if (row) return (row.started || '').trim() || null;
+  }
+  return null;
+}
+
+// A declared ending is stale for THIS sitting only when both timestamps parse and the ending
+// predates the sitting's own start. An unparseable or missing side is "cannot prove it", never
+// "assume stale" - the whole point of a fallback comparison is that it only fires on real evidence.
+function declaredEndingIsStale(current, evidence) {
+  const started = sittingStartedAt(evidence);
+  if (!started || !current || !current.stamped_at) return false;
+  const startedMs = Date.parse(started);
+  const stampedMs = Date.parse(current.stamped_at);
+  if (Number.isNaN(startedMs) || Number.isNaN(stampedMs)) return false;
+  return stampedMs < startedMs;
 }
 
 // -- THE EVIDENCE POINTER - mandatory, and the store refuses an empty one -----------------------
@@ -183,9 +242,15 @@ function stampDeath(evidence, deps = {}) {
   const current = store.getCurrentEnding({ goal, seat }) || null;
   const declared = current && current.ending;
 
-  // ROW 1 and ROW 2 - a checkout is present, so the seat already spoke. Nothing is stamped and no
-  // `failed` is invented on top of a declaration; what is owed is the reap.
-  if (declared === 'done' || declared === 'incomplete') {
+  // ROW 1 and ROW 2 - a checkout is present, so THE SITTING DYING NOW already spoke. Nothing is
+  // stamped and no `failed` is invented on top of a declaration; what is owed is the reap.
+  //
+  // ⚠ THIS IS UNSOUND FOR A LATER SITTING OF THE SAME SEAT (the cause `declaredEndingIsStale`
+  // exists to close): `(goal, seat)` has no session in it, so a sitting that declared nothing and
+  // died on its own (a provider 429, a crash) inherited whatever an EARLIER sitting of the same
+  // seat last declared. `declaredEndingIsStale` is the one place that checks whether the row could
+  // possibly be this sitting's own before trusting it.
+  if ((declared === 'done' || declared === 'incomplete') && !declaredEndingIsStale(current, evidence)) {
     const reap = confirmAndReap(evidence, reapOpts);
     return {
       act: declared === 'done' ? 'confirm-and-reap' : 'declared-ending-stands',
@@ -217,6 +282,12 @@ function stampDeath(evidence, deps = {}) {
     transcriptTail: checkedIn ? evidence.transcriptTail : (evidence.transcriptTail || ''),
     detail,
   });
+  // `replace: true` is a no-op when no ending row exists yet (ROWS 3-5's ordinary case: `current`
+  // is null, `writeEnding`'s write-once guard never fires either way) and is REQUIRED the one case
+  // it is not - a stale `done`/`incomplete` from an earlier sitting that `declaredEndingIsStale`
+  // just proved is not this sitting's own. Without it the store's write-once guard (spec-state-store
+  // §1: one ending per (goal, seat) unless the caller says replace) throws `E_WRITE_ONCE` on exactly
+  // the row this fix exists to get past.
   const stamped = store.stampSystem({
     goal,
     seat,
@@ -224,6 +295,7 @@ function stampDeath(evidence, deps = {}) {
     reason_class: reasonClass,
     evidence_pointer: pointer,
     diagnostic: checkedIn ? `${reasonClass} after check-in` : `${reasonClass} before check-in`,
+    replace: true,
   });
   const reap = confirmAndReap(evidence, reapOpts);
   return {
@@ -240,6 +312,9 @@ function stampDeath(evidence, deps = {}) {
 
 module.exports = {
   PROVIDER_MARKERS,
+  goalFolderOf,
+  sittingStartedAt,
+  declaredEndingIsStale,
   REAP_CONFIRM_BUDGET_MS,
   waitGone,
   providerShaped,

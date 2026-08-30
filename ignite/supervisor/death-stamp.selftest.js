@@ -20,7 +20,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 
-const { stampDeath, confirmAndReap, providerShaped } = require('./death-stamp');
+const {
+  stampDeath, confirmAndReap, providerShaped, declaredEndingIsStale,
+} = require('./death-stamp');
 const { recordSpawn, loadRegistry, isAliveProcess } = require('./registry');
 const { openHeartStore, closeHeartStore } = require('../state-store/heart/heart-store');
 const endingStore = require('../state-store');
@@ -257,6 +259,184 @@ function caseKitDoor(done) {
   });
 }
 
+// -- (g)/(h)/(i) DEFECT A — A STALE `done` FROM AN EARLIER SITTING MUST NOT SWALLOW A LATER
+// SITTING'S PROVIDER DEATH [the `stools-canvas-audio-elevenlabs-close` incident, 2026-08-28] -----
+//
+// The store's own key is `(goal, seat)`, never `(goal, seat, session)` - `seat_endings` has no
+// session column at all (§1 schema: goal, seat, ending, ..., stamped_at). `sessions.csv`'s
+// `started` column is the fallback source of a sitting's own identity, and `stampDeath` now reads
+// it through `RBTV_IGNITE_WORKSPACE_ROOT` - the same env var the daemon's own unit sets and every
+// closer it spawns inherits (`runtime/index.js` reads the identical name).
+function writeSessionsCsv(goalFolder, rows) {
+  const dir = path.join(goalFolder, 'coordination');
+  fs.mkdirSync(dir, { recursive: true });
+  const header = 'session-id,seat,started';
+  const lines = rows.map((r) => `${r.session},${r.seat},${r.started}`);
+  fs.writeFileSync(path.join(dir, 'sessions.csv'), `${header}\n${lines.join('\n')}\n`, 'utf8');
+}
+
+function withWorkspaceRoot(root, fn) {
+  const prev = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  process.env.RBTV_IGNITE_WORKSPACE_ROOT = root;
+  try { return fn(); } finally {
+    if (prev === undefined) delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+    else process.env.RBTV_IGNITE_WORKSPACE_ROOT = prev;
+  }
+}
+
+// -- (g) THE LIVE INCIDENT, REPRODUCED OFFLINE — a stale `done` is overridden by the 429 --------
+function caseStaleDoneOverriddenByProvider(done) {
+  const store = freshStore();
+  const file = regFile();
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-'));
+  const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'stools-canvas-audio-elevenlabs-close');
+  fs.mkdirSync(goalFolder, { recursive: true });
+  // Sitting 9 checked out `done` at 22:10:11 (an EARLIER sitting of the same seat).
+  const outFile = path.join(tmpRoot, 'iota-declared.txt');
+  fs.writeFileSync(outFile, 'work', 'utf8');
+  store.api.stampSeatDeclare({
+    goal: 'stools-canvas-audio-elevenlabs-close', seat: 'leader', ending: 'done',
+    declared_outputs: [outFile], evidence_pointer: outFile,
+    stamped_at: '2026-08-28T22:10:11.000Z',
+  });
+  // Sitting 10 is a LATER sitting of the SAME seat: sessions.csv names it and its own start,
+  // AFTER the stale `done` above.
+  writeSessionsCsv(goalFolder, [
+    { session: 'b6731ba8-sitting10', seat: 'leader', started: '2026-08-28T22:17:39Z' },
+  ]);
+  deadPid((pid) => {
+    try {
+      recordSpawn({ goal: 'stools-canvas-audio-elevenlabs-close', seat: 'leader', pid, start_time: '999' }, file);
+      const out = withWorkspaceRoot(workspaceRoot, () => stampDeath({
+        goal: 'stools-canvas-audio-elevenlabs-close',
+        seat: 'leader',
+        pid,
+        start_time: '999',
+        session: 'b6731ba8-sitting10',
+        checkedIn: true,
+        exitCode: 1,
+        detail: 'You\'ve hit your session limit · api_error_status:429 rate_limit',
+      }, { store: store.api, registryFile: file }));
+      assert(out.act === 'stamped', `stale done must NOT confirm-and-reap, got act=${out.act}`);
+      assert(out.stamped === true, 'the later sitting\'s death must be stamped');
+      assert(out.ending === 'failed', `expected failed, got ${out.ending}`);
+      assert(out.reason_class === 'provider-error', `expected provider-error, got ${out.reason_class}`);
+      const row = store.api.getCurrentEnding({ goal: 'stools-canvas-audio-elevenlabs-close', seat: 'leader' });
+      assert(row.ending === 'failed' && row.reason_class === 'provider-error',
+        `stored ending must be failed/provider-error, got ${row.ending}/${row.reason_class}`);
+      pass('(g) a LATER sitting dying on a 429 overrides an EARLIER sitting\'s stale `done` -> failed:provider-error');
+    } catch (err) { fail('(g) stale done overridden by provider death', err); }
+    store.close();
+    done();
+  });
+}
+
+// -- (h) THE ORIGINAL CASE STILL STANDS — the SAME sitting's own `done` is still confirm-and-reaped
+function caseSameSittingDoneStillStands(done) {
+  const store = freshStore();
+  const file = regFile();
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-'));
+  const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g8');
+  fs.mkdirSync(goalFolder, { recursive: true });
+  // This sitting started FIRST, then declared `done` — its own declaration, stamped AFTER its
+  // own start, exactly the ordinary shape every real sitting has.
+  writeSessionsCsv(goalFolder, [{ session: 'sess-same', seat: 'kappa', started: '2026-08-28T09:00:00Z' }]);
+  const outFile = path.join(tmpRoot, 'kappa-declared.txt');
+  fs.writeFileSync(outFile, 'work', 'utf8');
+  store.api.stampSeatDeclare({
+    goal: 'g8', seat: 'kappa', ending: 'done',
+    declared_outputs: [outFile], evidence_pointer: outFile,
+    stamped_at: '2026-08-28T09:05:00.000Z',
+  });
+  const child = liveChild();
+  const pid = child.pid;
+  const row = recordSpawn({ goal: 'g8', seat: 'kappa', pid, start_time: null }, file);
+  child.on('exit', () => {
+    try {
+      const stored = store.api.getCurrentEnding({ goal: 'g8', seat: 'kappa' });
+      assert(stored.ending === 'done', `the seat's own done must still stand, got ${stored.ending}`);
+      pass('(h) the ORIGINAL case (same sitting checked out done, then reaped) still -> confirm-and-reap');
+    } catch (err) { fail('(h) same-sitting done still stands', err); }
+    store.close();
+    done();
+  });
+  try {
+    const out = withWorkspaceRoot(workspaceRoot, () => stampDeath({
+      goal: 'g8', seat: 'kappa', pid, start_time: row.start_time, session: 'sess-same',
+    }, { store: store.api, registryFile: file }));
+    assert(out.act === 'confirm-and-reap', `expected confirm-and-reap, got ${out.act}`);
+    assert(out.stamped === false, 'the seat\'s own done must never be stamped over');
+  } catch (err) { fail('(h) same-sitting done (stamp call)', err); child.kill('SIGKILL'); }
+}
+
+// -- (i) RED MUTATION — reverting `declaredEndingIsStale` to always `false` reproduces the incident
+function caseRedMutationStaleGuard(doneCb) {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'death-stamp.js'), 'utf8');
+    const ANCHOR = 'function declaredEndingIsStale(current, evidence) {';
+    assert(src.includes(ANCHOR), 'declaredEndingIsStale anchor missing');
+    const mutatedSrc = src.replace(ANCHOR, `${ANCHOR}\n  return false; // eslint-disable-line no-unreachable`);
+    const Module = require('node:module');
+    const mut = new Module(path.join(__dirname, 'death-stamp.js'), null);
+    mut.filename = path.join(__dirname, 'death-stamp.js');
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(mutatedSrc, mut.filename);
+
+    const store = freshStore();
+    const file = regFile();
+    const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-'));
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g9');
+    fs.mkdirSync(goalFolder, { recursive: true });
+    writeSessionsCsv(goalFolder, [{ session: 'sess-new9', seat: 'mu', started: '2026-08-28T22:17:39Z' }]);
+    const outFile = path.join(tmpRoot, 'mu-declared.txt');
+    fs.writeFileSync(outFile, 'work', 'utf8');
+    store.api.stampSeatDeclare({
+      goal: 'g9', seat: 'mu', ending: 'done', declared_outputs: [outFile], evidence_pointer: outFile,
+      stamped_at: '2026-08-28T22:10:11.000Z',
+    });
+    recordSpawn({ goal: 'g9', seat: 'mu', pid: process.pid, start_time: '999' }, file);
+    const out = withWorkspaceRoot(workspaceRoot, () => mut.exports.stampDeath({
+      goal: 'g9', seat: 'mu', pid: process.pid, start_time: '999', session: 'sess-new9',
+      checkedIn: true, exitCode: 1, detail: 'http 429 rate_limit',
+    }, { store: store.api, registryFile: file, terminate: () => {} }));
+    assert(out.act === 'confirm-and-reap',
+      `RED: with the guard reverted the stale done must wrongly stand (confirm-and-reap), got ${out.act}`);
+    assert(out.stamped === false, 'RED: the mutant must reproduce the incident - no failed stamp');
+    pass('(i) RED proof: reverting `declaredEndingIsStale` reproduces the incident (confirm-and-reap swallows the 429)');
+    store.close();
+    doneCb();
+  } catch (err) { fail('(i) red mutation for the stale-done guard', err); doneCb(); }
+}
+
+// -- direct unit checks on `declaredEndingIsStale` itself, no store/process involved -------------
+function checkDeclaredEndingIsStaleUnit() {
+  try {
+    const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-unit-'));
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g-unit');
+    fs.mkdirSync(goalFolder, { recursive: true });
+    writeSessionsCsv(goalFolder, [{ session: 'sess-unit', seat: 'nu', started: '2026-08-28T22:17:39Z' }]);
+    withWorkspaceRoot(workspaceRoot, () => {
+      const stale = declaredEndingIsStale(
+        { stamped_at: '2026-08-28T22:10:11.000Z' },
+        { goal: 'g-unit', session: 'sess-unit' },
+      );
+      assert(stale === true, 'a done stamped BEFORE the sitting started must be stale');
+      const notStale = declaredEndingIsStale(
+        { stamped_at: '2026-08-28T22:20:00.000Z' },
+        { goal: 'g-unit', session: 'sess-unit' },
+      );
+      assert(notStale === false, 'a done stamped AFTER the sitting started must stand');
+      const noSession = declaredEndingIsStale(
+        { stamped_at: '2026-08-28T22:10:11.000Z' },
+        { goal: 'g-unit' },
+      );
+      assert(noSession === false, 'no session in evidence -> cannot prove staleness -> stands');
+    });
+    pass('(unit) declaredEndingIsStale: before-start is stale, after-start stands, no-session stands');
+  } catch (err) { fail('(unit) declaredEndingIsStale', err); }
+}
+checkDeclaredEndingIsStaleUnit();
+
 const cases = [
   caseCrashBeforeCheckIn,
   caseCrashAfterCheckIn,
@@ -265,6 +445,9 @@ const cases = [
   caseProviderShaped,
   caseReapRefusesWhileAlive,
   caseKitDoor,
+  caseStaleDoneOverriddenByProvider,
+  caseSameSittingDoneStillStands,
+  caseRedMutationStaleGuard,
 ];
 
 // The cases are asynchronous (real children, real exits), so they run in sequence rather than in

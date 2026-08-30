@@ -128,6 +128,31 @@ witnessed and stamps nothing itself.
 `exited` is dead vocabulary and is not reachable from here by convention: the ending
 store refuses it at the write boundary.
 
+### A declared ending stands only for the sitting that declared it [2026-08-30 fix]
+
+The table's first two rows read `store.getCurrentEnding({ goal, seat })` — keyed `(goal, seat)`,
+never `(goal, seat, session)`, because `seat_endings` carries no session column at all. A LATER
+sitting of the same seat that dies with no checkout of its own (a provider 429, a crash) used to
+inherit whatever an EARLIER sitting last declared, confirm-and-reap unconditionally, and never
+reach the provider/crash classification below — `stools-canvas-audio-elevenlabs-close`, 2026-08-28:
+sitting 9's `done` (22:10:11) swallowed sitting 10's HTTP 429 death (22:18), `staff mail: NOT
+minted`, the goal frozen 40 h with no `failed` ending and no recovery-ladder entry.
+
+`declaredEndingIsStale(current, evidence)` closes it: `sessions.csv` is the fallback source of the
+DYING sitting's own identity (`evidence.session` names it, its `started` column is trusted as when
+that sitting began), read through `RBTV_IGNITE_WORKSPACE_ROOT` — the same env var the daemon's own
+systemd unit sets and every closer it spawns inherits. A declared ending stamped BEFORE that start
+is not this sitting's own and falls through to the provider/crash table below; no session in
+evidence, no workspace root, or no matching sessions.csv row all fall back to today's behaviour
+(the declaration stands) rather than guessing. Reaching the classification table for a seat that
+already carries a `done`/`incomplete` row also needed `stampSystem({ ..., replace: true })` — the
+ending store's write-once guard otherwise refuses the overwrite outright.
+
+Selftest: `node death-stamp.selftest.js` — a direct unit check on `declaredEndingIsStale`, the
+live incident reproduced offline (a stale `done` overridden by a 429 → `failed:provider-error`),
+the original same-sitting `done` still confirm-and-reaps, and a red mutation (revert the guard to
+`false`) that reproduces the incident.
+
 The reap half - `confirmAndReap` - CONFIRMS before it acts. The only question asked is
 the registry probe; a live process is signalled, waited for within a bounded budget,
 and only then is its row dropped. A process that survives keeps its row, because a row
@@ -198,6 +223,33 @@ top-level require in that direction would close a load cycle.
 
 `deriveOwed` must never enqueue. An owed set is a STATEMENT, not an act — the
 moment the computer can also launch, a second launch path exists by construction.
+
+### Class B reads the chair's READ CURSOR, not its check-in [2026-08-30 fix]
+
+`owed-from-endings.js#classifyOwed`'s class B used to derive "unread" from the chair's last
+CHECK-IN timestamp at minute granularity (`checkinOf` + `tsAfter`, `sessions.csv`'s `checkin`
+column). Check-in and `coordinate read` land in the same daemon-lane sitting seconds apart, so a
+message stamped in that SAME MINUTE read as "after check-in" and was filed read forever — even
+when the sitting died before ever calling `read`. Merely checking in discharged the wake; nothing
+verified the mail was shown, let alone acted on (`stools-canvas-audio-elevenlabs-close`,
+2026-08-28: message #45 sat unread 40 h because sitting 10 checked in and #45 shared its minute).
+
+The fix reads `workers.md`'s own `lastread` cell (`coord/records.py#persist_cursor`, advanced only
+by `coordinate read`, never by check-in) and compares a message's own NUMBER against it —
+`readCursor(goalFolder, chair)` in `owed-from-endings.js`. `checkinOf`/`tsAfter` stay in
+`classifyOwed`'s parameter list even though its own body no longer calls them: a pre-existing
+red-mutation arm in `reconcile.selftest.js` (the F-1 same-minute-sitting proof) splices a line
+calling `tsAfter(...)` into this function's own source and re-compiles it, relying on that name
+resolving through this closure — dropping either name breaks only that one mutant, invisibly.
+
+The existing attempt-counter brake (`attempt-counters.js`, `RECONCILE_RESPAWN` driver,
+`reasonClass: 'unread'`, wired in `reconcile.js`) needed NO change: it already keys on the SAME
+`#lastNum` owed-item marker class B always produced, so a chair that keeps dying on the same
+unread mail still disarms at the config's `attempt_counter_n`, unchanged.
+
+Selftest: `node owed-from-endings.selftest.js` — the same-minute wake, the already-read
+non-wake, the brake holding after N dead passes (composed with the real `attempt-counters.js`
+API), and two red mutations (revert to checkin/tsAfter; a cursor read that ignores the file).
 
 `launch-door.js` holds what seeding's retired computer left behind. Its five
 gates are now refusals on the wrapped spawn, not a second owed set — a refusal
