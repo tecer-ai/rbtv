@@ -31,13 +31,18 @@ families:
     plan-fill-in: false
     path: "{workspace}"
     minus: deny-list
-  - id: rbtv-and-mirror
+  # `rbtv-and-mirror` split in two (2026-08-30, owner ruling on `fix-mirror-family-split`):
+  # a plan needing to write a product under `{mirror}` (e.g. `.rbtv/mirror/office/x`) had no
+  # family to carve against — `authorizedCarve` only admits an rw narrow inside a `vault-wide-read`
+  # wide, and family 6 bound the rbtv SOURCE REPO and the mirror under one id, so keying a carve on
+  # the family would have opened rw into the rbtv repo too. Splitting them lets `mirror` take the
+  # same carve exception as `vault-wide-read` while `rbtv-repo` keeps NO carve — a plan naming a
+  # write path inside the rbtv repo still refuses.
+  - id: rbtv-repo
     number: 6
     access: ro
     plan-fill-in: false
-    paths:
-      - "{rbtv-repo}"
-      - "{mirror}"
+    path: "{rbtv-repo}"
   - id: benign-cache-config-temp
     number: 7
     access: rw
@@ -73,3 +78,16 @@ families:
     access: rw
     plan-fill-in: false
     path: "{workspace}/.rbtv/runtime/ignite"
+  # THE MIRROR, its own family (2026-08-30). Was half of `rbtv-and-mirror` (family 6) — see that
+  # family's comment above for why the split. `authorizedCarve` admits an rw narrow inside this
+  # ro wide exactly as it does for `vault-wide-read`, so a plan's write grant (`projectFolder` /
+  # `namedRepos` / `extraPaths:rw`) landing under `{mirror}` now compiles instead of refusing the
+  # whole cage. The generic deny-list credential rules (`**/*.env`, `**/*token*`, `**/*.key`, …)
+  # already run path-pattern-only against any `extraPaths` grant regardless of family, so a
+  # credential file under the mirror is denied exactly as one anywhere else in the workspace —
+  # nothing added here changes that.
+  - id: mirror
+    number: 9
+    access: ro
+    plan-fill-in: false
+    path: "{mirror}"

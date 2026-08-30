@@ -12,7 +12,7 @@ This folder holds the **compiler**, its three owner-gated config files, the **la
 
 | File | Spec |
 |---|---|
-| `envelope-template.yaml` | the seven T2-R3 families + family 8, the ending store (`.rbtv/runtime/ignite`, rw — the seat stamps its own ending); benign cache/config/temp baked in |
+| `envelope-template.yaml` | the seven T2-R3 families (the old `rbtv-and-mirror` split 2026-08-30 into `rbtv-repo` and its own `mirror` family, so a plan may carve rw under the mirror without touching the rbtv repo) + family 8, the ending store (`.rbtv/runtime/ignite`, rw — the seat stamps its own ending); benign cache/config/temp baked in |
 | `envelope-deny-list.yaml` | starting deny set including the credential store |
 | `daemon-owned-records.yaml` | record files + `seats/` + proper-subfolder carve (`coordination/` is NOT here — the bus is the seat protocol’s own write surface, D3) |
 
@@ -75,7 +75,7 @@ Allow-list (bwrap, fail-closed if `bwrap` is missing — D59):
 2. the **goal folder** — read; **goal-folder artifacts — write/edit** (one `bind:{goalDir}` covers
    ledgers, planning, coordination, `sessions.csv`)
 3. the seat's **own seat folder** — read/write, **except `seat.md`**
-4. **the rbtv repo and the workspace `.rbtv/mirror/`** — read
+4. **the rbtv repo** — read, no carve; **the workspace `.rbtv/mirror/`** — read by default, but (2026-08-30) a plan may carve a write grant under it, the same carve exception the vault-wide read floor already admits
 5. **coordination ledgers — WRITABLE** (no file-level ro-bind of records, no proxy writers)
 6. **env/secret files — simply not present** (hardcoded denies + pattern floor; do not pierce)
 

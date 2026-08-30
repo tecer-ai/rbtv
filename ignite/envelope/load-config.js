@@ -11,9 +11,10 @@ const REQUIRED_FAMILY_IDS = [
   'project-folder',
   'scratch-temp',
   'vault-wide-read',
-  'rbtv-and-mirror',
+  'rbtv-repo',
   'benign-cache-config-temp',
   'ending-store',
+  'mirror',
 ];
 
 function loadYaml(filePath) {

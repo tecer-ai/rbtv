@@ -116,6 +116,11 @@ function authorizedCarve(a, b) {
   // under its own folder — the D53/#576 shape, one layer in.
   if (narrow.origin === 'own-seat' && wide.origin === 'daemon-owned') return true;
   if (wide.family === 'vault-wide-read' && wide.access === 'ro' && narrow.access === 'rw') return true;
+  // The mirror carve (2026-08-30, `fix-mirror-family-split`): admitted the same way as the
+  // `vault-wide-read` rule directly above, and NOT extended to `rbtv-repo` — a plan naming a
+  // write path inside the rbtv SOURCE repo must still refuse. See envelope-template.yaml's
+  // `mirror` family comment for why the split exists.
+  if (wide.family === 'mirror' && wide.access === 'ro' && narrow.access === 'rw') return true;
   if (TEMP_FAMILIES.has(wide.family) && wide.access === 'rw') return true;
   if (narrow.origin === 'deny' && narrow.credential && wide.family === 'named-repos') return true;
   return false;
@@ -157,7 +162,7 @@ function compile(raw) {
   const rbtvRepo = raw && raw.rbtvRepo;
   if (!workspaceRoot) return unresolved('', 'template-family', { family: 'vault-wide-read', reason: 'workspaceRoot required' });
   if (!goalId) return unresolved('', 'template-family', { family: 'goal-folder', reason: 'goalId required' });
-  if (!rbtvRepo) return unresolved('', 'template-family', { family: 'rbtv-and-mirror', reason: 'rbtvRepo required' });
+  if (!rbtvRepo) return unresolved('', 'template-family', { family: 'rbtv-repo', reason: 'rbtvRepo required' });
 
   const ctx = {
     workspaceRoot: path.resolve(workspaceRoot),
@@ -216,8 +221,8 @@ function compile(raw) {
   const failVault = addFamilyPaths(f5, [f5.path], ctx, sources);
   if (failVault) return failVault;
 
-  const f6 = familyById(config.template, 'rbtv-and-mirror');
-  const failRbtv = addFamilyPaths(f6, f6.paths, ctx, sources);
+  const f6 = familyById(config.template, 'rbtv-repo');
+  const failRbtv = addFamilyPaths(f6, [f6.path], ctx, sources);
   if (failRbtv) return failRbtv;
 
   const f7 = familyById(config.template, 'benign-cache-config-temp');
@@ -233,6 +238,13 @@ function compile(raw) {
   const f8 = familyById(config.template, 'ending-store');
   const failEnding = addFamilyPaths(f8, [f8.path], ctx, sources);
   if (failEnding) return failEnding;
+
+  // Family 9 — THE MIRROR, split out of the old `rbtv-and-mirror` (family 6) so `authorizedCarve`
+  // can admit a plan's rw grant under `{mirror}` without also opening the rbtv SOURCE repo, which
+  // stayed keyed to family 6 alone. See envelope-template.yaml's `mirror` comment for the why.
+  const f9 = familyById(config.template, 'mirror');
+  const failMirror = addFamilyPaths(f9, [f9.path], ctx, sources);
+  if (failMirror) return failMirror;
 
   for (const extra of extraPaths) {
     if (!extra || !extra.path) return unresolved('', 'extra-path', { reason: 'empty extra path' });

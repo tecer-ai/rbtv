@@ -98,6 +98,7 @@ function run() {
   assert.ok(hasBind(plan, workspace, 'ro'), 'vault-wide ro');
   assert.ok(hasBind(plan, rbtvRepo, 'ro'), 'rbtv repo ro');
   assert.ok(hasBind(plan, path.join(workspace, '.rbtv', 'mirror'), 'ro'), 'mirror ro');
+  assert.equal(innermostAccess(plan, path.join(workspace, '.rbtv', 'mirror')), 'ro', 'mirror root stays ro with no plan grant');
   assert.ok(hasBind(plan, path.join(home, '.cache'), 'rw'), 'benign cache rw');
   assert.ok(hasBind(plan, path.join(home, '.config', 'tool'), 'rw'), 'benign config child rw');
   assert.ok(!hasBind(plan, path.join(home, '.config', 'opencode'), 'rw'), 'opencode not an extra rw opening');
@@ -136,8 +137,9 @@ function run() {
   const fam = familiesOf(plan);
   assert.ok(fam.has('goal-folder') && fam.has('named-repos') && fam.has('project-folder'));
   assert.ok(fam.has('scratch-temp') && fam.has('vault-wide-read'));
-  assert.ok(fam.has('rbtv-and-mirror') && fam.has('benign-cache-config-temp'));
+  assert.ok(fam.has('rbtv-repo') && fam.has('benign-cache-config-temp'));
   assert.ok(fam.has('ending-store'), 'family 8 emitted');
+  assert.ok(fam.has('mirror'), 'family 9 (mirror) emitted');
 
   const clash = compile({
     ...base,
@@ -166,13 +168,41 @@ function run() {
   assert.ok(pf.has('goal-folder'), 'planning-zero-fill-in: goal-folder');
   assert.ok(pf.has('scratch-temp'), 'planning-zero-fill-in: scratch-temp');
   assert.ok(pf.has('vault-wide-read'), 'planning-zero-fill-in: vault-wide-read');
-  assert.ok(pf.has('rbtv-and-mirror'), 'planning-zero-fill-in: rbtv-and-mirror');
+  assert.ok(pf.has('rbtv-repo'), 'planning-zero-fill-in: rbtv-repo');
+  assert.ok(pf.has('mirror'), 'planning-zero-fill-in: mirror family present, no plan grant into it');
   assert.ok(pf.has('benign-cache-config-temp'), 'planning-zero-fill-in: benign-cache-config-temp');
   assert.ok(!pf.has('named-repos'), 'planning-zero-fill-in: no named-repos');
   assert.ok(!pf.has('project-folder'), 'planning-zero-fill-in: no project-folder');
   assert.ok(!hasBind(planning, repoA, 'rw'), 'planning-zero-fill-in: named repo excluded');
   assert.ok(!hasBind(planning, project, 'rw'), 'planning-zero-fill-in: project folder excluded');
+  assert.equal(innermostAccess(planning, path.join(workspace, '.rbtv', 'mirror')), 'ro', 'planning-zero-fill-in: no rw grant, mirror stays ro');
   console.log('PASS planning-zero-fill-in');
+
+  // THE MIRROR CARVE (fix-mirror-family-split, 2026-08-30) — a plan's rw grant landing under
+  // `{mirror}` now compiles; the mirror ROOT stays ro. `projectFolder` is the vehicle here since
+  // it is one of the three the plan-reviewer measured refusing before this fix (the others,
+  // `namedRepos` and `extraPaths:rw`, exercise the same `authorizedCarve` clause).
+  const mirrorProduct = path.join(workspace, '.rbtv', 'mirror', 'office', 'meeting-summarizer');
+  mkdirp(mirrorProduct);
+  const mirrorGrant = compile({
+    ...base,
+    projectFolder: path.join('.rbtv', 'mirror', 'office', 'meeting-summarizer'),
+  });
+  assert.equal(mirrorGrant.ok, true, `mirror rw grant refused: ${JSON.stringify(mirrorGrant.refuse)}`);
+  assert.equal(innermostAccess(mirrorGrant, mirrorProduct), 'rw', 'plan rw path under mirror compiles rw');
+  assert.equal(innermostAccess(mirrorGrant, path.join(workspace, '.rbtv', 'mirror')), 'ro', 'mirror root stays ro alongside the narrow rw carve');
+  console.log('PASS mirror-carve-admitted');
+
+  // THE RBTV REPO GETS NO CARVE — the same grant vehicle naming a path inside the rbtv repo must
+  // still refuse. This is the negative control: the split must not have widened the repo too.
+  const repoProduct = path.join(rbtvRepo, 'ignite', 'envelope');
+  const repoGrant = compile({
+    ...base,
+    projectFolder: repoProduct,
+  });
+  assert.equal(repoGrant.ok, false, 'plan rw path inside the rbtv repo must still refuse');
+  assert.equal(repoGrant.refuse.kind, 'conflict', 'rbtv repo rw grant refuses as a conflict, not silently');
+  console.log('PASS rbtv-repo-still-refuses');
   console.log('PASS compiler');
 }
 
