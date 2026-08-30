@@ -11,8 +11,8 @@ side and never on ignite):
     rbtv-goal lint <goal-name>
     rbtv-goal materialize <goal-name> [--catalog-root DIR] [--force] [--dry-run]
     rbtv-goal lane <goal-name> [--set daemon | --set console]
-    rbtv-goal pause <goal-name> --reason R # stash the lane assignment AND append the park ruling
-    rbtv-goal resume <goal-name>           # owner-only unstash; appends the lift ruling
+    rbtv-goal pause <goal-name> --reason R # write the goal-state row paused AND append the park ruling
+    rbtv-goal resume <goal-name>           # owner-only: row running + named re-arm; appends the lift ruling
     rbtv-goal dag <goal-name>              # the graph + each seat's derived state
     rbtv-goal add-seat <goal-name> --seat X --after a[,b] [--before x[,y]] --bindings SHEET
                                    --catalog-root DIR [--splice-only] [--dry-run]
@@ -131,26 +131,23 @@ GOAL_KIND_DEFAULT = "interactive"
 LANE_FILE = "execution-lane"
 LANES = ("daemon", "console")
 
-# ── PAUSE: the lane marker's STASH prefix (issue S-33, growing a live goal's roster) ───────────
+# ── PAUSE: the goal-state ROW is the only record (owner ruling D-1 (a), 2026-08-30) ────────────
 #
-# `pause <goal>` rewrites the marker to `paused ` + WHATEVER IT SAID BEFORE, byte for byte;
-# `resume` strips exactly that prefix and writes the remainder back. Nothing else in the system
-# learns a new word, and that is the whole design: BOTH lane readers — `read_lane` below and
-# `supervisor/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
-# `console`, so a paused marker reads as "not assigned to the daemon" on both sides with ZERO
-# reader change. The daemon lets go on its next pass; the stashed assignment is still on disk.
+# `pause <goal>` / `resume <goal>` write the ending-store goal-state row through the SAME
+# executor Slack uses (`state-store/heart/pause-resume.js`, via `state-store/cli.js --op
+# pauseResume` — no `--db`; that absence is 919be192). The `execution-lane` file keeps ONLY the
+# lane word (`daemon`/`console`). A leftover `paused ` prefix from the retired file-writer is
+# still recognised as paused (never silently un-paused) until a writer or `laneIsPaused` ports
+# it into a row and strips it.
 #
 # ⚠ IT BOUNDS STARTING, NOT EXECUTION. Pausing stops the daemon from starting anything NEW for
 # this goal — the watch pass will not SEED it, and the ticker's dispatch pause gate
-# (`ticker.js#pausedGoalForRow`, via `lane-watch.js#laneIsPaused` — `lane_is_paused`'s JS twin)
-# DEFERS every due queue row bound to it, goal-homed rows and `fire-tool` rows whose goal binding
-# is an argv path alike. It does not stop a session that is already running, and it does not touch
-# an attached `rbtv run` (which reads the marker for nothing). "Nothing new starts" is the
-# guarantee; "nothing is running" is not, and `add-seat`'s quiescence gate is what checks the
-# second.
+# (`ticker.js#pausedGoalForRow`, via `lane-watch.js#laneIsPaused`) DEFERS every due queue row
+# bound to it. It does not stop a session that is already running, and it does not touch an
+# attached `rbtv run`. "Nothing new starts" is the guarantee; "nothing is running" is not, and
+# `add-seat`'s quiescence gate is what checks the second.
 LANE_PAUSED = "paused"
-# `paused` as the FIRST token, followed by a space or end-of-text. `pausedfoo` is not a pause
-# marker, and treating it as one would strip a prefix off a word the operator meant literally.
+# Leftover prefix from the retired file-writer. `pausedfoo` is not a pause marker.
 LANE_PAUSED_RE = re.compile(r"^\s*" + LANE_PAUSED + r"(?: |$)")
 
 # ── The goal's EXECUTION MODE (owner ruling 2026-08-10) ───────────────────────────────────────
@@ -813,6 +810,49 @@ def lane_is_paused(raw: str) -> bool:
     return bool(LANE_PAUSED_RE.match(raw))
 
 
+def _ending_db(root: Path) -> Path:
+    return root.parent / "runtime" / "ignite" / "heart.db"
+
+
+def _goal_stored(root: Path, name: str):
+    """The goal-state word, or None when the home is missing or unreadable. READ only."""
+    import subprocess
+    db = _ending_db(root)
+    if not db.is_file():
+        return None
+    cli = Path(__file__).resolve().parents[3] / "state-store" / "cli.js"
+    try:
+        proc = subprocess.run(
+            ["node", str(cli), "--db", str(db), "--op", "getGoalState",
+             "--payload", json.dumps({"goal": name})],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        row = json.loads(proc.stdout or "null")
+    except ValueError:
+        return None
+    if not isinstance(row, dict):
+        return None
+    return row.get("stored")
+
+
+def _goal_is_paused(root: Path, goal_dir: Path, name: str) -> bool:
+    if _goal_stored(root, name) == "paused":
+        return True
+    return lane_is_paused(read_lane_raw(goal_dir))
+
+
+def _strip_legacy_pause_prefix(goal_dir: Path) -> None:
+    raw = read_lane_raw(goal_dir)
+    if not lane_is_paused(raw):
+        return
+    rest = LANE_PAUSED_RE.sub("", raw, count=1)
+    write_lane_raw(goal_dir, rest if rest.strip() else "console\n")
+
+
 def lane_text(target: str) -> str:
     """THE ONE composer of the marker's grammar — `lane --set` and `scaffold --lane` both write
     through it, because a second speller of the marker is drift `readLane` would misparse in
@@ -881,22 +921,34 @@ def _append_decisions_ruling(goal_dir: Path, heading: str, decision: str,
 
 
 def cmd_pause(args) -> int:
-    """Stash the lane assignment behind `paused ` AND append the park ruling — one act."""
-    _root, goal_dir, name = _lane_goal_dir(args)
-    raw = read_lane_raw(goal_dir)
-    already = lane_is_paused(raw)
+    """Write the goal-state row `paused` AND append the park ruling — one act."""
+    root, goal_dir, name = _lane_goal_dir(args)
+    already = _goal_is_paused(root, goal_dir, name)
     who = _caller_identity()
     reason = (getattr(args, "reason", None) or "").strip()
+    if not already and not reason:
+        raise Refusal(
+            f"--reason is required on a fresh pause — recording and enforcement are one act, "
+            f"and a park with no rationale cannot be the ruling row. "
+            f"(Already-paused is idempotent and does not need --reason.)",
+            "reason-required")
+    fired = _fire_pause_resume(root, name, "pause")
+    result = fired.get("result") or {}
+    if not fired.get("ok"):
+        raise Refusal(
+            f"{name}: the pause executor did not run — {fired.get('error')}. "
+            "The goal-state row is UNCHANGED.",
+            "store-pause-failed")
+    if not result.get("found"):
+        raise Refusal(
+            f"{name}: {result.get('detail') or result.get('reason')}",
+            "no-such-goal")
+    if result.get("applied") is False:
+        text = "; ".join(r.get("text") or "" for r in (result.get("refusals") or []))
+        raise Refusal(f"{name}: pause was not applied — {text or result.get('reason')}",
+                      "pause-refused")
+    _strip_legacy_pause_prefix(goal_dir)
     if not already:
-        if not reason:
-            raise Refusal(
-                f"--reason is required on a fresh pause — recording and enforcement are one act, "
-                f"and a park with no rationale cannot be the ruling row. "
-                f"(Already-paused is idempotent and does not need --reason.)",
-                "reason-required")
-        # `paused ` + the previous text VERBATIM. Not re-rendered, not normalised: `resume` is
-        # required to hand back the exact bytes, and the only way to promise that is to keep them.
-        write_lane_raw(goal_dir, f"{LANE_PAUSED} {raw}")
         _append_decisions_ruling(
             goal_dir,
             heading=f"d-paused-{_utc_compact()}",
@@ -904,15 +956,15 @@ def cmd_pause(args) -> int:
             rationale=f"{reason} (paused by {who})",
             scope=f"this goal (`{name}`). Daemon seeding held; running sessions untouched.",
         )
-    stashed = LANE_PAUSED_RE.sub("", read_lane_raw(goal_dir), count=1)
+    lane, _legacy = read_lane(goal_dir)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "goal": name, "paused": True,
-                          "already_paused": already, "paused_from": stashed.strip(),
+                          "already_paused": already, "lane": lane,
                           "file": str(goal_dir / LANE_FILE)}, indent=2))
     else:
         print(f"{name}: PAUSED"
               + (" (already)" if already else "")
-              + f" — stashed lane assignment: {stashed.strip()!r}. "
+              + f" — goal-state row paused; lane file {lane}. "
                 "Nothing new is STARTED by the daemon for this goal until `rbtv-goal resume` "
                 "(seeding held, due queue rows deferred); a session already running is untouched.")
     return 0
@@ -941,10 +993,9 @@ def cmd_pause(args) -> int:
 #   store's CLI, and the executor is the same module the intent dispatches to. One implementation
 #   of the resume-semantics table, reached by two doors — never a second copy in Python.
 #
-# ⚠ THE LANE FILE IS RESTORED FIRST AND THE ORDER IS LOAD-BEARING. `applyResume` refuses with
-#   `lane-file-paused` while the console marker still reads `paused ` (that refusal is what stops a
-#   Slack resume silently un-parking an operator's park). Firing the event before the unstash would
-#   therefore make this door refuse itself.
+# ⚠ THE LANE FILE IS NOT A PAUSE SURFACE. A leftover `paused ` prefix is stripped AFTER the
+#   executor returns ok, never before: a store that will not open must not drop the only evidence
+#   that the goal is still parked.
 
 
 def _daemon_counters_file() -> Path:
@@ -967,30 +1018,28 @@ def _daemon_counters_file() -> Path:
     return Path(deploy) / "ignite" / "supervisor" / "attempt-counters.json"
 
 
-def _fire_resume_event(root: Path, name: str) -> dict:
-    """Fire the ONE resume executor on this goal. Returns its result, or a reported failure.
+def _fire_pause_resume(root: Path, name: str, verb: str) -> dict:
+    """Fire the ONE pause/resume executor. Returns its result, or a reported failure.
 
-    NEVER RAISES. The lane-file unstash has already landed by the time this runs and must not be
-    undone by a store that will not open — so a failure here is a LOUD line the operator reads,
-    with the counter rows named as UNCHANGED, and the verb still exits 0 on the write that did
-    happen. The inverse (aborting) would leave the goal's marker restored and the caller told the
-    whole resume failed.
+    NEVER RAISES. A store that will not open is a LOUD line the caller decides how to treat —
+    pause refuses, resume names the counters as UNCHANGED.
     """
     import subprocess
 
     cli = Path(__file__).resolve().parents[3] / "state-store" / "cli.js"
     payload = {
         "workspaceRoot": str(root.parent.parent),
-        "verb": "resume",
+        "verb": verb,
         "goal": name,
-        "countersFile": str(_daemon_counters_file()),
     }
+    if verb == "resume":
+        payload["countersFile"] = str(_daemon_counters_file())
     try:
         proc = subprocess.run(
             ["node", str(cli), "--op", "pauseResume", "--payload", json.dumps(payload)],
             capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "error": f"the resume executor could not be run: {exc}"}
+        return {"ok": False, "error": f"the {verb} executor could not be run: {exc}"}
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "no output").strip().splitlines()
         return {"ok": False, "error": (err[-1] if err else "no output")[:400]}
@@ -1010,8 +1059,7 @@ def _rearm_lines(fired: dict, name: str) -> list[str]:
     """What the console SAYS about the re-arm — rows and counts, or why there were none."""
     if not fired.get("ok"):
         return [f"⚠ the resume event did NOT fire — {fired['error']}. "
-                f"The lane assignment above IS restored (that write already landed), but any "
-                f"DISARMED attempt-counter rows for {name} are UNCHANGED: the daemon will keep "
+                f"Any DISARMED attempt-counter rows for {name} are UNCHANGED: the daemon will keep "
                 f"skipping those lanes. Re-run `rbtv goal resume {name}` once the store answers."]
     result = fired["result"]
     if not result.get("found"):
@@ -1039,33 +1087,30 @@ def _rearm_lines(fired: dict, name: str) -> list[str]:
 
 
 def cmd_resume(args) -> int:
-    """Unstash: strip the `paused ` prefix. Owner-only; appends the lift ruling."""
-    _root, goal_dir, name = _lane_goal_dir(args)
+    """Flip the goal-state row to running and fire the named re-arm. Owner-only."""
+    root, goal_dir, name = _lane_goal_dir(args)
     if not _is_owner():
         raise Refusal(
             f"resume is owner-only — `{_caller_identity()}` may pause (both writes land in the "
             f"goal folder) but must not lift the park. Ask the owner to run "
             f"`rbtv-goal resume {name}`.",
             "owner-only")
-    raw = read_lane_raw(goal_dir)
-    if not lane_is_paused(raw):
+    if not _goal_is_paused(root, goal_dir, name):
         raise Refusal(
-            f"{goal_dir / LANE_FILE}: the lane marker does not start with `{LANE_PAUSED}` "
-            f"(it reads {raw.strip()!r}) — `resume` unstashes a PAUSE, and stripping a prefix "
-            "that is not there would rewrite an assignment nobody paused. Use `lane --set` to "
+            f"{name} is not paused (goal-state row is not `paused` and the lane file has no "
+            f"leftover `{LANE_PAUSED}` prefix) — `resume` lifts a PAUSE. Use `lane --set` to "
             "assign a lane.", "not-paused")
-    write_lane_raw(goal_dir, LANE_PAUSED_RE.sub("", raw, count=1))
     _append_decisions_ruling(
         goal_dir,
         heading=f"d-resumed-{_utc_compact()}",
-        decision="the pause is LIFTED — the stashed lane assignment is restored.",
+        decision="the pause is LIFTED — the goal-state row is running.",
         rationale="owner resume of the park.",
         scope=f"this goal (`{name}`).",
     )
+    fired = _fire_pause_resume(root, name, "resume")
+    if fired.get("ok"):
+        _strip_legacy_pause_prefix(goal_dir)
     lane, legacy = read_lane(goal_dir)
-    # AFTER the unstash (see the order note above): the executor refuses while the marker still
-    # parks the goal, so this is the first moment the resume event can legally fire.
-    fired = _fire_resume_event(_root, name)
     lines = _rearm_lines(fired, name)
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "goal": name, "paused": False,
@@ -1073,7 +1118,7 @@ def cmd_resume(args) -> int:
                           "file": str(goal_dir / LANE_FILE),
                           "rearm": fired}, indent=2))
     else:
-        print(f"{name}: RESUMED — lane assignment restored to {lane.upper()}"
+        print(f"{name}: RESUMED — goal-state row running; lane {lane.upper()}"
               + (" ⚠ (the restored marker uses the RETIRED two-token grammar and therefore reads "
                  "CONSOLE — re-run `lane --set daemon` to repair it)" if legacy else "")
               + f" ({goal_dir / LANE_FILE})")
@@ -1378,14 +1423,12 @@ def cmd_lane(args) -> int:
 
     target = getattr(args, "set", None)
     if target:
-        # THE STASH IS PROTECTED. `--set` writes the marker WHOLE, so setting a lane while a
-        # pause is in force would overwrite the stashed assignment with no trace of what it was —
-        # and the operator would believe the goal is paused while the daemon reads it as assigned.
-        if lane_is_paused(read_lane_raw(goal_dir)):
+        if _goal_is_paused(root, goal_dir, name):
             raise Refusal(
-                f"{goal_dir / LANE_FILE}: this goal is PAUSED and `--set` writes the marker "
-                "whole, which would discard the stashed assignment behind the pause. Run "
-                f"`rbtv-goal resume {name}` first, then set the lane.", "lane-paused")
+                f"{name} is PAUSED — `--set` writes the lane file, which is not the pause "
+                "record, but changing the assignment while paused is refused so the operator "
+                f"cannot confuse the two. Run `rbtv-goal resume {name}` first, then set the "
+                "lane.", "lane-paused")
         if target not in LANES:
             raise Refusal(f"--set {target}: must be one of {', '.join(LANES)}")
         if target == "daemon":
@@ -1423,8 +1466,9 @@ def cmd_lane(args) -> int:
     lane, legacy = read_lane(goal_dir)
     present = (goal_dir / LANE_FILE).exists()
     raw = read_lane_raw(goal_dir)
-    paused = lane_is_paused(raw)
-    paused_from = LANE_PAUSED_RE.sub("", raw, count=1).strip() if paused else None
+    leftover = lane_is_paused(raw)
+    paused = leftover or _goal_stored(root, name) == "paused"
+    paused_from = LANE_PAUSED_RE.sub("", raw, count=1).strip() if leftover else None
     if args.json:
         print(json.dumps({
             "ok": True, "goal": name, "file": str(goal_dir / LANE_FILE),
@@ -1434,10 +1478,8 @@ def cmd_lane(args) -> int:
     else:
         where = f"{goal_dir / LANE_FILE}"
         if paused:
-            # Printed BEFORE the lane line, not instead of it: `lane` reads CONSOLE while paused
-            # (both readers resolve it that way) and a reader who saw only that would conclude the
-            # daemon assignment was thrown away.
-            print(f"{name}: PAUSED — stashed lane assignment {paused_from!r}; nothing new is "
+            stash = f" leftover prefix {paused_from!r};" if leftover else ""
+            print(f"{name}: PAUSED —{stash} nothing new is "
                   f"seeded until `rbtv-goal resume {name}` ({where})")
         if legacy:
             print(f"{name}: ⚠ LEGACY MARKER — {raw.strip()!r} uses the RETIRED `daemon <profile>` "
@@ -3518,9 +3560,9 @@ def cmd_add_seat(args) -> int:
     # Not a formality. Splicing a live goal's graph while the daemon is free to seed means the
     # seeder can read `taskforce.csv` mid-rewrite, or seed a successor whose `after` cell is
     # about to change under it. Pause is the one thing that makes the window unreachable.
-    if not lane_is_paused(read_lane_raw(goal_dir)):
+    if not _goal_is_paused(root, goal_dir, args.goal_name):
         raise Refusal(
-            f"{goal_dir / LANE_FILE}: this goal is NOT paused. Growing a live roster rewrites "
+            f"{args.goal_name} is NOT paused. Growing a live roster rewrites "
             "`after` cells the seeder reads every cadence, so the daemon must be let go of "
             f"first: run `rbtv-goal pause {args.goal_name}`, add the seat, then "
             f"`rbtv-goal resume {args.goal_name}`.", "goal-not-paused")
@@ -5038,6 +5080,10 @@ def cmd_selftest(args) -> int:
         s33.mkdir(parents=True)
         live = s33 / "live-goal"
         live.mkdir()
+        (s33 / "goals.csv").write_text(
+            "name,creation date,due date,type,goal-kind,status\n"
+            "live-goal,2026-08-30,,one-off,daemon,active\n",
+            encoding="utf-8")
 
         def _ns(**kw):
             base = dict(root=str(s33), json=False, goal_name="live-goal", reason=None)
@@ -5055,32 +5101,32 @@ def cmd_selftest(args) -> int:
             except Refusal as exc:
                 return getattr(exc, "code", None)
 
-        # BYTE-EXACT ROUND TRIP is the whole promise: whatever the marker said must come back
-        # identical, or a resume silently changes which lane the goal is on.
         original = "daemon\n"
         (live / LANE_FILE).write_text(original, encoding="utf-8", newline="")
         check("a fresh pause without --reason refuses `reason-required`",
               _code(cmd_pause, _ns()) == "reason-required")
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_pause(_ns(reason="hold for test"))
-        check("pause stashes the marker behind `paused `",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon\n",
-              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("pause writes the goal-state row `paused` and leaves the lane file unchanged",
+              _goal_stored(s33, "live-goal") == "paused"
+              and (live / LANE_FILE).read_text(encoding="utf-8") == original,
+              f"stored={_goal_stored(s33, 'live-goal')!r} "
+              f"file={ (live / LANE_FILE).read_text(encoding='utf-8')!r}")
         dec1 = (live / "decisions.md").read_text(encoding="utf-8")
         check("pause appends a decisions.md ruling (decision / rationale / scope, who paused)",
               "**Decision:**" in dec1 and "**Rationale:**" in dec1 and "**Scope:**" in dec1
               and "hold for test" in dec1 and "paused by owner" in dec1
               and "PAUSED" in dec1, dec1[-400:])
-        check("a paused marker reads as CONSOLE to the unchanged lane reader",
-              read_lane(live) == ("console", False), str(read_lane(live)))
+        check("a paused goal's lane file still reads as DAEMON (pause is not the file)",
+              read_lane(live) == ("daemon", False), str(read_lane(live)))
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_pause(_ns())
-        check("pause is IDEMPOTENT — a second pause does not double the prefix",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon\n",
-              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("pause is IDEMPOTENT — a second pause leaves the row paused and the file unchanged",
+              _goal_stored(s33, "live-goal") == "paused"
+              and (live / LANE_FILE).read_text(encoding="utf-8") == original)
         check("…and does not double-append the decisions row",
               (live / "decisions.md").read_text(encoding="utf-8") == dec1)
-        check("`lane --set` REFUSES while paused (the stash is protected)",
+        check("`lane --set` REFUSES while paused",
               _code(cmd_lane, _ns(set="console")) == "lane-paused")
         saved_agent = os.environ.get("COORD_AGENT")
         os.environ["COORD_AGENT"] = "leader"
@@ -5092,45 +5138,57 @@ def cmd_selftest(args) -> int:
                 os.environ.pop("COORD_AGENT", None)
             else:
                 os.environ["COORD_AGENT"] = saved_agent
-        check("…and the marker is still paused after the refused resume",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused daemon\n")
+        check("…and the row is still paused after the refused resume",
+              _goal_stored(s33, "live-goal") == "paused")
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_resume(_ns())
-        check("resume round-trips the marker BYTE-EXACTLY",
-              (live / LANE_FILE).read_text(encoding="utf-8") == original,
-              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("resume writes the goal-state row `running` and leaves the lane file unchanged",
+              _goal_stored(s33, "live-goal") == "running"
+              and (live / LANE_FILE).read_text(encoding="utf-8") == original,
+              f"stored={_goal_stored(s33, 'live-goal')!r} "
+              f"file={ (live / LANE_FILE).read_text(encoding='utf-8')!r}")
         dec2 = (live / "decisions.md").read_text(encoding="utf-8")
         check("resume appends a lift row so recording and enforcement cannot diverge on the way back",
               dec2.startswith(dec1) and dec2 != dec1 and "LIFTED" in dec2
               and "**Decision:**" in dec2[len(dec1):], dec2[len(dec1):][-400:])
         check("resume on a NOT-paused goal refuses `not-paused`",
               _code(cmd_resume, _ns()) == "not-paused")
-        # The absent-file branch: `console` is the previous text a resume must restore.
         (live / LANE_FILE).unlink()
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_pause(_ns(reason="no-marker hold"))
-        check("pausing a goal with NO marker stashes `console`",
-              (live / LANE_FILE).read_text(encoding="utf-8") == "paused console\n",
-              repr((live / LANE_FILE).read_text(encoding="utf-8")))
+        check("pausing a goal with NO marker still writes the row and does not invent a prefix",
+              _goal_stored(s33, "live-goal") == "paused"
+              and not lane_is_paused(read_lane_raw(live)),
+              f"stored={_goal_stored(s33, 'live-goal')!r} "
+              f"file={read_lane_raw(live)!r}")
+
+        # leftover `paused ` prefix: port into the row and strip (never silently un-pause)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_resume(_ns())
+        (live / LANE_FILE).write_text("paused daemon\n", encoding="utf-8", newline="")
+        check("a leftover prefix still reads paused before the writer runs",
+              _goal_is_paused(s33, live, "live-goal"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_pause(_ns(reason="port leftover"))
+        check("cmd_pause ports a leftover prefix into the row and strips the file",
+              _goal_stored(s33, "live-goal") == "paused"
+              and (live / LANE_FILE).read_text(encoding="utf-8") == "daemon\n",
+              f"stored={_goal_stored(s33, 'live-goal')!r} "
+              f"file={ (live / LANE_FILE).read_text(encoding='utf-8')!r}")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_resume(_ns())
+        check("fixture is unpaused before add-seat arms",
+              _goal_stored(s33, "live-goal") != "paused")
 
         # ── the grandfathered `_` prefix (R2, 2026-08-15) ────────────────────────────────────
         # `_channel-master` is LIVE and was UNPAUSABLE: every marker verb refused it
-        # `goal-name-invalid`, so no landing could hold it. `GOAL_REF_NAME_RE` widened the
-        # ADDRESSING rule by exactly one optional leading `_`. Both sides are armed here —
-        # the accepted shape reaches the marker, every refused shape still refuses, and
-        # `scaffold` (the CREATION rule) is unchanged so no new one can be minted.
+        # `goal-name-invalid`. The addressing rule still admits a single leading `_`;
+        # the store roster excludes `_` names, so pause is `no-such-goal`, not `goal-name-invalid`.
         res = s33 / "_reserved-goal"
         res.mkdir()
-        with contextlib.redirect_stdout(io.StringIO()):
-            cmd_pause(_ns(goal_name="_reserved-goal", reason="grandfather hold"))
-        check("an `_`-prefixed goal PAUSES (it used to refuse `goal-name-invalid`)",
-              (res / LANE_FILE).read_text(encoding="utf-8") == "paused console\n",
-              repr((res / LANE_FILE).read_text(encoding="utf-8")))
-        with contextlib.redirect_stdout(io.StringIO()):
-            cmd_resume(_ns(goal_name="_reserved-goal"))
-        check("...and RESUMES byte-exactly back to its console marker",
-              (res / LANE_FILE).read_text(encoding="utf-8") == "console\n",
-              repr((res / LANE_FILE).read_text(encoding="utf-8")))
+        check("an `_`-prefixed goal is ADDRESSABLE (not `goal-name-invalid`)",
+              _code(cmd_pause, _ns(goal_name="_reserved-goal", reason="grandfather hold"))
+              == "no-such-goal")
         for bad in ("..", "_", "__x", "a/b", "a_b", "-x", "Foo", ""):
             check(f"the widened rule STILL refuses {bad!r}",
                   _code(cmd_pause, _ns(goal_name=bad)) == "goal-name-invalid",
@@ -5520,11 +5578,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "point: the execution record makes the other lane skip what this one finished")
     p.set_defaults(func=cmd_lane)
 
-    # The PAUSE pair (issue S-33). `pause` stashes the lane assignment behind a `paused ` prefix
-    # both lane readers already resolve to `console`; `resume` hands the exact bytes back.
     p = add_common(sub.add_parser(
         "pause",
-        help="stash the lane assignment AND append the park ruling — nothing NEW is seeded "
+        help="write the goal-state row paused AND append the park ruling — nothing NEW is seeded "
              "until `resume`"))
     p.add_argument("goal_name")
     p.add_argument("--reason", default=None,
@@ -5532,7 +5588,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_pause)
 
     p = add_common(sub.add_parser(
-        "resume", help="unstash the lane assignment a `pause` put away, byte for byte"))
+        "resume", help="write the goal-state row running and fire the named re-arm event"))
     p.add_argument("goal_name")
     p.set_defaults(func=cmd_resume)
 

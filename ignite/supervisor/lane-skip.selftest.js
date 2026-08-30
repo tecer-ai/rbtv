@@ -164,52 +164,52 @@ test('RED: the engine facade FORWARDS laneSkips — a destructuring facade drops
   assert.match(facade, /laneSkips,/, 'and pass it on to seedGoal');
 });
 
-// ── TWO PAUSE WRITERS, AND EITHER ONE HOLDS (owner direction 2026-08-28) ────────────────────────
+// ── ONE PAUSE RECORD: the goal-state row (owner ruling D-1 (a), 2026-08-30) ─────────────────────
 //
-// `laneIsPaused` is the ONE reader both pause gates spend — `reconcile.js:812` and the lane pass at
-// `lane-watch.js:464`. a0d7e42c had made the goal-state ROW decide on its existence, with the
-// `execution-lane` marker a shim for goals the store had never recorded. The fifteenth intent
-// (`pause-resume`) made that reachable and wrong: no goal on the instance had a row, so the FIRST
-// Slack verb would mint one that then overrode the console's `rbtv goal pause` marker for good — a
-// Slack `resume` silently un-parking every operator-parked goal.
-//
-// The gate is now an OR. All FOUR combinations are asserted, because a gate that answers `true`
-// whatever it reads satisfies the two paused legs on its own and cannot be told from a working one.
-test('laneIsPaused: paused if EITHER the store row OR the console lane marker says so', () => {
+// `laneIsPaused` is the ONE reader both pause gates spend. A leftover `paused ` prefix is
+// consumed once (port the row if none, strip the prefix); a `running` row beats a stale prefix.
+test('laneIsPaused: the goal-state row is the only pause record; leftover prefix is ported', () => {
   const { laneIsPaused } = require('./lane-watch');
   const { bindEnding, goalNameOf } = require('./ending-reads');
 
-  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'pause-or-'));
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'pause-row-'));
   const store = openHeartStore({ dbPath: path.join(fs.mkdtempSync(path.join(tmpRoot, 'db-')), 'heart.db') });
   try {
-    // ⚠ THE GATE KEYS THE ROW ON THE FOLDER BASENAME, not on any goal argument, and it binds
-    // through `bindEnding` — so the row is written the way the gate will actually look it up. A
-    // hand-picked handle can be a DIFFERENT database and the arm would measure a store nobody reads.
     const api = bindEnding(store, goalFolder);
     const goal = goalNameOf(goalFolder);
     const setLane = (text) => fs.writeFileSync(path.join(goalFolder, 'execution-lane'), text);
     const setRow = (stored) => api.writeGoalWord({
-      goal, stored, who_stamped: 'owner', evidence_pointer: 'selftest:pause-or',
+      goal, stored, who_stamped: 'owner', evidence_pointer: 'selftest:pause-row',
     });
+    const laneText = () => fs.readFileSync(path.join(goalFolder, 'execution-lane'), 'utf8');
 
     setLane('daemon\n');
     assert.strictEqual(laneIsPaused(goalFolder, store), false,
-      'no row at all and an unpaused marker must read NOT paused — the fail-safe direction on both surfaces');
+      'no row at all and an unpaused marker must read NOT paused');
 
     setRow('running');
     assert.strictEqual(laneIsPaused(goalFolder, store), false,
-      'both surfaces say running and the gate paused anyway — it is not reading, it is answering');
+      'a running row paused anyway — the gate is not reading');
 
-    // THE LEG THIS CHANGE EXISTS FOR: the console parked the goal, a Slack `resume` wrote the row.
-    // Before the OR, the row returned first and the operator's park evaporated.
     setLane('paused daemon\n');
-    assert.strictEqual(laneIsPaused(goalFolder, store), true,
-      'a `running` store row beat the console lane marker — a Slack resume just un-parked an operator-parked goal');
+    assert.strictEqual(laneIsPaused(goalFolder, store), false,
+      'a leftover prefix beat a running row — the store is not the only truth');
+    assert.strictEqual(laneText(), 'daemon\n',
+      'a stale leftover prefix was not stripped after the running row won');
 
     setLane('daemon\n');
     setRow('paused');
     assert.strictEqual(laneIsPaused(goalFolder, store), true,
-      'the store row said paused and the gate ran anyway — the mechanical Slack pause applies nothing');
+      'the store row said paused and the gate ran anyway');
+
+    const orphan = fs.mkdtempSync(path.join(tmpRoot, 'pause-legacy-'));
+    fs.writeFileSync(path.join(orphan, 'execution-lane'), 'paused daemon\n');
+    assert.strictEqual(laneIsPaused(orphan, store), true,
+      'a leftover prefix with no row was treated as NOT paused — silent un-pause');
+    assert.strictEqual((bindEnding(store, orphan).getGoalState(goalNameOf(orphan)) || {}).stored, 'paused',
+      'the leftover prefix was not ported into a row');
+    assert.strictEqual(fs.readFileSync(path.join(orphan, 'execution-lane'), 'utf8'), 'daemon\n',
+      'the leftover prefix was not stripped after the port');
   } finally {
     store.close();
     closeHeartStore();

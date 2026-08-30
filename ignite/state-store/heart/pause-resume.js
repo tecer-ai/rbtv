@@ -64,15 +64,12 @@
 //   a goal that is waiting on a question is still owed that question's answer, and the ask must
 //   still read `open` to every digest, status line and kill clock afterwards.
 //
-// ⚑ THE SECOND PAUSE WRITER IS STILL THERE, AND THE RESUME SAYS SO. This executor pauses
-//   STORE-side; the console's `rbtv goal pause` writes the legacy `execution-lane` marker
-//   (`operator/goals-tree/tool/goal_cli.py:883-947`). `supervisor/lane-watch.js#laneIsPaused` now
-//   answers PAUSED IF EITHER SURFACE SAYS SO, so a Slack `resume` cannot silently un-park a goal an
-//   operator parked at the console — and because it cannot, saying "resumed" would be a lie. A
-//   resume that meets a live console marker therefore names the marker in a refusal and reports
-//   `applied: false`: the acts it really performed are still listed, and the goal is not claimed to
-//   be running when the lane gate will still skip it. Retiring the lane-file writer is OWNER-GATED
-//   and is not done here.
+// ⚑ ONE PAUSE RECORD. This executor is the ONLY writer of the goal word. The console's
+//   `rbtv goal pause` / `resume` reach it through `state-store/cli.js --op pauseResume` (no `--db`);
+//   Slack reaches it through the fifteenth intent. The `execution-lane` file is the lane word
+//   (`daemon`/`console`) and is not a pause surface. A leftover `paused ` prefix from before this
+//   retirement is consumed by `lane-watch.js#laneIsPaused` (port the row, strip the prefix) — this
+//   module does not refuse a resume that meets one.
 //
 // ⚑ THE ENDING HOME IS THE FILE THE LANE GATE READS, NEVER THE CALLER'S LANE STORE. This executor
 //   binds `openEndingStoreFor(workspaceRoot)` — spec-state-store §1.1's ONE ending store at
@@ -128,10 +125,6 @@ function gateCapRefusal(seat) {
   return `resume does not lift ${seat}: it stopped at the re-plan cap. Answer the gate decision-ask — resume does not open a third re-plan.`;
 }
 
-function laneMarkerRefusal(goal) {
-  return `${goal} is still parked by the console lane marker — lift it with rbtv goal resume ${goal}`;
-}
-
 function goalsRootOf(workspaceRoot) {
   return path.join(workspaceRoot, '.rbtv', 'goals');
 }
@@ -169,17 +162,6 @@ function liveGoals(workspaceRoot) {
     names.push(name);
   }
   return names;
-}
-
-// Does the LEGACY console marker still park this goal? `readLane` flattens a paused marker into
-// `console` for seeding, so the raw first token is the only reading that answers this question —
-// the same read `lane-watch.js#laneIsPaused` performs on its file leg. ABSENT OR UNREADABLE IS NOT
-// PARKED, the fail-safe direction both surfaces already carry.
-function laneFileParks(goalDir) {
-  const { LANE_FILE } = require('../../supervisor/lane-watch');
-  let raw;
-  try { raw = fs.readFileSync(path.join(goalDir, LANE_FILE), 'utf8'); } catch { return false; }
-  return raw.trim().split(/\s+/)[0] === 'paused';
 }
 
 // The goal's lanes, from the reader the lane pass itself spends. A goal with no taskforce (a
@@ -311,13 +293,6 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
     refusals.push({ row: 'no-row', seat, text: `resume has no rule for ${seat} (${diagnostic || 'disarmed'}) — left untouched.` });
   }
 
-  // THE SECOND PAUSE WRITER. `laneIsPaused` is now an OR over both surfaces, so a live console
-  // marker means the lane gate will keep skipping this goal whatever the row says. The acts above
-  // really happened and stay listed; `applied` is false because the goal is NOT running.
-  if (laneFileParks(goalDir)) {
-    refusals.push({ row: 'lane-file', text: laneMarkerRefusal(goal) });
-    return { applied: false, reason: 'lane-file-paused', actions, refusals };
-  }
   return { applied: true, actions, refusals };
 }
 
@@ -362,5 +337,4 @@ module.exports = {
   NAMED_EXTERNAL_INPUT,
   blockedOnHumanRefusal,
   gateCapRefusal,
-  laneMarkerRefusal,
 };

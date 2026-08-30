@@ -810,9 +810,9 @@ function reconcileGoal({
     }
   }
 
-  // Honour `rbtv goal pause`. ONE reader: lane-watch.laneIsPaused (DEC-1 twin of
-  // goal_cli.lane_is_paused). Lazy-require — lane-watch requires this module at
-  // top level; a cycle at load would leave the reader undefined.
+  // Honour `rbtv goal pause`. ONE reader: lane-watch.laneIsPaused (the goal-state
+  // row; leftover `paused ` prefix is consumed there). Lazy-require — lane-watch
+  // requires this module at top level; a cycle at load would leave the reader undefined.
   const { laneIsPaused } = require('./lane-watch');
   if (goalFolder && laneIsPaused(goalFolder, heartStore)) {
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);

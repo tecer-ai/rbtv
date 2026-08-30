@@ -891,40 +891,26 @@ say('── paused goal is not reconciled ──');
     assert.ok(enq.enq && !enq.enq.deduped, JSON.stringify(enq.enq));
     say(`ok  control: same folder unpaused enqueued ${enq.jobId || enq.seat}`);
 
-    // ── TWO PAUSE WRITERS: EITHER SURFACE HOLDS THE PASS ──────────────────────────────────────
+    // ── ONE PAUSE RECORD: the goal-state row holds the pass ──────────────────────────────────
     //
-    // a0d7e42c made the goal-state ROW decide on its existence, demoting the `execution-lane`
-    // marker to a shim. The fifteenth intent (`pause-resume`, owner direction 2026-08-28) made
-    // that reachable and wrong: no goal on the instance carried a row, so the FIRST Slack verb
-    // would mint one that then overrode the console's `rbtv goal pause` marker for good. The gate
-    // is now an OR — paused if EITHER surface says so — and a resume that meets a live marker is
-    // REFUSED loudly by `state-store/heart/pause-resume.js` rather than silently ignored, which is
-    // what keeps a0d7e42c's own defect (a goal frozen against a record nobody could see) closed.
-    // Both halves are still asserted, because a gate that only ever answers one way cannot be told
-    // from a gate that reads nothing. The full four-combination arm lives in `lane-skip.selftest.js`
-    // alongside `laneIsPaused` itself; what this row measures is the PASS honouring it.
+    // A leftover `paused ` prefix with a `running` row must NOT skip (the store won; the prefix
+    // is stale). A `paused` row with a clean lane file MUST skip. A running row with a clean
+    // file must NOT skip — without that leg a gate that always skips would satisfy the paused
+    // row alone. The leftover-port arm lives in `lane-skip.selftest.js`.
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'paused console\n');
-    // ⚠ THE ROW IS WRITTEN THROUGH THE GATE'S OWN RESOLUTION, never through `store.db` directly:
-    // `bindEnding` walks for a workspace root first and only falls back to the lane store, so a
-    // hand-picked handle can be a DIFFERENT database and the arm would measure a store the gate
-    // never reads.
     const { bindEnding, goalNameOf } = require('./ending-reads');
     const api = bindEnding(store, goalFolder);
-    // ⚠ THE GATE KEYS THE ROW ON THE FOLDER BASENAME, not on the `goal` argument — `laneIsPaused`
-    // takes no goal name and derives it with `goalNameOf(goalFolder)`. On a real goal the two are
-    // the same string by construction (`<ws>/.rbtv/goals/<goal>`); in this flat fixture they are
-    // not, so the row is written under the name the gate will actually look up.
     const pauseGoalId = goalNameOf(goalFolder);
     api.writeGoalWord({ goal: pauseGoalId, stored: 'running', who_stamped: 'system',
       evidence_pointer: 'selftest:one-pause-record' });
-    const markerHolds = reconcileGoal({
+    const stalePrefix = reconcileGoal({
       goal: 'fx-pause', goalFolder, engine: { heartStore: store },
       say: () => {}, force: true, readyAnswer: readyEmpty,
       live: new Set(), promptFn: () => 'fixture prompt',
       sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
     });
-    assert.strictEqual(markerHolds.skipped, 'paused',
-      `a \`running\` row beat the console lane marker — a Slack resume just un-parked an operator-parked goal: ${JSON.stringify(markerHolds)}`);
+    assert.notStrictEqual(stalePrefix.skipped, 'paused',
+      `a leftover prefix beat a running row: ${JSON.stringify(stalePrefix)}`);
     api.writeGoalWord({ goal: pauseGoalId, stored: 'paused', who_stamped: 'owner',
       evidence_pointer: 'selftest:one-pause-record' });
     fs.writeFileSync(path.join(goalFolder, 'execution-lane'), 'daemon\n');
@@ -936,8 +922,6 @@ say('── paused goal is not reconciled ──');
     });
     assert.strictEqual(rowPauses.skipped, 'paused',
       `the goal-state row said paused and the pass ran anyway: ${JSON.stringify(rowPauses)}`);
-    // THE DISCRIMINATING LEG: with BOTH surfaces reading running the pass must NOT skip. Without
-    // it the two assertions above are satisfied by a gate that returns `true` unconditionally.
     api.writeGoalWord({ goal: pauseGoalId, stored: 'running', who_stamped: 'owner',
       evidence_pointer: 'selftest:one-pause-record' });
     const neitherPauses = reconcileGoal({
@@ -947,8 +931,8 @@ say('── paused goal is not reconciled ──');
       sendFn: () => ({ ok: true }), recoverFn: () => ({ ok: true }),
     });
     assert.notStrictEqual(neitherPauses.skipped, 'paused',
-      `both surfaces said running and the pass skipped anyway: ${JSON.stringify(neitherPauses)}`);
-    say('ok  two pause writers: the console marker holds the pass, the store row holds the pass, and neither reading paused runs it');
+      `a running row skipped anyway: ${JSON.stringify(neitherPauses)}`);
+    say('ok  one pause record: leftover prefix does not hold the pass; the store row does; running does not skip');
   } finally {
     store.close();
     closeHeartStore();

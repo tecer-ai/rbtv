@@ -92,7 +92,7 @@ verbatim, no contract change.
 | `lint` | READ-ONLY validate + dry-run emulate (CMP-14). Exit 0 = gate open, 1 = gate blocks, every finding named with file + reason. | **Writes anything, ever** — conflating lint and materialize breaks the read-only contract |
 | `materialize` | Creates `seats/<seat>/` per `taskforce.csv` row and assembles each `seat.md`; writes permissions. Assembles everything in memory FIRST, so a mid-assembly failure never leaves a half-materialized run. **Refuses (exit 1, nothing written) a manifest whose after-graph does not validate** — the same acyclicity + guard-grammar arm `lint` runs, now unskippable at the registration act (7.456/MC14). | Touches cognitive-unit sources, catalogs, or `taskforce.csv` |
 | `lane` | Shows or sets WHICH LANE runs the goal — the daemon's pickup button (§ below). With no `--set` it is read-only orientation. Works **daemon-down**: it is a file read and a file write, which is most of why the trigger is a file. | Runs anything, or creates a goal — it assigns an EXISTING one |
-| `pause` / `resume` | Stashes the lane assignment behind a `paused ` prefix and hands it back byte-for-byte (§ below). Bounds **SEEDING only** — see the warning there. | Stops a running session, or invents a lane |
+| `pause` / `resume` | Writes the ending-store goal-state row (`paused` / `running`) through the same executor Slack uses. The lane file is unchanged. Bounds **SEEDING only** — see the warning there. | Stops a running session, or invents a lane |
 | `dag` | READ-ONLY one-shot graph view: every `taskforce.csv` row with its predecessors (through the after grammar, never a comma split) and its execution state derived from `executions.csv`, in dependency order, plus `seats/` folders with no row. | Writes anything, or stores a state — every field is derived |
 | `add-seat` | Grows a **paused** goal's roster: gates, mints the seat through `materialize-seats.py`, then splices it into the after-graph in ONE atomic registry write (§ below). | Runs without a pause, splices before minting, or rewrites a row it did not re-parent |
 | `retry-threshold` | Shows or sets the consecutive-FAIL bar the dod-judge escalates to the owner at (§ below). Bare, it is READ-ONLY orientation. | Enforces the bar, or resolves it for the gate — `coord.py#resolve_retry_threshold` is the authority; this verb writes the two files it reads |
@@ -114,9 +114,9 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
 - **ABSENT MEANS `console`.** An unreadable file, a junk word and a missing file are ONE answer —
   the daemon adopts ONLY goals explicitly assigned to it. Fail-closed on purpose: the opposite
   default would have adopted every goal folder already on disk the first time the daemon ticked.
-  ⚠ **A goal scaffolded since 7.777 is never absent**: `scaffold --lane` is REQUIRED, so the
-  marker is written at birth and this reader's absence arm covers only goals older than that (or
-  a `pause`, which stashes the assignment behind a prefix both readers resolve to `console`).
+   ⚠ **A goal scaffolded since 7.777 is never absent**: `scaffold --lane` is REQUIRED, so the
+   marker is written at birth and this reader's absence arm covers only goals older than that.
+   Pause does not rewrite this file.
 - **`--set daemon` REFUSES A GOAL WITH ANY UNCAST SEAT, AND NAMES THEM** (`#d-abolish-profile-names`
   sub-ruling 3, 2026-08-12). This door once demanded `--profile <name>` as the fallback such a seat
   would launch on; the flag and the fallback are both gone, so an uncast seat has nothing to run as
@@ -137,68 +137,40 @@ seeds the goals assigned to it through `engine.seedGoal`; the console lane is `r
   and `attached` (how an execution-record row RAN) are the same lane's two readings — ruled, and
   stated in that concept file alone.
 
-### `pause` / `resume` — the lane stash (issue `S-33`)
+### `pause` / `resume` — the goal-state row (owner ruling D-1 (a), 2026-08-30)
 
 ```
-rbtv-goal pause  <goal>      # execution-lane: `daemon claude-sonnet` -> `paused daemon claude-sonnet`
-rbtv-goal resume <goal>      # …and back, byte for byte
+rbtv-goal pause  <goal> --reason R
+rbtv-goal resume <goal>
 ```
 
-**The marker grammar is one token wider, and NEITHER READER CHANGED.** `pause` rewrites
-`<goal>/execution-lane` to `paused ` + whatever it said before, verbatim; `resume` strips exactly
-that prefix and writes the remainder back. Both lane readers — `goal_cli.read_lane` and
-`supervisor/lane-watch.js#readLane` — already resolve any first token that is not `daemon` to
-`console`, so a paused marker reads as "not assigned to the daemon" on both sides with zero reader
-change. The daemon lets go on its next watch pass; the stashed assignment is still on disk, and
-`lane --json` reports `paused` / `paused_from` so nothing has to be inferred.
+**ONE record: the ending-store goal-state row.** Both doors — Slack's `pause-resume` intent and
+this console verb — call `state-store/heart/pause-resume.js` through `cli.js --op pauseResume`
+(no `--db`). The `execution-lane` file keeps ONLY the lane word (`daemon`/`console`). A leftover
+`paused ` prefix from the retired file-writer still reads as paused until a writer or
+`laneIsPaused` ports it into a row and strips it; a goal the file says is paused is never
+silently un-paused.
 
-**Every goal on the tree is pausable, including `_channel-master`** (owner ruling R2, 2026-08-15).
 The verbs that ADDRESS an existing goal — `lane`, `pause`, `resume`, `relaunch`, and `lint`'s name
 check — validate through `GOAL_REF_NAME_RE`, which is `GOAL_NAME_RE` plus an optional SINGLE
-leading `_`. `scaffold` deliberately still validates through the narrower `GOAL_NAME_RE`, so no NEW
-underscore goal can be minted (the daemon-side argv gate, `state-store/heart/argv-template.js#NAME_RE`,
-is kebab-only and would refuse such a name at enqueue). Before this split the leading underscore
-refused `goal-name-invalid` at every marker verb, so **no landing had ever been able to hold that
-goal** and every deploy ran with it free to spawn straight through.
+leading `_`. `scaffold` still validates through the narrower `GOAL_NAME_RE`. The store roster
+excludes `_`-prefixed names, so a `_` goal is addressable (`not goal-name-invalid`) and then
+refused `no-such-goal`.
 
 - **Pausing bounds STARTING, not EXECUTION.** It stops the daemon starting anything NEW for this
-  goal — both halves: the watch pass will not SEED it (a paused marker is not `daemon`), and the
-  ticker's dispatch pause gate (`ticker.js#pausedGoalForRow`, reading
-  `lane-watch.js#laneIsPaused` — `lane_is_paused`'s JS twin) DEFERS every due queue row bound to
-  it, including a `fire-tool` row whose only goal binding is a `--package .../goals/<goal>` argv
-  path (the `system-health` watcher shape that used to fire straight through a paused landing).
-  Deferred rows stay in the queue and fire by themselves on the first tick after `resume`. It
-  does **not** stop a session that is already running, and it does not touch an attached
-  `rbtv run` (which never reads the marker). "Nothing new starts" is the guarantee; "nothing is
-  running" is `add-seat`'s quiescence gate, which is a different check against `executions.csv`.
-- **`pause` is idempotent** — a second pause does not double the prefix, and reports the stash it
-  already holds.
-- **`resume` refuses `not-paused`** rather than stripping a prefix that is not there: doing so
-  would rewrite an assignment nobody paused.
-- **`resume` FIRES THE NAMED RE-ARM EVENT, because it IS one.** `spec-recovery` §4 row 1 and §5's
-  closed list make "mechanical `resume {goal}` on a disarmed-counter lane" a re-arm event: it
-  re-arms that driver and resets that counter. There are two doors onto that one verb — Slack's
-  `pause-resume` gateway intent and this console verb — and this one used to fire nothing, so a
-  goal whose `reconcile-respawn` counter had reached N stayed skipped on every daemon pass after a
-  console resume (measured 2026-08-28 17:35Z on `goal-memory-management`). It now calls the SAME
-  executor the intent calls — `state-store/heart/pause-resume.js`, through `state-store/cli.js
-  --op pauseResume` — after the unstash (the executor refuses while the console marker still
-  parks the goal), and prints the rows it re-armed, or `nothing to re-arm`. It does not route
-  through the gateway: `runtime/internal-api/authz.js#canPauseResume` is `sender.kind === 'bridge'`
-  and refuses an owner token by name, because the console is the other writer of this fact.
-  A store or ledger that will not answer is a loud line naming the counters as UNCHANGED — the
-  lane restore has already landed and is never undone by it.
-  ⚠ The attempt-counter ledger is `__dirname`-relative (`supervisor/attempt-counters.js`), so it
-  lives beside the CODE: the console names the ledger under the tree the DAEMON booted
-  (`$XDG_STATE_HOME/rbtv-deploy`, override `RBTV_IGNITE_DEPLOY` — the same resolution
-  `rbtv-ignite-daemon` uses), never the source tree it is itself running from, which carries no
-  ledger at all. Probe: `probes/probe-console-resume-rearm.py`.
-- **`lane --set` refuses `lane-paused` while the stash is held.** `--set` writes the marker WHOLE,
-  so setting a lane during a pause would discard the stashed assignment silently — and leave the
-  operator believing the goal is paused while the daemon reads it as assigned.
-- Absent file → the stashed text is `console`, which is what an absent file already reads as —
-  so EVERY goal is pausable: `pause` CREATES the marker on a goal born before lane-at-birth
-  (task 7.777), and the dispatch pause gate then holds it like any other.
+  goal — the watch pass and the ticker's dispatch pause gate (`ticker.js#pausedGoalForRow`,
+  reading `lane-watch.js#laneIsPaused`) DEFERS every due queue row bound to it. It does **not**
+  stop a session that is already running. "Nothing new starts" is the guarantee; "nothing is
+  running" is `add-seat`'s quiescence gate.
+- **`pause` is idempotent** — a second pause leaves the row paused and the lane file untouched.
+- **`resume` refuses `not-paused`** when the row is not `paused` and there is no leftover prefix.
+- **`resume` FIRES THE NAMED RE-ARM EVENT.** Same executor as the intent; does not route through
+  the gateway (`canPauseResume` is `sender.kind === 'bridge'` only). A store or ledger that will
+  not answer is a loud line naming the counters as UNCHANGED.
+  ⚠ The attempt-counter ledger is `__dirname`-relative: the console names the ledger under the
+  tree the DAEMON booted (`$XDG_STATE_HOME/rbtv-deploy`, override `RBTV_IGNITE_DEPLOY`). Probe:
+  `probes/probe-console-resume-rearm.py`.
+- **`lane --set` refuses `lane-paused` while the goal is paused.**
 
 ### `retry-threshold` — the milestone retry bar (issue `IPH-11`, owner ruling 2026-08-11)
 

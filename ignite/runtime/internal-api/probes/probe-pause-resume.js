@@ -10,9 +10,8 @@
 // process may hold none of them. This probe measures the OTHER half: what the DAEMON does when a
 // caller asks it to pause or resume. The load-bearing legs are C/D — a slug outside the live-goal
 // roster must be `NOT_FOUND` rather than an empty success, because an `ok:true` carrying no actions
-// reads to the owner as "your goal was paused" — and G, the second-writer hold: a resume that meets
-// a live console lane marker must NOT claim the goal is running, because `laneIsPaused` will keep
-// skipping it.
+// reads to the owner as "your goal was paused" — and G, one pause record: a leftover console
+// `paused ` prefix does not hold a resume, because the store row is the only truth.
 //
 // In-process parse + dispatch + authz over a REAL (scratch) ending store, a REAL (scratch) goals
 // tree with `goals.csv` + goal folders + `taskforce.csv`, and a REAL (scratch) attempt-counter
@@ -278,26 +277,27 @@ async function main() {
   check('f4: the CORE refuses the unknown key too — the gateway copy is not the only check (DEC-3)',
     raw.ok === false && raw.error.code === 'VALIDATION_FAILED', JSON.stringify(raw.error));
 
-  // ── (g) THE SECOND PAUSE WRITER: a live console marker HOLDS, and resume says so ─────────────
+  // ── (g) ONE PAUSE RECORD: a leftover console prefix does NOT hold a resume ──────────────────
   //
-  // `PARKED` carries `paused daemon` on disk (what `rbtv goal pause` writes) and, after the resume
-  // below, a goal-state row reading `running`. Before this change the row would have decided and
-  // the goal would have silently un-parked.
+  // `PARKED` still carries a leftover `paused daemon` on disk. Resume writes the row `running`
+  // and reports applied:true — the file is not a pause surface. `laneIsPaused` then treats the
+  // leftover as stale (running row wins) and strips it.
   store.writeGoalWord({ goal: PARKED, stored: 'paused', who_stamped: 'owner', evidence_pointer: 'probe:parked' });
   r = await call(BRIDGE, { verb: 'resume', goal: PARKED });
-  check('g1: resume on a console-parked goal is ok:true but applied:false — the goal is NOT claimed to be running',
-    r.body.ok === true && r.body.result.applied === false && r.body.result.reason === 'lane-file-paused',
+  check('g1: resume on a leftover-prefix goal is applied:true — the store row is the only truth',
+    r.body.ok === true && r.body.result.applied === true,
     JSON.stringify(r.body.result));
-  check('g2: the refusal NAMES the console lane marker and the command that lifts it',
-    r.body.result.refusals.some((x) => x.row === 'lane-file' && /console lane marker/.test(x.text) && new RegExp(`rbtv goal resume ${PARKED}`).test(x.text)),
+  check('g2: resume does not emit a lane-file refusal',
+    !(r.body.result.refusals || []).some((x) => x.row === 'lane-file'),
     JSON.stringify(r.body.result.refusals));
-  check('g3: the acts that DID happen are still reported — the goal row really flipped',
+  check('g3: the goal row really flipped to running',
     r.body.result.actions.some((x) => x.row === 'goal' && x.change === 'paused→running')
       && (store.getGoalState(PARKED) || {}).stored === 'running',
     JSON.stringify(store.getGoalState(PARKED)));
-  check('g4: `laneIsPaused` is TRUE with the lane file `paused daemon` and the store row `running` — either surface holds',
-    laneIsPaused(parkedDir, { db }) === true);
-  check('g5: control — the same gate is FALSE when both surfaces say running (it is an OR, not a constant)',
+  check('g4: `laneIsPaused` is FALSE with leftover prefix + running row — the store won, prefix stripped',
+    laneIsPaused(parkedDir, { db }) === false
+      && fs.readFileSync(path.join(parkedDir, 'execution-lane'), 'utf8') === 'daemon\n');
+  check('g5: control — the same gate is FALSE when the row is running and the file is clean',
     laneIsPaused(goalDir, { db }) === false,
     `row=${JSON.stringify(store.getGoalState(GOAL))} lane=${fs.readFileSync(path.join(goalDir, 'execution-lane'), 'utf8').trim()}`);
   check('g6: control — `laneIsPaused` is TRUE from the STORE ROW alone (lane file `daemon`)',
@@ -306,6 +306,15 @@ async function main() {
       const v = laneIsPaused(goalDir, { db });
       store.writeGoalWord({ goal: GOAL, stored: 'running', who_stamped: 'owner', evidence_pointer: 'probe:row-only' });
       return v === true;
+    })());
+  check('g7: leftover prefix with NO row still reads paused (never silently un-pause) and is ported',
+    (() => {
+      const orphanDir = seedGoal(root, 'probe-orphan-legacy', { lane: 'paused daemon' });
+      writeRegister(root, [SYSTEM_PKG, GOAL, PARKED, 'probe-orphan-legacy']);
+      const v = laneIsPaused(orphanDir, { db });
+      const stored = (store.getGoalState('probe-orphan-legacy') || {}).stored;
+      const file = fs.readFileSync(path.join(orphanDir, 'execution-lane'), 'utf8');
+      return v === true && stored === 'paused' && file === 'daemon\n';
     })());
 
   // ── (h) THE ENDING HOME, AND A GOAL WITH NO TASKFORCE ───────────────────────────────────────
@@ -442,18 +451,19 @@ async function main() {
     }
   }
 
-  // R3 — the laneIsPaused fall-through. Reverted to the old `return` and the console-parked goal
-  // reads as NOT paused, which is the silent un-park this change exists to prevent.
+  // R3 — leftover prefix with no row. Drop the port and a file-only pause reads NOT paused.
   {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supervisor', 'lane-watch.js'), 'utf8');
-    const ANCHOR = "if (row && row.stored === 'paused') return true;";
-    check('R0c: red-proof anchor — the OR fall-through is present in laneIsPaused', src.includes(ANCHOR));
+    const ANCHOR = 'if (!legacy) return false;';
+    check('R0c: red-proof anchor — leftover-prefix consumption is present in laneIsPaused', src.includes(ANCHOR));
     const beside = path.join(__dirname, '..', '..', '..', 'supervisor', `lane-watch.mutant-${process.pid}.js`);
     try {
-      fs.writeFileSync(beside, src.replace(ANCHOR, "if (row && row.stored) return row.stored === 'paused';"));
+      fs.writeFileSync(beside, src.replace(ANCHOR, 'if (true) return false;'));
+      delete require.cache[require.resolve(beside)];
       const mut = require(beside);
-      check('R3: red-proof — with the pre-change `return` restored, the console-parked goal reads NOT paused while its row says running (COPY, discarded)',
-        mut.laneIsPaused(parkedDir, { db }) === false);
+      const orphanDir = seedGoal(root, 'probe-orphan-red', { lane: 'paused daemon' });
+      check('R3: red-proof — with leftover consumption deleted, a prefix-only pause reads NOT paused (COPY, discarded)',
+        mut.laneIsPaused(orphanDir, { db }) === false);
     } finally {
       try { fs.rmSync(beside, { force: true }); } catch {}
     }

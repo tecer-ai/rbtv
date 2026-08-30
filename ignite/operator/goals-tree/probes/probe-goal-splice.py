@@ -10,8 +10,8 @@ to it. Every arm here runs the real `goal_cli.py` as a SUBPROCESS, over a throwa
 and reads exit codes and `--json` refusal codes off stdout/stderr.
 
 THE PROPERTY: a goal whose roster is grown must come out with (1) exactly the rewired rows
-changed and every other byte identical, (2) the pause stash returned byte-for-byte by `resume`,
-and (3) every gate refusing by CODE — never by prose, which is edited freely.
+changed and every other byte identical, (2) pause writes the goal-state row and leaves the lane
+file unchanged, and (3) every gate refusing by CODE — never by prose, which is edited freely.
 
 ⚠ THE GREEN AND RED ARMS DISCRIMINATE EACH OTHER, which is what makes this probe non-vacuous
 without a source mutant. "The tool refused" is also what a tool that refuses everything produces —
@@ -198,26 +198,25 @@ def main() -> int:
             check(f"{label.split('.')[0]}. …and it left taskforce.csv byte-identical",
                   (goal / "taskforce.csv").read_text(encoding="utf-8") == snapshot)
 
-        # ── 1. the PAUSE stash round-trips byte-exactly through the real CLI ──────────────────
+        # ── 1. PAUSE writes the row and leaves the lane file unchanged ────────────────────────
         lane.write_text("daemon claude-sonnet\n", encoding="utf-8", newline="")
+        before_lane = lane.read_text(encoding="utf-8")
         rc, so, se = run([*R, "pause", "live-goal", "--reason", "splice-probe hold"])
         check("1. `pause` exits 0", rc == 0, f"exit={rc} {se.strip()[:200]}")
-        check("1. the marker is stashed behind `paused `",
-              lane.read_text(encoding="utf-8") == "paused daemon claude-sonnet\n",
+        check("1. the lane file is unchanged (pause is the goal-state row)",
+              lane.read_text(encoding="utf-8") == before_lane,
               repr(lane.read_text(encoding="utf-8")))
         rc, so, _ = run([*R, "--json", "lane", "live-goal"])
         payload = json.loads(so) if so.strip().startswith("{") else {}
-        check("1. `lane --json` reports paused + paused_from",
-              payload.get("paused") is True
-              and payload.get("paused_from") == "daemon claude-sonnet"
-              and payload.get("lane") == "console",
+        check("1. `lane --json` reports paused",
+              payload.get("paused") is True,
               so.strip()[:300])
         rc, _, se = run([*R, "--json", "lane", "live-goal", "--set", "console"])
-        check("1. `lane --set` refuses `lane-paused` while the stash is held",
+        check("1. `lane --set` refuses `lane-paused` while paused",
               rc == 1 and "lane-paused" in se, f"exit={rc} {se.strip()[:200]}")
         rc, _, se = run([*R, "resume", "live-goal"])
-        check("1. `resume` returns the marker BYTE-EXACTLY",
-              rc == 0 and lane.read_text(encoding="utf-8") == "daemon claude-sonnet\n",
+        check("1. `resume` leaves the lane file unchanged",
+              rc == 0 and lane.read_text(encoding="utf-8") == before_lane,
               repr(lane.read_text(encoding="utf-8")))
         rc, so, se = run([*R, "--json", "resume", "live-goal"])
         check("1. a second `resume` refuses `not-paused`",
@@ -277,6 +276,7 @@ def main() -> int:
         reset_registry()
         pristine = (goal / "taskforce.csv").read_text(encoding="utf-8")
 
+        run([*R, "resume", "live-goal"])
         lane.write_text("console\n", encoding="utf-8", newline="")
         refuses_without_damage("5. an UNPAUSED goal refuses `goal-not-paused`", "goal-not-paused")
 
@@ -372,6 +372,7 @@ def main() -> int:
               plan.get("dry_run") is True
               and [r["seat"] for r in plan.get("rewrites", [])] == ["b"],
               so.strip()[:300])
+        run([*R, "resume", "live-goal"])
         lane.write_text("console\n", encoding="utf-8", newline="")
         rc, so, _ = add_seat("--dry-run")
         check("6. --dry-run fires the gates too (an unpaused goal still refuses)",

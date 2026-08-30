@@ -73,8 +73,8 @@ const CONSOLE = 'console';
 // the goal to look like one somebody parked deliberately. Its `python` twin is
 // `operator/goals-tree/tool/goal_cli.py#read_lane`; the two change together, always (DEC-1).
 //
-// ⚑ `paused ` STILL PREFIXES, and still resolves `console` here with no special case: a paused
-// marker's whole text is not `daemon`, which is the entire mechanism (`goal_cli.py#pause`).
+// ⚑ A leftover `paused ` prefix (retired writer) still resolves `console` here with no special
+// case: the whole text is not `daemon`. Pause itself is the goal-state row, not this file.
 function readLane(goalFolder) {
   let raw;
   try {
@@ -89,63 +89,80 @@ function readLane(goalFolder) {
   return { lane: CONSOLE, present: true, legacy, raw: text };
 }
 
-// IS THE GOAL PAUSED — the JS twin of `goal_cli.py#lane_is_paused` (the two change together,
-// like `readLane`/`read_lane`, DEC-1). `readLane` above deliberately flattens a paused marker
-// into `console` (that is the whole pause mechanism for SEEDING); this reader answers the
-// DIFFERENT question the ticker's dispatch pause gate asks — "did an operator pause this goal?"
-// — which `console` cannot carry. ABSENT OR UNREADABLE IS NOT PAUSED: the marker is the
-// operator's explicit act, and `rbtv-goal pause` CREATES the file on a goal that never had one
-// (`read_lane_raw` supplies `console\n`), so every goal is pausable and an unpaused goal keeps
-// its exact current behaviour.
+// IS THE GOAL PAUSED — the JS twin of `goal_cli.py#_goal_is_paused` (DEC-1). ONE record: the
+// goal-state row (`stored === 'paused'`). The `execution-lane` file is the lane word only.
 //
-// ── TWO PAUSE WRITERS, AND EITHER ONE HOLDS ───────────────────────────────────────────────────
+// ── ONE PAUSE RECORD (owner ruling D-1 (a), 2026-08-30) ───────────────────────────────────────
 //
-// There are TWO records of "is this goal paused": the goal-state row in the ending store
-// (`writeGoalWord`, what the mechanical Slack verb writes) and the first word of the
-// `execution-lane` file (what the console's `rbtv goal pause` writes,
-// `operator/goals-tree/tool/goal_cli.py:883-947`). a0d7e42c converged them onto the ROW — the row's
-// EXISTENCE decided and the file became a shim reached only by a goal the store had never
-// recorded. That convergence was correct for the defect it fixed (a stale `paused` marker beating a
-// row that had actually been updated) and WRONG for the one it created, which the fifteenth
-// intent's landing made reachable for the first time:
+// The console used to stash a `paused ` prefix in the lane file; Slack wrote the row. Either
+// surface could hold the gate, so a goal paused one way and resumed the other stayed paused.
+// The store row is now the only truth. Console pause/resume write the row through the same
+// executor (`heart/pause-resume.js`) the intent uses.
 //
-//   ⚠ NO GOAL ON THIS INSTANCE HAS A `goal_states` ROW (0 rows, read 2026-08-28 02:19Z). The lane
-//     marker is therefore the ONLY effective pause today. With the row deciding on its existence,
-//     the FIRST Slack `pause` or `resume` on a goal MINTS a row — and that row then overrides the
-//     console marker for good: a Slack `resume` would silently un-park every orchestrator-parked
-//     test goal (each leader waking is a real, paid sitting), and a later `rbtv goal pause` would
-//     be ignored while the row read `running`.
+// A leftover `paused ` prefix is NOT a second writer. It is consumed once: if the store has no
+// word yet, port `paused` into the row then strip the prefix; if the store already has a word,
+// the leftover is stale — strip it and believe the row. Never strip a prefix that is the only
+// pause evidence: a write that did not land keeps the prefix and this function still returns
+// true. ABSENT OR UNREADABLE IS NOT PAUSED.
 //
-// So the gate is an OR: PAUSED IF EITHER SURFACE SAYS SO. A `running` row falls THROUGH to the file
-// instead of returning, and only a goal both surfaces call unpaused runs. This restores the
-// possibility a0d7e42c closed — a stale marker outliving a row — and that possibility is answered
-// where it is now VISIBLE rather than by making the gate guess: `state-store/heart/pause-resume.js`
-// refuses a resume that meets a live console marker, names the marker, and tells the owner the one
-// command that lifts it. A frozen goal nobody is told about was the a0d7e42c defect; a frozen goal
-// the owner is told about, in the same message, is a second writer honestly reported.
-//
-// Retiring the lane-file writer collapses this back to one record and is OWNER-GATED.
-//
-// ⚠ `isGoalPaused` STILL CANNOT CARRY THE STORE LEG, because it flattens two different answers into
-// `false`: "the row says running" and "there is no row at all". Only the first is an answer, and
-// the OR needs to tell them apart to know whether the row is even in the conversation. So the row
-// is read directly. ABSENT OR UNREADABLE IS STILL NOT PAUSED, on both surfaces.
+// ⚠ `isGoalPaused` STILL CANNOT CARRY THIS, because it flattens "running" and "no row" into one
+// `false`. A leftover prefix with no row is paused; that predicate would miss it. The row is
+// read directly.
 function laneIsPaused(goalFolder, heartStore) {
+  let row = null;
   try {
     const { bindEnding, goalNameOf } = require('./ending-reads');
     const api = bindEnding(heartStore, goalFolder);
     if (api && typeof api.getGoalState === 'function') {
-      const row = api.getGoalState(goalNameOf(goalFolder));
-      if (row && row.stored === 'paused') return true;
+      row = api.getGoalState(goalNameOf(goalFolder));
     }
-  } catch { /* the store could not be asked at all — the file leg still answers */ }
-  let raw;
-  try {
-    raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8');
-  } catch {
-    return false;
+  } catch { /* store unreadable — leftover prefix still answers */ }
+
+  const legacy = legacyPausePrefix(goalFolder);
+  if (row && row.stored === 'paused') {
+    if (legacy) {
+      try { stripLegacyPausePrefix(goalFolder, legacy.rest); } catch { /* prefix is noise */ }
+    }
+    return true;
   }
-  return raw.trim().split(/\s+/)[0] === 'paused';
+  if (!legacy) return false;
+  if (!row || !row.stored) {
+    let wrote = false;
+    try {
+      const { bindEnding, workspaceRootOf, goalNameOf } = require('./ending-reads');
+      const { bind, openEndingStoreFor } = require('../state-store');
+      const root = workspaceRootOf(goalFolder);
+      const api = root ? bind(openEndingStoreFor(root)) : bindEnding(heartStore, goalFolder);
+      if (api && typeof api.writeGoalWord === 'function') {
+        api.writeGoalWord({
+          goal: goalNameOf(goalFolder), stored: 'paused', who_stamped: 'owner',
+          evidence_pointer: 'legacy execution-lane paused prefix',
+        });
+        wrote = true;
+      }
+    } catch { wrote = false; }
+    if (wrote) {
+      try { stripLegacyPausePrefix(goalFolder, legacy.rest); } catch { /* row holds */ }
+    }
+    return true;
+  }
+  try { stripLegacyPausePrefix(goalFolder, legacy.rest); } catch { /* stale prefix */ }
+  return false;
+}
+
+function legacyPausePrefix(goalFolder) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(goalFolder, LANE_FILE), 'utf8'); } catch { return null; }
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.split(/\s+/)[0] !== 'paused') return null;
+  return { rest: trimmed.split(/\s+/).slice(1).join(' ') };
+}
+
+function stripLegacyPausePrefix(goalFolder, rest) {
+  const text = `${rest || 'console'}\n`;
+  const tmp = path.join(goalFolder, `${LANE_FILE}.tmp`);
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, path.join(goalFolder, LANE_FILE));
 }
 
 // ── THE REPEATED-FAILURE MEMO ─────────────────────────────────────────────────────────────────
@@ -493,13 +510,14 @@ async function runLaneWatch({
     const goalFolder = path.join(goalsRoot, goal);
     const { lane, legacy, raw } = readLane(goalFolder);
 
-    // D1 watcher: honour pause via the ONE reader. A paused marker flattens to
-    // console below, so without this call maybeReconcile never sees the goal and
-    // the skip would be an accident of the console-flatten (two readings of one
-    // state). Call it here; reconcileGoal returns skipped:'paused' before
-    // ready-seats. Seeding still uses the existing lane !== DAEMON path.
+    // D1 watcher: honour pause via the ONE reader (the goal-state row). CONTINUE —
+    // seeding used to skip only because a `paused ` prefix made readLane return
+    // console; the file is no longer a pause surface, so without this continue a
+    // store-paused daemon-lane goal would still be adopted.
     if (!goal.startsWith('_') && laneIsPaused(goalFolder, engine && engine.heartStore)) {
       maybeReconcile({ goal, goalFolder, engine, say });
+      skipped.push({ goal, reason: 'paused' });
+      continue;
     }
 
     if (lane !== DAEMON) {

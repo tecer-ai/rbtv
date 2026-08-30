@@ -217,8 +217,8 @@ def main():
         check(Path(decoy).read_text(encoding="utf-8") == decoy_before,
               "a ledger outside the daemon's tree is byte-unchanged")
 
-        # ── E — A STORE THAT WILL NOT OPEN IS LOUD AND NON-FATAL, and the lane still lands ───
-        print("(e) an unopenable store is a loud line, never a lost lane restore")
+        # ── E — A STORE THAT WILL NOT OPEN IS LOUD AND NON-FATAL; leftover prefix stays ────
+        print("(e) an unopenable store is a loud line, never a silent un-pause")
         ws, goals = make_workspace(tmp / "e")
         deploy = tmp / "e" / "deploy"
         seed_counter(deploy_ledger(deploy), GOAL)
@@ -226,10 +226,11 @@ def main():
         blocked.mkdir(parents=True, exist_ok=True)
         (blocked / "heart.db").mkdir()          # a DIRECTORY where the store must be a file
         proc = run_resume(goals, deploy)
-        check(proc.returncode == 0, "exit 0 — the lane restore is not undone by a store fault",
+        check(proc.returncode == 0, "exit 0 — a store fault does not abort the verb",
               proc.stderr[-300:])
-        check((goals / GOAL / "execution-lane").read_text(encoding="utf-8") == "daemon\n",
-              "the lane assignment IS restored")
+        check((goals / GOAL / "execution-lane").read_text(encoding="utf-8") == "paused daemon\n",
+              "leftover prefix is kept when the store did not answer — never silently un-pause",
+              repr((goals / GOAL / "execution-lane").read_text(encoding="utf-8")))
         check("did NOT fire" in proc.stdout and "UNCHANGED" in proc.stdout,
               "the failure is a loud line naming the counters as unchanged", proc.stdout[:400])
         check(counter_rows(deploy_ledger(deploy), GOAL) != [],
@@ -250,7 +251,7 @@ def main():
         print("(g) red mutation — the re-arm call removed, on a DISCARDED copy")
         mutant = tmp / "mutant_goal_cli.py"
         src = GOAL_CLI.read_text(encoding="utf-8")
-        cut = "    fired = _fire_resume_event(_root, name)"
+        cut = "    fired = _fire_pause_resume(root, name, \"resume\")"
         check(cut in src, "the mutation point exists in the source")
         mutant.write_text(src.replace(cut, '    fired = {"ok": True, "result": {"found": False, '
                                            '"reason": "mutation", "detail": "mutation"}}', 1),

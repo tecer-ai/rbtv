@@ -223,6 +223,11 @@ function makeGoal(name, { cast = { harness: 'bash', model: 'probe-lane' } } = {}
   for (const s of ['alpha', 'bravo']) {
     fs.writeFileSync(path.join(dir, 'seats', s, 'seat.md'), `---\nseat: ${s}\n${castLines}---\n\nbody\n`);
   }
+  const csv = path.join(goalsRoot, 'goals.csv');
+  if (!fs.existsSync(csv)) {
+    fs.writeFileSync(csv, 'name,creation date,due date,type,goal-kind,status\n');
+  }
+  fs.appendFileSync(csv, `${name},2026-08-30,,one-off,daemon,active\n`);
   return dir;
 }
 
@@ -512,17 +517,15 @@ async function main() {
   laneCli(['human-interactive-goal', '--set', 'daemon']);
   laneCli(['armless-goal', '--set', 'daemon']);
   laneCli(['console-goal', '--set', 'console']);
-  // Assigned to the daemon by the CLI, then PAUSED by prefixing its marker — the pause is a
-  // prefix, so the assignment (and the profile) survives it verbatim.
+  // Assigned to the daemon by the CLI, then PAUSED via the goal-state row. The lane file
+  // stays the lane word.
   laneCli(['paused-goal', '--set', 'daemon']);
   goalCli('pause', ['paused-goal', '--reason', 'probe hold']);
   const pausedDecisions = fs.existsSync(path.join(pausedGoal, 'decisions.md'))
     ? fs.readFileSync(path.join(pausedGoal, 'decisions.md'), 'utf8') : '';
-  check('L2 `rbtv-goal pause` stashes the assignment behind a `paused ` PREFIX — the marker it '
-    + 'returns to is kept verbatim, and the DAEMON\'s reader resolves the result to `console` '
-    + 'with no word of its own (two languages, one grammar, cross-checked)',
-    fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon'
-      && laneWatch.readLane(pausedGoal).lane === 'console',
+  check('L2 `rbtv-goal pause` writes the goal-state row and leaves the lane file as `daemon`',
+    fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'daemon'
+      && laneWatch.readLane(pausedGoal).lane === 'daemon',
     JSON.stringify(laneWatch.readLane(pausedGoal)));
   check('L2 …and the SAME pause appended a decisions.md ruling row (decision / rationale / scope)',
     /\*\*Decision:\*\*/.test(pausedDecisions) && /\*\*Rationale:\*\*/.test(pausedDecisions)
@@ -541,7 +544,7 @@ async function main() {
     }
     check('L2 `resume` REFUSES a non-owner (leader) — lift is owner-only',
       resumeAsLeader.ok === false && /owner-only/.test(resumeAsLeader.out)
-        && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon',
+        && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'daemon',
       resumeAsLeader.out.trim().split('\n').pop());
   }
   // The two BROKEN markers only reachable by hand, since the door refuses both spellings.
@@ -650,18 +653,12 @@ async function main() {
       s.close();
       return !JSON.stringify([d.jobs, d.queue, d.jobs_log]).includes('console-goal');
     })());
-  // ⚑ THE PAUSED GOAL — the same two facts as the console control, for a goal that IS assigned to
-  // the daemon and is merely held. It must be skipped for the ordinary not-assigned reason and
-  // leave no trace in the store, or a pause would be a pause in name only.
-  // ⚠ `paused daemon` IS ALSO A TWO-TOKEN-ish MARKER, and the reader tells the two cases apart by
-  // the FIRST token: `paused` is not `daemon`, so it is not a legacy marker, it is a pause. That
-  // distinction is asserted here — a reader that lumped them together would shout a repair command
-  // at every paused goal on the tree.
-  check('L5 a PAUSED goal (`paused daemon`) is NOT adopted — skipped for the ordinary not-assigned '
-    + 'reason (NOT the legacy-marker one), with the assignment it returns to still in its marker',
+  // ⚑ THE PAUSED GOAL — assigned to the daemon, held by the goal-state row. Skipped as
+  // `paused`, not as not-assigned (the lane file is still `daemon`).
+  check('L5 a PAUSED goal is NOT adopted — skipped as paused, lane file still daemon',
     !adoptedNames.includes('paused-goal')
-      && pass1.skipped.some((s) => s.goal === 'paused-goal' && s.reason === 'not-assigned-to-the-daemon')
-      && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'paused daemon',
+      && pass1.skipped.some((s) => s.goal === 'paused-goal' && s.reason === 'paused')
+      && fs.readFileSync(lanePath(pausedGoal), 'utf8').trim() === 'daemon',
     JSON.stringify(pass1.skipped.filter((s) => s.goal === 'paused-goal')));
   check('L5 …and NOTHING of the paused goal reached the daemon\'s store either',
     (() => {
