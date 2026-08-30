@@ -9,13 +9,21 @@
 // stamped in that same minute read as "after check-in" and was filed READ FOREVER even when the
 // sitting died before ever calling `read` - merely checking in discharged the wake.
 //
-// Three arms, matching the seat's definition of done:
+// Four arms, matching the seat's definition of done:
 //   (1) a message stamped in the CHECK-IN MINUTE but AFTER the read cursor -> the chair is class B
 //       (woken). This is the exact incident shape: check-in and the driving message share a minute.
 //   (2) a message BEFORE the cursor -> NOT woken (the cursor fix must not over-wake either).
-//   (3) after N dead passes on the SAME unread mail, the existing attempt-counter brake (wired
-//       generically in `reconcile.js`, untouched here) holds and stops the wake - named by its
-//       counter row.
+//   (3) after N dead passes on the SAME unread mail, `classifyOwed` ITSELF stops reporting the
+//       chair as owed - the (N+1)th pass shows an empty class B, named by the counter row that
+//       exhausted it. `reconcile.js`'s OWN `counterDisarmed` gate (unedited) only compares
+//       `attempts >= n` with no frontier check, so it cannot tell stale mail from new mail landing
+//       on an exhausted lane, and a caller of `deriveOwed` other than reconcile's own launch loop
+//       saw `owed: true` regardless. `unreadFrontierExhausted` reads the SAME ledger `reconcile.js`
+//       already writes (`RECONCILE_RESPAWN` driver, `<goal>/<chair>` subject, `unread` reason
+//       class) and adds the missing frontier check at the wake itself.
+//   (4) a FRONTIER ADVANCE (new, higher-numbered mail arrives) is not held by the brake - the
+//       exhausted attempts were spent on the OLD frontier, and new work is owed a first attempt,
+//       exactly as `attempt-counters.js#isRetryOf` already treats it for the write side.
 //
 // `owedFromLedgers` (reconcile.js) is reused rather than re-derived: it is the real wiring
 // (`loadSessions`, `loadMessages`, `checkinOf`, `tsAfter`, `STAFF_CHAIRS`, ...) every production
@@ -77,6 +85,15 @@ function writeWorkers(goalFolder, rows) {
 
 const readyEmpty = { ready: new Map(), granted: new Map(), rows: [], reason: null };
 
+function withWorkspaceRoot(root, fn) {
+  const prev = process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+  process.env.RBTV_IGNITE_WORKSPACE_ROOT = root;
+  try { return fn(); } finally {
+    if (prev === undefined) delete process.env.RBTV_IGNITE_WORKSPACE_ROOT;
+    else process.env.RBTV_IGNITE_WORKSPACE_ROOT = prev;
+  }
+}
+
 // -- (1) SAME-MINUTE AS CHECK-IN, AFTER THE CURSOR -> WOKEN ---------------------------------------
 function caseUnreadAfterCursorSameMinuteAsCheckin() {
   const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'g1-'));
@@ -120,11 +137,12 @@ function caseReadMessageBeforeCursorNotWoken() {
 
 // -- (3) AFTER N DEAD PASSES ON THE SAME MAIL, THE ATTEMPT-COUNTER BRAKE HOLDS --------------------
 //
-// This composes the FIXED class B output with the EXISTING, untouched attempt-counter API exactly
-// the way `reconcile.js` wires it (`driverFor('unread') === RECONCILE_RESPAWN`, `items: ['#lastNum']`
-// — reconcile.js:983-991/1187-1206). Three identical dead passes (same messages, same never-moving
-// cursor — the chair keeps dying before it can call `read`) must reach `attempts >= n` and read
-// `exhausted: true`; a caller (reconcile.js, unedited here) will not launch on an exhausted row.
+// `n` identical dead passes drive the SAME ledger `reconcile.js` writes to
+// (`driverFor('unread') === RECONCILE_RESPAWN`, subject `<goal>/leader`, `items: ['#lastNum']` —
+// reconcile.js:983-991/1187-1206, simulated here since reconcile.js itself is untouched and not
+// under test). The (n+1)th pass must show `classifyOwed` ITSELF excluding the chair from class B —
+// the wake stops at its source, named by the counter row that exhausted it — not merely "a
+// downstream launcher declines to act on an owed row it still sees".
 function caseBrakeHoldsAfterNDeaths() {
   const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'g3-'));
   writeSessions(goalFolder, [
@@ -138,31 +156,89 @@ function caseBrakeHoldsAfterNDeaths() {
   seedRecoveryConfig(workspaceRoot);
   const recovery = loadRecoveryConfig({ workspace: workspaceRoot });
   const countersFile = path.join(workspaceRoot, 'attempt-counters.json');
+  const goal = 'g3-goal';
   try {
-    let last = null;
-    for (let i = 0; i < recovery.attempt_counter_n; i += 1) {
-      const d = owedFromLedgers(goalFolder, { readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map() });
-      const leaderRow = d.classB.find((x) => x.seat === 'leader');
-      assert.ok(leaderRow, `pass ${i + 1}: the chair must still be reported as owed unread mail — the counter cannot count a wake that never happened`);
-      last = counters.countAttempt({
-        driver: counters.DRIVERS.RECONCILE_RESPAWN,
-        goal: 'g3-goal',
-        seat: 'leader',
-        reasonClass: 'unread',
-        n: recovery.attempt_counter_n,
-        items: [`#${leaderRow.lastNum}`],
-      }, { countersFile });
-    }
-    assert.strictEqual(last.exhausted, true,
-      `after ${recovery.attempt_counter_n} identical dead passes the brake must hold, got attempts=${last.attempts}/${last.n}`);
-    const row = counters.peekCounter(
-      { driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'g3-goal', seat: 'leader', reasonClass: 'unread' },
-      { countersFile },
-    );
-    assert.ok(row, 'the counter row must be readable by name after exhaustion');
-    assert.strictEqual(row.attempts, recovery.attempt_counter_n);
-    pass(`(3) after ${recovery.attempt_counter_n} dead passes on the SAME mail the brake holds — counter row reconcile-respawn/g3-goal/leader/unread, attempts=${row.attempts}`);
+    withWorkspaceRoot(workspaceRoot, () => {
+      for (let i = 0; i < recovery.attempt_counter_n; i += 1) {
+        const d = owedFromLedgers(goalFolder, {
+          readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map(), goal, countersFile,
+        });
+        const leaderRow = d.classB.find((x) => x.seat === 'leader');
+        assert.ok(leaderRow, `pass ${i + 1}: the chair must still be reported as owed unread mail — the counter cannot count a wake that never happened`);
+        counters.countAttempt({
+          driver: counters.DRIVERS.RECONCILE_RESPAWN,
+          goal,
+          seat: 'leader',
+          reasonClass: 'unread',
+          n: recovery.attempt_counter_n,
+          items: [`#${leaderRow.lastNum}`],
+        }, { countersFile });
+      }
+      // pass n+1 — same frontier (#45), same everything: the brake must now hold at the SOURCE.
+      const dNext = owedFromLedgers(goalFolder, {
+        readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map(), goal, countersFile,
+      });
+      assert.strictEqual(dNext.classB.find((x) => x.seat === 'leader'), undefined,
+        `RED-if-failing: pass ${recovery.attempt_counter_n + 1} must NOT wake the chair on the same exhausted frontier, got classB=${JSON.stringify(dNext.classB)}`);
+      const row = counters.peekCounter(
+        { driver: counters.DRIVERS.RECONCILE_RESPAWN, goal, seat: 'leader', reasonClass: 'unread' },
+        { countersFile },
+      );
+      assert.ok(row, 'the counter row must be readable by name after exhaustion');
+      assert.strictEqual(row.attempts, recovery.attempt_counter_n);
+      pass(`(3) after ${recovery.attempt_counter_n} dead passes on the SAME mail, pass ${recovery.attempt_counter_n + 1} does NOT wake — counter row reconcile-respawn/${goal}/leader/unread, attempts=${row.attempts}`);
+    });
   } catch (err) { fail('(3) brake holds after N deaths', err); }
+}
+
+// -- (4) A FRONTIER ADVANCE IS NOT HELD BY THE BRAKE ----------------------------------------------
+//
+// Continuing from an EXHAUSTED lane (arm 3's exact ledger state): new, higher-numbered mail is a
+// first attempt at different work, never a retry of what exhausted the counter — the row's
+// `owed_items` still names the OLD frontier (`#45`), so the new frontier (`#46`) does not match it.
+function caseFrontierAdvanceResets() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'g4-'));
+  writeSessions(goalFolder, [
+    { 'session-id': 's13', seat: 'leader', started: '2026-08-28T22:17:39Z', checkin: '2026-08-28 22:17' },
+  ]);
+  writeWorkers(goalFolder, [{ agent: 'leader', checkin: '2026-08-28 22:17', lastread: 43 }]);
+  writeMessages(goalFolder, [
+    { num: 45, sender: 'boundary-auditor', to: 'leader', type: 'completion', ts: '2026-08-28 22:17' },
+  ]);
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'g4-ws-'));
+  seedRecoveryConfig(workspaceRoot);
+  const recovery = loadRecoveryConfig({ workspace: workspaceRoot });
+  const countersFile = path.join(workspaceRoot, 'attempt-counters.json');
+  const goal = 'g4-goal';
+  try {
+    withWorkspaceRoot(workspaceRoot, () => {
+      // Exhaust the lane on frontier #45, exactly as arm 3.
+      for (let i = 0; i < recovery.attempt_counter_n; i += 1) {
+        counters.countAttempt({
+          driver: counters.DRIVERS.RECONCILE_RESPAWN, goal, seat: 'leader', reasonClass: 'unread',
+          n: recovery.attempt_counter_n, items: ['#45'],
+        }, { countersFile });
+      }
+      const exhausted = owedFromLedgers(goalFolder, {
+        readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map(), goal, countersFile,
+      });
+      assert.strictEqual(exhausted.classB.find((x) => x.seat === 'leader'), undefined,
+        'setup check: the lane must be exhausted on #45 before the frontier advances');
+
+      // NEW mail arrives — a higher message number never counted before.
+      writeMessages(goalFolder, [
+        { num: 45, sender: 'boundary-auditor', to: 'leader', type: 'completion', ts: '2026-08-28 22:17' },
+        { num: 46, sender: 'boundary-auditor', to: 'leader', type: 'completion', ts: '2026-08-29 09:00' },
+      ]);
+      const advanced = owedFromLedgers(goalFolder, {
+        readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map(), goal, countersFile,
+      });
+      const leaderRow = advanced.classB.find((x) => x.seat === 'leader');
+      assert.ok(leaderRow, `a frontier advance past the exhausted mail must wake the chair for the NEW work, got classB=${JSON.stringify(advanced.classB)}`);
+      assert.strictEqual(leaderRow.lastNum, 46, `the wake must name the NEW frontier, got ${leaderRow.lastNum}`);
+      pass('(4) a frontier advance (new mail past the exhausted item) is owed a first attempt — the brake does not hold new work');
+    });
+  } catch (err) { fail('(4) frontier advance resets the brake', err); }
 }
 
 // -- RED (1)/(3) — reverting the cursor comparison to the pre-fix checkin/tsAfter shape reproduces
@@ -235,11 +311,65 @@ function caseRedCursorAlwaysZero() {
   } catch (err) { fail('(RED 2) cursor always zero', err); }
 }
 
+// -- RED (3)/(4) — dropping the frontier check (exhausted -> ALWAYS suppress) blocks NEW mail too --
+//
+// This is the exact gap `reconcile.js`'s own `counterDisarmed` has (`attempts >= n`, no item
+// check) and the reason this fix reads the ledger here instead of trusting that gate alone: without
+// the frontier comparison, an exhausted lane would refuse legitimate new work forever, indistinct
+// from refusing a genuine retry of stale work.
+function caseRedFrontierCheckIgnored() {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'owed-from-endings.js'), 'utf8');
+    const ANCHOR = "if (!row || !(Number(row.attempts) >= n)) return false;\n  const recorded = Array.isArray(row.owed_items) ? row.owed_items : [];\n  return recorded.includes(`#${lastNum}`);";
+    assert.ok(src.includes(ANCHOR), 'unreadFrontierExhausted anchor missing');
+    const mutatedSrc = src.replace(ANCHOR, 'return Boolean(row && Number(row.attempts) >= n);');
+    const Module = require('node:module');
+    const mut = new Module(path.join(__dirname, 'owed-from-endings.js'), null);
+    mut.filename = path.join(__dirname, 'owed-from-endings.js');
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(mutatedSrc, mut.filename);
+
+    const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'gred3-'));
+    writeSessions(goalFolder, [
+      { 'session-id': 's15', seat: 'leader', started: '2026-08-28T22:17:39Z', checkin: '2026-08-28 22:17' },
+    ]);
+    writeWorkers(goalFolder, [{ agent: 'leader', checkin: '2026-08-28 22:17', lastread: 43 }]);
+    const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'gred3-ws-'));
+    seedRecoveryConfig(workspaceRoot);
+    const recovery = loadRecoveryConfig({ workspace: workspaceRoot });
+    const countersFile = path.join(workspaceRoot, 'attempt-counters.json');
+    const goal = 'gred3-goal';
+    // Exhaust the lane on frontier #45 — same as arm 3/4's setup.
+    for (let i = 0; i < recovery.attempt_counter_n; i += 1) {
+      counters.countAttempt({
+        driver: counters.DRIVERS.RECONCILE_RESPAWN, goal, seat: 'leader', reasonClass: 'unread',
+        n: recovery.attempt_counter_n, items: ['#45'],
+      }, { countersFile });
+    }
+    // NEW mail, past the exhausted frontier — #46 was never counted.
+    writeMessages(goalFolder, [
+      { num: 46, sender: 'boundary-auditor', to: 'leader', type: 'completion', ts: '2026-08-29 09:00' },
+    ]);
+    const { loadSessions, loadMessages, lastBySeat, liveSeatsFromLedgers, checkinOf, tsAfter } = require('./reconcile');
+    const d = withWorkspaceRoot(workspaceRoot, () => mut.exports.classifyOwed(goalFolder, {
+      readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map(),
+      loadSessions, loadMessages, lastBySeat, liveSeatsFromLedgers, checkinOf, tsAfter,
+      STAFF_CHAIRS: ['leader', 'goal-master'], SYSTEM_MAIL_SENDER: 'ignite-daemon', goal, countersFile,
+    }));
+    const leaderRow = d.classB.find((x) => x.seat === 'leader');
+    assert.strictEqual(leaderRow, undefined,
+      `RED: dropping the frontier check must wrongly block NEW mail on an exhausted lane, got ${JSON.stringify(leaderRow)}`);
+    pass('(RED 3/4) dropping the frontier check reproduces reconcile.js\'s own gap — an exhausted lane blocks NEW mail too');
+  } catch (err) { fail('(RED 3/4) frontier check ignored', err); }
+}
+
 caseUnreadAfterCursorSameMinuteAsCheckin();
 caseReadMessageBeforeCursorNotWoken();
 caseBrakeHoldsAfterNDeaths();
+caseFrontierAdvanceResets();
 caseRedRevertToCheckinLogic();
 caseRedCursorAlwaysZero();
+caseRedFrontierCheckIgnored();
 
 try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* tmp */ }
 

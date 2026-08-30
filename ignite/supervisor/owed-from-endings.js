@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { bindEnding, endingOf, goalNameOf } = require('./ending-reads');
+const counters = require('./attempt-counters');
+const { loadRecoveryConfig } = require('./recovery-config');
 
 // -- THE CHAIR'S READ CURSOR - workers.md's `lastread` column ------------------------------------
 //
@@ -39,6 +41,51 @@ function readCursor(goalFolder, chair) {
     return /^\d+$/.test(m[2]) ? Number(m[2]) : null;
   }
   return null;
+}
+
+// -- THE ATTEMPT-COUNTER BRAKE, READ AT THE WAKE ITSELF -----------------------------------------
+//
+// `reconcile.js` already KEYS a class B relaunch on this same ledger — `driverFor('unread') ===
+// RECONCILE_RESPAWN`, `subject: '<goal>/<chair>'`, `reasonClass: 'unread'`, `items: ['#<lastNum>']`
+// (`reconcile.js:983-991,1187-1206`) — and WRITES the attempt on every pass a wake fires. What it
+// does not do is stop the WAKE itself from being reported: its own `counterDisarmed` gate compares
+// only `attempts >= n`, with no frontier check, so it cannot tell "the same stale mail, N times" from
+// "brand new mail that happens to land on an exhausted lane" — and a caller of `deriveOwed` other
+// than `reconcile.js`'s own launch loop sees `owed: true` regardless. This reads the SAME ledger,
+// SAME key, at the point class B decides a chair is owed at all, and adds the ONE check
+// `counterDisarmed` is missing: whether the exhausted attempts were spent on THIS EXACT frontier.
+//
+// KEYED IDENTICALLY TO THE WRITER, ON PURPOSE. `driver`/`subject`/`reasonClass` here are the exact
+// three fields `attempt-counters.js#keyOf` hashes into one string - a caller that spells any of them
+// differently reads a DIFFERENT counter and this brake would never see what `reconcile.js` wrote.
+//
+// THE RESET IS THE FRONTIER, NOT A NEW EVENT. `attempts >= n` alone never expires - only a named
+// `RE_ARM_EVENT` clears the row (spec-recovery §5), and this function must NOT invent a second
+// clock beside it. So exhaustion only SUPPRESSES the wake when the current unread frontier
+// (`#<lastNum>`) is the SAME one recorded on the row (`row.owed_items`, `countAttempt`'s own
+// overlap marker) - a chair whose mail advanced past the exhausted item is owed a first attempt at
+// different work, exactly as `countAttempt`'s own `isRetryOf` already treats it, and this function
+// re-derives that same test rather than trusting `attempts` alone. `rearm` (`resume {goal}`, a
+// code-deploy, a config change, an owner/leader act) deletes the row outright, so the very next
+// read here answers "not exhausted" with no extra wiring - the same re-arm list, unchanged.
+//
+// `n` comes from `recovery-config.js`, never a literal: a workspace whose recovery config cannot be
+// read applies no clock here either, matching `reconcile.js#recoveryNumbers`'s own rule - a brake
+// that cannot verify its own threshold must not silently suppress a real wake.
+function unreadFrontierExhausted(goal, chair, lastNum, countersFile) {
+  let n;
+  try {
+    n = loadRecoveryConfig({ workspace: process.env.RBTV_IGNITE_WORKSPACE_ROOT }).attempt_counter_n;
+  } catch {
+    return false;
+  }
+  const row = counters.peekCounter(
+    { driver: counters.DRIVERS.RECONCILE_RESPAWN, goal, seat: chair, reasonClass: 'unread' },
+    { countersFile },
+  );
+  if (!row || !(Number(row.attempts) >= n)) return false;
+  const recorded = Array.isArray(row.owed_items) ? row.owed_items : [];
+  return recorded.includes(`#${lastNum}`);
 }
 
 function classifyEnding(row) {
@@ -119,6 +166,7 @@ function classifyOwed(goalFolder, {
   tsAfter,
   STAFF_CHAIRS,
   SYSTEM_MAIL_SENDER,
+  countersFile,
 } = {}) {
   const sessions = loadSessions(goalFolder);
   const messages = loadMessages(goalFolder);
@@ -186,10 +234,12 @@ function classifyOwed(goalFolder, {
       && m.sender !== SYSTEM_MAIL_SENDER
       && (cursor === null || m.num > cursor));
     if (!unread.length) continue;
+    const lastNum = unread[unread.length - 1].num;
+    if (unreadFrontierExhausted(gid, chair, lastNum, countersFile)) continue;
     classB.push({
       seat: chair,
       unreadCount: unread.length,
-      lastNum: unread[unread.length - 1].num,
+      lastNum,
       reason: 'unread',
     });
   }
