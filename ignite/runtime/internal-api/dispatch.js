@@ -987,7 +987,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     // neither. Same row shape from both, merged oldest-first, so the digest's renderer and
     // `ignite status` still read ONE list and no second port is built.
     if (target === 'asks') {
-      const rows = [...listOpenAsks(heartStore), ...listOpenGroupedAsks(workspaceRoot)];
+      const rows = [...listOpenAsks(workspaceRoot), ...listOpenGroupedAsks(workspaceRoot)];
       rows.sort((a, b) => String(a.opened_at || '').localeCompare(String(b.opened_at || '')));
       return { target, rows };
     }
@@ -1560,7 +1560,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
     }
 
-    const out = recordOwnerAsk(heartStore, {
+    const out = recordOwnerAsk({
       workspaceRoot,
       act: payload.act,
       goal: payload.goal,
@@ -1635,7 +1635,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       throw new InternalApiError(INTERNAL, 'this daemon has no workspace root, so it can reach no goal folder', { check: 'workspace-root' });
     }
 
-    const out = startExecution(heartStore, {
+    const out = startExecution({
       workspaceRoot,
       goal: payload.goal,
       thread: payload.thread,

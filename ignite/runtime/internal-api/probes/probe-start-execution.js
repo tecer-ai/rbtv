@@ -183,7 +183,7 @@ async function main() {
   let ok = { ok: true };
   const run = (pkg) => { seen.push(pkg); return ok; };
 
-  let direct = startExecution({ db }, { workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
+  let direct = startExecution({ workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
   check('S1: a genuine approval thread + a matching bound commit RUNS the supervised Path-B birth exactly once',
     direct.started === true && seen.length === 1 && direct.execution_goal === 'born-exec-goal', JSON.stringify(direct));
   check('S2: the daemon STAMPS the package fields it owns — the planning goal that receives the D12 failure record, the goals root, and the approval thread as origin_id',
@@ -194,17 +194,85 @@ async function main() {
     JSON.stringify({ planning_goal: seen[0].planning_goal, origin_id: seen[0].origin_id }));
 
   ok = { ok: false, record: { class: 'lock-collision', code: 'materialize-locked', reason: 'another pass holds the lock', subject: 'born-exec-goal' } };
-  direct = startExecution({ db }, { workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
+  direct = startExecution({ workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
   check('S3: a supervised-materialize FAILURE comes back as data carrying the wrapper\'s six-field record — it is what the approval thread shows the owner [C-16]',
     direct.started === false && direct.reason === 'materialize-failed'
     && direct.record && direct.record.code === 'materialize-locked', JSON.stringify(direct));
 
   // A package copied here from another goal names a planning goal that is not this one.
   writePackage(goalDir, { planning_goal: '/somewhere/else' });
-  direct = startExecution({ db }, { workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
+  direct = startExecution({ workspaceRoot: root, goal: GOAL, thread: THREAD, commit: COMMIT, runPathB: run });
   check('S4: a package naming a DIFFERENT planning goal is refused rather than silently overwritten — a stale copy must not read as this goal\'s plan',
     direct.started === false && direct.reason === 'package-not-bound-here', JSON.stringify(direct));
   writePackage(goalDir, {});
+
+  // ── SPLIT. `refuseReason`'s `getAsk` MUST resolve the ENDING store from `workspaceRoot`, never
+  // from a caller's `heartStore` ─────────────────────────────────────────────────────────────────
+  //
+  // Every call above hands `startExecution` no store at all — it takes none — but the WRITER that
+  // opened the approval ask (`ask-record.js#openAsk`, via `record-owner-ask`) and the daemon's own
+  // `heartStore` are, in production, TWO DIFFERENT FILES (the daemon's private lane store vs the
+  // workspace's ending store). This section proves the approval check still finds the ask when the
+  // process holds a private store that is neither the one the ask was opened into nor pre-seeded —
+  // an empty file at a path that is never `endingStorePath(root3)`.
+  const root3 = fs.mkdtempSync(path.join(os.tmpdir(), 'start-execution-split-probe-'));
+  const goalDir3 = seedGoal(root3, GOAL);
+  writePackage(goalDir3, {});
+  const askRecord = require('../../../state-store/heart/ask-record');
+  const { openEndingStoreFor } = require('../../../state-store');
+  const THREAD_SPLIT = '1724509500.500500';
+  const opened = askRecord.openAsk({
+    workspaceRoot: root3, goal: GOAL, seat: SEAT, thread: THREAD_SPLIT, corpus: 'split-probe approval ask',
+  });
+  const reapedSplit = askRecord.reapAsk({ workspaceRoot: root3, goal: GOAL, seat: SEAT, thread: THREAD_SPLIT });
+  check('SPLIT-1: SETUP — the approval ask was opened and released through the FIXED writer',
+    opened.recorded && reapedSplit.recorded, JSON.stringify({ opened, reapedSplit }));
+
+  const privateDb3 = openEndingStore(path.join(root3, 'private-lane-store', 'heart.db')); // NEVER the ending store
+  check('SPLIT-2: the private store this process ALSO holds carries no such ask — the two files are genuinely apart',
+    !bind(privateDb3).getAsk(THREAD_SPLIT) && Boolean(bind(openEndingStoreFor(root3)).getAsk(THREAD_SPLIT)));
+  const seenSplit = [];
+  const directSplit = startExecution({
+    workspaceRoot: root3, goal: GOAL, thread: THREAD_SPLIT, commit: COMMIT,
+    runPathB: (pkg) => { seenSplit.push(pkg); return { ok: true }; },
+  });
+  check('SPLIT-3: `startExecution` finds the approval and BIRTHS — its `getAsk` resolved the ending store, not the private one it never touched',
+    directSplit.started === true && seenSplit.length === 1, JSON.stringify(directSplit));
+
+  // RED CONTROL — a mutant restoring the pre-fix shape: `refuseReason`/`startExecution` take a
+  // caller `heartStore` and check `bind(heartStore.db).getAsk(...)` instead of resolving
+  // `openEndingStoreFor(workspaceRoot)`. Handed THIS process's private store (which never saw the
+  // ask), it must refuse an approval that genuinely exists — the live defect, reproduced offline.
+  const seSrcPath = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'start-execution.js');
+  const seSrc = fs.readFileSync(seSrcPath, 'utf8');
+  const seOpenNeedle = 'function refuseReason({ workspaceRoot, goal, thread, commit }) {';
+  const seGetNeedle = '    row = bind(openEndingStoreFor(workspaceRoot)).getAsk(String(thread));';
+  const seStartNeedle = 'function startExecution({ workspaceRoot, goal, thread, commit, runPathB = null }) {\n  const refusal = refuseReason({ workspaceRoot, goal, thread, commit });';
+  check('SPLIT-M1: red-proof — all three mutation needles are found in the fixed source',
+    seSrc.includes(seOpenNeedle) && seSrc.includes(seGetNeedle) && seSrc.includes(seStartNeedle));
+  if (seSrc.includes(seOpenNeedle) && seSrc.includes(seGetNeedle) && seSrc.includes(seStartNeedle)) {
+    const seMutBeside = path.join(path.dirname(seSrcPath), 'start-execution.SPLIT-MUTANT.js');
+    const seMutated = seSrc
+      .replace(seOpenNeedle, 'function refuseReason(heartStore, { workspaceRoot, goal, thread, commit }) {')
+      .replace(seGetNeedle, '    row = bind(heartStore.db).getAsk(String(thread));')
+      .replace(seStartNeedle, 'function startExecution(heartStore, { workspaceRoot, goal, thread, commit, runPathB = null }) {\n  const refusal = refuseReason(heartStore, { workspaceRoot, goal, thread, commit });');
+    fs.writeFileSync(seMutBeside, seMutated);
+    try {
+      const seMut = require(seMutBeside);
+      const mutSplitOut = seMut.startExecution({ db: privateDb3 }, {
+        workspaceRoot: root3, goal: GOAL, thread: THREAD_SPLIT, commit: COMMIT,
+        runPathB: () => ({ ok: true }),
+      });
+      check('SPLIT-M2 RED — with the caller-store binding restored, a GENUINE approval is refused `no-approval-record` because the private store never saw it (the live defect, reproduced)',
+        mutSplitOut.started === false && mutSplitOut.reason === 'no-approval-record',
+        JSON.stringify(mutSplitOut));
+    } finally {
+      try { fs.rmSync(seMutBeside, { force: true }); } catch {}
+    }
+  }
+
+  try { privateDb3.close(); } catch {}
+  try { fs.rmSync(root3, { recursive: true, force: true }); } catch {}
 
   // ── M. RED-ARM BY MUTATION: delete the binding check, watch R1 turn into a birth ─────────────
   const mutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'start-execution-mut-'));
@@ -219,7 +287,7 @@ async function main() {
     try {
       const mut = require(mutBeside);
       const mutSeen = [];
-      const mutOut = mut.startExecution({ db }, {
+      const mutOut = mut.startExecution({
         workspaceRoot: root, goal: GOAL, thread: '1724500000.000000', commit: COMMIT,
         runPathB: (pkg) => { mutSeen.push(pkg); return { ok: true }; },
       });

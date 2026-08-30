@@ -36,7 +36,7 @@ fs.writeFileSync(outPath, '');
 const { createInternalApi, ENVELOPE_VERSION, INSPECT_TARGETS: CORE_TARGETS } = require('../dispatch');
 const { parseRequest, INSPECT_TARGETS: GW_TARGETS } = require('../../gateway/parse');
 const { TARGETS: CLI_TARGETS, HELP: CLI_HELP } = require('../../../ignite-cli/commands/inspect');
-const { openEndingStore, bind } = require('../../../state-store');
+const { openEndingStore, bind, openEndingStoreFor } = require('../../../state-store');
 const askRecord = require('../../../state-store/heart/ask-record');
 
 function out(...lines) {
@@ -72,15 +72,15 @@ async function main() {
 
   // Two goals, three asks, written through the DAEMON'S OWN writer so the rows and their on-disk
   // copies are exactly what the thirteenth intent produces.
-  const openA = askRecord.openAsk(heartStore, {
+  const openA = askRecord.openAsk({
     workspaceRoot: root, goal: GOAL_A, seat: 'goal-master', thread: '1724500001.000100',
     corpus: 'Should the summarizer keep the 90-minute cap?\n\n(second line, deliberately not the one-liner)',
   });
-  const openB = askRecord.openAsk(heartStore, {
+  const openB = askRecord.openAsk({
     workspaceRoot: root, goal: GOAL_B, seat: 'audio-smith', thread: '1724500002.000200',
     corpus: 'Which mic profile is the reference?',
   });
-  const reaped = askRecord.openAsk(heartStore, {
+  const reaped = askRecord.openAsk({
     workspaceRoot: root, goal: GOAL_A, seat: 'verify-seat', thread: '1724500003.000300',
     corpus: 'Is this verdict good enough to close?',
   });
@@ -251,6 +251,71 @@ async function main() {
 
   try { db.close(); } catch { /* the probe is done with it */ }
   try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* tmp */ }
+
+  // ── H. THE THREE-STORE SPLIT — `openAsk`/`listOpenAsks` must resolve the ENDING store from
+  // `workspaceRoot`, never from a caller's `heartStore` ────────────────────────────────────────
+  //
+  // Sections A-G above hand the dispatcher `heartStore: { db }` where `db` IS the ending store, so
+  // a writer bound to the caller's handle looks identical to one bound to the home — exactly how
+  // `919be192` found the sibling defect in `pause-resume.js` unmeasured by every existing fixture.
+  // This section runs a SECOND scratch workspace whose `heartStore` is a genuinely DIFFERENT file
+  // from the workspace's ending store (the daemon's real shape: `{data_root}/heart.db` vs
+  // `<workspace>/.rbtv/runtime/ignite/heart.db`), and proves the fixed writer/reader never touch it.
+  const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'inspect-asks-split-probe-'));
+  seedGoal(root2, GOAL_A);
+  const privateDb = openEndingStore(path.join(root2, 'private-lane-store', 'heart.db')); // NEVER the ending store
+  const THREAD_H1 = '1724509001.100100';
+
+  const openH1 = askRecord.openAsk({
+    workspaceRoot: root2, goal: GOAL_A, seat: 'goal-master', thread: THREAD_H1, corpus: 'split-probe H1',
+  });
+  check('H1: SETUP — the ask recorded through the FIXED writer', openH1.recorded, JSON.stringify(openH1));
+  check('H2: the row landed in the ENDING store (resolved from workspaceRoot), never the private lane store',
+    Boolean(bind(openEndingStoreFor(root2)).getAsk(THREAD_H1)) && !bind(privateDb).getAsk(THREAD_H1));
+  const listedH = askRecord.listOpenAsks(root2);
+  check('H3: `listOpenAsks(workspaceRoot)` finds it — the reader and the writer resolve the SAME file',
+    listedH.some((x) => x.id === THREAD_H1), `ids=${listedH.map((x) => x.id).join(',')}`);
+
+  // RED CONTROL — a mutant restoring the pre-919be192-sibling shape: `openAsk`/`listOpenAsks` take
+  // a caller `heartStore` and `bind(heartStore.db)` instead of resolving `openEndingStoreFor`. Run
+  // against the SAME private store the daemon would hold, on a fresh thread, to reproduce the live
+  // defect this fix closes: the write lands in the caller's store and the real reader sees nothing.
+  const srcPath = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'ask-record.js');
+  const src = fs.readFileSync(srcPath, 'utf8');
+  const openNeedle = "function openAsk({ workspaceRoot, goal, seat, thread, corpus, label = 'work-content' }) {";
+  const bindNeedle = '    const api = bind(openEndingStoreFor(workspaceRoot));\n    const existing = api.getAsk(String(thread));';
+  const listNeedle = 'function listOpenAsks(workspaceRoot) {\n  const api = bind(openEndingStoreFor(workspaceRoot));';
+  check('M1: red-proof — both mutation needles are found in the fixed source',
+    src.includes(openNeedle) && src.includes(bindNeedle) && src.includes(listNeedle));
+  if (src.includes(openNeedle) && src.includes(bindNeedle) && src.includes(listNeedle)) {
+    const mutBeside = path.join(path.dirname(srcPath), 'ask-record.MUTANT.js');
+    const mutated = src
+      .replace(openNeedle, "function openAsk(heartStore, { workspaceRoot, goal, seat, thread, corpus, label = 'work-content' }) {")
+      .replace(bindNeedle, '    const api = bind(heartStore.db);\n    const existing = api.getAsk(String(thread));')
+      .replace(listNeedle, 'function listOpenAsks(heartStore) {\n  const api = bind(heartStore.db);');
+    fs.writeFileSync(mutBeside, mutated);
+    try {
+      const mut = require(mutBeside);
+      const THREAD_M1 = '1724509002.200200';
+      const mutOpen = mut.openAsk({ db: privateDb }, {
+        workspaceRoot: root2, goal: GOAL_A, seat: 'goal-master', thread: THREAD_M1, corpus: 'split-probe mutant',
+      });
+      check('M2: red-proof SETUP — the mutant\'s write reports recorded',
+        mutOpen.recorded, JSON.stringify(mutOpen));
+      check('M3 RED — with the caller-store binding restored, the ask lands in the PRIVATE store and NOT the ending store (the live 2026-08-28 defect, reproduced)',
+        Boolean(bind(privateDb).getAsk(THREAD_M1)) && !bind(openEndingStoreFor(root2)).getAsk(THREAD_M1));
+      const mutListed = mut.listOpenAsks({ db: privateDb });
+      const fixedListed = askRecord.listOpenAsks(root2);
+      check('M4 RED — the FIXED reader (`listOpenAsks(workspaceRoot)`) answers NOTHING for the mutant\'s ask — the split, measured',
+        !fixedListed.some((x) => x.id === THREAD_M1) && mutListed.some((x) => x.id === THREAD_M1),
+        `fixed=${fixedListed.map((x) => x.id).join(',')} mutant-private=${mutListed.map((x) => x.id).join(',')}`);
+    } finally {
+      try { fs.rmSync(mutBeside, { force: true }); } catch {}
+    }
+  }
+
+  try { privateDb.close(); } catch {}
+  try { fs.rmSync(root2, { recursive: true, force: true }); } catch {}
 
   const failed = checks.filter((c) => !c.pass);
   out('');

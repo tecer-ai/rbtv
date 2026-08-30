@@ -37,10 +37,27 @@
 // ⚑ REFUSALS COME BACK AS DATA, never as a throw, for `handleRecordBusAnswer`'s reason: the
 // owner's message has ALREADY been delivered by the time the bridge calls, so the caller's job on
 // this result is to LOG. A typed error would report a landed message as a failed one.
+//
+// ⚑ EVERY ACT RESOLVES THE ENDING STORE ITSELF AND TAKES NO STORE HANDLE FROM ITS CALLER — the
+// fix `919be192` (`heart/pause-resume.js`) landed for the same table family, restated here because
+// `open_asks` lived in this file with the same defect and unmeasured: `openAsk`/`reapAsk`/
+// `listOpenAsks` used to `bind(heartStore.db)`, the store the CALLER happened to hold. Under the
+// daemon that is `dispatch.js`'s `heartStore`, the PRIVATE per-process lane store
+// (`{data_root}/heart.db`); `open_asks` is one of the four tables `state-store/open.js` states its
+// ending-store handle is for (`seat_endings`, `goal_states`, `open_asks`, `seat_holds`), resolved at
+// `<workspace>/.rbtv/runtime/ignite/heart.db` by `state-store/paths.js#endingStorePath`. A row
+// written or read through the caller's own store therefore missed the table the ask actually lives
+// in whenever the caller's store was not already the ending store — exactly the daemon's shape, and
+// exactly why `state-store/heart/start-execution.js#refuseReason`'s `getAsk` (the approval check)
+// could find nothing for an ask opened through this door. `bindEnding` (the READER's fall-through
+// resolver in `supervisor/ending-reads.js`) is not reused here for the reason `pause-resume.js`
+// gives: it falls through to the lane store when the home cannot be opened, which is fail-safe for
+// a reader and wrong for a writer — a writer must throw instead. `openEndingStoreFor` is the one
+// resolver both sides spend.
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { bind } = require('..');
+const { bind, openEndingStoreFor } = require('..');
 
 // A THIRD copy of the name shape, checked against the module that owns it, exactly as
 // `bus-answer.js` re-checks the gateway's and dispatch's copies. These names arrive from an
@@ -90,7 +107,7 @@ function refuseReason({ workspaceRoot, goal, seat, thread, label, act }) {
 // ask only after its forward landed (`forward-path.js` gates on `outcome.forwarded === true`). §2.1
 // reads `posted`, so a row left at 0 would be an ask NOBODY IS WAITING ON — the exact silent state
 // this record exists to prevent.
-function openAsk(heartStore, { workspaceRoot, goal, seat, thread, corpus, label = 'work-content' }) {
+function openAsk({ workspaceRoot, goal, seat, thread, corpus, label = 'work-content' }) {
   const refusal = refuseReason({ workspaceRoot, goal, seat, thread, label, act: 'open' });
   if (refusal) return { recorded: false, ...refusal };
   const copy = askCopyPath(workspaceRoot, goal, thread);
@@ -101,7 +118,7 @@ function openAsk(heartStore, { workspaceRoot, goal, seat, thread, corpus, label 
     return { recorded: false, reason: 'copy-unwritable', detail: err.message };
   }
   try {
-    const api = bind(heartStore.db);
+    const api = bind(openEndingStoreFor(workspaceRoot));
     const existing = api.getAsk(String(thread));
     if (existing) {
       // Same thread, same ask. The body was refreshed above; the ROW is untouched so a reopened
@@ -125,11 +142,11 @@ function openAsk(heartStore, { workspaceRoot, goal, seat, thread, corpus, label 
 // REAP — resolution reaps the row and signals the bound seat's relaunch in ONE transaction (§2.8),
 // so there is never an open ask whose seat was already released, nor a release whose ask stayed
 // open. Idempotent on `ask_id`: a crash mid-act retries the same reap.
-function reapAsk(heartStore, { workspaceRoot, goal, seat, thread }) {
+function reapAsk({ workspaceRoot, goal, seat, thread }) {
   const refusal = refuseReason({ workspaceRoot, goal, seat, thread, act: 'reap' });
   if (refusal) return { recorded: false, ...refusal };
   try {
-    const api = bind(heartStore.db);
+    const api = bind(openEndingStoreFor(workspaceRoot));
     const row = api.getAsk(String(thread));
     if (!row) return { recorded: false, reason: 'no-such-ask', detail: `no ask on thread ${thread}` };
     // BOUND TO THE THREAD **AND** TO THE PAIR IT NAMES. A reply arriving in a thread that belongs
@@ -185,8 +202,8 @@ function oneLinerOf(evidencePointer) {
   return first.length > ONE_LINER_MAX ? `${first.slice(0, ONE_LINER_MAX - 1)}…` : first;
 }
 
-function listOpenAsks(heartStore) {
-  const api = bind(heartStore.db);
+function listOpenAsks(workspaceRoot) {
+  const api = bind(openEndingStoreFor(workspaceRoot));
   return api.listAllOpenAsks({}).map((row) => ({
     id: row.ask_id,
     goal: row.goal,
@@ -198,8 +215,8 @@ function listOpenAsks(heartStore) {
   }));
 }
 
-function recordOwnerAsk(heartStore, payload) {
-  return payload.act === 'reap' ? reapAsk(heartStore, payload) : openAsk(heartStore, payload);
+function recordOwnerAsk(payload) {
+  return payload.act === 'reap' ? reapAsk(payload) : openAsk(payload);
 }
 
 module.exports = { recordOwnerAsk, openAsk, reapAsk, listOpenAsks, askCopyPath, coordTimestamp, ASK_LABELS };

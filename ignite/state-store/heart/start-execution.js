@@ -45,12 +45,21 @@
 // failed has no execution goal to stamp). The caller's job with that record is to put it in front
 // of the owner in the approval thread [C-16] — which is a report, not an error to swallow. The
 // refusals ABOVE are different in kind and are typed errors at the handler: nothing was attempted.
+//
+// ⚑ THE APPROVAL CHECK RESOLVES THE ENDING STORE ITSELF, exactly as `ask-record.js` now does and
+// for the identical reason `919be192` fixed in `pause-resume.js`: `refuseReason`'s `getAsk` used to
+// `bind(heartStore.db)`, the caller's own store, which under the daemon is the PRIVATE lane store
+// and not `<workspace>/.rbtv/runtime/ignite/heart.db` — the ending store `open_asks` is actually
+// written to by `record-owner-ask`. A daemon caller checking its own lane store could never see an
+// ask opened through that door. `openEndingStoreFor(workspaceRoot)` is the one resolver both the
+// writer and this check now spend; there is no `heartStore` parameter to carry the wrong file back
+// in.
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { bind } = require('..');
+const { bind, openEndingStoreFor } = require('..');
 const { requirePythonCmd } = require('../../runtime/python-cmd');
 
 // A THIRD copy of the name shape, checked against the module that owns it — `ask-record.js`'s
@@ -85,7 +94,7 @@ function goalsRootOf(workspaceRoot) {
 // Every reason a start must NOT be attempted, as a refusal object. These are the questions the
 // gateway holds no handle for and must not grow one: does the goal exist, is there a genuine
 // approval record on this thread, and is the caller's commit the one the plan is bound to.
-function refuseReason(heartStore, { workspaceRoot, goal, thread, commit }) {
+function refuseReason({ workspaceRoot, goal, thread, commit }) {
   for (const [field, value] of [['goal', goal], ['thread', thread]]) {
     if (!isSafeName(value)) return { reason: 'bad-name', detail: `${field} is not a bare safe name` };
   }
@@ -97,7 +106,7 @@ function refuseReason(heartStore, { workspaceRoot, goal, thread, commit }) {
 
   let row;
   try {
-    row = bind(heartStore.db).getAsk(String(thread));
+    row = bind(openEndingStoreFor(workspaceRoot)).getAsk(String(thread));
   } catch (err) {
     return { reason: 'store-refused', detail: err.message };
   }
@@ -171,8 +180,8 @@ function readApprovePackage({ workspaceRoot, goal, commit }) {
 // Run the supervised Path-B birth. Injectable ONLY for the probe (`runPathB`), for the reason every
 // injected port in this tree carries: a probe must be able to prove the ladder above without a git
 // tree, a goals catalogue and a python interpreter — never so production can stub the birth out.
-function startExecution(heartStore, { workspaceRoot, goal, thread, commit, runPathB = null }) {
-  const refusal = refuseReason(heartStore, { workspaceRoot, goal, thread, commit });
+function startExecution({ workspaceRoot, goal, thread, commit, runPathB = null }) {
+  const refusal = refuseReason({ workspaceRoot, goal, thread, commit });
   if (refusal) return { started: false, ...refusal };
 
   const read = readApprovePackage({ workspaceRoot, goal, commit });
