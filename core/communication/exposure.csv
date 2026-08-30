@@ -1,10 +1,16 @@
 # Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
 # not invented; `#`-led lines are dropped before the header is read.
 #
-# FIVE ROWS: one first-party tool (the `audio` capability), three `reference`/`rule` rows —
+# SIX ROWS: one first-party tool (the `audio` capability), three `reference`/`rule` rows —
 # the always-on owner-facing chat style rules (`plain-language`, `non-technical-user`,
-# `concise-chat`) — and one `reference`/`skill` row (`audio-aware`, the transcript-ungarbling
-# skill for audio conversations), one file each under `references/`.
+# `concise-chat`) — and TWO `reference`/`skill` rows — `audio-aware` (ungarbling a transcript once
+# you have one) and `audio-io` (running the capability's own two verbs to GET one, and to speak
+# back) — one file each under `references/`.
+#
+# `audio-io` is the CONVERSION half of the owner's voice channel and is deliberately
+# channel-agnostic: Slack file logistics live in `meta/master/slack-message-format`, and the split
+# is the owner's (2026-08-30, this goal's `decisions.md#d-audio-slack-skills-split`) — Slack is only
+# today's channel, and a capability skill must not assume it.
 #
 # THE TOOL ROW: the component's one first-party tool (the `audio` capability). `part-kind: tool` + `method: path` is the
 # MANDATORY inventory row every component keeps for a CLI it authors and ships (owner-ruled
@@ -27,3 +33,4 @@ plain-language,reference,rule,,references/plain-language.md,"Plain language on e
 non-technical-user,reference,rule,,references/non-technical-user.md,"The code overlay for a non-technical owner: every technical name paired with a plain translation the owner learns from, every coding decision framed as the behavior change the owner will see, and never a raw log/diff/output dump in chat.",
 concise-chat,reference,rule,,references/concise-chat.md,"Objective concise chat: fewest words that carry the message, lead with the decision or result, never restate what a file already says, TLDR bullets on long explanations, and the fixed question format — max 3 at a time, named options with consequences, one recommended.",
 audio-aware,reference,skill,,references/audio-aware.md,"Use whenever dealing with transcripts — dictated owner input, meeting transcripts, or native harness audio/voice. Ungarbles them: glossary-corrects names (glossary at .rbtv/config/audio/glossary.md, updated same-turn on owner correction), keeps only the speaker's final self-correction, latest version wins on hesitant numbers/dates, flags unknown names instead of assuming, and confirms dates/names in a summary table before any vault write.",
+audio-io,reference,skill,,references/audio-io.md,"Use whenever an agent must HEAR or SPEAK: turning an audio file into text (`transcribe`) or text into a playable mp3/ogg (`tts`) through the ElevenLabs capability, plus the one config key that sets the language for both directions. Channel-agnostic — it takes a path and returns a path; moving the file to or from a chat surface belongs to that channel's own tool, never here.",

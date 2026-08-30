@@ -35,9 +35,10 @@ does the README.
 
 ## What a reader needs before entering
 
-- **The key is the capability's own.** It is read from `credentials/elevenlabs.key` — the
-  stools/gtools pattern, so a CLI released into a seat's cage carries its secret with it
-  (owner-ruled, goal `decisions.md#d-elevenlabs-key-location-2026-08-18`). `ELEVENLABS_API_KEY`
+- **The key is the capability's own.** It is read from the workspace key store,
+  `<workspace>/.user/config/env/elevenlabs.key` (owner-ruled 2026-08-23, superseding
+  `d-elevenlabs-key-location-2026-08-18`, which named a `credentials/` folder inside this
+  capability — that folder does not exist and never did). `ELEVENLABS_API_KEY`
   is accepted when that file holds nothing. Neither present → every verb refuses, exit != 0,
   naming both places. `README.md` is the one home of that detail.
 - **One language key governs both verbs.** `config.json`'s `language` field, default `pt`. No
