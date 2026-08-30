@@ -151,6 +151,23 @@ async function main() {
   check('a4: the result carries the verb and the goal (the shape the bridge renders unchanged)',
     r.body.result.verb === 'pause' && r.body.result.goal === GOAL && Array.isArray(r.body.result.refusals));
 
+  // ── (a2) `chat_user` — OWNER RE-RULING D-4(a): reported by the bridge, named in the evidence
+  // text, NEVER an authorization input, and `who_stamped` stays the closed `owner`/`system` enum ──
+  store.writeGoalWord({ goal: GOAL, stored: 'running', who_stamped: 'system', evidence_pointer: 'probe:a2-reset' });
+  r = await call(BRIDGE, { verb: 'pause', goal: GOAL, chat_user: 'U0123ABC' });
+  check('a2a: pause WITH chat_user is still ok:true/applied, and who_stamped stays the closed `owner` enum',
+    r.body.ok === true && r.body.result.applied === true && (store.getGoalState(GOAL) || {}).who_stamped === 'owner',
+    JSON.stringify(store.getGoalState(GOAL)));
+  check('a2b: the evidence pointer NAMES the Slack user reported by the bridge',
+    /by U0123ABC \(reported by bridge\)/.test((store.getGoalState(GOAL) || {}).evidence_pointer || ''),
+    (store.getGoalState(GOAL) || {}).evidence_pointer);
+  store.writeGoalWord({ goal: GOAL, stored: 'running', who_stamped: 'system', evidence_pointer: 'probe:a2-reset2' });
+  r = await call(BRIDGE, { verb: 'pause', goal: GOAL });
+  check('a2c: pause WITHOUT chat_user keeps the pre-existing evidence wording, byte-for-byte',
+    r.body.ok === true
+      && (store.getGoalState(GOAL) || {}).evidence_pointer === `owner pause in chat · goal ${GOAL}`,
+    (store.getGoalState(GOAL) || {}).evidence_pointer);
+
   // ── (b) RESUME — all four rows of the resume-semantics table, on ONE goal ────────────────────
   //
   // The goal is paused (from (a)); `leader` is counter-exhausted with a ledger row at N; and
@@ -276,6 +293,15 @@ async function main() {
   });
   check('f4: the CORE refuses the unknown key too — the gateway copy is not the only check (DEC-3)',
     raw.ok === false && raw.error.code === 'VALIDATION_FAILED', JSON.stringify(raw.error));
+  r = await call(BRIDGE, { verb: 'pause', goal: GOAL, chat_user: 'not-a-slack-id' });
+  check('f5: a malformed chat_user is refused AT THE GATEWAY, naming the field — absence is fine, garbage is not',
+    r.gatewayRefused === true && /chat_user/.test(r.body.error.message), r.body.error && r.body.error.message);
+  const raw2 = await api.dispatch({
+    v: ENVELOPE_VERSION, id: crypto.randomUUID(), ts: new Date().toISOString(),
+    auth: secret, sender: BRIDGE, intent: 'pause-resume', payload: { verb: 'pause', goal: GOAL, chat_user: 'not-a-slack-id' },
+  });
+  check('f6: the CORE refuses the same malformed chat_user independently of the gateway (DEC-3)',
+    raw2.ok === false && raw2.error.code === 'VALIDATION_FAILED' && /chat_user/.test(raw2.error.message), JSON.stringify(raw2.error));
 
   // ── (g) ONE PAUSE RECORD: a leftover console prefix does NOT hold a resume ──────────────────
   //
@@ -475,14 +501,14 @@ async function main() {
   // on a copy.
   {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'pause-resume.js'), 'utf8');
-    const SIG = 'function pauseResume({\n  workspaceRoot, verb, goal, countersFile = undefined, logger = null,\n}) {';
+    const SIG = 'function pauseResume({\n  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,\n}) {';
     const BIND = '  const store = bind(openEndingStoreFor(workspaceRoot));';
     check('R0d: red-proof anchors — the home resolver and its no-store-parameter signature are present in the executor',
       src.includes(SIG) && src.includes(BIND));
     const beside = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', `pause-resume.home-mutant-${process.pid}.js`);
     try {
       fs.writeFileSync(beside, src
-        .replace(SIG, 'function pauseResume(heartStore, {\n  workspaceRoot, verb, goal, countersFile = undefined, logger = null,\n}) {')
+        .replace(SIG, 'function pauseResume(heartStore, {\n  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,\n}) {')
         .replace(BIND, '  const store = bind(heartStore.db);'));
       const mut = require(beside);
       const mutOut = mut.pauseResume({ db: laneDb }, { workspaceRoot: hRoot, verb: 'pause', goal: HGOAL, countersFile });

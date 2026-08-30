@@ -86,15 +86,29 @@ const err = (code, message) => ({ ok: false, result: null, error: { code, messag
       answer: (p) => ok({ verb: p.verb, goal: p.goal, applied: true, actions: [{ row: 'goal', change: 'running→paused', goal: p.goal }], refusals: [] }),
     });
     const out = await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: OWNER });
-    check('a1: an authorized `pause {goal}` crosses the daemon boundary EXACTLY ONCE, as intent `pause-resume` with payload {verb,goal} and nothing else',
+    check('a1: an authorized `pause {goal}` crosses the daemon boundary EXACTLY ONCE, as intent `pause-resume` with payload {verb,goal,chat_user} and nothing else — chat_user is the Slack sender, forwarded for the record, never re-decided here',
       calls.length === 1 && calls[0].intent === INTENT
-      && JSON.stringify(calls[0].payload) === JSON.stringify({ verb: 'pause', goal: GOAL }),
+      && JSON.stringify(calls[0].payload) === JSON.stringify({ verb: 'pause', goal: GOAL, chat_user: OWNER }),
       { calls: calls.map((c) => ({ intent: c.intent, payload: c.payload })) });
     check('a2: and the owner gets ONE line back where the verb arrived, rendering the daemon\'s own action',
       posts.length === 1 && posts[0] && posts[0].text === `${GOAL}: running→paused.`
       && posts[0].channelId === CHANNEL && posts[0].goalId === GOAL
       && out.mechanical === true && out.ok === true && out.applied === true,
       { posts: posts.map((p) => p.text), out: { ok: out.ok, applied: out.applied } });
+  }
+
+  // ── (a3) `chat_user` IS THE REAL SENDER, NOT A CONSTANT — a second admitted principal proves
+  // `handle()` forwards WHICHEVER senderId authorized this call, not the fixture's OWNER id ────────
+  {
+    const SECOND_OWNER = 'U-SECOND-OWNER';
+    const { door, calls } = fake({
+      answer: (p) => ok({ verb: p.verb, goal: p.goal, applied: true, actions: [], refusals: [] }),
+      admitted: [OWNER, SECOND_OWNER],
+    });
+    await door.handle({ text: `pause ${GOAL}`, channelId: CHANNEL, threadTs: null, channelGoal: GOAL, senderId: SECOND_OWNER });
+    check('a3: chat_user tracks the ACTUAL admitted sender of this call, not a fixed value — the door forwards the Slack principal it just authorized',
+      calls.length === 1 && calls[0].payload.chat_user === SECOND_OWNER,
+      { payload: calls[0] && calls[0].payload });
   }
 
   // ── (b) A RESUME ANSWER CARRYING BOTH HALVES: every line is posted ───────────────────────────

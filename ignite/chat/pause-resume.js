@@ -14,15 +14,22 @@
 // ── THE CONTRACT THIS MODULE IS BUILT TO (owner direction 2026-08-28 ~02:00Z, restated VERBATIM
 //    from the `fix-pause-bridge` seat; the daemon half is built against the same words) ─────────
 //
-//   Intent `pause-resume`, payload `{ verb: 'pause'|'resume', goal }`, sent by the bridge token
-//   through the forwarder you already hold (`chat/gateway-forwarder.js:50 call(intent, payload,
-//   opts)` / `forward`). Result `{ verb, goal, applied, actions, refusals:[{row,text,seat?}] }` —
+//   Intent `pause-resume`, payload `{ verb: 'pause'|'resume', goal, chat_user? }`, sent by the
+//   bridge token through the forwarder you already hold (`chat/gateway-forwarder.js:50 call(intent,
+//   payload, opts)` / `forward`). Result `{ verb, goal, applied, actions, refusals:[{row,text,seat?}] }` —
 //   today's `applyPause`/`applyResume` return shape (`chat/pause-resume.js:113-206`), so
 //   `summarize()` (`:208-222`) renders it unchanged. Errors: `NOT_FOUND` = the slug names no live
 //   goal → post the verbatim §4.5 mechanical NACK (`reply-grammar.js:5 NACK_MECHANICAL`,
 //   byte-identical to spec-owner-io §4.5, diff-verified by the wave); any other refusal or
 //   transport failure → post an honest one-line refusal naming the reason (`pause <goal> was NOT
 //   applied — <error>`), never silence.
+//
+// ⚑ `chat_user` (owner re-ruling D-4(a), 2026-08-30 ~18:1xZ) IS THE SLACK PRINCIPAL, CARRIED
+//   THROUGH FOR THE RECORD, NEVER FOR AUTHORIZATION. This door already authorizes `senderId`
+//   against `isAuthorizedSender` above — that decision is made and stays here. `chat_user` only
+//   lets the daemon's evidence text name WHO in Slack typed the verb, since `who_stamped` stays the
+//   closed `owner`/`system` enum (`state-store/heart/pause-resume.js`) and cannot carry a person's
+//   identity. The daemon cannot verify a Slack id itself, so it is logged, never trusted.
 //
 // ⚑ THIS MODULE IS GRAMMAR + SENDER + POSTER, AND NOTHING ELSE. It holds no store handle, opens
 //   no database, and applies nothing itself: `applyPause`/`applyResume` and the resume-semantics
@@ -165,7 +172,9 @@ function createPauseResume({
 
     let res;
     try {
-      res = await forwarder.forward(INTENT, { verb, goal });
+      // `chat_user` rides along as the reporting sender only — admission already ran above, and
+      // this door never asks the daemon to re-decide who is allowed to pause a goal.
+      res = await forwarder.forward(INTENT, { verb, goal, chat_user: String(senderId) });
     } catch (err) {
       // The forwarder resolves transport failures rather than throwing, so a throw here is a
       // programming or wiring fault — still answered, never swallowed.

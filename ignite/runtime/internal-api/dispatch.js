@@ -159,6 +159,11 @@ const BUS_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 // MOVING binding standing in for the tree the owner actually read.
 const START_EXECUTION_COMMIT_RE = /^[0-9a-f]{7,64}$/;
 
+// The Slack member id shape, re-checked at the core independently of the gateway's copy
+// (`runtime/gateway/parse.js#CHAT_USER_RE`) — DEC-3. Untrusted-but-logged: this never feeds
+// `authz.canPauseResume`, only the evidence text pause-resume.js writes.
+const CHAT_USER_RE = /^[UW][A-Z0-9]{2,}$/;
+
 const ALLOWED_ENVELOPE_KEYS = new Set(['v', 'id', 'ts', 'auth', 'sender', 'intent', 'payload']);
 
 // ⚑ `auth` is deliberately NOT in the REQUIRED list, even though every well-formed
@@ -1682,7 +1687,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
   //   them alongside the refusal. A typed error would lose the record of writes already made.
   function handlePauseResume(payload, sender) {
     for (const key of Object.keys(payload)) {
-      if (!['verb', 'goal'].includes(key)) {
+      if (!['verb', 'goal', 'chat_user'].includes(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field for pause-resume: ${key}`, { check: 'strict-schema', field: key });
       }
     }
@@ -1692,7 +1697,13 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
       throw new InternalApiError(VALIDATION_FAILED, 'pause-resume goal must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'goal' });
     }
+    if (payload.chat_user !== undefined && (typeof payload.chat_user !== 'string' || !CHAT_USER_RE.test(payload.chat_user))) {
+      throw new InternalApiError(VALIDATION_FAILED, 'pause-resume chat_user must be a Slack member id (e.g. U0123ABC)', { check: 'chat-user-shape', field: 'chat_user' });
+    }
 
+    // AUTHORIZATION NEVER READS `chat_user`. `sender` (the bridge's own bearer-token identity) is
+    // the only authenticated principal this door has — `chat_user` is the bridge's UNVERIFIED report
+    // of which Slack member typed the verb, kept for the evidence text only.
     const decision = authz.canPauseResume({ sender });
     if (!decision.allowed) {
       throw new InternalApiError(UNAUTHORIZED_SENDER, decision.reason, { check: 'authorization' });
@@ -1705,6 +1716,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       workspaceRoot,
       verb: payload.verb,
       goal: payload.goal,
+      chatUser: payload.chat_user,
       logger: log ? (row) => log(row.level, row.message, row) : null,
     });
     if (!out.found) {

@@ -150,7 +150,9 @@ the daemon's and bypasses the goal master [T5-R14]. A bare verb in a goal channe
 targets that goal; elsewhere the slug is required, and a grammar failure gets the
 verbatim §4.5 mechanical NACK with nothing sent. Otherwise the verb crosses the
 daemon boundary as the gateway intent `pause-resume`, payload
-`{verb: 'pause'|'resume', goal}`, and the daemon's result
+`{verb: 'pause'|'resume', goal, chat_user}` (`chat_user` = the authorized Slack sender's
+id, forwarded for the daemon's evidence text only — owner re-ruling D-4(a), 2026-08-30),
+and the daemon's result
 `{verb, goal, applied, actions, refusals}` is rendered back into the channel or
 thread the verb arrived in. Neither verb flips an ask off `open`. No store handle,
 no lane enumerator, no counter port: the resume-semantics table (`spec-recovery.md`

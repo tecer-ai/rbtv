@@ -64,6 +64,13 @@
 //   a goal that is waiting on a question is still owed that question's answer, and the ask must
 //   still read `open` to every digest, status line and kill clock afterwards.
 //
+// ⚑ `chatUser` NAMES THE SLACK PRINCIPAL IN THE EVIDENCE TEXT ONLY (owner re-ruling D-4(a),
+//   2026-08-30 ~18:1xZ). It is OPTIONAL, reported by the bridge (`chat/pause-resume.js`) via the
+//   `chat_user` payload field, shape-checked at both gateway copies (parse.js, dispatch.js) before
+//   it ever reaches here — this module trusts that check and does no authorization with the value;
+//   `authz.canPauseResume` never sees it. `state-store/cli.js`'s console route (`rbtv goal pause`)
+//   passes no `chatUser`, so its evidence text is unchanged.
+//
 // ⚑ ONE PAUSE RECORD. This executor is the ONLY writer of the goal word. The console's
 //   `rbtv goal pause` / `resume` reach it through `state-store/cli.js --op pauseResume` (no `--db`);
 //   Slack reaches it through the fifteenth intent. The `execution-lane` file is the lane word
@@ -307,7 +314,7 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
 // defect (see THE ENDING HOME above): the only store this verb may touch is derived from
 // `workspaceRoot`, so there is no parameter through which the wrong one can arrive.
 function pauseResume({
-  workspaceRoot, verb, goal, countersFile = undefined, logger = null,
+  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,
 }) {
   const log = (level, message, fields = {}) => { if (logger) logger({ level, message, verb, goal, ...fields }); };
   if (!VERBS.has(String(verb))) return { found: false, reason: 'bad-verb', detail: `unknown mechanical verb ${verb}` };
@@ -317,7 +324,12 @@ function pauseResume({
   }
   const goalDir = goalDirOf(workspaceRoot, goal);
   const store = bind(openEndingStoreFor(workspaceRoot));
-  const evidencePointer = (v, g) => `owner ${v} in chat · goal ${g}`;
+  // `chatUser` absent (console route, or an older bridge during the deploy gap) keeps the
+  // pre-existing text byte-for-byte — `state-store/cli.js`'s known "owner resume in chat" cost is
+  // unchanged by this fix, deliberately (see its own comment on `runRootedOp`).
+  const evidencePointer = (v, g) => (chatUser
+    ? `owner ${v} in chat · by ${chatUser} (reported by bridge) · goal ${g}`
+    : `owner ${v} in chat · goal ${g}`);
   const out = verb === 'pause'
     ? applyPause(store, goal, evidencePointer)
     : applyResume(store, {

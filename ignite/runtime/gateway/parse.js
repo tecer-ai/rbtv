@@ -839,18 +839,33 @@ function parseStartExecution(payload) {
 // instructions are the BRIDGE's to carry to the goal's master — the daemon's mechanical act is
 // fully determined by the verb and the goal. An unknown key is a REFUSAL rather than a silently
 // ignored one, per the thirteenth's per-act rule applied to this intent's single act.
+//
+// ⚑ `chat_user` IS THE ONE EXCEPTION, AND IT IS OPTIONAL (owner re-ruling D-4(a), 2026-08-30
+// ~18:1xZ). It carries the Slack user id who typed the verb, SHAPE-CHECKED ONLY (a Slack member id
+// looks like `U…`/`W…`) — the gateway cannot verify a Slack id belongs to anyone, so it is
+// untrusted-but-logged data, never an authorization input (`authz.canPauseResume` never sees it).
+// OPTIONAL so a bridge deployed before this change still works during the deploy gap: absence is
+// not a refusal, a malformed value is.
 const MECHANICAL_VERBS = new Set(['pause', 'resume']);
+const CHAT_USER_RE = /^[UW][A-Z0-9]{2,}$/;
 
 function parsePauseResume(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['verb', 'goal']), 'pause-resume');
+  rejectUnknownKeys(payload, new Set(['verb', 'goal', 'chat_user']), 'pause-resume');
   if (typeof payload.verb !== 'string' || !MECHANICAL_VERBS.has(payload.verb)) {
     bad(`pause-resume verb must be one of: ${[...MECHANICAL_VERBS].join(', ')}`, 'verb');
   }
   if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
     bad('pause-resume goal must be a bare name — letters, digits, \'.\', \'_\' or \'-\', starting alphanumeric (no path separators, no "..", no control characters)', 'goal');
   }
-  return { verb: payload.verb, goal: payload.goal };
+  const out = { verb: payload.verb, goal: payload.goal };
+  if (payload.chat_user !== undefined) {
+    if (typeof payload.chat_user !== 'string' || !CHAT_USER_RE.test(payload.chat_user)) {
+      bad('pause-resume chat_user must be a Slack member id (e.g. U0123ABC) — omit the field entirely rather than send a malformed one', 'chat_user');
+    }
+    out.chat_user = payload.chat_user;
+  }
+  return out;
 }
 
 const SECRET_ADD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
