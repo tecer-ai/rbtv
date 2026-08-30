@@ -159,18 +159,18 @@ function recordView(heartStore, goalFolder, { readyRows = null, goal = null } = 
 }
 
 function readyFromEndings(heartStore, goalFolder, { rows = [], goal = null } = {}) {
+  // THE LAUNCHABLE SET IS THE KIT'S `verdict === 'READY'` — one door. The ending ledger is a
+  // CROSS-CHECK only: a READY row whose current ending is `done` is a SKEW the kit should have
+  // raised. Log it at the caller; do not launch it. Predecessor/`after` arithmetic lives in
+  // `ready.py`; re-deriving it here is how HELD/STOPPED/IDLE/SKEW seats still launched.
   const api = bindEnding(heartStore, goalFolder);
   const gid = goalNameOf(goalFolder, goal);
   const ready = new Map();
-  const doneSet = new Set();
   for (const r of rows) {
     if (!r || !r.seat) continue;
+    if (r.verdict !== 'READY') continue;
     const current = endingOf(api, gid, r.seat);
-    if (current && current.ending === 'done') doneSet.add(r.seat);
-  }
-  for (const r of rows) {
-    if (!r || !r.seat) continue;
-    if (!launchableOf(api, gid, r.seat, r.after, doneSet)) continue;
+    if (current && current.ending === 'done') continue;
     ready.set(r.seat, Array.isArray(r.seed) ? r.seed : []);
   }
   return ready;

@@ -890,7 +890,7 @@ function reconcileGoal({
       classE: derived.classE ? derived.classE.pending : null,
       readyRefused: derived.readyRefused,
       deadExcluded: derived.deadSeats.length,
-      summonedExcluded: derived.summonedSeats,
+      summonedExcluded: readyAnswer.summonedExcluded || derived.summonedSeats,
       // THE HELD ROWS ARE NAMED, NOT COUNTED. A hold is a leader RULING and the pass that honours
       // it must say whose ruling and what releases it — a silent exclusion is how nine paid
       // sittings looked identical to nine no-ops in the journal.

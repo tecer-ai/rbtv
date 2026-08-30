@@ -24,6 +24,24 @@ function check(claim, ok, detail) {
 const seeding = require('../seeding.js');
 check('seeding no longer exports CLASSIFIED_VERDICTS', seeding.CLASSIFIED_VERDICTS === undefined);
 check('seeding no longer exports isWaitableWork', seeding.isWaitableWork === undefined);
+check('seeding exports ONE verdict door table', seeding.VERDICT_DOOR && typeof seeding.VERDICT_DOOR === 'object');
+
+const readyPy = fs.readFileSync(path.join(ENGINE, 'ready.py'), 'utf8');
+const liveVerdicts = new Set();
+for (const m of readyPy.matchAll(/rec\["verdict"\]\s*=\s*(.+)/g)) {
+  for (const w of m[1].matchAll(/"([A-Z][A-Z-]*)"/g)) liveVerdicts.add(w[1]);
+}
+const door = seeding.VERDICT_DOOR || {};
+for (const word of liveVerdicts) {
+  check(`VERDICT_DOOR names live kit verdict ${word}`, Object.prototype.hasOwnProperty.call(door, word), word);
+}
+for (const word of Object.keys(door)) {
+  check(`VERDICT_DOOR key ${word} is assigned by ready.py`, liveVerdicts.has(word), [...liveVerdicts].join(','));
+}
+const launchable = Object.entries(door).filter(([, v]) => v && v.launchable).map(([k]) => k);
+check('only READY is launchable', launchable.length === 1 && launchable[0] === 'READY', JSON.stringify(launchable));
+check('BLOCKED is waitable and not launchable', door.BLOCKED && door.BLOCKED.waitable === true && door.BLOCKED.launchable === false);
+check('IDLE is neither launchable nor waitable', door.IDLE && door.IDLE.launchable === false && door.IDLE.waitable === false);
 
 // The seven product files the killed enum could hide in. Component-relative since the
 // component-first move: six stayed in `supervisor/` (this probe's own ENGINE root) and

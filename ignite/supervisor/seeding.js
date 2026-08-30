@@ -87,10 +87,26 @@ const REFUSAL_MESSAGES = Object.freeze({
 
 const TASKFORCE = 'taskforce.csv';
 
-// D25 — the frozen-at-seeding classifier. Waitable work is ONLY what coord positively
-// names: READY, or BLOCKED and not dead. An unknown verdict is NOT waitable (falls OUT).
-// `probe-verdict-vocabulary.js` extracts coord's live vocabulary and asserts every value
-// is a key here — a new coord verdict becomes a commit-time failure, never a silent alarm.
+// D25 / D-12 — ONE table for the launch door and the waitable classifier. Waitable work is
+// ONLY what coord positively names: READY, or BLOCKED and not dead. The launchable set is
+// ONLY READY. An unknown verdict is neither (falls OUT). `probe-verdict-vocabulary.js`
+// extracts coord's live vocabulary and asserts every value is a key here — a new coord
+// verdict becomes a commit-time failure, never a silent launch or a silent alarm.
+const _door = (launchable, waitable) => Object.freeze({ launchable, waitable });
+const VERDICT_DOOR = Object.freeze({
+  SKEW: _door(false, false),
+  HELD: _door(false, false),
+  DONE: _door(false, false),
+  RENEWING: _door(false, false),
+  'RENEW-BLOCKED': _door(false, false),
+  RUNNING: _door(false, false),
+  UNBUILT: _door(false, false),
+  UNDECLARED: _door(false, false),
+  STOPPED: _door(false, false),
+  BLOCKED: _door(false, true),
+  READY: _door(true, true),
+  IDLE: _door(false, false),
+});
 function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -200,6 +216,7 @@ let SUMMONED_CACHE = null;
 
 // Journal de-duplication for the first-seeding line below. See its own note.
 const SUMMONED_SAID = new Set();
+const VERDICT_SAID = new Set();
 
 function summonedSeats(say) {
   if (SUMMONED_CACHE) return SUMMONED_CACHE;
@@ -231,7 +248,7 @@ function summonedSeats(say) {
 }
 
 function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows = null } = {}) {
-  const refuse = (reason) => ({ ready: null, rows: [], reason, summonedExcluded: [] });
+  const refuse = (reason) => ({ ready: null, rows: [], reason, summonedExcluded: [], contradicted: [] });
   let rows = taskRows;
   if (!rows) {
     let raw;
@@ -247,24 +264,27 @@ function readySeats(goalFolder, { heartStore = null, goal = null, rows: taskRows
     if (!Array.isArray(rows)) return refuse('`ready-seats --json` returned no row array');
   }
   const ready = readyFromEndings(heartStore, goalFolder, { rows, goal });
-  // ── THE SUMMONED EXCLUSION, AT THE ONE PLACE THE LAUNCHABLE SET IS DERIVED ──────────────────
+  // ── THE LAUNCHABLE SET IS COORD'S `verdict === READY` ────────────────────────────────────────
   //
-  // `readyFromEndings` rebuilds the frontier from the ENDING LEDGER and the `after` column, and
-  // it reads NOTHING off coord's per-row `verdict` — so coord's D24 branch
-  // (`supervisor/ready.py`, "ON-DEMAND summoned seat — NOT OFFERED", verdict `IDLE`) never
-  // reached this pass. That is where the wrong value was born, and this is the seam every
-  // consumer of the frontier passes through: seeding's enqueue pass, the watcher, the attached
-  // lane's status, and the probes. Excluding here rather than at each of them is what keeps the
-  // answer single.
+  // `readyFromEndings` no longer rebuilds the frontier from the ending ledger. It takes the
+  // kit's per-row `verdict` wholesale — READY launches, every other word refuses — and the
+  // ledger is only a CROSS-CHECK (a READY row whose ending is `done` is omitted as a SKEW the
+  // kit should have raised). That is the seam every consumer of the frontier passes through:
+  // seeding's enqueue pass, the watcher, the attached lane's status, and the probes.
   //
-  // ⚠ THIS IS A SEEDING EXCLUSION, NOT AN UNREACHABILITY. The summon path does not read this
-  // frontier: an owner message in the goal's channel reaches the chair through the chat bridge
-  // (`chat/forward-path.js`), and an explicit `launch --only goal-master` admits by conjunction.
+  // The D24 summoned-name delete is gone: IDLE is honoured at the door, so a summoned chair
+  // never enters `ready`. `summonedExcluded` stays on the return and is derived from the IDLE
+  // rows so the journal field stays true. The summon path does not read this frontier: an owner
+  // message reaches the chair through `chat/forward-path.js`, and `launch --only goal-master`
+  // still admits by conjunction.
   const summonedExcluded = [];
-  for (const seat of summonedSeats(null)) {
-    if (ready.delete(seat)) summonedExcluded.push(seat);
+  const contradicted = [];
+  for (const r of rows) {
+    if (!r || !r.seat) continue;
+    if (r.verdict === 'IDLE') summonedExcluded.push(r.seat);
+    if (r.verdict === 'READY' && !ready.has(r.seat)) contradicted.push(r);
   }
-  return { ready, rows, reason: null, summonedExcluded };
+  return { ready, rows, reason: null, summonedExcluded, contradicted };
 }
 
 // ── THE RENEWAL ANSWER, TRANSPORTED (LE-10, 2026-08-19) ───────────────────────────────────────
@@ -969,6 +989,7 @@ function seedGoal({
   // Threaded straight through to `launchOwed` — see its own note. `lane-watch.js` is the caller
   // that fills it, off the unbuilt and uncast lists it used to skip the whole goal on [C-9].
   laneSkips = null,
+  rows: kitRows = null,
 }) {
   if (!goal) {
     throw new Error(
@@ -1031,7 +1052,9 @@ function seedGoal({
   // goal this pass — not a partial enqueue, and not even the create-only job registration, which
   // would be store rows written off an answer nobody has. The next pass retries; missing any
   // number of passes costs latency and nothing else (§ Why the re-seed stays the driver).
-  const { ready, rows: readyRows, reason, summonedExcluded } = readySeats(goalFolder, { heartStore, goal });
+  const { ready, rows: readyRows, reason, contradicted } = readySeats(goalFolder, {
+    heartStore, goal, rows: kitRows,
+  });
   if (!ready) {
     if (logger) {
       logger({
@@ -1052,20 +1075,45 @@ function seedGoal({
       skewed: [], frozen: null, suppressedEnqueues: {}, enqueueUnfired: [],
     };
   }
-  // ── ONE LINE PER SUMMONED CHAIR, AT ITS FIRST SEEDING ───────────────────────────────────────
-  // A journal line every 10 s per goal is not a signal, it is weather — so this says it ONCE per
-  // (goal, chair) for the life of the process, which is exactly "at first seeding" for a daemon
-  // that must be restarted to change `SUMMONED_SEATS` at all. Nothing reads this Set but this
-  // line; it can only ever suppress a repeat, never change whether a seat seeds.
-  for (const seat of summonedExcluded || []) {
-    const key = `${goal}/${seat}`;
-    if (SUMMONED_SAID.has(key)) continue;
-    SUMMONED_SAID.add(key);
+  // ── ONE LINE PER KIT REFUSAL, AT ITS FIRST SEEDING ──────────────────────────────────────────
+  // A journal line every 10 s per goal is weather. Once per (goal, seat, verdict) for the life
+  // of the process. IDLE summoned chairs keep the D24 wording so the existing probe arm still
+  // names the reason; every other non-READY word carries the kit's own reason string.
+  for (const r of readyRows || []) {
+    if (!r || !r.seat || r.verdict === 'READY') continue;
+    if (r.verdict === 'IDLE' && /summoned seat/i.test(r.reason || '')) {
+      const key = `${goal}/${r.seat}`;
+      if (SUMMONED_SAID.has(key)) continue;
+      SUMMONED_SAID.add(key);
+      if (logger) {
+        logger({
+          level: 'info',
+          message: `chair ${r.seat} is SUMMONED — not seeded (launched per owner message)`,
+          goal, goalFolder, seat: r.seat, verdict: r.verdict, reason: r.reason || '',
+        });
+      }
+      continue;
+    }
+    const key = `${goal}/${r.seat}/${r.verdict}`;
+    if (VERDICT_SAID.has(key)) continue;
+    VERDICT_SAID.add(key);
     if (logger) {
       logger({
         level: 'info',
-        message: `chair ${seat} is SUMMONED — not seeded (launched per owner message)`,
-        goal, goalFolder, seat,
+        message: `seat ${r.seat} is ${r.verdict} — not seeded (${r.reason || ''})`,
+        goal, goalFolder, seat: r.seat, verdict: r.verdict, reason: r.reason || '',
+      });
+    }
+  }
+  for (const r of contradicted || []) {
+    const key = `${goal}/${r.seat}/READY-done`;
+    if (VERDICT_SAID.has(key)) continue;
+    VERDICT_SAID.add(key);
+    if (logger) {
+      logger({
+        level: 'warn',
+        message: `seat ${r.seat} READY contradicted by ending done — not launched (kit should have raised SKEW)`,
+        goal, goalFolder, seat: r.seat,
       });
     }
   }
@@ -1199,6 +1247,7 @@ module.exports = {
   TASKFORCE,
   ALL_TURN_STATUSES,
   SEAT_STATES,
+  VERDICT_DOOR,
   readCsv,
   readySeats,
   summonedSeats,

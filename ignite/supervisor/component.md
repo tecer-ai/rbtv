@@ -996,36 +996,30 @@ forever, stranding a leader's ruled `--rerun` of a crashed seat on `scratch-deat
 the tmux lane is untouched (an absent census there still defers, in the same words), proof
 `coord/coord_selftest.py` rows `E22-CAP-1/2/3`.
 
-## A SUMMONED chair is never seeded (D24's seeding half, 2026-08-27)
+## The launchable frontier is the kit's READY rows (D-12, 2026-08-30)
 
-`coord/identity.py#SUMMONED_SEATS` is the ONE list of chairs that exist only when the owner
-summons them — today `("goal-master",)`. Its readiness half has held since D24 (`ready.py` answers
-`verdict: IDLE`, "ON-DEMAND summoned seat — NOT OFFERED") and its owed half since the same ruling
-(`reconcile.js` never derives class B for such a chair). The SEEDING half was missing, and the gap
-cost a goal: on 2026-08-27 `scratch-cli-reach-report`'s `goal-master` row was enqueued at the first
-seeding pass (15:27:01Z) with no owner message anywhere, and that cold sitting executed the goal's
-own contract and fired `coordinate finish-goal`, tearing the room down with three of the five
-planning seats never enqueued.
+The daemon's "which seats may launch" pass honours `ready.py#ready_seat_rows` wholesale: one row
+per seat, `verdict` + `reason`, and the launchable set is `{ rows with verdict === READY }`,
+carrying each row's `seed`. Every other verdict refuses the offer — SKEW, HELD, DONE, RENEWING,
+RENEW-BLOCKED, RUNNING, UNBUILT, UNDECLARED, STOPPED, BLOCKED, IDLE — for the reason that function's
+docstring names on that rung. `ending-reads.js#readyFromEndings` is the seam every consumer of the
+frontier passes through (seeding's enqueue pass, the watcher, the attached lane's status, the
+probes). It no longer rebuilds launchability from the ending ledger and the `after` column. The
+ledger is a CROSS-CHECK only: a READY row whose current ending is `done` is a SKEW the kit should
+have raised — logged, not launched.
 
-WHY coord's IDLE verdict never arrived. `ending-reads.js#readyFromEndings` builds the frontier from
-the ENDING LEDGER and the `after` column and reads NO `verdict` field off coord's rows — it takes
-only `seat`, `after` and `seed` from them. So `seedGoal`'s own "`ready` IS COORD'S ANSWER, HANDED
-IN" note was true of the transport and false of the answer.
+The 2026-08-27 D24 seeding exclusion (delete summoned names from a ledger-derived frontier) is
+gone. IDLE is honoured at the door, so a summoned chair never enters `ready`. `summonedExcluded`
+stays on the return and is derived from the IDLE rows so the journal field stays true. The summon
+path does not read this frontier: an owner message on the goal's channel reaches the chair through
+`chat/forward-path.js`, and an explicit `launch --only goal-master` still admits by conjunction.
+One `info` line names a summoned IDLE chair once per (goal, chair) per process —
+`chair <seat> is SUMMONED — not seeded (launched per owner message)` — and every other refused
+verdict is journalled with the kit's own reason.
 
-WHERE IT IS FIXED: `seeding.js#readySeats`, immediately after `readyFromEndings` — the ONE place
-the launchable set is derived and the seam every consumer passes through (seeding's enqueue pass,
-`reconcile.js`, the attached lane's status verb, the probes). The list is READ OFF COORD by the
-`summonedSeats()` transport, which MOVED here from `reconcile.js` and is imported back by it: two
-readers of one list is exactly the second source of truth D24's own note forbids. A failed read
-yields the EMPTY set and logs — degradation is toward the old behaviour, never a silent hole.
-
-This is a SEEDING exclusion, not an unreachability. The summon path does not read this frontier: an
-owner message on the goal's channel reaches the chair through `chat/forward-path.js`, and an
-explicit `launch --only goal-master` still admits by conjunction. One `info` line names it once per
-(goal, chair) per process — `chair <seat> is SUMMONED — not seeded (launched per owner message)`.
-
-Proof: `probes/probe-seed-gates.js` arms 8a–8e, with `leader` as the discriminating control (same
-root row, same cast, same descriptor writer — only the name differs).
+Proof: `probes/probe-seed-gates.js` arms 8a–8e (IDLE summoned chair) and the kit-verdict arms
+(HELD/STOPPED/UNDECLARED/IDLE/SKEW/RUNNING none enqueued; READY enqueued with its seed; READY
+contradicted by a `done` ending not launched).
 
 ## The pass YIELDS between goals, and a pass never stacks [A-1 option (a), owner ruling 2026-08-28]
 

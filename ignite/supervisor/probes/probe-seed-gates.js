@@ -216,15 +216,13 @@ function goalLiveArms() {
 // killed the room with three of the five planning seats never enqueued.
 //
 // WHY IT FIRED. coord ALREADY refuses the chair: `supervisor/ready.py`'s D24 branch answers
-// `verdict: IDLE`, "ON-DEMAND summoned seat — NOT OFFERED". But `ending-reads.js#readyFromEndings`
-// rebuilds the frontier from the ending ledger and the `after` column and reads NO verdict off
-// coord's rows at all, so that answer never reached the pass. `seeding.js#readySeats` now removes
-// every chair coord's own `SUMMONED_SEATS` names, at the one place the frontier is derived.
+// `verdict: IDLE`, "ON-DEMAND summoned seat — NOT OFFERED". The 2026-08-27 patch deleted summoned
+// names from a ledger-derived frontier; D-12 makes the frontier the kit's READY rows, so IDLE
+// never enters it and the name-delete is gone.
 //
-// THE DISCRIMINATING CONTROL IS `leader`. Both rows are ROOTS (no `after`), both are cast by the
-// same one-spec launch config, both have a descriptor written by the same function — the pair
-// differs in exactly ONE fact, the seat name. A guard that suppressed "chairs", or "seats with no
-// ctx-refresh", or simply broke seeding, would take `leader` down with it and redden arm 8b.
+// THE DISCRIMINATING CONTROL IS `plan-understander`. `leader` is a staff chair and also IDLE
+// with no mail — honouring IDLE takes it off the frontier with the summoned chair. A root
+// workflow seat is the control that must still enqueue.
 function summonedChairArms() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-summoned-'));
   const ws = path.join(tmp, 'ws');
@@ -259,9 +257,9 @@ function summonedChairArms() {
     const enq = first.pickup.enqueued || [];
     check('arm 8a: the FIRST seeding pass does NOT enqueue the SUMMONED chair `goal-master`',
       !enq.includes('goal-master'), `enqueued: ${JSON.stringify(enq)}`);
-    check('arm 8b (the discriminating control): the SAME pass DOES enqueue `leader` and the root '
-      + 'plan seat — only the summoned NAME is excluded',
-      enq.includes('leader') && enq.includes('plan-understander'), `enqueued: ${JSON.stringify(enq)}`);
+    check('arm 8b (the discriminating control): the SAME pass DOES enqueue the root plan seat '
+      + 'and does NOT enqueue the IDLE staff `leader`',
+      enq.includes('plan-understander') && !enq.includes('leader'), `enqueued: ${JSON.stringify(enq)}`);
     check('arm 8c: the chair is excluded from the FRONTIER, not merely from the queue — it reads '
       + '`waiting`, never `ready`',
       JSON.stringify(first.pickup.states && first.pickup.states['goal-master']) === '"waiting"',
@@ -284,6 +282,120 @@ function summonedChairArms() {
   }
 }
 
+// ── D-12 · THE KIT VERDICT IS THE LAUNCH DOOR ────────────────────────────────────────────────
+//
+// A fixture taskforce whose ENDINGS + `after` read clean for every seat, while the kit returns
+// HELD / STOPPED / UNDECLARED / IDLE / SKEW / RUNNING for those seats. None enqueue. READY
+// enqueues with its seed. A READY row contradicted by a `done` ending does not launch.
+function kitVerdictArms() {
+  const { seedGoal, readySeats } = require('../seeding');
+  const { openHeartStore } = require('../../state-store/heart/heart-store');
+  const { bind, openEndingStoreFor, closeEndingStores } = require('../../state-store');
+  const Module = require('node:module');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-seed-gates-verdict-'));
+  const ws = path.join(tmp, 'ws');
+  const goal = 'verdict-goal';
+  const goalFolder = path.join(ws, '.rbtv', 'goals', goal);
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  const seats = ['held', 'stopped', 'undeclared', 'idle', 'skew', 'running', 'worker'];
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'),
+    'taskforce-id,seat,after,harness,model,effort,ctx-refresh,milestone-id\n'
+    + seats.map((s) => `tf-1,${s},,bash,probe-live,high,35,\n`).join(''));
+  for (const seat of seats) seatDescriptor(goalFolder, seat);
+  const dbPath = path.join(ws, '.rbtv', 'heart', 'heart.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+  const kitRows = [
+    { seat: 'held', verdict: 'HELD', reason: 'OWNER-ASK HOLD — open question', seed: [] },
+    { seat: 'stopped', verdict: 'STOPPED', reason: 'store row carries row-outcome stop-state', seed: [] },
+    { seat: 'undeclared', verdict: 'UNDECLARED', reason: 'session ENDED with an EMPTY disposition', seed: [] },
+    { seat: 'idle', verdict: 'IDLE', reason: 'ON-DEMAND summoned seat — NOT OFFERED', seed: [] },
+    { seat: 'skew', verdict: 'SKEW', reason: 'the two records of this seat\'s own ending disagree', seed: [] },
+    { seat: 'running', verdict: 'RUNNING', reason: 'roster: active since (unstamped)', seed: [] },
+    { seat: 'worker', verdict: 'READY', reason: 'after: (root — no predecessors)', seed: ['/tmp/seed-in'] },
+  ];
+
+  const heartStore = openHeartStore({ dbPath });
+  const logs = [];
+  let pickup;
+  try {
+    pickup = seedGoal({
+      heartStore, goalFolder, goal, rows: kitRows,
+      logger: (m) => logs.push(m),
+    });
+  } finally {
+    heartStore.close();
+  }
+
+  const refused = ['held', 'stopped', 'undeclared', 'idle', 'skew', 'running'];
+  const enq = pickup.enqueued || [];
+  for (const seat of refused) {
+    check(`arm 9: kit ${seat.toUpperCase() === 'IDLE' ? 'IDLE' : kitRows.find((r) => r.seat === seat).verdict} seat \`${seat}\` is NOT enqueued`,
+      !enq.includes(seat), `enqueued: ${JSON.stringify(enq)}`);
+    const row = kitRows.find((r) => r.seat === seat);
+    const line = logs.find((l) => l.seat === seat || (l.message || '').includes(seat));
+    check(`arm 9: journal names \`${seat}\` with the kit's ${row.verdict} reason`,
+      Boolean(line) && (String(line.message).includes(row.verdict) || String(line.message).includes('SUMMONED'))
+      && (String(line.reason || line.message).includes(row.reason.split(' — ')[0])
+        || String(line.message).includes('SUMMONED')
+        || String(line.message).includes(row.verdict)),
+      JSON.stringify(line && line.message));
+  }
+  check('arm 9: READY `worker` is on the frontier with its seed',
+    (pickup.seeds && JSON.stringify(pickup.seeds.worker) === JSON.stringify(['/tmp/seed-in']))
+    || (readySeats(goalFolder, { rows: kitRows, goal }).ready.get('worker')
+      && JSON.stringify([...readySeats(goalFolder, { rows: kitRows, goal }).ready.get('worker')]) === JSON.stringify(['/tmp/seed-in'])),
+    JSON.stringify({ enqueued: enq, seeds: pickup.seeds, states: pickup.states }));
+
+  const door = readySeats(goalFolder, { rows: kitRows, goal });
+  check('arm 9: the frontier Map contains ONLY `worker`',
+    door.ready.size === 1 && door.ready.has('worker'),
+    JSON.stringify([...door.ready.keys()]));
+  check('arm 9: summonedExcluded is derived from IDLE rows',
+    JSON.stringify(door.summonedExcluded) === JSON.stringify(['idle']),
+    JSON.stringify(door.summonedExcluded));
+
+  const ENDING = path.join(HERE, '..', 'ending-reads.js');
+  const src = fs.readFileSync(ENDING, 'utf8');
+  const anchor = "if (r.verdict !== 'READY') continue;";
+  check('arm 9 RED: the READY-door anchor is present', src.includes(anchor));
+  const mut = new Module(ENDING, null);
+  mut.filename = ENDING;
+  mut.paths = Module._nodeModulePaths(path.dirname(ENDING));
+  mut._compile(src.replace(anchor, 'if (false && r.verdict !== \'READY\') continue;'), ENDING);
+  const oldReady = mut.exports.readyFromEndings(null, goalFolder, { rows: kitRows, goal });
+  check('arm 9 RED: ignoring verdict would have launched the refused seats (endings + after read clean)',
+    refused.every((s) => oldReady.has(s)) && oldReady.has('worker'),
+    JSON.stringify([...oldReady.keys()]));
+
+  const endingApi = bind(openEndingStoreFor(ws));
+  endingApi.stampSeatDeclare({
+    goal, seat: 'worker', ending: 'done', declared_outputs: [],
+    evidence_pointer: 'probe-seed-gates', replace: true,
+  });
+  const afterDone = readySeats(goalFolder, { rows: kitRows, goal });
+  check('arm 9: READY contradicted by ending `done` is NOT on the frontier',
+    !afterDone.ready.has('worker') && afterDone.contradicted.some((r) => r.seat === 'worker'),
+    JSON.stringify({ ready: [...afterDone.ready.keys()], contradicted: afterDone.contradicted.map((r) => r.seat) }));
+  const doneLogs = [];
+  const doneStore = openHeartStore({ dbPath: path.join(ws, '.rbtv', 'heart', 'heart-done.db') });
+  try {
+    seedGoal({
+      heartStore: doneStore, goalFolder, goal, rows: kitRows,
+      logger: (m) => doneLogs.push(m),
+    });
+  } finally {
+    doneStore.close();
+  }
+  check('arm 9: the contradiction is journalled as a SKEW the kit should have raised',
+    doneLogs.some((l) => /READY contradicted by ending done/.test(l.message || '') && /SKEW/.test(l.message || '')),
+    JSON.stringify(doneLogs.map((l) => l.message)));
+  closeEndingStores();
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
+
 function main() {
   const roots = [];
   try {
@@ -293,6 +405,7 @@ function main() {
   }
   goalLiveArms();
   summonedChairArms();
+  kitVerdictArms();
 }
 
 try {
@@ -309,8 +422,9 @@ say(exitCode
     + 'satisfy (cli via exposed-clis, path via the `rw-paths` grant lane, fail-closed on '
     + 'malformed entries, surfaced once on the bus), seedGoal refuses a not-live goal BEFORE '
     + 'any relaunch grant is spent while a live one seeds and spends normally, and the first '
-    + 'seeding pass of a live goal enqueues its plan seats and its `leader` while NEVER enqueuing '
-    + 'the SUMMONED `goal-master` chair, saying so once.');
+    + 'seeding pass of a live goal enqueues its root plan seat while NEVER enqueuing '
+    + 'the SUMMONED `goal-master` chair or the IDLE staff `leader`, saying so once, and the launch '
+    + 'door honours the kit verdict wholesale — only READY enqueues.');
 say(`WALL_MS ${Date.now() - start}`);
 say(`EXIT ${exitCode}`);
 fs.writeFileSync(OUT_PATH, lines.join('\n') + '\n');

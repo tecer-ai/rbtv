@@ -312,6 +312,28 @@ async function main() {
   say(`fixture: ${tmp}`);
   say('');
 
+  // ── D-12 · THE WATCH'S SEED PATH HONOUR THE KIT VERDICT ────────────────────────────────────
+  {
+    const { readySeats, VERDICT_DOOR } = require('../seeding');
+    const launchable = Object.entries(VERDICT_DOOR).filter(([, v]) => v.launchable).map(([k]) => k);
+    check('D-12 only READY is launchable on VERDICT_DOOR (the table the watch seeds through)',
+      launchable.length === 1 && launchable[0] === 'READY', JSON.stringify(launchable));
+    const goalFolder = path.join(tmp, 'd12-goal');
+    fs.mkdirSync(goalFolder, { recursive: true });
+    const rows = [
+      { seat: 'held', verdict: 'HELD', reason: 'OWNER-ASK HOLD', seed: [] },
+      { seat: 'idle', verdict: 'IDLE', reason: 'ON-DEMAND summoned seat', seed: [] },
+      { seat: 'worker', verdict: 'READY', reason: 'after: (root — no predecessors)', seed: ['/s'] },
+    ];
+    const out = readySeats(goalFolder, { goal: 'd12-goal', rows });
+    check('D-12 readySeats (the door lane-watch -> seedGoal uses) launches ONLY READY',
+      out.ready.size === 1 && out.ready.has('worker') && !out.ready.has('held') && !out.ready.has('idle'),
+      JSON.stringify([...out.ready.keys()]));
+    check('D-12 summonedExcluded is derived from IDLE',
+      JSON.stringify(out.summonedExcluded) === JSON.stringify(['idle']),
+      JSON.stringify(out.summonedExcluded));
+  }
+
   // ── L0 · THE `taskforce.csv` READER ─────────────────────────────────────────────────────────
   //
   // THE DEFECT: `seeding.js#readCsv` split every line on a bare comma, so a QUOTED multi-predecessor
