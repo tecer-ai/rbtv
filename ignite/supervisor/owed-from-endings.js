@@ -24,6 +24,25 @@ const { loadRecoveryConfig } = require('./recovery-config');
 //
 // A chair with no roster row, an unreadable file, or a blank/non-numeric cursor is owed ALL its
 // mail - the same "no evidence of a read yet" default `checkinOf` used for a chair with no session.
+//
+// ⚠ 2026-08-30 LIVE DEFECT, deployed daemon 26773c34: `workers.md` carries ONE ROW PER SITTING,
+// append-only — `coord/checkout.py#cmd_checkin` appends a fresh row on every check-in and never
+// rewrites an old one (`coord/messages.py#current_row`: "Latest row for an agent (last check-in
+// wins)", `mine[-1]` — the LAST match in file order). A first version of this function returned on
+// the FIRST matching row instead, which on `meet-transcript-summarizer-planning` (8 leader rows)
+// answered the FIRST sitting's cursor (0) instead of the newest sitting's (25): every message
+// #1-#25 read as unread on every pass, and the leader was relaunched twice (cf59debf 17:57Z,
+// c82409d8 18:02Z) with no new mail before the orchestrator placed a `supervise hold` at 18:04Z.
+//
+// THE FIX READS THE SAME INVARIANT `cmd_checkin` WRITES. Check-in never starts a new row at 0: it
+// scans every PRIOR row of the SAME agent and inherits `max(prior lastread values)` onto the new
+// row (`checkout.py` "the new row inherits the highest cursor any prior row of the SAME agent
+// reached"). So the cursor is a SEAT-level fact, monotonic across that seat's sittings, and the
+// newest row's own value is authoritative whenever it is numeric. A non-numeric/blank cursor on
+// the newest row (a row written by something other than `cmd_checkin` - the only writer this
+// invariant binds) falls back to the highest number ANY earlier row of the same chair reached,
+// because that number is still the seat's last known truth; only a chair with NO numeric cursor
+// anywhere in its history is owed ALL its mail (`null`).
 const WORKER_ROW = /^\|\s*([^|]+?)\s*\|\s*(?:yes|no)\s*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|\s*([^|]*?)\s*\|$/;
 
 function workersPath(goalFolder) {
@@ -35,12 +54,18 @@ function workersPath(goalFolder) {
 function readCursor(goalFolder, chair) {
   let text;
   try { text = fs.readFileSync(workersPath(goalFolder), 'utf8'); } catch { return null; }
+  let newestValue = null; // the LAST matching row's own cell, numeric or not (null if not numeric)
+  let bestNumeric = null; // the highest numeric cursor this chair's history has ever reached
   for (const line of text.split('\n')) {
     const m = line.match(WORKER_ROW);
     if (!m || m[1] !== chair) continue;
-    return /^\d+$/.test(m[2]) ? Number(m[2]) : null;
+    const numeric = /^\d+$/.test(m[2]) ? Number(m[2]) : null;
+    newestValue = numeric;
+    if (numeric !== null && (bestNumeric === null || numeric > bestNumeric)) bestNumeric = numeric;
   }
-  return null;
+  // The newest row's own value wins whenever it is numeric — it is what `cmd_checkin`/`persist_
+  // cursor` last wrote for THIS sitting. Only a non-numeric newest row falls back to history.
+  return newestValue !== null ? newestValue : bestNumeric;
 }
 
 // -- THE ATTEMPT-COUNTER BRAKE, READ AT THE WAKE ITSELF -----------------------------------------

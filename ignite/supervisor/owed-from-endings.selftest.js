@@ -135,6 +135,110 @@ function caseReadMessageBeforeCursorNotWoken() {
   } catch (err) { fail('(2) read-message-not-woken', err); }
 }
 
+// -- (5) `workers.md` CARRIES ONE ROW PER SITTING — THE CURSOR IS THE NEWEST ROW'S, NEVER THE FIRST
+//
+// `meet-transcript-summarizer-planning`, 2026-08-30: 8 leader rows, append-only (`coord/checkout.py
+// #cmd_checkin` never rewrites an old row; `coord/messages.py#current_row` — "Latest row for an
+// agent (last check-in wins)" — is `mine[-1]`, the LAST match). The first cut of `readCursor`
+// returned on the FIRST matching line instead and answered sitting 1's cursor (0) forever, so
+// every message #1-#25 read as unread on every pass after sitting 8 had already read them all
+// (cursor 25) — two paid relaunches with no new mail before an orchestrator `supervise hold`
+// stopped the loop.
+function caseCursorIsNewestRowNotFirst() {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'g5-'));
+  writeSessions(goalFolder, [
+    { 'session-id': 's1', seat: 'leader', started: '2026-08-30T10:00:00Z', checkin: '2026-08-30 10:00' },
+    { 'session-id': 's2', seat: 'leader', started: '2026-08-30T11:00:00Z', checkin: '2026-08-30 11:00' },
+    { 'session-id': 's3', seat: 'leader', started: '2026-08-30T12:00:00Z', checkin: '2026-08-30 12:00' },
+  ]);
+  // Three rows, append order = check-in order: cursor only ever grows (0 -> 9 -> 25), exactly the
+  // shape `cmd_checkin`'s own "inherit the highest prior cursor" invariant guarantees.
+  writeWorkers(goalFolder, [
+    { agent: 'leader', checkin: '2026-08-30 10:00', lastread: 0 },
+    { agent: 'leader', checkin: '2026-08-30 11:00', lastread: 9 },
+    { agent: 'leader', checkin: '2026-08-30 12:00', lastread: 25 },
+  ]);
+  try {
+    assert.strictEqual(readCursor(goalFolder, 'leader'), 25,
+      `readCursor must answer the NEWEST row's cursor (25), not the first row's (0)`);
+
+    const messagesUpTo25 = Array.from({ length: 25 }, (_, i) => ({
+      num: i + 1, sender: 'boundary-auditor', to: 'leader', type: 'note', ts: '2026-08-30 09:00',
+    }));
+    writeMessages(goalFolder, messagesUpTo25);
+    const notOwed = owedFromLedgers(goalFolder, { readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map() });
+    assert.strictEqual(notOwed.classB.find((x) => x.seat === 'leader'), undefined,
+      `mail up to #25 is already read by the newest sitting — must NOT be class B, got ${JSON.stringify(notOwed.classB)}`);
+
+    writeMessages(goalFolder, [
+      ...messagesUpTo25,
+      { num: 26, sender: 'boundary-auditor', to: 'leader', type: 'completion', ts: '2026-08-30 13:00' },
+    ]);
+    const owed = owedFromLedgers(goalFolder, { readyAnswer: readyEmpty, live: new Set(), queued: new Set(), endings: new Map() });
+    const leaderRow = owed.classB.find((x) => x.seat === 'leader');
+    assert.ok(leaderRow, `mail #26, past every row's cursor, must wake the chair — got classB=${JSON.stringify(owed.classB)}`);
+    assert.strictEqual(leaderRow.lastNum, 26, `must name the true unread frontier, got ${leaderRow.lastNum}`);
+    pass('(5) an 8-sitting-shaped workers.md reads the NEWEST row\'s cursor: mail up to #25 not owed, #26 owed');
+  } catch (err) { fail('(5) cursor is the newest row, not the first', err); }
+}
+
+// -- RED (5) — returning on the FIRST matching row reproduces the live incident exactly ------------
+function caseRedFirstRowReturn() {
+  try {
+    const src = fs.readFileSync(path.join(__dirname, 'owed-from-endings.js'), 'utf8');
+    const CURRENT_BODY = [
+      "function readCursor(goalFolder, chair) {",
+      "  let text;",
+      "  try { text = fs.readFileSync(workersPath(goalFolder), 'utf8'); } catch { return null; }",
+      "  let newestValue = null; // the LAST matching row's own cell, numeric or not (null if not numeric)",
+      "  let bestNumeric = null; // the highest numeric cursor this chair's history has ever reached",
+      "  for (const line of text.split('\\n')) {",
+      "    const m = line.match(WORKER_ROW);",
+      "    if (!m || m[1] !== chair) continue;",
+      "    const numeric = /^\\d+$/.test(m[2]) ? Number(m[2]) : null;",
+      "    newestValue = numeric;",
+      "    if (numeric !== null && (bestNumeric === null || numeric > bestNumeric)) bestNumeric = numeric;",
+      "  }",
+      "  // The newest row's own value wins whenever it is numeric — it is what `cmd_checkin`/`persist_",
+      "  // cursor` last wrote for THIS sitting. Only a non-numeric newest row falls back to history.",
+      "  return newestValue !== null ? newestValue : bestNumeric;",
+      "}",
+    ].join('\n');
+    assert.ok(src.includes(CURRENT_BODY), 'readCursor body anchor missing');
+    // The pre-fix shape: return on the FIRST matching line, exactly the live 2026-08-30 defect.
+    const BUGGY_BODY = [
+      "function readCursor(goalFolder, chair) {",
+      "  let text;",
+      "  try { text = fs.readFileSync(workersPath(goalFolder), 'utf8'); } catch { return null; }",
+      "  for (const line of text.split('\\n')) {",
+      "    const m = line.match(WORKER_ROW);",
+      "    if (!m || m[1] !== chair) continue;",
+      "    return /^\\d+$/.test(m[2]) ? Number(m[2]) : null;",
+      "  }",
+      "  return null;",
+      "}",
+    ].join('\n');
+    const mutatedSrc = src.replace(CURRENT_BODY, BUGGY_BODY);
+    assert.ok(mutatedSrc !== src, 'mutation did not change the source — anchor replace failed');
+    const Module = require('node:module');
+    const mut = new Module(path.join(__dirname, 'owed-from-endings.js'), null);
+    mut.filename = path.join(__dirname, 'owed-from-endings.js');
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(mutatedSrc, mut.filename);
+
+    const goalFolder = fs.mkdtempSync(path.join(tmpRoot, 'gred5-'));
+    writeWorkers(goalFolder, [
+      { agent: 'leader', checkin: '2026-08-30 10:00', lastread: 0 },
+      { agent: 'leader', checkin: '2026-08-30 11:00', lastread: 9 },
+      { agent: 'leader', checkin: '2026-08-30 12:00', lastread: 25 },
+    ]);
+    const cursor = mut.exports.readCursor(goalFolder, 'leader');
+    assert.strictEqual(cursor, 0,
+      `RED: returning on the first matching row must reproduce the incident (cursor stuck at 0), got ${cursor}`);
+    pass('(RED 5) returning on the FIRST matching workers.md row reproduces the incident (cursor stuck at the oldest sitting\'s)');
+  } catch (err) { fail('(RED 5) first-row return', err); }
+}
+
 // -- (3) AFTER N DEAD PASSES ON THE SAME MAIL, THE ATTEMPT-COUNTER BRAKE HOLDS --------------------
 //
 // `n` identical dead passes drive the SAME ledger `reconcile.js` writes to
@@ -365,11 +469,13 @@ function caseRedFrontierCheckIgnored() {
 
 caseUnreadAfterCursorSameMinuteAsCheckin();
 caseReadMessageBeforeCursorNotWoken();
+caseCursorIsNewestRowNotFirst();
 caseBrakeHoldsAfterNDeaths();
 caseFrontierAdvanceResets();
 caseRedRevertToCheckinLogic();
 caseRedCursorAlwaysZero();
 caseRedFrontierCheckIgnored();
+caseRedFirstRowReturn();
 
 try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* tmp */ }
 
