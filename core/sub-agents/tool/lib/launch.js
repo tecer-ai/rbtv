@@ -14,7 +14,7 @@ const { SPECS } = require('../catalog');
 
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart } = require('./handles');
-const { DEADLINE_MS } = require('./monitor');
+const { DEADLINE_MS } = require('./monitor-load');
 const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
 

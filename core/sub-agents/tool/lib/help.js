@@ -7,7 +7,7 @@
 
 const { API_USAGE } = require('./api');
 const { RESUME_USAGE, SEAT_USAGE, SESSIONS_USAGE, USAGE, modelTable } = require('./core');
-const { MONITOR_USAGE } = require('./monitor');
+const { MONITOR_USAGE } = require('./monitor-load');
 const { ROUTE_FORMS, ROUTE_USAGE } = require('./route');
 
 

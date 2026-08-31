@@ -11,7 +11,7 @@ const { runApi } = require('./lib/api');
 const { USAGE, fail, parseArgs, resolveEffort, resolveFolder, resolveModel, runDoctor, runList } = require('./lib/core');
 const { printHelp, verbHelpPages } = require('./lib/help');
 const { SYSTEM_WRAPPER, launch, runResume, runSeat } = require('./lib/launch');
-const { runMonitor } = require('./lib/monitor');
+const { monitor, monitorLoadError } = require('./lib/monitor-load');
 const { runRoute } = require('./lib/route');
 const { runSessions } = require('./lib/sessions');
 
@@ -34,7 +34,13 @@ function main(rawArgv) {
   if (rawArgv[0] === 'seat') return runSeat(rawArgv.slice(1));
   if (rawArgv[0] === 'resume') return runResume(rawArgv.slice(1));
   if (rawArgv[0] === 'sessions') return runSessions(rawArgv.slice(1));
-  if (rawArgv[0] === 'monitor') return runMonitor(rawArgv.slice(1));
+  if (rawArgv[0] === 'monitor') {
+    if (monitorLoadError) {
+      process.stderr.write(`cast monitor: lib/monitor.js failed to load — ${monitorLoadError.message}\n`);
+      process.exit(1);
+    }
+    return monitor.runMonitor(rawArgv.slice(1));
+  }
   if (rawArgv[0] === 'route') return runRoute(rawArgv.slice(1));
   // `cast api` takes -p TEXT as of 2026-08-20 (route redesign §7), so the verb owns every `api`
   // invocation — there is no longer a launch-shaped `cast api …` form to fall through to.
