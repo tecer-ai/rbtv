@@ -10,6 +10,10 @@ const { reasonFrom } = require('../supervisor/spawn/seat-grants');
 
 const STAFF = new Set(['leader', 'goal-master', 'channel-master']);
 const FILL_IN_NAME = 'envelope.json';
+// `path_b.py#BOUND_PLAN_NAME` — stamped at `<goal>/planning/` on EVERY Path-B birth, and on no
+// other goal shape (a planning goal is the SOURCE of a Path-B birth, never its target). The one
+// signal available here to tell a Path-B-born goal apart from a planning goal or a fixture.
+const BOUND_PLAN_NAME = 'bound-plan.json';
 
 class LaunchRefused extends Error {
   constructor(refuse) {
@@ -28,8 +32,20 @@ function isStaffUncaged(seatPath) {
 function loadFillIns(goalDir) {
   if (!goalDir) return null;
   const p = path.join(goalDir, FILL_IN_NAME);
-  if (!fs.existsSync(p)) return null;
-  return JSON.parse(fs.readFileSync(p, 'utf8'));
+  if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+  // A Path-B-born goal with no envelope.json is the exact silence
+  // `owner-flagged-birth-writes-no-envelope` was filed over — the birth now writes this file
+  // itself (`path_b.py#_land_envelope`), so reaching here on a Path-B-born goal means that write
+  // never landed (a refused compile that somehow still shipped, a manual deletion, a goal born
+  // before this fix deployed). Loud, once, and non-fatal: the fallback to `compilePlanning` below
+  // is unchanged, this only stops it from being silent.
+  if (fs.existsSync(path.join(goalDir, 'planning', BOUND_PLAN_NAME))) {
+    console.error(
+      `envelope/launch: ${goalDir}: Path-B-born goal has no ${FILL_IN_NAME} — falling back to `
+      + 'compilePlanning (every write grant outside the goal folder will be read-only)'
+    );
+  }
+  return null;
 }
 
 function consumeLaunch(raw) {

@@ -7,6 +7,7 @@ import argparse
 import csv
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,7 @@ for _p in (_HERE, _HERE.parent / "coord"):
 from argv import planning_mint_argv
 from failure import (
     CLASS_ATOMIC_CORE_REFUSAL,
+    CLASS_ENVELOPE_REFUSAL,
     CLASS_ROSTER_NAME_COLLISION,
     CLASS_UNRESOLVABLE_REFERENCE,
     MaterializeFailure,
@@ -36,6 +38,12 @@ MATERIALIZE_PY = _HERE / "materialize-seats.py"
 BOUND_PLAN_NAME = "bound-plan.json"
 TASKFORCE_NAME = "taskforce.csv"
 PASS_ID = "approve-birth"
+
+# `envelope/launch.js#FILL_IN_NAME` — the SOLE reader of this filename, and the SOLE thing that
+# makes a born goal's plan-declared write grants real. Nothing wrote it (owner-flagged
+# `owner-flagged-birth-writes-no-envelope`, 2026-08-30); this birth is the fix, at the cause.
+ENVELOPE_ARTIFACT_NAME = "envelope.json"
+COMPILER_JS = _HERE.parent / "envelope" / "compiler.js"
 
 # `materialize-seats.py#GOAL_LOCAL_SOURCE` — where a goal's OWN planning pass leaves the seats it
 # authored, and therefore where `--goal-local` reads them from. Path B copies this ONE folder out
@@ -129,25 +137,16 @@ def artifacts_resolvable(git_dir, sha, plan_artifacts):
     return any(n == prefix or n.startswith(prefix.rstrip("/") + "/") for n in names)
 
 
-def meta_catalog_root(goals_root):
-    """The catalog a birth mints from: the rbtv repo's `meta` tree.
+def _rbtv_repo_root(goals_root):
+    """(workspace, rbtv repo root), resolved through the book — never hardcoded.
 
-    ⚠ THE DEFECT THIS CLOSES (G-leader-0827-2224, measured on
-    `scratch-tool-inventory-8`). This defaulted to `goals_root` — the GOALS TREE, which carries no
-    component catalog at all, let alone a staff one. `mint_staff_chairs` skips a chair its catalog
-    carries no row for (deliberately: a fixture catalog must render as it always did), so a birth
-    against that default produced a goal with NO `leader` and NO `goal-master` and reported
-    SUCCESS. A chairless goal has no chair for a routed FAIL, a mid-run ask or the session-closer's
-    staff mail, and no seat an owner message in its channel can reach — it exists and can never
-    finish.
-
-    ⚠ RESOLVED THROUGH THE BOOK, NEVER HARDCODED, and this is the one rule this function exists to
-    keep: `meta/` moved out of `.rbtv/mirror/` into the repo on 2026-08-22 and every reader that
-    had composed the mirror path went stale in the same second (919e1595). `unbuilt-seats.js`
-    `repoRootOf`/`buildGoalLocalSeats` — the JS twin of this act, and the reader that already mints
-    goal-local seats into a LIVE goal — reads `rbtv.json`'s `rbtv_path` at the workspace and joins
-    `meta`. This does the same, from the same book, so the two lanes cannot address different
-    catalogs.
+    ⚠ RESOLVED THROUGH THE BOOK, NEVER HARDCODED. `meta/` moved out of `.rbtv/mirror/` into the
+    repo on 2026-08-22 and every reader that had composed the mirror path went stale in the same
+    second (919e1595). `unbuilt-seats.js` `repoRootOf`/`buildGoalLocalSeats` — the JS twin of this
+    act — reads `rbtv.json`'s `rbtv_path` at the workspace. This does the same, from the same book,
+    so no two callers can address different repos. Shared by `meta_catalog_root` (joins `meta`) and
+    the envelope compile-check (needs the bare repo root, the same one `envelope/launch.js` passes
+    `compile()` as `rbtvRepo`).
     """
     workspace = Path(goals_root).resolve().parent.parent
     book = workspace / "rbtv.json"
@@ -170,7 +169,191 @@ def meta_catalog_root(goals_root):
     root = Path(rbtv_path)
     if not root.is_absolute():
         root = (workspace / root).resolve()
+    return workspace, root
+
+
+def meta_catalog_root(goals_root):
+    """The catalog a birth mints from: the rbtv repo's `meta` tree.
+
+    ⚠ THE DEFECT THIS CLOSES (G-leader-0827-2224, measured on
+    `scratch-tool-inventory-8`). This defaulted to `goals_root` — the GOALS TREE, which carries no
+    component catalog at all, let alone a staff one. `mint_staff_chairs` skips a chair its catalog
+    carries no row for (deliberately: a fixture catalog must render as it always did), so a birth
+    against that default produced a goal with NO `leader` and NO `goal-master` and reported
+    SUCCESS. A chairless goal has no chair for a routed FAIL, a mid-run ask or the session-closer's
+    staff mail, and no seat an owner message in its channel can reach — it exists and can never
+    finish.
+    """
+    _workspace, root = _rbtv_repo_root(goals_root)
     return root / META_MODULE
+
+
+def _bound_repo_and_rel(pkg):
+    """(repo, rel) placing `plan_artifacts` inside its own git repo.
+
+    Shared by `stage_plan_artifacts` (extracts the whole tree) and `bound_envelope_fillins`
+    (reads one optional file) so the two can never derive different repos for the same package.
+    """
+    git_dir = pkg.get("git_dir") or pkg["plan_artifacts"]
+    top = _git(git_dir, "rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "plan-artifacts-unstageable",
+            f"{git_dir} is not inside a git repository — the bound tree cannot be read",
+        )
+    repo = Path(top.stdout.strip())
+    try:
+        rel = Path(pkg["plan_artifacts"]).resolve().relative_to(repo.resolve())
+    except ValueError as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "plan-artifacts-unstageable",
+            f"{pkg['plan_artifacts']} is not inside {repo} — the bound tree cannot be read",
+        ) from exc
+    return repo, rel
+
+
+def bound_envelope_fillins(pkg):
+    """The plan's declared write-grant fill-ins, read FROM THE BOUND COMMIT — never the working
+    tree [T5-R5, the same discipline `bound_contract_file` already applies to the contract].
+
+    ⚠ WHY A ONE-PATH `git show`, NOT `stage_plan_artifacts`. Most one-off plans declare NO write
+    grant at all — `envelope.json` absent from the bound tree is the COMMON case — and
+    `stage_plan_artifacts` pays for a full `git archive` extraction of the whole plan. Paying that
+    cost on every birth just to test one optional file is the cost the staging design already
+    rejected (`stage_plan_artifacts` itself only runs when `contract_file` or `goal_local` is set).
+    A targeted `git show <sha>:<rel>` costs one process, win or lose.
+
+    Returns `None` when the bound commit carries no `<plan_artifacts>/envelope.json` — not a
+    refusal, because a plan that needs no write grant outside its own goal folder is legitimate and
+    common, and the born goal still boots (under `compilePlanning`, exactly as it does today).
+    """
+    repo, rel = _bound_repo_and_rel(pkg)
+    sha = pkg["bound_commit"]
+    rel_path = (rel / ENVELOPE_ARTIFACT_NAME).as_posix() if str(rel) != "." else ENVELOPE_ARTIFACT_NAME
+    tree_ref = f"{sha}:{rel_path}"
+    exists = _git(repo, "cat-file", "-e", tree_ref)
+    if exists.returncode != 0:
+        return None
+    show = _git(repo, "show", tree_ref)
+    if show.returncode != 0:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "envelope-unreadable",
+            f"{tree_ref} exists in the bound tree but `git show` could not read it: "
+            f"{(show.stderr or '').strip()[:300]}",
+            pkg["execution_goal"],
+        )
+    try:
+        data = json.loads(show.stdout)
+    except json.JSONDecodeError as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "envelope-invalid-json",
+            f"{tree_ref}: not valid JSON ({exc})",
+            pkg["execution_goal"],
+        ) from exc
+    if not isinstance(data, dict):
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "envelope-invalid-json",
+            f"{tree_ref}: must be a JSON object carrying namedRepos/projectFolder/"
+            "credentialNames/extraPaths",
+            pkg["execution_goal"],
+        )
+    return data
+
+
+def compile_check_envelope(*, goals_root, goal_id, fillins, name):
+    """Run the plan's fill-ins through the DEPLOYED `compiler.compile()` shape, the way the
+    planning seats measured it live (`evidence-b2-product-home.md`). A birth that would produce a
+    refusing envelope FAILS LOUDLY here — never mints a goal that boots crippled and silent.
+
+    ⚠ SCRATCH AND THE ENDING STORE MUST EXIST BEFORE THE COMPILE, ORDER IS LOAD-BEARING — the same
+    ordering `envelope/launch.js#admitLaunch` documents for its own `ensureGoalScratch` and
+    `ensureEndingStore` calls: template family 4 bakes `{goal}/scratch` and family 8 bakes
+    `{workspace}/.rbtv/runtime/ignite`, and a compile-first order refuses `unresolved` on a fresh
+    workspace or a fresh goal regardless of the plan's own fill-ins. These two mkdirs are the
+    birth-side half of that same precondition (measured: `compile()` refused
+    `unresolved …/.rbtv/runtime/ignite` on a fresh fixture workspace before this was added).
+    """
+    _workspace, rbtv_repo = _rbtv_repo_root(goals_root)
+    workspace_root = Path(goals_root).resolve().parent.parent
+    goal_dir = Path(goals_root) / name
+    (goal_dir / "scratch").mkdir(parents=True, exist_ok=True)
+    (workspace_root / ".rbtv" / "runtime" / "ignite").mkdir(parents=True, exist_ok=True)
+    payload = json.dumps({
+        "workspaceRoot": str(workspace_root),
+        "goalId": goal_id,
+        "rbtvRepo": str(rbtv_repo),
+        "namedRepos": fillins.get("namedRepos") or [],
+        "projectFolder": fillins.get("projectFolder"),
+        "credentialNames": fillins.get("credentialNames") or [],
+        "extraPaths": fillins.get("extraPaths") or [],
+    })
+    proc = _run(
+        [
+            "node",
+            "-e",
+            "const {compile}=require(process.argv[1]);"
+            "const raw=JSON.parse(require('fs').readFileSync(0,'utf8'));"
+            "process.stdout.write(JSON.stringify(compile(raw)));",
+            str(COMPILER_JS),
+        ],
+        input=payload,
+    )
+    if proc.returncode != 0:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "envelope-compile-unreachable",
+            f"node {COMPILER_JS} did not run: {(proc.stderr or '').strip()[:400]}",
+            name,
+        )
+    try:
+        verdict = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "envelope-compile-unreachable",
+            f"node {COMPILER_JS} printed non-JSON: {proc.stdout[:400]}",
+            name,
+        ) from exc
+    if not verdict.get("ok"):
+        raise MaterializeFailure(
+            CLASS_ENVELOPE_REFUSAL,
+            "envelope-fillins-refused",
+            f"the plan's declared fill-ins refuse at compile: {json.dumps(verdict.get('refuse'))}"[:600],
+            name,
+        )
+    return verdict
+
+
+def write_envelope_if_absent(goal_dir, fillins):
+    """Write `<goal_dir>/envelope.json`, atomically, UNLESS one is already there.
+
+    ⚠ TOLERATE A RACING WRITER, NEVER `tmp + rename` HERE. `land-envelope.sh` (the hand-armed
+    workaround for the one goal blocked on this defect before this fix landed) polls for the same
+    destination and may win the race. A plain `tmp + rename` unconditionally REPLACES whatever is
+    at `dest` — exactly the silent clobber this must never do. `O_CREAT|O_EXCL` is the stronger
+    primitive: open-and-create is one atomic syscall, so there is no window between "check it's
+    absent" and "write it" for a second writer to land in, and the LOSER of the race gets
+    `FileExistsError` instead of overwriting the winner. The payload itself is small enough that
+    one `os.write()` cannot tear, so the exclusive-create doubles as the whole-file guarantee
+    `tmp + rename` exists to provide.
+    Returns `"written"` or `"already-present"`; never raises on the losing side of the race.
+    """
+    dest = Path(goal_dir) / ENVELOPE_ARTIFACT_NAME
+    body = json.dumps(fillins, indent=2, sort_keys=True) + "\n"
+    try:
+        fd = os.open(str(dest), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return "already-present"
+    try:
+        os.write(fd, body.encode("utf-8"))
+    finally:
+        os.close(fd)
+    return "written"
 
 
 def stage_plan_artifacts(pkg, dest):
@@ -183,24 +366,8 @@ def stage_plan_artifacts(pkg, dest):
     rather than off disk. `artifacts_resolvable` already proved that path exists at that sha; this
     is the same discipline one step further, from "resolvable" to "read".
     """
-    git_dir = pkg.get("git_dir") or pkg["plan_artifacts"]
-    top = _git(git_dir, "rev-parse", "--show-toplevel")
-    if top.returncode != 0:
-        raise MaterializeFailure(
-            CLASS_ATOMIC_CORE_REFUSAL,
-            "plan-artifacts-unstageable",
-            f"{git_dir} is not inside a git repository — the bound tree cannot be read",
-        )
-    repo = Path(top.stdout.strip())
+    repo, rel = _bound_repo_and_rel(pkg)
     sha = pkg["bound_commit"]
-    try:
-        rel = Path(pkg["plan_artifacts"]).resolve().relative_to(repo.resolve())
-    except ValueError as exc:
-        raise MaterializeFailure(
-            CLASS_ATOMIC_CORE_REFUSAL,
-            "plan-artifacts-unstageable",
-            f"{pkg['plan_artifacts']} is not inside {repo} — the bound tree cannot be read",
-        ) from exc
     tree = sha if str(rel) == "." else f"{sha}:{rel.as_posix()}"
     proc = subprocess.run(
         ["git", "-C", str(repo), "archive", "--format=tar", tree],
@@ -543,29 +710,61 @@ def run_path_b(*, pkg, mint=None, scaffold=None, reclaim=None, resolve_refs=None
         argv = plan["argv"]
         if mint is not None:
             mint(argv)
-            return
-        try:
-            subprocess.run(
-                [sys.executable, *argv],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            code = "materialize-refused"
-            payload = exc.stdout or ""
+        else:
             try:
-                code = (json.loads(payload).get("refusal") or {}).get("code") or code
-            except json.JSONDecodeError:
-                pass
-            reason = ((exc.stdout or "") + (exc.stderr or "")).strip()[:600]
-            raise MaterializeFailure(
-                class_for_code(code), code, reason or code, name
-            ) from exc
-        # The mint reports SUCCESS with a chair missing (it degrades a chair refusal to a warning
-        # so a materialized goal is never left half-registered). A birth cannot: the check is on
-        # the product the real minter just wrote, and a chairless goal is reclaimed.
-        refuse_if_chairless(new_folder, name)
+                subprocess.run(
+                    [sys.executable, *argv],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                code = "materialize-refused"
+                payload = exc.stdout or ""
+                try:
+                    code = (json.loads(payload).get("refusal") or {}).get("code") or code
+                except json.JSONDecodeError:
+                    pass
+                reason = ((exc.stdout or "") + (exc.stderr or "")).strip()[:600]
+                raise MaterializeFailure(
+                    class_for_code(code), code, reason or code, name
+                ) from exc
+            # The mint reports SUCCESS with a chair missing (it degrades a chair refusal to a
+            # warning so a materialized goal is never left half-registered). A birth cannot: the
+            # check is on the product the real minter just wrote, and a chairless goal is
+            # reclaimed.
+            refuse_if_chairless(new_folder, name)
+        # THE ENVELOPE, IN THE SAME ACT THAT MINTS — runs for both the real subprocess mint and an
+        # injected stub, because writing the born goal's write grants is this birth's own remit,
+        # never the minter's. `scaffolded` is already `True` in `supervised_materialize` by the
+        # time `_mint` runs, so a refusal raised here reclaims the folder exactly as a chairless
+        # mint does — never a goal minted crippled and silent.
+        _land_envelope()
+
+    def _land_envelope():
+        fillins = bound_envelope_fillins(pkg)
+        if fillins is None:
+            return
+        dest = new_folder / ENVELOPE_ARTIFACT_NAME
+        if dest.exists():
+            # A file is ALREADY here — a racing watcher, or a hand-placed one. Never judge it by
+            # refusing the birth over OUR fill-ins failing to compile: the file already sitting on
+            # disk is not this act's to overwrite or to gate on.
+            print(
+                f"path_b: {name}: {dest} already exists — left untouched, its content stands "
+                "(the plan's bound fill-ins were not applied)",
+                file=sys.stderr,
+            )
+            return
+        compile_check_envelope(
+            goals_root=pkg["goals_root"], goal_id=name, fillins=fillins, name=name
+        )
+        if write_envelope_if_absent(new_folder, fillins) == "already-present":
+            print(
+                f"path_b: {name}: {dest} appeared between the check and the write — left "
+                "untouched, its content stands",
+                file=sys.stderr,
+            )
 
     def _reclaim():
         if reclaim is not None:

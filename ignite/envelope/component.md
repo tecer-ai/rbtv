@@ -33,6 +33,7 @@ Refuse is a **value**: `kind: conflict` carries the pair; `kind: unresolved` car
 - `admitLaunch(input)` → `{ spawn: true, binds, credentialNames, shims }` or `{ spawn: false, refuse }`
 - `isStaffUncaged(seatPath)` — `leader` / `goal-master` / `channel-master` only [T2-R4]
 - `LaunchRefused` — thrown from `composeCageFor` on refuse
+- `loadFillIns(goalDir)` — reads `{goal}/envelope.json`, THE SOLE READER. `planning/path_b.py#_land_envelope` is now the writer (owner-flagged `owner-flagged-birth-writes-no-envelope`, 2026-08-30 — nothing wrote it before). A goal born via Path B (marked by `planning/bound-plan.json`, the one signal available here) with no `envelope.json` warns once to stderr before falling back to `compilePlanning`, same as always — any other goal shape stays silent
 
 `require('./credentials')`: `resolveCredentials(names, store)` fails a plan naming a missing/empty credential; `injectDeclaredEnv` returns only declared names.
 
@@ -49,7 +50,7 @@ Conflict and unresolved predicates live in `supervisor/spawn/seat-grants.js` (`c
 ## Tests
 
 `node ignite/envelope/envelope-compiler.selftest.js` — stdout contains `PASS compiler`.
-`node ignite/envelope/envelope-launch.selftest.js` — stdout contains `PASS refusal` and `PASS injection`.
+`node ignite/envelope/envelope-launch.selftest.js` — stdout contains `PASS refusal`, `PASS injection`, and `PASS path-b-born-warns-once`.
 `node ignite/envelope/wall-report.selftest.js` — stdout contains `PASS wall-report`.
 `node ignite/envelope/envelope-shims.selftest.js` — stdout contains `PASS shims`.
 

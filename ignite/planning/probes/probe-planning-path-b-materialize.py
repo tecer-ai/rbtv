@@ -264,6 +264,125 @@ def main():
             f"resolved={resolved} refusal={code!r}",
         )
 
+        # ── P7-P9 · THE ENVELOPE, WRITTEN AT BIRTH (owner-flagged-birth-writes-no-envelope) ────
+        # A `scaffold=` stub replaces the real `goal_cli.py` subprocess with a bare mkdir, so these
+        # arms exercise only the envelope code path this fix adds, not the scaffold subprocess
+        # already proven by P1-P6.
+        ws2 = tmp / "ws2"
+        goals2 = ws2 / ".rbtv" / "goals"
+        goals2.mkdir(parents=True)
+        fakerepo = ws2 / "fakerepo"
+        (fakerepo / "sub").mkdir(parents=True)
+        (ws2 / "rbtv.json").write_text(json.dumps({"rbtv_path": "fakerepo"}) + "\n", encoding="utf-8")
+        (ws2 / "1-projects" / "demo").mkdir(parents=True)
+        (ws2 / ".rbtv" / "mirror").mkdir(parents=True)  # install-time, not launch-bootstrapped
+
+        def scaffold_mkdir(dest_dir):
+            def _s(_pkg):
+                dest_dir.mkdir(parents=True, exist_ok=True)
+            return _s
+
+        def scaffold_with_preexisting(dest_dir, body):
+            def _s(_pkg):
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                (dest_dir / "envelope.json").write_text(json.dumps(body) + "\n", encoding="utf-8")
+            return _s
+
+        def committed_plan(folder, envelope_body):
+            folder.mkdir(parents=True)
+            (folder / "contract.md").write_text("build the thing\n", encoding="utf-8")
+            (folder / "envelope.json").write_text(json.dumps(envelope_body) + "\n", encoding="utf-8")
+            git(folder, "init")
+            git(folder, "config", "user.email", "probe@example")
+            git(folder, "config", "user.name", "probe")
+            git(folder, "add", ".")
+            git(folder, "commit", "-m", "plan with envelope")
+            return git(folder, "rev-parse", "HEAD").stdout.strip()
+
+        def env_pkg(name, artifacts, sha):
+            return {
+                "execution_goal": name,
+                "planning_goal": str(tmp / f"plan-goal-{name}"),
+                "goals_root": str(goals2),
+                "lane": "daemon",
+                "contract": "build the thing",
+                "bound_commit": sha,
+                "plan_artifacts": str(artifacts),
+                "git_dir": str(artifacts),
+                "roster": ["build"],
+                "workflow": "plan-console",
+                "catalog_root": str(tmp / f"catalog-{name}"),
+                "sheet": str(sheet),
+                "origin_id": f"thread-approve-{name}",
+            }
+
+        # P7 · a declared extraPaths grant that COMPILES → <goal>/envelope.json exists, matches
+        # the bound fill-ins, and `envelope/launch.js#loadFillIns` reads it back non-null.
+        artifacts7 = tmp / "artifacts7"
+        body7 = {"extraPaths": [{"path": "1-projects/demo", "access": "rw"}]}
+        sha7 = committed_plan(artifacts7, body7)
+        pkg7 = env_pkg("exec-envelope-ok", artifacts7, sha7)
+        exec_dir7 = goals2 / "exec-envelope-ok"
+        out7, _ = path_b.run_path_b(
+            pkg=pkg7, mint=lambda argv: None, scaffold=scaffold_mkdir(exec_dir7)
+        )
+        env7 = exec_dir7 / "envelope.json"
+        written7 = json.loads(env7.read_text(encoding="utf-8")) if env7.is_file() else None
+        read_back7 = None
+        if env7.is_file():
+            node_check = subprocess.run(
+                ["node", "-e",
+                 "const {loadFillIns}=require(process.argv[1]);"
+                 "process.stdout.write(JSON.stringify(loadFillIns(process.argv[2])));",
+                 str(ROOT / "ignite" / "envelope" / "launch.js"), str(exec_dir7)],
+                capture_output=True, text=True,
+            )
+            read_back7 = json.loads(node_check.stdout) if node_check.returncode == 0 else None
+        check(
+            "P7",
+            bool(out7.get("ok")) and written7 == body7 and read_back7 == body7,
+            f"ok={out7.get('ok')} written={written7} loadFillIns-read-back={read_back7}",
+        )
+
+        # P8 · a declared extraPaths grant that REFUSES at compile (rw inside the rbtv repo, no
+        # carve) → the birth fails loudly (class envelope-refusal) and the folder is reclaimed —
+        # never a goal minted with a crippled or absent envelope.
+        artifacts8 = tmp / "artifacts8"
+        body8 = {"extraPaths": [{"path": "fakerepo/sub", "access": "rw"}]}
+        sha8 = committed_plan(artifacts8, body8)
+        pkg8 = env_pkg("exec-envelope-refuse", artifacts8, sha8)
+        exec_dir8 = goals2 / "exec-envelope-refuse"
+        out8, _ = path_b.run_path_b(
+            pkg=pkg8, mint=lambda argv: None, scaffold=scaffold_mkdir(exec_dir8)
+        )
+        rec8 = out8.get("record") or {}
+        check(
+            "P8",
+            (not out8.get("ok")) and rec8.get("class") == "envelope-refusal" and not exec_dir8.exists(),
+            f"ok={out8.get('ok')} class={rec8.get('class')!r} code={rec8.get('code')!r} "
+            f"exists={exec_dir8.exists()}",
+        )
+
+        # P9 · an envelope.json ALREADY at the destination (a racing watcher, or hand-placed) is
+        # left untouched — never clobbered by the plan's own bound fill-ins, and the birth still
+        # succeeds.
+        artifacts9 = tmp / "artifacts9"
+        sha9 = committed_plan(artifacts9, body7)
+        pkg9 = env_pkg("exec-envelope-preexisting", artifacts9, sha9)
+        exec_dir9 = goals2 / "exec-envelope-preexisting"
+        preexisting_body = {"note": "pre-existing, written by a racing watcher"}
+        out9, _ = path_b.run_path_b(
+            pkg=pkg9, mint=lambda argv: None,
+            scaffold=scaffold_with_preexisting(exec_dir9, preexisting_body),
+        )
+        env9 = exec_dir9 / "envelope.json"
+        content9 = json.loads(env9.read_text(encoding="utf-8")) if env9.is_file() else None
+        check(
+            "P9",
+            bool(out9.get("ok")) and content9 == preexisting_body,
+            f"ok={out9.get('ok')} content={content9}",
+        )
+
 
 if __name__ == "__main__":
     try:

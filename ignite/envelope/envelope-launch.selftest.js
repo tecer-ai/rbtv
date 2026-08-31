@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { admitLaunch, consumeLaunch, isStaffUncaged } = require('./launch');
+const { admitLaunch, consumeLaunch, isStaffUncaged, loadFillIns } = require('./launch');
 const { loadCentralStore, resolveCredentials, injectDeclaredEnv } = require('./credentials');
 const { stampLaunchRefused } = require('./stamp');
 const { conflictBind } = require('../supervisor/spawn/seat-grants');
@@ -98,6 +98,30 @@ function run() {
   ]));
   const planning = consumeLaunch({ ...base, fillIns: null });
   assert.equal(planning.ok, true, JSON.stringify(planning.refuse));
+
+  // owner-flagged-birth-writes-no-envelope: a Path-B-born goal (marked by
+  // `planning/bound-plan.json`, `path_b.py#BOUND_PLAN_NAME`) with no envelope.json warns loudly
+  // once; any other goal shape (no such marker) falls back silently, exactly as before.
+  const bornGoalDir = path.join(root, 'born-goal');
+  mkdirp(path.join(bornGoalDir, 'planning'));
+  touch(path.join(bornGoalDir, 'planning', 'bound-plan.json'), '{}');
+  const origError = console.error;
+  let warned = '';
+  console.error = (msg) => { warned += msg; };
+  const bornFill = loadFillIns(bornGoalDir);
+  console.error = origError;
+  assert.equal(bornFill, null);
+  assert.match(warned, /Path-B-born goal has no envelope\.json/);
+
+  const planningGoalDir = path.join(root, 'planning-goal');
+  mkdirp(planningGoalDir);
+  let silent = '';
+  console.error = (msg) => { silent += msg; };
+  const otherFill = loadFillIns(planningGoalDir);
+  console.error = origError;
+  assert.equal(otherFill, null);
+  assert.equal(silent, '', 'a goal with no bound-plan.json must stay silent');
+  console.log('PASS path-b-born-warns-once');
 }
 
 run();
