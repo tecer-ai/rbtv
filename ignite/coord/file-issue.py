@@ -1697,6 +1697,32 @@ def cmd_selftest(_args, _cwd: Path) -> int:
                       {"dry": d0, "first": d1, "second": d2, "shown": shown[:200]})
         _sh.rmtree(grepo, ignore_errors=True)
 
+        # ---- memory commit --component: scoped commit does not sweep a peer's -----
+        # in-flight component (measured 2026-08-31: a bare commit swept 3 sessions'
+        # entries into one commit; ce89d759).
+        srepo = Path(td) / "scope-repo"
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-a").mkdir(parents=True)
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-b").mkdir(parents=True)
+        _s = lambda *a: subprocess.run(["git", "-C", str(srepo), *a], capture_output=True, text=True)
+        _s("init", "-q"); _s("config", "user.email", "t@t"); _s("config", "user.name", "t")
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-a" / "_issues.md").write_text("# a\n", encoding="utf-8")
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-b" / "_issues.md").write_text("# b\n", encoding="utf-8")
+        _s("add", "-A"); _s("commit", "-q", "-m", "base")
+        # two concurrent sessions each file into their own component
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-a" / "_issues.md").write_text("# a\n2026-08-31 · issue · session A\n", encoding="utf-8")
+        (srepo / "ignite" / "work-on-ignite" / "memory" / "comp-b" / "_issues.md").write_text("# b\n2026-08-31 · issue · session B\n", encoding="utf-8")
+        # session A commits ONLY what it filed
+        sc = _run(["memory", "commit", "--repo", str(srepo), "--component", "comp-a", "--json"])
+        sd = json.loads(sc.stdout) if sc.stdout.strip() else {}
+        sshown = _s("show", "--stat", "--format=", "HEAD").stdout
+        comp_b_still_dirty = "comp-b/_issues.md" in _s("status", "--porcelain").stdout
+        passed &= _ok("green: memory-commit-component-scope",
+                      sc.returncode == 0 and sd.get("committed")
+                      and "comp-a/_issues.md" in sshown and "comp-b/_issues.md" not in sshown
+                      and comp_b_still_dirty,
+                      {"result": sd, "shown": sshown[:200]})
+        _sh.rmtree(srepo, ignore_errors=True)
+
         # ---- the non-JSON refusal names the route on stderr ----------------------
         rp = _run(["file", "--register", str(reg),
                    "--surface", "5-workbench/x", "--class", "other",
@@ -1724,33 +1750,47 @@ def _shared(sp):
 def cmd_memory_commit(args, cwd: Path) -> int:
     """Commit the memory tree by pathspec — the deterministic, out-of-cage step a caged
     distill/rotate seat cannot do (the repo root is not bound inside a cage; owner ruling
-    2026-08-23, goal-memory-management decisions.md). Exit 0 when nothing changed."""
+    2026-08-23, goal-memory-management decisions.md). Exit 0 when nothing changed.
+
+    Bare (no --component): pathspec is the whole memory tree — the daily scheduled
+    fire-tool sweep's designed scope. --component narrows the pathspec (and therefore
+    the `git status`/`add`/`commit` scope) to just the named component folder(s), so a
+    session that just ran `memory file --component X` can commit ONLY what it filed
+    instead of sweeping every other component's in-flight, uncommitted entries on a
+    shared working tree (measured 2026-08-31: a bare commit under one session's
+    invocation swept two peer sessions' entries into its commit)."""
     as_json = args.json
     try:
         repo = repo_root(cwd, args.repo)
     except Refuse as exc:
         return refuse_payload(exc, as_json)
-    rel = "ignite/work-on-ignite/memory"
-    if not (repo / rel).is_dir():
-        return refuse_payload(Refuse("memory-dir-missing", f"{repo / rel} does not exist"), as_json)
+    root = "ignite/work-on-ignite/memory"
+    if not (repo / root).is_dir():
+        return refuse_payload(Refuse("memory-dir-missing", f"{repo / root} does not exist"), as_json)
+    components = args.component or []
+    rels = [f"{root}/{c}" for c in components] or [root]
+    for c, r in zip(components, rels):
+        if not (repo / r).is_dir():
+            return refuse_payload(Refuse("component-dir-missing", f"{repo / r} does not exist"), as_json)
     def git(*a):
         return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
     if git("rev-parse", "--is-inside-work-tree").returncode != 0:
         return refuse_payload(Refuse("not-a-git-repo", f"{repo} is not a git work tree"), as_json)
-    st = git("status", "--porcelain", "--", rel)
+    st = git("status", "--porcelain", "--", *rels)
     changed = [l[3:] for l in st.stdout.splitlines() if l.strip()]
-    payload = {"ok": True, "repo": str(repo), "pathspec": rel, "changed": changed, "committed": None}
+    payload = {"ok": True, "repo": str(repo), "pathspec": rels, "changed": changed, "committed": None}
     if not changed:
-        payload["note"] = "nothing to commit under the memory tree"
+        payload["note"] = "nothing to commit under the given pathspec"
         return emit(payload, as_json=as_json, exit_code=0)
     if args.dry_run:
         payload["note"] = "dry-run: would commit the files above"
         return emit(payload, as_json=as_json, exit_code=0)
-    add = git("add", "-A", "--", rel)
+    add = git("add", "-A", "--", *rels)
     if add.returncode != 0:
         return refuse_payload(Refuse("git-add-failed", add.stderr.strip()[:400]), as_json)
-    msg = args.message or f"memory: {len(changed)} file(s) under {rel} (distill/rotate/file)"
-    com = git("commit", "-q", "-m", msg, "--", rel)
+    scope = ",".join(components) if components else root
+    msg = args.message or f"memory: {len(changed)} file(s) under {scope} (distill/rotate/file)"
+    com = git("commit", "-q", "-m", msg, "--", *rels)
     if com.returncode != 0:
         return refuse_payload(Refuse("git-commit-failed", (com.stderr or com.stdout).strip()[:400]), as_json)
     payload["committed"] = git("rev-parse", "--short", "HEAD").stdout.strip()
@@ -1910,12 +1950,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     mcm = _shared(msub.add_parser(
         "commit", help="commit the memory tree by pathspec (out-of-cage step after distill/rotate)",
-        description="git add + commit ONLY ignite/work-on-ignite/memory in the rbtv repo. Exit 0 with\n"
-                    "'nothing to commit' when clean. Meant for a daemon fire-tool job / a console\n"
-                    "session; a caged seat cannot see the repo root and must not try.",
-        epilog="example: file-issue memory commit --dry-run\n"
+        description="git add + commit ignite/work-on-ignite/memory in the rbtv repo. Bare, this is\n"
+                    "the whole tree — the daily fire-tool sweep's scope. Pass --component (repeatable)\n"
+                    "to scope the pathspec to just those component folders, so a session that just ran\n"
+                    "`memory file --component X` commits ONLY X, never a peer session's in-flight,\n"
+                    "uncommitted entries elsewhere in the tree. Exit 0 with 'nothing to commit' when\n"
+                    "clean. Meant for a daemon fire-tool job / a console session; a caged seat cannot\n"
+                    "see the repo root and must not try.",
+        epilog="example: file-issue memory commit --component engine --dry-run\n"
                "next: git -C <rbtv> log -1 -- ignite/work-on-ignite/memory",
         formatter_class=argparse.RawDescriptionHelpFormatter))
+    mcm.add_argument("--component", metavar="COMPONENT", action="append",
+                      help="scope the commit to this component folder only (repeatable); "
+                           "omit to commit the whole memory tree (the daily sweep's scope)")
     mcm.add_argument("--message", metavar="TEXT", default=None)
     mcm.add_argument("--dry-run", action="store_true")
     mcm.add_argument("--repo", default=argparse.SUPPRESS,
