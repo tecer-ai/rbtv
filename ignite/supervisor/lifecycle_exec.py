@@ -114,6 +114,34 @@ def lifecycle_path(base):
     return Path(base) / "lifecycle-inflight.json"
 
 
+def placement_requests_path(base):
+    return Path(base) / "placement-requests.json"
+
+
+def write_placement_request(base, seat, workdir):
+    """Record one daemon-lane successor placement. True/False, never raises."""
+    try:
+        path = placement_requests_path(base)
+        with coord.coord_lock(base):
+            data = {}
+            if path.exists():
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    raw = {}
+                if isinstance(raw, dict):
+                    data = raw
+            data[seat] = {
+                "kind": PLACEMENT_KIND,
+                "requested_at": coord.now(),
+                "workdir": str(workdir),
+            }
+            coord.atomic_write(path, json.dumps(data, indent=2, sort_keys=True) + "\n")
+        return True
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def lifecycle_ident(ident):
     """`{"pid": int, "starttime": str}` from a `(pid, starttime)` tuple, an already-shaped dict, or
     anything else. `{}` when nothing resolves — NEVER a raise and never a partial dict: this runs
@@ -345,6 +373,7 @@ def lifecycle_stale(entry, now_str=None):
 # is `undeclared_endings`' subject, not this one's.
 RENEW_PENDING = "successor-pending"
 RENEW_NO_SUCCESSOR = "no-successor"
+PLACEMENT_KIND = "daemon-lane"
 
 
 def renewal_from_entry(entry, now_str=None):
@@ -374,6 +403,10 @@ def renewal_from_entry(entry, now_str=None):
             f"its lifecycle entry carries the unenumerated state `{state or '(none)'}` — only "
             f"`in-flight`, `done` and `FAILED` are written, so nothing here reads it as a "
             f"successor")
+    if entry.get("place") == PLACEMENT_KIND:
+        return RENEW_PENDING, (
+            "its lifecycle entry records a daemon-lane placement request — a successor is "
+            "pending on the daemon seeding loop (caged on its own lane), not a tmux executor")
     if lifecycle_stale(entry, now_str):
         _age = lifecycle_age_min(entry, now_str)
         return RENEW_NO_SUCCESSOR, (
@@ -1250,6 +1283,34 @@ def lifecycle_no_successor(args, base, seat_name, pane, why, remedy, layer="stat
         lifecycle_alarm("state", *rest)
 
 
+def place_daemon_lane_successor(base, seat_name, pane):
+    """Write the durable daemon-lane placement request for a healthy paneless renew.
+
+    The tmux fork cannot place this successor (`lifecycle_fork_target` needs a `%N`; a
+    daemon-lane roster cell is `sid:<uuid>`). The killed `revival_target` path came back
+    UNCAGED into the console room — this request is picked up by `seedGoal` and enqueued
+    through `launchThroughDoor` so the successor is bwrap-caged on its own seat folder.
+    Returns (ok, why). Never raises. Never calls `lifecycle_no_successor`."""
+    workdir = str(Path(base).parent / "seats" / seat_name)
+    if not stamp_lifecycle(base, seat_name, {
+            "disposition": "renew",
+            "pane": str(pane or ""),
+            "tmux-target": "",
+            "place": PLACEMENT_KIND,
+            "log": "",
+            "workdir": workdir}):
+        return False, (f"the in-flight marker at {lifecycle_path(base)} could NOT be written, "
+                       f"so no daemon-lane placement was recorded")
+    if not write_placement_request(base, seat_name, workdir):
+        finish_lifecycle(base, seat_name, "FAILED",
+                         f"the placement request at {placement_requests_path(base)} could not "
+                         f"be written")
+        return False, (f"the placement request at {placement_requests_path(base)} could NOT be "
+                       f"written")
+    finish_lifecycle(base, seat_name, "done")
+    return True, (f"{placement_requests_path(base)} kind={PLACEMENT_KIND} workdir={workdir}")
+
+
 def fork_lifecycle_renewal(args, base, seat_name, pane):
     """Stamp the in-flight marker and FORK the detached `lifecycle-exec` for a RENEW checkout.
 
@@ -1291,6 +1352,13 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
             f"{coord.coord_invocation(args)} launch --only {seat_name} (once the briefing exists)")
     target, why = lifecycle_fork_target(seats[0], pane)
     if not target:
+        if pane and str(pane).startswith(coord.SID_PANE_PREFIX):
+            placed, place_why = place_daemon_lane_successor(base, seat_name, pane)
+            if placed:
+                print(f"lifecycle: daemon-lane placement request written for '{seat_name}' — "
+                      f"{place_why}")
+                return "daemon-lane"
+            why = place_why
         lifecycle_no_successor(
             args, base, seat_name, pane,
             f"its tmux target could not be computed — {why}. Refusing rather than passing an "
@@ -1375,6 +1443,7 @@ def fork_lifecycle_renewal(args, base, seat_name, pane):
     handle.close()
     print(f"lifecycle: detached executor forked for '{seat_name}' — target {target}, evidence "
           f"{log_path}")
+    return "tmux"
 
 
 # ---- STAGE 3 (s3-06): THE DISPOSITION SEQUENCES — what the executor actually DOES -------------

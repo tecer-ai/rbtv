@@ -701,6 +701,124 @@ function jobIdFor(seat, goal = null) {
   return goal ? `seat-${goal}-${seat}` : `seat-${seat}`;
 }
 
+function seatBindsFor(heartStore, goalFolder, seat) {
+  const { specKey } = require('./launch-profiles/catalog');
+  const launchSpecs = heartStore.config?.launchSpecs || {};
+  const cast = seatCast(goalFolder, seat);
+  const spec = launchSpecs[specKey(cast.harness, cast.model)];
+  return (spec && spec.sandbox && spec.sandbox.SeatBinds) || null;
+}
+
+function placementRequestsPath(goalFolder) {
+  return path.join(goalFolder, 'coordination', 'placement-requests.json');
+}
+
+function readPlacementRequests(goalFolder) {
+  try {
+    const data = JSON.parse(fs.readFileSync(placementRequestsPath(goalFolder), 'utf8'));
+    return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return {};
+    return {};
+  }
+}
+
+function writePlacementRequests(goalFolder, data) {
+  const p = placementRequestsPath(goalFolder);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, p);
+}
+
+function consumePlacementRequests(heartStore, {
+  goalFolder, logger, isHeld = null, goal = null, readyRows = [],
+  promptFn = seatBootPrompt, alreadyEnqueued = null,
+}) {
+  const reqs = readPlacementRequests(goalFolder);
+  const seats = Object.keys(reqs);
+  if (!seats.length) return [];
+  const queued = new Set(heartStore.listQueue().map((q) => q.job_id));
+  const prior = new Set(alreadyEnqueued || []);
+  const enqueued = [];
+  let dirty = false;
+  for (const seat of seats) {
+    const rec = reqs[seat];
+    if (!rec || rec.kind !== 'daemon-lane') continue;
+    const jobId = jobIdFor(seat, goal);
+    if (prior.has(seat) || queued.has(jobId)) {
+      delete reqs[seat];
+      dirty = true;
+      continue;
+    }
+    const workdir = rec.workdir || path.join(goalFolder, 'seats', seat);
+    const admit = admitLaunch({
+      seat,
+      goal,
+      goalFolder,
+      isHeld,
+      seatBinds: seatBindsFor(heartStore, goalFolder, seat),
+      successorReads: successorReads(readyRows, seat),
+      workspaceRoot: heartStore.config?.workspaceRoot || null,
+      promptFn,
+    });
+    if (admit.refused) {
+      if (logger) {
+        logger({
+          level: admit.kind === 'hold' ? 'info' : 'warn',
+          message: REFUSAL_MESSAGES[admit.kind] || 'seat NOT enqueued — the launch door refused it',
+          seat,
+          evidence: admit.evidence,
+        });
+      }
+      if (admit.surface) surfaceCageRefusal(goalFolder, seat, admit.evidence, logger);
+      continue;
+    }
+    const launched = launchThroughDoor({
+      heartStore,
+      seat,
+      goal,
+      jobId,
+      args: JSON.stringify({ workdir, prompt: admit.prompt }),
+      sessionMode: 'headless',
+      triggerKind: 'scheduled',
+      runAt: isoNow(),
+      enqueuedBy: DOORS.seeding.launcher,
+    });
+    if (launched.refused) {
+      if (logger) {
+        const enq = launched.enq || {};
+        logger({
+          level: 'warn',
+          message: 'store SUPPRESSED the placement enqueue — the seat was not queued',
+          seat,
+          because: enq.because,
+          queue_id: enq.queue_id,
+          exec_id: enq.exec_id,
+          held_status: enq.held_status,
+          evidence: launched.evidence,
+        });
+      }
+      continue;
+    }
+    delete reqs[seat];
+    dirty = true;
+    enqueued.push(seat);
+    if (logger) {
+      logger({
+        level: 'info',
+        message: 'enqueued daemon-lane placement successor',
+        seat,
+        jobId,
+        sessionMode: 'headless',
+        workdir,
+      });
+    }
+  }
+  if (dirty) writePlacementRequests(goalFolder, reqs);
+  return enqueued;
+}
+
 // The execution picture, read ONCE per pass from the store's own partition of jobs_log.
 //
 // D12 (2026-08-20): IT READS PLAIN LEDGER STATE. The `relaunch` parameter used to hide a granted
@@ -890,14 +1008,6 @@ function launchOwed(heartStore, rows, {
   // used to read the CALLER'S profile, so on a mixed-cast goal (a claude seat and a codex seat)
   // the admission test ran against a template belonging to neither. It now reads the seat's OWN
   // launch spec, resolved through `specKey` from the same descriptor `spawn()` will read.
-  const { specKey } = require('./launch-profiles/catalog');
-  const launchSpecs = heartStore.config?.launchSpecs || {};
-  const seatBindsFor = (seat) => {
-    const cast = seatCast(goalFolder, seat);
-    const spec = launchSpecs[specKey(cast.harness, cast.model)];
-    return (spec && spec.sandbox && spec.sandbox.SeatBinds) || null;
-  };
-
   const enqueued = [];
   for (const item of classR) {
     const seat = item.seat;
@@ -923,7 +1033,7 @@ function launchOwed(heartStore, rows, {
       goal,
       goalFolder,
       isHeld,
-      seatBinds: seatBindsFor(seat),
+      seatBinds: seatBindsFor(heartStore, goalFolder, seat),
       successorReads: successorReads(readyRows, seat),
       // D2 (2026-08-19): the composition root's ONE workspace-root resolution, threaded via the
       // store (`runtime/engine.js` assigns it off the spawn manager) — the gate needs it to judge
@@ -1032,6 +1142,7 @@ function seedGoal({
   // that fills it, off the unbuilt and uncast lists it used to skip the whole goal on [C-9].
   laneSkips = null,
   rows: kitRows = null,
+  promptFn = seatBootPrompt,
 }) {
   if (!goal) {
     throw new Error(
@@ -1172,6 +1283,9 @@ function seedGoal({
     goalFolder, logger, goal, view, isHeld, ready, readyRows, heldByStore, suppressedEnqueues,
     laneSkips, laneSkipped,
   });
+  enqueued.push(...consumePlacementRequests(heartStore, {
+    goalFolder, logger, isHeld, goal, readyRows, promptFn, alreadyEnqueued: enqueued,
+  }));
   const unfiredCutoff = new Date(Date.now() - ENQUEUE_UNFIRED_GRACE_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const enqueueUnfired = heartStore.listEnqueueUnfired(goal, unfiredCutoff).map((r) => ({
     seat: r.seat, because: r.because, at: r.at,
@@ -1316,4 +1430,6 @@ module.exports = {
   // against a fixture goal without standing up the whole enqueue path.
   surfaceCageRefusal,
   seedGoal,
+  consumePlacementRequests,
+  readPlacementRequests,
 };

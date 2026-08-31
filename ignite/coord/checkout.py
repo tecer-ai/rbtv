@@ -1921,10 +1921,16 @@ def cmd_checkout(args):
         # the denylist argument for the child's environment. NOTHING BELOW MAY ASSUME THE PANE
         # SURVIVES: from the moment the child starts, this pane can be respawned out from under
         # this process at any instant.
-        lifecycle_exec.fork_lifecycle_renewal(args, base, me, (row or {}).get("pane", ""))
-        print(c(f"next: nothing on your side — a detached executor is running '{me}'s renewal OUT "
-                f"of this pane and will bring the seat back. This session is over; do not type "
-                f"another command.", C_HINT))
+        _renew_kind = lifecycle_exec.fork_lifecycle_renewal(
+            args, base, me, (row or {}).get("pane", ""))
+        if _renew_kind == "daemon-lane":
+            print(c(f"next: nothing on your side — a daemon-lane placement request is on disk; "
+                    f"the next seed pass relaunches '{me}' caged on this lane. This session is "
+                    f"over; do not type another command.", C_HINT))
+        else:
+            print(c(f"next: nothing on your side — a detached executor is running '{me}'s renewal OUT "
+                    f"of this pane and will bring the seat back. This session is over; do not type "
+                    f"another command.", C_HINT))
     else:
         # [INTEGRATION POINT — STAGE 3: fork the detached reaper]
         # The done path's twin seam: Stage 3 forks the pane reaper here instead of leaving the

@@ -14422,40 +14422,63 @@ def _selftest_checks(args, failures, names):
         run(cmd_checkin, package=str(_f9_pkg), agent="r9pl", pane=None, force=True,
             summary="s3-09 paneless (daemon-lane) fixture — no tmux pane anywhere")
         _f9_pl_row = current_row(load_workers(_f9_base)[2], "r9pl") or {}
-        _f9_msgs_before = len(load_messages(_f9_base)[1])
         _f9_pl_out, _f9_pl_code = _f9_checkout("r9pl")
         _f9_pl_mark = dict(lifecycle_exec.load_lifecycle(_f9_base).get("r9pl") or {})
-        _f9_pl_flagfile = Path(_f9_base) / "undelivered-flags.md"
-        _f9_pl_flags = (_f9_pl_flagfile.read_text(encoding="utf-8")
-                        if _f9_pl_flagfile.exists() else "")
-        _f9_pl_msgs = [_m for _m in load_messages(_f9_base)[1][_f9_msgs_before:]
-                       if "lifecycle-exec" in str(_m) and "r9pl" in str(_m)]
-        check("s3-09 (7) A PANELESS `checkout --renew` NEVER ENDS THE LINEAGE SILENTLY: the seat's "
-              "roster row is the F1 `sid:` token, so NO tmux target exists and nothing is forked "
-              "— and the refusal is DURABLE, ADDRESSED, and ESCALATED rather than printed into a "
-              "session that is already over. (a) `lifecycle-inflight.json` carries the seat at "
-              "`state: FAILED` with `disposition: renew` and a non-empty `failure` — THIS is the "
-              "successor-pending signal a reader answers `does this renewed seat have a successor "
-              "coming?` with, and before this change no entry was written at all; (b) a "
-              "`lifecycle-exec` note naming the seat is on the package's bus; (c) the addressee's "
-              "LIVENESS was checked, not assumed from the send succeeding — the leader chair "
-              "resolves as an address and NOBODY IS SITTING IN IT, so the alarm is ALSO written "
-              "to `undelivered-flags.md`, where `status` and `workers` surface it to every other "
-              "seat; (d) the refusal names the PANELESS token rather than reporting a dead tmux "
-              "pane the seat never had",
-              _f9_pl_code == 2 and _f9_pop == []
+        _f9_pl_place_path = lifecycle_exec.placement_requests_path(_f9_base)
+        _f9_pl_place = {}
+        if _f9_pl_place_path.exists():
+            try:
+                _f9_pl_place = json.loads(_f9_pl_place_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                _f9_pl_place = {}
+        _f9_pl_req = (_f9_pl_place.get("r9pl") or {}) if isinstance(_f9_pl_place, dict) else {}
+        check("s3-09 (7) A PANELESS `checkout --renew` WRITES A DAEMON-LANE PLACEMENT REQUEST: "
+              "the seat's roster row is the F1 `sid:` token, so NO tmux target exists and nothing "
+              "is forked into a pane — instead `coordination/placement-requests.json` records "
+              "kind=daemon-lane for the seat, the inflight marker is `done`/`renew` with "
+              "`place: daemon-lane` (successor-pending, not RENEW-BLOCKED), checkout exits 0, "
+              "and no lifecycle-exec child is spawned (the killed revival_target path came back "
+              "uncaged into the console room; this request is for seedGoal's caged door)",
+              _f9_pl_code in (0, None) and _f9_pop == []
               and _f9_pl_row.get("pane") == SID_PANE_PREFIX + "pl-9"
-              and _f9_pl_mark.get("state") == "FAILED"
               and _f9_pl_mark.get("disposition") == "renew"
-              and bool(_f9_pl_mark.get("failure"))
-              and len(_f9_pl_msgs) >= 1
-              and "LIFECYCLE-EXEC ALARM" in _f9_pl_flags
-              and "THAT CHAIR IS EMPTY" in _f9_pl_flags
-              and "NOBODY IS SITTING IN IT" in _f9_pl_out
-              and "NO EXECUTOR WAS FORKED for 'r9pl'" in _f9_pl_out
-              and "YOUR CHECKOUT STANDS" in _f9_pl_out
-              and f"the PANELESS token '{SID_PANE_PREFIX}pl-9'" in _f9_pl_out
-              and "is NOT LIVE" not in _f9_pl_out)
+              and _f9_pl_mark.get("place") == lifecycle_exec.PLACEMENT_KIND
+              and _f9_pl_mark.get("state") == "done"
+              and not _f9_pl_mark.get("failure")
+              and _f9_pl_req.get("kind") == lifecycle_exec.PLACEMENT_KIND
+              and str(_f9_pl_req.get("workdir") or "").endswith("/seats/r9pl")
+              and "daemon-lane placement request" in _f9_pl_out
+              and "NO EXECUTOR WAS FORKED" not in _f9_pl_out
+              and lifecycle_exec.renewal_state(_f9_base, "r9pl")[0]
+              == lifecycle_exec.RENEW_PENDING)
+
+        # ---- (7c) ERROR PATH: empty pane still the loud is_tmux_pane refusal. -----------------
+        _f9_bad_dir = _f9_pkg / "workers" / "r9bad"
+        _f9_bad_dir.mkdir()
+        (_f9_bad_dir / "agent.md").write_text(
+            "---\nagent: r9bad\nmodel: opus\n---\nbrief\n", encoding="utf-8")
+        (_f9_bad_dir / "memory.md").write_text("# r9bad — seat memory\n", encoding="utf-8")
+        _f9_bad_o, _f9_bad_e, _f9_bad_code = harness_outcome(
+            lambda a: lifecycle_exec.fork_lifecycle_renewal(a, str(_f9_base), "r9bad", ""),
+            ns(package=str(_f9_pkg), base=str(_f9_base),
+               workers_dir=str(_f9_pkg / "workers")))
+        _f9_bad_mark = dict(lifecycle_exec.load_lifecycle(_f9_base).get("r9bad") or {})
+        _f9_place_after = {}
+        if _f9_pl_place_path.exists():
+            try:
+                _f9_place_after = json.loads(_f9_pl_place_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                _f9_place_after = {}
+        check("s3-09 (7c) CONTROL: a paneless-shaped renew with NO pane token still takes the "
+              "loud `is_tmux_pane` refusal — marker FAILED, no placement request, no tmux fork",
+              _f9_bad_code == 2
+              and _f9_pop == []
+              and _f9_bad_mark.get("state") == "FAILED"
+              and _f9_bad_mark.get("disposition") == "renew"
+              and bool(_f9_bad_mark.get("failure"))
+              and "r9bad" not in (_f9_place_after if isinstance(_f9_place_after, dict) else {})
+              and "no pane at all" in str(_f9_bad_mark.get("failure"))
+              and "NO EXECUTOR WAS FORKED for 'r9bad'" in (_f9_bad_o + _f9_bad_e))
 
         # ---- (7b) THE DRY-RUN PROOF: what the paneless lane COMPOSES, without launching. -------
         # `lifecycle_fork_target` is pure w.r.t. the tmux surface it is refused BY, so the composed

@@ -209,12 +209,78 @@ function caseSpawnRefusedRowIsNotParkedLive() {
   } catch (err) { fail('spawn-refused row not parked live', err); }
 }
 
+function caseDaemonLanePlacementEnqueue() {
+  const ws = fs.mkdtempSync(path.join(tmpRoot, 'place-'));
+  const goal = 'test-place';
+  const goalFolder = path.join(ws, '.rbtv', 'goals', goal);
+  const seat = 'worker';
+  const workdir = path.join(goalFolder, 'seats', seat);
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  fs.mkdirSync(workdir, { recursive: true });
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), 'taskforce-id,seat,after\ntf,worker,\n');
+  fs.writeFileSync(path.join(workdir, 'seat.md'),
+    '---\nseat: worker\nharness: bash\nmodel: probe-live\n---\n\nbody\n');
+  fs.writeFileSync(path.join(goalFolder, 'coordination', 'placement-requests.json'),
+    `${JSON.stringify({ worker: { kind: 'daemon-lane', requested_at: '2026-08-31 17:00', workdir } }, null, 2)}\n`);
+  const heartStore = openHeartStore({ dbPath: path.join(ws, 'heart.db') });
+  const rows = [{ seat, verdict: 'RENEWING', reason: 'successor pending', seed: [] }];
+  try {
+    const pickup = seedGoal({
+      heartStore, goalFolder, goal, rows,
+      promptFn: () => ({ prompt: 'boot', reason: null }),
+    });
+    assertOk((pickup.enqueued || []).includes(seat), `not enqueued: ${JSON.stringify(pickup.enqueued)}`);
+    const q = heartStore.listQueue();
+    const jobId = `seat-${goal}-${seat}`;
+    const row = q.find((r) => r.job_id === jobId);
+    assertOk(row, `no queue row job_id=${jobId}: ${JSON.stringify(q)}`);
+    assertOk(row.session_mode === 'headless', `session_mode=${row.session_mode}`);
+    const args = JSON.parse(row.args);
+    assertOk(args.workdir === workdir, `workdir=${args.workdir}`);
+    assertOk(!Object.prototype.hasOwnProperty.call(args, 'tmux') && !String(row.args).includes('tmux'),
+      `tmux leaked: ${row.args}`);
+    assertOk(row.enqueued_by === 'attached-execution', `enqueued_by=${row.enqueued_by}`);
+    const left = JSON.parse(fs.readFileSync(path.join(goalFolder, 'coordination', 'placement-requests.json'), 'utf8'));
+    assertOk(!left.worker, `request not consumed: ${JSON.stringify(left)}`);
+    const spawnSrc = fs.readFileSync(path.join(__dirname, 'spawn', 'spawn.js'), 'utf8');
+    assertOk(spawnSrc.includes('buildBwrapArgv') && spawnSrc.includes('composeCageFor'),
+      'spawn.js no longer composes bwrap at dispatch');
+    pass('seedGoal consumes daemon-lane placement: job_id seat-<goal>-<seat>, headless, seat workdir, no tmux');
+  } catch (err) { fail('daemon-lane placement enqueue', err); }
+  finally { heartStore.close(); }
+}
+
+function caseRenewingWithoutPlacementIsNotEnqueued() {
+  const ws = fs.mkdtempSync(path.join(tmpRoot, 'nop-'));
+  const goal = 'g';
+  const goalFolder = path.join(ws, '.rbtv', 'goals', goal);
+  const seat = 'worker';
+  fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+  fs.mkdirSync(path.join(goalFolder, 'seats', seat), { recursive: true });
+  fs.writeFileSync(path.join(goalFolder, 'taskforce.csv'), 'taskforce-id,seat,after\ntf,worker,\n');
+  fs.writeFileSync(path.join(goalFolder, 'seats', seat, 'seat.md'),
+    '---\nseat: worker\nharness: bash\nmodel: probe-live\n---\n\nbody\n');
+  const heartStore = openHeartStore({ dbPath: path.join(ws, 'heart.db') });
+  try {
+    const pickup = seedGoal({
+      heartStore, goalFolder, goal,
+      rows: [{ seat, verdict: 'RENEWING', reason: 'successor pending', seed: [] }],
+      promptFn: () => ({ prompt: 'boot', reason: null }),
+    });
+    assertOk(!(pickup.enqueued || []).includes(seat), `RENEWING without request enqueued: ${JSON.stringify(pickup.enqueued)}`);
+    pass('RENEWING without a placement request is not enqueued');
+  } catch (err) { fail('RENEWING without placement', err); }
+  finally { heartStore.close(); }
+}
+
 caseDoorTable();
 caseReadySeatsHonoursKit();
 caseSeedGoalJournalsAndDoesNotEnqueue();
 caseReadyContradictedByDoneEnding();
 caseRedIgnoringVerdict();
 caseSpawnRefusedRowIsNotParkedLive();
+caseDaemonLanePlacementEnqueue();
+caseRenewingWithoutPlacementIsNotEnqueued();
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 if (failed) {
