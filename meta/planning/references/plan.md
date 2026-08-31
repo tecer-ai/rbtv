@@ -21,6 +21,7 @@ You already hold every planning input: the scope, the decisions, the rulings. Th
 ├── read-first.md         what EVERY executor reads before its own seat file
 ├── seats/<name>/seat.md  one unit of work, self-contained, launchable as-is
 ├── checkpoints/cp<n>-<name>.md  owner verification gates (§ Owner checkpoints) — when the plan carries any
+├── judgements/<judge-name>.md   judge verdict files (§ Judge seats) — when the plan carries judges
 ├── CLAUDE.md             two lines: orchestrating this plan → read seats.md, + the folder-artifact roster
 └── AGENTS.md             same two lines, for non-Claude harnesses
 ```
@@ -76,6 +77,7 @@ ONE file, read by every executor before its own seat file, carrying exactly what
 - **Where things live** — the code trees, the runtime state, the branch. State that a cited `file:line` may have drifted and MUST be re-located by content.
 - **Hazards** — every trap that would cost an executor its work: a file that MUST be saved through a gate rather than written in place, a surface that goes live the instant it lands versus one that waits for a restart, shared repos where other sessions hold uncommitted work, the commit form that keeps a foreign change out of your commit.
 - **The reporting bar** — what a completion report MUST state: what was done, what was VERIFIED with the command output that proves it, and the loose ends. A report naming no command has verified nothing.
+- **The craft bindings** — stated once here, binding every executor: a seat that writes or edits CODE reads `core/coding/references/coding.md` (and the four references it names) BEFORE its first edit and holds them for the whole change; a seat that creates or changes SCAFFOLDING (a rule, prompt, skill, task, seat, capability, workflow, or any component surface) routes through `meta/planning/references/build.md` including its section-0 mandatory reads. A verification-only seat reads neither. These reads are part of each seat's measured context budget.
 
 Nothing seat-specific goes here: a fact true of ONE seat belongs in that seat's file.
 
@@ -116,7 +118,7 @@ A plan of any real depth carries OWNER CHECKPOINTS: hold gates where the owner v
 - BEFORE any destructive or irreversible phase (deletions, migrations, cutovers) — prove the replacements on the live system first;
 - after the single riskiest change in the plan.
 
-A small plan may honestly carry ZERO checkpoints — then seats.md says so in one line where the table would be. Checkpoints the owner must babysit are a defect, not diligence: 2–5 gates for a deep plan, never one per seat.
+A small plan may honestly carry ZERO checkpoints — then seats.md says so in one line where the table would be. Checkpoints the owner must babysit are a defect, not diligence: 2–5 gates for a deep plan, never one per seat. Checkpoints are the OWNER's verification; § Judge seats is the machine-side counterpart — a plan may carry either, both, or (small plans) neither, and an owner who declines checkpoints on a deep plan should be offered judges in their place.
 
 **The shape.** Each checkpoint is ONE file, `checkpoints/cp<n>-<name>.md`, plus one row in seats.md's checkpoint table (after the scheduling rules):
 
@@ -129,6 +131,20 @@ A small plan may honestly carry ZERO checkpoints — then seats.md says so in on
 
 1. ABOVE the divider, the orchestrator preamble: exactly when to open this file, which seats it holds, and the protocol — relay the lower half to the owner VERBATIM as a queued ask; hold ONLY the gated seats while everything else keeps running (the owner is AFK by default); record pending → PASS/FAIL in status.md; on FAIL route the named seat through the contract's failure arm and re-present the checkpoint after the fix; NEVER answer a checkpoint yourself.
 2. BELOW the divider, the owner-facing ask, written for the owner COLD: plain words on what just landed and why this gate exists, then NUMBERED CHECKS — each either a paste-able command with what GOOD and what BROKEN look like (phone-executable where the check allows), or a named evidence read ("the seat's status cell must quote X; a bare `done` with no command output is a fail") — closing with the exact reply format: `CP<n> PASS` or `CP<n> FAIL: <which check + what you saw>`.
+
+## Judge seats — machine verification without the owner
+
+ALWAYS CONSIDER judge seats while authoring a plan; CREATE them when the plan warrants it. A judge is an ordinary seat whose occupant verifies OTHER seats' finished work adversarially and verdicts PASS/FAIL per seat — so neither the owner nor the orchestrator does deep verification. The consideration is mandatory; the creation is a judgment call: a plan with several builder seats sharing surfaces, a high-stakes change (credentials, destructive acts, live services), or serialized go-live windows warrants judges; a small plan may skip them — then seats.md says so in one line beside the checkpoint statement.
+
+**The shape (when created):**
+
+- **Cluster judges at critical points** — one judge per cluster of builders sharing a subsystem, launched when its cluster's rows are terminal (`after` names them), so cross-seat regressions on shared files are caught together. Never one judge per seat by default, and never only a single final judge on a deep plan (a broken foundation would be found under everything built on it).
+- **A go-live sweep judge** where the plan has serialized deploy/restart windows — launched by the orchestrator at the end of each window with the window's seat list, it runs every just-shipped fix's live-verification commands against the running system. Not DAG-scheduled.
+- **A final judge** — verdicts the unclustered seats and any leftovers, spot-audits the cluster judges (re-runs a sample of a PASSed seat's commands), and issues the whole-plan ACCEPT/HOLD before any closeout seat runs.
+
+**The judge's bar, written into its body:** it re-runs every machine-checkable DoD command ITSELF (a claim it cannot reproduce is a FAIL, whatever the report says — never grade from tone); it probes at least one adjacent edge per seat beyond the stated commands (the discriminating controls, the failure arms); it re-runs the reproduction behind any stale-defect claim; it checks the builder's diff against the craft bindings (a violation the change CREATED is a FAIL finding; a pre-existing one not surfaced is a note); it is READ-ONLY on the code — it fixes nothing, and destructive probes run only in a scratch copy; every FAIL carries an actionable finding. It writes its verdicts to `judgements/<judge-name>.md` and leads its report with the verdict list.
+
+**The orchestrator flow (written into seats.md's contract when judges exist):** on a builder's completion the orchestrator saves the report verbatim to `seats/<name>/report.md` (judges read it there), does a LIGHT sanity check only (report present, clauses addressed, commands present), and flips the row — the deep verification of contract rule 6 is delegated to the judges. A judge FAIL flips the builder back to `wip`, and it is relaunched as a resume carrying the judge's findings verbatim; after TWO consecutive FAILs on one seat, stop relaunching and queue an owner ask with the evidence. Nothing new launches on a judge-failed row; dependents already launched are not recalled.
 
 ## The orchestrator contract
 
@@ -176,3 +192,5 @@ Everything else gets one `noted, not captured: <what>` line in the orchestrator'
 7. The two-line `CLAUDE.md` and `AGENTS.md` exist in the plan folder.
 8. The checkpoint set was PROPOSED to and RULED by the owner BEFORE the seat bodies were authored, and every gated increment's seats produce the evidence their checkpoint file points at (a checkpoint that can only say "trust the status cell" on every check is a symptom the seats were written first).
 9. Every checkpoint row's "opens when" and "holds" cells name real seat rows; every named `checkpoints/cp<n>-<name>.md` file exists and carries both halves (orchestrator preamble above the divider, owner-facing checks with commands and the `CP<n> PASS`/`FAIL` reply format below it).
+10. `read-first.md` carries the craft bindings (code → `core/coding/references/coding.md`; scaffolding → `meta/planning/references/build.md`).
+11. Judge seats were CONSIDERED: the plan carries them per § Judge seats, or seats.md states in one line that it carries none and why.
