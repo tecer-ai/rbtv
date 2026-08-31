@@ -2937,7 +2937,9 @@ def cmd_read(args):
         print(c(f"-- {remaining} more waiting — run `{coord} read` again", C_HINT))
     # Only asks nobody has settled yet — pointing the reader at an ask that already has its
     # answer is worse than saying nothing (the derivation is `open_asks`, same as `pending`).
-    open_nums = {b["num"] for b in open_asks(blocks)}
+    # `base=` drops an ask whose sender seat has since finished (G-92/G-134 criterion 3) — the
+    # hint must not point the reader at answering someone who already left.
+    open_nums = {b["num"] for b in open_asks(blocks, base=base)}
     asked = [b for b in shown if b["type"] == "ask" and b["num"] in open_nums]
     if asked:
         first = asked[0]
@@ -3019,7 +3021,9 @@ def cmd_status(args):
     # and the read half disagree for two fixes without either being wrong on its own.
     # Same hoist as in `unread_for`: both are per-block re-reads of the whole descriptor set.
     _closing, _decls = closing_seats(base), inbox_decls(args)
-    mine = [b for b in open_asks(blocks)
+    # `base=` drops an ask whose sender seat has since finished (G-92/G-134 criterion 3) — the
+    # count must not include a departed seat's stale ask as if someone were still waiting.
+    mine = [b for b in open_asks(blocks, base=base)
             if shows_in_inbox(b, me, gmap, set(), "any", _closing, _decls)]
     # A narrowed inbox must never be invisible to the seat living in it: a seat that sees fewer
     # messages than the room is sending has to be able to tell "filtered by design" from "the

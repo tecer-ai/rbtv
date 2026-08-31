@@ -2346,6 +2346,35 @@ def _selftest_checks(args, failures, names):
         check("T4: an ask is OPEN until an answer --re's it or it is superseded",
               ask_open in nums and ask_closed not in nums and ask_superseded not in nums)
 
+        # G-92/G-134 criterion 3, CALLER SWEEP: every READER that calls `open_asks(blocks, ...)` on
+        # coord's own state (never a test fixture assertion — this scans production files only)
+        # MUST pass `base=`, or a departed seat's stale ask keeps showing as if someone were still
+        # waiting (measured 2026-08-31: `cmd_read`'s answer-hint and `cmd_status`'s "asks waiting on
+        # you" count both did, until this task). A future caller that forgets `base=` is exactly the
+        # regression this guard exists to catch — grep-based rather than an AST walk because the
+        # invariant IS textual: every call site literally either carries `base=` or it does not.
+        import re as _oa_re
+        from pathlib import Path as _oa_Path
+        _oa_root = _oa_Path(__file__).resolve().parent.parent  # ignite/
+        _oa_call = _oa_re.compile(r"\bopen_asks\(\s*blocks\b")
+        _oa_violations = []
+        for _oa_dir in (_oa_root / "coord", _oa_root / "supervisor"):
+            for _oa_file in sorted(_oa_dir.rglob("*.py")):
+                if _oa_file.name in ("coord_selftest.py",) or _oa_file.name.endswith("_selftest.py"):
+                    continue  # test files assert the raw predicate itself, deliberately unfiltered
+                for _oa_lineno, _oa_line in enumerate(
+                        _oa_file.read_text(encoding="utf-8").splitlines(), start=1):
+                    if "def open_asks(" in _oa_line:
+                        continue  # the predicate's own definition, not a caller
+                    if _oa_call.search(_oa_line) and "base=" not in _oa_line:
+                        _oa_violations.append(f"{_oa_file.relative_to(_oa_root)}:{_oa_lineno}")
+        check("CALLER SWEEP: every production `open_asks(blocks, ...)` call site passes `base=` "
+              "(drops a finished seat's stale ask) — a bare grep guard, red the moment a new caller "
+              "omits it",
+              not _oa_violations)
+        if _oa_violations:
+            print(f"      missing base=: {_oa_violations}")
+
         def section_of(text, title):
             lines = text.splitlines()
             start = next((i for i, ln in enumerate(lines) if ln.startswith(title)), None)

@@ -183,7 +183,12 @@ def collect(coord, workspace, only=None):
             # predicate's business (`p-owed-answers-locus`: `coord.open_asks` must NOT be widened;
             # four hold gates read it, and widening self-deadlocks the escalating seat). The union
             # lives here. The two sets cannot overlap: `type == "ask"` vs `type == "escalation"`.
-            owed = ([("ask", b) for b in coord.open_asks(blocks, to=OWNER)]
+            # `base=base` drops an ask whose sender seat has since finished (G-92/G-134
+            # criterion 3) — this is the SAME narrowing `pending` and the check-out hold apply,
+            # not a widen of the predicate: a departed seat's stale ask is not real owner debt,
+            # so surfacing it here would relay a question to the owner nobody is left to read
+            # the answer to.
+            owed = ([("ask", b) for b in coord.open_asks(blocks, to=OWNER, base=base)]
                     + [("halt", b) for b in coord.open_escalations(blocks)
                        if b["to"] == OWNER])
             for kind, b in owed:
