@@ -7361,8 +7361,37 @@ def _selftest_checks(args, failures, names):
               # self-close freed its own pane and did NOT touch the ending its checkout
               # declared. A departure that rewrote its own ending would be the closer speaking
               # for the seat.
-              and (ending_store.get_current_ending(base_g.parent, "eph") or {}
-                   ).get("ending") == "done")
+               and (ending_store.get_current_ending(base_g.parent, "eph") or {}
+                    ).get("ending") == "done")
+
+        # G-leader-0823-0217-2: a persistent (non-ephemeral) done/incomplete checkout must arm
+        # the pid+starttime reaper too — the hole that left meet's four plan-4 seats idle for
+        # days. The pane of a persistent seat is still leader's to free (relay-door).
+        harness_up["v"] = [919191]
+        _reap_n = len(reaped)
+        run(cmd_checkin, agent="gamma", summary="persistent-done reaper fixture", pane="%71",
+            force=True)
+        _persist_o, _persist_e, _persist_code = harness_outcome(
+            cmd_checkout, ns(agent="gamma", renew=False, handoff=None, no_export=True))
+        _persist_all = _persist_o + _persist_e
+        check("persistent done checkout arms arm_pid_reaper (not only ephemeral: yes) and does "
+              "NOT kill its own pane — leader still frees the viewport",
+              _persist_code is None
+              and 919191 in reaped[_reap_n:]
+              and "arming the exit reaper" in _persist_all
+              and "leader frees the pane" in _persist_all
+              and "killing own pane" not in _persist_all)
+        _reap_n2 = len(reaped)
+        run(cmd_checkin, agent="gamma", summary="persistent-incomplete reaper fixture", pane="%71",
+            force=True)
+        _inc_o, _inc_e, _inc_code = harness_outcome(
+            cmd_checkout, ns(agent="gamma", renew=False, handoff=None, no_export=True,
+                             incomplete="failure-arm fixture — the work did not finish"))
+        check("persistent incomplete checkout arms the same reaper — the failure arm does not leak",
+              _inc_code is None
+              and 919191 in reaped[_reap_n2:]
+              and "arming the exit reaper" in (_inc_o + _inc_e))
+        harness_up["v"] = None
 
         # ---- nu: the body guard (S6-c) and the self-verifying append (S6-d) ----
         run(cmd_checkin, agent="nu", summary="s12-06 token-body fixture", pane="%74", force=True)
@@ -15584,15 +15613,39 @@ def _selftest_checks(args, failures, names):
               and len(open_asks(load_messages(baseW4)[1], sender="leader", to=OWNER_TOKEN)) == 1)
 
         # arm 7 — (adv, C47) visibility is not a timeout.
+        #
+        # ⚠ THE CLOSER IS `owner`, NOT A THIRD SEAT (G-92/G-134 fix). This arm used to close the
+        # row with `alpha` — a plain worker who is neither the escalation's sender nor its
+        # addressee — which is EXACTLY the wrong-party close #237/#248/#270 measured live
+        # (`goal-master`, a peer, silently retiring an owner-addressed halt). `_reply_settles`
+        # requires the closer be the row's `to` (owner) or its own `sender`; `alpha` is neither,
+        # so the OLD fixture would now leave the row open and fail this arm for the RIGHT reason.
+        # `owner` closing the row it was addressed to is the legitimate arm this test is about.
         _open_esc = open_escalations(load_messages(baseW4)[1])
-        _ans, _ansc = sendW4("alpha", "leader", "answered", "--type", "answer",
+        _ans, _ansc = sendW4(OWNER_TOKEN, "leader", "answered", "--type", "answer",
                              "--re", str(_open_esc[0]["num"]))
         check("W4 arm 7: `pending`'s nag view carries UNANSWERED escalations — the leader's and "
-              "the judge's rows are both open, and answering one with `--re` closes exactly that "
-              "one. Nothing here times out and nothing auto-proceeds. The `--re` leg is the arm "
-              "that matters: a view naming a row it makes UNCLOSABLE would nag forever",
+              "the judge's rows are both open, and the OWNER answering one with `--re` closes "
+              "exactly that one. Nothing here times out and nothing auto-proceeds. The `--re` leg "
+              "is the arm that matters: a view naming a row it makes UNCLOSABLE would nag forever",
               len(_open_esc) == 3 and _ansc is None
               and len(open_escalations(load_messages(baseW4)[1])) == 2)
+
+        # arm 7b — (G-92/G-134, red-first) A PEER — neither the row's sender nor its addressee —
+        # sending the identical `--re` no longer closes it. This is the exact live-incident shape:
+        # `alpha` here stands in for `goal-master` closing a `leader -> owner` escalation on
+        # stools (#237/#248/#270), none of which was ever ruled by a human. RED mutation: revert
+        # `_reply_settles` to `return True` (the old "any `re:` closes it" behaviour) and this arm
+        # goes from 2 open to 1.
+        _open_esc7b = open_escalations(load_messages(baseW4)[1])
+        _peer_ans, _peer_ansc = sendW4("alpha", "leader", "looks resolved to me", "--type",
+                                       "answer", "--re", str(_open_esc7b[0]["num"]))
+        check("W4 arm 7b [G-92/G-134]: a PEER's `re:` — neither the escalation's sender nor its "
+              "`owner` addressee — does NOT close an owner-addressed halt. The live incident this "
+              "pins: stools #237/#248/#270, all closed by `goal-master`, a peer, never by the "
+              "owner",
+              _peer_ansc is None
+              and len(open_escalations(load_messages(baseW4)[1])) == len(_open_esc7b))
 
         # arm 8 — the D-8 migration and its DUAL-READ, on one log holding both encodings.
         _w4_pre = _append_message_unlocked(

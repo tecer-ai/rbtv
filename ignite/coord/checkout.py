@@ -85,12 +85,12 @@ def closing_seats(base):
 #      pane's window measured live. In-place respawn keeps the pane; re-place kills it. The
 #      condition is evaluated where it CAN be evaluated, which is the one thing checkout could
 #      never do.
-# THE DONE DISPOSITION IS UNCHANGED, AND DELIBERATELY: it forks nothing, and the debt recorded
-# below is still the whole of what checkout does about its pane. That pane lives until leader runs
-# `close-seat`, which is where the relay-door refusal gets its say before anything dies — a seat
+# THE PANE of a persistent done-checkout is still not killed here: it lives until leader runs
+# `close-seat`, which is where the relay-door refusal gets its say before the viewport dies — a seat
 # carrying `relays:` to a human role is refused there unless the caller passes `--force`, because a
-# door in the wrong place is cosmetic and a door destroyed is an outage. Answering the renew half
-# bought no right to skip that, so the done path was left exactly where the refusal put it.
+# door in the wrong place is cosmetic and a door destroyed is an outage. The HARNESS PROCESS is
+# another matter: leaving it idle after a declared ending was the 2d11h leak (G-leader-0823-0217-2).
+# The non-renew path arms `arm_pid_reaper` for every seat, not only `ephemeral: yes`.
 # So W1 is respected, not worked around: on this path no process respawns the pane it runs in — the
 # act that respawns runs OUTSIDE it, which is why `cmd_close_seat`'s self-act W1 warning is still
 # printed for the caller who reaches the respawn from inside its own pane.
@@ -1890,21 +1890,27 @@ def cmd_checkout(args):
         # the seat's own pane, no agent in the path. Run-3 measured the alternative: `depart` was
         # invoked 0 times in 94 launches, every finished seat left its pane as debt, and the reap
         # pass (leader-gated, two-pass, 15-min floor) never drained it — 6 of 10 mapped panes sat
-        # finished-but-open, three of them 14-23 h. The debt record written above is settled by
-        # the same act that makes it moot — the exact G-134 discipline `cmd_depart` states.
-        # PERSISTENT seats (no `ephemeral: yes`) keep the leader-frees-the-pane path unchanged.
+        # finished-but-open, three of them 14-23 h.
+        # G-leader-0823-0217-2: the PROCESS leak is the same shape on persistent seats. Checkout
+        # records `done`/`incomplete` and used to leave the harness idle forever because only
+        # `ephemeral: yes` armed `arm_pid_reaper`. death-stamp confirm-and-reap only runs after an
+        # observed death, so a living process never reached it. `cmd_reap --go` is leader-gated and
+        # is what failed to drain the 2d11h orphans. Arm the pid+starttime reaper here for EVERY
+        # non-renew ending (done, incomplete, unverified). Persistent seats still leave the pane
+        # for leader `close-seat` (relay-door); ephemeral still self-kills it.
+        _pane_e = (row or {}).get("pane") or detect_pane(None)
+        if _pane_e:
+            _idents_e = process.pane_harness_idents(_pane_e)
+            if _idents_e:
+                print(f"arming the exit reaper for harness pid(s) "
+                      f"{', '.join(str(p) for p, _ in _idents_e)} — no ghost survives this "
+                      f"checkout (it fires only on an exact pid+starttime match, so a "
+                      f"recycled pid is safe)")
+                process.arm_pid_reaper(_idents_e)
         _seat_e = next((w for w in launch.discover_workers(workers_dir(args)) if w["agent"] == me), None)
         if _seat_e is not None and _seat_e.get("ephemeral"):
             clear_closing(base, me)
-            _pane_e = (row or {}).get("pane") or detect_pane(None)
             if _pane_e:
-                _idents_e = process.pane_harness_idents(_pane_e)
-                if _idents_e:
-                    print(f"arming the exit reaper for harness pid(s) "
-                          f"{', '.join(str(p) for p, _ in _idents_e)} — no ghost survives this "
-                          f"self-close (it fires only on an exact pid+starttime match, so a "
-                          f"recycled pid is safe)")
-                    process.arm_pid_reaper(_idents_e)
                 print(f"ephemeral seat, session DONE — killing own pane {_pane_e} (self-close at "
                       f"checkout, r-checkout-selfclose: depart and done-checkout end the same "
                       f"way for ephemeral seats). Goodbye.")
