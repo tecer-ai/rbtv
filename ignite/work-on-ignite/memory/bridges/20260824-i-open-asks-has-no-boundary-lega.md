@@ -66,3 +66,5 @@ assumed one). `owed-answers.py --selfcheck` exits 0 on the restored reader. The 
 3. `ending_store.py` is the ONE kit door onto the store and it is where type coercion belongs. It coerced `declared_outputs` but not `evidence_pointer`, and the partial coercion read as complete — which is worse than none, because the door LOOKS like it normalizes.
 4. `engine/probes/probe-owner-ask-hold.js` is red for this reason and not for an engine bug. Do not chase it inside `seeding.js` or `ending-reads.js`: both already read §2.1 correctly.
 - The bridge is a separate process: no store handle, no child process, no sibling require — a spec row asking it to write daemon state needs a gateway intent, which is owner-ruled
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.

@@ -4,7 +4,8 @@
 // turns the bridge's vocabulary into `record-owner-ask` gateway calls and reports what came back.
 //
 // ⚠ `owner-asks.json` IS GONE, AND THIS FILE IS WHY IT COULD GO. `spec-state-store` §3 makes the
-// daemon-owned `open_asks` table in `heart.db` the ONE record of an owner ask, so a seat's wait is
+// daemon-owned `open_asks` table in the workspace ending store
+// `<workspace>/.rbtv/runtime/ignite/heart.db` (never the daemon lane store) the ONE record of an owner ask, so a seat's wait is
 // DERIVED (§2.1: an ask that is `posted` and still `open`) instead of stored in a file a second
 // component owns. The bridge could not simply write that table — `chat` runs as a SEPARATE
 // PROCESS and `probes/probe-chat-boundary.js` forbids a store handle, a child process and a
@@ -59,7 +60,8 @@ function createAskRecord({ forwarder, logger = null }) {
 
   // THE READ SIDE — every OPEN owner ask, ALL GOALS, for the 2-hourly system digest (§5). One
   // ordinary `inspect` call, for the same reason the two write acts are gateway calls: the record
-  // is `open_asks` in `heart.db` and this process may not open it. `inspect asks` is a read-only
+  // is `open_asks` in the workspace ending store `<workspace>/.rbtv/runtime/ignite/heart.db`
+  // (never the daemon lane store) and this process may not open it. `inspect asks` is a read-only
   // TARGET of the existing intent (ce-5/D3), never a new one — the bridge still holds "no new
   // intent of its own".
   //

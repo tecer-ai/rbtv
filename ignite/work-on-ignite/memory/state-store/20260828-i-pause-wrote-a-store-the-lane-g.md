@@ -168,3 +168,5 @@ DAEMON is the unit that must restart, because the executor and the dispatcher bo
    `bindEnding`'s unopenable-home fall-through, where `running` is the non-blocking answer — but
    anyone diagnosing that goal from the private store will read a pause history that never applied.
 - the executor takes NO store handle: the home comes from workspaceRoot only, and bindEnding's lane-store fall-through must never be reused by a writer
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.

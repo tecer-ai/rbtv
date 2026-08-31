@@ -145,3 +145,5 @@ at filing; the DAEMON is the unit that must restart.
    the comparator to `Date.parse` looks like a tidy-up and silently mixes a local-time coord stamp
    with a UTC ISO stamp, which shifts the AGE the digest renders by the box's UTC offset.
 - one row per signature-grouped RECORD, never one per lane — expanding the lanes array restores the per-lane ask the grouping rule forbids
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.

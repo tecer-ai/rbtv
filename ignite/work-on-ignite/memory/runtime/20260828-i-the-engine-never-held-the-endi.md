@@ -168,3 +168,5 @@ must restart, because the engine, the dispatcher and the reconcile pass all boot
    never run in an ordinary invocation. Reading "reconcile.selftest EXIT 1" as one known red
    understates it by four, and any claim that a B11 arm is green must say how it was reached.
 - createEngine resolves the ending store from workspaceRoot only — bindEnding's lane-store fall-through is a READER's fail-safe and must never be reused here
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.

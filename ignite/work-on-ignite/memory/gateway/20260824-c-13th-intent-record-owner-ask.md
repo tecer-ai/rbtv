@@ -98,3 +98,5 @@ branch `ignite/core-redesign`.
 4. `ask_id` IS the Slack thread. There is no allocator and no per-seat queue, so "settle the oldest open ask" has no successor — a reap without a thread is refused, deliberately, because guessing is how a reply to one question closes another.
 5. Backticks inside a double-quoted `git commit -m` argument are shell-substituted. One word was eaten out of this change's commit message prose; the code comment carries the full statement.
 - git checkout -- <path> restores from the INDEX and destroys a concurrent session's uncommitted work in a shared worktree
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.

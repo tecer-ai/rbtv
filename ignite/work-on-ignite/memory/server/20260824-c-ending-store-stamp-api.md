@@ -28,3 +28,5 @@ No legacy reader was retargeted (kit/engine/periphery own that). `jobs_log` stay
 - `copyHeartHome` refuses an existing dest and must not be pointed at a live daemon `{state_root}/heart.db` as dest. Sources are read; dest is created.
 - `goalWaitingOnOwner` takes caller-supplied `canAdvance`. This store does not walk the task graph; lying about `canAdvance` mints a false wait.
 - `failed:crash` without a non-empty `evidence_pointer` is refused. Death-truth must name the observed death.
+
+2026-08-31 addendum: superseded on the store location — since 361a56f2, openAsk/reapAsk/listOpenAsks resolve the workspace ending store (`<workspace>/.rbtv/runtime/ignite/heart.db`); the lane-store `open_asks` copy was drained (rows copied over, table emptied) on 2026-08-31. Read the store location from `ask-record.js`, not from this note.
