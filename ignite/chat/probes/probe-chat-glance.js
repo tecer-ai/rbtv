@@ -166,17 +166,22 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
     const text = slack.posts[0].text;
     const iAsks = text.indexOf('❓ open asks');
     const iCond = text.indexOf('Open conditions');
-    const iLinks = text.indexOf('Links');
-    check('§5 field ORDER is asks → conditions → links',
-      iAsks > 0 && iCond > iAsks && iLinks > iCond, { iAsks, iCond, iLinks });
+    // The trailing `Links` section (absolute VPS paths, unclickable on a phone) was DELETED
+    // (owner ruling `d-digest-ui`) — a link-less row now keeps its own `evidence_pointer` inline
+    // instead. Order is asks → conditions, and the literal string `Links` never appears.
+    check('§5 field ORDER is asks → conditions, and the Links section is gone',
+      iAsks > 0 && iCond > iAsks && !text.includes('Links'), { iAsks, iCond });
 
-    check('§5 the ask row is display_suffix · seat · one-liner · age · link',
-      text.includes('• 123456 · draft-seat · which binder for the vault path? · 3h · <https://slack.example/archives/Cgoal/p123|open>'),
-      { row: text.split('\n').find((l) => l.startsWith('• 123456')) });
+    // The goal now LEADS the row and IS the tap target when a link exists (owner ruling
+    // `d-digest-ui`); these fixture asks carry no `goal`, so the row falls back to the id in the
+    // lead position and the id is not repeated at the end.
+    check('§5 a goal-less ask row is <link|display_suffix> · seat · one-liner · age',
+      text.includes('• <https://slack.example/archives/Cgoal/p123|123456> · draft-seat · which binder for the vault path? · 3h'),
+      { row: text.split('\n').find((l) => l.includes('123456')) });
 
     check('§5 an ask under an hour old renders whole minutes (the spec example\'s `40m`)',
-      text.includes('• 654321 · leader · drop lane or pause goal? · 40m · '),
-      { row: text.split('\n').find((l) => l.startsWith('• 654321')) });
+      text.includes('• <https://slack.example/archives/Cgoal/p654|654321> · leader · drop lane or pause goal? · 40m'),
+      { row: text.split('\n').find((l) => l.includes('654321')) });
 
     check('§5 the open CONDITION row renders condition · subject · age · link',
       text.includes('• running, no live seat, no eligible launch, no open ask, not paused · ignite-engine · 1h · <https://slack.example/archives/Csys/p999|open>'),

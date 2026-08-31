@@ -79,6 +79,28 @@ function joinRow(fields) {
   return `• ${fields.filter((f) => f != null && String(f) !== '').join(' · ')}`;
 }
 
+// The goal leads so the owner can tell which goal an ask belongs to without opening it, and it IS
+// the tap target when `ask.link` is set (`<link|*goal*>`) — no separate "open" cell. `ask.goal` is
+// absent on no row today (`ask-record.js#listOpenAsks` / `exhaustion.js#listOpenGroupedAsks` both
+// carry it), but a row is never left anonymous: with no goal, the id fills the lead position
+// instead. The id otherwise renders once more, at the row's end, as the doc-quiet identifier the
+// owner never needs but the daemon still keys work on. A link-less row keeps its own
+// `evidence_pointer` inline (after age) since there is no tap target to reach it through.
+function renderAskRow(ask, nowMs) {
+  const hasGoal = ask.goal != null && String(ask.goal) !== '';
+  const idSuffix = displaySuffix(ask.id);
+  const leadText = hasGoal ? `*${ask.goal}*` : idSuffix;
+  const lead = ask.link ? `<${ask.link}|${leadText}>` : leadText;
+  return joinRow([
+    lead,
+    ask.seat,
+    ask.one_liner,
+    renderAge(toMs(ask.opened_at), nowMs),
+    ask.link ? null : ask.evidence_pointer,
+    hasGoal ? idSuffix : null,
+  ]);
+}
+
 // §5's snapshot, and ONLY §5's snapshot. Sorted so a reader returning the same set in a different
 // order is not mistaken for a change.
 function snapshotOf(asks, conditions) {
@@ -98,13 +120,7 @@ function renderDigest({ at, asks, conditions, nowMs }) {
     lines.push('• none open');
   } else {
     for (const ask of asks) {
-      lines.push(joinRow([
-        displaySuffix(ask.id),
-        ask.seat,
-        ask.one_liner,
-        renderAge(toMs(ask.opened_at), nowMs),
-        ask.link ? `<${ask.link}|open>` : null,
-      ]));
+      lines.push(renderAskRow(ask, nowMs));
     }
   }
 
@@ -117,20 +133,9 @@ function renderDigest({ at, asks, conditions, nowMs }) {
         cond.condition,
         cond.subject,
         renderAge(toMs(cond.first_emitted_at), nowMs),
-        cond.link ? `<${cond.link}|open>` : null,
+        cond.link ? `<${cond.link}|open>` : cond.evidence_pointer,
       ]));
     }
-  }
-
-  // §5 order slot (3). The rows above are what name the on-disk paths, so with no row carrying an
-  // `evidence_pointer` there is nothing to link and the section is omitted rather than left empty.
-  const links = [
-    ...asks.map((a) => a.evidence_pointer),
-    ...conditions.map((c) => c.evidence_pointer),
-  ].filter((p) => p != null && String(p) !== '');
-  if (links.length > 0) {
-    lines.push('', 'Links');
-    for (const link of [...new Set(links.map(String))]) lines.push(`• ${link}`);
   }
 
   return lines.join('\n');
