@@ -4,3 +4,4 @@
 2026-08-31 · creation · digest asks sort blocking-first (d-ask15) · Checked the `open_asks` schema (`state-store/tables.sql`) and `ask-record.js#listOpenAsks`'s row · 6c97194f · — · ⚠
 2026-08-31 · creation · one open escalation per goal (d-escalation-surface 8) · The gate sits in `bus-ferry.js`'s per-row loop, right where a new escalation would otherwise mint · 77fc4695 · — · ⚠
 2026-08-31 · change · owner-DM escalation legs retired, system-channel alarm · Both DM legs are deleted and unified into ONE mechanism, `postUnreachableChannelAlarm`, firing to · b9c014f3 · — · ⚠
+2026-08-31 · creation · drop-lane port: stop live work, then abandon · The port is TWO wire calls in order, composed entirely from ports/intents this seat did not · 8c1023afeaa45474f85a0f3a09a25ecc266e61ed · gateway,runtime,state-store · ⚠
