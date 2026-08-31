@@ -45,6 +45,46 @@ function injectDeclaredEnv(names, store) {
   return env;
 }
 
+// ── The account shape (`d-credential-account-shape`, `d-ask17-credential-token-broker`) ──────
+//
+// A `credentialNames` entry may now be a bare string (the ONLY shape above ever knew, resolved
+// against `.env`, unchanged) OR a typed object `{ type: 'gtools-account', account: '<name>' }` —
+// a gtools OAuth account (a directory under `gtools/credentials/<account>/`, never `.env`). This
+// function is the admission-time half only (§10a of `cred-account-shape-design.md`): it answers
+// "does this account's login exist on disk", the SAME "exists, non-empty" bar `resolveCredentials`
+// already applies to a `.env` key — never whether the login is still valid at Google, which only
+// the broker's live mint (`credential-broker.js`) can answer, deliberately not duplicated here.
+const ACCOUNT_CREDENTIAL_FILES = ['credentials.json', 'token.json'];
+
+function isAccountCredentialEntry(entry) {
+  return Boolean(entry) && typeof entry === 'object' && entry.type === 'gtools-account';
+}
+
+// `gtoolsRoot` is the directory that holds `credentials/<account>/…` (today, always
+// `<workspaceRoot>/3-resources/tools/gtools` — threaded as an argument, never hardcoded here,
+// so a fixture can point it anywhere without touching a real account).
+function accountCredentialDir(gtoolsRoot, account) {
+  return path.join(gtoolsRoot, 'credentials', account);
+}
+
+function resolveAccountCredentials(entries, gtoolsRoot) {
+  const missing = [];
+  for (const entry of entries || []) {
+    const account = entry && entry.account;
+    if (!account || typeof account !== 'string') {
+      missing.push(`gtools-account:${JSON.stringify(account)}`);
+      continue;
+    }
+    const dir = accountCredentialDir(gtoolsRoot, account);
+    const ok = ACCOUNT_CREDENTIAL_FILES.every((f) => {
+      try { return fs.statSync(path.join(dir, f)).size > 0; } catch { return false; }
+    });
+    if (!ok) missing.push(`gtools-account:${account}`);
+  }
+  if (missing.length) return { ok: false, missing };
+  return { ok: true };
+}
+
 module.exports = {
   STORE_REL,
   storePath,
@@ -52,4 +92,8 @@ module.exports = {
   loadCentralStore,
   resolveCredentials,
   injectDeclaredEnv,
+  ACCOUNT_CREDENTIAL_FILES,
+  isAccountCredentialEntry,
+  accountCredentialDir,
+  resolveAccountCredentials,
 };

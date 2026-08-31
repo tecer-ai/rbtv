@@ -5,7 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { admitLaunch, consumeLaunch, isStaffUncaged, loadFillIns } = require('./launch');
-const { loadCentralStore, resolveCredentials, injectDeclaredEnv } = require('./credentials');
+const {
+  loadCentralStore, resolveCredentials, injectDeclaredEnv, resolveAccountCredentials,
+} = require('./credentials');
 const { stampLaunchRefused } = require('./stamp');
 const { conflictBind } = require('../supervisor/spawn/seat-grants');
 
@@ -104,6 +106,43 @@ function run() {
   assert.equal(noneLaunch.spawn, true, `zero names refused: ${JSON.stringify(noneLaunch.refuse)}`);
   assert.deepEqual(noneLaunch.credentialNames, []);
   console.log('PASS missing-credential-refuses');
+
+  // The account shape (`d-credential-account-shape`, `d-ask17-credential-token-broker`): a
+  // `credentialNames` entry may be `{ type: 'gtools-account', account }` — checked at admission
+  // against `gtools/credentials/<account>/{credentials.json,token.json}` existing, never against
+  // `.env`. This fixture account is not a real login: two non-empty placeholder files.
+  const gtoolsRoot = path.join(workspace, '3-resources', 'tools', 'gtools');
+  touch(path.join(gtoolsRoot, 'credentials', 'fixture-acct', 'credentials.json'), '{"fixture":true}');
+  touch(path.join(gtoolsRoot, 'credentials', 'fixture-acct', 'token.json'), '{"fixture":true}');
+
+  const acctOk = resolveAccountCredentials([{ type: 'gtools-account', account: 'fixture-acct' }], gtoolsRoot);
+  assert.equal(acctOk.ok, true, JSON.stringify(acctOk));
+  const acctMissing = resolveAccountCredentials([{ type: 'gtools-account', account: 'no-such-acct' }], gtoolsRoot);
+  assert.equal(acctMissing.ok, false);
+  assert.deepEqual(acctMissing.missing, ['gtools-account:no-such-acct']);
+  console.log('PASS resolveAccountCredentials');
+
+  const acctLaunchOk = admitLaunch({
+    ...base, fillIns: { credentialNames: [{ type: 'gtools-account', account: 'fixture-acct' }] },
+  });
+  assert.equal(acctLaunchOk.spawn, true, `account entry refused: ${JSON.stringify(acctLaunchOk.refuse)}`);
+  assert.deepEqual(acctLaunchOk.credentialNames, [], 'account entries never leak into the bare-string list');
+  assert.deepEqual(acctLaunchOk.accountCredentials, ['fixture-acct']);
+
+  const acctLaunchMissing = admitLaunch({
+    ...base, fillIns: { credentialNames: [{ type: 'gtools-account', account: 'no-such-acct' }] },
+  });
+  assert.equal(acctLaunchMissing.spawn, false);
+  assert.equal(acctLaunchMissing.refuse.kind, 'missing-credential');
+  assert.deepEqual(acctLaunchMissing.refuse.missing, ['gtools-account:no-such-acct']);
+
+  const mixedLaunch = admitLaunch({
+    ...base,
+    fillIns: { credentialNames: ['DECLARED', { type: 'gtools-account', account: 'no-such-acct' }] },
+  });
+  assert.equal(mixedLaunch.spawn, false, 'a present bare secret must not mask a missing account');
+  assert.deepEqual(mixedLaunch.refuse.missing, ['gtools-account:no-such-acct']);
+  console.log('PASS admitLaunch-account-shape');
 
   assert.equal(isStaffUncaged({ seat: 'leader' }), true);
   assert.equal(isStaffUncaged({ seat: 'worker' }), false);

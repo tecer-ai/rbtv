@@ -6,7 +6,9 @@ const path = require('node:path');
 const { compile, compilePlanning } = require('./compiler');
 const { covers, realpathOrNull } = require('./paths');
 const { writeConfigShims } = require('./shims');
-const { loadCentralStore, resolveCredentials } = require('./credentials');
+const {
+  loadCentralStore, resolveCredentials, isAccountCredentialEntry, resolveAccountCredentials,
+} = require('./credentials');
 const { reasonFrom } = require('../supervisor/spawn/seat-grants');
 
 const STAFF = new Set(['leader', 'goal-master', 'channel-master']);
@@ -160,15 +162,26 @@ function admitLaunch(raw) {
   if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
   const punched = ownSeatPunch(compiled.binds, raw);
   if (punched.refuse) return { spawn: false, refuse: punched.refuse };
-  const credentialNames = compiled.credentialNames || [];
+  // A `credentialNames` entry is either a bare string (resolved against `.env`, unchanged since
+  // `071687e7`) or a typed `{ type: 'gtools-account', account }` object (`d-credential-account-
+  // shape`, `d-ask17-credential-token-broker`) — an account whose LOGIN FILES exist is checked
+  // here (§10a of `cred-account-shape-design.md`); minting an actual token happens later, live,
+  // through `credential-broker.js`, never here. Splitting keeps `credentialNames` itself exactly
+  // the bare-string list every existing caller (`spawn.js#injectDeclaredEnv`) already expects.
+  const declared = compiled.credentialNames || [];
+  const credentialNames = declared.filter((e) => typeof e === 'string');
+  const accountEntries = declared.filter(isAccountCredentialEntry);
   const resolved = resolveCredentials(credentialNames, loadCentralStore(raw.workspaceRoot));
-  if (!resolved.ok) {
+  const gtoolsRoot = path.join(raw.workspaceRoot, '3-resources', 'tools', 'gtools');
+  const resolvedAccounts = resolveAccountCredentials(accountEntries, gtoolsRoot);
+  const missing = [...(resolved.ok ? [] : resolved.missing), ...(resolvedAccounts.ok ? [] : resolvedAccounts.missing)];
+  if (missing.length) {
     return {
       spawn: false,
       refuse: {
         kind: 'missing-credential',
-        missing: resolved.missing,
-        reason: `missing credential: ${resolved.missing.join(', ')}`,
+        missing,
+        reason: `missing credential: ${missing.join(', ')}`,
       },
     };
   }
@@ -176,6 +189,7 @@ function admitLaunch(raw) {
     spawn: true,
     binds: punched.binds,
     credentialNames,
+    accountCredentials: accountEntries.map((e) => e.account),
     shims,
   };
 }
