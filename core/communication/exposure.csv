@@ -1,7 +1,8 @@
 # Columns are the seven of `concepts/exposure-manifest.md` § file schema, in its order — routed,
 # not invented; `#`-led lines are dropped before the header is read.
 #
-# SIX ROWS: one first-party tool (the `audio` capability), three `reference`/`rule` rows —
+# SEVEN ROWS: two first-party tools (the `audio` capability and its `link-tools` PATH-installer),
+# three `reference`/`rule` rows —
 # the always-on owner-facing chat style rules (`plain-language`, `non-technical-user`,
 # `concise-chat`) — and TWO `reference`/`skill` rows — `audio-aware` (ungarbling a transcript once
 # you have one) and `audio-io` (running the capability's own two verbs to GET one, and to speak
@@ -29,6 +30,7 @@
 # file-level bind is enough.
 part-id,part-kind,method,rbtv-cli,entry-point,description,write-roots
 audio,tool,path,,capabilities/audio/audio.py,,!capabilities/audio/config.json
+link-tools,tool,path,,link-tools.py,,
 plain-language,reference,rule,,references/plain-language.md,"Plain language on every turn: define every term on first use, no analogies, no bare name-drops, no unexpanded acronyms, a phase named with its purpose, and existing terminology only — never an invented term or alias.",
 non-technical-user,reference,rule,,references/non-technical-user.md,"The code overlay for a non-technical owner: every technical name paired with a plain translation the owner learns from, every coding decision framed as the behavior change the owner will see, and never a raw log/diff/output dump in chat.",
 concise-chat,reference,rule,,references/concise-chat.md,"Objective concise chat: fewest words that carry the message, lead with the decision or result, never restate what a file already says, TLDR bullets on long explanations, and the fixed question format — max 3 at a time, named options with consequences, one recommended.",

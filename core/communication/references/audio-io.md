@@ -21,18 +21,21 @@ skills. Never look for a channel id, a workspace flag or an upload verb here: no
 
 ## How you reach it
 
-**Which command NAME works depends on your vantage, and the two vantages disagree.** Measured
-both ways, 2026-08-28:
+**Which command NAME works depends on your vantage, and the vantages disagree.** Measured
+2026-08-28 and 2026-08-31:
 
 | Your vantage | A bare `audio <verb>` | Why |
 |---|---|---|
 | a CAGED seat that declares `audio` in its `exposed-clis` | **works** | the sandbox materializes a `~/.rbtv-bin/audio` SYMLINK from that declaration |
-| a CAGED seat that does not declare it, or ANY UNCAGED chair | **exits 127**, command not found | `~/.rbtv-bin` is built inside a sandbox; it does not exist on the real filesystem at all |
+| a CAGED seat that does not declare it | **exits 127**, command not found | `~/.rbtv-bin` is built inside a sandbox; it does not exist on the real filesystem at all |
+| an UNCAGED daemon-spawned staff sitting, on a box where `python3 core/communication/link-tools.py` has been run | **works** | `~/.local/bin/audio` (the link that script installs) is on PATH via `spawn.js`'s `local-bin: true` grant |
+| an UNCAGED chair on a box that has never run that install step (a fresh clone, an unrebuilt box) | **exits 127**, command not found | the symlink does not exist yet — running the install step, once per box, is what creates it |
 
-Uncaged means unmasked, NOT better-equipped — the uncaged chairs never declared this CLI, so they
-never got the shim.
+Uncaged means unmasked, NOT better-equipped — the uncaged chairs never declared this CLI, so a
+caged shim was never on the table for them; the install step above gives them a different route to
+the same bare name, conditional on having been run on that box.
 
-**So DEFAULT to the full path form.** It is the one form correct in BOTH vantages, which is what
+**So DEFAULT to the full path form.** It is the one form correct in EVERY vantage, which is what
 any instruction that cannot know its reader's cage needs; the bare name is a caged-seat
 convenience, never the documented recipe. Every path below is relative to the workspace root.
 
