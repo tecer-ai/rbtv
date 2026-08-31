@@ -2088,12 +2088,12 @@ def cmd_launch(args):
     # It differs from `--rerun` in exactly the ways D54/D66/D72 require:
     #   - admits `done` (any writer `RECORD_DISPOSITION_WRITER["done"]` admits), where `--rerun`
     #     refuses it BY STATE (its own refusal text, quoted above, unchanged) — `done` does NOT
-    #     join `--rerun`'s own admitted from-state, which stays `exited`+`kit` only;
+    #     join `--rerun`'s own admitted from-state, which stays `failed`+crash/provider-error only;
     #   - WRITES the reason durably (D72: "a new column on the NEW sessions row") where `--rerun`'s
     #     anchor is console-only — the gap the mechanism lane measured and flagged;
     #   - is bounded by a (goal, seat, reason) budget (D66) — `--rerun` carries none;
     #   - computes and flags D72's walk-forward (downstream seats that already ran on the `done`
-    #     this reopens) — `--rerun`'s target, `exited`, never advanced an edge, so it has no
+    #     this reopens) — `--rerun`'s target, `failed`/crash, never advanced an edge, so it has no
     #     downstream-consumer analogue at all.
     #
     # ⚠ THE BRAKE IS coord.py-LOCAL, NOT brief 07's `heart.db` COUNTER, AND THAT IS A DISCLOSED
@@ -2168,26 +2168,40 @@ def cmd_launch(args):
         except coord.ending_store.EndingStoreError:
             _ro_end = {}
         _ro_disp = _ro_end.get("ending") or _ro_row.get("disposition", "")
+        _ro_class = (_ro_end.get("reason_class") or "").strip()
         _ro_writer = _ro_end.get("who_stamped") or _ro_row.get("disposition-writer", "")
         if _ro_disp != "done":
             # ⚠ THE REFUSAL NAMES THE RIGHT DOOR FOR THE CLASS IT FOUND, mirroring `--rerun`'s
             # own routing table — a fifth copy of it is not built; this is `--reopen`'s own,
             # naming `--rerun` for the ONE class it is right about.
-            _ro_door = {
-                "exited": ("the KIT says the harness TERMINATED and the work is UNKNOWN — never "
-                           f"finished. That door is `{coord.coord_invocation(args)} launch --only "
-                           f"{_rot} --rerun <leader-anchor>` (D42)"),
-                "incomplete": ("the SEAT said its work is unfinished, and the goal watcher "
-                               "relaunches that class BY NAME on its own cadence (D33(a)) — this "
-                               "door is not it"),
-                "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
-                               "That is a ruling, not a reopen — rule it with `supervise accept "
-                               "<seat> --anchor <ref>` or `supervise instruct <seat> <kind>`, "
-                               "never the deleted `rule-disposition` [T2-R12, T1-R9]"),
-                "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
-                     f"door's own instrument for it is `--declare-only <leader-anchor>`"),
-            }.get(_ro_disp, f"`{_ro_disp}` is not a finished ending and this door does not "
-                            f"admit it")
+            #
+            # ⚠ THE KEY IS `failed`+REASON CLASS, NEVER THE RETIRED `exited`. The ending store
+            # refuses `exited` at its write boundary [T1-R3, T4-R7] — the from-state --rerun
+            # actually admits is `failed` with reason class `crash`/`provider-error`
+            # (RERUN_ADMITTED_REASON_CLASSES, --rerun's own from-state read above). A dict keyed
+            # on `exited` never matches a live ending and silently fell through to the generic
+            # `f"`{_ro_disp}` is not a finished ending"` branch for every real crashed seat.
+            if _ro_disp == "failed" and _ro_class in RERUN_ADMITTED_REASON_CLASSES:
+                _ro_door = ("the SUPERVISOR says the harness DIED and the work is UNKNOWN — never "
+                            f"finished. That door is `{coord.coord_invocation(args)} launch --only "
+                            f"{_rot} --rerun <leader-anchor>` (D42)")
+            else:
+                _ro_door = {
+                    "incomplete": ("the SEAT said its work is unfinished, and the goal watcher "
+                                   "relaunches that class BY NAME on its own cadence (D33(a)) — this "
+                                   "door is not it"),
+                    "unverified": ("the SEAT claimed done and the gate could not grade the claim. "
+                                   "That is a ruling, not a reopen — rule it with `supervise accept "
+                                   "<seat> --anchor <ref>` or `supervise instruct <seat> <kind>`, "
+                                   "never the deleted `rule-disposition` [T2-R12, T1-R9]"),
+                    "": ("nobody declared an ending at all. That is the UNDECLARED class, and this "
+                         f"door's own instrument for it is `--declare-only <leader-anchor>`"),
+                    "failed": (f"the ending IS `failed`, but its reason class is "
+                               f"`{_ro_class or '(none)'}` — not a crash. `outputs-missing` is the "
+                               f"gate's verdict on a claim, which is a ruling and not a reopen or "
+                               f"a re-run"),
+                }.get(_ro_disp, f"`{_ro_disp}` is not a finished ending and this door does not "
+                                f"admit it")
             coord.refuse(
                 "state",
                 f"'{_rot}' last ENDED with disposition `{_ro_disp or '(empty)'}` written by "
@@ -2293,7 +2307,7 @@ def cmd_launch(args):
                       f"seat so that the session it opens can DECLARE THAT ENDING. (D42: the "
                       f"purpose is the caller's and the flag enforces nothing about it — what the "
                       f"flag decides is ADMISSION of the UNDECLARED class. It is NOT the door for "
-                      f"a CRASHED seat: an `exited` row is re-run with `--rerun <leader-anchor>`.)"
+                      f"a CRASHED seat: a `failed`/crash row is re-run with `--rerun <leader-anchor>`.)"
                       f"\nSee: "
                       f"{coord.coord_invocation(args)} ready-seats --explain <seat>")
             if not workers:
@@ -2444,14 +2458,14 @@ def cmd_launch(args):
             f"gate, and neither reaches here. A seat that must simply RUN AGAIN is the goal "
             f"watcher's business, not this door's: it relaunches a seat-written "
             f"`declared-incomplete` row BY NAME (D33(a)), and the LEADER resolves the rest of "
-            f"`exited`, `unverified`, `incomplete` or no-ending rows with a ruling — D33(b), recorded "
+            f"`failed`/crash, `unverified`, `incomplete` or no-ending rows with a ruling — D33(b), recorded "
             f"with `supervise accept <seat> --anchor <ref>` where the work in fact concluded and "
             f"`supervise instruct <seat> <kind>` where it did not. (`rule-disposition`, the verb "
             f"that used to record one, was deleted [T2-R12, T1-R9]; neither of these is its "
             f"return — they write the ENDING, never a sessions.csv cell.) ⚠ `exit-unruled` HAS ITS OWN DOOR "
             f"SINCE D42: a seat whose harness DIED mid-task is re-run here, in ONE act, with "
             f"`--rerun <leader-anchor>` — an ordinary working session, no CLEAR first, and the "
-            f"`exited` row left standing. `--declare-only <leader-anchor>` remains this door's "
+            f"`failed` row left standing. `--declare-only <leader-anchor>` remains this door's "
             f"one-seat instrument for an UNDECLARED ending and is not a way back to WORK.\nSee: "
             f"{coord.coord_invocation(args)} ready-seats --explain <seat>")
         if not workers:
