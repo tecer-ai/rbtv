@@ -11,3 +11,4 @@
 2026-08-31 · creation · seat_abandonments: a lane's second terminal outcome · `state-store/tables.sql` gets `seat_abandonments`, a SIBLING TABLE beside `seat_endings` — not a · f1b7a2928cf904bebe351a7a7970cad7cb70f23a · state-store · ⚠
 2026-08-31 · creation · Owner retry-with-change text lands in the next boot prompt · The composition site is `launch.py#boot_prompt`, NOT `ignite/planning/materialize-seats.py` (this · bff066ac · chat · ⚠
 2026-08-31 · change · reconcile+lane-watch honour a dropped lane's abandonment · Re-verified all four sites the ruling named against the current tree (post-refactor, `engine/` → · 4196440e · — · ⚠
+2026-08-31 · creation · The close-or-keep ask on a goal's last dropped lane · A goal whose last owed lane is dropped mints ONE close-or-keep ask; the condition is · 37743970 (own files, reconcile.js hunk in peer commit 4196440e) · chat · ⚠
