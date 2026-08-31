@@ -187,10 +187,14 @@ function seatsOf(goalDir, log) {
 // The counter half's one call site (`supervisor/exhaustion.js#rearmScope`). A ledger that refuses
 // must not cost the owner the rest of the table — the failure becomes a refusal the door posts,
 // never an exception that eats the verb.
-function rearmCounterRows(store, goal, countersFile, log) {
+// `seat` narrows the sweep to one lane (`d-recovery-retry-scope`) — omitted, `rearmScope` sweeps
+// every counter the goal owns, exactly as before this fix.
+function rearmCounterRows(store, goal, countersFile, log, seat) {
   try {
     const { rearmScope } = require('../../supervisor/exhaustion');
-    const out = rearmScope({ store, goal, event: REARM_EVENT }, { countersFile });
+    const out = rearmScope({
+      store, goal, seat, event: REARM_EVENT,
+    }, { countersFile });
     return { cleared: (out && Array.isArray(out.cleared)) ? out.cleared : [], error: null };
   } catch (err) {
     log('warn', 'the attempt-counter re-arm refused — resume\'s counter half did not happen', { error: err.message });
@@ -216,7 +220,15 @@ function applyPause(store, goal, evidencePointer) {
 // than one halted kind at once, and each row is independent: the goal flipping to `running` does
 // not re-arm a counter-exhausted lane, and a lane refusing to be lifted does not stop the goal word
 // from flipping.
-function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log }) {
+//
+// `targetSeat` is the LANE-SCOPING parameter (owner ruling 2026-08-31, `d-recovery-retry-scope`):
+// present, the sweep below touches ONLY that one `(goal, seat)` lane — the goal word (ROW 4) is
+// left exactly as it stands, since that row is the GOAL's, not any lane's, and "re-arms ONLY that
+// lane" is the ruling's own wording. Absent, every line below runs exactly as it did before this
+// parameter existed — that goal-wide path is unchanged, byte for byte.
+function applyResume(store, {
+  goal, goalDir, evidencePointer, countersFile, log, seat: targetSeat = undefined,
+}) {
   const actions = [];
   const refusals = [];
 
@@ -233,11 +245,14 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
   // produce ahead of every write, so that failure can no longer half-apply the verb. `log` is
   // passed plainly: an enumeration that failed has no seat to name, which is exactly what the
   // closure was pretending otherwise.
-  const seats = seatsOf(goalDir, log);
+  // A named target skips the roster read entirely — the caller already named the one lane it
+  // means, and a stale or unreadable `taskforce.csv` must not stand between the owner and the one
+  // seat they explicitly targeted.
+  const seats = targetSeat !== undefined ? [targetSeat] : seatsOf(goalDir, log);
 
   // ROW 1, THE COUNTER HALF. It runs FIRST because it is the half the reconcile loop reads: a lane
   // whose counter still stands at N is skipped on every pass no matter what the ending row says.
-  const counter = rearmCounterRows(store, goal, countersFile, log);
+  const counter = rearmCounterRows(store, goal, countersFile, log, targetSeat);
   for (const row of counter.cleared) {
     actions.push({
       row: 'counter',
@@ -252,12 +267,17 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
 
   // ROW 4 — paused goal: flip `paused` → `running`. Armed eligible lanes may then launch; a
   // disarmed one stays disarmed until its own row (or another named re-arm) consumes the flag.
-  const goalState = store.getGoalState(goal);
-  if (goalState && goalState.stored === 'paused') {
-    store.writeGoalWord({ goal, stored: 'running', who_stamped: 'owner', evidence_pointer: evidencePointer('resume', goal) });
-    actions.push({ row: 'goal', change: 'paused→running', goal });
-  } else if (goalState && goalState.stored === 'finished') {
-    refusals.push({ row: 'goal', text: `${goal} is finished — resume does not reopen a finished goal.` });
+  // Skipped for a lane-scoped resume: the goal word is the GOAL's row, not the targeted lane's, and
+  // touching it would resume every OTHER lane's launch eligibility too — exactly what "ONLY that
+  // lane" forbids.
+  if (targetSeat === undefined) {
+    const goalState = store.getGoalState(goal);
+    if (goalState && goalState.stored === 'paused') {
+      store.writeGoalWord({ goal, stored: 'running', who_stamped: 'owner', evidence_pointer: evidencePointer('resume', goal) });
+      actions.push({ row: 'goal', change: 'paused→running', goal });
+    } else if (goalState && goalState.stored === 'finished') {
+      refusals.push({ row: 'goal', text: `${goal} is finished — resume does not reopen a finished goal.` });
+    }
   }
 
   for (const seat of seats) {
@@ -313,12 +333,19 @@ function applyResume(store, { goal, goalDir, evidencePointer, countersFile, log 
 // The caller hands NO store handle. It used to hand its own `heartStore` and that handle was the
 // defect (see THE ENDING HOME above): the only store this verb may touch is derived from
 // `workspaceRoot`, so there is no parameter through which the wrong one can arrive.
+// `seat` (owner ruling 2026-08-31, `d-recovery-retry-scope`) is OPTIONAL and narrows `resume` to
+// ONE `(goal, seat)` lane — absent, every path below is byte-for-byte what it was before this
+// parameter existed. It is checked a THIRD time here against the module that owns the name shape
+// (same reason the goal is: both become PATH SEGMENTS and directory-scan keys downstream), and is
+// simply never read by `applyPause` — a pause has no per-lane effect, so a caller who slips it
+// past the two gateway copies' verb=resume check gets a no-op, never a wrong write.
 function pauseResume({
-  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,
+  workspaceRoot, verb, goal, seat = undefined, countersFile = undefined, chatUser = undefined, logger = null,
 }) {
   const log = (level, message, fields = {}) => { if (logger) logger({ level, message, verb, goal, ...fields }); };
   if (!VERBS.has(String(verb))) return { found: false, reason: 'bad-verb', detail: `unknown mechanical verb ${verb}` };
   if (!isSafeName(goal)) return { found: false, reason: 'bad-name', detail: 'goal is not a bare safe name' };
+  if (seat !== undefined && !isSafeName(seat)) return { found: false, reason: 'bad-name', detail: 'seat is not a bare safe name' };
   if (!liveGoals(workspaceRoot).includes(String(goal))) {
     return { found: false, reason: 'no-such-goal', detail: `${goal} is not a live goal` };
   }
@@ -333,9 +360,11 @@ function pauseResume({
   const out = verb === 'pause'
     ? applyPause(store, goal, evidencePointer)
     : applyResume(store, {
-      goal, goalDir, evidencePointer, countersFile, log,
+      goal, goalDir, evidencePointer, countersFile, log, seat,
     });
-  return { found: true, verb, goal, ...out };
+  return {
+    found: true, verb, goal, ...(seat !== undefined ? { seat } : {}), ...out,
+  };
 }
 
 module.exports = {

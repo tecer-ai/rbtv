@@ -346,9 +346,23 @@ function consumeDisarmed({
 // module's own scope rule), and a lane-scoped one clears the lane the owner just named. Filtering
 // to `attempts >= N` here would need a second copy of the N and would leave a row at N-1 counting
 // through a deploy that changed the very code it was counting refusals from.
-function rearmScope({ store = null, goal = null, event }, { countersFile } = {}) {
-  const before = counters.listCounters({ goal }, { countersFile });
-  if (!before.length) return { event, goal, cleared: [], consumed: [] };
+//
+// `seat` NARROWS THE LANE SCOPE FURTHER, TO ONE WORKER SLOT (owner ruling 2026-08-31,
+// `d-recovery-retry-scope`). `goal` alone already answers "every counter this goal owns"; a caller
+// naming one lane of that goal (the mechanical `resume {goal, seat}` half) must not sweep its
+// siblings' counters along with it. `row.seat` is the same field `countAttempt` stamps
+// (`attempt-counters.js`: `seat: seat || null`) for exactly the two reconcile drivers whose subject
+// is a lane — filtering on it, rather than re-deriving `<goal>/<seat>` and comparing against
+// `subject`, reuses the field the ledger already carries instead of a second parse of it. Omitted,
+// this filter is a no-op and the sweep is the goal-wide one it always was.
+function rearmScope({
+  store = null, goal = null, seat = null, event,
+}, { countersFile } = {}) {
+  const inScope = (row) => seat === null || row.seat === seat;
+  const before = counters.listCounters({ goal }, { countersFile }).filter(inScope);
+  if (!before.length) return {
+    event, goal, seat, cleared: [], consumed: [],
+  };
   const consumed = [];
   const seen = new Set();
   for (const row of before) {
@@ -362,9 +376,9 @@ function rearmScope({ store = null, goal = null, event }, { countersFile } = {})
   // Reported from what is ACTUALLY gone, never from what was asked for: a wide event clears rows
   // this sweep never named, and a caller journalling its own intent instead of the outcome is how
   // a log grows to disagree with the ledger it describes.
-  const after = new Set(counters.listCounters({ goal }, { countersFile }).map((r) => r.key));
+  const after = new Set(counters.listCounters({ goal }, { countersFile }).filter(inScope).map((r) => r.key));
   return {
-    event, goal, cleared: before.filter((r) => !after.has(r.key)), consumed,
+    event, goal, seat, cleared: before.filter((r) => !after.has(r.key)), consumed,
   };
 }
 

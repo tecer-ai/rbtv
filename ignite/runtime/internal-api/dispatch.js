@@ -1715,7 +1715,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
   //   them alongside the refusal. A typed error would lose the record of writes already made.
   function handlePauseResume(payload, sender) {
     for (const key of Object.keys(payload)) {
-      if (!['verb', 'goal', 'chat_user'].includes(key)) {
+      if (!['verb', 'goal', 'chat_user', 'seat'].includes(key)) {
         throw new InternalApiError(VALIDATION_FAILED, `unknown payload field for pause-resume: ${key}`, { check: 'strict-schema', field: key });
       }
     }
@@ -1727,6 +1727,17 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
     }
     if (payload.chat_user !== undefined && (typeof payload.chat_user !== 'string' || !CHAT_USER_RE.test(payload.chat_user))) {
       throw new InternalApiError(VALIDATION_FAILED, 'pause-resume chat_user must be a Slack member id (e.g. U0123ABC)', { check: 'chat-user-shape', field: 'chat_user' });
+    }
+    // `seat` — the lane-scoping field (`d-recovery-retry-scope`). Re-checked here independently of
+    // the gateway's copy (DEC-3), same as every other field on this door. Refused with `pause`:
+    // `applyPause` has no per-lane effect, so a `seat` there would be silent dead input.
+    if (payload.seat !== undefined) {
+      if (typeof payload.seat !== 'string' || !BUS_NAME_RE.test(payload.seat)) {
+        throw new InternalApiError(VALIDATION_FAILED, 'pause-resume seat must be a bare name (no path separators, no "..", no control characters)', { check: 'name-shape', field: 'seat' });
+      }
+      if (payload.verb !== 'resume') {
+        throw new InternalApiError(VALIDATION_FAILED, 'pause-resume seat requires verb=resume — pause has no per-lane effect', { check: 'seat-verb-shape', field: 'seat' });
+      }
     }
 
     // AUTHORIZATION NEVER READS `chat_user`. `sender` (the bridge's own bearer-token identity) is
@@ -1744,6 +1755,7 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       workspaceRoot,
       verb: payload.verb,
       goal: payload.goal,
+      seat: payload.seat,
       chatUser: payload.chat_user,
       logger: log ? (row) => log(row.level, row.message, row) : null,
     });
@@ -1755,18 +1767,19 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       // door next. The refusal names the verb, the slug and which of the executor's three refusal
       // reasons fired.
       log('info', `the owner's mechanical ${payload.verb} was REFUSED — no live goal by that name`, {
-        goal: payload.goal, verb: payload.verb, reason: out.reason, senderId: sender && sender.id,
+        goal: payload.goal, verb: payload.verb, seat: payload.seat, reason: out.reason, senderId: sender && sender.id,
       });
       throw new InternalApiError(NOT_FOUND, `no live goal named ${payload.goal} — ${out.detail}`, { check: 'live-goal-roster', goal: payload.goal });
     }
     log('info', `the owner's mechanical ${payload.verb} was applied daemon-side`, {
-      goal: payload.goal, verb: payload.verb, applied: out.applied,
+      goal: payload.goal, verb: payload.verb, seat: payload.seat, applied: out.applied,
       actions: out.actions.map((a) => a.row), refusals: out.refusals.map((r) => r.row),
       senderId: sender && sender.id,
     });
     return {
       verb: out.verb, goal: out.goal, applied: out.applied === true,
       ...(out.reason ? { reason: out.reason } : {}),
+      ...(out.seat !== undefined ? { seat: out.seat } : {}),
       actions: out.actions, refusals: out.refusals,
     };
   }

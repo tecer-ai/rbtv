@@ -61,6 +61,9 @@ const BOGUS = 'no-such-goal-here';
 const LEADER = 'leader';
 const HELD = 'plan-verifier';
 const N = 3;
+const LANE_GOAL = 'probe-lane-scope-goal';
+const LANE_A = 'lane-a';
+const LANE_B = 'lane-b';
 
 function seedGoal(root, goal, { lane = 'daemon', seats = [] } = {}) {
   const dir = path.join(root, '.rbtv', 'goals', goal);
@@ -439,6 +442,69 @@ async function main() {
         && row.goal === BOGUS && row.verb === 'pause' && row.reason === 'no-such-goal'),
     JSON.stringify(hLogs.slice(beforeRefusal)));
 
+  // ── (i) LANE-SCOPED RESUME — `d-recovery-retry-scope` (owner ruling 2026-08-31): a resume aimed
+  // at ONE seat re-arms ONLY that lane. Two seats, disarmed the IDENTICAL way (both
+  // counter-exhaustion, both at N), so only the SCOPE — never the diagnosis — can tell i2 apart
+  // from i3: a false pass here means the fix reads as scoped when it is actually still sweeping the
+  // whole goal, exactly the pre-fix defect (proven RED separately, see the report).
+  seedGoal(root, LANE_GOAL, { lane: 'daemon', seats: [LANE_A, LANE_B] });
+  writeRegister(root, [SYSTEM_PKG, GOAL, PARKED, LANE_GOAL]);
+  disarmLane(store, {
+    goal: LANE_GOAL, seat: LANE_A, diagnostic: 'attempt-counter exhaustion', countersFile,
+  });
+  disarmLane(store, {
+    goal: LANE_GOAL, seat: LANE_B, diagnostic: 'attempt-counter exhaustion', countersFile,
+  });
+  check('i0: fixture — both lanes disarmed and both counters at N, before the lane-scoped resume',
+    Number((store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_A }) || {}).armed) === 0
+      && Number((store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B }) || {}).armed) === 0
+      && counters.listCounters({ goal: LANE_GOAL }, { countersFile }).length === 2,
+    JSON.stringify(counters.listCounters({ goal: LANE_GOAL }, { countersFile })));
+
+  const laneOut = pauseResume({
+    workspaceRoot: root, verb: 'resume', goal: LANE_GOAL, seat: LANE_A, countersFile,
+  });
+  check('i1: the act accepts a (goal, seat) pair and reports the targeted seat back',
+    laneOut.found === true && laneOut.applied === true && laneOut.seat === LANE_A,
+    JSON.stringify(laneOut));
+  check('i2: lane-a — the TARGETED lane — is re-armed: ending armed again and its counter row cleared',
+    Number((store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_A }) || {}).armed) === 1
+      && counters.listCounters({ goal: LANE_GOAL }, { countersFile }).every((rr) => rr.seat !== LANE_A),
+    JSON.stringify({
+      ending: store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_A }),
+      counters: counters.listCounters({ goal: LANE_GOAL }, { countersFile }),
+    }));
+  check('i3: lane-b — the UNTARGETED lane — is UNCHANGED: still disarmed, its counter row still at N',
+    Number((store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B }) || {}).armed) === 0
+      && (store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B }) || {}).diagnostic === 'attempt-counter exhaustion'
+      && counters.listCounters({ goal: LANE_GOAL }, { countersFile }).some((rr) => rr.seat === LANE_B && rr.attempts === N),
+    JSON.stringify({
+      ending: store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B }),
+      counters: counters.listCounters({ goal: LANE_GOAL }, { countersFile }),
+    }));
+  check('i4: the lane-scoped act touches ONLY the lane — no `row: goal` action (the goal word is not this act\'s to flip)',
+    !laneOut.actions.some((x) => x.row === 'goal'), JSON.stringify(laneOut.actions));
+
+  // (i5) `pause` REFUSES a `seat` — it has no per-lane effect, and an unusable field is a refusal,
+  // never quiet dead input (the fifteenth intent's own `comments`-refusal precedent).
+  r = await call(BRIDGE, { verb: 'pause', goal: LANE_GOAL, seat: LANE_A });
+  check('i5: `pause` with a `seat` is refused at the gateway, naming the field',
+    r.gatewayRefused === true && r.body.error.code === 'SHAPE_INVALID' && /verb=resume/.test(r.body.error.message),
+    JSON.stringify(r.body.error));
+
+  // (i6)-(i7) — wire: the same scoping crosses parse -> dispatch -> authz -> executor. Re-disarm
+  // lane-a (i1-i4 already consumed it) so the wire call has a real lane to lift.
+  disarmLane(store, {
+    goal: LANE_GOAL, seat: LANE_A, diagnostic: 'attempt-counter exhaustion', countersFile,
+  });
+  r = await call(BRIDGE, { verb: 'resume', goal: LANE_GOAL, seat: LANE_A });
+  check('i6: wire — the lane-scoped resume crosses parse -> dispatch -> authz and echoes `seat` in the result',
+    r.body.ok === true && r.body.result.applied === true && r.body.result.seat === LANE_A,
+    JSON.stringify(r.body.result || r.body.error));
+  check('i7: wire — lane-b is STILL untouched after the wire-crossing call too',
+    Number((store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B }) || {}).armed) === 0,
+    JSON.stringify(store.getCurrentEnding({ goal: LANE_GOAL, seat: LANE_B })));
+
   // ── RED ARMS: each guard removed on a COPY, and the arm it protects must go red ──────────────
   const mutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pause-resume-mut-'));
 
@@ -501,14 +567,17 @@ async function main() {
   // on a copy.
   {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'pause-resume.js'), 'utf8');
-    const SIG = 'function pauseResume({\n  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,\n}) {';
+    // Anchor widened alongside `d-recovery-retry-scope`'s `seat` parameter (same move the
+    // `chat_user` field made at c1e3a864): the red-proof re-checks the ending-home defect, not a
+    // frozen signature — the anchor tracks the real one so a stale copy can't silently stop firing.
+    const SIG = 'function pauseResume({\n  workspaceRoot, verb, goal, seat = undefined, countersFile = undefined, chatUser = undefined, logger = null,\n}) {';
     const BIND = '  const store = bind(openEndingStoreFor(workspaceRoot));';
     check('R0d: red-proof anchors — the home resolver and its no-store-parameter signature are present in the executor',
       src.includes(SIG) && src.includes(BIND));
     const beside = path.join(__dirname, '..', '..', '..', 'state-store', 'heart', `pause-resume.home-mutant-${process.pid}.js`);
     try {
       fs.writeFileSync(beside, src
-        .replace(SIG, 'function pauseResume(heartStore, {\n  workspaceRoot, verb, goal, countersFile = undefined, chatUser = undefined, logger = null,\n}) {')
+        .replace(SIG, 'function pauseResume(heartStore, {\n  workspaceRoot, verb, goal, seat = undefined, countersFile = undefined, chatUser = undefined, logger = null,\n}) {')
         .replace(BIND, '  const store = bind(heartStore.db);'));
       const mut = require(beside);
       const mutOut = mut.pauseResume({ db: laneDb }, { workspaceRoot: hRoot, verb: 'pause', goal: HGOAL, countersFile });
@@ -530,7 +599,10 @@ async function main() {
   // was NOT applied and the store says it was.
   {
     const src = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'state-store', 'heart', 'pause-resume.js'), 'utf8');
-    const HOIST = '  const seats = seatsOf(goalDir, log);';
+    // Anchor widened alongside `d-recovery-retry-scope`'s `targetSeat`-aware enumeration — same
+    // reasoning as the SIG anchor above: the red-proof tracks the real hoisted line, whatever it
+    // computes `seats` from, not a frozen RHS.
+    const HOIST = '  const seats = targetSeat !== undefined ? [targetSeat] : seatsOf(goalDir, log);';
     const LOOP = '  for (const seat of seats) {';
     check('R0e: red-proof anchors — the enumeration is hoisted above the writes and the loop reads it',
       src.includes(HOIST) && src.includes(LOOP) && src.indexOf(HOIST) < src.indexOf(LOOP));

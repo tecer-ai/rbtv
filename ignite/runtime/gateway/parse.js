@@ -848,17 +848,28 @@ function parseStartExecution(payload) {
 // untrusted-but-logged data, never an authorization input (`authz.canPauseResume` never sees it).
 // OPTIONAL so a bridge deployed before this change still works during the deploy gap: absence is
 // not a refusal, a malformed value is.
+//
+// ⚑ `seat` IS THE LANE-SCOPING FIELD (owner ruling 2026-08-31, `d-recovery-retry-scope`). Optional,
+// same `BUS_NAME_RE` this file already uses for a seat name (line 109's comment). Absent keeps
+// today's goal-wide sweep byte-for-byte (`d-recovery-retry-scope` requires the goal-only path stay
+// unchanged); present narrows `resume` to that ONE `(goal, seat)` lane. It is refused with `pause`:
+// `applyPause` flips the GOAL row only and has no per-lane effect, so a `seat` on a pause would be
+// silently ignored — the fifteenth intent's own `comments`-refusal precedent (an unusable field is
+// a refusal, never quiet dead input).
 const MECHANICAL_VERBS = new Set(['pause', 'resume']);
 const CHAT_USER_RE = /^[UW][A-Z0-9]{2,}$/;
 
 function parsePauseResume(payload) {
   requireObject(payload);
-  rejectUnknownKeys(payload, new Set(['verb', 'goal', 'chat_user']), 'pause-resume');
+  rejectUnknownKeys(payload, new Set(['verb', 'goal', 'chat_user', 'seat']), 'pause-resume');
   if (typeof payload.verb !== 'string' || !MECHANICAL_VERBS.has(payload.verb)) {
     bad(`pause-resume verb must be one of: ${[...MECHANICAL_VERBS].join(', ')}`, 'verb');
   }
   if (typeof payload.goal !== 'string' || !BUS_NAME_RE.test(payload.goal)) {
     bad('pause-resume goal must be a bare name — letters, digits, \'.\', \'_\' or \'-\', starting alphanumeric (no path separators, no "..", no control characters)', 'goal');
+  }
+  if (payload.seat !== undefined && payload.verb !== 'resume') {
+    bad('pause-resume seat requires verb=resume — pause has no per-lane effect', 'seat');
   }
   const out = { verb: payload.verb, goal: payload.goal };
   if (payload.chat_user !== undefined) {
@@ -866,6 +877,12 @@ function parsePauseResume(payload) {
       bad('pause-resume chat_user must be a Slack member id (e.g. U0123ABC) — omit the field entirely rather than send a malformed one', 'chat_user');
     }
     out.chat_user = payload.chat_user;
+  }
+  if (payload.seat !== undefined) {
+    if (typeof payload.seat !== 'string' || !BUS_NAME_RE.test(payload.seat)) {
+      bad('pause-resume seat must be a bare name — letters, digits, \'.\', \'_\' or \'-\', starting alphanumeric (no path separators, no "..", no control characters)', 'seat');
+    }
+    out.seat = payload.seat;
   }
   return out;
 }
