@@ -20,3 +20,4 @@
 2026-08-31 · issue · Caged ~/.local did not survive the next sitting · HOME tmpfs dropped pip --user between sittings → bind seatDir/.user-local at ~/.local · 867b4d31 · — · ⚠
 2026-08-31 · issue · Class B unread relaunch bypassed a live seat hold · classB never read holdMap (class A/E already did) → held chair still launched over unread mail · bb1e6350 · — · ⚠
 2026-08-31 · issue · last-milestone stall needs no live leader · last-milestone completion with empty leader chair left the EVENT unwritten → finish-on-completion fires FINISH_MARKER as ignite-daemon · fd2b4399 · coord · ⚠
+2026-08-31 · issue · after-edge launched against a stale bound-commit · predecessor done made successor READY while bound-commit was older than the artifact → BLOCKED bind=stale + seeding runs planning_bind.py before ready-seats; frozen once approve-package.json records bound_commit · 81e51627 · planning,meta-leader,meta-planning · ⚠
