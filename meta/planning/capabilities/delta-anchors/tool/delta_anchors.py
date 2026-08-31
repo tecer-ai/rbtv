@@ -116,10 +116,21 @@ def emit(findings, n):
     print("%d delta(s) checked, %d finding(s)" % (n, len(findings)))
 
 
+def _eol_of(full):
+    """Sniff the target's dominant line ending from its bytes on disk, before any edit."""
+    with open(full, "rb") as fh:
+        return "\r\n" if b"\r\n" in fh.read() else "\n"
+
+
 def run_apply(deltas, goal, delta_path):
-    m = re.search(r"round-(\d+)", os.path.basename(delta_path))
+    base = os.path.basename(delta_path)
+    m = re.search(r"(.+)-round-(\d+)", base)
     if not m:
-        raise Broken("delta filename must carry `round-<n>`: %s" % os.path.basename(delta_path))
+        raise Broken("delta filename must carry `round-<n>`: %s" % base)
+    seat_id = m.group(1)
+    if seat_id.startswith("deltas-"):
+        seat_id = seat_id[len("deltas-"):]
+    round_no = m.group(2)
     findings = run_check(deltas, goal)
     if findings:
         emit(findings, len(deltas))
@@ -148,9 +159,12 @@ def run_apply(deltas, goal, delta_path):
                        "end_line": new.count("\n", 0, start + len(d["to"])) + 1,
                        "section": section_of(new, start)})
     for full, text in bufs.items():
-        open(full, "w", encoding="utf-8").write(text)
-    out = os.path.join(goal, "planning", "current", "applied-deltas-round-%s.json" % m.group(1))
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+        eol = _eol_of(full)
+        out_text = text.replace("\n", eol) if eol != "\n" else text
+        open(full, "w", encoding="utf-8", newline="").write(out_text)
+    out_dir = os.path.dirname(delta_path) or "."
+    out = os.path.join(out_dir, "applied-deltas-%s-round-%s.json" % (seat_id, round_no))
+    os.makedirs(out_dir, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=2)
         fh.write("\n")

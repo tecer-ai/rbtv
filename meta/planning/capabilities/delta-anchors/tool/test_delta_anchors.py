@@ -130,7 +130,7 @@ def R3b_two_deltas_one_file_record_spans_hold():
                             "The suite seeds two instances.\nIt validates both against the minted schema."))
     assert run(["apply", df, "--goal", root])[0] == 0
     lines = open(os.path.join(root, SEAT)).read().splitlines()
-    for rec in json.load(open(os.path.join(root, "planning/current/applied-deltas-round-2.json"))):
+    for rec in json.load(open(os.path.join(root, "applied-deltas-widget-smith-round-2.json"))):
         span = "\n".join(lines[rec["start_line"] - 1:rec["end_line"]])
         assert span in ("No file under `tools/` or\n`seams/` is modified.",
                         "The suite seeds two instances.\nIt validates both against the minted schema."), (rec, span)
@@ -210,7 +210,7 @@ def G1_green_and_idempotence():
     body = open(os.path.join(root, SEAT)).read()
     assert body.count(to) == 1 and body.count(frm) == 0, body
 
-    rec = json.load(open(os.path.join(root, "planning/current/applied-deltas-round-1.json")))
+    rec = json.load(open(os.path.join(root, "applied-deltas-widget-smith-round-1.json")))
     assert len(rec) == 1, rec
     assert rec[0]["target"] == SEAT, rec
     assert rec[0]["source"] == "planning/current/task-dag.md", rec
@@ -239,7 +239,7 @@ def G2_atomicity():
     assert "REFUSED" in out and "target-missing" in out, out
     after = {p: sha(os.path.join(root, p)) for p in (SEAT, other)}
     assert before == after, "apply is all-or-nothing"
-    assert not os.path.exists(os.path.join(root, "planning/current/applied-deltas-round-1.json"))
+    assert not os.path.exists(os.path.join(root, "applied-deltas-widget-smith-round-1.json"))
     shutil.rmtree(root)
 
 
@@ -251,6 +251,90 @@ def G3_apply_needs_a_round_number():
                     block(1, SEAT, "Every arm names its id.", "Every arm names its own id."))
     assert delta_anchors.main(["apply", df, "--goal", root]) == 2
     assert delta_anchors.main(["check", df, "--goal", "/no/such/goal"]) == 2
+    shutil.rmtree(root)
+
+
+@arm
+def G4_multi_seat_same_round_two_records():
+    """task 130 defect 1: two seats returning edits in the SAME round must not collide on one filename."""
+    root = goal_with()
+    other = "planning/current/seats/gadget-smith/task.md"
+    os.makedirs(os.path.dirname(os.path.join(root, other)))
+    open(os.path.join(root, other), "w").write(TARGET_TEXT)
+    df1 = delta_file(root, "deltas-widget-smith-round-1.md",
+                     block(1, SEAT, "Every arm names its id.", "Every arm names its own id."))
+    df2 = delta_file(root, "deltas-gadget-smith-round-1.md",
+                     block(1, other, "Every arm names its id.", "Every arm names a distinct id."))
+    assert run(["apply", df1, "--goal", root])[0] == 0
+    assert run(["apply", df2, "--goal", root])[0] == 0
+    rec1 = os.path.join(root, "applied-deltas-widget-smith-round-1.json")
+    rec2 = os.path.join(root, "applied-deltas-gadget-smith-round-1.json")
+    assert os.path.exists(rec1) and os.path.exists(rec2), \
+        "two same-round records must both survive — the second must not overwrite the first"
+    assert json.load(open(rec1))[0]["target"] == SEAT
+    assert json.load(open(rec2))[0]["target"] == other
+    shutil.rmtree(root)
+
+
+@arm
+def G5_record_beside_delta_not_hardcoded_current():
+    """task 130 defect 2: re-applying deltas against an ALREADY-ARCHIVED milestone (meet's m4
+    re-check case) must write the record beside that archived delta file — not at a hardcoded
+    goal/planning/current/, which by then belongs to a different, live milestone."""
+    root = goal_with()
+    # a prior milestone was already promoted: its target + delta live under an archive folder,
+    # NOT under planning/current — planning/current/ now belongs to the NEXT, unrelated milestone
+    archived_target = "planning/archive-m1/seats/widget-smith/task.md"
+    os.makedirs(os.path.dirname(os.path.join(root, archived_target)))
+    open(os.path.join(root, archived_target), "w").write(TARGET_TEXT)
+    df = delta_file(root, "planning/archive-m1/deltas-widget-smith-round-1.md",
+                    block(1, archived_target, "Every arm names its id.", "Every arm names its own id."))
+
+    live_current_before = set(os.listdir(os.path.join(root, "planning", "current")))
+    assert run(["apply", df, "--goal", root])[0] == 0
+
+    beside_rec = os.path.join(root, "planning", "archive-m1", "applied-deltas-widget-smith-round-1.json")
+    assert os.path.exists(beside_rec), \
+        "the record must land beside the archived delta file it describes, not under " \
+        "goal/planning/current/ (which now belongs to a different, live milestone): " + beside_rec
+    live_current_after = set(os.listdir(os.path.join(root, "planning", "current")))
+    assert live_current_after == live_current_before, \
+        "the live, unrelated planning/current/ of the NEXT milestone must be untouched"
+    shutil.rmtree(root)
+
+
+@arm
+def G6_crlf_target_keeps_crlf_and_touches_only_the_edited_span():
+    """task 130 defect 3: a CRLF target must not come back entirely LF."""
+    root = goal_with()
+    full = os.path.join(root, SEAT)
+    with open(full, "wb") as fh:
+        fh.write(TARGET_TEXT.replace("\n", "\r\n").encode("utf-8"))
+    frm, to = "Every arm names its id.", "Every arm names its id and the criterion it serves."
+    before_lines = open(full, "rb").read().decode("utf-8").split("\r\n")
+    df = delta_file(root, "deltas-widget-smith-round-1.md", block(1, SEAT, frm, to))
+    code, out = run(["apply", df, "--goal", root])
+    assert code == 0, out
+    after_raw = open(full, "rb").read()
+    assert b"\r\n" in after_raw and b"\r\r\n" not in after_raw, \
+        "the target must stay CRLF, not come back entirely LF"
+    after_lines = after_raw.decode("utf-8").split("\r\n")
+    changed = [i for i in range(min(len(before_lines), len(after_lines))) if before_lines[i] != after_lines[i]]
+    assert changed == [4], ("only the edited line should differ", before_lines, after_lines)
+    assert to in after_raw.decode("utf-8")
+    shutil.rmtree(root)
+
+
+@arm
+def G6b_lf_target_stays_lf():
+    """The LF counterpart of G6 — an LF target must not gain CRLF endings."""
+    root = goal_with()
+    frm, to = "Every arm names its id.", "Every arm names its id and the criterion it serves."
+    df = delta_file(root, "deltas-widget-smith-round-1.md", block(1, SEAT, frm, to))
+    assert run(["apply", df, "--goal", root])[0] == 0
+    after_raw = open(os.path.join(root, SEAT), "rb").read()
+    assert b"\r\n" not in after_raw, "an LF target must not gain CRLF endings"
+    assert after_raw.decode("utf-8") == TARGET_TEXT.replace(frm, to)
     shutil.rmtree(root)
 
 

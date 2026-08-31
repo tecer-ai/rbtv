@@ -16,8 +16,9 @@ a span re-derive independently; the `from` block IS the anchor.
 
 ## The delta file
 
-Written by the author at `planning/current/deltas-<seat-id>-round-<n>.md`. The round number in
-that filename is what names the applied record, so it is not optional.
+Written by the author at `planning/current/deltas-<seat-id>-round-<n>.md`. Both the seat id and
+the round number in that filename name the applied record, so neither is optional — `<seat-id>`
+is everything between `deltas-` and `-round-<n>`.
 
 ~~~
 ## delta 1
@@ -73,19 +74,32 @@ python3 .../delta_anchors.py apply planning/current/deltas-<seat-id>-round-<n>.m
 ```
 
 `apply` re-runs `check`, **refuses on any finding**, and rewrites every target or none — the
-targets are built in memory and written only after the last delta resolves. It then writes
-`planning/current/applied-deltas-round-<n>.json`:
+targets are built in memory and written only after the last delta resolves. It then writes the
+applied record **beside the delta file itself** — in the delta file's own directory, never at a
+hardcoded `planning/current/` — named `applied-deltas-<seat-id>-round-<n>.json`:
 
 ```json
 [{"target": "...", "source": "...", "start_line": 163, "end_line": 171,
   "section": "### Criterion 3 — the fixture set"}]
 ```
 
+Two seats returning edits in the same round each author their own delta file and therefore each
+get their own record — `<seat-id>` in the filename is what keeps them from colliding. Writing the
+record beside the delta file, instead of at a fixed `planning/current/` path, is what keeps the
+record resolvable after a milestone promotion archives `planning/current/` wholesale (or, on a
+later re-check of an already-archived milestone, keeps the record landing beside the archived
+material it actually describes instead of in whatever `planning/current/` currently means for a
+different, live milestone).
+
 `section` is the nearest preceding markdown heading, and the line span is measured in the file AS
 WRITTEN — the deltas of one file are applied lowest-offset first, so an earlier record's span is
 never shifted by a later delta in the same file (round 7 put four deltas in one seat file). That record is what makes the next check round bounded: `prompts/checker.md` scopes a
 re-check to the regions it names, and `tasks/check-clarity.md` reads each named region with its
 whole enclosing section to catch a repair that landed but does not hold.
+
+**Line endings are preserved.** A target's dominant line ending (CRLF or LF) is sniffed from its
+bytes before any edit and re-applied on write, so an unmodified line comes back byte-identical —
+`git diff` on an applied delta shows only the edited span, never the whole file re-wrapped to LF.
 
 ## I/O
 
