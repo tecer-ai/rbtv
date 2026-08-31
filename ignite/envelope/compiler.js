@@ -105,6 +105,50 @@ function isCredentialDeny(abs, denyList, ctx, goalId) {
 
 const TEMP_FAMILIES = new Set(['scratch-temp', 'benign-cache-config-temp']);
 
+// The `ro` template families a DECLARED `rw` narrow may carve inside. ONE keyed set, replacing the
+// three identical `wide.family === X && wide.access === 'ro' && narrow.access === 'rw'` branches
+// `authorizedCarve` used to spell out one per family — the shape was copied twice already and the
+// third copy is what this milestone was asked to add.
+//
+// ⚠ `rbtv-repo` IS IN THE SET, AND THAT REVERSES THE SECOND HALF OF `fix-mirror-family-split`
+// (2026-08-30), which split family 6 in two so `rbtv-repo` would keep no carve. Two things carry
+// the reversal, and NEITHER is "the earlier refusal was unreasoned" — it was reasoned, and the
+// first draft of this comment said otherwise and was wrong:
+//
+//   · WHAT 2026-08-30 REFUSED WAS A DIFFERENT ACT. It refused opening the rbtv repo AS A SIDE
+//     EFFECT of wanting the mirror, in its own words "a materially larger, security-shaped widening
+//     NOBODY ASKED FOR" (`work-on-ignite/memory/envelope/20260830-i-family-6-admitted-no-plan-writ`).
+//     That reason is intact and this change does not contradict it. THIS carve is asked for, by
+//     name, by the plan the owner approved (`ignite-engine-loop`, bound commit 5dc32b91,
+//     2026-08-31), which settles the rbtv read-only floor as A GAP closed narrowly by its M1 — so
+//     that owner rulings E20/E25 ("build seats edit the LIVE rbtv tree under narrow rw-paths") are
+//     executable at all. Register filing `G-leader-0828-1951` is the entry it closes.
+//   · THE SPLIT IS WHAT MAKES IT NARROW — it is this carve's precondition, not its obstacle. That
+//     sitting's own ATTENTION item 2 says to split a multi-path family BEFORE keying a carve on it,
+//     exactly so the carve opens one root and no more. Because family 6 was split, naming
+//     `rbtv-repo` here opens the rbtv repo and nothing else. Un-splitting the two families would
+//     re-create the 2026-08-30 defect and must not be done to "simplify" this set.
+//
+// The later ATTENTION that says not to add this carve
+// (`.../20260831-i-declared-rw-paths-never-reache.md` item 3) is superseded — ONLY item 3, and only
+// by `.../20260831-i-rbtv-repo-joins-the-carveable.md`; items 1, 2, 4 and 5 of it still stand.
+//
+// WHAT IT DOES NOT OPEN — the three reasons the fence still stands:
+//   · nothing declares itself. A path only reaches this function as an `rw` narrow because a plan's
+//     `extraPaths` or a seat's `rw-paths:` NAMED it, so every undeclared path in the repo stays
+//     covered `ro` by family 6 and no bind of its own is ever composed for it.
+//   · `isCredentialDeny` runs the deny list path-pattern-only over every `extraPaths` grant BEFORE
+//     this, regardless of family, so a credential file inside the repo refuses exactly as one
+//     anywhere else in the workspace.
+//   · the private-scope mask is appended AFTER the whole grant stack
+//     (`spawn.js#composeCageFor`), so `.git` and the enumerated secrets stay masked either way.
+//
+// ⚠ SECOND-ORDER EFFECT, stated because the next reader needs it: with `rbtv-repo` carveable, the
+// `mirror` / `rbtv-repo` family split no longer carries the carve distinction it was created for.
+// The split is LEFT STANDING — it still names two roots for a reader and for `wall-report` — but
+// collapsing it back is now a live simplification, and a separate ruling.
+const CARVEABLE_RO_FAMILIES = new Set(['vault-wide-read', 'mirror', 'rbtv-repo']);
+
 function authorizedCarve(a, b) {
   if (a.path === b.path) return false;
   const [narrow, wide] = covers(a.path, b.path) ? [b, a] : [a, b];
@@ -115,12 +159,7 @@ function authorizedCarve(a, b) {
   // as one, `cage.js#lastCovering` refuses every seat whose private-scope floor matches a path
   // under its own folder — the D53/#576 shape, one layer in.
   if (narrow.origin === 'own-seat' && wide.origin === 'daemon-owned') return true;
-  if (wide.family === 'vault-wide-read' && wide.access === 'ro' && narrow.access === 'rw') return true;
-  // The mirror carve (2026-08-30, `fix-mirror-family-split`): admitted the same way as the
-  // `vault-wide-read` rule directly above, and NOT extended to `rbtv-repo` — a plan naming a
-  // write path inside the rbtv SOURCE repo must still refuse. See envelope-template.yaml's
-  // `mirror` family comment for why the split exists.
-  if (wide.family === 'mirror' && wide.access === 'ro' && narrow.access === 'rw') return true;
+  if (CARVEABLE_RO_FAMILIES.has(wide.family) && wide.access === 'ro' && narrow.access === 'rw') return true;
   if (TEMP_FAMILIES.has(wide.family) && wide.access === 'rw') return true;
   if (narrow.origin === 'deny' && narrow.credential && wide.family === 'named-repos') return true;
   return false;

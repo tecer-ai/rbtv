@@ -125,13 +125,27 @@ function run() {
     (withGrant.binds || []).some((b) => b.access === 'rw' && path.resolve(b.path) === path.resolve(grantDir)),
     'admitLaunch composes raw extraPaths as an rw bind when there is no envelope.json',
   );
+  // THE RBTV-REPO CARVE THROUGH THE LAUNCH DOOR (`ignite-engine-loop` M1, `G-leader-0828-1951`).
+  // This arm asserted `spawn: false` until the plan bound at 5dc32b91 settled the rbtv read-only
+  // floor as a gap; it now asserts the grant a caged build seat actually needs, and — in the same
+  // breath, because one without the other proves nothing — that the sibling it did NOT declare is
+  // still absent from the rw bind list.
+  const repoGrantDir = path.join(rbtvRepo, 'ignite', 'envelope');
   const repoWrite = admitLaunch({
     ...base,
     fillIns: null,
-    extraPaths: [{ path: path.join(rbtvRepo, 'ignite', 'envelope'), access: 'rw' }],
+    extraPaths: [{ path: repoGrantDir, access: 'rw' }],
   });
-  assert.equal(repoWrite.spawn, false, 'rbtv-repo extraPaths must refuse, not silently grant');
-  assert.equal(repoWrite.refuse.kind, 'conflict');
+  assert.equal(repoWrite.spawn, true, `rbtv-repo extraPaths refused: ${JSON.stringify(repoWrite.refuse)}`);
+  assert.ok(
+    (repoWrite.binds || []).some((b) => b.access === 'rw' && path.resolve(b.path) === path.resolve(repoGrantDir)),
+    'a DECLARED rw path inside the rbtv repo composes as an rw bind',
+  );
+  // The repo ROOT keeps its own `ro` bind, which sorts BEFORE the narrow carve and is therefore the
+  // one bwrap applies to every sibling the plan did not name. (An ancestor test would be wrong
+  // here: this fixture's whole tree sits under `/tmp`, which family 7 binds rw for every seat.)
+  const repoRootBind = (repoWrite.binds || []).find((b) => path.resolve(b.path) === path.resolve(rbtvRepo));
+  assert.equal(repoRootBind && repoRootBind.access, 'ro', 'the rbtv repo ROOT stays ro beside the narrow carve');
   console.log('PASS seat-extraPaths-composed');
 
   // owner-flagged-birth-writes-no-envelope: a Path-B-born goal (marked by

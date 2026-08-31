@@ -33,11 +33,18 @@ families:
     minus: deny-list
   # `rbtv-and-mirror` split in two (2026-08-30, owner ruling on `fix-mirror-family-split`):
   # a plan needing to write a product under `{mirror}` (e.g. `.rbtv/mirror/office/x`) had no
-  # family to carve against — `authorizedCarve` only admits an rw narrow inside a `vault-wide-read`
+  # family to carve against — `authorizedCarve` only admitted an rw narrow inside a `vault-wide-read`
   # wide, and family 6 bound the rbtv SOURCE REPO and the mirror under one id, so keying a carve on
-  # the family would have opened rw into the rbtv repo too. Splitting them lets `mirror` take the
-  # same carve exception as `vault-wide-read` while `rbtv-repo` keeps NO carve — a plan naming a
-  # write path inside the rbtv repo still refuses.
+  # the family would have opened rw into the rbtv repo too. Splitting them let `mirror` take the
+  # same carve exception as `vault-wide-read` while `rbtv-repo` kept none.
+  # ⚠ THE SECOND HALF OF THAT SENTENCE NO LONGER HOLDS (2026-08-31, `ignite-engine-loop` M1,
+  # register filing `G-leader-0828-1951`). The split left an open owner ask behind it — is the rbtv
+  # read-only floor a GAP or a deliberate policy? — and the plan bound at 5dc32b91 settles it as a
+  # GAP: `rbtv-repo` joins `compiler.js#CARVEABLE_RO_FAMILIES`, so a DECLARED rw narrow inside this
+  # family now compiles, exactly as one under `mirror` or `vault-wide-read` does. Nothing declares
+  # itself, so an UNDECLARED path in the repo is still covered `ro` by this family and still refuses
+  # a write. The split therefore no longer carries the carve distinction it was created for; it is
+  # left standing because it still names two roots, and collapsing it is a separate ruling.
   - id: rbtv-repo
     number: 6
     access: ro
@@ -79,7 +86,8 @@ families:
     plan-fill-in: false
     path: "{workspace}/.rbtv/runtime/ignite"
   # THE MIRROR, its own family (2026-08-30). Was half of `rbtv-and-mirror` (family 6) — see that
-  # family's comment above for why the split. `authorizedCarve` admits an rw narrow inside this
+  # family's comment above for why the split, and for why the split's own "and `rbtv-repo` keeps no
+  # carve" half was reversed on 2026-08-31. `authorizedCarve` admits an rw narrow inside this
   # ro wide exactly as it does for `vault-wide-read`, so a plan's write grant (`projectFolder` /
   # `namedRepos` / `extraPaths:rw`) landing under `{mirror}` now compiles instead of refusing the
   # whole cage. The generic deny-list credential rules (`**/*.env`, `**/*token*`, `**/*.key`, …)

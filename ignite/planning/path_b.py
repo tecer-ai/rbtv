@@ -265,10 +265,22 @@ def bound_envelope_fillins(pkg):
     return data
 
 
-def compile_check_envelope(*, goals_root, goal_id, fillins, name):
+def compile_check_envelope(*, goals_root, goal_id, fillins, name, compiler_js=None):
     """Run the plan's fill-ins through the DEPLOYED `compiler.compile()` shape, the way the
     planning seats measured it live (`evidence-b2-product-home.md`). A birth that would produce a
     refusing envelope FAILS LOUDLY here — never mints a goal that boots crippled and silent.
+
+    ⚠ `compiler_js` NAMES THE COMPILER THAT WILL READ THE FILE, and defaults to this tree's. For a
+    BIRTH the two are the same thing — `path_b` runs inside the daemon, so `COMPILER_JS` already
+    resolves to the tree the daemon booted — and the default is therefore correct with no argument.
+    It exists for a caller running a DIFFERENT copy of this module than the daemon runs, where
+    gating on the local copy checks a compiler that will never see the file. Measured 2026-08-31
+    (`ignite-engine-loop` M1): a repo copy carrying a new carve rule compiled a grant green, the
+    landing succeeded, and the DEPLOYED compiler — which is what `envelope/launch.js#loadFillIns`
+    hands the fill-ins at every spawn — refused the same grant `{kind:conflict}`. A refusing
+    `envelope.json` on disk is strictly worse than an absent one: absent falls back to
+    `compilePlanning`, present refuses the launch outright, so that landing would have made every
+    caged seat of the goal unspawnable.
 
     ⚠ SCRATCH AND THE ENDING STORE MUST EXIST BEFORE THE COMPILE, ORDER IS LOAD-BEARING — the same
     ordering `envelope/launch.js#admitLaunch` documents for its own `ensureGoalScratch` and
@@ -281,6 +293,7 @@ def compile_check_envelope(*, goals_root, goal_id, fillins, name):
     _workspace, rbtv_repo = _rbtv_repo_root(goals_root)
     workspace_root = Path(goals_root).resolve().parent.parent
     goal_dir = Path(goals_root) / name
+    compiler = Path(compiler_js) if compiler_js else COMPILER_JS
     (goal_dir / "scratch").mkdir(parents=True, exist_ok=True)
     (workspace_root / ".rbtv" / "runtime" / "ignite").mkdir(parents=True, exist_ok=True)
     payload = json.dumps({
@@ -299,7 +312,7 @@ def compile_check_envelope(*, goals_root, goal_id, fillins, name):
             "const {compile}=require(process.argv[1]);"
             "const raw=JSON.parse(require('fs').readFileSync(0,'utf8'));"
             "process.stdout.write(JSON.stringify(compile(raw)));",
-            str(COMPILER_JS),
+            str(compiler),
         ],
         input=payload,
     )
@@ -307,7 +320,7 @@ def compile_check_envelope(*, goals_root, goal_id, fillins, name):
         raise MaterializeFailure(
             CLASS_ATOMIC_CORE_REFUSAL,
             "envelope-compile-unreachable",
-            f"node {COMPILER_JS} did not run: {(proc.stderr or '').strip()[:400]}",
+            f"node {compiler} did not run: {(proc.stderr or '').strip()[:400]}",
             name,
         )
     try:
@@ -316,14 +329,15 @@ def compile_check_envelope(*, goals_root, goal_id, fillins, name):
         raise MaterializeFailure(
             CLASS_ATOMIC_CORE_REFUSAL,
             "envelope-compile-unreachable",
-            f"node {COMPILER_JS} printed non-JSON: {proc.stdout[:400]}",
+            f"node {compiler} printed non-JSON: {proc.stdout[:400]}",
             name,
         ) from exc
     if not verdict.get("ok"):
         raise MaterializeFailure(
             CLASS_ENVELOPE_REFUSAL,
             "envelope-fillins-refused",
-            f"the plan's declared fill-ins refuse at compile: {json.dumps(verdict.get('refuse'))}"[:600],
+            f"the plan's declared fill-ins refuse at compile ({compiler}): "
+            f"{json.dumps(verdict.get('refuse'))}"[:600],
             name,
         )
     return verdict

@@ -349,11 +349,21 @@ def main():
             f"ok={out7.get('ok')} written={written7} loadFillIns-read-back={read_back7}",
         )
 
-        # P8 · a declared extraPaths grant that REFUSES at compile (rw inside the rbtv repo, no
-        # carve) → the birth fails loudly (class envelope-refusal) and the folder is reclaimed —
-        # never a goal minted with a crippled or absent envelope.
+        # P8 · a declared extraPaths grant that REFUSES at compile → the birth fails loudly (class
+        # envelope-refusal) and the folder is reclaimed — never a goal minted with a crippled or
+        # absent envelope.
+        #
+        # ⚠ THE VEHICLE CHANGED 2026-08-31 (`ignite-engine-loop` M1) AND THE LEG DID NOT. It used
+        # to be `fakerepo/sub` — an rw path INSIDE the rbtv repo, which refused because
+        # `authorizedCarve` had no `rbtv-repo` clause. It now COMPILES (that carve is the
+        # milestone), so it can no longer carry this leg. A path that does not exist refuses
+        # `{kind:"unresolved"}` instead, and is the more durable vehicle for what P8 actually
+        # asserts: that ANY refusing fill-in aborts the birth loudly rather than minting a goal
+        # whose every caged seat would then fail to spawn. `P7` above is the green twin, and
+        # `envelope-compiler.selftest.js#rbtv-repo-declared-carve-admitted` is where the repo carve
+        # itself is asserted now.
         artifacts8 = tmp / "artifacts8"
-        body8 = {"extraPaths": [{"path": "fakerepo/sub", "access": "rw"}]}
+        body8 = {"extraPaths": [{"path": "fakerepo/never-materialized", "access": "rw"}]}
         sha8 = committed_plan(artifacts8, body8)
         pkg8 = env_pkg("exec-envelope-refuse", artifacts8, sha8)
         exec_dir8 = goals2 / "exec-envelope-refuse"

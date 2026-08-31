@@ -84,16 +84,22 @@ GOAL_WRITE_GRANT = "goalWrite"
 # ⚠ THIS TUPLE IS A CLAIM ABOUT THE COMPOSER, NOT A PREFERENCE, and it is re-derived through the
 # real `composeSeatCage` by `check_deriver_mirrors_the_composer` — a class added here without that
 # check agreeing is a hole nobody sees.
+# ⚠ SIX OF THE CLASSES BELOW HAVE NO RESOLVER ANY MORE (2026-08-31, `ignite-engine-loop` M1,
+# register filing `G-leader-0827-1643`): `readRoot`, `goalWrite`, `busWrite`, `goalsWrite`,
+# `rbtvRoot`/`rbtvMirror` and `tmuxSocketDir` were built by six uncalled functions in `spawn.js`,
+# now deleted — see that file's "THE ABANDONED PER-SEAT GRANT MODEL" block for what replaced each.
+# The SLOTS stay in `spawn-profiles.yaml` and the drop-table rows below stay with them, because
+# `composeSeatCage` skips an unfilled slot and this deriver must keep mirroring the composer it
+# actually has. What the rows no longer describe is a grant any seat can obtain.
 #   readRoot                — the workspace root, READ-ONLY, first in the stack; the goal folder is
 #                             inside it and `ro-bind:{goalDir}` re-covers it identically. Same
 #                             verdict either way.
 #   busWrite                — the seat's OWN goal resolves to the same path the literal
 #                             `bind:{goalDir}/coordination` line already opens; every OTHER goal is
 #                             outside this goal folder.
-#   goalsWrite              — `resolveGoalsWriteGrants` EXCLUDES the seat's own goal, so every
-#                             opening of this class lies outside this goal folder. The former
-#                             `goalsWriteGroundTruth` carve is deleted (D3: record forgery is a
-#                             non-goal).
+#   goalsWrite              — EXCLUDED the seat's own goal, so every opening of this class lay
+#                             outside this goal folder. The former `goalsWriteGroundTruth` carve is
+#                             deleted (D3: record forgery is a non-goal).
 #   rbtvRoot · rbtvMirror   — D3 item 4: the rbtv repo and <ws>/.rbtv/mirror, READ, outside
 #                             the goal folder by construction.
 #   worktree · repoGit      — worktrees, git plumbing, harness credentials, `~/.local/bin` and

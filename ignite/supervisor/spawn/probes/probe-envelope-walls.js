@@ -233,13 +233,26 @@ capture('probe-envelope-walls', async (lines) => {
       !composeErr && hasRwBind && writeExit === 0 && onDisk === 'GRANTED',
       `err=${composeErr && (composeErr.message || composeErr.code)} hasBind=${hasRwBind} exit=${writeExit} stderr=${writeStderr} onDisk=${onDisk}`);
 
+    // Leg 12 asserted the OPPOSITE until 2026-08-31 (`ignite-engine-loop` M1, register filing
+    // `G-leader-0828-1951`): a declared rw path inside the rbtv SOURCE repo refused at compose
+    // because `authorizedCarve` carried no `rbtv-repo` clause. The plan bound at 5dc32b91 settles
+    // that floor as a GAP, so the leg now asserts the grant AND the fence in one breath — the
+    // DECLARED subtree composes rw, an UNDECLARED sibling inside the same repo does not, and the
+    // repo root keeps its own ro bind.
+    const repoGrantAbs = path.join(rbtvRepo, 'ignite', 'envelope');
+    const repoSibling = path.join(rbtvRepo, 'core');
+    fs.mkdirSync(repoSibling, { recursive: true });
     const repoWrite = admitLaunch({
       ...base,
-      extraPaths: [{ path: path.join(rbtvRepo, 'ignite', 'envelope'), access: 'rw' }],
+      extraPaths: [{ path: repoGrantAbs, access: 'rw' }],
     });
-    leg('12', 'rw extraPath inside the rbtv source repo still refuses at compose (no rbtv-repo carve)',
-      repoWrite.spawn === false && repoWrite.refuse && repoWrite.refuse.kind === 'conflict',
-      `spawn=${repoWrite.spawn} refuse=${JSON.stringify(repoWrite.refuse)}`);
+    const repoBinds = repoWrite.binds || [];
+    const repoDeclaredRw = repoBinds.some((b) => b.access === 'rw' && fs.realpathSync(b.path) === fs.realpathSync(repoGrantAbs));
+    const repoRootBind = repoBinds.find((b) => fs.realpathSync(b.path) === fs.realpathSync(rbtvRepo));
+    const repoSiblingRw = repoBinds.some((b) => b.access === 'rw' && fs.realpathSync(b.path) === fs.realpathSync(repoSibling));
+    leg('12', 'a DECLARED rw extraPath inside the rbtv source repo composes rw; the repo root stays ro and an UNDECLARED sibling gets no rw bind',
+      repoWrite.spawn === true && repoDeclaredRw && repoRootBind && repoRootBind.access === 'ro' && !repoSiblingRw,
+      `spawn=${repoWrite.spawn} declaredRw=${repoDeclaredRw} root=${repoRootBind && repoRootBind.access} siblingRw=${repoSiblingRw} refuse=${JSON.stringify(repoWrite.refuse)}`);
 
     fs.writeFileSync(path.join(grantAbs, 'cli.sh'), '#!/bin/sh\necho ok\n', { mode: 0o755 });
     fs.writeFileSync(path.join(writerDir, 'seat.md'), [

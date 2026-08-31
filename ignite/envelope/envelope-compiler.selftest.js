@@ -193,16 +193,28 @@ function run() {
   assert.equal(innermostAccess(mirrorGrant, path.join(workspace, '.rbtv', 'mirror')), 'ro', 'mirror root stays ro alongside the narrow rw carve');
   console.log('PASS mirror-carve-admitted');
 
-  // THE RBTV REPO GETS NO CARVE — the same grant vehicle naming a path inside the rbtv repo must
-  // still refuse. This is the negative control: the split must not have widened the repo too.
+  // THE RBTV REPO CARVE — `ignite-engine-loop` M1, register filing `G-leader-0828-1951`. These two
+  // arms REPLACE `rbtv-repo-still-refuses` / `extraPaths-rw-under-rbtv-repo-refuses`, which asserted
+  // the opposite until the plan bound at 5dc32b91 settled the rbtv read-only floor as a GAP. Both
+  // halves are asserted together on purpose: an arm that only proves the door opens does not prove
+  // the wall still exists, and this pair is the compile-layer half of that same reading.
   const repoProduct = path.join(rbtvRepo, 'ignite', 'envelope');
+  const repoSibling = path.join(rbtvRepo, 'core');
+  mkdirp(repoProduct);
+  mkdirp(repoSibling);
   const repoGrant = compile({
     ...base,
     projectFolder: repoProduct,
   });
-  assert.equal(repoGrant.ok, false, 'plan rw path inside the rbtv repo must still refuse');
-  assert.equal(repoGrant.refuse.kind, 'conflict', 'rbtv repo rw grant refuses as a conflict, not silently');
-  console.log('PASS rbtv-repo-still-refuses');
+  assert.equal(repoGrant.ok, true, `plan rw path inside the rbtv repo refused: ${JSON.stringify(repoGrant.refuse)}`);
+  assert.equal(innermostAccess(repoGrant, repoProduct), 'rw', 'declared rw path inside the rbtv repo compiles rw');
+  assert.equal(innermostAccess(repoGrant, rbtvRepo), 'ro', 'rbtv repo root stays ro alongside the narrow rw carve');
+  // THE FENCE, read off the same bind list: a SIBLING the plan did not declare inherits the repo
+  // root's `ro` and gets no rw bind of its own. Nothing declares itself — that is the whole reason
+  // the carve is narrow — so this is the arm that would redden if the rule keyed on the family
+  // alone without a declared narrow.
+  assert.equal(innermostAccess(repoGrant, repoSibling), 'ro', 'an UNDECLARED path inside the rbtv repo stays ro');
+  console.log('PASS rbtv-repo-declared-carve-admitted');
 
   const extraMirror = path.join(workspace, '.rbtv', 'mirror', 'x');
   const extraGrant = compile({
@@ -213,13 +225,16 @@ function run() {
   assert.equal(innermostAccess(extraGrant, extraMirror), 'rw', 'extraPaths rw under mirror compiles rw');
   console.log('PASS extraPaths-rw-under-mirror');
 
+  // The `extraPaths` vehicle through the same carve — this is the one `composeCageFor` fills from a
+  // seat's `rw-paths:`, so it is the arm that stands closest to a real caged build seat.
   const extraRepo = compile({
     ...base,
     extraPaths: [{ path: repoProduct, access: 'rw' }],
   });
-  assert.equal(extraRepo.ok, false, 'extraPaths rw inside the rbtv repo must still refuse');
-  assert.equal(extraRepo.refuse.kind, 'conflict');
-  console.log('PASS extraPaths-rw-under-rbtv-repo-refuses');
+  assert.equal(extraRepo.ok, true, `extraPaths rw inside the rbtv repo refused: ${JSON.stringify(extraRepo.refuse)}`);
+  assert.equal(innermostAccess(extraRepo, repoProduct), 'rw', 'extraPaths rw inside the rbtv repo compiles rw');
+  assert.equal(innermostAccess(extraRepo, repoSibling), 'ro', 'extraPaths carve leaves undeclared siblings ro');
+  console.log('PASS extraPaths-rw-under-rbtv-repo-admitted');
 
   const planningExtra = compilePlanning({
     ...base,

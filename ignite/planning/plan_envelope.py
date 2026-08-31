@@ -1,17 +1,39 @@
 #!/usr/bin/env python3
-"""Author `<plan-artifacts>/envelope.json` — the fill-ins Path-B copies at birth.
+"""Author `envelope.json` — the fill-ins `envelope/launch.js#loadFillIns` reads at every
+caged spawn. ONE producer, TWO destinations, and the second is what makes the first reach
+a goal that is already alive.
 
-THE GAP THIS CLOSES. `path_b.bound_envelope_fillins` reads this file from the bound
-commit (`git show`, never the working tree). Birth-envelope (`_land_envelope`) is the
-consumer of that tree object. Nothing in planning wrote it, so every birth copied
-nothing and `compilePlanning` hardcoded `credentialNames: []`. This module is the
-producer. It does not land the file on the born goal and does not parse plan prose.
+  --plan-artifacts <dir>   `<plan-artifacts>/envelope.json`, the PLAN-side artifact the bound
+                           commit carries and `path_b.bound_envelope_fillins` reads at birth.
+  --goal-dir <dir>         `<goal-dir>/envelope.json`, the BORN-goal artifact `loadFillIns`
+                           reads. Compile-checked first, then landed by the same
+                           exclusive-create writer the birth uses.
+
+THE GAP `--plan-artifacts` CLOSED. `path_b.bound_envelope_fillins` reads that file from the
+bound commit (`git show`, never the working tree). Birth-envelope (`_land_envelope`) is the
+consumer of that tree object. Nothing in planning wrote it, so every birth copied nothing and
+`compilePlanning` hardcoded `credentialNames: []`.
+
+THE GAP `--goal-dir` CLOSES (`ignite-engine-loop` M1 Observable B; register filing
+`G-leader-0831-1620`). The birth-side landing only fires DURING a birth, and only when the
+bound commit already carries the plan artifact. A goal born before that fix deployed, or from
+an approved plan whose artifacts carry no `envelope.json` — the common case, and the case of
+`ignite-engine-loop` itself — gets no file and boots under `compilePlanning`, every declared
+write root read-only, with nothing but one stderr line to say so. There was no production
+writer for that goal at all, and the remedy in reach was a hand-written file: a console
+repair, one goal at a time, that leaves the next goal exactly as stuck. This is that writer.
+
+⚠ IT IS A PRODUCER, NOT AN EDITOR. `write_envelope_if_absent` is `O_CREAT|O_EXCL`: an
+existing `envelope.json` is REPORTED and never replaced, here as at birth. Changing a live
+goal's grants is a re-birth or a deliberate removal, never a silent overwrite by a CLI that
+was asked to create one.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -22,6 +44,13 @@ for _p in (_HERE, _HERE.parent / "coord"):
         sys.path.insert(0, str(_p))
 
 from records import atomic_write  # noqa: E402  (coord's one write door)
+# The BORN-GOAL half of this producer reuses the birth's own gate and writer rather than
+# growing a second copy of either: `compile_check_envelope` drives the real
+# `envelope/compiler.js`, and `write_envelope_if_absent` is the `O_CREAT|O_EXCL` landing
+# whose comment explains why it is not `tmp + rename`. `path_b` does not import this module,
+# so the edge is one-way.
+from failure import MaterializeFailure  # noqa: E402  (what the compile gate raises)
+from path_b import compile_check_envelope, write_envelope_if_absent  # noqa: E402
 
 # Must match `path_b.ENVELOPE_ARTIFACT_NAME` and `envelope/launch.js#FILL_IN_NAME`.
 ENVELOPE_ARTIFACT_NAME = "envelope.json"
@@ -157,16 +186,105 @@ def write_plan_envelope(plan_artifacts, fillins):
     return dest
 
 
+def spawning_compiler():
+    """The `envelope/compiler.js` THE DAEMON RUNS — which is the one that will read the file.
+
+    ⚠ NOT NECESSARILY THIS TREE'S. Under the D6 deploy model the daemon boots from a detached
+    worktree (`ExecStart=…/rbtv-deploy/ignite/runtime/index.js`) while a human runs this module
+    from the live source tree, and the two drift: measured 2026-08-31, the deployed copy was four
+    days behind the repo on `compiler.js`, `launch.js`, `spawn.js` and `path_b.py`, and did not
+    carry `plan_envelope.py` at all. Gating a landing on the local copy therefore checks a compiler
+    that will never see the file.
+
+    ⚠ ONE CONVENTION FOR "THE TREE THE DAEMON RUNS", NOT A SECOND ONE INVENTED HERE:
+    `RBTV_IGNITE_DEPLOY`, else `$XDG_STATE_HOME/rbtv-deploy` — the same resolution
+    `operator/daemon-operator/tool/rbtv-ignite-daemon` and `goal_cli.py#_daemon_counters_file`
+    already use for the same question.
+
+    Falls back to THIS tree's compiler when no deploy tree carries one (a fresh install, a fixture,
+    a probe workspace) — there, this tree is the tree that runs.
+    """
+    deploy = os.environ.get("RBTV_IGNITE_DEPLOY")
+    if not deploy:
+        state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+        deploy = str(Path(state) / "rbtv-deploy")
+    candidate = Path(deploy) / "ignite" / "envelope" / "compiler.js"
+    return candidate if candidate.is_file() else COMPILER_JS
+
+
+def land_goal_envelope(goal_dir, fillins, compiler_js=None):
+    """Compile-check `fillins` against the REAL compiler, then land `<goal_dir>/envelope.json`.
+
+    ⚠ NOTHING IS RE-IMPLEMENTED HERE. The validator is `build_fillins` above (the one grammar),
+    the compile gate is `path_b.compile_check_envelope` (the one gate, driving the real
+    `envelope/compiler.js` through node exactly as the birth does), and the writer is
+    `path_b.write_envelope_if_absent` (the one exclusive-create landing). A second spelling of
+    any of the three is how a goal's envelope and its birth's envelope come to disagree.
+
+    ⚠ COMPILE-CHECK BEFORE LANDING, never after, AND AGAINST THE COMPILER THAT WILL READ THE
+    FILE — `spawning_compiler()`, not necessarily this tree's. A refusing `envelope.json` on disk
+    is strictly worse than none: `loadFillIns` finds it, `compile()` refuses, and the seat does not
+    spawn at all, where an ABSENT file merely falls back to `compilePlanning`. Both halves were
+    measured on 2026-08-31: gating on a repo copy that carried a new carve rule landed a file the
+    DEPLOYED compiler refused `{kind:conflict}`, which would have made every caged seat of that
+    goal unspawnable. The birth makes the same call in the same order, and its own default already
+    resolves to the daemon's tree because the birth runs inside it.
+
+    Returns `(dest, verdict, status, compiler)`; `status` is `"written"` or `"already-present"`.
+    """
+    goal_dir = Path(goal_dir).resolve()
+    if not goal_dir.is_dir():
+        raise PlanEnvelopeRefusal("no-such-goal", f"{goal_dir} is not a directory")
+    body = build_fillins(fillins)
+    # `goalId`, the goal folder's `name` and the folder itself are ONE string by construction:
+    # family 1 bakes `{workspace}/.rbtv/goals/{goal}`, so a goal whose id differed from its
+    # folder name would compile a path that does not exist. Deriving all three from the folder
+    # is what keeps this producer from being able to spell a goal that cannot boot.
+    compiler = Path(compiler_js) if compiler_js else spawning_compiler()
+    verdict = compile_check_envelope(
+        goals_root=goal_dir.parent,
+        goal_id=goal_dir.name,
+        fillins=body,
+        name=goal_dir.name,
+        compiler_js=compiler,
+    )
+    status = write_envelope_if_absent(goal_dir, body)
+    return envelope_artifact_path(goal_dir), verdict, status, compiler
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="plan-envelope",
-        description="Write <plan-artifacts>/envelope.json for the bound commit Path-B reads. "
-                    "Run by a planning-pipeline seat before the bound commit is taken.",
+        description="Write envelope.json — the cage fill-ins. --plan-artifacts writes the PLAN-side "
+                    "artifact the bound commit carries (run by a planning seat before the bound "
+                    "commit is taken); --goal-dir compile-checks and lands the BORN goal's own file "
+                    "(run for a goal that is already alive and has none).",
+    )
+    dest = ap.add_mutually_exclusive_group(required=True)
+    dest.add_argument(
+        "--plan-artifacts",
+        help="directory the bound commit will include; envelope.json lands at its root",
+    )
+    dest.add_argument(
+        "--goal-dir",
+        help="a born goal's folder; envelope.json is compile-checked and landed at its root, "
+             "and an existing one is reported rather than replaced",
     )
     ap.add_argument(
-        "--plan-artifacts",
-        required=True,
-        help="directory the bound commit will include; envelope.json lands at its root",
+        "--compiler",
+        default=None,
+        help="path to the envelope/compiler.js that will READ the landed file. Default: the tree "
+             "the daemon runs (RBTV_IGNITE_DEPLOY, else $XDG_STATE_HOME/rbtv-deploy), else this "
+             "tree's. Only pass it to gate against a tree neither of those names",
+    )
+    ap.add_argument(
+        "--extra-path",
+        action="append",
+        default=[],
+        dest="extra_paths",
+        metavar="PATH:rw|ro",
+        help="a declared extraPaths grant, workspace-relative or absolute (repeatable). "
+             "The access suffix is required — an unstated access is a grant nobody can audit",
     )
     ap.add_argument(
         "--credential-name",
@@ -199,16 +317,46 @@ def main(argv=None):
         raw.update(loaded)
     if args.credential_names:
         raw["credentialNames"] = list(raw.get("credentialNames") or []) + list(args.credential_names)
+    for spec in args.extra_paths:
+        target, _, access = spec.rpartition(":")
+        if not target or access not in ACCESS:
+            print(json.dumps({"ok": False, "refusal": {
+                "code": "bad-fillins",
+                "detail": f"--extra-path takes PATH:rw or PATH:ro, got {spec!r}",
+            }}, indent=2))
+            return 2
+        raw["extraPaths"] = list(raw.get("extraPaths") or []) + [{"path": target, "access": access}]
+
+    if args.plan_artifacts:
+        try:
+            dest = write_plan_envelope(args.plan_artifacts, raw)
+        except PlanEnvelopeRefusal as exc:
+            print(json.dumps({"ok": False, "refusal": {"code": exc.code, "detail": exc.detail}}, indent=2))
+            return 2
+        if args.json:
+            print(dest.read_text(encoding="utf-8"), end="")
+        else:
+            print(f"plan-envelope written: {dest}")
+        return 0
 
     try:
-        dest = write_plan_envelope(args.plan_artifacts, raw)
+        dest, verdict, status, compiler = land_goal_envelope(args.goal_dir, raw, args.compiler)
     except PlanEnvelopeRefusal as exc:
         print(json.dumps({"ok": False, "refusal": {"code": exc.code, "detail": exc.detail}}, indent=2))
+        return 2
+    except MaterializeFailure as exc:
+        # The compile gate refused, so NOTHING was written — the goal keeps its (absent) envelope
+        # and its `compilePlanning` fallback rather than gaining one that refuses every spawn.
+        print(json.dumps({"ok": False, "refusal": {"code": exc.code, "detail": str(exc)}}, indent=2))
         return 2
     if args.json:
         print(dest.read_text(encoding="utf-8"), end="")
     else:
-        print(f"plan-envelope written: {dest}")
+        rw = [b["path"] for b in verdict.get("binds", []) if b.get("access") == "rw"]
+        print(f"goal-envelope {status}: {dest}")
+        # The compiler is NAMED, always. It is the one fact that decides whether this landing is
+        # safe, and it is not derivable from the exit code.
+        print(f"compile ok against {compiler}: {len(verdict.get('binds', []))} binds, {len(rw)} read-write")
     return 0
 
 

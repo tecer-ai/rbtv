@@ -359,15 +359,20 @@ function admitLaneReach({ seatBinds, goalFolder, seat, workspaceRoot = null }) {
     if (v.verdict === 'absent') {
       bad.push(`\`path ${arg}\` — lane-cannot-reach: ${target} is ABSENT in ${seat}'s composed cage — no bind covers it. `
         + `Grant it through an \`rw-paths:\` entry in ${seat}'s seat.md frontmatter `
-        + 'and the next seed pass admits it');
+        + '(workspace-relative, and never under `.rbtv/goals` — `seat-grants.js#rwPathRefusal` holds it '
+        + 'to the goals-tree rule) and the next seed pass admits it');
     }
   }
   if (!bad.length) return null;
   return 'LANE REACH REQUIREMENT NOT SATISFIED BY THE COMPOSED CAGE: ' + bad.join('; ')
     + '. THE RULE: a `## Requires-reach` entry is satisfied iff `cli <name>` is declared in the seat\'s `exposed-clis:` '
-    + 'block, and `path <p>` is covered readable-or-writable by the seat\'s composed cage (goal-writes + `rw-paths:`). '
-    + 'LIMIT: this gate checks REACH (the bind is present), never BEHAVIOR (`exit 0`) — a '
-    + 'masked-but-readable file passes; the D4 tool-secrets pierce is the fix for that class. This launch was refused '
+    + 'block, and `path <p>` is covered readable-or-writable by the seat\'s composed cage (`rw-paths:`, plus the '
+    + 'template families every seat gets — the whole goal folder rw, the workspace ro). '
+    + 'LIMIT 1: this gate checks REACH (the bind is present), never BEHAVIOR (`exit 0`) — a '
+    + 'masked-but-readable file passes; the D4 tool-secrets pierce is the fix for that class. '
+    + 'LIMIT 2: this gate composes through `cage.js#composeSeatCage`, and the LIVE cage composes through '
+    + '`envelope/compiler.js#compile` — so a grant this gate admits can still refuse at compose. '
+    + '`spawn.js#composeCageFor` is the loud end of that gap, not this one. This launch was refused '
     + 'BEFORE it was queued, because the seat\'s probe lane could not have run once caged; the failure would otherwise '
     + 'have surfaced mid-milestone as a blocked seat and burned the wave.';
 }

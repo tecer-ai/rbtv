@@ -16,12 +16,10 @@ const { composeSeatSpawn } = require('./tmux');
 const { specToBwrapFlags, contains, composeAncestorMasks } = require('./cage');
 const { needsDeclaration } = require('./private-scope');
 const { parseServiceSeatPath, parseSeatPath, checkGoalExecuting, checkMaterializedSeat } = require('../../runtime/seat-identity/seat-folder');
-const { deriveLease } = require('../../runtime/lease/lease');  // 7.607 E1 — the bus/goals authz predicate
 const { appendRow, readCsv } = require('../../runtime/seat-identity/csv');
 // The ONE symlink-aware containment rule (fA-4 D-1), parameterized by root and shared with the
 // fire-tool workdir guard rather than respelled here — `path.resolve` + a lexical prefix test
 // answers where a path POINTS, never where it LANDS.
-const { resolvesInsideGoalsRoot } = require('../../state-store/heart/argv-template');
 // The seat-declared grant resolvers (`rw-paths`, the frontmatter list reader and the shared
 // refusal predicate) live in ./seat-grants since ruling D2 (2026-08-19): `envelope/cage-admission.js`
 // must compose admissibility from the SAME grant classes this spawner composes walls from, so the
@@ -662,250 +660,54 @@ function refreshSeatDescriptor(seatDir, log) {
 // audited widen lane), is GONE ([T2-R12, T1-R9], 2026-08-24): the grant store is deleted, owner
 // auth is an answer to a live ask, and the file is no longer a runtime surface.
 
-// ── `goal-writes:` — the seat's ONE declared role output (owner ruling D9, 2026-08-10) ─────────
+// ── THE ABANDONED PER-SEAT GRANT MODEL — DELETED 2026-08-31 (`ignite-engine-loop` M1) ────────
 //
-// `rw-paths` above cannot express this, and must not be widened to: it REFUSES every entry under
-// `.rbtv/goals` precisely because that subtree holds every `sessions.csv` and every `seat.md`. So
-// the thing a seat's role actually PRODUCES — the interviewer's `goal.md`, the structurer's
-// `milestones.csv` — had no expressible grant at all, and the interviewer found that out by meeting
-// EROFS on the one file it existed to write, after a full night of interviewing (2026-08-09).
+// Six resolver functions stood here, each reading a `seat.md` grant key and building a grant
+// object for a `{grant:…}` slot of the `cage.SeatBinds` template. NONE OF THEM HAD A CALLER. The
+// live cage has been the envelope compiler's bind list since the 2026-08-25 cutover
+// (`composeCageFor` → `admitLaunch` → `envelope/compiler.js#compile`), and that path never asks
+// this file for a grant. A seat could declare the key, pass `materialize-seats.py`'s validation
+// and the pre-enqueue admission gate, and receive a cage that had never heard of it — the defect
+// class register filing `G-leader-0827-1643` names, and the one this goal exists to end.
 //
-// GOAL-RELATIVE, not workspace-relative. That is the single vocabulary difference from `rw-paths`
-// and it is what makes an entry inside `.rbtv/goals` safe to admit here: the path can only ever
-// resolve inside THIS seat's own goal folder, so no entry can name another goal, another seat, or
-// anything outside the tree. The cage template's `bind-try:{grant:goalWrite}` line consumes it.
+// WHAT REPLACED EACH — read this before reviving one:
 //
-// GROUND TRUTH IS NOT DEFENDED BY A LIST HERE, deliberately — and the two `ro-bind-try` carves
-// this paragraph used to name (`sessions.csv`, `state.csv`) ARE GONE FROM BOTH PLACES THAT EVER
-// HELD THEM: out of the `SeatBinds` template with the rest of the ledger carves (D3 — record
-// forgery is a non-goal, ledgers are writable), and out of `envelope/daemon-owned-records.yaml`
-// on 2026-08-27, because the live composer is the ENVELOPE, not this template, and a file-level
-// ro bind there made `coordinate checkin`'s own stamp fail EBUSY (`rename(2)` onto a bind
-// mountpoint) for every caged seat. What still holds the wall: peer seat folders absent under the
-// `seats` ro-mask, and `seat.md`'s own read-only carve — the WALL-CONTROL surface, not a record.
-// A second list here would be a second place the wall is reasoned about.
-// `materialize-seats.py` refuses such a declaration at AUTHORING time as well, where the author
-// is still holding the file.
+//   `resolveGoalWriteGrants`  (`goal-writes:`, D9/D21) → template family 1 `goal-folder`, which
+//       binds the WHOLE goal folder rw under D3 (2026-08-19). The declaration survives as the
+//       statement of a seat's one product, which is what `cage-admission.js` reads it for; it is
+//       no longer a grant, because there is nothing left for it to grant. Its D21 create-if-absent
+//       half goes with it: under a wholly-rw goal folder the seat creates its own product.
+//   `resolveReadRootGrant`    (`read-root:`, D-1) → template family 5 `vault-wide-read`, minus the
+//       private scope. It was already a no-op returning the workspace unconditionally.
+//   `resolveFenceReadGrants`  (D3 item 4) → template families 6 `rbtv-repo` and 9 `mirror`.
 //
-// FAIL-CLOSED PER ENTRY, same posture and same reason as `rw-paths`: a bad entry is skipped and
-// LOGGED, never fatal — one typo in a descriptor must not take a seat offline.
+// AND THE THREE WITH NO REPLACEMENT, stated plainly rather than left to look wired:
 //
-// ⚠ IT CREATES THE DECLARED OUTPUT WHEN ABSENT, and that is the ONE place it departs from its
-// `rw-paths` sibling (owner ruling D21, 2026-08-11). The departure is forced by bwrap, not chosen:
-// a bind needs an existing source and the goal root is read-only, so a seat whose product does not
-// exist YET — the structurer's `milestones.csv`, every checker's findings file — could never create
-// it, and "declare your output" would work only for the one file the scaffolder happens to seed.
-// Skipping instead would have made the grant useless for most of the roles it exists to serve.
-// The precedent is IN THIS FILE: `composeCageFor` already touches an absent `sessions.csv` for the
-// service seat, for the same reason and with the same guard. Bounded exactly: only the ONE
-// already-validated goal-relative path (absolute, escaping and outside-goal declarations were
-// refused above, and `materialize-seats.py` refused ground truth at authoring time), at most its
-// parent directory, and always EMPTY — never content, never a template.
-function resolveGoalWriteGrants(seatPath, log) {
-  const goalDir = seatPath.goalDir;
-  const grants = [];
-  for (const entry of seatDeclaresList(seatPath.seatDir, 'goal-writes')) {
-    const refuse = (reason) => log('warn', `goal-writes entry REFUSED: ${reason}`, { seat: seatPath.seat, seatDir: seatPath.seatDir, entry });
-    if (!entry) { refuse('empty entry'); continue; }
-    if (path.isAbsolute(entry)) { refuse('absolute path — goal-writes entries are goal-relative'); continue; }
-    const target = path.resolve(goalDir, entry);
-    if (!contains(goalDir, target) || target === goalDir) { refuse(`resolves outside the seat's own goal folder: ${target}`); continue; }
-    // fA-4 D-1 — SAME RULE AS ITS SIBLING, AND IT MUST RUN BEFORE THE D21 CREATION BELOW. The seat
-    // holds RW on `{goalDir}/coordination`, so it can plant a symlink there, declare it, and be
-    // handed an RW bind of the link's REAL target; and `mkdirSync`/`writeFileSync` follow symlinked
-    // segments too, so a check placed after creation would already have written through the link.
-    const realGoalDir = (() => { try { return fs.realpathSync(goalDir); } catch { return null; } })();
-    if (!realGoalDir || !resolvesInsideGoalsRoot(target, realGoalDir)) {
-      refuse(`RESOLVES outside the seat's own goal folder — a segment on this path is a symlink out of it: ${target}`);
-      continue;
-    }
-    if (!fs.existsSync(target)) {
-      // D21: create it EMPTY so the bind has a source. A failure here is the same logged skip as
-      // any other bad entry — a goal folder that cannot take the file must not take the seat down.
-      try {
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, '');
-      } catch (err) {
-        refuse(`does not exist and could not be created: ${target} — ${err.message}`);
-        continue;
-      }
-    }
-    grants.push({ goalWrite: target });
-  }
-  return grants;
-}
+//   `resolveBusWriteGrants`   (`bus-write:`, 7.607 E1) — cross-goal `coordination/` rw, scoped by
+//       `deriveLease`. The compiler binds ONE goal folder and the workspace ro; there is no
+//       cross-goal write in it. The only promised holder, the channel-master, is uncaged staff and
+//       takes no bind list at all.
+//   `resolveGoalsWriteGrants` (`goals-write:`, 7.778) — cross-goal goal-folder rw for the
+//       materializer. Same absence, same reason.
+//   `resolveTmuxSocketGrant`  (`tmux-socket:`, 2026-08-07) — the tmux socket dir ro under the
+//       `--tmpfs /tmp` every spawn lays down.
+//
+// ⚠ THE THREE KEYS ARE THEREFORE INERT, AND DELETING DEAD CODE DID NOT MAKE THEM LESS SO. A seat
+// declaring `bus-write:`, `goals-write:` or `tmux-socket:` still parses, still validates, and still
+// buys nothing. Making the refusal loud at AUTHORING time — `spawn-profiles.yaml`'s grant
+// vocabulary and `materialize-seats.py`'s validator — is the other half of `G-leader-0827-1643`
+// and is NOT done here: it reaches every live descriptor and is a change of its own. Filed, not
+// fixed in passing.
+//
+// The rationale deleted with the code is not lost: D9/D21, D-1, D3 item 4, 7.607 E1 and 7.778 are
+// resolvable rulings, and the two live grant classes that remain in this file — `local-bin` and
+// `exposed-clis`, plus `rw-paths`/`cli-write-roots` reaching `composeCageFor` below — carry their
+// own.
 
-// ── W5 / ruling D-1 (2026-08-13) — THE READ ROOT IS NOW UNIVERSAL ────────────────────────────
-//
-// It was a per-seat declaration (`read-root: true`), and that is what D1 measured: a seat's cage
-// bound only each exposed CLI's OWN directory, so a multi-directory CLI — one that reads a data
-// root, an import root, or a sibling code tree — either crashed or saw empty data. Widening the
-// declaration seat by seat would have left 7 of 8 blast-radius combinations exposed; ruling D-1
-// inverts it instead: EVERY seat reads the workspace, minus a DEFAULT-DENY SEED
-// (`private-scope.js`) that is enumerated, pattern-floored and fails closed on new secrets.
-//
-// ⚠ THE DECLARATION IS NOW A NO-OP, DELIBERATELY LEFT PARSEABLE. Live seat.md files carry
-// `read-root: true`; refusing or warning on it would red every one of them for a key that now
-// describes the floor. It grants nothing extra because there is nothing extra to grant.
-//
-// ⚠ AND THE TEMPLATE'S LINE ORDER IS NOW LOAD-BEARING FOR EVERY SEAT (adv C56): `tmpfs:{goalDir}/
-// seats` — what makes PEER SEAT FOLDERS ABSENT — only shadows this floor because this line is
-// emitted first. It was previously load-bearing only for the one declaring seat.
-function resolveReadRootGrant(seatPath) {
-  return [{ readRoot: seatPath.workspaceRoot }];
-}
 
-// D3 item 4 — rbtv repo + workspace mirror, READ, every seat. Paths resolve from this
-// module's location and the seat's workspaceRoot, never a hardcoded install path
-// (#d-no-hardcoded-paths). Grant-shaped so callers of composeSeatCage that do not
-// pass them (engine/cage-admission.js, out of this seat's custody) skip the lines
-// rather than throw on a missing scalar slot.
-function resolveFenceReadGrants(seatPath) {
-  const rbtvRoot = path.resolve(__dirname, '..', '..', '..');
-  const rbtvMirror = path.join(seatPath.workspaceRoot, '.rbtv', 'mirror');
-  return [{ rbtvRoot }, { rbtvMirror }];
-}
 
-// ── Owner ruling "1a" (2026-08-06) — the three CROSS-GOAL INSTRUMENT grants ──────────────────
-//
-// A service seat (the channel-master is the first) is promised instruments the cage blocks: the
-// coordination CLI writing into ANOTHER goal's run (read-only under the read-root grant -> EROFS,
-// measured), the user-local CLIs (HOME is a tmpfs), and the gateway address (no env reaches the
-// session). Each is a grant class declared in seat.md — ro-bound inside the cage, written by the
-// materializer/master, never the occupant — so no seat can widen its own walls, exactly as
-// `read-root` above. Absent key -> empty grant list -> the template line composes to nothing.
 
-// ── 7.607 E1 — THE BUS AUTHZ PREDICATE IS THE DERIVED LEASE (design lock item 4, SECURITY) ─────
-//
-// `bus-write: true` — RW on the coordination dir of every goal that is EXECUTING RIGHT NOW.
-//
-// WHAT THIS REPLACED AND WHY IT IS SECURITY, NOT PLUMBING. The predicate was "seats of an OPEN run
-// of the goal", read from the (now deleted) run register. With the layer extinguished, seat folders become
-// GOAL-DURABLE (`decisions.md#d-runs-extinguished`, owner clarification): every seat a goal ever
-// had persists on disk forever. A register-shaped predicate carried straight over would therefore
-// have WIDENED — a stale `state=open` row, or the mere existence of the goal's accumulated seat
-// tree, would grant the bus to historical seats of an execution that ended months ago. The ruling
-// (item 4) is explicit that today's narrowness is preserved EXACTLY: "a seat reads/writes the
-// coordination bus only while it has a live, ancestry-verified process in the goal's current
-// execution — historical seat folders on disk grant nothing."
-//
-// So the grant is founded on `lease.js deriveLease()`:
-//
-//   the goal contributes a bus  ⟺  its room exists NOW  AND  at least one seat of that room has a
-//                                  live process whose (pid, pid-starttime) matches its registered
-//                                  pair and whose /proc ancestry reaches a pane of that room
-//
-// THE SEAT CONJUNCT IS LOAD-BEARING HERE AND NOWHERE ELSE. The ticker gate treats a bare room as a
-// live lease (a room mid-relaunch is still an execution). AUTHZ may not: a room with no verified
-// occupant is a room nobody is in, and handing the bus to a folder tree on that evidence is the
-// widening the ruling forbids. The two callers legitimately read the same lease with different
-// thresholds, which is why `deriveLease` reports the room and the seat set separately and decides
-// neither.
-//
-// UNREADABLE FAILS CLOSED: `deriveLease` returning `{ok:false}` (tmux gone) contributes NO grant.
-// An authz surface may not be opened on ignorance.
-//
-// This never creates a directory. Goal order is readdirSync's, sorted, so the composed spec is
-// deterministic across spawns.
-function resolveBusWriteGrants(seatPath) {
-  if (!seatDeclares(seatPath.seatDir, 'bus-write')) return [];
-  const grants = [];
-  for (const { goal, lease } of leasedGoals(seatPath.workspaceRoot)) {
-    for (const room of lease.rooms) {
-      if (room.seats.length === 0) continue;   // no live occupant ⇒ no bus (the authz narrowing)
-      const coordination = path.join(room.packageDir, 'coordination');
-      if (fs.existsSync(coordination)) grants.push({ busWrite: coordination, busGoal: goal, busRun: room.room });
-    }
-  }
-  return grants;
-}
 
-// The BUS grant's walk: every goal folder, its lease derived once. Spelled here so the authz
-// predicate has ONE home (PRIN-11) — two copies of "which goals are executing" is the same drift
-// as two copies of "is this run open" was. ⚠ It had a second caller (`goals-write`) until 7.778
-// removed that class's liveness conjunct; ONE caller is the current end state, not a leftover.
-function leasedGoals(workspaceRoot) {
-  const goalsDir = path.join(workspaceRoot, '.rbtv', 'goals');
-  let goals;
-  try {
-    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
-    return [];
-  }
-  const out = [];
-  for (const goal of goals) {
-    const lease = deriveLease({ workspaceRoot, goal });
-    if (!lease.ok || !lease.live) continue;  // unreadable or not executing — both grant nothing
-    out.push({ goal, lease });
-  }
-  return out;
-}
-
-// `goals-write: true` — RW on the GOAL FOLDER of every goal in the workspace but its own, so a
-// seat holding the materializer (`planning/materialize-seats.py`) can seat a cataloged seat into a
-// goal: it writes `seats/<seat>/seat.md` and appends `taskforce.csv`, and that append is an atomic
-// tmp-file-plus-rename IN THE GOAL DIR — which is why the grant is the goal dir and not `seats/`
-// alone.
-//
-// ── 7.778 — THE LIVENESS CONDITION IS REMOVED (owner-ruled 2026-08-12) ────────────────────────
-//
-// This grant was lease-scoped, exactly like `bus-write` above: a goal contributed a grant only
-// while its room existed AND at least one seat of that room had an ancestry-verified live process.
-// That was measured to make the channel master's own promised act IMPOSSIBLE, not merely narrow:
-//
-//   · the grant list is resolved ONCE, when the sandbox is composed at spawn — it is a SNAPSHOT,
-//     not a live query, so nothing the sitting does afterwards can widen it;
-//   · a goal CREATED during that sitting therefore cannot be in the snapshot, by construction;
-//   · so the master's write of a just-created goal's `<goal>/execution-lane` died on `EROFS`,
-//     every time, whatever it did. There was no ordering that worked.
-//
-// The lane's own routing is fixed at the other end (7.777 — the DAEMON writes the marker during
-// creation, in the process that writes `goal.md`), but the same snapshot argument bites every
-// other cross-goal act the master is entitled to: a goal it is meant to seat into is not
-// guaranteed to have had a live pane at the instant this seat spawned. LIVENESS IS THEREFORE NOT
-// AN ENTITLEMENT PREDICATE HERE — it is a fact about a moment that has already passed.
-//
-// ⚠ THE LIVENESS CONJUNCT STAYS EXACTLY AS IT WAS FOR `bus-write` ABOVE, and that is deliberate.
-// The coordination bus is where seats' identities and messages live, and the 7.607 E1 ruling
-// (design lock item 4) is explicit that its narrowness is preserved: "a seat reads/writes the
-// coordination bus only while it has a live, ancestry-verified process in the goal's current
-// execution — historical seat folders on disk grant nothing." That ruling is about the BUS. It is
-// not restated for the goal folder, and this row does not touch it.
-//
-// WHAT ENTITLEMENT REMAINS after the loosening — three conditions, all still enforced:
-//
-//   0. THE SEAT MUST DECLARE `goals-write: true` IN ITS OWN `seat.md`, which is written by the
-//      materializer/master and ro-bound inside the cage. No occupant can widen its own walls; a
-//      seat that does not declare the key gets an empty grant list and the template line composes
-//      to nothing. This is the actual entitlement gate and it is untouched.
-//   1. THE SEAT'S OWN GOAL FOLDER IS NEVER GRANTED. A seat would otherwise re-open its own
-//      goal dir read-write ON TOP of `tmpfs:{goalDir}/seats` and the `ro-bind:{seatDir}/seat.md`
-//      carve — un-erasing peer seat folders and handing the occupant its own permission record.
-//      Excluding the own goal keeps those two wall-control carves intact. The own goal is
-//      already RW via the template's `bind:{goalDir}` (D3).
-//   2. The former `goalsWriteGroundTruth` carve (other goals' sessions.csv back to RO) is
-//      DELETED. D3: record forgery is a non-goal; coordination ledgers are writable.
-//
-// The walk is the goals root directly rather than `leasedGoals`, because a lease is now the wrong
-// question here — and it never creates a directory. Order is readdirSync's, sorted, so the
-// composed spec is deterministic across spawns.
-function resolveGoalsWriteGrants(seatPath) {
-  if (!seatDeclares(seatPath.seatDir, 'goals-write')) return [];
-  const goalsDir = path.join(seatPath.workspaceRoot, '.rbtv', 'goals');
-  let goals;
-  try {
-    goals = fs.readdirSync(goalsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
-    return [];
-  }
-  const grants = [];
-  for (const goal of goals) {
-    const pkgDir = path.join(goalsDir, goal);
-    if (contains(pkgDir, seatPath.seatDir)) continue;  // narrowing 1 — never the seat's own home
-    grants.push({ goalsWrite: pkgDir });
-  }
-  return grants;
-}
 
 // `local-bin: true` — the invoking user's ~/.local/bin, READ-ONLY (D26: os.homedir(), never a
 // literal). It is under the HOME tmpfs bwrap.js lays down, so this bind punches it back through.
@@ -970,29 +772,6 @@ function composeSeatIdentityEnv(seatPath) {
   return { COORD_AGENT: seatPath.seat };
 }
 
-// `tmux-socket: true` — the tmux server's socket DIRECTORY, READ-ONLY (owner-directed 2026-08-07).
-//
-// bwrap lays a `--tmpfs /tmp` on EVERY spawn, which masks that directory. So a caged seat holding
-// the coordination CLI can log a message but its WAKE leg dies on
-// `error connecting to /tmp/tmux-<uid>/default (No such file or directory)`: the recipient is never
-// nudged, and the sender reports the socket as "not wired to this seat" — which reads as a missing
-// per-seat wiring rather than the one tmpfs that hides the socket from every seat alike. Measured
-// in a live channel-master sitting on 2026-08-07, and reproduced against the shipped cage.
-//
-// READ-ONLY IS THE WHOLE GRANT, and it is not a half-measure. `connect(2)` on a unix socket is NOT
-// refused by a read-only mount — the kernel's `sb_permission` returns EROFS only for regular files,
-// directories and symlinks — so `send-keys`, `capture-pane`, `display-message` and `list-panes` all
-// work through it, while CREATING or DELETING a socket does not. The seat drives the rooms that
-// already exist; it can neither mint nor destroy one. Both halves measured on this box, 2026-08-07.
-//
-// The path is tmux's OWN default — `$TMUX_TMPDIR/tmux-<uid>`, else `/tmp/tmux-<uid>` — derived from
-// the daemon's environment and uid rather than named in config, for the reason D26 gives for
-// `local-bin` above: a literal would write an instance path into the code tree.
-function resolveTmuxSocketGrant(seatPath) {
-  if (!seatDeclares(seatPath.seatDir, 'tmux-socket')) return [];
-  const dir = path.join(process.env.TMUX_TMPDIR || '/tmp', `tmux-${process.getuid()}`);
-  return fs.existsSync(dir) ? [{ tmuxSocketDir: dir }] : [];
-}
 
 // `exposed-clis:` — the SANDBOX realization of a prompt card's `exposes: path:` declaration
 // (registry `decisions.md#d-path-exposes-authorable`, owner 2026-08-10). `path` keeps no CMP-12
