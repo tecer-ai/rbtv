@@ -3281,6 +3281,8 @@ _SEAT_GUIDANCE_MD = """\
 > `AGENTS.md` carry this SAME body — one text under each harness's native guidance name
 > (`d-uniform-descriptor-carriage`). Regenerated freely; never hand-edit it.
 
+**Your sitting ends when your turn does — never end a turn expecting to be woken; run every check now, or stop and report state.** Full mechanics: `meta/planning/references/headless-seat-cannot-wait.md`.
+
 ## Your descriptor is `seat.md` — and it already arrived with your launch
 
 A daemon-launched sitting receives this seat's `seat.md` AT SPAWN, on every harness: a
