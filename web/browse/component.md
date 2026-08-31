@@ -24,8 +24,11 @@ left this component on 2026-08-21 with `defuddle`, to the sibling `capture` comp
 |---|---|---|
 | The readable text of a page — article, doc, reference | the sibling `capture` component | No browser process at all. Not this component's at all since 2026-08-21. |
 | To interact with a page — click, fill, log in, screenshot, read the console | `agent-browser` | A real browser, driven one command at a time, session persisting between calls. Built for exactly this caller. |
-| To instrument a browser — network requests, performance traces, Lighthouse audits | the `chrome-devtools` MCP tools | Instrumentation, not interaction: `agent-browser` operates a page, this reads the engine underneath it. Not an installed CLI — it is registered, so it is present in a session as MCP tools or not at all. |
-| To script a repeatable multi-step run, or anything the three above cannot express | `playwright` | Only when a *program* is the deliverable. Writing a script for a job `agent-browser` does in one command is the failure this table exists to prevent. |
+| To measure a page — network requests and response bodies, HAR, a Chrome DevTools trace, accessibility, Core Web Vitals | `agent-browser` as well | Measured working 2026-08-31, one shell command each. This row used to send the caller to the MCP server; it no longer does, because climbing there for a request list is the waste this table exists to prevent. |
+| To mock a network response, or record video | `playwright cli` | `agent-browser`'s own equivalents are broken on this box and fail SILENTLY — `network route --abort` exits 0 without blocking, and video needs an `ffmpeg` that is not installed. |
+| A Playwright artifact — a `codegen` test, a `show-trace` trace, a locator — or raw Playwright code | `playwright cli`, or the node API | These exist in no other surface here. `agent-browser`'s trace is Chrome DevTools JSON, a different artifact for a different viewer. |
+| A Lighthouse audit, performance-trace insights, a heap snapshot, CPU/network throttling | the `chrome-devtools` MCP tools | The audit rung, and now its whole job. Not an installed CLI — it is registered, so it is present in a session as MCP tools or not at all. UNVERIFIED on this box. |
+| To script a repeatable multi-step run, or anything above cannot express | `playwright` node API | Only when a *program* is the deliverable. Writing a script for a job `agent-browser` does in one command is the failure this table exists to prevent. |
 
 A page that renders its content with JavaScript defeats every no-browser reader — that is the one
 legitimate reason to climb from `capture` into this component for pure reading
@@ -74,6 +77,65 @@ and a component that operates or measures one. Capture's extractor chain (`defud
 The consequence to hold: this component's ladder no longer starts at its own first rung. An agent
 that arrives here to *read* a page is one component early, and the router says so in its own
 § *Do you need this at all?*.
+
+## The `playwright-cli` reference set (moved in 2026-08-31, owner-ruled)
+
+`references/playwright/` holds ten files documenting the interactive CLI that ships inside the
+`playwright` package — reached as `playwright cli <command>`, never as a `playwright-cli` binary,
+which does not exist on `PATH`. Its own help prints the name `playwright-cli`, which is why the
+files are written that way. Measured against 1.62.1 (`~/.local/bin/playwright`, ignite VPS,
+2026-08-31): every command family the files document — route/unroute, tracing, video, storage state,
+run-code, sessions — is present. The tool also ships its own guide at
+`playwright/node_modules/playwright-core/lib/tools/skills/playwright-cli/SKILL.md`, which is
+authoritative where the two disagree; these files are not version-tracked against it.
+
+They were staged in the build-ignite backlog under a folder already named for this component,
+orphaned when the `rbtv-studio` browser-automation workflow they belonged to was retired; their own
+text still pointed at `{rbtv_path}/studio/workflows/browser-automation/data/references/`, a path
+that no longer exists.
+
+They are **reference material, so they carry no `exposure.csv` row** — a `references/` file is wired
+in only by being pointed at from the routing body, exactly as `web/capture` does with
+`references/link-preview.md` and `core/coding` does with its four discipline files. `browse.md`
+carries that pointer.
+
+The set's index is `references/playwright/playwright.md`. It arrived as `workflow.md` carrying skill
+frontmatter — a second router that would have competed with `browse.md`. The frontmatter is stripped
+and the file is a plain index; **it must never be re-exposed as a skill**, because this component's
+settled shape is one capability and one router (§ *One capability, one router*, above).
+
+**The routing question this set raised — RULED (owner, 2026-08-31), option (a), by deliverable.**
+`playwright cli` operates a live page the way `agent-browser` does, so this component reaches two
+interactive surfaces with overlapping jobs. The ladder in `browse.md` was rewritten off measurement
+rather than off the help text, and the split is now:
+
+- **`agent-browser` drives AND measures** — it is the default. Verified working here: network request
+  listing and response bodies, HAR capture, Chrome DevTools tracing, cookies/localStorage/state
+  save-restore, accessibility audit, Core Web Vitals, concurrent named sessions.
+- **`playwright cli` owns a short remainder** — mocking a network response and recording video (both
+  because `agent-browser`'s equivalents are broken on this box, below), plus Playwright artifacts
+  (`codegen` tests, `show-trace` traces, `generate-locator`) and raw Playwright code.
+- **The `chrome-devtools` MCP dropped to an audit rung** — Lighthouse, performance-trace insights,
+  heap snapshots, throttling. It lost network inspection and console reading to `agent-browser`,
+  which does both in one shell command. This rung is UNVERIFIED and `browse.md` says so.
+
+**Two measured defects drive that split, and both are silent.** `agent-browser network route
+--abort` exits 0 without blocking anything — the request still fired at status 200 across three
+reloads. `agent-browser record start|stop` fails because `ffmpeg` is absent on this box. The
+equivalent `playwright cli` commands were verified working (a stub returned the injected status; a
+real `.webm` was produced from Playwright's bundled ffmpeg).
+
+**Both CLIs also need an undocumented launch flag here**, which is the true cause of every historical
+"this box has no browser" report: `agent-browser` needs `--args "--no-sandbox"`, and `playwright cli`
+needs `--browser chromium` (a value its own help does not list — it otherwise targets a real Chrome
+install that is absent). `browse.md` § *The four things `-h` will not tell you* carries both.
+
+All of the above was measured on the ignite VPS on 2026-08-31. **The Windows desktop is unmeasured**
+— the flags, the two defects, and the `ffmpeg` absence may all differ there.
+
+Not moved with them: `screenshot-capture` (a Python program that builds a design exemplar set). It
+uses a browser but its job is design reference, not browsing, so it went to the design side of the
+backlog for a separate ruling.
 
 ## Dependencies
 
