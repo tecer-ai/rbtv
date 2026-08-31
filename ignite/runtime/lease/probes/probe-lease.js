@@ -43,13 +43,13 @@ fs.writeFileSync(outPath, '');
 
 const { deriveLease, describeLease, roomNamesForGoal, packageDirForRoom, defaultTmuxProbe } = require('../lease');
 
-// 29 = 6 (pure predicate) + 9 (unreadable posture, incl. E3b's L3c socket-location trio + its gate
-// arm) + 14 (live layer). The live layer's skip branch emits exactly 14 too, so a tmux-less box
-// reaches the same denominator rather than shrinking it.
+// 30 = 6 (pure predicate) + 9 (unreadable posture, incl. E3b's L3c socket-location trio + its gate
+// arm) + 15 (live layer, including the paneless-tty arm). The live layer's skip branch emits
+// exactly 15 too, so a tmux-less box reaches the same denominator rather than shrinking it.
 //
 // ⚠ THIS NUMBER WAS WRONG ON THE FIRST RUN (declared 21, ran 23) AND THE ASSERTION IS WHAT SAID SO:
 // every check passed and the probe still exited 1. Kept as the argument for the assertion existing.
-const EXPECTED_CHECKS = 29;
+const EXPECTED_CHECKS = 30;
 
 const checks = [];
 let skipped = 0;
@@ -232,7 +232,7 @@ function starttimeOf(pid) {
 }
 
 if (!tmuxAvailable()) {
-  for (let i = 0; i < 14; i++) skip(`L4.${i} live lease layer`, 'tmux is not installed on this box');
+  for (let i = 0; i < 15; i++) skip(`L4.${i} live lease layer`, 'tmux is not installed on this box');
 } else {
   const before = defaultServerSessions();
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rbtvlease-'));
@@ -322,6 +322,18 @@ if (!tmuxAvailable()) {
     check('⚠ L12 RED TWIN 3 — a process ALIVE but OUTSIDE the room is refused (this probe\'s own '
       + 'pid, which is genuinely running). Aliveness alone is not membership of the execution',
       deriveLease({ workspaceRoot: wsRoot, goal: GOAL }).seats.length === 0);
+
+    fs.writeFileSync(sessionsCsv,
+      `session-id,seat,harness,pid,pid-starttime,tty,ended\n`
+      + `s1,builder,claude,${process.pid},${starttimeOf(process.pid)},,\n`);
+    check('⚠ L17 PANELESS: the same live pid L12 refused VERIFIES when the row carries an empty '
+      + '`tty` — daemon-lane spawn writes that cell; a header without `tty` is not paneless '
+      + 'evidence, which is why L12 (no column) stays red',
+      (() => {
+        const r = deriveLease({ workspaceRoot: wsRoot, goal: GOAL });
+        return r.seats.length === 1 && r.seats[0].seat === 'builder'
+          && r.evidence['seats-verified'] === 1;
+      })());
 
     writeSeat(panePid, starttimeOf(panePid));
     fs.appendFileSync(sessionsCsv, `s2,builder,claude,${panePid},${starttimeOf(panePid)},2026-08-09 10:00\n`);

@@ -7,8 +7,9 @@
 // goal liveness. Its whole contract is one sentence:
 //
 //   A goal is EXECUTING iff its tmux room exists right now; the seats holding that lease are the
-//   registered occupants whose (pid, pid-starttime) pair is alive AND whose /proc ancestry reaches
-//   a pane of that room.
+//   registered occupants whose (pid, pid-starttime) pair is alive AND who are IN this execution:
+//   /proc ancestry reaches a pane of that room, OR the row is paneless (the `tty` column is
+//   present and empty — the same cell daemon-lane spawn writes).
 //
 // ⚠ NO STORED STATUS IS READ, ANYWHERE IN THIS FILE, BY CONSTRUCTION. No `runs.csv`, no lease
 // file, no heartbeat, no state.json, no mtime. That is not a style preference — it is the ruling
@@ -235,20 +236,27 @@ function deriveLease({ workspaceRoot, goal, tmuxProbe = defaultTmuxProbe }) {
 }
 
 // The occupant set of ONE room: `sessions.csv` rows whose recorded process is alive with the
-// recorded starttime AND whose ancestry reaches one of the room's panes.
+// recorded starttime AND who are IN this execution — ancestry reaches a pane, OR the row is
+// paneless (`tty` present and empty; daemon-lane spawn writes that cell).
 //
-// ⚠ ALL THREE CONJUNCTS ARE LOAD-BEARING and each kills a distinct forgery:
+// ⚠ THE FIRST TWO CONJUNCTS ARE LOAD-BEARING on every row and each kills a distinct forgery:
 //   pid alive          — a departed seat's row grants nothing (historical seat folders are inert)
 //   starttime matches  — pid reuse cannot inherit a dead seat's standing
-//   ancestry in a pane — a process alive outside the goal's room is not IN this execution
-// A room whose panes could not be listed verifies NOTHING rather than everything: an unmeasurable
-// ancestry is not a satisfied one.
+// The third is membership, two legal shapes:
+//   ancestry in a pane — a pane-lane process alive outside the goal's room is not IN this execution
+//   empty `tty`        — a daemon-lane seat never had a pane; requiring ancestry made it
+//                        structurally invisible (G-leader-0823-0025). The column must be PRESENT
+//                        and empty: a header without `tty` is not paneless evidence (it is the
+//                        older pane-only log), so a live pid outside the room still fails.
+// A room whose panes could not be listed still verifies paneless rows; pane-lane rows with no
+// measurable ancestry still verify NOTHING rather than everything.
 function verifiedSeats({ packageDir, panePids }) {
   const log = readCsv(path.join(packageDir, 'sessions.csv'));
   if (!log.exists) return [];
   const need = ['seat', 'pid', 'pid-starttime'];
   if (!need.every((c) => log.header.includes(c))) return [];
   const hasEnded = log.header.includes('ended');
+  const hasTty = log.header.includes('tty');
   const paneSet = new Set(panePids);
 
   // Latest non-ended row per seat wins (protocol P1: a re-check-in supersedes its predecessor).
@@ -267,7 +275,9 @@ function verifiedSeats({ packageDir, panePids }) {
     if (!st) continue;                                     // dead — the row is history
     if (String(st.starttime) !== String(row['pid-starttime']).trim()) continue;  // pid reuse
     const chain = ancestryPids(pid);
-    if (!chain.some((p) => paneSet.has(p))) continue;       // alive, but not in this room
+    const inPane = chain.some((p) => paneSet.has(p));
+    const paneless = hasTty && !(row.tty || '').trim();
+    if (!inPane && !paneless) continue;                     // alive, but not in this execution
     out.push({ seat, pid, 'pid-starttime': st.starttime, seatDir: path.join(packageDir, 'seats', seat) });
   }
   return out;
@@ -277,7 +287,7 @@ function describeLease() {
   return [
     'lease evidence: tmux room existence (primary) + ancestry-verified live seat processes',
     'room predicate: session name === <goal> (exact; the E1 <goal>-run-N arm is deleted, E2b)',
-    'seat predicate: sessions.csv (pid, pid-starttime) alive AND ancestry reaches a pane of that room',
+    'seat predicate: sessions.csv (pid, pid-starttime) alive AND (ancestry reaches a pane OR tty present-and-empty)',
     'stored status read: NONE — no runs.csv, no lease file, no heartbeat, no mtime',
     'tmux unreadable: { ok:false, reason } — ignorance, never "no lease"; the caller decides its posture',
   ].join('\n');
