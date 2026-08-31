@@ -28,6 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { displaySuffix } = require('./ask-thread');
+const { FALLBACK_MARK } = require('./bus-ferry');
 
 // §5: every 2 hours at 06:00…22:00 plus the 24:00 slot (which IS 00:00 of the next day).
 // 00:00–06:00 carries no other check — the four missing even hours (02, 04) are the deliberate
@@ -125,6 +126,41 @@ function renderAskRow(ask, nowMs) {
   ]);
 }
 
+// `d-ask15-blocking-asks-first`: a seat that stopped and is WAITING on the owner must read above a
+// seat that already asked, got no answer, picked its declared default and carried on. NO STRUCTURAL
+// FIELD carries that distinction — checked against the schema, not assumed: `open_asks`
+// (`state-store/tables.sql`) columns are `ask_id, goal, seat, label, state, posted, posted_at,
+// authorized_reply_at, evidence_pointer`; `label` is the CHECK-constrained `work-content|recovery`
+// pair (D-7-ruling) and is orthogonal to blocking-vs-default. `ask-record.js#listOpenAsks` (the row
+// shape both `readOpenAsks` callers — `chat/ask-store.js` over the gateway and a direct bind — hand
+// back) maps only `{ id, goal, seat, label, one_liner, opened_at, evidence_pointer }`; there is no
+// `arm` column anywhere on the row. The only place the distinction is computed at all is
+// `bus-ferry.js`'s per-pass `fallbackArm`, and it is discarded after formatting the posted message —
+// never written back to `open_asks`. So the sort key here is the WEAKEST available one, exactly as
+// flagged: whether the ask's rendered `one_liner` (the first line of its corpus, which is
+// `formatMessage`'s own header) carries the `default-and-disclose` mark bus-ferry already renders.
+// Importing `FALLBACK_MARK` rather than re-typing the string keeps the one spelling of the marker in
+// the one place bus-ferry defines it.
+const DEFAULT_DISCLOSE_MARK = FALLBACK_MARK['default-and-disclose'].trim();
+
+function isInformationalAsk(ask) {
+  const text = ask && ask.one_liner;
+  return typeof text === 'string' && text.includes(DEFAULT_DISCLOSE_MARK);
+}
+
+// Stable partition, NOT `Array#sort`: two plain passes preserve each group's arrival order by
+// construction, with no dependence on a sort implementation's stability guarantee. Blocking asks
+// (no `proceeding on its default` mark — the seat is still waiting) lead; informational asks (the
+// mark is present — the seat already proceeded) follow, in the order `readOpenAsks` returned them.
+function sortAsksBlockingFirst(asks) {
+  const blocking = [];
+  const informational = [];
+  for (const ask of asks) {
+    (isInformationalAsk(ask) ? informational : blocking).push(ask);
+  }
+  return [...blocking, ...informational];
+}
+
 // §5's snapshot, and ONLY §5's snapshot. Sorted so a reader returning the same set in a different
 // order is not mistaken for a change.
 function snapshotOf(asks, conditions) {
@@ -143,7 +179,7 @@ function renderDigest({ at, asks, conditions, nowMs }) {
   if (asks.length === 0) {
     lines.push('• none open');
   } else {
-    for (const ask of asks) {
+    for (const ask of sortAsksBlockingFirst(asks)) {
       lines.push(renderAskRow(ask, nowMs));
     }
   }
@@ -242,6 +278,8 @@ module.exports = {
   renderAge,
   snapshotOf,
   renderDigest,
+  sortAsksBlockingFirst,
+  isInformationalAsk,
   SLOT_HOURS,
   DIGEST_TZ,
 };

@@ -12,7 +12,7 @@ const path = require('node:path');
 
 const { createOutbox } = require('../outbox');
 const {
-  createSystemDigest, isSlot, slotLabel, SLOT_HOURS,
+  createSystemDigest, isSlot, slotLabel, SLOT_HOURS, renderDigest, sortAsksBlockingFirst,
 } = require('../system-digest');
 const { createStatusLine, renderStatusLine, TRIGGERS } = require('../status-line');
 
@@ -192,6 +192,61 @@ function ask(id, seat, oneLiner, openedAt, extra = {}) {
 
     check('§5 the post opens with the slot header',
       text.startsWith('*System digest · 14:00*'), { head: text.split('\n')[0], posted: res.posted });
+  }
+
+  // ── `d-ask15-blocking-asks-first` — blocking asks sort to the top ─────────
+  // No structural field distinguishes a WAITING ask from one that already `proceeded on its
+  // default` (checked against `state-store/tables.sql`'s `open_asks` schema and
+  // `ask-record.js#listOpenAsks`'s row shape — see `system-digest.js`'s `sortAsksBlockingFirst`
+  // comment for the full trail). The sort therefore keys on the rendered `one_liner` text mark
+  // `bus-ferry.js#FALLBACK_MARK['default-and-disclose']` already carries — the WEAKEST available
+  // key, used only because no stronger one exists.
+  {
+    const at = spInstant('2026-08-28', 20);
+    // Arrival order: informational, blocking, blocking, informational — the exact shape the
+    // 2026-08-28 20:00 digest had (9 of 12 lines informational, mixed in with no ordering).
+    const interleaved = [
+      ask('1724500001.0001', 'draft-seat', '*🧵 draft-seat* — proj-a · ask · #1 · ℹ proceeding on its default', spInstant('2026-08-28', 10)),
+      ask('1724500002.0002', 'writer', '*🧵 writer* — proj-b · ask · #2 · ⏸ WAITING ON YOU', spInstant('2026-08-28', 11)),
+      ask('1724500003.0003', 'leader', '*🧵 leader* — proj-c · ask · #3 · ⏸ WAITING ON YOU', spInstant('2026-08-28', 12)),
+      ask('1724500004.0004', 'planner', '*🧵 planner* — proj-d · ask · #4 · ℹ proceeding on its default', spInstant('2026-08-28', 13)),
+    ];
+    const text = renderDigest({ at, asks: interleaved, conditions: [], nowMs: at.getTime() });
+    // Sliced to the `❓ open asks` section ONLY — `Open conditions`' own "• none open" also
+    // starts with `•` and would otherwise pad this list to 5.
+    const askLines = text.split('\n').slice(text.split('\n').indexOf('❓ open asks') + 1, text.split('\n').indexOf('Open conditions'))
+      .filter((l) => l.startsWith('•'));
+    check('§5/ask15 the two WAITING asks sort above the two that already proceeded on a default, arrival order kept within each group',
+      askLines.length === 4
+      && askLines[0].includes('020002') && askLines[1].includes('030003')
+      && askLines[2].includes('010001') && askLines[3].includes('040004'),
+      { askLines });
+
+    // STABILITY: two blocking asks arriving Z-then-A, and two informational asks arriving 9-then-1
+    // — ids that would swap under ANY id-keyed comparator. Arrival order (array order), not the id,
+    // must decide the sub-order.
+    const stabilityFixture = [
+      ask('z-later-id', 'seatZ', '*🧵 seatZ* — proj-z · ask · #1 · ⏸ WAITING ON YOU', spInstant('2026-08-28', 9)),
+      ask('a-earlier-id', 'seatA', '*🧵 seatA* — proj-a · ask · #2 · ⏸ WAITING ON YOU', spInstant('2026-08-28', 10)),
+      ask('9-info-first', 'seat9', '*🧵 seat9* — proj-9 · ask · #3 · ℹ proceeding on its default', spInstant('2026-08-28', 11)),
+      ask('1-info-second', 'seat1', '*🧵 seat1* — proj-1 · ask · #4 · ℹ proceeding on its default', spInstant('2026-08-28', 12)),
+    ];
+    const sorted = sortAsksBlockingFirst(stabilityFixture);
+    check('§5/ask15 sort is STABLE — arrival order survives within each group even against a reverse-alphabetical id',
+      sorted.map((a) => a.id).join(',') === 'z-later-id,a-earlier-id,9-info-first,1-info-second',
+      { order: sorted.map((a) => a.id) });
+
+    // The row SHAPE (`digest-row-shape`, commit `d76eecd0`) is untouched by the sort: goal-lead /
+    // id-tail / evidence_pointer-inline still render exactly as `§5 order and rendering` proves —
+    // this only checks the sort does not smuggle in a shape change on a row that also has a link.
+    const shaped = [
+      ask('1724508123.123456', 'draft-seat', '*🧵 draft-seat* — · ⏸ WAITING ON YOU', spInstant('2026-08-28', 17),
+        { link: 'https://slack.example/archives/Cgoal/p123', evidence_pointer: '.rbtv/goals/demo/plan.md' }),
+    ];
+    const shapedText = renderDigest({ at, asks: shaped, conditions: [], nowMs: at.getTime() });
+    check('§5/ask15 the sorted row keeps digest-row-shape\'s link-as-tap-target / id-at-tail shape',
+      shapedText.includes('• <https://slack.example/archives/Cgoal/p123|123456> ·'),
+      { row: shapedText.split('\n').find((l) => l.includes('123456')) });
   }
 
   // ── §5 the baseline moves only on DELIVERY, and it survives a restart ──────
