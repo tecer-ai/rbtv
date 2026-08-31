@@ -1914,22 +1914,26 @@ def cmd_launch(args):
     # itself again here and is not repeated; what differs is the STATE it is bounded by and the ACT
     # it admits, and those two differences are the whole instrument:
     #
-    #   P3 (STATE) — the target's LAST ENDED row carries `exited` WRITTEN BY THE KIT. That is the
-    #       one ending nobody witnessed: `attest-exit` records THE HARNESS TERMINATED and nothing
-    #       about the work. `--declare-only`'s P3 is the opposite state (an EMPTY cell), so the two
-    #       instruments can never admit the same row and neither widens the other.
+    #   P3 (STATE) — the target's LAST ENDED row reads `failed` off the ending store, with a reason
+    #       class in `RERUN_ADMITTED_REASON_CLASSES` (`crash` or `provider-error`, stamped by the
+    #       SUPERVISOR from evidence). D42 as originally ruled admitted the kit-written `exited`
+    #       word; that vocabulary was retired [T1-R3, T4-R7] and the ending store now refuses it at
+    #       the write boundary — the same fact is spelled `failed`+reason-class instead (see the
+    #       from-state read below, spec-supervisor §4). `--declare-only`'s P3 is the opposite state
+    #       (an EMPTY cell), so the two instruments can never admit the same row and neither widens
+    #       the other.
     #   THE ACT — this admits an ORDINARY WORKING SESSION. The seat boots on its ordinary boot
     #       prompt and does its job. That is legitimate here for the reason the 7.241 wall's harm
     #       sentence gives and denies to every other class: "relaunching … re-runs work that
     #       already CONCLUDED" — a crashed harness's work did NOT conclude, and no reader claims it
-    #       did. `exited` asserts termination, never completion, and NOTHING ANYWHERE MAPS IT TO
-    #       `done` (see `DISPOSITION_WRITER_SEAT`'s wall).
+    #       did. `failed`/crash asserts termination, never completion, and NOTHING ANYWHERE MAPS IT
+    #       TO `done` (see `DISPOSITION_WRITER_SEAT`'s wall).
     #
-    # ⚠ IT REWRITES NOTHING. The `exited` row is left exactly as it stands and is SUPERSEDED when
+    # ⚠ IT REWRITES NOTHING. The admitted row is left exactly as it stands and is SUPERSEDED when
     # the new session writes its own ended row — the same supersession model `--declare-only`
     # already describes. No `rule-disposition` is required first, and that is deliberate (D42, on
     # the live leader's own objection `meet/issues.md#G-leader-0820-1727`): a CLEAR would destroy
-    # the `exited` word, which is the run's ONLY record of how that session ended.
+    # the `failed`/crash record, which is the run's ONLY record of how that session ended.
     #
     # ⚠ IT MINTS NO ROLE GATE. `launch` carries no per-verb role predicate anymore
     # [T2-R10, D24, F-simplicity-7] — it is callable by any resolved identity, daemon included —
@@ -1937,7 +1941,7 @@ def cmd_launch(args):
     # file argues against everywhere else.
     #
     # THE BARRED LIST IS UNTOUCHED AND STAYS UNTOUCHED: `--force` carries the ROLE gate alone,
-    # `--force-memory` the MEMORY gate alone, and neither admits an `exited` row — a reader who
+    # `--force-memory` the MEMORY gate alone, and neither admits a `failed`/crash row — a reader who
     # finds this parameter beside them and infers a family has inferred wrong. D12 is intact: no
     # grant, no store, no flag file, no latch, no TTL, nothing to mint, lose or spend.
     #
