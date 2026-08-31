@@ -4,3 +4,4 @@
 2026-08-28 · issue · a bare .rbtv/ decided this kit's store and inbox · The two walkers `5815fbaa` named as loose ends outside its own walls, at HEAD 5771be33 (= the → ONE wrong definition of "workspace", in two functions, one of which promised in prose to match the · db1609e1 · supervisor,planning · ⚠
 2026-08-31 · issue · Done checkout left harness alive · cmd_checkout armed arm_pid_reaper only for ephemeral: yes → persistent done left the process idle · f616be02 · supervisor · ⚠
 2026-08-31 · issue · Parked wait is incomplete not renew · unanswered owner ask used checkout --renew (immediate relaunch loop); paneless stay-up died failed/crash → --renew refused on posted owner ask; --incomplete parks blocked-on-human · 86e276df · — · ⚠
+2026-08-31 · issue · declared-output-templates · checkout demanded literal <placeholder> paths → skip at grade, refuse at materialize, ./ for slashless · 4796a716 · planning,envelope,meta-planning · ⚠
