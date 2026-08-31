@@ -16179,6 +16179,46 @@ def _selftest_checks(args, failures, names):
               and _ap_plain_code is None and _ap_plain_row["approve_commit"] is None
               and len(load_messages(baseW8)[1]) == _w8_n3b + 2)
 
+        # arm 3c — THE UNTRACKED-APPROVAL GATE (redesign-continue-1 loose-ends #d/must, CODE
+        # half). Task 149's approval was replied to and the reply was discarded because nothing
+        # forces an approval REQUEST through a tracked door — `--approve-commit` (arm 3b above)
+        # opens one, but a sender can write the identical ask in plain body text on an ordinary
+        # `note` and nothing catches it. RED mutation: delete the `_approval_request_shaped`
+        # call from the `if` in `cmd_send` — the refused-shape conjuncts go false while the
+        # control (plain FYI) and the two escape doors stay green, so the gate cannot be dropped
+        # silently.
+        _w8_n3c = len(load_messages(baseW8)[1])
+        _req_body = "Please reply approve to birth the ignite-engine-loop goal at commit deadbeef."
+        # (i) the untracked shape: a `note` to owner, no --approve-commit — REFUSED.
+        _un_note_out, _un_note_code = sendW8("beta", OWNER_TOKEN, _req_body, "--type", "note")
+        # (ii) FORCE-PROOF — an override would recreate the exact failure the gate exists to close.
+        _un_frc_out, _un_frc_code = sendW8("beta", OWNER_TOKEN, _req_body, "--type", "note",
+                                           "--force")
+        # (iii) escape door 1 — the SAME text through the real tracked door still lands.
+        _un_ap_out, _un_ap_code = sendW8("beta", OWNER_TOKEN, _req_body, "--type", "note",
+                                         "--approve-commit", _w8_sha)
+        # (iv) escape door 2 — the same text as `--type ask` (a human-interactive seat may ask
+        # the owner directly, W8 arm 3 above) also lands untouched by this gate.
+        _un_ask_out, _un_ask_code = sendW8("beta", OWNER_TOKEN, _req_body, "--type", "ask")
+        # CONTROL — a plain FYI `note` to owner, no reply requested, still sends (criterion 3:
+        # this gate matches the ACTION-REQUEST shape, not all owner mail).
+        _un_fyi_out, _un_fyi_code = sendW8("beta", OWNER_TOKEN,
+                                           "FYI: the previous approval already landed Tuesday, "
+                                           "no action needed from you.", "--type", "note")
+        check("arm 3c (2026-08-31, redesign-continue-1 #d/must): a `note` to `owner` whose body "
+              "INSTRUCTS him to reply with an approval word is REFUSED AT SEND — the untracked "
+              "equivalent of task 149's discarded approval, closed at compose time rather than "
+              "after the owner has already answered into a log nothing consumes. FORCE-PROOF: no "
+              "override, because a forced row is still unconsumed. Two escape doors stay open on "
+              "the IDENTICAL text: `--approve-commit` (the real tracked door) and `--type ask` "
+              "(a human-interactive seat's ordinary channel to the owner). CONTROL: a plain FYI "
+              "with no reply requested is untouched — the gate matches the request SHAPE, not the "
+              "address",
+              _un_note_code == 1 and "no listener" in _un_note_out and "task 149" in _un_note_out
+              and _un_frc_code == 1
+              and _un_ap_code is None and _un_ask_code is None and _un_fyi_code is None
+              and len(load_messages(baseW8)[1]) == _w8_n3c + 3)
+
         # arm 4 — THE OLDEST-OPEN RELEASE DOOR IS DELETED [D-4-ruling, C-3, T1-R12, C8]. This arm
         # used to prove the C78 return leg: an unnumbered `type: answer` from `owner`, addressed to
         # the chair, retired that chair's OLDEST still-open escalation. That is the guess the

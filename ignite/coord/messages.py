@@ -867,6 +867,37 @@ VERDICT_CLAUSE = re.compile(r"^verdict:\s*(PASS|FAIL)\b", re.IGNORECASE | re.MUL
 ESCALATION_MARKER = "escalation: second-consecutive-FAIL"
 
 
+# ── THE UNTRACKED-APPROVAL SHAPE (redesign-continue-1 loose-ends #d/must) ──────────────────────
+#
+# Root cause: task 149's owner approval (`ignite-engine-loop`) was replied to and the reply was
+# discarded — the goal sat unborn for two hours despite the owner answering exactly as asked. The
+# SANCTIONED tracked door for an approval ask is `--approve-commit` on a `type: note` row (below,
+# `THE APPROVAL AUTHORITY GATE`), which opens a real `kind=approval` thread that `record-owner-ask`
+# stamps into `heart.db#open_asks` and a listener reaps. Nothing stops a sender from writing the
+# SAME REQUEST in plain body text, addressed to owner, as an ordinary `note` with no
+# `--approve-commit` flag — and an ordinary note opens no thread, records no ask, and is read by no
+# listener: the owner's `approve` would land in the log and nowhere else, silently, indistinguishable
+# from success.
+#
+# NARROW ON PURPOSE. A `note` is FYI (G-22/#198, above): a seat that never reads it still acts
+# correctly, and the whole point of this pattern is to keep that true. It fires ONLY on a body that
+# INSTRUCTS the owner to reply with an approval word — not on the bare word, which a legitimate FYI
+# ("the owner already approved this Tuesday") uses in the past tense with no reply expected.
+_APPROVAL_REQUEST_RE = re.compile(
+    r"\breply\b[^.\n]{0,40}\b(approve|confirm|authoriz\w*)\b"
+    r"|\b(please\s+)?(approve|confirm|authorize)\s+(this|it|the)\b"
+    r"|\b(requires?|needs?|awaiting)\s+(your\s+)?(approval|confirmation|authorization)\b",
+    re.IGNORECASE,
+)
+
+
+def _approval_request_shaped(text):
+    """True when `text` asks its reader to REPLY with an approval word — see the module comment
+    above `_APPROVAL_REQUEST_RE`. A history statement ("owner approved this Tuesday") does not
+    match; a live request ("reply approve to proceed") does."""
+    return bool(_APPROVAL_REQUEST_RE.search(str(text)))
+
+
 def _escalation_key(text):
     """W8 (adv, C77) — an escalation's DEDUP KEY: its first non-empty body line, normalized.
 
@@ -2527,6 +2558,36 @@ def cmd_send(args):
                 f"actually checked.\n"
                 f"There is no --force for this one: the two shas disagreeing IS the defect.",
                 1)
+
+    # ── THE UNTRACKED-APPROVAL GATE (redesign-continue-1 loose-ends #d/must, CODE half) ─────────
+    #
+    # `approve_commit` above is the one gate that already checks a body for the shape it declares
+    # via `--approve-commit`; this is its sibling for a body that declares the SAME shape in plain
+    # English while carrying no flag at all — see `_approval_request_shaped`'s module comment for
+    # the root cause and why the match is narrow. Refused HERE, at send, for the same reason every
+    # gate above lives here: the sender still HOLDS the message and is told the tracked door, rather
+    # than the row landing in the permanent log looking exactly like a delivered ask.
+    #
+    # NO --force: an override would recreate the exact failure this gate exists to close — a row
+    # that reads as a request and is consumed by nothing.
+    if (args.type == "note" and args.to == OWNER_TOKEN and not approve_commit
+            and _approval_request_shaped(body)):
+        refuse(
+            "input",
+            f"this `note` to `{OWNER_TOKEN}` reads as an approval REQUEST (it asks him to reply "
+            f"with approve/confirm/authorize), but a plain `note` opens no tracked ask — no "
+            f"`heart.db` row, no listener. His reply would be discarded exactly as it was for task "
+            f"149 (redesign-continue-1 loose-ends #d/must: 'A goal can request an IRREVERSIBLE "
+            f"owner approval as an untracked note').\n"
+            f"Send this through a TRACKED door instead:\n"
+            f"  an irreversible plan-execution approval -> add --approve-commit <sha> to this same "
+            f"note (see the approval-authority gate above)\n"
+            f"  any other decision                       -> {coord_invocation(args)} send "
+            f"{OWNER_TOKEN} \"<same text>\" --type ask --inline\n"
+            f"If this is genuinely FYI and needs no reply, drop the words that ask for one.\n"
+            f"There is no --force for this one: a forced row is still a request nobody will ever "
+            f"consume.",
+            1)
 
     n = append_message(base, sender, args.to, args.type, body,
                        supersedes=args.supersedes, re_num=re_num, why=why, origin=origin,
