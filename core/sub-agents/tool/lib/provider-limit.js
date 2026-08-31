@@ -50,7 +50,19 @@ function lineTime(line) {
   return m ? Date.parse(m[1]) : null;
 }
 
-function matchLimit(text, { t0, model } = {}) {
+function lineSessionId(line) {
+  const m = line.match(/session\.id=(\S+)/);
+  return m ? m[1] : null;
+}
+
+// `shared` = the chunk is the SHARED opencode.log (every run on the box tails the same file), as
+// opposed to a job's own captured stdout. A shared-chunk match is only THIS job's if the line
+// carries the job's own bound `session.id` — when the caller has no bound sessionId to check
+// against, the hit is real but not attributable, so it comes back `ambiguous: true` rather than
+// pinned to this handle (measured 2026-08-31: the unfiltered shared tail let one job's usage-limit
+// line flag onto a different handle running the same model, same attribution class as the
+// foreign-recovered-tail defect this file's binding fix addresses).
+function matchLimit(text, { t0, model, sessionId, shared } = {}) {
   if (!text) return null;
   for (const line of text.split('\n')) {
     if (!line) continue;
@@ -58,27 +70,32 @@ function matchLimit(text, { t0, model } = {}) {
     if (ts && t0 && ts < t0) continue;
     if (model && line.includes('modelID=') && !line.includes(`modelID=${model}`)) continue;
     if (!SIGS.some((re) => re.test(line))) continue;
+    if (shared && sessionId && lineSessionId(line) !== sessionId) continue; // a sibling's line
     return {
       provider: parseProvider(line, model || 'unknown'),
       reset: parseReset(line),
+      ambiguous: Boolean(shared && !sessionId),
     };
   }
   return null;
 }
 
 function formatReason(hit) {
-  return `provider-limit: ${hit.provider} resets ${hit.reset || 'unknown'}`;
+  const label = hit.ambiguous
+    ? `provider-limit (model-wide, ambiguous — could be a sibling job): ${hit.provider}`
+    : `provider-limit: ${hit.provider}`;
+  return `${label} resets ${hit.reset || 'unknown'}`;
 }
 
-function detectProviderLimit({ harness, model, t0, capturePath, text, logText }) {
+function detectProviderLimit({ harness, model, t0, capturePath, text, logText, sessionId }) {
   const chunks = [];
-  if (text) chunks.push(text);
-  if (capturePath) chunks.push(tailFile(capturePath));
-  if (logText) chunks.push(logText);
-  else if (harness === 'opencode') chunks.push(tailFile(opencodeLogPath(), 256 * 1024));
+  if (text) chunks.push({ body: text, shared: false });
+  if (capturePath) chunks.push({ body: tailFile(capturePath), shared: false });
+  if (logText) chunks.push({ body: logText, shared: true });
+  else if (harness === 'opencode') chunks.push({ body: tailFile(opencodeLogPath(), 256 * 1024), shared: true });
   const fallback = model || harness || 'unknown';
   for (const chunk of chunks) {
-    const hit = matchLimit(chunk, { t0, model });
+    const hit = matchLimit(chunk.body, { t0, model, sessionId, shared: chunk.shared });
     if (hit) {
       if (!hit.provider) hit.provider = fallback;
       return hit;

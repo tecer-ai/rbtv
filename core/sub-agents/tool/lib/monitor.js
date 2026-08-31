@@ -221,21 +221,16 @@ function codexRollout(h, claimed) {
 }
 
 // opencode: `time_updated` on the job's own top-level session row — measured to advance once per
-// tool-call round trip. parent_id is null keeps subagent child sessions out. Bind once by t0
-// window (closest time_created, never newest-across-the-plan) and cache id like codexRollout.
-// The window is 30s (was 2s): a real session missed the 2s window on 2026-08-19 and the job read
-// NO-SIGNAL with 26KB of output; the claimed-set keeps the wider window off siblings' rows.
-function opencodeBind(h, claimed) {
-  const rows = opencodeCandidates(h.folder)
-    .filter((r) => r.time_created >= h.t0 - 30_000 && !claimed.has(r.id));
-  if (!rows.length) return null;
-  let best = rows[0];
-  let bestDist = Math.abs(best.time_created - h.t0);
-  for (const r of rows) {
-    const d = Math.abs(r.time_created - h.t0);
-    if (d < bestDist) { best = r; bestDist = d; }
-  }
-  return best.id;
+// tool-call round trip. parent_id is null keeps subagent child sessions out. Bind by the launch's
+// OWN `--title` tag (an exact identity, same mechanic as launch.js's opencodeTagged) — never by
+// time-proximity: opencode stores the resolved PROJECT ROOT, not the launch cwd, so concurrent
+// siblings under one root share a candidate set, and the nearest time_created is often the wrong
+// session (measured 2026-08-31, ~20 concurrent seats: a sibling's liveness/progress was bound to
+// this job). A handle with no tag (pre-tag registry row) cannot be bound.
+function opencodeBind(h) {
+  if (!h.tag) return null;
+  const row = opencodeCandidates(h.folder).find((r) => r.title === h.tag);
+  return row ? row.id : null;
 }
 
 function opencodeUpdated(id) {
@@ -256,7 +251,7 @@ function opencodeUpdated(id) {
 function opencodeProgress(h, cache) {
   const key = `bind:${h.pid}:${h.start}`;
   if (!cache.has(key)) {
-    const id = opencodeBind(h, claimedBinds(cache));
+    const id = opencodeBind(h);
     if (!id) return null;
     cache.set(key, id);
   }
@@ -288,8 +283,12 @@ function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE
   const confirmMs = 2 * pollMs;
   const evAge = now - memo.lastEvidenceAt;
   const at = progressAt(h, cache);
+  // opencode's provider-limit fallback tails the SHARED opencode.log — pass this job's own bound
+  // session id (resolved by progressAt above) so a hit there can only ever be attributed to this
+  // job, never a sibling on the same model (see provider-limit.js).
   const limit = detectProviderLimit({
     harness: h.harness, model: h.model, t0: h.t0, capturePath: captureFile(h.pid),
+    sessionId: h.harness === 'opencode' ? cache.get(`bind:${h.pid}:${h.start}`) : undefined,
   });
   const base = { witness: w, evAge, limit };
   if (limit) return { state: 'provider-limit', age: at === null ? evAge : now - at, ...base };

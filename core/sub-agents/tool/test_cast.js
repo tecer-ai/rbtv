@@ -695,17 +695,22 @@ function dryRun(args) {
     const now = Date.now();
     const t0a = now - 2500;
     const t0b = now - 800;
-    const handle = (job, folder, t0) => JSON.stringify({
+    // tags bind each handle to its OWN session row (never by nearest time_created) — same identity
+    // mechanic launch.js's `--title` gives every headless opencode run.
+    const tagA = 'a [cast:aaaaaaaa]';
+    const tagB = 'b [cast:bbbbbbbb]';
+    const tagC = 'c [cast:cccccccc]';
+    const handle = (job, folder, t0, tag) => JSON.stringify({
       pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.2', session: null,
-      folder, transcript: null, t0,
+      tag, folder, transcript: null, t0,
     });
     fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
-      `${handle(a, seatA, t0a)}\n${handle(b, seatB, t0b)}\n`);
+      `${handle(a, seatA, t0a, tagA)}\n${handle(b, seatB, t0b, tagB)}\n`);
 
     writeOcDb([
-      { id: 'ses_a', directory: plan, time_created: t0a + 20, time_updated: now },
-      { id: 'ses_b', directory: plan, time_created: t0b + 20, time_updated: now },
+      { id: 'ses_a', directory: plan, title: tagA, time_created: t0a + 20, time_updated: now },
+      { id: 'ses_b', directory: plan, title: tagB, time_created: t0b + 20, time_updated: now },
       { id: 'ses_child', directory: plan, parent_id: 'ses_a', time_created: t0a + 40, time_updated: now },
       { id: 'ses_nested', directory: path.join(plan, 'seats', 'a', 'nested'), time_created: now, time_updated: now },
     ]);
@@ -735,10 +740,11 @@ function dryRun(args) {
     assert.ok(!watchStall.stdout.includes(String(a.pid)),
       `fresh pid must not appear on STALL: ${watchStall.stdout}`);
 
-    // restore ses_b; a third handle with no ancestor row past --grace is NO-SIGNAL alone
+    // restore ses_b; a third handle with no matching tagged row past --grace is NO-SIGNAL alone
     ageOc('ses_b', Date.now());
     fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
-      `${handle(a, seatA, t0a)}\n${handle(b, seatB, t0b)}\n${handle(c, orphan, now - 10_000)}\n`);
+      `${handle(a, seatA, t0a, tagA)}\n${handle(b, seatB, t0b, tagB)}\n`
+      + `${handle(c, orphan, now - 10_000, tagC)}\n`);
     const watchNo = monitor(['--watch', '--grace', '1', '--poll', '1']);
     assert.strictEqual(watchNo.status, 3, `no-signal must exit 3: ${watchNo.stdout}`);
     assert.ok(watchNo.stdout.startsWith(`NO-SIGNAL ${c.pid} opencode ${orphan} alive=`),
@@ -1136,6 +1142,115 @@ db.close();
     { encoding: 'utf8', env, timeout: 8000 });
   assert.notStrictEqual(res.status, 0, `deadline must be non-zero: ${res.stderr}`);
   assert.ok(res.stderr.includes('cast: deadline'), `must print deadline: ${res.stderr}`);
+}
+
+// --- liveness binding by tag, not time-proximity (LE-2: cast-attribution) ---------------------
+// opencode records the resolved PROJECT ROOT, not the launch cwd, so two concurrent seats under
+// one project root land in the same session-store window; binding by nearest time_created let a
+// job's liveness/progress signal come from a SIBLING's session (measured 2026-08-31, ~20 concurrent
+// seats). Binding is now the exact `--title` tag launch.js gave the run — the same identity
+// `opencodeTagged` uses to recover the final message.
+{
+  const home = mkFolder('bind-tag-home');
+  const xdg = path.join(home, 'xdg');
+  const dbPath = path.join(xdg, 'opencode', 'opencode.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const { DatabaseSync } = require('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec('create table session (id text primary key, directory text not null, parent_id text,'
+    + ' title text, time_created integer not null, time_updated integer not null)');
+  const folder = mkFolder('bind-tag-folder');
+  const t0 = Date.now();
+  const tagA = 'bind-tag-folder [cast:aaaaaaaa]';
+  const tagB = 'bind-tag-folder [cast:bbbbbbbb]';
+  // session B is born CLOSER to handle A's t0 than A's own session — exactly the shape that
+  // misattributes under time-proximity binding.
+  db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_a', folder, null, tagA, t0 - 500, t0 - 500);
+  db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_b', folder, null, tagB, t0 - 1, t0 - 1);
+  db.close();
+
+  const savedXdg = process.env.XDG_DATA_HOME;
+  const savedHome = process.env.HOME;
+  process.env.XDG_DATA_HOME = xdg;
+  process.env.HOME = home;
+  const libDir = path.join(__dirname, 'lib');
+  const sessionsPath = path.join(libDir, 'sessions.js');
+  const monitorPath = path.join(libDir, 'monitor.js');
+  try {
+    delete require.cache[require.resolve(sessionsPath)];
+    delete require.cache[require.resolve(monitorPath)];
+    const monitor = require(monitorPath);
+    const bound = monitor.opencodeBind({ folder, tag: tagA, t0 }, new Set());
+    assert.strictEqual(bound, 'ses_a',
+      `must bind the handle's OWN tagged session, never the temporally-closer sibling: got ${bound}`);
+  } finally {
+    process.env.XDG_DATA_HOME = savedXdg;
+    process.env.HOME = savedHome;
+    delete require.cache[require.resolve(sessionsPath)];
+    delete require.cache[require.resolve(monitorPath)];
+  }
+}
+
+// --- provider-limit attributed per job, not off the shared opencode.log (LE-2 cont'd) ----------
+// The detector's diagnostic fallback tails a log SHARED by every opencode run on the box; without
+// a per-job filter, one job's usage-limit line could be flagged onto a DIFFERENT handle running
+// the same model. Two handles, same model — only job B actually hit the limit.
+{
+  const folder = mkFolder('limit-perjob-folder');
+  const home = mkFolder('limit-perjob-home');
+  const xdg = path.join(home, 'xdg');
+  const dbPath = path.join(xdg, 'opencode', 'opencode.db');
+  const logPath = path.join(xdg, 'opencode', 'log', 'opencode.log');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+
+  const spawnSleeper = () => {
+    const out = require('child_process').execFileSync('setsid',
+      ['bash', '-c', 'sleep 300 </dev/null >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
+    const pid = Number(out.trim());
+    const start = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+      .split(') ').pop().split(' ')[19]);
+    return { pid, start, kill: () => { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } } };
+  };
+  const jobA = spawnSleeper();
+  const jobB = spawnSleeper();
+  try {
+    const t0 = Date.now() - 5000;
+    const tagA = 'limit-perjob-folder [cast:aaaaaaaa]';
+    const tagB = 'limit-perjob-folder [cast:bbbbbbbb]';
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    db.exec('create table session (id text primary key, directory text not null, parent_id text,'
+      + ' title text, time_created integer not null, time_updated integer not null)');
+    db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_a', folder, null, tagA, t0, t0);
+    db.prepare('insert into session values (?,?,?,?,?,?)').run('ses_b', folder, null, tagB, t0 + 1, t0 + 1);
+    db.close();
+
+    // shared log: ONLY job B's session hit the limit
+    fs.writeFileSync(logPath, `timestamp=${new Date(t0 + 2000).toISOString()} level=ERROR run=xxxx`
+      + ' message="stream error" providerID=zai-coding-plan modelID=glm-5.2 session.id=ses_b'
+      + ' small=false agent=build mode=primary error.error="AI_APICallError: Usage limit reached'
+      + ' for 5 hour. Your limit will reset at 2026-08-31 20:00:00"\n');
+
+    fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
+    const handle = (job, tag) => JSON.stringify({
+      pid: job.pid, start: job.start, harness: 'opencode', model: 'glm-5.2', session: null,
+      tag, folder, transcript: null, t0,
+    });
+    fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'),
+      `${handle(jobA, tagA)}\n${handle(jobB, tagB)}\n`);
+
+    const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg };
+    const rows = JSON.parse(spawnSync('node', [TOOL, 'monitor', '--json'], { encoding: 'utf8', env }).stdout);
+    const rowA = rows.find((r) => r.pid === jobA.pid);
+    const rowB = rows.find((r) => r.pid === jobB.pid);
+    assert.strictEqual(rowB.state, 'provider-limit', `B genuinely hit the limit: ${JSON.stringify(rowB)}`);
+    assert.notStrictEqual(rowA.state, 'provider-limit',
+      `A must NOT inherit B's limit off the shared log: ${JSON.stringify(rowA)}`);
+  } finally {
+    jobA.kill();
+    jobB.kill();
+  }
 }
 
 // --- detached-launch refusal (ruling D): the standing gate on the binary itself -------------
