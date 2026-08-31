@@ -4,6 +4,10 @@ const { createOutbox } = require('./outbox');
 // The §3 approval first message is composed by the module that owns the vocabulary the thread
 // parses — never re-spelled here, or the body would publish tokens the parser does not accept.
 const { composeApprovalBody } = require('./approval-thread');
+// `ask-thread.js#openThread`'s own top/reply split marker (`d-escalation-surface` part 9) — this
+// module DECIDES whether a body gets split (only it knows the row); `ask-thread.js` owns the
+// mechanics of posting the two messages. One shared constant, never a second copy of the marker.
+const { ASK_REPLY_SPLIT } = require('./ask-thread');
 
 // THE BUS FERRY — coordination bus → the owner (a thread in the goal's channel, else his DM).
 // One way, outbound only.
@@ -494,6 +498,23 @@ const FALLBACK_MARK = {
   'block-and-queue': ' · ⏸ WAITING ON YOU',
   'default-and-disclose': ' · ℹ proceeding on its default',
 };
+
+// ── THE ASK BODY SPLIT (owner ruling `d-escalation-surface` part 9) ────────────────────────────
+// Top level: the decision + TLDR + alternatives. First threaded reply: the full reasoning and the
+// evidence pointer. This module composes the ask body and is the only place that knows whether the
+// seat actually wrote that shape, so a fabricated split is worse than none: a body with no
+// discernible "Reasoning:" / "Full reasoning:" heading is left WHOLE — everything above the fold,
+// nothing in the reply. `ASK_REPLY_SPLIT` is `ask-thread.js#openThread`'s own marker; it is never
+// rendered, only found there.
+const REASONING_HEADING_RE = /^\*{0,2}(full reasoning|reasoning|evidence)\*{0,2}:?\s*$/im;
+
+function splitAskBody(text) {
+  const body = String(text || '');
+  const m = body.match(REASONING_HEADING_RE);
+  if (!m) return body;
+  const idx = body.indexOf(m[0]);
+  return `${body.slice(0, idx).trimEnd()}\n${ASK_REPLY_SPLIT}\n${body.slice(idx)}`;
+}
 
 function formatMessage(row, { goalId, stamp, relPath, maxBodyChars = DEFAULT_MAX_BODY_CHARS, agentLead = false, arm = null, ownerUser = null }) {
   // `Object.hasOwn`, never a truthiness test on the lookup: `arm` reaches an EXPORTED function's
@@ -1144,6 +1165,7 @@ function createBusFerry({
           let terminalRefusal = false;
           let viaAgentThread = false;
           let viaAskThread = false;
+          let viaNoticeThread = false;
           let viaCompletion = false;
           // The render ACTUALLY posted — the two legs render the same row differently (the
           // agent-thread header leads with the agent name), so a log that always reported the DM
@@ -1188,31 +1210,61 @@ function createBusFerry({
               // will actually parse. `formatMessage`'s ferry provenance is deliberately not used
               // here: this body is a specified shape, not a rendered bus row.
               const approveCommit = rowApproveCommit(row);
+              // ⚑ THE DOOR IS ADMITTED BY `kind`, NEVER BY `label` [d-escalation-surface part 1].
+              // `kind: 'escalation'` carries `row.type === 'escalation'` through the ONE
+              // whitelisted parameter that already reaches `ask-thread.js#postAsk` unchanged
+              // (`chat-bridge.js#postOwnerAsk` forwards `kind` as-is; that wrapper is out of this
+              // seat's custody and needed no new field). `askLabel` keeps doing its OWN job — the
+              // digest's two-value taxonomy — and decides admission for nobody.
               const asked = await postAsk({
                 goalId, seatName: row.from, label: askLabel,
-                kind: approveCommit ? 'approval' : 'ordinary',
+                kind: approveCommit ? 'approval' : (isEscalation ? 'escalation' : 'ordinary'),
                 commitId: approveCommit,
                 body: approveCommit
                   ? composeApprovalBody({ goalName: goalId, digest: row.body, commitId: approveCommit })
-                  : formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser }),
+                  : splitAskBody(formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser })),
               });
               if (asked && asked.posted) {
                 res = { delivered: true, ts: asked.askId };
                 viaAskThread = true;
                 postedText = asked.text || postedText;
-              } else if (asked && asked.reason === 'seat-not-interact') {
-                // [T2-R14] refused AT SEND, and SAID so — the one outcome that posts nothing and
-                // is still not a park: it is reported, and the row does not sit unread forever.
-                //
-                // ⚑ AND IT IS TERMINAL, NEVER TRANSIENT. The refusal reads the seat's own
-                // descriptor, so nothing about it can differ on a later pass: routing it into the
-                // bounded retry below can only re-fail it identically, `maxAttempts` times, before
-                // reaching the very same disposition. It DID — an escalation from a staff chair
-                // (deliberately not `human-interactive`, `meta/leader/component.md`) reached its
-                // content-bearing DM only at the cap, behind 20 identical refusals in the log.
+              } else if (asked && asked.reason === 'seat-not-interact' && isEscalation) {
+                // DEFENSIVE ONLY, should never fire in production: the real door admits
+                // `kind: 'escalation'` regardless of seat designation (ask-thread.js, above), so an
+                // escalation reaching this branch means the door and the ferry have gone out of
+                // sync. If it ever does, the row takes the SAME terminal path it always has —
+                // untouched here; `deliverEscalationInFull` and this whole leg are `esc-dm-ban`'s to
+                // retire once the sync is provably permanent.
                 log('warn', 'bus row REFUSED at the ask door — this seat is not designated to reach the owner [T2-R14]', { key, msgId: row.id, from: row.from });
                 res = { delivered: false, reason: 'seat-not-interact' };
                 terminalRefusal = true;
+              } else if (asked && asked.reason === 'seat-not-interact') {
+                // [T2-R14] refused AT SEND — the row is `to: owner`, from a seat with no
+                // `human-interactive:` flag, and is NEITHER an escalation NOR a system-decided
+                // recovery ask (both bypass this gate by `kind`, above). It is still addressed to
+                // the owner, so it is never silently discarded [d-escalation-surface part 7]: the
+                // SAME door rescues it as a 💭 NOTICE — `marker: 'note'` routes to
+                // `ask-thread.js#postNote`, which mints no record and can never suspend the kill
+                // clock or block on a reply nobody is waiting for. This is the fix for the measured
+                // incident: an ORDINARY `leader` message used to reach here labelled `recovery`
+                // (bus-ferry.js used to give every `leader` row that label, escalation or not) and
+                // was admitted as a BLOCKING ask; now only `kind: 'escalation'` is ever admitted as
+                // one, and everything else refused here is rescued, never dropped and never blocking.
+                log('info', 'bus row refused at the ask door [T2-R14] — rescued as a 💭 notice, never an ask', { key, msgId: row.id, from: row.from });
+                const noted = await postAsk({
+                  goalId, seatName: row.from, label: askLabel, marker: 'note',
+                  body: splitAskBody(formatMessage(row, { goalId, stamp, relPath, maxBodyChars, agentLead: true, arm, ownerUser })),
+                });
+                if (noted && noted.posted) {
+                  res = { delivered: true, ts: noted.threadTs };
+                  viaNoticeThread = true;
+                  postedText = noted.text || postedText;
+                }
+                // A failed NOTICE attempt is an ORDINARY post failure (no channel, a transient
+                // Slack error) — never a second terminal refusal: the refusal it answers
+                // ([T2-R14]) is already resolved, above. `res` stays null and the row falls
+                // through to the agent-thread / DM legs and the bounded retry below, exactly like
+                // any other undelivered row — never silently dropped.
               }
             }
             if (!res && !chatThread && routeToAgentThread) {
@@ -1248,6 +1300,7 @@ function createBusFerry({
             log('info', chatThread ? 'bus ferry routed a bus row to its named chat thread'
               : viaCompletion ? 'bus ferry posted the FINISH EDGE\'s completion notice to the goal channel [T5-R16]'
               : viaAskThread ? 'bus ferry posted a bus row as a NEW ❓ ask thread in the goal channel'
+              : viaNoticeThread ? 'bus ferry posted a bus row as a NEW 💭 notice thread — refused as an ask [T2-R14], rescued as a notice'
               : viaAgentThread ? 'bus ferry routed a bus row into the agent\'s own thread in the goal channel'
               : 'bus ferry delivered a bus row to the owner DM',
                 { key, msgId: row.id, from: row.from, chars: postedText.length, arm, ...(chatThread ? { chatThread } : {}) });

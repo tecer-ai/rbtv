@@ -41,6 +41,26 @@ const MARKER_ASK = '❓';
 const MARKER_NOTE = '💭';
 const LABELS = Object.freeze(['work-content', 'recovery']);
 
+// ── THE TOP-LEVEL / FIRST-REPLY SPLIT (owner ruling `d-escalation-surface` part 9) ─────────────
+// The top-level post carries the ❓/💭 line, the one-sentence decision, the TLDR and the
+// alternatives; the FULL content — reasoning and the evidence-file pointer — is the FIRST
+// THREADED REPLY, never the top-level post. `bus-ferry.js#formatMessage`/`splitAskBody` composes
+// the body and DECIDES whether it is split (only it knows the row); this module owns the
+// MECHANICS (posting the top, stamping the §3 line, posting the overflow as a reply on the SAME
+// `thread_ts` — the ask id never moves). `ASK_REPLY_SPLIT` is the marker that decision leaves
+// behind — it is never rendered, only found. A body with no marker is left whole: nothing is ever
+// fabricated here.
+const ASK_REPLY_SPLIT = '<<<ASK-FULL-REPLY>>>';
+
+function splitPostedBody(body) {
+  const text = String(body || '').trim();
+  const idx = text.indexOf(ASK_REPLY_SPLIT);
+  if (idx === -1) return { top: text, reply: null };
+  const top = text.slice(0, idx).trim();
+  const reply = text.slice(idx + ASK_REPLY_SPLIT.length).trim();
+  return { top, reply: reply || null };
+}
+
 // §2.1: last 6 characters of `thread_ts` with the `.` stripped. `1724508123.123456` → `123456`.
 function displaySuffix(threadTs) {
   return String(threadTs == null ? '' : threadTs).replace(/\./g, '').slice(-6);
@@ -105,13 +125,14 @@ function createAskThreads({
   // The shared body of `postAsk` and `postNote`: open a NEW thread, learn the id it minted, stamp
   // the §3 line onto it. Returns the id or the reason there is none.
   async function openThread({ marker, channelId, goalId, seatName, label, body }) {
+    const { top, reply } = splitPostedBody(body);
     const posted = await outbox.post({
       kind: marker === MARKER_ASK ? 'ask' : 'notification',
       channel_id: channelId,
       thread_ts: null,          // A NEW THREAD, always — one per ask batch [D18, T5-R8].
       goal_id: goalId == null ? null : String(goalId),
       ask_id: null,             // Not known yet: this post is what mints it.
-      payload: String(body || '').trim(),
+      payload: top,
     });
     if (!posted || posted.delivered !== true || !posted.ts) {
       log('warn', 'ask thread NOT opened — Slack never acked the opening message', {
@@ -121,7 +142,7 @@ function createAskThreads({
     }
     const threadTs = String(posted.ts);
     const line = openingLine({ marker, threadTs, seatName, label });
-    const full = composeThreadOpener({ marker, threadTs, seatName, label, body });
+    const full = composeThreadOpener({ marker, threadTs, seatName, label, body: top });
     try {
       await updateMessage({ channel: channelId, ts: threadTs, text: full });
     } catch (err) {
@@ -129,6 +150,25 @@ function createAskThreads({
       // double-post: a second message would give the owner two threads for one question.
       log('warn', 'ask thread opened but its §3 lead line could not be stamped — the body is posted, the line is not',
         { goalId, seat: seatName, threadTs, error: err.message });
+    }
+    // THE FIRST REPLY — full reasoning + evidence pointer, on the SAME thread_ts the opening post
+    // minted. Posted only when the split found something (never fabricated). A failure here never
+    // throws and never retries, `updateMessage`'s reason verbatim: the ask and its TLDR already
+    // landed, and a retry could double-post the reasoning into two replies.
+    if (reply) {
+      try {
+        await outbox.post({
+          kind: marker === MARKER_ASK ? 'ask' : 'notification',
+          channel_id: channelId,
+          thread_ts: threadTs,
+          goal_id: goalId == null ? null : String(goalId),
+          ask_id: marker === MARKER_ASK ? threadTs : null,
+          payload: reply,
+        });
+      } catch (err) {
+        log('warn', 'ask thread opened but the full-content reply could not be posted — the top-level TLDR is live, the reasoning is not',
+          { goalId, seat: seatName, threadTs, error: err.message });
+      }
     }
     return { posted: true, threadTs, openingLine: line, text: full };
   }
@@ -142,13 +182,21 @@ function createAskThreads({
     // [T2-R14] A non-designated seat's owner-ask is refused AT SEND. Refused, never parked: a
     // parked ask is the silence this redesign exists to end, and the refusal tells the caller.
     //
-    // ⚑ `label: 'recovery'` SKIPS THIS GATE. [T2-R14] guards a LIVE seat's own judgment call to
-    // reach the owner — a courtesy an individual seat descriptor can decline. A recovery ask is not
-    // that: spec-recovery §5 already decided, system-wide, that an exhausted lane is owner-visible
-    // regardless of whether ITS seat opted into interactive asks (most never do — they are not
-    // waiting on Slack, they already ended). Gating it the same way would silently re-park the
-    // exact silence [D-2-ruling] deleted the byte-equality brake to end.
-    if (label !== 'recovery' && !seatIsInteractive(goalId, seatName)) {
+    // ⚑ THE GATE IS BYPASSED BY KIND, NEVER BY LABEL [d-escalation-surface part 1]. `label` is a
+    // two-value DIGEST TAXONOMY (`work-content`/`recovery`) the digest sorts asks on — it is not an
+    // authorization fact, and treating it as one is exactly what let an ORDINARY `leader` message
+    // mint a blocking ask (bus-ferry.js labelled every `leader` row `recovery`, escalation or not;
+    // measured incident 2026-08-31, `d-escalation-surface`). Two `kind`s bypass this gate, and only
+    // these two:
+    //   `kind: 'escalation'` — the ONE bus-row TYPE the `leader` concept record already carves out
+    //     of the no-human-contact rule (`system-definition/concepts/leader.md` § Owner contact):
+    //     the halt it records was already authorized at the door that resolves identity
+    //     (`coord.py cmd_send`, leader or judge, no `--force`). [T2-R14] guards a seat's own
+    //     judgment call to START a conversation; an escalation is not that.
+    //   `kind: 'recovery'` — spec-recovery §5's system-decided case: an exhausted LANE the daemon
+    //     itself is reporting (`recovery-poster.js`), never a seat's own traffic, so the same
+    //     seat-courtesy question does not apply. Unrelated to the `label` value of the same name.
+    if (kind !== 'escalation' && kind !== 'recovery' && !seatIsInteractive(goalId, seatName)) {
       log('warn', 'owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]', { goalId, seat: seatName });
       return { posted: false, reason: 'seat-not-interact' };
     }
@@ -288,4 +336,6 @@ module.exports = {
   MARKER_ASK,
   MARKER_NOTE,
   LABELS,
+  ASK_REPLY_SPLIT,
+  splitPostedBody,
 };

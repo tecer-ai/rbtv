@@ -15,7 +15,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const {
-  createAskThreads, openingLine, displaySuffix, replyCopyPath, MARKER_ASK, MARKER_NOTE,
+  createAskThreads, openingLine, displaySuffix, replyCopyPath, MARKER_ASK, MARKER_NOTE, ASK_REPLY_SPLIT,
 } = require('../ask-thread');
 const { NACK_ASK } = require('../reply-grammar');
 const { buildBridge } = require('../index');
@@ -118,6 +118,105 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
     check('[T2-R14] a non-interact seat\'s owner-ask is REFUSED at this door — nothing posted, nothing recorded',
       r.posted === false && r.reason === 'seat-not-interact' && h.posts.length === 0 && h.opens.length === 0,
       { reason: r.reason });
+  }
+
+  // ── TYPE-GATED ADMISSION (`d-escalation-surface` part 1, seat `esc-door-split`) ────────────────
+  // The door is bypassed by `kind`, never by `label`. `label` stays a two-value digest taxonomy
+  // (`work-content`/`recovery`) and decides admission for nobody — proven here by holding `label`
+  // fixed at `'recovery'` across all four arms and varying only `kind` and `interactive`.
+  {
+    const h = harness({ interactive: false });
+    const r = await h.threads.postAsk({
+      goalId: GOAL, channelId: CHANNEL, seatName: 'leader', label: 'recovery', kind: 'escalation',
+      body: 'nobody in this run can clear this halt',
+    });
+    check('`kind: \'escalation\'` is admitted regardless of seat designation and mints EXACTLY ONE ask record — the ❓ door for a real halt',
+      r.posted === true && h.opens.length === 1 && h.opens[0].chatThreadId === r.askId,
+      { posted: r.posted, opens: h.opens.length });
+  }
+  {
+    const h = harness({ interactive: false });
+    const r = await h.threads.postAsk({
+      goalId: GOAL, channelId: CHANNEL, seatName: 'leader', label: 'recovery', kind: 'recovery',
+      body: 'LANE: demo-goal / worker',
+    });
+    check('`kind: \'recovery\'` (a daemon-decided exhausted-lane ask, `recovery-poster.js`\'s own use — unrelated to this seat\'s work) is UNCHANGED by the type-gate: still admitted, still mints a record',
+      r.posted === true && h.opens.length === 1,
+      { posted: r.posted, opens: h.opens.length });
+  }
+  {
+    // THE REGRESSION THIS SEAT FIXES: `label: 'recovery'` ALONE (the ferry's OLD bypass — every
+    // `leader` row, escalation or not, was labelled `recovery`) no longer admits anything.
+    // `kind` defaults to `'ordinary'`, so an undesignated seat's row is refused exactly like any
+    // other ordinary ask — mints ZERO records, the discriminating observation for DoD 2/3.
+    const h = harness({ interactive: false });
+    const r = await h.threads.postAsk({
+      goalId: GOAL, channelId: CHANNEL, seatName: 'leader', label: 'recovery',
+      body: 'FYI: proceeding with the default binder, no owner input needed',
+    });
+    check('`label: \'recovery\'` alone (no `kind`) NO LONGER bypasses [T2-R14] — an ordinary `leader` message is refused as an ask and mints ZERO records',
+      r.posted === false && r.reason === 'seat-not-interact' && h.opens.length === 0,
+      { posted: r.posted, reason: r.reason, opens: h.opens.length });
+  }
+  {
+    // The note door mints no record regardless of `kind` or designation — it never checked
+    // [T2-R14] to begin with (`postAsk`'s reason verbatim), so this is the "posts as 💭, mints
+    // ZERO rows" half of DoD 2, on the SAME body an ask would have refused.
+    const h = harness({ interactive: false });
+    const r = await h.threads.postNote({
+      goalId: GOAL, channelId: CHANNEL, seatName: 'leader', label: 'recovery',
+      body: 'FYI: proceeding with the default binder, no owner input needed',
+    });
+    check('the SAME ordinary body posts as 💭 through `postNote` and mints ZERO ask records',
+      r.posted === true && h.opens.length === 0 && h.updates[0].text.startsWith('💭 '),
+      { posted: r.posted, opens: h.opens.length, head: h.updates[0].text.split('\n')[0] });
+  }
+
+  // ── THE TOP-LEVEL / FIRST-REPLY BODY SPLIT (`d-escalation-surface` part 9) ─────────────────────
+  // `ask-thread.js#openThread` owns the MECHANICS (post the top, stamp §3, post the overflow as a
+  // reply on the SAME thread_ts) — `bus-ferry.js#splitAskBody` owns the DECISION of where the
+  // marker goes (only it knows the row) and is proven separately, end to end, in
+  // `probe-chat-bus-ferry.js`. Here the marker is inserted directly, exactly as that decision
+  // would leave it, to prove the mechanics alone.
+  {
+    const h = harness({ tsSeq: ['1724510000.100000'] });
+    const body = [
+      'one sentence naming the decision',
+      '',
+      'TLDR: the cage refuses the write; two ways to unblock it.',
+      '',
+      'a) widen the grant — fast, touches the sandbox policy',
+      'b) move the file — slower, no policy change',
+      'Recommend (a).',
+      '',
+      ASK_REPLY_SPLIT,
+      '',
+      'Reasoning:',
+      'the full trace, step by step, is long — see the evidence file for all of it.',
+      'evidence: /tmp/evidence/trace.log',
+    ].join('\n');
+    const r = await h.threads.postAsk({ goalId: GOAL, channelId: CHANNEL, seatName: SEAT, body });
+    const topPost = h.posts.find((p) => p.thread_ts === null);
+    const replyPost = h.posts.find((p) => p.thread_ts === r.askId);
+    check('the TOP-LEVEL post carries the ❓ line + decision + TLDR + alternatives, and stops before "Reasoning:"',
+      !!topPost && h.updates[0].text.startsWith(`❓ `) && h.updates[0].text.includes('TLDR:')
+      && h.updates[0].text.includes('Recommend (a)') && !h.updates[0].text.includes('Reasoning:')
+      && !h.updates[0].text.includes('trace.log'),
+      { topHead: h.updates[0].text.split('\n')[0], topIncludesReasoning: h.updates[0].text.includes('Reasoning:') });
+    check('the FIRST THREADED REPLY carries the full reasoning + the evidence pointer, and its thread_ts EQUALS the top-level ask id — the ask id never moved',
+      !!replyPost && replyPost.payload.includes('Reasoning:') && replyPost.payload.includes('trace.log')
+      && replyPost.thread_ts === r.askId && r.askId === '1724510000.100000',
+      { replyThreadTs: replyPost && replyPost.thread_ts, askId: r.askId });
+  }
+  {
+    // NEVER FABRICATED: a body with no discernible "Reasoning:"/"Full reasoning:" heading degrades
+    // to everything above the fold — one post, nothing in a reply.
+    const h = harness({ tsSeq: ['1724510500.200000'] });
+    const r = await h.threads.postAsk({ goalId: GOAL, channelId: CHANNEL, seatName: SEAT, body: 'no structure here, just a question' });
+    check('a body with no TLDR/reasoning heading is left WHOLE — one post, no threaded reply',
+      h.posts.length === 1 && h.posts[0].thread_ts === null
+      && h.updates[0].text.includes('no structure here'),
+      { posts: h.posts.length });
   }
 
   {
@@ -452,27 +551,44 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       && reactions.filter((r) => r.ts === '104.1').length === 0,
       { reactionsOn104: reactions.filter((r) => r.ts === '104.1') });
 
-    // E7 — [T2-R14] AT THE WIRED DOOR. A seat that declares nothing is REFUSED at send: no ❓
-    // thread, no record, and — the ruling's point — the row does NOT reach the owner by some
-    // other leg either, because a refusal that falls through to the agent thread is not a refusal.
+    // E7 — [T2-R14] AT THE WIRED DOOR, UPDATED FOR `d-escalation-surface` part 7 (seat
+    // `esc-door-split`). A seat that declares nothing is still REFUSED as an ASK — no ❓ thread, no
+    // record minted, [T2-R14] unreversed and unweakened — but the row is `to: owner`, so it is
+    // never silently discarded any more: the SAME door rescues it as a 💭 NOTICE
+    // (`ask-thread.js#postNote`, which never checks [T2-R14] and mints no record). `forwarder
+    // .askOps()` is the exact-record proof: it names every `record-owner-ask` open/reap the
+    // gateway saw, and the notice adds NONE — `open,reap,open` stays `open,reap,open` after row 4.
     //
-    // ⚑ AND IT IS STILL NOT A PARK, which is the distinction this check exists to hold. A park
-    // ADVANCED THE CURSOR and told nobody: the row was gone. A refusal leaves the cursor where it
-    // was — the row is held and retried, exactly like a missing channel — and it is REPORTED in
-    // the log, naming the seat and the ruling. Both halves are asserted, because "nothing was
-    // posted" alone reads identically to the behaviour that was deleted.
+    // Was (quoted verbatim, pre-fix — the claim this replaces): "an UNDESIGNATED seat is REFUSED at
+    // the ask door — nothing posted on any surface and no record minted", asserting
+    // `posted.length === beforeSilent` (literally zero posts) and a `REFUSED at the ask door` log
+    // line. Both are now WRONG on purpose: `d-escalation-surface` explicitly ruled that class of
+    // silence closed (measured cost: the daemon's own seed-refusal notice could never post).
+    //
+    // ⚑ STILL NOT A PARK, unchanged: a park advances the cursor and posts nothing, telling nobody.
+    // Here the cursor advances BECAUSE the row was actually delivered (as a notice), not because it
+    // was swallowed — the distinction is the notice thread existing at all.
     const beforeSilent = posted.length;
     const cursorBefore = bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`);
+    const askOpsBefore = forwarder.askOps().join(',');
     fs.appendFileSync(busFile, row(4, 'silent', 'owner', 'ask', 'an undesignated seat asking'));
     await bridge.busFerry.tick();
-    const refusal = eLogs.filter((l) => /REFUSED at the ask door/.test(l.message));
-    check('E7 [T2-R14]: an UNDESIGNATED seat is REFUSED at the ask door — nothing posted on any surface and no record minted — and the refusal is NOT a park: it is logged naming the seat, and the cursor does not sweep the row away',
-      posted.length === beforeSilent
-      && forwarder.askOps().join(',') === 'open,reap,open'
-      && refusal.length === 1 && refusal[0].from === 'silent'
-      && bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) === cursorBefore
+    const rescued = eLogs.filter((l) => /rescued as a 💭 notice/.test(l.message));
+    const noticePost = posted[posted.length - 1];
+    check('E7 [T2-R14]: an UNDESIGNATED seat\'s ASK is refused (no record minted — `askOps()` '
+      + 'unchanged) and RESCUED as a 💭 NOTICE — a new thread posts, the refusal is logged by name, '
+      + 'and the row is not a park (the cursor advances because it WAS delivered)',
+      posted.length === beforeSilent + 1
+      && noticePost && noticePost.text.startsWith(`${MARKER_NOTE} `)
+      && forwarder.askOps().join(',') === askOpsBefore
+      && rescued.length === 1 && rescued[0].from === 'silent'
+      && bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`) === cursorBefore + 1
       && eLogs.every((l) => !/PARK/i.test(l.message)),
-      { posts: posted.length - beforeSilent, refusals: refusal.length, cursorBefore, cursorAfter: bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`), ops: forwarder.askOps() });
+      {
+        posts: posted.length - beforeSilent, noticeHead: noticePost && noticePost.text.split('\n')[0],
+        rescued: rescued.length, askOpsBefore, askOpsAfter: forwarder.askOps().join(','),
+        cursorBefore, cursorAfter: bridge.busFerry._cursors.get(`${E_GOAL}/2026-08-24a`),
+      });
 
     // E8 — PERSISTENCE. The ask-thread map is in the state file and survives a restart, or the
     // owner's answer after one lands as ordinary goal traffic and the ask is never released.
@@ -514,6 +630,44 @@ check('§3 note line is the same shape with the 💭 marker and never both marke
       && afterRestartAgain.forwarded === false
       && forwarder.askOps().join(',') === 'open,reap,open,reap',
       { onDisk, leg: afterRestartAgain.leg, ops: forwarder.askOps() });
+
+    // E9 — THE REPLAY, END TO END THROUGH THE REAL BRIDGE (`d-escalation-surface` acceptance bar):
+    // an ESCALATION from the SAME non-designated `silent` seat that E7 just proved gets REFUSED as
+    // an ordinary ask — admitted regardless of designation, rendered with the ruled post shape
+    // (part 9: ❓ + decision + TLDR + alternatives on top, full reasoning + evidence pointer as the
+    // FIRST THREADED REPLY), and its thread_ts is the ask id, unmoved.
+    const beforeE9 = posted.length;
+    const askOpsBeforeE9 = forwarder.askOps().join(',');
+    fs.appendFileSync(busFile, row(5, 'silent', 'owner', 'escalation', [
+      'the cage refuses the write and nobody in this run can widen it',
+      '',
+      'TLDR: two ways to unblock it, both change the sandbox policy.',
+      '',
+      'a) widen the grant — fast, touches the sandbox policy',
+      'b) move the file — slower, no policy change',
+      'Recommend (a).',
+      '',
+      'Reasoning:',
+      'the full trace, step by step — see the evidence file for all of it.',
+      'evidence: /tmp/evidence/e9-trace.log',
+    ].join('\n')));
+    await rebuilt.bridge.busFerry.tick();
+    const e9Top = posted[beforeE9];
+    const e9Reply = posted[beforeE9 + 1];
+    check('E9 [d-escalation-surface parts 1+9]: an escalation from a NON-designated seat is ADMITTED (mints a new record) and posts TWO messages — a TOP-LEVEL ❓ + decision + TLDR + alternatives, and a FIRST THREADED REPLY carrying the full reasoning + evidence pointer, on the SAME thread_ts as the ask id',
+      posted.length === beforeE9 + 2
+      && forwarder.askOps().join(',') === `${askOpsBeforeE9},open`
+      && e9Top && e9Top.threadTs === null && e9Top.text.startsWith(`${MARKER_ASK} `)
+      && e9Top.text.includes('TLDR:') && e9Top.text.includes('Recommend (a)')
+      && !e9Top.text.includes('Reasoning:') && !e9Top.text.includes('e9-trace.log')
+      && e9Reply && e9Reply.threadTs === e9Top.ts && e9Reply.text.includes('Reasoning:')
+      && e9Reply.text.includes('e9-trace.log'),
+      {
+        posts: posted.length - beforeE9, askOps: forwarder.askOps().join(','),
+        topHead: e9Top && e9Top.text.split('\n')[0], topTs: e9Top && e9Top.ts,
+        replyThreadTs: e9Reply && e9Reply.threadTs, replyIncludesReasoning: e9Reply && e9Reply.text.includes('Reasoning:'),
+      });
+
     rebuilt.bridge.stop();
   }
 

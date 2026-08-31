@@ -501,12 +501,63 @@ async function main() {
     a.bridge.stop();
   }
   {
-    // W8-E — THE SAME TERMINAL RULE FOR AN ORDINARY ROW. A `note` from the same non-designated
-    // seat is refused by the same door and is equally unretryable; it must not spend twenty
-    // passes either. It gets NO content-bearing DM — that leg is the escalation's alone (W8-C) —
-    // so the measurable outcome is: nothing posted, one refusal line, cursor advanced.
+    // W8-E — REPLACES THE OLD "silent terminal refusal" CLAIM (`d-escalation-surface` part 7,
+    // seat `esc-door-split`). BEFORE: `posted: false` for a `note` from a non-designated seat
+    // meant the row posted NOTHING anywhere — the exact silent-discard class the ruling exists to
+    // end (measured: the daemon's own seed-refusal notice could never post). AFTER: [T2-R14]
+    // still refuses the ASK — the row never becomes a blocking record — but the SAME door rescues
+    // it as a 💭 NOTICE (`marker: 'note'` → `ask-thread.js#postNote`, which never checks [T2-R14]
+    // at all). The stub answers the first call (default `marker`) with the door's real refusal and
+    // the second (`marker: 'note'`) with a success, exactly as the real two-function door behaves.
+    //
+    // Was (quoted verbatim, pre-fix): "an ordinary row refused at the ask door posts NOTHING, is
+    // reported once, and is not retried" — asserted `slack.posted.length === 0` with no notice leg
+    // at all, because none existed.
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-w8e', '2026-08-14a', { backlogRows: 1 });
+    const slack = makeFakeSlack();
+    const logs = [];
+    const askCalls = [];
+    const a = makeBridge({
+      workspaceRoot: root, slack, logs,
+      busFerryOptions: {
+        postAsk: async (args) => {
+          askCalls.push(args);
+          if (args.marker === 'note') return { posted: true, threadTs: 'T-NOTE-1', text: 'stub-note-text' };
+          return { posted: false, reason: 'seat-not-interact' };
+        },
+      },
+    });
+    await a.bridge.start();
+    await a.bridge.busFerry.tick();
+    append(file, msgRow(2, 'leader', 'owner', 'note', 'an ordinary word to the human'));
+    await a.bridge.busFerry.tick();
+    check('W8-E: an ordinary row refused at the ask door [T2-R14] is RESCUED as a 💭 notice — the '
+      + 'door is called TWICE (ask, then note), the row leaves no DM post and no retry attempt, and '
+      + 'the cursor advances on the first pass',
+      askCalls.length === 2 && askCalls[0].marker === undefined && askCalls[1].marker === 'note'
+      && slack.posted.length === 0
+      && a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a') === 2
+      && a.bridge.busFerry._attempts.size === 0
+      && logs.filter((l) => /rescued as a 💭 notice/.test(l.message)).length === 1
+      && logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length === 0
+      && logs.filter((l) => /will retry next pass/.test(l.message)).length === 0,
+      {
+        askCalls: askCalls.map((c) => c.marker || 'ask'),
+        posted: slack.posted.length,
+        cursor: a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a'),
+        attempts: [...a.bridge.busFerry._attempts.keys()],
+      });
+    a.bridge.stop();
+  }
+  {
+    // W8-F — d-escalation-surface part 7, cont.: WHEN THE NOTICE ATTEMPT ALSO FAILS, THE ROW IS
+    // NEVER SILENTLY DROPPED EITHER — it is an ORDINARY post failure at that point (the [T2-R14]
+    // refusal is already resolved) and falls through to the SAME retry ladder any other undelivered
+    // row uses. Measured here via the DM fallback leg (unwired `routeToAgentThread`, no goal
+    // channel in this fixture's fake Slack) actually firing on the first pass.
+    const root = mkroot();
+    const { file } = seedGoal(root, 'goal-w8f', '2026-08-14a', { backlogRows: 1 });
     const slack = makeFakeSlack();
     const logs = [];
     const a = makeBridge({
@@ -517,18 +568,11 @@ async function main() {
     await a.bridge.busFerry.tick();
     append(file, msgRow(2, 'leader', 'owner', 'note', 'an ordinary word to the human'));
     await a.bridge.busFerry.tick();
-    check('W8-E: an ordinary row refused at the ask door posts NOTHING, is reported once, and is '
-      + 'not retried — the cursor advances on the first pass',
-      slack.posted.length === 0
-      && a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a') === 2
-      && a.bridge.busFerry._attempts.size === 0
-      && logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length === 1
-      && logs.filter((l) => /will retry next pass/.test(l.message)).length === 0,
-      {
-        posted: slack.posted.length,
-        cursor: a.bridge.busFerry._cursors.get('goal-w8e/2026-08-14a'),
-        attempts: [...a.bridge.busFerry._attempts.keys()],
-      });
+    check('W8-F: a row whose NOTICE attempt also fails is not a terminal refusal — it falls through '
+      + 'to the ordinary DM leg on the same pass rather than being dropped',
+      slack.posted.length === 1 && /an ordinary word to the human/.test(slack.posted[0].text)
+      && a.bridge.busFerry._cursors.get('goal-w8f/2026-08-14a') === 2,
+      { posted: slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8f/2026-08-14a') });
     a.bridge.stop();
   }
 
