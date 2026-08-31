@@ -68,9 +68,19 @@ async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // ('send-message'). ⚠ NO LAUNCH PROFILE IS SEEDED (7.787): `launch-agent` carries nothing
 // profile-shaped, so there is nothing for an enqueue to re-validate against. Writes a temp
 // senders.yaml (mode 0600) with a fake kind:bridge row.
-async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessions = null } = {}) {
+//
+// `workspaceRoot` is now THREADED INTO `createInternalApi` (esc-replay, `d-escalation-surface`
+// "done means replayed"): the thirteenth intent (`record-owner-ask`, and its `inspect asks`
+// read) resolves the goal folder and the `open_asks` store off THIS value
+// (`state-store/heart/ask-record.js`), never off the heart store's own `runtimeStateRoot`. Every
+// prior caller left it unset and got `INTERNAL: this daemon has no workspace root` the moment it
+// tried an owner-ask act — nothing before this exercised that intent against the throwaway
+// daemon. Defaulting to the SAME directory `startThrowawayDaemon` already creates keeps every
+// existing caller's behaviour unchanged (a fresh empty workspace, same as today); an explicit
+// override lets a caller point it at a workspace it has already seeded with `.rbtv/goals/`.
+async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessions = null, workspaceRoot: workspaceRootOverride = null } = {}) {
   const dir = tmpDir('daemon');
-  const workspaceRoot = path.join(dir, 'workspace'); // store lives at <root>/.rbtv/heart/heart.db
+  const workspaceRoot = workspaceRootOverride || path.join(dir, 'workspace'); // store lives at <root>/.rbtv/heart/heart.db
   fs.mkdirSync(workspaceRoot, { recursive: true });
 
   // Fake bridge token — obviously not a real secret (D-secrets hygiene: no real
@@ -118,14 +128,14 @@ async function startThrowawayDaemon({ bridgeSenderId = 'bridge-probe', liveSessi
   };
 
   const secret = crypto.randomBytes(32).toString('hex');
-  const internalApi = createInternalApi({ heartStore: store, spawnManager: spawnStub, secret, daemonStartTime: Date.now(), daemonConfig: {}, liveSessions });
+  const internalApi = createInternalApi({ heartStore: store, spawnManager: spawnStub, secret, daemonStartTime: Date.now(), daemonConfig: {}, liveSessions, workspaceRoot });
 
   const gateway = createGateway({ dispatch: internalApi.dispatch, internalSecret: secret, sendersFilePath: sendersPath });
   const [addr] = await gateway.listen({ hosts: ['127.0.0.1'], port: 0 });
   const gatewayAddr = `127.0.0.1:${addr.port}`;
 
   return {
-    store, gatewayAddr, bridgeToken, bridgeSenderId, port: addr.port,
+    store, gatewayAddr, bridgeToken, bridgeSenderId, port: addr.port, workspaceRoot,
     async close() {
       try { await gateway.close(); } catch {}
       try { closeHeartStore(); } catch {}
@@ -228,6 +238,7 @@ async function startMockSlack({ logger = null } = {}) {
   const sentMessages = [];   // captured chat.postMessage bodies (SUCCESSFUL posts only)
   const reactionCalls = [];  // ORDERED reactions.add/remove calls — the ⏳ marker's ordering
   let failPosts = 0;         // opt-in: fail the next N chat.postMessage calls (ok:false)
+  let postTsSeq = 0;         // disambiguates two posts minted inside the same millisecond
   let wsSocket = null;       // the connected bridge client socket
   const acks = new Map();    // envelope_id -> resolver
   let connectedResolve;
@@ -248,10 +259,32 @@ async function startMockSlack({ logger = null } = {}) {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'ratelimited' }));
         } else {
-          sentMessages.push(json);
+          // The `ts` this call mints is what `ask-thread.js` treats as the ask id [T5-R7] — a
+          // probe asserting the id round-trips (posted top-level ts === the first reply's
+          // `thread_ts` === the `open_asks` row's `ask_id`) needs it on the STORED record, not
+          // only in the HTTP response nothing here keeps a copy of. `postTsSeq` guarantees two
+          // posts in the same call never mint the same id (`Date.now()` alone can collide inside
+          // one event loop turn).
+          const ts = `${Date.now() / 1000}${String(++postTsSeq).padStart(3, '0')}`;
+          sentMessages.push({ ...json, ts });
           res.writeHead(200, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, ts: `${Date.now() / 1000}` }));
+          res.end(JSON.stringify({ ok: true, ts }));
         }
+      } else if (req.url.endsWith('/chat.update')) {
+        // `ask-thread.js#openThread`'s §3 rewrite — the ONE caller (see slack-socket-mode.js). The
+        // stored record is rewritten IN PLACE so a probe reading `sentMessages` afterward sees the
+        // same text Slack itself would show, not the pre-rewrite draft.
+        const target = sentMessages.find((m) => m.channel === json.channel && String(m.ts) === String(json.ts));
+        if (target) target.text = json.text;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } else if (req.url.endsWith('/conversations.open')) {
+        // The bus ferry's OWN precondition (`bus-ferry.js#start`): it resolves the owner's DM
+        // ONCE at start and stays disabled without it — every escalation/DM-ban replay needs this
+        // to succeed even when the row under test never posts there. One fixed id, so a probe can
+        // assert "zero posts to the DM" against a known channel rather than an unresolved one.
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, channel: { id: 'D-mock-owner-dm' } }));
       } else if (req.url.endsWith('/reactions.add') || req.url.endsWith('/reactions.remove')) {
         // Recorded IN ARRIVAL ORDER — the ⏳ pending marker's whole correctness is
         // that a remove never lands before its own add (chat-bridge.js § pending marker).
