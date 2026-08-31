@@ -10,6 +10,7 @@ const path = require('path');
 
 const { fail } = require('./core');
 const { HANDLES_FILE, procStart } = require('./handles');
+const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { codexSessions, opencodeCandidates, opencodeStore } = require('./sessions');
 
 // Reports jobs that are ALIVE BUT FROZEN. The one-shot roster never reports completion (that
@@ -40,7 +41,7 @@ const ADVISORY = 'cast monitor: ADVISORY, not authority.'
   + ' 2026-08-19 were false and a healthy seat was killed on this alarm.'
   + ' ENDED = the job is ALREADY GONE — never kill on it; read its output and exit code.\n';
 
-const MONITOR_USAGE = 'cast monitor [--watch] [--stall SECONDS] [--grace SECONDS] [--poll SECONDS] [--folder PREFIX] [--json]';
+const MONITOR_USAGE = 'cast monitor [--watch] [--stall SECONDS] [--grace SECONDS] [--poll SECONDS] [--deadline SECONDS] [--folder PREFIX] [--json]';
 
 // Registry rows whose wrapper process is still the one that wrote them — the /proc starttime pin
 // makes this comm-free and PID-reuse-proof. Re-read every poll, so launches mid-watch are picked up.
@@ -62,10 +63,21 @@ function liveJobs(prefix) {
 const mtimeOf = (f) => { try { return fs.statSync(f).mtimeMs; } catch { return null; } };
 
 // --- the witness channel (S2): harness-agnostic life under the handle PID ----------------------
-// Floors matter: a wedged node harness still wakes event-loop timers and burns a few ticks and
-// bytes per poll — zero-threshold deltas would make a real hang undetectable.
-const CPU_FLOOR_TICKS = 10;
-const IO_FLOOR_BYTES = 4096;
+// Floors matter: a wedged node harness still wakes event-loop timers and burns a few ticks
+// per poll — zero-threshold deltas would make a real hang undetectable. Shared floor 10 was
+// below every harness's idle (2026-08-22 GLM lanes hung 9h while monitor said healthy).
+// Measured 2026-08-31 treeSample() 30s polls — do not ship the 2026-08-22 numbers:
+//   claude   idle 31–39 ticks, busy 85–207
+//   opencode idle 103–114 ticks, busy 276–659
+//   codex    idle 0–2 ticks, busy 204 ticks in ~5s generation
+// IO dropped: idle TUI 120B–80KB, busy 0.7–245MB, retry-hang 108MB — a byte bar cannot
+// separate hang from work. Capture growth + descendants + CPU remain. Scale by poll/30s.
+const CPU_FLOOR_TICKS = { claude: 50, codex: 20, opencode: 150 };
+const FLOOR_POLL_MS = 30_000;
+const DEFAULT_DEADLINE_S = 4 * 60 * 60;
+const DEADLINE_MS = Number(process.env.CAST_DEADLINE_MS) > 0
+  ? Number(process.env.CAST_DEADLINE_MS)
+  : DEFAULT_DEADLINE_S * 1000;
 const OUT_BANNER_BYTES = 2048; // below this, stdout is a launch banner, not work
 
 function readProcStat(pid) {
@@ -107,13 +119,24 @@ function descendantPids(pid) {
 
 // The job's stdout capture, found via fd 1 — no handle-schema change. Both 2026-08-19 false
 // positives had their decisive evidence (11KB / 26KB of real output) sitting on fd 1.
-function captureSize(pid) {
+function captureFile(pid) {
   try {
     const target = fs.readlinkSync(`/proc/${pid}/fd/1`);
     if (!target.startsWith('/')) return null; // pipe:[…], socket:[…]
     const st = fs.statSync(target);
-    return st.isFile() ? st.size : null;
+    return st.isFile() ? target : null;
   } catch { return null; }
+}
+
+function captureSize(pid) {
+  const f = captureFile(pid);
+  if (!f) return null;
+  try { return fs.statSync(f).size; } catch { return null; }
+}
+
+function cpuFloor(h, pollMs) {
+  const per30 = CPU_FLOOR_TICKS[h.harness] ?? CPU_FLOOR_TICKS.opencode;
+  return Math.max(1, Math.round(per30 * pollMs / FLOOR_POLL_MS));
 }
 
 function treeSample(h) {
@@ -144,7 +167,7 @@ function jobMemo(cache, h) {
 
 // Evidence of life this poll. First sample has no deltas: live descendants or a running root
 // count once; every later poll needs a floored delta, so a busy-spin can't ride a stale snapshot.
-function witness(h, now, memo) {
+function witness(h, now, memo, pollMs = FLOOR_POLL_MS) {
   const s = treeSample(h);
   const prev = memo.prev;
   let dCpu = 0;
@@ -155,7 +178,7 @@ function witness(h, now, memo) {
   } else {
     dCpu = s.cpu - prev.cpu;
     dIo = s.io - prev.io;
-    evidence = dCpu >= CPU_FLOOR_TICKS || dIo >= IO_FLOOR_BYTES
+    evidence = dCpu >= cpuFloor(h, pollMs)
       || [...s.members].some((m) => !prev.members.has(m))
       || (s.capSize !== null && prev.capSize !== null && s.capSize > prev.capSize);
   }
@@ -259,13 +282,18 @@ function progressAt(h, cache) {
 // A terminal verdict needs BOTH channels silent, held across a confirm window of two polls.
 // One-shot roster calls have no delta history, so their first sample leans on instant life
 // (descendants / running root) — honest but coarser than a watch.
-function classify(h, now, stallMs, graceMs, pollMs, cache) {
+function classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE_MS) {
   const memo = jobMemo(cache, h);
-  const w = witness(h, now, memo);
+  const w = witness(h, now, memo, pollMs);
   const confirmMs = 2 * pollMs;
   const evAge = now - memo.lastEvidenceAt;
   const at = progressAt(h, cache);
-  const base = { witness: w, evAge };
+  const limit = detectProviderLimit({
+    harness: h.harness, model: h.model, t0: h.t0, capturePath: captureFile(h.pid),
+  });
+  const base = { witness: w, evAge, limit };
+  if (limit) return { state: 'provider-limit', age: at === null ? evAge : now - at, ...base };
+  if (now - h.t0 >= deadlineMs) return { state: 'DEADLINE', age: at === null ? evAge : now - at, ...base };
   if (at !== null) {
     const age = now - at;
     if (age < stallMs) return { state: 'ok', age, ...base };
@@ -290,10 +318,10 @@ const tailShort = (s, cap = 44) => (s.length <= cap ? s : `…${s.slice(-(cap - 
 const evidenceSuffix = (w) => `desc=${w.sample.desc} cpu+${w.dCpu} io+${w.dIo}`
   + ` out=${w.sample.capSize === null ? '-' : w.sample.capSize}`;
 
-function monitorRows(jobs, now, stallMs, graceMs, pollMs, cache) {
+function monitorRows(jobs, now, stallMs, graceMs, pollMs, cache, deadlineMs = DEADLINE_MS) {
   return jobs.map((h) => {
-    const { state, age, witness: w } = classify(h, now, stallMs, graceMs, pollMs, cache);
-    return {
+    const { state, age, witness: w, limit } = classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs);
+    const row = {
       folder: h.folder,
       harness: h.harness,
       model: h.model,
@@ -305,6 +333,11 @@ function monitorRows(jobs, now, stallMs, graceMs, pollMs, cache) {
       out_bytes: w.sample.capSize,
       state,
     };
+    if (limit) {
+      row.provider = limit.provider;
+      row.resets = limit.reset;
+    }
+    return row;
   });
 }
 
@@ -347,7 +380,7 @@ function runRoster(rows, json) {
 // an orchestrator to kill a process that is already gone (false-kill, 2026-08-19). If one
 // poll lands both, freeze keeps precedence (exit 3). Exit 0 only when the watch was armed
 // against an empty roster. SUSPECT is non-terminal and prints nothing here.
-async function runWatch(prefix, stallMs, graceMs, pollMs) {
+async function runWatch(prefix, stallMs, graceMs, pollMs, deadlineMs = DEADLINE_MS) {
   const cache = new Map();
   const seen = new Map();
   for (;;) {
@@ -359,7 +392,7 @@ async function runWatch(prefix, stallMs, graceMs, pollMs) {
     for (const h of jobs) {
       const key = `${h.pid}:${h.start}`;
       live.add(key);
-      const { state, age, witness: w } = classify(h, now, stallMs, graceMs, pollMs, cache);
+      const { state, age, witness: w, limit } = classify(h, now, stallMs, graceMs, pollMs, cache, deadlineMs);
       const rec = seen.get(key) || { h, state, ended: false };
       rec.h = h;
       rec.state = state;
@@ -371,6 +404,14 @@ async function runWatch(prefix, stallMs, graceMs, pollMs) {
       } else if (state === 'NO-SIGNAL') {
         freeze = true;
         events.push(`NO-SIGNAL ${h.pid} ${h.harness} ${h.folder} alive=${secs(now - h.t0)}s`
+          + ` ${evidenceSuffix(w)}`);
+      } else if (state === 'provider-limit') {
+        freeze = true;
+        events.push(`PROVIDER-LIMIT ${h.pid} ${h.harness} ${h.folder} ${formatReason(limit)}`
+          + ` ${evidenceSuffix(w)}`);
+      } else if (state === 'DEADLINE') {
+        freeze = true;
+        events.push(`DEADLINE ${h.pid} ${h.harness} ${h.folder} alive=${secs(now - h.t0)}s`
           + ` ${evidenceSuffix(w)}`);
       }
     }
@@ -399,7 +440,7 @@ async function runWatch(prefix, stallMs, graceMs, pollMs) {
 }
 
 function runMonitor(rawArgv) {
-  const opts = { stall: 600, grace: 60, poll: 30 };
+  const opts = { stall: 600, grace: 60, poll: 30, deadline: Math.round(DEADLINE_MS / 1000) };
   let watch = false;
   let json = false;
   let prefix = null;
@@ -413,7 +454,7 @@ function runMonitor(rawArgv) {
       prefix = rawArgv[++i];
       if (prefix === undefined) fail('refused: --folder requires a PREFIX argument');
       prefix = path.resolve(process.cwd(), prefix);
-    } else if (a === '--stall' || a === '--grace' || a === '--poll') {
+    } else if (a === '--stall' || a === '--grace' || a === '--poll' || a === '--deadline') {
       const val = rawArgv[++i];
       const n = Number(val);
       if (!Number.isFinite(n) || n <= 0) fail(`refused: ${a} needs a positive number of seconds, got: ${val}`);
@@ -423,16 +464,16 @@ function runMonitor(rawArgv) {
     }
   }
   if (watch && json) fail(`refused: --json is the roster form; --watch prints event lines\nusage: ${MONITOR_USAGE}`);
-  const [stallMs, graceMs, pollMs] = [opts.stall, opts.grace, opts.poll].map((s) => s * 1000);
-  if (watch) return runWatch(prefix, stallMs, graceMs, pollMs);
+  const [stallMs, graceMs, pollMs, deadlineMs] = [opts.stall, opts.grace, opts.poll, opts.deadline].map((s) => s * 1000);
+  if (watch) return runWatch(prefix, stallMs, graceMs, pollMs, deadlineMs);
   const jobs = liveJobs(prefix);
-  return runRoster(monitorRows(jobs, Date.now(), stallMs, graceMs, pollMs, new Map()), json);
+  return runRoster(monitorRows(jobs, Date.now(), stallMs, graceMs, pollMs, new Map(), deadlineMs), json);
 }
 
 module.exports = {
-  MONITOR_USAGE, liveJobs, mtimeOf, CPU_FLOOR_TICKS,
-  IO_FLOOR_BYTES, OUT_BANNER_BYTES, readProcStat, readProcIo,
-  descendantPids, captureSize, treeSample, jobMemo,
+  MONITOR_USAGE, liveJobs, mtimeOf, CPU_FLOOR_TICKS, FLOOR_POLL_MS,
+  DEFAULT_DEADLINE_S, DEADLINE_MS, OUT_BANNER_BYTES, readProcStat, readProcIo,
+  descendantPids, captureFile, captureSize, cpuFloor, treeSample, jobMemo,
   witness, claudeProgress, claimedBinds, codexRollout,
   opencodeBind, opencodeUpdated, opencodeProgress, progressAt,
   classify, secs, tailShort, evidenceSuffix,

@@ -566,6 +566,9 @@ function dryRun(args) {
   for (const args of [['--bogus'], ['--stall'], ['--stall', 'soon'], ['--poll', '0'], ['--watch', '--json']]) {
     assert.strictEqual(monitor(args).status, 2, `must exit 2: cast monitor ${args.join(' ')}`);
   }
+  for (const args of [['--deadline'], ['--deadline', 'soon']]) {
+    assert.strictEqual(monitor(args).status, 2, `must exit 2: cast monitor ${args.join(' ')}`);
+  }
 }
 
 // cast monitor: a stale harness signal with a live working subtree is SUSPECT, never STALL —
@@ -579,10 +582,12 @@ function dryRun(args) {
     { encoding: 'utf8', env, ...extra });
 
   const scratch = path.join(folder, 'suite-output.txt');
+  const outFd = fs.openSync(scratch, 'w');
   const busy = require('child_process').spawn('bash',
-    ['-c', `while :; do dd if=/dev/zero of=${scratch} bs=8k count=2 conv=notrunc status=none; sleep 0.1; done`],
-    { detached: true, stdio: 'ignore' });
+    ['-c', 'while :; do echo working; done'],
+    { detached: true, stdio: ['ignore', outFd, 'ignore'] });
   busy.unref();
+  fs.closeSync(outFd);
   try {
     const start = Number(fs.readFileSync(`/proc/${busy.pid}/stat`, 'utf8')
       .split(') ').pop().split(' ')[19]);
@@ -915,6 +920,71 @@ function dryRun(args) {
   }
 }
 
+{
+  const folder = mkFolder('monitor-limit');
+  const home = mkFolder('monitor-limit-home');
+  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
+    { encoding: 'utf8', env, ...extra });
+  const outFile = path.join(folder, 'stdout.txt');
+  fs.writeFileSync(outFile,
+    'AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16\n');
+  const fd = fs.openSync(outFile, 'a');
+  const sleeper = require('child_process').spawn('sleep', ['60'],
+    { detached: true, stdio: ['ignore', fd, 'ignore'] });
+  sleeper.unref();
+  fs.closeSync(fd);
+  try {
+    const start = Number(fs.readFileSync(`/proc/${sleeper.pid}/stat`, 'utf8')
+      .split(') ').pop().split(' ')[19]);
+    fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
+      pid: sleeper.pid, start, harness: 'opencode', model: 'glm-5.2', session: null,
+      folder, transcript: null, t0: Date.now() - 120_000,
+    })}\n`);
+    const rows = JSON.parse(monitor(['--json']).stdout);
+    assert.strictEqual(rows.length, 1, `limit fixture must be on the roster: ${JSON.stringify(rows)}`);
+    assert.strictEqual(rows[0].state, 'provider-limit', `expected provider-limit: ${JSON.stringify(rows)}`);
+    assert.strictEqual(rows[0].resets, '2026-08-22 11:10:16');
+    const watch = monitor(['--watch', '--poll', '1', '--grace', '600', '--stall', '600']);
+    assert.strictEqual(watch.status, 3, `provider-limit must exit 3, got ${watch.status}: ${watch.stdout}`);
+    assert.ok(watch.stdout.includes('PROVIDER-LIMIT'), `event line: ${watch.stdout}`);
+    assert.ok(watch.stdout.includes('provider-limit: glm-5.2 resets 2026-08-22 11:10:16'),
+      `named reason: ${watch.stdout}`);
+    assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
+  } finally {
+    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+}
+
+{
+  const folder = mkFolder('monitor-deadline');
+  const home = mkFolder('monitor-deadline-home');
+  const env = { ...process.env, HOME: home, XDG_DATA_HOME: path.join(home, 'no-such-data') };
+  const monitor = (args, extra) => spawnSync('node', [TOOL, 'monitor', ...args],
+    { encoding: 'utf8', env, ...extra });
+  const sleeper = require('child_process').spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
+  sleeper.unref();
+  try {
+    const start = Number(fs.readFileSync(`/proc/${sleeper.pid}/stat`, 'utf8')
+      .split(') ').pop().split(' ')[19]);
+    fs.mkdirSync(path.join(home, '.cast'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.cast', 'handles.jsonl'), `${JSON.stringify({
+      pid: sleeper.pid, start, harness: 'claude', model: 'haiku-4-5', session: null,
+      folder, transcript: null, t0: Date.now() - 5000,
+    })}\n`);
+    const rows = JSON.parse(monitor(['--json', '--deadline', '1']).stdout);
+    assert.strictEqual(rows[0].state, 'DEADLINE', `activity must not block deadline: ${JSON.stringify(rows)}`);
+    const watch = monitor(['--watch', '--deadline', '1', '--poll', '1', '--grace', '600', '--stall', '600']);
+    assert.strictEqual(watch.status, 3, `deadline must exit 3, got ${watch.status}: ${watch.stdout}`);
+    assert.ok(watch.stdout.startsWith(`DEADLINE ${sleeper.pid} claude ${folder} alive=`),
+      `deadline line: ${watch.stdout}`);
+    assert.ok(watch.stdout.includes('ADVISORY, not authority'), `advisory: ${watch.stdout}`);
+  } finally {
+    try { process.kill(sleeper.pid, 'SIGKILL'); } catch { /* gone */ }
+  }
+}
+
 // opencode reconciliation (issue G-owner-console-0819-0010): a final message the CLI swallowed
 // from stdout is recovered from the session store; a run whose store holds NO final assistant
 // message must not read as success — no-report marker + non-zero exit.
@@ -978,6 +1048,29 @@ function dryRun(args) {
   assert.ok(res.stdout.includes('ALL DONE here'), `stdout must pass through: ${res.stdout}`);
   assert.ok(!res.stdout.includes('recovered final message'), `no recovery marker on a healthy run: ${res.stdout}`);
   assert.ok(!res.stdout.includes('cast: no-report'), `no no-report marker on a healthy run: ${res.stdout}`);
+
+  fakeOpencode('echo "AI_APICallError: Usage limit reached for 5 hour. Your limit will reset at 2026-08-22 11:10:16"\nexit 1');
+  seedDb(null);
+  res = cast();
+  assert.notStrictEqual(res.status, 0, `limit run must be non-zero: ${res.stdout}`);
+  assert.ok(res.stdout.includes('provider-limit: glm-5.2 resets 2026-08-22 11:10:16'),
+    `must name the limit instead of no-report: ${res.stdout}`);
+  assert.ok(!res.stdout.includes('cast: no-report'), `limit must not print no-report: ${res.stdout}`);
+}
+
+{
+  const folder = mkFolder('oc-deadline');
+  const home = mkFolder('oc-deadline-home');
+  const xdg = path.join(home, 'xdg');
+  const bin = mkFolder('oc-deadline-bin');
+  fs.writeFileSync(path.join(bin, 'opencode'), '#!/bin/sh\ncat >/dev/null\nsleep 5\nexit 0\n');
+  fs.chmodSync(path.join(bin, 'opencode'), 0o755);
+  const env = { ...process.env, HOME: home, XDG_DATA_HOME: xdg,
+    PATH: `${bin}:${path.dirname(process.execPath)}`, CAST_DEADLINE_MS: '400' };
+  const res = spawnSync('node', [TOOL, 'opencode', 'glm-5.2', '1', folder, '-p', 'hi'],
+    { encoding: 'utf8', env, timeout: 8000 });
+  assert.notStrictEqual(res.status, 0, `deadline must be non-zero: ${res.stderr}`);
+  assert.ok(res.stderr.includes('cast: deadline'), `must print deadline: ${res.stderr}`);
 }
 
 // --- detached-launch refusal (ruling D): the standing gate on the binary itself -------------

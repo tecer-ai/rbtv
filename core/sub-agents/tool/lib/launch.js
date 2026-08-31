@@ -14,8 +14,21 @@ const { SPECS } = require('../catalog');
 
 const { HARNESSES, RESUME_USAGE, SEAT_USAGE, baseArgv, fail, parseArgs, promptArgv, refuseIfDetached, resolveFolder, resolveModel, shortName } = require('./core');
 const { claudeSlug, emitHandle, procStart } = require('./handles');
-const { opencodeBind } = require('./monitor');
+const { DEADLINE_MS, opencodeBind } = require('./monitor');
+const { detectProviderLimit, formatReason } = require('./provider-limit');
 const { opencodeCandidates, opencodeStore } = require('./sessions');
+
+function exitDeadline() {
+  process.stderr.write(`cast: deadline — job exceeded ${Math.round(DEADLINE_MS / 1000)}s wall clock\n`);
+  process.exit(1);
+}
+
+function spawnWithDeadline(cmd, args, opts, failLabel) {
+  const res = spawnSync(cmd, args, { ...opts, timeout: DEADLINE_MS, killSignal: 'SIGTERM' });
+  if (res.error && res.error.code === 'ETIMEDOUT') exitDeadline();
+  if (res.error) fail(`${failLabel}: ${res.error.message}`);
+  process.exit(res.status === null ? 1 : res.status);
+}
 
 function launch({ harness, modelId, folder, effortWord, effortArgv, system, promptText, headed, dryRun, detached }) {
   if (headed && harness === 'opencode' && effortArgv.length) {
@@ -86,15 +99,14 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 
   if (harness === 'opencode' && !headed) {
     return runOpencodeChecked(argv, { cwd: folder, stdinText, t0,
+      model: shortName(harness, modelId),
       bind: () => opencodeBind({ folder, t0 }, new Set()) });
   }
 
   const [cmd, ...args] = argv;
-  const res = spawnSync(cmd, args, stdinText === null
+  return spawnWithDeadline(cmd, args, stdinText === null
     ? { cwd: folder, stdio: 'inherit' }
-    : { cwd: folder, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] });
-  if (res.error) fail(`launch failed: ${res.error.message}`);
-  process.exit(res.status === null ? 1 : res.status);
+    : { cwd: folder, input: stdinText, stdio: ['pipe', 'inherit', 'inherit'] }, 'launch failed');
 }
 
 // opencode/grok sometimes swallows the run's final message: the child exits 0 with stdout ending
@@ -103,7 +115,7 @@ function launch({ harness, modelId, folder, effortWord, effortArgv, system, prom
 // headless run gets stdout tee'd through a capture and reconciled against the store after exit:
 // a final message absent from stdout is appended from the store; a run whose store holds NO final
 // message exits non-zero with an explicit no-report marker.
-function runOpencodeChecked(argv, { cwd, stdinText, t0, bind }) {
+function runOpencodeChecked(argv, { cwd, stdinText, t0, bind, model }) {
   const { spawn } = require('child_process');
   const [cmd, ...args] = argv;
   const child = spawn(cmd, args, {
@@ -113,12 +125,21 @@ function runOpencodeChecked(argv, { cwd, stdinText, t0, bind }) {
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   if (stdinText !== null) child.stdin.end(stdinText);
   let captured = '';
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM'); }, DEADLINE_MS);
   child.stdout.on('data', (d) => { captured += d; process.stdout.write(d); });
   child.on('close', (status) => {
+    clearTimeout(timer);
+    if (timedOut) exitDeadline();
     const code = status === null ? 1 : status;
     const sessionId = bind();
     const final = sessionId ? opencodeFinalMessage(sessionId, t0) : null;
     if (final === null) {
+      const hit = detectProviderLimit({ harness: 'opencode', model, t0, text: captured });
+      if (hit) {
+        process.stdout.write(`${formatReason(hit)}\n`);
+        process.exit(code || 1);
+      }
       process.stdout.write('cast: no-report — the opencode session store holds no final assistant'
         + ` message for this run${sessionId ? ` (session ${sessionId})` : ''}\n`);
       process.exit(code || 1);
@@ -278,13 +299,12 @@ function runResume(rawArgv) {
     t0,
   });
   if (harness === 'opencode') {
-    return runOpencodeChecked(argv, { cwd: folder, stdinText: promptText, t0,
+    return runOpencodeChecked(argv, { cwd: folder, stdinText: promptText, t0, model: 'resume',
       bind: () => (id === 'last' ? opencodeTouched(folder, t0) : id) });
   }
   const [cmd, ...args] = argv;
-  const res = spawnSync(cmd, args, { cwd: folder, input: promptText, stdio: ['pipe', 'inherit', 'inherit'] });
-  if (res.error) fail(`resume failed: ${res.error.message}`);
-  process.exit(res.status === null ? 1 : res.status);
+  return spawnWithDeadline(cmd, args, { cwd: folder, input: promptText,
+    stdio: ['pipe', 'inherit', 'inherit'] }, 'resume failed');
 }
 
 module.exports = {
