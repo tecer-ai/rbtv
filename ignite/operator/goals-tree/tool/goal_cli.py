@@ -1247,9 +1247,11 @@ def _retry_write_gate(goal_dir: Path, goal_name: str) -> None:
     `check-unblocked`'s done contract asserts `milestones.csv` is byte-identical before and
     after its own pass, so a write landing mid-pass fails a criterion the writer never sees.
     The signal is the one `add-seat`'s gate (b) already uses — an execution row with an empty
-    outcome — rather than a second notion of "open".
+    outcome for a PLANNING-WORKFLOW seat (`planning_pass_open_rows`) — rather than a second
+    notion of "open". A conversational chair's (goal-master, leader) open row means the owner
+    is mid-turn, not that a planning pass is running, so it does not count here either.
     """
-    open_rows = [r for r in read_executions(goal_dir) if not (r.get("outcome") or "").strip()]
+    open_rows = planning_pass_open_rows(read_executions(goal_dir))
     if open_rows:
         raise Refusal(
             f"{goal_dir / EXECUTIONS_FILE}: "
@@ -1935,12 +1937,23 @@ def lint_goal(root: Path, name: str) -> Findings:
                   f"a row carries no seat: {row}")
             continue
 
-        # every taskforce.csv row resolves to a REAL seat (CMP-14's core check)
+        # A landed taskforce.csv row already NAMES a real seat — GUARANTEED BY THE WRITER, not
+        # re-verified here (task 125 HALF TWO). `materialize-seats.py` writes the seat
+        # descriptor FOLDER (step 1) BEFORE it appends the registry ROW (step 2) — its own
+        # SC-8 selftest control proves the order: an abort BEFORE step 1 leaves nothing on
+        # disk at all, an abort AFTER step 1 but before the append leaves an ORPHAN FOLDER
+        # with no row, never a row with no folder. A directory test here re-asks a question
+        # the write order already answers — and it is a question no seat can answer
+        # truthfully once spawned: at spawn time `seats/` is masked to the seat's OWN folder
+        # (`supervisor/spawn`'s cage, `envelope/cagespec.py`), so every OTHER row's folder
+        # reads "absent" from inside every cage, and a perfectly well-formed row could never
+        # pass. The MIRROR direction (a folder with no row — an actual half-materialize) is
+        # still caught below (§ 5) — that walk degrades safely when caged, since it only
+        # visits what `seats_dir.iterdir()` actually yields and never asserts about a row it
+        # cannot see a folder for.
         seat_dir = seats_dir / seat
         seat_md = seat_dir / "seat.md"
         if not seat_dir.is_dir():
-            f.add("taskforce row resolves to a real seat", str(seat_dir),
-                  f"seat '{seat}' has no seat folder (run goal-materialize)")
             continue
         if not seat_md.is_file():
             f.add("seat.md exists", str(seat_md),
@@ -2828,6 +2841,12 @@ LINT_NON_REF_KEYS = (
     "id", "seat", "description", "cwd", "agent_type", "mode", "window", "senders",
     "close", "auto-wake", "ephemeral", "broadcast", "component",
     "human-interactive", "fallback", "capabilities",
+    # CAGE keys (task 125, HALF ONE) — a materialized master/staff seat's grant/exposure
+    # declarations, never cognitive-unit references. `rw-paths` and `relays` values (e.g.
+    # `1-projects`, `2-areas`, `master`) were walked as unit ids and reported "no assembled
+    # block in the body" on EVERY goal carrying a goal-master — false on every one of them.
+    "relays", "rw-paths", "cage-grants", "goal-writes", "exposes", "exposed-clis",
+    "cli-write-roots",
 )
 
 _UNIT_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*(@[a-z0-9][a-z0-9-]*)?$")
@@ -3256,6 +3275,42 @@ def seat_states(goal_dir: Path) -> dict[str, dict]:
     return states
 
 
+def _coord_is_conversational_chair():
+    """`is_conversational_chair`, IMPORTED from `coord/identity.py` — never re-implemented.
+
+    `CONVERSATIONAL_CHAIRS` (`SUMMONED_SEATS` + `STAFF_SEATS`) is coord's; `supervisor/
+    seeding.js#summonedSeats` execs that same module to read `SUMMONED_SEATS` by name, so a
+    second copy here would be a second source that drifts from both. `goal_cli.py` has no
+    seat-summoning vocabulary of its own.
+    """
+    coord_dir = Path(__file__).resolve().parents[3] / "coord"
+    if str(coord_dir) not in sys.path:
+        sys.path.insert(0, str(coord_dir))
+    try:
+        from identity import is_conversational_chair
+    except Exception as exc:
+        raise Refusal(
+            f"cannot import is_conversational_chair from {coord_dir / 'identity.py'} — {exc}; "
+            "refusing rather than re-implementing the chair predicate", "chair-predicate-unimportable")
+    return is_conversational_chair
+
+
+def planning_pass_open_rows(rows: list[dict]) -> list[dict]:
+    """Execution rows with an empty outcome, filtered to PLANNING-WORKFLOW seats.
+
+    `_retry_write_gate` and `add-seat` GATE (b) both read "an execution row is open" as "a
+    planning pass is running". True for a taskforce seat mid-pass; false for the Slack door
+    `goal-master` and the standing `leader` chair, which open a row PER OWNER TURN — "the
+    owner is talking" then reads as "a planning pass is running", and the write gate refuses
+    intermittently depending on whether a Slack exchange happens to be mid-turn when the write
+    lands. ONE filter, called by both gates, so the exclusion cannot drift between them.
+    """
+    is_chair = _coord_is_conversational_chair()
+    return [r for r in rows
+            if not (r.get("outcome") or "").strip()
+            and not is_chair((r.get("seat") or "").strip())]
+
+
 def topo_order(rows: list[dict]) -> list[str]:
     """Seats in dependency order — predecessors first, registry order among ready seats.
 
@@ -3580,10 +3635,14 @@ def cmd_add_seat(args) -> int:
     # did not touch the empty cell. W7's splice gate depends on these two readers keying on
     # emptiness and nothing else — a rewrite that keys on any particular stamped word would
     # let a crashed-but-ended seat read as still-running, or vice versa.
+    #
+    # A conversational chair's (goal-master, leader) open row is the owner mid-turn, not a
+    # running planning pass — `planning_pass_open_rows` (same filter `_retry_write_gate` uses)
+    # excludes it before the still-open intersection is taken.
     executions = read_executions(goal_dir)
     still_open = {s for s, st in seat_states(goal_dir).items() if st["state"] == "open"}
-    open_rows = [r for r in executions if not (r.get("outcome") or "").strip()
-                 and (r.get("seat") or "").strip() in still_open]
+    open_rows = [r for r in planning_pass_open_rows(executions)
+                 if (r.get("seat") or "").strip() in still_open]
     if open_rows and not args.allow_open_execution:
         # ⚠ NAME THE ROWS. A killed run leaves its row open FOREVER — nothing ever closes it —
         # so "wait for the record to close" described an event that would never happen, and this
@@ -5323,6 +5382,30 @@ def cmd_selftest(args) -> int:
         check("…and `seat_states` reports it `ended`, not `open`",
               seat_states(live)["a"] == {"state": "ended", "outcome": "clean", "runs": 2},
               str(seat_states(live)))
+
+        # task 81 — a conversational chair's (goal-master, leader) open row is the owner
+        # mid-turn, not a running planning pass: it must NOT block add-seat gate (b).
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "goal-master,s1,daemon,t0,,\n", encoding="utf-8", newline="")
+        check("add-seat succeeds while goal-master alone has an open execution row",
+              _code(cmd_add_seat, _add()) is None)
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "leader,s1,daemon,t0,,\n", encoding="utf-8", newline="")
+        check("add-seat succeeds while leader alone has an open execution row",
+              _code(cmd_add_seat, _add()) is None)
+        (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
+        (live / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "goal-master,s1,daemon,t0,,\n"
+            "a,s2,attached,t0,,\n", encoding="utf-8", newline="")
+        check("…but a genuine planning-workflow seat's open row still refuses "
+              "`goal-not-quiescent`, even alongside an open goal-master row",
+              _code(cmd_add_seat, _add()) == "goal-not-quiescent")
+
         (live / "taskforce.csv").write_text(base_text, encoding="utf-8", newline="")
         (live / EXECUTIONS_FILE).write_text(
             "seat,session-id,lane,started,ended,outcome\n"
@@ -5493,6 +5576,29 @@ def cmd_selftest(args) -> int:
               "owner raises the bar, so the gate must not bar that case",
               _code(cmd_retry_threshold, _rt(**{"set": "5"})) is None
               and _rt_show()["threshold"] == 5)
+
+        # task 81 — a CONVERSATIONAL CHAIR's open row is the owner mid-turn, not a running
+        # planning pass: goal-master and leader must NOT block the write; a genuine
+        # planning-workflow seat (proven above with plan-dod-judge) still does.
+        (rt / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "goal-master,s1,daemon,t0,,\n", encoding="utf-8", newline="")
+        check("--set succeeds while goal-master alone has an open execution row",
+              _code(cmd_retry_threshold, _rt(**{"set": "6"})) is None
+              and _rt_show()["threshold"] == 6)
+        (rt / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "leader,s1,daemon,t0,,\n", encoding="utf-8", newline="")
+        check("--set succeeds while leader alone has an open execution row",
+              _code(cmd_retry_threshold, _rt(**{"set": "7"})) is None
+              and _rt_show()["threshold"] == 7)
+        (rt / EXECUTIONS_FILE).write_text(
+            "seat,session-id,lane,started,ended,outcome\n"
+            "goal-master,s1,daemon,t0,,\n"
+            "plan-dod-judge,s2,daemon,t0,,\n", encoding="utf-8", newline="")
+        check("…but a genuine planning-workflow seat's open row still refuses `pass-open`, "
+              "even alongside an open goal-master row",
+              _code(cmd_retry_threshold, _rt(**{"set": "8"})) == "pass-open")
 
     print()
     if failures:
