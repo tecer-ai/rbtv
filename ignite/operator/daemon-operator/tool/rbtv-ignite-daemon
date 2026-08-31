@@ -150,7 +150,7 @@ v_start() {
   assert_running yes
 }
 
-v_restart() { require_known_unit; sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused\n' >&2; exit 1; }; assert_running yes; }
+v_restart() { require_known_unit; sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused\n' >&2; exit 1; }; assert_running yes; deploy_staleness_note; }
 v_stop()    { require_known_unit; sc stop "$UNIT"    || { printf 'FAILED: systemctl stop refused\n' >&2; exit 1; };    assert_running no; }
 v_kill()    { require_known_unit; sc kill --signal=SIGKILL "$UNIT" || { printf 'FAILED: systemctl kill refused\n' >&2; exit 1; }; assert_running no; }
 
@@ -266,6 +266,30 @@ EOF
 DEPLOY="${RBTV_IGNITE_DEPLOY:-${XDG_STATE_HOME:-$HOME/.local/state}/rbtv-deploy}"
 REPO="$(cd "$(dirname "$0")/../../../.." && pwd)"
 
+# D6 corollary (task 167): `restart` reboots the process but ExecStart and
+# RBTV_IGNITE_CONFIG_PATH both resolve into $DEPLOY, never $REPO — a plain restart can only ever
+# re-run whatever was last DEPLOYED, so a fire-tool (or any config) registered only in the live
+# repo stays invisible after `restart`, silently, until someone runs `deploy`. This is how a
+# freshly-registered fire-tool stayed `E_UNKNOWN_TOOL` after a restart. It does not REFUSE the
+# restart — restart is also the crash-recovery verb, and during active development the deploy
+# tree lags the live repo almost constantly for reasons unrelated to the unit being restarted —
+# it names the gap loudly instead of leaving it silent.
+deploy_staleness_note() {
+  case "$UNIT" in
+    rbtv-ignite.service|rbtv-chat-bridge.service) ;;
+    *) return 0 ;;
+  esac
+  [ -d "$DEPLOY/.git" ] || return 0
+  local deploy_head repo_head behind
+  deploy_head="$(git -C "$DEPLOY" rev-parse HEAD 2>/dev/null)" || return 0
+  repo_head="$(git -C "$REPO" rev-parse ignite/core-daemon 2>/dev/null)" || return 0
+  [ -n "$deploy_head" ] && [ -n "$repo_head" ] || return 0
+  [ "$deploy_head" != "$repo_head" ] || return 0
+  behind="$(git -C "$REPO" rev-list --count "$deploy_head..$repo_head" 2>/dev/null)"
+  printf 'STALE: %s is running deploy tree %s, %s commit(s) behind ignite/core-daemon (%s) — restart does NOT pick this up, run `deploy`\n' \
+    "$UNIT" "${deploy_head:0:8}" "${behind:-?}" "${repo_head:0:8}" >&2
+}
+
 v_deploy() {
   local listed
   listed="$(git -C "$REPO" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10)}')"
@@ -293,6 +317,22 @@ v_deploy() {
   require_known_unit
   sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused\n' >&2; exit 1; }
   assert_running yes
+  # Task 42: the bridge boots from these SAME deploy-tree bytes (deploy/rbtv-chat-bridge.service
+  # ExecStart @@DEPLOY_ROOT@@/ignite/chat/index.js), but was never restarted by this verb — it ran
+  # stale in-memory code across five deploys (measured 2026-08-20, bridge active since 18:38:45
+  # through commits 79ede919..005c3c0c). Restart it too, unless it's already what $UNIT names.
+  local bridge=rbtv-chat-bridge.service
+  if [ "$UNIT" != "$bridge" ]; then
+    local saved_unit="$UNIT"
+    UNIT="$bridge"
+    if [ "$(show LoadState)" = loaded ]; then
+      sc restart "$UNIT" || { printf 'FAILED: systemctl restart refused for %s\n' "$UNIT" >&2; exit 1; }
+      assert_running yes
+    else
+      printf 'note: %s not loaded — skipping (not installed on this box)\n' "$bridge" >&2
+    fi
+    UNIT="$saved_unit"
+  fi
 }
 
 # --service is a SELECTOR, not new control logic: every verb above is already unit-name

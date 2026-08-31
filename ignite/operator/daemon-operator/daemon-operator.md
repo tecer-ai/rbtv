@@ -14,12 +14,12 @@ Not restated here (`PRIN-11`).
 | Verb | Does | Wraps |
 |------|------|-------|
 | `start` | Starts the unit; a no-op **success** if already active, never an error. | `systemctl --user start` |
-| `restart` | Stops and starts. The verb that puts a config edit into effect (config is materialized at boot; there is no live reload). | `systemctl --user restart` |
+| `restart` | Stops and starts. The verb that puts a config edit into effect (config is materialized at boot; there is no live reload) — **but only a config edit already shipped to the deploy tree**: `ExecStart`/`RBTV_IGNITE_CONFIG_PATH` resolve into `$DEPLOY`, never the live repo, so restart can never pick up a live-repo-only change (task 167). On the `ignite`/`chat-bridge` units, restart now prints a loud staleness warning naming how many commits the deploy tree is behind `ignite/core-daemon` when the two disagree — it does not refuse the restart, since restart is also the crash-recovery verb. | `systemctl --user restart` |
 | `stop` | Graceful: SIGTERM → grace → SIGKILL. | `systemctl --user stop` |
 | `kill` | Ungraceful, SIGKILL immediately. A **distinct verb, never a flag on `stop`**, so it cannot be reached by accident. | `systemctl --user kill --signal=SIGKILL` |
 | `unit` | The unit-level read: an explicit `health` verdict, load/active/sub state, main pid, active-since **and how many seconds the current active period has lasted**, last result and exec status, restart count, and the last journal lines. Answerable when the daemon is DOWN — which is when it is needed. `--json` for machine callers (the journal is text-only, deliberately: it is not escaped into the JSON). | `systemctl --user show` / `is-active` + `journalctl --user -u` |
 | `selftest` | Exercises every lifecycle verb against a **throwaway unit it creates and removes**. It never touches the configured unit. | — |
-| `deploy` | Refuses a missing or dirty deploy worktree; checks it out detached to the tip of `ignite/core-daemon`; ensures `ignite/node_modules`; prints old sha → new sha; restarts the unit and runs the survival check. Deploying = committing (D6). | `git checkout --detach` + `systemctl --user restart` |
+| `deploy` | Refuses a missing or dirty deploy worktree; checks it out detached to the tip of `ignite/core-daemon`; ensures `ignite/node_modules`; prints old sha → new sha; restarts the unit and runs the survival check, **then also restarts `rbtv-chat-bridge.service`** (unless it's already the unit being deployed, or not installed on this box) — the bridge boots from the same deploy-tree bytes and was measured running 3-day-stale code across five deploys before this fix (task 42). Deploying = committing (D6). | `git checkout --detach` + `systemctl --user restart` (daemon + bridge) |
 
 **`unit` is not `ignite status`.** `ignite status` is the *daemon's own* report of itself (tick
 number, live sessions, queue depth) and needs it alive; `unit` is the *machine's* report about the
