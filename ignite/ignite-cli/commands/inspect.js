@@ -32,6 +32,7 @@ ignite inspect messages <exec-id> [--tail <n>]
 ignite inspect executions --status <status> [--offset <n>] [--limit <n>]
 ignite inspect executions --status <status> --tail <n>
 ignite inspect asks
+ignite inspect recovery-lanes
 
   Read-only. Renders server state (or the full envelope with --json).
   messages:   the message rows of the execution's chain-stable thread,
@@ -40,9 +41,11 @@ ignite inspect asks
               launching|running|done|blocked|failed|stalled|killed.
               --tail <n>: the NEWEST n, plus the total, in one command.
   asks:       every OPEN owner ask across every goal, oldest first — the
-              set the 2-hourly system digest renders (spec-owner-io §5).`;
+              set the 2-hourly system digest renders (spec-owner-io §5).
+  recovery-lanes: every recovery lane not yet posted as its own Slack
+              thread (\`d-ask14-recovery-thread-shape\`).`;
 
-const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks']);
+const TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes']);
 
 // A single page's size for the (offset, limit) walk that `--tail` does — for
 // logs, and since the executions tail, for executions too. Generous but
@@ -341,7 +344,7 @@ async function run(argv, ctx) {
   if (!TARGETS.has(target)) {
     throw new CliUsageError(`inspect target must be ${[...TARGETS].join('|')} (got "${target}")`);
   }
-  if (target === 'jobs' || target === 'queue' || target === 'asks') return runJobsOrQueue(target, argv, ctx);
+  if (target === 'jobs' || target === 'queue' || target === 'asks' || target === 'recovery-lanes') return runJobsOrQueue(target, argv, ctx);
   if (target === 'daemon' || target === 'ticker') return runDaemonOrTicker(target, argv, ctx);
   if (target === 'status') return runStatus(argv, ctx);
   if (target === 'messages') return runMessages(argv, ctx);

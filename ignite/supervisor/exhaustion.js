@@ -157,15 +157,20 @@ function oneLinerOfLane(lane) {
   return text ? text.trim().slice(0, 120) : null;
 }
 
-// The row shape is `state-store/heart/ask-record.js#listOpenAsks`'s, key for key, so the digest and
-// the CLI render one waiting set and neither needs to know which record a row came out of.
+// -- POSTED LANES [owner ruling 2026-08-31, `d-ask14-recovery-thread-shape` (a): one Slack thread
+// PER STUCK GOAL] -------------------------------------------------------------------------------
 //
-// ONE ROW PER LANE [owner ruling 2026-08-31, `d-digest-ui` 3a]. A signature-grouped ask covering N
-// lanes is N distinct pieces of stuck work in N different rooms — collapsing them into one row lost
-// every goal but the first. Every lane row carries the ONE record's real `ask_id` (there is only
-// one record, and no per-lane answering path exists to resolve today — `digest-recovery-thread` is
-// held pending owner ruling on ask 14); `goal` is what tells the rows apart on the owner's screen.
-function listOpenGroupedAsks(workspaceRoot) {
+// Each lane now gets its OWN answerable thread (`chat/recovery-poster.js` posts it, through the
+// SAME `record-owner-ask` door a work-content ask uses — `label: 'recovery'`). Once posted, that
+// lane has a REAL `open_asks` ROW keyed by its own Slack thread timestamp [T5-R7], which is a
+// SECOND, truer address for the same lane than this record's signature-minted `ask_id`. Rendering
+// BOTH would duplicate the row on the owner's screen and the FILE row (id = the minted hex) can
+// never carry a working Slack link (`chat/glance.js#linkForAsk` only links a thread-ts-shaped id).
+// So once a lane is posted, `posted_ask_id` is stamped onto it here and every reader below treats
+// that as "this lane's row now lives in `open_asks`, not in this file's listing" — permanently,
+// even after the ask is answered and closes, which is what stops a resolved lane from resurrecting
+// as a fresh, unposted-looking row the next time this file is read.
+function readAllGroupedRecords(workspaceRoot) {
   if (!workspaceRoot) return [];
   let entries;
   try {
@@ -173,7 +178,7 @@ function listOpenGroupedAsks(workspaceRoot) {
   } catch {
     return [];              // no directory is the ordinary state: no lane has ever reached N
   }
-  const rows = [];
+  const out = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
     const file = path.join(asksDir(workspaceRoot), entry.name);
@@ -181,11 +186,29 @@ function listOpenGroupedAsks(workspaceRoot) {
     try {
       record = JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch {
-      continue;             // an unreadable record costs its row, never the listing
+      continue;             // an unreadable record costs its rows, never the listing
     }
     if (!record || !record.ask_id) continue;
+    out.push({ file, record });
+  }
+  return out;
+}
+
+// The row shape is `state-store/heart/ask-record.js#listOpenAsks`'s, key for key, so the digest and
+// the CLI render one waiting set and neither needs to know which record a row came out of.
+//
+// ONE ROW PER LANE [owner ruling 2026-08-31, `d-digest-ui` 3a]. A signature-grouped ask covering N
+// lanes is N distinct pieces of stuck work in N different rooms — collapsing them into one row lost
+// every goal but the first. A lane NOT YET POSTED renders here with the record's shared `ask_id`
+// (it has no thread yet, so `linkForAsk` gives it no link, honestly — [D19]'s recovery lister never
+// promises a link before Slack has minted one); a POSTED lane is skipped here entirely — its row
+// now comes from `listOpenAsks` (the real `open_asks` row), with a real thread id and a real link.
+function listOpenGroupedAsks(workspaceRoot) {
+  const rows = [];
+  for (const { file, record } of readAllGroupedRecords(workspaceRoot)) {
     const lanes = (Array.isArray(record.lanes) && record.lanes.length) ? record.lanes : [{}];
     for (const lane of lanes) {
+      if (lane.posted_ask_id) continue;   // this lane's row lives in `open_asks` now
       rows.push({
         id: record.ask_id,
         goal: lane.goal || null,
@@ -198,6 +221,55 @@ function listOpenGroupedAsks(workspaceRoot) {
     }
   }
   return rows;
+}
+
+// THE POSTER'S OWN READ — full lane detail (driver, reason class, refusal text, the ruled options
+// ladder), for composing the thread's opening body. A DIFFERENT row shape from `listOpenGroupedAsks`
+// on purpose: that one is frozen to the digest's contract; this one is `chat/recovery-poster.js`'s
+// only, and mixing the two would make an unrelated digest change ripple into what gets posted.
+function listUnpostedLanes(workspaceRoot) {
+  const out = [];
+  for (const { record } of readAllGroupedRecords(workspaceRoot)) {
+    for (const lane of (Array.isArray(record.lanes) ? record.lanes : [])) {
+      if (lane.posted_ask_id) continue;
+      if (!lane.goal || !lane.seat) continue;
+      out.push({
+        record_ask_id: record.ask_id,
+        signature: record.signature,
+        options: Array.isArray(record.options) ? record.options : [...ASK_OPTIONS],
+        goal: lane.goal,
+        seat: lane.seat,
+        driver: lane.driver || null,
+        reason_class: lane.reason_class || null,
+        refusal_text: lane.refusal_text || '',
+        attempts: lane.attempts == null ? null : lane.attempts,
+        at: lane.at || null,
+      });
+    }
+  }
+  return out;
+}
+
+// Stamps a lane POSTED, in place, once its thread exists. Called server-side (daemon process, which
+// already holds both this file and the store) right after a `record-owner-ask` open for
+// `label: 'recovery'` succeeds — never from `chat/`, which may not reach this file directly
+// [`probes/probe-chat-boundary.js`]. Idempotent by construction: a lane that already carries
+// `posted_ask_id` is not matched again, so a retried call after a crash finds nothing to mark.
+function markLanePosted(workspaceRoot, { goal, seat }, { askId, at } = {}) {
+  if (!askId) throw new Error('markLanePosted requires askId — the thread this lane was posted to');
+  for (const { record } of readAllGroupedRecords(workspaceRoot)) {
+    const lane = Array.isArray(record.lanes)
+      ? record.lanes.find((l) => l.goal === goal && l.seat === seat && !l.posted_ask_id)
+      : null;
+    if (!lane) continue;
+    lane.posted_ask_id = String(askId);
+    lane.posted_at = at || new Date().toISOString();
+    const file = writeAskRecord(workspaceRoot, record);
+    return {
+      marked: true, ask_id: record.ask_id, file,
+    };
+  }
+  return { marked: false, reason: 'lane-not-found' };
 }
 
 // -- THE EXIT ITSELF ----------------------------------------------------------------------------
@@ -306,6 +378,8 @@ module.exports = {
   askRecordPath,
   readAskRecord,
   listOpenGroupedAsks,
+  listUnpostedLanes,
+  markLanePosted,
   recordGroupedAsk,
   exhaust,
   consumeDisarmed,

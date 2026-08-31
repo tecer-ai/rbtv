@@ -15,6 +15,7 @@ const { createSlackSocketMode } = require('./slack-socket-mode');
 const { createGoalChannelMap } = require('./goal-channel-map');
 const { createChatBridge } = require('./chat-bridge');
 const { createGlance } = require('./glance');
+const { createRecoveryPoster } = require('./recovery-poster');
 
 function log_noGoalChannels(logger) {
   if (logger) logger({ level: 'warn', message: 'transport exposes no channel admin surface — goal↔channel mapping disabled; channel traffic will be unroutable' });
@@ -110,7 +111,19 @@ function buildBridge(config, {
     logger,
   });
 
-  return { bridge, forwarder, allowlist, threadMap, transport, goalChannels, glance };
+  // ── THE RECOVERY POSTER (`recovery-poster.js`, `d-ask14-recovery-thread-shape`) ─────────────
+  // Built here for `glance`'s own reason: composed entirely of parts the bridge already owns (its
+  // forwarder, its `postOwnerAsk` door) and reachable from no inbound message — a lane becomes
+  // postable when a driver exhausts, never when the owner types something.
+  const recoveryPoster = createRecoveryPoster({
+    forwarder,
+    postOwnerAsk: bridge.postOwnerAsk,
+    logger,
+  });
+
+  return {
+    bridge, forwarder, allowlist, threadMap, transport, goalChannels, glance, recoveryPoster,
+  };
 }
 
 async function main() {
@@ -124,16 +137,19 @@ async function main() {
     process.exit(1);
   }
 
-  const { bridge, glance } = buildBridge(config);
+  const { bridge, glance, recoveryPoster } = buildBridge(config);
   await bridge.start();
 
   // The §5 slot driver. It is started only in `main()` — a probe or a test that builds a bridge
   // must never acquire a live 2-hourly clock as a side effect of construction.
   if (glance) glance.start();
+  // Same discipline: started only here, never as a side effect of construction.
+  if (recoveryPoster) recoveryPoster.start();
 
   const shutdown = (sig) => {
     jsonLog({ level: 'info', message: `received ${sig}, stopping chat bridge` });
     try { if (glance) glance.stop(); } catch {}
+    try { if (recoveryPoster) recoveryPoster.stop(); } catch {}
     try { bridge.stop(); } catch {}
     process.exit(0);
   };

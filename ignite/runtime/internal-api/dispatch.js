@@ -37,7 +37,7 @@ const { recordBusAnswer } = require('../../chat/bus-answer');
 // The `record-owner-ask` act (owner ruling 2026-08-24, option (a)). Required for the same reason
 // as `recordBusAnswer` above: a stateless call, not a manager holding processes.
 const { recordOwnerAsk, listOpenAsks } = require('../../state-store/heart/ask-record');
-const { listOpenGroupedAsks } = require('../../supervisor/exhaustion');
+const { listOpenGroupedAsks, listUnpostedLanes, markLanePosted } = require('../../supervisor/exhaustion');
 // The `start-execution` act (owner ruling 2026-08-24, option (b)). Required for the same reason as
 // its two siblings above: a stateless call, not a manager holding processes.
 const { startExecution } = require('../../state-store/heart/start-execution');
@@ -195,7 +195,12 @@ const REQUIRED_ENVELOPE_KEYS = ['v', 'id', 'ts', 'sender', 'intent', 'payload'];
 // A TARGET, not a fifteenth intent, for the ce-5/D75 reason stated twice above; and NO STORE
 // CHANGE beyond the fleet-wide sibling of §2.1's own WHERE clause (`state-store/predicates.js`
 // `listAllOpenAsks`). The write half of this record is the thirteenth intent; this is its read.
-const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks']);
+// ⚑ `recovery-lanes` ADDED (`d-ask14-recovery-thread-shape`, `digest-recovery-thread` seat) — the
+// UNPOSTED half of `supervisor/exhaustion.js`'s recovery lanes, for `chat/recovery-poster.js` to
+// find what still needs a thread. Same ce-5/D3 reason as `asks`: a read-only query extends
+// `inspect`, never mints a sixteenth intent. The bridge holds no store and no sibling reach into
+// `supervisor/`, so this is the ONLY way it can learn a lane exists.
+const INSPECT_TARGETS = new Set(['jobs', 'queue', 'status', 'logs', 'daemon', 'ticker', 'messages', 'executions', 'asks', 'recovery-lanes']);
 // The closed jobs_log.status enum (schema.sql:65-66), re-validated at the core independently of
 // gateway origin — the defense-in-depth posture probe-snooze already proves for `minutes`. Task
 // 7.46 SPLITS this enum into session-level and turn-level states; probe-inspect-executions.js
@@ -996,6 +1001,14 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       rows.sort((a, b) => String(a.opened_at || '').localeCompare(String(b.opened_at || '')));
       return { target, rows };
     }
+    // recovery-lanes: every recovery lane that has NOT YET been posted as its own Slack thread
+    // [`d-ask14-recovery-thread-shape` (a)] — `chat/recovery-poster.js`'s only read. Once posted,
+    // `markLanePosted` (called below, at the `record-owner-ask` open for `label: 'recovery'`) stamps
+    // the lane and `listUnpostedLanes` stops returning it, which is what stops the poster from
+    // opening a second thread for a lane it already gave one.
+    if (target === 'recovery-lanes') {
+      return { target, rows: listUnpostedLanes(workspaceRoot) };
+    }
     if (target === 'daemon') return handleInspectDaemon();
     if (target === 'ticker') return handleInspectTicker();
 
@@ -1589,6 +1602,21 @@ function createInternalApi({ heartStore, spawnManager, secret, logger = null, au
       act: payload.act, goal: payload.goal, seat: payload.seat, askId: out.ask_id,
       state: out.state, senderId: sender && sender.id,
     });
+    // A NEWLY-POSTED recovery ask stamps its lane in `supervisor/exhaustion.js`'s own record, so
+    // the file listing (`listOpenGroupedAsks`/`listUnpostedLanes`) stops carrying it — this ROW now
+    // lives in `open_asks`, with a real thread id and (via `chat/glance.js#linkForAsk`) a real link.
+    // `already === true` means this thread already had a row (a second owner message, not a new
+    // post) — nothing to stamp. Best-effort: a stamp failure never unrecords the ask that already
+    // landed in Slack, it only costs a duplicate row until the mismatch is investigated.
+    if (payload.act === 'open' && payload.label === 'recovery' && out.already !== true) {
+      try {
+        markLanePosted(workspaceRoot, { goal: payload.goal, seat: payload.seat }, { askId: out.ask_id });
+      } catch (err) {
+        log('warn', 'recovery lane posted but its file record could not be stamped — it may render twice in the digest', {
+          goal: payload.goal, seat: payload.seat, askId: out.ask_id, error: err.message,
+        });
+      }
+    }
     return {
       recorded: true, act: payload.act, ask_id: out.ask_id, state: out.state,
       goal: payload.goal, seat: payload.seat,

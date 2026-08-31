@@ -4,6 +4,22 @@ const NACK_ASK = "couldn't parse that reply. First word must be one of: approve,
 
 const NACK_MECHANICAL = "couldn't parse pause/resume. Use `pause {goal}` or `resume {goal}` with one live goal slug. In a goal channel, bare pause/resume targets that goal. Reply again.";
 
+// The recovery ladder's own NACK [`d-ask14-recovery-thread-shape`] — a recovery thread's reply is
+// ALWAYS exactly one of the three ruled options [spec-recovery §5, T1-R8, D-2-ruling]; the ask/
+// approval NACK above names a vocabulary (approve, letters, …) that does not apply here and would
+// mislead the owner about what this thread will accept.
+const NACK_RECOVERY = "couldn't parse that reply. First word must be one of: retry-with-change, drop-lane, pause-goal. Comments go after that word. Reply again.";
+
+// Verbatim [T1-R8, D-2-ruling] — the SAME three words `supervisor/exhaustion.js#ASK_OPTIONS` opens
+// the ask with. `chat/` may not `require()` that module [`probes/probe-chat-boundary.js`], so this
+// is a second, hand-kept copy of the same closed vocabulary — the same shape `approval-thread.js`'s
+// `APPROVAL_TOKEN_LINE` already accepts for the same reason.
+const RECOVERY_TOKENS = [
+  { outcome: 'retry-with-change', pattern: 'retry with change' },
+  { outcome: 'drop-lane', pattern: 'drop lane' },
+  { outcome: 'pause-goal', pattern: 'pause goal' },
+].sort((a, b) => b.pattern.length - a.pattern.length);
+
 const FINDINGS_OUTCOMES = new Set(['reject-and-retry', 'retry with:']);
 
 const APPROVAL_TOKENS = [
@@ -23,6 +39,10 @@ function nackAsk() {
 
 function nackMechanical() {
   return { ok: false, nack: NACK_MECHANICAL, nackKind: 'mechanical' };
+}
+
+function nackRecovery() {
+  return { ok: false, nack: NACK_RECOVERY, nackKind: 'recovery' };
 }
 
 function skipWs(line, i) {
@@ -115,13 +135,30 @@ function parseMechanical(verb, firstLine, end, following, opts) {
 }
 
 function parseReply(text, opts = {}) {
-  if (typeof text !== 'string') return nackAsk();
+  if (typeof text !== 'string') return opts.kind === 'recovery' ? nackRecovery() : nackAsk();
   const lines = text.split(/\r?\n/);
   let idx = 0;
   while (idx < lines.length && lines[idx].trim() === '') idx += 1;
-  if (idx >= lines.length) return nackAsk();
+  if (idx >= lines.length) return opts.kind === 'recovery' ? nackRecovery() : nackAsk();
   const first = lines[idx];
   const following = lines.slice(idx + 1);
+
+  // A RECOVERY THREAD PARSES ONLY THE RECOVERY LADDER, NEVER THE OTHERS [`d-ask14-recovery-thread-
+  // shape`]. The three options are not configurable [T1-R8, D-2-ruling] — mixing this family into
+  // the ask/approval/mechanical pool below would risk a stray collision (a bare `pause-goal` would
+  // otherwise fall into the mechanical `pause {goal}` arm further down, hunting for a goal literally
+  // named `goal`) and would let an approval word answer a question this thread never asked.
+  if (opts.kind === 'recovery') {
+    for (const tok of RECOVERY_TOKENS) {
+      const end = matchPattern(first, tok.pattern);
+      if (end == null) continue;
+      const comments = commentsOf(first, end, following);
+      return {
+        ok: true, outcome: tok.outcome, comments, family: 'recovery', findings: null, goal: null,
+      };
+    }
+    return nackRecovery();
+  }
 
   let best = null;
   for (const tok of APPROVAL_TOKENS) {
@@ -164,4 +201,6 @@ function parseReply(text, opts = {}) {
   return nackAsk();
 }
 
-module.exports = { parseReply, NACK_ASK, NACK_MECHANICAL };
+module.exports = {
+  parseReply, NACK_ASK, NACK_MECHANICAL, NACK_RECOVERY,
+};

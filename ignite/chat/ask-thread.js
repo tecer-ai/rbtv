@@ -141,7 +141,14 @@ function createAskThreads({
     }
     // [T2-R14] A non-designated seat's owner-ask is refused AT SEND. Refused, never parked: a
     // parked ask is the silence this redesign exists to end, and the refusal tells the caller.
-    if (!seatIsInteractive(goalId, seatName)) {
+    //
+    // ⚑ `label: 'recovery'` SKIPS THIS GATE. [T2-R14] guards a LIVE seat's own judgment call to
+    // reach the owner — a courtesy an individual seat descriptor can decline. A recovery ask is not
+    // that: spec-recovery §5 already decided, system-wide, that an exhausted lane is owner-visible
+    // regardless of whether ITS seat opted into interactive asks (most never do — they are not
+    // waiting on Slack, they already ended). Gating it the same way would silently re-park the
+    // exact silence [D-2-ruling] deleted the byte-equality brake to end.
+    if (label !== 'recovery' && !seatIsInteractive(goalId, seatName)) {
       log('warn', 'owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]', { goalId, seat: seatName });
       return { posted: false, reason: 'seat-not-interact' };
     }
@@ -201,7 +208,14 @@ function createAskThreads({
   // authorized and parsed by this same door — but must NOT reap a second time, because a second
   // reap is a second relaunch signal on a seat nobody re-asked. With `reap: false` this function
   // is the release rule minus its last act: exact thread, authorized sender, parse, NACK.
-  async function release({ goalId, channelId, seatName, askId, threadTs, senderId, text, channelGoal = null, liveGoals = null, reap = true }) {
+  async function release({
+    goalId, channelId, seatName, askId, threadTs, senderId, text, channelGoal = null, liveGoals = null, reap = true,
+    // The ask's OWN kind (`ordinary` / `approval` / `recovery`, `chat-bridge.js#askThreads`'s own
+    // fact about the thread). Passed straight to the grammar so a recovery thread's reply is parsed
+    // against ITS OWN closed vocabulary [D-2-ruling] and never against the approval/lettered one —
+    // a parameter on this door, not a second one [`d-ask14-recovery-thread-shape`].
+    kind = null,
+  } = {}) {
     // 1a. THE EXACT THREAD. Not "a thread on this seat", not "the newest", not "the oldest".
     if (askId == null || threadTs == null || String(threadTs) !== String(askId)) {
       log('debug', 'reply is not in the ask\'s exact thread — nothing released [§2.4.1]', { goalId, askId, threadTs });
@@ -216,8 +230,9 @@ function createAskThreads({
       log('debug', 'reply ignored — sender is not in the instance-config authorized set [§2.4.2]', { goalId, askId, sender });
       return { released: false, reason: 'unauthorized' };
     }
-    // 3. PARSE. One grammar for approval and ordinary threads (`reply-grammar.js`, §4).
-    const parsed = parseReply(text, { channelGoal, liveGoals });
+    // 3. PARSE. One grammar for approval and ordinary threads (`reply-grammar.js`, §4); `kind`
+    // narrows it to the recovery ladder for a recovery thread — see the `kind` param above.
+    const parsed = parseReply(text, { channelGoal, liveGoals, kind });
     if (!parsed.ok) {
       const posted = await nack({ channelId, goalId, askId, text: parsed.nack });
       log('info', 'unrecognized first token — NACK posted in-thread, the ask stays OPEN [§2.4.3]', {

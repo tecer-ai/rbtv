@@ -22,6 +22,7 @@ const { createBusFerry, seatIsHumanInteractive } = require('./bus-ferry');
 const { createAskThreads } = require('./ask-thread');
 const { createAskRecord } = require('./ask-store');
 const { createApprovalDispatch } = require('./approval-thread');
+const { createRecoveryDispatch } = require('./recovery-thread');
 const { createExecutionStart } = require('./start-execution');
 const { createPauseResume } = require('./pause-resume');
 const { createOutbox, outboxStorePath } = require('./outbox');
@@ -226,6 +227,22 @@ function createChatBridge({
     logger,
   });
 
+  // ── THE RECOVERY DISPATCH (`recovery-thread.js`, `d-ask14-recovery-thread-shape`) ───────────
+  // `pause-goal` reuses the SAME `pause-resume` intent `mechanicalDoor` sends, directly — the
+  // outcome already names the verb and the goal, so there is nothing to parse a second time.
+  // `retry-with-change` and `drop-lane` have no daemon-side capability to call yet (recovery-
+  // thread.js's header states why); left unwired, they report the honest wiring gap in-thread.
+  const recoveryDispatch = createRecoveryDispatch({
+    // `chat_user` is OMITTED, deliberately: `handlePauseResume` validates it as a Slack member id
+    // shape (`U0123ABC`) when present, kept for the evidence text only — a recovery outcome has no
+    // such id to report (the reply's sender is checked by `askDoor.release` already, upstream).
+    pauseGoal: ({ goalId }) => forwarder.forward('pause-resume', { verb: 'pause', goal: String(goalId) })
+      .then((res) => (res.ok ? { ok: true, result: res.result } : { ok: false, error: (res.error && res.error.code) || 'unknown' })),
+    postBack: ({ channelId, goalId, askId, text }) =>
+      postSlack({ kind: 'nack', channel: channelId, threadTs: askId, text, goal_id: goalId, ask_id: askId }),
+    logger,
+  });
+
   // THE RELEASE, called from the inbound path below and nowhere else.
   async function releaseAskFor(entry, chatMsg) {
     const channelGoal = goalChannels ? goalChannels.goalForChannel(chatMsg._channel) : null;
@@ -249,6 +266,9 @@ function createChatBridge({
       // keeps them, so this door sees their later replies, and a second reap here would be a
       // second relaunch signal on a seat nobody re-asked — [T3-R22]'s failure, on every ask.
       reap: entry.released !== true && !(isApproval && entry.paused === true),
+      // Narrows the grammar to the recovery ladder in a recovery thread [`d-ask14-recovery-thread-
+      // shape`] — `null` for every other kind leaves the ask/approval/mechanical grammar unchanged.
+      kind: entry.kind === 'recovery' ? 'recovery' : null,
     });
 
     // ✅ THE LANDED-ANSWER ACK (G-second-brain-43-0828-2119, owner-ordered 2026-08-30).
@@ -330,6 +350,21 @@ function createChatBridge({
       else askThreads.set(key, { ...entry, paused: dispatched.paused === true });
       saveState();
       return { ...out, dispatched, approval: true };
+    }
+
+    // A GENUINE RECOVERY THREAD dispatches its own outcome the same way, once — the release above
+    // already reaped the ask (the owner-visible half is done regardless of whether the outcome's
+    // OWN daemon-side effect is wired yet; see `recovery-thread.js`'s header).
+    if (entry.kind === 'recovery' && out && out.released === true && out.outcome) {
+      dispatched = await recoveryDispatch.dispatch({
+        entry: {
+          goalId: entry.goalId, channelId: chatMsg._channel, askId: entry.askId, seat: entry.seat,
+        },
+        parsed: { outcome: out.outcome, comments: out.comments },
+      });
+      markReleased(`${chatMsg._channel}:${chatMsg._threadTs}`, entry, out.outcome);
+      saveState();
+      return { ...out, dispatched, recovery: true };
     }
 
     // The entry is MARKED released on an ACTUAL release, never dropped. Every other outcome —
