@@ -34,6 +34,7 @@ const OUT = path.join(__dirname, 'probe-chat-agent-thread.out');
 const USER = 'U_OWNER';
 const BOT = 'U_BOT';
 const DM = 'D_OWNER';
+const SYSTEM = 'C_SYSTEM';
 const PREFIX = 'test-';
 
 // ── fakes ────────────────────────────────────────────────────────────────────
@@ -158,6 +159,10 @@ function makeBridge({ workspaceRoot, stateFile = null, logs = null, slack = make
     busFerryDmUser: USER,
     allowlist: [USER],
     slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    // `d-escalation-surface` parts 4+6 — the unreachable-channel alarm's destination. Wired so
+    // test 5/5b below measure the REAL replacement for the retired owner-DM missing-channel
+    // notice, not a silently-skipped alarm.
+    systemChannelId: SYSTEM,
   };
   const built = buildBridge(config, {
     logger: logs ? (e) => logs.push(e) : () => {},
@@ -746,13 +751,15 @@ async function main() {
     a.bridge.stop();
   }
 
-  // 5 — NO CHANNEL: THE ROW IS HELD, THE OWNER IS TOLD, AND A CHANNEL CREATED AFTER BOOT IS
-  //     RE-RESOLVED (owner ruling 2026-08-12). Three claims, one incident:
+  // 5 — NO CHANNEL: THE ROW IS HELD, THE SYSTEM CHANNEL IS TOLD, AND A CHANNEL CREATED AFTER
+  //     BOOT IS RE-RESOLVED (owner ruling 2026-08-12, superseded on the alarm's SURFACE by
+  //     `d-escalation-surface` parts 4+6, seat `esc-dm-ban`). Three claims, one incident:
   //       (a) the row does NOT fall back to the owner's DM and mints NOTHING. The old fallback
   //           posted the row to the DM and minted a channel-master sitting with it as the prompt,
   //           so a question addressed to the HUMAN was answered by an agent.
-  //       (b) after `NOTICE_AT_ATTEMPT` failed passes the owner gets ONE notice that names the
-  //           goal and the seat and carries NO part of the row — and seats nobody.
+  //       (b) after `NOTICE_AT_ATTEMPT` failed passes the SYSTEM CHANNEL gets ONE alarm that names
+  //           the goal and the seat and carries NO part of the row — and seats nobody. NEVER the
+  //           owner's DM, which carries no goal traffic at all.
   //       (c) the miss re-asks SLACK. The in-memory map is filled by `recover()` at boot only,
   //           and every goal channel is created by a throwaway CLI subprocess this process never
   //           sees — which is the whole incident: a channel created 9h after boot read as absent.
@@ -775,36 +782,38 @@ async function main() {
       a.slack.lists > listsAtStart, { lists: a.slack.lists, before: listsAtStart });
 
     await a.bridge.busFerry.tick();
-    await a.bridge.busFerry.tick();                          // attempt 3 → the notice
-    const notices = a.slack.postsIn(DM);
-    check('(b) at the third failed pass the owner is told the CHANNEL is missing — ONE notice, naming the goal and the seat, carrying no part of the row, minting nothing',
+    await a.bridge.busFerry.tick();                          // attempt 3 → the alarm
+    const notices = a.slack.postsIn(SYSTEM);
+    check('(b) at the third failed pass the SYSTEM CHANNEL is told the channel is unreachable — ONE alarm, naming the goal and the seat, carrying no part of the row, minting nothing, and the owner DM stays EMPTY',
       notices.length === 1 && /goal-unmapped/.test(notices[0].text) && /leader/.test(notices[0].text)
-      && !/no channel for this goal/.test(notices[0].text) && a.forwarder.creates().length === 0,
-      { notices: notices.map((p) => p.text), creates: a.forwarder.creates().length });
+      && !/no channel for this goal/.test(notices[0].text) && a.forwarder.creates().length === 0
+      && a.slack.postsIn(DM).length === 0,
+      { notices: notices.map((p) => p.text), creates: a.forwarder.creates().length, dmPosts: a.slack.postsIn(DM).length });
     await a.bridge.busFerry.tick();
-    check('(b) and ONCE is once — a fourth failed pass adds no second notice',
-      a.slack.postsIn(DM).length === 1, { notices: a.slack.postsIn(DM).length });
+    check('(b) and ONCE is once — a fourth failed pass adds no second alarm',
+      a.slack.postsIn(SYSTEM).length === 1, { notices: a.slack.postsIn(SYSTEM).length });
 
     // (c) THE REPAIR: the channel appears out of band, exactly as the daemon's throwaway
     // `goal-channel-cli.js ensure` subprocess creates it — nothing tells this process.
     await a.slack.createChannel({ name: `${PREFIX}goal-unmapped` });
     await a.bridge.busFerry.tick();
     const channelId = a.bridge.goalChannels.channelForGoal('goal-unmapped');
-    check('(c) THE FIX: the next pass re-resolves the new channel from Slack, binds it, and the HELD row lands in the agent\'s own thread there — no DM, no sitting',
+    check('(c) THE FIX: the next pass re-resolves the new channel from Slack, binds it, and the HELD row lands in the agent\'s own thread there — no DM, no sitting, and the earlier system-channel alarm is not repeated',
       Boolean(channelId) && a.slack.postsIn(channelId).length === 1
       && /no channel for this goal/.test(a.slack.postsIn(channelId)[0].text)
-      && a.slack.postsIn(DM).length === 1 && a.forwarder.creates().length === 0
+      && a.slack.postsIn(SYSTEM).length === 1 && a.slack.postsIn(DM).length === 0 && a.forwarder.creates().length === 0
       && a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') === 2,
       { channelId, channelPosts: a.slack.postsIn(channelId || 'none').map((p) => p.text.split('\n')[0]),
         cursor: a.bridge.busFerry._cursors.get('goal-unmapped/2026-08-03a') });
     a.bridge.stop();
   }
 
-  // 5b — SLACK DID NOT ANSWER IS NOT "THE CHANNEL IS MISSING" (review D1/D3). A rate-limited
-  //      `conversations.list` resolves nothing, and the old shape reported that as `no-channel` —
-  //      which would fire the notice above and tell the owner to create a channel that exists.
-  //      Held and retried, loudly, with NO notice: the four passes take the row past
-  //      `NOTICE_AT_ATTEMPT`, so a notice keyed on the wrong reason would already have posted.
+  // 5b — SLACK DID NOT ANSWER IS NOT "THE CHANNEL IS MISSING" (review D1/D3, text distinguished
+  //      further by `esc-dm-ban` — `d-escalation-surface` part 6 requires the alarm to carry the
+  //      DIFFERENCE, never collapse it). Held and retried past `NOTICE_AT_ATTEMPT`, and now the
+  //      system channel DOES get told (broadened from the old `no-channel`-only notice, which left
+  //      a `resolve-failed` row silently held with the owner never informed at all) — with text
+  //      that says Slack did not answer, never that the channel is missing.
   {
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-ratelimited', { seats: { leader: 'yes' } });
@@ -816,10 +825,14 @@ async function main() {
     a.slack.failNextLists(4);
     append(file, msgRow(2, 'leader', 'owner', 'ask', 'the lookup will fail'));
     for (let i = 0; i < 4; i++) await a.bridge.busFerry.tick();
-    check('a FAILED lookup is `resolve-failed`, not `no-channel`: the row is held and retried past the notice threshold with NOTHING posted anywhere — no false "create the channel" DM',
-      a.slack.posted.length === 0 && a.forwarder.creates().length === 0
+    const notices = a.slack.postsIn(SYSTEM);
+    check('a FAILED lookup is `resolve-failed`, not `no-channel`: no false "create the channel" DM, no row content anywhere — but past the alarm threshold the SYSTEM CHANNEL gets ONE alarm saying Slack did not answer, never that the channel is missing',
+      a.slack.posted.length === notices.length && a.slack.postsIn(DM).length === 0 && a.forwarder.creates().length === 0
+      && notices.length === 1 && /goal-ratelimited/.test(notices[0].text) && /leader/.test(notices[0].text)
+      && /Slack did not answer/.test(notices[0].text) && !/the channel does not exist/.test(notices[0].text)
+      && !/the lookup will fail/.test(notices[0].text)
       && a.bridge.busFerry._cursors.get('goal-ratelimited/2026-08-03a') === 1,
-      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), lists: a.slack.lists,
+      { posted: a.slack.posted.map((p) => p.text.split('\n')[0]), notices: notices.map((p) => p.text), lists: a.slack.lists,
         cursor: a.bridge.busFerry._cursors.get('goal-ratelimited/2026-08-03a') });
     // THE PAIR: the same row, the same channel, once Slack answers.
     await a.bridge.busFerry.tick();

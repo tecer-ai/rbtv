@@ -270,8 +270,9 @@ bridge's `postGoalChannel` and the outbox as `kind: completion` — the kind
 
 Never the ❓ ask door (a completion is a notification [T2-R16]; `postAsk` would
 mint a record nobody can answer and hold the kill clock open), never the owner DM
-(the escalation/alarm surface — the missing-channel notice is suppressed for this
-row too), never `#system-channel`. Line 1 is the outcome and comes from the row;
+(it carries no goal traffic at all, `d-escalation-surface` part 4 — the unreachable-channel
+alarm is suppressed for this row too, since a finished goal is not a blocked escalation),
+never `#system-channel`. Line 1 is the outcome and comes from the row;
 line 2 is counted off the goal's `executions.csv`; line 3 names every
 `goal-writes:` output that is on disk AND non-empty — D21 creates them empty at
 spawn, so existence is not delivery. Idempotence is the ordinary cursor. The

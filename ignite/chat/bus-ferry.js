@@ -63,8 +63,11 @@ const path = require('node:path');
 
 const DEFAULT_POLL_MS = 15000;
 const DEFAULT_WATCH_DEBOUNCE_MS = 200;
-const DEFAULT_MAX_ATTEMPTS = 20;      // per-row post retries before skipping it (never unbounded)
-const NOTICE_AT_ATTEMPT = 3;          // failed no-channel attempts before the owner is told (once)
+const DEFAULT_MAX_ATTEMPTS = 20;      // per-row post retries before skipping it — an ESCALATION
+                                       // blocked by an unreachable channel is the one exception:
+                                       // it is never capped (`d-escalation-surface` part 6).
+const NOTICE_AT_ATTEMPT = 3;          // failed no-channel/resolve-failed attempts before the
+                                       // system-channel alarm fires (once — `postUnreachableChannelAlarm`)
 const DEFAULT_MAX_BODY_CHARS = 3000;  // phone-first: a bus row can be an essay
 
 // `## 4774 | from: master | to: leader | type: note | 2026-08-06 14:23`
@@ -583,9 +586,13 @@ function isEscalationOneLiner(oneLiner) {
 // It is a TOP-LEVEL post in the goal's own channel [T5-R11], not a reply in any agent's thread:
 // the goal ending is the room's news, not one seat's message.
 //
-// ⚑ AND NEVER A DM. The owner's DM is the escalation/alarm surface; a goal finishing is neither.
-// No channel → the row is held and retried by the ordinary ladder, and the missing-channel DM
-// notice is deliberately NOT fired for it (see its call site).
+// ⚑ AND NEVER A DM. The owner's DM carries NO goal traffic at all — not this, not an escalation,
+// not an alarm (`d-escalation-surface` part 4; the DM is only for conversations the owner starts
+// himself). Goal business goes to the goal's own channel; a daemon-level fault — including a
+// goal's channel being unreachable — goes to the system channel instead, never the DM.
+// No channel → the row is held and retried by the ordinary ladder, and the missing-channel
+// SYSTEM-CHANNEL ALARM is deliberately NOT fired for it (see its call site) — a goal that finished
+// is not a blocked escalation, and inventing a second alarm shape for it is not this seat's job.
 //
 // ⚑ WHAT MAKES A `completion` ROW THE FINISH EVENT IS THE MARKER, NOT THE TYPE. Every seat sends
 // `--type completion` when its briefing is done — those are the bus's ordinary traffic and must
@@ -838,8 +845,9 @@ function createBusFerry({
   // a goal ending is the room's news rather than a seat's message [T5-R11].
   //
   // ⚑ UNWIRED, THE NOTICE IS NOT POSTED — it does NOT fall back to the owner DM the way an
-  // unwired `routeToAgentThread` does. The DM is the escalation/alarm surface and a completion is
-  // neither, so an embedder that wires no channel leg gets a logged skip, never a wrong surface.
+  // unwired `routeToAgentThread` does. The owner's DM carries no goal traffic, ever
+  // (`d-escalation-surface` part 4), so an embedder that wires no channel leg gets a logged skip,
+  // never a wrong surface.
   postGoalChannel = null,
   // ONE OPEN ESCALATION PER GOAL (`d-escalation-surface` part 8) — the FLEET-WIDE open-ask reader,
   // `ask-store.js#listOpenAsks` (-> gateway `inspect asks` -> `open_asks`), injected by the bridge
@@ -847,6 +855,13 @@ function createBusFerry({
   // of its own. Unwired (probes, any embedder that wires nothing) the gate below is a no-op and an
   // escalation is admitted exactly as it was before this seat — additive, never a second queue.
   listOpenAsks = null,
+  // THE SYSTEM CHANNEL (`d-escalation-surface` parts 4 + 6) — the ONE daemon-level-fault surface
+  // this ferry may ever post to besides a goal's own channel; the owner's DM is banned from goal
+  // traffic entirely. Injected, exactly like `dmChannel`/`postGoalChannel`: this module holds no
+  // channel knowledge of its own, and `config.js#systemChannelId` (`RBTV_SYSTEM_CHANNEL_ID`) is
+  // the bridge's to resolve. Unwired (probes, any embedder that wires nothing) the alarm this
+  // param feeds is a logged skip, never a wrong surface — see `postUnreachableChannelAlarm`.
+  systemChannelId = null,
 } = {}) {
   function log(level, message, extra = {}) {
     if (logger) logger({ level, message, ...extra });
@@ -968,27 +983,45 @@ function createBusFerry({
     if (watchTimer.unref) watchTimer.unref();
   }
 
-  // ── THE ESCALATION'S OWN OWNER LEG (W8, adv, C76) ───────────────────────────────────────────
+  // ── THE UNREACHABLE-CHANNEL ALARM (`d-escalation-surface` parts 4, 6 — `esc-dm-ban`) ─────────
   //
-  // `transport.sendToOwner` DIRECTLY — minting no sitting and seating nobody — but
-  // CONTENT-BEARING, because for the one message type whose whole purpose is to interrupt a human
-  // a warn line in a log nobody reads is the silent stall this module exists to delete.
+  // RETIRES `deliverEscalationInFull`, the content-bearing owner-DM dump this module used to fall
+  // back to (both its callers — a deterministic [T2-R14] refusal, and the attempt cap — read the
+  // history in `ignite/work-on-ignite/memory/chat/20260827-i-a-refused-escalation-retried-2.md`
+  // and `20260831-i-the-door-admitted-by-label-a-l.md`). The owner ruled his DM carries NO goal
+  // traffic at all, escalation included [part 4]. What replaces the reach: an unreachable goal
+  // channel is a SYSTEM FAULT, not goal business, and is raised as a daemon-level alarm in the
+  // SYSTEM CHANNEL instead [part 6] — naming the goal and the blocked seat, never dumping the
+  // escalation's own content (content belongs in the goal channel it cannot yet reach, not in a
+  // second surface).
   //
-  // TWO callers reach it and they differ ONLY in why the ask thread was not the surface: a
-  // DETERMINISTIC refusal at the ask door (taken on the FIRST pass) and the attempt cap (taken on
-  // the last). One function, because the two used to be one path reached at two very different
-  // times and the words the owner reads must not drift apart.
-  async function deliverEscalationInFull({ goalId, row, why, key }) {
+  // ⚑ FIRES AT MOST ONCE PER ROW. Its one call site guards on `n === NOTICE_AT_ATTEMPT` — an
+  // exact match against a monotonically increasing per-row counter — so this never re-fires on
+  // later passes while the same row keeps retrying.
+  //
+  // ⚑ `reason` MUST BE CARRIED THROUGH, NEVER COLLAPSED. `goal-channel-map.js#resolveChannel`
+  // returns `no-channel` (Slack confirms the channel does not exist) and `resolve-failed` (Slack
+  // did not answer — NOT evidence of absence) as different facts, and telling the owner a channel
+  // is missing when Slack simply timed out would be a lie he cannot act on correctly.
+  async function postUnreachableChannelAlarm({ goalId, seat, reason, isEscalation, key, msgId }) {
+    if (!systemChannelId) {
+      log('warn', 'bus ferry could not raise the unreachable-channel alarm — no system channel wired', { key, msgId, goalId, seat, reason });
+      return false;
+    }
+    const why = reason === 'resolve-failed'
+      ? 'Slack did not answer when the channel was re-resolved — this is NOT evidence the channel is missing'
+      : 'the channel does not exist in the workspace';
+    const what = isEscalation ? 'a blocked escalation' : 'a message it cannot deliver';
     try {
       await postOwner({
         kind: 'alarm',
-        channel: dmChannel, threadTs: null,
-        text: `:rotating_light: ESCALATION from *${row.from}* on goal *${goalId}* ${why}. It is delivered here instead, in full — nothing further will retry it.\n\n${String(row.body).slice(0, maxBodyChars)}`,
+        channel: systemChannelId, threadTs: null,
+        text: `:rotating_light: goal *${goalId}* has ${what} and its channel is unreachable — seat *${seat}* cannot reach the owner: ${why}. Retrying; nothing is abandoned.`,
         goal_id: goalId,
       });
       return true;
     } catch (err) {
-      log('error', 'bus ferry could not deliver an ESCALATION by ANY path — it is lost to the owner and lives only on the bus', { key, msgId: row.id, from: row.from, error: err.message });
+      log('error', 'bus ferry could not raise the unreachable-channel alarm on the system channel', { key, msgId, goalId, seat, error: err.message });
       return false;
     }
   }
@@ -1244,8 +1277,6 @@ function createBusFerry({
             : formatMessage(row, { goalId, stamp, relPath, maxBodyChars, arm });
           let delivered = false;
           let error = null;
-          // A refusal that CANNOT change between passes — see the terminal-refusal block below.
-          let terminalRefusal = false;
           let viaAgentThread = false;
           let viaAskThread = false;
           let viaNoticeThread = false;
@@ -1311,17 +1342,14 @@ function createBusFerry({
                 res = { delivered: true, ts: asked.askId };
                 viaAskThread = true;
                 postedText = asked.text || postedText;
-              } else if (asked && asked.reason === 'seat-not-interact' && isEscalation) {
-                // DEFENSIVE ONLY, should never fire in production: the real door admits
-                // `kind: 'escalation'` regardless of seat designation (ask-thread.js, above), so an
-                // escalation reaching this branch means the door and the ferry have gone out of
-                // sync. If it ever does, the row takes the SAME terminal path it always has —
-                // untouched here; `deliverEscalationInFull` and this whole leg are `esc-dm-ban`'s to
-                // retire once the sync is provably permanent.
-                log('warn', 'bus row REFUSED at the ask door — this seat is not designated to reach the owner [T2-R14]', { key, msgId: row.id, from: row.from });
-                res = { delivered: false, reason: 'seat-not-interact' };
-                terminalRefusal = true;
               } else if (asked && asked.reason === 'seat-not-interact') {
+                // `isEscalation` can never reach this branch in production: `kind: 'escalation'`
+                // bypasses [T2-R14] at the door unconditionally (ask-thread.js), so a
+                // `seat-not-interact` refusal is only ever a genuine non-designated seat's own
+                // traffic. Retired here (`esc-dm-ban`) is the escalation-specific terminal-refusal
+                // branch this used to be paired with — `deliverEscalationInFull`'s first caller —
+                // proven permanently dead by that same bypass; see
+                // `ignite/work-on-ignite/memory/chat/20260831-i-the-door-admitted-by-label-a-l.md`.
                 // [T2-R14] refused AT SEND — the row is `to: owner`, from a seat with no
                 // `human-interactive:` flag, and is NEITHER an escalation NOR a system-decided
                 // recovery ask (both bypass this gate by `kind`, above). It is still addressed to
@@ -1389,79 +1417,53 @@ function createBusFerry({
                 { key, msgId: row.id, from: row.from, chars: postedText.length, arm, ...(chatThread ? { chatThread } : {}) });
             continue;
           }
-          // ⚑ A DETERMINISTIC REFUSAL IS DISPOSED OF ON THE FIRST PASS, NOT AT THE CAP. The retry
-          // ladder below exists for TRANSIENT failures — a rate limit, a channel Slack has not
-          // caught up with — and `seat-not-interact` is neither. For an ESCALATION the content
-          // bearing DM (W8-C) is the DESIGNED delivery for exactly this case; the defect was that
-          // it was reached 20 passes late, after a storm of identical refusals. For any other row
-          // the refusal is already the whole outcome — it is reported and the cursor moves on.
-          //
-          // The ask door is NOT loosened to admit the escalation instead. `postAsk` MINTS AN ASK
-          // RECORD, and a record for a seat that cannot be replied to is an ask that can never be
-          // released: it would suspend the kill clock and read as open forever. [T2-R14] refuses
-          // at that door for that reason, and this leg is what it refuses TOWARD.
-          if (terminalRefusal) {
-            attempts.delete(`${key}#${row.id}`);
-            const reached = isEscalation && await deliverEscalationInFull({
-              goalId, row, key,
-              why: 'cannot be posted as an ask thread — this seat is not designated to reach the owner [T2-R14]',
-            });
-            // ONE outcome per msgId — the delivery line and a `NOT delivered` line must never
-            // both fire for the same row (W8-C).
-            if (reached) log('warn', 'bus ferry could not post an ESCALATION as an ask thread — delivered it to the owner DM in full instead on the FIRST attempt, cursor advanced', { key, msgId: row.id, from: row.from });
-            else log('warn', 'bus row refused at the ask door is NOT retried — the refusal is deterministic, cursor advanced [T2-R14]', { key, msgId: row.id, from: row.from });
-            if (stuckAt === null) cursors.set(key, row.id);
-            else jumped.add(`${key}#${row.id}`);
-            persist();
-            continue;
-          }
+          // ⚑ A DETERMINISTIC REFUSAL AT THE ASK DOOR IS NOT A THING AN ESCALATION CAN HIT: `kind:
+          // 'escalation'` bypasses [T2-R14] unconditionally (ask-thread.js). The terminal-refusal
+          // disposal that used to sit here (a first-pass content-bearing owner-DM dump) is
+          // retired with `deliverEscalationInFull` — see that function's header — because the
+          // ONLY caller that could ever reach it is the dead `seat-not-interact && isEscalation`
+          // branch already removed above. A non-escalation refusal at the door is rescued as a
+          // notice, above; it never reaches this point.
           const akey = `${key}#${row.id}`;
           const n = (attempts.get(akey) || 0) + 1;
           attempts.set(akey, n);
-          // THE MISSING-CHANNEL NOTICE (owner ruling 2026-08-12). A row that cannot reach its
-          // goal channel is now held rather than downgraded into the DM, and a held row the owner
-          // is never told about is the silence this whole module exists to end. So ONCE per stuck
-          // row — `n ===`, never `>=` — he gets a line naming the goal and the seat and NOTHING
-          // ELSE: no body, no header render, and posted through the transport directly, so no
-          // sitting can be minted from it and no agent ever reads the row.
-          if (n === NOTICE_AT_ATTEMPT && error === 'no-channel' && !isFinish) {
-            try {
-              await postOwner({
-                kind: 'notification',
-                channel: dmChannel, threadTs: null,
-                text: `:warning: goal *${goalId}* has no Slack channel — seat *${row.from}* is trying to reach you and cannot. Nothing of its message is shown here. Create the channel (\`goal-channel-cli.js ensure ${goalId}\`) and it is delivered on the next pass.`,
-                goal_id: goalId,
-              });
-              log('warn', 'bus ferry told the owner a goal channel is MISSING — the row is held, not downgraded', { key, msgId: row.id, from: row.from, attempts: n });
-            } catch (err) {
-              log('warn', 'bus ferry could not post the missing-channel notice', { key, msgId: row.id, error: err.message });
-            }
+          // THE UNREACHABLE-CHANNEL ALARM (`d-escalation-surface` parts 4, 6 — retires the old
+          // owner-DM missing-channel notice, owner ruling 2026-08-12). A row that cannot reach its
+          // goal channel is a SYSTEM FAULT, never the owner's DM's business [part 4]. So ONCE per
+          // stuck row — `n ===`, never `>=` — the SYSTEM CHANNEL gets one line naming the goal and
+          // the blocked seat and NOTHING ELSE: no body, no header render, posted through the
+          // transport directly, so no sitting can be minted from it and no agent ever reads the
+          // row. See `postUnreachableChannelAlarm`'s header for the `no-channel`/`resolve-failed`
+          // distinction it carries.
+          const channelUnreachable = error === 'no-channel' || error === 'resolve-failed';
+          if (n === NOTICE_AT_ATTEMPT && channelUnreachable && !isFinish) {
+            await postUnreachableChannelAlarm({ goalId, seat: row.from, reason: error, isEscalation, key, msgId: row.id });
           }
-          if (n >= maxAttempts) {
+          // ⚑ AN ESCALATION BLOCKED BY AN UNREACHABLE CHANNEL IS NEVER ABANDONED (part 6: "retry
+          // without a give-up cap"). Provably safe to retry forever: `no-channel` and
+          // `resolve-failed` are returned BEFORE any Slack post is attempted — `goalChannelFor`
+          // short-circuits on a missing channel id in both `postOwnerAsk` and `routeToAgentThread`
+          // (chat-bridge.js), so no message can ever have landed for a retry to duplicate. The
+          // alarm above has already told the owner once; `stuckAt` already holds the cursor behind
+          // this row via the head-of-line test, so skipping the cap costs nothing but the
+          // `giving up` line an ordinary row still gets.
+          //
+          // ⚠ EVERY OTHER PERSISTENT FAILURE ON AN ESCALATION — the channel resolves but the POST
+          // ITSELF keeps failing — keeps the ORDINARY cap below. That path DOES reach a real
+          // transport call (`ask-thread.js#postAsk` → `outbox.post`), and the outbox's own dedup
+          // (an exact `(kind, channel, thread_ts, goal_id, ask_id, payload)` match in
+          // `pending-delivery` state) is not proof against a transport call Slack actually
+          // accepted but this process read as failed — `dup-idempotency`'s per-message key does
+          // not cover ferry/ask-thread posts (its own memory entry says so, `esc-dm-ban`
+          // re-verified it: `bus-ferry.js#postOwner` and `ask-thread.js#postAsk` both call
+          // `outbox.post` directly). Uncapping THAT case is not proven safe, so it is not done;
+          // the residual is named in `esc-dm-ban`'s report.
+          if (!(isEscalation && channelUnreachable) && n >= maxAttempts) {
             attempts.delete(akey);
-            // ⚑ AN ESCALATION IS NEVER ABANDONED SILENTLY (W8, adv, C76). Every other row's
-            // abandonment is a warn line in a log nobody reads; for the one message type whose
-            // whole purpose is to interrupt a human, that is the silent stall this program exists
-            // to delete. So it takes the missing-channel notice's own path — `transport.sendToOwner`
-            // DIRECTLY, minting no sitting and seating nobody — but CONTENT-BEARING, because
-            // unlike that notice there is no retry left behind it: this is the last time these
-            // words can reach him.
-            // ONE outcome per msgId: whichever branch below reports, the other stays quiet.
-            // The pair used to BOTH fire — "delivered it to the owner DM in full" immediately
-            // followed by "NOT delivered" for the same row — and `NOT delivered` is the string an
-            // operator greps, so the honest outcome was the unreadable one.
-            let escalationDelivered = false;
-            if (isEscalation) {
-              escalationDelivered = await deliverEscalationInFull({
-                goalId, row, key,
-                why: `could NOT be posted to its channel after ${n} attempts (${error})`,
-              });
-              if (escalationDelivered) log('warn', 'bus ferry could not post an ESCALATION — delivered it to the owner DM in full instead, cursor advanced', { key, msgId: row.id, from: row.from, attempts: n, error });
-            }
             if (stuckAt === null) cursors.set(key, row.id); // advance — never wedge the ferry on one row
             else jumped.add(akey);
             persist();
-            if (!escalationDelivered) log('warn', 'bus ferry giving up on a row after persistent post failures — NOT delivered, cursor advanced', { key, msgId: row.id, attempts: n, error });
+            log('warn', 'bus ferry giving up on a row after persistent post failures — NOT delivered, cursor advanced', { key, msgId: row.id, attempts: n, error });
             continue;
           }
           log('warn', 'bus ferry post failed — will retry next pass', { key, msgId: row.id, attempts: n, error });

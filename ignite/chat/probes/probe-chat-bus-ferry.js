@@ -417,88 +417,96 @@ async function main() {
       { posted: slack.posted.map((p) => p.text.split('\n')[0]), cursor: a.bridge.busFerry._cursors.get('goal-w8b/2026-08-14a'), jumped: [...a.bridge.busFerry._jumped] });
     a.bridge.stop();
   }
+  // W8-C / W8-D — RETIRED-AND-REPLACED (`d-escalation-surface` parts 4 + 6, seat `esc-dm-ban`).
+  // BEFORE: an escalation abandoned at the attempt cap (W8-C) or refused terminally at the ask
+  // door (W8-D, a stub that could never fire in production once `esc-door-split` landed) got a
+  // CONTENT-BEARING owner-DM dump — `deliverEscalationInFull`. The owner ruled his DM carries NO
+  // goal traffic at all. What replaces both: an unreachable goal channel is a SYSTEM FAULT, raised
+  // ONCE as a named alarm in the SYSTEM CHANNEL, and the escalation is retried WITHOUT a cap —
+  // never abandoned — because no Slack call is ever attempted while the channel cannot be
+  // resolved (`goalChannelFor` short-circuits in both `postOwnerAsk` and `routeToAgentThread`
+  // before any transport call), so retrying it is provably safe. `routeToAgentThread` MUST be
+  // REAL here (not the file's usual `null`, see `makeBridge`'s header) so `no-channel`/
+  // `resolve-failed` genuinely propagate off `goal-channel-map.js#resolveChannel` the way
+  // production does — `buildBridge` is called directly for that reason, mirroring
+  // `probe-chat-ask-release.js`'s E9 arm.
+  function makeUnresolvableChannelSlack({ failList = false } = {}) {
+    const base = makeChannelSlack(); // channel-capable — but this goal's channel is NEVER created
+    const systemPosted = [];
+    return Object.assign(base, {
+      systemPosted,
+      async listChannels() {
+        if (failList) return { ok: false, error: 'timeout' };
+        return { ok: true, channels: [], nextCursor: null };
+      },
+      // Split the DM leg (`base.posted`, asserted empty) from the system-channel leg (asserted
+      // to carry exactly the alarm) — `makeFakeSlack#sendToOwner` records every post to ONE array
+      // regardless of channel, which cannot tell the two surfaces apart.
+      async sendToOwner({ channel, threadTs, text }) {
+        if (channel === 'C_SYSTEM') { systemPosted.push({ channel, threadTs, text }); return { delivered: true, ts: '1.0' }; }
+        return base.sendToOwner.call(base, { channel, threadTs, text });
+      },
+    });
+  }
+  async function buildRealBridge({ workspaceRoot, slack, logger, busFerryOptions = {} }) {
+    return buildBridge({
+      gatewayAddr: '127.0.0.1:0', bridgeToken: 'stub', sessionJobId: 'chat-launch',
+      sessionProfile: 'p', sendMessageJobId: 'send-message', workdir: null,
+      workspaceRoot, channelPrefix: 'test-', stateFile: null, busFerry: true,
+      busFerryDmUser: USER, allowlist: [USER],
+      slack: { apiBase: 'http://127.0.0.1:0', appToken: null, botToken: null },
+    }, {
+      logger, makeTransport: () => slack, forwarderImpl: makeFakeForwarder(),
+      replyLegOptions: { pollMs: 3600000 },
+      busFerryOptions: { pollMs: 3600000, systemChannelId: 'C_SYSTEM', ...busFerryOptions },
+    });
+  }
   {
-    // W8-C — NEVER ABANDONED SILENTLY. At the attempt cap every other row leaves a `giving up`
-    // warn line and nothing else; an escalation leaves the owner a CONTENT-BEARING notice on the
-    // transport directly, because there is no retry behind it to carry the words later.
+    // W8-C — THE UNREACHABLE-CHANNEL ALARM (`no-channel`), AND NEVER ABANDONED. `maxAttempts: 3`
+    // — well below `NOTICE_AT_ATTEMPT` would matter for an ordinary row — proves the escalation
+    // survives PAST the old cap entirely: it is still on the bus after 8 ticks.
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-w8c', '2026-08-14a', { backlogRows: 1 });
-    const slack = makeFakeSlack();
+    const slack = makeUnresolvableChannelSlack();
     const logs = [];
-    const a = makeBridge({ workspaceRoot: root, slack, logs, busFerryOptions: { maxAttempts: 1 } });
-    await a.bridge.start();
-    await a.bridge.busFerry.tick();
+    const built = await buildRealBridge({ workspaceRoot: root, slack, logger: (e) => logs.push(e), busFerryOptions: { maxAttempts: 3 } });
+    await built.bridge.start();
+    await built.bridge.busFerry.tick();
     append(file, msgRow(2, 'leader', 'owner', 'escalation', 'the cage refuses the path and I cannot widen it'));
-    slack.failNextPosts(1);                       // the row's own post fails; the notice's does not
-    await a.bridge.busFerry.tick();
-    check('W8-C: an `escalation` abandoned at the attempt cap still reaches the owner — a direct '
-      + 'transport notice CARRYING ITS TEXT, not the bare "giving up" line every other row gets',
-      slack.posted.length === 1 && /ESCALATION from \*leader\*/.test(slack.posted[0].text)
-      && /cage refuses the path/.test(slack.posted[0].text)
-      && logs.some((l) => l.level === 'warn' && /could not post an ESCALATION/.test(l.message)),
-      { posted: slack.posted.map((p) => p.text.split('\n')[0]) });
-    // ONE outcome per msgId. The delivery line used to be followed IMMEDIATELY by
-    // `NOT delivered, cursor advanced` for the SAME row — and `NOT delivered` is what an
-    // operator greps, so the log contradicted itself about whether the owner was reached.
-    check('W8-C: the cap leaves ONE outcome for the msgId — no `NOT delivered` line for a row the '
-      + 'content-bearing DM path DID deliver',
-      logs.filter((l) => /NOT delivered/.test(l.message)).length === 0,
-      { contradicting: logs.filter((l) => /NOT delivered/.test(l.message)).map((l) => l.message) });
-    a.bridge.stop();
+    for (let i = 0; i < 8; i++) { await built.bridge.busFerry.tick(); } // eslint-disable-line no-await-in-loop
+    check('W8-C: an escalation whose channel resolves `no-channel` NEVER reaches the owner DM — zero DM posts across 8 passes, well past the old attempt cap',
+      slack.posted.length === 0, { posted: slack.posted });
+    check('W8-C: the SYSTEM CHANNEL gets ONE alarm — not once per retry — naming the goal, the blocked seat, and `no-channel`\'s real meaning',
+      slack.systemPosted.length === 1
+      && /goal \*goal-w8c\* has a blocked escalation and its channel is unreachable/.test(slack.systemPosted[0].text)
+      && /seat \*leader\*/.test(slack.systemPosted[0].text)
+      && /the channel does not exist in the workspace/.test(slack.systemPosted[0].text),
+      { systemPosted: slack.systemPosted.map((p) => p.text) });
+    check('W8-C: NOTHING IS ABANDONED — the row is still on the bus (cursor NOT advanced) after 8 passes, 5 past the raised-nowhere cap',
+      built.bridge.busFerry._cursors.get('goal-w8c/2026-08-14a') === 1,
+      { cursor: built.bridge.busFerry._cursors.get('goal-w8c/2026-08-14a') });
+    built.bridge.stop();
   }
-
   {
-    // W8-D — THE REFUSAL AT THE ASK DOOR IS TERMINAL, AND THE ESCALATION'S DM IS TAKEN ON THE
-    // FIRST PASS. Observed live 2026-08-27 19:36-19:37Z: `leader`'s escalation #12 produced
-    // TWENTY `owner-ask REFUSED — this seat is not designated to reach the owner [T2-R14]` lines
-    // and only then the content-bearing DM. Nothing about that refusal can change between passes
-    // — it reads the seat's own descriptor — so every one of the twenty was the same answer.
-    //
-    // The ask door itself is STUBBED here, and deliberately: this arm measures the FERRY's
-    // handling of the refusal, which is where the defect lived. That the real door refuses a
-    // non-`human-interactive` seat with exactly this reason is pinned one probe over
-    // (`probe-chat-ask-release.js:119`), so the stub restates a measured fact rather than
-    // inventing a convenient one.
+    // W8-D — THE SAME ALARM DISTINGUISHES `resolve-failed` ("Slack did not answer" — NOT evidence
+    // of absence) FROM `no-channel`, in its own text, and still fires exactly once.
     const root = mkroot();
     const { file } = seedGoal(root, 'goal-w8d', '2026-08-14a', { backlogRows: 1 });
-    writeSeatDescriptor(path.join(root, '.rbtv', 'goals', 'goal-w8d'), 'leader', { humanInteractive: false });
-    const slack = makeFakeSlack();
+    const slack = makeUnresolvableChannelSlack({ failList: true });
     const logs = [];
-    const askCalls = [];
-    const a = makeBridge({
-      workspaceRoot: root, slack, logs,
-      busFerryOptions: { postAsk: async (args) => { askCalls.push(args); return { posted: false, reason: 'seat-not-interact' }; } },
-    });
-    await a.bridge.start();
-    await a.bridge.busFerry.tick();
+    const built = await buildRealBridge({ workspaceRoot: root, slack, logger: (e) => logs.push(e), busFerryOptions: { maxAttempts: 3 } });
+    await built.bridge.start();
+    await built.bridge.busFerry.tick();
     append(file, msgRow(2, 'leader', 'owner', 'escalation', 'nobody in this run can clear this halt'));
-    await a.bridge.busFerry.tick();
-    check('W8-D: an `escalation` the ask door REFUSES [T2-R14] reaches the owner on the FIRST pass '
-      + '— one ask attempt, one content-bearing DM, no retry storm',
-      askCalls.length === 1 && slack.posted.length === 1
-      && /ESCALATION from \*leader\*/.test(slack.posted[0].text)
-      && /not designated to reach the owner \[T2-R14\]/.test(slack.posted[0].text)
-      && /nobody in this run can clear this halt/.test(slack.posted[0].text),
-      { askCalls: askCalls.length, posted: slack.posted.map((p) => p.text.split('\n')[0]) });
-    check('W8-D: the refusal is TERMINAL — the row leaves no retry attempt behind it and the '
-      + 'cursor advances on that same first pass',
-      a.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a') === 2
-      && a.bridge.busFerry._attempts.size === 0,
-      { cursor: a.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a'), attempts: [...a.bridge.busFerry._attempts.keys()] });
-    check('W8-D: ONE refusal line in the log, not twenty, and no `will retry next pass` for a '
-      + 'refusal that cannot change between passes',
-      logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length === 1
-      && logs.filter((l) => /will retry next pass/.test(l.message)).length === 0
-      && logs.filter((l) => /NOT delivered/.test(l.message)).length === 0,
-      {
-        refusals: logs.filter((l) => /REFUSED at the ask door/.test(l.message)).length,
-        retries: logs.filter((l) => /will retry next pass/.test(l.message)).length,
-      });
-    // A further pass must not re-deliver it: the cursor, not the attempt counter, is what holds.
-    await a.bridge.busFerry.tick();
-    check('W8-D: a later pass does NOT deliver the refused escalation a second time',
-      slack.posted.length === 1, { posted: slack.posted.length });
-    a.bridge.stop();
+    for (let i = 0; i < 8; i++) { await built.bridge.busFerry.tick(); } // eslint-disable-line no-await-in-loop
+    check('W8-D: an escalation whose channel resolution is `resolve-failed` ALSO never reaches the owner DM, and its alarm says Slack did not answer — never that the channel is missing',
+      slack.posted.length === 0 && slack.systemPosted.length === 1
+      && /Slack did not answer when the channel was re-resolved — this is NOT evidence the channel is missing/.test(slack.systemPosted[0].text),
+      { posted: slack.posted, systemPosted: slack.systemPosted.map((p) => p.text) });
+    check('W8-D: still never abandoned — cursor NOT advanced past 8 passes',
+      built.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a') === 1,
+      { cursor: built.bridge.busFerry._cursors.get('goal-w8d/2026-08-14a') });
+    built.bridge.stop();
   }
   {
     // W8-E — REPLACES THE OLD "silent terminal refusal" CLAIM (`d-escalation-surface` part 7,

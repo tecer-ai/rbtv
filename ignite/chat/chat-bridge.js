@@ -725,6 +725,15 @@ function createChatBridge({
     // The finish edge's 3-line channel notice [T5-R16]. Injected for `postAsk`'s reason: the
     // goal↔channel resolution is the bridge's, and `busFerryOptions` can still unwire it.
     postGoalChannel: (args) => postGoalChannel(args),
+    // ONE OPEN ESCALATION PER GOAL (`d-escalation-surface` part 8, seat `esc-one-at-a-time`).
+    // `askRecord` already exists here for `postOwnerAsk`/`reapAsk` — this is the same fleet-wide
+    // reader, additive: unwired, the gate in `bus-ferry.js` is a documented no-op.
+    listOpenAsks: () => askRecord.listOpenAsks(),
+    // THE SYSTEM CHANNEL (`d-escalation-surface` parts 4 + 6) — where an unreachable goal channel
+    // is raised as a daemon-level alarm instead of the owner's DM. Same source `glance.js` already
+    // reads above (`config.systemChannelId` / `RBTV_SYSTEM_CHANNEL_ID`), injected the same way
+    // every other channel-bearing leg is: the ferry holds no channel knowledge of its own.
+    systemChannelId: (config && config.systemChannelId) || null,
     ownerUser: (config && config.ownerUser) || null,
     ...busFerryOptions,
   });
