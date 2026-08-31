@@ -5,3 +5,4 @@
 2026-08-31 · issue · Done checkout left harness alive · cmd_checkout armed arm_pid_reaper only for ephemeral: yes → persistent done left the process idle · f616be02 · supervisor · ⚠
 2026-08-31 · issue · Parked wait is incomplete not renew · unanswered owner ask used checkout --renew (immediate relaunch loop); paneless stay-up died failed/crash → --renew refused on posted owner ask; --incomplete parks blocked-on-human · 86e276df · — · ⚠
 2026-08-31 · issue · declared-output-templates · checkout demanded literal <placeholder> paths → skip at grade, refuse at materialize, ./ for slashless · 4796a716 · planning,envelope,meta-planning · ⚠
+2026-08-31 · issue · Overlapping sittings: checkout closed wrong row + tz hazard · Build tasks 95/135 (`coord-skew`, 2026-08-31) surfaced a SEPARATE live defect while proving the → `session_close`'s row-selection loop (`for r in rows: ... target = r`) kept overwriting `target` · fa0f50f1 · supervisor · ⚠
