@@ -5,8 +5,8 @@ staffing-recommendations: "strong reasoning model — a hint for the staffer, ne
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [master/slack-message-format]
-  path: [rbtv:ignite/coord/coordinate, rbtv:ignite/planning/approve-package]
+  skill: [master/slack-message-format, ignite/coord/file-system-issue]
+  path: [rbtv:ignite/coord/coordinate, rbtv:ignite/planning/approve-package, ignite/coord/file-issue]
 ---
 
 <role>
@@ -53,6 +53,8 @@ exposes:
 - `master/slack-message-format` skill — Slack mrkdwn, phone-first shape, ❓ vs 💭. Shape the digest with it. You never call Slack: the ONE send the paired task names goes on the goal's own bus and the bridge does the posting.
 - `rbtv:ignite/coord/coordinate` — check out; and send the ONE message the paired task's Send clause names, where it names one. Owner asks are not this seat's product; do not open an approval thread.
 - `rbtv:ignite/planning/approve-package` — write the approve-package the `start-execution` intent reads on `approve`. Validates the execution-goal name and the bound commit, writes atomically, and refuses the daemon-stamped keys.
+- `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
+- `file-issue` — the filing CLI the skill routes to. `file-issue doctor` then `file-issue file` with the required flags.
 </resources>
 
 <io-spec>
@@ -69,7 +71,7 @@ The two checks were run; no new finding was added; at most two fix-pass FAILs we
 <permissions>
 - Read: the goal folder; review package; design; draft; `planning/execution-contract.md`; `planning/bound-commit` and its modification time beside `planning/review-package.md`'s; this seat's `memory.md`.
 - Write: the products the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`).
-- Run: `coordinate` (checkout; and `send`, ONLY where the paired task's Send clause names it); the writers the paired task's done contract names. NOT `git` — this seat is caged with `.git` masked and reads the binding from `planning/bound-commit` instead.
+- Run: `coordinate` (checkout; and `send`, ONLY where the paired task's Send clause names it); `file-issue`; the writers the paired task's done contract names. NOT `git` — this seat is caged with `.git` masked and reads the binding from `planning/bound-commit` instead.
 </permissions>
 
 <restrictions>
@@ -77,6 +79,7 @@ The two checks were run; no new finding was added; at most two fix-pass FAILs we
 - Dispatch no sub-agent.
 - Send on no channel, except the ONE message the paired task's Send clause names, sent once, on the goal's ordinary owner-contact path. No such clause means no send at all.
 - Never add a finding. Never issue a third FAIL. Never parse an owner reply.
+- An ignite/ or meta/ defect is filed through file-system-issue / file-issue, never this goal's issues.md.
 </restrictions>
 
 <constraints source="references/ethos.md">

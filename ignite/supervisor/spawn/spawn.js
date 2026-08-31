@@ -1373,6 +1373,19 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   }
   const spec = bindsToSpec(admitted.binds);
   const flags = specToBwrapFlags(spec);
+  // W6 — skill-derived write roots. Raw `--bind` AFTER the compiled spec so lastCovering does
+  // not re-ask the compiler about a grant it never saw (the register sits under vault-wide-read;
+  // memory sits under rbtv-repo, which has no carve — that carve is seat 122). Private-scope
+  // masks still append after this, so a deny wins.
+  const cliWriteRoots = resolveCliWriteRootGrants(seatPath, log);
+  for (const g of cliWriteRoots) {
+    flags.push('--bind', g.cliWriteRoot, g.cliWriteRoot);
+  }
+  if (cliWriteRoots.length > 0) {
+    log('info', 'cli-write-roots bound read-write', {
+      seat: seatPath.seat, roots: cliWriteRoots.map((g) => g.cliWriteRoot),
+    });
+  }
   // ── r-seat-context-cut-at-launch-folder — the ANCESTOR MASK, appended LAST ────────────────
   // Last is the mechanism, exactly as it is for every other line of this stack: the mask must
   // shadow the read-root ro floor and the goal/run ro-binds that made those ancestors visible in

@@ -5,8 +5,8 @@ staffing-recommendations: "frontier model at high effort — a hint for the staf
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [master/slack-message-format, workflow-authoring-checklist]
-  path: [rbtv:ignite/coord/coordinate]
+  skill: [master/slack-message-format, workflow-authoring-checklist, ignite/coord/file-system-issue]
+  path: [rbtv:ignite/coord/coordinate, ignite/coord/file-issue]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -38,6 +38,8 @@ exposes:
 - `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out only to ground a finding. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out only to ground a finding about how something actually behaves.
+- `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
+- `file-issue` — the filing CLI the skill routes to. `file-issue doctor` then `file-issue file` with the required flags.
 </resources>
 
 <io-spec>
@@ -54,7 +56,7 @@ Findings were emitted once and tagged; only blocking items were revised; non-blo
 <permissions>
 - Read: the goal folder; facts brief; design; draft; every artifact those name.
 - Write: the review package the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; sub-agent dispatch.
+- Run: `coordinate`; `file-issue`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
@@ -62,6 +64,7 @@ Findings were emitted once and tagged; only blocking items were revised; non-blo
 - Dispatch only the cataloged `researcher` and `diagnoser` definitions.
 - Send on no channel other than the goal's own owner-channel thread.
 - Never emit findings a second time. Never treat a non-blocking finding as a fix target on the first pass.
+- An ignite/ or meta/ defect is filed through file-system-issue / file-issue, never this goal's issues.md.
 </restrictions>
 
 <constraints source="references/ethos.md">

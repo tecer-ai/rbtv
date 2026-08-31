@@ -5,8 +5,8 @@ staffing-recommendations: "frontier model at high effort — a hint for the staf
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [master/slack-message-format]
-  path: [rbtv:ignite/coord/coordinate]
+  skill: [master/slack-message-format, ignite/coord/file-system-issue]
+  path: [rbtv:ignite/coord/coordinate, ignite/coord/file-issue]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -31,6 +31,8 @@ exposes:
 - `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when an approach claim rests on unread material. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a milestone's done-criterion depends on how something actually behaves.
+- `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
+- `file-issue` — the filing CLI the skill routes to. `file-issue doctor` then `file-issue file` with the required flags.
 </resources>
 
 <io-spec>
@@ -47,7 +49,7 @@ A stranger drafter can name the approach and every milestone with a falsifiable 
 <permissions>
 - Read: the goal folder; the facts brief; every artifact the brief names.
 - Write: the design the paired task names under `planning/`; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; sub-agent dispatch.
+- Run: `coordinate`; `file-issue`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
@@ -55,6 +57,7 @@ A stranger drafter can name the approach and every milestone with a falsifiable 
 - Dispatch only the cataloged `researcher` and `diagnoser` definitions.
 - Send on no channel other than the goal's own owner-channel thread.
 - Never add a per-milestone wall-clock field.
+- An ignite/ or meta/ defect is filed through file-system-issue / file-issue, never this goal's issues.md.
 </restrictions>
 
 <constraints source="references/ethos.md">

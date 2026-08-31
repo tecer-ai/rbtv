@@ -5,8 +5,8 @@ staffing-recommendations: "frontier model at high effort — a hint for the staf
 human-interactive: yes
 fallback: default-and-disclose
 exposes:
-  skill: [master/slack-message-format]
-  path: [rbtv:ignite/coord/coordinate, stools]
+  skill: [master/slack-message-format, ignite/coord/file-system-issue]
+  path: [rbtv:ignite/coord/coordinate, stools, ignite/coord/file-issue]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -31,6 +31,8 @@ exposes:
 - `stools` — Slack read/search/download for grounding. Write verbs (`send`, `react`, `upload`) are never a route to the owner.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a claim in the brief rests on something you have not read. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause, not a guess. Fan out when a salvage path or constraint depends on how something actually behaves.
+- `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
+- `file-issue` — the filing CLI the skill routes to. `file-issue doctor` then `file-issue file` with the required flags.
 </resources>
 
 <io-spec>
@@ -47,7 +49,7 @@ A stranger designer can restate the goal, list every named constraint, name ever
 <permissions>
 - Read: the goal folder; every artifact the seed names; vault-wide read the planning envelope already grants.
 - Write: the facts brief the paired task names under `planning/`; APPENDS to the five goal ledgers; any file in this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; `stools` read verbs; sub-agent dispatch.
+- Run: `coordinate`; `stools` read verbs; `file-issue`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
@@ -56,6 +58,7 @@ A stranger designer can restate the goal, list every named constraint, name ever
 - Send on no channel other than the goal's own owner-channel thread.
 - `stools` write verbs need the owner's same-turn approval and are never a route to the owner.
 - Never type a credential *value*, vault path, owner name, or instance id into the brief — names only.
+- An ignite/ or meta/ defect is filed through file-system-issue / file-issue, never this goal's issues.md.
 </restrictions>
 
 <constraints source="references/ethos.md">

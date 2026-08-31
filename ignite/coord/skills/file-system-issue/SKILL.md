@@ -1,6 +1,6 @@
 ---
 name: file-system-issue
-description: "File a system issue (defect, gap, change notice) whose surface is under ignite/ or meta/ into the engine goal's register. Use when a goal-master or leader sees a defect, gap, or change notice on those surfaces — file, don't fix."
+description: "File a system issue (defect, gap, change notice) whose surface is under ignite/ or meta/ into the engine goal's register. Use when a goal-master, leader, or caged planning seat sees a defect, gap, or change notice on those surfaces — file, don't fix."
 exposes-cli:
   - file-issue
 ---
