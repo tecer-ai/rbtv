@@ -1000,7 +1000,7 @@ function createChatBridge({
         // ⚑ AND IT RUNS AFTER THE POST, not before. This is the latency path the warm leg exists
         // to win (`live-session-design.md` §4), and the bus write shells to a python process — so
         // ordering it first would spend the owner's own wait on bookkeeping he cannot see.
-        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false, answersOwnerAsk: verdict.ok === true });
+        const delivered = await deliverToOwner({ chatThreadId: chatMsg.chatThreadId, text, markAsk: false, answersOwnerAsk: verdict.ok === true, inboundMsgId: chatMsg._msgTs || null });
         const busAnswer = await forwardPath.recordBusAnswer({ route, text: chatMsg.text });
         if (delivered && delivered.delivered !== false) {
           const out = { forwarded: true, leg: 'live-session', warm: true, ms: warm.ms, ...(busAnswer ? { busAnswer } : {}) };
@@ -1043,7 +1043,14 @@ function createChatBridge({
       // A warm turn answers within the same call, so the seat it ran at is free again by the time
       // anything could match it, and remembering that text would only invite a false drop later.
       noteForwarded(route, chatMsg.text);
-      replyLeg.arm(chatMsg.chatThreadId);
+      // The second argument is the idempotency identity (duplicate owner-facing replies fix,
+      // redesign-continue-1 `dup-idempotency`, criterion 4) — harmless today (`reply-leg.js`'s
+      // current `arm(chatThreadId)` ignores extra arguments) and forward-compatible for the day
+      // `arm()` accepts it and threads it into its own `deliver()` call, closing the cold leg's
+      // half of this guard. See this seat's report for why that half is not landed yet: a
+      // concurrent, unrelated, larger in-flight edit is sitting in `reply-leg.js` right now
+      // (`dup-revive-lineage`'s session-lineage fork fix) and this seat will not touch it.
+      replyLeg.arm(chatMsg.chatThreadId, chatMsg._msgTs || null);
       // The read-receipt: ONE marker, stamped the moment the message is accepted for
       // processing and taken off when its answer lands (§ pending marker below). It
       // REPLACES the fire-and-forget 🤖 of 2026-08-06 — see that section for why two
@@ -1063,6 +1070,52 @@ function createChatBridge({
 
   // conversation → { channel, threadTs } — where to post owner output back.
   const replyAddr = new Map();
+
+  // ── THE PER-INBOUND-MESSAGE IDEMPOTENCY KEY (duplicate owner-facing replies fix,
+  // redesign-continue-1 `dup-idempotency`, criterion 4) ──────────────────────────────────────
+  //
+  // `slack-duplicate-replies.md` §3's defect 2: `chat/live-sessions.js:84-87` turns ANY non-ok
+  // gateway result — including a client-side timeout on a turn the agent already consumed —
+  // into `answered:false`, which this bridge used to treat identically to "never delivered".
+  // The existing duplicate guard (`preEnqueueRefusal`, byte-equality on the SEAT, below) cannot
+  // catch this: it is gated behind `!threadMap.has(chatThreadId)` so it only ever runs for a
+  // BRAND NEW conversation, and two independently-generated answers to one question are never
+  // byte-equal even when it does run. This is a SECOND, independent mechanism — not a widening
+  // of that one — keyed on the OWNER'S message identity instead of the reply's wording, and
+  // enforced at `deliverToOwner`, the ONE place every conversation-addressed post passes
+  // through (warm leg's direct call and cold leg's reply-leg delivery alike).
+  //
+  // ⚑ THE IDENTITY TRAVELS PER CALL, NEVER VIA A SIDE-CHANNEL "CURRENTLY PENDING" MAP. A first
+  // cut of this kept one `chatThreadId -> latest owner ts` map, stamped on every inbound message
+  // and read back inside `deliverToOwner`. It reintroduced the exact bug class `reply-leg.js`'s
+  // OWN header warns about: NOT every delivery on a conversation is preceded by a fresh owner
+  // message — a revive, a wake re-dispatch, a multi-page log continuation and a compaction
+  // follow-up all deliver (or attempt to) against an ALREADY-armed cycle with no new inbound
+  // event to refresh the map. `probe-chat-reply-leg.js` checks g/h/i/j/k/l/n/o/p/q — every one of
+  // them a real, DIFFERENT exec on the SAME conversation with no intervening Slack message —
+  // caught this: the stale "latest owner id" from an earlier turn matched the new delivery's
+  // check and refused every one of them (measured: `answeredInbound` mis-fired from check `g`
+  // onward). The fix is that `deliverToOwner` takes `inboundMsgId` as an explicit ARGUMENT from
+  // whichever caller is doing the delivering, never a lookup this function performs itself.
+  //
+  // ⚑ THE WARM LEG'S HALF IS WIRED; THE COLD LEG'S IS NOT, AND THAT IS A DISCLOSED GAP, NOT AN
+  // OVERSIGHT. The warm branch below passes the message it just fed. The cold leg's own delivery
+  // (`reply-leg.js`'s `deliver()` call) would need to pass whatever `arm()` was given for THIS
+  // cycle (`null` for a cycle nothing armed with an owner message — a wake/revive/internal
+  // re-dispatch — which would correctly leave those undefended rather than guessing wrong). That
+  // one-line threading (`arm(chatThreadId, inboundMsgId)` → store on `p` → pass it in the
+  // `deliver()` call) could not be landed in this change: `reply-leg.js` carries a large,
+  // unrelated, IN-FLIGHT uncommitted edit right now (`dup-revive-lineage`'s session-lineage-fork
+  // fix, criterion 2 of this same defect — explicitly this seat's own wall). Committing that file
+  // would publish the OTHER seat's unfinished, unreviewed work under this commit. `onChatMessage`
+  // below already calls `replyLeg.arm(chatMsg.chatThreadId, chatMsg._msgTs || null)` — harmless
+  // today (the current `arm(chatThreadId)` ignores the extra argument) and forward-compatible for
+  // whoever lands that threading next. See this seat's closing report for the exact diff.
+  //
+  // conversation → the inbound id that ALREADY produced a delivered owner-facing answer for it.
+  // A second delivery carrying the SAME id is refused; a delivery carrying a DIFFERENT id (a
+  // genuine new owner message) or no id at all (a delivery this guard does not govern) proceeds.
+  const answeredInbound = new Map();
 
   // ── THE ⏳ PENDING MARKER (owner-directed 2026-08-07) ────────────────────────
   //
@@ -1383,7 +1436,25 @@ function createChatBridge({
   // Behavior #3), at the TURN BOUNDARY (notes §7b — never mid-turn). `markAsk`
   // records that the daemon posed a pending `ask` on this conversation, so the
   // owner's NEXT reply forwards as an `answer` (D105) rather than a `note`.
-  async function deliverToOwner({ chatThreadId, text, markAsk = false, answersOwnerAsk = false }) {
+  async function deliverToOwner({ chatThreadId, text, markAsk = false, answersOwnerAsk = false, inboundMsgId = null }) {
+    // THE IDEMPOTENCY REFUSAL — checked FIRST, before any Slack call, and ONLY on
+    // `answersOwnerAsk` deliveries that NAME an `inboundMsgId`. See the `answeredInbound` header
+    // above for why the identity is an explicit ARGUMENT (never a side-channel "currently
+    // pending" map) and why it is keyed on the owner's message identity, not the reply text.
+    //
+    // ⚑ ALSO GATED ON `answersOwnerAsk`, THE SAME SIGNAL THE ASK-REAP BELOW ALREADY TRUSTS —
+    // never a new one. A P3 notice (slow/give-up/dead-air/stall/recovery, `reply-leg.js`) also
+    // travels through this function with `answersOwnerAsk` left at its default `false`, and it
+    // MUST never mark — or be blocked by — this key: a "still working" ping that DID mark it
+    // would make the real answer that follows read as an already-answered duplicate and get
+    // silently refused, which is strictly worse than the duplicate this guard exists to remove
+    // (a real answer replaced by silence). Only a GENUINELY conformant fenced reply sets
+    // `answersOwnerAsk` true (`checkReplyContract`'s verdict, both legs) — the exact same
+    // narrowing `askRecord.reapAsk` below already relies on for the same reason.
+    if (answersOwnerAsk && inboundMsgId && answeredInbound.get(chatThreadId) === inboundMsgId) {
+      log('warn', 'owner message already answered — refusing a second delivery for it [duplicate owner-facing replies fix]', { chatThreadId, inboundMsgId });
+      return { delivered: false, reason: 'already-answered-inbound', inboundMsgId };
+    }
     const addr = replyAddr.get(chatThreadId);
     if (!addr) {
       log('warn', 'no reply address for conversation — cannot deliver owner output', { chatThreadId });
@@ -1401,7 +1472,13 @@ function createChatBridge({
     // give-up notice. Either way the wait is over, so the ⏳ comes off. This is the
     // ONE place every conversation-addressed post passes through, which is why the
     // clear hangs here and not in the reply leg.
-    if (posted && posted.delivered !== false) clearPending(chatThreadId);
+    if (posted && posted.delivered !== false) {
+      clearPending(chatThreadId);
+      // Record the answer AFTER it actually posted, and ONLY for a genuine answer
+      // (`answersOwnerAsk`) — a failed/refused post must not burn the key either, or a real
+      // answer could never be retried.
+      if (answersOwnerAsk && inboundMsgId) answeredInbound.set(chatThreadId, inboundMsgId);
+    }
     // The `open_asks` row this reply settles, reaped at the ONE place every owner-facing post
     // passes through. `answersOwnerAsk` is true only for a GENUINELY conformant fenced reply
     // (reply-leg.js/live-sessions warm path pass `verdict.ok`) — a FALLBACK_TEXT/GIVE_UP_NOTICE/
@@ -1447,7 +1524,11 @@ function createChatBridge({
     if (!goalChannels) return { ok: false, error: 'no-goal-channel-map-configured' };
     const channelId = goalChannels.channelForGoal(goalId);
     const res = await goalChannels.retire(goalId);
-    if (res.ok && channelId) { replyAddr.delete(String(channelId)); saveState(); }
+    if (res.ok && channelId) {
+      replyAddr.delete(String(channelId));
+      answeredInbound.delete(String(channelId));
+      saveState();
+    }
     return res;
   }
 
@@ -1516,6 +1597,7 @@ function createChatBridge({
     registerGoal, closeGoal, routeOf, outbox, askRecord,
     routeToAgentThread, agentThreadFor, agentForThread, knowsThread,
     _replyAddr: replyAddr, _agentThreads: agentThreads, _askThreads: askThreads, _lastForwarded: lastForwarded,
+    _answeredInbound: answeredInbound,
     forwardPath, replyLeg, busFerry, goalChannels, liveLeg,
     _saveState: saveState, _loadState: loadState, stateFile,
   };

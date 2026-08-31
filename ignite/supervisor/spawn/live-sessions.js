@@ -53,7 +53,10 @@ const { SpawnError, E_UNKNOWN_LAUNCH_SPEC, E_BAD_REQUEST, E_CARRIER_FAILED } = r
 // The design's defaults (owner-confirmed 2026-08-10, live-session-design.md § Deploy policy).
 const DEFAULT_IDLE_MS = 600000; // 10 minutes after the LAST OWNER MESSAGE, not the last reply
 const DEFAULT_MAX = 4;          // LRU cap — 240-600MB per warm process (box has 32GB; cap is staleness-driven, not RAM-driven)
-const DEFAULT_TURN_TIMEOUT_MS = 300000;
+// THE SOURCE, not a copy — `./live-turn-timeout` is what `chat/live-sessions.js` derives its own
+// feed ceiling from, so the two can never re-invert (duplicate owner-facing replies fix, see that
+// file's header).
+const { DEFAULT_TURN_TIMEOUT_MS } = require('./live-turn-timeout');
 
 // ⚑ THE ONE HARNESS THIS IS BUILT FOR, AND THE REFUSAL IS THE POINT. `--input-format stream-json`
 // is claude's flag. codex, kimi and opencode each have their own answer or none, and GUESSING one
@@ -608,4 +611,4 @@ function createLiveSessions({
   return { feed, eligible, list, reapIdle, reapAll, stop, size: () => sessions.size, config: { idleMs, maxSessions, turnTimeoutMs }, _record: recordSitting, _finish: finish };
 }
 
-module.exports = { createLiveSessions, seatIsHumanInteractive, DEFAULT_IDLE_MS, DEFAULT_MAX, LIVE_INPUT_FLAGS };
+module.exports = { createLiveSessions, seatIsHumanInteractive, DEFAULT_IDLE_MS, DEFAULT_MAX, DEFAULT_TURN_TIMEOUT_MS, LIVE_INPUT_FLAGS };

@@ -23,8 +23,22 @@
 
 // A warm turn should land in 1.5–4s; the ceiling is for the long one. It bounds the HTTP call
 // only — the daemon's own `turnTimeoutMs` is what actually reaps a stuck session, and it is
-// deliberately the shorter-lived promise of the two.
-const DEFAULT_FEED_TIMEOUT_MS = 240000;
+// deliberately the LONGER-lived promise of the two (duplicate owner-facing replies fix,
+// redesign-continue-1 `dup-idempotency`, criterion 3).
+//
+// ⚑ DERIVED, NOT A SECOND LITERAL. This used to be its own hardcoded 240000 sitting beside the
+// daemon's 300000 in `supervisor/spawn/live-sessions.js` — two independent constants that
+// happened to agree on "the bridge gives up first" being false, until a routine edit to either
+// one silently inverted it. They inverted in exactly that way in production: the bridge abandoned
+// a turn the daemon still owned, took the cold path, and re-answered a question the warm leg
+// answered 64s later (`slack-duplicate-replies.md` §3, the "aggravator"). Importing the daemon's
+// own constant and adding a margin means changing ONLY `live-turn-timeout.js`'s value moves BOTH
+// sides together — there is no second place left to update, and so no second place to forget.
+const { DEFAULT_TURN_TIMEOUT_MS } = require('../supervisor/spawn/live-turn-timeout');
+// Margin over the daemon's own ceiling for the HTTP hop itself (the loopback call framing the
+// turn) — not a guess at the turn's own duration, which `DEFAULT_TURN_TIMEOUT_MS` already bounds.
+const FEED_TIMEOUT_MARGIN_MS = 30000;
+const DEFAULT_FEED_TIMEOUT_MS = DEFAULT_TURN_TIMEOUT_MS + FEED_TIMEOUT_MARGIN_MS;
 
 // ⚑ THE WARM ARM HAS NO REVIVE, so the contract must ride the feed itself (owner ruling
 // 2026-08-13, option a). A live session answers the owner's words directly — nothing between
