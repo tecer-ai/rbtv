@@ -172,6 +172,8 @@ def stamp_checkout_ending(args, seat, kind, *, declared=None, diagnostic="", evi
     _w = next((x for x in launch.discover_workers(workers_dir(args)) if x["agent"] == seat), None)
     abs_decl = []
     for p in declared or []:
+        if is_output_template(p):
+            continue
         pp = Path(p)
         if pp.is_absolute():
             abs_decl.append(str(pp))
@@ -1271,6 +1273,8 @@ def declared_outputs(args, seat):
 
         missing = []
         for _d, _resolved in resolved_outputs(w):
+            if is_output_template(_d):
+                continue
             _cands = output_candidates(w, _d, _resolved)
             if not any(_present(p) for p in _cands):
                 missing.append(str(_cands[0]))

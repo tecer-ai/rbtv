@@ -72,6 +72,13 @@
     "tokens": []
   },
   {
+    "name": "placeholder-path-is-still-a-token",
+    "why": "a <placeholder> inside a pathish token is still a token — PATHISH does not strip it; checkout skips the literal and materialize refuses it so a new descriptor cannot project one",
+    "text": "---\nagent: planner\n---\n\n<io-spec>\n## Outputs\n- Destination: `planning/current/findings-<dimension>.md`\n</io-spec>\n",
+    "declared": true,
+    "tokens": ["planning/current/findings-<dimension>.md"]
+  },
+  {
     "name": "section-at-end-of-file",
     "why": "an Outputs section closing the block/file (no following heading) still parses — the \\Z / $ boundary",
     "text": "---\nagent: tail\n---\n\n<io-spec>\n## Inputs\nThe seed.\n## Outputs\nThe verdict at `coordination/tail-verdict.json`\n</io-spec>",

@@ -9,7 +9,7 @@ Deliver every artifact the seeded spec orders, built at its declared target path
 
 <scope>
 - **Read:** the seeded `forge-spec.md`; the authoring and exposure law in the guides named in this task's Guides bullet; every component the spec's target paths touch; the run-time configuration under this component's module configuration folder.
-- **Write:** the target paths the spec names — a CLI piece's is its owning component's `capabilities/<name>/tool/` like any other piece's; the registration surfaces its exposure decisions name — `exposure.csv`, `seats.csv`, workflow manifests, prompt frontmatter — in the touched components; `forge-build.md` in the goal folder.
+- **Write:** the target paths the spec names — a CLI piece's is its owning component's `capabilities/<name>/tool/` like any other piece's; the registration surfaces its exposure decisions name — `exposure.csv`, `seats.csv`, workflow manifests, prompt frontmatter — in the touched components; `./forge-build.md` in the goal folder.
 - **Guides — read whole before writing:** `references/authoring-style.md`; `references/exposure.md`.
 </scope>
 

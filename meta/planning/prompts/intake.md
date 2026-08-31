@@ -53,7 +53,7 @@ The paragraph above is forge's CREATE-mode gate, and this prompt is its one home
 Every request served leaves a spec a stranger builder executes end to end without a question: each piece named, destined, guided, done-defined, and exposure-decided — or an escalation carrying a goal seed planning can start from. A piece row that needs the builder to decide anything the spec could have decided is a failure of this seat.
 
 ## Outputs
-- Schema: `forge-spec.md` in the goal folder — first line exactly `disposition: forge` or `disposition: escalate`; on `forge`, one row per piece carrying {piece-id, kind, mode, absolute target path, authoring guide, done clauses, exposure decision}, plus the settled job, the ratified user stories or the confirmed intent, and the ratification record; on `escalate`, the trigger, its evidence, and the planning-ready goal seed carrying the request verbatim. Description: the single artifact the rest of the chain runs on — the builder's denominator and the judge's contract.
+- Schema: `./forge-spec.md` in the goal folder — first line exactly `disposition: forge` or `disposition: escalate`; on `forge`, one row per piece carrying {piece-id, kind, mode, absolute target path, authoring guide, done clauses, exposure decision}, plus the settled job, the ratified user stories or the confirmed intent, and the ratification record; on `escalate`, the trigger, its evidence, and the planning-ready goal seed carrying the request verbatim. Description: the single artifact the rest of the chain runs on — the builder's denominator and the judge's contract.
 </io-spec>
 
 <permissions>

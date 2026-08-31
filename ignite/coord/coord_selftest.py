@@ -9314,6 +9314,7 @@ def _selftest_checks(args, failures, names):
         _ou_pkg = _rs_make("ou", [("blocky", ""), ("keyed", ""), ("prose", ""),
                                   ("chatty", ""), ("goalrel", ""), ("seatrel", ""),
                                   ("norel", ""), ("dotgoal", ""), ("dotdeep", ""),
+                                  ("tmplhit", ""), ("tmplmiss", ""), ("tmpldelta", ""),
                                   ("goal-master", ""), ("leader", "")],
                            outputs={"blocky": "./out/report.md"})
         (Path(_ou_pkg) / "seats" / "keyed" / "seat.md").write_text(
@@ -9387,6 +9388,26 @@ def _selftest_checks(args, failures, names):
             "---\nagent: dotdeep\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
             "- Schema: the record at `./sub/deep.md`.\n</io-spec>\n",
             encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "tmplhit" / "seat.md").write_text(
+            "---\nagent: tmplhit\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the record at `planning/current/findings-<dimension>.md`.\n"
+            "</io-spec>\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "tmplmiss" / "seat.md").write_text(
+            "---\nagent: tmplmiss\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the record at `planning/current/deltas-<seat-id>-round-<n>.md`.\n"
+            "</io-spec>\n",
+            encoding="utf-8")
+        (Path(_ou_pkg) / "seats" / "tmpldelta" / "seat.md").write_text(
+            "---\nagent: tmpldelta\nmodel: opus\n---\nbrief\n\n<io-spec>\n## Outputs\n"
+            "- Schema: the record at `planning/current/deltas-<seat-id>-round-<n>.md`.\n"
+            "</io-spec>\n",
+            encoding="utf-8")
+        _ou_cur = Path(_ou_pkg) / "planning" / "current"
+        _ou_cur.mkdir(parents=True, exist_ok=True)
+        for _dim in ("edges", "resources", "permissions", "scope", "clarity", "consistency"):
+            (_ou_cur / f"findings-{_dim}.md").write_text(f"{_dim}\n", encoding="utf-8")
+        (_ou_cur / "deltas-tmpldelta-round-1.md").write_text("delta\n", encoding="utf-8")
         (Path(_ou_pkg) / "root.md").write_text("goal-root file\n", encoding="utf-8")
         (Path(_ou_pkg) / "sub").mkdir()
         (Path(_ou_pkg) / "sub" / "deep.md").write_text(
@@ -9395,6 +9416,7 @@ def _selftest_checks(args, failures, names):
         for _ou_s, _ou_p in (("blocky", "%95"), ("keyed", "%96"), ("prose", "%97"),
                              ("chatty", "%94"), ("goalrel", "%92"), ("seatrel", "%93"),
                              ("norel", "%91"), ("dotgoal", "%89"), ("dotdeep", "%88"),
+                             ("tmplhit", "%87"), ("tmplmiss", "%86"), ("tmpldelta", "%85"),
                              ("goal-master", "%98"), ("leader", "%99")):
             _d3_checkin(_ou_pkg, _ou_s, _ou_p)
             session_open(_d3_ns(_ou_pkg, as_agent=_ou_s),
@@ -9419,6 +9441,12 @@ def _selftest_checks(args, failures, names):
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="dotgoal"))
         _ou_ddo, _ou_dde, _ou_ddc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="dotdeep"))
+        _ou_tho, _ou_the, _ou_thc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="tmplhit"))
+        _ou_tmo, _ou_tme, _ou_tmc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="tmplmiss"))
+        _ou_tdo, _ou_tde, _ou_tdc = harness_outcome(
+            cmd_checkout, _d3_ns(_ou_pkg, as_agent="tmpldelta"))
         _ou_go, _ou_ge, _ou_gc = harness_outcome(
             cmd_checkout, _d3_ns(_ou_pkg, as_agent="goal-master"))
         _ou_co, _ou_ce, _ou_cc = harness_outcome(
@@ -9552,6 +9580,23 @@ def _selftest_checks(args, failures, names):
               and f"MISSING (or empty): "
                   f"{Path(_ou_pkg) / 'seats' / 'dotdeep' / 'sub' / 'deep.md'}" \
               in (_ou_ddo + _ou_dde))
+        check("a `<placeholder>` declared output is NOT demanded as a literal path: "
+              "`tmplhit` declares `planning/current/findings-<dimension>.md`, the six "
+              "real findings-*.md files exist, no file is named findings-<dimension>.md, "
+              "and checkout records `done` — the collapsed-planner shape",
+              _ou_thc is None and _ou_pair("tmplhit") == ("done", None)
+              and not (_ou_cur / "findings-<dimension>.md").exists()
+              and "MISSING" not in (_ou_tho + _ou_the))
+        check("a conditional `<placeholder>` output is not refused when the route did "
+              "not fire: `tmplmiss` declares `deltas-<seat-id>-round-<n>.md` with no "
+              "matching file and checkout records `done`",
+              _ou_tmc is None and _ou_pair("tmplmiss") == ("done", None)
+              and "MISSING" not in (_ou_tmo + _ou_tme))
+        check("a route-back that DID instantiate its delta file also checkouts `done`: "
+              "`tmpldelta` declares the same deltas template, the real "
+              "deltas-tmpldelta-round-1.md exists, no literal placeholder file",
+              _ou_tdc is None and _ou_pair("tmpldelta") == ("done", None)
+              and "MISSING" not in (_ou_tdo + _ou_tde))
         check("D29 (2026-08-20) A SUMMONED CHAIR'S PROSE-ONLY `## Outputs` BLOCK DOES NOT "
               "DOWNGRADE ITS `done` — `goal-master` (`is_summoned_seat`, never the name at "
               "the exemption site) checks out the SAME zero-token shape the `prose` control "

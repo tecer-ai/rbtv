@@ -28,6 +28,16 @@ _IOSPEC_OUTPUTS_SECTION = re.compile(r"##[ \t]*Outputs[ \t]*([\s\S]*?)(?=\n##[ \
 # unchanged) — a file at the goal folder's ROOT, with no subdirectory to name, has no OTHER
 # sanctioned spelling; a directory is declared by a file inside it.
 _IOSPEC_PATHISH = re.compile(r"`([^`\s]*/[^`\s]*\.[A-Za-z0-9]{1,6})`")
+# A PATHISH token that still carries `<placeholder>` is a template, not a file.
+# Checkout does not demand the literal string (the six real findings-* files, or
+# a route-back delta that never fired, must not be refused for it). Materialize
+# refuses the same shape so a new descriptor cannot project one.
+_OUTPUT_TEMPLATE = re.compile(r"<[^>]+>")
+
+
+def is_output_template(token):
+    """True when a declared-output path still carries an unexpanded `<placeholder>`."""
+    return bool(_OUTPUT_TEMPLATE.search(str(token or "")))
 # D36 (2026-08-20): THE ONE TYPED NON-FILE OUTPUT. An `## Outputs` bullet whose SCHEMA is
 # literally `chat` declares a product that is CONVERSATION — a verdict row on the bus, an answer,
 # a queue-request — and therefore has no path to check. It is a DECLARATION, not an absence: the

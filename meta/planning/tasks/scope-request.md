@@ -9,7 +9,7 @@ Deliver one executable build spec for the seeded component-part request, in whic
 
 <scope>
 - **Read:** the seeded request and every artifact it names; the target components' trees — their manifests, pools and existing parts; the authoring, destination and exposure law in the guides named in this task's Guides bullet.
-- **Write:** `forge-spec.md` in the goal folder — nothing else. The goal's ledgers take appends as always; no component artifact is touched.
+- **Write:** `./forge-spec.md` in the goal folder — nothing else. The goal's ledgers take appends as always; no component artifact is touched.
 - **Guides — read whole before writing:** `references/authoring-style.md`; `references/component-anatomy.md`; `references/exposure-choice.md`.
 </scope>
 

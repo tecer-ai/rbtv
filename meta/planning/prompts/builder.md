@@ -42,7 +42,7 @@ exposes:
 Every piece the spec ordered exists at its declared path, registered exactly as the spec decided, over components whose lint finding set is unchanged from the pre-build baseline; every piece NOT built is named with its reason. A silently missing row, or a new lint finding left standing, is a failure of this seat.
 
 ## Outputs
-- Schema: `forge-build.md` in the goal folder — first line exactly `build: COMPLETE|PARTIAL|ESCALATED`, then the recorded pre-build lint baseline and one row per spec piece {piece-id, kind, target path, registration acts, lint result}. Description: the ledger the judge tries the run against — the claim of what landed, which the judge verifies on disk rather than believes.
+- Schema: `./forge-build.md` in the goal folder — first line exactly `build: COMPLETE|PARTIAL|ESCALATED`, then the recorded pre-build lint baseline and one row per spec piece {piece-id, kind, target path, registration acts, lint result}. Description: the ledger the judge tries the run against — the claim of what landed, which the judge verifies on disk rather than believes.
 </io-spec>
 
 <permissions>

@@ -2875,6 +2875,16 @@ def render_descriptors(plan: dict, seats_cat: dict, units: dict, *,
         # (`OUTPROJ-3`): the warning must FIRE, by name, on a seat that still resolves nothing.
         # ⚠ A `chat` seat is DECLARED and silent here — the check-out admits its `done`.
         _decl, _toks, _chat = _coord_iospec_outputs()(plan["descriptors"][seat])
+        from coord import is_output_template as _is_output_template
+        _held = [t for t in _toks if _is_output_template(t)]
+        if _held:
+            raise Refuse(
+                "outputs-placeholder",
+                f"seat '{seat}': declared-output path still carries an unexpanded "
+                f"placeholder `{_held[0]}`. A `<…>` token is not a file path — name "
+                f"the real file (or `./name.md` at the goal root). The done-gate used "
+                f"to demand the literal string and refuse finished work",
+            )
         if _decl and not _toks and not _chat:
             plan["warnings"].append(
                 f"seat '{seat}': outputs-undeclarable — its io-spec `## Outputs` section "
@@ -7048,6 +7058,14 @@ def run_dag04_acceptance(check, env: dict) -> None:
               and _op_read(_op4_txt)[2] is True
               and _op4["warnings"] == [],
               str(_op4["warnings"])[:200])
+
+        _op5, _op5c = _op(_OP_PROSE,
+                          "- Write: the notes at `planning/current/findings-<dimension>.md`.")
+        check("a `<placeholder>` in a declared-output path is REFUSED at materialize "
+              "(`outputs-placeholder`) — the token is not a file; naming the six real "
+              "findings-* files (or `./name.md`) is the declaration",
+              _op5c == "outputs-placeholder",
+              str(_op5c))
 
         # D5 (seed-gates, 2026-08-19): a done-contract NAMING a probe lane
         # (`probe lane: `stools workspaces``) emits a machine-readable
