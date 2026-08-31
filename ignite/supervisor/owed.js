@@ -27,7 +27,7 @@
 // construction and the property this file was written to hold is gone. `reconcile.selftest.js`
 // `single owed computer` asserts exactly that against this file's source.
 
-const { classifyOwed } = require('./owed-from-endings');
+const { classifyOwed, finishEvent } = require('./owed-from-endings');
 
 const EMPTY_LEDGER = Object.freeze({
   seats: [],
@@ -116,6 +116,16 @@ function deriveLaunchable({
 // module lives under `supervisor/` and the record readers live under `engine/`, and a top-level
 // require in this direction would close a cycle through `seeding.js`.
 function deriveOwed(goalFolder, opts = {}) {
+  if (finishEvent(goalFolder)) {
+    return {
+      ...EMPTY_LEDGER,
+      finished: true,
+      classR: [],
+      states: {},
+      disagreements: {},
+      owed: false,
+    };
+  }
   const { ledger = null, graph = null } = opts;
   const fromLedgers = ledger
     ? classifyOwed(goalFolder, { ...opts, ...ledger })

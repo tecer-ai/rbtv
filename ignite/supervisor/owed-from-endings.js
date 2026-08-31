@@ -51,6 +51,35 @@ function workersPath(goalFolder) {
   return path.join(goalFolder, 'workers.md');
 }
 
+// -- THE FINISH EVENT (canonical source for "was it DECLARED finished?") --------------------------
+//
+// The lease answers "is it EXECUTING?" from the room and MUST stay blind to this event
+// (`probe-finish-edge.py` F5, `d-extinguishment-design-lock`). Watchers read THIS marker, never
+// `goal_states.stored='finished'` (`isGoalFinished`): live heart.db has zero such rows, and
+// existing finished goals already carry the append-only completion. Byte-identical to
+// `coord/records.py` FINISH_MARKER (PIN in owed-from-endings.selftest.js).
+const FINISH_MARKER = 'goal-finished: the finish edge fired';
+
+function finishMessagesPath(goalFolder) {
+  const coord = path.join(goalFolder, 'coordination', 'messages.md');
+  if (fs.existsSync(coord)) return coord;
+  return path.join(goalFolder, 'messages.md');
+}
+
+function finishEvent(goalFolder) {
+  if (!goalFolder) return false;
+  let text;
+  try { text = fs.readFileSync(finishMessagesPath(goalFolder), 'utf8'); } catch { return false; }
+  for (const block of text.split(/^## /m)) {
+    const nl = block.indexOf('\n');
+    const header = nl === -1 ? block : block.slice(0, nl);
+    if (!/\|\s*type:\s*completion\s*\|/.test(header)) continue;
+    const body = (nl === -1 ? '' : block.slice(nl)).trim();
+    if (body.startsWith(FINISH_MARKER)) return true;
+  }
+  return false;
+}
+
 function readCursor(goalFolder, chair) {
   let text;
   try { text = fs.readFileSync(workersPath(goalFolder), 'utf8'); } catch { return null; }
@@ -193,6 +222,22 @@ function classifyOwed(goalFolder, {
   SYSTEM_MAIL_SENDER,
   countersFile,
 } = {}) {
+  if (finishEvent(goalFolder)) {
+    return {
+      readyRefused: null,
+      deadSeats: [],
+      summonedSeats: [],
+      heldSeats: [],
+      classA: [],
+      classB: [],
+      classE: null,
+      seats: [],
+      live: [],
+      queued: [],
+      owed: false,
+      finished: true,
+    };
+  }
   const sessions = loadSessions(goalFolder);
   const messages = loadMessages(goalFolder);
   const last = lastBySeat(sessions);
@@ -293,4 +338,5 @@ function classifyOwed(goalFolder, {
 
 module.exports = {
   classifyEnding, classifyOwed, endingsForSeats, heldSeats, readCursor, workersPath,
+  finishEvent, FINISH_MARKER,
 };

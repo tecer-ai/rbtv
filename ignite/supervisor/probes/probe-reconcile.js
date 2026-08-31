@@ -7,21 +7,28 @@ const path = require('node:path');
 
 const HERE = __dirname;
 const SELFTEST = path.join(HERE, '..', 'reconcile.selftest.js');
+const FINISH = path.join(HERE, '..', 'finish-gate.selftest.js');
 const OUT_PATH = path.join(HERE, 'probe-reconcile.out');
 
-const r = spawnSync(process.execPath, [SELFTEST], {
+const finish = spawnSync(process.execPath, [FINISH], {
+  encoding: 'utf8', timeout: 120000, cwd: path.join(HERE, '..', '..'),
+});
+const hist = spawnSync(process.execPath, [SELFTEST], {
   encoding: 'utf8', timeout: 120000, cwd: path.join(HERE, '..', '..'),
 });
 const body = [
-  'probe-reconcile — runs supervisor/reconcile.selftest.js (derivation, the D33(a) word split, the D34 no-progress counter, the D44 stuck-brake, D35 mail, durability, pause gate, red arms)',
-  `exit: ${r.status}`,
-  r.stdout || '',
-  r.stderr ? `stderr:\n${r.stderr}` : '',
+  'probe-reconcile — finish-gate.selftest.js (resurrection / control / re-arm / red mutation) then reconcile.selftest.js',
+  `finish-gate exit: ${finish.status}`,
+  finish.stdout || '',
+  finish.stderr ? `finish-gate stderr:\n${finish.stderr}` : '',
+  `reconcile.selftest exit: ${hist.status}`,
+  hist.stdout || '',
+  hist.stderr ? `reconcile.selftest stderr:\n${hist.stderr}` : '',
 ].join('\n');
 fs.writeFileSync(OUT_PATH, body);
-if (r.status !== 0) {
+if (finish.status !== 0) {
   console.error(body);
-  process.exit(r.status == null ? 1 : r.status);
+  process.exit(finish.status == null ? 1 : finish.status);
 }
 console.log(body);
 process.exit(0);

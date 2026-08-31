@@ -55,6 +55,7 @@ const { seatFallback } = require('../chat/bus-ferry');
 // never disagree about which goals may be assigned to the daemon.
 const { uncastSeats } = require('./seeding');
 const { maybeReconcile, loadSessions } = require('./reconcile');
+const { finishEvent } = require('./owed-from-endings');
 // THE ROOM: the one detached-session opener (shared with the boot cockpit) and the one room
 // predicate. Neither is re-implemented here — see `openGoalRoom` below.
 const { composeDetachedSession } = require('./spawn/tmux');
@@ -517,6 +518,12 @@ async function runLaneWatch({
     if (!goal.startsWith('_') && laneIsPaused(goalFolder, engine && engine.heartStore)) {
       maybeReconcile({ goal, goalFolder, engine, say });
       skipped.push({ goal, reason: 'paused' });
+      continue;
+    }
+
+    if (!goal.startsWith('_') && finishEvent(goalFolder)) {
+      maybeReconcile({ goal, goalFolder, engine, say });
+      skipped.push({ goal, reason: 'finished' });
       continue;
     }
 

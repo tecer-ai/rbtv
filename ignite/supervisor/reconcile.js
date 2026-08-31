@@ -41,6 +41,7 @@ const {
 // `launchThroughDoor` is the single `heartStore.enqueue` on the owed path — the watcher no longer
 // has one of its own.
 const { deriveOwed } = require('./owed');
+const { finishEvent } = require('./owed-from-endings');
 const { launchThroughDoor } = require('./launch-door');
 const { DOORS } = require('./doors');
 // ── THE PROVIDER-CLASSIFICATION HOOKUP [spec-recovery §3, T1-R13, C-10] ───────────────────────
@@ -818,6 +819,14 @@ function reconcileGoal({
     if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
     if (say) say('info', 'reconcile: skipped — goal is paused', { goal });
     return { skipped: 'paused', goal };
+  }
+
+  // Honour the finish EVENT (append-only FINISH_MARKER completion), never the store word.
+  // Same shape as pause: watchers terminate here so a dead room is not rebuilt and no chair launches.
+  if (goalFolder && finishEvent(goalFolder)) {
+    if (!dryRun && heartStore) setPassAt(heartStore, goal, at);
+    if (say) say('info', 'reconcile: skipped — goal is finished', { goal });
+    return { skipped: 'finished', goal };
   }
 
   const actions = [];

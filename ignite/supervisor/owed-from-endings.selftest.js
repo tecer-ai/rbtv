@@ -36,7 +36,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { owedFromLedgers } = require('./reconcile');
-const { readCursor } = require('./owed-from-endings');
+const { readCursor, FINISH_MARKER } = require('./owed-from-endings');
 const counters = require('./attempt-counters');
 const { seedRecoveryConfig, loadRecoveryConfig } = require('./recovery-config');
 
@@ -467,9 +467,19 @@ function caseRedFrontierCheckIgnored() {
   } catch (err) { fail('(RED 3/4) frontier check ignored', err); }
 }
 
+function caseFinishMarkerPin() {
+  try {
+    const recordsPy = fs.readFileSync(path.join(__dirname, '..', 'coord', 'records.py'), 'utf8');
+    assert.ok(recordsPy.includes(`FINISH_MARKER = "${FINISH_MARKER}"`),
+      `FINISH_MARKER drifted from records.py: ${JSON.stringify(FINISH_MARKER)}`);
+    pass('(PIN) FINISH_MARKER is byte-identical to coord/records.py');
+  } catch (err) { fail('(PIN) FINISH_MARKER', err); }
+}
+
 caseUnreadAfterCursorSameMinuteAsCheckin();
 caseReadMessageBeforeCursorNotWoken();
 caseCursorIsNewestRowNotFirst();
+caseFinishMarkerPin();
 caseBrakeHoldsAfterNDeaths();
 caseFrontierAdvanceResets();
 caseRedRevertToCheckinLogic();

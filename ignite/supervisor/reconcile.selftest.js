@@ -14,6 +14,7 @@ const {
 const counters = require('./attempt-counters');
 const { classifyEnding } = require('./owed-from-endings');
 const { bind } = require('../state-store');
+require('./finish-gate.selftest.js');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reconcile-selftest-'));
 
@@ -385,7 +386,7 @@ say('── D33(a): the incomplete seat is enqueued BY NAME; the leader once, wi
     // the F-3 defect: a tool advertising a return path that returns nothing. `rule-disposition`
     // (the ruling/HOLD verb) was deleted [T2-R12, T1-R9] — the payload must say so, not name it
     // as a live instrument.
-    for (const needle of ['checker', 'failed', 'runner',
+      for (const needle of ['checker', 'failed', 'runner',
       'No runtime ruling instrument exists', '[T2-R12, T1-R9]',
       'launch --only <seat> --declare-only', 'CLEARING IS NOT A RELAUNCH',
       'launch --only <seat> --rerun', 'A CRASHED SEAT IS RE-RUN IN ONE ACT']) {
