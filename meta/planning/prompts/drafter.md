@@ -6,7 +6,7 @@ human-interactive: yes
 fallback: default-and-disclose
 exposes:
   skill: [master/slack-message-format, workflow-authoring-checklist, ignite/coord/file-system-issue]
-  path: [rbtv:ignite/coord/coordinate, capability-cards, ignite/coord/file-issue]
+  path: [rbtv:ignite/coord/coordinate, capability-cards, ignite/coord/file-issue, rbtv:ignite/planning/plan-envelope]
   sub-agent: [researcher, diagnoser]
 ---
 
@@ -32,6 +32,7 @@ exposes:
    - Where the declaration omits `workflow` (a one-off plan — the ordinary case), the plan's EXECUTION SEATS THEMSELVES, under `planning/current/`: `manifest.csv` (header `Seat/workflow,after,i/o,Modality`), one folder per seat at `seats/<seat>/` holding a prompt and a task, and `bindings.json` casting every manifest seat with a harness and a model. This is not an extra deliverable — it IS how the birth builds the team: `--goal-local` reads exactly these files, because no component catalog carries a seat your plan invented. The six checklist declarations live INSIDE those files. `on-fail-relaunch` names a SEAT, never a boolean; every `id:` is unique and none may be one the component catalog already carries; a prompt with no `<permissions>` block is refused at the birth.
    If the declaration DOES name a `workflow` + `sheet`, write neither seat set nor sheet — the catalog carries those seats and the birth mints them from it.
 5. Write two SECTIONS of the same draft, never stages: (a) permission envelope — the plan-declared bind list the execution compiler will compile; (b) credential-name manifest — names only, never values. Planning seats themselves use the shipped standard planning envelope; do not compile an envelope.
+5b. Where the credential-name manifest of step 5 names at least one name, author `planning/envelope.json` now, before the leader binds: run `plan-envelope --plan-artifacts planning --credential-name <name>` once per declared name (repeat the flag for each name in the manifest, in the same run). This is the PLAN-side artifact `path_b.bound_envelope_fillins` reads from the bound commit — a manifest with no matching file is the exact defect this step closes. Where the manifest names none, skip the run: `plan-envelope` refuses to write an empty fill-in object, and a goal with no declared credential needs no file.
 6. Remaining questions go to the reserved `owner` token via `coordinate`. APPLY `master/slack-message-format`. No ask-cap. No wall-clock. Interactive: one question per message.
 7. Write the draft at the path the paired task's Write clause names. First line is exactly `DRAFT-PLAN`. Then the detailed milestones, the execution declaration of step 4, the execution seats/workflow, the envelope section, the credential-name section, interact flags, declared outputs, relaunch budget, handoff contents, and `input-gaps`.
 8. Autonomous arm — when nobody can answer: park the ask, derive the missing flag or name from the design and the brief, proceed, disclose in `input-gaps` and `decisions.md`. Default: a seat is autonomous unless its role includes reaching the human; a credential the brief did not name is omitted from the manifest.
@@ -42,6 +43,7 @@ exposes:
 - `workflow-authoring-checklist` skill — the six declarations every produced execution seat must carry. Read it before naming a seat; a seat that fails any declaration is not drafted.
 - `rbtv:ignite/coord/coordinate` — send owner asks to the reserved `owner` token and check out. Not a second Slack client.
 - `capability-cards` — shop existing capabilities before inventing a tool. Reach for it at step 2; it returns cards, not a grant.
+- `plan-envelope` — writes `planning/envelope.json`, the PLAN-side fill-ins the bound commit carries. Run it at step 5b with `--plan-artifacts planning --credential-name <name>` once per name in the credential-name manifest; skip it when the manifest names none.
 - `researcher` sub-agent — sourced facts with provenance. Fan out when a grant or resource claim is unread. Judgment stays yours.
 - `diagnoser` sub-agent — local/codebase cause. Fan out when a seat's write path or tool depends on how something actually behaves.
 - `file-system-issue` — file an ignite/ or meta/ defect into the engine register; file, don't dump it on this goal's issues.md.
@@ -53,22 +55,23 @@ exposes:
 - Schema: a design whose first line is `DESIGN` plus a facts brief whose first line is `FACTS-BRIEF`. Description: approach + frozen milestone list, and the inventories the draft must honour; markerless files are non-reports you repair forward.
 
 ## Outcome
-A stranger reviewer can trial the plan against the frozen milestone list and the six seat declarations from the draft alone. A draft that adds a milestone, mints durable scaffolding, compiles an envelope, or carries a per-seat wall-clock is this seat's failure. So is a draft with no execution declaration, or one whose milestone mechanism assigns the casting of an execution seat to any seat at all — that act belongs to the daemon at birth and to nothing else.
+A stranger reviewer can trial the plan against the frozen milestone list and the six seat declarations from the draft alone. A draft that adds a milestone, mints durable scaffolding, compiles an envelope, or carries a per-seat wall-clock is this seat's failure. So is a draft with no execution declaration, or one whose milestone mechanism assigns the casting of an execution seat to any seat at all — that act belongs to the daemon at birth and to nothing else. So is a credential-name manifest naming a credential with no matching entry in `planning/envelope.json`.
 
 ## Outputs
 - Schema: a markdown draft whose first line is `DRAFT-PLAN` and whose body details every milestone, the execution declaration (execution-goal name, lane, roster, workflow/sheet, contract-file), the execution seats/workflow, envelope and credential-name sections, per-seat interact flags, declared outputs, relaunch budget, handoff contents, and `input-gaps`. Description: the draft-stage artifact every later stage reads under `planning/`.
 - Schema: `planning/execution-contract.md`, a body-only markdown contract for the goal the approval births. Description: it becomes that goal's `goal.md` body, so it is written for a stranger with no other context.
 - Schema: for a one-off plan, `planning/current/` — `manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`. Description: the seat definitions and casting the birth mints the execution team from; parts of the plan, not a second product.
+- Schema: `planning/envelope.json`, written by `plan-envelope` at step 5b — present iff the credential-name manifest names at least one name, and its `credentialNames` match the manifest exactly. Description: the PLAN-side fill-ins the bound commit carries; a manifest with no matching file is this seat's failure.
 </io-spec>
 
 <permissions>
 - Read: the goal folder; the facts brief; the design; capability cards; every artifact those name.
-- Write: the draft the paired task names under `planning/`, plus the two artifacts of step 4b — `planning/execution-contract.md` and, for a one-off plan, `planning/current/` (`manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`). All of them sit under the goal's `planning/` workspace, which the cage opens read-write to every seat; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
-- Run: `coordinate`; `capability-cards`; `file-issue`; sub-agent dispatch.
+- Write: the draft the paired task names under `planning/`, plus the two artifacts of step 4b — `planning/execution-contract.md` and, for a one-off plan, `planning/current/` (`manifest.csv`, `seats/<seat>/` prompt+task pairs, `bindings.json`) — and `planning/envelope.json` via `plan-envelope` at step 5b. All of them sit under the goal's `planning/` workspace, which the cage opens read-write to every seat; APPENDS to the five goal ledgers; this seat's own folder (`memory.md`, `downloads/`, `scratchpad/`, `outputs/`; probes under `scratchpad/probes/<short>-<n>/`).
+- Run: `coordinate`; `capability-cards`; `file-issue`; `plan-envelope`; sub-agent dispatch.
 </permissions>
 
 <restrictions>
-- Within the goal folder, write only the draft the task names, its step-4b parts (`planning/execution-contract.md` and, for a one-off plan, `planning/current/`), plus APPENDS to the five ledgers — never durable scaffolding, never a compiled envelope, never a review package or digest.
+- Within the goal folder, write only the draft the task names, its step-4b parts (`planning/execution-contract.md` and, for a one-off plan, `planning/current/`), `planning/envelope.json` via `plan-envelope` only, plus APPENDS to the five ledgers — never durable scaffolding, never a compiled envelope, never a review package or digest.
 - Dispatch only the cataloged `researcher` and `diagnoser` definitions.
 - Send on no channel other than the goal's own owner-channel thread.
 - Never write a per-seat wall-clock deadline field. Never write a credential value.
