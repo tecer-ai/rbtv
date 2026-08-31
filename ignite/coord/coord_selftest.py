@@ -9577,9 +9577,9 @@ def _selftest_checks(args, failures, names):
               _ou_ddc is None
               and _ou_pair("dotdeep") == ("failed", "outputs-missing")
               and "`done` is not written" in (_ou_ddo + _ou_dde)
-              and f"MISSING (or empty): "
-                  f"{Path(_ou_pkg) / 'seats' / 'dotdeep' / 'sub' / 'deep.md'}" \
-              in (_ou_ddo + _ou_dde))
+               and f"MISSING (or empty): "
+                   f"{Path(_ou_pkg) / 'seats' / 'dotdeep' / 'sub' / 'deep.md'}" \
+               in (_ou_ddo + _ou_dde))
         check("a `<placeholder>` declared output is NOT demanded as a literal path: "
               "`tmplhit` declares `planning/current/findings-<dimension>.md`, the six "
               "real findings-*.md files exist, no file is named findings-<dimension>.md, "
@@ -15551,17 +15551,43 @@ def _selftest_checks(args, failures, names):
             check("IPH-11 fail-status: the read-only verb answers off the SAME resolver the gate "
                   "enforces — below the bar it reports at_bar false with the escalation absent; "
                   "at the bar, after the row lands, both flags read true and `source` names the "
-                  "rung that answered",
+                  "rung that answered; `halted` mirrors `at_bar OR escalated` in both cases and "
+                  "`discharged` is false in both (no PASS has landed yet)",
                   _fs_below == {"milestone": "m1", "fail_count": 2, "bar": 3, "at_bar": False,
-                                "escalated": False, "source": "goal"}
+                                "escalated": False, "discharged": False, "halted": False,
+                                "source": "goal"}
                   and _fs_at == {"milestone": "m1", "fail_count": 3, "bar": 3, "at_bar": True,
-                                 "escalated": True, "source": "goal"})
+                                 "escalated": True, "discharged": False, "halted": True,
+                                 "source": "goal"})
+
             check("IPH-11 fail-status: it writes NOTHING — the message log is byte-identical "
                   "across two further calls (one of them on a milestone at its bar, the arm a "
                   "reader that quietly escalated would fail) and the package gains no file; it "
                   "resolves through base_dir(register=False), so not even a run tag is written",
                   (bI / "messages.md").read_bytes() == _fs_bytes
                   and sorted(p.name for p in bI.parent.rglob("*")) == _fs_files)
+
+            # task 24 discharge arm — escalate, then a later PASS on the SAME milestone: raw
+            # `escalated` stays true forever (at-most-once history), but `halted` must flip to
+            # false the moment a newer PASS verdict lands, and `discharged` must say why. Runs
+            # AFTER the writes-nothing check above, which needs `bI`'s log untouched since its
+            # own snapshot — this arm mutates it on purpose (fail81 + verdict), so it comes last.
+            fail81(bI, "m1")           # one more FAIL past the bar — escalate() below is a no-op
+            nsI3 = pI.parse_args(["--base", str(bI), "escalate", "m1", "--as", "dod-judge"])
+            harness_outcome(nsI3.func, nsI3)  # already-escalated (at-most-once) — same row stands
+            nsI4 = pI.parse_args(["--base", str(bI), "verdict", "m1", "clause 1: fixed",
+                                  "--pass", "--to", "plan-unblock-checker", "--inline",
+                                  "--as", "dod-judge"])
+            harness_outcome(nsI4.func, nsI4)
+            _fs_discharged = fs81("m1")
+            check("task 24 discharge arm: after escalate-then-PASS, fail-status reports "
+                  "`escalated` still true (the row on disk is unchanged, at-most-once history) "
+                  "but `discharged` true and `halted` false — a milestone the daemon must "
+                  "treat as accepted, not HALTED",
+                  _fs_discharged["escalated"] is True
+                  and _fs_discharged["discharged"] is True
+                  and _fs_discharged["halted"] is False
+                  and _fs_discharged["at_bar"] is False)
 
             # ---- IPH-26: THE VERDICT VERB, driven through the REAL PARSER -------------------
             # ⚠ EVERY ARM ABOVE (and 7.581's) BUILDS ITS VERDICT ROWS BY CALLING

@@ -1002,6 +1002,27 @@ def escalation_row(base, milestone_id):
                  and ESCALATION_MARKER in "\n".join(b["lines"][1:])), None)
 
 
+def escalation_discharged(base, milestone_id):
+    """True when the milestone's escalation row exists AND a later trial verdict for the same
+    milestone reads PASS — the case `fail-status` must stop reporting as a permanent HALTED.
+    False when there is no escalation, or the escalation is still the newest word on the
+    milestone (a still-open escalation, or one followed only by more FAILs).
+
+    Ordering is the log's own `num` — monotonic, allocated under `coord_lock` — never a
+    timestamp: two rows can share a `now()` second but never a `num`."""
+    esc = escalation_row(base, milestone_id)
+    if esc is None:
+        return False
+    want = str(milestone_id)
+    for b in load_messages(base)[1]:
+        if b["num"] <= esc["num"] or b["type"] != "verdict" or milestone_of(b) != want:
+            continue
+        m = VERDICT_CLAUSE.search("\n".join(b["lines"][1:]))
+        if m and m.group(1).upper() == "PASS":
+            return True
+    return False
+
+
 def trailing_fail_verdicts(base, milestone_id):
     """The length of the TRAILING run of FAIL trial verdicts for `milestone_id` — the two-strikes
     count, recomputed from the log every call. Walks from the tail over `type: verdict` rows
@@ -1234,12 +1255,22 @@ def cmd_fail_status(args):
     base = base_dir(args, register=False)   # a command whose contract is "this writes nothing"
     count = trailing_fail_verdicts(base, args.milestone)
     bar, source = resolve_retry_threshold(base, args.milestone)
+    at_bar = count >= bar
+    escalated = escalation_row(base, args.milestone) is not None
+    # `escalated` is kept as raw history — an at-most-once fact about the log, never erased by a
+    # later PASS. `halted` is the derived, discharge-aware authority every consumer must gate on:
+    # true while at the bar, or while an escalation stands with no newer PASS verdict for this
+    # milestone; false once a PASS clears it, even though `escalated` still reads true.
+    discharged = escalated and escalation_discharged(base, args.milestone)
+    halted = at_bar or (escalated and not discharged)
     payload = {
         "milestone": args.milestone,
         "fail_count": count,
         "bar": bar,
-        "at_bar": count >= bar,
-        "escalated": escalation_row(base, args.milestone) is not None,
+        "at_bar": at_bar,
+        "escalated": escalated,
+        "discharged": discharged,
+        "halted": halted,
         "source": source,
     }
     if getattr(args, "json", False):
@@ -1248,9 +1279,12 @@ def cmd_fail_status(args):
         print(f"milestone-{payload['milestone']}: {payload['fail_count']} consecutive FAIL "
               f"verdict(s), bar {payload['bar']} (from {payload['source']})")
         print(f"at-bar: {str(payload['at_bar']).lower()}   "
-              f"escalated: {str(payload['escalated']).lower()}")
-        if payload["at_bar"] or payload["escalated"]:
+              f"escalated: {str(payload['escalated']).lower()}   "
+              f"halted: {str(payload['halted']).lower()}")
+        if payload["halted"]:
             print("=> the contract is HALTED: queue nothing here until the owner answers")
+        elif payload["escalated"]:
+            print("=> escalation discharged: a later PASS cleared the halt, queueing may resume")
         else:
             print("=> below the bar: one gap-fill pass is warranted")
     return 0
