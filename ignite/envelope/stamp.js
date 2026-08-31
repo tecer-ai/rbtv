@@ -11,13 +11,13 @@ const { reasonFrom } = require('../supervisor/spawn/seat-grants');
 // The handle stays as the LAST resort — a caller with no workspace at all (the envelope selftest)
 // still gets its row — and it is reached through `openEndingStore`, never a second `HeartStore`,
 // because that class holds a process-wide writer slot the caller is already sitting in.
-function stampLaunchRefused({ heartStore, workspaceRoot, dbPath, goal, seat, refuse }) {
+function stampLaunchRefused({ heartStore, workspaceRoot, dbPath, goal, seat, refuse, reasonClass = 'launch-refused' }) {
   const { bind, endingStorePath, openEndingStore } = require('../state-store');
   const fields = {
     goal,
     seat,
     ending: 'failed',
-    reason_class: 'launch-refused',
+    reason_class: reasonClass,
     evidence_pointer: reasonFrom(refuse),
     diagnostic: reasonFrom(refuse),
   };

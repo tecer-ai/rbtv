@@ -1446,7 +1446,8 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
     try {
       ({ key: specKeyResolved, spec: profile } = launchSpecForSeat(config.launchSpecs || {}, workdir, log));
     } catch (err) {
-      if (err.code === E_UNCAST_SEAT && !parseSeatPath(workdir) && !parseServiceSeatPath(workdir)) {
+      const dispatchSeatForRefusal = parseSeatPath(workdir) || parseServiceSeatPath(workdir);
+      if (err.code === E_UNCAST_SEAT && !dispatchSeatForRefusal) {
         throw new SpawnError(
           E_SEATLESS_GOAL_DISPATCH,
           `REFUSING SEATLESS DISPATCH: ${workdir} is not a canonical seat folder `
@@ -1456,6 +1457,24 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           + 'job at a (goal, seat) pair.',
           { workdir, missingField: 'seat', sessionMode },
         );
+      }
+      // ⚠ THE SAME SEAM AS THE CAGE REFUSAL — `stampLaunchRefused`, not a second stamping site.
+      // Until this call existed, a seat refused HERE (uncast, or cast to an unmapped spec — the
+      // `model:` short-alias case `859b8428` newly produces) got no ending at all: the cage-refusal
+      // callback wired into `composeCageFor` never runs because the launch never reaches it, so
+      // `reconcile.js`'s class-A leader path had nothing to read for that seat (`refusal-ending-
+      // stamp`, loose-ends.md). `reason_class: 'configuration-error'` (the closed vocabulary's own
+      // word for an uncast/unmapped cast — `state-store/vocabulary.js#REASON_CLASSES`) distinguishes it from a cage
+      // refusal in the same store.
+      if (dispatchSeatForRefusal) {
+        stampLaunchRefused({
+          heartStore,
+          workspaceRoot: dispatchSeatForRefusal.workspaceRoot,
+          goal: dispatchSeatForRefusal.goal,
+          seat: dispatchSeatForRefusal.seat,
+          refuse: { reason: err.message, code: err.code },
+          reasonClass: 'configuration-error',
+        });
       }
       throw err;
     }
@@ -1812,6 +1831,21 @@ function createSpawnManager({ heartStore, configPath, logger = null, userManager
           + 'and there is nothing to launch. Materialize the seat, or pass a real seat folder.',
           { workdir: seatDir, seat: seatName || null, missingField: 'seat.md' },
         );
+      }
+      // ⚠ SAME SEAM AS THE HEADLESS DOOR ABOVE AND THE CAGE REFUSAL BELOW — `stampLaunchRefused`.
+      // A materialized seat (seat.md exists, so this IS a real seat) refused at spec resolution —
+      // uncast, or cast to a spec the table doesn't carry (the `model:` short-alias case) — must
+      // get an ending here too, or the pane door repeats the headless door's blind spot.
+      const refusedSeatPath = parseSeatPath(path.resolve(seatDir));
+      if (refusedSeatPath) {
+        stampLaunchRefused({
+          heartStore,
+          workspaceRoot: refusedSeatPath.workspaceRoot,
+          goal: refusedSeatPath.goal,
+          seat: refusedSeatPath.seat,
+          refuse: { reason: err.message, code: err.code },
+          reasonClass: 'configuration-error',
+        });
       }
       throw err;
     }
