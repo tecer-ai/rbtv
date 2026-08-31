@@ -302,7 +302,7 @@ function caseStaleDoneOverriddenByProvider(done) {
   // Sitting 10 is a LATER sitting of the SAME seat: sessions.csv names it and its own start,
   // AFTER the stale `done` above.
   writeSessionsCsv(goalFolder, [
-    { session: 'b6731ba8-sitting10', seat: 'leader', started: '2026-08-28T22:17:39Z' },
+    { session: 'b6731ba8-sitting10', seat: 'leader', started: '2026-08-28 22:17' },
   ]);
   deadPid((pid) => {
     try {
@@ -340,7 +340,7 @@ function caseSameSittingDoneStillStands(done) {
   fs.mkdirSync(goalFolder, { recursive: true });
   // This sitting started FIRST, then declared `done` — its own declaration, stamped AFTER its
   // own start, exactly the ordinary shape every real sitting has.
-  writeSessionsCsv(goalFolder, [{ session: 'sess-same', seat: 'kappa', started: '2026-08-28T09:00:00Z' }]);
+  writeSessionsCsv(goalFolder, [{ session: 'sess-same', seat: 'kappa', started: '2026-08-28 09:00' }]);
   const outFile = path.join(tmpRoot, 'kappa-declared.txt');
   fs.writeFileSync(outFile, 'work', 'utf8');
   store.api.stampSeatDeclare({
@@ -387,7 +387,7 @@ function caseRedMutationStaleGuard(doneCb) {
     const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-'));
     const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g9');
     fs.mkdirSync(goalFolder, { recursive: true });
-    writeSessionsCsv(goalFolder, [{ session: 'sess-new9', seat: 'mu', started: '2026-08-28T22:17:39Z' }]);
+    writeSessionsCsv(goalFolder, [{ session: 'sess-new9', seat: 'mu', started: '2026-08-28 22:17' }]);
     const outFile = path.join(tmpRoot, 'mu-declared.txt');
     fs.writeFileSync(outFile, 'work', 'utf8');
     store.api.stampSeatDeclare({
@@ -414,7 +414,7 @@ function checkDeclaredEndingIsStaleUnit() {
     const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-unit-'));
     const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g-unit');
     fs.mkdirSync(goalFolder, { recursive: true });
-    writeSessionsCsv(goalFolder, [{ session: 'sess-unit', seat: 'nu', started: '2026-08-28T22:17:39Z' }]);
+    writeSessionsCsv(goalFolder, [{ session: 'sess-unit', seat: 'nu', started: '2026-08-28 22:17' }]);
     withWorkspaceRoot(workspaceRoot, () => {
       const stale = declaredEndingIsStale(
         { stamped_at: '2026-08-28T22:10:11.000Z' },
@@ -436,6 +436,59 @@ function checkDeclaredEndingIsStaleUnit() {
   } catch (err) { fail('(unit) declaredEndingIsStale', err); }
 }
 checkDeclaredEndingIsStaleUnit();
+
+// d-overlap-row-close: `declaredEndingIsStale` reads `started` off `sessions.csv` — a naive
+// `YYYY-MM-DD HH:MM` local wall-clock string, no offset marker — and compares it against
+// `stamped_at`, an ISO string with an explicit `Z`. Every unit check above runs in THIS process,
+// which inherits the box's own timezone (`Etc/UTC`) — so a guard that silently mis-parsed
+// `started` as UTC would still measure correct here, exactly the vacuous-check shape this run has
+// already hit twice. This arm forces a NON-UTC offset (`America/New_York`, TZ env only takes
+// effect in a fresh process) and re-derives what "before start" / "after start" mean in THAT
+// zone, so a guard that dropped back to `Date.parse`'s implementation-defined parsing of the
+// space-separated format would be caught the moment it disagreed with the constructor-based
+// arithmetic below — not merely "trusted to already agree".
+function checkDeclaredEndingIsStaleNonUtcTz() {
+  try {
+    const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'ws-tz-'));
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', 'g-tz');
+    fs.mkdirSync(path.join(goalFolder, 'coordination'), { recursive: true });
+    // The sitting's own boot, written the way `records.py#now()` actually writes it: a naive
+    // local clock reading, no offset.
+    const startedLocal = '2026-08-28 22:17';
+    fs.writeFileSync(
+      path.join(goalFolder, 'coordination', 'sessions.csv'),
+      'session-id,seat,started\nsess-tz,xi,2026-08-28 22:17\n', 'utf8',
+    );
+    // Independently derived, in THIS (UTC) process, what that wall-clock reading means under
+    // America/New_York (UTC-4 in August, EDT) — the arithmetic the guard must reproduce without
+    // ever running in that zone itself.
+    const [y, mo, d] = [2026, 8, 28];
+    const [h, mi] = [22, 17];
+    const startedUtcMs = Date.UTC(y, mo - 1, d, h + 4, mi); // EDT = UTC-4
+    const beforeIso = new Date(startedUtcMs - 5 * 60 * 1000).toISOString();  // 5 min before start
+    const afterIso = new Date(startedUtcMs + 5 * 60 * 1000).toISOString();   // 5 min after start
+
+    const script = `
+      process.env.RBTV_IGNITE_WORKSPACE_ROOT = ${JSON.stringify(workspaceRoot)};
+      const { declaredEndingIsStale } = require(${JSON.stringify(path.join(__dirname, 'death-stamp.js'))});
+      const stale = declaredEndingIsStale({ stamped_at: ${JSON.stringify(beforeIso)} }, { goal: 'g-tz', session: 'sess-tz' });
+      const stands = declaredEndingIsStale({ stamped_at: ${JSON.stringify(afterIso)} }, { goal: 'g-tz', session: 'sess-tz' });
+      process.stdout.write(JSON.stringify({ stale, stands }));
+    `;
+    const out = execFileSync(process.execPath, ['-e', script], {
+      env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8',
+    });
+    const { stale, stands } = JSON.parse(out);
+    assert(stale === true,
+      `under a non-UTC offset, a done stamped BEFORE the sitting's local start must be stale ` +
+      `(started=${startedLocal} America/New_York, stamped=${beforeIso}), got stale=${stale}`);
+    assert(stands === false,
+      `under a non-UTC offset, a done stamped AFTER the sitting's local start must stand ` +
+      `(started=${startedLocal} America/New_York, stamped=${afterIso}), got stands=${stands}`);
+    pass('(tz) declaredEndingIsStale decides correctly under a non-UTC (America/New_York) offset');
+  } catch (err) { fail('(tz) declaredEndingIsStale under non-UTC offset', err); }
+}
+checkDeclaredEndingIsStaleNonUtcTz();
 
 const cases = [
   caseCrashBeforeCheckIn,

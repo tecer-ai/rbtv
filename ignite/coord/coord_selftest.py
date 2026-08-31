@@ -14925,6 +14925,108 @@ def _selftest_checks(args, failures, names):
               "is not merely unused, it does not exist, so no ceremony can resurrect the file",
               not (goal4 / "runs.csv").exists())
 
+        # ---- d-overlap-row-close: OVERLAPPING SITTINGS bound by SESSION IDENTITY, not recency --
+        # Two open rows for ONE seat is the shape a `--renew` produces: the new sitting's row opens
+        # BEFORE the old one has checked out. `session_close` used to pick the LAST OPEN row in
+        # file order unconditionally — so when the OLDER sitting checked out FIRST, it closed the
+        # NEWER sitting's row instead of its own: the older row leaked open forever, and the newer
+        # sitting could never check out at all (the row it would have closed was already gone).
+        _ov_pkg = Path(tempfile.mkdtemp())
+        (_ov_pkg / "workers").mkdir(parents=True)
+        _ov_ns = argparse.Namespace(package=str(_ov_pkg), base=None, workers_dir=None,
+                                    as_agent=None, force=False, pane=None)
+        _ov_seat = {"agent": "rho", "cwd": str(_ov_pkg), "harness": "claude", "model": "",
+                    "folder": None}
+        _ov_older, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)  # opens FIRST
+        _ov_newer, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)  # a --renew
+
+        def _ov_open_ids():
+            hh, rr = read_csv_table(sessions_csv(_ov_pkg), SESSIONS_COLS)
+            ii = {c: n for n, c in enumerate(hh)}
+            return {pad_row(r, hh)[ii["session-id"]] for r in rr
+                    if pad_row(r, hh)[ii["seat"]] == "rho" and not pad_row(r, hh)[ii["ended"]]}
+
+        check("d-overlap-row-close SETUP: two overlapping open rows for one seat — the older "
+              "sitting has not checked out and the newer sitting (a renew) is already open",
+              _ov_open_ids() == {_ov_older, _ov_newer})
+
+        # RED-FIRST: `own_open_row` stubbed OUT reproduces the PRE-FIX code exactly (the row
+        # selection loop `session_close` falls back to when it cannot prove an identity) — proving
+        # the fix, not merely the fallback, is what makes the next check pass. With carrier
+        # identity resolving to the OLDER sitting's own session-id, the pre-fix shape STILL closes
+        # the NEWER row: it never consulted identity at all.
+        _ov_own_open_row_real = globals()["own_open_row"]
+        _ov_carrier_real = carrier.carrier_self_session
+        globals()["own_open_row"] = lambda *a, **kw: None          # simulates "identity: absent"
+        carrier.carrier_self_session = lambda: _ov_older
+        try:
+            _ov_red = session_close(_ov_ns, "rho")
+        finally:
+            globals()["own_open_row"] = _ov_own_open_row_real
+        check("d-overlap-row-close RED: with row selection reverted to file order alone (identity "
+              "resolves to the OLDER sitting but is never consulted), the OLDER sitting's own "
+              "checkout closes the NEWER sitting's row instead — the exact defect measured, and "
+              "the newer sitting is now the one that can never check out",
+              _ov_red == _ov_newer and _ov_open_ids() == {_ov_older})
+
+        # Undo the RED probe's damage (the OLDER row it left stranded open, exactly as the real
+        # defect strands it) with the FIXED code now back in place, then open a fresh overlapping
+        # pair for the FIXED proof.
+        _ov_closed_stray = session_close(_ov_ns, "rho")
+        check("d-overlap-row-close cleanup: the fixed code closes the RED probe's own stranded "
+              "older row (identity resolves to it) before the FIXED proof begins",
+              _ov_closed_stray == _ov_older and _ov_open_ids() == set())
+        _ov_older2, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)
+        _ov_newer2, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)
+        # `carrier.carrier_self_session` is already stubbed to answer `_ov_older` from above; point
+        # it at this pair's OLDER session-id and let the OLDER sitting check out FIRST.
+        carrier.carrier_self_session = lambda: _ov_older2
+        try:
+            _ov_closed_a = session_close(_ov_ns, "rho")
+        finally:
+            pass
+        check("d-overlap-row-close FIXED (older checks out first): bound by its OWN session "
+              "identity, the older sitting's checkout closes ITS OWN row — the newer sitting's "
+              "row is untouched and still open",
+              _ov_closed_a == _ov_older2 and _ov_open_ids() == {_ov_newer2})
+        carrier.carrier_self_session = lambda: _ov_newer2
+        try:
+            _ov_closed_b = session_close(_ov_ns, "rho")
+        finally:
+            carrier.carrier_self_session = _ov_carrier_real
+        check("d-overlap-row-close FIXED (then the newer checks out): the row it would have "
+              "closed was never stolen, so it closes cleanly too — BOTH orders work, and no row "
+              "is left open",
+              _ov_closed_b == _ov_newer2 and _ov_open_ids() == set())
+
+        # THE PID/PID-STARTTIME LANE (the attached/tmux twin of the carrier lane above, F-6's
+        # OTHER identity source): no carrier unit, but the calling pane's own (pid, pid-starttime)
+        # matches exactly one open row — the same identity pair `session_open` records at boot and
+        # the seat-identity gate corroborates elsewhere.
+        _ov_older3, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)
+        _ov_newer3, _ = session_open(_ov_ns, _ov_seat, since=time.time(), wait=0.0)
+        _ov_hh, _ov_rr = read_csv_table(sessions_csv(_ov_pkg), SESSIONS_COLS)
+        _ov_ii = {c: n for n, c in enumerate(_ov_hh)}
+        for _ov_r in _ov_rr:
+            pad_row(_ov_r, _ov_hh)
+            if _ov_r[_ov_ii["session-id"]] == _ov_older3:
+                _ov_r[_ov_ii["pid"]] = "31337"
+                _ov_r[_ov_ii["pid-starttime"]] = "998877"
+        write_csv_table(sessions_csv(_ov_pkg), _ov_hh, _ov_rr)
+        _ov_detect_real = globals()["detect_pane"]
+        _ov_ident_real = globals()["pane_identity"]
+        globals()["detect_pane"] = lambda override=None: "%99"
+        globals()["pane_identity"] = lambda pane: ("31337", "998877", "34")
+        try:
+            _ov_closed_c = session_close(_ov_ns, "rho")
+        finally:
+            globals()["detect_pane"] = _ov_detect_real
+            globals()["pane_identity"] = _ov_ident_real
+        check("d-overlap-row-close FIXED (pid/pid-starttime lane, no carrier unit): the calling "
+              "pane's own (pid, pid-starttime) matches exactly the OLDER row, so that row closes "
+              "even though it is not the last-open one",
+              _ov_closed_c == _ov_older3 and _ov_open_ids() == {_ov_newer3})
+
         # The native session id RESOLVING, through a real CALL SITE. Every other assertion about
         # that field in this suite reaches '' or, at the row-shape check above, asserts only that
         # THE COLUMN EXISTS — and a resolver that ALWAYS MISSES satisfies every one of them. That

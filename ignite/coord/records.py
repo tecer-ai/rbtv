@@ -1484,9 +1484,48 @@ def session_identity_line(seat, session_id, native, scratch):
             f"scratchpad: {scratch or SESSION_UNRESOLVED}")
 
 
+def own_open_row(args, idx, open_rows):
+    """The open `sessions.csv` row THIS closing process can prove is its own, or None.
+
+    d-overlap-row-close: `session_close` used to take the LAST open row in file order, which is
+    the NEWEST sitting's row whenever an older and a newer sitting of one seat are open at once
+    (a `--renew` deliberately mints the newer row before the older one has checked out). The
+    older sitting's own checkout then closed the newer's row — stranding the older row open
+    forever and leaving the newer sitting unable to check out at all, because the row it would
+    have closed was already gone.
+
+    Tried in the SAME order and for the SAME reason F-6 (`carrier_self_session`, checkout.py's
+    `cmd_checkin`) already established for this exact class of bug: an identity this process can
+    PROVE beats a row picked by file order.
+      1. `carrier_self_session()` — the daemon-minted cgroup unit names its own session-id
+         outright (the daemon lane).
+      2. The calling pane's own (pid, pid-starttime) against the pair `session_open` recorded on
+         each row at boot — the SAME identity pair the seat-identity gate corroborates elsewhere
+         (the attached/tmux lane). Matched only when exactly one open row agrees; an ambiguous
+         match proves nothing and must not be trusted over the caller's own fallback.
+    Returns None on every path that cannot prove an identity — including no `pid`/`pid-starttime`
+    columns (a header predating them) — so the caller's existing last-open-row fallback is
+    UNCHANGED for every case this cannot answer."""
+    sid = carrier.carrier_self_session()
+    if sid and "session-id" in idx:
+        for r in open_rows:
+            if r[idx["session-id"]].strip() == sid:
+                return r
+    if "pid" in idx and "pid-starttime" in idx:
+        pane = detect_pane(getattr(args, "pane", None))
+        pid, pid_start, _tty = pane_identity(pane)
+        if pid and pid_start:
+            matches = [r for r in open_rows
+                       if r[idx["pid"]].strip() == pid
+                       and r[idx["pid-starttime"]].strip() == pid_start]
+            if len(matches) == 1:
+                return matches[0]
+    return None
+
+
 def session_close(args, seat, disposition="", writer=""):
-    """Complete the seat's open session row: stamp `ended`, and fill `native-session-id` if the
-    launch could not resolve it yet. Returns the session-id closed, or ''.
+    """Complete the seat's OWN open session row: stamp `ended`, and fill `native-session-id` if
+    the launch could not resolve it yet. Returns the session-id closed, or ''.
     `disposition`/`writer` are ignored — work endings go to the ending store only.
 
     A silent no-op when the seat has NO open row — a seat closed twice, or one launched before
@@ -1519,13 +1558,18 @@ def session_close(args, seat, disposition="", writer=""):
         idx = {c: i for i, c in enumerate(header)}
         if "seat" not in idx or "ended" not in idx:
             return ""
-        target = None
-        for r in rows:                      # LAST open row wins — the live session
+        open_rows = []
+        for r in rows:
             pad_row(r, header)
             if r[idx["seat"]].strip() == seat and not r[idx["ended"]].strip():
-                target = r
-        if target is None:
+                open_rows.append(r)
+        if not open_rows:
             return ""
+        # d-overlap-row-close: an identity this process can PROVE its own wins; the file-order
+        # LAST OPEN ROW remains the fallback for every case that cannot prove one (paneless
+        # callers under no carrier unit, or a header predating the pid/pid-starttime columns) —
+        # unchanged from before, so a resolvable identity never narrows what already worked.
+        target = own_open_row(args, idx, open_rows) or open_rows[-1]
         target[idx["ended"]] = now()
         if ("native-session-id" in idx and not target[idx["native-session-id"]].strip()
                 and target[idx.get("harness", 0)].strip() == "claude"):

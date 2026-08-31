@@ -116,13 +116,32 @@ function sittingStartedAt(evidence) {
   return null;
 }
 
+// `started` is `sessions.csv`'s naive `YYYY-MM-DD HH:MM` - the box's own local wall clock at the
+// instant `coord/records.py#now()` wrote it, carrying no offset marker because it never claimed
+// to be UTC. `Date.parse` of that non-ISO, space-separated shape is IMPLEMENTATION-DEFINED (MDN:
+// "support ... is by convention only") - V8 happens to read it as local today, which is why this
+// guard measures correct on THIS box (`Etc/UTC`, where local and UTC coincide) and would be wrong
+// by the box's own offset the moment that legacy-format heuristic disagreed or the box moved off
+// UTC. The Date CONSTRUCTOR taking separate numeric fields has no such ambiguity - ECMA-262
+// guarantees it is always local time - so `started` is parsed by hand into those fields instead
+// of trusted to `Date.parse`. `current.stamped_at` keeps `Date.parse`: it is ISO-8601 with an
+// explicit `Z`, which every engine parses as UTC by spec.
+const STARTED_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
+
+function parseStartedLocal(started) {
+  const m = STARTED_RE.exec(started);
+  if (!m) return NaN;
+  const [, y, mo, d, h, mi] = m.map(Number);
+  return new Date(y, mo - 1, d, h, mi).getTime();
+}
+
 // A declared ending is stale for THIS sitting only when both timestamps parse and the ending
 // predates the sitting's own start. An unparseable or missing side is "cannot prove it", never
 // "assume stale" - the whole point of a fallback comparison is that it only fires on real evidence.
 function declaredEndingIsStale(current, evidence) {
   const started = sittingStartedAt(evidence);
   if (!started || !current || !current.stamped_at) return false;
-  const startedMs = Date.parse(started);
+  const startedMs = parseStartedLocal(started);
   const stampedMs = Date.parse(current.stamped_at);
   if (Number.isNaN(startedMs) || Number.isNaN(stampedMs)) return false;
   return stampedMs < startedMs;
@@ -314,6 +333,7 @@ module.exports = {
   PROVIDER_MARKERS,
   goalFolderOf,
   sittingStartedAt,
+  parseStartedLocal,
   declaredEndingIsStale,
   REAP_CONFIRM_BUDGET_MS,
   waitGone,
