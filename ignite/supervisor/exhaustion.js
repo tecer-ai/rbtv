@@ -391,6 +391,7 @@ module.exports = {
   askIdFor,
   askRecordPath,
   readAskRecord,
+  writeAskRecord,
   listOpenGroupedAsks,
   listUnpostedLanes,
   markLanePosted,
