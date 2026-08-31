@@ -3,3 +3,4 @@
 2026-08-28 · change · the mechanical door becomes a pause-resume sender · The door becomes a SENDER built from the forwarder the bridge already holds, always — the · 8b44d806 · bridges,gateway,supervisor · ⚠
 2026-08-31 · creation · digest asks sort blocking-first (d-ask15) · Checked the `open_asks` schema (`state-store/tables.sql`) and `ask-record.js#listOpenAsks`'s row · 6c97194f · — · ⚠
 2026-08-31 · creation · one open escalation per goal (d-escalation-surface 8) · The gate sits in `bus-ferry.js`'s per-row loop, right where a new escalation would otherwise mint · 77fc4695 · — · ⚠
+2026-08-31 · change · owner-DM escalation legs retired, system-channel alarm · Both DM legs are deleted and unified into ONE mechanism, `postUnreachableChannelAlarm`, firing to · b9c014f3 · — · ⚠
