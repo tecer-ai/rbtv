@@ -179,6 +179,26 @@ function dryRun(args) {
   assert.ok(out.stdin_preview.startsWith(seatText), `stdin_preview did not start with seat text: ${out.stdin_preview}`);
 }
 
+// cast seat refuses a short alias in seat.md's model: — the daemon's launch-spec table takes only
+// the pin VERBATIM and never resolves an alias, so a seat cast clean with the alias still died at
+// first daemon seed (goal-memory-management, 2026-08-23, seat distill-ignite-memory / grok-4.6).
+// task 164.
+{
+  const folder = mkFolder('seat-alias-refused');
+  fs.writeFileSync(path.join(folder, 'seat.md'),
+    '---\nharness: opencode\nmodel: grok-4.6\neffort: high\n---\n# seat descriptor\nact as Z.');
+  const res = spawnSync('node', [TOOL, 'seat', folder, '--dry-run'], { encoding: 'utf8' });
+  assert.strictEqual(res.status, 2, 'seat mode must refuse a short-alias model');
+  assert.ok(/pin VERBATIM/.test(res.stderr), `expected pin-verbatim refusal, got: ${res.stderr}`);
+
+  // the pin itself still launches
+  const pinned = mkFolder('seat-pin-ok');
+  fs.writeFileSync(path.join(pinned, 'seat.md'),
+    '---\nharness: opencode\nmodel: xai/grok-4.6\neffort: high\n---\n# seat descriptor\nact as Z.');
+  const out = dryRun(['seat', pinned, '-p', 'wake up']);
+  assert.ok(out.argv.includes('xai/grok-4.6'), `expected the pin on argv, got: ${out.argv}`);
+}
+
 // cast seat without -p/-f: allowed, a default wake message stands in; -s/-S refused
 {
   const folder = mkFolder('seat-no-prompt');

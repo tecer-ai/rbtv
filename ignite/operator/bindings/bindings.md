@@ -232,6 +232,13 @@ minting the other form here would be a second mapping of the same fact — the d
 `DEC-1 § Shared profile source` forbids. A caller passing an alias is REFUSED with the catalog's
 models printed, never silently rewritten.
 
+`cast seat` enforces the same pin, on the same field (owner-directed fix, task 164, 2026-08-31):
+`resolveModel` still accepts a short alias for a DIRECT `cast <harness> <model> <effort>` launch,
+but `seat.md`'s `model:` doubles as the daemon's binding, so `cast seat` refuses an alias there —
+`core/sub-agents/tool/lib/launch.js#runSeat` — with the same "pin VERBATIM" message. Before this
+fix a seat cast clean under the alias still died at first daemon seed (`E_UNMAPPED_BINDING`,
+`goal-memory-management`, 2026-08-23) — two spellings worked at cast time, one at daemon time.
+
 ## The effort NUMBER
 
 `set … 4` on a claude pair stores `"effort": "xhigh"`. The number is an input abstraction — a

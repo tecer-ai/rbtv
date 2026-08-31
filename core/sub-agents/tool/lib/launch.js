@@ -251,6 +251,19 @@ function runSeat(rawArgv) {
 
   const { modelId, spec } = resolveModel(fm.harness, fm.model);
 
+  // seat.md's `model:` doubles as the daemon's binding: the daemon's launch-spec table requires
+  // the id VERBATIM and never resolves a short alias (`ignite/supervisor/launch-profiles/catalog.js`
+  // #specForSeatCast, owner ruling 2026-08-10 — "claude-fable-5, never fable"). `cast seat` used to
+  // accept either spelling via `resolveModel`'s SHORT-name fallback, so a seat cast clean with the
+  // alias still died at first daemon seed (measured on goal-memory-management, 2026-08-23: seat
+  // `distill-ignite-memory` declared `grok-4.6`, spawn REFUSED with E_UNMAPPED_BINDING). One
+  // spelling is the only legal pin in seat.md — refuse here rather than launch a descriptor the
+  // daemon cannot.
+  if (fm.model !== modelId) {
+    fail(`refused: seat.md model '${fm.model}' is a short alias — the daemon accepts only the `
+      + `pin VERBATIM ('${modelId}', never '${fm.model}'). Fix seat.md: ${descriptor}`);
+  }
+
   let effortWord = null;
   let effortArgv = [];
   const eff = spec.effort;
