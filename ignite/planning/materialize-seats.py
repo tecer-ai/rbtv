@@ -1892,6 +1892,30 @@ def _goal_local_pair(seat_dir: Path) -> dict | None:
     return found
 
 
+def _copy_with_derived_warning(src: Path, dest: Path, source_rel: str) -> None:
+    """Copy a goal-authored prompt/task into the derived lane, stamping an
+    unmissable DERIVED warning as the FIRST BODY LINE, immediately after the
+    closing `---` of its frontmatter block.
+
+    task 127: a `shutil.copyfile` gave an agent opening the copied file no
+    signal that edits there are discarded on the next materialize — measured
+    2026-08-23 on ignite-engine, where a ruled fix landed here and silently
+    evaporated. The warning is placed AFTER frontmatter, never before it: a
+    line preceding the opening `---` would corrupt `_goal_local_frontmatter`
+    (and every other reader of the `^---\\n...\\n---` contract)."""
+    text = src.read_text(encoding="utf-8")
+    m = re.match(r"^---\r?\n.*?\r?\n---\r?\n", text, re.S)
+    warning = (
+        f"\n> ⚠ DERIVED — edits to this file are discarded on the next "
+        f"materialize. Edit the source instead: `{source_rel}`.\n"
+    )
+    if m:
+        text = text[:m.end()] + warning + text[m.end():]
+    else:
+        text = warning + text
+    dest.write_text(text, encoding="utf-8")
+
+
 def build_goal_local_lane(package: Path, component_root: Path) -> Path:
     """Shape the goal's OWN planning product into a component catalog and return
     its root. Every refusal below is a check component-lint would have made."""
@@ -2045,11 +2069,33 @@ def build_goal_local_lane(package: Path, component_root: Path) -> Path:
     (scomp / "component.md").write_text(
         "---\ndescription: \"Seats this goal's own planning pass authored — a "
         "DERIVED index of planning/current/, rebuilt on every materialize and "
-        "never edited by hand.\"\n---\n\n# goal-local\n", encoding="utf-8")
+        "never edited by hand.\"\n---\n\n# goal-local\n\n"
+        "⚠ DERIVED — this whole component is regenerated from "
+        f"`{'/'.join(GOAL_LOCAL_SOURCE)}/seats/<seat>/` on every materialize. "
+        "An edit made here is silently lost on the next pass.\n",
+        encoding="utf-8")
+    # THE CSV SIDECARS. `seats.csv` and the workflow CSV below cannot carry the
+    # per-file warning every copied .md gets (a leading comment line would be
+    # read back as data by `csv.reader`/`_csv_rows`) — task 127 criterion 2
+    # names this exception explicitly rather than leaving it a silent gap. A
+    # `README.md` dropped beside each is the filing's own named fallback.
+    _csv_readme = (
+        "⚠ DERIVED — `{name}` in this directory is regenerated from "
+        f"`{'/'.join(GOAL_LOCAL_SOURCE)}/manifest.csv` on every materialize. "
+        "It cannot carry an in-file warning (a comment line would be read back "
+        "as a data row by the CSV reader). An edit made to `{name}` is silently "
+        "lost on the next pass — edit the manifest instead.\n"
+    )
+    (scomp / "README.md").write_text(
+        _csv_readme.format(name="seats.csv"), encoding="utf-8")
+    (scomp / "workflows" / GOAL_LOCAL_WORKFLOW / "README.md").write_text(
+        _csv_readme.format(name=f"{GOAL_LOCAL_WORKFLOW}.csv"), encoding="utf-8")
     for pool, _section in GOAL_LOCAL_HALVES:
         for seat, pair in lane.items():
             ident, path = pair[pool]
-            shutil.copyfile(path, scomp / pool / f"{ident}.md")
+            _copy_with_derived_warning(
+                path, scomp / pool / f"{ident}.md",
+                f"{'/'.join(GOAL_LOCAL_SOURCE)}/seats/{seat}/{path.name}")
     with (scomp / "seats.csv").open("w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["seat-id", "executor", "task", "staffing-hints",
