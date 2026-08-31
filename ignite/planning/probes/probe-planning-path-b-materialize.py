@@ -11,6 +11,11 @@
       born under is the BOUND COMMIT's, not the working tree's
   P6  the catalog root defaults to the rbtv `meta` tree through rbtv.json, and refuses when the
       book that records it is absent
+  P10 wrapper.py#uncast_in_sheet merges a sheet's `defaults` — a seat with harness/model ONLY in
+      `defaults` reads CAST, agreeing with materialize-seats.py#effective_binding's own
+      `defaults ∪ per-seat entry` (task 160)
+  P11 a seat that truly omits harness/model, with no `defaults` either, still refuses
+      uncast-in-sheet (the control arm for P10)
 """
 
 import hashlib
@@ -381,6 +386,39 @@ def main():
             "P9",
             bool(out9.get("ok")) and content9 == preexisting_body,
             f"ok={out9.get('ok')} content={content9}",
+        )
+
+        # ── P10-P11 · uncast_in_sheet MERGES defaults (task 160) ────────────────────────────
+        # meet-transcript-summarizer-planning declared harness only in `defaults`; before the
+        # fix uncast_in_sheet read the per-seat entry alone, so every seat came back "missing"
+        # and the birth refused atomic-core-refusal/uncast-in-sheet even though
+        # materialize-seats.py#effective_binding (defaults ∪ per-seat entry) reported ok: true.
+        wrapper = load("wrapper")
+        sheet10 = tmp / "sheet-defaults-only.json"
+        sheet10.write_text(
+            json.dumps({
+                "defaults": {"harness": "claude", "model": "opus"},
+                "seats": {"understand": {}, "build": {}},
+            }),
+            encoding="utf-8",
+        )
+        missing10 = wrapper.uncast_in_sheet(str(sheet10), ["understand", "build"])
+        check(
+            "P10",
+            missing10 == [],
+            f"defaults-only harness/model still reads missing={missing10!r}",
+        )
+
+        sheet11 = tmp / "sheet-truly-uncast.json"
+        sheet11.write_text(
+            json.dumps({"seats": {"understand": {"harness": "claude"}}}),
+            encoding="utf-8",
+        )
+        missing11 = wrapper.uncast_in_sheet(str(sheet11), ["understand"])
+        check(
+            "P11",
+            missing11 == ["understand"],
+            f"no-defaults no-model seat did not refuse, missing={missing11!r}",
         )
 
 

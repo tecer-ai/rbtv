@@ -31,7 +31,10 @@ PATH_B = "B"
 
 
 def uncast_in_sheet(sheet_path, seat_names):
-    """Refuse-before-write pattern (KEEP). Cast = harness and model both non-empty.
+    """Refuse-before-write pattern (KEEP). Cast = harness and model both non-empty,
+    read off `defaults ∪ per-seat entry` — the same merge as
+    `materialize-seats.py#effective_binding`, so the two readers agree on what a
+    seat's binding is.
 
     Same predicate as supervisor/launch-profiles/catalog.js `declaresBinding`. Call site is
     this wrapper: a non-empty result refuses the whole act.
@@ -52,11 +55,19 @@ def uncast_in_sheet(sheet_path, seat_names):
             "uncast-in-sheet",
             f"{sheet_path}: must be a JSON object carrying a 'seats' mapping",
         )
+    defaults = (sheet or {}).get("defaults") or {}
+    if not isinstance(defaults, dict):
+        raise MaterializeFailure(
+            CLASS_ATOMIC_CORE_REFUSAL,
+            "uncast-in-sheet",
+            f"{sheet_path}: 'defaults' must be a mapping when present",
+        )
     missing = []
     for name in seat_names:
         entry = seats.get(name) or {}
-        harness = str(entry.get("harness") or "").strip()
-        model = str(entry.get("model") or "").strip()
+        merged = {**defaults, **entry}
+        harness = str(merged.get("harness") or "").strip()
+        model = str(merged.get("model") or "").strip()
         if not harness or not model:
             missing.append(name)
     return missing
