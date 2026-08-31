@@ -1307,9 +1307,10 @@ CAPACITY_EMPTY_LINE = ("  capacity: NO PANE WAS OPENED — every counted candida
 CAPACITY_UNENFORCEABLE_LINE = (
     "  capacity: CAP UNENFORCEABLE — {reason} | cap.agent_panes cannot be checked at all, so NO "
     "counted candidate is admitted on the memory floor alone | {stamp}\n"
-    "  capacity: this is a WAIT, not a refusal — the act exits ZERO. PICKUP LANE: the census sensor "
-    "is retired and no replacement is built yet, so this state persists until one lands; the "
-    "cadence sweep re-admits every deferred seat with no further act once it does "
+    "  capacity: this is a WAIT, not a refusal — the act exits ZERO. PICKUP LANE: the census is "
+    "read fresh from the supervisor registry on every act (`d-capacity-registry-liveness`), so this "
+    "state means the registry PROBE ITSELF failed just now, not that no sensor exists; the cadence "
+    "sweep re-admits every deferred seat with no further act once the probe answers again "
     "(deferred-pickup-lane.md). No override flag carries this term, and none may be attached to "
     "--force or --force-memory.")
 CAPACITY_CENSUS_DEFER_LINE = (
@@ -2540,14 +2541,51 @@ def cmd_launch(args):
     # loader in the repo; the alternative — a public loader in `budget.py` — would need C2, whose
     # contract is scoped to emitting A FIELD, which a loader is not.
     _cap_b, _cap_eb = coord.budget_mod._load(os.path.join(str(_cap_pkg), "budget.json"), "budget.json")
-    _cap_s, _cap_es = coord.budget_mod._load(os.path.join(str(_cap_pkg), "state.json"), "state.json")
     # `_cap_eb` is NOT this term's refusal: the floor read at the launch gate already refused an
-    # unreadable budget (§5 R1) before this block runs. `_cap_es` is D1.
-    if _cap_es:
-        _cap_err = _cap_es
+    # unreadable budget (§5 R1) before this block runs.
+    #
+    # ⚠ OWNER RULING `d-capacity-registry-liveness` (2026-08-31): the LIVE half of the census no
+    # longer comes from a snapshot file (`state.json`, written by the deleted `team-monitor`
+    # [T4-R8, del-observers]) — it is assembled FRESH, on every call, from two DECLARATIONS this
+    # file already trusts elsewhere: `discover_workers` (7.278's own single-home reader of each
+    # seat's `agent_type` off its descriptor — never a second reader minted here) crossed with
+    # `coord.liveness.goal_liveness_strict` (spec-supervisor §6 — the ONE liveness surface, the
+    # supervisor registry's `kill(pid,0)` + start-time answer, never a pane read). This is NOT a
+    # second sensor: it composes two answers that already existed for other consumers, at the one
+    # place that needs both together. `census()` ITSELF IS UNCHANGED — only what feeds it moved.
+    #
+    # Because the reading is composed NOW, never read off a disk snapshot, IT CANNOT GO STALE: there
+    # is no captured-at to age. `stale` stays a field `census()` computes (age vs `state["captured_at"]`,
+    # which this composes as `time.time()`), and it will read `False` on every call by construction —
+    # D3 is retired as a REACHABLE branch on the tmux lane, not by deleting its code, but because its
+    # precondition can no longer occur. D1 (`_cap_c is None`) now means the REGISTRY PROBE ITSELF
+    # failed (`node` missing, a corrupt registry file) — a real infra fault — and never means "nothing
+    # has launched here yet", which this composition answers honestly as `in_use: 0`.
+    try:
+        _cap_live = coord.liveness.goal_liveness_strict(_cap_pkg)
+    except (coord.liveness.LivenessError, ValueError, OSError) as _cap_exc:
+        _cap_err = f"registry probe raised {_cap_exc.__class__.__name__}: {_cap_exc}"
     else:
+        _cap_seats = []
+        for _w in discover_workers(coord.workers_dir(args, register=False)):
+            _cap_row_alive = (_cap_live.get(_w["agent"]) or {}).get("alive")
+            _cap_seats.append({
+                "seat": _w["agent"],
+                "pane": None,
+                "agent_type": _w["agent_type"] or None,
+                "agent_type_source": "descriptor",
+                "harness": _w["harness"],
+                # `alive is True` ONLY — `False` (registry says gone) and `None` (no row: never
+                # launched, or console-uncaged and not yet checked in) both read as not-live here.
+                # This is deliberately conservative in the direction that matches "never launched"
+                # being the overwhelming common case among DECLARED seats: `discover_workers`
+                # returns every seat.md in the plan, most of which are not running right now.
+                "liveness": "live" if _cap_row_alive is True else "dead",
+                "cwd": _w["cwd"],
+            })
         try:
-            _cap_c = coord.budget_mod.census(_cap_b or {}, _cap_s or {})
+            _cap_c = coord.budget_mod.census(_cap_b or {},
+                                              {"captured_at": time.time(), "seats": _cap_seats})
         except Exception as _cap_exc:            # noqa: BLE001 — a sensor fault DEGRADES, never
             _cap_err = (f"census raised {_cap_exc.__class__.__name__}: {_cap_exc}")   # refuses
     if _cap_c is None:

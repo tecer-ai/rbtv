@@ -2395,6 +2395,23 @@ def _selftest_checks(args, failures, names):
               and departed_names == sorted(departed_names)
               and out.count("wakes: ") == 1
               and new_failures == 0 and "delivery-failure: delta" not in raw_after)
+        # ---- d-111: a direct send to a DEPARTED seat still succeeds, still warns the sender, AND
+        # is now auto-copied to `leader` so a live occupant reads it (task 111) ----
+        _d111_before = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d111_out, _d111_err, _d111_code = harness_outcome(
+            cmd_send, ns(agent="alpha", to="beta", message="d111-probe: owner deliverable",
+                        type="note", supersedes=None, re_num=None, file=None))
+        _d111_combined = _d111_out + _d111_err
+        _d111_after = (base_dir(ns()) / "messages.md").read_text(encoding="utf-8")
+        _d111_new = _d111_after[len(_d111_before):]
+        check("d-111: send to a DEPARTED seat still SUCCEEDS (not refused) and the sender still "
+              "sees the existing DEPARTED warning on stderr",
+              _d111_code is None and "has DEPARTED" in _d111_combined and "'beta'" in _d111_combined)
+        check("d-111: the same message is additionally auto-copied to `leader` in the SAME send "
+              "(no resend by hand), carrying the original body",
+              "| to: leader | type: note" in _d111_new
+              and "d111-probe: owner deliverable" in _d111_new
+              and "auto-copied to leader as #" in _d111_combined)
         # ---- fix round: a built-in auto-wake DEFAULT naming a seat this package does not have ----
         # (the body must not name the seat itself — the assertion below reads the whole log)
         out = sd("alpha", "beta", "a routine send in a package holding no such default seat")
@@ -6383,9 +6400,23 @@ def _selftest_checks(args, failures, names):
               and "enqueue-job job_id=seat-pkg-gamma" in _ecap_d
               and "session_mode=headless" in _ecap_d)
         # ---- ARM 2: THE TMUX LANE IS UNTOUCHED — the RED control for ARM 1, one marker apart ----
+        # `d-capacity-registry-liveness` (2026-08-31): D1 no longer fires on an absent `state.json`
+        # (nothing reads that file) — it fires on a broken REGISTRY PROBE. `SUPERVISOR_REGISTRY` is
+        # pointed at a directory here (uncaught EISDIR, same trick the c3-cap fixture uses) so this
+        # arm still reproduces "the census cannot be produced" on the console lane.
         _e22_marker.write_text("console\n", encoding="utf-8")
-        _ecap_c, _ecap_c_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
-                                       dry_run=True, rerun=_d42_a)
+        _ecap_reg_broken = pkg / "registry-is-a-dir"
+        _ecap_reg_broken.mkdir(exist_ok=True)
+        _ecap_prior_registry = os.environ.get("SUPERVISOR_REGISTRY")
+        os.environ["SUPERVISOR_REGISTRY"] = str(_ecap_reg_broken)
+        try:
+            _ecap_c, _ecap_c_code = refuse(launch.cmd_launch, agent="leader", only="gamma",
+                                           dry_run=True, rerun=_d42_a)
+        finally:
+            if _ecap_prior_registry is None:
+                os.environ.pop("SUPERVISOR_REGISTRY", None)
+            else:
+                os.environ["SUPERVISOR_REGISTRY"] = _ecap_prior_registry
         check("E22-CAP-2 CONSOLE-LANE CONTROL (the RED control for ARM 1 — only the lane marker "
               "moved): with `execution-lane` reading `console` the SAME invocation on the SAME "
               "absent census still DEFERS gamma, in the SAME words as before this change, and "
@@ -10384,7 +10415,7 @@ def _selftest_checks(args, failures, names):
         # observed RED (recorded in the row's completion artifact). A row whose control stays green
         # would pass with the mechanism absent, which is the one thing a capacity gate must not do.
         _c3l = _rs_make("c3-cap", [("cap1", ""), ("cap2", ""), ("cap3", ""),
-                                   ("capm", ""), ("capu", "")])
+                                   ("capm", ""), ("capu", ""), ("capg", "")])
         # `check_bindings` runs ABOVE the capacity block and refuses on ANY descriptor/registry
         # divergence, so the descriptors are written to AGREE with the rows `_rs_make` generated —
         # otherwise every row below would refuse at the binding check and read as a capacity
@@ -10395,7 +10426,7 @@ def _selftest_checks(args, failures, names):
         # exclusion and mints none), while `capu` is the descriptor that declares no type at all —
         # the edge C1 is silent on, wired to the literal definition plus a named disclosure.
         for _c3_s, _c3_t in (("cap1", "worker"), ("cap2", "worker"), ("cap3", "worker"),
-                             ("capm", "master"), ("capu", None)):
+                             ("capm", "master"), ("capu", None), ("capg", "unclassified")):
             (_c3l / "seats" / _c3_s / "seat.md").write_text(
                 f"---\nagent: {_c3_s}\nmodel: opus\neffort: medium\nctx-refresh: 50\n"
                 + (f"agent_type: {_c3_t}\n" if _c3_t else "")
@@ -10405,6 +10436,34 @@ def _selftest_checks(args, failures, names):
         _c3_out = Path(td) / "c3-other-goal" / "seats" / "elsewhere"
         _c3_out.mkdir(parents=True)
         (_c3_out / "seat.md").write_text("---\nagent: elsewhere\n---\nbrief\n", encoding="utf-8")
+
+        # ---- `d-capacity-registry-liveness` (2026-08-31): the FIXTURE'S OWN registry -------------
+        #
+        # The census's live half now comes from `coord.liveness.goal_liveness_strict`, never from
+        # `state.json` (nothing writes that file any more — team-monitor is deleted). A row here
+        # names one of THIS package's declared seats "alive right now"; `pid` is the SUITE'S OWN
+        # process, genuinely alive for the whole run, with NO `start_time`, so
+        # `registry.js#isAliveProcess`'s pid-recycling check (which only fires when both sides carry
+        # a start time) never distinguishes it from the real thing.
+        _c3reg = _c3l / "registry.jsonl"
+        _c3reg.write_text("", encoding="utf-8")
+
+        def _c3_registry(alive=(), broken=False):
+            """`alive`: seat names to mark alive in the fixture registry (all others read as
+            not-live — this IS the fixture's census, there is no snapshot to go stale). `broken`:
+            point `SUPERVISOR_REGISTRY` at a DIRECTORY instead of a file, so `registry.js`'s
+            `fs.readFileSync` throws EISDIR (uncaught — only ENOENT is special-cased) and the probe
+            process exits non-zero — the fixture's ONLY way to reproduce "the registry probe itself
+            failed" (D1 under the new model), as distinct from "the registry answered zero seats"."""
+            if broken:
+                _c3reg_dir = _c3l / "registry-is-a-dir"
+                _c3reg_dir.mkdir(exist_ok=True)
+                return str(_c3reg_dir)
+            rows = [{"goal": _c3l.name, "seat": s, "pid": os.getpid(), "start_time": "",
+                     "supervision": "supervised", "launch_token": "",
+                     "last_progress_at": "2026-08-31T00:00:00Z"} for s in alive]
+            _c3reg.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            return str(_c3reg)
 
         def _c3_budget(cap=2, floors=True):
             _d = {"counting": {"counts_toward_cap": ["staff", "worker", "verifier"],
@@ -10428,9 +10487,11 @@ def _selftest_checks(args, failures, names):
                                       "box": {"available_mb": 999999},
                                       "seats": list(seats)}), encoding="utf-8")
 
-        def _c3_run(no_target=False, **kw):
+        def _c3_run(no_target=False, registry=None, **kw):
             _d = dict(agent="leader", package=str(_c3l), dry_run=True)
             _d.update(kw)
+            _c3_prior_registry = os.environ.get("SUPERVISOR_REGISTRY")
+            os.environ["SUPERVISOR_REGISTRY"] = registry if registry is not None else str(_c3reg)
             # ⚠ 7.718: THIS BLOCK SETS ITS OWN LAUNCH TARGET, like every sibling block that launches
             # for real (`os.environ["COORD_LAUNCH_TARGET"] = "%0"` before a `dry_run=False` refuse).
             # A real launch resolves `COORD_LAUNCH_TARGET or TMUX_PANE` or REFUSES, and this block
@@ -10446,24 +10507,30 @@ def _selftest_checks(args, failures, names):
             # and `no_target=True` is how those rows OPT OUT: F18 reproduces a daemon-fired exec's
             # environment (NEITHER variable set) and asserts the refusal, so the helper must hand it
             # the empty environment it popped rather than quietly re-supply the input under test.
-            if no_target:
-                return refuse(launch.cmd_launch, **_d)
-            _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
-            os.environ["COORD_LAUNCH_TARGET"] = "%0"
             try:
-                return refuse(launch.cmd_launch, **_d)
+                if no_target:
+                    return refuse(launch.cmd_launch, **_d)
+                _c3_prior_target = os.environ.get("COORD_LAUNCH_TARGET")
+                os.environ["COORD_LAUNCH_TARGET"] = "%0"
+                try:
+                    return refuse(launch.cmd_launch, **_d)
+                finally:
+                    if _c3_prior_target is None:
+                        os.environ.pop("COORD_LAUNCH_TARGET", None)
+                    else:
+                        os.environ["COORD_LAUNCH_TARGET"] = _c3_prior_target
             finally:
-                if _c3_prior_target is None:
-                    os.environ.pop("COORD_LAUNCH_TARGET", None)
+                if _c3_prior_registry is None:
+                    os.environ.pop("SUPERVISOR_REGISTRY", None)
                 else:
-                    os.environ["COORD_LAUNCH_TARGET"] = _c3_prior_target
+                    os.environ["SUPERVISOR_REGISTRY"] = _c3_prior_registry
 
         def _c3_defer_lines(text):
             return [_ln for _ln in text.splitlines() if "DEFERRED (capacity)" in _ln]
 
         # ---- THE FULL-CAPACITY PATH: the cap BINDS, on the ADMITTED set ------------------------
         _c3_budget(cap=2)
-        _c3_state()
+        _c3_registry()
         _c3_full, _c3_full_code = _c3_run(only="cap1,cap2,cap3")
         check("7.278 THE FULL-CAPACITY PATH: `cap.agent_panes` BINDS a launch for the first time. "
               "Three counted candidates, headroom 2 — the first two proceed IN THE ADMITTED SET'S "
@@ -10506,15 +10573,17 @@ def _selftest_checks(args, failures, names):
               "[dry-run] capu" in _c3_undec and "[dry-run] cap3" not in _c3_undec
               and "capu: capacity — descriptor declares NO `agent_type`" in _c3_undec
               and _c3_undec_code == 0)
-        check("7.278 THE TYPE IS READ OFF THE **DESCRIPTOR**, NEVER OFF `state.json`: the snapshot "
-              "has no row for a seat that has not launched yet, so sizing the cap from the sensor "
-              "would read EVERY launch candidate as not-counted and the cap could never bind — "
-              "the class making the answer YES by construction. The positive control is that the "
-              "fixture's snapshot carries NO seat rows at all, and the cap still bound above",
+        check("7.278 THE TYPE IS READ OFF THE **DESCRIPTOR**, NEVER OFF THE REGISTRY "
+              "(`d-capacity-registry-liveness`, 2026-08-31 — this row SUPERSEDES its `state.json` "
+              "predecessor): the registry's own schema (`registry.js#makeRecord`) carries no "
+              "`agent_type` field at all, only a bare pid/start-time pair, so sizing the cap from "
+              "it was never even POSSIBLE — the type comes from `discover_workers`' descriptor "
+              "read, unchanged by the migration. The positive control is that the fixture's "
+              "registry carries NO rows at all here, and the cap still bound above",
               {_w["agent"]: _w["agent_type"] for _w in launch.discover_workers(_c3l / "seats")}
               == {"cap1": "worker", "cap2": "worker", "cap3": "worker",
-                  "capm": "master", "capu": ""}
-              and json.loads((_c3l / "state.json").read_text())["seats"] == [])
+                  "capm": "master", "capu": "", "capg": "unclassified"}
+              and _c3reg.read_text(encoding="utf-8").strip() == "")
         # ---- DRY-RUN PARITY, and the EMPTY-SET WAIT --------------------------------------------
         _c3_par_real, _c3_par_real_code = _c3_run(only="cap1,cap2,cap3", dry_run=False)
         check("7.278 PARITY: the capacity decision, the per-seat naming and the EXIT CODE are "
@@ -10542,34 +10611,37 @@ def _selftest_checks(args, failures, names):
         # it costs, and store row 7.363 rules the census-failure case the other way. 7.278's
         # degrade branch is NOT gone — the rows below D5 still hold it for every IMPERFECT reading.
         _c3_budget(cap=2)
-        _c3_state(drop=True)
-        _c3_d1, _c3_d1_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.363 CRITERION 1 (D1 — the census cannot be produced): the act DEFERS every "
-              "counted candidate instead of degrading to the memory floor alone. `cap1` and "
-              "`cap2` — which the full-capacity path admitted a moment ago — do NOT proceed, and "
-              "that is what proves the cap is being enforced rather than merely mentioned: before "
-              "7.363 an absent sensor admitted all three, so the one term bounding pane count "
-              "stopped binding the moment the sensor did. The reason and the snapshot stamp are "
-              "still named, and `CAP NOT CONSULTED` is GONE from this path — asserted absent, "
-              "because a line that said both would be describing two branches at once",
+        _c3_d1_reg = _c3_registry(broken=True)
+        _c3_d1, _c3_d1_code = _c3_run(only="cap1,cap2,cap3", registry=_c3_d1_reg)
+        check("7.363 CRITERION 1 (D1 — the census cannot be produced) — REWRITTEN "
+              "(`d-capacity-registry-liveness`, 2026-08-31): D1 now means the REGISTRY PROBE "
+              "ITSELF failed (here, `SUPERVISOR_REGISTRY` points at a directory, so "
+              "`registry.js`'s read throws and the probe exits non-zero) — never \"nothing has "
+              "launched yet\", which the migration answers as an honest `in_use: 0` instead. The "
+              "act still DEFERS every counted candidate instead of degrading to the memory floor "
+              "alone: `cap1`/`cap2` — which the full-capacity path admitted a moment ago — do NOT "
+              "proceed, proving the cap is enforced rather than merely mentioned. `CAP NOT "
+              "CONSULTED` is GONE from this path — asserted absent, because a line that said both "
+              "would be describing two branches at once",
               _c3_d1_code == 0
               and "[dry-run] cap1" not in _c3_d1 and "[dry-run] cap2" not in _c3_d1
               and "[dry-run] cap3" not in _c3_d1
               and "CAP NOT CONSULTED" not in _c3_d1
-              and "capacity: CAP UNENFORCEABLE — the census could not be produced: state.json is "
-                  "ABSENT" in _c3_d1
+              and "capacity: CAP UNENFORCEABLE — the census could not be produced: registry probe "
+                  "raised LivenessError" in _c3_d1
               and "NO counted candidate is admitted on the memory floor alone" in _c3_d1
-              and "| no snapshot — state.json is ABSENT" in _c3_d1
+              and "| no snapshot — registry probe raised LivenessError" in _c3_d1
               and len(_c3_defer_lines(_c3_d1)) == 3)
         check("7.363 CRITERION 3 — THE DEFERRED PARTY'S RE-ADMISSION PATH IS IN THE REFUSAL'S OWN "
-              "OUTPUT. This is the clause that separates an enforcement from an outage: a seat "
-              "told only that it was deferred has been stopped, while a seat told HOW the term "
-              "clears has been queued. The lane is A4's own (`deferred-pickup-lane.md`) — the "
-              "cadence sweep re-admits with no further act once a census source exists again — "
-              "and that state is named beside it (the census sensor is retired, no replacement "
-              "built yet). Each deferred seat is ALSO named individually, the same "
-              "never-filter-silently bar the full-capacity branch is held to",
-              "PICKUP LANE: the census sensor is retired" in _c3_d1
+              "OUTPUT — REWRITTEN: a seat told only that it was deferred has been stopped, while a "
+              "seat told HOW the term clears has been queued. The lane is A4's own "
+              "(`deferred-pickup-lane.md`) — the cadence sweep re-admits with no further act once "
+              "the registry probe answers again, which is now the whole content of the pickup "
+              "promise (there is no sensor left to \"restore\": the census is read fresh from the "
+              "registry on every act, so this state means the PROBE failed just now). Each "
+              "deferred seat is ALSO named individually, the same never-filter-silently bar the "
+              "full-capacity branch is held to",
+              "PICKUP LANE: the census is read fresh from the supervisor registry" in _c3_d1
               and "deferred-pickup-lane.md" in _c3_d1
               and all(f"{_s}: DEFERRED (capacity) — cap.agent_panes headroom is UNKNOWN"
                       in _c3_d1 for _s in ("cap1", "cap2", "cap3")))
@@ -10581,7 +10653,7 @@ def _selftest_checks(args, failures, names):
               "blind admission this row exists to stop",
               _c3_d1_code == 0 and "this is a WAIT, not a refusal — the act exits ZERO" in _c3_d1
               and "none may be attached to --force or --force-memory" in _c3_d1)
-        _c3_d1u, _c3_d1u_code = _c3_run(only="cap1,capm,capu")
+        _c3_d1u, _c3_d1u_code = _c3_run(only="cap1,capm,capu", registry=_c3_d1_reg)
         check("7.363 THE BOUND THAT KEEPS THIS AN ENFORCEMENT AND NOT AN OUTAGE: an UNCOUNTED seat "
               "still proceeds under an absent census. `capm` (excluded by `budget.json`'s own "
               "`counting.never_counts` — the parked owner door) and `capu` (a descriptor "
@@ -10594,7 +10666,7 @@ def _selftest_checks(args, failures, names):
               and _c3_defer_lines(_c3_d1u) == [_ln for _ln in _c3_defer_lines(_c3_d1u)
                                                if _ln.strip().startswith("cap1:")]
               and len(_c3_defer_lines(_c3_d1u)) == 1)
-        _c3_state()
+        _c3_registry()
         _c3_ctl, _c3_ctl_code = _c3_run(only="cap1,cap2,cap3")
         check("7.363 CRITERION 2 — **THE DISCRIMINATING CONTROL**: the SAME launch with a HEALTHY "
               "census ADMITS. Nothing changed but the snapshot, and `cap1`/`cap2` proceed on the "
@@ -10607,34 +10679,41 @@ def _selftest_checks(args, failures, names):
               and "[dry-run] cap3" not in _c3_ctl
               and "CAP UNENFORCEABLE" not in _c3_ctl and "CAP NOT CONSULTED" not in _c3_ctl
               and "cap3: DEFERRED (capacity) — cap.agent_panes headroom is exhausted" in _c3_ctl)
-        _c3_state(age=99999.0)
-        _c3_d234, _c3_d234_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.363 A STALE SNAPSHOT IS A CENSUS FAILURE TOO — it describes the room as it was, "
-              "not as it is, so a counted seat admitted on it is admitted blind exactly as under "
-              "an absent one. AND (7.278's own bar, kept): THE REASON NAMES **EVERY** CONDITION "
-              "THAT FIRED, in the ruled read order — a stale snapshot fires D2, D3 and D4 "
-              "together, and a line naming only one would be a filter that removed a reason "
-              "without saying so. D2 and D3 stay tested SEPARATELY even though `stale` forces "
-              "`UNKNOWN` today: two different facts, and a consumer that folded them could not "
-              "survive the day one stops implying the other",
-              _c3_d234_code == 0 and "[dry-run] cap3" not in _c3_d234
-              and ("CAP UNENFORCEABLE — census verdict UNKNOWN; census reports stale=true; "
-                   "census reports complete=false (0 unclassified row(s))") in _c3_d234
-              and "(stale after " in _c3_d234
-              and len(_c3_defer_lines(_c3_d234)) == 3)
-        _c3_state(seats=[{"seat": "ghost", "agent_type": "unclassified",
-                          "agent_type_source": "seat", "harness": "claude",
-                          "liveness": "live", "cwd": str(_c3l / "seats" / "cap1")}])
+        _c3_state(age=99999.0)      # a STALE LEFTOVER `state.json` nobody deleted post-team-monitor
+        _c3_registry()              # the REGISTRY (the only thing read now) says the room is CLEAN
+        _c3_fresh, _c3_fresh_code = _c3_run(only="cap1,cap2,cap3")
+        check("7.363 REWRITTEN (`d-capacity-registry-liveness`, 2026-08-31) — SUPERSEDES THE "
+              "PRE-MIGRATION ROW OF THIS NAME, WHICH ASSERTED THE OPPOSITE (a stale snapshot forces "
+              "UNKNOWN and defers everyone; that was 7.363's ruled behaviour while `state.json` was "
+              "read, and no longer describes the live code): a STALE LEFTOVER `state.json` — the "
+              "kind nobody deleted after team-monitor's retirement — CHANGES NOTHING, because the "
+              "census is assembled FRESH from the registry on every call and never reads that file "
+              "at all. `cap1`/`cap2` ADMIT on the cap's own headroom (2) and `cap3` takes the "
+              "ORDINARY headroom-exhausted deferral, never `CAP UNENFORCEABLE` or `CAP NOT "
+              "CONSULTED` — proving BOTH arms the migration is judged on: the previously-blind case "
+              "now admits, and a genuinely full room (3 candidates, headroom 2) still defers",
+              _c3_fresh_code == 0
+              and "[dry-run] cap1" in _c3_fresh and "[dry-run] cap2" in _c3_fresh
+              and "[dry-run] cap3" not in _c3_fresh
+              and "CAP UNENFORCEABLE" not in _c3_fresh and "CAP NOT CONSULTED" not in _c3_fresh
+              and "cap3: DEFERRED (capacity) — cap.agent_panes headroom is exhausted" in _c3_fresh)
+        _c3_registry(alive=["capg"])
         _c3_d4, _c3_d4_code = _c3_run(only="cap1,cap2,cap3")
-        check("7.278 D4 FIRES ALONE on a FRESH census over a partly-unclassified population: the "
-              "snapshot is not stale and the verdict is not UNKNOWN, so this row cannot be "
-              "satisfied by the staleness path — `complete=false` is its own degrade condition, "
-              "and the count in the reason is the census's own emitted row count",
+        check("7.278 D4 FIRES ALONE on a FRESH census over a partly-unclassified population "
+              "(`d-capacity-registry-liveness`: `capg` is a REAL declared seat whose descriptor "
+              "says `agent_type: unclassified`, marked alive in the fixture registry — never a "
+              "fabricated pane, since the new census has no pane to fabricate): the reading is not "
+              "stale and the verdict is not UNKNOWN, so this row cannot be satisfied by the "
+              "staleness path — `complete=false` is its own degrade condition, and the count in "
+              "the reason is the census's own emitted row count",
               _c3_d4_code == 0 and "[dry-run] cap3" in _c3_d4
               and "CAP NOT CONSULTED — census reports complete=false (1 unclassified row(s))"
               in _c3_d4
               and "census verdict UNKNOWN" not in _c3_d4
               and "census reports stale=true" not in _c3_d4)
+        _c3_registry()   # reset — the untouched 7.555/N1/N2 block below must see a CLEAN registry,
+                          # not `capg` left alive, or their own `complete=false`/count assertions
+                          # would be contaminated by this row's leftover fixture state
         _c3_state(seats=[{"seat": None, "agent_type": None, "agent_type_source": "no-seat",
                           "harness": "claude", "liveness": "live",
                           "cwd": str(_c3l / "seats" / "cap1")}])
@@ -10736,7 +10815,7 @@ def _selftest_checks(args, failures, names):
               "degrading on it would be degrading because the reading was SAFE",
               _c3_n1_code == 0 and "unaccounted pane(s) are INSIDE in_use" in _c3_n1
               and "CAP NOT CONSULTED" not in _c3_n1)
-        _c3_state()
+        _c3_registry()
         _c3_budget(cap=None)
         _c3_d2, _c3_d2_code = _c3_run(only="cap1,cap2,cap3")
         check("7.278 AN UNDECLARED `cap.agent_panes` DEGRADES (D2), IT DOES NOT REFUSE: `census()` "
@@ -10747,28 +10826,27 @@ def _selftest_checks(args, failures, names):
               and "CAP NOT CONSULTED — census verdict UNKNOWN" in _c3_d2)
         # ---- BREACH is a CONFIDENT reading, not a degraded one ---------------------------------
         _c3_budget(cap=1)
-        _c3_state(seats=[{"seat": "busy", "agent_type": "worker", "agent_type_source": "seat",
-                          "harness": "claude", "liveness": "live",
-                          "cwd": str(_c3l / "seats" / "cap1")},
-                         {"seat": "busy2", "agent_type": "worker", "agent_type_source": "seat",
-                          "harness": "claude", "liveness": "live",
-                          "cwd": str(_c3l / "seats" / "cap2")}])
-        _c3_br, _c3_br_code = _c3_run(only="cap1,cap2,cap3", dry_run=False)
+        # `d-capacity-registry-liveness`: the room is ALREADY over cap because the REGISTRY reports
+        # `cap1`/`cap2` — real declared, counted seats — alive RIGHT NOW, not because a fabricated
+        # "busy"/"busy2" pane says so (no such pane can be fabricated any more: there is no state.json
+        # to write one into). A single fresh candidate (`cap3`) is launched against that occupancy.
+        _c3_registry(alive=["cap1", "cap2"])
+        _c3_br, _c3_br_code = _c3_run(only="cap3", dry_run=False)
         check("7.278 BREACH BINDS AT ZERO AND DOES **NOT** DEGRADE: the room is already over "
               "`cap.agent_panes`, which is a CONFIDENT reading rather than a broken one, so it "
-              "takes the full-capacity branch and every counted candidate waits. Degrading here "
-              "would open panes into a room already over its cap — treating the one reading that "
+              "takes the full-capacity branch and the one counted candidate waits. Degrading here "
+              "would open a pane into a room already over its cap — treating the one reading that "
               "says STOP as a reason to stop reading. ⚠ WHAT THIS ROW DISCRIMINATES is BREACH's "
               "BRANCH, proven by adding BREACH to the degrade set and watching it go RED; the "
               "`max(0, …)` clamp is NOT under test here and is not claimed to be — a negative "
               "allowance already defers everything through the loop's own comparison",
               "capacity: census verdict BREACH" in _c3_br
-              and len(_c3_defer_lines(_c3_br)) == 3
-              and "0 of 3 counted candidate(s) admitted" in _c3_br
+              and len(_c3_defer_lines(_c3_br)) == 1
+              and "0 of 1 counted candidate(s) admitted" in _c3_br
               and "CAP NOT CONSULTED" not in _c3_br and _c3_br_code == 0)
         # ---- THE REFUSE BRANCH: EXACTLY ONE CASE, and it is the FLOOR ---------------------------
         _c3_budget(cap=2, floors=False)
-        _c3_state()
+        _c3_registry()
         _c3_r1, _c3_r1_code = _c3_run(only="cap1", dry_run=False)
         check("7.278 THE REFUSE BRANCH — case R1, THE FLOOR ITSELF UNREADABLE AT THE INSTANT OF "
               "USE: with no floor resolved there is no measured protection at all and admitting "
@@ -10781,17 +10859,16 @@ def _selftest_checks(args, failures, names):
               and "declares no floors.launch_refuse_mb" in _c3_r1
               and "capacity:" not in _c3_r1)
         _c3_budget(cap=2, floors=True)
-        _c3_state(drop=True)
-        _c3_r1n, _c3_r1n_code = _c3_run(only="cap1", dry_run=False)
+        _c3_r1n, _c3_r1n_code = _c3_run(only="cap1", dry_run=False, registry=_c3_registry(broken=True))
         check("7.278/7.363 THE REFUSE BRANCH REFUSES **ONLY** ON THAT ONE CASE (the discriminating "
-              "control): the SAME launch with the floor readable and the SENSOR gone does NOT "
-              "refuse — since 7.363 it DEFERS, on a WAIT that exits 0 and names its pickup lane, "
+              "control): the SAME launch with the floor readable and the REGISTRY PROBE broken does "
+              "NOT refuse — since 7.363 it DEFERS, on a WAIT that exits 0 and names its pickup lane, "
               "which is a different act from a refusal and is asserted as one. Without this pair "
               "the refusal row would be satisfied by a term that refused on any bad reading at "
               "all, which is precisely the wrong fail direction this branch is bounded to avoid; "
-              "7.363 changed WHO WAITS on a dead sensor and changed NOTHING about who refuses",
+              "7.363 changed WHO WAITS on a broken sensor and changed NOTHING about who refuses",
               _c3_r1n_code == 0 and "CAP UNENFORCEABLE" in _c3_r1n
-              and "PICKUP LANE: the census sensor is retired" in _c3_r1n
+              and "PICKUP LANE: the census is read fresh from the supervisor registry" in _c3_r1n
               and "declares no floors.launch_refuse_mb" not in _c3_r1n)
 
         # ============ 7.406: COLD-START ADMISSION — G-leader-0805-2036 ===========================
@@ -10821,25 +10898,41 @@ def _selftest_checks(args, failures, names):
                  "floors": {"launch_refuse_mb": 1, "pressure_warn_mb": 1},
                  "cap": {"agent_panes": 2}}), encoding="utf-8")
 
+        # `d-capacity-registry-liveness`: D1 (the census cannot be produced) now fires ONLY on a
+        # broken registry probe, never on a missing/corrupt `state.json` (nothing reads that file
+        # any more). Every fixture below still needs D1 to fire — the cold-start bound only matters
+        # WHEN the census failed — so `_c4_run` always points `SUPERVISOR_REGISTRY` at a directory
+        # (uncaught EISDIR, the same broken-probe trick `_c3_registry(broken=True)` uses), isolated
+        # per-fixture so it never touches the real host's registry.
+        _c4reg_broken = _c4l / "registry-is-a-dir"
+        _c4reg_broken.mkdir(exist_ok=True)
+
         def _c4_run(**kw):
             _d = dict(agent="leader", package=str(_c4l), dry_run=True)
             _d.update(kw)
-            return refuse(launch.cmd_launch, **_d)
+            _c4_prior_registry = os.environ.get("SUPERVISOR_REGISTRY")
+            os.environ["SUPERVISOR_REGISTRY"] = str(_c4reg_broken)
+            try:
+                return refuse(launch.cmd_launch, **_d)
+            finally:
+                if _c4_prior_registry is None:
+                    os.environ.pop("SUPERVISOR_REGISTRY", None)
+                else:
+                    os.environ["SUPERVISOR_REGISTRY"] = _c4_prior_registry
 
         # ---- FIXTURE (a) VIRGIN: real budget.json, NO state.json, NO coordination artifacts,
         #      NO sessions.csv — the state `_rs_make` leaves every package in until something
         #      writes to it, which is the point: nothing has, here -----------------------------
         _c4_budget()
         _c4a, _c4a_code = _c4_run(only="cs1,cs2")
-        check("7.406 FIXTURE (a) — VIRGIN: a package no sensor has ever run against and no seat "
-              "has ever launched into admits on the EMPTY-ROOM BOUND — in_use 0, headroom "
+        check("7.406 FIXTURE (a) — VIRGIN: a package no registry probe has ever answered for and "
+              "no seat has ever launched into admits on the EMPTY-ROOM BOUND — in_use 0, headroom "
               "cap.agent_panes — with ONE visible line naming the cold-start reading, the way "
-              "CAP UNENFORCEABLE names its own. Before this row every package the wired entry "
-              "creates launched ZERO seats on its first act (G-leader-0805-2036, "
-              "JEA2-20260805T203059Z): the only sensor start used to run AFTER the launch loop, "
-              "so `state.json` could never exist at the point this term reads it, and the "
-              "consumer ran before its producer on every first launch. The sensor is now deleted "
-              "entirely [T4-R8, del-observers] and every room reads this same cold-start state",
+              "CAP UNENFORCEABLE names its own. `d-capacity-registry-liveness` (2026-08-31): the "
+              "REGISTRY PROBE is broken here (the fixture's own way to force D1 now that "
+              "`state.json` is never read), and the virgin markers this predicate checks — "
+              "`state.json`/`team-monitor.log`/`.lock`/`sessions.csv` — are unchanged code, still "
+              "positively absent, so the SAME cold-start bound 7.406 shipped still fires",
               _c4a_code == 0 and "[dry-run] cs1" in _c4a and "[dry-run] cs2" in _c4a
               and "capacity: COLD-START" in _c4a and "EMPTY-ROOM BOUND" in _c4a
               and "CAP UNENFORCEABLE" not in _c4a)
@@ -10848,25 +10941,29 @@ def _selftest_checks(args, failures, names):
         (_c4l / "coordination" / "team-monitor.log").write_text("", encoding="utf-8")
         _c4b, _c4b_code = _c4_run(only="cs1,cs2")
         check("7.406 FIXTURE (b) — ONE SENSOR ARTIFACT PRESENT: identical to (a) but for an empty "
-              "coordination/team-monitor.log, and the act DEFERS exactly as today (MISSING "
-              "SNAPSHOT, never virgin). This is the row that proves the loosening has a bound: a "
-              "room the sensor has touched even once — however briefly, however long ago — is not "
-              "the empty room this fix admits, and the ordinary CAP UNENFORCEABLE pickup lane "
-              "still owns it",
+              "coordination/team-monitor.log — a LEFTOVER from the retired sensor, content "
+              "irrelevant, presence is the whole predicate — and the act DEFERS exactly as today "
+              "(MISSING SNAPSHOT, never virgin). This is the row that proves the loosening has a "
+              "bound: a room the old sensor touched even once, however long ago, is not the empty "
+              "room this fix admits, and the ordinary CAP UNENFORCEABLE pickup lane still owns it",
               _c4b_code == 0 and "[dry-run] cs1" not in _c4b and "[dry-run] cs2" not in _c4b
               and "CAP UNENFORCEABLE" in _c4b and "capacity: COLD-START" not in _c4b)
         (_c4l / "coordination" / "team-monitor.log").unlink()
 
-        # ---- FIXTURE (c) CORRUPT SNAPSHOT — UNREADABLE IS NEVER VIRGIN --------------------------
+        # ---- FIXTURE (c) A LEFTOVER `state.json`, CONTENT IRRELEVANT — PRESENCE IS NEVER VIRGIN --
+        # ⚠ REWRITTEN (`d-capacity-registry-liveness`): the pre-migration row here tested that an
+        # UNPARSEABLE `state.json` produced D1's own "UNREADABLE" text — meaningless now, since
+        # `state.json`'s CONTENT is never read at all. What survives is the marker-PRESENCE half:
+        # any `state.json` on disk, valid or corrupt, still counts as "this room has been touched"
+        # and blocks the cold-start bound exactly as fixture (b)'s log does.
         (_c4l / "state.json").write_text("{not json", encoding="utf-8")
         _c4c, _c4c_code = _c4_run(only="cs1,cs2")
-        check("7.406 FIXTURE (c) — STATE.JSON PRESENT BUT UNPARSEABLE: D1's own error text says "
-              "UNREADABLE, never ABSENT, and the virgin predicate reads that distinction off the "
-              "SAME positive-existence check that decides absence for every marker — never off "
-              "the error string — so a corrupt snapshot defers exactly as today too, with the "
-              "UNREADABLE reason still named",
+        check("7.406 FIXTURE (c) — A LEFTOVER `state.json` (CONTENT IRRELEVANT) IS NEVER VIRGIN: "
+              "the virgin predicate reads marker PRESENCE, off the same positive-existence check "
+              "that decides absence for every marker — it never parses the file — so a leftover "
+              "snapshot, corrupt or not, still defers exactly as fixture (b) does",
               _c4c_code == 0 and "[dry-run] cs1" not in _c4c and "[dry-run] cs2" not in _c4c
-              and "CAP UNENFORCEABLE" in _c4c and "UNREADABLE" in _c4c
+              and "CAP UNENFORCEABLE" in _c4c
               and "capacity: COLD-START" not in _c4c)
         (_c4l / "state.json").unlink()
 
@@ -10887,10 +10984,11 @@ def _selftest_checks(args, failures, names):
         with _c4_mock.patch("os.stat", side_effect=_c4_bad_stat):
             _c4e, _c4e_code = _c4_run(only="cs1,cs2")
         check("7.406 FAIL-CLOSED PROVEN STRUCTURALLY: on a fixture that is positively virgin "
-              "underneath (state.json absent, sessions.csv absent, the lock absent), making ONE "
-              "marker's OWN READ raise a real `OSError` (never `FileNotFoundError`) still defers "
-              "— the predicate never admits on an erroring read, only on a positively confirmed "
-              "absence. Without this row the predicate could pass every fixture above by treating "
+              "underneath (state.json absent, sessions.csv absent, the lock absent) AND whose "
+              "registry probe is ALSO broken (D1 fires either way now), making ONE marker's OWN "
+              "READ raise a real `OSError` (never `FileNotFoundError`) still defers — the "
+              "predicate never admits on an erroring read, only on a positively confirmed absence. "
+              "Without this row the predicate could pass every fixture above by treating "
               "'read failed' the same as 'confirmed absent', which is the exact ambiguity §5's "
               "bound exists to keep closed",
               _c4e_code == 0 and "[dry-run] cs1" not in _c4e and "[dry-run] cs2" not in _c4e

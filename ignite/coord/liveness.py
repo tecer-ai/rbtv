@@ -76,6 +76,20 @@ def goal_liveness(pkg):
     return answer if isinstance(answer, dict) else {}
 
 
+def goal_liveness_strict(pkg):
+    """Same one-call answer as `goal_liveness`, but RAISES instead of swallowing.
+
+    `goal_liveness` reads `{}` on both "this goal has no live sittings" (a normal, common state —
+    nothing has launched yet, or everything has ended) and "the probe itself could not run" (node
+    missing, a corrupt registry file). A consumer that must tell those apart — a capacity gate
+    deciding whether to trust a zero — cannot use the swallowing form: both answers are the same
+    empty dict. This raises `LivenessError` on the second case so the caller's own D1-shaped
+    branch (census could not be produced) fires on an actual sensor fault, never on an empty room.
+    """
+    answer = _probe(["--goal", goal_of(pkg)])
+    return answer if isinstance(answer, dict) else {}
+
+
 def liveness_word(alive):
     """The ONE rendering of the three-valued answer, so seven consumers cannot spell it eight ways.
 
@@ -108,5 +122,5 @@ def occupied(pkg, seat, pane_hint=False):
     return alive
 
 
-__all__ = ["LivenessError", "goal_of", "sitting_alive", "goal_liveness", "liveness_word",
-           "occupied", "PROBE_JS"]
+__all__ = ["LivenessError", "goal_of", "sitting_alive", "goal_liveness", "goal_liveness_strict",
+           "liveness_word", "occupied", "PROBE_JS"]
