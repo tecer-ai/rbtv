@@ -489,6 +489,46 @@ function releaseSeat(db, { goal, seat }) {
   });
 }
 
+// ── ABANDONMENT — the write half of a lane's second terminal outcome ─────────────────────────────
+//
+// `getSeatAbandonment` is the RAW row; there is no separate predicate (unlike `seatHeld`) because
+// there is no release condition to evaluate against other rows — the row's mere presence IS the
+// answer, permanently. `tables.sql`'s own header states why this is a sibling table and not a
+// widened `seat_endings.ending`.
+function getSeatAbandonment(db, { goal, seat }) {
+  return db.prepare(
+    'SELECT * FROM seat_abandonments WHERE goal = ? AND seat = ?',
+  ).get(goal, seat) || null;
+}
+
+// ONE row per (goal, seat) — the PRIMARY KEY says so, and it is never replaced or deleted: dropping
+// a lane has no undo path (`d-recovery-drop-is-one-lane-permanent`). A second call on an already
+// -abandoned seat returns the FIRST row unchanged, idempotent on a retried write (the drop is a
+// two-step act — stop live work, then mark abandoned — that must not half-complete), never a second
+// ruling that could read as "abandoned again, for a different reason".
+//
+// ⚠ `anchor` IS RECORDED, NEVER VERIFIED — the same discipline `holdSeat` carries: an abandonment
+// citing nothing is a lane nobody can later explain was dropped on purpose.
+function abandonSeat(db, {
+  goal, seat, anchor, abandoned_by, abandoned_at, ask_id = null,
+}) {
+  refuseKilled({
+    goal, seat, anchor, abandoned_by,
+  });
+  if (!goal || !seat) throw new EndingStoreError(E_WRITER_REFUSED, 'an abandonment needs a goal and a seat');
+  requireEvidence(anchor);
+  if (!abandoned_by) throw new EndingStoreError(E_WRITER_REFUSED, 'an abandonment records WHO dropped the lane');
+  return tx(db, () => {
+    const prior = getSeatAbandonment(db, { goal, seat });
+    if (prior) return { abandonment: prior, idempotent: true };
+    db.prepare(
+      `INSERT INTO seat_abandonments (goal, seat, anchor, abandoned_by, abandoned_at, ask_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(goal, seat, String(anchor), String(abandoned_by), abandoned_at || nowIso(), ask_id);
+    return { abandonment: getSeatAbandonment(db, { goal, seat }), idempotent: false };
+  });
+}
+
 module.exports = {
   getCurrentEnding,
   getGoalState,
@@ -506,4 +546,6 @@ module.exports = {
   getSeatHold,
   holdSeat,
   releaseSeat,
+  getSeatAbandonment,
+  abandonSeat,
 };

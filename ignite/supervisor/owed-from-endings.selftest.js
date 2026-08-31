@@ -467,6 +467,172 @@ function caseRedFrontierCheckIgnored() {
   } catch (err) { fail('(RED 3/4) frontier check ignored', err); }
 }
 
+// -- ABANDONMENT — a lane's second terminal outcome excludes it from the owed set -----------------
+//
+// `d-recovery-abandoned-is-an-ending` (owner ruling, 2026-08-31): `drop-lane` retires ONE lane
+// `(goal, seat)` forever, recorded in `state-store/tables.sql`'s `seat_abandonments` table — the
+// ending store's own home, reached exactly as `seat_holds` already is. These arms prove the
+// counters honour it: an abandoned seat must never appear in `classA`, `classB`, or the `pending`
+// frontier `classE` reports — and a NON-abandoned seat in the SAME pass must still appear in each,
+// so the exclusion is proven discriminating rather than a check that stopped counting everything.
+const {
+  openEndingStoreFor, closeEndingStores, bind: bindStore,
+} = require('../state-store');
+
+function caseAbandonedSeatExcludedFromClassAAndClassB() {
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'abandon-ws-ab-'));
+  const db = openEndingStoreFor(workspaceRoot);
+  const api = bindStore(db);
+  try {
+    const goal = 'abandon-ab-goal';
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+    fs.mkdirSync(goalFolder, { recursive: true });
+    // classA fixture: two seats, both stamped `failed` (a nonterm class-A row) — one abandoned.
+    writeSessions(goalFolder, [
+      {
+        'session-id': 'sa1', seat: 'worker-dropped', started: '2026-08-31T20:00:00Z',
+        ended: '2026-08-31T20:05:00Z', checkin: '2026-08-31 20:00',
+      },
+      {
+        'session-id': 'sa2', seat: 'worker-control', started: '2026-08-31T20:00:00Z',
+        ended: '2026-08-31T20:05:00Z', checkin: '2026-08-31 20:00',
+      },
+      // `abandonedSeats`/`heldSeats` are both built off `seats` (session-derived, `lastBySeat`) —
+      // a chair the classB loop checks must ALSO have a session row, matching how a held chair
+      // already needs one (`caseBrakeHoldsAfterNDeaths` gives 'leader' a session row for the same
+      // reason). Without one, the abandonment lookup never runs for that chair at all.
+      {
+        'session-id': 'sa3', seat: 'chair-dropped', started: '2026-08-31T20:00:00Z', checkin: '2026-08-31 20:00',
+      },
+      {
+        'session-id': 'sa4', seat: 'chair-control', started: '2026-08-31T20:00:00Z', checkin: '2026-08-31 20:00',
+      },
+    ]);
+    // classB fixture: two chairs, both with unread mail — one abandoned.
+    writeWorkers(goalFolder, [
+      { agent: 'chair-dropped', checkin: '2026-08-31 20:00', lastread: 0 },
+      { agent: 'chair-control', checkin: '2026-08-31 20:00', lastread: 0 },
+    ]);
+    writeMessages(goalFolder, [
+      { num: 1, sender: 'owner', to: 'chair-dropped', type: 'note', ts: '2026-08-31 20:01' },
+      { num: 2, sender: 'owner', to: 'chair-control', type: 'note', ts: '2026-08-31 20:01' },
+    ]);
+    api.stampSystem({
+      goal, seat: 'worker-dropped', ending: 'failed', reason_class: 'crash', evidence_pointer: '/tmp/dropped',
+    });
+    api.stampSystem({
+      goal, seat: 'worker-control', ending: 'failed', reason_class: 'crash', evidence_pointer: '/tmp/control',
+    });
+    api.abandonSeat({
+      goal, seat: 'worker-dropped', anchor: 'owner: drop-lane, this lane is stuck for good', abandoned_by: 'owner',
+    });
+    api.abandonSeat({
+      goal, seat: 'chair-dropped', anchor: 'owner: drop-lane, unread mail from a dead chair', abandoned_by: 'owner',
+    });
+
+    const {
+      loadSessions, loadMessages, lastBySeat, liveSeatsFromLedgers, checkinOf, tsAfter,
+    } = require('./reconcile');
+    const d = withWorkspaceRoot(workspaceRoot, () => require('./owed-from-endings').classifyOwed(goalFolder, {
+      readyAnswer: readyEmpty,
+      live: new Set(),
+      queued: new Set(),
+      goal,
+      loadSessions,
+      loadMessages,
+      lastBySeat,
+      liveSeatsFromLedgers,
+      checkinOf,
+      tsAfter,
+      STAFF_CHAIRS: ['chair-dropped', 'chair-control'],
+      SYSTEM_MAIL_SENDER: 'ignite-daemon',
+    }));
+
+    assert.strictEqual(d.classA.find((x) => x.seat === 'worker-dropped'), undefined,
+      `an abandoned lane must never appear in classA, got ${JSON.stringify(d.classA)}`);
+    assert.ok(d.classA.find((x) => x.seat === 'worker-control'),
+      `CONTROL: a non-abandoned lane with the same failed ending must still appear in classA, got ${JSON.stringify(d.classA)}`);
+    assert.strictEqual(d.classB.find((x) => x.seat === 'chair-dropped'), undefined,
+      `an abandoned chair must never appear in classB, got ${JSON.stringify(d.classB)}`);
+    assert.ok(d.classB.find((x) => x.seat === 'chair-control'),
+      `CONTROL: a non-abandoned chair with the same unread mail must still appear in classB, got ${JSON.stringify(d.classB)}`);
+    pass('abandoned lane excluded from classA and classB, control lane still owed in the same pass');
+  } catch (err) { fail('abandoned lane excluded from classA and classB', err); } finally { closeEndingStores(); }
+}
+
+function caseAbandonedSeatExcludedFromPending() {
+  const workspaceRoot = fs.mkdtempSync(path.join(tmpRoot, 'abandon-ws-pending-'));
+  const db = openEndingStoreFor(workspaceRoot);
+  const api = bindStore(db);
+  try {
+    const goal = 'abandon-pending-goal';
+    const goalFolder = path.join(workspaceRoot, '.rbtv', 'goals', goal);
+    fs.mkdirSync(goalFolder, { recursive: true });
+    writeSessions(goalFolder, [
+      { 'session-id': 'sp1', seat: 'worker-dropped', started: '2026-08-31T20:00:00Z', checkin: '2026-08-31 20:00' },
+      { 'session-id': 'sp2', seat: 'worker-control', started: '2026-08-31T20:00:00Z', checkin: '2026-08-31 20:00' },
+    ]);
+    api.abandonSeat({
+      goal, seat: 'worker-dropped', anchor: 'owner: drop-lane, this lane will never launch', abandoned_by: 'owner',
+    });
+    const {
+      loadSessions, loadMessages, lastBySeat, liveSeatsFromLedgers, checkinOf, tsAfter,
+    } = require('./reconcile');
+    const d = withWorkspaceRoot(workspaceRoot, () => require('./owed-from-endings').classifyOwed(goalFolder, {
+      readyAnswer: { ready: new Map(), granted: new Map(), rows: [], reason: null },
+      live: new Set(),
+      queued: new Set(),
+      goal,
+      loadSessions,
+      loadMessages,
+      lastBySeat,
+      liveSeatsFromLedgers,
+      checkinOf,
+      tsAfter,
+      STAFF_CHAIRS: [],
+      SYSTEM_MAIL_SENDER: 'ignite-daemon',
+    }));
+    const pending = (d.classE && d.classE.pending) || [];
+    assert.ok(!pending.includes('worker-dropped'),
+      `an abandoned lane must never appear in the pending frontier, got ${JSON.stringify(pending)}`);
+    assert.ok(pending.includes('worker-control'),
+      `CONTROL: a non-abandoned lane with no ending must still appear in the pending frontier, got ${JSON.stringify(pending)}`);
+    pass('abandoned lane excluded from the pending frontier (classE), control lane still pending in the same pass');
+  } catch (err) { fail('abandoned lane excluded from pending', err); } finally { closeEndingStores(); }
+}
+
+// class R (the graph half, `owed.js#seatState`/`deriveLaunchable`) is a pure-function unit test —
+// it takes its `abandoned` set as an option rather than reading a store, so no DB fixture is needed.
+function caseAbandonedSeatExcludedFromClassR() {
+  try {
+    const { deriveLaunchable } = require('./owed');
+    const rows = [
+      { seat: 'worker-dropped', after: '' },
+      { seat: 'worker-control', after: '' },
+    ];
+    const abandoned = new Set(['worker-dropped']);
+    const { classR, states } = deriveLaunchable({
+      rows,
+      byJob: new Map(),
+      queued: new Set(),
+      ready: new Set(['worker-dropped', 'worker-control']),
+      jobIdFor: (seat) => seat,
+      seatIsFinished: () => false,
+      seatHasRun: () => false,
+      view: {
+        done: new Set(), foreign: new Set(), notFinished: new Set(), abandoned,
+      },
+    });
+    assert.strictEqual(states['worker-dropped'], 'abandoned',
+      `an abandoned seat must report a distinct terminal state, got ${states['worker-dropped']}`);
+    assert.ok(!classR.find((r) => r.seat === 'worker-dropped'),
+      `an abandoned seat coord still marks READY must never enter classR (graph-owed), got ${JSON.stringify(classR)}`);
+    assert.ok(classR.find((r) => r.seat === 'worker-control'),
+      `CONTROL: a non-abandoned seat coord marks READY must still enter classR, got ${JSON.stringify(classR)}`);
+    pass('seatState/deriveLaunchable (class R) honour the abandoned exclusion, control seat still launchable');
+  } catch (err) { fail('abandoned seat excluded from class R (seatState)', err); }
+}
+
 function caseFinishMarkerPin() {
   try {
     const recordsPy = fs.readFileSync(path.join(__dirname, '..', 'coord', 'records.py'), 'utf8');
@@ -486,6 +652,9 @@ caseRedRevertToCheckinLogic();
 caseRedCursorAlwaysZero();
 caseRedFrontierCheckIgnored();
 caseRedFirstRowReturn();
+caseAbandonedSeatExcludedFromClassAAndClassB();
+caseAbandonedSeatExcludedFromPending();
+caseAbandonedSeatExcludedFromClassR();
 
 try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* tmp */ }
 

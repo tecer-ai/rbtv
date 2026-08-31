@@ -24,6 +24,8 @@ function bind(db) {
     holdSeat: (fields) => writers.holdSeat(db, fields),
     releaseSeat: (fields) => writers.releaseSeat(db, fields),
     getSeatHold: (fields) => writers.getSeatHold(db, fields),
+    abandonSeat: (fields) => writers.abandonSeat(db, fields),
+    getSeatAbandonment: (fields) => writers.getSeatAbandonment(db, fields),
     getCurrentEnding: (fields) => writers.getCurrentEnding(db, fields),
     getGoalState: (goal) => writers.getGoalState(db, goal),
     getAsk: (askId) => writers.getAsk(db, askId),

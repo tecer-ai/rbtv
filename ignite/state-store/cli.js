@@ -18,6 +18,8 @@ const OPS = new Set([
   'holdSeat',
   'releaseSeat',
   'getSeatHold',
+  'abandonSeat',
+  'getSeatAbandonment',
   'getCurrentEnding',
   'getGoalState',
   'getAsk',

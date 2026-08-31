@@ -268,6 +268,33 @@ function caseCopyHome() {
   pass('one-shot copy-home copies jobs_log');
 }
 
+function caseAbandonSeat() {
+  const { heart, api } = openApi();
+  try {
+    if (api.getSeatAbandonment({ goal: 'g', seat: 's' })) throw new Error('expected no abandonment');
+    const first = api.abandonSeat({
+      goal: 'g', seat: 's', anchor: 'owner: drop-lane, this lane is stuck for good', abandoned_by: 'owner',
+    });
+    if (first.idempotent) throw new Error('first abandonment must not report idempotent');
+    if (!first.abandonment || first.abandonment.seat !== 's') {
+      throw new Error(`bad abandonment row ${JSON.stringify(first)}`);
+    }
+    const read = api.getSeatAbandonment({ goal: 'g', seat: 's' });
+    if (!read || read.anchor !== first.abandonment.anchor) throw new Error('read-back mismatch');
+    // Permanent, no undo: a second call on the same lane returns the FIRST row unchanged, never a
+    // second ruling — even when the caller supplies a different reason.
+    const again = api.abandonSeat({
+      goal: 'g', seat: 's', anchor: 'a different reason', abandoned_by: 'owner',
+    });
+    if (!again.idempotent) throw new Error('second abandonment of the same lane must be idempotent');
+    if (again.abandonment.anchor !== first.abandonment.anchor) {
+      throw new Error('idempotent abandonment must not overwrite the first ruling');
+    }
+    if (api.getSeatAbandonment({ goal: 'g', seat: 'other' })) throw new Error('other seat must stay clean');
+    pass('abandonSeat: write, read-back, idempotent on retry, never overwrites');
+  } finally { closeApi(heart); }
+}
+
 function caseTablesHosted() {
   const { heart } = openApi();
   try {
@@ -294,6 +321,7 @@ const cases = [
   caseWriteOnce,
   caseKilledVocab,
   caseCopyHome,
+  caseAbandonSeat,
 ];
 
 for (const fn of cases) {

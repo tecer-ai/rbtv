@@ -194,6 +194,30 @@ function heldSeats(api, goal, seats) {
   return out;
 }
 
+// ── THE LANE'S ABANDONMENT, HONOURED WHERE THE OWED SET IS DECIDED ───────────────────────────────
+//
+// `d-recovery-abandoned-is-an-ending` (owner ruling, 2026-08-31): `drop-lane` retires ONE lane
+// `(goal, seat)` forever — no undo, from Slack or a terminal. It is recorded over
+// `state-store/tables.sql`'s `seat_abandonments` (a sibling table beside `seat_endings`, for the
+// same reasons `seat_holds` already is one: the live CHECK on `seat_endings.ending` cannot be
+// widened after the fact, and a re-stamp would archive the fact away). A seat with a row here is
+// not class A, class B, or the `pending` frontier at all — the same shape `dead`, `summoned`, and
+// `held` already have below. No owed row means no relaunch and no attempt counted, from one
+// exclusion rather than a rule taught separately to each of the three loops.
+//
+// ⚠ THIS IS UNCONDITIONAL, UNLIKE A HOLD. A hold clears itself on a named change (`seatHeld`
+// re-evaluates a release condition every pass); an abandonment never does — the row's mere presence
+// IS the answer, permanently, so there is no matching "still abandoned?" liveness check to run.
+function abandonedSeats(api, goal, seats) {
+  const out = new Map();
+  if (!api || typeof api.getSeatAbandonment !== 'function') return out;
+  for (const seat of seats) {
+    const row = api.getSeatAbandonment({ goal, seat });
+    if (row) out.set(seat, row);
+  }
+  return out;
+}
+
 function endingsForSeats(api, goal, seats) {
   const out = new Map();
   if (!api) return out;
@@ -233,6 +257,7 @@ function classifyOwed(goalFolder, {
       deadSeats: [],
       summonedSeats: [],
       heldSeats: [],
+      abandonedSeats: [],
       classA: [],
       classB: [],
       classE: null,
@@ -254,6 +279,7 @@ function classifyOwed(goalFolder, {
   const seats = [...last.keys()];
   const endingMap = endings || endingsForSeats(api, gid, seats);
   const holdMap = heldSeats(api, gid, seats);
+  const abandonedMap = abandonedSeats(api, gid, seats);
 
   const dead = new Set();
   let readyRefused = null;
@@ -275,6 +301,9 @@ function classifyOwed(goalFolder, {
         // A HELD seat is not an unexplained frozen frontier: the reason it is not advancing is
         // recorded, named and owner-visible. Class E exists to surface a frontier NOBODY explained.
         if (holdMap.has(seat)) continue;
+        // An ABANDONED seat is not an unexplained frozen frontier either — the owner explained it
+        // permanently, by dropping the lane.
+        if (abandonedMap.has(seat)) continue;
         if (readyAnswer.ready && readyAnswer.ready.has(seat)) continue;
         pending.push(seat);
       }
@@ -286,6 +315,7 @@ function classifyOwed(goalFolder, {
     if (dead.has(seat)) continue;
     if (summonedSet.has(seat)) continue;
     if (holdMap.has(seat)) continue;
+    if (abandonedMap.has(seat)) continue;
     const ended = (sessionRow.ended || '').trim();
     if (!ended) continue;
     const classified = classifyEnding(endingMap.get(seat));
@@ -304,6 +334,7 @@ function classifyOwed(goalFolder, {
     if (dead.has(chair)) continue;
     if (summonedSet.has(chair)) continue;
     if (holdMap.has(chair)) continue;
+    if (abandonedMap.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
     const cursor = readCursor(goalFolder, chair);
     const unread = messages.filter((m) => m.to === chair && m.sender !== chair
@@ -332,6 +363,9 @@ function classifyOwed(goalFolder, {
     heldSeats: [...holdMap.values()].map((h) => ({
       seat: h.seat, until: h.until, ask_id: h.ask_id, anchor: h.anchor, held_by: h.held_by, held_at: h.held_at,
     })),
+    abandonedSeats: [...abandonedMap.values()].map((a) => ({
+      seat: a.seat, anchor: a.anchor, abandoned_by: a.abandoned_by, abandoned_at: a.abandoned_at, ask_id: a.ask_id,
+    })),
     classA,
     classB,
     classE,
@@ -343,6 +377,6 @@ function classifyOwed(goalFolder, {
 }
 
 module.exports = {
-  classifyEnding, classifyOwed, endingsForSeats, heldSeats, readCursor, workersPath,
+  classifyEnding, classifyOwed, endingsForSeats, heldSeats, abandonedSeats, readCursor, workersPath,
   finishEvent, FINISH_MARKER,
 };

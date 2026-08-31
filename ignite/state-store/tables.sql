@@ -120,3 +120,46 @@ CREATE TABLE IF NOT EXISTS seat_holds (
   CHECK (until != 'ask-answered' OR (ask_id IS NOT NULL AND ask_id != ''))
 );
 CREATE INDEX IF NOT EXISTS idx_seat_holds_goal ON seat_holds(goal);
+
+-- ── ABANDONMENT — a lane's second terminal outcome, and deliberately NOT a value on `ending` ─────
+--
+-- WHAT IT IS. `drop-lane` (a recovery reply the owner can send on a stuck lane,
+-- `d-recovery-drop-is-one-lane-permanent`) retires ONE lane — the `(goal, seat)` pair — forever,
+-- with no undo. `d-recovery-abandoned-is-an-ending` puts the record where a lane's normal
+-- completion is already recorded: beside `done`, as a second terminal outcome, so the checks that
+-- already ask "does this lane have an outcome?" inherit the answer without new machinery.
+--
+-- WHY A SIBLING TABLE AND NOT A THIRD/FOURTH VALUE ON `seat_endings.ending`. The ruling's own words
+-- put abandonment "where completion is already recorded" — that reads as `seat_endings`, but two
+-- facts rule it out, both measured against the LIVE store rather than assumed:
+-- (1) `seat_endings.ending`'s CHECK clause is `IN ('done','incomplete','failed')` and `open.js` runs
+-- `tables.sql` with `CREATE TABLE IF NOT EXISTS` — a no-op on a table that already exists. Widening
+-- the CHECK in this file changes nothing on a live `heart.db`; a live workspace's CHECK constraint
+-- stays exactly what it was `CREATE`d with, and stamping `ending='abandoned'` against it raises
+-- `SQLITE_CONSTRAINT`. A sibling table is the one migration path this store has (declare it here,
+-- new home creates it, existing home gains it, `seat_holds` is the precedent).
+-- (2) Every re-stamp of `seat_endings` ARCHIVES the current row into `seat_endings_log` (`writers
+-- .js#archiveCurrent`) — so an `ending` value could be superseded away by a later `done`/`failed`
+-- stamp, and "abandoned forever" cannot live somewhere a later write erases it.
+-- It IS in this file, and therefore in the ONE workspace-scoped ending store
+-- (`<workspace>/.rbtv/runtime/ignite/heart.db`), for the same reason `seat_holds` is: the readers
+-- that must inherit this answer (`owed.js`, `owed-from-endings.js`, and the reconcile/lane-watch
+-- pass) already read this store.
+--
+-- NO RELEASE CONDITION, ON PURPOSE. Unlike `seat_holds.until`, there is no vocabulary of ways this
+-- row stops applying — the ruling's whole point is that dropping a lane has NO undo path, from
+-- Slack or from a terminal. The writer (`writers.js#abandonSeat`) never deletes or replaces a row
+-- here; a second call on the same `(goal, seat)` returns the first row unchanged (idempotent on a
+-- retried write, e.g. the drop's own two-step stop-then-mark sequence), never a second ruling.
+CREATE TABLE IF NOT EXISTS seat_abandonments (
+  goal TEXT NOT NULL,
+  seat TEXT NOT NULL,
+  -- Free text: why the lane was dropped, an owner-supplied reason or the recovery ask's comment.
+  anchor TEXT NOT NULL CHECK (anchor != ''),
+  abandoned_by TEXT NOT NULL CHECK (abandoned_by != ''),
+  abandoned_at TEXT NOT NULL,
+  -- The recovery ask this drop answered, when there was one — traceable, never verified.
+  ask_id TEXT,
+  PRIMARY KEY (goal, seat)
+);
+CREATE INDEX IF NOT EXISTS idx_seat_abandonments_goal ON seat_abandonments(goal);

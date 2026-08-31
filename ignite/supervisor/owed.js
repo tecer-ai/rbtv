@@ -35,6 +35,7 @@ const EMPTY_LEDGER = Object.freeze({
   deadSeats: [],
   summonedSeats: [],
   heldSeats: [],
+  abandonedSeats: [],
   classA: [],
   classB: [],
   classE: null,
@@ -52,10 +53,18 @@ const EMPTY_LEDGER = Object.freeze({
 // ⚠ `ready` IS COORD'S ANSWER, HANDED IN — never derived here (§ D1). Absent (a caller that could
 // not ask, or did not) means NO seat is ready: the store may decline, never promote. That is the
 // whole asymmetry, in one default.
+//
+// ⚠ `abandoned` IS CHECKED FIRST, BEFORE `done`. A lane's drop (`d-recovery-abandoned-is-an-ending`)
+// is permanent and terminal exactly like `done` — but it is NEVER `done`: the two words must stay
+// distinguishable everywhere a reader asks "does this lane have an outcome?", so a dropped lane
+// reports its OWN state rather than being folded into the success word. Checking it before every
+// other branch means a seat coord still marks READY (stale, because coord does not know about the
+// drop) can never fall through to the `ready` return at the bottom.
 function seatState(row, byJob, queued, {
   done = null, goal = null, foreign = null, notFinished = null, ready = null,
-  jobIdFor = null, seatIsFinished = null, seatHasRun = null,
+  jobIdFor = null, seatIsFinished = null, seatHasRun = null, abandoned = null,
 } = {}) {
+  if (abandoned && abandoned.has(row.seat)) return 'abandoned';
   const jobId = jobIdFor(row.seat, goal);
   const isDone = (seat) => !(notFinished && notFinished.has(seat))
     && ((done && done.has(seat)) || seatIsFinished(byJob.get(jobIdFor(seat, goal))));
@@ -85,6 +94,7 @@ function deriveLaunchable({
   const opts = {
     done: view && view.done, goal, foreign: view && view.foreign,
     notFinished: view && view.notFinished, ready,
+    abandoned: view && view.abandoned,
     jobIdFor, seatIsFinished, seatHasRun,
   };
   const states = {};
