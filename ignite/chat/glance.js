@@ -37,6 +37,9 @@ const path = require('node:path');
 
 const { createSystemDigest, isSlot } = require('./system-digest');
 const { createStatusLine } = require('./status-line');
+// The forward path's thread-permalink builder (D104/D105 area) — reused rather than
+// re-derived, so the `<channel>/p<ts>` transform has exactly one author.
+const { slackThreadPermalink } = require('./forward-path');
 // The alarm registry's published READ interface, and the reason this is not a local reimplementation
 // of it: the registry's shape is a CONTRACT between `observation/emitter.js` and
 // `system-digest.js`, and a second reader here would be a second definition of what an open
@@ -96,6 +99,38 @@ function createConditionReader({ workspaceRoot, storePath = null, logger = null 
   };
 }
 
+// THE ASK ID IS THE SLACK THREAD TIMESTAMP BY CONSTRUCTION [T5-R7] — but `open_asks` on disk
+// carries three shapes today (verified against the live table 2026-08-31), and each demands a
+// DIFFERENT link, never a guess:
+//   · a thread ts (`1788115731.908659`)      → a thread permalink, channel resolved from the goal
+//   · a Slack CHANNEL id (`C0BTB7C7WF5`)      → the goal-master approval flow posts to the
+//                                               channel itself, not a thread — link the channel
+//   · a minted recovery id (`recovery-8f31…`) → never reached Slack (row carries `posted = 0`) —
+//                                               NO link
+// Anything matching none of the three gets NO link either. A dead link in the digest is worse
+// than no link: the owner cannot tell which he tapped.
+const ASK_ID_CHANNEL_RE = /^C[A-Z0-9]+$/;
+const ASK_ID_THREAD_TS_RE = /^\d+\.\d+$/;
+
+// Resolves the Slack link for ONE ask row, or `null` — never a fabricated one. Every failure
+// path (no resolver wired, the goal has no channel yet, the resolver threw) degrades to no link;
+// none of them may throw out of here, because a missing link must never cost the digest slot.
+async function linkForAsk(ask, resolveGoalChannel, log) {
+  const id = String(ask && ask.id != null ? ask.id : '');
+  if (ASK_ID_CHANNEL_RE.test(id)) return `https://slack.com/archives/${id}`;
+  if (!ASK_ID_THREAD_TS_RE.test(id)) return null; // recovery-* ids and anything unrecognized
+  if (typeof resolveGoalChannel !== 'function' || !ask.goal) return null;
+  let channelId = null;
+  try {
+    channelId = await resolveGoalChannel(String(ask.goal));
+  } catch (err) {
+    log('warn', 'ask link NOT attached — the goal→channel resolver threw; the row still renders, with no link',
+      { goal: ask.goal, askId: id, error: err.message });
+    return null;
+  }
+  return channelId ? slackThreadPermalink(channelId, id) : null;
+}
+
 // `deps` are the already-constructed parts of a running bridge:
 //   outbox        — the bridge's ONE outbox (`chat-bridge.js`), so a digest that Slack never acked
 //                   leaves the same `pending-delivery` record every other post leaves [C-17].
@@ -110,6 +145,10 @@ function createGlance({
   workspaceRoot = null,
   conditionsStorePath = null,
   digestState = null,
+  // Resolves a goalId to its Slack channel id (or null), e.g. the bridge's
+  // `goalChannels.resolveChannel`. Never persisted, never required — absent, every ask row
+  // simply renders with no link (see `linkForAsk`).
+  resolveGoalChannel = null,
   // The beat, injectable for exactly one reason: a probe cannot wait 30 s to see the driver fire,
   // and a driver nobody can watch fire is a driver nobody has proven runs. Production never passes
   // it — `index.js` takes the constant.
@@ -182,7 +221,11 @@ function createGlance({
       log('warn', 'system digest slot SKIPPED — the open-ask read failed, and an unreadable set is not an empty one. The next slot retries; the baseline has not moved.');
       return { ran: false, reason: 'asks-unreadable', posted: false };
     }
-    slotAsks = asks;
+    // Attach each row's Slack link BEFORE the digest renders it — `system-digest.js` only
+    // renders `ask.link` when it is already set; it does not resolve one (`d-digest-ui`).
+    slotAsks = await Promise.all(asks.map(async (a) => ({
+      ...a, link: await linkForAsk(a, resolveGoalChannel, log),
+    })));
     return digest.check(at);
   }
 

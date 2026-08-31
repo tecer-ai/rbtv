@@ -99,8 +99,8 @@ function mockSlack() {
   };
 }
 
-function ask(id, seat, oneLiner, openedAt) {
-  return { id, seat, one_liner: oneLiner, opened_at: openedAt, evidence_pointer: `/tmp/${id}.txt` };
+function ask(id, seat, oneLiner, openedAt, extra = {}) {
+  return { id, seat, one_liner: oneLiner, opened_at: openedAt, evidence_pointer: `/tmp/${id}.txt`, ...extra };
 }
 
 (async () => {
@@ -308,6 +308,82 @@ function ask(id, seat, oneLiner, openedAt) {
     check('with no system channel the glance is NOT wired, and says so — it never picks a channel',
       glance === null && said.some((m) => m.level === 'warn' && /RBTV_SYSTEM_CHANNEL_ID/.test(m.message)),
       { said });
+  }
+
+  // ── 6. THE ASK LINK (`d-digest-ui`): THREE ID SHAPES, PLUS THE UNKNOWN CASE ─────────────────
+  //
+  // `open_asks` on the live workspace carries three shapes today (verified against
+  // `.rbtv/runtime/ignite/heart.db` 2026-08-31) and each needs a DIFFERENT link — the four real
+  // ids below are taken straight off that table, not invented:
+  //   · `1788115731.908659` — a thread ts (goal `meet-transcript-summarizer-planning`)
+  //   · `C0BTB7C7WF5`        — a Slack CHANNEL id (goal-master posts to the channel, no thread)
+  //   · `recovery-8f31b609a83b` — a minted recovery id, `posted = 0`, never reached Slack
+  //   · anything else (a garbage id) — matches none of the three shapes
+  {
+    const slack = mockSlack();
+    const at = spInstant('2026-08-31', 8);
+    const rows = [
+      ask('1788115731.908659', 'plan-verifier', 'which lane owns the retry?', spInstant('2026-08-31', 7, 50), { goal: 'demo-goal' }),
+      ask('C0BTB7C7WF5', 'goal-master', 'approve the close?', spInstant('2026-08-31', 7, 55), { goal: 'demo-goal-2' }),
+      ask('recovery-8f31b609a83b', 'leader', 'resume after the crash?', spInstant('2026-08-31', 7, 40), { goal: 'demo-goal' }),
+      ask('not-a-real-ask-id', 'writer', 'garbage id, no shape matches', spInstant('2026-08-31', 7, 0), { goal: 'demo-goal' }),
+    ];
+    const glance = createGlance({
+      outbox: createOutbox({ storePath: path.join(root, 'ob-6.json'), send: (a) => slack.transport.sendToOwner(a) }),
+      askRecord: createAskRecord({ forwarder: fakeForwarder(rows) }),
+      systemChannelId: SYS,
+      workspaceRoot: root,
+      digestState: path.join(root, 'digest-state-6.json'),
+      now: () => at,
+      resolveGoalChannel: async (goalId) => (goalId === 'demo-goal' ? 'C0BTB7C7WF5' : null),
+    });
+
+    const r = await glance.checkSlot();
+    check('the slot posted with all four ask rows resolved', r.posted === true && slack.posts.length === 1, { result: r });
+    const text = slack.posts[0].text;
+    const rowLines = text.split('\n').filter((l) => l.startsWith('•'));
+    check('a THREAD-TS id links the resolved goal channel + the ts with its dot stripped',
+      rowLines[0] === '• <https://slack.com/archives/C0BTB7C7WF5/p1788115731908659|*demo-goal*> · plan-verifier · which lane owns the retry? · 10m · 908659',
+      { row: rowLines[0] });
+    check('a CHANNEL-shaped id links the channel directly — never a fabricated thread permalink',
+      rowLines[1] === '• <https://slack.com/archives/C0BTB7C7WF5|*demo-goal-2*> · goal-master · approve the close? · 5m · 7C7WF5',
+      { row: rowLines[1] });
+    check('a `recovery-` id (posted=0, never reached Slack) gets NO link — the row falls back to its evidence pointer',
+      rowLines[2] === `• *demo-goal* · leader · resume after the crash? · 20m · /tmp/recovery-8f31b609a83b.txt · 09a83b`,
+      { row: rowLines[2] });
+    check('an id matching NONE of the three shapes gets NO link either — never a guessed one',
+      rowLines[3] === `• *demo-goal* · writer · garbage id, no shape matches · 1h · /tmp/not-a-real-ask-id.txt · ask-id`,
+      { row: rowLines[3] });
+  }
+
+  // ── 7. RESOLUTION FAILURE DEGRADES — the row renders with NO link, the slot never throws ───
+  {
+    const slack = mockSlack();
+    const at = spInstant('2026-08-31', 10);
+    const rows = [ask('1788200000.000001', 'writer', 'ship the draft?', spInstant('2026-08-31', 9), { goal: 'unmapped-goal' })];
+    const glance = createGlance({
+      outbox: createOutbox({ storePath: path.join(root, 'ob-7.json'), send: (a) => slack.transport.sendToOwner(a) }),
+      askRecord: createAskRecord({ forwarder: fakeForwarder(rows) }),
+      systemChannelId: SYS,
+      workspaceRoot: root,
+      digestState: path.join(root, 'digest-state-7.json'),
+      now: () => at,
+      resolveGoalChannel: async () => { throw new Error('conversations.list threw'); },
+    });
+
+    let threw = false;
+    let r;
+    try {
+      r = await glance.checkSlot();
+    } catch {
+      threw = true;
+    }
+    check('a resolver that THROWS never escapes the slot — the digest still posts',
+      threw === false && r.posted === true && slack.posts.length === 1, { threw, result: r });
+    const rowLine = slack.posts[0].text.split('\n').find((l) => l.startsWith('•'));
+    check('the row renders with NO link when resolution fails — degrade, never a dead link',
+      rowLine === '• *unmapped-goal* · writer · ship the draft? · 1h · /tmp/1788200000.000001.txt · 000001',
+      { row: rowLine });
   }
 
   try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* tmp */ }

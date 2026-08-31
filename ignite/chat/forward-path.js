@@ -768,4 +768,4 @@ function createForwardPath({ forwarder, threadMap, allowlist, config, logger = n
   return { onChatMessage, forwardSessionCreate, forwardFollowUp, workdirFor, recordBusAnswer, CMP8_TYPES };
 }
 
-module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, formatNoGoalSeatNotice, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat };
+module.exports = { createForwardPath, CMP8_TYPES, DECLINE_NOTICE, NO_GOAL_SEAT_NOTICE, formatNoGoalSeatNotice, NO_AGENT_SEAT_NOTICE, SEAT_BUSY_NOTICE, GATEWAY_REFUSED_NOTICE, resolveGoalSeat, slackThreadPermalink };

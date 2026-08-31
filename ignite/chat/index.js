@@ -100,6 +100,13 @@ function buildBridge(config, {
       : null,
     systemChannelId: config.systemChannelId,
     workspaceRoot: config.workspaceRoot,
+    // The digest's per-ask Slack link (`d-digest-ui`) is resolved from the ask's goal id through
+    // the SAME goal↔channel map the bridge already built above — never a second map, never a
+    // stored permalink. Absent `goalChannels` (a transport with no channel admin surface), this
+    // stays null and every ask row simply renders with no link.
+    resolveGoalChannel: goalChannels
+      ? async (goalId) => (await goalChannels.resolveChannel(goalId)).channelId
+      : null,
     logger,
   });
 
