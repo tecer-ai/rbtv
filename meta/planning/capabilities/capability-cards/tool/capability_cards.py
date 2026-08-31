@@ -11,6 +11,14 @@ EXPECTED_HEADER = ["part-id", "part-kind", "method", "rbtv-cli", "entry-point",
                    "description", "write-roots"]
 CARD_FIELDS = ["part-id", "part-kind", "component", "module", "method", "entry-point", "rbtv-cli", "description"]
 
+# The rbtv repo root — this file's own position is `<repo>/meta/planning/capabilities/
+# capability-cards/tool/capability_cards.py`, five levels down. Derived, never hardcoded to a
+# user's home: `.rbtv/mirror/` (the old default) is a partial installer copy — a 5-card slice
+# of the ~182 cards the real repo carries, and it doesn't exist at all from a seat folder
+# (owner ethos rung 2: shop capability cards before inventing a tool; a seat that trusts the
+# default must see the real catalog, not a sliver of it).
+DEFAULT_ROOT = str(Path(__file__).resolve().parents[5])
+
 
 def find_components(root: Path):
     """Yield (component_path, module_name, component_name) for every component folder."""
@@ -131,11 +139,11 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
 
     list_parser = sub.add_parser("list", help="List all exposed capability cards")
-    list_parser.add_argument("--root", default=".rbtv/mirror/", help="Root mirror path")
+    list_parser.add_argument("--root", default=DEFAULT_ROOT, help="Root mirror path")
     list_parser.add_argument("--json", action="store_true", help="Output JSON array")
 
     show_parser = sub.add_parser("show", help="Show card(s) for a part-id")
-    show_parser.add_argument("--root", default=".rbtv/mirror/", help="Root mirror path")
+    show_parser.add_argument("--root", default=DEFAULT_ROOT, help="Root mirror path")
     show_parser.add_argument("part_id", help="Part id to look up")
 
     args = parser.parse_args(argv)

@@ -4199,6 +4199,24 @@ def resolve_cli_write_roots(plan: dict) -> None:
         ws_hint = None
         for method, pid, row, ref_dir in parts:
             ws_hint = ws_hint or ref_dir
+            if method == "path":
+                # A seat can expose a CLI directly (`exposes: path:`), with no
+                # skill in the chain — its OWN row already carries the
+                # resolved write-roots (`_write_roots`, beside `entry-point`).
+                # Composed into the SAME `entries`/`roots` dicts as the skill
+                # branch below so a seat reaching one CLI both ways still
+                # dedupes by target and still catches a genuine collision.
+                target = str(Path((row.get("entry-point") or "").strip()))
+                if entries.setdefault(pid, target) != target:
+                    raise Refuse(
+                        "exposed-cli-collision",
+                        f"seat '{seat}' reaches CLI '{pid}' at two different "
+                        f"entry points ({entries[pid]} and {target}) — one "
+                        "name cannot bind two targets",
+                        str(ref_dir / EXPOSURE_NAME))
+                for root in row.get(WRITE_ROOTS_RESOLVED) or ():
+                    roots.setdefault(root, [seat, pid, pid, "path"])
+                continue
             if method != "skill":
                 continue
             entry_file = ref_dir / (row.get("entry-point") or "").strip()
@@ -4227,7 +4245,7 @@ def resolve_cli_write_roots(plan: dict) -> None:
                         str(entry_file))
                 for root in cli.get(WRITE_ROOTS_RESOLVED) or ():
                     roots.setdefault(
-                        root, [seat, pid, cli_pid])
+                        root, [seat, pid, cli_pid, "skill"])
         if not roots:
             continue
         try:
@@ -4235,20 +4253,21 @@ def resolve_cli_write_roots(plan: dict) -> None:
         except Refuse:
             private = []
         for root, chain in sorted(roots.items()):
+            via = (f"CLI '{chain[2]}' exposed directly" if chain[3] == "path"
+                   else f"skill '{chain[1]}' -> CLI '{chain[2]}'")
             for entry in private:
                 if root == entry or root.startswith(entry + os.sep):
                     raise Refuse(
                         "write-root-private",
                         f"seat '{chain[0]}' would receive write-root {root} "
-                        f"through skill '{chain[1]}' -> CLI '{chain[2]}', and "
-                        f"it lands on the private-scope entry {entry}. A "
-                        "CLI-derived root is never a pierce: the deny list "
-                        "wins. Drop the declaration, or move the CLI's state "
-                        "out of the private path",
+                        f"through {via}, and it lands on the private-scope "
+                        f"entry {entry}. A CLI-derived root is never a "
+                        "pierce: the deny list wins. Drop the declaration, "
+                        "or move the CLI's state out of the private path",
                     )
             plan["warnings"].append(
                 f"write-root GRANTED to seat '{chain[0]}': {root} "
-                f"(seat -> skill '{chain[1]}' -> CLI '{chain[2]}' -> root)")
+                f"(seat -> {via} -> root)")
         plan["cli_write_roots"][seat] = sorted(roots)
 
 

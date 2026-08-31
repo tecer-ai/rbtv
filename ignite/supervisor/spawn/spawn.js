@@ -1094,6 +1094,38 @@ function refusalShimSource() {
   return p;
 }
 
+// A granted CLI's target script is not necessarily +x on disk (an author writes a `.py` file with
+// a shebang and forgets `chmod +x`; measured 2026-08-31 against `capability_cards.py` and
+// `gtools.py`, both `-rw-rw-r--`). The bwrap `--symlink` at the bottom of this file only NAMES the
+// target — the OS still enforces the execute bit on whatever the symlink resolves to, so a granted
+// bare name dies `Permission denied` with no signal that the fix is a chmod. Chmod'ing the target
+// itself is out: it lives in the shared repo tree and a per-seat spawn must not mutate a file every
+// other seat and session reads (root-cause is the missing bit, but the FIX lands at the mint, not
+// on the shared source). Instead: when the target lacks +x, mint a tiny +x WRAPPER that `exec`s the
+// target's own shebang interpreter against it — same shape as `refusalShimSource` below, one
+// content-keyed file, idempotent across spawns — and symlink the granted name to THAT instead.
+function execWrapperFor(target, log) {
+  let firstLine = '';
+  try { firstLine = fs.readFileSync(target, 'utf8').split('\n', 1)[0]; } catch { return null; }
+  if (!firstLine.startsWith('#!')) return null;  // no shebang to route through — nothing safe to do
+  const interpreter = firstLine.slice(2).trim();
+  if (!interpreter) return null;
+  const body = `#!/bin/sh\nexec ${interpreter} "${target}" "$@"\n`;
+  const key = require('node:crypto').createHash('md5').update(target).digest('hex').slice(0, 16);
+  const p = path.join(require('node:os').tmpdir(), `rbtv-cage-exec-${key}.sh`);
+  try {
+    if (fs.readFileSync(p, 'utf8') === body) return p;
+  } catch { /* absent — write it below */ }
+  try {
+    fs.writeFileSync(p, body, { mode: 0o755 });
+    fs.chmodSync(p, 0o755);
+  } catch (err) {
+    log('warn', `exec wrapper could not be written for ${target}: ${err.message}`);
+    return null;
+  }
+  return p;
+}
+
 function resolveExposedCliGrants(seatPath, log) {
   const grants = [];
   for (const entry of seatDeclaresList(seatPath.seatDir, 'exposed-clis')) {
@@ -1107,7 +1139,16 @@ function resolveExposedCliGrants(seatPath, log) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) { refuse(`invalid part-id '${name}'`); continue; }
     if (!path.isAbsolute(target)) { refuse('entry point is not absolute — the materializer resolves it'); continue; }
     if (!fs.existsSync(target)) { refuse(`entry point does not exist: ${target}`); continue; }
-    grants.push({ exposedCliName: name, exposedCliEntry: target, exposedCliCode: path.dirname(target), grantClass: 'exposedCliCode' });
+    let execEntry = target;
+    let execWrapper = null;
+    try {
+      fs.accessSync(target, fs.constants.X_OK);
+    } catch {
+      execWrapper = execWrapperFor(target, log);
+      if (execWrapper) execEntry = execWrapper;
+      else log('warn', `exposed-clis entry '${name}' target is not executable and carries no usable shebang: ${target}`, { seat: seatPath.seat });
+    }
+    grants.push({ exposedCliName: name, exposedCliEntry: execEntry, execWrapper, exposedCliCode: path.dirname(target), grantClass: 'exposedCliCode' });
   }
   return grants;
 }
@@ -1458,6 +1499,9 @@ function composeCageFor(resolvedSandbox, seatPath, resolvedWorkdir, gatewayAddr 
   if (exposedClis.length > 0) {
     for (const g of exposedClis) {
       flags.push('--symlink', g.exposedCliEntry, path.join(rbtvBin, g.exposedCliName));
+      // The +x wrapper (execWrapperFor) lives in host tmp, outside the code-tree ro-bind above —
+      // it needs its own ro-bind or the symlink above resolves to nothing inside the cage.
+      if (g.execWrapper) flags.push('--ro-bind', g.execWrapper, g.execWrapper);
     }
     rbtvBinUsed = true;
     log('info', 'exposed CLIs enabled in the seat sandbox', { seat: seatPath.seat, clis: exposedClis.map((g) => g.exposedCliName) });
@@ -2522,6 +2566,9 @@ module.exports = {
   // `admitLaunch` bind list. A probe that re-composed the list itself would prove its own fixture
   // and not the branch that refused every exposed-CLI seat.
   exposedCliConflict,
+  // Exported for `probes/probe-exposed-cli-exec-bit.js`: the +x wrapper mint (task 161) must be
+  // driven against a REAL non-executable fixture file, not re-derived by the probe.
+  resolveExposedCliGrants,
 };
 
 function validateSpawnRequest(req) {
