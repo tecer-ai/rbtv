@@ -112,8 +112,12 @@ async function run(lines) {
     if (!['running', 'launching'].includes(liveBefore.status)) {
       throw new Error(`[control] the control turn must be NON-terminal to exercise the sweep, got ${liveBefore.status}`);
     }
-    const r2 = await ctx.ticker.tick(new Date());
+    let r2 = await ctx.ticker.tick(new Date());
     lines.push(`control sweep tick ${r2.tick}: ${JSON.stringify(r2.actions)}`);
+    if (r2.actions.some((a) => a.phase === 'enforce' && a.action === 'crash-sweep-deferred' && a.execId === live.exec_id)) {
+      r2 = await ctx.ticker.tick(new Date());
+      lines.push(`control sweep tick ${r2.tick}: ${JSON.stringify(r2.actions)}`);
+    }
     const controlAfter = ctx.store.getExecution(live.exec_id);
     lines.push(`[control] after sweep: turn=${controlAfter.status}`);
     if (controlAfter.status !== 'failed') {

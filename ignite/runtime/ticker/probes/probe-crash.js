@@ -32,9 +32,14 @@ async function run(lines) {
 
     await sleep(500);
 
-    // Tick to trigger crash sweep.
+    // Tick to trigger crash sweep. Marker-absent (ExecStopPost not yet written, or SIGKILL
+    // skipping the hook) defers one tick; a second consecutive gone observation is the crash.
     r = await ctx.ticker.tick(new Date());
     lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
+    if (r.actions.some(a => a.phase === 'enforce' && a.action === 'crash-sweep-deferred')) {
+      r = await ctx.ticker.tick(new Date());
+      lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions)}`);
+    }
 
     const crashAction = r.actions.find(a => a.phase === 'enforce' && a.action === 'crash-sweep');
     if (!crashAction) throw new Error('expected crash-sweep action');

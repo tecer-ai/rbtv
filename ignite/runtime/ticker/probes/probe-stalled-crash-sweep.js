@@ -54,8 +54,13 @@ async function run(lines) {
     await sleep(500);
 
     // The crash sweep must sweep the stalled row exactly as it sweeps running.
+    // Marker-absent defers one tick (same window as a running row).
     r = await ctx.ticker.tick(new Date());
     lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions.filter(a => a.phase === 'enforce'))}`);
+    if (r.actions.some(a => a.phase === 'enforce' && a.action === 'crash-sweep-deferred' && a.execId === exec.exec_id)) {
+      r = await ctx.ticker.tick(new Date());
+      lines.push(`tick ${r.tick}: ${JSON.stringify(r.actions.filter(a => a.phase === 'enforce'))}`);
+    }
     const swept = r.actions.find(a => a.phase === 'enforce' && a.action === 'crash-sweep' && a.execId === exec.exec_id);
     if (!swept) throw new Error('expected crash-sweep of the stalled execution after its exit');
 
@@ -68,7 +73,7 @@ async function run(lines) {
     const completions = dump.messages.filter(m => m.type === 'completion' && m.thread === row.thread);
     if (completions.length !== 1) throw new Error(`expected one synthetic completion, got ${completions.length}`);
     if (completions[0].status !== 'failed') throw new Error('expected failed completion');
-    if (!completions[0].corpus.startsWith('crash sweep: exit=')) throw new Error(`expected crash-sweep corpus, got: ${completions[0].corpus.slice(0, 60)}`);
+    if (!completions[0].corpus.startsWith('crash sweep: ')) throw new Error(`expected crash-sweep corpus, got: ${completions[0].corpus.slice(0, 60)}`);
     lines.push(`synthetic completion recorded: ${completions[0].corpus.split('\n')[0]}`);
 
     // Advance resolves the completion; the outcome stays failed (owner-halted,

@@ -158,6 +158,10 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
   // `pendingWakeThreads` holds wakes deferred while their slot was live/armed.
   let wakeWatermark = null;
   const pendingWakeThreads = new Set();
+  // Exec ids seen process-gone with no exit marker on the previous tick. The carrier writes the
+  // marker in ExecStopPost AFTER the unit reports inactive, so the first such observation is a
+  // race window, not a crash. A second consecutive tick with still nothing is a crash.
+  const awaitingExitMarker = new Set();
 
   // ── Nudge · the cadence is a FLOOR on latency, and new work does not have to wait it out ─────
   //
@@ -1917,6 +1921,15 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
     return text;
   }
 
+  function crashSweepReason(exec, marker, info) {
+    if (marker.present) return `exit=${marker.raw}`;
+    const carrierInfo = info && info.carrierInfo;
+    const carrierErr = carrierInfo && (carrierInfo.error || carrierInfo.message);
+    if (carrierErr) return `carrier error: ${carrierErr}`;
+    if (!exec.session_id) return 'never spawned';
+    return 'no exit marker found';
+  }
+
   async function enforce(now, tick, actions) {
     // Crash sweep first.
     //
@@ -1989,21 +2002,14 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
         ? probeSitting({ goal: seatOfExec.goal || '', seat: seatOfExec.seat })
         : { alive: null };
       const processGone = probed.alive === null ? !info.live : probed.alive === false;
-      if (processGone) {
-        // ── W1 · CLOSE THE SEAT'S OWN SESSION ROW, and do it HERE — before the three arms below
-        // fork — because all three mean the same thing to the seat trace: THE PROCESS IS GONE.
-        //
-        // ⚠ THIS IS THE DEATH DOOR, AND IT STAMPS `failed` / `crash`, NEVER `exited`
-        // [T1-R1, T1-R18, T4-R7]. The seat's own declaration, if it made one, was already written
-        // at checkout; what this sweep witnessed is the one fact no seat can witness about itself.
-        // The engine still asserts nothing about the WORK — it hands over only the death and its
-        // evidence (exit code, transcript-tail path), which §1.4 requires of a `crash` row, and
-        // coord performs the stamp.
-        //
-        // Failure is never fatal and never breaks a `continue` below: the helper swallows and logs.
+      if (!processGone) {
+        awaitingExitMarker.delete(exec.exec_id);
+        continue;
+      }
+
+      const runSeatCloser = (marker) => {
         if (closerBudget > 0 && exec.workdir && exec.session_id) {
           closerBudget -= 1;
-          const marker = readExitMarker(exec);
           closeSeatSessionRow({
             workdir: exec.workdir,
             sessionId: exec.session_id,
@@ -2012,90 +2018,122 @@ function createTicker({ heartStore, spawnManager, config = {}, logger = null, fe
             logPath: exec.log_path || null,
           });
         }
-        // ── G-222 · THE TURN ALREADY REPORTED. Write the SESSION, never the turn.
-        //
-        // What this sweep just observed is that a PROCESS is gone — a session-level fact. Before
-        // 7.46 it could only ever reach non-terminal turns (`running`/`launching`/`stalled`), so
-        // "the turn has not reported yet" was a STRUCTURAL property of the set and no code had to
-        // state it. 7.46 re-keyed the set on `sessions.status = 'alive'` — correct for the
-        // question the set asks — and the exclusion vanished with the old query. Measured: a turn
-        // seeded `done` was rewritten to `failed` at the first tick, with a manufactured crash
-        // completion and a "slot halted" owner note for a session that had ended normally.
-        //
-        // ⚠ THE EXCLUSION IS RESTORED HERE AND NOT IN listTurnsOfLiveSessions(), deliberately.
-        // That function feeds the AGENT CAP too (`liveAgentSessions` above), and a turn-level
-        // predicate there would hide a session that is alive with its turn reported — R16's
-        // idle-between-turns session, the exact state the split exists to represent — from the cap
-        // that must count it. It would also leave these sessions `alive` forever: this sweep is
-        // the only thing that ever closes a leaked one.
-        //
-        // So the sweep still LOOKS at the row (it must — otherwise nothing closes the session) and
-        // writes only what it actually observed.
-        if (TERMINAL_TURN_STATUSES.has(exec.status)) {
-          if (exec.session_pk) {
-            heartStore.closeSession(exec.session_pk, {
-              status: sessionStatusForEndedTurn(exec.status),
-              reason: `process gone; turn ${exec.exec_id} had already reported '${exec.status}'`,
-              closedAt: now,
-            });
-          }
-          // Named its own action, not folded into `crash-sweep`: this tick ended a SESSION and
-          // ended no turn, and an action log that calls both "crash-sweep" cannot tell an
-          // operator which happened.
-          actions.push({ phase: 'enforce', action: 'session-closed-turn-already-reported', execId: exec.exec_id, turnStatus: exec.status });
-          continue;
-        }
+      };
 
-        // The carrier's exit marker is the ONLY honest exit observation for a
-        // detached --collect unit: `systemctl show` on a collected unit
-        // returns DEFAULT values (ExecMainStatus=0), so info.exitCode here is
-        // fabricated. Marker present + 0 → an honest clean turn-end, recorded
-        // `done` with the worker's extracted answer as the completion corpus —
-        // Advance then recycles on pending input or ends the slot; NEVER the
-        // failed-halt path. Marker present + non-zero (or a signal name) →
-        // failed with the REAL code. Marker absent → the pre-marker crash
-        // path, unchanged (genuine crash, pre-feature worker, daemon-restart
-        // setsid loss).
-        const marker = readExitMarker(exec);
-        if (marker.present && marker.exitCode === 0) {
-          const answer = extractResultFromLog(exec.log_path);
-          const corpus = answer !== null
-            ? answer
-            : `clean exit: 0 (no parseable result line)\n--- log tail ---\n${tailBytes(exec.log_path, 4096)}`;
-          // Task 7.7: message INSERT + jobs_log stamp are ONE store transaction
-          // (execId pins the swept row — no thread re-resolution).
-          const msg = heartStore.recordMessage({
-            type: 'completion',
-            sender: 'ticker',
-            thread: exec.thread || `exec-${exec.exec_id}`,
-            corpus,
-            status: 'done',
-            createdAt: now,
-            execId: exec.exec_id,
-            exitCode: 0,
+      // ── G-222 · THE TURN ALREADY REPORTED. Write the SESSION, never the turn.
+      //
+      // What this sweep just observed is that a PROCESS is gone — a session-level fact. Before
+      // 7.46 it could only ever reach non-terminal turns (`running`/`launching`/`stalled`), so
+      // "the turn has not reported yet" was a STRUCTURAL property of the set and no code had to
+      // state it. 7.46 re-keyed the set on `sessions.status = 'alive'` — correct for the
+      // question the set asks — and the exclusion vanished with the old query. Measured: a turn
+      // seeded `done` was rewritten to `failed` at the first tick, with a manufactured crash
+      // completion and a "slot halted" owner note for a session that had ended normally.
+      //
+      // ⚠ THE EXCLUSION IS RESTORED HERE AND NOT IN listTurnsOfLiveSessions(), deliberately.
+      // That function feeds the AGENT CAP too (`liveAgentSessions` above), and a turn-level
+      // predicate there would hide a session that is alive with its turn reported — R16's
+      // idle-between-turns session, the exact state the split exists to represent — from the cap
+      // that must count it. It would also leave these sessions `alive` forever: this sweep is
+      // the only thing that ever closes a leaked one.
+      //
+      // So the sweep still LOOKS at the row (it must — otherwise nothing closes the session) and
+      // writes only what it actually observed.
+      if (TERMINAL_TURN_STATUSES.has(exec.status)) {
+        runSeatCloser(readExitMarker(exec));
+        awaitingExitMarker.delete(exec.exec_id);
+        if (exec.session_pk) {
+          heartStore.closeSession(exec.session_pk, {
+            status: sessionStatusForEndedTurn(exec.status),
+            reason: `process gone; turn ${exec.exec_id} had already reported '${exec.status}'`,
+            closedAt: now,
           });
-          actions.push({ phase: 'enforce', action: 'clean-exit-sweep', execId: exec.exec_id, completionMsgId: msg.msg_id, extracted: answer !== null });
-          continue;
         }
-        const exitCode = marker.present ? marker.exitCode : (info.exitCode ?? info.carrierInfo?.exitCode ?? null);
-        const tail = tailBytes(exec.log_path, 4096);
-        const corpus = `crash sweep: exit=${marker.present ? marker.raw : exitCode}\n--- log tail ---\n${tail}`;
-        // Task 7.7: message INSERT + jobs_log stamp are ONE store transaction
-        // (execId pins the swept row — no thread re-resolution).
+        // Named its own action, not folded into `crash-sweep`: this tick ended a SESSION and
+        // ended no turn, and an action log that calls both "crash-sweep" cannot tell an
+        // operator which happened.
+        actions.push({ phase: 'enforce', action: 'session-closed-turn-already-reported', execId: exec.exec_id, turnStatus: exec.status });
+        continue;
+      }
+
+      // The carrier's exit marker is the ONLY honest exit observation for a
+      // detached --collect unit: `systemctl show` on a collected unit
+      // returns DEFAULT values (ExecMainStatus=0), so info.exitCode here is
+      // fabricated. Marker present + 0 → an honest clean turn-end, recorded
+      // `done` with the worker's extracted answer as the completion corpus —
+      // Advance then recycles on pending input or ends the slot; NEVER the
+      // failed-halt path. Marker present + non-zero (or a signal name) →
+      // failed with the REAL code.
+      //
+      // Marker absent is the ExecStopPost race: the unit is already inactive
+      // and the hook has not yet written the file. A parseable result line
+      // resolves it as `done` this tick. A session_id with nothing else
+      // defers one tick. A second consecutive tick with still nothing, or a
+      // row that never got a session_id (never spawned), is a named crash.
+      const marker = readExitMarker(exec);
+      if (marker.present && marker.exitCode === 0) {
+        awaitingExitMarker.delete(exec.exec_id);
+        runSeatCloser(marker);
+        const answer = extractResultFromLog(exec.log_path);
+        const corpus = answer !== null
+          ? answer
+          : `clean exit: 0 (no parseable result line)\n--- log tail ---\n${tailBytes(exec.log_path, 4096)}`;
         const msg = heartStore.recordMessage({
           type: 'completion',
           sender: 'ticker',
           thread: exec.thread || `exec-${exec.exec_id}`,
           corpus,
-          status: 'failed',
+          status: 'done',
           createdAt: now,
           execId: exec.exec_id,
-          exitCode,
+          exitCode: 0,
         });
-        recordOwnerNote(`slot halted: session crashed (exec ${exec.exec_id})`, now, tick);
-        crashedThisTick.add(exec.exec_id);
-        actions.push({ phase: 'enforce', action: 'crash-sweep', execId: exec.exec_id, exitCode, completionMsgId: msg.msg_id });
+        actions.push({ phase: 'enforce', action: 'clean-exit-sweep', execId: exec.exec_id, completionMsgId: msg.msg_id, extracted: answer !== null });
+        continue;
       }
+      if (!marker.present) {
+        const answer = extractResultFromLog(exec.log_path);
+        if (answer !== null) {
+          awaitingExitMarker.delete(exec.exec_id);
+          runSeatCloser(marker);
+          const msg = heartStore.recordMessage({
+            type: 'completion',
+            sender: 'ticker',
+            thread: exec.thread || `exec-${exec.exec_id}`,
+            corpus: answer,
+            status: 'done',
+            createdAt: now,
+            execId: exec.exec_id,
+            exitCode: 0,
+          });
+          actions.push({ phase: 'enforce', action: 'clean-exit-sweep', execId: exec.exec_id, completionMsgId: msg.msg_id, extracted: true });
+          continue;
+        }
+        if (exec.session_id && !awaitingExitMarker.has(exec.exec_id)) {
+          awaitingExitMarker.add(exec.exec_id);
+          actions.push({ phase: 'enforce', action: 'crash-sweep-deferred', execId: exec.exec_id });
+          continue;
+        }
+      }
+      awaitingExitMarker.delete(exec.exec_id);
+      runSeatCloser(marker);
+      const exitCode = marker.present ? marker.exitCode : (info.exitCode ?? info.carrierInfo?.exitCode ?? null);
+      const reason = crashSweepReason(exec, marker, info);
+      const tail = tailBytes(exec.log_path, 4096);
+      const corpus = `crash sweep: ${reason}\n--- log tail ---\n${tail}`;
+      const msg = heartStore.recordMessage({
+        type: 'completion',
+        sender: 'ticker',
+        thread: exec.thread || `exec-${exec.exec_id}`,
+        corpus,
+        status: 'failed',
+        createdAt: now,
+        execId: exec.exec_id,
+        exitCode,
+      });
+      recordOwnerNote(`slot halted: session crashed (exec ${exec.exec_id})`, now, tick);
+      crashedThisTick.add(exec.exec_id);
+      actions.push({ phase: 'enforce', action: 'crash-sweep', execId: exec.exec_id, exitCode, reason, completionMsgId: msg.msg_id });
     }
 
     // ── W1 · V1's FOLD-IN, SECOND HALF: THE ROW-LESS `rbtv-worker-*` UNITS ──────────────────────
