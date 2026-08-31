@@ -100,6 +100,8 @@ scaffolding. The patch runs inside the execution goal's already-compiled envelop
 compiler and its launch-refused stamp are the envelope component's. The digest names credential
 NAMES only, never values.
 
+**The patched seats run synchronously.** A seat `patch-draft` amends runs HEADLESS: its sitting lasts exactly one turn, so patch text that tells an occupant to background a check or wait for a notification orphans that occupant's work behind an exit-0 stub report. `repl-drafter` MUST write every amended seat body to run its checks in the foreground and scope a slow check DOWN rather than defer it. The failure and its recovery: `references/headless-seat-cannot-wait.md`.
+
 **Inadequate input, any stage.** Repair the gap yourself, log it in `input-gaps` and the goal's
 `decisions.md` (or `doubts.md` if unclosable), and continue. No stage re-entry, no rejection
 verdict, and no re-run of the milestone's own seats from inside this workflow. [T3-R8, D11]

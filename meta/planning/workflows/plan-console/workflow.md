@@ -123,6 +123,8 @@ closed findings list), fired by whatever consumes the approval-thread reply. An 
 approach rethink instead reruns the full five-seat pipeline; this workflow's own manifest is
 identical either way.
 
+**Every produced seat runs synchronously — the drafter carries this into the seat bodies it authors.** A seat this plan mints runs HEADLESS: its sitting lasts exactly one turn, so a seat that backgrounds a check, arms a watcher, or ends its turn waiting to be notified has ended its sitting and orphaned its uncommitted work, while reporting exit 0. `plan-drafter` MUST write every authored seat body to run its checks in the foreground and scope a slow check DOWN rather than defer it, and `plan-verifier` MUST fail any seat body that instructs an occupant to wait. The failure, the scoping rule, and the orchestrator's detect-and-resume recovery: `references/headless-seat-cannot-wait.md`.
+
 **Inadequate input, any stage.** Repair the gap yourself, log it in `input-gaps` and the goal's
 `decisions.md` (or `doubts.md` if unclosable), and continue. No stage re-entry, no rejection
 verdict — a stage that receives a markerless or thin upstream artifact never re-enters the seat

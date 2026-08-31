@@ -105,6 +105,7 @@ to READ. Descriptions are each file's own frontmatter, verbatim in spirit; the f
 | `references/workflow-authoring-checklist.md` | authoring or amending seat declarations — the six walls (also a standalone skill: seat prompts materialize it) |
 | `references/seat-id-naming.md` | naming a workflow's seat rows — the workflow-code prefix law |
 | `references/plan.md` | structuring already-decided work as a console-run seat plan |
+| `references/headless-seat-cannot-wait.md` | a seat is about to background a check or end its turn expecting to be woken — and an orchestrator meeting a seat that exited 0 with a stub report and uncommitted work |
 
 **Exposure:**
 
