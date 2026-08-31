@@ -38,6 +38,8 @@ A sitting begins because this seat has unread mail. Read the whole queue first a
 
 Open the reporting seat's session log, read its durable marker, and check the artifacts it claims to have produced against disk at the finest granularity available. An unclean exit tells you how a SESSION ended and nothing about whether the WORK finished — and a clean report is a claim about the work, not the work.
 
+**Checking a claim against the rbtv repo (`3-resources/tools/rbtv`) is never a vault-root command.** That tree is a NESTED git repo the vault's own git does not see — it is ignored at the vault's `.gitignore` — so `git diff -- 3-resources/tools/rbtv/…` from the vault root exits 0 with 0 BYTES even when the nested tree is dirty: a check that cannot fail, not evidence of a clean tree. Always `git -C 3-resources/tools/rbtv diff -- <path>` (and the same `-C` form for `status`/`log`/`show`) when the evidence you are checking lives in that repo.
+
 ## 3. Take exactly one disposition per item, and never a fifth
 
 1. **FIX AND RELAUNCH.** The blocker is an environment defect you can actually repair — a stale descriptor, a missing declared output, a fixable input. Repair it, then relaunch the blocked seat. A CAGE TOO NARROW (the seat could not read or write a path its job requires) is NOT this disposition any more: there is no runtime widen ([T2-R12, T1-R9], 2026-08-24) — the seat's cage envelope is fixed at plan time, and `widen-cage` / `coordination/permission-edits.csv` no longer exist. A narrow-cage blocker is disposition 4, ESCALATE.
