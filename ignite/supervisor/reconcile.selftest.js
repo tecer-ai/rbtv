@@ -1598,6 +1598,88 @@ say('── `--until new-ending`: the named change releases it, and it is worth 
   }
 }
 
+// -- CLASS B (UNREAD MAIL) MUST HONOUR THE SAME HOLD AS CLASS A --------------------------------
+//
+// ⚠ 2026-08-30 LIVE DEFECT, deployed daemon 26773c34: a hold placed on
+// `meet-transcript-summarizer-planning/leader` at 18:04:23Z suppressed class A (`heldExcluded`
+// named it), but the class-B loop in `owed-from-endings.js` never consulted `holdMap` at all — the
+// SAME pass logged `heldExcluded:["leader:until release",...]` AND `classB:["leader"]`, and
+// launched two paid sittings (`ed9ffb12`, `e60bb439`). Task 140 (`redesign-continue-1`).
+function classBHoldFixture(name) {
+  const goalFolder = fs.mkdtempSync(path.join(tmpRoot, `${name}-`));
+  writeSeat(goalFolder, 'leader', true);
+  writeTaskforce(goalFolder, ['leader']);
+  // No `ended` on the leader's session — class A must have nothing to classify here; only the
+  // unread mail below should be able to wake this chair.
+  writeSessions(goalFolder, [
+    { 'session-id': 'ld1', seat: 'leader', started: '2026-08-30 18:00', checkin: '2026-08-30 18:00' },
+  ]);
+  // No `workers.md` at all — `readCursor` answers `null` (owed ALL its mail), the same default a
+  // chair with no roster row gets. One message addressed to `leader`, from someone else.
+  writeMessages(goalFolder, [
+    { num: 1, sender: 'boundary-auditor', to: 'leader', type: 'note', ts: '2026-08-30 18:03' },
+  ]);
+  return goalFolder;
+}
+
+function classBPass(store, goalFolder, fx) {
+  const out = reconcileGoal({
+    goal: 'fx-hold-b', goalFolder, engine: { heartStore: store },
+    say: () => {}, force: true, readyAnswer: readyEmpty,
+    live: new Set(), promptFn: () => 'BOOT',
+    recoverFn: () => ({ ok: true }),
+    ...fx,
+  });
+  const counted = counters.peekCounter({
+    driver: counters.DRIVERS.RECONCILE_RESPAWN, goal: 'fx-hold-b', seat: 'leader', reasonClass: 'unread',
+  }, { countersFile: fx.countersFile });
+  return {
+    launches: out.actions.filter((a) => a.kind === 'enqueue' && a.reason === 'unread').length,
+    classB: out.derived.classB.map((x) => x.seat),
+    held: (out.derived.heldSeats || []).map((h) => `${h.seat}:${h.until}`),
+    attempts: counted ? Number(counted.attempts) : 0,
+  };
+}
+
+say('── a held STAFF chair with unread mail: no class-B relaunch, no attempt counted ──');
+{
+  const store = openStore();
+  const fx = counterFixture('hold-classb');
+  try {
+    const goalFolder = classBHoldFixture('hold-b');
+    const api = bind(store.db);
+
+    // The CONTROL first: the same fixture, unheld, must actually wake the chair via class B —
+    // otherwise a suppression arm below proves nothing.
+    const control = classBPass(store, goalFolder, fx);
+    assert.deepStrictEqual(control.classB, ['leader'], `the unheld fixture did not classify leader as class B: ${JSON.stringify(control)}`);
+    assert.strictEqual(control.launches, 1, `the unheld fixture did not wake the leader over unread mail: ${JSON.stringify(control)}`);
+    assert.strictEqual(control.attempts, 1, JSON.stringify(control));
+    say(`  control (no hold): classB=[${control.classB}] launches=${control.launches} attempts=${control.attempts}`);
+
+    api.holdSeat({
+      goal: 'fx-hold-b', seat: 'leader', until: 'release',
+      anchor: 'selftest: task 140 — class-B bypass reproduction', held_by: 'orchestrator',
+    });
+
+    for (const pass of [1, 2]) {
+      const r = classBPass(store, goalFolder, fx);
+      assert.deepStrictEqual(r.classB, [], `a held chair is still class B on pass ${pass}: ${JSON.stringify(r)}`);
+      assert.strictEqual(r.launches, 0, `the leader was launched by class B for a HELD chair on pass ${pass}: ${JSON.stringify(r)}`);
+      // The counter is not RESET by a hold — it simply stops advancing past what the control pass
+      // above already counted (1), the same shape the class-A hold arm asserts.
+      assert.strictEqual(r.attempts, 1, `the counter advanced on a held pass ${pass}: ${JSON.stringify(r)}`);
+      assert.deepStrictEqual(r.held, ['leader:release'], `the pass did not NAME the hold: ${JSON.stringify(r)}`);
+      say(`  pass ${pass} (held): classB=[${r.classB}] launches=${r.launches} attempts=${r.attempts} heldExcluded=[${r.held}]`);
+    }
+
+    say('ok  a live hold suppresses the class-B (unread-mail) relaunch too, and heldExcluded still names the chair');
+  } finally {
+    store.close();
+    closeHeartStore();
+  }
+}
+
 say('── RED arm: stop honouring the hold (the pre-2026-08-28 classifier) ──');
 {
   // The mutant deletes the ONE line that keeps a held seat out of class A, in a COPY of the live
@@ -1651,6 +1733,58 @@ say('── RED arm: stop honouring the hold (the pre-2026-08-28 classifier) ─
   assert.strictEqual(seen, 1,
     `the mutant did NOT launch the leader for a held row, so the arms above prove nothing (launches=${seen})`);
   say(`ok  RED: with the exclusion removed a HELD row wakes the leader (${seen}) - the arms discriminate`);
+}
+
+say('── RED arm: stop honouring the hold in class B (the 2026-08-30 bypass) ──');
+{
+  // The mutant deletes the ONE line that keeps a held chair out of class B, in a COPY of the live
+  // source injected into the require cache. This reproduces the exact live incident: if the arm
+  // above does not discriminate, the mutant passes it too.
+  const Module = require('node:module');
+  const owedFile = require.resolve('./owed-from-endings');
+  const src = fs.readFileSync(owedFile, 'utf8');
+  const ANCHOR = "    if (holdMap.has(chair)) continue;\n    if (liveSet.has(chair) || queuedSet.has(chair)) continue;";
+  assert.ok(src.includes(ANCHOR), 'the class-B hold exclusion is missing - the red arm has no anchor');
+  const mutated = src.replace(ANCHOR, "    if (liveSet.has(chair) || queuedSet.has(chair)) continue;");
+  assert.notStrictEqual(mutated, src);
+
+  const owedSaved = require.cache[owedFile];
+  const chainSaved = ['./owed', './reconcile'].map((m) => [require.resolve(m), require.cache[require.resolve(m)]]);
+  let seen = null;
+  const store = openStore();
+  const fx = counterFixture('red-hold-classb');
+  try {
+    const mut = new Module(owedFile, null);
+    mut.filename = owedFile;
+    mut.paths = Module._nodeModulePaths(__dirname);
+    mut._compile(mutated, owedFile);
+    require.cache[owedFile] = mut;
+    for (const [file] of chainSaved) delete require.cache[file];
+    const mutReconcile = require('./reconcile');
+
+    const goalFolder = classBHoldFixture('red-hold-b');
+    bind(store.db).holdSeat({
+      goal: 'fx-hold-b', seat: 'leader', until: 'release',
+      anchor: 'selftest red - class B', held_by: 'orchestrator',
+    });
+    const out = mutReconcile.reconcileGoal({
+      goal: 'fx-hold-b', goalFolder, engine: { heartStore: store },
+      say: () => {}, force: true, readyAnswer: readyEmpty,
+      live: new Set(), promptFn: () => 'BOOT', recoverFn: () => ({ ok: true }),
+      ...fx,
+    });
+    seen = out.actions.filter((a) => a.kind === 'enqueue' && a.reason === 'unread').length;
+  } finally {
+    require.cache[owedFile] = owedSaved;
+    for (const [file, mod] of chainSaved) {
+      if (mod) require.cache[file] = mod; else delete require.cache[file];
+    }
+    store.close();
+    closeHeartStore();
+  }
+  assert.strictEqual(seen, 1,
+    `the mutant did NOT launch the leader via class B for a held chair, so the arm above proves nothing (launches=${seen})`);
+  say(`ok  RED: with the class-B exclusion removed a HELD chair with unread mail wakes the leader (${seen}) - the arm discriminates`);
 }
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });

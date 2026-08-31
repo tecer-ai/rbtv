@@ -540,6 +540,10 @@ hold is excluded from class A entirely, the same shape `dead` and `summoned`
 already have — so there is no launch target, and therefore no launch AND no
 attempt counted, from ONE exclusion rather than two agreeing rules. The pass
 NAMES what it excluded, on its own `reconcile: pass` line, as `heldExcluded`.
+Class B (unread-mail relaunch) honours the SAME `holdMap` — task 140, after a
+2026-08-30 live bypass where a held chair (`meet-transcript-summarizer-planning
+/leader`) was still launched twice over unread mail while `heldExcluded` named
+it on the same pass: mail addressed to a held chair does not un-hold it.
 
 | `--until` | live while | released by |
 |---|---|---|

@@ -173,8 +173,13 @@ function classifyEnding(row) {
 //
 // ⚠ THE EXCLUSION IS THE SEAT'S, NOT THE REASON CLASS'S. A hold says "the leader has ruled this
 // row: do not re-drive it until <named change>", and that is as true of an `armed incomplete`
-// relaunch of the seat itself as of the leader wake over its `failed` row. Class B is untouched:
-// mail to a chair is not the held row, and a held seat must stay reachable.
+// relaunch of the seat itself as of the leader wake over its `failed` row, AND of a class-B
+// relaunch driven by unread mail: mail addressed to a held chair does not un-hold the chair, and
+// a chair the leader has told the daemon not to re-drive must not be re-driven because someone
+// sent it a message. ⚠ 2026-08-30 LIVE DEFECT, deployed daemon 26773c34: class B skipped this
+// check — `heldExcluded` named `leader:until release` on the SAME pass that `classB` also named
+// `leader` and launched it (sittings `ed9ffb12`, `e60bb439`, `meet-transcript-summarizer-planning`)
+// — because the two classes independently reasoned about the same exclusion instead of sharing it.
 //
 // ⚠ IT IS EVALUATED EVERY PASS AND CLEARS ITSELF. `seatHeld` returns null the moment the named
 // change is observed, so the row is class A again on that pass with no sweep, no watcher and no
@@ -298,6 +303,7 @@ function classifyOwed(goalFolder, {
   for (const chair of STAFF_CHAIRS) {
     if (dead.has(chair)) continue;
     if (summonedSet.has(chair)) continue;
+    if (holdMap.has(chair)) continue;
     if (liveSet.has(chair) || queuedSet.has(chair)) continue;
     const cursor = readCursor(goalFolder, chair);
     const unread = messages.filter((m) => m.to === chair && m.sender !== chair
