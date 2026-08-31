@@ -6200,6 +6200,14 @@ def build_fixture(tmp: Path) -> dict:
     # catalog-root/<component>/... at installer depth 2 under the workspace
     # mirror: `<ws>/.rbtv/mirror/<module>/<component>/` (D86 / D2).
     (tmp / ".rbtv" / "config").mkdir(parents=True)
+    # The install record D27 defines a workspace by (`ending_store.workspace_root`,
+    # ignite-cli/lib/config.js#findInstallRoot) — WITHOUT it, any coord.py call this
+    # fixture drives (SC-1's launch coupling) that reaches the ending store walks past
+    # `tmp` to the filesystem root and raises EndingStoreError. Same fixture shape
+    # cli_main.py's own selftest already writes for the identical reason.
+    _install_rec = tmp / _es().INSTALL_RECORD_REL
+    _install_rec.parent.mkdir(parents=True)
+    _install_rec.write_text("{}", encoding="utf-8")
     comp = tmp / ".rbtv" / "mirror" / "catalog" / "demo-comp"
 
     def unit(rel: str, uid: str, body: str) -> None:
@@ -8829,6 +8837,12 @@ def _staff_fixture(root: Path) -> dict:
         encoding="utf-8")
 
     (ws / ".rbtv" / "config").mkdir(parents=True)
+    # The install record (same reason `build_fixture` writes it): without it
+    # `ending_store.workspace_root` walks past `ws` to the filesystem root and
+    # `stamp_seat_declare` (SM's mint path) raises EndingStoreError.
+    _install_rec = ws / _es().INSTALL_RECORD_REL
+    _install_rec.parent.mkdir(parents=True)
+    _install_rec.write_text("{}", encoding="utf-8")
     sheets = ws / ".rbtv/config/modules/meta/staff-comp/bindings"
     sheets.mkdir(parents=True)
     base = {"agent_type": "worker", "harness": "claude",
