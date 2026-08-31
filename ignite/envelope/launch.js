@@ -6,6 +6,7 @@ const path = require('node:path');
 const { compile, compilePlanning } = require('./compiler');
 const { covers, realpathOrNull } = require('./paths');
 const { writeConfigShims } = require('./shims');
+const { loadCentralStore, resolveCredentials } = require('./credentials');
 const { reasonFrom } = require('../supervisor/spawn/seat-grants');
 
 const STAFF = new Set(['leader', 'goal-master', 'channel-master']);
@@ -159,10 +160,22 @@ function admitLaunch(raw) {
   if (!compiled.ok) return { spawn: false, refuse: compiled.refuse };
   const punched = ownSeatPunch(compiled.binds, raw);
   if (punched.refuse) return { spawn: false, refuse: punched.refuse };
+  const credentialNames = compiled.credentialNames || [];
+  const resolved = resolveCredentials(credentialNames, loadCentralStore(raw.workspaceRoot));
+  if (!resolved.ok) {
+    return {
+      spawn: false,
+      refuse: {
+        kind: 'missing-credential',
+        missing: resolved.missing,
+        reason: `missing credential: ${resolved.missing.join(', ')}`,
+      },
+    };
+  }
   return {
     spawn: true,
     binds: punched.binds,
-    credentialNames: compiled.credentialNames || [],
+    credentialNames,
     shims,
   };
 }

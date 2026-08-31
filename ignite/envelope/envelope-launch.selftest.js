@@ -90,6 +90,21 @@ function run() {
   assert.equal(ok.ok, true);
   console.log('PASS injection');
 
+  const missingLaunch = admitLaunch({ ...base, fillIns: { credentialNames: ['NO_SUCH'] } });
+  assert.equal(missingLaunch.spawn, false, 'declared-but-absent key must refuse launch');
+  assert.equal(missingLaunch.refuse.kind, 'missing-credential');
+  assert.deepEqual(missingLaunch.refuse.missing, ['NO_SUCH']);
+  const emptyLaunch = admitLaunch({ ...base, fillIns: { credentialNames: ['EMPTY'] } });
+  assert.equal(emptyLaunch.spawn, false, 'declared empty store value must refuse launch');
+  assert.equal(emptyLaunch.refuse.kind, 'missing-credential');
+  const okLaunch = admitLaunch({ ...base, fillIns: { credentialNames: ['DECLARED'] } });
+  assert.equal(okLaunch.spawn, true, `present key refused: ${JSON.stringify(okLaunch.refuse)}`);
+  assert.deepEqual(okLaunch.credentialNames, ['DECLARED']);
+  const noneLaunch = admitLaunch({ ...base, fillIns: null });
+  assert.equal(noneLaunch.spawn, true, `zero names refused: ${JSON.stringify(noneLaunch.refuse)}`);
+  assert.deepEqual(noneLaunch.credentialNames, []);
+  console.log('PASS missing-credential-refuses');
+
   assert.equal(isStaffUncaged({ seat: 'leader' }), true);
   assert.equal(isStaffUncaged({ seat: 'worker' }), false);
   assert.ok(conflictBind([
